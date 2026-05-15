@@ -184,7 +184,7 @@ export async function fetchListingRatesFromShippo(
     return { rates: [], mock: false };
   }
 
-  const sorted = [...raw].sort((a, b) => Number(a.amount) - Number(b.amount);
+  const sorted = [...raw].sort((a, b) => Number(a.amount) - Number(b.amount));
   const quotes = sorted.map(mapShippoRateToQuote);
 
   return { rates: quotes, mock: false };
