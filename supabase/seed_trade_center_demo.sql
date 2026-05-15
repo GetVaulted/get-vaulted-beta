@@ -1,0 +1,19 @@
+-- Optional: seed demo trade_offers for two existing auth users (replace UUIDs).
+-- Run manually in Supabase SQL editor after you have live listings + profiles.
+--
+-- Example (commented):
+-- INSERT INTO public.trade_offers (
+--   sender_id, recipient_id, requested_item_id, offered_item_ids,
+--   cash_difference, message, status, trade_fee, shipping_weight_tier, metadata
+-- ) VALUES (
+--   '00000000-0000-0000-0000-000000000001'::uuid,
+--   '00000000-0000-0000-0000-000000000002'::uuid,
+--   'listing-uuid-they-want'::uuid,
+--   ARRAY['listing-uuid-you-offer'::uuid],
+--   0,
+--   'Seed trade',
+--   'awaiting_response',
+--   12.00,
+--   'cards_slabs',
+--   '{"shippo_label":{"ship_from":{"00000000-0000-0000-0000-000000000001":{"name":"A","street1":"1 St","city":"SF","state":"CA","zip":"94103","country":"US"},"00000000-0000-0000-0000-000000000002":{"name":"B","street1":"2 Ave","city":"NY","state":"NY","zip":"10001","country":"US"}}}}'::jsonb
+-- );

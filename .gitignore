@@ -1,0 +1,32 @@
+.env
+.env.local
+.env.*.local
+.netlify
+*.log
+.DS_Store
+
+# Root / functions
+node_modules/
+dist/
+
+# Mobile / Expo
+mobile/.env
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+
+# Beta website (Next.js)
+web/node_modules/
+web/.next/
+web/out/
+web/.netlify/
+web/test-results/
+web/playwright-report/
+web/.vercel
+web/src/generated/prisma
+web/public/uploads/listings/*
+!web/public/uploads/listings/.gitkeep
+
+# Supabase local
+supabase/.branches
+supabase/.temp
