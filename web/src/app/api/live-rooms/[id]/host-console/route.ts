@@ -1,0 +1,190 @@
+import { NextResponse } from "next/server";
+import { getServerSessionSafe } from "@/lib/auth";
+import { getLiveRoomHostAccess, parseTeamLabelsJson } from "@/lib/live-room-host-auth";
+import { logLiveLoaderDebug, safeDecodeRouteSegment } from "@/lib/live-loader-debug";
+import { prisma } from "@/lib/prisma";
+import { fetchHostRecentSales } from "@/lib/live-room-recent-sales";
+import { attachHighBidderUsernames } from "@/lib/live-room-high-bidder-enrich";
+import { serializeLiveRoomItem, serializeLiveRoomMessage } from "@/lib/live-room-serialize";
+
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const session = await getServerSessionSafe();
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { id: raw } = await ctx.params;
+  const liveRoomId = safeDecodeRouteSegment(raw ?? "");
+
+  const access = await getLiveRoomHostAccess(liveRoomId, session.user.id, { requireBreak: true });
+  if (!access.ok) {
+    logLiveLoaderDebug("api_host_console_access_denied", {
+      liveRoomId,
+      idParamRaw: raw,
+      sessionUserId: session.user.id,
+      status: access.status,
+      error: access.error,
+    });
+    return NextResponse.json({ error: access.error }, { status: access.status });
+  }
+
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: liveRoomId },
+    include: {
+      items: true,
+      breakSpots: {
+        include: { user: { select: { id: true, username: true, email: true } } },
+        orderBy: { createdAt: "asc" },
+      },
+      messages: {
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        include: { sender: { select: { username: true } } },
+      },
+    },
+  });
+  if (!room) {
+    logLiveLoaderDebug("api_host_console_room_row_missing", {
+      liveRoomId,
+      idParamRaw: raw,
+      sessionUserId: session.user.id,
+    });
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const url = new URL(req.url);
+  const buyerQ = url.searchParams.get("buyerSearch")?.trim() ?? "";
+  const pickerQ = url.searchParams.get("pickerSearch")?.trim() ?? "";
+  let buyerMatches: { id: string; username: string; email: string }[] = [];
+  let pickerMatches: { id: string; username: string; email: string }[] = [];
+
+  const userSearch = async (q: string) =>
+    prisma.user.findMany({
+      where: {
+        OR: [{ username: { contains: q } }, { email: { contains: q } }],
+        suspendedAt: null,
+      },
+      take: 15,
+      select: { id: true, username: true, email: true },
+    });
+
+  if (buyerQ.length >= 2) {
+    buyerMatches = await userSearch(buyerQ);
+  }
+  if (pickerQ.length >= 2) {
+    pickerMatches = await userSearch(pickerQ);
+  }
+
+  const hits = await prisma.breakHit.findMany({
+    where: { liveRoomId },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+    include: { buyer: { select: { id: true, username: true } } },
+  });
+
+  const itemsSorted = [...room.items].sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.getTime() - b.createdAt.getTime());
+  const spotsByItemId = new Map<string, typeof room.breakSpots>();
+  for (const s of room.breakSpots) {
+    if (!s.liveRoomItemId) continue;
+    const list = spotsByItemId.get(s.liveRoomItemId) ?? [];
+    list.push(s);
+    spotsByItemId.set(s.liveRoomItemId, list);
+  }
+  for (const [, spots] of spotsByItemId) {
+    spots.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+
+  const mapClaim = (claim: (typeof room.breakSpots)[0]) => ({
+    id: claim.id,
+    spotLabel: claim.spotLabel,
+    priceUsd: claim.priceUsd,
+    claimStatus: claim.claimStatus,
+    paidAt: claim.paidAt?.toISOString() ?? null,
+    lockedAt: claim.lockedAt?.toISOString() ?? null,
+    user: { id: claim.user.id, username: claim.user.username, email: claim.user.email },
+    createdAt: claim.createdAt.toISOString(),
+  });
+
+  const queueItemsRaw = itemsSorted.map((it) => {
+    const raw = spotsByItemId.get(it.id) ?? [];
+    const claims = raw.map(mapClaim);
+    return {
+      item: serializeLiveRoomItem(it),
+      claim: claims[0] ?? null,
+      claims,
+    };
+  });
+  const flatItems = queueItemsRaw.map((q) => q.item);
+  const flatEnriched = await attachHighBidderUsernames(flatItems);
+  const enrichedById = new Map(flatEnriched.map((row) => [row.id, row]));
+  const queueItems = queueItemsRaw.map((row) => ({
+    ...row,
+    item: enrichedById.get(row.item.id) ?? row.item,
+  }));
+
+  const orphanSpots = room.breakSpots
+    .filter((s) => !s.liveRoomItemId)
+    .map((s) => ({
+      id: s.id,
+      spotLabel: s.spotLabel,
+      priceUsd: s.priceUsd,
+      claimStatus: s.claimStatus,
+      paidAt: s.paidAt?.toISOString() ?? null,
+      lockedAt: s.lockedAt?.toISOString() ?? null,
+      user: { id: s.user.id, username: s.user.username, email: s.user.email },
+      createdAt: s.createdAt.toISOString(),
+    }));
+
+  const messagesAsc = [...room.messages].reverse().map(serializeLiveRoomMessage);
+
+  const recentSales = await fetchHostRecentSales(liveRoomId, room.sellerId);
+
+  const serverNowMs = Date.now();
+  return NextResponse.json({
+    serverNowMs,
+    room: {
+      id: room.id,
+      sellerId: room.sellerId,
+      title: room.title,
+      description: room.description,
+      category: room.category,
+      roomType: room.roomType,
+      status: room.status,
+      roomVersion: room.roomVersion,
+      thumbnailUrl: room.thumbnailUrl,
+      viewerCount: room.viewerCount,
+      scheduledStartAt: room.scheduledStartAt?.toISOString() ?? null,
+      startedAt: room.startedAt?.toISOString() ?? null,
+      endedAt: room.endedAt?.toISOString() ?? null,
+      breakFormat: room.breakFormat,
+      breakDisplayTitle: room.breakDisplayTitle,
+      breakSpotPriceUsd: room.breakSpotPriceUsd,
+      breakTotalSpots: room.breakTotalSpots,
+      breakTeamLabels: parseTeamLabelsJson(room.breakTeamLabelsJson),
+      breakFilledLockedAt: room.breakFilledLockedAt?.toISOString() ?? null,
+      assignmentsLockedAt: room.assignmentsLockedAt?.toISOString() ?? null,
+      randomizedAt: room.randomizedAt?.toISOString() ?? null,
+      randomizationSeed: room.randomizationSeed,
+      randomizationPreview: room.randomizationPreviewJson,
+      randomizationResult: room.randomizationResultJson,
+      lockPurchases: room.lockPurchases,
+      breakPaused: room.breakPaused,
+      teamBoardLeague: room.teamBoardLeague,
+    },
+    queueItems,
+    orphanSpots,
+    messages: messagesAsc,
+    hits: hits.map((h) => ({
+      id: h.id,
+      liveRoomItemId: h.liveRoomItemId,
+      spotLabel: h.spotLabel,
+      title: h.title,
+      notes: h.notes,
+      imageUrl: h.imageUrl,
+      buyer: h.buyer ? { id: h.buyer.id, username: h.buyer.username } : null,
+      createdAt: h.createdAt.toISOString(),
+    })),
+    isAdmin: access.isAdmin,
+    buyerMatches,
+    pickerMatches,
+    recentSales,
+  });
+}

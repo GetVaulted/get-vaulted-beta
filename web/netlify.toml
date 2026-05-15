@@ -1,0 +1,14 @@
+# Netlify runs `npm run build` (includes `prisma generate` via package.json).
+# Set secrets only in Netlify UI → Environment variables (do not commit `.env.local`).
+#
+# Beta host: add custom domain `beta.shopgetvaulted.com` in Netlify → Domain management
+# (DNS: CNAME beta → <your-site>.netlify.app). Set NEXTAUTH_URL=https://beta.shopgetvaulted.com
+# (no trailing slash) so auth, Stripe redirects, and Connect business_profile.url match that host.
+#
+# Required for beta/prod: DATABASE_URL = Supabase Postgres URI (not SQLite / not file:).
+# Project Settings → Database → Connection string → URI. For serverless builds/functions,
+# prefer the pooled connection string and add ?pgbouncer=true&connection_limit=1 when using transaction pooler.
+[build]
+  # Apply migrations first so `next build` can prerender routes that query Prisma.
+  # Prefer DIRECT_URL (Supabase direct Postgres) when set; see scripts/prisma-migrate-deploy.mjs.
+  command = "npm run netlify:build"

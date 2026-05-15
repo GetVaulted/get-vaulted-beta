@@ -1,0 +1,341 @@
+@import "tailwindcss";
+
+:root {
+  /* Main site Navbar: 3.5rem row + iOS safe area (matches `Navbar` sticky header). */
+  --site-header-offset: calc(3.5rem + env(safe-area-inset-top, 0px));
+  --background: #030303;
+  --foreground: #f4f4f5;
+  --muted: #a1a1aa;
+  --gold: #c9a227;
+  --gold-bright: #e8d48b;
+  --gold-dim: #8a7020;
+  --surface: #0a0a0c;
+  --surface-elevated: #121214;
+  --border-subtle: rgba(201, 162, 39, 0.12);
+  --live: #dc2626;
+
+  /* Vaulted Live — shared UI tokens (buyer overlays, host console, sheets) */
+  --live-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --live-duration-enter: 320ms;
+  --live-duration-ui: 280ms;
+  --live-duration-press: 200ms;
+  --live-blur-xs: 8px;
+  --live-blur-sm: 12px;
+  --live-blur-md: 16px;
+  --live-blur-lg: 20px;
+  --live-blur-xl: 24px;
+  --live-border: rgba(255, 255, 255, 0.12);
+  --live-border-muted: rgba(255, 255, 255, 0.1);
+  --live-border-host: rgba(167, 139, 250, 0.22);
+  --live-glass-fill-top: rgba(11, 11, 16, 0.94);
+  --live-glass-fill: rgba(5, 5, 9, 0.98);
+  --live-chrome-fill: rgba(0, 0, 0, 0.14);
+  --live-shadow-overlay: 0 22px 50px -22px rgba(0, 0, 0, 0.96);
+  --live-shadow-sheet: 0 -26px 68px -20px rgba(0, 0, 0, 0.88);
+  --live-shadow-rail: 0 20px 48px -22px rgba(0, 0, 0, 0.92);
+  --live-shadow-toast: 0 14px 44px -18px rgba(0, 0, 0, 0.9);
+  --live-inset-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  --live-radius-chrome: 0.75rem;
+  --live-radius-pill: 9999px;
+  --live-radius-sheet-top: 1.75rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-gold: var(--gold);
+  --color-gold-bright: var(--gold-bright);
+  --color-gold-dim: var(--gold-dim);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-border-subtle: var(--border-subtle);
+  --color-live: var(--live);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-display-serif);
+}
+
+body {
+  background-color: var(--background);
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.018) 0px,
+      rgba(255, 255, 255, 0.018) 1px,
+      transparent 1px,
+      transparent 5px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.012) 0px,
+      rgba(255, 255, 255, 0.012) 1px,
+      transparent 1px,
+      transparent 6px
+    ),
+    radial-gradient(ellipse 120% 70% at 50% -25%, rgba(201, 162, 39, 0.05), transparent 55%);
+  background-attachment: fixed;
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+@keyframes live-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.9);
+  }
+}
+
+@keyframes live-badge-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 10px rgba(239, 68, 68, 0.65));
+  }
+  50% {
+    opacity: 0.92;
+    filter: drop-shadow(0 0 22px rgba(239, 68, 68, 0.95));
+  }
+}
+
+@keyframes chat-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes vault-breathe {
+  0%,
+  100% {
+    opacity: 0.38;
+  }
+  50% {
+    opacity: 0.82;
+  }
+}
+
+/** Premium live mobile — soft motion (respect `motion-reduce` via Tailwind overrides on elements). */
+@keyframes live-stage-mobile-in {
+  0% {
+    opacity: 0.92;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes live-rail-in {
+  0% {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes live-price-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 7px rgba(232, 212, 139, 0.18));
+  }
+  50% {
+    filter: drop-shadow(0 0 14px rgba(232, 212, 139, 0.32));
+  }
+}
+
+@keyframes live-countdown-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.94;
+    transform: scale(1.02);
+  }
+}
+
+@keyframes live-chat-slide {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes live-stage-mobile-in {
+    0%,
+    100% {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes chat-rise {
+    0%,
+    100% {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes live-chat-slide {
+    0%,
+    100% {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes live-rail-in {
+    0%,
+    100% {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes live-countdown-pulse {
+    0%,
+    100% {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes live-price-glow {
+    0%,
+    100% {
+      filter: none;
+    }
+  }
+}
+
+/**
+ * Bottom-anchored live glass (buyer bid bar + host item tray).
+ * Pair with Tailwind padding / safe-area utilities on the same element.
+ */
+.live-glass-sheet {
+  border-style: solid;
+  border-width: 1px;
+  border-bottom-width: 0;
+  border-color: var(--live-border);
+  border-top-left-radius: var(--live-radius-sheet-top);
+  border-top-right-radius: var(--live-radius-sheet-top);
+  background: linear-gradient(180deg, var(--live-glass-fill-top) 0%, var(--live-glass-fill) 100%);
+  box-shadow: var(--live-shadow-overlay), var(--live-inset-highlight);
+  backdrop-filter: blur(var(--live-blur-xl));
+  -webkit-backdrop-filter: blur(var(--live-blur-xl));
+}
+
+.live-glass-sheet-host {
+  border-color: var(--live-border-host);
+  box-shadow: var(--live-shadow-overlay), var(--live-inset-highlight), 0 0 42px -28px rgba(167, 139, 250, 0.18);
+}
+
+/**
+ * Full-width mobile modal sheet (queue, controls, etc.).
+ */
+.live-glass-modal-sheet {
+  border-style: solid;
+  border-width: 1px;
+  border-bottom-width: 0;
+  border-color: var(--live-border);
+  border-top-left-radius: var(--live-radius-sheet-top);
+  border-top-right-radius: var(--live-radius-sheet-top);
+  background: linear-gradient(180deg, var(--live-glass-fill-top) 0%, rgba(7, 7, 10, 0.97) 52%, var(--live-glass-fill) 100%);
+  box-shadow: var(--live-shadow-sheet);
+  backdrop-filter: blur(var(--live-blur-xl));
+  -webkit-backdrop-filter: blur(var(--live-blur-xl));
+}
+
+::selection {
+  background: color-mix(in oklab, var(--gold) 35%, transparent);
+  color: var(--foreground);
+}
+
+.market-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--gold) 35%, transparent) transparent;
+}
+
+.market-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+
+.market-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--gold) 40%, transparent);
+  border-radius: 999px;
+}
+
+.market-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.queue-panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.queue-list {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.chat-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.chat-input {
+  flex-shrink: 0;
+}
+
+.queue-list,
+.chat-messages {
+  scrollbar-width: thin;
+  scrollbar-color: #111111 #000000;
+}
+
+.queue-list::-webkit-scrollbar,
+.chat-messages::-webkit-scrollbar {
+  width: 8px;
+}
+
+.queue-list::-webkit-scrollbar-track,
+.chat-messages::-webkit-scrollbar-track {
+  background: #000000;
+}
+
+.queue-list::-webkit-scrollbar-thumb,
+.chat-messages::-webkit-scrollbar-thumb {
+  background: #111111;
+  border-radius: 999px;
+  border: 1px solid #000000;
+}

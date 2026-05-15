@@ -1,0 +1,1058 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useRealtimeListingBidsSubscription } from "@/hooks/useRealtimeListingBidsSubscription";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { LiveAuctionChat } from "@/components/live-auction/LiveAuctionChat";
+import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
+import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
+import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
+import type { LiveRoomStatus } from "@/generated/prisma/client";
+import type { LiveRoomItemDTO, LiveRoomMessageDTO } from "@/lib/live-room-serialize";
+import { minNextBidUsd } from "@/lib/auction";
+import { LIVE_AUCTION_CLIENT_END_GRACE_MS } from "@/lib/live-auction-bid-extension";
+import { startLiveRoomItemAuction } from "@/lib/live-room-control-client";
+import { syncedWallTimeMs } from "@/lib/server-clock-sync";
+import { sellerProfilePath } from "@/lib/seller-profile-url";
+
+type SaleItem = {
+  id: string;
+  title: string;
+  quantity: number;
+  category: "Trading Cards" | "Memorabilia" | "Watches" | "Sneakers" | "Other";
+  buyNow: number;
+  topBid: number;
+  bids: number;
+  status: "live" | "posted" | "queued" | "sold" | "skipped";
+};
+
+function buyerQueueTitleSale(title: string, quantity: number) {
+  const q = typeof quantity === "number" && Number.isFinite(quantity) && quantity >= 1 ? Math.floor(quantity) : 1;
+  if (q <= 1) return title;
+  return `${title} · ×${q}`;
+}
+
+function mapDbItem(i: LiveRoomItemDTO, roomIsLive: boolean, clockSkewMs = 0): SaleItem {
+  const now = syncedWallTimeMs(clockSkewMs);
+  const endsMs = i.auctionEndsAt ? Date.parse(i.auctionEndsAt) : NaN;
+  const hasScheduledEnd = Number.isFinite(endsMs);
+  const biddingWindowOpen =
+    i.biddingOpen === true &&
+    hasScheduledEnd &&
+    endsMs > now - LIVE_AUCTION_CLIENT_END_GRACE_MS;
+  const status: SaleItem["status"] =
+    i.status === "sold"
+      ? "sold"
+      : i.status === "skipped"
+        ? "skipped"
+        : i.status === "active"
+          ? roomIsLive && biddingWindowOpen
+            ? "live"
+            : "posted"
+          : "queued";
+  const top = i.currentBidUsd ?? i.startingBidUsd ?? i.priceUsd ?? 0;
+  const buy = i.priceUsd ?? Math.max(top, 1);
+  const quantity = typeof i.quantity === "number" && Number.isFinite(i.quantity) && i.quantity >= 1 ? Math.floor(i.quantity) : 1;
+  return { id: i.id, title: i.title, quantity, category: "Other", buyNow: buy, topBid: top, bids: 0, status };
+}
+
+function fmt(n: number) {
+  return `$${n.toLocaleString("en-US")}`;
+}
+
+const SALE_AUCTION_DURATION_CHOICES: { sec: number; label: string }[] = [
+  { sec: 5, label: "5s" },
+  { sec: 10, label: "10s" },
+  { sec: 15, label: "15s" },
+  { sec: 20, label: "20s" },
+  { sec: 30, label: "30s" },
+];
+
+function formatSaleAuctionCountdownMs(ms: number) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+}
+
+function parseAuctionHttpAckPayload(raw: unknown): {
+  serverNowMs?: number;
+  roomVersion?: number;
+  auctionSeq?: number;
+  item?: LiveRoomItemDTO;
+} {
+  if (!raw || typeof raw !== "object") return {};
+  const o = raw as Record<string, unknown>;
+  const serverNowMs =
+    typeof o.serverNowMs === "number" && Number.isFinite(o.serverNowMs) ? o.serverNowMs : undefined;
+  const roomVersion =
+    typeof o.roomVersion === "number" && Number.isFinite(o.roomVersion) ? Math.floor(o.roomVersion) : undefined;
+  const auctionSeq =
+    typeof o.auctionSeq === "number" && Number.isFinite(o.auctionSeq) ? Math.floor(o.auctionSeq) : undefined;
+  const itemCandidate = o.item;
+  const item =
+    itemCandidate &&
+    typeof itemCandidate === "object" &&
+    typeof (itemCandidate as LiveRoomItemDTO).id === "string" &&
+    typeof (itemCandidate as LiveRoomItemDTO).itemVersion === "number"
+      ? (itemCandidate as LiveRoomItemDTO)
+      : undefined;
+  return { serverNowMs, roomVersion, auctionSeq, item };
+}
+
+type ListingBidMeta = {
+  minNextBidUsd: number;
+  currentBidUsd: number | null;
+  auctionEnded: boolean;
+  auctionEndsAt: string | null;
+};
+
+export type LiveSaleRoomProps = {
+  roomId: string;
+  roomTitle?: string;
+  sellerShopUsername?: string;
+  sellerId: string;
+  hostDisplayName: string;
+  viewerCount: number;
+  isLive: boolean;
+  roomStatus: LiveRoomStatus;
+  roomType: "auction" | "sale" | "break";
+  liveRoomId: string;
+  dbItems: LiveRoomItemDTO[];
+  messages: LiveRoomMessageDTO[];
+  onMessagesChange: (next: LiveRoomMessageDTO[] | ((prev: LiveRoomMessageDTO[]) => LiveRoomMessageDTO[])) => void;
+  onRefetch?: () => void;
+  onAuctionHttpAck?: (ack: {
+    serverNowMs?: number;
+    roomVersion?: number;
+    auctionSeq?: number;
+    item?: LiveRoomItemDTO | null;
+  }) => void;
+  /** Bumped on `stream_status` / Supabase reconnect so IVS playback refetches stream info. */
+  streamPlaybackRefreshNonce?: number;
+  /** ISO scheduled start for buyer video placeholder (countdown / date). */
+  scheduledStartAt?: string | null;
+  /** Host-uploaded room thumbnail; rendered as the video stage placeholder until the stream is live. */
+  thumbnailUrl?: string | null;
+  clockSkewMs?: number;
+  buyerLiveBidPaymentReady?: boolean;
+};
+
+export function LiveSaleRoom({
+  roomId: _roomId,
+  roomTitle,
+  sellerShopUsername,
+  sellerId,
+  hostDisplayName,
+  viewerCount,
+  isLive,
+  roomStatus,
+  roomType,
+  liveRoomId,
+  dbItems,
+  messages,
+  onMessagesChange,
+  onRefetch,
+  onAuctionHttpAck,
+  streamPlaybackRefreshNonce,
+  scheduledStartAt = null,
+  thumbnailUrl = null,
+  clockSkewMs: clockSkewProp = 0,
+  buyerLiveBidPaymentReady,
+}: LiveSaleRoomProps) {
+  const { data: session, status } = useSession();
+  const shopHref =
+    sellerShopUsername && sellerShopUsername.trim().length > 0 ? sellerProfilePath(sellerShopUsername.trim()) : null;
+  const router = useRouter();
+
+  const clockSkewMs = clockSkewProp;
+  const [liveAuctionResolutionTick, setLiveAuctionResolutionTick] = useState(0);
+  useEffect(() => {
+    const active = dbItems.find((x) => x.status === "active");
+    if (!active?.biddingOpen || !active.auctionEndsAt) return undefined;
+    const ends = Date.parse(active.auctionEndsAt);
+    if (!Number.isFinite(ends)) return undefined;
+    const id = window.setInterval(() => setLiveAuctionResolutionTick((t) => t + 1), 50);
+    return () => window.clearInterval(id);
+  }, [dbItems]);
+
+  const mapped = useMemo(
+    () => dbItems.map((i) => mapDbItem(i, isLive, clockSkewMs)),
+    [dbItems, isLive, liveAuctionResolutionTick, clockSkewMs],
+  );
+  const [items, setItems] = useState<SaleItem[]>(mapped);
+  const [selectedId, setSelectedId] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  /** Auction bid POST in flight — disables button without “Placing…” (optimistic amounts). */
+  const [bidFlight, setBidFlight] = useState(false);
+  const [bidMeta, setBidMeta] = useState<ListingBidMeta | null>(null);
+  const [shipUxNonce, setShipUxNonce] = useState(0);
+  const [optimisticBidUsd, setOptimisticBidUsd] = useState<number | null>(null);
+  /** Last successful bid amount from this client — drives winning / outbid UX (auction rooms). */
+  const [userHighBidUsd, setUserHighBidUsd] = useState<number | null>(null);
+  const [showOutbidToast, setShowOutbidToast] = useState(false);
+  const [clockTick, setClockTick] = useState(0);
+  const [hostSaleAuctionDurationSec, setHostSaleAuctionDurationSec] = useState(5);
+  const [hostSaleClutchTimeEnabled, setHostSaleClutchTimeEnabled] = useState(false);
+  const [hostSaleAuctionBusy, setHostSaleAuctionBusy] = useState(false);
+
+  const [buyerWideRail, setBuyerWideRail] = useState(false);
+  useLayoutEffect(() => {
+    const mq = window.matchMedia("(min-width: 1400px)");
+    const apply = () => setBuyerWideRail(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
+  useEffect(() => {
+    setItems(mapped);
+  }, [mapped]);
+
+  useEffect(() => {
+    const active = dbItems.find((i) => i.status === "active");
+    const next = active?.id ?? dbItems[0]?.id ?? "";
+    setSelectedId((prev) => (prev && mapped.some((m) => m.id === prev) ? prev : next));
+  }, [dbItems, mapped]);
+
+  const selected = useMemo(() => items.find((i) => i.id === selectedId) ?? items[0], [items, selectedId]);
+  const activeDb = useMemo(() => dbItems.find((i) => i.status === "active") ?? null, [dbItems]);
+  const actionUi = useMemo(() => {
+    if (activeDb) return mapDbItem(activeDb, isLive, clockSkewMs);
+    return selected;
+  }, [activeDb, isLive, selected, liveAuctionResolutionTick]);
+
+  const activeListingId = activeDb?.listingId ?? null;
+
+  useEffect(() => {
+    setOptimisticBidUsd(null);
+  }, [activeDb?.id, activeDb?.currentBidUsd]);
+
+  useEffect(() => {
+    setUserHighBidUsd(null);
+  }, [activeDb?.id]);
+
+  useEffect(() => {
+    if (roomType !== "auction") return;
+    const cur = bidMeta?.currentBidUsd;
+    const mine = userHighBidUsd;
+    if (mine == null || cur == null) return;
+    if (cur > mine + 0.01) {
+      setShowOutbidToast(true);
+      setUserHighBidUsd(null);
+      const t = window.setTimeout(() => setShowOutbidToast(false), 3200);
+      return () => window.clearTimeout(t);
+    }
+  }, [roomType, bidMeta?.currentBidUsd, userHighBidUsd]);
+
+  useEffect(() => {
+    if (!bidMeta?.auctionEndsAt || bidMeta.auctionEnded) return;
+    const id = window.setInterval(() => setClockTick((n) => n + 1), 50);
+    return () => window.clearInterval(id);
+  }, [bidMeta?.auctionEndsAt, bidMeta?.auctionEnded]);
+
+  const toast = useCallback((message: string) => {
+    window.dispatchEvent(new CustomEvent(WATCHLIST_TOAST_EVENT, { detail: { message } }));
+  }, []);
+
+  const refetchBidMeta = useCallback(async () => {
+    if (roomType !== "auction" || !activeListingId) {
+      setBidMeta(null);
+      return;
+    }
+    const res = await fetch(`/api/listings/${encodeURIComponent(activeListingId)}/bids`, { cache: "no-store" });
+    if (!res.ok) return;
+    const j = (await res.json()) as {
+      minNextBidUsd?: number;
+      currentBidUsd?: number | null;
+      auctionEnded?: boolean;
+      auctionEndsAt?: string | null;
+    };
+    if (typeof j.minNextBidUsd === "number" && Number.isFinite(j.minNextBidUsd)) {
+      setBidMeta({
+        minNextBidUsd: j.minNextBidUsd,
+        currentBidUsd: j.currentBidUsd ?? null,
+        auctionEnded: Boolean(j.auctionEnded),
+        auctionEndsAt: typeof j.auctionEndsAt === "string" ? j.auctionEndsAt : null,
+      });
+    } else {
+      setBidMeta(null);
+    }
+  }, [roomType, activeListingId]);
+
+  useEffect(() => {
+    void refetchBidMeta();
+  }, [refetchBidMeta, dbItems]);
+
+  useRealtimeListingBidsSubscription(
+    activeListingId,
+    () => void refetchBidMeta(),
+    roomType === "auction" && Boolean(activeListingId),
+  );
+
+  /** Matches `/api/live-rooms/.../bid` and `/api/listings/.../bids` (see `minNextBidUsd`). */
+  const minNextFromLiveItem = useMemo(() => {
+    if (roomType !== "auction" || !activeDb) return null;
+    const high = activeDb.currentBidUsd ?? activeDb.startingBidUsd ?? activeDb.priceUsd ?? 0;
+    return minNextBidUsd(high);
+  }, [roomType, activeDb]);
+
+  const nextBidAmount = useMemo(() => {
+    if (roomType !== "auction" || !actionUi) return "0.00";
+    if (activeListingId && bidMeta && !bidMeta.auctionEnded) {
+      return bidMeta.minNextBidUsd.toFixed(2);
+    }
+    if (minNextFromLiveItem != null) return minNextFromLiveItem.toFixed(2);
+    return "0.00";
+  }, [roomType, actionUi, activeListingId, bidMeta, minNextFromLiveItem]);
+  const currentTopBid = optimisticBidUsd ?? actionUi?.topBid ?? 0;
+  const liveTitle = actionUi ? buyerQueueTitleSale(actionUi.title, actionUi.quantity) : (roomTitle ?? "Vaulted Live");
+
+  const secondsLeft = useMemo(() => {
+    void clockTick;
+    void liveAuctionResolutionTick;
+    const now = syncedWallTimeMs(clockSkewMs);
+    if (roomType === "auction" && activeDb?.biddingOpen && activeDb.auctionEndsAt) {
+      const ends = Date.parse(activeDb.auctionEndsAt);
+      if (Number.isFinite(ends)) return Math.max(0, Math.ceil((ends - now) / 1000));
+    }
+    if (roomType !== "auction" || !bidMeta || bidMeta.auctionEnded || !bidMeta.auctionEndsAt) return null;
+    return Math.max(0, Math.ceil((Date.parse(bidMeta.auctionEndsAt) - now) / 1000));
+  }, [roomType, activeDb, bidMeta, clockTick, liveAuctionResolutionTick, clockSkewMs]);
+
+  const countdownLabel =
+    secondsLeft != null
+      ? `${String(Math.floor(secondsLeft / 60)).padStart(2, "0")}:${String(secondsLeft % 60).padStart(2, "0")}`
+      : null;
+  const countdownUrgent = secondsLeft != null && secondsLeft > 0 && secondsLeft <= 60;
+  const countdownFinal = secondsLeft != null && secondsLeft > 0 && secondsLeft <= 10;
+
+  const isWinning =
+    roomType === "auction" &&
+    userHighBidUsd != null &&
+    bidMeta?.currentBidUsd != null &&
+    !bidMeta.auctionEnded &&
+    Math.abs(bidMeta.currentBidUsd - userHighBidUsd) < 0.02;
+
+  const queue = items.filter((i) => i.status !== "sold" && i.status !== "skipped");
+  const sold = items.filter((i) => i.status === "sold" || i.status === "skipped");
+
+  const isHost = Boolean(session?.user?.id && session.user.id === sellerId);
+
+  /** Listing min/next + leader come from `/api/listings/.../bids`; poll while the lot is open so buyers stay in sync if realtime drops. */
+  useEffect(() => {
+    if (roomType !== "auction" || !isLive || isHost) return;
+    if (!activeDb?.listingId) return;
+    if (activeDb.status !== "active" || !activeDb.biddingOpen || !activeDb.auctionEndsAt) return;
+    const id = window.setInterval(() => void refetchBidMeta(), 850);
+    return () => window.clearInterval(id);
+  }, [roomType, isLive, isHost, activeDb?.listingId, activeDb?.status, activeDb?.biddingOpen, activeDb?.auctionEndsAt, refetchBidMeta]);
+
+  const nowWall = syncedWallTimeMs(clockSkewMs);
+  const saleEndsMs = activeDb?.auctionEndsAt ? Date.parse(activeDb.auctionEndsAt) : NaN;
+  const liveItemBiddingOpen = Boolean(
+    activeDb?.biddingOpen &&
+      Number.isFinite(saleEndsMs) &&
+      saleEndsMs > nowWall - LIVE_AUCTION_CLIENT_END_GRACE_MS,
+  );
+  const hostSaleAuctionCountdownLabel =
+    roomType === "auction" && activeDb?.biddingOpen && activeDb.auctionEndsAt
+      ? (() => {
+          const ends = Date.parse(activeDb.auctionEndsAt);
+          if (!Number.isFinite(ends)) return null;
+          return formatSaleAuctionCountdownMs(ends - syncedWallTimeMs(clockSkewMs));
+        })()
+      : null;
+  const hostSaleStartEnabled =
+    roomType === "auction" &&
+    isLive &&
+    Boolean(activeDb?.status === "active") &&
+    !liveItemBiddingOpen;
+  const guestNeedsAuth = status === "unauthenticated" && !isHost && isLive;
+  const sessionBlocksBuyer = (status === "unauthenticated" || status === "loading") && !isHost && isLive;
+  const actionsDisabled =
+    !isLive ||
+    isHost ||
+    busy ||
+    bidFlight ||
+    sessionBlocksBuyer ||
+    (roomType === "auction" && !isHost && isLive && buyerLiveBidPaymentReady === false);
+  const auctionLiveItemGate =
+    roomType === "auction" && activeDb?.status === "active" && isLive && !liveItemBiddingOpen;
+  const activeSaleMissingListing =
+    roomType === "sale" && activeDb?.status === "active" && !activeDb.listingId;
+
+  const redirectSignIn = (returnPath: string) => {
+    router.push(`/signin?returnTo=${encodeURIComponent(returnPath)}`);
+  };
+
+  const handleBuyNow = async () => {
+    setActionError(null);
+    if (!activeDb) {
+      setActionError("Nothing is live to purchase yet.");
+      return;
+    }
+    if (roomType !== "sale") return;
+    if (status !== "authenticated") {
+      redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
+      return;
+    }
+    if (!activeDb.listingId) {
+      setActionError("Checkout is not available for this slot.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(
+        `/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(activeDb.id)}/buy`,
+        { method: "POST" },
+      );
+      const data = (await res.json().catch(() => ({}))) as { error?: string; checkoutUrl?: string; signInUrl?: string };
+      if (res.status === 401) {
+        if (data.signInUrl) router.push(data.signInUrl);
+        else redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
+        return;
+      }
+      if (!res.ok) {
+        setActionError(data.error ?? "Could not start checkout.");
+        return;
+      }
+      if (data.checkoutUrl) {
+        setShipUxNonce((n) => n + 1);
+        router.push(data.checkoutUrl);
+        router.refresh();
+        return;
+      }
+      setActionError("Could not start checkout.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handlePlaceBid = async () => {
+    setActionError(null);
+    if (roomType !== "auction" || !activeDb) {
+      setActionError("Nothing is live to bid on yet.");
+      return;
+    }
+    if (status !== "authenticated") {
+      redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
+      return;
+    }
+    if (bidMeta?.auctionEnded) {
+      setActionError("This auction has ended.");
+      return;
+    }
+    const amount = Number(nextBidAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setActionError("Invalid bid amount.");
+      return;
+    }
+    const prevOptimistic = optimisticBidUsd;
+    setOptimisticBidUsd(amount);
+    setBidFlight(true);
+    try {
+      const res = await fetch(
+        `/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(activeDb.id)}/bid`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ amountUsd: amount }),
+        },
+      );
+      const data = (await res.json().catch(() => ({}))) as { error?: string; signInUrl?: string };
+      if (res.status === 401) {
+        setOptimisticBidUsd(prevOptimistic);
+        if (data.signInUrl) router.push(data.signInUrl);
+        else redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
+        return;
+      }
+      if (!res.ok) {
+        setOptimisticBidUsd(prevOptimistic);
+        setActionError(data.error ?? "Could not place bid.");
+        toast(data.error ?? "Could not place bid.");
+        return;
+      }
+      const ack = parseAuctionHttpAckPayload(data);
+      if (process.env.NODE_ENV === "development") {
+        console.debug("[live-auction-client] bid HTTP ACK (sale room)", ack);
+      }
+      onAuctionHttpAck?.(ack);
+      toast("Bid placed.");
+      setUserHighBidUsd(amount);
+      setShipUxNonce((n) => n + 1);
+      window.setTimeout(() => {
+        void onRefetch?.();
+        router.refresh();
+      }, 750);
+    } catch {
+      setOptimisticBidUsd(prevOptimistic);
+      toast("Could not place bid.");
+    } finally {
+      setBidFlight(false);
+    }
+  };
+
+  const handleHostStartSaleAuction = useCallback(async () => {
+    if (!activeDb || roomType !== "auction") return;
+    setHostSaleAuctionBusy(true);
+    setActionError(null);
+    try {
+      const res = await startLiveRoomItemAuction(liveRoomId, activeDb.id, hostSaleAuctionDurationSec, hostSaleClutchTimeEnabled);
+      if (!res.ok) {
+        setActionError(res.error);
+        toast(res.error);
+        return;
+      }
+      onAuctionHttpAck?.(parseAuctionHttpAckPayload(res.data));
+      toast("Bidding is open.");
+      void onRefetch?.();
+      router.refresh();
+    } finally {
+      setHostSaleAuctionBusy(false);
+    }
+  }, [
+    activeDb,
+    hostSaleAuctionDurationSec,
+    hostSaleClutchTimeEnabled,
+    liveRoomId,
+    onAuctionHttpAck,
+    onRefetch,
+    roomType,
+    router,
+    toast,
+  ]);
+
+  const handleShare = useCallback(async () => {
+    const title = roomTitle?.trim() || liveTitle;
+    const shareUrl = typeof window !== "undefined" ? window.location.href : `/live/${encodeURIComponent(liveRoomId)}`;
+    try {
+      if (typeof navigator !== "undefined" && navigator.share) {
+        await navigator.share({ title, text: `Join ${title} on Vaulted Live`, url: shareUrl });
+        toast("Shared.");
+        return;
+      }
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+        toast("Link copied.");
+        return;
+      }
+      toast("Share is not supported on this device.");
+    } catch {
+      toast("Could not share right now.");
+    }
+  }, [liveRoomId, liveTitle, roomTitle, toast]);
+
+  const handleWallet = useCallback(() => {
+    if (status !== "authenticated") {
+      redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
+      return;
+    }
+    toast("Opening wallet and payment status.");
+    router.push("/account/orders");
+  }, [liveRoomId, router, status, toast]);
+
+  const streamTitle = liveTitle;
+
+  const priceLine =
+    roomType === "sale"
+      ? actionUi
+        ? `${buyerQueueTitleSale(actionUi.title, actionUi.quantity)} · Buy now ${fmt(actionUi.buyNow)}`
+        : "Select an item"
+      : actionUi
+        ? `${buyerQueueTitleSale(actionUi.title, actionUi.quantity)} · High bid ${fmt(currentTopBid)}`
+        : "Select an item";
+
+  const desktopVideoOverlay = (
+    <div className="rounded-[var(--live-radius-chrome)] border border-emerald-300/25 bg-black/60 p-4 backdrop-blur-[var(--live-blur-md)] shadow-[var(--live-shadow-overlay),0_0_24px_-12px_rgba(16,185,129,0.35),inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors duration-[var(--live-duration-ui)] hover:brightness-[1.06]">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Live action</p>
+      <p
+        className={`mt-1 text-base font-black tabular-nums tracking-tight transition-colors duration-500 ease-[var(--live-ease)] ${
+          roomType === "auction" && isWinning
+            ? "text-gold-bright motion-safe:[animation:live-price-glow_2.8s_ease-in-out_infinite]"
+            : "text-emerald-200"
+        }`}
+      >
+        {actionUi ? fmt(currentTopBid) : "$0"}
+      </p>
+      <p className="mt-0.5 line-clamp-2 text-[10px] text-zinc-300">{priceLine}</p>
+      {!isHost && (roomType === "auction" || roomType === "sale") ? (
+        <LiveShippingIndicator liveShowId={liveRoomId} refreshNonce={shipUxNonce} pollMs={isLive ? 8000 : 0} className="mt-2" />
+      ) : null}
+      {roomType === "auction" && isHost && activeDb?.status === "active" ? (
+        <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
+          {liveItemBiddingOpen && hostSaleAuctionCountdownLabel ? (
+            <p className="text-[11px] font-black tabular-nums text-emerald-200">Time left {hostSaleAuctionCountdownLabel}</p>
+          ) : null}
+          {!isLive ? (
+            <p className="text-[10px] text-amber-200/90">Go live first, then open bidding here.</p>
+          ) : liveItemBiddingOpen ? (
+            <p className="text-[10px] text-emerald-200/90">Bidding is open on this lot.</p>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 text-[10px] text-zinc-300">
+                <span className="font-semibold uppercase tracking-wide">Timer</span>
+                <select
+                  value={hostSaleAuctionDurationSec}
+                  onChange={(e) => setHostSaleAuctionDurationSec(Number(e.target.value))}
+                  className="rounded-md border border-white/20 bg-black/50 px-2 py-1 text-[11px] font-semibold text-zinc-100"
+                >
+                  {SALE_AUCTION_DURATION_CHOICES.map((c) => (
+                    <option key={c.sec} value={c.sec}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                aria-pressed={hostSaleClutchTimeEnabled}
+                onClick={() => setHostSaleClutchTimeEnabled((v) => !v)}
+                className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wide transition ${
+                  hostSaleClutchTimeEnabled
+                    ? "border-fuchsia-300/70 bg-gradient-to-r from-fuchsia-500/25 via-violet-500/25 to-amber-400/25 text-white shadow-[0_0_18px_-8px_rgba(217,70,239,0.9)]"
+                    : "border-white/20 bg-black/45 text-zinc-300 hover:border-white/35 hover:text-zinc-100"
+                }`}
+              >
+                <span
+                  className={`relative inline-flex h-4 w-7 items-center rounded-full border ${
+                    hostSaleClutchTimeEnabled ? "border-fuchsia-200/70 bg-fuchsia-400/30" : "border-white/25 bg-black/50"
+                  }`}
+                >
+                  <span
+                    className={`absolute h-3 w-3 rounded-full bg-white transition ${
+                      hostSaleClutchTimeEnabled ? "left-[14px]" : "left-[1px]"
+                    }`}
+                  />
+                </span>
+                <span>Clutch Time</span>
+              </button>
+              <button
+                type="button"
+                disabled={!hostSaleStartEnabled || hostSaleAuctionBusy}
+                onClick={() => void handleHostStartSaleAuction()}
+                className="rounded-md bg-emerald-600 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {hostSaleAuctionBusy ? "Starting…" : "Start"}
+              </button>
+            </div>
+          )}
+        </div>
+      ) : null}
+      <div className="mt-2 flex gap-2">
+        {roomType === "auction" ? (
+          <button
+            data-testid="live-bid-button"
+            type="button"
+            disabled={
+              actionsDisabled ||
+              activeSaleMissingListing ||
+              auctionLiveItemGate ||
+              (Boolean(activeListingId) && Boolean(bidMeta?.auctionEnded))
+            }
+            onClick={() => void handlePlaceBid()}
+            className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] border border-emerald-400/40 bg-emerald-600/25 px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-emerald-200 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] hover:bg-emerald-600/35 active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
+          >
+            {`Place Bid $${nextBidAmount}`}
+          </button>
+        ) : null}
+        {roomType === "sale" ? (
+          <button
+            type="button"
+            disabled={actionsDisabled || !activeDb?.listingId || activeSaleMissingListing}
+            onClick={() => void handleBuyNow()}
+            className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
+          >
+            {busy ? "Working…" : "Buy Now"}
+          </button>
+        ) : null}
+      </div>
+      {activeSaleMissingListing ? (
+        <p className="mt-2 text-[10px] font-medium text-amber-200/90">
+          This live item is not linked to checkout yet. Ask the host in chat.
+        </p>
+      ) : null}
+      {roomType === "auction" && !isHost && isLive && buyerLiveBidPaymentReady === false ? (
+        <p className="mt-2 text-[10px] text-amber-200/90">
+          Add a saved card to bid (verified with a $0 authorization). You are only charged if you win.{" "}
+          <Link href="/account/payment-methods" className="font-semibold text-gold-bright hover:underline">
+            Payment methods
+          </Link>
+        </p>
+      ) : null}
+      {guestNeedsAuth ? (
+        <p className="mt-2 text-[10px] text-zinc-400">
+          <Link href={`/signin?returnTo=${encodeURIComponent(`/live/${encodeURIComponent(liveRoomId)}`)}`} className="font-semibold text-gold-bright hover:underline">
+            Sign in
+          </Link>{" "}
+          to buy or bid.
+        </p>
+      ) : null}
+      {roomType === "auction" && !isHost && auctionLiveItemGate ? (
+        <p className="mt-2 text-[10px] text-zinc-400">
+          Host taps Start to open bidding; your button then shows each next required bid.
+        </p>
+      ) : null}
+      {actionError ? <p className="mt-2 text-[10px] font-medium text-rose-300">{actionError}</p> : null}
+    </div>
+  );
+
+  const mobileVideoOverlay = (
+    <div className="live-glass-sheet relative min-h-0 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 max-[380px]:px-1.5 max-[380px]:pt-1.5">
+      <p className="line-clamp-1 text-[11px] font-semibold leading-tight text-zinc-100">
+        {actionUi ? buyerQueueTitleSale(actionUi.title, actionUi.quantity) : "Current item"}
+      </p>
+      <div className="mt-1 min-h-[1.35rem]">
+        <p
+          className={`text-[13px] font-black tabular-nums transition-colors duration-500 ease-[var(--live-ease)] ${
+            roomType === "auction" && isWinning
+              ? "text-gold-bright motion-safe:[animation:live-price-glow_2.8s_ease-in-out_infinite]"
+              : roomType === "auction"
+                ? "text-emerald-200/95"
+                : "text-emerald-200"
+          }`}
+        >
+          {actionUi
+            ? `${fmt(currentTopBid)}${roomType === "auction" ? " high bid" : " · price"}`
+            : "Select an item"}
+        </p>
+        {roomType === "auction" && isWinning ? (
+          <p className="text-[9px] font-semibold uppercase tracking-wide text-gold-bright/85">You&apos;re winning</p>
+        ) : null}
+      </div>
+      {!isHost && (roomType === "auction" || roomType === "sale") ? (
+        <LiveShippingIndicator
+          liveShowId={liveRoomId}
+          refreshNonce={shipUxNonce}
+          pollMs={isLive ? 8000 : 0}
+          compact
+          className="mt-2"
+        />
+      ) : null}
+      {roomType === "auction" && isHost && activeDb?.status === "active" ? (
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-2 border-t border-white/10 pt-2">
+          {liveItemBiddingOpen && hostSaleAuctionCountdownLabel ? (
+            <p className="text-center text-[10px] font-black tabular-nums text-emerald-200">Time left {hostSaleAuctionCountdownLabel}</p>
+          ) : null}
+          {!isLive ? (
+            <p className="text-center text-[9px] text-amber-200/90">Go live, then open bidding.</p>
+          ) : liveItemBiddingOpen ? (
+            <p className="text-center text-[9px] text-emerald-200/90">Bidding open</p>
+          ) : (
+            <>
+              <label className="flex items-center gap-1.5 text-[9px] text-zinc-400">
+                <span className="font-bold uppercase tracking-wide">Timer</span>
+                <select
+                  value={hostSaleAuctionDurationSec}
+                  onChange={(e) => setHostSaleAuctionDurationSec(Number(e.target.value))}
+                  className="rounded-full border border-white/14 bg-black/50 px-2 py-1 text-[10px] font-semibold text-zinc-100"
+                >
+                  {SALE_AUCTION_DURATION_CHOICES.map((c) => (
+                    <option key={c.sec} value={c.sec}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                aria-pressed={hostSaleClutchTimeEnabled}
+                onClick={() => setHostSaleClutchTimeEnabled((v) => !v)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-wide transition ${
+                  hostSaleClutchTimeEnabled
+                    ? "border-fuchsia-300/70 bg-gradient-to-r from-fuchsia-500/25 via-violet-500/25 to-amber-400/25 text-white"
+                    : "border-white/20 bg-black/45 text-zinc-300"
+                }`}
+              >
+                <span
+                  className={`relative inline-flex h-3.5 w-6 items-center rounded-full border ${
+                    hostSaleClutchTimeEnabled ? "border-fuchsia-200/70 bg-fuchsia-400/30" : "border-white/25 bg-black/50"
+                  }`}
+                >
+                  <span
+                    className={`absolute h-2.5 w-2.5 rounded-full bg-white transition ${
+                      hostSaleClutchTimeEnabled ? "left-[11px]" : "left-[1px]"
+                    }`}
+                  />
+                </span>
+                <span>Clutch Time</span>
+              </button>
+              <button
+                type="button"
+                disabled={!hostSaleStartEnabled || hostSaleAuctionBusy}
+                onClick={() => void handleHostStartSaleAuction()}
+                className="rounded-full bg-emerald-600 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-white disabled:opacity-40"
+              >
+                {hostSaleAuctionBusy ? "…" : "Start"}
+              </button>
+            </>
+          )}
+        </div>
+      ) : null}
+      {roomType === "auction" ? (
+        <div className="mt-2 flex min-h-10 items-center gap-1.5 max-[380px]:gap-1 md:min-h-11">
+          <span
+            className={`inline-flex min-h-10 min-w-[4.75rem] shrink-0 items-center justify-center rounded-full border border-white/14 bg-black/40 px-1.5 text-[9px] font-bold tabular-nums tracking-tight max-[380px]:min-w-[4.25rem] md:min-h-11 md:min-w-[5.5rem] md:px-2 md:text-[10px] ${
+              bidMeta?.auctionEnded
+                ? "text-zinc-500"
+                : countdownFinal
+                  ? "text-rose-200/95 motion-safe:[animation:live-countdown-pulse_1.15s_ease-in-out_infinite] motion-reduce:[animation:none]"
+                  : countdownUrgent
+                    ? "text-amber-200/95"
+                    : "text-zinc-200"
+            }`}
+          >
+            {bidMeta?.auctionEnded ? "Ended" : countdownLabel ?? "Live"}
+          </span>
+          <button
+            data-testid="live-bid-button"
+            type="button"
+            disabled={
+              actionsDisabled ||
+              activeSaleMissingListing ||
+              auctionLiveItemGate ||
+              (Boolean(activeListingId) && Boolean(bidMeta?.auctionEnded))
+            }
+            onClick={() => void handlePlaceBid()}
+            aria-label={`Place bid ${nextBidAmount} dollars`}
+            className="flex min-h-10 min-w-0 flex-1 items-center justify-center rounded-full border border-gold/40 bg-gradient-to-r from-[#c9a227] via-[#e8d48b] to-[#fde68a] px-2 text-[10px] font-black uppercase tracking-wide text-zinc-950 shadow-[0_12px_30px_-14px_rgba(201,162,39,0.55)] transition-[transform,box-shadow,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] disabled:opacity-40 motion-reduce:transition-none motion-reduce:active:scale-100 md:min-h-11 md:px-3 md:text-[11px]"
+          >
+            <span className="min-w-0 truncate">
+              <span className="max-[380px]:hidden">Bid · </span>
+              <span className="hidden max-[380px]:inline">Bid </span>
+              <span className="tabular-nums">${nextBidAmount}</span>
+            </span>
+          </button>
+        </div>
+      ) : null}
+      {roomType === "sale" ? (
+        <button
+          type="button"
+          disabled={actionsDisabled || !activeDb?.listingId || activeSaleMissingListing}
+          onClick={() => void handleBuyNow()}
+          className="mt-2 min-h-10 w-full rounded-full bg-gradient-to-r from-gold to-gold-bright text-[10px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] disabled:opacity-40 motion-reduce:active:scale-100 md:min-h-11 md:text-[11px]"
+        >
+          {busy ? "Working…" : "Buy Now"}
+        </button>
+      ) : null}
+      {activeSaleMissingListing ? (
+        <p className="mt-1 text-[10px] font-medium text-amber-200/90">Checkout is not linked for this slot.</p>
+      ) : null}
+      {roomType === "auction" && !isHost && isLive && buyerLiveBidPaymentReady === false ? (
+        <p className="mt-1 text-[10px] text-amber-200/90">
+          Add a saved card to bid.{" "}
+          <Link href="/account/payment-methods" className="font-semibold text-gold-bright hover:underline">
+            Payment methods
+          </Link>
+        </p>
+      ) : null}
+      {guestNeedsAuth ? (
+        <p className="mt-1 text-[10px] text-zinc-400">
+          <Link href={`/signin?returnTo=${encodeURIComponent(`/live/${encodeURIComponent(liveRoomId)}`)}`} className="font-semibold text-gold-bright hover:underline">
+            Sign in
+          </Link>{" "}
+          to buy or bid.
+        </p>
+      ) : null}
+      {roomType === "auction" && !isHost && auctionLiveItemGate ? (
+        <p className="mt-1 text-[10px] text-zinc-400">
+          Waiting for the host to start bidding — then the button shows the next required bid.
+        </p>
+      ) : null}
+      {actionError ? <p className="mt-1 text-[10px] text-rose-300">{actionError}</p> : null}
+    </div>
+  );
+  const floatingChatOverlay = (
+    <div className="flex h-[min(42vh,19rem)] max-h-[min(50dvh,22rem)] max-[380px]:h-[min(32vh,14rem)] min-[768px]:h-[min(48vh,24rem)] min-h-0 w-full min-w-0 flex-col">
+      <LiveAuctionChat
+        liveRoomId={liveRoomId}
+        messages={messages}
+        onMessagesChange={onMessagesChange}
+        embedded
+        compact
+        overlayMode
+      />
+    </div>
+  );
+
+  const queuePanel = (
+    <div className="min-h-[300px] rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Item Queue</p>
+        {shopHref ? (
+          <Link href={shopHref} className="text-[10px] font-semibold uppercase tracking-wide text-gold-bright transition hover:brightness-110">
+            Host Shop →
+          </Link>
+        ) : null}
+      </div>
+      <div className="space-y-1.5 overflow-y-auto pr-1">
+        {queue.length === 0 ? (
+          <p className="text-xs text-zinc-500">No items in queue yet.</p>
+        ) : (
+          queue.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setSelectedId(item.id)}
+              className={`w-full rounded-lg border px-2.5 py-2 text-left text-xs transition ${
+                item.id === selectedId
+                  ? "border-gold/45 bg-zinc-900 text-zinc-100"
+                  : "border-zinc-800 bg-black/50 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
+              }`}
+            >
+              <p className="font-semibold">{buyerQueueTitleSale(item.title, item.quantity)}</p>
+              <p className="mt-0.5 font-mono text-[11px]">
+                {roomType === "auction" ? `${fmt(item.topBid)} bid` : `${fmt(item.buyNow)}`}
+              </p>
+            </button>
+          ))
+        )}
+      </div>
+      {!isHost && (roomType === "auction" || roomType === "sale") ? (
+        <LiveShippingIndicator
+          liveShowId={liveRoomId}
+          refreshNonce={shipUxNonce}
+          pollMs={isLive ? 8000 : 0}
+          compact
+          className="mt-3"
+        />
+      ) : null}
+    </div>
+  );
+
+  const infoPanel = (
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3">
+      <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500">Sold activity</p>
+      <div className="space-y-1 text-xs text-zinc-400">
+        {sold.length === 0 ? (
+          <p>No items sold yet.</p>
+        ) : (
+          sold.map((item) => (
+            <p key={item.id}>
+              • {buyerQueueTitleSale(item.title, item.quantity)}
+              {item.status === "skipped" ? " skipped" : ` sold at ${fmt(item.topBid)}`}
+            </p>
+          ))
+        )}
+      </div>
+    </div>
+  );
+
+  const salesPanel = (
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3">
+      <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500">Recent sales</p>
+      <div className="space-y-1 text-xs text-zinc-400">
+        {sold.length === 0 ? (
+          <p>No items sold yet.</p>
+        ) : (
+          sold.map((item) => (
+            <p key={item.id}>
+              • {buyerQueueTitleSale(item.title, item.quantity)}
+              {item.status === "skipped" ? " skipped" : ` sold at ${fmt(item.topBid)}`}
+            </p>
+          ))
+        )}
+      </div>
+    </div>
+  );
+  return (
+    <div className="fixed inset-x-0 bottom-0 top-0 z-40 flex min-h-0 flex-col overflow-hidden overscroll-y-contain bg-black text-zinc-100 md:top-[var(--site-header-offset)]">
+      {showOutbidToast ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none fixed left-1/2 top-[max(4.25rem,env(safe-area-inset-top)+2.75rem)] z-[70] w-[min(92vw,20rem)] -translate-x-1/2 motion-safe:animate-[live-chat-slide_var(--live-duration-enter)_var(--live-ease)_both] motion-reduce:animate-none"
+        >
+          <div className="rounded-full border border-[color:var(--live-border)] bg-black/50 px-4 py-2 text-center text-[11px] font-medium leading-snug text-zinc-100 shadow-[var(--live-shadow-toast)] backdrop-blur-[var(--live-blur-xl)]">
+            Outbid — new high bid on this item
+          </div>
+        </div>
+      ) : null}
+      <div className="mx-auto flex min-h-0 w-full max-w-[1920px] flex-1 flex-col overflow-y-auto p-1.5 md:p-4 min-[1400px]:min-h-0 min-[1400px]:overflow-hidden">
+        <div className="grid min-h-0 flex-1 gap-2.5 min-[1400px]:h-full min-[1400px]:min-h-0 min-[1400px]:grid-cols-[minmax(0,1fr)_360px] min-[1400px]:items-stretch">
+          <section className="min-w-0 space-y-2.5 min-[1400px]:grid min-[1400px]:h-full min-[1400px]:min-h-0 min-[1400px]:grid-rows-[minmax(0,1fr)_auto] min-[1400px]:gap-4 min-[1400px]:space-y-0">
+            <div className="w-full min-h-0 min-[1400px]:min-h-0 min-[1400px]:h-full min-[1400px]:max-h-full">
+              <LiveVideoStage
+                layout={buyerWideRail ? "fillHeight" : "aspect"}
+                overlayMessage={`Live · ${actionUi ? buyerQueueTitleSale(actionUi.title, actionUi.quantity) : "Current item"} · ${fmt(currentTopBid)}`}
+                viewers={viewerCount}
+                hostName={hostDisplayName}
+                streamTitle={streamTitle}
+                isLive={isLive}
+                roomStatus={roomStatus}
+                liveRoomId={liveRoomId}
+                hostSellerId={sellerId}
+                onBack={() => router.back()}
+                actionOverlay={desktopVideoOverlay}
+                mobileActionOverlay={mobileVideoOverlay}
+                chatOverlay={floatingChatOverlay}
+                showRightActions={!isHost}
+                onShare={handleShare}
+                onWallet={handleWallet}
+                onNotifyMe={() => redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`)}
+                streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
+                scheduledStartAt={scheduledStartAt}
+                thumbnailUrl={thumbnailUrl}
+              />
+            </div>
+
+            <div className="shrink-0 min-[1400px]:hidden">{queuePanel}</div>
+
+            <div className="min-[1400px]:hidden pb-[max(1rem,env(safe-area-inset-bottom))]" />
+          </section>
+
+          <aside className="hidden min-h-0 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/70 p-3 min-[1400px]:flex min-[1400px]:h-full min-[1400px]:min-h-0 min-[1400px]:flex-col">
+            <div className="queue-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Item Queue</p>
+                {shopHref ? (
+                  <Link href={shopHref} className="text-[10px] font-semibold uppercase tracking-wide text-gold-bright transition hover:brightness-110">
+                    Host Shop →
+                  </Link>
+                ) : null}
+              </div>
+              <div className="queue-list flex min-h-0 flex-1 flex-col space-y-1.5 overflow-y-auto pr-1">
+                {queue.length === 0 ? (
+                  <div className="flex min-h-0 flex-1 flex-col items-center justify-center py-2">
+                    <p className="text-center text-xs text-zinc-500">No items in queue yet.</p>
+                  </div>
+                ) : (
+                  queue.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setSelectedId(item.id)}
+                      className={`w-full rounded-lg border px-2.5 py-2 text-left text-xs transition ${
+                        item.id === selectedId
+                          ? "border-gold/45 bg-zinc-900 text-zinc-100"
+                          : "border-zinc-800 bg-black/50 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
+                      }`}
+                    >
+                      <p className="font-semibold">{buyerQueueTitleSale(item.title, item.quantity)}</p>
+                      <p className="mt-0.5 font-mono text-[11px]">
+                        {roomType === "auction" ? `${fmt(item.topBid)} bid` : `${fmt(item.buyNow)}`}
+                      </p>
+                    </button>
+                  ))
+                )}
+              </div>
+              {!isHost && (roomType === "auction" || roomType === "sale") ? (
+                <LiveShippingIndicator
+                  liveShowId={liveRoomId}
+                  refreshNonce={shipUxNonce}
+                  pollMs={isLive ? 8000 : 0}
+                  compact
+                  className="mt-3 shrink-0"
+                />
+              ) : null}
+            </div>
+
+          </aside>
+        </div>
+      </div>
+    </div>
+  );
+}

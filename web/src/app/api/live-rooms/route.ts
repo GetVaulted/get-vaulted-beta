@@ -1,0 +1,302 @@
+import { NextResponse } from "next/server";
+import type { LiveRoomType, Prisma, TeamBoardLeague } from "@/generated/prisma/client";
+import { getServerSessionSafe } from "@/lib/auth";
+import { isDevTempNoDatabaseMode } from "@/lib/dev-temp-no-db";
+import { isHiddenFixtureSellerEmail, prismaSellerVisibleOnPublicMarketplace } from "@/lib/demo-seed-sellers";
+import { prismaLiveRoomCreateHint, serializePrismaClientError } from "@/lib/prisma-client-error-serialize";
+import { prisma } from "@/lib/prisma";
+import { parseTeamBoardLeague } from "@/lib/team-board-sets";
+
+const ROOM_TYPES: LiveRoomType[] = ["auction", "sale", "break"];
+
+function parseLimit(v: string | null): number {
+  const n = v ? Number(v) : 80;
+  if (!Number.isFinite(n)) return 80;
+  return Math.min(120, Math.max(1, Math.floor(n)));
+}
+
+export async function GET(req: Request) {
+  if (isDevTempNoDatabaseMode()) {
+    return NextResponse.json({ rooms: [] });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const session = await getServerSessionSafe();
+  const listingId = (searchParams.get("listingId") ?? "").trim();
+  const sellerIdParam = (searchParams.get("sellerId") ?? "").trim();
+  const limit = parseLimit(searchParams.get("limit"));
+  const includeEnded = searchParams.get("includeEnded") === "1";
+
+  let sellerId = sellerIdParam;
+  if (listingId) {
+    const listing = await prisma.listing.findUnique({
+      where: { id: listingId },
+      select: { sellerId: true, seller: { select: { email: true } } },
+    });
+    if (!listing) {
+      return NextResponse.json({ rooms: [] });
+    }
+    if (isHiddenFixtureSellerEmail(listing.seller.email)) {
+      return NextResponse.json({ rooms: [] });
+    }
+    sellerId = listing.sellerId;
+  }
+
+  const ownerListingEnded =
+    Boolean(sellerId) && includeEnded && session?.user?.id === sellerId;
+
+  const viewingOwnSellerRooms = Boolean(session?.user?.id && sellerId && session.user.id === sellerId);
+
+  const where: Prisma.LiveRoomWhereInput = {
+    ...(sellerId ? { sellerId } : {}),
+    ...(ownerListingEnded ? {} : { status: { in: ["live", "scheduled"] } }),
+    ...(!viewingOwnSellerRooms
+      ? { seller: prismaSellerVisibleOnPublicMarketplace() }
+      : {}),
+  };
+
+  const rows = await prisma.liveRoom.findMany({
+    where,
+    include: {
+      seller: { select: { username: true } },
+      items: { select: { id: true, title: true, status: true } },
+    },
+    orderBy: { updatedAt: "desc" },
+    take: limit,
+  });
+
+  const sorted = [...rows].sort((a, b) => {
+    if (a.status === b.status) return 0;
+    if (a.status === "live") return -1;
+    if (b.status === "live") return 1;
+    return 0;
+  });
+
+  const rooms = sorted.map((r) => {
+    const active = r.items.find((i) => i.status === "active");
+    return {
+      id: r.id,
+      title: r.title,
+      description: r.description,
+      category: r.category,
+      roomType: r.roomType,
+      status: r.status,
+      thumbnailUrl: r.thumbnailUrl,
+      viewerCount: r.viewerCount,
+      scheduledStartAt: r.scheduledStartAt?.toISOString() ?? null,
+      startedAt: r.startedAt?.toISOString() ?? null,
+      endedAt: r.endedAt?.toISOString() ?? null,
+      sellerUsername: r.seller.username,
+      itemCount: r.items.length,
+      activeItemTitle: active?.title ?? null,
+      teamBoardLeague: r.teamBoardLeague,
+    };
+  });
+
+  return NextResponse.json({ rooms });
+}
+
+type PostBody = {
+  title?: string;
+  description?: string;
+  category?: string;
+  roomType?: string;
+  thumbnailUrl?: string;
+  scheduledStartAt?: string | null;
+  /** Required when roomType is `break`: nfl | nba | mlb */
+  teamBoardLeague?: string;
+  /** Break: number of spots (e.g. 30). */
+  breakTotalSpots?: number | null;
+  /** Break: `fixed` or `auction` spot pricing intent. */
+  breakPricingMode?: string;
+  /** Break: spot price when `breakPricingMode` is `fixed`. */
+  breakSpotPriceUsd?: number | null;
+  /** Break: when false, team board starts hidden for the stream. Default true. */
+  teamSelectionBoardEnabled?: boolean;
+};
+
+export async function POST(req: Request) {
+  const session = await getServerSessionSafe();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Sign in to create a live room." }, { status: 401 });
+  }
+
+  let body: PostBody;
+  try {
+    body = (await req.json()) as PostBody;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const title = typeof body.title === "string" ? body.title.trim() : "";
+  if (!title) return NextResponse.json({ error: "Title is required." }, { status: 400 });
+
+  const roomType = typeof body.roomType === "string" ? body.roomType.trim() : "";
+  if (!ROOM_TYPES.includes(roomType as LiveRoomType)) {
+    return NextResponse.json({ error: "Invalid roomType." }, { status: 400 });
+  }
+
+  const description = typeof body.description === "string" ? body.description.trim().slice(0, 4000) : "";
+  const category = typeof body.category === "string" ? body.category.trim().slice(0, 64) : "Other";
+  const thumbnailUrl = typeof body.thumbnailUrl === "string" ? body.thumbnailUrl.trim().slice(0, 50000) : "";
+
+  let scheduledStartAt: Date | null = null;
+  if (body.scheduledStartAt) {
+    const d = new Date(body.scheduledStartAt);
+    if (!Number.isNaN(d.getTime())) scheduledStartAt = d;
+  }
+
+  const rt = roomType as LiveRoomType;
+  let teamBoardLeague: TeamBoardLeague = "nba";
+  let breakTotalSpots: number | undefined;
+  let breakSpotPriceUsd: number | null | undefined;
+  if (rt === "break") {
+    const rawLg = typeof body.teamBoardLeague === "string" ? body.teamBoardLeague.trim() : "";
+    const p = parseTeamBoardLeague(rawLg);
+    if (!p) {
+      return NextResponse.json(
+        { error: "Break rooms require teamBoardLeague (nfl, nba, or mlb)." },
+        { status: 400 },
+      );
+    }
+    teamBoardLeague = p;
+
+    const spotsRaw = body.breakTotalSpots;
+    if (spotsRaw != null) {
+      const n = typeof spotsRaw === "number" ? spotsRaw : Number(spotsRaw);
+      if (Number.isFinite(n) && n >= 1 && n <= 512) {
+        breakTotalSpots = Math.floor(n);
+      }
+    }
+
+    const mode = typeof body.breakPricingMode === "string" ? body.breakPricingMode.trim().toLowerCase() : "fixed";
+    if (mode === "auction") {
+      breakSpotPriceUsd = null;
+    } else {
+      const pr = body.breakSpotPriceUsd;
+      const px = typeof pr === "number" && Number.isFinite(pr) ? pr : pr != null ? Number(pr) : NaN;
+      breakSpotPriceUsd = Number.isFinite(px) && px > 0 ? px : null;
+    }
+  }
+
+  const teamSelectionBoardEnabled = body.teamSelectionBoardEnabled !== false;
+
+  if (isDevTempNoDatabaseMode()) {
+    return NextResponse.json(
+      {
+        error:
+          "Live room creation needs Postgres. Remove GV_DEV_TEMP_NO_DB from .env.local (or set it to anything other than 1) and ensure DATABASE_URL is valid.",
+        code: "NO_DATABASE",
+      },
+      { status: 503 },
+    );
+  }
+
+  const createDebug = process.env.LIVE_CREATE_DEBUG === "1";
+  const logCreate = (msg: string, extra?: Record<string, unknown>) => {
+    if (createDebug) console.info("[api POST /api/live-rooms]", msg, { sellerId: session.user.id, roomType: rt, ...extra });
+  };
+
+  const roomData = {
+    sellerId: session.user.id,
+    title: title.slice(0, 200),
+    description,
+    category: category || "Other",
+    roomType: rt,
+    status: "scheduled" as const,
+    thumbnailUrl,
+    scheduledStartAt,
+    teamBoardLeague,
+    ...(rt === "break"
+      ? {
+          ...(breakTotalSpots != null ? { breakTotalSpots } : {}),
+          breakSpotPriceUsd: breakSpotPriceUsd ?? null,
+        }
+      : {}),
+  };
+
+  const createPayloadForLog = {
+    sellerId: roomData.sellerId,
+    roomType: roomData.roomType,
+    titleLen: roomData.title.length,
+    category: roomData.category,
+    descriptionLen: roomData.description.length,
+    thumbnailUrlLen: roomData.thumbnailUrl.length,
+    hasScheduledStartAt: Boolean(roomData.scheduledStartAt),
+    teamBoardLeague: roomData.teamBoardLeague,
+    ...(rt === "break"
+      ? {
+          breakTotalSpots: "breakTotalSpots" in roomData ? (roomData as { breakTotalSpots?: number }).breakTotalSpots : undefined,
+          breakSpotPriceUsd: "breakSpotPriceUsd" in roomData ? (roomData as { breakSpotPriceUsd?: number | null }).breakSpotPriceUsd : undefined,
+        }
+      : {}),
+  };
+
+  const sellerRow = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { id: true, email: true },
+  });
+  if (!sellerRow) {
+    console.warn("[api POST /api/live-rooms] seller user missing in database (preflight)", {
+      sessionUserId: session.user.id,
+      createPayloadForLog,
+    });
+    logCreate("seller_user_missing_preflight", { sessionUserId: session.user.id, createPayloadForLog });
+    return NextResponse.json(
+      {
+        error:
+          "Your account exists in the session but not in this database. Sign out and back in, or use the correct DATABASE_URL.",
+        code: "SELLER_USER_MISSING_IN_DB",
+      },
+      { status: 400 },
+    );
+  }
+  logCreate("preflight_ok", { sellerUserId: sellerRow.id, sellerEmailDomain: sellerRow.email?.split("@")[1] ?? null });
+
+  try {
+    if (rt === "break") {
+      const created = await prisma.$transaction(async (tx) => {
+        const r = await tx.liveRoom.create({
+          data: roomData,
+          select: { id: true },
+        });
+        await tx.liveRoomTeamBoard.create({
+          data: {
+            liveRoomId: r.id,
+            league: teamBoardLeague,
+            visible: teamSelectionBoardEnabled,
+          },
+        });
+        return r;
+      });
+      logCreate("created_break", { id: created.id });
+      return NextResponse.json({ id: created.id });
+    }
+
+    const room = await prisma.liveRoom.create({
+      data: roomData,
+      select: { id: true },
+    });
+    logCreate("created", { id: room.id });
+    return NextResponse.json({ id: room.id });
+  } catch (e) {
+    const prismaDto = serializePrismaClientError(e);
+    const hint = prismaLiveRoomCreateHint(prismaDto);
+    console.error("[api POST /api/live-rooms] create failed", {
+      prisma: prismaDto,
+      createPayloadForLog,
+      raw: e,
+    });
+    logCreate("create_failed", { prisma: prismaDto, createPayloadForLog, hint });
+    return NextResponse.json(
+      {
+        error: "Could not create live room in the database. See prisma details below.",
+        prisma: prismaDto,
+        hint,
+        /** Full message for clients that do not read `prisma.message` separately */
+        detail: prismaDto.message,
+      },
+      { status: 500 },
+    );
+  }
+}

@@ -1,0 +1,19 @@
+import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
+
+export function mergeLiveRoomMessagesById(
+  prev: LiveRoomMessageDTO[],
+  incoming: LiveRoomMessageDTO[],
+): LiveRoomMessageDTO[] {
+  const map = new Map<string, LiveRoomMessageDTO>();
+  for (const m of prev) map.set(m.id, m);
+  for (const m of incoming) map.set(m.id, m);
+  return [...map.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export function appendLiveRoomMessageDedupe(
+  prev: LiveRoomMessageDTO[],
+  next: LiveRoomMessageDTO,
+): LiveRoomMessageDTO[] {
+  if (prev.some((m) => m.id === next.id)) return prev;
+  return [...prev, next].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}

@@ -1,0 +1,50 @@
+{
+  "name": "mobile",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "db:login": "npx supabase --workdir .. login",
+    "db:link": "npx supabase --workdir .. link",
+    "db:push": "npx supabase --workdir .. db push",
+    "db:push:dry": "npx supabase --workdir .. db push --dry-run"
+  },
+  "dependencies": {
+    "@babel/core": "^7.26.0",
+    "@babel/runtime": "^7.29.2",
+    "@expo/vector-icons": "^15.0.3",
+    "@react-navigation/bottom-tabs": "^7.16.0",
+    "@react-navigation/native": "^7.2.4",
+    "@react-navigation/native-stack": "^7.15.0",
+    "@supabase/supabase-js": "^2.105.4",
+    "babel-preset-expo": "~54.0.10",
+    "expo": "~54.0.33",
+    "expo-blur": "~15.0.8",
+    "expo-file-system": "~19.0.22",
+    "expo-haptics": "~15.0.8",
+    "expo-image-picker": "~17.0.11",
+    "expo-linear-gradient": "~15.0.8",
+    "expo-status-bar": "~3.0.9",
+    "expo-web-browser": "^55.0.16",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-draggable-flatlist": "^4.0.3",
+    "react-native-gesture-handler": "~2.28.0",
+    "react-native-pager-view": "6.9.1",
+    "react-native-reanimated": "~4.1.1",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-screens": "~4.16.0",
+    "react-native-svg": "15.12.1",
+    "react-native-worklets": "0.5.1",
+    "react-refresh": "^0.18.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.1.0",
+    "react-native-svg-transformer": "^1.5.3",
+    "typescript": "~5.9.2"
+  },
+  "private": true
+}

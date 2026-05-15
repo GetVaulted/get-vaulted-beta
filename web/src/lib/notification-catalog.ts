@@ -1,0 +1,71 @@
+/** Stable `Notification.type` values used across the app (subset for UI grouping). */
+export type NotificationLane = "buying" | "selling" | "other";
+
+const BUYING_TYPES = new Set<string>([
+  "auction_outbid",
+  "auction_won",
+  "purchase_complete",
+  "order_payment_required",
+  "order_shipped",
+  "order_label_created",
+  "order_in_transit",
+  "order_delivered",
+  "auction_payment_expired",
+  "offer_accepted",
+  "offer_received",
+  "counteroffer_received",
+  "offer_declined",
+  "break_spot_paid",
+  "message_received",
+]);
+
+const SELLING_TYPES = new Set<string>([
+  "auction_pending_payment",
+  "auction_payment_expired_seller",
+  "item_sold",
+  "seller_ready_to_ship",
+  "seller_label_created",
+  "seller_order_delivered",
+  "stripe_dispute",
+]);
+
+export function notificationLane(type: string): NotificationLane {
+  if (BUYING_TYPES.has(type)) return "buying";
+  if (SELLING_TYPES.has(type)) return "selling";
+  return "other";
+}
+
+export function notificationLaneLabel(lane: NotificationLane): string {
+  if (lane === "buying") return "Buying";
+  if (lane === "selling") return "Selling";
+  return "Account";
+}
+
+/** Short label for chips / filters (maps legacy + new types). */
+export function notificationTypeChip(type: string): string {
+  const map: Record<string, string> = {
+    auction_outbid: "Outbid",
+    auction_won: "Auction won",
+    auction_pending_payment: "Payment pending",
+    auction_payment_expired: "Payment expired",
+    auction_payment_expired_seller: "Winner unpaid",
+    purchase_complete: "Paid",
+    order_payment_required: "Pay now",
+    order_shipped: "Shipped",
+    order_label_created: "Label created",
+    order_in_transit: "In transit",
+    order_delivered: "Delivered",
+    item_sold: "Sold",
+    seller_ready_to_ship: "Ready to ship",
+    seller_label_created: "Label created",
+    seller_order_delivered: "Delivered",
+    offer_accepted: "Offer accepted",
+    offer_received: "Offer",
+    counteroffer_received: "Counter",
+    offer_declined: "Declined",
+    break_spot_paid: "Break",
+    message_received: "Message",
+    stripe_dispute: "Dispute",
+  };
+  return map[type] ?? type.replace(/_/g, " ");
+}

@@ -1,0 +1,947 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum BuyingFormat {
+  buy_now
+  auction
+}
+
+enum ListingStatus {
+  draft
+  active
+  sold
+  auction_live
+  /// Auction time ended; winner must complete Stripe checkout before transfer.
+  awaiting_auction_payment
+  /// Winner did not pay within the payment window; listing is not sold.
+  auction_ended_unpaid
+}
+
+enum UserRole {
+  user
+  admin
+}
+
+enum LiveRoomType {
+  auction
+  sale
+  break
+}
+
+enum LiveRoomStatus {
+  scheduled
+  live
+  ended
+}
+
+enum LiveStreamProvider {
+  none
+  aws_ivs
+}
+
+enum LiveStreamHealth {
+  not_provisioned
+  offline
+  connecting
+  live
+  ended
+  error
+}
+
+enum LiveRoomItemStatus {
+  queued
+  active
+  sold
+  skipped
+}
+
+enum LiveRoomMessageType {
+  chat
+  bid
+  purchase
+  system
+}
+
+enum BreakFormat {
+  pick_your_team
+  random_teams
+  random_divisions
+}
+
+/// Host workflow for a break spot claim (distinct from queue item status).
+enum BreakSpotClaimStatus {
+  confirmed
+  paid
+  locked
+  released
+}
+
+enum TeamBoardLeague {
+  nfl
+  nba
+  mlb
+}
+
+/// How marketplace order payment is collected.
+enum OrderPaymentMethod {
+  stripe
+  escrow
+}
+
+/// High-value escrow lifecycle (provider-agnostic names).
+enum EscrowStatus {
+  pending
+  buyer_paid
+  seller_shipped
+  delivered
+  inspection_period
+  approved
+  funds_released
+  disputed
+  cancelled
+}
+
+/// Short-lived reservation to prevent cross-channel oversell (live, checkout, offers).
+enum LiveAuctionInventoryHoldStatus {
+  active
+  consumed
+  released
+  expired
+}
+
+enum ShippingCategory {
+  raw_card
+  slab
+  small_collectible
+  custom
+}
+
+enum AddressType {
+  shipping
+  return
+  billing
+  ship_from
+}
+
+enum TradeOfferStatus {
+  pending
+  countered
+  accepted
+  completed
+  declined
+  cancelled
+  expired
+}
+
+enum TradeItemSide {
+  proposer
+  recipient
+}
+
+enum TradeOfferEventType {
+  offer_created
+  offer_countered
+  offer_accepted
+  offer_declined
+  offer_cancelled
+  offer_expired
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  username      String    @unique
+  passwordHash  String?
+  name          String?
+  image         String?
+  emailVerified DateTime?
+  role          UserRole  @default(user)
+  suspendedAt   DateTime?
+  /// Stripe Connect Express / Standard connected account id (`acct_...`).
+  stripeAccountId           String?
+  /// True when Stripe reports charges enabled and payouts ready for selling.
+  stripeOnboardingComplete  Boolean   @default(false)
+  /// Stripe Customer id (`cus_...`) for buyer saved payment methods (auction / checkout).
+  stripeCustomerId          String?
+  /// Seller ship-from (origin) for Shippo label purchase.
+  shipFromName    String?
+  shipFromStreet  String?
+  shipFromCity    String?
+  shipFromState   String?
+  shipFromZip     String?
+  shipFromCountry String?
+  defaultShipFromAddressId String?
+  defaultShipFromAddress   Address? @relation("UserDefaultShipFromAddress", fields: [defaultShipFromAddressId], references: [id], onDelete: SetNull)
+  /// Trustap external user id (`1-…`) when this user participates in escrow as seller (or linked buyer).
+  trustapUserId String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  listings      Listing[]       @relation("SellerListings")
+  bids          Bid[]
+  offers        Offer[]         @relation("OfferBuyer")
+  sellerOffers  Offer[]       @relation("OfferSeller")
+  orders        Order[]         @relation("OrderBuyer")
+  sales         Order[]         @relation("OrderSeller")
+  watchlist       WatchlistItem[]
+  messagesSent    Message[]       @relation("MsgSender")
+  messagesRecv    Message[]       @relation("MsgRecipient")
+  threadsAsBuyer  MessageThread[] @relation("ThreadBuyer")
+  threadsAsSeller MessageThread[] @relation("ThreadSeller")
+  notifications   Notification[]
+  liveRooms       LiveRoom[]
+  liveRoomMessages LiveRoomMessage[]
+  breakSpots      BreakSpot[]
+  breakHitsBuyer  BreakHit[] @relation("BreakHitBuyer")
+  hitClipsAsSeller HitClip[] @relation("HitClipSeller")
+  hitClipsAsBuyer  HitClip[] @relation("HitClipBuyer")
+  sellerFollowsAsFollower SellerFollow[] @relation("SellerFollowFollower")
+  sellerFollowsAsSeller   SellerFollow[] @relation("SellerFollowSeller")
+  teamBoardPicks          LiveRoomTeamBoardPick[]
+  teamBoardAsPicker       LiveRoomTeamBoard[]     @relation("LiveRoomTeamBoardPicker")
+  sellerCommerceEvents    SellerCommerceEvent[]   @relation("SellerCommerceEvents")
+  liveShippingSessionsAsBuyer LiveShippingSession[] @relation("LiveShippingSessionsBuyer")
+  liveShippingSessionsAsSeller LiveShippingSession[] @relation("LiveShippingSessionsSeller")
+  addresses     Address[] @relation("UserAddresses")
+  tradeOffersSent     TradeOffer[]     @relation("TradeOfferProposer")
+  tradeOffersReceived TradeOffer[]     @relation("TradeOfferRecipient")
+  tradeOfferItems     TradeOfferItem[] @relation("TradeOfferItemOwner")
+  tradeOfferEvents    TradeOfferEvent[] @relation("TradeOfferEventActor")
+  emailVerificationCodes EmailVerificationCode[]
+  liveAuctionProxyBids LiveAuctionProxyBid[]
+  liveAuctionInventoryHolds LiveAuctionInventoryHold[]
+}
+
+/// Single-use email verification OTP for signup (hashed at rest; expires).
+model EmailVerificationCode {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash   String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+  @@index([userId, consumedAt])
+}
+
+model Address {
+  id        String      @id @default(cuid())
+  userId    String
+  user      User        @relation("UserAddresses", fields: [userId], references: [id], onDelete: Cascade)
+  type      AddressType
+  name      String
+  fullName  String
+  company   String?
+  line1     String
+  line2     String?
+  city      String
+  state     String
+  postalCode String
+  country   String      @default("US")
+  phone     String?
+  email     String?
+  isDefault Boolean     @default(false)
+  isVerified Boolean    @default(false)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  defaultForUsers User[] @relation("UserDefaultShipFromAddress")
+  listings       Listing[] @relation("ListingShipFromAddress")
+  buyerOrders    Order[]   @relation("OrderBuyerAddress")
+  sellerOrders   Order[]   @relation("OrderSellerShipFromAddress")
+
+  @@index([userId, type, isDefault])
+}
+
+/// Seller-visible timeline (auction recovery, payment expiry, etc.).
+model SellerCommerceEvent {
+  id        String   @id @default(cuid())
+  sellerId  String
+  seller    User     @relation("SellerCommerceEvents", fields: [sellerId], references: [id], onDelete: Cascade)
+  listingId String?
+  orderId   String?
+  kind      String
+  title     String
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([sellerId, createdAt])
+  @@index([listingId])
+}
+
+model SellerFollow {
+  id          String   @id @default(cuid())
+  followerId  String
+  sellerId    String
+  follower    User     @relation("SellerFollowFollower", fields: [followerId], references: [id], onDelete: Cascade)
+  seller      User     @relation("SellerFollowSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, sellerId])
+  @@index([sellerId])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  href      String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+}
+
+model Listing {
+  id                  String         @id @default(cuid())
+  sellerId            String
+  seller              User           @relation("SellerListings", fields: [sellerId], references: [id], onDelete: Cascade)
+  title               String
+  description         String         @default("")
+  category            String
+  condition           String
+  buyingFormat        BuyingFormat
+  priceUsd            Float
+  startingBidUsd      Float?
+  currentBidUsd       Float?
+  allowOffers         Boolean        @default(false)
+  acceptTradeOffers   Boolean        @default(false)
+  minimumOfferUsd     Float?
+  status              ListingStatus  @default(draft)
+  shippingPriceUsd    Float          @default(0)
+  handlingTime        String         @default("")
+  signatureRequired   Boolean        @default(false)
+  reservePriceUsd     Float?
+  auctionDurationDays Int?
+  auctionEndsAt       DateTime?
+  viewsCount          Int            @default(0)
+  watchersCount       Int            @default(0)
+  vaultPick           Boolean        @default(false)
+  /// Official company / merch listing — no marketplace platform fee on checkout (admin-only flag).
+  isCompanyListing    Boolean        @default(false)
+  /// Hidden from marketplace when set (admin moderation)
+  moderationRemovedAt DateTime?
+  adminReviewedAt     DateTime?
+  /// Single autosave slot per seller (Create Listing draft)
+  workspaceKey        String?
+  /// Parcel dimensions/weight for Shippo (imperial). Optional until seller fills for physical checkout.
+  parcelWeightOz   Float?
+  parcelLengthIn   Float?
+  parcelWidthIn    Float?
+  parcelHeightIn   Float?
+  /// Buyer-facing live shipping profile (separate from Shippo parcel/label weight).
+  shippingCategory            ShippingCategory @default(raw_card)
+  shippingBaseWeightOz        Float            @default(4)
+  shippingIncrementalWeightOz Float            @default(1)
+  shippingPriceCapCents       Int?
+  shipAlone                   Boolean          @default(false)
+  shipFromAddressId      String?
+  shipFromAddress        Address?       @relation("ListingShipFromAddress", fields: [shipFromAddressId], references: [id], onDelete: SetNull)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  images    ListingImage[]
+  offers    Offer[]
+  bids      Bid[]
+  orders    Order[]
+  watchlist      WatchlistItem[]
+  messages       Message[]
+  messageThreads MessageThread[]
+  liveRoomItems  LiveRoomItem[]
+  liveShippingSessionItems LiveShippingSessionItem[]
+  incomingTradeOffers TradeOffer[]     @relation("TradeOfferTargetListing")
+  tradeOfferItems     TradeOfferItem[] @relation("TradeOfferItemListing")
+  inventoryHolds      LiveAuctionInventoryHold[]
+
+  @@unique([sellerId, workspaceKey])
+}
+
+model TradeOffer {
+  id String @id @default(cuid())
+  targetListingId String
+  targetListing   Listing @relation("TradeOfferTargetListing", fields: [targetListingId], references: [id], onDelete: Cascade)
+  proposerId String
+  proposer   User   @relation("TradeOfferProposer", fields: [proposerId], references: [id], onDelete: Cascade)
+  recipientId String
+  recipient   User   @relation("TradeOfferRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  status TradeOfferStatus @default(pending)
+  proposerCashUsd Float @default(0)
+  recipientCashUsd Float @default(0)
+  messageToRecipient String?
+  // Future hook only: optional trade-linked conversation id.
+  // MVP keeps chat disabled; structured offer state + timeline are authoritative.
+  // Any future messaging must remain participant-scoped from the trade detail page.
+  conversationId String?
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items  TradeOfferItem[]
+  events TradeOfferEvent[]
+
+  @@index([targetListingId, status, createdAt])
+  @@index([proposerId, status, createdAt])
+  @@index([recipientId, status, createdAt])
+  @@index([status, updatedAt])
+  @@index([conversationId])
+  @@index([expiresAt])
+}
+
+model TradeOfferItem {
+  id String @id @default(cuid())
+  tradeOfferId String
+  tradeOffer   TradeOffer @relation(fields: [tradeOfferId], references: [id], onDelete: Cascade)
+  side TradeItemSide
+  ownerUserId String
+  ownerUser   User @relation("TradeOfferItemOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  listingId String
+  listing   Listing @relation("TradeOfferItemListing", fields: [listingId], references: [id], onDelete: Restrict)
+  quantity Int @default(1)
+  // Snapshot fields preserve offer integrity if source listing changes.
+  listingTitleSnapshot String
+  listingImageUrlSnapshot String?
+  listingCategorySnapshot String
+  listingConditionSnapshot String
+  listingPriceUsdSnapshot Float
+  createdAt DateTime @default(now())
+
+  @@index([tradeOfferId, side])
+  @@index([ownerUserId, createdAt])
+  @@index([listingId])
+  @@unique([tradeOfferId, side, listingId])
+}
+
+model TradeOfferEvent {
+  id String @id @default(cuid())
+  tradeOfferId String
+  tradeOffer   TradeOffer @relation(fields: [tradeOfferId], references: [id], onDelete: Cascade)
+  type TradeOfferEventType
+  actorUserId String?
+  actorUser   User? @relation("TradeOfferEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  note String?
+  createdAt DateTime @default(now())
+
+  @@index([tradeOfferId, createdAt])
+  @@index([actorUserId, createdAt])
+}
+
+model LiveRoom {
+  id                 String         @id @default(cuid())
+  sellerId           String
+  seller             User           @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  title              String
+  description        String         @default("")
+  /// Browse / filter bucket (matches live directory chips)
+  category           String         @default("Other")
+  roomType           LiveRoomType
+  status             LiveRoomStatus @default(scheduled)
+  thumbnailUrl       String         @default("")
+  viewerCount        Int            @default(0)
+  streamProvider     LiveStreamProvider @default(none)
+  streamHealth       LiveStreamHealth   @default(not_provisioned)
+  ivsChannelArn      String?
+  ivsChannelName     String?
+  ivsPlaybackUrl     String?
+  ivsIngestEndpoint  String?
+  ivsStreamKeyArn    String?
+  ivsStreamKeyCreatedAt DateTime?
+  streamStartedAt    DateTime?
+  streamEndedAt      DateTime?
+  lastIvsStatusSyncAt DateTime?
+  lastIvsError       String?
+  scheduledStartAt   DateTime?
+  startedAt          DateTime?
+  endedAt            DateTime?
+  /// Monotonic room-state version for realtime ordering/reconciliation.
+  roomVersion        Int            @default(0)
+  /// Monotonic per-room auction event sequence (`LiveAuctionEvent.seq`); canonical ordering for fan-out.
+  auctionEventSeq    Int            @default(0)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  /// Break host console — setup & randomization (break rooms only).
+  breakFormat               BreakFormat @default(pick_your_team)
+  /// When set, shown in host console / feed; falls back to `title` if empty.
+  breakDisplayTitle         String      @default("")
+  breakSpotPriceUsd         Float?
+  breakTotalSpots           Int?
+  /// JSON string[] team / spot labels for random modes.
+  breakTeamLabelsJson       String      @default("[]")
+  breakFilledLockedAt       DateTime?
+  assignmentsLockedAt     DateTime?
+  randomizedAt            DateTime?
+  randomizationSeed       String?
+  randomizationPreviewJson String?
+  randomizationResultJson String?
+  lockPurchases           Boolean     @default(false)
+  breakPaused             Boolean     @default(false)
+  /// PYT team board organization (break rooms). Set at room creation.
+  teamBoardLeague         TeamBoardLeague @default(nba)
+
+  items      LiveRoomItem[]
+  messages   LiveRoomMessage[]
+  breakSpots BreakSpot[]
+  breakHits  BreakHit[]
+  hitClips   HitClip[]
+  teamBoard  LiveRoomTeamBoard?
+  shippingSessions LiveShippingSession[]
+  auctionEvents LiveAuctionEvent[]
+  proxyBids LiveAuctionProxyBid[]
+
+  @@index([sellerId, status])
+  @@index([status, scheduledStartAt])
+}
+
+/// Durable canonical auction fan-out stream (per room). `seq` is monotonic per `liveRoomId`.
+/// `publishedAt` null = pending flush to realtime gateways.
+model LiveAuctionEvent {
+  id          String    @id @default(cuid())
+  liveRoomId  String
+  liveRoom    LiveRoom  @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  seq         Int
+  eventType   String
+  itemId      String?
+  payload     Json
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([liveRoomId, seq])
+  @@index([liveRoomId, publishedAt, seq])
+}
+
+/// Idempotent bid POST responses (`Idempotency-Key` header).
+model LiveBidIdempotency {
+  id         String   @id @default(cuid())
+  userId     String
+  liveRoomId String
+  itemId     String
+  key        String
+  statusCode Int
+  body       Json
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, liveRoomId, itemId, key])
+  @@index([createdAt])
+}
+
+/// Cross-channel inventory reservation (listing = single sellable unit in current schema).
+/// Partial unique indexes (Postgres) enforce at most one `active` hold per `listingId` / host `liveRoomItemId` — see migration SQL.
+model LiveAuctionInventoryHold {
+  id             String                         @id @default(cuid())
+  listingId      String?
+  listing        Listing?                       @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  liveRoomItemId String?
+  liveRoomItem   LiveRoomItem?                  @relation(fields: [liveRoomItemId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status         LiveAuctionInventoryHoldStatus @default(active)
+  /// e.g. `buy_now_checkout`, `auction_win_order`, `offer_accept`
+  source         String
+  units          Int                            @default(1)
+  idempotencyKey String?
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  releasedAt     DateTime?
+  orderId        String?
+  order          Order?                         @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  createdAt      DateTime                       @default(now())
+  updatedAt      DateTime                       @updatedAt
+
+  @@index([listingId, status])
+  @@index([liveRoomItemId, status])
+  @@index([status, expiresAt])
+  @@index([userId, listingId, status])
+}
+
+/// Buyer max (proxy) bid ceiling for live-room items without marketplace listing sync (host lots).
+/// Listing-backed lots use marketplace `Bid` / `placeListingBid` only — proxy rows are ignored there.
+model LiveAuctionProxyBid {
+  id             String       @id @default(cuid())
+  liveRoomId     String
+  liveRoom       LiveRoom     @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  liveRoomItemId String
+  liveRoomItem   LiveRoomItem @relation(fields: [liveRoomItemId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  maxAmountUsd   Float
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([liveRoomItemId, userId])
+  @@index([liveRoomItemId])
+}
+
+/// On-stream PYT team selection board (break rooms). One row per room.
+model LiveRoomTeamBoard {
+  liveRoomId          String          @id
+  liveRoom            LiveRoom        @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  league              TeamBoardLeague @default(nba)
+  visible             Boolean         @default(false)
+  locked              Boolean         @default(false)
+  currentPickerUserId String?
+  currentPicker       User?           @relation("LiveRoomTeamBoardPicker", fields: [currentPickerUserId], references: [id], onDelete: SetNull)
+  updatedAt           DateTime        @updatedAt
+
+  picks LiveRoomTeamBoardPick[]
+}
+
+model LiveRoomTeamBoardPick {
+  id         String          @id @default(cuid())
+  liveRoomId String
+  league     TeamBoardLeague
+  teamAbbr   String
+  userId     String
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pickedAt   DateTime        @default(now())
+  board      LiveRoomTeamBoard @relation(fields: [liveRoomId], references: [liveRoomId], onDelete: Cascade)
+
+  @@unique([liveRoomId, league, teamAbbr])
+  @@index([liveRoomId, league])
+}
+
+model LiveRoomItem {
+  id             String             @id @default(cuid())
+  liveRoomId     String
+  liveRoom       LiveRoom           @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  listingId      String?
+  listing        Listing?           @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  /// When the item has no `listingId`, host-settled auctions still need a winner id (see live bid route).
+  lastHighBidderId String?
+  title          String
+  /// Units represented by this queue row (one tile can show e.g. ×32).
+  quantity       Int                @default(1)
+  imageUrl       String             @default("")
+  priceUsd       Float?
+  startingBidUsd Float?
+  currentBidUsd  Float?
+  status         LiveRoomItemStatus @default(queued)
+  sortOrder      Int                @default(0)
+  /// NFL break: when true, MISC appears on the team board while this item is active.
+  teamBoardMisc  Boolean            @default(false)
+  /// Monotonic item-state version for realtime ordering/reconciliation.
+  itemVersion    Int                @default(0)
+  /// When the lot is `active`, host must set this true (via Start) before buyers can bid / claim for timed window.
+  biddingOpen    Boolean            @default(false)
+  /// When set and in the future, bidding is allowed until this instant (set together with `biddingOpen`).
+  auctionEndsAt  DateTime?
+  /// Clutch Time ON = no bid-time extension; OFF = bids refresh time-to-expiry to 10s.
+  clutchTimeEnabled Boolean        @default(false)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  breakHits      BreakHit[]
+
+  proxyBids         LiveAuctionProxyBid[]
+  inventoryHolds    LiveAuctionInventoryHold[]
+
+  @@index([liveRoomId, sortOrder])
+}
+
+/// PYT / break spot claims (placeholder commerce — no Order row).
+model BreakSpot {
+  id             String               @id @default(cuid())
+  liveRoomId     String
+  liveRoom       LiveRoom             @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  spotLabel      String
+  priceUsd       Float
+  /// Legacy string kept for migration; prefer `claimStatus`.
+  status         String               @default("confirmed")
+  claimStatus    BreakSpotClaimStatus @default(confirmed)
+  liveRoomItemId String?
+  paidAt         DateTime?
+  lockedAt       DateTime?
+  /// Stripe Checkout for this spot (no Order row; digital claim).
+  stripeCheckoutSessionId String?
+  stripePaymentIntentId   String?
+  breakPaymentStatus      String       @default("unpaid")
+  createdAt      DateTime             @default(now())
+
+  @@unique([liveRoomId, spotLabel])
+  @@index([liveRoomId])
+  @@index([userId])
+}
+
+/// Logged hits for host console / future clip pipeline.
+model BreakHit {
+  id             String        @id @default(cuid())
+  liveRoomId     String
+  liveRoom       LiveRoom      @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  liveRoomItemId String?
+  liveRoomItem   LiveRoomItem? @relation(fields: [liveRoomItemId], references: [id], onDelete: SetNull)
+  spotLabel      String        @default("")
+  buyerId        String?
+  buyer          User?         @relation("BreakHitBuyer", fields: [buyerId], references: [id], onDelete: SetNull)
+  title          String
+  notes          String        @default("")
+  imageUrl       String        @default("")
+  createdAt      DateTime      @default(now())
+
+  hitClip HitClip?
+
+  @@index([liveRoomId, createdAt])
+}
+
+/// Shareable highlight from a break hit (metadata now; optional `clipUrl` for future video).
+model HitClip {
+  id                String    @id @default(cuid())
+  liveRoomId        String
+  liveRoom          LiveRoom   @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  breakHitId        String?    @unique
+  breakHit          BreakHit?  @relation(fields: [breakHitId], references: [id], onDelete: SetNull)
+  sellerId          String
+  seller            User       @relation("HitClipSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  buyerId           String?
+  buyer             User?      @relation("HitClipBuyer", fields: [buyerId], references: [id], onDelete: SetNull)
+  title             String
+  description       String     @default("")
+  thumbnailUrl      String     @default("")
+  clipUrl           String?
+  itemTitle         String?
+  teamOrSpotLabel   String?
+  shareCount        Int        @default(0)
+  createdAt         DateTime   @default(now())
+
+  @@index([liveRoomId, createdAt])
+  @@index([sellerId, createdAt])
+}
+
+model LiveRoomMessage {
+  id          String              @id @default(cuid())
+  liveRoomId  String
+  liveRoom    LiveRoom            @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  senderId    String
+  sender      User                @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  body        String
+  messageType LiveRoomMessageType @default(chat)
+  createdAt   DateTime            @default(now())
+
+  @@index([liveRoomId, createdAt])
+}
+
+model ListingImage {
+  id        String   @id @default(cuid())
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  url       String
+  sortOrder Int      @default(0)
+}
+
+model Offer {
+  id               String   @id @default(cuid())
+  listingId        String
+  listing          Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  sellerId         String
+  seller           User     @relation("OfferSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  buyerId          String
+  buyer            User     @relation("OfferBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  amountUsd        Float
+  message          String?
+  status           String   @default("pending")
+  counterAmountUsd Float?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model Bid {
+  id         String   @id @default(cuid())
+  listingId  String
+  listing    Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  bidderId   String
+  bidder     User     @relation(fields: [bidderId], references: [id], onDelete: Cascade)
+  /// Public price on the listing after this bid event (proxy-visible amount).
+  amountUsd  Float
+  /// Bidder’s maximum (proxy); never exposed to other users via listing APIs.
+  maxBidUsd  Float?
+  /// Confirmed ship-to when bid was placed (marketplace); used if this bidder wins.
+  shipRecipientName String?
+  shipAddress         String?
+  shipCity            String?
+  shipState           String?
+  shipZip             String?
+  shipCountry         String?
+  /// Payment method label to charge when the bidder wins (e.g. placeholder until PSP is wired).
+  paymentLabel        String?
+  createdAt  DateTime @default(now())
+}
+
+model Order {
+  id        String   @id @default(cuid())
+  listingId String   @unique
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  buyerId   String
+  buyer     User     @relation("OrderBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  sellerId  String
+  seller    User     @relation("OrderSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  itemPriceUsd      Float
+  shippingPriceUsd  Float    @default(0)
+  /// Tax / fees placeholder (USD); included in Stripe line items when > 0.
+  taxUsd            Float    @default(0)
+  totalUsd          Float
+  /// Legacy lifecycle: pending → paid → shipped (mirrors fulfillment where applicable).
+  status            String   @default("pending")
+  /// Stripe payment lifecycle; webhooks are source of truth.
+  paymentStatus     String   @default("paid")
+  /// Shipment / label lifecycle.
+  fulfillmentStatus String   @default("pending")
+  shipRecipientName String
+  shipAddress       String
+  shipCity          String
+  shipState         String
+  shipZip           String
+  shipCountry       String
+  paymentLabel      String   @default("placeholder")
+  /// Marketplace: Stripe Checkout vs third-party escrow (e.g. Trustap).
+  paymentMethod           OrderPaymentMethod @default(stripe)
+  /// Escrow integration id (e.g. Trustap transaction id). Null when `paymentMethod` is stripe.
+  escrowProvider          String?
+  escrowTransactionId     String?
+  escrowStatus            EscrowStatus?
+  escrowCheckoutUrl       String?
+  /// Estimated escrow / protection fee charged to buyer (USD cents).
+  escrowFeeCents          Int                @default(0)
+  /// When escrow provider confirmed payout / release to seller.
+  fundsReleasedAt         DateTime?
+  /// Trustap guest buyer id (`1-…`) created for this checkout when using guest pay.
+  trustapBuyerUserId      String?
+  /// Admin: block buyer-initiated release until cleared.
+  escrowReleasePaused     Boolean            @default(false)
+  stripeCheckoutSessionId String?
+  stripePaymentIntentId   String?
+  /// When set (auction win unpaid), buyer must pay before this instant or the order expires.
+  paymentDeadlineAt       DateTime?
+  liveShippingSessionId   String?
+  liveShippingSession     LiveShippingSession? @relation(fields: [liveShippingSessionId], references: [id], onDelete: SetNull)
+  buyerAddressId          String?
+  buyerAddress            Address?    @relation("OrderBuyerAddress", fields: [buyerAddressId], references: [id], onDelete: SetNull)
+  sellerShipFromAddressId String?
+  sellerShipFromAddress   Address?    @relation("OrderSellerShipFromAddress", fields: [sellerShipFromAddressId], references: [id], onDelete: SetNull)
+  liveShippingSessionItem LiveShippingSessionItem?
+  inventoryHolds          LiveAuctionInventoryHold[]
+  shippoShipmentId        String?
+  shippoTransactionId     String?
+  carrier           String?
+  service           String?
+  trackingNumber    String?
+  trackingUrl       String?
+  labelUrl          String?
+  shippingStatus    String?
+  shippedAt         DateTime?
+  /// Buyer shipping paid on this order (cents), set when payment clears. For margin vs label cost.
+  shippingChargedCents   Int?
+  /// Carrier label price from Shippo (cents) when a label is purchased.
+  shippingLabelCostCents Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([escrowTransactionId])
+  @@index([liveShippingSessionId])
+}
+
+model LiveShippingSession {
+  id                String   @id @default(cuid())
+  buyerId           String
+  buyer             User     @relation("LiveShippingSessionsBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  sellerId          String
+  seller            User     @relation("LiveShippingSessionsSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  liveShowId        String
+  liveShow          LiveRoom @relation(fields: [liveShowId], references: [id], onDelete: Cascade)
+  destinationAddressId String?
+  pricingWeightOz   Float    @default(0)
+  shippingCostCents Int      @default(0)
+  capReached        Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  orders            Order[]
+  items             LiveShippingSessionItem[]
+
+  @@unique([buyerId, sellerId, liveShowId, destinationAddressId])
+  @@index([buyerId, liveShowId, sellerId])
+}
+
+model LiveShippingSessionItem {
+  id                  String              @id @default(cuid())
+  sessionId           String
+  session             LiveShippingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  orderId             String
+  order               Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  listingId           String
+  listing             Listing             @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  baseWeightOz        Float
+  incrementalWeightOz Float
+  appliedWeightOz     Float
+  createdAt           DateTime            @default(now())
+
+  @@unique([orderId])
+  @@index([sessionId, createdAt])
+}
+
+/// Inbound webhook audit trail (Stripe / Shippo). Inspect when debugging payment or tracking issues.
+model WebhookEventLog {
+  id          String   @id @default(cuid())
+  source      String
+  /// Provider event name, e.g. `checkout.session.completed` or `track_updated`.
+  eventType   String
+  /// Stripe event id when available; used for idempotency.
+  externalId  String?
+  payload     String   @default("")
+  processed   Boolean  @default(false)
+  error       String?
+  createdAt   DateTime @default(now())
+
+  @@index([source, createdAt])
+  @@index([source, externalId])
+}
+
+model WatchlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, listingId])
+}
+
+model MessageThread {
+  id        String    @id @default(cuid())
+  buyerId   String
+  sellerId  String
+  listingId String
+  buyer     User      @relation("ThreadBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  seller    User      @relation("ThreadSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  listing   Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  messages  Message[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([buyerId, sellerId, listingId])
+}
+
+model Message {
+  id          String          @id @default(cuid())
+  threadId    String
+  thread      MessageThread   @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderId    String
+  sender      User            @relation("MsgSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipientId String
+  recipient   User            @relation("MsgRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  listingId   String?
+  listing     Listing?        @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  body        String
+  readAt      DateTime?
+  createdAt   DateTime        @default(now())
+}

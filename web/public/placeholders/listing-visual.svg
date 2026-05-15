@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1100" viewBox="0 0 800 1100" role="img" aria-label="">
+  <defs>
+    <linearGradient id="gvListingBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#18181b" />
+      <stop offset="55%" style="stop-color:#0c0c0f" />
+      <stop offset="100%" style="stop-color:#09090b" />
+    </linearGradient>
+    <linearGradient id="gvListingFrame" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3f3f46;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#27272a;stop-opacity:0.95" />
+    </linearGradient>
+  </defs>
+  <rect width="800" height="1100" fill="url(#gvListingBg)" />
+  <rect x="140" y="220" width="520" height="660" rx="14" fill="url(#gvListingFrame)" stroke="#52525b" stroke-width="1.5" />
+  <rect x="200" y="320" width="400" height="460" rx="6" fill="#0a0a0c" stroke="#3f3f46" stroke-width="1" />
+  <circle cx="400" cy="520" r="72" fill="none" stroke="rgba(201,162,39,0.22)" stroke-width="2" />
+</svg>

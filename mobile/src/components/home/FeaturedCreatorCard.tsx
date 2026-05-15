@@ -1,0 +1,149 @@
+import { Ionicons } from '@expo/vector-icons';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { colors, radii, spacing, typography } from '../../theme';
+import type { FeaturedCreator } from '../../types';
+
+type Props = {
+  creator: FeaturedCreator;
+  onFollow: () => void;
+};
+
+export function FeaturedCreatorCard({ creator, onFollow }: Props) {
+  const { host, specialty, status, statusLabel } = creator;
+  const live = status === 'live';
+  const scheduled = status === 'scheduled';
+
+  return (
+    <View style={styles.card}>
+      <View style={styles.top}>
+        <Image source={{ uri: host.avatarUrl }} style={styles.avatar} />
+        <View style={{ flex: 1 }}>
+          <View style={styles.nameRow}>
+            <Text style={styles.name} numberOfLines={1}>
+              {host.name}
+            </Text>
+            {host.verified ? (
+              <View style={styles.verified}>
+                <Ionicons name="shield-checkmark" size={12} color={colors.gold} />
+              </View>
+            ) : null}
+          </View>
+          <Text style={styles.specialty} numberOfLines={1}>
+            {specialty}
+          </Text>
+          <Text style={styles.followers}>{host.followers} followers</Text>
+        </View>
+      </View>
+      <View style={[styles.statusPill, live && styles.statusLive, scheduled && styles.statusSoon]}>
+        <View style={[styles.statusDot, live && styles.statusDotOn]} />
+        <Text style={[styles.statusText, live && styles.statusTextLive]}>{statusLabel}</Text>
+      </View>
+      <Pressable style={styles.follow} onPress={onFollow}>
+        <Text style={styles.followText}>Follow</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  card: {
+    width: 260,
+    marginRight: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceElevated,
+    gap: spacing.md,
+  },
+  top: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  avatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 2,
+    borderColor: colors.borderStrong,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  name: {
+    color: colors.textPrimary,
+    fontSize: 17,
+    fontWeight: '800',
+    flexShrink: 1,
+  },
+  verified: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.goldSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+  },
+  specialty: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    marginTop: 4,
+  },
+  followers: {
+    color: colors.textMuted,
+    fontSize: 12,
+    marginTop: 4,
+  },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  statusLive: {
+    borderColor: colors.live,
+    backgroundColor: 'rgba(255, 59, 48, 0.12)',
+  },
+  statusSoon: {
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.goldSoft,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.textMuted,
+  },
+  statusDotOn: {
+    backgroundColor: colors.live,
+  },
+  statusText: {
+    ...typography.micro,
+    fontSize: 10,
+    color: colors.textMuted,
+  },
+  statusTextLive: {
+    color: colors.textPrimary,
+  },
+  follow: {
+    borderRadius: radii.md,
+    backgroundColor: colors.gold,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+  },
+  followText: {
+    color: '#0a0a0a',
+    fontWeight: '800',
+    fontSize: 14,
+  },
+});

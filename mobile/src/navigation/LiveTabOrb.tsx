@@ -1,0 +1,206 @@
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useEffect } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
+import { typography } from '../theme';
+
+const ORB = 54;
+const RING = 48;
+
+/** Deep control-room glass + amber broadcast edge — reads “on air” without flat app red. */
+const GRADIENT_ON = ['#03060c', '#0a1420', '#122438', '#8a5a12', '#e8b84a', '#fff2c4'] as const;
+const GRADIENT_OFF = ['#040608', '#0a1016', '#121a22', '#1a222c', '#222a32'] as const;
+
+type Props = {
+  isFocused: boolean;
+  onPress: () => void;
+  accessibilityLabel?: string;
+};
+
+export function LiveTabOrb({ isFocused, onPress, accessibilityLabel }: Props) {
+  const wave1 = useSharedValue(0);
+  const wave2 = useSharedValue(0);
+  const breathe = useSharedValue(1);
+  const halo = useSharedValue(0.4);
+
+  useEffect(() => {
+    const waveCfg = { duration: 2800, easing: Easing.out(Easing.cubic) };
+    wave1.value = withRepeat(withTiming(1, waveCfg), -1, false);
+    const t = setTimeout(() => {
+      wave2.value = withRepeat(withTiming(1, waveCfg), -1, false);
+    }, 1400);
+    breathe.value = withRepeat(
+      withSequence(
+        withTiming(1.05, { duration: 2100, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, { duration: 2100, easing: Easing.inOut(Easing.ease) }),
+      ),
+      -1,
+      true,
+    );
+    halo.value = withRepeat(
+      withSequence(
+        withTiming(0.78, { duration: 2500, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.36, { duration: 2500, easing: Easing.inOut(Easing.ease) }),
+      ),
+      -1,
+      true,
+    );
+    return () => clearTimeout(t);
+  }, []);
+
+  const ring1Style = useAnimatedStyle(() => ({
+    transform: [{ scale: 1 + wave1.value * 0.58 }],
+    opacity: 0.48 * (1 - wave1.value),
+  }));
+
+  const ring2Style = useAnimatedStyle(() => ({
+    transform: [{ scale: 1 + wave2.value * 0.58 }],
+    opacity: 0.38 * (1 - wave2.value),
+  }));
+
+  const orbScaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: breathe.value }],
+  }));
+
+  const haloStyle = useAnimatedStyle(() => ({
+    opacity: halo.value,
+  }));
+
+  return (
+    <View style={styles.slot}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={isFocused ? { selected: true } : {}}
+        accessibilityLabel={accessibilityLabel ?? 'Live'}
+        onPress={onPress}
+        style={({ pressed }) => [styles.press, pressed && styles.pressed]}
+      >
+        <View style={styles.orbStack}>
+          <Animated.View style={[styles.halo, haloStyle]} />
+          <Animated.View style={[styles.ring, ring1Style]} />
+          <Animated.View style={[styles.ring, ring2Style]} />
+
+          <Animated.View style={[styles.orbScale, orbScaleStyle, isFocused ? styles.orbGlowOn : styles.orbGlowOff]}>
+            <LinearGradient
+              colors={isFocused ? [...GRADIENT_ON] : [...GRADIENT_OFF]}
+              start={{ x: 0.12, y: 0 }}
+              end={{ x: 0.92, y: 1 }}
+              style={styles.orbOuter}
+            >
+              <LinearGradient
+                colors={['#070606', '#121010', '#080707']}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={styles.orbInner}
+              >
+                <Ionicons name="radio" size={24} color={isFocused ? '#FFF9EC' : 'rgba(255, 236, 200, 0.72)'} />
+              </LinearGradient>
+            </LinearGradient>
+          </Animated.View>
+        </View>
+
+        <Text style={[styles.liveLbl, isFocused && styles.liveLblOn]}>Live</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  slot: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    overflow: 'visible',
+    zIndex: 20,
+    paddingBottom: 4,
+  },
+  press: {
+    alignItems: 'center',
+    marginTop: -22,
+    zIndex: 2,
+  },
+  orbStack: {
+    width: 92,
+    height: 92,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ring: {
+    position: 'absolute',
+    width: RING,
+    height: RING,
+    borderRadius: RING / 2,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 210, 140, 0.42)',
+    backgroundColor: 'transparent',
+  },
+  halo: {
+    position: 'absolute',
+    width: ORB + 32,
+    height: ORB + 32,
+    borderRadius: (ORB + 32) / 2,
+    backgroundColor: 'rgba(255, 190, 110, 0.16)',
+    shadowColor: '#ffc86a',
+    shadowOpacity: 0.75,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  orbScale: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  orbGlowOn: {
+    shadowColor: '#ffc14a',
+    shadowOpacity: 0.55,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 14,
+  },
+  orbGlowOff: {
+    shadowColor: '#7a5a20',
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 10,
+  },
+  pressed: { opacity: 0.9 },
+  orbOuter: {
+    width: ORB,
+    height: ORB,
+    borderRadius: ORB / 2,
+    padding: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  orbInner: {
+    width: ORB - 6,
+    height: ORB - 6,
+    borderRadius: (ORB - 6) / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 210, 150, 0.35)',
+  },
+  liveLbl: {
+    marginTop: 4,
+    ...typography.micro,
+    fontSize: 10,
+    letterSpacing: 0.6,
+    color: 'rgba(255, 214, 160, 0.78)',
+    fontWeight: '800',
+  },
+  liveLblOn: {
+    color: '#FFE6B0',
+    textShadowColor: 'rgba(255, 200, 120, 0.45)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 10,
+  },
+});
