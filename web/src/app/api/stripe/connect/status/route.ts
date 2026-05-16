@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { connectFieldsFromStripeAccount, onboardingUiStatusFromPartial } from "@/lib/stripe-connect-account-map";
+import { linkStripeAccountFromEmailSiblingIfMissing } from "@/lib/link-stripe-account-from-email-sibling";
 import { requireUserIdFromSupabaseBearer } from "@/lib/require-supabase-bearer";
 import { prisma } from "@/lib/prisma";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
@@ -31,9 +32,10 @@ export async function GET(request: Request) {
   const auth = await requireUserIdFromSupabaseBearer(request);
   if (auth instanceof NextResponse) return auth;
 
-  const user = await prisma.user.findUnique({
+  let user = await prisma.user.findUnique({
     where: { id: auth.userId },
     select: {
+      email: true,
       stripeAccountId: true,
       stripeOnboardingComplete: true,
       stripeChargesEnabled: true,
@@ -45,6 +47,29 @@ export async function GET(request: Request) {
 
   if (!user) {
     return NextResponse.json({ error: "User not found." }, { status: 404 });
+  }
+
+  const linkedAccountId = await linkStripeAccountFromEmailSiblingIfMissing({
+    id: auth.userId,
+    email: user.email,
+    stripeAccountId: user.stripeAccountId,
+  });
+  if (linkedAccountId && !user.stripeAccountId?.trim()) {
+    user = await prisma.user.findUnique({
+      where: { id: auth.userId },
+      select: {
+        email: true,
+        stripeAccountId: true,
+        stripeOnboardingComplete: true,
+        stripeChargesEnabled: true,
+        stripePayoutsEnabled: true,
+        stripeRequirementsDue: true,
+        stripeVerificationStatus: true,
+      },
+    });
+    if (!user) {
+      return NextResponse.json({ error: "User not found." }, { status: 404 });
+    }
   }
 
   if (!isStripeConfigured()) {

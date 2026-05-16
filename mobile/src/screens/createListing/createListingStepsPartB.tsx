@@ -374,7 +374,7 @@ export function CreateListingReviewScreen({
 
     const token = session?.access_token;
     if (token) {
-      const st = await fetchSellerConnectStatus(token);
+      const { status: st } = await fetchSellerConnectStatus(token);
       if (st?.stripeConfigured && !st.can_publish_active_listings) {
         Alert.alert(
           'Finish payout setup',

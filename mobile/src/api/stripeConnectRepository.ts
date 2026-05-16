@@ -70,8 +70,13 @@ export function isSellerPayoutSetupComplete(status: SellerConnectStatusResponse 
 }
 
 /** Payout card badge: Not ready / Action required / Ready / Complete */
-export function sellerConnectBadge(status: SellerConnectStatusResponse | null | undefined): string {
-  if (!status) return 'Not ready';
+export function sellerConnectBadge(
+  status: SellerConnectStatusResponse | null | undefined,
+  options?: { fetchError?: string | null },
+): string {
+  if (!status) {
+    return options?.fetchError ? 'Unavailable' : 'Not ready';
+  }
   if (isSellerPayoutSetupComplete(status) || status.payout_setup_complete) return 'Complete';
   if (
     status.payout_setup_submitted ||
@@ -85,11 +90,18 @@ export function sellerConnectBadge(status: SellerConnectStatusResponse | null | 
     return 'Action required';
   }
   if (status.stripe_onboarding_complete) return 'Ready';
+  if (status.stripe_account_id?.trim()) return 'Ready';
   return 'Not ready';
 }
 
-export function sellerConnectDetailMessage(status: SellerConnectStatusResponse | null | undefined): string {
-  if (!status) return 'Complete Stripe once to publish active listings and go live as a seller.';
+export function sellerConnectDetailMessage(
+  status: SellerConnectStatusResponse | null | undefined,
+  options?: { fetchError?: string | null },
+): string {
+  if (!status) {
+    if (options?.fetchError?.trim()) return options.fetchError.trim();
+    return 'Complete Stripe once to publish active listings and go live as a seller.';
+  }
   if (!status.stripeConfigured) {
     return 'Stripe is not configured in this build — seller gates are relaxed for development.';
   }
@@ -118,17 +130,50 @@ async function getAccessToken(): Promise<string | null> {
   return data.session?.access_token ?? null;
 }
 
-export async function fetchSellerConnectStatus(accessToken?: string | null): Promise<SellerConnectStatusResponse | null> {
+export type SellerConnectFetchResult = {
+  status: SellerConnectStatusResponse | null;
+  error: string | null;
+};
+
+export async function fetchSellerConnectStatus(
+  accessToken?: string | null,
+): Promise<SellerConnectFetchResult> {
   const base = getWebApiBaseUrl();
-  if (!base) return null;
+  if (!base) {
+    return {
+      status: null,
+      error: 'Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your deployed Next.js API host.',
+    };
+  }
   const token = accessToken ?? (await getAccessToken());
-  if (!token) return null;
-  const res = await fetch(`${base}/api/stripe/connect/status`, {
-    method: 'GET',
-    headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return null;
-  return (await res.json()) as SellerConnectStatusResponse;
+  if (!token) return { status: null, error: null };
+  let res: Response;
+  try {
+    res = await fetchConnect(
+      '/api/stripe/connect/status',
+      {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+      },
+      base,
+    );
+  } catch (e) {
+    return {
+      status: null,
+      error: e instanceof Error ? e.message : 'Could not load payout status.',
+    };
+  }
+  if (!res.ok) {
+    let message = `Payout status failed (${res.status}). Pull to refresh or sign in again.`;
+    try {
+      const j = (await res.json()) as { error?: string };
+      if (typeof j.error === 'string' && j.error.trim()) message = j.error.trim();
+    } catch {
+      /* ignore */
+    }
+    return { status: null, error: message };
+  }
+  return { status: (await res.json()) as SellerConnectStatusResponse, error: null };
 }
 
 export async function createSellerOnboardingLink(accessToken?: string | null): Promise<{ url: string }> {

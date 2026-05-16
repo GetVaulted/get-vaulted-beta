@@ -134,7 +134,7 @@ export function SellerHubScreen() {
       if (result === 'success') {
         if (isSellerPayoutSetupComplete(latest)) {
           Alert.alert('Payout setup complete', 'Your payout status is Complete. You are ready to sell and go live.');
-        } else if (latest && sellerConnectBadge(latest) === 'Ready') {
+        } else if (latest && sellerConnectBadge(latest, { fetchError: sellerConnect.statusError }) === 'Ready') {
           Alert.alert('Payout setup received', 'Stripe has your details. Status is Ready — tap Refresh status if it does not update to Complete yet.');
         } else {
           Alert.alert(
@@ -465,10 +465,12 @@ function OverviewBody({
   stripeSetupBusy: boolean;
 }) {
   const status = sellerConnect.status;
-  const badge = sellerConnectBadge(status);
+  const fetchError = sellerConnect.statusError;
+  const badge = sellerConnectBadge(status, { fetchError });
   const payoutComplete = isSellerPayoutSetupComplete(status);
-  const detailLine = sellerConnectDetailMessage(status);
+  const detailLine = sellerConnectDetailMessage(status, { fetchError });
   const badgeReady = badge === 'Complete' || badge === 'Ready';
+  const showRefreshCta = badge === 'Ready' || badge === 'Unavailable';
 
   return (
     <View style={{ gap: spacing.lg }}>
@@ -490,7 +492,7 @@ function OverviewBody({
             <Ionicons name="checkmark-circle" size={22} color={colors.success} />
             <Text style={styles.payoutCompleteText}>You are ready to receive payouts.</Text>
           </View>
-        ) : badge === 'Ready' ? (
+        ) : showRefreshCta ? (
           <Pressable
             style={[styles.payoutRefreshCta, sellerConnect.loading && styles.payoutCtaDisabled]}
             onPress={() => void sellerConnect.refresh()}

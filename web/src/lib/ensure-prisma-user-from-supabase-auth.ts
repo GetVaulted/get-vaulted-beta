@@ -1,5 +1,6 @@
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js";
 import { prisma } from "@/lib/prisma";
+import { pickPrismaUserIdForSupabaseSession } from "@/lib/pick-prisma-user-for-supabase-auth";
 
 function normalizeEmail(email: string | undefined): string | null {
   const e = email?.trim().toLowerCase();
@@ -36,20 +37,28 @@ async function allocateUsername(base: string): Promise<string> {
  * - Else creates a minimal `User` with `id = supabaseUser.id` so mobile sessions stay aligned.
  */
 export async function ensurePrismaUserForSupabaseAuth(supabaseUser: SupabaseAuthUser): Promise<string | null> {
-  const existingId = await prisma.user.findUnique({
-    where: { id: supabaseUser.id },
-    select: { id: true },
-  });
-  if (existingId) return existingId.id;
-
   const email = normalizeEmail(supabaseUser.email ?? undefined);
-  if (!email) return null;
 
-  const existingEmail = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true },
+  const byId = await prisma.user.findUnique({
+    where: { id: supabaseUser.id },
+    select: { id: true, stripeAccountId: true },
   });
-  if (existingEmail) return existingEmail.id;
+
+  const byEmail = email
+    ? await prisma.user.findUnique({
+        where: { email },
+        select: { id: true, stripeAccountId: true },
+      })
+    : null;
+
+  const picked = pickPrismaUserIdForSupabaseSession({
+    supabaseUserId: supabaseUser.id,
+    byId,
+    byEmail,
+  });
+  if (picked) return picked;
+
+  if (!email) return null;
 
   const username = await allocateUsername(baseUsernameFromSupabaseUser(supabaseUser));
   const meta = supabaseUser.user_metadata as Record<string, unknown> | undefined;
