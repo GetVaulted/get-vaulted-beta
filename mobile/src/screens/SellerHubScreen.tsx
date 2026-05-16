@@ -157,6 +157,7 @@ export function SellerHubScreen() {
       case 'live':
         return (
           <LaunchVaultEventPanel
+            accessToken={session?.access_token}
             sellerConnect={sellerConnect}
             scheduleTitle={scheduleTitle}
             setScheduleTitle={setScheduleTitle}

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { LiveRoomType, Prisma, TeamBoardLeague } from "@/generated/prisma/client";
 import { getServerSessionSafe } from "@/lib/auth";
+import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { isDevTempNoDatabaseMode } from "@/lib/dev-temp-no-db";
 import { isHiddenFixtureSellerEmail, prismaSellerVisibleOnPublicMarketplace } from "@/lib/demo-seed-sellers";
 import { prismaLiveRoomCreateHint, serializePrismaClientError } from "@/lib/prisma-client-error-serialize";
@@ -24,10 +25,19 @@ export async function GET(req: Request) {
   const session = await getServerSessionSafe();
   const listingId = (searchParams.get("listingId") ?? "").trim();
   const sellerIdParam = (searchParams.get("sellerId") ?? "").trim();
+  const mine = searchParams.get("mine") === "1";
   const limit = parseLimit(searchParams.get("limit"));
-  const includeEnded = searchParams.get("includeEnded") === "1";
+  let includeEnded = searchParams.get("includeEnded") === "1";
 
   let sellerId = sellerIdParam;
+  let bearerUserId: string | null = null;
+  if (mine) {
+    const auth = await resolveLiveRoomsUserId(req);
+    if (auth instanceof NextResponse) return auth;
+    bearerUserId = auth.userId;
+    sellerId = auth.userId;
+    includeEnded = true;
+  }
   if (listingId) {
     const listing = await prisma.listing.findUnique({
       where: { id: listingId },
@@ -45,7 +55,9 @@ export async function GET(req: Request) {
   const ownerListingEnded =
     Boolean(sellerId) && includeEnded && session?.user?.id === sellerId;
 
-  const viewingOwnSellerRooms = Boolean(session?.user?.id && sellerId && session.user.id === sellerId);
+  const viewingOwnSellerRooms = Boolean(
+    sellerId && (session?.user?.id === sellerId || bearerUserId === sellerId),
+  );
 
   const where: Prisma.LiveRoomWhereInput = {
     ...(sellerId ? { sellerId } : {}),
@@ -116,10 +128,9 @@ type PostBody = {
 };
 
 export async function POST(req: Request) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Sign in to create a live room." }, { status: 401 });
-  }
+  const auth = await resolveLiveRoomsUserId(req);
+  if (auth instanceof NextResponse) return auth;
+  const sellerId = auth.userId;
 
   let body: PostBody;
   try {
@@ -194,11 +205,11 @@ export async function POST(req: Request) {
 
   const createDebug = process.env.LIVE_CREATE_DEBUG === "1";
   const logCreate = (msg: string, extra?: Record<string, unknown>) => {
-    if (createDebug) console.info("[api POST /api/live-rooms]", msg, { sellerId: session.user.id, roomType: rt, ...extra });
+    if (createDebug) console.info("[api POST /api/live-rooms]", msg, { sellerId, roomType: rt, ...extra });
   };
 
   const roomData = {
-    sellerId: session.user.id,
+    sellerId,
     title: title.slice(0, 200),
     description,
     category: category || "Other",
@@ -233,15 +244,15 @@ export async function POST(req: Request) {
   };
 
   const sellerRow = await prisma.user.findUnique({
-    where: { id: session.user.id },
+    where: { id: sellerId },
     select: { id: true, email: true },
   });
   if (!sellerRow) {
     console.warn("[api POST /api/live-rooms] seller user missing in database (preflight)", {
-      sessionUserId: session.user.id,
+      sessionUserId: sellerId,
       createPayloadForLog,
     });
-    logCreate("seller_user_missing_preflight", { sessionUserId: session.user.id, createPayloadForLog });
+    logCreate("seller_user_missing_preflight", { sessionUserId: sellerId, createPayloadForLog });
     return NextResponse.json(
       {
         error:

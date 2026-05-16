@@ -142,6 +142,16 @@ async function fetchProfilesMap(sb: NonNullable<ReturnType<typeof getSupabase>>,
 }
 
 export async function fetchLiveShowsForDiscovery(): Promise<{ live: LiveStream[]; scheduled: ScheduledStream[] }> {
+  try {
+    const { fetchLiveRoomsPublic, mapLiveRoomsToDiscovery } = await import('./liveRoomsRepository');
+    const rows = await fetchLiveRoomsPublic(80);
+    if (rows.length > 0) {
+      return mapLiveRoomsToDiscovery(rows);
+    }
+  } catch (e) {
+    console.warn('fetchLiveShowsForDiscovery api', e instanceof Error ? e.message : e);
+  }
+
   const sb = getSupabase();
   if (!sb) return { live: [], scheduled: [] };
   const { data, error } = await sb

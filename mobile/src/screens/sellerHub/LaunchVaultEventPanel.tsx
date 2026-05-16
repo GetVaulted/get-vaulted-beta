@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Image,
   LayoutAnimation,
@@ -14,6 +16,12 @@ import {
   UIManager,
   View,
 } from 'react-native';
+import {
+  createLiveRoom,
+  fetchMyLiveRooms,
+  streamFormatToRoomType,
+  type LiveRoomApiRow,
+} from '../../api/liveRoomsRepository';
 import type { SellerConnectStatusResponse } from '../../api/stripeConnectRepository';
 import { streamCategories } from '../../data/sellerHubMock';
 import { colors, radii, spacing } from '../../theme';
@@ -38,7 +46,30 @@ const EVENT_TYPES: {
   { id: 'private_collector', title: 'Private collector event', subtitle: 'Invite-only · intimate room', format: 'hybrid' },
 ];
 
+function defaultScheduledDate(): Date {
+  const d = new Date();
+  d.setMinutes(Math.ceil((d.getMinutes() + 15) / 15) * 15, 0, 0);
+  return d;
+}
+
+function formatScheduledDate(d: Date): string {
+  return d.toLocaleString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function roomStatusLabel(status: LiveRoomApiRow['status']): string {
+  if (status === 'live') return 'Live';
+  if (status === 'ended') return 'Ended';
+  return 'Scheduled';
+}
+
 export type LaunchVaultEventPanelProps = {
+  accessToken?: string;
   sellerConnect: { status: SellerConnectStatusResponse | null; loading: boolean };
   scheduleTitle: string;
   setScheduleTitle: (s: string) => void;
@@ -121,8 +152,12 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
   const [tagline, setTagline] = useState('');
   const [whatsDropping, setWhatsDropping] = useState('');
   const [eventType, setEventType] = useState<VaultEventTypeId>('standard');
-  const [scheduledAt, setScheduledAt] = useState('Select date & time');
+  const [scheduledDate, setScheduledDate] = useState(defaultScheduledDate);
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [instantLive, setInstantLive] = useState(false);
+  const [myRooms, setMyRooms] = useState<LiveRoomApiRow[]>([]);
+  const [roomsLoading, setRoomsLoading] = useState(false);
+  const [scheduleBusy, setScheduleBusy] = useState(false);
   const [access, setAccess] = useState<'public' | 'private' | 'invite'>('public');
   const [auctionsEnabled, setAuctionsEnabled] = useState(true);
   const [suddenDeath, setSuddenDeath] = useState(false);
@@ -158,6 +193,73 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
   const previewSub = tagline.trim() || 'Curated drops · live lane';
   const liveLabel = instantLive ? 'LIVE' : 'SCHEDULED';
   const viewerPlaceholder = '—';
+  const scheduledLabel = instantLive ? 'Starts when you go live' : formatScheduledDate(scheduledDate);
+
+  const loadMyRooms = useCallback(async () => {
+    if (!props.accessToken) {
+      setMyRooms([]);
+      return;
+    }
+    setRoomsLoading(true);
+    try {
+      const rows = await fetchMyLiveRooms(props.accessToken);
+      setMyRooms(rows);
+    } catch {
+      setMyRooms([]);
+    } finally {
+      setRoomsLoading(false);
+    }
+  }, [props.accessToken]);
+
+  useEffect(() => {
+    void loadMyRooms();
+  }, [loadMyRooms]);
+
+  const onScheduleShow = async () => {
+    if (liveBlocked) {
+      Alert.alert(
+        'Payout setup required',
+        'Finish Stripe Connect in Seller HQ → Seller Payout Setup before scheduling live events.',
+      );
+      return;
+    }
+    if (!props.accessToken) {
+      Alert.alert('Sign in required', 'Sign in to schedule a live show.');
+      return;
+    }
+    const title = props.scheduleTitle.trim();
+    if (!title) {
+      Alert.alert('Title required', 'Enter an event title before scheduling.');
+      return;
+    }
+    if (!instantLive && scheduledDate.getTime() < Date.now() + 60_000) {
+      Alert.alert('Pick a future time', 'Schedule your show at least one minute from now.');
+      return;
+    }
+    const description = [tagline.trim(), whatsDropping.trim()].filter(Boolean).join('\n\n');
+    setScheduleBusy(true);
+    try {
+      await createLiveRoom(props.accessToken, {
+        title,
+        description,
+        category: categoryLabel,
+        roomType: streamFormatToRoomType(props.streamFormat),
+        scheduledStartAt: instantLive ? null : scheduledDate.toISOString(),
+        teamBoardLeague: props.streamFormat === 'break' ? 'nba' : undefined,
+      });
+      await loadMyRooms();
+      Alert.alert(
+        instantLive ? 'Room created' : 'Show scheduled',
+        instantLive
+          ? 'Your live room is ready. Open the Live tab to see it — go live from the web seller console when you are on camera.'
+          : `Your show is scheduled for ${formatScheduledDate(scheduledDate)}. It appears under Your rooms and on the Live tab.`,
+      );
+    } catch (e) {
+      Alert.alert('Could not schedule show', e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setScheduleBusy(false);
+    }
+  };
 
   const onLiveHub = () => {
     if (liveBlocked) {
@@ -225,7 +327,7 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
             </View>
           </View>
           <View style={s.previewFooter}>
-            <Text style={s.previewWhen}>{instantLive ? 'Starting now · vault lane primed' : scheduledAt}</Text>
+            <Text style={s.previewWhen}>{instantLive ? 'Starting now · vault lane primed' : scheduledLabel}</Text>
             <Text style={s.previewViewers}>
               {viewerPlaceholder} <Text style={s.previewViewersEm}>in the room</Text>
             </Text>
@@ -330,10 +432,46 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
           value={instantLive}
           onToggle={setInstantLive}
         />
-        <Pressable style={s.dateRow}>
+        <Pressable
+          style={[s.dateRow, instantLive && s.dateRowDisabled]}
+          onPress={() => {
+            if (!instantLive) setShowDatePicker(true);
+          }}
+          disabled={instantLive}
+        >
           <Ionicons name="calendar-outline" size={18} color={colors.gold} />
-          <Text style={s.dateRowTxt}>{scheduledAt}</Text>
-          <Text style={s.dateRowHint}>Calendar sync coming soon</Text>
+          <Text style={s.dateRowTxt}>{scheduledLabel}</Text>
+          <Text style={s.dateRowHint}>{instantLive ? 'Off while instant live' : 'Tap to change'}</Text>
+        </Pressable>
+        {showDatePicker && !instantLive ? (
+          <DateTimePicker
+            value={scheduledDate}
+            mode="datetime"
+            minimumDate={new Date(Date.now() + 60_000)}
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={(event, date) => {
+              if (Platform.OS === 'android') setShowDatePicker(false);
+              if (event.type === 'dismissed') {
+                setShowDatePicker(false);
+                return;
+              }
+              if (date) setScheduledDate(date);
+            }}
+          />
+        ) : null}
+        <Pressable
+          style={[s.scheduleCta, (scheduleBusy || liveBlocked) && s.scheduleCtaDisabled]}
+          onPress={() => void onScheduleShow()}
+          disabled={scheduleBusy || liveBlocked}
+        >
+          {scheduleBusy ? (
+            <ActivityIndicator color={colors.background} />
+          ) : (
+            <>
+              <Text style={s.scheduleCtaText}>{instantLive ? 'Create live room' : 'Schedule live show'}</Text>
+              <Ionicons name="calendar" size={18} color={colors.background} />
+            </>
+          )}
         </Pressable>
         <Text style={s.fieldLabel}>Access</Text>
         <View style={s.accessRow}>
@@ -446,10 +584,51 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
         <Text style={s.fieldMuted}>Invite-only rooms & VIP tiers arrive in a future Vault release.</Text>
       </SectionCard>
 
-      <Text style={s.sectionLabelRooms}>Your rooms</Text>
-      <Text style={s.emptyShowsLux}>
-        No Vault events on the calendar yet. When you publish from the live hub, they appear here — curated, not cluttered.
-      </Text>
+      <View style={s.roomsHeaderRow}>
+        <Text style={s.sectionLabelRooms}>Your rooms</Text>
+        {props.accessToken ? (
+          <Pressable onPress={() => void loadMyRooms()} disabled={roomsLoading} hitSlop={8}>
+            <Text style={s.roomsRefresh}>{roomsLoading ? 'Refreshing…' : 'Refresh'}</Text>
+          </Pressable>
+        ) : null}
+      </View>
+      {roomsLoading && myRooms.length === 0 ? (
+        <ActivityIndicator color={colors.gold} style={{ marginVertical: spacing.md }} />
+      ) : myRooms.length === 0 ? (
+        <Text style={s.emptyShowsLux}>
+          No Vault events yet. Schedule a show above — it appears here and on the Live tab for buyers.
+        </Text>
+      ) : (
+        <View style={s.roomList}>
+          {myRooms.map((room) => (
+            <View key={room.id} style={s.roomCard}>
+              <View style={s.roomCardTop}>
+                <Text style={s.roomCardTitle} numberOfLines={2}>
+                  {room.title}
+                </Text>
+                <View
+                  style={[
+                    s.roomStatusPill,
+                    room.status === 'live' && s.roomStatusPillLive,
+                    room.status === 'ended' && s.roomStatusPillEnded,
+                  ]}
+                >
+                  <Text style={s.roomStatusPillTxt}>{roomStatusLabel(room.status)}</Text>
+                </View>
+              </View>
+              <Text style={s.roomCardMeta}>
+                {room.status === 'scheduled' && room.scheduledStartAt
+                  ? formatScheduledDate(new Date(room.scheduledStartAt))
+                  : room.status === 'live'
+                    ? 'On air now'
+                    : 'Ended'}
+                {' · '}
+                {room.category}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -653,6 +832,46 @@ const s = StyleSheet.create({
   },
   dateRowTxt: { flex: 1, fontSize: 14, fontWeight: '700', color: colors.textPrimary },
   dateRowHint: { fontSize: 10, color: colors.textMuted },
+  dateRowDisabled: { opacity: 0.45 },
+  scheduleCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    borderRadius: radii.lg,
+    backgroundColor: colors.gold,
+    marginTop: spacing.sm,
+  },
+  scheduleCtaDisabled: { opacity: 0.55 },
+  scheduleCtaText: { fontSize: 15, fontWeight: '900', color: colors.background },
+  roomsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing.sm,
+  },
+  roomsRefresh: { fontSize: 12, fontWeight: '700', color: colors.gold },
+  roomList: { gap: spacing.sm },
+  roomCard: {
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  roomCardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+  roomCardTitle: { flex: 1, fontSize: 15, fontWeight: '800', color: colors.textPrimary },
+  roomStatusPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(212,175,55,0.15)',
+  },
+  roomStatusPillLive: { backgroundColor: colors.liveGlow },
+  roomStatusPillEnded: { backgroundColor: 'rgba(255,255,255,0.08)' },
+  roomStatusPillTxt: { fontSize: 9, fontWeight: '900', letterSpacing: 0.8, color: colors.gold },
+  roomCardMeta: { fontSize: 12, color: colors.textMuted, marginTop: 6 },
   accessRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   accessChip: {
     paddingVertical: spacing.sm,
