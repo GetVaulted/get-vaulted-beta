@@ -40,7 +40,7 @@ export async function GET(request: Request) {
       );
     }
 
-    let user = await prisma.user.findUnique({
+    const user = await prisma.user.findUnique({
       where: { id: auth.userId },
       select: { email: true, stripeAccountId: true },
     });
@@ -58,15 +58,15 @@ export async function GET(request: Request) {
       /* non-fatal */
     }
 
-    user = await prisma.user.findUnique({
+    const linked = await prisma.user.findUnique({
       where: { id: auth.userId },
       select: { stripeAccountId: true },
     });
-    if (!user) {
+    if (!linked) {
       return NextResponse.json({ error: "User not found." }, { status: 404 });
     }
 
-    const accountId = user.stripeAccountId?.trim();
+    const accountId = linked.stripeAccountId?.trim();
     if (!accountId) {
       return NextResponse.json(
         buildSellerWalletSummary({
