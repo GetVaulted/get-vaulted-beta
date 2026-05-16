@@ -36,6 +36,7 @@ function parseBody(raw: string | null): ListingRateQuoteRequest | { error: strin
       height_in,
       international,
     };
+  } catch {
     return { error: 'Invalid JSON' };
   }
 }
