@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getServerSessionSafe } from "@/lib/auth";
-import { getLiveRoomHostAccess, parseTeamLabelsJson } from "@/lib/live-room-host-auth";
+import { parseTeamLabelsJson } from "@/lib/live-room-host-auth";
+import { requireLiveRoomHostUser } from "@/lib/resolve-live-room-host-user";
 import { logLiveLoaderDebug, safeDecodeRouteSegment } from "@/lib/live-loader-debug";
 import { prisma } from "@/lib/prisma";
 import { fetchHostRecentSales } from "@/lib/live-room-recent-sales";
@@ -8,23 +8,19 @@ import { attachHighBidderUsernames } from "@/lib/live-room-high-bidder-enrich";
 import { serializeLiveRoomItem, serializeLiveRoomMessage } from "@/lib/live-room-serialize";
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
   const { id: raw } = await ctx.params;
   const liveRoomId = safeDecodeRouteSegment(raw ?? "");
 
-  const access = await getLiveRoomHostAccess(liveRoomId, session.user.id, { requireBreak: true });
-  if (!access.ok) {
+  const hostAuth = await requireLiveRoomHostUser(liveRoomId, req);
+  if (hostAuth instanceof NextResponse) {
     logLiveLoaderDebug("api_host_console_access_denied", {
       liveRoomId,
       idParamRaw: raw,
-      sessionUserId: session.user.id,
-      status: access.status,
-      error: access.error,
+      status: hostAuth.status,
     });
-    return NextResponse.json({ error: access.error }, { status: access.status });
+    return hostAuth;
   }
+  const { userId: hostUserId, isAdmin } = hostAuth;
 
   const room = await prisma.liveRoom.findUnique({
     where: { id: liveRoomId },
@@ -45,7 +41,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     logLiveLoaderDebug("api_host_console_room_row_missing", {
       liveRoomId,
       idParamRaw: raw,
-      sessionUserId: session.user.id,
+      sessionUserId: hostUserId,
     });
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -182,7 +178,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       buyer: h.buyer ? { id: h.buyer.id, username: h.buyer.username } : null,
       createdAt: h.createdAt.toISOString(),
     })),
-    isAdmin: access.isAdmin,
+    isAdmin,
     buyerMatches,
     pickerMatches,
     recentSales,

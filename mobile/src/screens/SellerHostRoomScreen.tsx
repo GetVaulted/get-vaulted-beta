@@ -26,6 +26,7 @@ import {
 } from '../api/liveHostRepository';
 import { useAuth } from '../auth/AuthContext';
 import type { RootStackParamList } from '../navigation/types';
+import { SellerLiveConsolePanel } from './sellerHub/SellerLiveConsolePanel';
 import { colors, radii, spacing, typography } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SellerHostRoom'>;
@@ -267,8 +268,6 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   const serverUrl = ingestEndpoint ?? stream?.ingestEndpoint ?? null;
   const canStart = room?.status === 'scheduled';
   const canEnd = room?.status === 'live';
-  const breakRoom = room?.roomType === 'break';
-
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -279,7 +278,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
           <Text style={styles.headerTitle} numberOfLines={1}>
             {room?.title ?? 'Host room'}
           </Text>
-          <Text style={styles.headerSub}>Mobile host · stream + go live</Text>
+          <Text style={styles.headerSub}>Seller console · mobile & web</Text>
         </View>
         {room ? (
           <View style={[styles.statusPill, room.status === 'live' && styles.statusPillLive]}>
@@ -312,15 +311,6 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
                   · {issue}
                 </Text>
               ))}
-            </View>
-          ) : null}
-
-          {breakRoom ? (
-            <View style={styles.infoCard}>
-              <Text style={styles.cardTitle}>Card break room</Text>
-              <Text style={styles.cardBody}>
-                Stream and start/end work here. Spot picks and break board controls stay on the web seller console for now.
-              </Text>
             </View>
           ) : null}
 
@@ -434,6 +424,15 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
               <Text style={styles.cardMuted}>This room has ended. Schedule a new show from Seller HQ.</Text>
             ) : null}
           </View>
+
+          {token && room ? (
+            <SellerLiveConsolePanel
+              accessToken={token}
+              roomId={roomId}
+              roomStatus={room.status}
+              roomType={room.roomType}
+            />
+          ) : null}
         </ScrollView>
       )}
     </View>

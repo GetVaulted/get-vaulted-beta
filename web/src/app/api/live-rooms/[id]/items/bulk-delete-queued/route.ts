@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getServerSessionSafe } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requireLiveRoomHostUser } from "@/lib/resolve-live-room-host-user";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
 
 /**
@@ -8,11 +8,12 @@ import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
  * Use after mistaken bulk LOT imports; confirm in the UI before calling.
  */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
   const { id: raw } = await ctx.params;
   const liveRoomId = decodeURIComponent(raw);
+
+  const hostAuth = await requireLiveRoomHostUser(liveRoomId, req);
+  if (hostAuth instanceof NextResponse) return hostAuth;
+  const { room } = hostAuth;
 
   let body: { confirm?: unknown };
   try {
@@ -24,17 +25,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ error: "Set confirm: true to delete all queued items." }, { status: 400 });
   }
 
-  const room = await prisma.liveRoom.findUnique({
-    where: { id: liveRoomId },
-    select: { sellerId: true, status: true },
-  });
-  if (!room) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const actor = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { role: true },
-  });
-  const isAdmin = actor?.role === "admin";
-  if (room.sellerId !== session.user.id && !isAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (room.status === "ended") {
     return NextResponse.json({ error: "This room has ended. You cannot change the queue." }, { status: 409 });
   }

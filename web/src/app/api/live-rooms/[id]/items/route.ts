@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@/generated/prisma/client";
-import { getServerSessionSafe } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requireLiveRoomHostUser } from "@/lib/resolve-live-room-host-user";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
 
 type PostBody = {
@@ -31,23 +31,12 @@ function parseQuantity(raw: unknown): number {
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
   const { id: raw } = await ctx.params;
   const liveRoomId = decodeURIComponent(raw);
 
-  const room = await prisma.liveRoom.findUnique({
-    where: { id: liveRoomId },
-    select: { id: true, sellerId: true, status: true, roomType: true, teamBoardLeague: true },
-  });
-  if (!room) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const actor = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { role: true },
-  });
-  const isAdmin = actor?.role === "admin";
-  if (room.sellerId !== session.user.id && !isAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const hostAuth = await requireLiveRoomHostUser(liveRoomId, req);
+  if (hostAuth instanceof NextResponse) return hostAuth;
+  const { userId, isAdmin, room } = hostAuth;
   if (room.status === "ended") {
     return NextResponse.json({ error: "This room has ended. You cannot add queue items." }, { status: 409 });
   }
@@ -66,7 +55,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const listingId = typeof body.listingId === "string" && body.listingId.trim() ? body.listingId.trim() : null;
   if (listingId && !isAdmin) {
     const listing = await prisma.listing.findFirst({
-      where: { id: listingId, sellerId: session.user.id },
+      where: { id: listingId, sellerId: userId },
       select: { id: true },
     });
     if (!listing) return NextResponse.json({ error: "Listing not found for this seller." }, { status: 400 });

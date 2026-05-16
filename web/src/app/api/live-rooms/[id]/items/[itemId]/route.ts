@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServerSessionSafe } from "@/lib/auth";
+import { requireLiveRoomHostUser } from "@/lib/resolve-live-room-host-user";
 import {
   finalizeBreakAuctionRoundIfEnded,
   sendBreakAuctionWinNotificationsDeferred,
@@ -73,24 +73,13 @@ const BREAK_FINALIZE_TX_OPTS = { timeout: 20_000, maxWait: 10_000 } as const;
 const START_BIDDING_TX_OPTS = { timeout: 8_000, maxWait: 5_000 } as const;
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; itemId: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
   const { id: roomRaw, itemId: itemRaw } = await ctx.params;
   const liveRoomId = decodeURIComponent(roomRaw);
   const itemId = decodeURIComponent(itemRaw);
 
-  const room = await prisma.liveRoom.findUnique({
-    where: { id: liveRoomId },
-    select: { sellerId: true, status: true, roomType: true, roomVersion: true },
-  });
-  if (!room) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const actor = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { role: true },
-  });
-  const isAdmin = actor?.role === "admin";
-  if (room.sellerId !== session.user.id && !isAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const hostAuth = await requireLiveRoomHostUser(liveRoomId, req);
+  if (hostAuth instanceof NextResponse) return hostAuth;
+  const { room } = hostAuth;
   if (room.status === "ended") {
     return NextResponse.json({ error: "This room has ended. You cannot change the queue." }, { status: 409 });
   }
@@ -450,25 +439,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
 }
 
 /** Remove a single queue row (queued or skipped only; not active or sold). */
-export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string; itemId: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export async function DELETE(req: Request, ctx: { params: Promise<{ id: string; itemId: string }> }) {
   const { id: roomRaw, itemId: itemRaw } = await ctx.params;
   const liveRoomId = decodeURIComponent(roomRaw);
   const itemId = decodeURIComponent(itemRaw);
 
-  const room = await prisma.liveRoom.findUnique({
-    where: { id: liveRoomId },
-    select: { sellerId: true, status: true },
-  });
-  if (!room) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const actor = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { role: true },
-  });
-  const isAdmin = actor?.role === "admin";
-  if (room.sellerId !== session.user.id && !isAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const hostAuth = await requireLiveRoomHostUser(liveRoomId, req);
+  if (hostAuth instanceof NextResponse) return hostAuth;
+  const { room } = hostAuth;
   if (room.status === "ended") {
     return NextResponse.json({ error: "This room has ended. You cannot change the queue." }, { status: 409 });
   }
