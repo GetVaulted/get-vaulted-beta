@@ -23,7 +23,7 @@ function iconFor(
     case 'TradeCenter':
       return focused ? 'swap-horizontal' : 'swap-horizontal-outline';
     case 'HQ':
-      return focused ? 'shield' : 'shield-outline';
+      return focused ? 'storefront' : 'storefront-outline';
     default:
       return 'ellipse';
   }
@@ -106,7 +106,7 @@ export function VaultTabBar({ state, descriptors, navigation }: BottomTabBarProp
             </View>
           ) : (
             <Text style={[styles.label, { color: lblColor }]}>
-              {name === 'Discover' ? 'Discover' : name === 'HQ' ? 'HQ' : name}
+              {name === 'Discover' ? 'Discover' : name === 'HQ' ? 'Seller HQ' : name}
             </Text>
           );
 

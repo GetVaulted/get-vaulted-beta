@@ -25,7 +25,11 @@ export function MainTabNavigator() {
         component={TradeCenterStackNavigator}
         options={{ tabBarAccessibilityLabel: 'Trade Center' }}
       />
-      <Tab.Screen name="HQ" component={SellerHubScreen} options={{ tabBarAccessibilityLabel: 'HQ' }} />
+      <Tab.Screen
+        name="HQ"
+        component={SellerHubScreen}
+        options={{ tabBarAccessibilityLabel: 'Seller HQ — seller console and payouts' }}
+      />
     </Tab.Navigator>
   );
 }

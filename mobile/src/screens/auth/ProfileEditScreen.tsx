@@ -16,7 +16,12 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { fetchProfileById, updateMyProfile, uploadMyAvatar } from '../../api/profilesRepository';
+import { SellerHQEntryBanner } from '../../components/seller/SellerHQEntryBanner';
 import { useAuth } from '../../auth/AuthContext';
+import { useSellerStripeConnect } from '../../hooks/useSellerStripeConnect';
+import type { SellerHQEntryPhase } from '../../lib/sellerHubEntry';
+import { openSellerHQ } from '../../navigation/openSellerHQ';
+import { navigateAuthSignUp } from '../../navigation/rootNavigationRef';
 import { getSupabase } from '../../lib/supabase';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
@@ -27,7 +32,8 @@ const AVATAR_SIZE = 112;
 
 export function ProfileEditScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
+  const sellerConnect = useSellerStripeConnect(session?.access_token);
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -122,6 +128,20 @@ export function ProfileEditScreen({ navigation }: Props) {
         <ActivityIndicator color={colors.gold} style={{ marginTop: spacing.xl }} />
       ) : (
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          <SellerHQEntryBanner
+            hasUser={Boolean(user)}
+            connect={sellerConnect.status}
+            connectLoading={sellerConnect.loading}
+            compact
+            onPress={(phase: SellerHQEntryPhase) => {
+              if (phase === 'guest') {
+                navigateAuthSignUp();
+                return;
+              }
+              navigation.goBack();
+              openSellerHQ();
+            }}
+          />
           <View style={styles.avatarBlock}>
             {avatarUrl ? (
               <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />

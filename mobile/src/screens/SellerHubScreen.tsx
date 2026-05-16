@@ -36,7 +36,11 @@ import {
 import { LaunchVaultEventPanel } from './sellerHub/LaunchVaultEventPanel';
 import { useCreateListingDraft } from '../createListing/CreateListingDraftContext';
 import { openCreateListing } from '../navigation/openCreateListing';
+import { SellerHQDashboard } from '../components/seller/SellerHQDashboard';
+import { SellerHQEntryBanner } from '../components/seller/SellerHQEntryBanner';
+import { isSellerHQApproved, type SellerHQEntryPhase } from '../lib/sellerHubEntry';
 import { openSellerHostRoom } from '../navigation/openSellerHostRoom';
+import { consumePendingSellerHQTab, openSellerHQ } from '../navigation/openSellerHQ';
 import { navigateAuthLogin, navigateAuthSignUp, rootNavigationRef } from '../navigation/rootNavigationRef';
 import { fetchProfileById } from '../api/profilesRepository';
 import { useAuth } from '../auth/AuthContext';
@@ -101,6 +105,13 @@ export function SellerHubScreen() {
   const [giveaways, setGiveaways] = useState(true);
   const [stripeSetupBusy, setStripeSetupBusy] = useState(false);
 
+  useEffect(() => {
+    const pending = consumePendingSellerHQTab();
+    if (pending) setTab(pending);
+  }, []);
+
+  const sellerApproved = isSellerHQApproved(sellerConnect.status);
+
   const sellerLaunchMeta = useMemo(() => {
     const meta = user?.user_metadata as Record<string, unknown> | undefined;
     const displayName =
@@ -154,6 +165,22 @@ export function SellerHubScreen() {
     }
   }, [session?.access_token, sellerConnect, stripeSetupBusy]);
 
+  const onSellerHQEntryPress = useCallback(
+    (phase: SellerHQEntryPhase) => {
+      if (phase === 'guest') {
+        navigateAuthSignUp();
+        return;
+      }
+      if (phase === 'finish_setup' || phase === 'become_seller') {
+        setTab('overview');
+        void openStripeOnboarding();
+        return;
+      }
+      setTab('overview');
+    },
+    [openStripeOnboarding],
+  );
+
   const renderTab = () => {
     switch (tab) {
       case 'listings':
@@ -205,6 +232,7 @@ export function SellerHubScreen() {
             sellerWallet={sellerWallet}
             onStripeSetup={openStripeOnboarding}
             stripeSetupBusy={stripeSetupBusy}
+            sellerApproved={sellerApproved}
           />
         );
     }
@@ -222,9 +250,9 @@ export function SellerHubScreen() {
     return (
       <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          <Text style={styles.hqGateTitle}>Seller HQ</Text>
+          <Text style={styles.hqGateTitle}>Vault HQ</Text>
           <Text style={styles.hqGateBody}>
-            Log in to manage listings, live tools, orders, and your seller profile. There is no guest dashboard.
+            Log in to open your seller console — listings, live shows, payouts, and orders. No URL required.
           </Text>
           <Pressable style={styles.hqGatePrimary} onPress={navigateAuthSignUp}>
             <Text style={styles.hqGatePrimaryTxt}>Create account</Text>
@@ -240,10 +268,20 @@ export function SellerHubScreen() {
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.sm }]}>
       <ScrollView
-        stickyHeaderIndices={[1]}
+        stickyHeaderIndices={[2]}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
+        <View style={styles.hqScreenTitleRow}>
+          <Text style={styles.hqScreenTitle}>Vault HQ</Text>
+          <Text style={styles.hqScreenSub}>Seller console</Text>
+        </View>
+        <SellerHQEntryBanner
+          hasUser
+          connect={sellerConnect.status}
+          connectLoading={sellerConnect.loading}
+          onPress={onSellerHQEntryPress}
+        />
         <ProfileHeader user={user} />
         <View style={[styles.tabBarWrap, { backgroundColor: colors.background }]}>
           <ScrollView
@@ -329,7 +367,7 @@ function ProfileHeader({ user }: { user: User }) {
       </View>
       <View style={styles.headerActions}>
         <Pressable style={styles.btnOutline} onPress={openProfileEdit}>
-          <Text style={styles.btnOutlineText}>Edit profile</Text>
+          <Text style={styles.btnOutlineText}>Seller settings</Text>
         </Pressable>
         <Pressable style={styles.btnGold} onPress={() => void shareProfile(displayName)}>
           <Ionicons name="share-outline" size={18} color="#0a0a0a" />
@@ -367,7 +405,7 @@ function QuickActionRow({
               void openCreateListing(navigation as unknown as NavigationProp<ParamListBase>, { channel: 'marketplace' });
             else if (q.id === 'q4')
               void openCreateListing(navigation as unknown as NavigationProp<ParamListBase>, { channel: 'live_show' });
-            else if (q.id === 'q2' || q.id === 'q3') navigation.navigate('Live', { screen: 'LiveDiscovery' });
+            else if (q.id === 'q2' || q.id === 'q3') openSellerHQ(navigation, { tab: 'live' });
             else if (q.id === 'q5') onOpenTab('wallet');
           }}
         >
@@ -468,6 +506,7 @@ function OverviewBody({
   sellerWallet,
   onStripeSetup,
   stripeSetupBusy,
+  sellerApproved,
 }: {
   onOpenTab: (t: SellerHubTabId) => void;
   navigation: BottomTabNavigationProp<MainTabParamList>;
@@ -484,6 +523,7 @@ function OverviewBody({
   };
   onStripeSetup: () => void;
   stripeSetupBusy: boolean;
+  sellerApproved: boolean;
 }) {
   const status = sellerConnect.status;
   const fetchError = sellerConnect.statusError;
@@ -495,6 +535,13 @@ function OverviewBody({
 
   return (
     <View style={{ gap: spacing.lg }}>
+      {sellerApproved ? (
+        <SellerHQDashboard
+          navigation={navigation}
+          onOpenTab={onOpenTab}
+          onSetupPayouts={onStripeSetup}
+        />
+      ) : null}
       <View style={styles.payoutCard}>
         <View style={styles.payoutHeaderRow}>
           <View style={{ flex: 1, minWidth: 0 }}>
@@ -620,7 +667,7 @@ function OverviewBody({
           <Pressable
             key={t.id}
             style={styles.toolTile}
-            onPress={() => navigation.navigate('Live', { screen: 'LiveDiscovery' })}
+            onPress={() => onOpenTab('live')}
           >
             <Ionicons name={t.icon} size={20} color={colors.gold} />
             <Text style={styles.toolLabel}>{t.label}</Text>
@@ -962,6 +1009,20 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,
+  },
+  hqScreenTitleRow: {
+    marginBottom: spacing.xs,
+  },
+  hqScreenTitle: {
+    ...typography.title,
+    fontSize: 26,
+    color: colors.textPrimary,
+    letterSpacing: -0.3,
+  },
+  hqScreenSub: {
+    fontSize: 13,
+    color: colors.textMuted,
+    marginTop: 2,
   },
   hqGateTitle: {
     ...typography.title,

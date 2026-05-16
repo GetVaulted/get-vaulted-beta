@@ -13,7 +13,7 @@ export type SellerHubTabId =
   | 'vault';
 
 export const SELLER_HUB_TABS: { id: SellerHubTabId; label: string }[] = [
-  { id: 'overview', label: 'Overview' },
+  { id: 'overview', label: 'Console' },
   { id: 'listings', label: 'Listings' },
   { id: 'live', label: 'Live' },
   { id: 'orders', label: 'Orders' },

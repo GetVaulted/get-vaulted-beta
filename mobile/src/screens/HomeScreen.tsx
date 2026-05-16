@@ -25,7 +25,12 @@ import { SectionHeader } from '../components/ui/SectionHeader';
 import { isSupabaseConfigured } from '../lib/supabase';
 import type { MainTabParamList, RootStackParamList } from '../navigation/types';
 import { alertGuestLiveRestricted } from '../navigation/guestExploreGuards';
+import { SellerHQEntryBanner } from '../components/seller/SellerHQEntryBanner';
 import { useAuth } from '../auth/AuthContext';
+import { useSellerStripeConnect } from '../hooks/useSellerStripeConnect';
+import type { SellerHQEntryPhase } from '../lib/sellerHubEntry';
+import { openSellerHQ } from '../navigation/openSellerHQ';
+import { navigateAuthSignUp } from '../navigation/rootNavigationRef';
 import { colors, radii, spacing, typography } from '../theme';
 import type { FeaturedCreator, HotClip, LiveStream, Product, ScheduledStream } from '../types';
 
@@ -37,7 +42,8 @@ type Nav = CompositeNavigationProp<
 export function HomeScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<Nav>();
-  const { guestExploreMode } = useAuth();
+  const { user, guestExploreMode, session } = useAuth();
+  const sellerConnect = useSellerStripeConnect(session?.access_token);
   const [loading, setLoading] = useState(true);
   const [listings, setListings] = useState<Product[]>([]);
   const [liveRows, setLiveRows] = useState<LiveStream[]>([]);
@@ -80,7 +86,15 @@ export function HomeScreen() {
   };
 
   const goSchedule = () => {
-    navigation.navigate('Live', { screen: 'LiveDiscovery' });
+    openSellerHQ(navigation, { tab: 'live' });
+  };
+
+  const onSellerHQEntry = (phase: SellerHQEntryPhase) => {
+    if (phase === 'guest') {
+      navigateAuthSignUp();
+      return;
+    }
+    openSellerHQ(navigation, { tab: 'overview' });
   };
 
   const openLiveShow = (streamId: string) => {
@@ -128,6 +142,13 @@ export function HomeScreen() {
         </View>
         <SearchBar />
 
+        <SellerHQEntryBanner
+          hasUser={Boolean(user)}
+          connect={sellerConnect.status}
+          connectLoading={sellerConnect.loading}
+          onPress={onSellerHQEntry}
+        />
+
         <LinearGradient
           colors={['#221a0a', '#0d0b06', '#050505']}
           start={{ x: 0, y: 0 }}
@@ -147,8 +168,8 @@ export function HomeScreen() {
               <Text style={styles.heroCtaPrimaryText}>Live hub</Text>
             </Pressable>
             <Pressable style={styles.heroCtaSecondary} onPress={goSchedule}>
-              <Ionicons name="calendar-outline" size={18} color={colors.gold} />
-              <Text style={styles.heroCtaSecondaryText}>Schedule</Text>
+              <Ionicons name="storefront-outline" size={18} color={colors.gold} />
+              <Text style={styles.heroCtaSecondaryText}>Seller HQ</Text>
             </Pressable>
           </View>
         </LinearGradient>
@@ -179,7 +200,7 @@ export function HomeScreen() {
         ) : (
           <LiveEmptyBroadcastBlock
             useDefaultTabActions={false}
-            onStartLive={() => navigation.navigate('HQ')}
+            onStartLive={() => openSellerHQ(navigation, { tab: 'live' })}
             onExploreListings={() => navigation.navigate('Discover')}
           />
         )}
@@ -205,7 +226,7 @@ export function HomeScreen() {
             actions={[
               {
                 label: 'Schedule your first live show',
-                onPress: () => navigation.navigate('HQ'),
+                onPress: () => openSellerHQ(navigation, { tab: 'live' }),
               },
             ]}
           />
