@@ -16,7 +16,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import * as WebBrowser from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   analyticsSnapshot,
@@ -46,9 +45,10 @@ import type { ListingPreview } from '../createListing/types';
 import type { MainTabParamList } from '../navigation/types';
 import type { ProfileLite } from '../types/tradeOffers';
 import { colors, radii, spacing, typography } from '../theme';
-import { createSellerOnboardingLink, sellerConnectBadge } from '../api/stripeConnectRepository';
+import { sellerConnectBadge } from '../api/stripeConnectRepository';
 import { useSellerStripeConnect } from '../hooks/useSellerStripeConnect';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
+import { openStripeConnectOnboarding } from '../lib/openStripeConnectOnboarding';
 import { areDevToolsEnabled } from '../lib/devTools';
 import type { CategoryId } from '../types';
 
@@ -91,6 +91,7 @@ export function SellerHubScreen() {
   const [streamFormat, setStreamFormat] = useState<'auction' | 'break' | 'hybrid'>('hybrid');
   const [preloadInventory, setPreloadInventory] = useState(true);
   const [giveaways, setGiveaways] = useState(true);
+  const [stripeSetupBusy, setStripeSetupBusy] = useState(false);
 
   const sellerLaunchMeta = useMemo(() => {
     const meta = user?.user_metadata as Record<string, unknown> | undefined;
@@ -121,14 +122,23 @@ export function SellerHubScreen() {
       return;
     }
     if (!session?.access_token) return;
+    if (stripeSetupBusy) return;
+    setStripeSetupBusy(true);
     try {
-      const { url } = await createSellerOnboardingLink(session.access_token);
-      await WebBrowser.openBrowserAsync(url);
+      const result = await openStripeConnectOnboarding(session.access_token);
       await sellerConnect.refresh();
+      if (result === 'success') {
+        Alert.alert(
+          'Payout setup',
+          'Thanks — we refreshed your payout status. If Stripe still needs info, tap Set up payouts again.',
+        );
+      }
     } catch (e) {
       Alert.alert('Could not start payout setup', e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setStripeSetupBusy(false);
     }
-  }, [session?.access_token, sellerConnect]);
+  }, [session?.access_token, sellerConnect, stripeSetupBusy]);
 
   const renderTab = () => {
     switch (tab) {
@@ -170,6 +180,7 @@ export function SellerHubScreen() {
             navigation={navigation}
             sellerConnect={sellerConnect}
             onStripeSetup={openStripeOnboarding}
+            stripeSetupBusy={stripeSetupBusy}
           />
         );
     }
@@ -431,11 +442,13 @@ function OverviewBody({
   navigation,
   sellerConnect,
   onStripeSetup,
+  stripeSetupBusy,
 }: {
   onOpenTab: (t: SellerHubTabId) => void;
   navigation: BottomTabNavigationProp<MainTabParamList>;
   sellerConnect: { status: import('../api/stripeConnectRepository').SellerConnectStatusResponse | null; loading: boolean; refresh: () => Promise<void> };
   onStripeSetup: () => void;
+  stripeSetupBusy: boolean;
 }) {
   const badge = sellerConnect.status
     ? sellerConnectBadge(sellerConnect.status.onboarding_ui_status, sellerConnect.status.payouts_ready)
@@ -467,9 +480,19 @@ function OverviewBody({
               : 'Complete Stripe once to publish active listings and go live as a seller.'}
           </Text>
         )}
-        <Pressable style={styles.payoutCta} onPress={onStripeSetup}>
-          <Text style={styles.payoutCtaText}>Set up payouts</Text>
-          <Ionicons name="open-outline" size={18} color={colors.background} />
+        <Pressable
+          style={[styles.payoutCta, stripeSetupBusy && styles.payoutCtaDisabled]}
+          onPress={onStripeSetup}
+          disabled={stripeSetupBusy}
+        >
+          {stripeSetupBusy ? (
+            <ActivityIndicator color={colors.background} />
+          ) : (
+            <>
+              <Text style={styles.payoutCtaText}>Set up payouts</Text>
+              <Ionicons name="shield-checkmark-outline" size={18} color={colors.background} />
+            </>
+          )}
         </Pressable>
       </View>
 
@@ -1347,7 +1370,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderRadius: radii.md,
     backgroundColor: colors.gold,
+    minHeight: 48,
   },
+  payoutCtaDisabled: { opacity: 0.65 },
   payoutCtaText: { color: colors.background, fontWeight: '900', fontSize: 15 },
   showRow: {
     flexDirection: 'row',
