@@ -212,7 +212,7 @@ export function SellerLiveConsolePanel({
 
           <Text style={[s.fieldLabel, { marginTop: spacing.md }]}>Queue ({items.length})</Text>
           {items.length === 0 ? (
-            <Text style={s.hint}>No lots yet. Add items above or from web Seller Live — they sync to this room.</Text>
+            <Text style={s.hint}>No lots yet. Add items here or from Seller Live on web — they stay in sync.</Text>
           ) : (
             items.map((item) => {
               const isActive = item.status === 'active';
