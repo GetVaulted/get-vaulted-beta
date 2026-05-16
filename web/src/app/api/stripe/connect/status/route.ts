@@ -78,11 +78,15 @@ export async function GET(request: Request) {
   let payoutsEnabled = user.stripePayoutsEnabled ?? null;
   let requirementsSnap = parseRequirementsDue(user.stripeRequirementsDue);
   let verificationStatus = user.stripeVerificationStatus ?? null;
+  let payoutSetupSubmitted = false;
 
   if (user.stripeAccountId) {
     try {
       const stripe = getStripe();
       const account = await stripe.accounts.retrieve(user.stripeAccountId);
+      const currentlyDue = account.requirements?.currently_due ?? [];
+      payoutSetupSubmitted =
+        Boolean(account.details_submitted) && currentlyDue.length === 0;
       const { data, onboardingUiStatus: liveUi } = connectFieldsFromStripeAccount(account);
       await prisma.user.update({
         where: { id: auth.userId },
@@ -127,9 +131,12 @@ export async function GET(request: Request) {
       : "Stripe needs more information before payouts can be enabled.",
     message_payouts: canSell
       ? "Payout setup complete. You can publish listings and host live sales."
-      : payoutsEnabled === true
-        ? "Payouts are ready — finish any remaining Stripe steps if prompted."
-        : null,
+      : payoutSetupSubmitted
+        ? "Stripe received your payout details. Refresh status in Seller HQ — Ready or Complete usually appears within a few minutes."
+        : payoutsEnabled === true
+          ? "Payouts are ready — finish any remaining Stripe steps if prompted."
+          : null,
     payout_setup_complete: canSell,
+    payout_setup_submitted: payoutSetupSubmitted,
   });
 }

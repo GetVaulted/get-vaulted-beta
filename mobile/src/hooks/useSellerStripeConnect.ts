@@ -6,15 +6,16 @@ export function useSellerStripeConnect(accessToken: string | undefined) {
   const [status, setStatus] = useState<SellerConnectStatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<SellerConnectStatusResponse | null> => {
     if (!accessToken) {
       setStatus(null);
-      return;
+      return null;
     }
     setLoading(true);
     const s = await fetchSellerConnectStatus(accessToken);
     setStatus(s);
     setLoading(false);
+    return s;
   }, [accessToken]);
 
   useEffect(() => {

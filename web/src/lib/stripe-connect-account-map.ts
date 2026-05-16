@@ -5,6 +5,7 @@ export type StripeConnectOnboardingUiStatus =
   | "not_started"
   | "in_progress"
   | "action_required"
+  | "pending_review"
   | "verified"
   | "restricted";
 
@@ -59,12 +60,13 @@ export function connectFieldsFromStripeAccount(account: Stripe.Account): {
     onboardingUiStatus = "restricted";
   } else if (stripeOnboardingComplete && chargesEnabled && payoutsEnabled) {
     onboardingUiStatus = "verified";
-  } else if (detailsSubmitted && (currentlyDue.length > 0 || pendingVerification.length > 0)) {
+  } else if (currentlyDue.length > 0) {
     onboardingUiStatus = "action_required";
-  } else if (!detailsSubmitted) {
-    onboardingUiStatus = "in_progress";
+  } else if (detailsSubmitted) {
+    // Hosted onboarding finished — Stripe may still enable charges/payouts or verify identity.
+    onboardingUiStatus = "pending_review";
   } else {
-    onboardingUiStatus = "action_required";
+    onboardingUiStatus = "in_progress";
   }
 
   return { data, onboardingUiStatus };
@@ -94,7 +96,7 @@ export function onboardingUiStatusFromPartial(args: {
   const payouts = args.stripePayoutsEnabled === true;
 
   if (args.stripeOnboardingComplete && charges && payouts) return "verified";
-  if (cu.length > 0 || pv.length > 0) return "action_required";
-  if (!args.stripeOnboardingComplete) return "in_progress";
-  return "action_required";
+  if (cu.length > 0) return "action_required";
+  if (args.stripeOnboardingComplete || charges || payouts || pv.length > 0) return "pending_review";
+  return "in_progress";
 }

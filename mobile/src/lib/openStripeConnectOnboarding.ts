@@ -1,5 +1,8 @@
 import * as WebBrowser from 'expo-web-browser';
-import { createSellerOnboardingLink } from '../api/stripeConnectRepository';
+import {
+  createSellerOnboardingLink,
+  type SellerConnectStatusResponse,
+} from '../api/stripeConnectRepository';
 import { getWebApiBaseUrl } from './webApiBaseUrl';
 
 export type StripeConnectOnboardingResult = 'success' | 'cancel' | 'dismiss';
@@ -35,9 +38,10 @@ export async function openStripeConnectOnboarding(accessToken: string): Promise<
 
 /** Stripe may take a moment to enable payouts after redirect — refresh status twice. */
 export async function refreshSellerConnectAfterOnboarding(
-  refresh: () => Promise<void>,
-): Promise<void> {
-  await refresh();
+  refresh: () => Promise<SellerConnectStatusResponse | null>,
+): Promise<SellerConnectStatusResponse | null> {
+  let latest = await refresh();
   await new Promise((r) => setTimeout(r, 1500));
-  await refresh();
+  latest = await refresh();
+  return latest;
 }

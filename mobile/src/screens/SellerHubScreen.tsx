@@ -46,7 +46,6 @@ import type { MainTabParamList } from '../navigation/types';
 import type { ProfileLite } from '../types/tradeOffers';
 import { colors, radii, spacing, typography } from '../theme';
 import {
-  fetchSellerConnectStatus,
   isSellerPayoutSetupComplete,
   sellerConnectBadge,
   sellerConnectDetailMessage,
@@ -131,15 +130,16 @@ export function SellerHubScreen() {
     setStripeSetupBusy(true);
     try {
       const result = await openStripeConnectOnboarding(session.access_token);
-      await refreshSellerConnectAfterOnboarding(sellerConnect.refresh);
+      const latest = await refreshSellerConnectAfterOnboarding(sellerConnect.refresh);
       if (result === 'success') {
-        const latest = await fetchSellerConnectStatus(session.access_token);
         if (isSellerPayoutSetupComplete(latest)) {
           Alert.alert('Payout setup complete', 'Your payout status is Complete. You are ready to sell and go live.');
+        } else if (latest && sellerConnectBadge(latest) === 'Ready') {
+          Alert.alert('Payout setup received', 'Stripe has your details. Status is Ready — tap Refresh status if it does not update to Complete yet.');
         } else {
           Alert.alert(
             'Payout setup',
-            'Thanks — we refreshed your status. If the badge is not Complete yet, wait a moment and open Seller HQ again, or tap Set up payouts if Stripe needs more info.',
+            'Thanks — we refreshed your status. Tap Refresh status in a minute, or Set up payouts again if Stripe asks for more info.',
           );
         }
       }
@@ -456,7 +456,11 @@ function OverviewBody({
 }: {
   onOpenTab: (t: SellerHubTabId) => void;
   navigation: BottomTabNavigationProp<MainTabParamList>;
-  sellerConnect: { status: import('../api/stripeConnectRepository').SellerConnectStatusResponse | null; loading: boolean; refresh: () => Promise<void> };
+  sellerConnect: {
+    status: import('../api/stripeConnectRepository').SellerConnectStatusResponse | null;
+    loading: boolean;
+    refresh: () => Promise<import('../api/stripeConnectRepository').SellerConnectStatusResponse | null>;
+  };
   onStripeSetup: () => void;
   stripeSetupBusy: boolean;
 }) {
@@ -486,6 +490,21 @@ function OverviewBody({
             <Ionicons name="checkmark-circle" size={22} color={colors.success} />
             <Text style={styles.payoutCompleteText}>You are ready to receive payouts.</Text>
           </View>
+        ) : badge === 'Ready' ? (
+          <Pressable
+            style={[styles.payoutRefreshCta, sellerConnect.loading && styles.payoutCtaDisabled]}
+            onPress={() => void sellerConnect.refresh()}
+            disabled={sellerConnect.loading}
+          >
+            {sellerConnect.loading ? (
+              <ActivityIndicator color={colors.gold} />
+            ) : (
+              <>
+                <Text style={styles.payoutRefreshCtaText}>Refresh status</Text>
+                <Ionicons name="refresh" size={18} color={colors.gold} />
+              </>
+            )}
+          </Pressable>
         ) : (
           <Pressable
             style={[styles.payoutCta, stripeSetupBusy && styles.payoutCtaDisabled]}
@@ -1395,6 +1414,20 @@ const styles = StyleSheet.create({
   },
   payoutCtaDisabled: { opacity: 0.65 },
   payoutCtaText: { color: colors.background, fontWeight: '900', fontSize: 15 },
+  payoutRefreshCta: {
+    marginTop: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.45)',
+    backgroundColor: 'rgba(212,175,55,0.08)',
+    minHeight: 48,
+  },
+  payoutRefreshCtaText: { color: colors.gold, fontWeight: '800', fontSize: 15 },
   showRow: {
     flexDirection: 'row',
     alignItems: 'center',
