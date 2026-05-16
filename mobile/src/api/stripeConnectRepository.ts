@@ -210,3 +210,43 @@ export async function createSellerOnboardingLink(accessToken?: string | null): P
   }
   return { url: j.url };
 }
+
+/** Stripe Express Dashboard — view balance and withdraw payouts. */
+export async function createSellerStripeDashboardLink(accessToken?: string | null): Promise<{ url: string }> {
+  const base = getWebApiBaseUrl();
+  if (!base) {
+    throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
+  }
+  const token = accessToken ?? (await getAccessToken());
+  if (!token) {
+    throw new Error('You need to be signed in to manage payouts.');
+  }
+  const res = await fetchConnect(
+    '/api/stripe/connect/create-dashboard-link',
+    {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: '{}',
+    },
+    base,
+  );
+  if (!res.ok) {
+    let message = `Request failed (${res.status})`;
+    let code: string | undefined;
+    try {
+      const j = (await res.json()) as { error?: string; code?: string };
+      if (typeof j.error === 'string' && j.error.trim()) message = j.error.trim();
+      if (typeof j.code === 'string') code = j.code;
+    } catch {
+      /* ignore */
+    }
+    const err = new Error(message) as Error & { code?: string };
+    err.code = code;
+    throw err;
+  }
+  const j = (await res.json()) as { url?: string };
+  if (!j.url) {
+    throw new Error('Server did not return a dashboard URL.');
+  }
+  return { url: j.url };
+}

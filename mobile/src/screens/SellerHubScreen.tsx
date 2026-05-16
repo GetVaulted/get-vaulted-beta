@@ -52,6 +52,7 @@ import {
 } from '../api/stripeConnectRepository';
 import { useSellerStripeConnect } from '../hooks/useSellerStripeConnect';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
+import { openStripeConnectDashboard } from '../lib/openStripeConnectDashboard';
 import { openStripeConnectOnboarding, refreshSellerConnectAfterOnboarding } from '../lib/openStripeConnectOnboarding';
 import { areDevToolsEnabled } from '../lib/devTools';
 import type { CategoryId } from '../types';
@@ -179,7 +180,13 @@ export function SellerHubScreen() {
       case 'orders':
         return <OrdersPanel navigation={navigation} />;
       case 'wallet':
-        return <WalletPanel navigation={navigation} />;
+        return (
+          <WalletPanel
+            accessToken={session?.access_token}
+            hasStripeAccount={Boolean(sellerConnect.status?.stripe_account_id?.trim())}
+            onSetupPayouts={openStripeOnboarding}
+          />
+        );
       case 'analytics':
         return <AnalyticsPanel />;
       case 'vault':
@@ -770,7 +777,52 @@ function OrdersPanel({ navigation }: { navigation: BottomTabNavigationProp<MainT
   );
 }
 
-function WalletPanel({ navigation }: { navigation: BottomTabNavigationProp<MainTabParamList> }) {
+function WalletPanel({
+  accessToken,
+  hasStripeAccount,
+  onSetupPayouts,
+}: {
+  accessToken?: string;
+  hasStripeAccount: boolean;
+  onSetupPayouts: () => void;
+}) {
+  const [withdrawBusy, setWithdrawBusy] = useState(false);
+
+  const onWithdraw = async () => {
+    if (!accessToken) {
+      Alert.alert('Sign in required', 'Sign in to withdraw seller payouts.');
+      return;
+    }
+    if (!hasStripeAccount) {
+      Alert.alert(
+        'Payout setup required',
+        'Connect your bank account with Stripe before you can withdraw.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Set up payouts', onPress: () => void onSetupPayouts() },
+        ],
+      );
+      return;
+    }
+    if (withdrawBusy) return;
+    setWithdrawBusy(true);
+    try {
+      await openStripeConnectDashboard(accessToken);
+    } catch (e) {
+      const code = e && typeof e === 'object' && 'code' in e ? String((e as { code?: string }).code) : '';
+      if (code === 'NO_STRIPE_ACCOUNT') {
+        Alert.alert('Payout setup required', e instanceof Error ? e.message : 'Complete payout setup first.', [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Set up payouts', onPress: () => void onSetupPayouts() },
+        ]);
+      } else {
+        Alert.alert('Could not open payouts', e instanceof Error ? e.message : 'Unknown error');
+      }
+    } finally {
+      setWithdrawBusy(false);
+    }
+  };
+
   return (
     <View style={styles.walletHero}>
       <Text style={styles.walletLabel}>Available</Text>
@@ -785,11 +837,19 @@ function WalletPanel({ navigation }: { navigation: BottomTabNavigationProp<MainT
           <Text style={styles.walletMid}>{walletSnapshot.lifetime}</Text>
         </View>
       </View>
+      <Text style={styles.walletHint}>
+        Balances and withdrawals are managed in your Stripe Express dashboard.
+      </Text>
       <Pressable
-        style={styles.withdrawBtn}
-        onPress={() => navigation.navigate('TradeCenter', { screen: 'TradeCenterHome' })}
+        style={[styles.withdrawBtn, withdrawBusy && styles.payoutCtaDisabled]}
+        onPress={() => void onWithdraw()}
+        disabled={withdrawBusy}
       >
-        <Text style={styles.withdrawBtnText}>Withdraw funds</Text>
+        {withdrawBusy ? (
+          <ActivityIndicator color={colors.background} />
+        ) : (
+          <Text style={styles.withdrawBtnText}>Withdraw funds</Text>
+        )}
       </Pressable>
     </View>
   );
@@ -1539,6 +1599,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     marginTop: 4,
+  },
+  walletHint: {
+    fontSize: 12,
+    color: colors.textMuted,
+    lineHeight: 17,
+    marginTop: spacing.md,
   },
   withdrawBtn: {
     marginTop: spacing.lg,
