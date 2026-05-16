@@ -36,12 +36,8 @@ import {
 import { LaunchVaultEventPanel } from './sellerHub/LaunchVaultEventPanel';
 import { useCreateListingDraft } from '../createListing/CreateListingDraftContext';
 import { openCreateListing } from '../navigation/openCreateListing';
-import {
-  navigateAuthLogin,
-  navigateAuthSignUp,
-  navigateToSellerHostRoom,
-  rootNavigationRef,
-} from '../navigation/rootNavigationRef';
+import { openSellerHostRoom } from '../navigation/openSellerHostRoom';
+import { navigateAuthLogin, navigateAuthSignUp, rootNavigationRef } from '../navigation/rootNavigationRef';
 import { fetchProfileById } from '../api/profilesRepository';
 import { useAuth } from '../auth/AuthContext';
 import { LISTING_CHANNEL_CONFIG, channelFromPreview } from '../createListing/listingChannel';
@@ -182,7 +178,7 @@ export function SellerHubScreen() {
             sellerAvatarUrl={sellerLaunchMeta.avatar}
             vaultListingCount={userListings.length}
             onBrowseLive={() => navigation.navigate('Live', { screen: 'LiveDiscovery' })}
-            onHostRoom={(roomId) => navigateToSellerHostRoom(roomId)}
+            onHostRoom={(roomId) => openSellerHostRoom(navigation, roomId)}
           />
         );
       case 'orders':

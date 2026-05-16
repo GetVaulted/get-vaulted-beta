@@ -60,7 +60,16 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     });
     isAdmin = actor?.role === "admin";
   }
-  const isHost = viewerId === room.sellerId;
+  let isHost = viewerId === room.sellerId;
+  if (!isHost && viewerId) {
+    const actor = await prisma.user.findUnique({
+      where: { id: viewerId },
+      select: { email: true },
+    });
+    const actorEmail = actor?.email?.trim().toLowerCase();
+    const sellerEmail = seller?.email?.trim().toLowerCase();
+    isHost = Boolean(actorEmail && sellerEmail && actorEmail === sellerEmail);
+  }
   if (isHiddenFixtureSellerEmail(seller?.email) && !isHost && !isAdmin) {
     logLiveLoaderDebug("api_live_rooms_get_hidden_fixture", {
       liveRoomId: id,

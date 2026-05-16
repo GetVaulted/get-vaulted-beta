@@ -264,20 +264,13 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
 
   const openHostForRoom = useCallback(
     (room: LiveRoomApiRow) => {
-      if (liveBlocked) {
-        Alert.alert(
-          'Payout setup required',
-          'Finish Stripe Connect onboarding in Seller HQ before hosting live events.',
-        );
-        return;
-      }
       if (!props.accessToken) {
         Alert.alert('Sign in required', 'Sign in to host a live room.');
         return;
       }
       props.onHostRoom(room.id);
     },
-    [liveBlocked, props],
+    [props],
   );
 
   const onGoLiveNow = useCallback(async () => {

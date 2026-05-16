@@ -84,17 +84,35 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     return `${'*'.repeat(Math.max(12, oneTimeKey.length - 4))}${oneTimeKey.slice(-4)}`;
   }, [oneTimeKey, revealKey]);
 
+  const reloadRoom = useCallback(async () => {
+    if (!token) return null;
+    const r = await fetchLiveRoomForHost(token, roomId);
+    setRoom(r);
+    return r;
+  }, [roomId, token]);
+
+  const reloadStream = useCallback(
+    async (sync: boolean) => {
+      if (!token) return;
+      try {
+        const s = await fetchHostStream(token, roomId, { sync });
+        setStream(s.stream);
+        if (s.stream.ingestEndpoint) setIngestEndpoint(s.stream.ingestEndpoint);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Stream status unavailable.';
+        setStream(null);
+        setNotice((prev) => prev ?? `${msg} You can still start or end the show below.`);
+      }
+    },
+    [roomId, token],
+  );
+
   const reload = useCallback(async () => {
     if (!token) return;
     setError(null);
-    const [r, s] = await Promise.all([
-      fetchLiveRoomForHost(token, roomId),
-      fetchHostStream(token, roomId, { sync: true }),
-    ]);
-    setRoom(r);
-    setStream(s.stream);
-    if (s.stream.ingestEndpoint) setIngestEndpoint(s.stream.ingestEndpoint);
-  }, [roomId, token]);
+    await reloadRoom();
+    await reloadStream(false);
+  }, [reloadRoom, reloadStream, token]);
 
   useEffect(() => {
     if (!token) {
@@ -106,24 +124,34 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     (async () => {
       setLoading(true);
       setError(null);
+      setNotice(null);
+      try {
+        await reloadRoom();
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : 'Could not load room.');
+          setLoading(false);
+        }
+        return;
+      }
+      if (cancelled) return;
+
       try {
         const readiness = await fetchSellerLiveReadiness(token);
-        if (!readiness.canGoLive) {
-          setReadinessBlocked(readiness.issues);
-        } else {
-          setReadinessBlocked(null);
+        if (!cancelled) {
+          setReadinessBlocked(readiness.canGoLive ? null : readiness.issues);
         }
-        await reload();
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load room.');
-      } finally {
-        if (!cancelled) setLoading(false);
+      } catch {
+        if (!cancelled) setReadinessBlocked(null);
       }
+
+      if (!cancelled) await reloadStream(false);
+      if (!cancelled) setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [reload, token]);
+  }, [reloadRoom, reloadStream, token]);
 
   const onProvision = async () => {
     if (!token) return;
@@ -183,9 +211,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     setBusy('refresh');
     setError(null);
     try {
-      const s = await fetchHostStream(token, roomId, { sync: true });
-      setStream(s.stream);
-      if (s.stream.ingestEndpoint) setIngestEndpoint(s.stream.ingestEndpoint);
+      await reloadStream(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Refresh failed.');
     } finally {
