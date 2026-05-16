@@ -37,6 +37,12 @@ export function navigateToMainHq() {
   }
 }
 
+export function navigateToSellerHostRoom(roomId: string) {
+  if (rootNavigationRef.isReady()) {
+    rootNavigationRef.navigate('SellerHostRoom', { roomId });
+  }
+}
+
 export function navigateToMainHome() {
   if (rootNavigationRef.isReady()) {
     rootNavigationRef.dispatch(

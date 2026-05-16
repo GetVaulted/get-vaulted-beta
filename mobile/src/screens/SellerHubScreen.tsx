@@ -36,7 +36,12 @@ import {
 import { LaunchVaultEventPanel } from './sellerHub/LaunchVaultEventPanel';
 import { useCreateListingDraft } from '../createListing/CreateListingDraftContext';
 import { openCreateListing } from '../navigation/openCreateListing';
-import { navigateAuthLogin, navigateAuthSignUp, rootNavigationRef } from '../navigation/rootNavigationRef';
+import {
+  navigateAuthLogin,
+  navigateAuthSignUp,
+  navigateToSellerHostRoom,
+  rootNavigationRef,
+} from '../navigation/rootNavigationRef';
 import { fetchProfileById } from '../api/profilesRepository';
 import { useAuth } from '../auth/AuthContext';
 import { LISTING_CHANNEL_CONFIG, channelFromPreview } from '../createListing/listingChannel';
@@ -177,6 +182,7 @@ export function SellerHubScreen() {
             sellerAvatarUrl={sellerLaunchMeta.avatar}
             vaultListingCount={userListings.length}
             onBrowseLive={() => navigation.navigate('Live', { screen: 'LiveDiscovery' })}
+            onHostRoom={(roomId) => navigateToSellerHostRoom(roomId)}
           />
         );
       case 'orders':
@@ -471,6 +477,7 @@ function OverviewBody({
   navigation: BottomTabNavigationProp<MainTabParamList>;
   sellerConnect: {
     status: import('../api/stripeConnectRepository').SellerConnectStatusResponse | null;
+    statusError: string | null;
     loading: boolean;
     refresh: () => Promise<import('../api/stripeConnectRepository').SellerConnectStatusResponse | null>;
   };

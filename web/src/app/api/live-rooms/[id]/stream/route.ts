@@ -1,5 +1,6 @@
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { getLiveRoomHostAccess } from "@/lib/live-room-host-auth";
+import { requireLiveRoomHostAccess } from "@/lib/resolve-live-host-access";
+import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { checkRateLimit } from "@/lib/request-rate-limit";
 import { NextResponse } from "next/server";
 import { logIvsOpsServer } from "@/lib/ivs-ops-log";
@@ -20,16 +21,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const wantsSync = url.searchParams.get("sync") === "1" || url.searchParams.get("sync") === "true";
 
   if (wantsSync) {
-    const session = await getServerSessionSafe();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const access = await getLiveRoomHostAccess(id, session.user.id);
-    if (!access.ok) {
-      return NextResponse.json({ error: access.error }, { status: access.status });
-    }
+    const hostAuth = await requireLiveRoomHostAccess(id, req);
+    if (!hostAuth.ok) return hostAuth.response;
 
-    const rl = checkRateLimit(`ivs-stream-sync:${session.user.id}:${id}`, { limit: 30, windowMs: 60_000 });
+    const rl = checkRateLimit(`ivs-stream-sync:${hostAuth.userId}:${id}`, { limit: 30, windowMs: 60_000 });
     if (!rl.ok) {
       return NextResponse.json(
         { error: "Too many sync requests. Try again shortly." },
@@ -55,15 +50,14 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     return NextResponse.json({ stream: toHostStreamPayload(refreshed), viewerRole: "host" });
   }
 
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
+  const auth = await resolveLiveRoomsUserId(req);
+  const userId = auth instanceof Response ? null : auth.userId;
+  if (!userId) {
     return NextResponse.json({ stream: toBuyerSafeStreamPayload(row), viewerRole: "buyer" });
   }
-
-  const access = await getLiveRoomHostAccess(id, session.user.id);
+  const access = await getLiveRoomHostAccess(id, userId);
   if (access.ok) {
     return NextResponse.json({ stream: toHostStreamPayload(row), viewerRole: "host" });
   }
-
   return NextResponse.json({ stream: toBuyerSafeStreamPayload(row), viewerRole: "buyer" });
 }

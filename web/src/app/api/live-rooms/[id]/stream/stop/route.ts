@@ -2,11 +2,11 @@ import { NextResponse } from "next/server";
 import { stopStream } from "@/services/ivs";
 import { errorResponse, getStreamRow, requireHostAccess, toHostStreamPayload } from "../_shared";
 
-export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: raw } = await ctx.params;
   const id = decodeURIComponent(raw);
 
-  const auth = await requireHostAccess(id);
+  const auth = await requireHostAccess(id, req);
   if (!auth.ok) return auth.response;
 
   try {

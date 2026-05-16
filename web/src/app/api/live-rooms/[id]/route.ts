@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSessionSafe } from "@/lib/auth";
+import { resolveLiveRoomsUserId, resolveOptionalLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { attachHighBidderUsernames } from "@/lib/live-room-high-bidder-enrich";
 import { buildLiveRoomDetail } from "@/lib/live-room-serialize";
 import { logLiveLoaderDebug, safeDecodeRouteSegment } from "@/lib/live-loader-debug";
@@ -29,10 +30,10 @@ const includeDetail = {
   },
 } as const;
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: raw } = await ctx.params;
   const id = safeDecodeRouteSegment(raw ?? "");
-  const session = await getServerSessionSafe();
+  const viewerId = await resolveOptionalLiveRoomsUserId(req);
 
   const room = await prisma.liveRoom.findUnique({
     where: { id },
@@ -42,7 +43,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     logLiveLoaderDebug("api_live_rooms_get_not_found", {
       liveRoomId: id,
       idParamRaw: raw,
-      sessionUserId: session?.user?.id ?? null,
+      sessionUserId: viewerId,
     });
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -51,13 +52,19 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     where: { id: room.sellerId },
     select: { email: true },
   });
-  const isHost = session?.user?.id === room.sellerId;
-  const isAdmin = session?.user?.role === "admin";
-  const viewerId = session?.user?.id;
+  let isAdmin = false;
+  if (viewerId) {
+    const actor = await prisma.user.findUnique({
+      where: { id: viewerId },
+      select: { role: true },
+    });
+    isAdmin = actor?.role === "admin";
+  }
+  const isHost = viewerId === room.sellerId;
   if (isHiddenFixtureSellerEmail(seller?.email) && !isHost && !isAdmin) {
     logLiveLoaderDebug("api_live_rooms_get_hidden_fixture", {
       liveRoomId: id,
-      sessionUserId: session?.user?.id ?? null,
+      sessionUserId: viewerId,
       isHost,
       isAdmin,
     });
@@ -89,8 +96,8 @@ type PatchBody = {
 };
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await resolveLiveRoomsUserId(req);
+  if (auth instanceof NextResponse) return auth;
 
   const { id: raw } = await ctx.params;
   const id = safeDecodeRouteSegment(raw ?? "");
@@ -101,11 +108,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const actor = await prisma.user.findUnique({
-    where: { id: session.user.id },
+    where: { id: auth.userId },
     select: { role: true },
   });
   const isAdmin = actor?.role === "admin";
-  if (existing.sellerId !== session.user.id && !isAdmin) {
+  if (existing.sellerId !== auth.userId && !isAdmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

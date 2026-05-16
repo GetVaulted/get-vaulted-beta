@@ -23,9 +23,14 @@ const FALLBACK_PREVIEW =
   'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1200&q=78&auto=format&fit=crop';
 
 function apiErrorMessage(res: Response, body: unknown): string {
-  if (body && typeof body === 'object' && 'error' in body) {
-    const err = (body as { error?: string }).error;
-    if (typeof err === 'string' && err.trim()) return err.trim();
+  if (body && typeof body === 'object') {
+    const o = body as { error?: string; code?: string };
+    if (o.code === 'LIVE_COMING_SOON' || res.status === 503) {
+      return (
+        'Live is disabled on this server. Redeploy beta with the latest web build, or set LIVE_MARKETPLACE_ENABLED=1 in Netlify env (and clear LIVE_MARKETPLACE_COMING_SOON).'
+      );
+    }
+    if (typeof o.error === 'string' && o.error.trim()) return o.error.trim();
   }
   return `Request failed (${res.status})`;
 }

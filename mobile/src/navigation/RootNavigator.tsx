@@ -7,6 +7,7 @@ import { ProductDetailScreen } from '../screens/ProductDetailScreen';
 import { AuthLoginScreen } from '../screens/auth/AuthLoginScreen';
 import { AuthSignUpScreen } from '../screens/auth/AuthSignUpScreen';
 import { ProfileEditScreen } from '../screens/auth/ProfileEditScreen';
+import { SellerHostRoomScreen } from '../screens/SellerHostRoomScreen';
 import { LaunchIntroScreen } from '../screens/onboarding/LaunchIntroScreen';
 import { AuthWelcomeScreen } from '../screens/onboarding/AuthWelcomeScreen';
 import type { RootStackParamList } from './types';
@@ -58,6 +59,11 @@ export function RootNavigator() {
             options={{ animation: 'slide_from_right', presentation: 'card' }}
           />
           <Stack.Screen name="ProfileEdit" component={ProfileEditScreen} />
+          <Stack.Screen
+            name="SellerHostRoom"
+            component={SellerHostRoomScreen}
+            options={{ animation: 'slide_from_right', presentation: 'card' }}
+          />
           <Stack.Screen
             name="ProductDetail"
             component={ProductDetailScreen}

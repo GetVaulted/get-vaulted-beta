@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getLiveRoomHostAccess } from "@/lib/live-room-host-auth";
+import { requireLiveRoomHostAccess } from "@/lib/resolve-live-host-access";
 
 export type StreamRow = {
   id: string;
@@ -68,19 +67,10 @@ export function toHostStreamPayload(row: StreamRow) {
   };
 }
 
-export async function requireHostAccess(liveRoomId: string) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return { ok: false as const, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  }
-  const access = await getLiveRoomHostAccess(liveRoomId, session.user.id);
-  if (!access.ok) {
-    return {
-      ok: false as const,
-      response: NextResponse.json({ error: access.error }, { status: access.status }),
-    };
-  }
-  return { ok: true as const, session, access };
+export async function requireHostAccess(liveRoomId: string, request: Request) {
+  const auth = await requireLiveRoomHostAccess(liveRoomId, request);
+  if (!auth.ok) return auth;
+  return { ok: true as const, userId: auth.userId, access: auth.access };
 }
 
 export function errorResponse(error: unknown) {

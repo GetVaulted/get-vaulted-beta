@@ -43,5 +43,6 @@ export type RootStackParamList = {
   AuthSignUp: undefined;
   ProfileEdit: undefined;
   ProductDetail: { productId: string };
+  SellerHostRoom: { roomId: string };
   CreateListingFlow: NavigatorScreenParams<CreateListingStackParamList> | undefined;
 };

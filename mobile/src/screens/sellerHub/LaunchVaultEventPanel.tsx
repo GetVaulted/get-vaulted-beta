@@ -82,6 +82,7 @@ export type LaunchVaultEventPanelProps = {
   giveaways: boolean;
   setGiveaways: (v: boolean) => void;
   onBrowseLive: () => void;
+  onHostRoom: (roomId: string) => void;
   sellerDisplayName: string;
   sellerHandle: string;
   sellerAvatarUrl?: string | null;
@@ -251,8 +252,8 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
       Alert.alert(
         instantLive ? 'Room created' : 'Show scheduled',
         instantLive
-          ? 'Your live room is ready. Open the Live tab to see it — go live from the web seller console when you are on camera.'
-          : `Your show is scheduled for ${formatScheduledDate(scheduledDate)}. It appears under Your rooms and on the Live tab.`,
+          ? 'Your live room is ready. Tap Go live now to set up your stream and start the show from your phone.'
+          : `Your show is scheduled for ${formatScheduledDate(scheduledDate)}. Host it from Your rooms when you are ready.`,
       );
     } catch (e) {
       Alert.alert('Could not schedule show', e instanceof Error ? e.message : 'Unknown error');
@@ -261,16 +262,80 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
     }
   };
 
-  const onLiveHub = () => {
+  const openHostForRoom = useCallback(
+    (room: LiveRoomApiRow) => {
+      if (liveBlocked) {
+        Alert.alert(
+          'Payout setup required',
+          'Finish Stripe Connect onboarding in Seller HQ before hosting live events.',
+        );
+        return;
+      }
+      if (!props.accessToken) {
+        Alert.alert('Sign in required', 'Sign in to host a live room.');
+        return;
+      }
+      props.onHostRoom(room.id);
+    },
+    [liveBlocked, props],
+  );
+
+  const onGoLiveNow = useCallback(async () => {
     if (liveBlocked) {
       Alert.alert(
         'Payout setup required',
-        'Finish Stripe Connect onboarding in Seller HQ before hosting live events — drafts stay available.',
+        'Finish Stripe Connect onboarding in Seller HQ before hosting live events.',
       );
       return;
     }
-    props.onBrowseLive();
-  };
+    if (!props.accessToken) {
+      Alert.alert('Sign in required', 'Sign in to go live from your phone.');
+      return;
+    }
+    const liveRoom = myRooms.find((r) => r.status === 'live');
+    if (liveRoom) {
+      props.onHostRoom(liveRoom.id);
+      return;
+    }
+    const scheduled = myRooms
+      .filter((r) => r.status === 'scheduled')
+      .sort((a, b) => {
+        const ta = a.scheduledStartAt ? new Date(a.scheduledStartAt).getTime() : 0;
+        const tb = b.scheduledStartAt ? new Date(b.scheduledStartAt).getTime() : 0;
+        return ta - tb;
+      })[0];
+    if (scheduled) {
+      props.onHostRoom(scheduled.id);
+      return;
+    }
+    const title = props.scheduleTitle.trim() || 'Live now';
+    const description = [tagline.trim(), whatsDropping.trim()].filter(Boolean).join('\n\n');
+    setScheduleBusy(true);
+    try {
+      const { id } = await createLiveRoom(props.accessToken, {
+        title,
+        description,
+        category: categoryLabel,
+        roomType: streamFormatToRoomType(props.streamFormat),
+        scheduledStartAt: null,
+        teamBoardLeague: props.streamFormat === 'break' ? 'nba' : undefined,
+      });
+      await loadMyRooms();
+      props.onHostRoom(id);
+    } catch (e) {
+      Alert.alert('Could not create room', e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setScheduleBusy(false);
+    }
+  }, [
+    categoryLabel,
+    liveBlocked,
+    loadMyRooms,
+    myRooms,
+    props,
+    tagline,
+    whatsDropping,
+  ]);
 
   const onVaultAi = () => {
     props.setScheduleTitle('Nocturne Vault Session');
@@ -336,7 +401,11 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
       </View>
 
       <View style={s.heroCtaRow}>
-        <Pressable style={[s.goLiveNow, liveBlocked && s.goLiveOff]} onPress={onLiveHub}>
+        <Pressable
+          style={[s.goLiveNow, (liveBlocked || scheduleBusy) && s.goLiveOff]}
+          onPress={() => void onGoLiveNow()}
+          disabled={scheduleBusy}
+        >
           <LinearGradient
             colors={liveBlocked ? ['#333', '#222'] : ['#E8C547', colors.gold, '#B8922A']}
             start={{ x: 0, y: 0 }}
@@ -347,7 +416,7 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
             <Text style={[s.goLiveTxt, liveBlocked && s.goLiveTxtOff]}>Go live now</Text>
           </LinearGradient>
         </Pressable>
-        <Pressable style={[s.hubBtn, liveBlocked && s.hubBtnOff]} onPress={onLiveHub}>
+        <Pressable style={[s.hubBtn, liveBlocked && s.hubBtnOff]} onPress={props.onBrowseLive}>
           <Text style={[s.hubBtnTxt, liveBlocked && s.hubBtnTxtOff]}>Open live hub</Text>
         </Pressable>
       </View>
@@ -625,6 +694,12 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
                 {' · '}
                 {room.category}
               </Text>
+              {room.status !== 'ended' ? (
+                <Pressable style={s.roomHostBtn} onPress={() => openHostForRoom(room)}>
+                  <Text style={s.roomHostBtnTxt}>{room.status === 'live' ? 'Manage show' : 'Host room'}</Text>
+                  <Ionicons name="chevron-forward" size={16} color={colors.gold} />
+                </Pressable>
+              ) : null}
             </View>
           ))}
         </View>
@@ -872,6 +947,19 @@ const s = StyleSheet.create({
   roomStatusPillEnded: { backgroundColor: 'rgba(255,255,255,0.08)' },
   roomStatusPillTxt: { fontSize: 9, fontWeight: '900', letterSpacing: 0.8, color: colors.gold },
   roomCardMeta: { fontSize: 12, color: colors.textMuted, marginTop: 6 },
+  roomHostBtn: {
+    marginTop: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.35)',
+    backgroundColor: 'rgba(212,175,55,0.08)',
+  },
+  roomHostBtnTxt: { fontSize: 14, fontWeight: '700', color: colors.gold },
   accessRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   accessChip: {
     paddingVertical: spacing.sm,
