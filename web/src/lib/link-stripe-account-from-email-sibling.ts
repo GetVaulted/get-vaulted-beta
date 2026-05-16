@@ -21,9 +21,9 @@ export async function linkStripeAccountFromEmailSiblingIfMissing(user: {
 
   const sibling = await prisma.user.findFirst({
     where: {
-      email,
+      email: { equals: email, mode: "insensitive" },
       id: { not: user.id },
-      stripeAccountId: { not: null },
+      NOT: { stripeAccountId: null },
     },
     select: { stripeAccountId: true },
     orderBy: { updatedAt: "desc" },
