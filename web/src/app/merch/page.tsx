@@ -7,6 +7,8 @@ import { dbListingToMarketplace } from "@/lib/listing-mapper";
 import { listingWithSellerFulfillmentInclude } from "@/lib/listing-with-seller-include";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 const listingInclude = listingWithSellerFulfillmentInclude;
 
 export const metadata: Metadata = {

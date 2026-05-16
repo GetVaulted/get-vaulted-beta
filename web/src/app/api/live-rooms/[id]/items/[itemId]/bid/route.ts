@@ -13,7 +13,7 @@ import { runLiveAuctionSpan } from "@/lib/live-auction-otel";
 import { getLiveRoomItemSnapshotDto } from "@/lib/live-room-item-snapshot-server";
 import { resolveLiveProxyBidChain, upsertLiveAuctionProxyBid } from "@/services/live-auction/resolve-live-proxy-bid-chain";
 import { isStripeConfigured } from "@/lib/stripe";
-import { buyerHasCardOnFileForLiveBidding } from "@/lib/stripe-customer";
+import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
 
 function signInUrl(returnPath: string) {
   return `/signin?returnTo=${encodeURIComponent(returnPath)}`;
@@ -127,17 +127,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   }
 
   if (isStripeConfigured()) {
-    const hasCard = await buyerHasCardOnFileForLiveBidding(bidderId);
-    if (!hasCard) {
-      return NextResponse.json(
-        {
-          error:
-            "Add a saved card before bidding. Your card is verified with no charge until you win — then we charge the winning amount automatically.",
-          code: "LIVE_BID_PAYMENT_METHOD_REQUIRED",
-          addPaymentMethodsUrl: "/account/payment-methods",
-        },
-        { status: 402 },
-      );
+    const wallet = await liveWalletIncompleteOrNull(bidderId);
+    if (wallet) {
+      return NextResponse.json(wallet, { status: 402 });
     }
   }
 

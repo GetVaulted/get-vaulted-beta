@@ -12,6 +12,8 @@ import { isEscrowConfigured, orderTotalQualifiesForEscrow } from "@/lib/escrow-c
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
 import { processAuctionPaymentExpiries } from "@/services/payments";
 
+export const dynamic = "force-dynamic";
+
 function formatMoney(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 }

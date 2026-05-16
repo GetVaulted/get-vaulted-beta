@@ -7,6 +7,8 @@ import {
 
 export type ListingRateQuoteRequest = {
   ship_from_zip: string;
+  /** Optional US buyer ZIP — when set (domestic), quotes use real lane/zone instead of a fixed benchmark. */
+  ship_to_zip?: string;
   weight_lb: number;
   length_in: number;
   width_in: number;
@@ -19,6 +21,8 @@ export type ListingRateQuote = {
   carrier: string;
   serviceLevel: string;
   estimatedDelivery: string;
+  /** Shippo's business-day estimate when present; used for secondary sort. */
+  estimatedDays: number | null;
   amount: string;
   currency: string;
   trackingIncluded: boolean;
@@ -53,14 +57,30 @@ async function zipToUsPlace(zip: string): Promise<{ city: string; state: string 
   }
 }
 
-function formatDelivery(rate: ShippoShipmentRate): string {
-  if (rate.duration_terms?.trim()) return rate.duration_terms.trim();
+function deliveryLabelAndDays(rate: ShippoShipmentRate): { label: string; estimatedDays: number | null } {
+  if (rate.duration_terms?.trim()) {
+    const d = rate.estimated_days != null && rate.estimated_days > 0 ? rate.estimated_days : null;
+    return { label: rate.duration_terms.trim(), estimatedDays: d };
+  }
   const days = rate.estimated_days;
   if (days != null && days > 0) {
-    if (days === 1) return 'Estimated 1 business day';
-    return `Estimated ${days} business days`;
+    if (days === 1) return { label: 'Estimated 1 business day', estimatedDays: days };
+    return { label: `Estimated ${days} business days`, estimatedDays: days };
   }
-  return 'Delivery time varies by carrier';
+  return { label: 'Delivery time varies by carrier', estimatedDays: null };
+}
+
+/** Lowest price first; ties broken by fewer transit days (closer / faster lane), then carrier name. */
+function compareShippoRates(a: ShippoShipmentRate, b: ShippoShipmentRate): number {
+  const pa = Number(a.amount);
+  const pb = Number(b.amount);
+  if (pa !== pb) return pa - pb;
+  const da = a.estimated_days != null && a.estimated_days > 0 ? a.estimated_days : 999;
+  const db = b.estimated_days != null && b.estimated_days > 0 ? b.estimated_days : 999;
+  if (da !== db) return da - db;
+  const na = `${a.provider ?? ''} ${a.servicelevel?.name ?? ''}`.trim();
+  const nb = `${b.provider ?? ''} ${b.servicelevel?.name ?? ''}`.trim();
+  return na.localeCompare(nb);
 }
 
 function rateHasAttribute(rate: ShippoShipmentRate, token: string): boolean {
@@ -73,12 +93,14 @@ export function mapShippoRateToQuote(rate: ShippoShipmentRate): ListingRateQuote
     rateHasAttribute(rate, 'TRACKING_INCLUDED') ||
     !rateHasAttribute(rate, 'NO_TRACKING');
   const insuranceAvailable = rateHasAttribute(rate, 'INSURANCE') || rateHasAttribute(rate, 'INSURANCE_INCLUDED');
+  const { label, estimatedDays } = deliveryLabelAndDays(rate);
 
   return {
     id: rate.object_id,
     carrier: rate.provider?.trim() || 'Carrier',
     serviceLevel: rate.servicelevel?.name?.trim() || 'Standard',
-    estimatedDelivery: formatDelivery(rate),
+    estimatedDelivery: label,
+    estimatedDays,
     amount: rate.amount,
     currency: (rate.currency ?? 'USD').toUpperCase(),
     trackingIncluded,
@@ -86,14 +108,27 @@ export function mapShippoRateToQuote(rate: ShippoShipmentRate): ListingRateQuote
   };
 }
 
+function sortQuotesByPriceThenTransit(quotes: ListingRateQuote[]): ListingRateQuote[] {
+  return [...quotes].sort((a, b) => {
+    const pa = Number(a.amount);
+    const pb = Number(b.amount);
+    if (pa !== pb) return pa - pb;
+    const da = a.estimatedDays ?? 999;
+    const db = b.estimatedDays ?? 999;
+    if (da !== db) return da - db;
+    return `${a.carrier} ${a.serviceLevel}`.localeCompare(`${b.carrier} ${b.serviceLevel}`);
+  });
+}
+
 export function mockListingRateQuotes(): ListingRateQuote[] {
-  return [
+  return sortQuotesByPriceThenTransit([
     {
-      id: 'mock-usps-ground',
-      carrier: 'USPS',
-      serviceLevel: 'Ground Advantage',
-      estimatedDelivery: 'Estimated 3–5 business days',
-      amount: '8.42',
+      id: 'mock-fedex-home',
+      carrier: 'FedEx',
+      serviceLevel: 'Home Delivery',
+      estimatedDelivery: 'Estimated 2–5 business days',
+      estimatedDays: 4,
+      amount: '12.65',
       currency: 'USD',
       trackingIncluded: true,
       insuranceAvailable: true,
@@ -103,22 +138,56 @@ export function mockListingRateQuotes(): ListingRateQuote[] {
       carrier: 'UPS',
       serviceLevel: 'Ground',
       estimatedDelivery: 'Estimated 2–4 business days',
+      estimatedDays: 3,
       amount: '11.18',
       currency: 'USD',
       trackingIncluded: true,
       insuranceAvailable: true,
     },
     {
-      id: 'mock-fedex-home',
-      carrier: 'FedEx',
-      serviceLevel: 'Home Delivery',
-      estimatedDelivery: 'Estimated 2–5 business days',
-      amount: '12.65',
+      id: 'mock-usps-ground',
+      carrier: 'USPS',
+      serviceLevel: 'Ground Advantage',
+      estimatedDelivery: 'Estimated 3–5 business days',
+      estimatedDays: 5,
+      amount: '8.42',
       currency: 'USD',
       trackingIncluded: true,
       insuranceAvailable: true,
     },
-  ];
+  ]);
+}
+
+async function resolveDomesticShipTo(req: ListingRateQuoteRequest): Promise<{
+  name: string;
+  street1: string;
+  city: string;
+  state: string;
+  zip: string;
+  country: 'US';
+}> {
+  const raw = req.ship_to_zip?.replace(/\D/g, '').slice(0, 5) ?? '';
+  if (raw.length === 5) {
+    const place = await zipToUsPlace(raw);
+    if (place) {
+      return {
+        name: 'Domestic buyer estimate',
+        street1: '100 Main St',
+        city: place.city,
+        state: place.state,
+        zip: raw,
+        country: 'US',
+      };
+    }
+  }
+  return {
+    name: 'Domestic buyer estimate',
+    street1: '350 5th Ave',
+    city: 'New York',
+    state: 'NY',
+    zip: US_BENCHMARK_ZIP,
+    country: 'US',
+  };
 }
 
 export async function fetchListingRatesFromShippo(
@@ -147,16 +216,7 @@ export async function fetchListingRatesFromShippo(
     country: 'US',
   };
 
-  const toAddress = req.international
-    ? INTL_BENCHMARK
-    : {
-        name: 'Domestic buyer estimate',
-        street1: '350 5th Ave',
-        city: 'New York',
-        state: 'NY',
-        zip: US_BENCHMARK_ZIP,
-        country: 'US',
-      };
+  const toAddress = req.international ? INTL_BENCHMARK : await resolveDomesticShipTo(req);
 
   const parcel: ShippoParcelInput = {
     length: String(req.length_in),
@@ -184,7 +244,7 @@ export async function fetchListingRatesFromShippo(
     return { rates: [], mock: false };
   }
 
-  const sorted = [...raw].sort((a, b) => Number(a.amount) - Number(b.amount));
+  const sorted = [...raw].sort(compareShippoRates);
   const quotes = sorted.map(mapShippoRateToQuote);
 
   return { rates: quotes, mock: false };

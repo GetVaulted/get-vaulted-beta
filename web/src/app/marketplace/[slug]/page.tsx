@@ -13,6 +13,8 @@ import { isHiddenFixtureSellerEmail, prismaSellerVisibleOnPublicMarketplace } fr
 import { prisma } from "@/lib/prisma";
 import { storedToMarketplaceListing } from "@/lib/user-listings-storage";
 
+export const dynamic = "force-dynamic";
+
 const listingInclude = listingWithSellerFulfillmentInclude;
 
 async function publishedDbListings(): Promise<MarketplaceListing[]> {

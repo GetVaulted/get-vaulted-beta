@@ -12,8 +12,11 @@ import {
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { fetchSellerConnectStatus } from '../../api/stripeConnectRepository';
+import { useAuth } from '../../auth/AuthContext';
 import { useCreateListingDraft } from '../../createListing/CreateListingDraftContext';
 import {
+  AUCTION_DURATION_DAY_OPTIONS,
   countListingPhotos,
   LISTING_CATEGORY_OPTIONS,
   LISTING_COMMERCE_OPTIONS,
@@ -21,7 +24,11 @@ import {
   LISTING_MIN_PHOTOS,
 } from '../../createListing/types';
 import { LISTING_CHANNEL_CONFIG } from '../../createListing/listingChannel';
-import { formatListingRatePrice } from '../../createListing/shippoRates';
+import { getLiveProfile, liveShippingStepComplete } from '../../createListing/liveShowShipping';
+import {
+  isPackageDetailsComplete,
+  marketplaceShippingListingReady,
+} from '../../createListing/shippoRates';
 import type { CreateListingStackParamList } from '../../navigation/types';
 import { CreateListingChrome } from './CreateListingChrome';
 import { useCreateListingFlow } from './createListingFlowHelpers';
@@ -143,7 +150,25 @@ export function CreateListingPricingScreen({
             placeholder="$500"
           />
           <Field label="Reserve (optional)" value={form.reservePrice} onChange={(v) => setForm({ reservePrice: v })} placeholder="$8,000" />
-          <Field label="Timer (hours)" value={form.auctionDurationHours} onChange={(v) => setForm({ auctionDurationHours: v })} placeholder="72" />
+          <Text style={styles.fieldLbl}>Auction length (days)</Text>
+          <Text style={styles.auctionDurHint}>
+            Timed auction — runs for the number of full days you select, then the highest bid wins. Marketplace default
+            at checkout shows time remaining.
+          </Text>
+          <View style={styles.dayChipWrap}>
+            {AUCTION_DURATION_DAY_OPTIONS.map((d) => {
+              const sel = form.auctionDurationDays === String(d);
+              return (
+                <Pressable
+                  key={d}
+                  style={[styles.dayChip, sel && styles.dayChipOn]}
+                  onPress={() => setForm({ auctionDurationDays: String(d) })}
+                >
+                  <Text style={[styles.dayChipTxt, sel && styles.dayChipTxtOn]}>{d} days</Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </>
       );
     }
@@ -214,11 +239,9 @@ export function CreateListingPricingScreen({
       <Footer
         onBack={() => navigation.goBack()}
         onNext={() =>
-          isLiveShow
-            ? navigation.navigate('CreateListingReview')
-            : navigation.navigate('CreateListingShipping')
+          isLiveShow ? navigation.navigate('CreateListingLiveShipping') : navigation.navigate('CreateListingShipping')
         }
-        nextLabel={isLiveShow ? 'Review queue item' : 'Continue'}
+        nextLabel={isLiveShow ? 'Live shipping' : 'Continue'}
         disabled={
           t === 'buy_now' || t === 'vault_drop'
             ? !form.buyNowPrice.trim()
@@ -264,6 +287,7 @@ function Field({
 }
 
 export { CreateListingShippingScreen } from './CreateListingShippingScreen';
+export { CreateListingLiveShippingScreen } from './CreateListingLiveShippingScreen';
 
 function Toggle({
   label,
@@ -286,10 +310,12 @@ export function CreateListingReviewScreen({
   navigation,
 }: NativeStackScreenProps<CreateListingStackParamList, 'CreateListingReview'>) {
   const { form, setForm, saveDraft, publish } = useCreateListingDraft();
+  const { session } = useAuth();
   const { channel, accent, totalSteps, isLiveShow, step } = useCreateListingFlow();
   const channelCfg = LISTING_CHANNEL_CONFIG[channel];
   const { exitFlow, goBackStep } = useCreateListingNavigation();
   const thumb = form.media[0]?.uri;
+  const liveProfile = getLiveProfile(form.liveShippingProfileId);
   const typeLabel = LISTING_COMMERCE_OPTIONS.find((x) => x.id === form.listingType)?.label ?? '—';
   const catLabel = form.category ? LISTING_CATEGORY_OPTIONS.find((c) => c.id === form.category)?.label : '—';
   const reviewStep = step.review;
@@ -299,8 +325,23 @@ export function CreateListingReviewScreen({
 
   const needsAck =
     form.aiNeedsSellerConfirmation && form.aiReviewReasons.length > 0 && !form.aiAcknowledgedReviews;
-  const needsShipRate = !isLiveShow && !form.selectedShippoRate;
-  const canPublish = photosValid && !needsAck && !needsShipRate;
+  const needsMarketplaceShipping =
+    !isLiveShow &&
+    !marketplaceShippingListingReady(form) &&
+    !(form.selectedShippoRate != null && isPackageDetailsComplete(form));
+  const needsLiveShipping =
+    isLiveShow &&
+    !liveShippingStepComplete({
+      liveShippingPreset: form.liveShippingPreset,
+      liveShippingProfileId: form.liveShippingProfileId,
+      liveShipFromZip: form.liveShipFromZip,
+      liveBundleEligible: form.liveBundleEligible,
+      liveAdvancedWeightLb: form.liveAdvancedWeightLb,
+      liveAdvancedLengthIn: form.liveAdvancedLengthIn,
+      liveAdvancedWidthIn: form.liveAdvancedWidthIn,
+      liveAdvancedHeightIn: form.liveAdvancedHeightIn,
+    });
+  const canPublish = photosValid && !needsAck && !needsMarketplaceShipping && !needsLiveShipping;
 
   const verificationLine =
     form.verificationSource === 'visible_in_media'
@@ -309,7 +350,7 @@ export function CreateListingReviewScreen({
         ? 'Seller-provided credentials — AI does not guarantee authenticity.'
         : 'No authentication evidence highlighted — consider Vaulted Verification before going live.';
 
-  const onPublish = () => {
+  const onPublish = async () => {
     if (!photosValid) {
       Alert.alert(
         'Photos required',
@@ -320,14 +361,29 @@ export function CreateListingReviewScreen({
       return;
     }
     if (!canPublish) {
-      Alert.alert(
-        'Needs confirmation',
-        needsAck
-          ? 'Confirm you reviewed AI-flagged details before publishing.'
-          : 'Select a Shippo carrier rate on the Shipping step.',
-      );
+      const shipMsg = needsAck
+        ? 'Confirm you reviewed AI-flagged details before publishing.'
+        : needsLiveShipping
+          ? 'Complete live shipping — choose a profile and a valid 5-digit ship-from ZIP (Advanced adds package weight and dimensions).'
+          : needsMarketplaceShipping
+            ? 'Complete Shipping preferences — valid parcel, successful rate preview, and at least one buyer-facing option after your rules.'
+            : 'Fix remaining issues before publishing.';
+      Alert.alert('Cannot publish yet', shipMsg);
       return;
     }
+
+    const token = session?.access_token;
+    if (token) {
+      const st = await fetchSellerConnectStatus(token);
+      if (st?.stripeConfigured && !st.can_publish_active_listings) {
+        Alert.alert(
+          'Finish payout setup',
+          st.message_onboarding ?? 'Complete Stripe Connect under Seller HQ → Seller Payout Setup before publishing active listings or going live.',
+        );
+        return;
+      }
+    }
+
     publish();
     Alert.alert(
       isLiveShow ? 'Added to live queue' : 'Listed on marketplace',
@@ -391,30 +447,63 @@ export function CreateListingReviewScreen({
         ) : null}
 
         <Text style={styles.blockK}>Shipping & fees</Text>
-        {form.selectedShippoRate ? (
+        {isLiveShow ? (
           <>
             <Text style={styles.blockBody}>
-              {form.selectedShippoRate.carrier} {form.selectedShippoRate.serviceLevel} ·{' '}
-              {form.selectedShippoRate.estimatedDelivery}
+              Live profile: {liveProfile?.label ?? '—'} · {form.liveShippingPreset === 'advanced' ? 'Advanced' : 'Simplified'}
             </Text>
             <Text style={styles.blockBody}>
-              Buyer shipping estimate:{' '}
-              {formatListingRatePrice(
-                form.selectedShippoRate.amount,
-                form.selectedShippoRate.currency,
-                Number(form.shippingHandlingFee.replace(/,/g, '')) || 0,
-              )}
-              {form.shippingHandlingFee.trim() ? ' (includes handling)' : ''}
+              Ship from: {form.liveShipFromZip.trim() || '—'}
+              {form.liveBundleEligible ? ' · Eligible for in-show bundling' : ' · Single-line shipping (not bundled)'}
+            </Text>
+            <Text style={styles.blockBody}>
+              {liveProfile && !liveProfile.internationalEligible
+                ? 'Domestic only (profile)'
+                : form.liveShipInternational
+                  ? 'International buyers allowed'
+                  : 'Domestic only'}
+              {' '}
+              · Shippo runs under the hood — buyers see tier-based bundles in the show, not marketplace rates.
+            </Text>
+            {form.liveHandlingSurcharge.trim() ? (
+              <Text style={styles.blockMuted}>Handling surcharge: {form.liveHandlingSurcharge}</Text>
+            ) : null}
+            {form.liveShippingPreset === 'advanced' ? (
+              <Text style={styles.blockMuted}>
+                Adv. package: {form.liveAdvancedWeightLb.trim() || '—'} lb · {form.liveAdvancedLengthIn.trim() || '—'}×
+                {form.liveAdvancedWidthIn.trim() || '—'}×{form.liveAdvancedHeightIn.trim() || '—'} in
+              </Text>
+            ) : null}
+          </>
+        ) : marketplaceShippingListingReady(form) ||
+          (form.selectedShippoRate != null && isPackageDetailsComplete(form)) ? (
+          <>
+            <Text style={styles.blockBody}>
+              Buyer-chosen delivery — checkout loads live Shippo quotes; the default is the best-value option. Faster
+              options show when you allow them. You print the exact label and service the buyer paid for.
+            </Text>
+            <Text style={styles.blockBody}>
+              {form.marketplaceShippingOfferScope === 'all'
+                ? 'You allow: all carrier services returned for this parcel.'
+                : form.marketplaceShippingOfferScope === 'no_overnight'
+                  ? 'You allow: economy & standard lanes (overnight-style services excluded).'
+                  : `You allow: ${form.marketplaceOfferableRateCount} specific service(s).`}
+            </Text>
+            <Text style={styles.blockBody}>
+              Package lane · ship from {form.shipFromZip.trim() || '—'}
+              {form.shippingHandlingFee.trim() ? ` · Handling add-on ${form.shippingHandlingFee}` : ''}
             </Text>
             <Text style={styles.blockMuted}>
-              {form.selectedShippoRate.trackingIncluded ? 'Tracking included' : 'Tracking per carrier service'}
-              {form.insurance ? ' · Shipping insurance requested' : ''}
-              {form.signature ? ' · Signature confirmation' : ''}
-              {form.international ? ' · International support enabled' : ''}
+              {form.insurance ? 'Insurance available at label purchase · ' : ''}
+              {form.signature ? 'Signature option · ' : ''}
+              {form.international ? 'International quoting on' : 'Domestic benchmark lane'}
             </Text>
+            <Text style={styles.blockMuted}>Faster delivery options available at checkout.</Text>
           </>
         ) : (
-          <Text style={styles.blockBody}>No carrier rate selected — complete the Shipping step for marketplace listings.</Text>
+          <Text style={styles.blockBody}>
+            Complete Shipping preferences — package details, rate preview, and at least one buyer-facing option.
+          </Text>
         )}
         <Text style={styles.blockMuted}>{feePreview(form.listingType)}</Text>
 
@@ -519,6 +608,19 @@ const styles = StyleSheet.create({
   inputMulti: { minHeight: 88, textAlignVertical: 'top' },
   fee: { color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: spacing.sm },
   hint: { color: colors.textMuted, fontSize: 14 },
+  auctionDurHint: { color: colors.textMuted, fontSize: 13, lineHeight: 19, marginBottom: spacing.sm },
+  dayChipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  dayChip: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceElevated,
+  },
+  dayChipOn: { borderColor: colors.gold, backgroundColor: 'rgba(212,175,55,0.1)' },
+  dayChipTxt: { color: colors.textSecondary, fontWeight: '700', fontSize: 14 },
+  dayChipTxtOn: { color: colors.gold },
   shipRow: {
     flexDirection: 'row',
     alignItems: 'center',

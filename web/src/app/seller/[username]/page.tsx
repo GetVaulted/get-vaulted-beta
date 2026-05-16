@@ -13,6 +13,8 @@ import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
 import { prisma } from "@/lib/prisma";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 
+export const dynamic = "force-dynamic";
+
 const listingInclude = listingWithSellerFulfillmentInclude;
 
 type Tab = "all" | "buy_now" | "auctions" | "sold";

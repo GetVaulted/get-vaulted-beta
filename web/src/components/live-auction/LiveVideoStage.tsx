@@ -33,6 +33,10 @@ type LiveVideoStageProps = {
   onNotifyMe?: () => void;
   /** Floating chat (right/bottom) overlay. */
   chatOverlay?: ReactNode;
+  /** Seller/host right-side quick rail (e.g. Vault Command Center). Takes precedence over buyer actions when set. */
+  sellerHostRail?: ReactNode;
+  /** Extra controls in the top chrome row (before the Live / viewer cluster). */
+  topChromeTrailing?: ReactNode;
   /** Buyer-only right-side quick actions. */
   showRightActions?: boolean;
   onShare?: () => void;
@@ -68,6 +72,8 @@ export function LiveVideoStage({
   stageBelowAudience,
   onNotifyMe,
   chatOverlay,
+  sellerHostRail,
+  topChromeTrailing,
   showRightActions = false,
   onShare,
   onWallet,
@@ -176,6 +182,7 @@ export function LiveVideoStage({
           </div>
 
           <div className="flex shrink-0 items-center gap-0.5">
+            {topChromeTrailing}
             <span
               data-testid="live-status-pill"
               className={`inline-flex items-center gap-1 rounded-full px-1.5 py-[2px] text-[8px] font-black uppercase tracking-wide text-white max-[360px]:text-[7px] ${
@@ -218,7 +225,17 @@ export function LiveVideoStage({
         </div>
       ) : null}
 
-      {showRightActions ? (
+      {sellerHostRail ? (
+        <div
+          className={`absolute right-2 z-10 min-[1400px]:right-3 min-[1400px]:top-[46%] min-[1400px]:bottom-auto min-[1400px]:-translate-y-1/2 ${
+            hasMobileItemSheet
+              ? "bottom-[max(17.25rem,calc(env(safe-area-inset-bottom)+15.75rem))]"
+              : "bottom-[max(7.25rem,calc(env(safe-area-inset-bottom)+6.25rem))]"
+          }`}
+        >
+          {sellerHostRail}
+        </div>
+      ) : showRightActions ? (
         <div
           className={`absolute right-2 z-10 min-[1400px]:right-3 min-[1400px]:top-[46%] min-[1400px]:bottom-auto min-[1400px]:-translate-y-1/2 ${
             hasMobileItemSheet

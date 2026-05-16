@@ -93,6 +93,11 @@ export type LiveRoomDetailDTO = {
    * Omitted or `true` when Stripe is off, the viewer is the host, or the viewer is not signed in.
    */
   buyerLiveBidPaymentReady?: boolean;
+  /**
+   * When `false`, the signed-in viewer (non-host) must add a shipping address (Wallet) before live commerce.
+   * Relaxed under the same conditions as `buyerLiveBidPaymentReady`.
+   */
+  buyerLiveShippingReady?: boolean;
 };
 
 export function serializeLiveRoomItem(row: LiveRoomItem): LiveRoomItemDTO {

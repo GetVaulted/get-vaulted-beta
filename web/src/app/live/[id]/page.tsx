@@ -3,6 +3,8 @@ import { LiveRoomShell } from "@/components/live-auction/LiveRoomShell";
 import { safeDecodeRouteSegment } from "@/lib/live-loader-debug";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
   const row = await prisma.liveRoom.findUnique({

@@ -31,6 +31,7 @@ export type CreateListingStackParamList = {
   CreateListingDetails: undefined;
   CreateListingPricing: undefined;
   CreateListingShipping: undefined;
+  CreateListingLiveShipping: undefined;
   CreateListingReview: undefined;
 };
 

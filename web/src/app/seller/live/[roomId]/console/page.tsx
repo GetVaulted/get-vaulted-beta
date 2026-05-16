@@ -5,6 +5,8 @@ import { getServerSessionSafe } from "@/lib/auth";
 import { logLiveLoaderDebug, safeDecodeRouteSegment } from "@/lib/live-loader-debug";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 export default async function BreakHostConsolePage({ params }: { params: Promise<{ roomId: string }> }) {
   const session = await getServerSessionSafe();
   const { roomId: raw } = await params;

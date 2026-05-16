@@ -14,6 +14,7 @@ import {
   CreateListingTypeScreen,
 } from '../screens/createListing/createListingStepsPartA';
 import {
+  CreateListingLiveShippingScreen,
   CreateListingPricingScreen,
   CreateListingReviewScreen,
   CreateListingShippingScreen,
@@ -64,6 +65,7 @@ export function CreateListingNavigator() {
       <Stack.Screen name="CreateListingDetails" component={CreateListingDetailsScreen} />
       <Stack.Screen name="CreateListingPricing" component={CreateListingPricingScreen} />
       <Stack.Screen name="CreateListingShipping" component={CreateListingShippingScreen} />
+      <Stack.Screen name="CreateListingLiveShipping" component={CreateListingLiveShippingScreen} />
       <Stack.Screen name="CreateListingReview" component={CreateListingReviewScreen} />
     </Stack.Navigator>
   );

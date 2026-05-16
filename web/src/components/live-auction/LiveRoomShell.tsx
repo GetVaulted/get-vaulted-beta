@@ -718,6 +718,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         thumbnailUrl={detail.thumbnailUrl}
         clockSkewMs={clockSkewMs}
         buyerLiveBidPaymentReady={detail.buyerLiveBidPaymentReady}
+        buyerLiveShippingReady={detail.buyerLiveShippingReady}
       />
     );
   }
@@ -744,6 +745,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       thumbnailUrl={detail.thumbnailUrl}
       clockSkewMs={clockSkewMs}
       buyerLiveBidPaymentReady={detail.buyerLiveBidPaymentReady}
+      buyerLiveShippingReady={detail.buyerLiveShippingReady}
     />
   );
 }

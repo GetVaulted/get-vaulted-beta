@@ -167,6 +167,14 @@ model User {
   stripeAccountId           String?
   /// True when Stripe reports charges enabled and payouts ready for selling.
   stripeOnboardingComplete  Boolean   @default(false)
+  /// Mirrors Stripe Account.charges_enabled (Connect).
+  stripeChargesEnabled      Boolean?
+  /// Mirrors Stripe Account.payouts_enabled (Connect).
+  stripePayoutsEnabled      Boolean?
+  /// Snapshot of requirement fields (currently_due, pending_verification, etc.) for dashboards + mobile.
+  stripeRequirementsDue     Json?
+  /// e.g. individual.verification.status from Stripe when present.
+  stripeVerificationStatus  String?
   /// Stripe Customer id (`cus_...`) for buyer saved payment methods (auction / checkout).
   stripeCustomerId          String?
   /// Seller ship-from (origin) for Shippo label purchase.

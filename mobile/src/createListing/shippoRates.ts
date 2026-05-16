@@ -1,9 +1,13 @@
+/** Seller-defined scope for which Shippo quotes buyers may choose at marketplace checkout. */
+export type MarketplaceShippingOfferScope = 'all' | 'no_overnight' | 'custom';
+
 /** Carrier rate returned from Shippo (via Netlify) for listing checkout estimates. */
 export type ListingShippoRate = {
   id: string;
   carrier: string;
   serviceLevel: string;
   estimatedDelivery: string;
+  estimatedDays?: number | null;
   amount: string;
   currency: string;
   trackingIncluded: boolean;
@@ -24,6 +28,62 @@ export function formatListingRatePrice(amount: string, currency: string, handlin
 
 export function listingRateLabel(rate: ListingShippoRate): string {
   return `${rate.carrier} ${rate.serviceLevel}`.trim();
+}
+
+/** Stable key for allowlists across listing save + checkout matching (same package lanes). */
+export function marketplaceListingRateKey(rate: ListingShippoRate): string {
+  return `${rate.carrier.trim()}|${rate.serviceLevel.trim()}`;
+}
+
+/** Heuristic: hide next-flight / overnight-class services when seller excludes them. */
+export function isLikelyOvernightOrExpressAirRate(rate: ListingShippoRate): boolean {
+  const blob = `${rate.carrier} ${rate.serviceLevel} ${rate.estimatedDelivery}`.toLowerCase();
+  return (
+    /\bovernight\b/.test(blob) ||
+    /\bnext[-\s]?day\b/.test(blob) ||
+    /\bone[-\s]?day\b/.test(blob) ||
+    /\bnday\b/.test(blob) ||
+    /priority mail express/.test(blob) ||
+    /ups\s+next\s+day\b/.test(blob) ||
+    /fedex\s+(standard\s+overnight|priority\s*overnight|first\s*overnight)/.test(blob)
+  );
+}
+
+/** Rates a buyer may be offered at checkout given seller rules + optional custom allowlist. */
+export function marketplaceOfferableRates(
+  rates: ListingShippoRate[],
+  scope: MarketplaceShippingOfferScope,
+  allowedKeys: string[],
+): ListingShippoRate[] {
+  if (rates.length === 0) return [];
+  let list = rates;
+  if (scope === 'no_overnight') {
+    list = list.filter((r) => !isLikelyOvernightOrExpressAirRate(r));
+  }
+  if (scope === 'custom') {
+    const set = new Set(allowedKeys);
+    list = list.filter((r) => set.has(marketplaceListingRateKey(r)));
+  }
+  return list;
+}
+
+/** Marketplace publish: package OK + at least one preview rate + offerable set non-empty. */
+export function marketplaceShippingListingReady(form: {
+  packageWeightLb: string;
+  packageWeightOz: string;
+  packageLengthIn: string;
+  packageWidthIn: string;
+  packageHeightIn: string;
+  shipFromZip: string;
+  marketplaceRatesPreviewOk: boolean;
+  marketplaceOfferableRateCount: number;
+  marketplaceShippingOfferScope: MarketplaceShippingOfferScope;
+  marketplaceAllowedRateKeys: string[];
+}): boolean {
+  if (!isPackageDetailsComplete(form)) return false;
+  if (!form.marketplaceRatesPreviewOk || form.marketplaceOfferableRateCount < 1) return false;
+  if (form.marketplaceShippingOfferScope === 'custom' && form.marketplaceAllowedRateKeys.length === 0) return false;
+  return true;
 }
 
 export function parsePackageNumber(raw: string): number | null {

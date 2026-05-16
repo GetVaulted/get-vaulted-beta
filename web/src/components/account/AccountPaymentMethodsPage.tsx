@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import type { Stripe, StripeElements, StripePaymentElement } from "@stripe/stripe-js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
+import { AccountWalletShippingSection } from "@/components/account/AccountWalletShippingSection";
 
 type PmRow = { id: string; brand: string; last4: string; expMonth: number; expYear: number };
 
@@ -194,7 +195,8 @@ export function AccountPaymentMethodsPage() {
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Account</p>
           <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground">Wallet</h1>
           <p className="mt-1 max-w-2xl text-sm text-zinc-500">
-            Saved cards for auction wins and checkout. Cards are stored securely with Stripe.
+            Saved payment methods and shipping addresses for live shows, auction wins, and checkout. Cards are stored
+            with Stripe; addresses stay on your Vaulted profile.
           </p>
           <div className="mt-4">
             <AccountOrdersNav active="payments" />
@@ -286,6 +288,8 @@ export function AccountPaymentMethodsPage() {
             </button>
           </section>
         ) : null}
+
+        {status === "authenticated" ? <AccountWalletShippingSection /> : null}
 
         <p className="mt-10 text-center text-xs text-zinc-600">
           Signed in as <span className="text-zinc-400">{session?.user?.email}</span>

@@ -117,4 +117,19 @@ describe("mergeLiveRoomDetailFromFetch", () => {
     const merged = mergeLiveRoomDetailFromFetch(prev, incoming);
     expect(merged.buyerLiveBidPaymentReady).toBe(false);
   });
+
+  it("preserves buyerLiveShippingReady from prev when incoming omits it (stale snapshot)", () => {
+    const prev = room({
+      roomVersion: 10,
+      buyerLiveShippingReady: false,
+      items: [item("i1", 5)],
+    });
+    const incoming = room({
+      roomVersion: 11,
+      items: [item("i1", 6)],
+    });
+    delete (incoming as { buyerLiveShippingReady?: boolean }).buyerLiveShippingReady;
+    const merged = mergeLiveRoomDetailFromFetch(prev, incoming);
+    expect(merged.buyerLiveShippingReady).toBe(false);
+  });
 });

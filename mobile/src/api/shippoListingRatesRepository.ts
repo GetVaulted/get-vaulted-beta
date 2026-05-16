@@ -3,6 +3,7 @@ import type { ListingShippoRate } from '../createListing/shippoRates';
 
 export type FetchListingRatesParams = {
   shipFromZip: string;
+  shipToZip?: string;
   weightLb: number;
   lengthIn: number;
   widthIn: number;
@@ -27,6 +28,10 @@ export async function fetchListingShippoRates(params: FetchListingRatesParams): 
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({
       ship_from_zip: params.shipFromZip.replace(/\D/g, '').slice(0, 5),
+      ship_to_zip:
+        params.shipToZip?.replace(/\D/g, '').length === 5
+          ? params.shipToZip.replace(/\D/g, '').slice(0, 5)
+          : undefined,
       weight_lb: params.weightLb,
       length_in: params.lengthIn,
       width_in: params.widthIn,

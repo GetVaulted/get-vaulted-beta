@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { BreakBuyerOverview } from "@/components/live-auction/BreakBuyerOverview";
 import { BuyerBreakPaymentPrompt } from "@/components/live-auction/BuyerBreakPaymentPrompt";
 import { BreakDisclaimerModal, breakDisclaimerStorageKey } from "@/components/live-auction/BreakDisclaimerModal";
+import { LiveBuyerWalletGateHint } from "@/components/live-auction/LiveBuyerWalletGateHint";
 import { LiveAuctionChat } from "@/components/live-auction/LiveAuctionChat";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
@@ -102,6 +103,8 @@ export type LiveAuctionRoomProps = {
   clockSkewMs?: number;
   /** When `false`, non-host buyers cannot bid until they add a saved card (server also enforces on POST). */
   buyerLiveBidPaymentReady?: boolean;
+  /** When `false`, non-host buyers need a shipping address in Wallet (server enforces on POST). */
+  buyerLiveShippingReady?: boolean;
 };
 
 function fmt(n: number) {
@@ -170,6 +173,7 @@ export function LiveAuctionRoom({
   thumbnailUrl = null,
   clockSkewMs: clockSkewProp = 0,
   buyerLiveBidPaymentReady,
+  buyerLiveShippingReady,
 }: LiveAuctionRoomProps) {
   const router = useRouter();
   const { data: session, status } = useSession();
@@ -318,6 +322,9 @@ export function LiveAuctionRoom({
   const streamTitle = breakSnapshot?.displayTitle ?? roomTitle ?? "Live break";
 
   const isHost = Boolean(session?.user?.id && session.user.id === sellerId);
+  const payReady = buyerLiveBidPaymentReady !== false;
+  const shipReady = buyerLiveShippingReady !== false;
+  const buyerLiveWalletReady = payReady && shipReady;
   const auctionRemainingMs = useMemo(() => {
     void auctionResolutionTick;
     if (!activeDbItem?.biddingOpen || !activeDbItem.auctionEndsAt) return null;
@@ -393,7 +400,7 @@ export function LiveAuctionRoom({
     buyerClaimsBlocked ||
     bidActionLocked ||
     !breakDisclaimerAccepted ||
-    (!isHost && isLive && buyerLiveBidPaymentReady === false);
+    (!isHost && isLive && !buyerLiveWalletReady);
 
   const handleTeamPick = useCallback(
     async (teamAbbr: string) => {
@@ -699,14 +706,11 @@ export function LiveAuctionRoom({
       ) : !isLive ? (
         <p className="mt-2 text-[10px] text-amber-200/90">Auction has not started yet</p>
       ) : null}
-      {!isHost && isLive && buyerLiveBidPaymentReady === false ? (
-        <p className="mt-2 text-[10px] text-amber-200/90">
-          Add a saved card to bid (verified with a $0 authorization). You are only charged if you win.{" "}
-          <Link href="/account/payment-methods" className="font-semibold text-gold-bright hover:underline">
-            Payment methods
-          </Link>
-        </p>
-      ) : null}
+      <LiveBuyerWalletGateHint
+        hide={isHost || !isLive}
+        paymentReady={payReady}
+        shippingReady={shipReady}
+      />
       {guestNeedsAuth ? (
         <p className="mt-2 text-[10px] text-zinc-400">
           <Link href={`/signin?returnTo=${encodeURIComponent(`/live/${encodeURIComponent(liveRoomId)}`)}`} className="font-semibold text-gold-bright hover:underline">

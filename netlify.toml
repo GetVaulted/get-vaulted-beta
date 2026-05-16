@@ -1,36 +1,11 @@
-# Monorepo — two Netlify deploy targets (use separate sites or branches):
+# Shared across Netlify sites in this repo. Do not add [build] here — it merges into every site and,
+# with Base directory `web`, turned publish "static" into web/static (missing) and broke Next deploys.
 #
-# 1) APP PLATFORM (policies + serverless APIs for Expo) — recommended for mobile launch
-#    Publish: static | Functions: netlify/functions | Build: npm install (root package.json)
-#    Set SHIPPO_API_TOKEN, Supabase keys, Stripe secrets in Netlify UI.
+# App platform site (static + functions): Base = repo root. In Netlify UI set Publish = static,
+# Functions = netlify/functions, Build command = npm install.
 #
-# 2) BETA WEBSITE (Next.js) — see web/netlify.toml
-#    Base directory: web | Build: npm run netlify:build | Framework: Next.js
-#    Host: beta.shopgetvaulted.com
-
-[build]
-  publish = "static"
-  command = "npm install"
-  functions = "netlify/functions"
+# Beta Next site: see web/netlify.toml (Base empty, Package directory = web).
 
 [functions]
   node_bundler = "esbuild"
   external_node_modules = ["stripe", "@aws-sdk/client-ivs"]
-
-[dev]
-  framework = "#static"
-
-[[redirects]]
-  from = "/privacy"
-  to = "/privacy.html"
-  status = 200
-
-[[redirects]]
-  from = "/terms"
-  to = "/terms.html"
-  status = 200
-
-[[redirects]]
-  from = "/support"
-  to = "/support.html"
-  status = 200

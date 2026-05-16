@@ -4,6 +4,8 @@ import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { isHiddenFixtureSellerEmail, prismaSellerVisibleOnPublicMarketplace } from "@/lib/demo-seed-sellers";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 type TradeNewPageProps = {
   searchParams: Promise<{ listingId?: string }>;
 };

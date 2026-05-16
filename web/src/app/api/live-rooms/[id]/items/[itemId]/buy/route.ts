@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { getServerSessionSafe } from "@/lib/auth";
+import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
 import { prisma } from "@/lib/prisma";
+import { isStripeConfigured } from "@/lib/stripe";
 
 function signInUrl(returnPath: string) {
   return `/signin?returnTo=${encodeURIComponent(returnPath)}`;
@@ -53,6 +55,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
       { error: "This slot is not linked to checkout yet. Ask the host in chat." },
       { status: 422 },
     );
+  }
+
+  if (isStripeConfigured()) {
+    const wallet = await liveWalletIncompleteOrNull(session.user.id);
+    if (wallet) {
+      return NextResponse.json(wallet, { status: 402 });
+    }
   }
 
   return NextResponse.json({

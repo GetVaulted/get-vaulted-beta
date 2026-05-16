@@ -50,5 +50,6 @@ export function mergeLiveRoomDetailFromFetch(prev: LiveRoomDetailDTO, incoming: 
     items: mergedItems,
     activeItem,
     buyerLiveBidPaymentReady: incoming.buyerLiveBidPaymentReady ?? prev.buyerLiveBidPaymentReady,
+    buyerLiveShippingReady: incoming.buyerLiveShippingReady ?? prev.buyerLiveShippingReady,
   };
 }

@@ -5,7 +5,7 @@ import { buildLiveRoomDetail } from "@/lib/live-room-serialize";
 import { logLiveLoaderDebug, safeDecodeRouteSegment } from "@/lib/live-loader-debug";
 import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
 import { prisma } from "@/lib/prisma";
-import { buyerHasCardOnFileForLiveBidding } from "@/lib/stripe-customer";
+import { getBuyerLiveWalletReadiness } from "@/lib/buyer-live-wallet-readiness";
 import { notifyFollowersSellerWentLive } from "@/lib/seller-follow-notify";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
 import { emitAuctionEnded, emitAuctionStarted, emitTeamBoardChanged } from "@/lib/realtime-emit-server";
@@ -66,8 +66,14 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const serverNowMs = Date.now();
   const detail = buildLiveRoomDetail(room);
-  detail.buyerLiveBidPaymentReady =
-    !viewerId || isHost ? true : await buyerHasCardOnFileForLiveBidding(viewerId);
+  if (!viewerId || isHost) {
+    detail.buyerLiveBidPaymentReady = true;
+    detail.buyerLiveShippingReady = true;
+  } else {
+    const w = await getBuyerLiveWalletReadiness(viewerId);
+    detail.buyerLiveBidPaymentReady = w.paymentReady;
+    detail.buyerLiveShippingReady = w.shippingReady;
+  }
   detail.items = await attachHighBidderUsernames(detail.items);
   const activeId = detail.activeItem?.id ?? null;
   detail.activeItem = activeId ? detail.items.find((i) => i.id === activeId) ?? null : null;

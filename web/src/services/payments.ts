@@ -17,6 +17,7 @@ import {
   logIgnoredMarketplacePaymentIntentWebhook,
 } from "@/lib/stripe-payment-intent-webhook";
 import { getStripe, marketplaceApplicationFeeCents } from "@/lib/stripe";
+import { syncStripeConnectUserRowsForAccountId } from "@/lib/sync-stripe-connect-user";
 import { emitLiveRoomMessagesRefetch, emitPurchaseCompleted } from "@/lib/realtime-emit-server";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import { logEscrowStatusTransition } from "@/lib/escrow-audit-log";
@@ -1224,24 +1225,30 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
     }
     case "account.updated": {
       const account = event.data.object as Stripe.Account;
-      const currentlyDue = account.requirements?.currently_due ?? [];
-      const pendingVerification = account.requirements?.pending_verification ?? [];
-      const onboardingComplete =
-        Boolean(account.details_submitted) && currentlyDue.length === 0 && pendingVerification.length === 0;
       console.info("[stripe account.updated]", {
         accountId: account.id,
         charges_enabled: account.charges_enabled,
         payouts_enabled: account.payouts_enabled,
         details_submitted: account.details_submitted,
-        currently_due: currentlyDue,
-        pending_verification: pendingVerification,
+        currently_due: account.requirements?.currently_due ?? [],
+        pending_verification: account.requirements?.pending_verification ?? [],
       });
-      await prisma.user.updateMany({
-        where: { stripeAccountId: account.id },
-        data: {
-          stripeOnboardingComplete: onboardingComplete,
-        },
-      });
+      await syncStripeConnectUserRowsForAccountId(account.id);
+      break;
+    }
+    case "capability.updated": {
+      const cap = event.data.object as Stripe.Capability;
+      const evtAccount = (event as unknown as { account?: string }).account;
+      const capAccount = (cap as unknown as { account?: string }).account;
+      const accountId =
+        typeof evtAccount === "string"
+          ? evtAccount
+          : typeof capAccount === "string"
+            ? capAccount
+            : null;
+      if (!accountId) break;
+      console.info("[stripe capability.updated]", { accountId, capabilityId: cap.id });
+      await syncStripeConnectUserRowsForAccountId(accountId);
       break;
     }
     default:

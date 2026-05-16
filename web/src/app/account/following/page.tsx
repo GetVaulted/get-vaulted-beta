@@ -5,6 +5,8 @@ import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 
+export const dynamic = "force-dynamic";
+
 export default async function AccountFollowingPage() {
   const session = await getServerSessionSafe();
   if (!session?.user?.id) {

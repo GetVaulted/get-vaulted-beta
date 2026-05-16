@@ -15,7 +15,7 @@ import { sanitizeSubcategoriesForCategory } from './listingCategoryTaxonomy';
 import type { ListingChannel } from './listingChannel';
 import { normalizeCategoryId } from '../types';
 import type { AiTrackedField, CreateListingFormState, ListingCommerceType } from './types';
-import { countListingPhotos, emptyCreateListingForm, LISTING_MAX_PHOTOS } from './types';
+import { countListingPhotos, emptyCreateListingForm, LISTING_MAX_PHOTOS, normalizeAuctionDurationDays } from './types';
 
 type SavedDraft = {
   id: string;
@@ -63,6 +63,9 @@ function mergeLoadedDraft(form: Partial<CreateListingFormState>): CreateListingF
         : normalizeSubcategories(form),
     aiFieldBadges: form.aiFieldBadges ?? e.aiFieldBadges,
     aiReviewReasons: form.aiReviewReasons ?? e.aiReviewReasons,
+    auctionDurationDays: normalizeAuctionDurationDays(
+      form as Partial<CreateListingFormState> & { auctionDurationHours?: string },
+    ),
   };
 }
 

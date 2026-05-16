@@ -6,6 +6,7 @@ import { useRealtimeListingBidsSubscription } from "@/hooks/useRealtimeListingBi
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { LiveAuctionChat } from "@/components/live-auction/LiveAuctionChat";
+import { LiveBuyerWalletGateHint } from "@/components/live-auction/LiveBuyerWalletGateHint";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
@@ -138,6 +139,7 @@ export type LiveSaleRoomProps = {
   thumbnailUrl?: string | null;
   clockSkewMs?: number;
   buyerLiveBidPaymentReady?: boolean;
+  buyerLiveShippingReady?: boolean;
 };
 
 export function LiveSaleRoom({
@@ -161,6 +163,7 @@ export function LiveSaleRoom({
   thumbnailUrl = null,
   clockSkewMs: clockSkewProp = 0,
   buyerLiveBidPaymentReady,
+  buyerLiveShippingReady,
 }: LiveSaleRoomProps) {
   const { data: session, status } = useSession();
   const shopHref =
@@ -341,6 +344,9 @@ export function LiveSaleRoom({
   const sold = items.filter((i) => i.status === "sold" || i.status === "skipped");
 
   const isHost = Boolean(session?.user?.id && session.user.id === sellerId);
+  const payReady = buyerLiveBidPaymentReady !== false;
+  const shipReady = buyerLiveShippingReady !== false;
+  const buyerLiveWalletReady = payReady && shipReady;
 
   /** Listing min/next + leader come from `/api/listings/.../bids`; poll while the lot is open so buyers stay in sync if realtime drops. */
   useEffect(() => {
@@ -379,7 +385,7 @@ export function LiveSaleRoom({
     busy ||
     bidFlight ||
     sessionBlocksBuyer ||
-    (roomType === "auction" && !isHost && isLive && buyerLiveBidPaymentReady === false);
+    ((roomType === "auction" || roomType === "sale") && !isHost && isLive && !buyerLiveWalletReady);
   const auctionLiveItemGate =
     roomType === "auction" && activeDb?.status === "active" && isLive && !liveItemBiddingOpen;
   const activeSaleMissingListing =
@@ -675,14 +681,11 @@ export function LiveSaleRoom({
           This live item is not linked to checkout yet. Ask the host in chat.
         </p>
       ) : null}
-      {roomType === "auction" && !isHost && isLive && buyerLiveBidPaymentReady === false ? (
-        <p className="mt-2 text-[10px] text-amber-200/90">
-          Add a saved card to bid (verified with a $0 authorization). You are only charged if you win.{" "}
-          <Link href="/account/payment-methods" className="font-semibold text-gold-bright hover:underline">
-            Payment methods
-          </Link>
-        </p>
-      ) : null}
+      <LiveBuyerWalletGateHint
+        hide={isHost || !isLive || (roomType !== "auction" && roomType !== "sale")}
+        paymentReady={payReady}
+        shippingReady={shipReady}
+      />
       {guestNeedsAuth ? (
         <p className="mt-2 text-[10px] text-zinc-400">
           <Link href={`/signin?returnTo=${encodeURIComponent(`/live/${encodeURIComponent(liveRoomId)}`)}`} className="font-semibold text-gold-bright hover:underline">
@@ -841,14 +844,12 @@ export function LiveSaleRoom({
       {activeSaleMissingListing ? (
         <p className="mt-1 text-[10px] font-medium text-amber-200/90">Checkout is not linked for this slot.</p>
       ) : null}
-      {roomType === "auction" && !isHost && isLive && buyerLiveBidPaymentReady === false ? (
-        <p className="mt-1 text-[10px] text-amber-200/90">
-          Add a saved card to bid.{" "}
-          <Link href="/account/payment-methods" className="font-semibold text-gold-bright hover:underline">
-            Payment methods
-          </Link>
-        </p>
-      ) : null}
+      <LiveBuyerWalletGateHint
+        hide={isHost || !isLive || (roomType !== "auction" && roomType !== "sale")}
+        paymentReady={payReady}
+        shippingReady={shipReady}
+        className="mt-1 text-[10px] text-amber-200/90"
+      />
       {guestNeedsAuth ? (
         <p className="mt-1 text-[10px] text-zinc-400">
           <Link href={`/signin?returnTo=${encodeURIComponent(`/live/${encodeURIComponent(liveRoomId)}`)}`} className="font-semibold text-gold-bright hover:underline">

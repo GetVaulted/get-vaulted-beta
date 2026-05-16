@@ -3,6 +3,8 @@ import { AdminNav } from "@/components/admin/AdminNav";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSessionSafe();
   if (!session?.user?.id) {

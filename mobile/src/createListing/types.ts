@@ -1,6 +1,7 @@
 import type { CategoryId } from '../types';
 import type { ListingChannel } from './listingChannel';
-import type { ListingShippoRate } from './shippoRates';
+import type { ListingShippoRate, MarketplaceShippingOfferScope } from './shippoRates';
+import type { LiveShippingPreset } from './liveShowShipping';
 
 export type ListingCommerceType =
   | 'buy_now'
@@ -103,13 +104,14 @@ export type CreateListingFormState = {
   buyNowPrice: string;
   startingBid: string;
   reservePrice: string;
-  auctionDurationHours: string;
+  /** Timed auction length in full days (marketplace `auction` + `live_auction`). */
+  auctionDurationDays: string;
   breakSpots: string;
   spotPrice: string;
   breakFormat: string;
   tradeInterests: string;
   tradeWishlist: string;
-  /** @deprecated Use selectedShippoRate — kept for draft migration display. */
+  /** @deprecated Legacy snapshot; buyers pick a live quote at checkout. */
   shippingMethod: string;
   packageWeightLb: string;
   packageWeightOz: string;
@@ -117,14 +119,41 @@ export type CreateListingFormState = {
   packageWidthIn: string;
   packageHeightIn: string;
   shipFromZip: string;
+  /** Optional US buyer ZIP — improves zone-based domestic rate estimates when set. */
+  shipToZip: string;
   shippingHandlingFee: string;
+  /** @deprecated Optional legacy single-rate snapshot; not required to publish. */
   selectedShippoRate: ListingShippoRate | null;
+  /** Which Shippo services buyers may select at checkout (listing preview + persistence). */
+  marketplaceShippingOfferScope: MarketplaceShippingOfferScope;
+  /**
+   * When scope is `custom`, allowed `carrier|serviceLevel` keys. Ignored for `all` / `no_overnight`.
+   */
+  marketplaceAllowedRateKeys: string[];
+  /** Shippo returned ≥1 rate for this parcel (cleared when package fields change). */
+  marketplaceRatesPreviewOk: boolean;
+  /** Count of rates buyers can pick after applying scope + custom filters (≥1 to publish). */
+  marketplaceOfferableRateCount: number;
   insurance: boolean;
   signature: boolean;
   international: boolean;
   featureInLive: boolean;
   /** Live show queue — optional link to a scheduled stream. */
   selectedLiveShowId: string | null;
+  /**
+   * Live show shipping — profile + tiers (marketplace uses Shippo picker on CreateListingShipping).
+   */
+  liveShippingPreset: LiveShippingPreset;
+  liveShippingProfileId: string | null;
+  /** When true, item may bundle with other eligible same-show purchases (subject to profile max qty). */
+  liveBundleEligible: boolean;
+  liveShipFromZip: string;
+  liveShipInternational: boolean;
+  liveHandlingSurcharge: string;
+  liveAdvancedWeightLb: string;
+  liveAdvancedLengthIn: string;
+  liveAdvancedWidthIn: string;
+  liveAdvancedHeightIn: string;
   liveShowTitle: string;
   queueNotes: string;
   acceptTrades: boolean;
@@ -147,6 +176,42 @@ export type CreateListingFormState = {
   aiAcknowledgedReviews: boolean;
 };
 
+/** Preset auction lengths for timed marketplace / live auctions (full days). */
+export const AUCTION_DURATION_DAY_OPTIONS = [3, 5, 7, 10, 14, 30] as const;
+
+function pickClosestAuctionDays(n: number): (typeof AUCTION_DURATION_DAY_OPTIONS)[number] {
+  let best: (typeof AUCTION_DURATION_DAY_OPTIONS)[number] = 7;
+  let dist = Infinity;
+  for (const d of AUCTION_DURATION_DAY_OPTIONS) {
+    const x = Math.abs(d - n);
+    if (x < dist) {
+      dist = x;
+      best = d;
+    }
+  }
+  return best;
+}
+
+/** Maps drafts (including legacy `auctionDurationHours`) to an allowed day preset. */
+export function normalizeAuctionDurationDays(
+  form: Partial<CreateListingFormState> & { auctionDurationHours?: string },
+): string {
+  const allowed = new Set<number>(AUCTION_DURATION_DAY_OPTIONS as unknown as number[]);
+  const dayRaw = form.auctionDurationDays;
+  if (dayRaw != null && String(dayRaw).trim() !== '') {
+    const n = Number(String(dayRaw).trim());
+    if (allowed.has(n)) return String(n);
+  }
+  const legacyH = form.auctionDurationHours;
+  if (legacyH != null && String(legacyH).trim() !== '') {
+    const h = Number(legacyH);
+    if (Number.isFinite(h) && h > 0) {
+      return String(pickClosestAuctionDays(Math.round(h / 24)));
+    }
+  }
+  return '7';
+}
+
 export const emptyCreateListingForm = (): CreateListingFormState => ({
   listingChannel: null,
   media: [],
@@ -166,7 +231,7 @@ export const emptyCreateListingForm = (): CreateListingFormState => ({
   buyNowPrice: '',
   startingBid: '',
   reservePrice: '',
-  auctionDurationHours: '72',
+  auctionDurationDays: '7',
   breakSpots: '30',
   spotPrice: '',
   breakFormat: 'Random teams',
@@ -179,13 +244,28 @@ export const emptyCreateListingForm = (): CreateListingFormState => ({
   packageWidthIn: '',
   packageHeightIn: '',
   shipFromZip: '',
+  shipToZip: '',
   shippingHandlingFee: '',
   selectedShippoRate: null,
+  marketplaceShippingOfferScope: 'all',
+  marketplaceAllowedRateKeys: [],
+  marketplaceRatesPreviewOk: false,
+  marketplaceOfferableRateCount: 0,
   insurance: false,
   signature: true,
   international: false,
   featureInLive: false,
   selectedLiveShowId: null,
+  liveShippingPreset: 'simplified',
+  liveShippingProfileId: 'card_single',
+  liveBundleEligible: true,
+  liveShipFromZip: '',
+  liveShipInternational: true,
+  liveHandlingSurcharge: '',
+  liveAdvancedWeightLb: '',
+  liveAdvancedLengthIn: '',
+  liveAdvancedWidthIn: '',
+  liveAdvancedHeightIn: '',
   liveShowTitle: '',
   queueNotes: '',
   acceptTrades: true,

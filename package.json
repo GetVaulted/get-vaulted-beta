@@ -2,10 +2,11 @@
   "name": "get-vaulted",
   "private": true,
   "scripts": {
-    "build": "echo \"Root: static + Netlify Functions (see netlify.toml). Next.js: npm run web:build\"",
+    "build": "npm install --prefix web && npm run build --prefix web",
+    "netlify:build": "npm install --prefix web && npm run netlify:build --prefix web",
+    "web:netlify:build": "npm run netlify:build --prefix web",
     "web:dev": "npm run dev --prefix web",
     "web:build": "npm run build --prefix web",
-    "web:netlify:build": "npm run netlify:build --prefix web",
     "mobile:start": "npm run start --prefix mobile",
     "db:login": "npx supabase login",
     "db:link": "npx supabase link",

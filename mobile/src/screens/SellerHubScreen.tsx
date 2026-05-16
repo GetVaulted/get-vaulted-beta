@@ -4,7 +4,7 @@ import type { User } from '@supabase/supabase-js';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
 import { useNavigation } from '@react-navigation/native';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,9 +14,9 @@ import {
   Share,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   analyticsSnapshot,
@@ -34,6 +34,7 @@ import {
   vaultWins,
   walletSnapshot,
 } from '../data/sellerHubMock';
+import { LaunchVaultEventPanel } from './sellerHub/LaunchVaultEventPanel';
 import { useCreateListingDraft } from '../createListing/CreateListingDraftContext';
 import { openCreateListing } from '../navigation/openCreateListing';
 import { navigateAuthLogin, navigateAuthSignUp, rootNavigationRef } from '../navigation/rootNavigationRef';
@@ -45,6 +46,9 @@ import type { ListingPreview } from '../createListing/types';
 import type { MainTabParamList } from '../navigation/types';
 import type { ProfileLite } from '../types/tradeOffers';
 import { colors, radii, spacing, typography } from '../theme';
+import { createSellerOnboardingLink, sellerConnectBadge } from '../api/stripeConnectRepository';
+import { useSellerStripeConnect } from '../hooks/useSellerStripeConnect';
+import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { areDevToolsEnabled } from '../lib/devTools';
 import type { CategoryId } from '../types';
 
@@ -78,7 +82,9 @@ function statusStyle(status: (typeof listingPreviews)[0]['status']) {
 export function SellerHubScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, session } = useAuth();
+  const { userListings } = useCreateListingDraft();
+  const sellerConnect = useSellerStripeConnect(session?.access_token);
   const [tab, setTab] = useState<SellerHubTabId>('overview');
   const [scheduleTitle, setScheduleTitle] = useState('');
   const [scheduleCategory, setScheduleCategory] = useState<CategoryId>(streamCategories[0].id);
@@ -86,13 +92,52 @@ export function SellerHubScreen() {
   const [preloadInventory, setPreloadInventory] = useState(true);
   const [giveaways, setGiveaways] = useState(true);
 
+  const sellerLaunchMeta = useMemo(() => {
+    const meta = user?.user_metadata as Record<string, unknown> | undefined;
+    const displayName =
+      typeof meta?.display_name === 'string'
+        ? meta.display_name
+        : typeof meta?.full_name === 'string'
+          ? meta.full_name
+          : user?.email?.split('@')[0] ?? 'Creator';
+    const uname = typeof meta?.username === 'string' ? meta.username : null;
+    const handle = uname ? `@${uname}` : '@you';
+    const avatar =
+      typeof meta?.avatar_url === 'string'
+        ? meta.avatar_url
+        : typeof meta?.picture === 'string'
+          ? meta.picture
+          : null;
+    return { displayName, handle, avatar };
+  }, [user]);
+
+  const openStripeOnboarding = useCallback(async () => {
+    const base = getWebApiBaseUrl();
+    if (!base) {
+      Alert.alert(
+        'Configuration',
+        'Set EXPO_PUBLIC_SITE_URL (or EXPO_PUBLIC_WEB_API_URL) to your deployed site that hosts the Stripe Connect API routes.',
+      );
+      return;
+    }
+    if (!session?.access_token) return;
+    try {
+      const { url } = await createSellerOnboardingLink(session.access_token);
+      await WebBrowser.openBrowserAsync(url);
+      await sellerConnect.refresh();
+    } catch (e) {
+      Alert.alert('Could not start payout setup', e instanceof Error ? e.message : 'Unknown error');
+    }
+  }, [session?.access_token, sellerConnect]);
+
   const renderTab = () => {
     switch (tab) {
       case 'listings':
         return <ListingsPanel navigation={navigation} />;
       case 'live':
         return (
-          <LivePanel
+          <LaunchVaultEventPanel
+            sellerConnect={sellerConnect}
             scheduleTitle={scheduleTitle}
             setScheduleTitle={setScheduleTitle}
             scheduleCategory={scheduleCategory}
@@ -103,6 +148,10 @@ export function SellerHubScreen() {
             setPreloadInventory={setPreloadInventory}
             giveaways={giveaways}
             setGiveaways={setGiveaways}
+            sellerDisplayName={sellerLaunchMeta.displayName}
+            sellerHandle={sellerLaunchMeta.handle}
+            sellerAvatarUrl={sellerLaunchMeta.avatar}
+            vaultListingCount={userListings.length}
             onBrowseLive={() => navigation.navigate('Live', { screen: 'LiveDiscovery' })}
           />
         );
@@ -115,7 +164,14 @@ export function SellerHubScreen() {
       case 'vault':
         return <VaultIdentityPanel />;
       default:
-        return <OverviewBody onOpenTab={setTab} navigation={navigation} />;
+        return (
+          <OverviewBody
+            onOpenTab={setTab}
+            navigation={navigation}
+            sellerConnect={sellerConnect}
+            onStripeSetup={openStripeOnboarding}
+          />
+        );
     }
   };
 
@@ -373,12 +429,50 @@ function SellerStudioSection({
 function OverviewBody({
   onOpenTab,
   navigation,
+  sellerConnect,
+  onStripeSetup,
 }: {
   onOpenTab: (t: SellerHubTabId) => void;
   navigation: BottomTabNavigationProp<MainTabParamList>;
+  sellerConnect: { status: import('../api/stripeConnectRepository').SellerConnectStatusResponse | null; loading: boolean; refresh: () => Promise<void> };
+  onStripeSetup: () => void;
 }) {
+  const badge = sellerConnect.status
+    ? sellerConnectBadge(sellerConnect.status.onboarding_ui_status, sellerConnect.status.payouts_ready)
+    : 'Not ready';
+  const detailLine = sellerConnect.status?.stripeConfigured
+    ? sellerConnect.status.can_publish_active_listings
+      ? sellerConnect.status.message_payouts
+      : sellerConnect.status.message_onboarding
+    : null;
+
   return (
     <View style={{ gap: spacing.lg }}>
+      <View style={styles.payoutCard}>
+        <View style={styles.payoutHeaderRow}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.payoutTitle}>Seller Payout Setup</Text>
+            <Text style={styles.payoutSubtitle}>Connect your bank account securely through Stripe.</Text>
+          </View>
+          <View style={styles.payoutBadge}>
+            <Text style={styles.payoutBadgeText}>{sellerConnect.loading ? '…' : badge}</Text>
+          </View>
+        </View>
+        {detailLine ? (
+          <Text style={styles.payoutDetail}>{detailLine}</Text>
+        ) : (
+          <Text style={styles.payoutDetailMuted}>
+            {sellerConnect.status?.stripeConfigured === false
+              ? 'Stripe is not configured in this build — seller gates are relaxed for development.'
+              : 'Complete Stripe once to publish active listings and go live as a seller.'}
+          </Text>
+        )}
+        <Pressable style={styles.payoutCta} onPress={onStripeSetup}>
+          <Text style={styles.payoutCtaText}>Set up payouts</Text>
+          <Ionicons name="open-outline" size={18} color={colors.background} />
+        </Pressable>
+      </View>
+
       <QuickActionRow navigation={navigation} onOpenTab={onOpenTab} />
 
       <SellerStudioSection onOpenTab={onOpenTab} navigation={navigation} />
@@ -597,99 +691,6 @@ function ListingsPanel({ navigation }: { navigation: BottomTabNavigationProp<Mai
       />
       <ListingInventorySection channel="live_show" navigation={navigation} listings={liveListings} drafts={drafts} />
     </View>
-  );
-}
-
-function LivePanel(props: {
-  scheduleTitle: string;
-  setScheduleTitle: (s: string) => void;
-  scheduleCategory: CategoryId;
-  setScheduleCategory: (c: CategoryId) => void;
-  streamFormat: 'auction' | 'break' | 'hybrid';
-  setStreamFormat: (f: 'auction' | 'break' | 'hybrid') => void;
-  preloadInventory: boolean;
-  setPreloadInventory: (v: boolean) => void;
-  giveaways: boolean;
-  setGiveaways: (v: boolean) => void;
-  onBrowseLive: () => void;
-}) {
-  return (
-    <View style={{ gap: spacing.lg }}>
-      <View style={styles.scheduleCard}>
-        <Text style={styles.scheduleH}>Schedule a show</Text>
-        <Text style={styles.scheduleP}>Thumbnail, inventory, and lane format — tuned for collectible selling.</Text>
-        <Text style={styles.inputLabel}>Stream title</Text>
-        <TextInput
-          value={props.scheduleTitle}
-          onChangeText={props.setScheduleTitle}
-          placeholder="Show title"
-          placeholderTextColor={colors.textMuted}
-          style={styles.input}
-        />
-        <Text style={styles.inputLabel}>Category</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catRow}>
-          {streamCategories.map((c) => {
-            const on = props.scheduleCategory === c.id;
-            return (
-              <Pressable
-                key={c.id}
-                onPress={() => props.setScheduleCategory(c.id)}
-                style={[styles.catChip, on && styles.catChipOn]}
-              >
-                <Text style={[styles.catChipText, on && styles.catChipTextOn]}>{c.label}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-        <Text style={styles.inputLabel}>Auction / break</Text>
-        <View style={styles.formatRow}>
-          {(['auction', 'break', 'hybrid'] as const).map((f) => {
-            const on = props.streamFormat === f;
-            return (
-              <Pressable
-                key={f}
-                onPress={() => props.setStreamFormat(f)}
-                style={[styles.formatChip, on && styles.formatChipOn]}
-              >
-                <Text style={[styles.formatChipText, on && styles.formatChipTextOn]}>
-                  {f === 'hybrid' ? 'Hybrid' : f === 'auction' ? 'Auction' : 'Break'}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        <ToggleRow label="Preload inventory to pinned lane" value={props.preloadInventory} onToggle={props.setPreloadInventory} />
-        <ToggleRow label="Giveaways & heat rounds" value={props.giveaways} onToggle={props.setGiveaways} />
-        <Pressable style={styles.scheduleCta} onPress={props.onBrowseLive}>
-          <Text style={styles.scheduleCtaText}>Open live hub</Text>
-        </Pressable>
-      </View>
-
-      <Text style={styles.sectionLabel}>Your rooms</Text>
-      <Text style={styles.emptyShows}>
-        No scheduled shows yet. Live show scheduling uses your Supabase project — published shows will list here after
-        you create them from the live tools.
-      </Text>
-    </View>
-  );
-}
-
-function ToggleRow({
-  label,
-  value,
-  onToggle,
-}: {
-  label: string;
-  value: boolean;
-  onToggle: (v: boolean) => void;
-}) {
-  return (
-    <Pressable style={styles.toggleRow} onPress={() => onToggle(!value)}>
-      <Text style={styles.toggleLabel}>{label}</Text>
-      <View style={[styles.toggleKnob, value && styles.toggleKnobOn]}>
-        <View style={[styles.toggleDot, value && styles.toggleDotOn]} />
-      </View>
-    </Pressable>
   );
 }
 
@@ -1078,17 +1079,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
     letterSpacing: 1.2,
   },
-  emptyShows: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    lineHeight: 19,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
   quickRow: {
     gap: spacing.sm,
     paddingVertical: spacing.xs,
@@ -1326,146 +1316,39 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 0.8,
   },
-  scheduleCard: {
+  payoutCard: {
     padding: spacing.lg,
     borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: colors.borderStrong,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surfaceElevated,
     gap: spacing.sm,
   },
-  scheduleH: {
-    color: colors.textPrimary,
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  scheduleP: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    lineHeight: 18,
-    marginBottom: spacing.sm,
-  },
-  inputLabel: {
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    marginTop: spacing.sm,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 12,
-    color: colors.textPrimary,
-    fontSize: 15,
-    fontWeight: '600',
-    marginTop: 6,
-    backgroundColor: colors.surfaceElevated,
-  },
-  catRow: {
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  catChip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceElevated,
-  },
-  catChipOn: {
-    borderColor: colors.gold,
-    backgroundColor: 'rgba(212,175,55,0.1)',
-  },
-  catChipText: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  catChipTextOn: {
-    color: colors.gold,
-  },
-  formatRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  formatChip: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    backgroundColor: colors.surfaceElevated,
-  },
-  formatChipOn: {
-    borderColor: colors.gold,
-    backgroundColor: 'rgba(212,175,55,0.1)',
-  },
-  formatChipText: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  formatChipTextOn: {
-    color: colors.gold,
-  },
-  toggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  toggleLabel: {
-    flex: 1,
-    color: colors.textPrimary,
-    fontSize: 13,
-    fontWeight: '600',
-    paddingRight: spacing.md,
-  },
-  toggleKnob: {
-    width: 48,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceElevated,
-    padding: 2,
-    justifyContent: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  toggleKnobOn: {
-    borderColor: colors.gold,
+  payoutHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  payoutTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '800' },
+  payoutSubtitle: { color: colors.textMuted, fontSize: 13, lineHeight: 18, marginTop: 4 },
+  payoutBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radii.sm,
     backgroundColor: 'rgba(212,175,55,0.15)',
-    justifyContent: 'flex-end',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.35)',
   },
-  toggleDot: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: colors.textMuted,
-  },
-  toggleDotOn: {
-    backgroundColor: colors.gold,
-  },
-  scheduleCta: {
-    marginTop: spacing.lg,
-    paddingVertical: 14,
+  payoutBadgeText: { color: colors.gold, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
+  payoutDetail: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
+  payoutDetailMuted: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
+  payoutCta: {
+    marginTop: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
     borderRadius: radii.md,
     backgroundColor: colors.gold,
-    alignItems: 'center',
   },
-  scheduleCtaText: {
-    color: '#0a0a0a',
-    fontWeight: '900',
-    fontSize: 15,
-  },
+  payoutCtaText: { color: colors.background, fontWeight: '900', fontSize: 15 },
   showRow: {
     flexDirection: 'row',
     alignItems: 'center',

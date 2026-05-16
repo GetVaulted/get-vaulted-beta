@@ -51,8 +51,8 @@ export function commerceOptionsForChannel(channel: ListingChannel | null): Listi
   return [...MARKETPLACE_COMMERCE, ...LIVE_COMMERCE];
 }
 
-export function stepCountForChannel(channel: ListingChannel | null): number {
-  return channel === 'live_show' ? 6 : 7;
+export function stepCountForChannel(_channel: ListingChannel | null): number {
+  return 7;
 }
 
 export const LISTING_FLOW_STEP = {
@@ -71,7 +71,8 @@ export const LISTING_FLOW_STEP = {
     category: 2,
     details: 3,
     pricing: 4,
-    review: 5,
+    shipping: 5,
+    review: 6,
   },
 } as const;
 

@@ -20,13 +20,22 @@ function parseBody(raw: string | null): ListingRateQuoteRequest | { error: strin
     const length_in = Number(b.length_in);
     const width_in = Number(b.width_in);
     const height_in = Number(b.height_in);
+    const shipTo = String(b.ship_to_zip ?? '').trim();
+    const shipToDigits = shipTo.replace(/\D/g, '').slice(0, 5);
     const international = Boolean(b.international);
     if (!ship_from_zip) return { error: 'ship_from_zip is required' };
     if (!Number.isFinite(weight_lb) || !Number.isFinite(length_in) || !Number.isFinite(width_in) || !Number.isFinite(height_in)) {
       return { error: 'Invalid package dimensions' };
     }
-    return { ship_from_zip, weight_lb, length_in, width_in, height_in, international };
-  } catch {
+    return {
+      ship_from_zip,
+      ship_to_zip: shipToDigits.length === 5 ? shipToDigits : undefined,
+      weight_lb,
+      length_in,
+      width_in,
+      height_in,
+      international,
+    };
     return { error: 'Invalid JSON' };
   }
 }

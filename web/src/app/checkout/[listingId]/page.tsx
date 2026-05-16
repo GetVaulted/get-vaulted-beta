@@ -7,6 +7,8 @@ import { prisma } from "@/lib/prisma";
 import { safeCuidParam } from "@/lib/safe-return-to";
 import { formatShipsFromRegion } from "@/lib/seller-shipping-readiness";
 
+export const dynamic = "force-dynamic";
+
 export default async function CheckoutPage({
   params,
   searchParams,
