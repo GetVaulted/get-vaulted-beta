@@ -13,13 +13,13 @@ export type SellerHubTabId =
   | 'vault';
 
 export const SELLER_HUB_TABS: { id: SellerHubTabId; label: string }[] = [
-  { id: 'overview', label: 'Console' },
-  { id: 'listings', label: 'Listings' },
-  { id: 'live', label: 'Live' },
-  { id: 'orders', label: 'Orders' },
-  { id: 'wallet', label: 'Wallet' },
-  { id: 'analytics', label: 'Analytics' },
-  { id: 'vault', label: 'Vault' },
+  { id: 'overview', label: 'Studio' },
+  { id: 'listings', label: 'Inventory' },
+  { id: 'live', label: 'Vault Events' },
+  { id: 'orders', label: 'Fulfillment' },
+  { id: 'wallet', label: 'Revenue' },
+  { id: 'analytics', label: 'Insights' },
+  { id: 'vault', label: 'Identity' },
 ];
 
 export type SellerProfileMock = {

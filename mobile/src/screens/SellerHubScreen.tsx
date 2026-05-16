@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import type { User } from '@supabase/supabase-js';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
 import { useNavigation } from '@react-navigation/native';
@@ -11,7 +10,6 @@ import {
   Image,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   View,
@@ -19,14 +17,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   analyticsSnapshot,
-  listingCounts,
   listingPreviews,
-  liveCounts,
-  liveSellerTools,
-  orderCounts,
   orderRows,
-  quickActions,
-  sellerStudioRows,
   SELLER_HUB_TABS,
   streamCategories,
   type SellerHubTabId,
@@ -36,40 +28,29 @@ import {
 import { LaunchVaultEventPanel } from './sellerHub/LaunchVaultEventPanel';
 import { useCreateListingDraft } from '../createListing/CreateListingDraftContext';
 import { openCreateListing } from '../navigation/openCreateListing';
-import { SellerHQDashboard } from '../components/seller/SellerHQDashboard';
-import { SellerHQEntryBanner } from '../components/seller/SellerHQEntryBanner';
-import { isSellerHQApproved, type SellerHQEntryPhase } from '../lib/sellerHubEntry';
+import { SellerHQCommandCenter } from '../components/seller/hq/SellerHQCommandCenter';
+import { SellerHQFab, type FabActionId } from '../components/seller/hq/SellerHQFab';
+import type { SellerHQEntryPhase } from '../lib/sellerHubEntry';
 import { openSellerHostRoom } from '../navigation/openSellerHostRoom';
-import { consumePendingSellerHQTab, openSellerHQ } from '../navigation/openSellerHQ';
+import { consumePendingSellerHQTab } from '../navigation/openSellerHQ';
 import { navigateAuthLogin, navigateAuthSignUp, rootNavigationRef } from '../navigation/rootNavigationRef';
-import { fetchProfileById } from '../api/profilesRepository';
 import { useAuth } from '../auth/AuthContext';
 import { LISTING_CHANNEL_CONFIG, channelFromPreview } from '../createListing/listingChannel';
 import type { ListingChannel } from '../createListing/listingChannel';
 import type { ListingPreview } from '../createListing/types';
 import type { MainTabParamList } from '../navigation/types';
-import type { ProfileLite } from '../types/tradeOffers';
 import { colors, radii, spacing, typography } from '../theme';
 import {
   isSellerPayoutSetupComplete,
   sellerConnectBadge,
   sellerConnectDetailMessage,
 } from '../api/stripeConnectRepository';
-import { useSellerStripeConnect } from '../hooks/useSellerStripeConnect';
-import { useSellerWallet } from '../hooks/useSellerWallet';
+import { useSellerCommandCenterData } from '../hooks/useSellerCommandCenterData';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { openStripeConnectDashboard } from '../lib/openStripeConnectDashboard';
 import { openStripeConnectOnboarding, refreshSellerConnectAfterOnboarding } from '../lib/openStripeConnectOnboarding';
 import { areDevToolsEnabled } from '../lib/devTools';
 import type { CategoryId } from '../types';
-
-async function shareProfile(displayName: string) {
-  try {
-    await Share.share({ message: `Get Vaulted — ${displayName}` });
-  } catch {
-    /* dismissed */
-  }
-}
 
 function statusStyle(status: (typeof listingPreviews)[0]['status']) {
   switch (status) {
@@ -95,8 +76,9 @@ export function SellerHubScreen() {
   const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
   const { user, loading: authLoading, session } = useAuth();
   const { userListings } = useCreateListingDraft();
-  const sellerConnect = useSellerStripeConnect(session?.access_token);
-  const sellerWallet = useSellerWallet(session?.access_token);
+  const cmdData = useSellerCommandCenterData(session?.access_token, userListings.length);
+  const sellerConnect = cmdData.sellerConnect;
+  const sellerWallet = cmdData.sellerWallet;
   const [tab, setTab] = useState<SellerHubTabId>('overview');
   const [scheduleTitle, setScheduleTitle] = useState('');
   const [scheduleCategory, setScheduleCategory] = useState<CategoryId>(streamCategories[0].id);
@@ -110,7 +92,7 @@ export function SellerHubScreen() {
     if (pending) setTab(pending);
   }, []);
 
-  const sellerApproved = isSellerHQApproved(sellerConnect.status);
+  const sellerApproved = cmdData.approved;
 
   const sellerLaunchMeta = useMemo(() => {
     const meta = user?.user_metadata as Record<string, unknown> | undefined;
@@ -181,6 +163,37 @@ export function SellerHubScreen() {
     [openStripeOnboarding],
   );
 
+  const onFabAction = useCallback(
+    (id: FabActionId) => {
+      const rootNav = navigation as unknown as NavigationProp<ParamListBase>;
+      switch (id) {
+        case 'go_live':
+          if (cmdData.liveRoom) {
+            openSellerHostRoom(navigation, cmdData.liveRoom.id);
+          } else {
+            setTab('live');
+          }
+          break;
+        case 'listing':
+          void openCreateListing(rootNav, { channel: 'marketplace' });
+          break;
+        case 'schedule':
+          setTab('live');
+          break;
+        case 'inventory':
+          void openCreateListing(rootNav, { channel: 'live_show' });
+          break;
+      }
+    },
+    [cmdData.liveRoom, navigation],
+  );
+
+  const openProfileSettings = useCallback(() => {
+    if (rootNavigationRef.isReady()) {
+      rootNavigationRef.navigate('ProfileEdit');
+    }
+  }, []);
+
   const renderTab = () => {
     switch (tab) {
       case 'listings':
@@ -225,15 +238,46 @@ export function SellerHubScreen() {
         return <VaultIdentityPanel />;
       default:
         return (
-          <OverviewBody
-            onOpenTab={setTab}
-            navigation={navigation}
-            sellerConnect={sellerConnect}
-            sellerWallet={sellerWallet}
-            onStripeSetup={openStripeOnboarding}
-            stripeSetupBusy={stripeSetupBusy}
-            sellerApproved={sellerApproved}
-          />
+          <View style={{ gap: spacing.lg }}>
+            <SellerHQCommandCenter
+              data={cmdData}
+              displayName={sellerLaunchMeta.displayName}
+              handle={sellerLaunchMeta.handle}
+              avatarUrl={sellerLaunchMeta.avatar}
+              navigation={navigation}
+              onOpenTab={setTab}
+              onSellerHQEntryPress={onSellerHQEntryPress}
+              onStripeSetup={openStripeOnboarding}
+              stripeSetupBusy={stripeSetupBusy}
+              onProfileSettings={openProfileSettings}
+            />
+            <View style={styles.futureLane}>
+              <Text style={styles.futureLaneEyebrow}>Coming to your lane</Text>
+              <Text style={styles.futureLaneTitle}>AI assistant · moderation · live analytics</Text>
+              <Text style={styles.futureLaneBody}>
+                Creator subscriptions, vault verification, and collector reputation — reserved for your command center.
+              </Text>
+            </View>
+            {areDevToolsEnabled() ? (
+              <Pressable
+                style={styles.devToolsCard}
+                onPress={() =>
+                  navigation.navigate('TradeCenter', {
+                    screen: 'TradeCenterQa',
+                    params: undefined,
+                  })
+                }
+              >
+                <Ionicons name="flask-outline" size={22} color={colors.gold} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.devToolsTitle}>Trade Center QA</Text>
+                  <Text style={styles.devToolsBody}>Seed trades, force statuses, mock labels, Stripe test checkout.</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </Pressable>
+            ) : null}
+            <VaultIdentityPanel compact />
+          </View>
         );
     }
   };
@@ -250,9 +294,9 @@ export function SellerHubScreen() {
     return (
       <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          <Text style={styles.hqGateTitle}>Vault HQ</Text>
+          <Text style={styles.hqGateTitle}>Seller Studio</Text>
           <Text style={styles.hqGateBody}>
-            Log in to open your seller console — listings, live shows, payouts, and orders. No URL required.
+            Log in to enter your command center — vault events, inventory queue, revenue vault, and fulfillment.
           </Text>
           <Pressable style={styles.hqGatePrimary} onPress={navigateAuthSignUp}>
             <Text style={styles.hqGatePrimaryTxt}>Create account</Text>
@@ -267,22 +311,12 @@ export function SellerHubScreen() {
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.sm }]}>
+      {sellerApproved ? <SellerHQFab onAction={onFabAction} /> : null}
       <ScrollView
-        stickyHeaderIndices={[2]}
+        stickyHeaderIndices={[0]}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        <View style={styles.hqScreenTitleRow}>
-          <Text style={styles.hqScreenTitle}>Vault HQ</Text>
-          <Text style={styles.hqScreenSub}>Seller console</Text>
-        </View>
-        <SellerHQEntryBanner
-          hasUser
-          connect={sellerConnect.status}
-          connectLoading={sellerConnect.loading}
-          onPress={onSellerHQEntryPress}
-        />
-        <ProfileHeader user={user} />
         <View style={[styles.tabBarWrap, { backgroundColor: colors.background }]}>
           <ScrollView
             horizontal
@@ -307,397 +341,6 @@ export function SellerHubScreen() {
         <View style={styles.tabBody}>{renderTab()}</View>
         <View style={{ height: spacing.xxxl + 24 }} />
       </ScrollView>
-    </View>
-  );
-}
-
-function ProfileHeader({ user }: { user: User }) {
-  const { signOut } = useAuth();
-  const [profile, setProfile] = useState<ProfileLite | null>(null);
-
-  useEffect(() => {
-    void fetchProfileById(user.id).then(setProfile);
-  }, [user.id]);
-
-  const displayName = useMemo(() => {
-    return (
-      profile?.display_name ??
-      (user.user_metadata?.display_name as string | undefined) ??
-      user.email?.split('@')[0] ??
-      'Seller'
-    );
-  }, [profile?.display_name, user.email, user.user_metadata]);
-
-  const username = profile?.username ?? (user.user_metadata?.username as string | undefined) ?? null;
-  const avatarUrl =
-    profile?.avatar_url?.trim() ||
-    (user.user_metadata?.avatar_url as string | undefined) ||
-    (user.user_metadata?.picture as string | undefined) ||
-    null;
-
-  const openProfileEdit = () => {
-    if (rootNavigationRef.isReady()) {
-      rootNavigationRef.navigate('ProfileEdit');
-    }
-  };
-
-  return (
-    <View style={styles.headerBlock}>
-      <LinearGradient
-        colors={['rgba(212,175,55,0.12)', 'rgba(8,8,8,0)', 'rgba(5,5,5,0)']}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-      <View style={styles.headerTop}>
-        {avatarUrl ? (
-          <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-        ) : (
-          <View style={[styles.avatar, styles.avatarFallback]}>
-            <Text style={styles.avatarFallbackText}>{displayName.slice(0, 1).toUpperCase()}</Text>
-          </View>
-        )}
-        <View style={styles.headerMain}>
-          <View style={styles.nameRow}>
-            <Text style={styles.displayName}>{displayName}</Text>
-          </View>
-          <Text style={styles.handle}>{username ? `@${username}` : 'Add a username in profile settings'}</Text>
-          {user.email ? <Text style={styles.metaText}>{user.email}</Text> : null}
-        </View>
-      </View>
-      <View style={styles.headerActions}>
-        <Pressable style={styles.btnOutline} onPress={openProfileEdit}>
-          <Text style={styles.btnOutlineText}>Seller settings</Text>
-        </Pressable>
-        <Pressable style={styles.btnGold} onPress={() => void shareProfile(displayName)}>
-          <Ionicons name="share-outline" size={18} color="#0a0a0a" />
-          <Text style={styles.btnGoldText}>Share</Text>
-        </Pressable>
-      </View>
-      <Pressable
-        style={styles.signOutBtn}
-        onPress={() => void signOut()}
-        accessibilityRole="button"
-        accessibilityLabel="Sign out"
-      >
-        <Ionicons name="log-out-outline" size={18} color={colors.textMuted} />
-        <Text style={styles.signOutBtnText}>Sign out</Text>
-      </Pressable>
-    </View>
-  );
-}
-
-function QuickActionRow({
-  navigation,
-  onOpenTab,
-}: {
-  navigation: BottomTabNavigationProp<MainTabParamList>;
-  onOpenTab: (t: SellerHubTabId) => void;
-}) {
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRow}>
-      {quickActions.map((q) => (
-        <Pressable
-          key={q.id}
-          style={styles.quickTile}
-          onPress={() => {
-            if (q.id === 'q1')
-              void openCreateListing(navigation as unknown as NavigationProp<ParamListBase>, { channel: 'marketplace' });
-            else if (q.id === 'q4')
-              void openCreateListing(navigation as unknown as NavigationProp<ParamListBase>, { channel: 'live_show' });
-            else if (q.id === 'q2' || q.id === 'q3') openSellerHQ(navigation, { tab: 'live' });
-            else if (q.id === 'q5') onOpenTab('wallet');
-          }}
-        >
-          <LinearGradient
-            colors={['rgba(32,30,24,0.95)', 'rgba(12,11,9,0.98)']}
-            style={StyleSheet.absoluteFill}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          />
-          <Ionicons name={q.icon} size={22} color={colors.gold} />
-          <Text style={styles.quickLabel}>{q.label}</Text>
-        </Pressable>
-      ))}
-    </ScrollView>
-  );
-}
-
-function ModuleCard({
-  title,
-  subtitle,
-  rows,
-  onPress,
-}: {
-  title: string;
-  subtitle: string;
-  rows: { k: string; v: string }[];
-  onPress?: () => void;
-}) {
-  return (
-    <Pressable style={styles.module} onPress={onPress ?? (() => Alert.alert(title, subtitle))}>
-      <View style={styles.moduleHead}>
-        <View>
-          <Text style={styles.moduleTitle}>{title}</Text>
-          <Text style={styles.moduleSub}>{subtitle}</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-      </View>
-      <View style={styles.moduleGrid}>
-        {rows.map((r) => (
-          <View key={r.k} style={styles.moduleCell}>
-            <Text style={styles.moduleVal}>{r.v}</Text>
-            <Text style={styles.moduleKey}>{r.k}</Text>
-          </View>
-        ))}
-      </View>
-    </Pressable>
-  );
-}
-
-function SellerStudioSection({
-  onOpenTab,
-  navigation,
-}: {
-  onOpenTab: (t: SellerHubTabId) => void;
-  navigation: BottomTabNavigationProp<MainTabParamList>;
-}) {
-  return (
-    <>
-      <Text style={styles.sectionLabel}>Studio & listings</Text>
-      <View style={{ gap: spacing.md }}>
-        {sellerStudioRows.map((row) => (
-          <Pressable
-            key={row.title}
-            style={({ pressed }) => [styles.studioCard, pressed && styles.studioCardPressed]}
-            onPress={() => {
-              if (row.title === 'Create marketplace listing') {
-                void openCreateListing(navigation as unknown as NavigationProp<ParamListBase>, {
-                  channel: 'marketplace',
-                });
-              } else if (row.title === 'Queue live inventory') {
-                void openCreateListing(navigation as unknown as NavigationProp<ParamListBase>, { channel: 'live_show' });
-              } else if (row.opensTab) {
-                onOpenTab(row.opensTab);
-              } else {
-                onOpenTab('listings');
-              }
-            }}
-          >
-            <View style={styles.studioIconBubble}>
-              <Ionicons name={row.icon} size={20} color={colors.gold} />
-            </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.studioCardTitle}>{row.title}</Text>
-              <Text style={styles.studioCardBody}>{row.body}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-          </Pressable>
-        ))}
-      </View>
-    </>
-  );
-}
-
-function OverviewBody({
-  onOpenTab,
-  navigation,
-  sellerConnect,
-  sellerWallet,
-  onStripeSetup,
-  stripeSetupBusy,
-  sellerApproved,
-}: {
-  onOpenTab: (t: SellerHubTabId) => void;
-  navigation: BottomTabNavigationProp<MainTabParamList>;
-  sellerConnect: {
-    status: import('../api/stripeConnectRepository').SellerConnectStatusResponse | null;
-    statusError: string | null;
-    loading: boolean;
-    refresh: () => Promise<import('../api/stripeConnectRepository').SellerConnectStatusResponse | null>;
-  };
-  sellerWallet: {
-    wallet: import('../api/stripeConnectRepository').SellerWalletSummary | null;
-    loading: boolean;
-    refresh: () => Promise<import('../api/stripeConnectRepository').SellerWalletSummary | null>;
-  };
-  onStripeSetup: () => void;
-  stripeSetupBusy: boolean;
-  sellerApproved: boolean;
-}) {
-  const status = sellerConnect.status;
-  const fetchError = sellerConnect.statusError;
-  const badge = sellerConnectBadge(status, { fetchError });
-  const payoutComplete = isSellerPayoutSetupComplete(status);
-  const detailLine = sellerConnectDetailMessage(status, { fetchError });
-  const badgeReady = badge === 'Complete' || badge === 'Ready';
-  const showRefreshCta = badge === 'Ready' || badge === 'Unavailable';
-
-  return (
-    <View style={{ gap: spacing.lg }}>
-      {sellerApproved ? (
-        <SellerHQDashboard
-          navigation={navigation}
-          onOpenTab={onOpenTab}
-          onSetupPayouts={onStripeSetup}
-        />
-      ) : null}
-      <View style={styles.payoutCard}>
-        <View style={styles.payoutHeaderRow}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.payoutTitle}>Seller Payout Setup</Text>
-            <Text style={styles.payoutSubtitle}>Connect your bank account securely through Stripe.</Text>
-          </View>
-          <View style={[styles.payoutBadge, badgeReady && styles.payoutBadgeReady]}>
-            <Text style={[styles.payoutBadgeText, badgeReady && styles.payoutBadgeTextReady]}>
-              {sellerConnect.loading ? '…' : badge}
-            </Text>
-          </View>
-        </View>
-        <Text style={payoutComplete ? styles.payoutDetail : styles.payoutDetailMuted}>{detailLine}</Text>
-        {payoutComplete ? (
-          <View style={styles.payoutCompleteRow}>
-            <Ionicons name="checkmark-circle" size={22} color={colors.success} />
-            <Text style={styles.payoutCompleteText}>You are ready to receive payouts.</Text>
-          </View>
-        ) : showRefreshCta ? (
-          <Pressable
-            style={[styles.payoutRefreshCta, sellerConnect.loading && styles.payoutCtaDisabled]}
-            onPress={() => void sellerConnect.refresh()}
-            disabled={sellerConnect.loading}
-          >
-            {sellerConnect.loading ? (
-              <ActivityIndicator color={colors.gold} />
-            ) : (
-              <>
-                <Text style={styles.payoutRefreshCtaText}>Refresh status</Text>
-                <Ionicons name="refresh" size={18} color={colors.gold} />
-              </>
-            )}
-          </Pressable>
-        ) : (
-          <Pressable
-            style={[styles.payoutCta, stripeSetupBusy && styles.payoutCtaDisabled]}
-            onPress={onStripeSetup}
-            disabled={stripeSetupBusy}
-          >
-            {stripeSetupBusy ? (
-              <ActivityIndicator color={colors.background} />
-            ) : (
-              <>
-                <Text style={styles.payoutCtaText}>Set up payouts</Text>
-                <Ionicons name="shield-checkmark-outline" size={18} color={colors.background} />
-              </>
-            )}
-          </Pressable>
-        )}
-      </View>
-
-      <QuickActionRow navigation={navigation} onOpenTab={onOpenTab} />
-
-      <SellerStudioSection onOpenTab={onOpenTab} navigation={navigation} />
-
-      <Text style={styles.sectionLabel}>Command center</Text>
-      <View style={styles.moduleStack}>
-        <ModuleCard
-          title="Listings"
-          subtitle="Inventory & pricing"
-          rows={[
-            { k: 'Active', v: String(listingCounts.active) },
-            { k: 'Drafts', v: String(listingCounts.drafts) },
-            { k: 'Sold', v: String(listingCounts.sold) },
-            { k: 'Expiring', v: String(listingCounts.expiring) },
-          ]}
-          onPress={() => onOpenTab('listings')}
-        />
-        <ModuleCard
-          title="Live shows"
-          subtitle="Rooms & schedules"
-          rows={[
-            { k: 'Upcoming', v: String(liveCounts.upcoming) },
-            { k: 'Scheduled', v: String(liveCounts.scheduled) },
-            { k: 'Draft rooms', v: String(liveCounts.drafts) },
-            { k: 'Past', v: String(liveCounts.past) },
-          ]}
-          onPress={() => onOpenTab('live')}
-        />
-        <ModuleCard
-          title="Orders"
-          subtitle="Fulfillment & trust"
-          rows={[
-            { k: 'Ship', v: String(orderCounts.ship) },
-            { k: 'Done', v: String(orderCounts.done) },
-            { k: 'Disputes', v: String(orderCounts.disputes) },
-            { k: 'Tracking', v: String(orderCounts.tracking) },
-          ]}
-          onPress={() => onOpenTab('orders')}
-        />
-        <ModuleCard
-          title="Wallet"
-          subtitle="Payouts & balance"
-          rows={[
-            {
-              k: 'Available',
-              v: sellerWallet.wallet?.availableFormatted ?? walletSnapshot.available,
-            },
-            {
-              k: 'Pending',
-              v: sellerWallet.wallet?.pendingFormatted ?? walletSnapshot.pending,
-            },
-            { k: 'Next payout', v: sellerWallet.wallet?.nextPayoutLabel?.split('·')[0]?.trim() ?? '—' },
-          ]}
-          onPress={() => onOpenTab('wallet')}
-        />
-        <ModuleCard
-          title="Analytics"
-          subtitle="Growth & performance"
-          rows={[
-            { k: '30d revenue', v: analyticsSnapshot.revenue30 },
-            { k: 'Viewers', v: analyticsSnapshot.viewerGrowth },
-            { k: 'Sell-through', v: analyticsSnapshot.sellThrough },
-            { k: 'Top show', v: '···' },
-          ]}
-          onPress={() => onOpenTab('analytics')}
-        />
-      </View>
-
-      <Text style={styles.sectionLabel}>Live seller tools</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.toolsRow}>
-        {liveSellerTools.map((t) => (
-          <Pressable
-            key={t.id}
-            style={styles.toolTile}
-            onPress={() => onOpenTab('live')}
-          >
-            <Ionicons name={t.icon} size={20} color={colors.gold} />
-            <Text style={styles.toolLabel}>{t.label}</Text>
-          </Pressable>
-        ))}
-      </ScrollView>
-
-      {areDevToolsEnabled() ? (
-        <>
-          <Text style={styles.sectionLabel}>Developer tools</Text>
-          <Pressable
-            style={styles.devToolsCard}
-            onPress={() =>
-              navigation.navigate('TradeCenter', {
-                screen: 'TradeCenterQa',
-                params: undefined,
-              })
-            }
-          >
-            <Ionicons name="flask-outline" size={22} color={colors.gold} />
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.devToolsTitle}>Trade Center QA</Text>
-              <Text style={styles.devToolsBody}>Seed trades, force statuses, mock labels, Stripe test checkout.</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-          </Pressable>
-        </>
-      ) : null}
-
-      <VaultIdentityPanel compact />
     </View>
   );
 }
@@ -888,7 +531,7 @@ function WalletPanel({
   return (
     <View style={styles.walletHero}>
       <View style={styles.walletHeaderRow}>
-        <Text style={styles.walletLabel}>Available</Text>
+        <Text style={styles.walletLabel}>Revenue vault · available</Text>
         <Pressable onPress={() => void sellerWallet.refresh()} disabled={sellerWallet.loading} hitSlop={8}>
           <Text style={styles.walletRefresh}>{sellerWallet.loading ? 'Refreshing…' : 'Refresh'}</Text>
         </Pressable>
@@ -936,7 +579,7 @@ function AnalyticsPanel() {
     <View style={{ gap: spacing.lg }}>
       <View style={styles.analyticsCard}>
         <Text style={styles.analyticsBig}>{analyticsSnapshot.revenue30}</Text>
-        <Text style={styles.analyticsCaption}>Trailing 30 days · gross merchandise</Text>
+        <Text style={styles.analyticsCaption}>Trailing 30 days · GMV lane</Text>
         <View style={styles.barRow}>
           {bars.map((h, i) => (
             <View key={i} style={[styles.bar, { height: h }]} />
@@ -1860,6 +1503,32 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     lineHeight: 17,
+  },
+  futureLane: {
+    padding: spacing.lg,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.2)',
+    borderStyle: 'dashed',
+    backgroundColor: 'rgba(212,175,55,0.04)',
+    gap: spacing.xs,
+  },
+  futureLaneEyebrow: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    color: colors.gold,
+    textTransform: 'uppercase',
+  },
+  futureLaneTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  futureLaneBody: {
+    fontSize: 13,
+    color: colors.textMuted,
+    lineHeight: 18,
   },
   studioCard: {
     flexDirection: 'row',

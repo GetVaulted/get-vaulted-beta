@@ -2,6 +2,9 @@
   "name": "get-vaulted",
   "private": true,
   "scripts": {
+    "typecheck:web": "cd web && npx tsc --noEmit",
+    "typecheck:mobile": "cd mobile && npx tsc --noEmit",
+    "typecheck": "npm run typecheck:web && npm run typecheck:mobile",
     "build": "npm install --prefix web && npm run build --prefix web",
     "netlify:build": "npm install --prefix web && npm run netlify:build --prefix web",
     "web:netlify:build": "npm run netlify:build --prefix web",

@@ -23,6 +23,7 @@ import {
   type LiveRoomApiRow,
 } from '../../api/liveRoomsRepository';
 import type { SellerConnectStatusResponse } from '../../api/stripeConnectRepository';
+import { SellerLiveVaultEvents } from '../../components/seller/hq/SellerLiveVaultEvents';
 import { streamCategories } from '../../data/sellerHubMock';
 import { colors, radii, spacing } from '../../theme';
 import type { CategoryId } from '../../types';
@@ -262,17 +263,6 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
     }
   };
 
-  const openHostForRoom = useCallback(
-    (room: LiveRoomApiRow) => {
-      if (!props.accessToken) {
-        Alert.alert('Sign in required', 'Sign in to host a live room.');
-        return;
-      }
-      props.onHostRoom(room.id);
-    },
-    [props],
-  );
-
   const onGoLiveNow = useCallback(async () => {
     if (liveBlocked) {
       Alert.alert(
@@ -336,8 +326,20 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
     setWhatsDropping('Tonight: vintage wax, numbered parallels, and a single-owner consignment block.');
   };
 
+  const upcomingCount = myRooms.filter((r) => r.status === 'scheduled' || r.status === 'live').length;
+
   return (
     <View style={s.scroll}>
+      <SellerLiveVaultEvents
+        rooms={myRooms}
+        loading={roomsLoading}
+        onHostRoom={(roomId) => props.onHostRoom(roomId)}
+        onScheduleNew={() => {
+          props.setScheduleTitle(props.scheduleTitle || 'Vault event');
+        }}
+        onGoLive={() => void onGoLiveNow()}
+      />
+
       <View style={s.previewWrap}>
         <LinearGradient
           colors={['rgba(212,175,55,0.22)', 'rgba(8,8,10,0.96)', colors.surfaceElevated]}
@@ -414,9 +416,9 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
         </Pressable>
       </View>
 
-      <Text style={s.pageEyebrow}>Creator studio</Text>
-      <Text style={s.pageTitle}>Launch a Vault event</Text>
-      <Text style={s.pageSub}>Design the room like a private release — then take the lane when you are ready.</Text>
+      <Text style={s.pageEyebrow}>Seller studio</Text>
+      <Text style={s.pageTitle}>{upcomingCount > 0 ? 'Plan your next vault event' : 'Launch a vault event'}</Text>
+      <Text style={s.pageSub}>Design the room like a private release — then enter the command center when you are ready.</Text>
 
       <SectionCard kicker="A" title="Show identity" hint="Name the moment. This is what collectors feel before they tap in." defaultOpen>
         <Text style={s.fieldLabel}>Event title</Text>
@@ -646,57 +648,35 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
         <Text style={s.fieldMuted}>Invite-only rooms & VIP tiers arrive in a future Vault release.</Text>
       </SectionCard>
 
-      <View style={s.roomsHeaderRow}>
-        <Text style={s.sectionLabelRooms}>Your rooms</Text>
-        {props.accessToken ? (
-          <Pressable onPress={() => void loadMyRooms()} disabled={roomsLoading} hitSlop={8}>
-            <Text style={s.roomsRefresh}>{roomsLoading ? 'Refreshing…' : 'Refresh'}</Text>
-          </Pressable>
-        ) : null}
-      </View>
-      {roomsLoading && myRooms.length === 0 ? (
-        <ActivityIndicator color={colors.gold} style={{ marginVertical: spacing.md }} />
-      ) : myRooms.length === 0 ? (
-        <Text style={s.emptyShowsLux}>
-          No Vault events yet. Schedule a show above — it appears here and on the Live tab for buyers.
-        </Text>
-      ) : (
-        <View style={s.roomList}>
-          {myRooms.map((room) => (
-            <View key={room.id} style={s.roomCard}>
-              <View style={s.roomCardTop}>
-                <Text style={s.roomCardTitle} numberOfLines={2}>
-                  {room.title}
-                </Text>
-                <View
-                  style={[
-                    s.roomStatusPill,
-                    room.status === 'live' && s.roomStatusPillLive,
-                    room.status === 'ended' && s.roomStatusPillEnded,
-                  ]}
-                >
-                  <Text style={s.roomStatusPillTxt}>{roomStatusLabel(room.status)}</Text>
+      {myRooms.some((r) => r.status === 'ended') ? (
+        <>
+          <View style={s.roomsHeaderRow}>
+            <Text style={s.sectionLabelRooms}>Past vault events</Text>
+            {props.accessToken ? (
+              <Pressable onPress={() => void loadMyRooms()} disabled={roomsLoading} hitSlop={8}>
+                <Text style={s.roomsRefresh}>{roomsLoading ? 'Refreshing…' : 'Refresh'}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          <View style={s.roomList}>
+            {myRooms
+              .filter((r) => r.status === 'ended')
+              .map((room) => (
+                <View key={room.id} style={s.roomCard}>
+                  <View style={s.roomCardTop}>
+                    <Text style={s.roomCardTitle} numberOfLines={2}>
+                      {room.title}
+                    </Text>
+                    <View style={[s.roomStatusPill, s.roomStatusPillEnded]}>
+                      <Text style={s.roomStatusPillTxt}>{roomStatusLabel(room.status)}</Text>
+                    </View>
+                  </View>
+                  <Text style={s.roomCardMeta}>{room.category}</Text>
                 </View>
-              </View>
-              <Text style={s.roomCardMeta}>
-                {room.status === 'scheduled' && room.scheduledStartAt
-                  ? formatScheduledDate(new Date(room.scheduledStartAt))
-                  : room.status === 'live'
-                    ? 'On air now'
-                    : 'Ended'}
-                {' · '}
-                {room.category}
-              </Text>
-              {room.status !== 'ended' ? (
-                <Pressable style={s.roomHostBtn} onPress={() => openHostForRoom(room)}>
-                  <Text style={s.roomHostBtnTxt}>{room.status === 'live' ? 'Manage show' : 'Host room'}</Text>
-                  <Ionicons name="chevron-forward" size={16} color={colors.gold} />
-                </Pressable>
-              ) : null}
-            </View>
-          ))}
-        </View>
-      )}
+              ))}
+          </View>
+        </>
+      ) : null}
     </View>
   );
 }

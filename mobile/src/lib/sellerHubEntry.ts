@@ -57,9 +57,9 @@ export function sellerHQEntryCopy(phase: SellerHQEntryPhase): {
       };
     case 'ready':
       return {
-        title: 'Vault HQ',
-        body: 'Your seller console — listings, live shows, orders, wallet, and stream tools.',
-        cta: 'Enter Seller HQ',
+        title: 'Command Center',
+        body: 'Your live commerce OS — vault events, inventory queue, revenue vault, and the lane.',
+        cta: 'Enter Command Center',
         icon: 'checkmark-circle-outline',
       };
   }
