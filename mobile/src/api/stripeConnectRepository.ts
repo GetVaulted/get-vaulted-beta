@@ -56,13 +56,38 @@ export type SellerConnectStatusResponse = {
   payouts_ready: boolean;
   message_onboarding: string | null;
   message_payouts: string | null;
+  /** True when charges + payouts are enabled and requirements are clear. */
+  payout_setup_complete?: boolean;
 };
 
-/** Payout card badge: Not ready / Action required / Ready */
-export function sellerConnectBadge(status: SellerConnectOnboardingUiStatus, payoutsReady: boolean): string {
-  if (status === 'verified' && payoutsReady) return 'Ready';
-  if (status === 'action_required' || status === 'restricted') return 'Action required';
+/** True when Stripe Connect is fully cleared to sell and receive payouts. */
+export function isSellerPayoutSetupComplete(status: SellerConnectStatusResponse | null | undefined): boolean {
+  if (!status?.stripeConfigured) return false;
+  return Boolean(status.can_publish_active_listings && status.payouts_ready);
+}
+
+/** Payout card badge: Not ready / Action required / Ready / Complete */
+export function sellerConnectBadge(status: SellerConnectStatusResponse | null | undefined): string {
+  if (!status) return 'Not ready';
+  if (isSellerPayoutSetupComplete(status)) return 'Complete';
+  if (status.payouts_ready || status.onboarding_ui_status === 'verified') return 'Ready';
+  if (status.onboarding_ui_status === 'action_required' || status.onboarding_ui_status === 'restricted') {
+    return 'Action required';
+  }
   return 'Not ready';
+}
+
+export function sellerConnectDetailMessage(status: SellerConnectStatusResponse | null | undefined): string {
+  if (!status) return 'Complete Stripe once to publish active listings and go live as a seller.';
+  if (!status.stripeConfigured) {
+    return 'Stripe is not configured in this build — seller gates are relaxed for development.';
+  }
+  if (isSellerPayoutSetupComplete(status)) {
+    return status.message_payouts ?? 'Payout setup complete. You can publish listings and host live sales.';
+  }
+  if (status.message_onboarding?.trim()) return status.message_onboarding.trim();
+  if (status.message_payouts?.trim()) return status.message_payouts.trim();
+  return 'Complete Stripe once to publish active listings and go live as a seller.';
 }
 
 async function getAccessToken(): Promise<string | null> {

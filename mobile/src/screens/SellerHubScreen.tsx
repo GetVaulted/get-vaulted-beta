@@ -45,10 +45,15 @@ import type { ListingPreview } from '../createListing/types';
 import type { MainTabParamList } from '../navigation/types';
 import type { ProfileLite } from '../types/tradeOffers';
 import { colors, radii, spacing, typography } from '../theme';
-import { sellerConnectBadge } from '../api/stripeConnectRepository';
+import {
+  fetchSellerConnectStatus,
+  isSellerPayoutSetupComplete,
+  sellerConnectBadge,
+  sellerConnectDetailMessage,
+} from '../api/stripeConnectRepository';
 import { useSellerStripeConnect } from '../hooks/useSellerStripeConnect';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
-import { openStripeConnectOnboarding } from '../lib/openStripeConnectOnboarding';
+import { openStripeConnectOnboarding, refreshSellerConnectAfterOnboarding } from '../lib/openStripeConnectOnboarding';
 import { areDevToolsEnabled } from '../lib/devTools';
 import type { CategoryId } from '../types';
 
@@ -126,12 +131,17 @@ export function SellerHubScreen() {
     setStripeSetupBusy(true);
     try {
       const result = await openStripeConnectOnboarding(session.access_token);
-      await sellerConnect.refresh();
+      await refreshSellerConnectAfterOnboarding(sellerConnect.refresh);
       if (result === 'success') {
-        Alert.alert(
-          'Payout setup',
-          'Thanks — we refreshed your payout status. If Stripe still needs info, tap Set up payouts again.',
-        );
+        const latest = await fetchSellerConnectStatus(session.access_token);
+        if (isSellerPayoutSetupComplete(latest)) {
+          Alert.alert('Payout setup complete', 'Your payout status is Complete. You are ready to sell and go live.');
+        } else {
+          Alert.alert(
+            'Payout setup',
+            'Thanks — we refreshed your status. If the badge is not Complete yet, wait a moment and open Seller HQ again, or tap Set up payouts if Stripe needs more info.',
+          );
+        }
       }
     } catch (e) {
       Alert.alert('Could not start payout setup', e instanceof Error ? e.message : 'Unknown error');
@@ -450,14 +460,11 @@ function OverviewBody({
   onStripeSetup: () => void;
   stripeSetupBusy: boolean;
 }) {
-  const badge = sellerConnect.status
-    ? sellerConnectBadge(sellerConnect.status.onboarding_ui_status, sellerConnect.status.payouts_ready)
-    : 'Not ready';
-  const detailLine = sellerConnect.status?.stripeConfigured
-    ? sellerConnect.status.can_publish_active_listings
-      ? sellerConnect.status.message_payouts
-      : sellerConnect.status.message_onboarding
-    : null;
+  const status = sellerConnect.status;
+  const badge = sellerConnectBadge(status);
+  const payoutComplete = isSellerPayoutSetupComplete(status);
+  const detailLine = sellerConnectDetailMessage(status);
+  const badgeReady = badge === 'Complete' || badge === 'Ready';
 
   return (
     <View style={{ gap: spacing.lg }}>
@@ -467,33 +474,34 @@ function OverviewBody({
             <Text style={styles.payoutTitle}>Seller Payout Setup</Text>
             <Text style={styles.payoutSubtitle}>Connect your bank account securely through Stripe.</Text>
           </View>
-          <View style={styles.payoutBadge}>
-            <Text style={styles.payoutBadgeText}>{sellerConnect.loading ? '…' : badge}</Text>
+          <View style={[styles.payoutBadge, badgeReady && styles.payoutBadgeReady]}>
+            <Text style={[styles.payoutBadgeText, badgeReady && styles.payoutBadgeTextReady]}>
+              {sellerConnect.loading ? '…' : badge}
+            </Text>
           </View>
         </View>
-        {detailLine ? (
-          <Text style={styles.payoutDetail}>{detailLine}</Text>
+        <Text style={payoutComplete ? styles.payoutDetail : styles.payoutDetailMuted}>{detailLine}</Text>
+        {payoutComplete ? (
+          <View style={styles.payoutCompleteRow}>
+            <Ionicons name="checkmark-circle" size={22} color={colors.success} />
+            <Text style={styles.payoutCompleteText}>You are ready to receive payouts.</Text>
+          </View>
         ) : (
-          <Text style={styles.payoutDetailMuted}>
-            {sellerConnect.status?.stripeConfigured === false
-              ? 'Stripe is not configured in this build — seller gates are relaxed for development.'
-              : 'Complete Stripe once to publish active listings and go live as a seller.'}
-          </Text>
+          <Pressable
+            style={[styles.payoutCta, stripeSetupBusy && styles.payoutCtaDisabled]}
+            onPress={onStripeSetup}
+            disabled={stripeSetupBusy}
+          >
+            {stripeSetupBusy ? (
+              <ActivityIndicator color={colors.background} />
+            ) : (
+              <>
+                <Text style={styles.payoutCtaText}>Set up payouts</Text>
+                <Ionicons name="shield-checkmark-outline" size={18} color={colors.background} />
+              </>
+            )}
+          </Pressable>
         )}
-        <Pressable
-          style={[styles.payoutCta, stripeSetupBusy && styles.payoutCtaDisabled]}
-          onPress={onStripeSetup}
-          disabled={stripeSetupBusy}
-        >
-          {stripeSetupBusy ? (
-            <ActivityIndicator color={colors.background} />
-          ) : (
-            <>
-              <Text style={styles.payoutCtaText}>Set up payouts</Text>
-              <Ionicons name="shield-checkmark-outline" size={18} color={colors.background} />
-            </>
-          )}
-        </Pressable>
       </View>
 
       <QuickActionRow navigation={navigation} onOpenTab={onOpenTab} />
@@ -1359,6 +1367,19 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(212,175,55,0.35)',
   },
   payoutBadgeText: { color: colors.gold, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
+  payoutBadgeReady: {
+    backgroundColor: 'rgba(52,199,89,0.15)',
+    borderColor: 'rgba(52,199,89,0.4)',
+  },
+  payoutBadgeTextReady: { color: colors.success },
+  payoutCompleteRow: {
+    marginTop: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  payoutCompleteText: { color: colors.success, fontSize: 14, fontWeight: '700', flex: 1 },
   payoutDetail: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
   payoutDetailMuted: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
   payoutCta: {

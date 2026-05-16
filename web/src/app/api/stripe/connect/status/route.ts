@@ -125,6 +125,11 @@ export async function GET(request: Request) {
     message_onboarding: canSell
       ? null
       : "Stripe needs more information before payouts can be enabled.",
-    message_payouts: payoutsEnabled === true ? "Payouts are ready." : null,
+    message_payouts: canSell
+      ? "Payout setup complete. You can publish listings and host live sales."
+      : payoutsEnabled === true
+        ? "Payouts are ready — finish any remaining Stripe steps if prompted."
+        : null,
+    payout_setup_complete: canSell,
   });
 }

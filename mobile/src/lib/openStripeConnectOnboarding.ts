@@ -32,3 +32,12 @@ export async function openStripeConnectOnboarding(accessToken: string): Promise<
   if (result.type === 'cancel') return 'cancel';
   return 'dismiss';
 }
+
+/** Stripe may take a moment to enable payouts after redirect — refresh status twice. */
+export async function refreshSellerConnectAfterOnboarding(
+  refresh: () => Promise<void>,
+): Promise<void> {
+  await refresh();
+  await new Promise((r) => setTimeout(r, 1500));
+  await refresh();
+}
