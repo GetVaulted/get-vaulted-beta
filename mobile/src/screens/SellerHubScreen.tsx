@@ -51,6 +51,7 @@ import {
   sellerConnectDetailMessage,
 } from '../api/stripeConnectRepository';
 import { useSellerStripeConnect } from '../hooks/useSellerStripeConnect';
+import { useSellerWallet } from '../hooks/useSellerWallet';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { openStripeConnectDashboard } from '../lib/openStripeConnectDashboard';
 import { openStripeConnectOnboarding, refreshSellerConnectAfterOnboarding } from '../lib/openStripeConnectOnboarding';
@@ -90,6 +91,7 @@ export function SellerHubScreen() {
   const { user, loading: authLoading, session } = useAuth();
   const { userListings } = useCreateListingDraft();
   const sellerConnect = useSellerStripeConnect(session?.access_token);
+  const sellerWallet = useSellerWallet(session?.access_token);
   const [tab, setTab] = useState<SellerHubTabId>('overview');
   const [scheduleTitle, setScheduleTitle] = useState('');
   const [scheduleCategory, setScheduleCategory] = useState<CategoryId>(streamCategories[0].id);
@@ -183,6 +185,7 @@ export function SellerHubScreen() {
         return (
           <WalletPanel
             accessToken={session?.access_token}
+            sellerWallet={sellerWallet}
             hasStripeAccount={Boolean(sellerConnect.status?.stripe_account_id?.trim())}
             onSetupPayouts={openStripeOnboarding}
           />
@@ -197,6 +200,7 @@ export function SellerHubScreen() {
             onOpenTab={setTab}
             navigation={navigation}
             sellerConnect={sellerConnect}
+            sellerWallet={sellerWallet}
             onStripeSetup={openStripeOnboarding}
             stripeSetupBusy={stripeSetupBusy}
           />
@@ -459,6 +463,7 @@ function OverviewBody({
   onOpenTab,
   navigation,
   sellerConnect,
+  sellerWallet,
   onStripeSetup,
   stripeSetupBusy,
 }: {
@@ -468,6 +473,11 @@ function OverviewBody({
     status: import('../api/stripeConnectRepository').SellerConnectStatusResponse | null;
     loading: boolean;
     refresh: () => Promise<import('../api/stripeConnectRepository').SellerConnectStatusResponse | null>;
+  };
+  sellerWallet: {
+    wallet: import('../api/stripeConnectRepository').SellerWalletSummary | null;
+    loading: boolean;
+    refresh: () => Promise<import('../api/stripeConnectRepository').SellerWalletSummary | null>;
   };
   onStripeSetup: () => void;
   stripeSetupBusy: boolean;
@@ -576,10 +586,15 @@ function OverviewBody({
           title="Wallet"
           subtitle="Payouts & balance"
           rows={[
-            { k: 'Available', v: walletSnapshot.available },
-            { k: 'Pending', v: walletSnapshot.pending },
-            { k: 'Lifetime', v: walletSnapshot.lifetime },
-            { k: 'Withdraw', v: '→' },
+            {
+              k: 'Available',
+              v: sellerWallet.wallet?.availableFormatted ?? walletSnapshot.available,
+            },
+            {
+              k: 'Pending',
+              v: sellerWallet.wallet?.pendingFormatted ?? walletSnapshot.pending,
+            },
+            { k: 'Next payout', v: sellerWallet.wallet?.nextPayoutLabel?.split('·')[0]?.trim() ?? '—' },
           ]}
           onPress={() => onOpenTab('wallet')}
         />
@@ -779,78 +794,88 @@ function OrdersPanel({ navigation }: { navigation: BottomTabNavigationProp<MainT
 
 function WalletPanel({
   accessToken,
+  sellerWallet,
   hasStripeAccount,
   onSetupPayouts,
 }: {
   accessToken?: string;
+  sellerWallet: {
+    wallet: import('../api/stripeConnectRepository').SellerWalletSummary | null;
+    loading: boolean;
+    refresh: () => Promise<import('../api/stripeConnectRepository').SellerWalletSummary | null>;
+  };
   hasStripeAccount: boolean;
   onSetupPayouts: () => void;
 }) {
-  const [withdrawBusy, setWithdrawBusy] = useState(false);
+  const [stripeLinkBusy, setStripeLinkBusy] = useState(false);
+  const w = sellerWallet.wallet;
 
-  const onWithdraw = async () => {
-    if (!accessToken) {
-      Alert.alert('Sign in required', 'Sign in to withdraw seller payouts.');
-      return;
-    }
+  const available = sellerWallet.loading ? '…' : (w?.availableFormatted ?? walletSnapshot.available);
+  const pending = sellerWallet.loading ? '…' : (w?.pendingFormatted ?? walletSnapshot.pending);
+  const nextPayout =
+    sellerWallet.loading ? '…' : (w?.nextPayoutLabel ?? (hasStripeAccount ? '—' : 'Set up payouts first'));
+  const scheduleLine = w?.payoutScheduleSummary ?? w?.message ?? null;
+
+  const openStripeSettings = async () => {
+    if (!accessToken) return;
     if (!hasStripeAccount) {
-      Alert.alert(
-        'Payout setup required',
-        'Connect your bank account with Stripe before you can withdraw.',
-        [
-          { text: 'Not now', style: 'cancel' },
-          { text: 'Set up payouts', onPress: () => void onSetupPayouts() },
-        ],
-      );
+      Alert.alert('Payout setup required', 'Connect Stripe before managing payouts.', [
+        { text: 'Not now', style: 'cancel' },
+        { text: 'Set up payouts', onPress: () => void onSetupPayouts() },
+      ]);
       return;
     }
-    if (withdrawBusy) return;
-    setWithdrawBusy(true);
+    setStripeLinkBusy(true);
     try {
       await openStripeConnectDashboard(accessToken);
     } catch (e) {
-      const code = e && typeof e === 'object' && 'code' in e ? String((e as { code?: string }).code) : '';
-      if (code === 'NO_STRIPE_ACCOUNT') {
-        Alert.alert('Payout setup required', e instanceof Error ? e.message : 'Complete payout setup first.', [
-          { text: 'Not now', style: 'cancel' },
-          { text: 'Set up payouts', onPress: () => void onSetupPayouts() },
-        ]);
-      } else {
-        Alert.alert('Could not open payouts', e instanceof Error ? e.message : 'Unknown error');
-      }
+      Alert.alert('Could not open Stripe', e instanceof Error ? e.message : 'Unknown error');
     } finally {
-      setWithdrawBusy(false);
+      setStripeLinkBusy(false);
     }
   };
 
   return (
     <View style={styles.walletHero}>
-      <Text style={styles.walletLabel}>Available</Text>
-      <Text style={styles.walletBig}>{walletSnapshot.available}</Text>
+      <View style={styles.walletHeaderRow}>
+        <Text style={styles.walletLabel}>Available</Text>
+        <Pressable onPress={() => void sellerWallet.refresh()} disabled={sellerWallet.loading} hitSlop={8}>
+          <Text style={styles.walletRefresh}>{sellerWallet.loading ? 'Refreshing…' : 'Refresh'}</Text>
+        </Pressable>
+      </View>
+      <Text style={styles.walletBig}>{available}</Text>
+      <Text style={styles.walletHint}>Ready for Stripe’s next automatic payout (not instant withdraw).</Text>
       <View style={styles.walletRow}>
-        <View>
+        <View style={styles.walletCol}>
           <Text style={styles.walletMuted}>Pending</Text>
-          <Text style={styles.walletMid}>{walletSnapshot.pending}</Text>
+          <Text style={styles.walletMid}>{pending}</Text>
+          <Text style={styles.walletColHint}>Not yet available</Text>
         </View>
-        <View>
-          <Text style={styles.walletMuted}>Lifetime</Text>
-          <Text style={styles.walletMid}>{walletSnapshot.lifetime}</Text>
+        <View style={styles.walletCol}>
+          <Text style={styles.walletMuted}>Next payout</Text>
+          <Text style={styles.walletMidSm} numberOfLines={4}>
+            {nextPayout}
+          </Text>
         </View>
       </View>
-      <Text style={styles.walletHint}>
-        Balances and withdrawals are managed in your Stripe Express dashboard.
-      </Text>
-      <Pressable
-        style={[styles.withdrawBtn, withdrawBusy && styles.payoutCtaDisabled]}
-        onPress={() => void onWithdraw()}
-        disabled={withdrawBusy}
-      >
-        {withdrawBusy ? (
-          <ActivityIndicator color={colors.background} />
-        ) : (
-          <Text style={styles.withdrawBtnText}>Withdraw funds</Text>
-        )}
-      </Pressable>
+      {scheduleLine ? <Text style={styles.walletSchedule}>{scheduleLine}</Text> : null}
+      {!hasStripeAccount ? (
+        <Pressable style={styles.withdrawBtn} onPress={() => void onSetupPayouts()}>
+          <Text style={styles.withdrawBtnText}>Set up payouts</Text>
+        </Pressable>
+      ) : (
+        <Pressable
+          style={[styles.walletStripeLink, stripeLinkBusy && styles.payoutCtaDisabled]}
+          onPress={() => void openStripeSettings()}
+          disabled={stripeLinkBusy}
+        >
+          {stripeLinkBusy ? (
+            <ActivityIndicator color={colors.gold} />
+          ) : (
+            <Text style={styles.walletStripeLinkText}>Bank & payout settings in Stripe</Text>
+          )}
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -1573,11 +1598,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     gap: spacing.md,
   },
+  walletHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  walletRefresh: { fontSize: 12, fontWeight: '700', color: colors.gold },
   walletLabel: {
     color: colors.textMuted,
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1,
+    textTransform: 'uppercase',
   },
   walletBig: {
     color: colors.textPrimary,
@@ -1588,7 +1620,33 @@ const styles = StyleSheet.create({
   walletRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: spacing.sm,
+    gap: spacing.md,
+    marginTop: spacing.md,
+  },
+  walletCol: { flex: 1, minWidth: 0 },
+  walletColHint: { fontSize: 10, color: colors.textMuted, marginTop: 4 },
+  walletMidSm: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 4,
+    lineHeight: 18,
+  },
+  walletSchedule: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 17,
+    marginTop: spacing.md,
+  },
+  walletStripeLink: {
+    marginTop: spacing.lg,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  walletStripeLinkText: {
+    color: colors.gold,
+    fontWeight: '700',
+    fontSize: 14,
   },
   walletMuted: {
     color: colors.textMuted,

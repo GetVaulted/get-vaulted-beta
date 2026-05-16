@@ -211,7 +211,45 @@ export async function createSellerOnboardingLink(accessToken?: string | null): P
   return { url: j.url };
 }
 
-/** Stripe Express Dashboard — view balance and withdraw payouts. */
+export type SellerWalletSummary = {
+  stripeConfigured: boolean;
+  hasStripeAccount: boolean;
+  currency: string;
+  availableCents: number;
+  pendingCents: number;
+  availableFormatted: string;
+  pendingFormatted: string;
+  nextPayoutAt: string | null;
+  nextPayoutLabel: string | null;
+  payoutScheduleSummary: string | null;
+  message: string | null;
+};
+
+export async function fetchSellerWalletSummary(
+  accessToken?: string | null,
+): Promise<SellerWalletSummary | null> {
+  const base = getWebApiBaseUrl();
+  if (!base) return null;
+  const token = accessToken ?? (await getAccessToken());
+  if (!token) return null;
+  let res: Response;
+  try {
+    res = await fetchConnect(
+      '/api/stripe/connect/wallet',
+      {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+      },
+      base,
+    );
+  } catch {
+    return null;
+  }
+  if (!res.ok) return null;
+  return (await res.json()) as SellerWalletSummary;
+}
+
+/** Stripe Express Dashboard — tax forms, bank details, manual payout requests. */
 export async function createSellerStripeDashboardLink(accessToken?: string | null): Promise<{ url: string }> {
   const base = getWebApiBaseUrl();
   if (!base) {

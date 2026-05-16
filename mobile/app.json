@@ -37,7 +37,8 @@
           "photosPermission": "Get Vaulted uses your photos for profile and listing uploads.",
           "cameraPermission": "Get Vaulted uses your camera to take listing and profile photos."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ]
   }
 }
