@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import {
   addNotificationReceivedListener,
+  isPushNotificationsAvailable,
+  logPushSkipOnceIfNeeded,
   persistPushToken,
   registerForPushNotifications,
 } from '../push/pushRegistrationService';
@@ -22,14 +24,20 @@ export function PushRegistrationEffect() {
 
     startVaultRealtimeHub(user.id);
 
-    void (async () => {
-      if (registered.current === user.id) return;
-      const res = await registerForPushNotifications();
-      if (res.ok) {
-        await persistPushToken(user.id, res.token);
-        registered.current = user.id;
-      }
-    })();
+    if (!isPushNotificationsAvailable()) {
+      logPushSkipOnceIfNeeded();
+    }
+
+    if (isPushNotificationsAvailable()) {
+      void (async () => {
+        if (registered.current === user.id) return;
+        const res = await registerForPushNotifications();
+        if (res.ok) {
+          await persistPushToken(user.id, res.token);
+          registered.current = user.id;
+        }
+      })();
+    }
 
     const sub = addNotificationReceivedListener(() => {
       emitNotificationBadgeChanged();

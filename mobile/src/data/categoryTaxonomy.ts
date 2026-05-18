@@ -1,5 +1,5 @@
 import type { CategoryId, LiveStream } from '../types';
-import { formatLiveRoomCategoryLabel } from '../lib/liveRoomDisplay';
+import { formatLiveRoomCategoryLabel } from './categoryDisplayShared';
 
 /** Discovery filter chips — premium live collectible lanes. */
 export const discoveryCategoryChips = [
