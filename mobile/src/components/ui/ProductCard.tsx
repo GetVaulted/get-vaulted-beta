@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { VaultImage } from './VaultImage';
 import { colors, radii, spacing, typography } from '../../theme';
 import type { CategoryId, Product } from '../../types';
 
@@ -59,7 +60,13 @@ export function ProductCard({
     >
       <View style={[styles.frame, { minHeight: minH }]}>
         {product.imageUrl ? (
-          <Image source={{ uri: product.imageUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+          <VaultImage
+            uri={product.imageUrl}
+            width={width}
+            height={minH}
+            priority="normal"
+            style={{ position: 'absolute', top: 0, left: 0 }}
+          />
         ) : null}
         <LinearGradient
           colors={product.imageGradient}
@@ -108,7 +115,13 @@ export function ProductCard({
                 {product.listingPrice}
               </Text>
               <View style={styles.sellerRow}>
-                <Image source={{ uri: product.seller.avatarUrl }} style={styles.sellerAvatar} />
+                <VaultImage
+                  uri={product.seller.avatarUrl}
+                  width={22}
+                  height={22}
+                  borderRadius={11}
+                  priority="low"
+                />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.sellerLabel} numberOfLines={1}>
                     Seller

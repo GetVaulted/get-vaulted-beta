@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useAuth } from '../auth/AuthContext';
+import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
 import {
   addNotificationReceivedListener,
   isPushNotificationsAvailable,
@@ -28,7 +29,8 @@ export function PushRegistrationEffect() {
       logPushSkipOnceIfNeeded();
     }
 
-    if (isPushNotificationsAvailable()) {
+    const deferPush = deferAfterFirstPaint(() => {
+      if (!isPushNotificationsAvailable()) return;
       void (async () => {
         if (registered.current === user.id) return;
         const res = await registerForPushNotifications();
@@ -37,13 +39,14 @@ export function PushRegistrationEffect() {
           registered.current = user.id;
         }
       })();
-    }
+    }, 800);
 
     const sub = addNotificationReceivedListener(() => {
       emitNotificationBadgeChanged();
     });
 
     return () => {
+      deferPush.cancel();
       sub.remove();
       stopVaultRealtimeHub();
     };

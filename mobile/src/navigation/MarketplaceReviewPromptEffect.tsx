@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useAuth } from '../auth/AuthContext';
+import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
 import { useMarketplaceReviewPrompts } from '../hooks/useMarketplaceReviewPrompts';
 import { openWriteReview } from './openPlatform';
 import { rootNavigationRef } from './rootNavigationRef';
@@ -10,12 +11,15 @@ export function MarketplaceReviewPromptEffect() {
   const { pending, scan, promptNext } = useMarketplaceReviewPrompts(user?.id);
 
   useEffect(() => {
-    void scan();
+    const task = deferAfterFirstPaint(() => {
+      void scan();
+    }, 2500);
+    return () => task.cancel();
   }, [scan]);
 
   useEffect(() => {
     if (!user?.id || !pending.length) return;
-    const t = setTimeout(() => {
+    const task = deferAfterFirstPaint(() => {
       promptNext((p) => {
         if (rootNavigationRef.isReady()) {
           openWriteReview({
@@ -26,8 +30,8 @@ export function MarketplaceReviewPromptEffect() {
           });
         }
       });
-    }, 1200);
-    return () => clearTimeout(t);
+    }, 3200);
+    return () => task.cancel();
   }, [pending.length, promptNext, user?.id]);
 
   return null;

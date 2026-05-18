@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef } from 'react';
-import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { VaultImage } from '../ui/VaultImage';
 import { liveRoomCardStatusLine, liveRoomCategoryLine } from '../../lib/liveRoomDisplay';
 import { colors, radii, spacing } from '../../theme';
 import type { LiveStream } from '../../types';
@@ -77,10 +78,12 @@ export function LiveNowPreviewCard({
       <Animated.View style={[styles.glowRing, { borderColor }]}>
         <View style={styles.card}>
           <View style={styles.cover}>
-            <Image
-              source={{ uri: stream.previewImageUrl }}
-              style={StyleSheet.absoluteFill}
-              resizeMode="cover"
+            <VaultImage
+              uri={stream.previewImageUrl}
+              width={cardWidth}
+              height={COVER_HEIGHT}
+              priority="high"
+              contentFit="cover"
             />
             <LinearGradient
               colors={['rgba(0,0,0,0.15)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.82)']}
@@ -105,7 +108,7 @@ export function LiveNowPreviewCard({
 
           <View style={styles.body}>
             <View style={styles.hostRow}>
-              <Image source={{ uri: stream.host.avatarUrl }} style={styles.avatar} />
+              <VaultImage uri={stream.host.avatarUrl} width={28} height={28} borderRadius={14} priority="low" />
               <Text style={styles.title} numberOfLines={2}>
                 {stream.title}
               </Text>

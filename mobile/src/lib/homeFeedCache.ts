@@ -32,6 +32,11 @@ export function getHomeFeedMemorySnapshot(): HomeFeedCache | null {
   return memory;
 }
 
+export function hasWarmHomeFeedCache(): boolean {
+  const m = memory;
+  return Boolean(m && (m.live.length > 0 || m.listings.length > 0));
+}
+
 export async function loadHomeFeedCache(): Promise<HomeFeedCache | null> {
   if (memory) return memory;
 

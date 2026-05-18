@@ -2,15 +2,10 @@ import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { CreateListingDraftProvider } from '../createListing/CreateListingDraftContext';
 import { MainTabNavigator } from './MainTabNavigator';
-import { CreateListingNavigator } from './CreateListingNavigator';
 import { ProductDetailScreen } from '../screens/ProductDetailScreen';
 import { AuthLoginScreen } from '../screens/auth/AuthLoginScreen';
 import { AuthSignUpScreen } from '../screens/auth/AuthSignUpScreen';
 import { ProfileEditScreen } from '../screens/auth/ProfileEditScreen';
-import { SellerHostRoomScreen } from '../screens/SellerHostRoomScreen';
-import { MessageComposeScreen } from '../screens/messages/MessageComposeScreen';
-import { MessageThreadScreen } from '../screens/messages/MessageThreadScreen';
-import { MessagesInboxScreen } from '../screens/messages/MessagesInboxScreen';
 import { LaunchIntroScreen } from '../screens/onboarding/LaunchIntroScreen';
 import { AuthWelcomeScreen } from '../screens/onboarding/AuthWelcomeScreen';
 import { SettingsScreen } from '../screens/settings/SettingsScreen';
@@ -25,21 +20,61 @@ import { SupportInboxScreen } from '../screens/support/SupportInboxScreen';
 import { SupportTicketDetailScreen } from '../screens/support/SupportTicketDetailScreen';
 import { OpenDisputeScreen } from '../screens/disputes/OpenDisputeScreen';
 import { DisputeDetailScreen } from '../screens/disputes/DisputeDetailScreen';
-import { UserProfileScreen } from '../screens/profile/UserProfileScreen';
-import { WriteReviewScreen } from '../screens/reviews/WriteReviewScreen';
 import { NotificationInboxScreen } from '../screens/notifications/NotificationInboxScreen';
-import { VaultEventRecapScreen } from '../screens/seller/VaultEventRecapScreen';
-import { VaultCommsScreen } from '../screens/messaging/VaultCommsScreen';
 import { MarketplaceReviewPromptEffect } from './MarketplaceReviewPromptEffect';
 import { PushRegistrationEffect } from './PushRegistrationEffect';
-import { BuyerOrdersScreen } from '../screens/orders/BuyerOrdersScreen';
-import { BuyerOrderDetailScreen } from '../screens/orders/BuyerOrderDetailScreen';
+import { lazyScreen } from './lazyScreen';
 import type { RootStackParamList } from './types';
 import { colors } from '../theme';
 import { rootNavigationRef } from './rootNavigationRef';
 import { AuthSessionRoutingEffect } from './AuthSessionRoutingEffect';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+
+const SellerHostRoomScreen = lazyScreen(
+  () => import('../screens/SellerHostRoomScreen'),
+  (m) => m.SellerHostRoomScreen,
+);
+const CreateListingNavigator = lazyScreen(
+  () => import('./CreateListingNavigator'),
+  (m) => m.CreateListingNavigator,
+);
+const MessagesInboxScreen = lazyScreen(
+  () => import('../screens/messages/MessagesInboxScreen'),
+  (m) => m.MessagesInboxScreen,
+);
+const MessageThreadScreen = lazyScreen(
+  () => import('../screens/messages/MessageThreadScreen'),
+  (m) => m.MessageThreadScreen,
+);
+const MessageComposeScreen = lazyScreen(
+  () => import('../screens/messages/MessageComposeScreen'),
+  (m) => m.MessageComposeScreen,
+);
+const UserProfileScreen = lazyScreen(
+  () => import('../screens/profile/UserProfileScreen'),
+  (m) => m.UserProfileScreen,
+);
+const WriteReviewScreen = lazyScreen(
+  () => import('../screens/reviews/WriteReviewScreen'),
+  (m) => m.WriteReviewScreen,
+);
+const VaultEventRecapScreen = lazyScreen(
+  () => import('../screens/seller/VaultEventRecapScreen'),
+  (m) => m.VaultEventRecapScreen,
+);
+const VaultCommsScreen = lazyScreen(
+  () => import('../screens/messaging/VaultCommsScreen'),
+  (m) => m.VaultCommsScreen,
+);
+const BuyerOrdersScreen = lazyScreen(
+  () => import('../screens/orders/BuyerOrdersScreen'),
+  (m) => m.BuyerOrdersScreen,
+);
+const BuyerOrderDetailScreen = lazyScreen(
+  () => import('../screens/orders/BuyerOrderDetailScreen'),
+  (m) => m.BuyerOrderDetailScreen,
+);
 
 const theme = {
   ...DarkTheme,
@@ -53,6 +88,14 @@ const theme = {
   },
 };
 
+const stackScreenOptions = {
+  headerShown: false,
+  contentStyle: { backgroundColor: colors.background },
+  animation: 'slide_from_right' as const,
+  animationDuration: 280,
+  freezeOnBlur: true,
+};
+
 export function RootNavigator() {
   return (
     <NavigationContainer ref={rootNavigationRef} theme={theme}>
@@ -60,13 +103,7 @@ export function RootNavigator() {
       <MarketplaceReviewPromptEffect />
       <PushRegistrationEffect />
       <CreateListingDraftProvider>
-        <Stack.Navigator
-          initialRouteName="LaunchIntro"
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: colors.background },
-          }}
-        >
+        <Stack.Navigator initialRouteName="LaunchIntro" screenOptions={stackScreenOptions}>
           <Stack.Screen
             name="LaunchIntro"
             component={LaunchIntroScreen}
@@ -98,16 +135,8 @@ export function RootNavigator() {
               animation: 'slide_from_bottom',
             }}
           />
-          <Stack.Screen
-            name="MessagesInbox"
-            component={MessagesInboxScreen}
-            options={{ animation: 'slide_from_right' }}
-          />
-          <Stack.Screen
-            name="MessageThread"
-            component={MessageThreadScreen}
-            options={{ animation: 'slide_from_right' }}
-          />
+          <Stack.Screen name="MessagesInbox" component={MessagesInboxScreen} />
+          <Stack.Screen name="MessageThread" component={MessageThreadScreen} />
           <Stack.Screen
             name="MessageCompose"
             component={MessageComposeScreen}
@@ -124,25 +153,25 @@ export function RootNavigator() {
               animation: 'slide_from_bottom',
             }}
           />
-          <Stack.Screen name="Settings" component={SettingsScreen} options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="SettingsAccount" component={SettingsAccountScreen} options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="ChangeEmail" component={ChangeEmailScreen} options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="HelpCenter" component={HelpCenterScreen} options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="HelpArticle" component={HelpArticleScreen} options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="ContactSupport" component={ContactSupportScreen} options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="SupportInbox" component={SupportInboxScreen} options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="SupportTicketDetail" component={SupportTicketDetailScreen} options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="OpenDispute" component={OpenDisputeScreen} options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="DisputeDetail" component={DisputeDetailScreen} options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="UserProfile" component={UserProfileScreen} options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="WriteReview" component={WriteReviewScreen} options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="NotificationInbox" component={NotificationInboxScreen} options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="VaultEventRecap" component={VaultEventRecapScreen} options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="VaultComms" component={VaultCommsScreen} options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="BuyerOrders" component={BuyerOrdersScreen} options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="BuyerOrderDetail" component={BuyerOrderDetailScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="Settings" component={SettingsScreen} />
+          <Stack.Screen name="SettingsAccount" component={SettingsAccountScreen} />
+          <Stack.Screen name="ChangeEmail" component={ChangeEmailScreen} />
+          <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
+          <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
+          <Stack.Screen name="HelpCenter" component={HelpCenterScreen} />
+          <Stack.Screen name="HelpArticle" component={HelpArticleScreen} />
+          <Stack.Screen name="ContactSupport" component={ContactSupportScreen} />
+          <Stack.Screen name="SupportInbox" component={SupportInboxScreen} />
+          <Stack.Screen name="SupportTicketDetail" component={SupportTicketDetailScreen} />
+          <Stack.Screen name="OpenDispute" component={OpenDisputeScreen} />
+          <Stack.Screen name="DisputeDetail" component={DisputeDetailScreen} />
+          <Stack.Screen name="UserProfile" component={UserProfileScreen} />
+          <Stack.Screen name="WriteReview" component={WriteReviewScreen} />
+          <Stack.Screen name="NotificationInbox" component={NotificationInboxScreen} />
+          <Stack.Screen name="VaultEventRecap" component={VaultEventRecapScreen} />
+          <Stack.Screen name="VaultComms" component={VaultCommsScreen} />
+          <Stack.Screen name="BuyerOrders" component={BuyerOrdersScreen} />
+          <Stack.Screen name="BuyerOrderDetail" component={BuyerOrderDetailScreen} />
         </Stack.Navigator>
       </CreateListingDraftProvider>
     </NavigationContainer>

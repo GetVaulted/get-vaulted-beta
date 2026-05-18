@@ -15,6 +15,8 @@ export function MainTabNavigator() {
       tabBar={(props) => <VaultTabBar {...props} />}
       screenOptions={{
         headerShown: false,
+        lazy: true,
+        freezeOnBlur: true,
       }}
     >
       <Tab.Screen name="Home" component={HomeScreen} />

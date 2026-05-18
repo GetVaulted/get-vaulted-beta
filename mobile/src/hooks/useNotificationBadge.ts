@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
 import { unreadNotificationCount } from '../platform/notificationStore';
 import { subscribeNotificationBadge } from '../platform/notificationEvents';
 
@@ -14,7 +15,10 @@ export function useNotificationBadge(userId: string | undefined) {
   }, [userId]);
 
   useEffect(() => {
-    void refresh();
+    const task = deferAfterFirstPaint(() => {
+      void refresh();
+    }, 500);
+    return () => task.cancel();
   }, [refresh]);
 
   useEffect(() => {

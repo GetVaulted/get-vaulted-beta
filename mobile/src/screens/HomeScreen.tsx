@@ -40,8 +40,10 @@ import {
   homeTrendingCreators,
 } from '../data/homeCultureMock';
 import { isMarketplaceDemoProduct } from '../data/marketplaceFeedMock';
+import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
 import {
   getHomeFeedMemorySnapshot,
+  hasWarmHomeFeedCache,
   loadHomeFeedCache,
   saveHomeFeedCache,
 } from '../lib/homeFeedCache';
@@ -86,7 +88,7 @@ export function HomeScreen() {
   const sellerConnect = useSellerStripeConnect(session?.access_token);
 
   const seed = useMemo(() => initialFeedState(), []);
-  const [initialLoad, setInitialLoad] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(!seed.hasCache);
   const [refreshing, setRefreshing] = useState(false);
   const [listings, setListings] = useState<Product[]>(seed.listings);
   const [liveRows, setLiveRows] = useState<LiveStream[]>(seed.liveRows);
@@ -103,7 +105,10 @@ export function HomeScreen() {
       setActiveBuyerOrders(0);
       return;
     }
-    void countActiveBuyerOrders(user.id).then(setActiveBuyerOrders);
+    const task = deferAfterFirstPaint(() => {
+      void countActiveBuyerOrders(user.id).then(setActiveBuyerOrders);
+    }, 1200);
+    return () => task.cancel();
   }, [user?.id]);
 
   const loadFeed = useCallback(async (opts?: { hadCachedLive?: boolean; hadCachedListings?: boolean }) => {
@@ -161,18 +166,24 @@ export function HomeScreen() {
     let cancelled = false;
 
     void (async () => {
-      const cache = await loadHomeFeedCache();
+      const warm = hasWarmHomeFeedCache();
+      const cache = warm ? getHomeFeedMemorySnapshot() : await loadHomeFeedCache();
       if (cancelled) return;
 
-      const hadCachedLive = Boolean(cache?.live.length);
-      const hadCachedListings = Boolean(cache?.listings.length);
+      const hadCachedLive = Boolean(cache?.live.length ?? seed.liveRows.length);
+      const hadCachedListings = Boolean(cache?.listings.length ?? (seed.hasCache && seed.listings.length > 0));
 
       if (cache) {
-        if (cache.live.length) setLiveRows(cache.live);
-        if (cache.scheduled.length) setScheduledRows(cache.scheduled);
-        if (cache.listings.length) {
-          setListings(cache.listings);
-          setUsingDemoMarketplace(false);
+        if (!warm) {
+          if (cache.live.length) setLiveRows(cache.live);
+          if (cache.scheduled.length) setScheduledRows(cache.scheduled);
+          if (cache.listings.length) {
+            setListings(cache.listings);
+            setUsingDemoMarketplace(false);
+          }
+        }
+        if (cache.live.length || cache.listings.length) {
+          setInitialLoad(false);
         }
       }
       await loadFeed({ hadCachedLive, hadCachedListings });
@@ -181,7 +192,7 @@ export function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [loadFeed]);
+  }, [loadFeed, seed.hasCache, seed.liveRows.length, seed.listings.length]);
 
   const goLive = () => {
     navigation.navigate('Live', { screen: 'LiveDiscovery' });

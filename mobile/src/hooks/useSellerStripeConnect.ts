@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 import { fetchSellerConnectStatus, type SellerConnectStatusResponse } from '../api/stripeConnectRepository';
+import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
 
 export function useSellerStripeConnect(accessToken: string | undefined) {
   const [status, setStatus] = useState<SellerConnectStatusResponse | null>(null);
@@ -22,7 +23,10 @@ export function useSellerStripeConnect(accessToken: string | undefined) {
   }, [accessToken]);
 
   useEffect(() => {
-    void refresh();
+    const task = deferAfterFirstPaint(() => {
+      void refresh();
+    }, 900);
+    return () => task.cancel();
   }, [refresh]);
 
   useEffect(() => {

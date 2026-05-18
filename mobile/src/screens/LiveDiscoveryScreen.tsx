@@ -23,7 +23,12 @@ import { LiveNowPreviewCard } from '../components/home/LiveNowPreviewCard';
 import { LiveEmptyBroadcastBlock } from '../components/live/LiveEmptyBroadcastBlock';
 import { SearchBar } from '../components/ui/SearchBar';
 import { discoveryCategoryChips, filterShowsByChip } from '../data/categoryTaxonomy';
-import { getHomeFeedMemorySnapshot, loadHomeFeedCache, saveHomeFeedCache } from '../lib/homeFeedCache';
+import {
+  getHomeFeedMemorySnapshot,
+  hasWarmHomeFeedCache,
+  loadHomeFeedCache,
+  saveHomeFeedCache,
+} from '../lib/homeFeedCache';
 import { orderLiveDiscoveryRooms, type OrderedLiveRoom } from '../lib/liveDiscoveryOrder';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from '../auth/AuthContext';
@@ -97,7 +102,7 @@ export function LiveDiscoveryScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const { guestExploreMode } = useAuth();
   const [chip, setChip] = useState<string>('All');
-  const [initialLoad, setInitialLoad] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(() => initialLiveState().length === 0);
   const [refreshing, setRefreshing] = useState(false);
   const [liveAll, setLiveAll] = useState<LiveStream[]>(initialLiveState);
 
@@ -127,16 +132,20 @@ export function LiveDiscoveryScreen() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const cache = await loadHomeFeedCache();
+      const warm = hasWarmHomeFeedCache();
+      const cache = warm ? getHomeFeedMemorySnapshot() : await loadHomeFeedCache();
       if (cancelled) return;
-      const hadCache = Boolean(cache?.live.length);
-      if (cache?.live.length) setLiveAll(cache.live);
+      const hadCache = Boolean(cache?.live.length ?? liveAll.length);
+      if (cache?.live.length && !liveAll.length) {
+        setLiveAll(cache.live);
+        setInitialLoad(false);
+      }
       await load({ hadCache });
     })();
     return () => {
       cancelled = true;
     };
-  }, [load]);
+  }, [load, liveAll.length]);
 
   const filteredLive = useMemo(() => filterShowsByChip(liveAll, chip), [liveAll, chip]);
   const orderedRooms = useMemo(() => orderLiveDiscoveryRooms(filteredLive), [filteredLive]);
