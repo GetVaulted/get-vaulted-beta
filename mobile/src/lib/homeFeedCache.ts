@@ -15,6 +15,23 @@ export type HomeFeedCache = {
 
 let memory: HomeFeedCache | null = null;
 
+const invalidateListeners = new Set<() => void>();
+
+export function subscribeHomeFeedInvalidation(listener: () => void): () => void {
+  invalidateListeners.add(listener);
+  return () => invalidateListeners.delete(listener);
+}
+
+function emitHomeFeedInvalidation(): void {
+  for (const listener of invalidateListeners) {
+    try {
+      listener();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 function storePath(): string | null {
   const base = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
   if (!base) return null;
@@ -60,6 +77,24 @@ export async function loadHomeFeedCache(): Promise<HomeFeedCache | null> {
     return parsed;
   } catch {
     return null;
+  }
+}
+
+/** Drop cached Home feed so the next open refetches Supabase listings. */
+export async function clearHomeFeedCache(): Promise<void> {
+  memory = null;
+  emitHomeFeedInvalidation();
+  try {
+    if (Platform.OS === 'web') {
+      globalThis.localStorage?.removeItem(WEB_LS_KEY);
+      return;
+    }
+    const path = storePath();
+    if (!path) return;
+    const info = await FileSystem.getInfoAsync(path);
+    if (info.exists) await FileSystem.deleteAsync(path, { idempotent: true });
+  } catch {
+    /* best-effort */
   }
 }
 

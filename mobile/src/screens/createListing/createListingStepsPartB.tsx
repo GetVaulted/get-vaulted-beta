@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Pressable,
@@ -11,9 +12,17 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useState } from 'react';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import {
+  PublishListingError,
+  publishCreateListingForm,
+} from '../../api/listingsPublishRepository';
 import { fetchSellerConnectStatus } from '../../api/stripeConnectRepository';
 import { useAuth } from '../../auth/AuthContext';
+import { clearHomeFeedCache } from '../../lib/homeFeedCache';
+import { isSupabaseConfigured } from '../../lib/supabase';
+import { rootNavigationRef } from '../../navigation/rootNavigationRef';
 import { useCreateListingDraft } from '../../createListing/CreateListingDraftContext';
 import {
   AUCTION_DURATION_DAY_OPTIONS,
@@ -309,8 +318,9 @@ function Toggle({
 export function CreateListingReviewScreen({
   navigation,
 }: NativeStackScreenProps<CreateListingStackParamList, 'CreateListingReview'>) {
-  const { form, setForm, saveDraft, publish } = useCreateListingDraft();
-  const { session } = useAuth();
+  const { form, setForm, saveDraft, completeAfterPublish } = useCreateListingDraft();
+  const { session, user } = useAuth();
+  const [publishing, setPublishing] = useState(false);
   const { channel, accent, totalSteps, isLiveShow, step } = useCreateListingFlow();
   const channelCfg = LISTING_CHANNEL_CONFIG[channel];
   const { exitFlow, goBackStep } = useCreateListingNavigation();
@@ -351,6 +361,8 @@ export function CreateListingReviewScreen({
         : 'No authentication evidence highlighted — consider Vaulted Verification before going live.';
 
   const onPublish = async () => {
+    if (publishing) return;
+
     if (!photosValid) {
       Alert.alert(
         'Photos required',
@@ -372,6 +384,11 @@ export function CreateListingReviewScreen({
       return;
     }
 
+    if (!isSupabaseConfigured() || !user?.id) {
+      Alert.alert('Sign in required', 'Sign in to publish listings to the vault.');
+      return;
+    }
+
     const token = session?.access_token;
     if (token) {
       const { status: st } = await fetchSellerConnectStatus(token);
@@ -384,14 +401,36 @@ export function CreateListingReviewScreen({
       }
     }
 
-    publish();
-    Alert.alert(
-      isLiveShow ? 'Added to live queue' : 'Listed on marketplace',
-      isLiveShow
-        ? 'This item is queued for your live show inventory in HQ → Live show listings.'
-        : 'Your listing is on the Vault marketplace and in HQ → Marketplace listings.',
-    );
-    navigation.getParent()?.goBack();
+    setPublishing(true);
+    try {
+      const { listingId, preview } = await publishCreateListingForm(user.id, form);
+      completeAfterPublish(preview);
+      await clearHomeFeedCache();
+
+      const marketplaceLive = !isLiveShow;
+      Alert.alert(
+        isLiveShow ? 'Added to live queue' : 'Listed on marketplace',
+        isLiveShow
+          ? 'This item is saved to your vault and queued in HQ → Live show listings.'
+          : 'Your listing is live in the vault — it will appear in Marketplace and Home.',
+      );
+
+      navigation.getParent()?.goBack();
+
+      if (marketplaceLive && rootNavigationRef.isReady()) {
+        rootNavigationRef.navigate('ProductDetail', { productId: listingId });
+      }
+    } catch (e) {
+      const message =
+        e instanceof PublishListingError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : 'Could not publish listing.';
+      Alert.alert('Publish failed', message);
+    } finally {
+      setPublishing(false);
+    }
   };
 
   const onSaveDraft = () => {
@@ -582,9 +621,19 @@ export function CreateListingReviewScreen({
           <Pressable style={styles.draftBtn} onPress={onSaveDraft}>
             <Text style={styles.draftTxt}>Save draft</Text>
           </Pressable>
-          <Pressable style={[styles.pubBtn, !canPublish && styles.pubBtnOff]} onPress={onPublish}>
-            <Text style={styles.pubTxt}>Publish listing</Text>
-            <Ionicons name="rocket-outline" size={18} color={colors.background} />
+          <Pressable
+            style={[styles.pubBtn, (!canPublish || publishing) && styles.pubBtnOff]}
+            onPress={() => void onPublish()}
+            disabled={!canPublish || publishing}
+          >
+            {publishing ? (
+              <ActivityIndicator color={colors.background} />
+            ) : (
+              <>
+                <Text style={styles.pubTxt}>Publish listing</Text>
+                <Ionicons name="rocket-outline" size={18} color={colors.background} />
+              </>
+            )}
           </Pressable>
         </View>
       </ScrollView>

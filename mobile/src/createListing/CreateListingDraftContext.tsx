@@ -80,7 +80,8 @@ type Ctx = {
   beginListingChannel: (channel: ListingChannel) => void;
   loadDraft: (draftId: string) => void;
   saveDraft: (name?: string) => string;
-  publish: () => ListingPreview;
+  /** After Supabase publish succeeds — updates HQ inventory and clears the draft. */
+  completeAfterPublish: (preview: ListingPreview) => void;
   removeMedia: (id: string) => void;
   reorderMedia: (fromIndex: number, toIndex: number) => void;
   setMediaOrder: (media: ListingMediaItem[]) => void;
@@ -108,18 +109,6 @@ function formToPrice(f: CreateListingFormState): string {
       return 'Trade offers';
     default:
       return '—';
-  }
-}
-
-function publishStatus(t: ListingCommerceType | null): ListingPreview['status'] {
-  switch (t) {
-    case 'auction':
-    case 'live_auction':
-      return 'in_auction';
-    case 'break_spot':
-      return 'pending';
-    default:
-      return 'active';
   }
 }
 
@@ -208,26 +197,16 @@ export function CreateListingDraftProvider({ children }: { children: ReactNode }
     [editingDraftId, form],
   );
 
-  const publish = useCallback((): ListingPreview => {
-    const id = `live-${Date.now()}`;
-    const channel = form.listingChannel ?? 'marketplace';
-    const preview: ListingPreview = {
-      id,
-      title: form.title.trim() || 'New vault listing',
-      imageUrl: form.media[0]?.uri ?? 'https://images.unsplash.com/photo-1523170335258-f5ed11844a49?w=400',
-      price: formToPrice(form),
-      status: publishStatus(form.listingType),
-      watches: 0,
-      live: channel === 'live_show',
-      channel,
-    };
-    setUserListings((prev) => [preview, ...prev.filter((p) => p.id !== editingDraftId)]);
-    setDrafts((prev) => prev.filter((d) => d.id !== editingDraftId));
-    setEditingDraftId(null);
-    setFormState(emptyCreateListingForm());
-    setAssistantMessages(WELCOME_ASSISTANT);
-    return preview;
-  }, [editingDraftId, form]);
+  const completeAfterPublish = useCallback(
+    (preview: ListingPreview) => {
+      setUserListings((prev) => [preview, ...prev.filter((p) => p.id !== editingDraftId && p.id !== preview.id)]);
+      setDrafts((prev) => prev.filter((d) => d.id !== editingDraftId));
+      setEditingDraftId(null);
+      setFormState(emptyCreateListingForm());
+      setAssistantMessages(WELCOME_ASSISTANT);
+    },
+    [editingDraftId],
+  );
 
   const removeMedia = useCallback((id: string) => {
     setFormState((s) => ({ ...s, media: s.media.filter((m) => m.id !== id) }));
@@ -387,7 +366,7 @@ export function CreateListingDraftProvider({ children }: { children: ReactNode }
       beginListingChannel,
       loadDraft,
       saveDraft,
-      publish,
+      completeAfterPublish,
       removeMedia,
       reorderMedia,
       setMediaOrder,
@@ -409,7 +388,7 @@ export function CreateListingDraftProvider({ children }: { children: ReactNode }
       beginListingChannel,
       loadDraft,
       saveDraft,
-      publish,
+      completeAfterPublish,
       removeMedia,
       reorderMedia,
       setMediaOrder,

@@ -37,6 +37,7 @@ import {
   hasWarmHomeFeedCache,
   loadHomeFeedCache,
   saveHomeFeedCache,
+  subscribeHomeFeedInvalidation,
 } from '../lib/homeFeedCache';
 import { isSupabaseConfigured } from '../lib/supabase';
 import type { MainTabParamList, RootStackParamList } from '../navigation/types';
@@ -178,6 +179,12 @@ export function HomeScreen() {
       cancelled = true;
     };
   }, [loadFeed, seed.hasCache, seed.liveRows.length, seed.listings.length]);
+
+  useEffect(() => {
+    return subscribeHomeFeedInvalidation(() => {
+      void loadFeed();
+    });
+  }, [loadFeed]);
 
   const goLive = () => {
     navigation.navigate('Live', { screen: 'LiveDiscovery' });

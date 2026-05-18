@@ -25,6 +25,7 @@ import {
   sliceRail,
 } from '../lib/marketplaceCatalog';
 import { buildMarketplaceHeroSlides } from '../lib/marketplaceHero';
+import { subscribeHomeFeedInvalidation } from '../lib/homeFeedCache';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { openCreateListing } from '../navigation/openCreateListing';
 import { openHelpCenter } from '../navigation/openPlatform';
@@ -61,6 +62,12 @@ export function MarketplaceScreen() {
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  useEffect(() => {
+    return subscribeHomeFeedInvalidation(() => {
+      void load();
+    });
   }, [load]);
 
   const onRefresh = useCallback(async () => {
