@@ -147,6 +147,23 @@ export async function fetchMarketplaceListingById(listingId: string): Promise<Pr
   return rowToProduct(row, profiles.get(sellerId));
 }
 
+/** Retry briefly after publish — avoids empty Product detail on first paint. */
+export async function fetchMarketplaceListingByIdWithRetry(
+  listingId: string,
+  opts?: { attempts?: number; delayMs?: number },
+): Promise<Product | null> {
+  const attempts = Math.max(1, opts?.attempts ?? 4);
+  const delayMs = opts?.delayMs ?? 350;
+  for (let i = 0; i < attempts; i++) {
+    const product = await fetchMarketplaceListingById(listingId);
+    if (product) return product;
+    if (i < attempts - 1) {
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  return null;
+}
+
 export async function fetchListingsBySeller(opts: {
   sellerId: string;
   excludeListingId?: string;

@@ -1,4 +1,4 @@
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -25,7 +25,7 @@ import {
   sliceRail,
 } from '../lib/marketplaceCatalog';
 import { buildMarketplaceHeroSlides } from '../lib/marketplaceHero';
-import { subscribeHomeFeedInvalidation } from '../lib/homeFeedCache';
+import { hasWarmHomeFeedCache, subscribeHomeFeedInvalidation } from '../lib/homeFeedCache';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { openCreateListing } from '../navigation/openCreateListing';
 import { openHelpCenter } from '../navigation/openPlatform';
@@ -69,6 +69,14 @@ export function MarketplaceScreen() {
       void load();
     });
   }, [load]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!hasWarmHomeFeedCache()) {
+        void load();
+      }
+    }, [load]),
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

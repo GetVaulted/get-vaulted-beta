@@ -18,6 +18,33 @@ export class PublishListingError extends Error {
   }
 }
 
+function mapSupabasePublishError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes('row-level security') || m.includes('permission denied')) {
+    return 'Permission denied — sign in again and confirm your seller profile is set up.';
+  }
+  if (m.includes('violates foreign key') && m.includes('seller_id')) {
+    return 'Seller profile not found — finish account setup, then try publishing again.';
+  }
+  if (m.includes('invalid input value for enum')) {
+    return 'Listing data was rejected by the server — check category and listing type.';
+  }
+  if (m.includes('payload too large') || m.includes('entity too large')) {
+    return 'Images are too large — try fewer or smaller photos.';
+  }
+  return message;
+}
+
+async function assertSellerProfileExists(sellerId: string): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new PublishListingError('Supabase is not configured.');
+  const { data, error } = await sb.from('profiles').select('id').eq('id', sellerId).maybeSingle();
+  if (error) throw new PublishListingError(mapSupabasePublishError(error.message));
+  if (!data?.id) {
+    throw new PublishListingError('Complete your profile before publishing listings.');
+  }
+}
+
 export type PublishListingResult = {
   listingId: string;
   preview: ListingPreview;
@@ -195,6 +222,8 @@ export async function publishCreateListingForm(
     throw new PublishListingError('Session mismatch — sign in again and retry.');
   }
 
+  await assertSellerProfileExists(sellerId);
+
   const title = form.title.trim();
   if (!title) throw new PublishListingError('Add a title before publishing.');
 
@@ -233,7 +262,9 @@ export async function publishCreateListingForm(
 
   const { data, error } = await sb.from('listings').insert(row).select('id').single();
   if (error || !data?.id) {
-    throw new PublishListingError(error?.message ?? 'Could not save listing to the vault.');
+    throw new PublishListingError(
+      mapSupabasePublishError(error?.message ?? 'Could not save listing to the vault.'),
+    );
   }
 
   const listingId = data.id as string;

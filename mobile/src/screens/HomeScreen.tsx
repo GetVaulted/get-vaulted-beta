@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -185,6 +185,14 @@ export function HomeScreen() {
       void loadFeed();
     });
   }, [loadFeed]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!hasWarmHomeFeedCache()) {
+        void loadFeed();
+      }
+    }, [loadFeed]),
+  );
 
   const goLive = () => {
     navigation.navigate('Live', { screen: 'LiveDiscovery' });

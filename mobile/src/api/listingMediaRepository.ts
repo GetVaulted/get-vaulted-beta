@@ -52,7 +52,13 @@ async function uploadLocalFile(
     contentType: mime,
     upsert: false,
   });
-  if (upErr) throw new Error(upErr.message);
+  if (upErr) {
+    const msg = upErr.message.toLowerCase();
+    if (msg.includes('row-level security') || msg.includes('permission') || msg.includes('not authorized')) {
+      throw new Error('Photo upload denied — sign in again or check storage permissions for listing-media.');
+    }
+    throw new Error(upErr.message);
+  }
 
   const { data } = sb.storage.from(BUCKET).getPublicUrl(path);
   if (!data?.publicUrl) throw new Error('Could not resolve listing media URL');

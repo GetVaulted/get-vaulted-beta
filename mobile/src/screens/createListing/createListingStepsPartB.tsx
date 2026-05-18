@@ -404,22 +404,23 @@ export function CreateListingReviewScreen({
     setPublishing(true);
     try {
       const { listingId, preview } = await publishCreateListingForm(user.id, form);
-      completeAfterPublish(preview);
       await clearHomeFeedCache();
+      completeAfterPublish(preview);
 
       const marketplaceLive = !isLiveShow;
+
+      if (marketplaceLive && rootNavigationRef.isReady()) {
+        rootNavigationRef.navigate('ProductDetail', { productId: listingId });
+      }
+
+      navigation.getParent()?.goBack();
+
       Alert.alert(
         isLiveShow ? 'Added to live queue' : 'Listed on marketplace',
         isLiveShow
           ? 'This item is saved to your vault and queued in HQ → Live show listings.'
           : 'Your listing is live in the vault — it will appear in Marketplace and Home.',
       );
-
-      navigation.getParent()?.goBack();
-
-      if (marketplaceLive && rootNavigationRef.isReady()) {
-        rootNavigationRef.navigate('ProductDetail', { productId: listingId });
-      }
     } catch (e) {
       const message =
         e instanceof PublishListingError

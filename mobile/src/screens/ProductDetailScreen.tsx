@@ -23,7 +23,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   fetchListingsBySeller,
-  fetchMarketplaceListingById,
+  fetchMarketplaceListingByIdWithRetry,
   fetchMarketplaceListings,
 } from '../api/listingsFeedRepository';
 import { PremiumEmptyPanel } from '../components/empty/PremiumEmptyPanel';
@@ -78,7 +78,7 @@ export function ProductDetailScreen({ navigation, route }: Props) {
 
     async function load() {
       setLoading(true);
-      const remote = await fetchMarketplaceListingById(listingId);
+      const remote = await fetchMarketplaceListingByIdWithRetry(listingId);
       if (cancelled) return;
       if (!remote) {
         setProduct(null);
