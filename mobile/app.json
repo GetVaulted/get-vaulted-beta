@@ -38,7 +38,14 @@
           "cameraPermission": "Get Vaulted uses your camera to take listing and profile photos."
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#d4af37"
+        }
+      ]
     ]
   }
 }

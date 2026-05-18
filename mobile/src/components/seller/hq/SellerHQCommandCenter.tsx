@@ -6,7 +6,8 @@ import type { SellerHubTabId } from '../../../data/sellerHubMock';
 import type { useSellerCommandCenterData } from '../../../hooks/useSellerCommandCenterData';
 import type { SellerHQEntryPhase } from '../../../lib/sellerHubEntry';
 import { openCreateListing } from '../../../navigation/openCreateListing';
-import { openSellerHostRoom } from '../../../navigation/openSellerHostRoom';
+import { openVaultComms } from '../../../navigation/openPlatform';
+import { setPendingVaultEventSchedule } from '../../../navigation/openSellerHQ';
 import {
   isSellerPayoutSetupComplete,
   sellerConnectBadge,
@@ -19,6 +20,7 @@ import { SellerHQCommandHeader } from './SellerHQCommandHeader';
 import { SellerHQPremiumBanner } from './SellerHQPremiumBanner';
 import { SellerHQQuickLaunch, type QuickLaunchId } from './SellerHQQuickLaunch';
 import { SellerHQTodayInVault } from './SellerHQTodayInVault';
+import { SellerHQVaultEventsStrip } from './SellerHQVaultEventsStrip';
 import { hq } from './hqStyles';
 
 type CommandCenterData = ReturnType<typeof useSellerCommandCenterData>;
@@ -59,29 +61,28 @@ export function SellerHQCommandCenter({
 
   const onQuickLaunch = (id: QuickLaunchId) => {
     switch (id) {
-      case 'go_live':
-        if (data.liveRoom) {
-          openSellerHostRoom(navigation, data.liveRoom.id);
-        } else {
-          onOpenTab('live');
-        }
-        break;
       case 'schedule':
+        setPendingVaultEventSchedule(true);
+        onOpenTab('live');
+        break;
+      case 'vault_events':
         onOpenTab('live');
         break;
       case 'listing':
         void openCreateListing(rootNav, { channel: 'marketplace' });
         break;
       case 'inventory':
-        void openCreateListing(rootNav, { channel: 'live_show' });
+        onOpenTab('listings');
         break;
     }
   };
 
   const onTodayItem = (id: string) => {
-    if (id === 'countdown' || id === 'ship') onOpenTab('live');
+    if (id === 'vault_events') onOpenTab('live');
+    else if (id === 'ship') onOpenTab('orders');
     else if (id === 'drafts') onOpenTab('listings');
     else if (id === 'payout') onOpenTab('wallet');
+    else if (id === 'followers') openVaultComms(rootNav);
     else onOpenTab('analytics');
   };
 
@@ -89,7 +90,8 @@ export function SellerHQCommandCenter({
     <View style={styles.wrap}>
       <View style={styles.studioHeader}>
         <Text style={styles.studioTitle}>Seller Studio</Text>
-        <Text style={styles.studioSub}>Command center · live commerce OS</Text>
+        <Text style={styles.studioSub}>Revenue · fulfillment · collectors · growth</Text>
+        <Text style={styles.hierarchy}>Studio → Vault Events → Command Center</Text>
       </View>
 
       <SellerHQPremiumBanner
@@ -105,18 +107,32 @@ export function SellerHQCommandCenter({
         handle={handle}
         avatarUrl={avatarUrl}
         rankLabel={rankLabel}
-        liveStatus={data.metrics.liveStatus}
-        isLive={Boolean(data.liveRoom)}
         revenueSnapshot={data.metrics.revenueToday}
-        followers={data.metrics.followers}
+        activeCollectors={data.metrics.activeCollectors}
         pendingOrders={data.metrics.pendingOrders}
-        upcomingShows={data.metrics.upcomingShows}
+        performanceInsight={data.metrics.performanceInsight}
         onSettings={onProfileSettings}
       />
 
       {data.approved ? (
         <>
+          <SellerHQVaultEventsStrip
+            liveCount={data.liveCount}
+            upcomingCount={data.upcomingCount}
+            onOpenVaultEvents={() => onOpenTab('live')}
+          />
           <SellerHQQuickLaunch onAction={onQuickLaunch} />
+          <Pressable
+            style={({ pressed }) => [styles.inboxCard, pressed && { opacity: 0.92 }]}
+            onPress={() => openVaultComms(rootNav)}
+          >
+            <Ionicons name="chatbubbles-outline" size={22} color={colors.gold} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.inboxTitle}>Collector network</Text>
+              <Text style={styles.inboxSub}>Inbox · offers · orders · message requests</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+          </Pressable>
           <SellerHQTodayInVault items={data.todayItems} onPressItem={onTodayItem} />
           <SellerHQAnalyticsPreview values={data.metrics} />
         </>
@@ -141,19 +157,23 @@ export function SellerHQCommandCenter({
       ) : null}
 
       <View style={styles.laneRow}>
-        {(
-          [
-            { tab: 'live' as const, label: 'Vault events', icon: 'radio-outline' },
-            { tab: 'listings' as const, label: 'Inventory queue', icon: 'layers-outline' },
-            { tab: 'orders' as const, label: 'Fulfillment', icon: 'cube-outline' },
-            { tab: 'wallet' as const, label: 'Revenue vault', icon: 'wallet-outline' },
-          ] as const
-        ).map((lane) => (
-          <Pressable key={lane.tab} style={styles.laneChip} onPress={() => onOpenTab(lane.tab)}>
-            <Ionicons name={lane.icon} size={16} color={colors.gold} />
-            <Text style={styles.laneChipTxt}>{lane.label}</Text>
-          </Pressable>
-        ))}
+        <Text style={styles.laneEyebrow}>Business lanes</Text>
+        <View style={styles.laneChips}>
+          {(
+            [
+              { tab: 'listings' as const, label: 'Inventory', icon: 'layers-outline' },
+              { tab: 'orders' as const, label: 'Fulfillment', icon: 'cube-outline' },
+              { tab: 'wallet' as const, label: 'Revenue vault', icon: 'wallet-outline' },
+              { tab: 'analytics' as const, label: 'Insights', icon: 'stats-chart-outline' },
+              { tab: 'live' as const, label: 'Vault Events', icon: 'calendar-outline' },
+            ] as const
+          ).map((lane) => (
+            <Pressable key={lane.tab} style={styles.laneChip} onPress={() => onOpenTab(lane.tab)}>
+              <Ionicons name={lane.icon} size={16} color={colors.gold} />
+              <Text style={styles.laneChipTxt}>{lane.label}</Text>
+            </Pressable>
+          ))}
+        </View>
       </View>
     </View>
   );
@@ -164,6 +184,13 @@ const styles = StyleSheet.create({
   studioHeader: { marginBottom: -spacing.sm },
   studioTitle: { fontSize: 28, fontWeight: '900', color: colors.textPrimary, letterSpacing: -0.5 },
   studioSub: { fontSize: 13, color: colors.textMuted, marginTop: 4 },
+  hierarchy: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginTop: 6,
+    letterSpacing: 0.2,
+  },
   payoutCard: { padding: spacing.md, gap: spacing.sm },
   payoutTitle: { fontSize: 16, fontWeight: '800', color: colors.textPrimary },
   payoutSub: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
@@ -176,7 +203,15 @@ const styles = StyleSheet.create({
   },
   payoutBtnTxt: { fontWeight: '800', color: '#0a0a0a' },
   disabled: { opacity: 0.6 },
-  laneRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  laneRow: { gap: spacing.sm },
+  laneEyebrow: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+  },
+  laneChips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   laneChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -189,4 +224,16 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(212,175,55,0.06)',
   },
   laneChipTxt: { fontSize: 12, fontWeight: '700', color: colors.gold },
+  inboxCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(212,175,55,0.28)',
+    backgroundColor: 'rgba(212,175,55,0.06)',
+  },
+  inboxTitle: { fontSize: 15, fontWeight: '800', color: colors.textPrimary },
+  inboxSub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
 });

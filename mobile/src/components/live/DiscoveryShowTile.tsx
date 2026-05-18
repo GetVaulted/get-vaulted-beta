@@ -4,15 +4,11 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../../theme';
 import type { LiveStream } from '../../types';
 import { LiveBadge } from '../ui/LiveBadge';
-import { categoryMeta } from '../../data/categoryTaxonomy';
+import { liveRoomCardStatusLine, liveRoomCategoryLine } from '../../lib/liveRoomDisplay';
 
 function formatViewers(n: number) {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
-}
-
-function categoryLine(show: LiveStream) {
-  return show.categoryTags.slice(0, 2).join(' · ') || categoryMeta[show.category].label;
 }
 
 type Props = {
@@ -90,17 +86,15 @@ export function DiscoveryShowTile({ show, onPress, variant = 'default', tileWidt
               <Text style={[styles.title, isHero && styles.titleHero]} numberOfLines={2}>
                 {show.title}
               </Text>
-              <Text style={styles.cat}>{categoryLine(show)}</Text>
+              <Text style={styles.cat}>{liveRoomCategoryLine(show)}</Text>
               {show.showDescription ? (
                 <Text style={styles.blurb} numberOfLines={isHero ? 2 : 1}>
                   {show.showDescription}
                 </Text>
               ) : null}
-              {show.engagementLine ? (
-                <Text style={styles.activity} numberOfLines={1}>
-                  {show.engagementLine}
-                </Text>
-              ) : null}
+              <Text style={styles.activity} numberOfLines={1}>
+                {liveRoomCardStatusLine(show)}
+              </Text>
             </View>
           </View>
         </View>

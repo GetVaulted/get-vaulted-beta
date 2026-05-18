@@ -3,12 +3,12 @@ import { colors, radii, spacing } from '../../../theme';
 import { hq } from './hqStyles';
 
 const METRICS = [
-  { key: 'revenueToday', label: 'Revenue today' },
+  { key: 'revenueToday', label: 'Revenue vault' },
+  { key: 'gmv', label: '30d GMV' },
   { key: 'sellThrough', label: 'Sell-through' },
-  { key: 'activeViewers', label: 'Active viewers' },
-  { key: 'conversion', label: 'Conversion' },
-  { key: 'gmv', label: 'GMV' },
-  { key: 'avgHammer', label: 'Avg auction close' },
+  { key: 'pendingOrders', label: 'Fulfillment queue' },
+  { key: 'conversion', label: 'Engagement' },
+  { key: 'activeViewers', label: 'Live reach' },
 ] as const;
 
 export function SellerHQAnalyticsPreview({
@@ -18,8 +18,8 @@ export function SellerHQAnalyticsPreview({
 }) {
   return (
     <View style={styles.wrap}>
-      <Text style={hq.sectionEyebrow}>Performance pulse</Text>
-      <Text style={hq.sectionTitle}>Live commerce analytics</Text>
+      <Text style={hq.sectionEyebrow}>Performance</Text>
+      <Text style={hq.sectionTitle}>Seller insights</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rail}>
         {METRICS.map((m) => (
           <View key={m.key} style={styles.card}>

@@ -22,7 +22,7 @@ export function BrowsePulledCard({ sale }: PulledProps) {
         style={StyleSheet.absoluteFill}
       />
       <View style={styles.pulledBody}>
-        <Text style={styles.pulledKicker}>Recently sold · live</Text>
+        <Text style={styles.pulledKicker}>Recently sold</Text>
         <Text style={styles.pulledItem} numberOfLines={2}>
           {sale.item}
         </Text>

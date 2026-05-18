@@ -98,7 +98,7 @@ export const liveSellerTools = [
   { id: 't1', label: 'Start Stream', icon: 'radio-outline' as const },
   { id: 't2', label: 'Stream Setup', icon: 'construct-outline' as const },
   { id: 't3', label: 'Auction Queue', icon: 'hammer-outline' as const },
-  { id: 't4', label: 'Break Mgmt', icon: 'git-branch-outline' as const },
+  { id: 't4', label: 'Spot queue', icon: 'git-branch-outline' as const },
   { id: 't5', label: 'Giveaways', icon: 'gift-outline' as const },
   { id: 't6', label: 'Pinned Items', icon: 'pin-outline' as const },
   { id: 't7', label: 'Moderators', icon: 'shield-half-outline' as const },
@@ -112,14 +112,7 @@ export const quickActions = [
   { id: 'q5', label: 'Withdraw', icon: 'cash-outline' as const },
 ];
 
-export const streamCategories: { id: CategoryId; label: string }[] = [
-  { id: 'cards', label: 'Cards' },
-  { id: 'sneakers', label: 'Sneakers' },
-  { id: 'memorabilia', label: 'Memorabilia' },
-  { id: 'watches', label: 'Watches' },
-  { id: 'luxury', label: 'Luxury' },
-  { id: 'other', label: 'Other' },
-];
+export { STREAM_CATEGORY_OPTIONS as streamCategories } from '../lib/liveRoomDisplay';
 
 export const sellerStudioRows: {
   title: string;
@@ -155,7 +148,7 @@ export const sellerStudioRows: {
   },
   {
     title: 'Queue live inventory',
-    body: 'Fast uploads for upcoming shows, breaks, and on-air auctions.',
+    body: 'Fast uploads for vault events, live auctions, and on-air selling.',
     icon: 'radio-outline',
     opensTab: 'listings',
   },

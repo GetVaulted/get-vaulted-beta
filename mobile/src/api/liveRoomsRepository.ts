@@ -1,4 +1,5 @@
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
+import { liveRoomCategoryTagsForRow } from '../lib/liveRoomDisplay';
 import { mapListingCategoryToCategoryId } from './listingsFeedRepository';
 import type { CategoryId, Host, LiveStream, ScheduledStream } from '../types';
 
@@ -76,7 +77,7 @@ export async function createLiveRoom(
   const body: Record<string, unknown> = {
     title: input.title.trim(),
     description: (input.description ?? '').trim(),
-    category: input.category.trim() || 'Other',
+    category: input.category.trim() || 'Sports Cards',
     roomType: input.roomType,
   };
   if (input.scheduledStartAt) {
@@ -171,6 +172,7 @@ function liveRoomFormatFromType(roomType: LiveRoomApiRow['roomType']): LiveStrea
 
 export function liveRoomRowToLiveStream(row: LiveRoomApiRow): LiveStream {
   const cat = mapListingCategoryToCategoryId(row.category);
+  const categoryTags = liveRoomCategoryTagsForRow(row.category, cat);
   return {
     id: row.id,
     title: row.title,
@@ -189,9 +191,9 @@ export function liveRoomRowToLiveStream(row: LiveRoomApiRow): LiveStream {
     recentBids: [],
     highlightsCount: 0,
     showDescription: row.description?.trim() || 'Live on Get Vaulted.',
-    categoryTags: [row.category].filter(Boolean),
-    engagementLine: 'Live now',
-    discoveryTags: [row.category].filter(Boolean),
+    categoryTags,
+    engagementLine: '',
+    discoveryTags: categoryTags,
     breakProgress: 0,
     pinnedProductLabel: 'Live show',
     giveawayLine: '',

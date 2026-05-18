@@ -20,8 +20,8 @@ export function SellerHQTodayInVault({
 }) {
   return (
     <View style={styles.wrap}>
-      <Text style={hq.sectionEyebrow}>Today in vault</Text>
-      <Text style={hq.sectionTitle}>Your lane right now</Text>
+      <Text style={hq.sectionEyebrow}>Studio pulse</Text>
+      <Text style={hq.sectionTitle}>Business snapshot</Text>
       <View style={[styles.list, hq.goldCard]}>
         {items.map((item, i) => (
           <Pressable

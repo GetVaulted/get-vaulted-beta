@@ -115,7 +115,7 @@ export function LivePinnedActionBar({
   const onShop = () =>
     guard(() => {
       if (onOpenInlineShop) onOpenInlineShop();
-      else tabNav?.navigate('Discover');
+      else tabNav?.navigate('Marketplace');
     });
 
   return (

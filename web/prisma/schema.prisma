@@ -202,6 +202,7 @@ model User {
   messagesRecv    Message[]       @relation("MsgRecipient")
   threadsAsBuyer  MessageThread[] @relation("ThreadBuyer")
   threadsAsSeller MessageThread[] @relation("ThreadSeller")
+  messageThreadParticipants MessageThreadParticipant[]
   notifications   Notification[]
   liveRooms       LiveRoom[]
   liveRoomMessages LiveRoomMessage[]
@@ -924,32 +925,82 @@ model WatchlistItem {
   @@unique([userId, listingId])
 }
 
-model MessageThread {
-  id        String    @id @default(cuid())
-  buyerId   String
-  sellerId  String
-  listingId String
-  buyer     User      @relation("ThreadBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
-  seller    User      @relation("ThreadSeller", fields: [sellerId], references: [id], onDelete: Cascade)
-  listing   Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  messages  Message[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+enum MessageConversationKind {
+  buyer_seller
+  offer_negotiation
+  order_support
+  trade
+  live_networking
+  system
+}
 
-  @@unique([buyerId, sellerId, listingId])
+enum MessageThreadInbox {
+  primary
+  request
+}
+
+enum MessageKind {
+  user
+  system
+}
+
+model MessageThread {
+  id               String                  @id @default(cuid())
+  buyerId          String
+  sellerId         String
+  listingId        String
+  /// Stable thread key: `listing:{id}`, `live:{roomId}`, `order:{id}`, etc.
+  anchorKey        String                  @default("")
+  conversationKind MessageConversationKind @default(buyer_seller)
+  inbox            MessageThreadInbox      @default(primary)
+  offerId          String?
+  orderId          String?
+  liveRoomId       String?
+  buyer            User                    @relation("ThreadBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  seller           User                    @relation("ThreadSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  listing          Listing                 @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  messages         Message[]
+  participants     MessageThreadParticipant[]
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  @@unique([buyerId, sellerId, anchorKey])
+  @@index([buyerId, inbox, updatedAt])
+  @@index([sellerId, inbox, updatedAt])
+}
+
+model MessageThreadParticipant {
+  id        String        @id @default(cuid())
+  threadId  String
+  thread    MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pinnedAt  DateTime?
+  starred   Boolean       @default(false)
+  muted     Boolean       @default(false)
+  blocked   Boolean       @default(false)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@unique([threadId, userId])
+  @@index([userId])
 }
 
 model Message {
-  id          String          @id @default(cuid())
+  id          String       @id @default(cuid())
   threadId    String
-  thread      MessageThread   @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  thread      MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
   senderId    String
-  sender      User            @relation("MsgSender", fields: [senderId], references: [id], onDelete: Cascade)
+  sender      User         @relation("MsgSender", fields: [senderId], references: [id], onDelete: Cascade)
   recipientId String
-  recipient   User            @relation("MsgRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  recipient   User         @relation("MsgRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
   listingId   String?
-  listing     Listing?        @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  listing     Listing?     @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  kind        MessageKind  @default(user)
+  systemEvent String?
   body        String
   readAt      DateTime?
-  createdAt   DateTime        @default(now())
+  createdAt   DateTime     @default(now())
+
+  @@index([threadId, createdAt])
 }

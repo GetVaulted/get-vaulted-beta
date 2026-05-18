@@ -87,7 +87,7 @@ export function SellerHQDashboard({
       icon: 'settings-outline',
       onPress: () => {
         if (rootNavigationRef.isReady()) {
-          rootNavigationRef.navigate('ProfileEdit');
+          rootNavigationRef.navigate('Settings');
         }
       },
     },

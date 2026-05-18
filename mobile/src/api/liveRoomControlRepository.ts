@@ -5,11 +5,15 @@ export type LiveRoomItemRow = {
   id: string;
   title: string;
   status: 'queued' | 'active' | 'sold' | 'skipped';
+  listingId?: string | null;
+  imageUrl?: string;
+  quantity?: number;
   currentBidUsd: number | null;
   startingBidUsd: number | null;
   priceUsd: number | null;
   biddingOpen: boolean;
   auctionEndsAt: string | null;
+  lastHighBidderUsername?: string | null;
   sortOrder: number;
 };
 

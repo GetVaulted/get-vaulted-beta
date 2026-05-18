@@ -1,0 +1,394 @@
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
+import { colors, radii, spacing } from '../../../theme';
+import { lc } from './liveConsoleTheme';
+
+const DEFAULT_AUCTION_SEC = 15;
+
+function fmtMoney(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  return `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+}
+
+function countdownParts(endsAt: string | null, serverNowMs: number): { label: string; progress: number } | null {
+  if (!endsAt) return null;
+  const end = Date.parse(endsAt);
+  if (Number.isNaN(end)) return null;
+  const diff = end - serverNowMs;
+  if (diff <= 0) return { label: 'FINAL', progress: 0 };
+  const s = Math.ceil(diff / 1000);
+  const total = DEFAULT_AUCTION_SEC;
+  const progress = Math.min(1, s / total);
+  if (s >= 60) return { label: `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, progress };
+  return { label: `${s}s`, progress };
+}
+
+export function VaultPinnedLotCard({
+  item,
+  serverNowMs,
+  roomLive,
+  auctionRoom,
+  busy,
+  density = 'default',
+  onStartBidding,
+  onSold,
+  onSkip,
+  onExtend,
+}: {
+  item: LiveRoomItemRow | null;
+  serverNowMs: number;
+  roomLive: boolean;
+  auctionRoom: boolean;
+  busy: boolean;
+  /** Compact broadcast overlay — ~18% smaller with live energy FX. */
+  density?: 'default' | 'broadcast';
+  onStartBidding: () => void;
+  onSold: () => void;
+  onSkip: () => void;
+  onExtend: () => void;
+}) {
+  const compact = density === 'broadcast';
+
+  const pulse = useRef(new Animated.Value(0.3)).current;
+  const priceScale = useRef(new Animated.Value(1)).current;
+  const borderPulse = useRef(new Animated.Value(0)).current;
+  const gradientDrift = useRef(new Animated.Value(0)).current;
+  const bidderFlash = useRef(new Animated.Value(0)).current;
+  const countdownGlow = useRef(new Animated.Value(0)).current;
+  const [, setTick] = useState(0);
+  const prevBid = useRef<number | null>(null);
+  const prevBidder = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!item?.biddingOpen) return;
+    const id = setInterval(() => setTick((t) => t + 1), 400);
+    return () => clearInterval(id);
+  }, [item?.biddingOpen, item?.auctionEndsAt]);
+
+  useEffect(() => {
+    if (!item?.biddingOpen) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 650, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.2, duration: 650, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [item?.biddingOpen, pulse]);
+
+  useEffect(() => {
+    if (!item?.biddingOpen) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(borderPulse, { toValue: 1, duration: 800, useNativeDriver: false }),
+        Animated.timing(borderPulse, { toValue: 0, duration: 800, useNativeDriver: false }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [borderPulse, item?.biddingOpen]);
+
+  useEffect(() => {
+    const drift = Animated.loop(
+      Animated.timing(gradientDrift, { toValue: 1, duration: 5000, useNativeDriver: true }),
+    );
+    drift.start();
+    return () => drift.stop();
+  }, [gradientDrift]);
+
+  useEffect(() => {
+    const bid = item?.currentBidUsd ?? null;
+    if (bid != null && prevBid.current != null && bid !== prevBid.current) {
+      Animated.sequence([
+        Animated.timing(priceScale, { toValue: 1.14, duration: 90, useNativeDriver: true }),
+        Animated.spring(priceScale, { toValue: 1, friction: 4, useNativeDriver: true }),
+      ]).start();
+    }
+    prevBid.current = bid;
+  }, [item?.currentBidUsd, priceScale]);
+
+  useEffect(() => {
+    const bidder = item?.lastHighBidderUsername ?? null;
+    if (bidder && prevBidder.current && bidder !== prevBidder.current) {
+      bidderFlash.setValue(0);
+      Animated.sequence([
+        Animated.timing(bidderFlash, { toValue: 1, duration: 120, useNativeDriver: true }),
+        Animated.timing(bidderFlash, { toValue: 0, duration: 400, useNativeDriver: true }),
+      ]).start();
+    }
+    prevBidder.current = bidder;
+  }, [bidderFlash, item?.lastHighBidderUsername]);
+
+  const countdown = useMemo(
+    () => (item?.biddingOpen ? countdownParts(item.auctionEndsAt, serverNowMs) : null),
+    [item?.auctionEndsAt, item?.biddingOpen, serverNowMs],
+  );
+
+  useEffect(() => {
+    if (!countdown || countdown.progress > 0.28) {
+      countdownGlow.setValue(0);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(countdownGlow, { toValue: 1, duration: 350, useNativeDriver: true }),
+        Animated.timing(countdownGlow, { toValue: 0.2, duration: 350, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [countdown, countdownGlow]);
+
+  const driftX = gradientDrift.interpolate({ inputRange: [0, 1], outputRange: [-24, 24] });
+  const borderColor = borderPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['rgba(212,175,55,0.35)', 'rgba(255,59,48,0.55)'],
+  });
+
+  if (!item) {
+    return (
+      <View style={[styles.empty, compact && styles.emptyCompact]}>
+        <Ionicons name="layers-outline" size={compact ? 20 : 24} color={colors.textMuted} />
+        <Text style={[styles.emptyTitle, compact && styles.emptyTitleCompact]}>Nothing on screen</Text>
+        <Text style={styles.emptySub}>Swipe up · queue a lot</Text>
+      </View>
+    );
+  }
+
+  const thumb = item.imageUrl?.trim();
+  const reserve =
+    item.priceUsd != null && item.currentBidUsd != null && item.currentBidUsd >= item.priceUsd;
+  const closingSoon = countdown != null && countdown.progress <= 0.28;
+
+  return (
+    <Animated.View
+      style={[styles.shell, compact && styles.shellCompact, item.biddingOpen ? { borderColor } : undefined]}
+    >
+      <Animated.View style={[styles.gradientDrift, { transform: [{ translateX: driftX }] }]} pointerEvents="none">
+        <LinearGradient
+          colors={['rgba(212,175,55,0.22)', 'rgba(255,59,48,0.08)', 'rgba(12,11,9,0.98)']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
+      <Animated.View style={[styles.bidGlow, { opacity: pulse }]} pointerEvents="none" />
+      {closingSoon ? (
+        <Animated.View style={[styles.countdownWash, { opacity: countdownGlow }]} pointerEvents="none" />
+      ) : null}
+      <Animated.View style={[styles.bidderFlash, { opacity: bidderFlash }]} pointerEvents="none" />
+      <View style={[styles.row, compact && styles.rowCompact]}>
+        <View style={styles.thumbWrap}>
+          {thumb ? (
+            <Image source={{ uri: thumb }} style={[styles.thumb, compact && styles.thumbCompact]} />
+          ) : (
+            <View style={[styles.thumb, styles.thumbPh, compact && styles.thumbCompact]}>
+              <Ionicons name="diamond-outline" size={compact ? 20 : 26} color={colors.gold} />
+            </View>
+          )}
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <View style={styles.headRow}>
+            <Text style={[lc.eyebrow, compact && styles.eyebrowCompact]}>On screen</Text>
+            {countdown ? (
+              <View style={[styles.timerChip, closingSoon && styles.timerChipUrgent]}>
+                <Text style={[styles.timerChipTxt, closingSoon && styles.timerChipTxtUrgent]}>
+                  {countdown.label}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+          {countdown ? (
+            <View style={styles.timerTrack}>
+              <View
+                style={[
+                  styles.timerFill,
+                  closingSoon && styles.timerFillUrgent,
+                  { width: `${Math.round(countdown.progress * 100)}%` },
+                ]}
+              />
+            </View>
+          ) : null}
+          <Text style={[styles.title, compact && styles.titleCompact]} numberOfLines={2}>
+            {item.title}
+          </Text>
+          <Animated.Text style={[styles.bidVal, compact && styles.bidValCompact, { transform: [{ scale: priceScale }] }]}>
+            {fmtMoney(item.currentBidUsd ?? item.startingBidUsd)}
+          </Animated.Text>
+          {item.lastHighBidderUsername ? (
+            <View style={styles.bidderRow}>
+              <Animated.View style={[styles.bidderDot, { opacity: pulse }]} />
+              <Text style={[styles.leader, compact && styles.leaderCompact]} numberOfLines={1}>
+                @{item.lastHighBidderUsername}
+              </Text>
+            </View>
+          ) : (
+            <Text style={[styles.meta, compact && styles.metaCompact]}>Waiting for first bid</Text>
+          )}
+          <View style={styles.metaRow}>
+            <Text style={[styles.meta, compact && styles.metaCompact]}>
+              {item.biddingOpen ? 'Hammer live' : 'Ready'}
+            </Text>
+            {item.priceUsd != null ? (
+              <Text style={[styles.meta, compact && styles.metaCompact, reserve && styles.metaOk]}>
+                {reserve ? 'Reserve met' : 'Reserve'}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      </View>
+      {roomLive ? (
+        <View style={[styles.actions, compact && styles.actionsCompact]}>
+          {auctionRoom && !item.biddingOpen ? (
+            <Pressable style={[styles.actionGold, compact && styles.actionCompact]} disabled={busy} onPress={onStartBidding}>
+              <Text style={[styles.actionGoldTxt, compact && styles.actionTxtCompact]}>Open bid</Text>
+            </Pressable>
+          ) : null}
+          <Pressable style={[styles.action, compact && styles.actionCompact]} disabled={busy} onPress={onSold}>
+            <Text style={[styles.actionTxt, compact && styles.actionTxtCompact]}>Sold</Text>
+          </Pressable>
+          <Pressable style={[styles.action, compact && styles.actionCompact]} disabled={busy} onPress={onSkip}>
+            <Text style={[styles.actionTxt, compact && styles.actionTxtCompact]}>Skip</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <Text style={[styles.hint, compact && styles.metaCompact]}>Go live to run this lot</Text>
+      )}
+    </Animated.View>
+  );
+}
+
+export { DEFAULT_AUCTION_SEC };
+
+const styles = StyleSheet.create({
+  shell: {
+    borderRadius: radii.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.35)',
+    padding: spacing.sm,
+    gap: 6,
+  },
+  shellCompact: {
+    padding: 8,
+    gap: 4,
+    borderRadius: 14,
+  },
+  gradientDrift: {
+    ...StyleSheet.absoluteFillObject,
+    width: '140%',
+    left: '-20%',
+  },
+  bidGlow: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,59,48,0.05)',
+  },
+  countdownWash: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,59,48,0.12)',
+  },
+  bidderFlash: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(212,175,55,0.2)',
+  },
+  row: { flexDirection: 'row', gap: spacing.sm },
+  rowCompact: { gap: 8 },
+  thumbWrap: { position: 'relative' },
+  thumb: { width: 80, height: 96, borderRadius: radii.md, backgroundColor: 'rgba(0,0,0,0.4)' },
+  thumbCompact: { width: 66, height: 78, borderRadius: 12 },
+  thumbPh: { alignItems: 'center', justifyContent: 'center' },
+  headRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  timerChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(212,175,55,0.15)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(212,175,55,0.45)',
+  },
+  timerChipUrgent: {
+    backgroundColor: 'rgba(255,59,48,0.18)',
+    borderColor: 'rgba(255,59,48,0.55)',
+  },
+  timerChipTxt: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: colors.gold,
+    fontVariant: ['tabular-nums'],
+    letterSpacing: 0.4,
+  },
+  timerChipTxtUrgent: { color: colors.live },
+  timerTrack: {
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    marginTop: 4,
+    marginBottom: 2,
+    overflow: 'hidden',
+  },
+  timerFill: {
+    height: '100%',
+    borderRadius: 2,
+    backgroundColor: colors.gold,
+  },
+  timerFillUrgent: { backgroundColor: colors.live },
+  eyebrowCompact: { fontSize: 9 },
+  title: { fontSize: 15, fontWeight: '800', color: colors.textPrimary },
+  titleCompact: { fontSize: 13, lineHeight: 16 },
+  bidVal: { fontSize: 24, fontWeight: '900', color: colors.gold, marginTop: 1 },
+  bidValCompact: { fontSize: 20, marginTop: 0 },
+  bidderRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
+  bidderDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.live },
+  leader: { fontSize: 11, fontWeight: '700', color: colors.textSecondary, flex: 1 },
+  leaderCompact: { fontSize: 10 },
+  metaRow: { flexDirection: 'row', gap: spacing.sm, marginTop: 2 },
+  meta: { fontSize: 10, fontWeight: '600', color: colors.textMuted },
+  metaCompact: { fontSize: 9 },
+  metaOk: { color: colors.success },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  actionsCompact: { gap: 5, marginTop: 2 },
+  actionGold: {
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: radii.pill,
+    backgroundColor: colors.gold,
+  },
+  action: {
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  actionCompact: {
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+  },
+  actionGoldTxt: { fontWeight: '800', color: '#0a0a0a', fontSize: 11 },
+  actionTxt: { fontWeight: '700', color: colors.textPrimary, fontSize: 11 },
+  actionTxtCompact: { fontSize: 10 },
+  hint: { fontSize: 11, color: colors.textMuted },
+  empty: {
+    padding: spacing.md,
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+  },
+  emptyCompact: { padding: spacing.sm },
+  emptyTitle: { fontSize: 14, fontWeight: '800', color: colors.textPrimary },
+  emptyTitleCompact: { fontSize: 12 },
+  emptySub: { fontSize: 11, color: colors.textMuted, textAlign: 'center' },
+});

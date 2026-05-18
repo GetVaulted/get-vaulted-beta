@@ -1,65 +1,39 @@
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback } from 'react';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TradeCenterHero } from '../../components/trade/TradeCenterHero';
+import { TradeDealCard } from '../../components/trade/TradeDealCard';
+import { TradeMomentumRail } from '../../components/trade/TradeMomentumRail';
+import { TradeNegotiationPulse } from '../../components/trade/TradeNegotiationPulse';
+import { TradePulseStrip } from '../../components/trade/TradePulseStrip';
+import { TradeSectionBlock } from '../../components/trade/TradeSectionBlock';
+import { TradeStartDealCta } from '../../components/trade/TradeStartDealCta';
 import { TradeTrustStrip } from '../../components/trade/TradeTrustStrip';
-import { TradeStatusBadge } from '../../components/trade/TradeStatusBadge';
-import type { TradeCenterStackParamList } from '../../navigation/types';
-import { colors, radii, spacing, typography } from '../../theme';
-import { useAuth } from '../../auth/AuthContext';
+import { tradeNegotiationPulse, tradeRecentDeals } from '../../data/tradeCenterMock';
 import { useTradeCenterFeed } from '../../hooks/useTradeCenterFeed';
 import { areDevToolsEnabled } from '../../lib/devTools';
 import { isSupabaseConfigured } from '../../lib/supabase';
+import type { TradeCenterStackParamList } from '../../navigation/types';
 import { navigateAuthLogin, navigateAuthSignUp } from '../../navigation/rootNavigationRef';
+import { useAuth } from '../../auth/AuthContext';
 import { useTradeCenterDiagnostics } from '../../trade/TradeCenterDiagnosticsContext';
 import type { TradeOfferVM } from '../../types/tradeOffers';
+import { colors, radii, spacing } from '../../theme';
 
 type Nav = NativeStackNavigationProp<TradeCenterStackParamList>;
-
-function SectionTitle({ title }: { title: string }) {
-  return <Text style={styles.sectionTitle}>{title}</Text>;
-}
 
 function profileHandle(p: { username: string | null; display_name: string | null }): string {
   if (p.username) return `@${p.username}`;
   return p.display_name ?? 'Collector';
 }
 
-function OfferRow({
-  offer,
-  userId,
-  onPress,
-}: {
-  offer: TradeOfferVM;
-  userId: string;
-  onPress: () => void;
-}) {
-  const partner = offer.recipient_id === userId ? offer.sender : offer.recipient;
-  return (
-    <Pressable style={styles.row} onPress={onPress}>
-      <View style={styles.rowMain}>
-        <Text style={styles.rowTitle} numberOfLines={1}>
-          {profileHandle(partner)}
-        </Text>
-        <Text style={styles.rowMeta} numberOfLines={2}>
-          {offer.offered.map((i) => i.title).join(' · ')}
-        </Text>
-        <View style={{ marginTop: 6 }}>
-          <TradeStatusBadge status={offer.status} />
-        </View>
-      </View>
-      <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-    </Pressable>
-  );
-}
-
 export function TradeCenterHomeScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<Nav>();
-  const { user, loading: authLoading, signOut } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const diag = useTradeCenterDiagnostics();
   const onFeedRefreshed = useCallback(() => {
     diag?.markFeedRefreshed();
@@ -70,17 +44,40 @@ export function TradeCenterHomeScreen() {
   const uid = user?.id;
 
   const goReview = (offerId: string) => navigation.navigate('ReviewOffer', { offerId });
-  const firstIncoming = sections.incoming[0];
+  const goTradeDetail = (tradeId: string) => navigation.navigate('TradeDetail', { tradeId });
+  const startTrade = () => navigation.navigate('InitiateTrade');
 
-  const pulse = {
-    incoming: sections.incoming.length,
-    sent: sections.sent.length,
-    counters: sections.counters.length,
-    active: sections.active.length,
-    completed: sections.completed.length,
+  const firstIncoming = sections.incoming[0];
+  const showDesk = isSupabaseConfigured() && Boolean(user) && !authLoading;
+
+  const renderOffer = (offer: TradeOfferVM, viewerId: string) => {
+    const partner = offer.recipient_id === viewerId ? offer.sender : offer.recipient;
+    return (
+      <TradeDealCard
+        key={offer.id}
+        partner={partner}
+        status={offer.status}
+        requested={offer.requested}
+        offered={offer.offered}
+        messagePreview={offer.message}
+        onPress={() => goReview(offer.id)}
+      />
+    );
   };
 
-  const showDesk = isSupabaseConfigured() && Boolean(user) && !authLoading;
+  const renderActiveTrade = (offer: TradeOfferVM, viewerId: string) => {
+    const partner = offer.recipient_id === viewerId ? offer.sender : offer.recipient;
+    return (
+      <TradeDealCard
+        key={offer.id}
+        partner={partner}
+        status={offer.status}
+        requested={offer.requested}
+        offered={offer.offered}
+        onPress={() => goTradeDetail(offer.id)}
+      />
+    );
+  };
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
@@ -89,41 +86,29 @@ export function TradeCenterHomeScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.gold} />}
       >
-        <LinearGradient
-          colors={['#1a1208', '#0a0906', '#050505']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.hero}
-        >
-          <Text style={styles.heroKicker}>Secure deal room</Text>
-          <Text style={styles.heroTitle}>Trade Center</Text>
-          <Text style={styles.heroBody}>
-            Vault-to-vault offers, bundled trade fees, and live label status — wired to Supabase when you sign in.
-          </Text>
-        </LinearGradient>
+        <TradeCenterHero />
 
         {!isSupabaseConfigured() ? (
           <View style={styles.warnCard}>
-            <Text style={styles.warnTitle}>Backend not configured</Text>
+            <Ionicons name="cloud-offline-outline" size={22} color={colors.gold} />
+            <Text style={styles.warnTitle}>Trade network unavailable</Text>
             <Text style={styles.warnBody}>
-              Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY. Trade Center loads offers from your
-              Supabase project — there is no offline trade desk in production builds.
+              Connect your vault to sync offers, negotiations, and protected shipping labels.
             </Text>
             {areDevToolsEnabled() ? (
               <Pressable style={styles.qaLink} onPress={() => navigation.navigate('TradeCenterQa', undefined)}>
-                <Text style={styles.qaLinkTxt}>Open QA tools</Text>
-                <Ionicons name="flask-outline" size={18} color={colors.background} />
+                <Text style={styles.qaLinkTxt}>Developer tools</Text>
               </Pressable>
             ) : null}
           </View>
         ) : authLoading ? (
-          <View style={styles.authCard}>
-            <ActivityIndicator color={colors.gold} />
-          </View>
+          <Text style={styles.syncHint}>Loading your collector account…</Text>
         ) : !user ? (
           <View style={styles.gateCard}>
-            <Text style={styles.gateTitle}>Account required</Text>
-            <Text style={styles.gateBody}>You need an account to start or review trades.</Text>
+            <Text style={styles.gateTitle}>Join the collector network</Text>
+            <Text style={styles.gateBody}>
+              Send protected offers, negotiate privately, and trade premium inventory with verified collectors.
+            </Text>
             <Pressable style={styles.authCta} onPress={navigateAuthSignUp}>
               <Text style={styles.authCtaTxt}>Create account</Text>
             </Pressable>
@@ -131,154 +116,103 @@ export function TradeCenterHomeScreen() {
               <Text style={styles.authOutTxt}>Log in</Text>
             </Pressable>
           </View>
-        ) : (
-          <View style={styles.authCard}>
-            <Text style={styles.authTitle}>Account</Text>
-            <View style={{ gap: spacing.sm }}>
-              <Text style={styles.authSigned}>Signed in · {user.email ?? user.id.slice(0, 8)}…</Text>
-              <Text style={styles.sourceHint}>
-                {source === 'live' ? 'Live trades from Supabase' : 'Connect to load your desk'}
-              </Text>
-              <Pressable style={styles.authOut} onPress={() => void signOut()}>
-                <Text style={styles.authOutTxt}>Sign out</Text>
-              </Pressable>
-            </View>
-          </View>
-        )}
-
-        <TradeTrustStrip />
-
-        {showDesk && firstIncoming ? (
-          <View style={styles.notifCard}>
-            <View style={styles.notifTop}>
-              <Ionicons name="notifications-outline" size={18} color={colors.gold} />
-              <Text style={styles.notifTitle}>Incoming trade</Text>
-            </View>
-            <Text style={styles.notifBody}>{profileHandle(firstIncoming.sender)} sent you an offer.</Text>
-            <Pressable style={styles.notifCta} onPress={() => goReview(firstIncoming.id)}>
-              <Text style={styles.notifCtaTxt}>Review offer</Text>
-              <Ionicons name="arrow-forward" size={16} color={colors.background} />
-            </Pressable>
-          </View>
         ) : null}
 
         {showDesk ? (
-          <Pressable style={styles.startTrade} onPress={() => navigation.navigate('InitiateTrade')}>
-            <LinearGradient colors={['#2a2418', '#12100c']} style={styles.startTradeInner}>
-              <Ionicons name="add-circle-outline" size={22} color={colors.gold} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.startTradeTitle}>Start trade</Text>
-                <Text style={styles.startTradeSub}>
-                  Choose their live listing, your vault items, weight tier, and a note — offer lands in their inbox.
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-            </LinearGradient>
-          </Pressable>
-        ) : null}
-
-        {showDesk && uid ? (
           <>
-            {loading ? (
-              <ActivityIndicator style={{ marginVertical: spacing.lg }} color={colors.gold} />
+            {source === 'live' ? (
+              <Text style={styles.syncHint}>Synced to your vault</Text>
+            ) : (
+              <Text style={styles.syncHint}>Connecting to your trade desk…</Text>
+            )}
+
+            <TradeStartDealCta onPress={startTrade} />
+
+            {firstIncoming ? (
+              <Pressable style={styles.incomingBanner} onPress={() => goReview(firstIncoming.id)}>
+                <View style={styles.incomingIcon}>
+                  <Ionicons name="mail-unread-outline" size={20} color={colors.gold} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.incomingTitle}>Incoming offer</Text>
+                  <Text style={styles.incomingBody} numberOfLines={1}>
+                    {profileHandle(firstIncoming.sender)} wants to negotiate
+                  </Text>
+                </View>
+                <Text style={styles.incomingCta}>Review</Text>
+              </Pressable>
             ) : null}
 
-            <View style={styles.pulseGrid}>
-              <Pulse label="Incoming" value={pulse.incoming} />
-              <Pulse label="Sent" value={pulse.sent} />
-              <Pulse label="Counters" value={pulse.counters} />
-              <Pulse label="Active" value={pulse.active} />
+            <TradePulseStrip
+              items={[
+                { label: 'Incoming', value: sections.incoming.length, accent: sections.incoming.length > 0 },
+                { label: 'Active', value: sections.active.length, accent: sections.active.length > 0 },
+                { label: 'Sent', value: sections.sent.length },
+                { label: 'Done', value: sections.completed.length },
+              ]}
+            />
+
+            <TradeTrustStrip />
+
+            <TradeMomentumRail title="Recent vault trades" items={tradeRecentDeals} />
+            <TradeNegotiationPulse items={tradeNegotiationPulse} />
+
+            {loading && !sections.incoming.length && !sections.active.length ? (
+              <Text style={styles.syncHint}>Loading your deals…</Text>
+            ) : null}
+
+            <TradeSectionBlock
+              title="Incoming offers"
+              count={sections.incoming.length}
+              emptyTitle="No incoming offers yet."
+              emptyHint="Protected offers from collectors appear here."
+            >
+              {uid ? sections.incoming.map((o) => renderOffer(o, uid)) : null}
+            </TradeSectionBlock>
+
+            <TradeSectionBlock
+              title="Counter offers"
+              count={sections.counters.length}
+              emptyTitle="No active negotiations."
+            >
+              {uid ? sections.counters.map((o) => renderOffer(o, uid)) : null}
+            </TradeSectionBlock>
+
+            <TradeSectionBlock
+              title="Sent offers"
+              count={sections.sent.length}
+              emptyTitle="No sent offers yet."
+            >
+              {uid ? sections.sent.map((o) => renderOffer(o, uid)) : null}
+            </TradeSectionBlock>
+
+            <TradeSectionBlock
+              title="Active trades"
+              count={sections.active.length}
+              emptyTitle="No active deals."
+            >
+              {uid ? sections.active.map((o) => renderActiveTrade(o, uid)) : null}
+            </TradeSectionBlock>
+
+            <TradeSectionBlock
+              title="Completed trades"
+              count={sections.completed.length}
+              emptyTitle="Your collector reputation builds here."
+            >
+              {uid ? sections.completed.map((o) => renderActiveTrade(o, uid)) : null}
+            </TradeSectionBlock>
+
+            <View style={styles.inboxNote}>
+              <Ionicons name="chatbubbles-outline" size={18} color={colors.gold} />
+              <Text style={styles.inboxNoteTxt}>
+                Offers and negotiation threads will live here — your private collector inbox for protected trades.
+              </Text>
             </View>
-
-            <SectionTitle title="Incoming offers" />
-            {sections.incoming.length ? (
-              sections.incoming.map((o) => (
-                <OfferRow key={o.id} offer={o} userId={uid} onPress={() => goReview(o.id)} />
-              ))
-            ) : (
-              <Text style={styles.empty}>No new offers — you are caught up.</Text>
-            )}
-
-            <SectionTitle title="Counter offers" />
-            {sections.counters.length ? (
-              sections.counters.map((o) => (
-                <OfferRow key={o.id} offer={o} userId={uid} onPress={() => goReview(o.id)} />
-              ))
-            ) : (
-              <Text style={styles.empty}>No counters on your desk.</Text>
-            )}
-
-            <SectionTitle title="Sent offers" />
-            {sections.sent.length ? (
-              sections.sent.map((o) => (
-                <OfferRow key={o.id} offer={o} userId={uid} onPress={() => goReview(o.id)} />
-              ))
-            ) : (
-              <Text style={styles.empty}>You have not sent an offer yet.</Text>
-            )}
-
-            <SectionTitle title="Active trades" />
-            {sections.active.length ? (
-              sections.active.map((t) => (
-                <Pressable
-                  key={t.id}
-                  style={styles.row}
-                  onPress={() => navigation.navigate('TradeDetail', { tradeId: t.id })}
-                >
-                  <View style={styles.rowMain}>
-                    <Text style={styles.rowTitle}>
-                      {profileHandle(t.sender_id === uid ? t.recipient : t.sender)}
-                    </Text>
-                    <Text style={styles.rowMeta} numberOfLines={1}>
-                      {t.requested.title}
-                    </Text>
-                    <View style={{ marginTop: 6 }}>
-                      <TradeStatusBadge status={t.status} />
-                    </View>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-                </Pressable>
-              ))
-            ) : (
-              <Text style={styles.empty}>No active trades — accept an offer to move into fees & labels.</Text>
-            )}
-
-            <SectionTitle title="Completed trades" />
-            {sections.completed.length ? (
-              sections.completed.map((t) => (
-                <Pressable
-                  key={t.id}
-                  style={styles.row}
-                  onPress={() => navigation.navigate('TradeDetail', { tradeId: t.id })}
-                >
-                  <View style={styles.rowMain}>
-                    <Text style={styles.rowTitle}>
-                      {profileHandle(t.sender_id === uid ? t.recipient : t.sender)}
-                    </Text>
-                    <Text style={styles.rowMeta} numberOfLines={1}>
-                      Completed · {t.requested.title}
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-                </Pressable>
-              ))
-            ) : (
-              <Text style={styles.empty}>Completed trades archive will appear here.</Text>
-            )}
           </>
         ) : null}
 
         <View style={{ height: spacing.xxxl }} />
       </ScrollView>
-    </View>
-  );
-}
-
-function Pulse({ label, value }: { label: string; value: number }) {
-  return (
-    <View style={styles.pulseCell}>
-      <Text style={styles.pulseVal}>{value}</Text>
-      <Text style={styles.pulseLbl}>{label}</Text>
     </View>
   );
 }
@@ -289,28 +223,33 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     paddingHorizontal: spacing.lg,
   },
-  scroll: { paddingBottom: spacing.xxl, gap: spacing.lg },
-  hero: {
-    borderRadius: radii.lg,
-    padding: spacing.xl,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    gap: spacing.sm,
+  scroll: {
+    paddingBottom: spacing.xxl,
+    gap: spacing.lg,
   },
-  heroKicker: { ...typography.micro, color: colors.gold, letterSpacing: 1 },
-  heroTitle: { ...typography.title, color: colors.textPrimary, fontSize: 24 },
-  heroBody: { color: colors.textSecondary, fontSize: 14, lineHeight: 20 },
-  authCard: {
+  syncHint: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textMuted,
+    letterSpacing: 0.2,
+    marginTop: -spacing.sm,
+  },
+  warnCard: {
     padding: spacing.lg,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.surfaceElevated,
+    borderColor: 'rgba(212,175,55,0.25)',
+    backgroundColor: 'rgba(212,175,55,0.06)',
     gap: spacing.sm,
   },
-  authTitle: { color: colors.textPrimary, fontWeight: '800', fontSize: 15 },
-  authSigned: { color: colors.textPrimary, fontWeight: '700', fontSize: 14 },
-  sourceHint: { color: colors.textMuted, fontSize: 12 },
+  warnTitle: { color: colors.gold, fontWeight: '800', fontSize: 15 },
+  warnBody: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
+  qaLink: {
+    marginTop: spacing.sm,
+    alignSelf: 'flex-start',
+    paddingVertical: spacing.sm,
+  },
+  qaLinkTxt: { color: colors.gold, fontWeight: '700', fontSize: 13 },
   gateCard: {
     padding: spacing.lg,
     borderRadius: radii.lg,
@@ -319,7 +258,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceElevated,
     gap: spacing.md,
   },
-  gateTitle: { color: colors.textPrimary, fontWeight: '800', fontSize: 16 },
+  gateTitle: { color: colors.textPrimary, fontWeight: '900', fontSize: 18 },
   gateBody: { color: colors.textSecondary, fontSize: 14, lineHeight: 20 },
   authCta: {
     backgroundColor: colors.gold,
@@ -330,100 +269,57 @@ const styles = StyleSheet.create({
   authCtaTxt: { color: colors.background, fontWeight: '800', fontSize: 15 },
   authOut: { alignSelf: 'flex-start', paddingVertical: spacing.sm },
   authOutTxt: { color: colors.gold, fontWeight: '700', fontSize: 14 },
-  warnCard: {
-    padding: spacing.lg,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.25)',
-    backgroundColor: 'rgba(212,175,55,0.06)',
-    gap: spacing.sm,
-  },
-  warnTitle: { color: colors.gold, fontWeight: '800', fontSize: 14 },
-  warnBody: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
-  qaLink: {
-    marginTop: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.gold,
-    paddingVertical: spacing.md,
-    borderRadius: radii.md,
-  },
-  qaLinkTxt: { color: colors.background, fontWeight: '800', fontSize: 14 },
-  notifCard: {
-    padding: spacing.lg,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.surfaceElevated,
-    gap: spacing.sm,
-  },
-  notifTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  notifTitle: { color: colors.textPrimary, fontWeight: '800', fontSize: 15 },
-  notifBody: { color: colors.textSecondary, fontSize: 14, lineHeight: 20 },
-  notifCta: {
-    marginTop: spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.gold,
-    paddingVertical: spacing.md,
-    borderRadius: radii.md,
-  },
-  notifCtaTxt: { color: colors.background, fontWeight: '800', fontSize: 14 },
-  startTrade: { borderRadius: radii.lg, overflow: 'hidden' },
-  startTradeInner: {
+  incomingBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  startTradeTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '800' },
-  startTradeSub: { color: colors.textMuted, fontSize: 12, marginTop: 4, lineHeight: 17 },
-  pulseGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  pulseCell: {
-    flexGrow: 1,
-    minWidth: '22%',
     padding: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.35)',
+    backgroundColor: 'rgba(212,175,55,0.08)',
   },
-  pulseVal: { color: colors.textPrimary, fontSize: 18, fontWeight: '800' },
-  pulseLbl: { color: colors.textMuted, fontSize: 9, fontWeight: '700', marginTop: 4, textTransform: 'uppercase' },
-  sectionTitle: {
-    color: colors.textPrimary,
-    fontSize: 16,
+  incomingIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(212,175,55,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  incomingTitle: {
+    fontSize: 12,
     fontWeight: '800',
-    letterSpacing: -0.2,
-    marginBottom: -spacing.xs,
+    color: colors.gold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-  row: {
+  incomingBody: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginTop: 2,
+  },
+  incomingCta: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.gold,
+  },
+  inboxNote: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
     padding: spacing.md,
     borderRadius: radii.md,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    gap: spacing.md,
+    borderColor: 'rgba(212,175,55,0.2)',
+    backgroundColor: 'rgba(212,175,55,0.04)',
   },
-  rowMain: { flex: 1, minWidth: 0 },
-  rowTitle: { color: colors.textPrimary, fontWeight: '700', fontSize: 14 },
-  rowMeta: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
-  empty: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceElevated,
+  inboxNoteTxt: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textMuted,
+    lineHeight: 17,
   },
 });

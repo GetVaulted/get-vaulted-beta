@@ -1,193 +1,229 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, radii, spacing, typography } from '../../theme';
+import { useEffect, useRef } from 'react';
+import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { liveRoomCardStatusLine, liveRoomCategoryLine } from '../../lib/liveRoomDisplay';
+import { colors, radii, spacing } from '../../theme';
 import type { LiveStream } from '../../types';
 import { LiveBadge } from '../ui/LiveBadge';
 
+/** Uniform live rail tile — use for snap intervals on horizontal lists. */
+export const LIVE_ROOM_CARD_WIDTH = 168;
+export const LIVE_ROOM_CARD_GAP = spacing.sm;
+export const LIVE_ROOM_CARD_SNAP = LIVE_ROOM_CARD_WIDTH + LIVE_ROOM_CARD_GAP;
+
+const COVER_HEIGHT = 168;
+
 function formatViewers(n: number) {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k watching`;
-  return `${n} watching`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
 }
 
-function categoryLine(stream: LiveStream) {
-  return stream.categoryTags.slice(0, 2).join(' · ');
-}
+export type LivePromoBadge = 'FEATURED' | 'TRENDING' | 'PROMOTED';
 
 type Props = {
   stream: LiveStream;
   onPress: () => void;
-  /** Slightly larger tile for the first home carousel slot — still restrained. */
-  variant?: 'standard' | 'spotlight';
+  /** Placement priority badge — same card size always. */
+  promoBadge?: LivePromoBadge;
+  /** Grid layout uses full cell width; rail uses fixed width. */
+  layout?: 'rail' | 'grid';
+  gridWidth?: number;
 };
 
-export function LiveNowPreviewCard({ stream, onPress, variant = 'standard' }: Props) {
-  const spotlight = variant === 'spotlight';
+export function LiveNowPreviewCard({
+  stream,
+  onPress,
+  promoBadge,
+  layout = 'rail',
+  gridWidth,
+}: Props) {
+  const glow = useRef(new Animated.Value(0.35)).current;
+  const category = liveRoomCategoryLine(stream);
+  const status = liveRoomCardStatusLine(stream);
+  const promoted = Boolean(promoBadge);
+  const cardWidth = layout === 'grid' && gridWidth ? gridWidth : LIVE_ROOM_CARD_WIDTH;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glow, { toValue: 1, duration: 900, useNativeDriver: false }),
+        Animated.timing(glow, { toValue: 0.35, duration: 900, useNativeDriver: false }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [glow]);
+
+  const borderColor = glow.interpolate({
+    inputRange: [0.35, 1],
+    outputRange: promoted
+      ? ['rgba(212,175,55,0.35)', 'rgba(212,175,55,0.75)']
+      : ['rgba(255, 59, 48, 0.28)', 'rgba(255, 59, 48, 0.72)'],
+  });
 
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
-        styles.card,
-        spotlight && styles.cardSpotlight,
+        styles.pressable,
+        { width: cardWidth },
+        layout === 'grid' && styles.pressableGrid,
         pressed && styles.pressed,
       ]}
+      accessibilityRole="button"
+      accessibilityLabel={`${stream.title}, ${category}, ${status}, ${formatViewers(stream.viewers)} watching`}
     >
-      <View style={[styles.media, spotlight && styles.mediaSpotlight]}>
-        <Image
-          source={{ uri: stream.previewImageUrl }}
-          style={StyleSheet.absoluteFill}
-          resizeMode="cover"
-        />
-        <LinearGradient
-          colors={['rgba(0,0,0,0.02)', 'rgba(0,0,0,0.45)', 'rgba(0,0,0,0.88)']}
-          locations={[0, 0.45, 1]}
-          style={StyleSheet.absoluteFill}
-        />
-
-        <View style={styles.mediaTop}>
-          <LiveBadge compact />
-          <View style={styles.eyePill}>
-            <Ionicons name="eye" size={13} color={colors.textSecondary} />
-            <Text style={styles.eyeText}>{formatViewers(stream.viewers)}</Text>
-          </View>
-        </View>
-
-        <View style={styles.mediaBottom}>
-          <View style={styles.hostRow}>
-            <Image source={{ uri: stream.host.avatarUrl }} style={styles.avatar} />
-            <View style={{ flex: 1 }}>
-              <View style={styles.nameRow}>
-                <Text style={styles.hostName} numberOfLines={1}>
-                  {stream.host.name}
-                </Text>
-                {stream.host.verified ? (
-                  <Ionicons name="checkmark-circle" size={16} color={colors.gold} />
+      <Animated.View style={[styles.glowRing, { borderColor }]}>
+        <View style={styles.card}>
+          <View style={styles.cover}>
+            <Image
+              source={{ uri: stream.previewImageUrl }}
+              style={StyleSheet.absoluteFill}
+              resizeMode="cover"
+            />
+            <LinearGradient
+              colors={['rgba(0,0,0,0.15)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.82)']}
+              locations={[0, 0.55, 1]}
+              style={StyleSheet.absoluteFill}
+            />
+            <View style={styles.coverTop}>
+              <View style={styles.badgeCol}>
+                <LiveBadge compact pulse />
+                {promoBadge ? (
+                  <View style={styles.promoPill}>
+                    <Text style={styles.promoTxt}>{promoBadge}</Text>
+                  </View>
                 ) : null}
               </View>
-              <Text style={styles.showTitle} numberOfLines={2}>
-                {stream.title}
-              </Text>
-              <Text style={styles.category}>{categoryLine(stream)}</Text>
-              <Text style={styles.desc} numberOfLines={spotlight ? 3 : 2}>
-                {stream.showDescription}
-              </Text>
-              {stream.engagementLine ? (
-                <Text style={styles.activity} numberOfLines={1}>
-                  {stream.engagementLine}
-                </Text>
-              ) : null}
+              <View style={styles.viewerPill}>
+                <Ionicons name="eye" size={11} color={colors.textSecondary} />
+                <Text style={styles.viewerTxt}>{formatViewers(stream.viewers)}</Text>
+              </View>
             </View>
           </View>
+
+          <View style={styles.body}>
+            <View style={styles.hostRow}>
+              <Image source={{ uri: stream.host.avatarUrl }} style={styles.avatar} />
+              <Text style={styles.title} numberOfLines={2}>
+                {stream.title}
+              </Text>
+            </View>
+            <Text style={styles.category} numberOfLines={1}>
+              {category}
+            </Text>
+            <Text style={styles.status} numberOfLines={1}>
+              {status}
+            </Text>
+          </View>
         </View>
-      </View>
+      </Animated.View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
+  pressable: {
+    width: LIVE_ROOM_CARD_WIDTH,
+    marginRight: LIVE_ROOM_CARD_GAP,
+  },
+  pressableGrid: {
+    marginRight: 0,
+    marginBottom: LIVE_ROOM_CARD_GAP,
+  },
+  pressed: { opacity: 0.94 },
+  badgeCol: {
+    gap: 4,
+    alignItems: 'flex-start',
+  },
+  promoPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(212,175,55,0.85)',
+  },
+  promoTxt: {
+    fontSize: 8,
+    fontWeight: '900',
+    color: '#0a0a0a',
+    letterSpacing: 0.5,
+  },
+  glowRing: {
+    borderRadius: radii.lg + 1,
+    borderWidth: 1.5,
+    padding: 1,
+  },
   card: {
-    width: 280,
-    marginRight: spacing.md,
     borderRadius: radii.lg,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.06)',
   },
-  cardSpotlight: {
-    width: 300,
-    borderColor: colors.borderStrong,
-  },
-  pressed: {
-    opacity: 0.96,
-  },
-  media: {
-    borderRadius: radii.lg,
-    minHeight: 360,
+  cover: {
+    height: COVER_HEIGHT,
     overflow: 'hidden',
-    justifyContent: 'space-between',
   },
-  mediaSpotlight: {
-    minHeight: 400,
-  },
-  mediaTop: {
+  coverTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    padding: spacing.lg,
+    padding: spacing.sm,
   },
-  eyePill: {
+  viewerPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: radii.pill,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    maxWidth: 150,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
-  eyeText: {
+  viewerTxt: {
     color: colors.textPrimary,
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.2,
+    fontSize: 11,
+    fontWeight: '700',
   },
-  mediaBottom: {
-    padding: spacing.lg,
-    paddingTop: spacing.xl,
+  body: {
+    paddingHorizontal: spacing.sm,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
+    gap: 4,
   },
   hostRow: {
     flexDirection: 'row',
-    gap: spacing.md,
     alignItems: 'flex-start',
+    gap: spacing.sm,
   },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderColor: 'rgba(255,255,255,0.15)',
   },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  hostName: {
+  title: {
+    flex: 1,
     color: colors.textPrimary,
-    fontSize: 15,
-    fontWeight: '700',
-    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 17,
     letterSpacing: -0.2,
   },
-  showTitle: {
-    color: colors.textPrimary,
-    fontSize: 18,
-    fontWeight: '700',
-    marginTop: spacing.sm,
-    lineHeight: 24,
-    letterSpacing: -0.3,
-  },
   category: {
-    marginTop: spacing.sm,
+    fontSize: 10,
+    fontWeight: '700',
     color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginLeft: 36,
   },
-  desc: {
-    color: colors.textSecondary,
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: spacing.md,
-  },
-  activity: {
-    ...typography.caption,
-    marginTop: spacing.md,
-    color: colors.textMuted,
-    fontWeight: '500',
+  status: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.live,
+    marginLeft: 36,
   },
 });

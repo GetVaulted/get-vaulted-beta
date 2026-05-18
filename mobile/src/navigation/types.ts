@@ -1,4 +1,5 @@
 import type { NavigatorScreenParams } from '@react-navigation/native';
+import type { DisputeContextType, ReviewType, SupportCategory } from '../platform/types';
 
 export type LiveStackParamList = {
   LiveDiscovery: undefined;
@@ -17,7 +18,7 @@ export type TradeCenterStackParamList = {
 
 export type MainTabParamList = {
   Home: undefined;
-  Discover: undefined;
+  Marketplace: undefined;
   Live: NavigatorScreenParams<LiveStackParamList> | undefined;
   TradeCenter: NavigatorScreenParams<TradeCenterStackParamList> | undefined;
   HQ: undefined;
@@ -44,5 +45,42 @@ export type RootStackParamList = {
   ProfileEdit: undefined;
   ProductDetail: { productId: string };
   SellerHostRoom: { roomId: string };
+  MessagesInbox: undefined;
+  MessageThread: { threadId: string };
+  MessageCompose: {
+    listingId?: string;
+    liveRoomId?: string;
+    initialDraft?: string;
+  };
   CreateListingFlow: NavigatorScreenParams<CreateListingStackParamList> | undefined;
+  Settings: undefined;
+  SettingsAccount: undefined;
+  ChangeEmail: undefined;
+  ChangePassword: undefined;
+  DeleteAccount: undefined;
+  HelpCenter: { focusSearch?: boolean } | undefined;
+  HelpArticle: { articleId: string };
+  ContactSupport:
+    | {
+        category?: SupportCategory;
+        referenceType?: string;
+        referenceId?: string;
+      }
+    | undefined;
+  SupportInbox: undefined;
+  SupportTicketDetail: { ticketId: string };
+  OpenDispute: { contextType: DisputeContextType; referenceId?: string };
+  DisputeDetail: { disputeId: string };
+  UserProfile: { userId: string };
+  WriteReview: {
+    reviewType: ReviewType;
+    referenceId: string;
+    subjectUserId: string;
+    subjectDisplayName?: string;
+  };
+  NotificationInbox: undefined;
+  VaultEventRecap: { roomId: string };
+  VaultComms: undefined;
+  BuyerOrders: undefined;
+  BuyerOrderDetail: { orderId: string };
 };

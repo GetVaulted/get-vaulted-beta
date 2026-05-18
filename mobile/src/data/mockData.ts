@@ -9,7 +9,7 @@ import type {
   ScheduledStream,
 } from '../types';
 
-/** Home / Discover / Live rails use Supabase feeds only — no seeded listings or hosts. */
+/** Home / Marketplace / Live rails use Supabase feeds only — no seeded listings or hosts. */
 export const liveStreams: LiveStream[] = [];
 export const trendingBreakerShows: LiveStream[] = [];
 export const recommendedShows: LiveStream[] = [];
@@ -23,7 +23,7 @@ export const momentumSnapshot = {
   soldToday: '—',
   soldTodaySub: 'Metrics when the marketplace is live',
   watching: '—',
-  watchingSub: 'Tune in when breakers go live',
+  watchingSub: 'Tune in when sellers go live',
   ending: '—',
   endingSub: 'No shows ending',
 } as const;

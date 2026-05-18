@@ -5,13 +5,13 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radii, spacing } from '../../../theme';
 
-export type FabActionId = 'go_live' | 'listing' | 'schedule' | 'inventory';
+export type FabActionId = 'vault_events' | 'listing' | 'schedule' | 'inventory';
 
 const ACTIONS: { id: FabActionId; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { id: 'go_live', label: 'Go Live', icon: 'radio' },
-  { id: 'listing', label: 'Add Listing', icon: 'add-circle-outline' },
-  { id: 'schedule', label: 'Schedule Show', icon: 'calendar' },
-  { id: 'inventory', label: 'Add Inventory', icon: 'layers-outline' },
+  { id: 'vault_events', label: 'Vault Events', icon: 'albums-outline' },
+  { id: 'listing', label: 'Create Listing', icon: 'add-circle-outline' },
+  { id: 'schedule', label: 'Schedule Event', icon: 'calendar' },
+  { id: 'inventory', label: 'Inventory', icon: 'layers-outline' },
 ];
 
 export function SellerHQFab({ onAction }: { onAction: (id: FabActionId) => void }) {

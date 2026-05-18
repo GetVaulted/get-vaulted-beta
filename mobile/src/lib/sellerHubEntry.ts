@@ -57,9 +57,9 @@ export function sellerHQEntryCopy(phase: SellerHQEntryPhase): {
       };
     case 'ready':
       return {
-        title: 'Command Center',
-        body: 'Your live commerce OS — vault events, inventory queue, revenue vault, and the lane.',
-        cta: 'Enter Command Center',
+        title: 'Seller Studio',
+        body: 'Vault events, inventory, revenue vault, and fulfillment — your seller operating system.',
+        cta: 'Open Seller Studio',
         icon: 'checkmark-circle-outline',
       };
   }

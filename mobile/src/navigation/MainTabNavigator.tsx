@@ -1,5 +1,5 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { BrowseScreen } from '../screens/BrowseScreen';
+import { MarketplaceScreen } from '../screens/MarketplaceScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { SellerHubScreen } from '../screens/SellerHubScreen';
 import { TradeCenterStackNavigator } from './TradeCenterStackNavigator';
@@ -18,7 +18,7 @@ export function MainTabNavigator() {
       }}
     >
       <Tab.Screen name="Home" component={HomeScreen} />
-      <Tab.Screen name="Discover" component={BrowseScreen} options={{ tabBarAccessibilityLabel: 'Discover' }} />
+      <Tab.Screen name="Marketplace" component={MarketplaceScreen} options={{ tabBarAccessibilityLabel: 'Marketplace' }} />
       <Tab.Screen name="Live" component={LiveStackNavigator} />
       <Tab.Screen
         name="TradeCenter"

@@ -21,7 +21,7 @@ type TabNav = BottomTabNavigationProp<MainTabParamList>;
 type Props = {
   title?: string;
   subtitle?: string;
-  /** When true, wires default CTAs: HQ (live) + Discover */
+  /** When true, wires default CTAs: HQ (live) + Marketplace */
   useDefaultTabActions?: boolean;
   onStartLive?: () => void;
   onExploreListings?: () => void;
@@ -29,7 +29,7 @@ type Props = {
 
 export function LiveEmptyBroadcastBlock({
   title = 'No live rooms right now',
-  subtitle = 'The next break is loading.',
+  subtitle = 'Collector rooms go live around the clock — check back soon.',
   useDefaultTabActions = true,
   onStartLive,
   onExploreListings,
@@ -76,7 +76,7 @@ export function LiveEmptyBroadcastBlock({
     }
     if (!useDefaultTabActions) return;
     const tab = stackNav.getParent<TabNav>();
-    tab?.navigate('Discover');
+    tab?.navigate('Marketplace');
   };
 
   return (

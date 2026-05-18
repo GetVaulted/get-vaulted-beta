@@ -1,3 +1,4 @@
+import type { LiveRoomItemRow } from './liveRoomControlRepository';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 
 export type HostStreamPayload = {
@@ -155,6 +156,62 @@ export async function provisionHostStream(
   if (!endpoint || !key) throw new Error('Stream provision did not return ingest details.');
   if (!j.stream) throw new Error('Stream provision incomplete.');
   return { stream: j.stream, ingestEndpoint: endpoint, oneTimeStreamKey: key };
+}
+
+export type HostConsoleRoom = LiveRoomHostDetail & {
+  viewerCount: number;
+  thumbnailUrl?: string | null;
+  category?: string;
+};
+
+export type HostConsoleMessage = {
+  id: string;
+  senderUsername: string;
+  body: string;
+  createdAt: string;
+};
+
+export type HostConsolePayload = {
+  serverNowMs: number;
+  room: HostConsoleRoom;
+  items: LiveRoomItemRow[];
+  activeItem: LiveRoomItemRow | null;
+  recentSalesTotalUsd: number;
+  messages: HostConsoleMessage[];
+};
+
+export async function fetchHostConsole(accessToken: string, roomId: string): Promise<HostConsolePayload> {
+  const res = await hostFetch(`/api/live-rooms/${encodeURIComponent(roomId)}/host-console`, accessToken);
+  let j: {
+    serverNowMs?: number;
+    room?: HostConsoleRoom & { viewerCount?: number };
+    queueItems?: { item: LiveRoomItemRow }[];
+    messages?: HostConsoleMessage[];
+    recentSales?: { amountUsd?: number }[];
+    error?: string;
+  } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+  if (!j.room?.id) throw new Error('Host console unavailable.');
+  const items = (j.queueItems ?? []).map((q) => q.item).filter(Boolean);
+  const activeItem = items.find((i) => i.status === 'active') ?? null;
+  const recentSalesTotalUsd = (j.recentSales ?? []).reduce((sum, s) => {
+    const n = typeof s.amountUsd === 'number' ? s.amountUsd : 0;
+    return sum + (Number.isFinite(n) ? n : 0);
+  }, 0);
+  const messages = Array.isArray(j.messages) ? j.messages : [];
+  return {
+    serverNowMs: j.serverNowMs ?? Date.now(),
+    room: { ...j.room, viewerCount: j.room.viewerCount ?? 0 },
+    items,
+    activeItem,
+    recentSalesTotalUsd,
+    messages,
+  };
 }
 
 export async function rotateHostStreamKey(

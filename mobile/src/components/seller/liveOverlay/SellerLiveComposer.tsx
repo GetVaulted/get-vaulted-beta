@@ -1,0 +1,109 @@
+import { useRef } from 'react';
+import { Animated, StyleSheet } from 'react-native';
+import {
+  COMPOSER_BAR_H,
+  FloatingChatComposer,
+} from '../../live/floatingLiveChat';
+import { colors } from '../../../theme';
+
+export function SellerLiveComposer({
+  bottom,
+  left,
+  rightEdge,
+  value,
+  onChangeText,
+  onSend,
+  sendDisabled,
+  placeholderIndex,
+  onQuickReaction,
+  onEmojiPress,
+}: {
+  bottom: number;
+  left: number;
+  rightEdge: number;
+  value: string;
+  onChangeText: (t: string) => void;
+  onSend: () => void;
+  sendDisabled?: boolean;
+  placeholderIndex: number;
+  onQuickReaction: (emoji: string) => void;
+  onEmojiPress: () => void;
+}) {
+  const glow = useRef(new Animated.Value(0)).current;
+  const active = value.trim().length > 0;
+
+  const bumpGlow = () => {
+    Animated.sequence([
+      Animated.timing(glow, { toValue: 1, duration: 100, useNativeDriver: true }),
+      Animated.timing(glow, { toValue: active ? 0.65 : 0.2, duration: 280, useNativeDriver: true }),
+    ]).start();
+  };
+
+  const handleReaction = (emoji: string) => {
+    bumpGlow();
+    onQuickReaction(emoji);
+  };
+
+  return (
+    <Animated.View
+      style={[
+        styles.host,
+        {
+          bottom,
+          left,
+          right: rightEdge,
+          height: COMPOSER_BAR_H,
+          shadowOpacity: active ? 0.55 : 0.28,
+        },
+      ]}
+    >
+      <Animated.View
+        style={[
+          styles.glowRing,
+          {
+            opacity: glow.interpolate({
+              inputRange: [0, 1],
+              outputRange: [active ? 0.45 : 0.15, 0.9],
+            }),
+          },
+        ]}
+        pointerEvents="none"
+      />
+      <FloatingChatComposer
+        bottom={0}
+        left={0}
+        rightEdge={0}
+        value={value}
+        onChangeText={(t) => {
+          onChangeText(t);
+          if (t.trim()) {
+            Animated.timing(glow, { toValue: 0.55, duration: 200, useNativeDriver: true }).start();
+          }
+        }}
+        onSend={sendDisabled ? () => undefined : onSend}
+        sendDisabled={sendDisabled}
+        placeholderIndex={placeholderIndex}
+        onQuickReaction={handleReaction}
+        onEmojiPress={onEmojiPress}
+      />
+    </Animated.View>
+  );
+}
+
+const styles = StyleSheet.create({
+  host: {
+    position: 'absolute',
+    zIndex: 6,
+    shadowColor: colors.gold,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 6,
+  },
+  glowRing: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.55)',
+    backgroundColor: 'rgba(212,175,55,0.06)',
+  },
+});

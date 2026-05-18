@@ -1,29 +1,31 @@
 import type { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchMyLiveRooms, type LiveRoomApiRow } from '../api/liveRoomsRepository';
+import { fetchSellerAnalytics, type SellerAnalyticsSnapshot } from '../api/sellerAnalyticsRepository';
 import { useSellerStripeConnect } from './useSellerStripeConnect';
 import { useSellerWallet } from './useSellerWallet';
-import { listingCounts, orderCounts, analyticsSnapshot } from '../data/sellerHubMock';
+import { listingCounts } from '../data/sellerHubMock';
 import { isSellerHQApproved } from '../lib/sellerHubEntry';
 
-function formatCountdown(iso: string | null): string | null {
-  if (!iso) return null;
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return null;
-  const diff = t - Date.now();
-  if (diff <= 0) return 'Starting soon';
-  const h = Math.floor(diff / 3_600_000);
-  const m = Math.floor((diff % 3_600_000) / 60_000);
-  if (h > 48) return `${Math.floor(h / 24)}d`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
+const EMPTY_ANALYTICS: SellerAnalyticsSnapshot = {
+  activeListings: 0,
+  pendingFulfillment: 0,
+  completedSales: 0,
+  completedTrades: 0,
+  liveViewerTotal: 0,
+  liveShowsLive: 0,
+  followers: 0,
+  averageRating: 0,
+  reviewCount: 0,
+  revenueAvailable: null,
+};
 
 export function useSellerCommandCenterData(accessToken: string | undefined, vaultListingCount: number) {
   const sellerConnect = useSellerStripeConnect(accessToken);
   const sellerWallet = useSellerWallet(accessToken);
   const [rooms, setRooms] = useState<LiveRoomApiRow[]>([]);
   const [roomsLoading, setRoomsLoading] = useState(false);
+  const [analytics, setAnalytics] = useState<SellerAnalyticsSnapshot>(EMPTY_ANALYTICS);
 
   const reloadRooms = useCallback(async () => {
     if (!accessToken) {
@@ -41,6 +43,18 @@ export function useSellerCommandCenterData(accessToken: string | undefined, vaul
     }
   }, [accessToken]);
 
+  const reloadAnalytics = useCallback(
+    async (userId: string) => {
+      const snap = await fetchSellerAnalytics(
+        userId,
+        accessToken,
+        sellerWallet.wallet?.availableFormatted ?? null,
+      );
+      setAnalytics(snap);
+    },
+    [accessToken, sellerWallet.wallet?.availableFormatted],
+  );
+
   useEffect(() => {
     void reloadRooms();
   }, [reloadRooms]);
@@ -57,9 +71,8 @@ export function useSellerCommandCenterData(accessToken: string | undefined, vaul
         }),
     [rooms],
   );
-  const nextEvent = upcomingRooms[0] ?? null;
-
   const approved = isSellerHQApproved(sellerConnect.status);
+  const liveCount = liveRoom ? 1 : 0;
 
   const setupProgress = useMemo(() => {
     const st = sellerConnect.status;
@@ -78,30 +91,35 @@ export function useSellerCommandCenterData(accessToken: string | undefined, vaul
       value: string;
       tone?: 'gold' | 'live' | 'warn';
     }[] = [];
-    if (nextEvent) {
+    const eventCount = upcomingRooms.length + liveCount;
+    if (eventCount > 0) {
       items.push({
-        id: 'countdown',
-        icon: 'timer-outline',
-        label: 'Vault event countdown',
-        value: `${nextEvent.title} · ${formatCountdown(nextEvent.scheduledStartAt) ?? 'Scheduled'}`,
-        tone: 'gold',
+        id: 'vault_events',
+        icon: liveRoom ? 'radio-outline' : 'calendar-outline',
+        label: 'Vault events',
+        value: liveRoom
+          ? `${eventCount} show${eventCount === 1 ? '' : 's'} · manage in Vault Events`
+          : `${eventCount} scheduled · open Vault Events`,
+        tone: liveRoom ? 'live' : 'gold',
       });
     }
-    if (orderCounts.ship > 0) {
+    if (analytics.pendingFulfillment > 0) {
       items.push({
         id: 'ship',
         icon: 'cube-outline',
         label: 'Orders needing fulfillment',
-        value: `${orderCounts.ship} awaiting ship`,
+        value: `${analytics.pendingFulfillment} awaiting ship`,
         tone: 'warn',
       });
     }
-    items.push({
-      id: 'followers',
-      icon: 'people-outline',
-      label: 'Collector network',
-      value: 'Growing · insights soon',
-    });
+    if (analytics.followers > 0) {
+      items.push({
+        id: 'followers',
+        icon: 'people-outline',
+        label: 'Collector network',
+        value: `${analytics.followers} follower${analytics.followers === 1 ? '' : 's'}`,
+      });
+    }
     if (sellerWallet.wallet?.pendingFormatted) {
       items.push({
         id: 'payout',
@@ -120,14 +138,27 @@ export function useSellerCommandCenterData(accessToken: string | undefined, vaul
         value: `${drafts} listing${drafts === 1 ? '' : 's'}`,
       });
     }
-    items.push({
-      id: 'auction',
-      icon: 'hammer-outline',
-      label: 'Auction performance',
-      value: analyticsSnapshot.sellThrough === '—' ? 'Syncing lane metrics' : analyticsSnapshot.sellThrough,
-    });
+    if (analytics.completedSales > 0) {
+      items.push({
+        id: 'auction',
+        icon: 'hammer-outline',
+        label: 'Completed sales',
+        value: `${analytics.completedSales} vault sale${analytics.completedSales === 1 ? '' : 's'}`,
+      });
+    }
     return items;
-  }, [nextEvent, sellerWallet.wallet?.pendingFormatted, vaultListingCount]);
+  }, [
+    analytics.completedSales,
+    analytics.followers,
+    analytics.pendingFulfillment,
+    liveCount,
+    liveRoom,
+    upcomingRooms.length,
+    sellerWallet.wallet?.pendingFormatted,
+    vaultListingCount,
+  ]);
+
+  const fmt = (n: number | null) => (n == null ? '—' : String(n));
 
   return {
     approved,
@@ -137,21 +168,29 @@ export function useSellerCommandCenterData(accessToken: string | undefined, vaul
     rooms,
     roomsLoading,
     reloadRooms,
+    reloadAnalytics,
     liveRoom,
     upcomingRooms,
-    nextEvent,
     todayItems,
+    liveCount,
+    upcomingCount: upcomingRooms.length,
+    analytics,
     metrics: {
-      revenueToday: sellerWallet.wallet?.availableFormatted ?? '—',
-      followers: '—',
-      pendingOrders: String(orderCounts.ship),
-      upcomingShows: String(upcomingRooms.length + (liveRoom ? 1 : 0)),
-      liveStatus: liveRoom ? 'On air' : 'Offline',
-      sellThrough: analyticsSnapshot.sellThrough,
-      activeViewers: analyticsSnapshot.viewerGrowth,
-      conversion: analyticsSnapshot.engagement,
-      gmv: analyticsSnapshot.revenue30,
-      avgHammer: '—',
+      revenueToday: analytics.revenueAvailable ?? sellerWallet.wallet?.availableFormatted ?? '—',
+      activeCollectors: fmt(analytics.followers),
+      pendingOrders: String(analytics.pendingFulfillment),
+      performanceInsight:
+        analytics.reviewCount > 0
+          ? `${analytics.averageRating.toFixed(1)}★ · ${analytics.reviewCount} reviews`
+          : 'Reviews unlock after completed deals',
+      sellThrough:
+        analytics.activeListings > 0
+          ? `${analytics.completedSales} sold · ${analytics.activeListings} active`
+          : '—',
+      activeViewers: analytics.liveViewerTotal > 0 ? String(analytics.liveViewerTotal) : '—',
+      conversion: analytics.liveShowsLive > 0 ? `${analytics.liveShowsLive} live` : '—',
+      gmv: analytics.revenueAvailable ?? '—',
+      avgHammer: analytics.completedTrades > 0 ? `${analytics.completedTrades} trades` : '—',
     },
   };
 }

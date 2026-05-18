@@ -16,9 +16,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  analyticsSnapshot,
   listingPreviews,
-  orderRows,
   SELLER_HUB_TABS,
   streamCategories,
   type SellerHubTabId,
@@ -28,11 +26,12 @@ import {
 import { LaunchVaultEventPanel } from './sellerHub/LaunchVaultEventPanel';
 import { useCreateListingDraft } from '../createListing/CreateListingDraftContext';
 import { openCreateListing } from '../navigation/openCreateListing';
+import { openContactSupport } from '../navigation/openPlatform';
 import { SellerHQCommandCenter } from '../components/seller/hq/SellerHQCommandCenter';
 import { SellerHQFab, type FabActionId } from '../components/seller/hq/SellerHQFab';
 import type { SellerHQEntryPhase } from '../lib/sellerHubEntry';
 import { openSellerHostRoom } from '../navigation/openSellerHostRoom';
-import { consumePendingSellerHQTab } from '../navigation/openSellerHQ';
+import { consumePendingSellerHQTab, setPendingVaultEventSchedule } from '../navigation/openSellerHQ';
 import { navigateAuthLogin, navigateAuthSignUp, rootNavigationRef } from '../navigation/rootNavigationRef';
 import { useAuth } from '../auth/AuthContext';
 import { LISTING_CHANNEL_CONFIG, channelFromPreview } from '../createListing/listingChannel';
@@ -50,7 +49,6 @@ import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { openStripeConnectDashboard } from '../lib/openStripeConnectDashboard';
 import { openStripeConnectOnboarding, refreshSellerConnectAfterOnboarding } from '../lib/openStripeConnectOnboarding';
 import { areDevToolsEnabled } from '../lib/devTools';
-import type { CategoryId } from '../types';
 
 function statusStyle(status: (typeof listingPreviews)[0]['status']) {
   switch (status) {
@@ -77,11 +75,15 @@ export function SellerHubScreen() {
   const { user, loading: authLoading, session } = useAuth();
   const { userListings } = useCreateListingDraft();
   const cmdData = useSellerCommandCenterData(session?.access_token, userListings.length);
+
+  useEffect(() => {
+    if (user?.id) void cmdData.reloadAnalytics(user.id);
+  }, [user?.id, cmdData.reloadAnalytics]);
   const sellerConnect = cmdData.sellerConnect;
   const sellerWallet = cmdData.sellerWallet;
   const [tab, setTab] = useState<SellerHubTabId>('overview');
   const [scheduleTitle, setScheduleTitle] = useState('');
-  const [scheduleCategory, setScheduleCategory] = useState<CategoryId>(streamCategories[0].id);
+  const [scheduleCategory, setScheduleCategory] = useState(streamCategories[0].label);
   const [streamFormat, setStreamFormat] = useState<'auction' | 'break' | 'hybrid'>('hybrid');
   const [preloadInventory, setPreloadInventory] = useState(true);
   const [giveaways, setGiveaways] = useState(true);
@@ -167,21 +169,18 @@ export function SellerHubScreen() {
     (id: FabActionId) => {
       const rootNav = navigation as unknown as NavigationProp<ParamListBase>;
       switch (id) {
-        case 'go_live':
-          if (cmdData.liveRoom) {
-            openSellerHostRoom(navigation, cmdData.liveRoom.id);
-          } else {
-            setTab('live');
-          }
+        case 'vault_events':
+          setTab('live');
           break;
         case 'listing':
           void openCreateListing(rootNav, { channel: 'marketplace' });
           break;
         case 'schedule':
+          setPendingVaultEventSchedule(true);
           setTab('live');
           break;
         case 'inventory':
-          void openCreateListing(rootNav, { channel: 'live_show' });
+          setTab('listings');
           break;
       }
     },
@@ -190,7 +189,7 @@ export function SellerHubScreen() {
 
   const openProfileSettings = useCallback(() => {
     if (rootNavigationRef.isReady()) {
-      rootNavigationRef.navigate('ProfileEdit');
+      rootNavigationRef.navigate('Settings');
     }
   }, []);
 
@@ -219,10 +218,21 @@ export function SellerHubScreen() {
             vaultListingCount={userListings.length}
             onBrowseLive={() => navigation.navigate('Live', { screen: 'LiveDiscovery' })}
             onHostRoom={(roomId) => openSellerHostRoom(navigation, roomId)}
+            onViewRecap={(roomId) => {
+              const tabNav = navigation.getParent();
+              const root = tabNav?.getParent?.() ?? tabNav;
+              if (root && 'navigate' in root) {
+                (root as { navigate: (n: string, p: { roomId: string }) => void }).navigate('VaultEventRecap', {
+                  roomId,
+                });
+              } else if (rootNavigationRef.isReady()) {
+                rootNavigationRef.navigate('VaultEventRecap', { roomId });
+              }
+            }}
           />
         );
       case 'orders':
-        return <OrdersPanel navigation={navigation} />;
+        return <OrdersPanel />;
       case 'wallet':
         return (
           <WalletPanel
@@ -233,7 +243,7 @@ export function SellerHubScreen() {
           />
         );
       case 'analytics':
-        return <AnalyticsPanel />;
+        return <AnalyticsPanel analytics={cmdData.analytics} />;
       case 'vault':
         return <VaultIdentityPanel />;
       default:
@@ -296,7 +306,7 @@ export function SellerHubScreen() {
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <Text style={styles.hqGateTitle}>Seller Studio</Text>
           <Text style={styles.hqGateBody}>
-            Log in to enter your command center — vault events, inventory queue, revenue vault, and fulfillment.
+            Log in to Seller Studio — revenue, fulfillment, collector network, and vault events.
           </Text>
           <Pressable style={styles.hqGatePrimary} onPress={navigateAuthSignUp}>
             <Text style={styles.hqGatePrimaryTxt}>Create account</Text>
@@ -311,7 +321,7 @@ export function SellerHubScreen() {
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.sm }]}>
-      {sellerApproved ? <SellerHQFab onAction={onFabAction} /> : null}
+      {sellerApproved && tab !== 'live' ? <SellerHQFab onAction={onFabAction} /> : null}
       <ScrollView
         stickyHeaderIndices={[0]}
         showsVerticalScrollIndicator={false}
@@ -462,25 +472,53 @@ function ListingsPanel({ navigation }: { navigation: BottomTabNavigationProp<Mai
   );
 }
 
-function OrdersPanel({ navigation }: { navigation: BottomTabNavigationProp<MainTabParamList> }) {
+function OrdersPanel() {
+  const { user } = useAuth();
+  const [orders, setOrders] = useState<import('../api/ordersRepository').VaultOrderRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    void (async () => {
+      setLoading(true);
+      const { fetchSellerOrders } = await import('../api/ordersRepository');
+      setOrders(await fetchSellerOrders(user.id));
+      setLoading(false);
+    })();
+  }, [user?.id]);
+
+  if (loading) {
+    return <ActivityIndicator color={colors.gold} style={{ marginTop: spacing.lg }} />;
+  }
+
+  if (!orders.length) {
+    return (
+      <Text style={styles.orderEmpty}>
+        No marketplace orders yet. When collectors buy from your vault, fulfillment appears here.
+      </Text>
+    );
+  }
+
   return (
     <View style={{ gap: spacing.sm }}>
-      {orderRows.map((o) => (
-        <Pressable
-          key={o.id}
-          style={styles.orderRow}
-          onPress={() => navigation.navigate('TradeCenter', { screen: 'TradeCenterHome' })}
-        >
-          <View style={{ flex: 1 }}>
-            <Text style={styles.orderItem}>{o.item}</Text>
-            <Text style={styles.orderBuyer}>{o.buyer}</Text>
-          </View>
-          <Text style={styles.orderAmt}>{o.amount}</Text>
-          <View style={styles.orderBadge}>
-            <Text style={styles.orderBadgeText}>{o.state}</Text>
-          </View>
-        </Pressable>
-      ))}
+      {orders.map((o) => {
+        const amt = `$${(o.totalCents / 100).toFixed(2)}`;
+        return (
+          <Pressable
+            key={o.id}
+            style={styles.orderRow}
+            onPress={() => openContactSupport({ category: 'order', referenceId: o.id })}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.orderItem}>{o.listingTitle}</Text>
+              <Text style={styles.orderBuyer}>
+                {o.buyerUsername ? `@${o.buyerUsername}` : 'Buyer'} · {o.status}
+              </Text>
+            </View>
+            <Text style={styles.orderAmt}>{amt}</Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -573,39 +611,51 @@ function WalletPanel({
   );
 }
 
-function AnalyticsPanel() {
-  const bars = [52, 68, 44, 72, 58, 80, 64];
+function AnalyticsPanel({ analytics }: { analytics: import('../api/sellerAnalyticsRepository').SellerAnalyticsSnapshot }) {
+  const hasData =
+    analytics.activeListings > 0 ||
+    analytics.completedSales > 0 ||
+    analytics.liveViewerTotal > 0 ||
+    analytics.reviewCount > 0;
+
   return (
     <View style={{ gap: spacing.lg }}>
       <View style={styles.analyticsCard}>
-        <Text style={styles.analyticsBig}>{analyticsSnapshot.revenue30}</Text>
-        <Text style={styles.analyticsCaption}>Trailing 30 days · GMV lane</Text>
-        <View style={styles.barRow}>
-          {bars.map((h, i) => (
-            <View key={i} style={[styles.bar, { height: h }]} />
-          ))}
-        </View>
+        <Text style={styles.analyticsBig}>{analytics.revenueAvailable ?? '—'}</Text>
+        <Text style={styles.analyticsCaption}>Revenue vault · available balance</Text>
       </View>
-      <View style={styles.kpiGrid}>
-        <View style={styles.kpi}>
-          <Text style={styles.kpiLabel}>Viewer growth</Text>
-          <Text style={styles.kpiVal}>{analyticsSnapshot.viewerGrowth}</Text>
+      {hasData ? (
+        <View style={styles.kpiGrid}>
+          <View style={styles.kpi}>
+            <Text style={styles.kpiLabel}>Active listings</Text>
+            <Text style={styles.kpiVal}>{analytics.activeListings}</Text>
+          </View>
+          <View style={styles.kpi}>
+            <Text style={styles.kpiLabel}>Completed sales</Text>
+            <Text style={styles.kpiVal}>{analytics.completedSales}</Text>
+          </View>
+          <View style={styles.kpi}>
+            <Text style={styles.kpiLabel}>Live viewers</Text>
+            <Text style={styles.kpiVal}>{analytics.liveViewerTotal > 0 ? analytics.liveViewerTotal : '—'}</Text>
+          </View>
+          <View style={styles.kpi}>
+            <Text style={styles.kpiLabel}>Vault rating</Text>
+            <Text style={styles.kpiValSm}>
+              {analytics.reviewCount > 0 ? `${analytics.averageRating.toFixed(1)}★ (${analytics.reviewCount})` : '—'}
+            </Text>
+          </View>
+          <View style={styles.kpi}>
+            <Text style={styles.kpiLabel}>Completed trades</Text>
+            <Text style={styles.kpiVal}>{analytics.completedTrades}</Text>
+          </View>
+          <View style={styles.kpi}>
+            <Text style={styles.kpiLabel}>Followers</Text>
+            <Text style={styles.kpiVal}>{analytics.followers}</Text>
+          </View>
         </View>
-        <View style={styles.kpi}>
-          <Text style={styles.kpiLabel}>Sell-through</Text>
-          <Text style={styles.kpiVal}>{analyticsSnapshot.sellThrough}</Text>
-        </View>
-        <View style={styles.kpi}>
-          <Text style={styles.kpiLabel}>Top stream</Text>
-          <Text style={styles.kpiValSm} numberOfLines={2}>
-            {analyticsSnapshot.topStream}
-          </Text>
-        </View>
-        <View style={styles.kpi}>
-          <Text style={styles.kpiLabel}>Engagement</Text>
-          <Text style={styles.kpiValSm}>{analyticsSnapshot.engagement}</Text>
-        </View>
-      </View>
+      ) : (
+        <Text style={styles.orderEmpty}>Insights populate as you list, sell, and host on Get Vaulted.</Text>
+      )}
     </View>
   );
 }
@@ -1284,6 +1334,12 @@ const styles = StyleSheet.create({
     color: colors.gold,
     fontWeight: '800',
     fontSize: 14,
+  },
+  orderEmpty: {
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: spacing.md,
   },
   orderBadge: {
     paddingHorizontal: 8,

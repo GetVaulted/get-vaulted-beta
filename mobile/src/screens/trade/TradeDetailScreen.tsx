@@ -23,6 +23,7 @@ import { listingToTradeItem } from '../../trade/listingToTradeItem';
 import { TRADE_STATUS_LABEL, TRADE_STATUS_ORDER, tradeStatusIndex } from '../../lib/tradeStatusLabels';
 import { TradeStatusBadge } from '../../components/trade/TradeStatusBadge';
 import { navigateAuthLogin, navigateAuthSignUp } from '../../navigation/rootNavigationRef';
+import { openContactSupport, openDispute, openUserProfile, openWriteReview } from '../../navigation/openPlatform';
 
 type Props = NativeStackScreenProps<TradeCenterStackParamList, 'TradeDetail'>;
 
@@ -134,7 +135,7 @@ export function TradeDetailScreen({ navigation, route }: Props) {
               >
                 <Text style={styles.retryTxt}>Refresh status</Text>
               </Pressable>
-              <Pressable style={styles.support} onPress={() => void Linking.openURL('mailto:support@getvaulted.app')}>
+              <Pressable style={styles.support} onPress={() => openContactSupport({ category: 'trade', referenceId: tradeId })}>
                 <Text style={styles.supportTxt}>Contact support</Text>
               </Pressable>
             </View>
@@ -189,6 +190,38 @@ export function TradeDetailScreen({ navigation, route }: Props) {
           <Ionicons name="time-outline" size={18} color={colors.gold} />
           <Text style={styles.linkTxt}>View offer history</Text>
         </Pressable>
+
+        <Pressable style={styles.link} onPress={() => openUserProfile(partner.id)}>
+          <Ionicons name="person-outline" size={18} color={colors.gold} />
+          <Text style={styles.linkTxt}>Partner profile</Text>
+        </Pressable>
+
+        <Pressable style={styles.link} onPress={() => openContactSupport({ category: 'trade', referenceId: tradeId })}>
+          <Ionicons name="chatbox-ellipses-outline" size={18} color={colors.gold} />
+          <Text style={styles.linkTxt}>Contact support</Text>
+        </Pressable>
+
+        <Pressable style={styles.link} onPress={() => openDispute({ contextType: 'trade', referenceId: tradeId })}>
+          <Ionicons name="shield-outline" size={18} color={colors.live} />
+          <Text style={[styles.linkTxt, { color: colors.live }]}>Open dispute</Text>
+        </Pressable>
+
+        {offer.status === 'completed' ? (
+          <Pressable
+            style={styles.link}
+            onPress={() =>
+              openWriteReview({
+                reviewType: 'trade',
+                referenceId: tradeId,
+                subjectUserId: partner.id,
+                subjectDisplayName: partnerHandle,
+              })
+            }
+          >
+            <Ionicons name="star-outline" size={18} color={colors.gold} />
+            <Text style={styles.linkTxt}>Leave trade review</Text>
+          </Pressable>
+        ) : null}
 
         <View style={{ height: spacing.xxxl }} />
       </ScrollView>

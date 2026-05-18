@@ -25,6 +25,11 @@ export function mapListingCategoryToCategoryId(raw: string | null | undefined): 
   if (normalized) return normalized;
 
   const s = (raw ?? '').toLowerCase();
+  if (s.includes('other collectible')) return 'other';
+  if (s.includes('apparel') || s.includes('fashion')) return 'other';
+  if (s.includes('trading') || s.includes('tcg') || s.includes('pokemon') || s.includes('yugioh')) return 'cards';
+  if (s.includes('sealed') || s.includes('hobby') || s === 'wax') return 'cards';
+  if (s === 'breaks' || s === 'break') return 'cards';
   if (s.includes('card') || s.includes('slab') || s.includes('psa') || s === 'trade_qa') return 'cards';
   if (s.includes('sneaker') || s.includes('footwear')) return 'sneakers';
   if (s.includes('watch')) return 'watches';

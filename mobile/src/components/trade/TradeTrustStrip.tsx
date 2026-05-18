@@ -1,13 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
-import { colors, radii, spacing, typography } from '../../theme';
+import { colors, radii, spacing } from '../../theme';
 
 const ROWS = [
-  { icon: 'person-circle-outline' as const, text: 'Get Vaulted account required to trade' },
-  { icon: 'shield-checkmark-outline' as const, text: 'Verified profiles & Vaulted Verified items' },
+  { icon: 'person-circle-outline' as const, text: 'Secure collector account required' },
+  { icon: 'shield-checkmark-outline' as const, text: 'Verified profiles & vault-authenticated inventory' },
   {
     icon: 'ribbon-outline' as const,
-    text: 'Flat Get Vaulted Trade Fee per shipment — includes label, tracking, trade protection, and dispute support',
+    text: 'Protected labels, tracking, and dispute support on every trade',
   },
 ];
 
@@ -26,24 +26,26 @@ export function TradeTrustStrip() {
 
 const styles = StyleSheet.create({
   box: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
-    padding: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceElevated,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radii.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    maxWidth: '100%',
   },
   txt: {
-    flex: 1,
-    ...typography.micro,
     fontSize: 11,
+    fontWeight: '600',
     color: colors.textSecondary,
-    lineHeight: 16,
-    letterSpacing: 0.2,
+    flexShrink: 1,
   },
 });

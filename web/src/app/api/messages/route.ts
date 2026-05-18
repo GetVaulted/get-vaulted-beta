@@ -1,10 +1,21 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { createNotification } from "@/lib/notifications";
+import {
+  ensureThreadParticipants,
+  listingAnchorKey,
+  liveAnchorKey,
+  resolveInboxForNewThread,
+} from "@/lib/message-threads";
+import type { MessageConversationKind } from "@/generated/prisma/client";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
 
 type Body = {
   listingId?: string;
+  liveRoomId?: string;
+  offerId?: string;
+  orderId?: string;
+  conversationKind?: string;
   body?: unknown;
 };
 
@@ -14,11 +25,18 @@ function trimBody(s: unknown, max = 8000): string | null {
   return t.length ? t : null;
 }
 
+const KINDS = new Set<MessageConversationKind>([
+  "buyer_seller",
+  "offer_negotiation",
+  "order_support",
+  "trade",
+  "live_networking",
+]);
+
 export async function POST(req: Request) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Sign in to message the seller." }, { status: 401 });
-  }
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
+  const buyerId = auth.userId;
 
   let body: Body;
   try {
@@ -28,56 +46,123 @@ export async function POST(req: Request) {
   }
 
   const listingId = typeof body.listingId === "string" ? body.listingId.trim() : "";
+  const liveRoomId = typeof body.liveRoomId === "string" ? body.liveRoomId.trim() : "";
+  const offerId = typeof body.offerId === "string" ? body.offerId.trim() : "";
+  const orderId = typeof body.orderId === "string" ? body.orderId.trim() : "";
   const text = trimBody(body.body, 8000);
-  if (!listingId) return NextResponse.json({ error: "Missing listing." }, { status: 400 });
-  if (!text) return NextResponse.json({ error: "Enter a message." }, { status: 400 });
+  const conversationKind =
+    typeof body.conversationKind === "string" && KINDS.has(body.conversationKind as MessageConversationKind)
+      ? (body.conversationKind as MessageConversationKind)
+      : liveRoomId
+        ? "live_networking"
+        : offerId
+          ? "offer_negotiation"
+          : orderId
+            ? "order_support"
+            : "buyer_seller";
 
-  const buyerId = session.user.id;
+  if (!text) return NextResponse.json({ error: "Enter a message." }, { status: 400 });
+  if (!listingId && !liveRoomId) {
+    return NextResponse.json({ error: "Missing listing or live show." }, { status: 400 });
+  }
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      const listing = await tx.listing.findUnique({
-        where: { id: listingId },
-        select: { id: true, title: true, sellerId: true, status: true, moderationRemovedAt: true },
-      });
-      if (!listing) {
-        throw new Error("NOT_FOUND");
+      let resolvedListingId = listingId;
+      let sellerId: string;
+      let anchorKey: string;
+      let resolvedLiveRoomId: string | null = liveRoomId || null;
+      let listingTitle = "";
+
+      if (liveRoomId) {
+        const room = await tx.liveRoom.findUnique({
+          where: { id: liveRoomId },
+          select: {
+            id: true,
+            sellerId: true,
+            title: true,
+            items: {
+              where: { listingId: { not: null } },
+              take: 1,
+              orderBy: { sortOrder: "asc" },
+              select: { listingId: true },
+            },
+          },
+        });
+        if (!room) throw new Error("NOT_FOUND");
+        sellerId = room.sellerId;
+        anchorKey = liveAnchorKey(room.id);
+        listingTitle = room.title;
+        if (!resolvedListingId) {
+          resolvedListingId = room.items[0]?.listingId ?? "";
+        }
+        if (!resolvedListingId) {
+          const fallback = await tx.listing.findFirst({
+            where: { sellerId, status: { in: ["active", "auction_live"] } },
+            orderBy: { updatedAt: "desc" },
+            select: { id: true, title: true },
+          });
+          if (!fallback) throw new Error("NO_LISTING");
+          resolvedListingId = fallback.id;
+          listingTitle = fallback.title;
+        }
+      } else {
+        const listing = await tx.listing.findUnique({
+          where: { id: listingId },
+          select: { id: true, title: true, sellerId: true, status: true, moderationRemovedAt: true },
+        });
+        if (!listing) throw new Error("NOT_FOUND");
+        if (listing.moderationRemovedAt) throw new Error("NOT_PUBLIC");
+        if (listing.status !== "active" && listing.status !== "auction_live") {
+          throw new Error("NOT_PUBLIC");
+        }
+        sellerId = listing.sellerId;
+        resolvedListingId = listing.id;
+        listingTitle = listing.title;
+        anchorKey = listingAnchorKey(listing.id);
       }
-      if (listing.sellerId === buyerId) {
-        throw new Error("SELF");
-      }
-      if (listing.moderationRemovedAt) {
-        throw new Error("NOT_PUBLIC");
-      }
-      if (listing.status !== "active" && listing.status !== "auction_live") {
-        throw new Error("NOT_PUBLIC");
-      }
+
+      if (sellerId === buyerId) throw new Error("SELF");
+
+      const inbox = await resolveInboxForNewThread(buyerId, sellerId);
 
       const thread = await tx.messageThread.upsert({
         where: {
-          buyerId_sellerId_listingId: {
+          buyerId_sellerId_anchorKey: {
             buyerId,
-            sellerId: listing.sellerId,
-            listingId: listing.id,
+            sellerId,
+            anchorKey,
           },
         },
         create: {
           buyerId,
-          sellerId: listing.sellerId,
-          listingId: listing.id,
+          sellerId,
+          listingId: resolvedListingId,
+          anchorKey,
+          conversationKind,
+          inbox,
+          offerId: offerId || null,
+          orderId: orderId || null,
+          liveRoomId: resolvedLiveRoomId,
         },
         update: {
           updatedAt: new Date(),
+          offerId: offerId || undefined,
+          orderId: orderId || undefined,
+          liveRoomId: resolvedLiveRoomId || undefined,
         },
       });
+
+      await ensureThreadParticipants(tx, thread.id, buyerId, sellerId);
 
       await tx.message.create({
         data: {
           threadId: thread.id,
           senderId: buyerId,
-          recipientId: listing.sellerId,
-          listingId: listing.id,
+          recipientId: sellerId,
+          listingId: resolvedListingId,
           body: text,
+          kind: "user",
         },
       });
 
@@ -87,24 +172,26 @@ export async function POST(req: Request) {
       });
 
       const preview = text.length > 120 ? `${text.slice(0, 117)}…` : text;
-      const lt = listing.title.length > 60 ? `${listing.title.slice(0, 57)}…` : listing.title;
+      const lt = listingTitle.length > 60 ? `${listingTitle.slice(0, 57)}…` : listingTitle;
       await createNotification(tx, {
-        userId: listing.sellerId,
+        userId: sellerId,
         type: "message_received",
-        title: "New message",
+        title: inbox === "request" ? "Message request" : "New message",
         body: `Regarding “${lt}”: ${preview}`,
         href: `/account/messages/${encodeURIComponent(thread.id)}`,
       });
 
-      return { threadId: thread.id };
+      return { threadId: thread.id, inbox: thread.inbox };
     });
 
     return NextResponse.json(result);
   } catch (e) {
     const code = e instanceof Error ? e.message : "";
-    if (code === "NOT_FOUND") return NextResponse.json({ error: "Listing not found." }, { status: 404 });
+    if (code === "NOT_FOUND") return NextResponse.json({ error: "Not found." }, { status: 404 });
     if (code === "SELF") return NextResponse.json({ error: "You cannot message yourself." }, { status: 400 });
-    if (code === "NOT_PUBLIC") return NextResponse.json({ error: "This listing is not available." }, { status: 409 });
+    if (code === "NOT_PUBLIC" || code === "NO_LISTING") {
+      return NextResponse.json({ error: "This listing is not available." }, { status: 409 });
+    }
     console.error(e);
     return NextResponse.json({ error: "Could not send message." }, { status: 500 });
   }

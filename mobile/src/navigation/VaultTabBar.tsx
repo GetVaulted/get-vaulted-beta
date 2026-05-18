@@ -7,7 +7,7 @@ import { colors, spacing, typography } from '../theme';
 import type { MainTabParamList } from './types';
 import { LiveTabOrb } from './LiveTabOrb';
 
-const ORDER: (keyof MainTabParamList)[] = ['Home', 'Discover', 'Live', 'TradeCenter', 'HQ'];
+const ORDER: (keyof MainTabParamList)[] = ['Home', 'Marketplace', 'Live', 'TradeCenter', 'HQ'];
 
 function iconFor(
   name: keyof MainTabParamList,
@@ -16,14 +16,14 @@ function iconFor(
   switch (name) {
     case 'Home':
       return focused ? 'home' : 'home-outline';
-    case 'Discover':
-      return focused ? 'compass' : 'compass-outline';
+    case 'Marketplace':
+      return focused ? 'storefront' : 'storefront-outline';
     case 'Live':
       return 'radio';
     case 'TradeCenter':
       return focused ? 'swap-horizontal' : 'swap-horizontal-outline';
     case 'HQ':
-      return focused ? 'storefront' : 'storefront-outline';
+      return focused ? 'briefcase' : 'briefcase-outline';
     default:
       return 'ellipse';
   }
@@ -106,7 +106,7 @@ export function VaultTabBar({ state, descriptors, navigation }: BottomTabBarProp
             </View>
           ) : (
             <Text style={[styles.label, { color: lblColor }]}>
-              {name === 'Discover' ? 'Discover' : name === 'HQ' ? 'Seller HQ' : name}
+              {name === 'Marketplace' ? 'Marketplace' : name === 'HQ' ? 'Seller HQ' : name}
             </Text>
           );
 

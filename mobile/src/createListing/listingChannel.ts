@@ -25,7 +25,7 @@ export const LISTING_CHANNEL_CONFIG: Record<ListingChannel, ListingChannelAccent
     border: 'rgba(212,175,55,0.45)',
     fill: 'rgba(212,175,55,0.08)',
     gradient: ['rgba(212,175,55,0.14)', 'rgba(12,11,9,0.98)'],
-    helper: 'List items for permanent discovery in the Vault marketplace.',
+    helper: 'List items for permanent browsing in the Vault marketplace.',
     futureNote: 'After a live show ends, live inventory can convert into marketplace listings.',
   },
   live_show: {

@@ -31,6 +31,9 @@ import { HostRow } from '../components/ui/HostRow';
 import { enrichListing } from '../data/productListingEnrichment';
 import type { RootStackParamList } from '../navigation/types';
 import { alertGuestBuyRestricted } from '../navigation/guestExploreGuards';
+import { openMessageSellerForListing } from '../navigation/openMessages';
+import { openContactSupport, openDispute, openUserProfile } from '../navigation/openPlatform';
+import { isFollowing, toggleFollow } from '../platform/platformStore';
 import { useAuth } from '../auth/AuthContext';
 import type { Product } from '../types';
 import { colors, radii, spacing, typography } from '../theme';
@@ -63,7 +66,7 @@ export function ProductDetailScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { width: winW } = useWindowDimensions();
   const rootNav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { guestExploreMode } = useAuth();
+  const { guestExploreMode, user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [product, setProduct] = useState<Product | null>(null);
   const [similarFromApi, setSimilarFromApi] = useState<Product[]>([]);
@@ -106,6 +109,10 @@ export function ProductDetailScreen({ navigation, route }: Props) {
   const [slide, setSlide] = useState(0);
   const [saved, setSaved] = useState(false);
   const [sellerFollow, setSellerFollow] = useState(false);
+  useEffect(() => {
+    if (!user?.id || !product?.seller.id) return;
+    void isFollowing(user.id, product.seller.id).then(setSellerFollow);
+  }, [user?.id, product?.seller.id]);
   const [zoomUri, setZoomUri] = useState<string | null>(null);
   const galleryRef = useRef<ScrollView>(null);
 
@@ -174,7 +181,7 @@ export function ProductDetailScreen({ navigation, route }: Props) {
         <PremiumEmptyPanel
           icon="cube-outline"
           title="Listing not found"
-          subtitle="This item may have sold, been delisted, or the link is out of date. Browse Discover for live vault inventory."
+          subtitle="This item may have sold, been delisted, or the link is out of date. Browse the Marketplace for vault inventory."
         />
       </View>
     );
@@ -372,11 +379,19 @@ export function ProductDetailScreen({ navigation, route }: Props) {
 
           <Text style={styles.sectionKicker}>Seller showroom</Text>
           <View style={styles.showroomCard}>
-            <HostRow
-              host={product.seller}
-              following={sellerFollow}
-              onFollowPress={() => setSellerFollow(true)}
-            />
+            <Pressable onPress={() => openUserProfile(product.seller.id, rootNav)}>
+              <HostRow
+                host={product.seller}
+                following={sellerFollow}
+                onFollowPress={() => {
+                  if (!user?.id) {
+                    alertGuestBuyRestricted();
+                    return;
+                  }
+                  void toggleFollow(user.id, product.seller.id).then(setSellerFollow);
+                }}
+              />
+            </Pressable>
             {vm.activity.sellerLive ? (
               <View style={styles.liveNow}>
                 <View style={styles.liveDot} />
@@ -399,16 +414,44 @@ export function ProductDetailScreen({ navigation, route }: Props) {
               <Text style={styles.showEm}>Vault score: </Text>
               {vm.sellerShowroom.vaultScore}
             </Text>
-            <Pressable
-              style={styles.liveCta}
-              onPress={() =>
-                navigation.navigate('MainTabs', { screen: 'Live', params: { screen: 'LiveDiscovery' } })
-              }
-            >
-              <Ionicons name="radio-outline" size={18} color={colors.gold} />
-              <Text style={styles.liveCtaTxt}>Join seller’s next show</Text>
-              <Ionicons name="arrow-forward" size={16} color={colors.gold} />
-            </Pressable>
+            <View style={styles.sellerActions}>
+              <Pressable
+                style={styles.messageCta}
+                onPress={() => {
+                  if (guestExploreMode) {
+                    alertGuestBuyRestricted();
+                    return;
+                  }
+                  openMessageSellerForListing(rootNav, { listingId: product.id });
+                }}
+              >
+                <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.gold} />
+                <Text style={styles.messageCtaTxt}>Message seller</Text>
+              </Pressable>
+              <Pressable
+                style={styles.liveCta}
+                onPress={() =>
+                  navigation.navigate('MainTabs', { screen: 'Live', params: { screen: 'LiveDiscovery' } })
+                }
+              >
+                <Ionicons name="radio-outline" size={18} color={colors.gold} />
+                <Text style={styles.liveCtaTxt}>Join show</Text>
+              </Pressable>
+            </View>
+            <View style={styles.sellerActions}>
+              <Pressable
+                style={styles.messageCta}
+                onPress={() => openContactSupport({ category: 'order', referenceId: product.id }, rootNav)}
+              >
+                <Text style={styles.messageCtaTxt}>Contact support</Text>
+              </Pressable>
+              <Pressable
+                style={styles.liveCta}
+                onPress={() => openDispute({ contextType: 'marketplace', referenceId: product.id }, rootNav)}
+              >
+                <Text style={[styles.liveCtaTxt, { color: colors.live }]}>Open dispute</Text>
+              </Pressable>
+            </View>
           </View>
 
           {recents.length ? (
@@ -846,18 +889,37 @@ const styles = StyleSheet.create({
   liveNowTxt: { color: colors.textPrimary, fontWeight: '700', fontSize: 13 },
   showLine: { color: colors.textSecondary, fontSize: 13, lineHeight: 20 },
   showEm: { color: colors.textPrimary, fontWeight: '800' },
-  liveCta: {
+  sellerActions: {
     flexDirection: 'row',
-    alignItems: 'center',
     gap: spacing.sm,
     marginTop: spacing.md,
+  },
+  messageCta: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.45)',
+    backgroundColor: 'rgba(212,175,55,0.1)',
+  },
+  messageCtaTxt: { color: colors.gold, fontWeight: '800', fontSize: 14 },
+  liveCta: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
     paddingVertical: spacing.md,
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: colors.borderStrong,
     backgroundColor: colors.goldSoft,
   },
-  liveCtaTxt: { flex: 1, color: colors.textPrimary, fontWeight: '800', fontSize: 15 },
+  liveCtaTxt: { color: colors.textPrimary, fontWeight: '800', fontSize: 14 },
   miniRail: { gap: spacing.md, paddingVertical: spacing.xs },
   miniCard: { width: 148 },
   miniImg: { width: 148, height: 110, borderRadius: radii.md, backgroundColor: colors.surfaceElevated },

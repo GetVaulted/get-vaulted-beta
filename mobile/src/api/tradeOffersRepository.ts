@@ -104,6 +104,11 @@ function buildVm(
   };
 }
 
+export async function fetchCompletedTradesForUser(userId: string): Promise<TradeOfferVM[]> {
+  const rows = await fetchTradeOffersForUser(userId);
+  return rows.filter((t) => t.status === 'completed');
+}
+
 export async function fetchTradeOffersForUser(userId: string): Promise<TradeOfferVM[]> {
   const sb = getSupabase();
   if (!sb) return [];

@@ -6,15 +6,16 @@ import type { FeaturedCreator } from '../../types';
 type Props = {
   creator: FeaturedCreator;
   onFollow: () => void;
+  onPress?: () => void;
 };
 
-export function FeaturedCreatorCard({ creator, onFollow }: Props) {
+export function FeaturedCreatorCard({ creator, onFollow, onPress }: Props) {
   const { host, specialty, status, statusLabel } = creator;
   const live = status === 'live';
   const scheduled = status === 'scheduled';
 
   return (
-    <View style={styles.card}>
+    <Pressable style={styles.card} onPress={onPress} disabled={!onPress}>
       <View style={styles.top}>
         <Image source={{ uri: host.avatarUrl }} style={styles.avatar} />
         <View style={{ flex: 1 }}>
@@ -41,7 +42,7 @@ export function FeaturedCreatorCard({ creator, onFollow }: Props) {
       <Pressable style={styles.follow} onPress={onFollow}>
         <Text style={styles.followText}>Follow</Text>
       </Pressable>
-    </View>
+    </Pressable>
   );
 }
 

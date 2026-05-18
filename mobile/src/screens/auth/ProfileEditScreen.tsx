@@ -21,6 +21,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { useSellerStripeConnect } from '../../hooks/useSellerStripeConnect';
 import type { SellerHQEntryPhase } from '../../lib/sellerHubEntry';
 import { openSellerHQ } from '../../navigation/openSellerHQ';
+import { openSettings } from '../../navigation/openPlatform';
 import { navigateAuthSignUp } from '../../navigation/rootNavigationRef';
 import { getSupabase } from '../../lib/supabase';
 import type { RootStackParamList } from '../../navigation/types';
@@ -122,7 +123,9 @@ export function ProfileEditScreen({ navigation }: Props) {
           <Ionicons name="chevron-back" size={26} color={colors.textPrimary} />
         </Pressable>
         <Text style={styles.title}>Edit profile</Text>
-        <View style={{ width: 26 }} />
+        <Pressable onPress={() => openSettings(navigation)} hitSlop={12}>
+          <Ionicons name="settings-outline" size={22} color={colors.textPrimary} />
+        </Pressable>
       </View>
       {loading ? (
         <ActivityIndicator color={colors.gold} style={{ marginTop: spacing.xl }} />

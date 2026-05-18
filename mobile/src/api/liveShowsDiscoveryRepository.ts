@@ -1,4 +1,5 @@
 import { getSupabase } from '../lib/supabase';
+import { liveRoomCategoryTagsForRow } from '../lib/liveRoomDisplay';
 import { mapListingCategoryToCategoryId } from './listingsFeedRepository';
 import type { Bid, CategoryId, ChatMessage, Host, LiveStream, ScheduledStream } from '../types';
 
@@ -40,32 +41,9 @@ function profileToHost(id: string, p?: ProfileRow): Host {
   };
 }
 
-function categoryLabel(cat: CategoryId): string {
-  switch (cat) {
-    case 'cards':
-      return 'Cards';
-    case 'sneakers':
-      return 'Sneakers';
-    case 'watches':
-      return 'Watches';
-    case 'memorabilia':
-      return 'Memorabilia';
-    case 'other':
-      return 'Other';
-    default:
-      return 'Luxury';
-  }
-}
-
-function tagsForCategory(cat: CategoryId, raw: string | null): string[] {
-  const base = [categoryLabel(cat)];
-  if (raw && !base.includes(raw)) base.push(raw);
-  return base;
-}
-
 function showToLiveStream(row: ShowRow, host?: ProfileRow): LiveStream {
   const cat = mapListingCategoryToCategoryId(row.category);
-  const tags = tagsForCategory(cat, row.category);
+  const tags = liveRoomCategoryTagsForRow(row.category, cat);
   const hostVm = profileToHost(row.host_id, host);
   const emptyChat: ChatMessage[] = [];
   const emptyBids: Bid[] = [];
@@ -88,7 +66,7 @@ function showToLiveStream(row: ShowRow, host?: ProfileRow): LiveStream {
     highlightsCount: 0,
     showDescription: row.description?.trim() || 'Show notes will appear when the host publishes them.',
     categoryTags: tags,
-    engagementLine: 'Live now',
+    engagementLine: '',
     discoveryTags: tags,
     breakProgress: 0,
     pinnedProductLabel: 'Live show',
@@ -174,4 +152,31 @@ export async function fetchLiveShowsForDiscovery(): Promise<{ live: LiveStream[]
     else scheduled.push(showToScheduledStream(r, profiles.get(r.host_id)));
   }
   return { live, scheduled };
+}
+
+/** Public live + scheduled shows for a host profile. */
+export async function fetchLiveShowsByHostId(
+  hostId: string,
+): Promise<{ live: LiveStream[]; scheduled: ScheduledStream[]; ended: LiveStream[] }> {
+  const sb = getSupabase();
+  const ended: LiveStream[] = [];
+  if (!sb) return { live: [], scheduled: [], ended };
+  const { data, error } = await sb
+    .from('live_shows_public')
+    .select('id, host_id, title, description, category, thumbnail_url, status, viewer_count, scheduled_start')
+    .eq('host_id', hostId)
+    .order('updated_at', { ascending: false })
+    .limit(24);
+  if (error || !data?.length) return { live: [], scheduled: [], ended };
+  const rows = data as ShowRow[];
+  const profiles = await fetchProfilesMap(sb, [hostId]);
+  const host = profiles.get(hostId);
+  const live: LiveStream[] = [];
+  const scheduled: ScheduledStream[] = [];
+  for (const r of rows) {
+    if (r.status === 'live') live.push(showToLiveStream(r, host));
+    else if (r.status === 'scheduled') scheduled.push(showToScheduledStream(r, host));
+    else ended.push(showToLiveStream(r, host));
+  }
+  return { live, scheduled, ended };
 }
