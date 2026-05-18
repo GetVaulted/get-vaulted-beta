@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,6 +16,7 @@ import { fetchProfileById } from '../../api/profilesRepository';
 import { fetchCompletedTradesForUser } from '../../api/tradeOffersRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
+import { VaultImage } from '../../components/ui/VaultImage';
 import { openContactSupport, openDispute } from '../../navigation/openPlatform';
 import { openMessageSellerForListing } from '../../navigation/openMessages';
 import type { RootStackParamList } from '../../navigation/types';
@@ -147,9 +147,12 @@ export function UserProfileScreen({ navigation, route }: Props) {
       <PlatformFlowHeader title="Vault profile" onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
-          <Image
-            source={{ uri: profile.avatar_url ?? 'https://api.dicebear.com/7.x/shapes/png?seed=vault' }}
-            style={styles.avatar}
+          <VaultImage
+            uri={profile.avatar_url ?? 'https://api.dicebear.com/7.x/shapes/png?seed=vault'}
+            width={72}
+            height={72}
+            borderRadius={36}
+            priority="normal"
           />
           <View style={styles.heroText}>
             <Text style={styles.name}>{displayName}</Text>
@@ -232,6 +235,13 @@ export function UserProfileScreen({ navigation, route }: Props) {
                   style={styles.card}
                   onPress={() => navigation.navigate('ProductDetail', { productId: p.id })}
                 >
+                  <VaultImage
+                    uri={p.imageUrl}
+                    width={LISTING_THUMB}
+                    height={LISTING_THUMB}
+                    borderRadius={radii.sm}
+                    priority="low"
+                  />
                   <Text style={styles.cardTitle} numberOfLines={2}>
                     {p.title}
                   </Text>
@@ -342,6 +352,8 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+const LISTING_THUMB = 120;
+
 const styles = StyleSheet.create({
   screen: { flex: 1, paddingHorizontal: spacing.lg },
   scroll: { paddingBottom: spacing.xxxl, gap: spacing.md },
@@ -419,12 +431,13 @@ const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   card: {
     width: '48%',
-    padding: spacing.md,
+    padding: spacing.sm,
     borderRadius: radii.md,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
     backgroundColor: colors.surfaceElevated,
-    gap: 4,
+    gap: spacing.sm,
+    overflow: 'hidden',
   },
   cardTitle: { fontSize: 13, fontWeight: '700', color: colors.textPrimary },
   cardPrice: { fontSize: 12, color: colors.gold, fontWeight: '800' },

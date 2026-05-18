@@ -4,7 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef } from 'react';
 import {
   Animated,
-  Image,
+  Dimensions,
   Platform,
   Pressable,
   StyleSheet,
@@ -20,7 +20,11 @@ import {
   statusLabel,
   type VaultEventDisplayStatus,
 } from '../../../lib/vaultEventModel';
+import { VaultImage } from '../../ui/VaultImage';
 import { colors, radii, spacing } from '../../../theme';
+
+const CARD_W = Dimensions.get('window').width - spacing.lg * 2;
+const CARD_H = 200;
 
 const FALLBACK_COVER =
   'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=800&q=80&auto=format&fit=crop';
@@ -68,7 +72,14 @@ export function VaultEventCard({
       accessibilityRole="button"
       accessibilityLabel={`${room.title}, ${statusLabel(displayStatus)}`}
     >
-      <Image source={{ uri: cover }} style={styles.cover} resizeMode="cover" />
+      <VaultImage
+        uri={cover}
+        width={CARD_W}
+        height={CARD_H}
+        priority="normal"
+        contentFit="cover"
+        style={StyleSheet.absoluteFillObject}
+      />
       <LinearGradient
         colors={['rgba(0,0,0,0.15)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.92)']}
         locations={[0, 0.45, 1]}
@@ -90,7 +101,7 @@ export function VaultEventCard({
         </Text>
         <Text style={styles.when}>{formatEventWhen(room, displayStatus)}</Text>
         <View style={styles.metaRow}>
-          <Image source={{ uri: avatar }} style={styles.avatar} />
+          <VaultImage uri={avatar} width={22} height={22} borderRadius={11} priority="low" />
           <Text style={styles.metaTxt}>
             @{room.sellerUsername}
             {room.itemCount > 0 ? ` · ${room.itemCount} lots` : ' · setup inventory'}
@@ -125,7 +136,7 @@ export function VaultEventCard({
 
 const styles = StyleSheet.create({
   shell: {
-    height: 200,
+    height: CARD_H,
     borderRadius: radii.lg,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
@@ -133,7 +144,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   pressed: { opacity: 0.94, transform: [{ scale: 0.995 }] },
-  cover: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
   livePulse: {
     ...StyleSheet.absoluteFillObject,
     borderWidth: 2,

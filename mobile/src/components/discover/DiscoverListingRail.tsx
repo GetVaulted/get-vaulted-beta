@@ -10,6 +10,7 @@ export function MarketplaceListingRail({
   onPressProduct,
   onSeeAll,
   pulseIndex,
+  imagePriority = 'normal',
 }: {
   title: string;
   subtitle?: string;
@@ -17,6 +18,7 @@ export function MarketplaceListingRail({
   onPressProduct: (p: Product) => void;
   onSeeAll?: () => void;
   pulseIndex?: number;
+  imagePriority?: 'low' | 'normal' | 'high';
 }) {
   if (!products.length) return null;
 
@@ -40,6 +42,7 @@ export function MarketplaceListingRail({
             product={p}
             onPress={() => onPressProduct(p)}
             pulseBid={pulseIndex === i}
+            imagePriority={imagePriority}
           />
         ))}
       </ScrollView>

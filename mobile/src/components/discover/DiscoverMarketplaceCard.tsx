@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef } from 'react';
-import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { VaultImage } from '../ui/VaultImage';
 import { colors, radii, spacing } from '../../theme';
 import type { Product } from '../../types';
 
@@ -40,10 +41,12 @@ export function MarketplaceListingCard({
   product,
   onPress,
   pulseBid,
+  imagePriority = 'normal',
 }: {
   product: Product;
   onPress: () => void;
   pulseBid?: boolean;
+  imagePriority?: 'low' | 'normal' | 'high';
 }) {
   const pulse = useRef(new Animated.Value(1)).current;
   const badge = badgeFor(product);
@@ -63,15 +66,24 @@ export function MarketplaceListingCard({
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.shell, pressed && styles.pressed]}>
       <Animated.View style={[styles.card, pulseBid && { transform: [{ scale: pulse }] }]}>
-        {product.imageUrl ? (
-          <Image source={{ uri: product.imageUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-        ) : (
-          <LinearGradient colors={product.imageGradient} style={StyleSheet.absoluteFill} />
-        )}
+        <View style={styles.mediaSlot} pointerEvents="none">
+          {product.imageUrl ? (
+            <VaultImage
+              uri={product.imageUrl}
+              width={CARD_W}
+              height={CARD_H}
+              priority={imagePriority}
+              contentFit="cover"
+            />
+          ) : (
+            <LinearGradient colors={product.imageGradient} style={StyleSheet.absoluteFill} />
+          )}
+        </View>
         <LinearGradient
           colors={['rgba(0,0,0,0.05)', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.92)']}
           locations={[0, 0.5, 1]}
           style={StyleSheet.absoluteFill}
+          pointerEvents="none"
         />
         <View style={styles.glowEdge} pointerEvents="none" />
         <View style={styles.top}>
@@ -95,7 +107,13 @@ export function MarketplaceListingCard({
             </Text>
           ) : null}
           <View style={styles.sellerRow}>
-            <Image source={{ uri: product.seller.avatarUrl }} style={styles.avatar} />
+            <VaultImage
+              uri={product.seller.avatarUrl}
+              width={18}
+              height={18}
+              borderRadius={9}
+              priority="low"
+            />
             <Text style={styles.seller} numberOfLines={1}>
               {product.seller.handle}
             </Text>
@@ -119,6 +137,11 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(212,175,55,0.22)',
+  },
+  mediaSlot: {
+    ...StyleSheet.absoluteFillObject,
+    width: CARD_W,
+    height: CARD_H,
   },
   glowEdge: {
     ...StyleSheet.absoluteFillObject,
@@ -149,6 +172,5 @@ const styles = StyleSheet.create({
   title: { fontSize: 12, fontWeight: '800', color: '#fff', lineHeight: 15 },
   grade: { fontSize: 10, color: 'rgba(255,255,255,0.65)', fontWeight: '600' },
   sellerRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
-  avatar: { width: 18, height: 18, borderRadius: 9, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.3)' },
   seller: { flex: 1, fontSize: 9, fontWeight: '600', color: 'rgba(255,255,255,0.55)' },
 });

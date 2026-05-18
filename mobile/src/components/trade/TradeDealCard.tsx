@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { VaultImage } from '../ui/VaultImage';
 import { displayTradeStatus } from '../../lib/tradeStatusLabels';
 import { colors, radii, spacing } from '../../theme';
 import type { ListingLite, ProfileLite, TradeOfferStatus } from '../../types/tradeOffers';
@@ -45,13 +46,15 @@ export function TradeDealCard({ partner, status, requested, offered, onPress, me
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.shell, pressed && styles.pressed]}>
       <View style={styles.top}>
-        <Image
-          source={{
-            uri:
-              partner.avatar_url?.trim() ||
-              `https://i.pravatar.cc/80?u=${encodeURIComponent(partner.id)}`,
-          }}
-          style={styles.avatar}
+        <VaultImage
+          uri={
+            partner.avatar_url?.trim() ||
+            `https://i.pravatar.cc/80?u=${encodeURIComponent(partner.id)}`
+          }
+          width={40}
+          height={40}
+          borderRadius={20}
+          priority="low"
         />
         <View style={styles.headMeta}>
           <View style={styles.nameRow}>
@@ -80,7 +83,7 @@ export function TradeDealCard({ partner, status, requested, offered, onPress, me
             'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=200';
           return (
             <View key={item.id} style={styles.thumbWrap}>
-              <Image source={{ uri }} style={styles.thumb} resizeMode="cover" />
+              <VaultImage uri={uri} width={72} height={72} borderRadius={radii.md} contentFit="cover" />
               {i === 0 ? (
                 <View style={styles.thumbTag}>
                   <Text style={styles.thumbTagTxt}>THEIRS</Text>
@@ -159,10 +162,6 @@ const styles = StyleSheet.create({
     height: 72,
     borderRadius: radii.md,
     overflow: 'hidden',
-  },
-  thumb: {
-    width: '100%',
-    height: '100%',
   },
   thumbTag: {
     position: 'absolute',

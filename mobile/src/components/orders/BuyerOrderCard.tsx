@@ -1,7 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { BuyerOrder } from '../../api/ordersRepository';
+import { VaultImage } from '../ui/VaultImage';
 import { colors, radii, spacing } from '../../theme';
+
+const THUMB = 64;
+const AVATAR = 20;
 
 function formatTotal(cents: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
@@ -32,7 +36,7 @@ export function BuyerOrderCard({
       >
       <View style={styles.top}>
         {order.thumbnailUrl ? (
-          <Image source={{ uri: order.thumbnailUrl }} style={styles.thumb} />
+          <VaultImage uri={order.thumbnailUrl} width={THUMB} height={THUMB} borderRadius={radii.md} />
         ) : (
           <View style={[styles.thumb, styles.thumbFallback]}>
             <Ionicons name="cube-outline" size={22} color={colors.gold} />
@@ -44,7 +48,7 @@ export function BuyerOrderCard({
           </Text>
           <View style={styles.sellerRow}>
             {order.sellerAvatarUrl ? (
-              <Image source={{ uri: order.sellerAvatarUrl }} style={styles.avatar} />
+              <VaultImage uri={order.sellerAvatarUrl} width={AVATAR} height={AVATAR} borderRadius={AVATAR / 2} priority="low" />
             ) : (
               <View style={[styles.avatar, styles.avatarFallback]}>
                 <Ionicons name="person" size={10} color={colors.textMuted} />
@@ -103,12 +107,12 @@ const styles = StyleSheet.create({
   },
   pressed: { opacity: 0.92 },
   top: { flexDirection: 'row', gap: spacing.sm },
-  thumb: { width: 64, height: 64, borderRadius: radii.md, backgroundColor: colors.surface },
+  thumb: { width: THUMB, height: THUMB, borderRadius: radii.md, backgroundColor: colors.surface },
   thumbFallback: { alignItems: 'center', justifyContent: 'center' },
   meta: { flex: 1, minWidth: 0, gap: 6 },
   title: { fontSize: 15, fontWeight: '800', color: colors.textPrimary, lineHeight: 20 },
   sellerRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  avatar: { width: 20, height: 20, borderRadius: 10 },
+  avatar: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2 },
   avatarFallback: { backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   seller: { flex: 1, fontSize: 12, color: colors.textMuted, fontWeight: '600' },
   total: { fontSize: 13, fontWeight: '800', color: colors.gold },

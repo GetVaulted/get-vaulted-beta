@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { VaultImage } from '../ui/VaultImage';
 import type { TradeItem } from '../../trade/tradeDisplayTypes';
 import { colors, radii, spacing, typography } from '../../theme';
 
@@ -16,7 +17,7 @@ export function TradeItemCard({ item, caption }: Props) {
         <Text style={styles.caption}>{caption}</Text>
       ) : null}
       <View style={styles.card}>
-        <Image source={{ uri: item.imageUrl }} style={styles.img} />
+        <VaultImage uri={item.imageUrl} width={96} height={96} borderRadius={radii.md} />
         <View style={styles.body}>
           <Text style={styles.title} numberOfLines={2}>
             {item.title}

@@ -128,6 +128,7 @@ export function MarketplaceScreen() {
               subtitle="Curated marketplace inventory"
               products={rails.featured}
               onPressProduct={openProduct}
+              imagePriority="high"
             />
 
             <MarketplaceListingRail

@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Dimensions, Pressable, StyleSheet, Text, View } from 'react-native';
+import { VaultImage } from '../ui/VaultImage';
 import { LiveBadge } from '../ui/LiveBadge';
 import { colors, radii, spacing } from '../../theme';
 import type { LiveStream, ScheduledStream } from '../../types';
@@ -21,6 +22,9 @@ function formatViewers(n: number) {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k watching`;
   return `${n} watching`;
 }
+
+const HERO_W = Dimensions.get('window').width - spacing.lg * 2;
+const HERO_H = 200;
 
 export function HomeFeaturedLiveHero({
   liveStream,
@@ -43,7 +47,14 @@ export function HomeFeaturedLiveHero({
         accessibilityRole="button"
         accessibilityLabel={`Featured live: ${liveStream.title}`}
       >
-        <Image source={{ uri: liveStream.previewImageUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+        <VaultImage
+          uri={liveStream.previewImageUrl}
+          width={HERO_W}
+          height={HERO_H}
+          priority="high"
+          contentFit="cover"
+          style={StyleSheet.absoluteFillObject}
+        />
         <LinearGradient
           colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.92)']}
           locations={[0, 0.35, 1]}

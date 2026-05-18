@@ -2,7 +2,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRef, useState } from 'react';
 import {
   Dimensions,
-  Image,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Pressable,
@@ -11,6 +10,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { VaultImage } from '../ui/VaultImage';
 import type { MarketplaceHeroSlide } from '../../data/marketplaceFeedMock';
 import { colors, radii, spacing } from '../../theme';
 
@@ -47,13 +47,20 @@ export function MarketplaceHeroCarousel({
         scrollEventThrottle={16}
         contentContainerStyle={styles.rail}
       >
-        {slides.map((slide) => (
+        {slides.map((slide, slideIndex) => (
           <Pressable
             key={slide.id}
             onPress={() => onSlidePress?.(slide)}
             style={[styles.card, { width: cardW }]}
           >
-            <Image source={{ uri: slide.imageUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+            <VaultImage
+              uri={slide.imageUrl}
+              width={cardW}
+              height={HERO_H}
+              priority={slideIndex === 0 ? 'high' : 'normal'}
+              contentFit="cover"
+              style={StyleSheet.absoluteFillObject}
+            />
             <LinearGradient colors={slide.accent} style={[StyleSheet.absoluteFill, { opacity: 0.55 }]} />
             <LinearGradient
               colors={['transparent', 'rgba(0,0,0,0.85)']}

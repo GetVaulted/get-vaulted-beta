@@ -3,7 +3,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   Linking,
   Pressable,
   ScrollView,
@@ -15,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchBuyerOrderById, isOrderCompleteForReview } from '../../api/ordersRepository';
 import type { BuyerOrder } from '../../api/ordersRepository';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
+import { VaultImage } from '../../components/ui/VaultImage';
 import { useAuth } from '../../auth/AuthContext';
 import {
   openContactSupport,
@@ -85,7 +85,7 @@ export function BuyerOrderDetailScreen({ navigation, route }: Props) {
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
           <View style={styles.hero}>
             {order.thumbnailUrl ? (
-              <Image source={{ uri: order.thumbnailUrl }} style={styles.heroImg} />
+              <VaultImage uri={order.thumbnailUrl} width={88} height={88} borderRadius={radii.lg} />
             ) : (
               <View style={[styles.heroImg, styles.heroFallback]}>
                 <Ionicons name="cube-outline" size={32} color={colors.gold} />
