@@ -6,7 +6,7 @@ import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
 import {
   isSupabaseListingImageStorageConfigured,
   uploadListingImageToSupabase,
@@ -35,10 +35,8 @@ function magicMatches(buf: Buffer, mime: string): boolean {
 }
 
 export async function POST(req: Request) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await resolveListingsUserId(req);
+  if (auth instanceof NextResponse) return auth;
 
   let form: FormData;
   try {

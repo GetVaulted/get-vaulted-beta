@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { getServerSessionSafe } from "@/lib/auth";
+import { resolveListingsUserId, resolveOptionalListingsUserId } from "@/lib/resolve-listings-auth";
 import { computeAuctionEndsAt } from "@/lib/auction";
 import { hasCompleteParcel } from "@/lib/listing-publish";
 import { closeAuctionIfDuePrisma } from "@/lib/auction-close";
@@ -23,10 +24,12 @@ async function replaceListingImages(listingId: string, urls: string[]) {
   });
 }
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: raw } = await ctx.params;
   const id = decodeURIComponent(raw);
   const session = await getServerSessionSafe();
+  const bearerUserId = await resolveOptionalListingsUserId(req);
+  const viewerUserId = bearerUserId ?? session?.user?.id ?? null;
 
   await closeAuctionIfDuePrisma(id);
 
@@ -36,7 +39,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   });
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const isOwner = session?.user?.id === row.sellerId;
+  const isOwner = viewerUserId === row.sellerId;
   const isAdmin = session?.user?.role === "admin";
   const isPublic = isListingPubliclyVisible(row);
   if (!isPublic && !isOwner) return NextResponse.json({ error: "Not found" }, { status: 404 });

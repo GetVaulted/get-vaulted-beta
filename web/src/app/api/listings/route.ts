@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { getServerSessionSafe } from "@/lib/auth";
+import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
 import { computeAuctionEndsAt } from "@/lib/auction";
 import { auctionBidCountsByListingIds } from "@/lib/listing-bid-counts";
 import { hasCompleteParcel } from "@/lib/listing-publish";
@@ -80,8 +81,32 @@ type ListingBody = {
 };
 
 export async function GET(req: Request) {
-  const scope = new URL(req.url).searchParams.get("scope");
-  const session = await getServerSessionSafe();
+  const { searchParams } = new URL(req.url);
+  const scope = searchParams.get("scope");
+
+  if (scope === "ids") {
+    const ids = (searchParams.get("ids") ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 60);
+    if (!ids.length) return NextResponse.json({ listings: [] });
+    const rows = await prisma.listing.findMany({
+      where: {
+        id: { in: ids },
+        status: { in: ["active", "auction_live"] },
+        moderationRemovedAt: null,
+      },
+      include: listingInclude,
+    });
+    const auctionIds = rows.filter((r) => r.buyingFormat === "auction").map((r) => r.id);
+    const bidCounts = await auctionBidCountsByListingIds(auctionIds);
+    return NextResponse.json({
+      listings: rows.map((r) =>
+        dbListingToMarketplace(r, r.buyingFormat === "auction" ? { bidCount: bidCounts.get(r.id) ?? 0 } : undefined),
+      ),
+    });
+  }
 
   if (scope === "merch") {
     const rows = await prisma.listing.findMany({
@@ -129,10 +154,11 @@ export async function GET(req: Request) {
   }
 
   if (scope === "mine") {
-    if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const auth = await resolveListingsUserId(req);
+    if (auth instanceof NextResponse) return auth;
     await processAuctionPaymentExpiries();
     const rows = await prisma.listing.findMany({
-      where: { sellerId: session.user.id },
+      where: { sellerId: auth.userId },
       include: listingInclude,
       orderBy: { updatedAt: "desc" },
     });
@@ -163,10 +189,11 @@ export async function GET(req: Request) {
   }
 
   if (scope === "workspace") {
-    if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const auth = await resolveListingsUserId(req);
+    if (auth instanceof NextResponse) return auth;
     await processAuctionPaymentExpiries();
     const row = await prisma.listing.findFirst({
-      where: { sellerId: session.user.id, workspaceKey: LISTING_WORKSPACE_KEY },
+      where: { sellerId: auth.userId, workspaceKey: LISTING_WORKSPACE_KEY },
       include: listingInclude,
     });
     if (!row) return NextResponse.json({ listing: null });
@@ -188,8 +215,9 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await resolveListingsUserId(req);
+  if (auth instanceof NextResponse) return auth;
+  const sessionUserId = auth.userId;
 
   let body: ListingBody;
   try {
@@ -201,7 +229,7 @@ export async function POST(req: Request) {
   if (body.duplicateFromId != null && String(body.duplicateFromId).length > 0) {
     const srcId = String(body.duplicateFromId);
     const src = await prisma.listing.findFirst({
-      where: { id: srcId, sellerId: session.user.id },
+      where: { id: srcId, sellerId: sessionUserId },
       include: { images: true },
     });
     if (!src) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -209,7 +237,7 @@ export async function POST(req: Request) {
     /** Duplicates are always drafts so the seller can review before publishing. */
     const row = await prisma.listing.create({
       data: {
-        sellerId: session.user.id,
+        sellerId: sessionUserId,
         title: `${src.title} (copy)`,
         description: src.description,
         category: src.category,
@@ -365,7 +393,7 @@ export async function POST(req: Request) {
       const owned = await prisma.address.findFirst({
         where: {
           id: shipFromAddressId,
-          userId: session.user.id,
+          userId: sessionUserId,
           type: "ship_from",
         },
         select: { id: true },
@@ -375,7 +403,7 @@ export async function POST(req: Request) {
       }
     }
     try {
-      await assertSellerCanPublishListing(prisma, session.user.id, {
+      await assertSellerCanPublishListing(prisma, sessionUserId, {
         shippingBaseWeightOz,
         shippingIncrementalWeightOz,
         shippingCategory,
@@ -444,12 +472,12 @@ export async function POST(req: Request) {
     const row = await prisma.listing.upsert({
       where: {
         sellerId_workspaceKey: {
-          sellerId: session.user.id,
+          sellerId: sessionUserId,
           workspaceKey: LISTING_WORKSPACE_KEY,
         },
       },
       create: {
-        sellerId: session.user.id,
+        sellerId: sessionUserId,
         workspaceKey: LISTING_WORKSPACE_KEY,
         ...baseData,
       },
@@ -468,7 +496,7 @@ export async function POST(req: Request) {
 
   const row = await prisma.listing.create({
     data: {
-      sellerId: session.user.id,
+      sellerId: sessionUserId,
       ...baseData,
       workspaceKey: null,
     },

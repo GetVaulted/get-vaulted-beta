@@ -25,6 +25,7 @@
     "smoke:escrow": "tsx scripts/smoke-vaulted-secure-checkout.ts",
     "smoke:live": "node scripts/live-smoke-runner.mjs",
     "smoke:live:pw": "node scripts/live-smoke-playwright.mjs",
+    "check:beta-listings-api": "node scripts/beta-unified-listings-api-readiness.mjs",
     "test:e2e:live": "playwright test tests/e2e/vaulted-live-reliability.spec.ts",
     "qa:seed-live-auction": "tsx scripts/seed-live-auction-qa.ts",
     "auction-fanout:drain": "tsx scripts/auction-fanout-drain.ts",
