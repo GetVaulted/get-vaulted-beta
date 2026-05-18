@@ -347,13 +347,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         const issues = (e as Error & { issues?: string[] }).issues ?? [];
         return NextResponse.json(
           {
-            error: "SELLER_REQUIREMENTS_INCOMPLETE",
+            error: "Complete seller setup before publishing.",
+            code: "SELLER_REQUIREMENTS_INCOMPLETE",
             issues,
           },
           { status: 403 },
         );
       }
-      throw e;
+      console.error("[PATCH /api/listings/[id]] seller readiness check failed", e);
+      return NextResponse.json(
+        { error: "Could not verify seller readiness.", detail: e instanceof Error ? e.message : String(e) },
+        { status: 500 },
+      );
     }
   }
 

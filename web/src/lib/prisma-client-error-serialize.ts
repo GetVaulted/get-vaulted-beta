@@ -51,3 +51,17 @@ export function prismaLiveRoomCreateHint(pe: PrismaClientErrorDTO): string | und
   }
   return undefined;
 }
+
+export function prismaListingCreateHint(pe: PrismaClientErrorDTO): string | undefined {
+  const c = pe.code;
+  if (c === "P2003") {
+    return "Foreign key failed (P2003). The signed-in user may be missing from the User table — sign out and back in, or complete account setup on web.";
+  }
+  if (c === "P2021") {
+    return "Table missing (P2021). Run npx prisma migrate deploy on the beta database.";
+  }
+  if (c === "P2022") {
+    return "Column missing (P2022). Deploy latest web migrations: npx prisma migrate deploy";
+  }
+  return prismaLiveRoomCreateHint(pe);
+}

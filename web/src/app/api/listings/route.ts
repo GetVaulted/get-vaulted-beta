@@ -13,8 +13,34 @@ import { LISTING_WORKSPACE_KEY } from "@/lib/listing-workspace";
 import { prismaSellerVisibleOnPublicMarketplace } from "@/lib/demo-seed-sellers";
 import type { BuyingFormat, ListingStatus } from "@/generated/prisma/client";
 import type { ShippingCategory } from "@/generated/prisma/enums";
+import {
+  prismaListingCreateHint,
+  serializePrismaClientError,
+} from "@/lib/prisma-client-error-serialize";
 
 const listingInclude = listingWithSellerFulfillmentInclude;
+
+function listingCreateFailureResponse(
+  e: unknown,
+  log: Record<string, unknown>,
+): NextResponse {
+  const prismaDto = serializePrismaClientError(e);
+  const hint = prismaListingCreateHint(prismaDto);
+  console.error("[POST /api/listings] create failed", { ...log, prisma: prismaDto });
+  return NextResponse.json(
+    {
+      error: "Could not create listing.",
+      detail: prismaDto.message,
+      code: prismaDto.code,
+      hint,
+    },
+    { status: 500 },
+  );
+}
+
+function logListingCreateAttempt(fields: Record<string, unknown>) {
+  console.info("[POST /api/listings] create attempt", fields);
+}
 
 async function pendingOfferCounts(ids: string[]): Promise<Map<string, number>> {
   if (ids.length === 0) return new Map();
@@ -298,19 +324,23 @@ export async function POST(req: Request) {
   const signatureRequired = Boolean(body.signatureRequired);
   const vaultPick = Boolean(body.vaultPick);
 
-  const priceUsd = typeof body.priceUsd === "number" && Number.isFinite(body.priceUsd) ? body.priceUsd : null;
-  const startingBidUsd =
-    typeof body.startingBidUsd === "number" && Number.isFinite(body.startingBidUsd) ? body.startingBidUsd : null;
-  const reservePriceUsd =
-    typeof body.reservePriceUsd === "number" && Number.isFinite(body.reservePriceUsd) ? body.reservePriceUsd : null;
+  const parseBodyNumber = (v: unknown): number | null => {
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    if (typeof v === "string" && v.trim()) {
+      const n = Number(v.replace(/[^0-9.-]/g, ""));
+      if (Number.isFinite(n)) return n;
+    }
+    return null;
+  };
+
+  const priceUsd = parseBodyNumber(body.priceUsd);
+  const startingBidUsd = parseBodyNumber(body.startingBidUsd);
+  const reservePriceUsd = parseBodyNumber(body.reservePriceUsd);
+  const auctionDurationDaysRaw = parseBodyNumber(body.auctionDurationDays);
   const auctionDurationDays =
-    typeof body.auctionDurationDays === "number" && Number.isFinite(body.auctionDurationDays)
-      ? Math.floor(body.auctionDurationDays)
-      : null;
-  const shippingPriceUsd =
-    typeof body.shippingPriceUsd === "number" && Number.isFinite(body.shippingPriceUsd) ? body.shippingPriceUsd : 0;
-  const minimumOfferUsd =
-    typeof body.minimumOfferUsd === "number" && Number.isFinite(body.minimumOfferUsd) ? body.minimumOfferUsd : null;
+    auctionDurationDaysRaw != null ? Math.floor(auctionDurationDaysRaw) : null;
+  const shippingPriceUsd = parseBodyNumber(body.shippingPriceUsd) ?? 0;
+  const minimumOfferUsd = parseBodyNumber(body.minimumOfferUsd);
 
   const resolvedPrice =
     buyingFormat === "buy_now"
@@ -329,12 +359,14 @@ export async function POST(req: Request) {
   const auctionPublished = buyingFormat === "auction" && (status === "auction_live" || status === "active");
 
   const parseParcel = (v: unknown): number | null => {
-    if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null;
-    return v;
+    const n = parseBodyNumber(v);
+    if (n == null || n <= 0) return null;
+    return n;
   };
   const parseWeight = (v: unknown, fallback: number): number => {
-    if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return fallback;
-    return v;
+    const n = parseBodyNumber(v);
+    if (n == null || n <= 0) return fallback;
+    return n;
   };
   const parcelWeightOz = parseParcel(body.parcelWeightOz);
   const parcelLengthIn = parseParcel(body.parcelLengthIn);
@@ -413,13 +445,18 @@ export async function POST(req: Request) {
         const issues = (e as Error & { issues?: string[] }).issues ?? [];
         return NextResponse.json(
           {
-            error: "SELLER_REQUIREMENTS_INCOMPLETE",
+            error: "Complete seller setup before publishing.",
+            code: "SELLER_REQUIREMENTS_INCOMPLETE",
             issues,
           },
           { status: 403 },
         );
       }
-      throw e;
+      console.error("[POST /api/listings] seller readiness check failed", e);
+      return NextResponse.json(
+        { error: "Could not verify seller readiness.", detail: e instanceof Error ? e.message : String(e) },
+        { status: 500 },
+      );
     }
   }
 
@@ -494,15 +531,43 @@ export async function POST(req: Request) {
     return NextResponse.json({ listing: dbListingToStored(full, offers, bc) });
   }
 
-  const row = await prisma.listing.create({
-    data: {
-      sellerId: sessionUserId,
-      ...baseData,
-      workspaceKey: null,
-    },
-    include: listingInclude,
+  logListingCreateAttempt({
+    userId: sessionUserId,
+    buyingFormat,
+    status: effectiveStatus,
+    category,
+    condition,
+    imageCount: images.length,
+    parcelWeightOz,
+    parcelLengthIn,
+    parcelWidthIn,
+    parcelHeightIn,
+    shippingCategory,
+    shippingBaseWeightOz,
+    shippingIncrementalWeightOz,
+    publishedLive,
   });
-  await replaceListingImages(row.id, images);
+
+  let row;
+  try {
+    row = await prisma.listing.create({
+      data: {
+        sellerId: sessionUserId,
+        ...baseData,
+        workspaceKey: null,
+      },
+      include: listingInclude,
+    });
+    await replaceListingImages(row.id, images);
+  } catch (e) {
+    return listingCreateFailureResponse(e, {
+      userId: sessionUserId,
+      buyingFormat,
+      status: effectiveStatus,
+      category,
+      imageCount: images.length,
+    });
+  }
   const full = await prisma.listing.findUniqueOrThrow({ where: { id: row.id }, include: listingInclude });
   const offers = await prisma.offer.count({ where: { listingId: full.id, status: "pending" } });
   const bc = full.buyingFormat === "auction" ? await prisma.bid.count({ where: { listingId: full.id } }) : undefined;
