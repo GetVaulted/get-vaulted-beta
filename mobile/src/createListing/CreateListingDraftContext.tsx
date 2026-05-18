@@ -217,7 +217,7 @@ export function CreateListingDraftProvider({ children }: { children: ReactNode }
       imageUrl: form.media[0]?.uri ?? 'https://images.unsplash.com/photo-1523170335258-f5ed11844a49?w=400',
       price: formToPrice(form),
       status: publishStatus(form.listingType),
-      watches: 3,
+      watches: 0,
       live: channel === 'live_show',
       channel,
     };

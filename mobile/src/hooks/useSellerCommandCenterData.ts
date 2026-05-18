@@ -4,7 +4,6 @@ import { fetchMyLiveRooms, type LiveRoomApiRow } from '../api/liveRoomsRepositor
 import { fetchSellerAnalytics, type SellerAnalyticsSnapshot } from '../api/sellerAnalyticsRepository';
 import { useSellerStripeConnect } from './useSellerStripeConnect';
 import { useSellerWallet } from './useSellerWallet';
-import { listingCounts } from '../data/sellerHubMock';
 import { isSellerHQApproved } from '../lib/sellerHubEntry';
 
 const EMPTY_ANALYTICS: SellerAnalyticsSnapshot = {
@@ -129,7 +128,7 @@ export function useSellerCommandCenterData(accessToken: string | undefined, vaul
         tone: 'gold',
       });
     }
-    const drafts = listingCounts.drafts + Math.max(0, vaultListingCount - listingCounts.active);
+    const drafts = Math.max(0, vaultListingCount - analytics.activeListings);
     if (drafts > 0) {
       items.push({
         id: 'drafts',
@@ -155,6 +154,7 @@ export function useSellerCommandCenterData(accessToken: string | undefined, vaul
     liveRoom,
     upcomingRooms.length,
     sellerWallet.wallet?.pendingFormatted,
+    analytics.activeListings,
     vaultListingCount,
   ]);
 

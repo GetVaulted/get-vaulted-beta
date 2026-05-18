@@ -5,6 +5,8 @@ import { colors, spacing } from '../../theme';
 import type { SaleActivity } from '../../types';
 
 export function MarketplaceSoldTicker({ sales }: { sales: SaleActivity[] }) {
+  if (!sales.length) return null;
+
   const pulse = useRef(new Animated.Value(0.6)).current;
 
   useEffect(() => {

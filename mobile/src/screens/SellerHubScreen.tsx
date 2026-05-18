@@ -16,7 +16,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  listingPreviews,
   SELLER_HUB_TABS,
   streamCategories,
   type SellerHubTabId,
@@ -50,7 +49,7 @@ import { openStripeConnectDashboard } from '../lib/openStripeConnectDashboard';
 import { openStripeConnectOnboarding, refreshSellerConnectAfterOnboarding } from '../lib/openStripeConnectOnboarding';
 import { areDevToolsEnabled } from '../lib/devTools';
 
-function statusStyle(status: (typeof listingPreviews)[0]['status']) {
+function statusStyle(status: ListingPreview['status']) {
   switch (status) {
     case 'active':
       return { bg: 'rgba(52,199,89,0.15)', fg: colors.success, label: 'Live' };
@@ -432,7 +431,9 @@ function ListingInventorySection({
                   <View style={[styles.statusPill, { backgroundColor: st.bg }]}>
                     <Text style={[styles.statusPillText, { color: st.fg }]}>{st.label}</Text>
                   </View>
-                  <Text style={styles.watchCount}>{L.watches} watching</Text>
+                  {L.watches > 0 ? (
+                    <Text style={styles.watchCount}>{L.watches} watching</Text>
+                  ) : null}
                 </View>
               </View>
             </Pressable>
@@ -445,10 +446,7 @@ function ListingInventorySection({
 
 function ListingsPanel({ navigation }: { navigation: BottomTabNavigationProp<MainTabParamList> }) {
   const { userListings, drafts } = useCreateListingDraft();
-  const mergedListings = useMemo(() => {
-    const ids = new Set(userListings.map((u) => u.id));
-    return [...userListings, ...listingPreviews.filter((p) => !ids.has(p.id))];
-  }, [userListings]);
+  const mergedListings = userListings;
 
   const marketplaceListings = useMemo(
     () => mergedListings.filter((L) => listingChannelOf(L) === 'marketplace'),

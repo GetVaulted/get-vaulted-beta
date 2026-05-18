@@ -3,24 +3,18 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchMarketplaceListings } from '../api/listingsFeedRepository';
+import { PremiumEmptyPanel } from '../components/empty/PremiumEmptyPanel';
 import { MarketplaceCategoryRail, type MarketplaceLaneId } from '../components/discover/DiscoverCategoryRail';
 import { MarketplaceFeedSkeleton } from '../components/discover/DiscoverFeedSkeleton';
 import { MarketplaceHeroCarousel } from '../components/discover/DiscoverHeroCarousel';
 import { MarketplaceListingRail } from '../components/discover/DiscoverListingRail';
 import { MarketplaceMomentumBar } from '../components/discover/DiscoverMomentumBar';
-import { MarketplaceSoldTicker } from '../components/discover/DiscoverSoldTicker';
 import { MarketplaceVaultHeader } from '../components/marketplace/MarketplaceVaultHeader';
 import { SearchBar } from '../components/ui/SearchBar';
 import {
-  isMarketplaceDemoProduct,
-  marketplaceHeroSlides,
-  marketplaceRecentSales,
-} from '../data/marketplaceFeedMock';
-import {
-  buildMarketplaceCatalog,
   filterByMarketplaceLane,
   pickEndingSoon,
   pickLuxuryLane,
@@ -30,7 +24,9 @@ import {
   pickVaultVerified,
   sliceRail,
 } from '../lib/marketplaceCatalog';
+import { buildMarketplaceHeroSlides } from '../lib/marketplaceHero';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { openCreateListing } from '../navigation/openCreateListing';
 import { openHelpCenter } from '../navigation/openPlatform';
 import type { MainTabParamList, RootStackParamList } from '../navigation/types';
 import { colors, spacing } from '../theme';
@@ -47,17 +43,17 @@ export function MarketplaceScreen() {
   const [lane, setLane] = useState<MarketplaceLaneId>('all');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [catalogReal, setCatalogReal] = useState<Product[]>([]);
+  const [catalog, setCatalog] = useState<Product[]>([]);
 
   const load = useCallback(async () => {
     if (!isSupabaseConfigured()) {
-      setCatalogReal([]);
+      setCatalog([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      setCatalogReal(await fetchMarketplaceListings({ limit: 48 }));
+      setCatalog(await fetchMarketplaceListings({ limit: 48 }));
     } finally {
       setLoading(false);
     }
@@ -73,13 +69,21 @@ export function MarketplaceScreen() {
     setRefreshing(false);
   }, [load]);
 
-  const catalog = useMemo(() => buildMarketplaceCatalog(catalogReal), [catalogReal]);
   const filtered = useMemo(() => filterByMarketplaceLane(catalog, lane), [catalog, lane]);
+  const heroSlides = useMemo(() => buildMarketplaceHeroSlides(filtered), [filtered]);
 
   const openProduct = useCallback(
     (product: Product) => {
-      if (isMarketplaceDemoProduct(product.id)) return;
       navigation.navigate('ProductDetail', { productId: product.id });
+    },
+    [navigation],
+  );
+
+  const openHeroSlide = useCallback(
+    (slide: { productId?: string }) => {
+      if (slide.productId) {
+        navigation.navigate('ProductDetail', { productId: slide.productId });
+      }
     },
     [navigation],
   );
@@ -98,6 +102,9 @@ export function MarketplaceScreen() {
     }),
     [filtered],
   );
+
+  const hasListings = filtered.length > 0;
+  const showEmpty = !loading && !hasListings;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.sm }]}>
@@ -118,26 +125,43 @@ export function MarketplaceScreen() {
       >
         {loading ? <MarketplaceFeedSkeleton /> : null}
 
-        {!loading ? (
+        {!loading && showEmpty ? (
+          <PremiumEmptyPanel
+            icon="storefront-outline"
+            kicker="The vault"
+            title="No listings in the vault yet."
+            subtitle="Be the first to list authenticated inventory — buy-now, offers, and auctions surface here for collectors."
+            actions={[
+              {
+                label: 'Create first listing',
+                onPress: () => void openCreateListing(navigation, { channel: 'marketplace' }),
+              },
+            ]}
+          />
+        ) : null}
+
+        {!loading && hasListings ? (
           <>
-            <MarketplaceHeroCarousel slides={marketplaceHeroSlides} />
+            <MarketplaceHeroCarousel slides={heroSlides} onSlidePress={openHeroSlide} />
             <MarketplaceMomentumBar />
 
             <MarketplaceListingRail
               title="Featured listings"
-              subtitle="Curated marketplace inventory"
+              subtitle="Live marketplace inventory"
               products={rails.featured}
               onPressProduct={openProduct}
               imagePriority="high"
             />
 
-            <MarketplaceListingRail
-              title="Trending marketplace"
-              subtitle="Bids · views · collector demand"
-              products={rails.trending}
-              onPressProduct={openProduct}
-              pulseIndex={0}
-            />
+            {rails.trending.length ? (
+              <MarketplaceListingRail
+                title="Auctions & demand"
+                subtitle="Timed lots and active bids"
+                products={rails.trending}
+                onPressProduct={openProduct}
+                pulseIndex={0}
+              />
+            ) : null}
 
             <MarketplaceListingRail
               title="Recently listed"
@@ -146,43 +170,49 @@ export function MarketplaceScreen() {
               onPressProduct={openProduct}
             />
 
-            <MarketplaceListingRail
-              title="Ending soon"
-              subtitle="Auctions closing"
-              products={rails.ending}
-              onPressProduct={openProduct}
-              pulseIndex={1}
-            />
+            {rails.ending.length ? (
+              <MarketplaceListingRail
+                title="Ending soon"
+                subtitle="Auctions closing"
+                products={rails.ending}
+                onPressProduct={openProduct}
+                pulseIndex={1}
+              />
+            ) : null}
 
-            <MarketplaceSoldTicker sales={marketplaceRecentSales} />
+            {rails.verified.length ? (
+              <MarketplaceListingRail
+                title="Vault verified"
+                subtitle="Authenticated inventory"
+                products={rails.verified}
+                onPressProduct={openProduct}
+              />
+            ) : null}
 
-            <MarketplaceListingRail
-              title="Vault verified"
-              subtitle="Authenticated inventory"
-              products={rails.verified}
-              onPressProduct={openProduct}
-            />
-
-            <MarketplaceListingRail
-              title="Luxury lane"
-              subtitle="Watches · high jewelry · grails"
-              products={rails.luxury}
-              onPressProduct={openProduct}
-            />
+            {rails.luxury.length ? (
+              <MarketplaceListingRail
+                title="Luxury lane"
+                subtitle="Watches · high jewelry · grails"
+                products={rails.luxury}
+                onPressProduct={openProduct}
+              />
+            ) : null}
 
             <MarketplaceListingRail
               title="Collector picks"
-              subtitle="Lanes collectors save"
+              subtitle="Saved lanes & categories"
               products={rails.collector}
               onPressProduct={openProduct}
             />
 
-            <MarketplaceListingRail
-              title="Most watched"
-              subtitle="Marketplace attention"
-              products={rails.watched}
-              onPressProduct={openProduct}
-            />
+            {rails.watched.length ? (
+              <MarketplaceListingRail
+                title="High attention"
+                subtitle="Listings with collector views"
+                products={rails.watched}
+                onPressProduct={openProduct}
+              />
+            ) : null}
 
             <MarketplaceListingRail
               title="New arrivals"

@@ -1,6 +1,5 @@
 import { getSupabase } from '../lib/supabase';
 import { fetchMarketplaceListings } from './listingsFeedRepository';
-import { isMarketplaceDemoProduct } from '../data/marketplaceFeedMock';
 
 export type MarketplaceLiveStats = {
   activeListings: number | null;
@@ -36,12 +35,11 @@ export async function fetchMarketplaceLiveStats(): Promise<MarketplaceLiveStats>
   }
 
   const listings = await fetchMarketplaceListings({ limit: 120 });
-  const real = listings.filter((p) => !isMarketplaceDemoProduct(p.id));
-  if (!real.length) {
+  if (!listings.length) {
     return { activeListings: null, soldToday: null, endingSoon: null, completedSales: null };
   }
   return {
-    activeListings: real.length,
+    activeListings: listings.length,
     soldToday: null,
     endingSoon: null,
     completedSales: null,

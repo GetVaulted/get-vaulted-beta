@@ -10,11 +10,8 @@ import { fetchLiveShowsForDiscovery } from '../api/liveShowsDiscoveryRepository'
 import { fetchMarketplaceListings } from '../api/listingsFeedRepository';
 import { fetchMyLiveRooms, type LiveRoomApiRow } from '../api/liveRoomsRepository';
 import { PremiumEmptyPanel } from '../components/empty/PremiumEmptyPanel';
-import { FeaturedCreatorCard } from '../components/home/FeaturedCreatorCard';
 import { HomeCultureHero } from '../components/home/HomeCultureHero';
 import { HomeFeedSyncHint } from '../components/home/HomeFeedSyncHint';
-import { HomeLiveActivityStrip } from '../components/home/HomeLiveActivityStrip';
-import { HomeRecentSalesRail } from '../components/home/HomeRecentSalesRail';
 import { HomeSellerEventBanner } from '../components/home/HomeSellerEventBanner';
 import { HomeSellerOnboardingStrip } from '../components/home/HomeSellerOnboardingStrip';
 import { HotClipCard } from '../components/home/HotClipCard';
@@ -33,14 +30,8 @@ import { LiveEmptyBroadcastBlock } from '../components/live/LiveEmptyBroadcastBl
 import { ProductCard } from '../components/ui/ProductCard';
 import { SearchBar } from '../components/ui/SearchBar';
 import { SectionHeader } from '../components/ui/SectionHeader';
-import {
-  homeFeaturedDrops,
-  homeLiveActivity,
-  homeRecentSales,
-  homeTrendingCreators,
-} from '../data/homeCultureMock';
-import { isMarketplaceDemoProduct } from '../data/marketplaceFeedMock';
 import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
+import { openCreateListing } from '../navigation/openCreateListing';
 import {
   getHomeFeedMemorySnapshot,
   hasWarmHomeFeedCache,
@@ -57,7 +48,7 @@ import type { SellerHQEntryPhase } from '../lib/sellerHubEntry';
 import { openMessagesInbox } from '../navigation/openMessages';
 import { NotificationBadge } from '../components/platform/NotificationBadge';
 import { useNotificationBadge } from '../hooks/useNotificationBadge';
-import { openHelpCenter, openMyOrders, openNotificationInbox, openUserProfile } from '../navigation/openPlatform';
+import { openHelpCenter, openMyOrders, openNotificationInbox } from '../navigation/openPlatform';
 import { countActiveBuyerOrders } from '../api/ordersRepository';
 import { openSellerHostRoom } from '../navigation/openSellerHostRoom';
 import { openSellerHQ } from '../navigation/openSellerHQ';
@@ -75,7 +66,7 @@ function initialFeedState() {
   return {
     liveRows: snapshot?.live ?? [],
     scheduledRows: snapshot?.scheduled ?? [],
-    listings: snapshot?.listings?.length ? snapshot.listings : homeFeaturedDrops,
+    listings: snapshot?.listings ?? [],
     hasCache: Boolean(snapshot?.live.length || snapshot?.listings?.length),
   };
 }
@@ -95,7 +86,6 @@ export function HomeScreen() {
   const [scheduledRows, setScheduledRows] = useState<ScheduledStream[]>(seed.scheduledRows);
   const [clips, setClips] = useState<HotClip[]>([]);
   const [sellerNextRoom, setSellerNextRoom] = useState<LiveRoomApiRow | null>(null);
-  const [usingDemoMarketplace, setUsingDemoMarketplace] = useState(!seed.listings.some((p) => !isMarketplaceDemoProduct(p.id)));
   const [activeBuyerOrders, setActiveBuyerOrders] = useState(0);
 
   const sellerApproved = isSellerHQApproved(sellerConnect.status);
@@ -138,9 +128,7 @@ export function HomeScreen() {
       setScheduledRows(livePack.scheduled);
       setClips([]);
 
-      const apiListings = products.length >= 4 ? products : homeFeaturedDrops;
-      setListings(apiListings);
-      setUsingDemoMarketplace(!products.length || products.length < 4);
+      setListings(products);
 
       const upcoming = myRooms
         .filter((r) => r.status === 'scheduled' && r.scheduledStartAt)
@@ -177,10 +165,7 @@ export function HomeScreen() {
         if (!warm) {
           if (cache.live.length) setLiveRows(cache.live);
           if (cache.scheduled.length) setScheduledRows(cache.scheduled);
-          if (cache.listings.length) {
-            setListings(cache.listings);
-            setUsingDemoMarketplace(false);
-          }
+          if (cache.listings.length) setListings(cache.listings);
         }
         if (cache.live.length || cache.listings.length) {
           setInitialLoad(false);
@@ -222,10 +207,6 @@ export function HomeScreen() {
   };
 
   const openProduct = (product: Product) => {
-    if (isMarketplaceDemoProduct(product.id)) {
-      goMarketplace();
-      return;
-    }
     navigation.navigate('ProductDetail', { productId: product.id });
   };
 
@@ -250,22 +231,13 @@ export function HomeScreen() {
     };
   }, [sellerNextRoom]);
 
-  const marketplaceHeat = useMemo(() => {
-    if (listings.length >= 4) return listings;
-    return homeFeaturedDrops;
-  }, [listings]);
-
   const showLiveSkeleton = initialLoad && liveRows.length === 0;
   const showLiveEmpty = !initialLoad && liveRows.length === 0;
-  const showMarketplaceSkeleton = initialLoad && marketplaceHeat.length === 0;
+  const showMarketplaceSkeleton = initialLoad && listings.length === 0;
+  const showMarketplaceEmpty = !initialLoad && listings.length === 0;
 
   const liveSyncHint = refreshing && liveRows.length > 0 ? 'Syncing live rooms…' : null;
-  const marketSyncHint =
-    refreshing && !showMarketplaceSkeleton
-      ? usingDemoMarketplace
-        ? 'Pulling marketplace heat…'
-        : 'Syncing the vault…'
-      : null;
+  const marketSyncHint = refreshing && listings.length > 0 ? 'Syncing the vault…' : null;
   const liveBootHint = showLiveSkeleton ? 'Loading live rooms…' : null;
 
   return (
@@ -345,21 +317,36 @@ export function HomeScreen() {
           ) : showLiveEmpty ? (
             <LiveEmptyBroadcastBlock
               useDefaultTabActions={false}
+              primaryLabel="Explore live hub"
+              secondaryLabel="Browse marketplace"
               onStartLive={goLive}
               onExploreListings={goMarketplace}
             />
           ) : null}
         </View>
 
-        <SectionHeader title="Marketplace heat" actionLabel="The Vault" onPressAction={goMarketplace} />
+        <SectionHeader title="The vault" actionLabel="Marketplace" onPressAction={goMarketplace} />
         {marketSyncHint ? <HomeFeedSyncHint message={marketSyncHint} /> : null}
         <View style={styles.marketRailSlot}>
           {showMarketplaceSkeleton ? (
             <MarketplaceCardSkeletonRail count={4} />
+          ) : showMarketplaceEmpty ? (
+            <PremiumEmptyPanel
+              icon="storefront-outline"
+              title="No listings in the vault yet."
+              subtitle="List authenticated inventory to appear in discovery — buy-now, offers, and auctions."
+              actions={[
+                {
+                  label: 'Create first listing',
+                  onPress: () => void openCreateListing(navigation, { channel: 'marketplace' }),
+                },
+                { label: 'Browse marketplace', onPress: goMarketplace, variant: 'secondary' },
+              ]}
+            />
           ) : (
             <FlatList
               horizontal
-              data={marketplaceHeat}
+              data={listings}
               keyExtractor={(item) => item.id}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.hList}
@@ -385,24 +372,6 @@ export function HomeScreen() {
             actions={[{ label: 'Explore live hub', onPress: goLive }]}
           />
         )}
-
-        <SectionHeader title="Trending sellers" actionLabel="See all" onPressAction={goLive} />
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
-          {homeTrendingCreators.map((c) => (
-            <FeaturedCreatorCard
-              key={c.host.id}
-              creator={c}
-              onFollow={() => {}}
-              onPress={() => openUserProfile(c.host.id, navigation)}
-            />
-          ))}
-        </ScrollView>
-
-        <SectionHeader title="Recent big sales" />
-        <HomeRecentSalesRail sales={homeRecentSales} />
-
-        <SectionHeader title="Community momentum" />
-        <HomeLiveActivityStrip items={homeLiveActivity} />
 
         {clips.length ? (
           <>

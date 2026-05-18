@@ -38,8 +38,8 @@ export function DiscoverLiveRail({
         </ScrollView>
       ) : (
         <Pressable style={styles.placeholder} onPress={onOpenLiveHub}>
-          <Text style={styles.phTitle}>Rooms heating up</Text>
-          <Text style={styles.phSub}>Tap for live discovery</Text>
+          <Text style={styles.phTitle}>No vault events live right now</Text>
+          <Text style={styles.phSub}>When sellers go live, rooms appear here</Text>
         </Pressable>
       )}
     </View>

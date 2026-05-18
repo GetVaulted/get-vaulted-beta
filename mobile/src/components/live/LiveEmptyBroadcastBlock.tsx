@@ -21,6 +21,8 @@ type TabNav = BottomTabNavigationProp<MainTabParamList>;
 type Props = {
   title?: string;
   subtitle?: string;
+  primaryLabel?: string;
+  secondaryLabel?: string;
   /** When true, wires default CTAs: HQ (live) + Marketplace */
   useDefaultTabActions?: boolean;
   onStartLive?: () => void;
@@ -28,9 +30,11 @@ type Props = {
 };
 
 export function LiveEmptyBroadcastBlock({
-  title = 'No live rooms right now',
-  subtitle = 'Collector rooms go live around the clock — check back soon.',
+  title = 'No vault events live right now',
+  subtitle = 'Schedule a vault event or check back when collectors go live.',
   useDefaultTabActions = true,
+  primaryLabel = 'Schedule Vault Event',
+  secondaryLabel = 'Explore Listings',
   onStartLive,
   onExploreListings,
 }: Props) {
@@ -94,11 +98,11 @@ export function LiveEmptyBroadcastBlock({
       <View style={styles.ctaRow}>
         <Pressable style={styles.ctaPrimary} onPress={goStart}>
           <Ionicons name="videocam-outline" size={18} color="#0a0a0a" />
-          <Text style={styles.ctaPrimaryTxt}>Start a Live Show</Text>
+          <Text style={styles.ctaPrimaryTxt}>{primaryLabel}</Text>
         </Pressable>
         <Pressable style={styles.ctaSecondary} onPress={goExplore}>
           <Ionicons name="albums-outline" size={18} color={colors.gold} />
-          <Text style={styles.ctaSecondaryTxt}>Explore Listings</Text>
+          <Text style={styles.ctaSecondaryTxt}>{secondaryLabel}</Text>
         </Pressable>
       </View>
     </View>

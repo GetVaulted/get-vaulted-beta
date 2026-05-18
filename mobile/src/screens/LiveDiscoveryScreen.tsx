@@ -32,6 +32,7 @@ import {
 import { orderLiveDiscoveryRooms, type OrderedLiveRoom } from '../lib/liveDiscoveryOrder';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from '../auth/AuthContext';
+import { openSellerHQ } from '../navigation/openSellerHQ';
 import type { LiveStackParamList } from '../navigation/types';
 import { alertGuestLiveRestricted } from '../navigation/guestExploreGuards';
 import { openHelpCenter } from '../navigation/openPlatform';
@@ -234,7 +235,12 @@ export function LiveDiscoveryScreen() {
         ListHeaderComponent={listHeader}
         ListEmptyComponent={
           liveEmpty ? (
-            <LiveEmptyBroadcastBlock />
+            <LiveEmptyBroadcastBlock
+              onStartLive={() => {
+                const tab = navigation.getParent();
+                if (tab) openSellerHQ(tab, { tab: 'live', openSchedule: true });
+              }}
+            />
           ) : filterEmpty ? (
             <PremiumEmptyPanel
               icon="funnel-outline"

@@ -36,7 +36,7 @@ export function HomeCultureHero({
           {'\n'}
           Vault.
         </Text>
-        <Text style={styles.tagline}>Live rooms. Real heat. Premium inventory.</Text>
+        <Text style={styles.tagline}>Live rooms. Verified inventory. Collector commerce.</Text>
         <Text style={styles.support}>
           A premium live collectible network for auctions, drops, breaks, and collector-led selling.
         </Text>

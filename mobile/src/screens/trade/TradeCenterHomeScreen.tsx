@@ -6,13 +6,11 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'r
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TradeCenterHero } from '../../components/trade/TradeCenterHero';
 import { TradeDealCard } from '../../components/trade/TradeDealCard';
-import { TradeMomentumRail } from '../../components/trade/TradeMomentumRail';
-import { TradeNegotiationPulse } from '../../components/trade/TradeNegotiationPulse';
+import { PremiumEmptyPanel } from '../../components/empty/PremiumEmptyPanel';
 import { TradePulseStrip } from '../../components/trade/TradePulseStrip';
 import { TradeSectionBlock } from '../../components/trade/TradeSectionBlock';
 import { TradeStartDealCta } from '../../components/trade/TradeStartDealCta';
 import { TradeTrustStrip } from '../../components/trade/TradeTrustStrip';
-import { tradeNegotiationPulse, tradeRecentDeals } from '../../data/tradeCenterMock';
 import { useTradeCenterFeed } from '../../hooks/useTradeCenterFeed';
 import { areDevToolsEnabled } from '../../lib/devTools';
 import { isSupabaseConfigured } from '../../lib/supabase';
@@ -49,6 +47,13 @@ export function TradeCenterHomeScreen() {
 
   const firstIncoming = sections.incoming[0];
   const showDesk = isSupabaseConfigured() && Boolean(user) && !authLoading;
+  const dealCount =
+    sections.incoming.length +
+    sections.counters.length +
+    sections.sent.length +
+    sections.active.length +
+    sections.completed.length;
+  const showDealsEmpty = showDesk && !loading && dealCount === 0;
 
   const renderOffer = (offer: TradeOfferVM, viewerId: string) => {
     const partner = offer.recipient_id === viewerId ? offer.sender : offer.recipient;
@@ -154,8 +159,14 @@ export function TradeCenterHomeScreen() {
 
             <TradeTrustStrip />
 
-            <TradeMomentumRail title="Recent vault trades" items={tradeRecentDeals} />
-            <TradeNegotiationPulse items={tradeNegotiationPulse} />
+            {showDealsEmpty ? (
+              <PremiumEmptyPanel
+                icon="swap-horizontal-outline"
+                title="No active collector deals."
+                subtitle="Send a protected offer or start a vault trade — negotiations and shipping labels sync here."
+                actions={[{ label: 'Start a trade', onPress: startTrade }]}
+              />
+            ) : null}
 
             {loading && !sections.incoming.length && !sections.active.length ? (
               <Text style={styles.syncHint}>Loading your deals…</Text>

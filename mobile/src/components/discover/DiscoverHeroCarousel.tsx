@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { VaultImage } from '../ui/VaultImage';
-import type { MarketplaceHeroSlide } from '../../data/marketplaceFeedMock';
+import type { MarketplaceHeroSlide } from '../../types/marketplaceUi';
 import { colors, radii, spacing } from '../../theme';
 
 const HERO_H = 132;
@@ -24,6 +24,8 @@ export function MarketplaceHeroCarousel({
   slides: MarketplaceHeroSlide[];
   onSlidePress?: (slide: MarketplaceHeroSlide) => void;
 }) {
+  if (!slides.length) return null;
+
   const screenW = Dimensions.get('window').width;
   const cardW = screenW - spacing.lg * 2;
   const [index, setIndex] = useState(0);
