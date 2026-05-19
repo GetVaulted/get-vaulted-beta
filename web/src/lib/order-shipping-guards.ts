@@ -1,4 +1,5 @@
-import { PAYMENT_PAID } from "@/services/payments";
+/** Keep in sync with PAYMENT_PAID in @/services/payments — do not import payments here (client bundle). */
+const PAYMENT_PAID = "paid";
 
 export const ORDER_MUST_BE_PAID_BEFORE_FULFILLMENT = "Order must be paid before fulfillment.";
 
