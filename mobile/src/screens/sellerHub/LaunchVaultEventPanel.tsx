@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { consumePendingVaultEventSchedule } from '../../navigation/openSellerHQ';
-import type { SellerConnectStatusResponse } from '../../api/stripeConnectRepository';
+import type { LiveSalesGate } from '../../lib/sellerLiveReadiness';
 import { ScheduleVaultEventModal } from '../../components/seller/hq/ScheduleVaultEventModal';
 import { VaultEventsHub } from '../../components/seller/hq/VaultEventsHub';
 export type LaunchVaultEventPanelProps = {
   accessToken?: string;
-  sellerConnect: { status: SellerConnectStatusResponse | null; loading: boolean };
+  liveGate: LiveSalesGate;
+  onBlockedSchedule?: () => void;
   scheduleTitle: string;
   setScheduleTitle: (s: string) => void;
   scheduleCategory: string;
@@ -39,18 +40,19 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
     <View>
       <VaultEventsHub
         accessToken={props.accessToken}
-        sellerConnect={props.sellerConnect}
+        liveGate={props.liveGate}
         sellerAvatarUrl={props.sellerAvatarUrl}
         onHostRoom={props.onHostRoom}
         onViewRecap={props.onViewRecap}
         onScheduleNew={() => setScheduleOpen(true)}
+        onBlockedSchedule={props.onBlockedSchedule}
         roomsRefreshKey={roomsRefreshKey}
       />
       <ScheduleVaultEventModal
         visible={scheduleOpen}
         onClose={() => setScheduleOpen(false)}
         accessToken={props.accessToken}
-        sellerConnect={props.sellerConnect}
+        liveGate={props.liveGate}
         scheduleTitle={props.scheduleTitle}
         setScheduleTitle={props.setScheduleTitle}
         scheduleCategory={props.scheduleCategory}

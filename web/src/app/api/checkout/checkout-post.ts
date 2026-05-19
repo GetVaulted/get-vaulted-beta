@@ -7,6 +7,7 @@ import {
   createPayOrderCheckoutSession,
 } from "@/services/payments";
 import { prisma } from "@/lib/prisma";
+import { processAuctionPaymentExpiries } from "@/services/payments";
 
 type Body = {
   kind?: string;
@@ -36,6 +37,12 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
   const session = await getServerSessionSafe();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    await processAuctionPaymentExpiries();
+  } catch (e) {
+    console.error("[checkout] processAuctionPaymentExpiries", e);
   }
 
   let body: Body;

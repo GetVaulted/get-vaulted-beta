@@ -213,7 +213,7 @@ async function notifyAuctionBidders(listingId: string, title: string, message: s
     select: { bidderId: true },
     distinct: ["bidderId"],
   });
-  const href = `/marketplace/${encodeURIComponent(listingId)}`;
+  const href = `/listing/${encodeURIComponent(listingId)}`;
   for (const { bidderId } of bids) {
     await createNotification(prisma, {
       userId: bidderId,

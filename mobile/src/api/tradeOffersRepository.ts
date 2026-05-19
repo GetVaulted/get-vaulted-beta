@@ -1,3 +1,10 @@
+import {
+  createListingViaWeb,
+  fetchListingsByIdsFromWeb,
+  fetchMyListingsFromWeb,
+  fetchPublishedListingsFromWeb,
+  getListingsAccessToken,
+} from './webListingsRepository';
 import { getSupabase } from '../lib/supabase';
 import { devPlaceholderShipFrom, shouldAttachDevShipFrom } from '../lib/devShippoPlaceholders';
 import { tradeFeeUsdForTier } from '../lib/tradeFeeAmounts';
@@ -33,29 +40,31 @@ function num(v: number | string | null | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function listingFromRow(r: Record<string, unknown>): ListingLite {
-  const media = r.media_urls as unknown[] | null;
-  const first = Array.isArray(media) && typeof media[0] === 'string' ? media[0] : '';
+function listingLiteFromWebListing(l: {
+  id: string;
+  title: string;
+  price: number;
+  imageUrls?: string[];
+  condition: string;
+}): ListingLite {
   return {
-    id: r.id as string,
-    title: (r.title as string) ?? 'Item',
-    price: num(r.price as string | number | null | undefined),
-    currency: (r.currency as string) ?? 'usd',
-    media_urls: first,
-    condition: (r.condition as string) ?? null,
-    authentication_status: (r.authentication_status as string) ?? 'unknown',
+    id: l.id,
+    title: l.title ?? 'Item',
+    price: l.price,
+    currency: 'usd',
+    media_urls: l.imageUrls?.[0] ?? '',
+    condition: l.condition ?? null,
+    authentication_status: 'unknown',
   };
 }
 
-async function fetchListingsMap(sb: NonNullable<ReturnType<typeof getSupabase>>, ids: string[]) {
+async function fetchListingsMap(_sb: NonNullable<ReturnType<typeof getSupabase>>, ids: string[]) {
   const uniq = [...new Set(ids)].filter(Boolean);
   if (!uniq.length) return new Map<string, ListingLite>();
-  const { data, error } = await sb.from('listings').select('*').in('id', uniq);
-  if (error || !data) return new Map();
+  const rows = await fetchListingsByIdsFromWeb(uniq);
   const m = new Map<string, ListingLite>();
-  for (const row of data) {
-    const L = listingFromRow(row as Record<string, unknown>);
-    m.set(L.id, L);
+  for (const row of rows) {
+    m.set(row.id, listingLiteFromWebListing(row));
   }
   return m;
 }
@@ -188,13 +197,22 @@ export async function insertTradeOffer(params: {
 }): Promise<string> {
   const sb = getSupabase();
   if (!sb) throw new Error('Supabase is not configured');
-  const { data: req, error: re } = await sb.from('listings').select('id, seller_id').eq('id', params.requestedListingId).single();
-  if (re || !req) throw new Error('Requested listing not found');
-  const recipientId = req.seller_id as string;
+
+  const published = await fetchListingsByIdsFromWeb([params.requestedListingId]);
+  const requested = published.find((l) => l.id === params.requestedListingId);
+  const recipientId = requested?.sellerId;
+  if (!recipientId) throw new Error('Requested listing not found');
   if (recipientId === params.senderId) throw new Error('Cannot trade with yourself');
+
+  const accessToken = await getListingsAccessToken();
+  const mine = await fetchMyListingsFromWeb(accessToken);
+  const mineIds = new Set(
+    mine
+      .filter((l) => l.sellerId === params.senderId && (l.status === 'active' || l.status === 'auction_live'))
+      .map((l) => l.id),
+  );
   for (const oid of params.offeredListingIds) {
-    const { data: off } = await sb.from('listings').select('seller_id').eq('id', oid).single();
-    if (!off || (off.seller_id as string) !== params.senderId) {
+    if (!mineIds.has(oid)) {
       throw new Error('You can only offer listings you own');
     }
   }
@@ -290,29 +308,43 @@ export function subscribeTradeOffer(
 }
 
 export async function fetchLiveListingsExcludingSeller(sbUserId: string): Promise<ListingLite[]> {
-  const sb = getSupabase();
-  if (!sb) return [];
-  const { data, error } = await sb
-    .from('listings')
-    .select('*')
-    .eq('status', 'live')
-    .neq('seller_id', sbUserId)
-    .limit(40);
-  if (error || !data) return [];
-  return data.map((r) => listingFromRow(r as Record<string, unknown>));
+  const rows = await fetchPublishedListingsFromWeb();
+  return rows
+    .filter(
+      (l) =>
+        l.sellerId &&
+        l.sellerId !== sbUserId &&
+        l.acceptTradeOffers &&
+        (l.listingStatus === 'active' || l.listingStatus === 'auction_live'),
+    )
+    .slice(0, 40)
+    .map((l) => listingLiteFromWebListing(l));
 }
 
 export async function fetchMyLiveListings(sellerId: string): Promise<ListingLite[]> {
-  const sb = getSupabase();
-  if (!sb) return [];
-  const { data, error } = await sb
-    .from('listings')
-    .select('*')
-    .eq('status', 'live')
-    .eq('seller_id', sellerId)
-    .limit(60);
-  if (error || !data) return [];
-  return data.map((r) => listingFromRow(r as Record<string, unknown>));
+  try {
+    const token = await getListingsAccessToken();
+    const rows = await fetchMyListingsFromWeb(token);
+    return rows
+      .filter(
+        (l) =>
+          l.sellerId === sellerId &&
+          (l.status === 'active' || l.status === 'auction_live') &&
+          l.acceptTradeOffers,
+      )
+      .slice(0, 60)
+      .map((l) =>
+        listingLiteFromWebListing({
+          id: l.id,
+          title: l.title,
+          price: typeof l.price === 'number' ? l.price : 1,
+          imageUrls: l.imageDataUrls,
+          condition: l.condition ?? '',
+        }),
+      );
+  } catch {
+    return [];
+  }
 }
 
 /** Statuses exposed by Trade Center QA force-status panel. */
@@ -386,31 +418,30 @@ export async function devTriggerTradeLabelError(
   if (error) throw new Error(error.message);
 }
 
-/** Inserts one live trade_only listing for the signed-in user (RLS: seller_id must be auth user). */
-export async function insertQaPlaceholderListingForCurrentUser(userId: string): Promise<string> {
-  const sb = getSupabase();
-  if (!sb) throw new Error('Supabase is not configured');
-  const { data, error } = await sb
-    .from('listings')
-    .insert({
-      seller_id: userId,
-      title: 'QA trade listing (placeholder)',
-      description: 'Auto-created by Trade Center QA setup tools',
-      category: 'trade_qa',
-      listing_type: 'trade_only',
-      price: 1,
-      currency: 'usd',
-      authentication_status: 'unknown',
-      media_urls: ['https://placehold.co/600x400/png'],
-      status: 'live',
-      accepts_trades: true,
-      shipping_weight_tier: 'cards_slabs',
-      metadata: { qa_seed: true },
-    })
-    .select('id')
-    .single();
-  if (error || !data) throw new Error(error?.message ?? 'Insert failed');
-  return data.id as string;
+/** Inserts one published trade-eligible listing via the shared web listings API. */
+export async function insertQaPlaceholderListingForCurrentUser(_userId: string): Promise<string> {
+  const token = await getListingsAccessToken();
+  const { listingId } = await createListingViaWeb(token, {
+    title: 'QA trade listing (placeholder)',
+    description: 'Auto-created by Trade Center QA setup tools',
+    category: 'Other',
+    condition: 'Other',
+    buyingFormat: 'buy_now',
+    priceUsd: 1,
+    status: 'active',
+    images: ['https://placehold.co/600x400/png'],
+    acceptTradeOffers: true,
+    allowOffers: false,
+    signatureRequired: false,
+    shippingPriceUsd: 0,
+    handlingTime: '—',
+    shippingCategory: 'raw_card',
+    parcelWeightOz: 16,
+    parcelLengthIn: 6,
+    parcelWidthIn: 6,
+    parcelHeightIn: 6,
+  });
+  return listingId;
 }
 
 /** QA RPC: inserts a live listing for the demo partner (requires migration qa_seed_partner_trade_listing). */

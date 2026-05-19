@@ -1,3 +1,5 @@
+import { fetchListingsByIdsFromWeb } from './webListingsRepository';
+import { resolveListingImageUrl } from './mapWebMarketplaceListing';
 import { getSupabase } from '../lib/supabase';
 
 export type BuyerOrderBucket = 'active' | 'delivered' | 'completed' | 'canceled';
@@ -112,16 +114,27 @@ async function enrichBuyerOrders(rows: OrderDbRow[]): Promise<BuyerOrder[]> {
   const profileMap = new Map<string, { username: string | null; avatar: string | null }>();
   const labelMap = new Map<string, LabelRow>();
 
+  const [webListings, profilesResult, labelsResult] = await Promise.all([
+    fetchListingsByIdsFromWeb(listingIds),
+    sb
+      ? sb.from('profiles').select('id, username, avatar_url').in('id', profileIds)
+      : Promise.resolve({ data: null }),
+    sb
+      ? sb
+          .from('shipping_labels')
+          .select('order_id, tracking_number, tracking_url, carrier, ship_by_date, status')
+          .in('order_id', orderIds)
+      : Promise.resolve({ data: null }),
+  ]);
+
+  for (const l of webListings) {
+    titleMap.set(l.id, l.title ?? 'Vault listing');
+    thumbMap.set(l.id, resolveListingImageUrl(l.imageUrls?.[0]) ?? null);
+  }
+
   if (sb) {
-    const [{ data: listings }, { data: profiles }, { data: labels }] = await Promise.all([
-      sb.from('listings').select('id, title, media_urls').in('id', listingIds),
-      sb.from('profiles').select('id, username, avatar_url').in('id', profileIds),
-      sb.from('shipping_labels').select('order_id, tracking_number, tracking_url, carrier, ship_by_date, status').in('order_id', orderIds),
-    ]);
-    for (const l of listings ?? []) {
-      titleMap.set(l.id as string, (l.title as string) ?? 'Vault listing');
-      thumbMap.set(l.id as string, firstMediaUrl(l.media_urls));
-    }
+    const { data: profiles } = profilesResult;
+    const { data: labels } = labelsResult;
     for (const p of profiles ?? []) {
       profileMap.set(p.id as string, {
         username: (p.username as string) ?? null,
@@ -129,6 +142,10 @@ async function enrichBuyerOrders(rows: OrderDbRow[]): Promise<BuyerOrder[]> {
       });
     }
     for (const lb of (labels ?? []) as LabelRow[]) {
+      if (lb.order_id) labelMap.set(lb.order_id, lb);
+    }
+  } else {
+    for (const lb of (labelsResult.data ?? []) as LabelRow[]) {
       if (lb.order_id) labelMap.set(lb.order_id, lb);
     }
   }

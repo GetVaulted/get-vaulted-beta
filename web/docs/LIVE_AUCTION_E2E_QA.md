@@ -2,7 +2,209 @@
 
 Manual launch-readiness verification for **live auction rooms** with **bundled live shipping**, **checkout**, **seller fulfillment**, and optional **escrow**. Run in a **staging** environment with real Stripe test mode, Shippo test token, and production-like env flags unless noted.
 
-Record outcomes and metrics in **§12** (spreadsheet or ticket).
+Record outcomes and metrics in **Part B §12** (spreadsheet or ticket).
+
+**Related:** Seller go-live readiness — [`seller-go-live-qa-checklist.md`](./seller-go-live-qa-checklist.md) · Post-purchase — [`orders-fulfillment-qa-checklist.md`](./orders-fulfillment-qa-checklist.md)
+
+---
+
+## Release status
+
+| Label | Meaning |
+|-------|---------|
+| **Beta-ready (engineering)** | Guardrails shipped; lot-phase unit tests pass; beta caveats documented below. |
+| **Staging-signed (commerce loop)** | **No** — requires all three gates in [Commerce staging gate](#commerce-staging-gate) to be **Pass**. |
+| **Launch-signed** | **No** — do not grant until staging-signed **and** product launch criteria beyond this doc are met. |
+
+**Policy:** No new commerce feature work until the [commerce staging gate](#commerce-staging-gate) is closed (all three steps **Pass**). Exception: [unpaid fulfillment guard](./bugs/unpaid-order-fulfillment-guard.md) fix required for O&F sign-off.
+
+---
+
+## Commerce staging gate
+
+Complete **in order**. Record **Pass/Fail**, date, build/env, and notes in the table below and in [`orders-fulfillment-qa-checklist.md`](./orders-fulfillment-qa-checklist.md) § Commerce staging gate.
+
+| Step | Gate | Pass/Fail | Date | Build / env | Notes |
+|------|------|-----------|------|-------------|-------|
+| 1 | `DATABASE_URL` or `INTEGRATION_DATABASE_URL` in `web/.env`; `npm run staging:validate` green | **Pass** | 2026-05-19 | local / integration DB | `staging-green-path.integration.test.ts` |
+| 2 | **Live Auction E2E** — manual staging ([checklist below](#live-auction-manual-staging-checklist)) | **Pending** | | | Run on beta or local after seed |
+| 3 | **Orders & Fulfillment** — manual staging ([orders doc](./orders-fulfillment-qa-checklist.md#orders--fulfillment-manual-staging-checklist)) | **Pending** | | | Blocked on [unpaid ship guard](./bugs/unpaid-order-fulfillment-guard.md) manual verify |
+
+**Commerce loop staging-signed** = steps **1 + 2 + 3** all **Pass**. Until then: **not staging-signed**, **not launch-signed**.
+
+### Step 1 — Automated validation
+
+1. Copy `web/.env.example` → `web/.env` and set `DATABASE_URL` or `INTEGRATION_DATABASE_URL` (disposable Postgres).
+2. From `web/`:
+
+```bash
+npm run staging:validate
+```
+
+Harness: `web/src/test/staging-green-path.integration.test.ts`.
+
+### Live Auction manual staging checklist
+
+Run on staging (e.g. beta or local after `ALLOW_QA_LIVE_SEED=1 npm run qa:seed-live-auction`). Two browsers + one mobile device. `EXPO_PUBLIC_SITE_URL` must match API host.
+
+- [ ] Seller starts auction room (go live → activate lot → open bidding)
+- [ ] Web buyer bids
+- [ ] Mobile buyer bids (snapshot refresh after bid)
+- [ ] Timer expires without auto-settlement
+- [ ] Host marks sold (only settlement path)
+- [ ] Winner / payment outcome created (`orderId`, auto-charge or `pending_payment`)
+- [ ] Buyer completes payment
+- [ ] Seller sees sale in sales dashboard
+- [ ] Payment expiry behavior updates correctly on order / room reload
+
+**Manual pass record (step 2):** Pass/Fail __________ · Tester __________ · Date __________ · Build __________
+
+---
+
+# Part A — Live commerce transaction pipeline (E2E hardening)
+
+Validate the full path: **viewer joins → bids → auction closes → winner → checkout → paid order → fulfillment → payout visibility**.
+
+Use **two browsers** (seller host + buyer) and one **mobile device** for parity rows. Do not file UI polish bugs in this pass — only **state, money, and API** correctness.
+
+**Key code references**
+
+| Area | Path |
+|------|------|
+| Bid API | `web/src/app/api/live-rooms/[id]/items/[itemId]/bid/route.ts` |
+| Mark sold / settle | `web/src/lib/live-auction-item-sold-settle.ts`, `items/[itemId]/route.ts` PATCH `sold` |
+| Realtime | `web/src/hooks/useRealtimeRoomSubscription.ts`, `web/src/components/live-auction/LiveRoomShell.tsx` |
+| Orders / pay | `web/src/lib/offer-fulfillment.ts`, `web/src/services/payments.ts` |
+| Mobile bid / pay bridge | `mobile/src/api/liveRoomBuyerRepository.ts`, `mobile/src/lib/openWebCommerce.ts` |
+
+**Tester:** ____________ **Date:** ____________ **Build / env:** ____________
+
+---
+
+## Beta launch caveats (intentional gaps)
+
+These are **product limitations for beta**, not bugs. UX and APIs should surface them clearly.
+
+| Gap | Beta behavior | Where guarded |
+|-----|----------------|---------------|
+| **Host-settled auction close** | Timer expiry **does not** create an order or charge anyone. Host must **Mark sold** to settle the winner. | Web: `live-auction-lot-phase.ts`, `LiveSaleRoom` / `LiveAuctionRoom` host + buyer copy; mobile host: `VaultPinnedLotCard` |
+| **Mobile bidding without full live sync** | Discovery feed uses **API snapshots**, not full Supabase realtime. After each bid, snapshot refreshes; buyers see stale-sync notice + **Open live room in browser**. | `LivePinnedActionBar`, `liveRoomBuyerRepository` |
+| **Lazy payment expiry** | `processAuctionPaymentExpiries()` runs on **read paths** (live room GET, orders, checkout POST, seller account/sales), **not** a cron. Expired win payments may linger until someone hits those routes. | `web/src/services/payments.ts`, API routes listed in A4 |
+
+---
+
+## A1. Live room state sync
+
+- [ ] **Current item** — host activates lot; buyer + seller see same title / active id within ~1s (realtime or poll fallback).
+- [ ] **Countdown** — `auctionEndsAt` matches server; extension after late bid updates all clients (soft close).
+- [ ] **Viewer join/leave** — viewer count stable; no crash on rapid join.
+- [ ] **Reconnect** — refresh or airplane mode toggle; room state recovers (poll + `auctionSeq` gap refresh on web).
+- [ ] **Sold propagation** — after host marks sold, item leaves active slot; `purchase_completed` / queue updates on buyers.
+- [ ] **Mobile parity** — mobile can load room via `GET /api/live-rooms/[id]` (Bearer); bid uses same API as web.
+
+**Known product rule:** Pure `roomType: auction` lots do **not** auto-close on timer alone — host must mark **sold** (timer blocks new bids only).
+
+---
+
+## A2. Bid system
+
+- [ ] **Increments** — bid below `minNextBidUsd` rejected with clear error.
+- [ ] **Race** — two buyers bid at once; one gets `409` / concurrent higher bid; UI shows refreshed high bid.
+- [ ] **Idempotency** — double-tap bid with same `Idempotency-Key` returns same result (no double leader); web + mobile send header.
+- [ ] **Wallet gate** — buyer without card/shipping gets `402` before bid is accepted (when Stripe configured).
+- [ ] **Reserve / proxy** — listing proxy bids via marketplace rules; live route rejects `maxProxyUsd` on listing lots (documented).
+- [ ] **Extension** — bid inside clutch window extends `auctionEndsAt` (server + UI).
+
+---
+
+## A3. Auction close
+
+- [ ] **Winner** — `resolveProxyAuction` / `lastHighBidderId` matches high bidder after mark sold.
+- [ ] **No duplicate winner** — second mark sold → `409` item already sold; single `Order` per listing.
+- [ ] **Seller confirmation** — host PATCH `sold` returns `{ ok, orderId, autoCharge }`; item `biddingOpen: false`.
+- [ ] **Item lock** — losing bidders cannot bid after close; active item advances per queue rules.
+- [ ] **Failed payment recovery** — unpaid win → seller recovery APIs / relist (see `auction-recovery`); buyer order `pending_payment` with deadline.
+
+---
+
+## A4. Checkout flow
+
+- [ ] **Winner timing** — buyer notification reflects auto-charge outcome (paid vs pay within 30m).
+- [ ] **Stripe Checkout** — `POST /api/checkout` `kind: pay_order` when saved card unavailable.
+- [ ] **Return** — success lands on `/orders/[orderId]`; cancel does not mark paid.
+- [ ] **Cancel** — buyer can retry pay from order page.
+- [ ] **Inventory** — hold reserved at order create; released on expiry / cancel per holds doc.
+
+---
+
+## A5. Order creation
+
+- [ ] **Seller** — order in `/account/sales` with correct buyer, amount, live show context.
+- [ ] **Buyer** — order in buyer history; mobile order detail shows row (pay via web bridge if `pending_payment`).
+- [ ] **Shipping** — live win attaches to `LiveShippingSession` when applicable (`shippingPriceUsd` at pay time).
+- [ ] **Metadata** — `liveRoomItemId` / listing id preserved for support and labels.
+
+---
+
+## A6. Fulfillment
+
+- [ ] **Mark shipped** — seller fulfillment status advances.
+- [ ] **Tracking** — Shippo webhook or manual tracking updates buyer order view.
+- [ ] **Delivered** — terminal fulfillment state reachable.
+- [ ] **Payout** — Connect seller sees payment in sales / wallet after `paymentStatus: paid` (not blocked by live bid).
+
+---
+
+## A7. Failure recovery
+
+| Scenario | Expected |
+|----------|----------|
+| WebSocket drop | Poll + reconnect merge; no permanent stale high bid |
+| Seller disconnect mid-auction | Bids still validated server-side; host can return and mark sold |
+| Buyer disconnect mid-checkout | Order stays `pending_payment` until deadline; can pay when back |
+| Payment failure | `payment_failed` / order not paid; buyer can retry |
+| Expired auction payment | `processAuctionPaymentExpiries` on order/live GET; listing recovery state |
+| Duplicate events | Idempotent bid key; mark sold transaction single order |
+
+---
+
+## A8. Mobile parity
+
+| Flow | Web | Mobile |
+|------|-----|--------|
+| Place bid | Live room UI → `POST .../bid` | Auction lane CTA → same API (Bearer) |
+| Sold / pay state | Realtime + order page | Order detail; **Complete payment** opens web `/orders/[id]` |
+| Reconnect | Realtime + poll | Re-open room; refetch snapshot before bid |
+| Host mark sold | Seller console | `patchLiveRoomItem` (existing host console) |
+
+- [ ] Mobile bid succeeds against staging API (not Trade Center redirect for auction lanes).
+- [ ] Mobile payment for auction win completes via web order page in browser.
+
+---
+
+## A9. Transaction pipeline sign-off
+
+| Step | Web | Mobile | Notes | Pass |
+|------|-----|--------|-------|------|
+| Join live room | | | | |
+| Place valid bid | | | | |
+| Concurrent bid handling | | | | |
+| Host mark sold | | | | |
+| Order created | | | | |
+| Auto-charge / pay | | | | |
+| Buyer order visible | | | | |
+| Seller sales visible | | | | |
+| Fulfillment update | | | | |
+
+---
+
+## A10. Transaction launch gate
+
+**Live auction E2E is not signed off** until Part A rows pass on **web and mobile** for at least one full auction win → pay → seller sees paid order. Bundled shipping depth (Part B) can run in parallel but does not replace Part A.
+
+---
+
+# Part B — Bundled live shipping, labels & escrow
 
 ---
 
@@ -169,7 +371,16 @@ Creates a **seller** (Stripe-ready + ship-from + Trustap placeholder), **buyer**
 
 ## Sign-off
 
+| Milestone | Status |
+|-----------|--------|
+| Beta-ready (engineering) | **Yes** |
+| Commerce staging gate step 1 (`staging:validate`) | **Pass** |
+| Commerce staging gate steps 2–3 (manual) | **Pending** |
+| Staging-signed | **No** |
+| Launch-signed | **No** |
+
 | Role | Name | Date | Pass / Fail |
 |------|------|------|-------------|
-| QA | | | |
+| QA — `staging:validate` (step 1) | | | |
+| QA — live auction manual (step 2) | | | |
 | Seller product | | | |

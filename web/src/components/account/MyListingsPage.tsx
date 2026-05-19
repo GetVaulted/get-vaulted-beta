@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
+import { sellerListingHref } from "@/lib/listing-routes";
 import { effectiveSellerListingStatus, type SellerListingStatus, type StoredUserListing } from "@/lib/user-listings-storage";
 import { SellerOffersModal } from "@/components/account/SellerOffersModal";
 import { ExpiredAuctionRecoveryPanel } from "@/components/listings/ExpiredAuctionRecoveryPanel";
@@ -363,7 +364,16 @@ export function MyListingsPage() {
                       const offers = l.pendingOffersCount ?? 0;
                       return (
                         <Fragment key={l.id}>
-                        <tr className="border-b border-white/[0.05] last:border-0 hover:bg-white/[0.02]">
+                        <tr
+                          className="cursor-pointer border-b border-white/[0.05] last:border-0 hover:bg-white/[0.02]"
+                          onClick={() => {
+                            if (st === "draft") {
+                              router.push(`/sell/create?edit=${encodeURIComponent(l.id)}`);
+                              return;
+                            }
+                            router.push(sellerListingHref(l.id));
+                          }}
+                        >
                           <td className="px-3 py-2 pl-3.5">
                             <div className="flex items-center gap-2.5">
                               <div className="relative size-11 shrink-0 overflow-hidden rounded-md border border-white/10 bg-[#0b0b0e]">
@@ -388,7 +398,10 @@ export function MyListingsPage() {
                                   {offers > 0 ? (
                                     <button
                                       type="button"
-                                      onClick={() => setOffersFor(l)}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOffersFor(l);
+                                      }}
                                       className="rounded border border-rose-400/30 bg-rose-950/25 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose-100/90 transition hover:bg-rose-950/40"
                                     >
                                       {offers} {offers === 1 ? "offer" : "offers"}
@@ -419,7 +432,7 @@ export function MyListingsPage() {
                             {l.watchers ?? "—"} w
                           </td>
                           <td className="px-2 py-2 text-xs tabular-nums text-zinc-500">{formatShortDate(l.listedAt)}</td>
-                          <td className="px-3 py-2 pr-3.5 text-right">
+                          <td className="px-3 py-2 pr-3.5 text-right" onClick={(e) => e.stopPropagation()}>
                             <RowActionsDesktop
                               listing={l}
                               status={st}
@@ -454,7 +467,29 @@ export function MyListingsPage() {
                   const offers = l.pendingOffersCount ?? 0;
                   const menuOpen = menuOpenId === l.id;
                   return (
-                    <div key={l.id} className="rounded-xl border border-white/[0.08] bg-[#0a0a0d] p-3.5">
+                    <div
+                      key={l.id}
+                      role="button"
+                      tabIndex={0}
+                      className="rounded-xl border border-white/[0.08] bg-[#0a0a0d] p-3.5 transition hover:border-white/14"
+                      onClick={() => {
+                        if (st === "draft") {
+                          router.push(`/sell/create?edit=${encodeURIComponent(l.id)}`);
+                          return;
+                        }
+                        router.push(sellerListingHref(l.id));
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          if (st === "draft") {
+                            router.push(`/sell/create?edit=${encodeURIComponent(l.id)}`);
+                            return;
+                          }
+                          router.push(sellerListingHref(l.id));
+                        }
+                      }}
+                    >
                       <div className="flex gap-3">
                         <div className="relative size-14 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-[#0b0b0e]">
                           {thumb ? (
@@ -483,7 +518,10 @@ export function MyListingsPage() {
                             {offers > 0 ? (
                               <button
                                 type="button"
-                                onClick={() => setOffersFor(l)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOffersFor(l);
+                                }}
                                 className="rounded border border-rose-400/30 bg-rose-950/25 px-1.5 py-0.5 text-[9px] font-bold uppercase text-rose-100"
                               >
                                 {offers} offers
@@ -499,7 +537,7 @@ export function MyListingsPage() {
                           <FulfillmentWarningsNotice warnings={l.fulfillmentWarnings} />
                         </div>
                       </div>
-                      <div className="mt-3 flex flex-wrap gap-2 border-t border-white/[0.06] pt-3">
+                      <div className="mt-3 flex flex-wrap gap-2 border-t border-white/[0.06] pt-3" onClick={(e) => e.stopPropagation()}>
                         <Link
                           href={`/sell/create?edit=${encodeURIComponent(l.id)}`}
                           className="inline-flex h-9 flex-1 items-center justify-center rounded-lg border border-white/12 bg-white/[0.04] text-xs font-semibold text-zinc-200"
@@ -510,11 +548,11 @@ export function MyListingsPage() {
                           href={
                             effectiveSellerListingStatus(l) === "draft"
                               ? `/sell/create?edit=${encodeURIComponent(l.id)}`
-                              : `/marketplace/${encodeURIComponent(l.id)}`
+                              : sellerListingHref(l.id)
                           }
                           className="inline-flex h-9 flex-1 items-center justify-center rounded-lg border border-gold/30 bg-gold/10 text-xs font-semibold text-gold-bright"
                         >
-                          View
+                          Manage
                         </Link>
                         <div className="relative flex-1 min-w-[5rem]">
                           <button
@@ -591,11 +629,11 @@ function RowActionsDesktop({
         href={
           effectiveSellerListingStatus(listing) === "draft"
             ? `/sell/create?edit=${encodeURIComponent(listing.id)}`
-            : `/marketplace/${encodeURIComponent(listing.id)}`
+            : sellerListingHref(listing.id)
         }
         className="rounded-md border border-white/12 px-2 py-1 text-[11px] font-medium text-zinc-300 transition hover:border-white/20"
       >
-        View
+        Manage
       </Link>
       <button
         type="button"

@@ -18,7 +18,13 @@ import type { LiveRoomStatus } from "@/generated/prisma/client";
 import { parseTeamBoardPublicPayload, type TeamBoardPublicPayload } from "@/lib/team-board-public";
 import { minNextBidUsd } from "@/lib/auction";
 import { LIVE_AUCTION_CLIENT_END_GRACE_MS } from "@/lib/live-auction-bid-extension";
-import { startLiveRoomItemAuction } from "@/lib/live-room-control-client";
+import { createLiveBidIdempotencyKey, liveBidRequestHeaders } from "@/lib/live-bid-client";
+import {
+  LIVE_AUCTION_BUYER_TIMER_ENDED_COPY,
+  LIVE_AUCTION_HOST_TIMER_ENDED_COPY,
+  resolveLiveAuctionLotBidPhase,
+} from "@/lib/live-auction-lot-phase";
+import { patchLiveRoomItemStatus, startLiveRoomItemAuction } from "@/lib/live-room-control-client";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
@@ -194,7 +200,7 @@ export function LiveAuctionRoom({
   const [auctionResolutionTick, setAuctionResolutionTick] = useState(0);
   useEffect(() => {
     const active = dbItems.find((x) => x.status === "active");
-    if (!active?.biddingOpen || !active.auctionEndsAt) return undefined;
+    if (!active?.auctionEndsAt) return undefined;
     const ends = Date.parse(active.auctionEndsAt);
     if (!Number.isFinite(ends)) return undefined;
     const id = window.setInterval(() => setAuctionResolutionTick((t) => t + 1), 50);
@@ -209,6 +215,7 @@ export function LiveAuctionRoom({
   const [hostAuctionDurationSec, setHostAuctionDurationSec] = useState(5);
   const [hostClutchTimeEnabled, setHostClutchTimeEnabled] = useState(false);
   const [hostAuctionBusy, setHostAuctionBusy] = useState(false);
+  const [hostMarkSoldBusy, setHostMarkSoldBusy] = useState(false);
   const [queueItems, setQueueItems] = useState<SaleItem[]>(mappedDb);
   const [selectedId, setSelectedId] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
@@ -267,8 +274,14 @@ export function LiveAuctionRoom({
   const showFeaturedAuctionOverlay =
     roomStatus !== "ended" && Boolean(activeQueueItem) && (roomStatus === "scheduled" || roomStatus === "live");
   const overlayItem = selectedQueue ?? activeQueueItem;
+  const nowWall = syncedWallTimeMs(clockSkewMs);
+  const activeLotBidPhase = useMemo(
+    () => (activeDbItem ? resolveLiveAuctionLotBidPhase(activeDbItem, nowWall) : "inactive"),
+    [activeDbItem, nowWall, auctionResolutionTick],
+  );
   /** Active lot is in the host-started timed bidding window (same as buyer bid affordance). */
-  const overlayIsLive = activeQueueItem?.status === "live";
+  const overlayIsLive = activeLotBidPhase === "bidding_open";
+  const overlayTimerEndedUnsettled = activeLotBidPhase === "timer_ended_unsettled";
 
   const buyerCurrentHighUsd = useMemo(() => {
     if (!activeDbItem) return 0;
@@ -300,16 +313,26 @@ export function LiveAuctionRoom({
   /** Bidding uses `activeDbItem`; selection can point at another row (sold/queued) and must not grey out the bid CTA. */
   const bidActionLocked = overlayIsLive
     ? false
-    : selectedQueueUnavailable ||
+    : overlayTimerEndedUnsettled ||
+      selectedQueueUnavailable ||
       selectedQueue?.status === "queued" ||
       selectedQueue?.status === "posted";
+  const isHost = Boolean(session?.user?.id && session.user.id === sellerId);
   const queueStatusLabelRaw = selectedQueue?.status ?? activeQueueItem?.status ?? "queued";
   /** Active lot bidding comes from `activeDbItem`; selection can point at another row — don’t hide the timer or “live” copy. */
   const queueStatusLabel =
-    Boolean(activeDbItem?.biddingOpen && activeDbItem?.auctionEndsAt) ? "live" : queueStatusLabelRaw;
+    activeLotBidPhase === "bidding_open"
+      ? "live"
+      : activeLotBidPhase === "timer_ended_unsettled"
+        ? "ended_pending"
+        : queueStatusLabelRaw;
   const queueStatusText =
     queueStatusLabel === "live"
       ? "Auction live — bidding open"
+      : queueStatusLabel === "ended_pending"
+        ? isHost
+          ? LIVE_AUCTION_HOST_TIMER_ENDED_COPY
+          : LIVE_AUCTION_BUYER_TIMER_ENDED_COPY
       : queueStatusLabel === "posted"
         ? isLive
           ? "Posted — host opens bidding from the video"
@@ -321,7 +344,6 @@ export function LiveAuctionRoom({
             : "Item skipped";
   const streamTitle = breakSnapshot?.displayTitle ?? roomTitle ?? "Live break";
 
-  const isHost = Boolean(session?.user?.id && session.user.id === sellerId);
   const payReady = buyerLiveBidPaymentReady !== false;
   const shipReady = buyerLiveShippingReady !== false;
   const buyerLiveWalletReady = payReady && shipReady;
@@ -333,17 +355,13 @@ export function LiveAuctionRoom({
     return Math.max(0, ends - syncedWallTimeMs(clockSkewMs));
   }, [activeDbItem?.biddingOpen, activeDbItem?.auctionEndsAt, activeDbItem?.id, auctionResolutionTick, clockSkewMs]);
 
-  const biddingWindowStillRunning = Boolean(
-    activeDbItem?.biddingOpen &&
-      activeDbItem.auctionEndsAt &&
-      Number.isFinite(Date.parse(activeDbItem.auctionEndsAt)) &&
-      Date.parse(activeDbItem.auctionEndsAt) > syncedWallTimeMs(clockSkewMs),
-  );
+  const biddingWindowStillRunning = activeLotBidPhase === "bidding_open";
   const auctionCountdownLabel =
-    activeDbItem?.biddingOpen && activeDbItem.auctionEndsAt && auctionRemainingMs != null
+    biddingWindowStillRunning && activeDbItem?.auctionEndsAt && auctionRemainingMs != null
       ? formatCountdownMs(auctionRemainingMs)
       : null;
-  const hostStartEnabled = Boolean(isLive && activeDbItem?.status === "active" && !biddingWindowStillRunning);
+  const hostStartEnabled = Boolean(isLive && activeDbItem?.status === "active" && activeLotBidPhase === "not_started");
+  const hostTimerEndedUnsettled = isLive && activeLotBidPhase === "timer_ended_unsettled";
   const guestNeedsAuth = status === "unauthenticated" && !isHost && isLive;
   const sessionBlocksBuyer = (status === "unauthenticated" || status === "loading") && !isHost && isLive;
   const buyerClaimsBlocked = Boolean(
@@ -450,16 +468,21 @@ export function LiveAuctionRoom({
     }
     const prevOptimistic = optimisticBidUsd;
 
+    if (activeLotBidPhase === "timer_ended_unsettled") {
+      setActionError(LIVE_AUCTION_BUYER_TIMER_ENDED_COPY);
+      return;
+    }
     if (overlayIsLive && activeDbItem) {
       const amount = buyerNextBidUsd;
       setOptimisticBidUsd(amount);
       setBidFlight(true);
+      const idempotencyKey = createLiveBidIdempotencyKey();
       try {
         const res = await fetch(
           `/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(activeDbItem.id)}/bid`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: liveBidRequestHeaders(idempotencyKey),
             body: JSON.stringify({ amountUsd: amount }),
           },
         );
@@ -529,6 +552,25 @@ export function LiveAuctionRoom({
       setBusy(false);
     }
   };
+
+  const handleHostMarkSold = useCallback(async () => {
+    if (!activeDbItem || activeLotBidPhase !== "timer_ended_unsettled") return;
+    setHostMarkSoldBusy(true);
+    setActionError(null);
+    try {
+      const r = await patchLiveRoomItemStatus(liveRoomId, activeDbItem.id, "sold");
+      if (!r.ok) {
+        setActionError(r.error);
+        toast(r.error);
+        return;
+      }
+      toast("Winner settled — buyer can complete payment.");
+      await onRefetch?.();
+      router.refresh();
+    } finally {
+      setHostMarkSoldBusy(false);
+    }
+  }, [activeDbItem, activeLotBidPhase, liveRoomId, onRefetch, router, toast]);
 
   const handleHostStartAuction = useCallback(async () => {
     if (!activeDbItem) return;
@@ -614,6 +656,18 @@ export function LiveAuctionRoom({
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
               {!isLive ? (
                 <p className="text-[10px] text-amber-200/90">Go live first, then open bidding here.</p>
+              ) : hostTimerEndedUnsettled ? (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-semibold text-amber-200">{LIVE_AUCTION_HOST_TIMER_ENDED_COPY}</p>
+                  <button
+                    type="button"
+                    disabled={hostMarkSoldBusy}
+                    onClick={() => void handleHostMarkSold()}
+                    className="rounded-md bg-gold px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-zinc-950 shadow-sm transition hover:brightness-110 disabled:opacity-40"
+                  >
+                    {hostMarkSoldBusy ? "Settling…" : "Mark sold"}
+                  </button>
+                </div>
               ) : biddingWindowStillRunning ? (
                 <p className="text-[10px] text-emerald-200/90">
                   Bidding open · {auctionCountdownLabel ?? "—"} remaining
@@ -727,8 +781,11 @@ export function LiveAuctionRoom({
     overlayIsLive && auctionRemainingMs != null ? auctionRemainingMs / 1000 : 0;
   const breakTimerUrgent = overlayIsLive && overlayRemainingSec <= 60 && overlayRemainingSec > 0;
   const breakTimerFinal = overlayIsLive && overlayRemainingSec <= 10 && overlayRemainingSec > 0;
-  const timerLabel =
-    overlayIsLive && auctionCountdownLabel != null ? auctionCountdownLabel : "--:--";
+  const timerLabel = overlayTimerEndedUnsettled
+    ? "Ended"
+    : overlayIsLive && auctionCountdownLabel != null
+      ? auctionCountdownLabel
+      : "--:--";
   const primaryOverlayMoneyLabel = fmt(
     overlayIsLive ? buyerNextBidUsd : (overlayItem?.buyNow ?? overlayItem?.topBid ?? 0),
   );
@@ -775,6 +832,18 @@ export function LiveAuctionRoom({
         <div className="mt-2 flex flex-wrap items-center justify-center gap-2 border-t border-white/10 pt-2">
           {!isLive ? (
             <p className="text-center text-[9px] text-amber-200/90">Go live, then open bidding here.</p>
+          ) : hostTimerEndedUnsettled ? (
+            <div className="w-full space-y-1.5 text-center">
+              <p className="text-[9px] font-semibold text-amber-200">{LIVE_AUCTION_HOST_TIMER_ENDED_COPY}</p>
+              <button
+                type="button"
+                disabled={hostMarkSoldBusy}
+                onClick={() => void handleHostMarkSold()}
+                className="rounded-full bg-gold px-3 py-1 text-[10px] font-black uppercase tracking-wide text-zinc-950 disabled:opacity-40"
+              >
+                {hostMarkSoldBusy ? "…" : "Mark sold"}
+              </button>
+            </div>
           ) : biddingWindowStillRunning ? (
             <p className="text-center text-[9px] text-emerald-200/90">Bidding open · {auctionCountdownLabel ?? "—"}</p>
           ) : (
@@ -829,6 +898,9 @@ export function LiveAuctionRoom({
         </div>
       ) : null}
 
+      {overlayTimerEndedUnsettled && !isHost ? (
+        <p className="mt-2 text-center text-[10px] font-medium text-amber-200/90">{LIVE_AUCTION_BUYER_TIMER_ENDED_COPY}</p>
+      ) : null}
       {overlayIsLive ? (
         <div className="mt-2 flex min-h-10 items-center gap-1.5 max-[380px]:gap-1 md:min-h-11">
           <button
@@ -865,6 +937,14 @@ export function LiveAuctionRoom({
             )}
           </button>
         </div>
+      ) : overlayTimerEndedUnsettled ? (
+        <button
+          type="button"
+          disabled
+          className="mt-2 min-h-10 w-full rounded-full border border-amber-400/25 bg-amber-500/10 text-[11px] font-semibold text-amber-200/90 md:min-h-11"
+        >
+          Bidding closed
+        </button>
       ) : (
         <button
           type="button"

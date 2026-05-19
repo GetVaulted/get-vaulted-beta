@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
-import { getServerSessionSafe } from "@/lib/auth";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { sellerPrimaryNextAction } from "@/lib/seller-fulfillment-next-action";
 import { prisma } from "@/lib/prisma";
 import { isStripeConfigured } from "@/lib/stripe";
 import { processAuctionPaymentExpiries } from "@/services/payments";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
 
-export async function GET() {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export async function GET(req: Request) {
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth.userId;
 
   try {
     await processAuctionPaymentExpiries();
@@ -20,7 +19,7 @@ export async function GET() {
 
   try {
   const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
+    where: { id: userId },
     select: {
       username: true,
       stripeAccountId: true,
@@ -48,7 +47,7 @@ export async function GET() {
   }
 
   const recentSales = await prisma.order.findMany({
-    where: { sellerId: session.user.id },
+    where: { sellerId: userId },
     orderBy: { createdAt: "desc" },
     take: 40,
     select: {
@@ -76,15 +75,15 @@ export async function GET() {
   ] =
     await Promise.all([
       prisma.listing.count({
-        where: { sellerId: session.user.id, status: "auction_ended_unpaid" },
+        where: { sellerId: userId, status: "auction_ended_unpaid" },
       }),
       prisma.listing.findFirst({
-        where: { sellerId: session.user.id, status: "auction_ended_unpaid" },
+        where: { sellerId: userId, status: "auction_ended_unpaid" },
         orderBy: { updatedAt: "desc" },
         select: { id: true, title: true },
       }),
       prisma.sellerCommerceEvent.findMany({
-        where: { sellerId: session.user.id },
+        where: { sellerId: userId },
         orderBy: { createdAt: "desc" },
         take: 30,
         select: {
@@ -99,7 +98,7 @@ export async function GET() {
       }),
       prisma.order.count({
         where: {
-          sellerId: session.user.id,
+          sellerId: userId,
           paymentStatus: "paid",
           shippoTransactionId: null,
           labelUrl: null,
@@ -108,7 +107,7 @@ export async function GET() {
       }),
       prisma.order.findFirst({
         where: {
-          sellerId: session.user.id,
+          sellerId: userId,
           paymentStatus: "paid",
           shippoTransactionId: null,
           labelUrl: null,
@@ -117,9 +116,9 @@ export async function GET() {
         orderBy: { createdAt: "asc" },
         select: { id: true },
       }),
-      getSellerLiveReadiness(session.user.id, prisma),
+      getSellerLiveReadiness(userId, prisma),
       prisma.address.findMany({
-        where: { userId: session.user.id, type: "ship_from" },
+        where: { userId: userId, type: "ship_from" },
         orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
       }),
     ]);
@@ -127,20 +126,20 @@ export async function GET() {
   const [activeListingsCount, draftListingsCount, openOrdersCount, awaitingShipmentCount, recentSalesCount, unreadBuyerMessagesCount, liveRoom] =
     await Promise.all([
       prisma.listing.count({
-        where: { sellerId: session.user.id, status: { in: ["active", "auction_live"] }, moderationRemovedAt: null },
+        where: { sellerId: userId, status: { in: ["active", "auction_live"] }, moderationRemovedAt: null },
       }),
       prisma.listing.count({
-        where: { sellerId: session.user.id, status: "draft", moderationRemovedAt: null },
+        where: { sellerId: userId, status: "draft", moderationRemovedAt: null },
       }),
       prisma.order.count({
         where: {
-          sellerId: session.user.id,
+          sellerId: userId,
           status: { notIn: ["delivered", "cancelled"] },
         },
       }),
       prisma.order.count({
         where: {
-          sellerId: session.user.id,
+          sellerId: userId,
           paymentStatus: "paid",
           fulfillmentStatus: { in: ["pending", "processing"] },
           status: { not: "cancelled" },
@@ -148,19 +147,19 @@ export async function GET() {
       }),
       prisma.order.count({
         where: {
-          sellerId: session.user.id,
+          sellerId: userId,
           paymentStatus: "paid",
         },
       }),
       prisma.message.count({
         where: {
-          recipientId: session.user.id,
+          recipientId: userId,
           readAt: null,
         },
       }),
       prisma.liveRoom.findFirst({
         where: {
-          sellerId: session.user.id,
+          sellerId: userId,
           status: { in: ["live", "scheduled"] },
         },
         orderBy: [{ status: "asc" }, { scheduledStartAt: "asc" }],
@@ -177,7 +176,7 @@ export async function GET() {
   // This is non-blocking UI and does not require any new stored profile fields.
   const sellerListingCategoryRows = await prisma.listing.findMany({
     where: {
-      sellerId: session.user.id,
+      sellerId: userId,
       moderationRemovedAt: null,
       status: { in: ["active", "auction_live", "sold"] },
     },
@@ -260,10 +259,9 @@ function trim(s: unknown, max: number): string | undefined {
 }
 
 export async function PATCH(req: Request) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth.userId;
 
   let body: PatchBody;
   try {
@@ -284,7 +282,7 @@ export async function PATCH(req: Request) {
   }
 
   const baseUser = await prisma.user.findUnique({
-    where: { id: session.user.id },
+    where: { id: userId },
     select: {
       id: true,
       email: true,
@@ -308,19 +306,19 @@ export async function PATCH(req: Request) {
     let selectedAddress =
       requestedId
         ? await tx.address.findFirst({
-            where: { id: requestedId, userId: session.user.id, type: "ship_from" },
+            where: { id: requestedId, userId: userId, type: "ship_from" },
           })
         : null;
 
     if (!selectedAddress && baseUser.defaultShipFromAddressId) {
       selectedAddress = await tx.address.findFirst({
-        where: { id: baseUser.defaultShipFromAddressId, userId: session.user.id, type: "ship_from" },
+        where: { id: baseUser.defaultShipFromAddressId, userId: userId, type: "ship_from" },
       });
     }
 
     if (!selectedAddress) {
       selectedAddress = await tx.address.findFirst({
-        where: { userId: session.user.id, type: "ship_from" },
+        where: { userId: userId, type: "ship_from" },
         orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }],
       });
     }
@@ -330,7 +328,7 @@ export async function PATCH(req: Request) {
     const email = baseUser.email?.trim() || null;
 
     await tx.address.updateMany({
-      where: { userId: session.user.id, type: "ship_from" },
+      where: { userId: userId, type: "ship_from" },
       data: { isDefault: false },
     });
 
@@ -354,7 +352,7 @@ export async function PATCH(req: Request) {
 
     return tx.address.create({
       data: {
-        userId: session.user.id,
+        userId: userId,
         type: "ship_from",
         name,
         fullName,
@@ -370,7 +368,7 @@ export async function PATCH(req: Request) {
   });
 
   await prisma.user.update({
-    where: { id: session.user.id },
+    where: { id: userId },
     data: {
       shipFromName: shipFromName || null,
       shipFromStreet,
@@ -383,7 +381,7 @@ export async function PATCH(req: Request) {
   });
 
   const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
+    where: { id: userId },
     select: {
       username: true,
       stripeAccountId: true,
@@ -400,6 +398,6 @@ export async function PATCH(req: Request) {
     },
   });
 
-  const readiness = await getSellerLiveReadiness(session.user.id, prisma);
+  const readiness = await getSellerLiveReadiness(userId, prisma);
   return NextResponse.json({ seller: user, readiness, message: "Shipping address saved." });
 }

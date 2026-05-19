@@ -100,7 +100,7 @@ export function storedToMarketplaceListing(s: StoredUserListing): MarketplaceLis
     auctionTimeLeft,
     condition: s.condition,
     listedAt: s.listedAt,
-    href: `/marketplace/${encodeURIComponent(s.id)}`,
+    href: `/listing/${encodeURIComponent(s.id)}`,
     sellerId: s.sellerId,
     longDescription: s.description,
     shippingPriceUsd: s.shippingPriceUsd,

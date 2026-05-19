@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createLiveRoom, streamFormatToRoomType } from '../../../api/liveRoomsRepository';
-import type { SellerConnectStatusResponse } from '../../../api/stripeConnectRepository';
+import type { LiveSalesGate } from '../../../lib/sellerLiveReadiness';
 import { streamCategories } from '../../../data/sellerHubMock';
 import { colors, radii, spacing } from '../../../theme';
 
@@ -45,7 +45,7 @@ export function ScheduleVaultEventModal({
   visible,
   onClose,
   accessToken,
-  sellerConnect,
+  liveGate,
   scheduleTitle,
   setScheduleTitle,
   scheduleCategory,
@@ -58,7 +58,7 @@ export function ScheduleVaultEventModal({
   visible: boolean;
   onClose: () => void;
   accessToken?: string;
-  sellerConnect: { status: SellerConnectStatusResponse | null; loading: boolean };
+  liveGate: LiveSalesGate;
   scheduleTitle: string;
   setScheduleTitle: (s: string) => void;
   scheduleCategory: string;
@@ -74,12 +74,11 @@ export function ScheduleVaultEventModal({
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const liveBlocked =
-    sellerConnect.status?.stripeConfigured === true && sellerConnect.status.can_host_live_sales === false;
+  const liveBlocked = liveGate.blocked;
 
   const submit = useCallback(async () => {
     if (liveBlocked) {
-      Alert.alert('Payout setup required', 'Finish Stripe Connect before scheduling vault events.');
+      Alert.alert(liveGate.alertTitle, liveGate.alertBody);
       return;
     }
     if (!accessToken) {
@@ -124,6 +123,8 @@ export function ScheduleVaultEventModal({
     accessToken,
     scheduleCategory,
     liveBlocked,
+    liveGate.alertBody,
+    liveGate.alertTitle,
     onClose,
     onCreated,
     scheduleTitle,

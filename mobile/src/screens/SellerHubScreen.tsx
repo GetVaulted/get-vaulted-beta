@@ -9,6 +9,7 @@ import {
   Alert,
   Image,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -23,6 +24,7 @@ import {
   walletSnapshot,
 } from '../data/sellerHubMock';
 import { LaunchVaultEventPanel } from './sellerHub/LaunchVaultEventPanel';
+import { SellerShipFromSetupCard } from '../components/seller/hq/SellerShipFromSetupCard';
 import { useCreateListingDraft } from '../createListing/CreateListingDraftContext';
 import { openCreateListing } from '../navigation/openCreateListing';
 import { openContactSupport } from '../navigation/openPlatform';
@@ -30,10 +32,11 @@ import { SellerHQCommandCenter } from '../components/seller/hq/SellerHQCommandCe
 import { SellerHQFab, type FabActionId } from '../components/seller/hq/SellerHQFab';
 import type { SellerHQEntryPhase } from '../lib/sellerHubEntry';
 import { openSellerHostRoom } from '../navigation/openSellerHostRoom';
+import { openSellerListingManagement } from '../navigation/openSellerListingManagement';
 import { consumePendingSellerHQTab, setPendingVaultEventSchedule } from '../navigation/openSellerHQ';
 import { navigateAuthLogin, navigateAuthSignUp, rootNavigationRef } from '../navigation/rootNavigationRef';
 import { useAuth } from '../auth/AuthContext';
-import { LISTING_CHANNEL_CONFIG, channelFromPreview } from '../createListing/listingChannel';
+import { LISTING_CHANNEL_CONFIG } from '../createListing/listingChannel';
 import type { ListingChannel } from '../createListing/listingChannel';
 import type { ListingPreview } from '../createListing/types';
 import type { MainTabParamList } from '../navigation/types';
@@ -44,6 +47,7 @@ import {
   sellerConnectDetailMessage,
 } from '../api/stripeConnectRepository';
 import { useSellerCommandCenterData } from '../hooks/useSellerCommandCenterData';
+import { useSellerInventory } from '../hooks/useSellerInventory';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { openStripeConnectDashboard } from '../lib/openStripeConnectDashboard';
 import { openStripeConnectOnboarding, refreshSellerConnectAfterOnboarding } from '../lib/openStripeConnectOnboarding';
@@ -63,6 +67,8 @@ function statusStyle(status: ListingPreview['status']) {
       return { bg: 'rgba(100,149,237,0.15)', fg: '#8EBBFF', label: 'Pending' };
     case 'in_auction':
       return { bg: 'rgba(212,175,55,0.15)', fg: colors.gold, label: 'In auction' };
+    case 'ended':
+      return { bg: 'rgba(255,255,255,0.08)', fg: colors.textMuted, label: 'Ended' };
     default:
       return { bg: 'rgba(255,255,255,0.06)', fg: colors.textMuted, label: status };
   }
@@ -73,7 +79,12 @@ export function SellerHubScreen() {
   const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
   const { user, loading: authLoading, session } = useAuth();
   const { userListings } = useCreateListingDraft();
-  const cmdData = useSellerCommandCenterData(session?.access_token, userListings.length);
+  const sellerInventory = useSellerInventory(session?.access_token, Boolean(user?.id));
+  const inventoryListingCount = sellerInventory.marketplace.length + sellerInventory.liveShow.length;
+  const cmdData = useSellerCommandCenterData(
+    session?.access_token,
+    inventoryListingCount || userListings.length,
+  );
 
   useEffect(() => {
     if (user?.id) void cmdData.reloadAnalytics(user.id);
@@ -129,6 +140,7 @@ export function SellerHubScreen() {
     try {
       const result = await openStripeConnectOnboarding(session.access_token);
       const latest = await refreshSellerConnectAfterOnboarding(sellerConnect.refresh);
+      await cmdData.liveReadiness.refresh();
       if (result === 'success') {
         if (isSellerPayoutSetupComplete(latest)) {
           Alert.alert('Payout setup complete', 'Your payout status is Complete. You are ready to sell and go live.');
@@ -146,7 +158,15 @@ export function SellerHubScreen() {
     } finally {
       setStripeSetupBusy(false);
     }
-  }, [session?.access_token, sellerConnect, stripeSetupBusy]);
+  }, [cmdData.liveReadiness, session?.access_token, sellerConnect, stripeSetupBusy]);
+
+  const onLiveSetupBlocked = useCallback(() => {
+    const gate = cmdData.liveGate;
+    Alert.alert(gate.alertTitle, gate.alertBody);
+    if (gate.nextStep === 'stripe') void openStripeOnboarding();
+    else if (gate.nextStep === 'ship_from') setTab('overview');
+    else setTab('live');
+  }, [cmdData.liveGate, openStripeOnboarding]);
 
   const onSellerHQEntryPress = useCallback(
     (phase: SellerHQEntryPhase) => {
@@ -195,12 +215,13 @@ export function SellerHubScreen() {
   const renderTab = () => {
     switch (tab) {
       case 'listings':
-        return <ListingsPanel navigation={navigation} />;
+        return <ListingsPanel navigation={navigation} inventory={sellerInventory} />;
       case 'live':
         return (
           <LaunchVaultEventPanel
             accessToken={session?.access_token}
-            sellerConnect={sellerConnect}
+            liveGate={cmdData.liveGate}
+            onBlockedSchedule={onLiveSetupBlocked}
             scheduleTitle={scheduleTitle}
             setScheduleTitle={setScheduleTitle}
             scheduleCategory={scheduleCategory}
@@ -260,6 +281,14 @@ export function SellerHubScreen() {
               stripeSetupBusy={stripeSetupBusy}
               onProfileSettings={openProfileSettings}
             />
+            {cmdData.liveReadiness.readinessLoaded &&
+            cmdData.liveReadiness.readiness.checks &&
+            !cmdData.liveReadiness.readiness.checks.hasShipFromAddress ? (
+              <SellerShipFromSetupCard
+                accessToken={session?.access_token}
+                onSaved={() => void cmdData.liveReadiness.refresh()}
+              />
+            ) : null}
             <View style={styles.futureLane}>
               <Text style={styles.futureLaneEyebrow}>Coming to your lane</Text>
               <Text style={styles.futureLaneTitle}>AI assistant · moderation · live analytics</Text>
@@ -320,11 +349,22 @@ export function SellerHubScreen() {
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.sm }]}>
-      {sellerApproved && tab !== 'live' ? <SellerHQFab onAction={onFabAction} /> : null}
+      {sellerApproved && tab !== 'live' && tab !== 'listings' ? (
+        <SellerHQFab onAction={onFabAction} />
+      ) : null}
       <ScrollView
         stickyHeaderIndices={[0]}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          tab === 'listings' ? (
+            <RefreshControl
+              refreshing={sellerInventory.refreshing}
+              onRefresh={() => void sellerInventory.refresh()}
+              tintColor={colors.gold}
+            />
+          ) : undefined
+        }
       >
         <View style={[styles.tabBarWrap, { backgroundColor: colors.background }]}>
           <ScrollView
@@ -354,49 +394,63 @@ export function SellerHubScreen() {
   );
 }
 
-function listingChannelOf(L: ListingPreview): ListingChannel {
-  return channelFromPreview(L.live, L.channel);
-}
-
 function ListingInventorySection({
   channel,
   navigation,
   listings,
   drafts,
+  loading,
 }: {
   channel: ListingChannel;
   navigation: BottomTabNavigationProp<MainTabParamList>;
   listings: ListingPreview[];
   drafts: { id: string }[];
+  loading?: boolean;
 }) {
   const cfg = LISTING_CHANNEL_CONFIG[channel];
   const isLive = channel === 'live_show';
+  const hasListings = listings.length > 0;
+  const sectionTitle = isLive ? 'Live show listings' : 'Marketplace listings';
+  const headerLabel = `${sectionTitle} (${listings.length})`;
 
   const openNew = () => {
     void openCreateListing(navigation as unknown as NavigationProp<ParamListBase>, { channel });
   };
 
   return (
-    <View style={[styles.listingSection, { borderColor: cfg.border, backgroundColor: cfg.fill }]}>
-      <View style={styles.listingsHeaderRow}>
+    <View
+      style={[
+        styles.listingSection,
+        hasListings && styles.listingSectionCompact,
+        { borderColor: cfg.border, backgroundColor: cfg.fill },
+      ]}
+    >
+      <View style={[styles.listingsHeaderRow, hasListings && styles.listingsHeaderRowCompact]}>
         <View style={{ flex: 1, minWidth: 0 }}>
           <View style={styles.listingSectionTitleRow}>
-            <Ionicons name={cfg.icon} size={18} color={cfg.primary} />
-            <Text style={styles.listingsHeaderTitle}>{isLive ? 'Live show listings' : 'Marketplace listings'}</Text>
+            <Ionicons name={cfg.icon} size={hasListings ? 16 : 18} color={cfg.primary} />
+            <Text style={[styles.listingsHeaderTitle, hasListings && styles.listingsHeaderTitleCompact]}>
+              {headerLabel}
+            </Text>
           </View>
-          <Text style={styles.panelHint}>{cfg.helper}</Text>
+          {!hasListings ? <Text style={styles.panelHint}>{cfg.helper}</Text> : null}
         </View>
         <Pressable style={[styles.listingsNewBtn, { backgroundColor: cfg.primary }]} onPress={openNew}>
           <Ionicons name="add" size={20} color="#0a0a0a" />
           <Text style={styles.listingsNewBtnText}>New</Text>
         </Pressable>
       </View>
-      {listings.length === 0 ? (
+      {loading && !hasListings ? (
+        <ActivityIndicator color={cfg.primary} style={{ marginVertical: spacing.md }} />
+      ) : null}
+      {!loading && listings.length === 0 ? (
         <Text style={styles.listingSectionEmpty}>
           {isLive ? 'No show inventory yet — queue lots before you go live.' : 'No marketplace listings yet — start your storefront.'}
         </Text>
-      ) : (
-        listings.map((L) => {
+      ) : null}
+      {hasListings ? (
+        <View style={styles.listingGrid}>
+        {listings.map((L) => {
           const st = statusStyle(L.status);
           return (
             <Pressable
@@ -411,9 +465,7 @@ function ListingInventorySection({
                   );
                   return;
                 }
-                if (rootNavigationRef.isReady()) {
-                  rootNavigationRef.navigate('ProductDetail', { productId: L.id });
-                }
+                openSellerListingManagement(L.id);
               }}
             >
               <Image source={{ uri: L.imageUrl }} style={styles.listingImg} />
@@ -438,34 +490,38 @@ function ListingInventorySection({
               </View>
             </Pressable>
           );
-        })
-      )}
+        })}
+        </View>
+      ) : null}
     </View>
   );
 }
 
-function ListingsPanel({ navigation }: { navigation: BottomTabNavigationProp<MainTabParamList> }) {
-  const { userListings, drafts } = useCreateListingDraft();
-  const mergedListings = userListings;
-
-  const marketplaceListings = useMemo(
-    () => mergedListings.filter((L) => listingChannelOf(L) === 'marketplace'),
-    [mergedListings],
-  );
-  const liveListings = useMemo(
-    () => mergedListings.filter((L) => listingChannelOf(L) === 'live_show'),
-    [mergedListings],
-  );
+function ListingsPanel({
+  navigation,
+  inventory,
+}: {
+  navigation: BottomTabNavigationProp<MainTabParamList>;
+  inventory: ReturnType<typeof useSellerInventory>;
+}) {
+  const { drafts } = useCreateListingDraft();
 
   return (
     <View style={{ gap: spacing.lg }}>
       <ListingInventorySection
         channel="marketplace"
         navigation={navigation}
-        listings={marketplaceListings}
+        listings={inventory.marketplace}
         drafts={drafts}
+        loading={inventory.loading}
       />
-      <ListingInventorySection channel="live_show" navigation={navigation} listings={liveListings} drafts={drafts} />
+      <ListingInventorySection
+        channel="live_show"
+        navigation={navigation}
+        listings={inventory.liveShow}
+        drafts={drafts}
+        loading={inventory.loading}
+      />
     </View>
   );
 }
@@ -1118,6 +1174,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: spacing.md,
     gap: spacing.sm,
+  },
+  listingSectionCompact: {
+    paddingVertical: spacing.sm,
+    gap: spacing.xs,
+  },
+  listingsHeaderRowCompact: {
+    marginBottom: 0,
+  },
+  listingsHeaderTitleCompact: {
+    fontSize: 17,
+  },
+  listingGrid: {
+    gap: spacing.sm,
+    marginTop: spacing.xs,
   },
   listingSectionTitleRow: {
     flexDirection: 'row',

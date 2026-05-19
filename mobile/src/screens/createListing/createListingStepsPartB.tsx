@@ -12,17 +12,22 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   PublishListingError,
+  newPublishRequestId,
   publishCreateListingForm,
 } from '../../api/listingsPublishRepository';
 import { fetchSellerConnectStatus } from '../../api/stripeConnectRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { clearHomeFeedCache } from '../../lib/homeFeedCache';
 import { isSupabaseConfigured } from '../../lib/supabase';
+import { PublishListingSuccessModal } from '../../components/createListing/PublishListingSuccessModal';
+import { openSellerHQ } from '../../navigation/openSellerHQ';
+import { openSellerListingManagement } from '../../navigation/openSellerListingManagement';
 import { rootNavigationRef } from '../../navigation/rootNavigationRef';
+import type { ListingPreview } from '../../createListing/types';
 import { useCreateListingDraft } from '../../createListing/CreateListingDraftContext';
 import {
   AUCTION_DURATION_DAY_OPTIONS,
@@ -321,6 +326,13 @@ export function CreateListingReviewScreen({
   const { form, setForm, saveDraft, completeAfterPublish } = useCreateListingDraft();
   const { session, user } = useAuth();
   const [publishing, setPublishing] = useState(false);
+  const publishLockRef = useRef(false);
+  const publishRequestIdRef = useRef<string | null>(null);
+  const [publishSuccess, setPublishSuccess] = useState<{
+    listingId: string;
+    preview: ListingPreview;
+    variant: 'marketplace' | 'live';
+  } | null>(null);
   const { channel, accent, totalSteps, isLiveShow, step } = useCreateListingFlow();
   const channelCfg = LISTING_CHANNEL_CONFIG[channel];
   const { exitFlow, goBackStep } = useCreateListingNavigation();
@@ -361,7 +373,7 @@ export function CreateListingReviewScreen({
         : 'No authentication evidence highlighted — consider Vaulted Verification before going live.';
 
   const onPublish = async () => {
-    if (publishing) return;
+    if (publishLockRef.current || publishing) return;
 
     if (!photosValid) {
       Alert.alert(
@@ -389,6 +401,9 @@ export function CreateListingReviewScreen({
       return;
     }
 
+    publishLockRef.current = true;
+    setPublishing(true);
+
     const token = session?.access_token;
     if (token) {
       const { status: st } = await fetchSellerConnectStatus(token);
@@ -397,31 +412,30 @@ export function CreateListingReviewScreen({
           'Finish payout setup',
           st.message_onboarding ?? 'Complete Stripe Connect under Seller HQ → Seller Payout Setup before publishing active listings or going live.',
         );
+        publishLockRef.current = false;
+        setPublishing(false);
         return;
       }
     }
 
-    setPublishing(true);
+    if (!publishRequestIdRef.current) {
+      publishRequestIdRef.current = newPublishRequestId();
+    }
+    const publishRequestId = publishRequestIdRef.current;
     try {
-      const { listingId, preview } = await publishCreateListingForm(user.id, form);
-      await clearHomeFeedCache();
+      const { listingId, preview } = await publishCreateListingForm(user.id, form, { publishRequestId });
+
       completeAfterPublish(preview);
+      void clearHomeFeedCache();
 
-      const marketplaceLive = !isLiveShow;
-
-      if (marketplaceLive && rootNavigationRef.isReady()) {
-        rootNavigationRef.navigate('ProductDetail', { productId: listingId });
-      }
-
-      navigation.getParent()?.goBack();
-
-      Alert.alert(
-        isLiveShow ? 'Added to live queue' : 'Listed on marketplace',
-        isLiveShow
-          ? 'This item is saved to your vault and queued in HQ → Live show listings.'
-          : 'Your listing is live in the vault — it will appear in Marketplace and Home.',
-      );
+      setPublishSuccess({
+        listingId,
+        preview,
+        variant: isLiveShow ? 'live' : 'marketplace',
+      });
+      publishRequestIdRef.current = null;
     } catch (e) {
+      publishRequestIdRef.current = null;
       const message =
         e instanceof PublishListingError
           ? e.message
@@ -430,6 +444,7 @@ export function CreateListingReviewScreen({
             : 'Could not publish listing.';
       Alert.alert('Publish failed', message);
     } finally {
+      publishLockRef.current = false;
       setPublishing(false);
     }
   };
@@ -448,7 +463,32 @@ export function CreateListingReviewScreen({
       ? 'Trade lane'
       : form.buyNowPrice.trim() || form.startingBid.trim() || form.spotPrice.trim() || '—';
 
+  const dismissPublishSuccess = () => {
+    setPublishSuccess(null);
+    navigation.getParent()?.goBack();
+  };
+
   return (
+    <>
+    <PublishListingSuccessModal
+      visible={publishSuccess != null}
+      variant={publishSuccess?.variant ?? 'marketplace'}
+      preview={publishSuccess?.preview ?? null}
+      onViewListing={() => {
+        const id = publishSuccess?.listingId;
+        setPublishSuccess(null);
+        navigation.getParent()?.goBack();
+        if (id) {
+          openSellerListingManagement(id);
+        }
+      }}
+      onSellerHQ={() => {
+        setPublishSuccess(null);
+        navigation.getParent()?.goBack();
+        openSellerHQ(navigation, { tab: 'listings' });
+      }}
+      onDismiss={dismissPublishSuccess}
+    />
     <CreateListingChrome
       step={reviewStep}
       total={totalSteps}
@@ -639,6 +679,7 @@ export function CreateListingReviewScreen({
         </View>
       </ScrollView>
     </CreateListingChrome>
+    </>
   );
 }
 

@@ -14,7 +14,14 @@ import type { LiveRoomStatus } from "@/generated/prisma/client";
 import type { LiveRoomItemDTO, LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { minNextBidUsd } from "@/lib/auction";
 import { LIVE_AUCTION_CLIENT_END_GRACE_MS } from "@/lib/live-auction-bid-extension";
-import { startLiveRoomItemAuction } from "@/lib/live-room-control-client";
+import { createLiveBidIdempotencyKey, liveBidRequestHeaders } from "@/lib/live-bid-client";
+import {
+  LIVE_AUCTION_BUYER_NOT_STARTED_COPY,
+  LIVE_AUCTION_BUYER_TIMER_ENDED_COPY,
+  LIVE_AUCTION_HOST_TIMER_ENDED_COPY,
+  resolveLiveAuctionLotBidPhase,
+} from "@/lib/live-auction-lot-phase";
+import { patchLiveRoomItemStatus, startLiveRoomItemAuction } from "@/lib/live-room-control-client";
 import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 
@@ -174,7 +181,7 @@ export function LiveSaleRoom({
   const [liveAuctionResolutionTick, setLiveAuctionResolutionTick] = useState(0);
   useEffect(() => {
     const active = dbItems.find((x) => x.status === "active");
-    if (!active?.biddingOpen || !active.auctionEndsAt) return undefined;
+    if (!active?.auctionEndsAt) return undefined;
     const ends = Date.parse(active.auctionEndsAt);
     if (!Number.isFinite(ends)) return undefined;
     const id = window.setInterval(() => setLiveAuctionResolutionTick((t) => t + 1), 50);
@@ -201,6 +208,7 @@ export function LiveSaleRoom({
   const [hostSaleAuctionDurationSec, setHostSaleAuctionDurationSec] = useState(5);
   const [hostSaleClutchTimeEnabled, setHostSaleClutchTimeEnabled] = useState(false);
   const [hostSaleAuctionBusy, setHostSaleAuctionBusy] = useState(false);
+  const [hostMarkSoldBusy, setHostMarkSoldBusy] = useState(false);
 
   const [buyerWideRail, setBuyerWideRail] = useState(false);
   useLayoutEffect(() => {
@@ -358,14 +366,14 @@ export function LiveSaleRoom({
   }, [roomType, isLive, isHost, activeDb?.listingId, activeDb?.status, activeDb?.biddingOpen, activeDb?.auctionEndsAt, refetchBidMeta]);
 
   const nowWall = syncedWallTimeMs(clockSkewMs);
-  const saleEndsMs = activeDb?.auctionEndsAt ? Date.parse(activeDb.auctionEndsAt) : NaN;
-  const liveItemBiddingOpen = Boolean(
-    activeDb?.biddingOpen &&
-      Number.isFinite(saleEndsMs) &&
-      saleEndsMs > nowWall - LIVE_AUCTION_CLIENT_END_GRACE_MS,
+  const activeLotBidPhase = useMemo(
+    () => (activeDb ? resolveLiveAuctionLotBidPhase(activeDb, nowWall) : "inactive"),
+    [activeDb, nowWall, liveAuctionResolutionTick, clockTick],
   );
+  const liveItemBiddingOpen =
+    roomType === "auction" && activeLotBidPhase === "bidding_open";
   const hostSaleAuctionCountdownLabel =
-    roomType === "auction" && activeDb?.biddingOpen && activeDb.auctionEndsAt
+    roomType === "auction" && activeDb?.auctionEndsAt && activeLotBidPhase === "bidding_open"
       ? (() => {
           const ends = Date.parse(activeDb.auctionEndsAt);
           if (!Number.isFinite(ends)) return null;
@@ -376,7 +384,9 @@ export function LiveSaleRoom({
     roomType === "auction" &&
     isLive &&
     Boolean(activeDb?.status === "active") &&
-    !liveItemBiddingOpen;
+    activeLotBidPhase === "not_started";
+  const hostTimerEndedUnsettled =
+    roomType === "auction" && isLive && activeLotBidPhase === "timer_ended_unsettled";
   const guestNeedsAuth = status === "unauthenticated" && !isHost && isLive;
   const sessionBlocksBuyer = (status === "unauthenticated" || status === "loading") && !isHost && isLive;
   const actionsDisabled =
@@ -386,8 +396,8 @@ export function LiveSaleRoom({
     bidFlight ||
     sessionBlocksBuyer ||
     ((roomType === "auction" || roomType === "sale") && !isHost && isLive && !buyerLiveWalletReady);
-  const auctionLiveItemGate =
-    roomType === "auction" && activeDb?.status === "active" && isLive && !liveItemBiddingOpen;
+  const buyerAuctionBidBlocked =
+    roomType === "auction" && !isHost && isLive && activeLotBidPhase !== "bidding_open";
   const activeSaleMissingListing =
     roomType === "sale" && activeDb?.status === "active" && !activeDb.listingId;
 
@@ -448,6 +458,10 @@ export function LiveSaleRoom({
       redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
       return;
     }
+    if (activeLotBidPhase === "timer_ended_unsettled") {
+      setActionError(LIVE_AUCTION_BUYER_TIMER_ENDED_COPY);
+      return;
+    }
     if (bidMeta?.auctionEnded) {
       setActionError("This auction has ended.");
       return;
@@ -460,12 +474,13 @@ export function LiveSaleRoom({
     const prevOptimistic = optimisticBidUsd;
     setOptimisticBidUsd(amount);
     setBidFlight(true);
+    const idempotencyKey = createLiveBidIdempotencyKey();
     try {
       const res = await fetch(
         `/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(activeDb.id)}/bid`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: liveBidRequestHeaders(idempotencyKey),
           body: JSON.stringify({ amountUsd: amount }),
         },
       );
@@ -501,6 +516,25 @@ export function LiveSaleRoom({
       setBidFlight(false);
     }
   };
+
+  const handleHostMarkSold = useCallback(async () => {
+    if (!activeDb || activeLotBidPhase !== "timer_ended_unsettled") return;
+    setHostMarkSoldBusy(true);
+    setActionError(null);
+    try {
+      const r = await patchLiveRoomItemStatus(liveRoomId, activeDb.id, "sold");
+      if (!r.ok) {
+        setActionError(r.error);
+        toast(r.error);
+        return;
+      }
+      toast("Winner settled — buyer can complete payment.");
+      await onRefetch?.();
+      router.refresh();
+    } finally {
+      setHostMarkSoldBusy(false);
+    }
+  }, [activeDb, activeLotBidPhase, liveRoomId, onRefetch, router, toast]);
 
   const handleHostStartSaleAuction = useCallback(async () => {
     if (!activeDb || roomType !== "auction") return;
@@ -595,6 +629,18 @@ export function LiveSaleRoom({
           ) : null}
           {!isLive ? (
             <p className="text-[10px] text-amber-200/90">Go live first, then open bidding here.</p>
+          ) : hostTimerEndedUnsettled ? (
+            <div className="space-y-2">
+              <p className="text-[11px] font-semibold text-amber-200">{LIVE_AUCTION_HOST_TIMER_ENDED_COPY}</p>
+              <button
+                type="button"
+                disabled={hostMarkSoldBusy}
+                onClick={() => void handleHostMarkSold()}
+                className="rounded-md bg-gold px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-zinc-950 shadow-sm transition hover:brightness-110 disabled:opacity-40"
+              >
+                {hostMarkSoldBusy ? "Settling…" : "Mark sold"}
+              </button>
+            </div>
           ) : liveItemBiddingOpen ? (
             <p className="text-[10px] text-emerald-200/90">Bidding is open on this lot.</p>
           ) : (
@@ -656,7 +702,7 @@ export function LiveSaleRoom({
             disabled={
               actionsDisabled ||
               activeSaleMissingListing ||
-              auctionLiveItemGate ||
+              buyerAuctionBidBlocked ||
               (Boolean(activeListingId) && Boolean(bidMeta?.auctionEnded))
             }
             onClick={() => void handlePlaceBid()}
@@ -694,10 +740,11 @@ export function LiveSaleRoom({
           to buy or bid.
         </p>
       ) : null}
-      {roomType === "auction" && !isHost && auctionLiveItemGate ? (
-        <p className="mt-2 text-[10px] text-zinc-400">
-          Host taps Start to open bidding; your button then shows each next required bid.
-        </p>
+      {roomType === "auction" && !isHost && activeLotBidPhase === "not_started" ? (
+        <p className="mt-2 text-[10px] text-zinc-400">{LIVE_AUCTION_BUYER_NOT_STARTED_COPY}</p>
+      ) : null}
+      {roomType === "auction" && !isHost && activeLotBidPhase === "timer_ended_unsettled" ? (
+        <p className="mt-2 text-[10px] font-medium text-amber-200/90">{LIVE_AUCTION_BUYER_TIMER_ENDED_COPY}</p>
       ) : null}
       {actionError ? <p className="mt-2 text-[10px] font-medium text-rose-300">{actionError}</p> : null}
     </div>
@@ -742,6 +789,18 @@ export function LiveSaleRoom({
           ) : null}
           {!isLive ? (
             <p className="text-center text-[9px] text-amber-200/90">Go live, then open bidding.</p>
+          ) : hostTimerEndedUnsettled ? (
+            <div className="w-full space-y-1.5 text-center">
+              <p className="text-[9px] font-semibold text-amber-200">{LIVE_AUCTION_HOST_TIMER_ENDED_COPY}</p>
+              <button
+                type="button"
+                disabled={hostMarkSoldBusy}
+                onClick={() => void handleHostMarkSold()}
+                className="rounded-full bg-gold px-3 py-1 text-[10px] font-black uppercase tracking-wide text-zinc-950 disabled:opacity-40"
+              >
+                {hostMarkSoldBusy ? "…" : "Mark sold"}
+              </button>
+            </div>
           ) : liveItemBiddingOpen ? (
             <p className="text-center text-[9px] text-emerald-200/90">Bidding open</p>
           ) : (
@@ -808,7 +867,9 @@ export function LiveSaleRoom({
                     : "text-zinc-200"
             }`}
           >
-            {bidMeta?.auctionEnded ? "Ended" : countdownLabel ?? "Live"}
+            {activeLotBidPhase === "timer_ended_unsettled" || bidMeta?.auctionEnded
+              ? "Ended"
+              : countdownLabel ?? "Live"}
           </span>
           <button
             data-testid="live-bid-button"
@@ -816,7 +877,7 @@ export function LiveSaleRoom({
             disabled={
               actionsDisabled ||
               activeSaleMissingListing ||
-              auctionLiveItemGate ||
+              buyerAuctionBidBlocked ||
               (Boolean(activeListingId) && Boolean(bidMeta?.auctionEnded))
             }
             onClick={() => void handlePlaceBid()}
@@ -858,10 +919,11 @@ export function LiveSaleRoom({
           to buy or bid.
         </p>
       ) : null}
-      {roomType === "auction" && !isHost && auctionLiveItemGate ? (
-        <p className="mt-1 text-[10px] text-zinc-400">
-          Waiting for the host to start bidding — then the button shows the next required bid.
-        </p>
+      {roomType === "auction" && !isHost && activeLotBidPhase === "not_started" ? (
+        <p className="mt-1 text-[10px] text-zinc-400">{LIVE_AUCTION_BUYER_NOT_STARTED_COPY}</p>
+      ) : null}
+      {roomType === "auction" && !isHost && activeLotBidPhase === "timer_ended_unsettled" ? (
+        <p className="mt-1 text-[10px] font-medium text-amber-200/90">{LIVE_AUCTION_BUYER_TIMER_ENDED_COPY}</p>
       ) : null}
       {actionError ? <p className="mt-1 text-[10px] text-rose-300">{actionError}</p> : null}
     </div>

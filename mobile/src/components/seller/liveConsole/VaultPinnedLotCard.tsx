@@ -3,6 +3,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
+import {
+  LIVE_AUCTION_HOST_TIMER_ENDED_COPY,
+  resolveLiveAuctionLotBidPhase,
+} from '../../../lib/liveAuctionLotPhase';
 import { colors, radii, spacing } from '../../../theme';
 import { lc } from './liveConsoleTheme';
 
@@ -18,7 +22,7 @@ function countdownParts(endsAt: string | null, serverNowMs: number): { label: st
   const end = Date.parse(endsAt);
   if (Number.isNaN(end)) return null;
   const diff = end - serverNowMs;
-  if (diff <= 0) return { label: 'FINAL', progress: 0 };
+  if (diff <= 0) return { label: 'Ended', progress: 0 };
   const s = Math.ceil(diff / 1000);
   const total = DEFAULT_AUCTION_SEC;
   const progress = Math.min(1, s / total);
@@ -63,10 +67,10 @@ export function VaultPinnedLotCard({
   const prevBidder = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!item?.biddingOpen) return;
+    if (!item?.auctionEndsAt || item.status !== 'active') return;
     const id = setInterval(() => setTick((t) => t + 1), 400);
     return () => clearInterval(id);
-  }, [item?.biddingOpen, item?.auctionEndsAt]);
+  }, [item?.auctionEndsAt, item?.status]);
 
   useEffect(() => {
     if (!item?.biddingOpen) return;
@@ -123,10 +127,27 @@ export function VaultPinnedLotCard({
     prevBidder.current = bidder;
   }, [bidderFlash, item?.lastHighBidderUsername]);
 
-  const countdown = useMemo(
-    () => (item?.biddingOpen ? countdownParts(item.auctionEndsAt, serverNowMs) : null),
-    [item?.auctionEndsAt, item?.biddingOpen, serverNowMs],
+  const lotBidPhase = useMemo(
+    () =>
+      item
+        ? resolveLiveAuctionLotBidPhase(
+            {
+              status: item.status,
+              biddingOpen: item.biddingOpen,
+              auctionEndsAt: item.auctionEndsAt,
+            },
+            serverNowMs,
+          )
+        : 'inactive',
+    [item, serverNowMs],
   );
+
+  const countdown = useMemo(() => {
+    if (!item?.auctionEndsAt) return null;
+    if (item.biddingOpen) return countdownParts(item.auctionEndsAt, serverNowMs);
+    if (lotBidPhase === 'timer_ended_unsettled') return { label: 'Ended', progress: 0 };
+    return null;
+  }, [item?.auctionEndsAt, item?.biddingOpen, lotBidPhase, serverNowMs]);
 
   useEffect(() => {
     if (!countdown || countdown.progress > 0.28) {
@@ -229,9 +250,12 @@ export function VaultPinnedLotCard({
           ) : (
             <Text style={[styles.meta, compact && styles.metaCompact]}>Waiting for first bid</Text>
           )}
+          {auctionRoom && lotBidPhase === 'timer_ended_unsettled' ? (
+            <Text style={styles.hostEndedCopy}>{LIVE_AUCTION_HOST_TIMER_ENDED_COPY}</Text>
+          ) : null}
           <View style={styles.metaRow}>
             <Text style={[styles.meta, compact && styles.metaCompact]}>
-              {item.biddingOpen ? 'Hammer live' : 'Ready'}
+              {item.biddingOpen ? 'Hammer live' : lotBidPhase === 'timer_ended_unsettled' ? 'Awaiting mark sold' : 'Ready'}
             </Text>
             {item.priceUsd != null ? (
               <Text style={[styles.meta, compact && styles.metaCompact, reserve && styles.metaOk]}>
@@ -248,8 +272,22 @@ export function VaultPinnedLotCard({
               <Text style={[styles.actionGoldTxt, compact && styles.actionTxtCompact]}>Open bid</Text>
             </Pressable>
           ) : null}
-          <Pressable style={[styles.action, compact && styles.actionCompact]} disabled={busy} onPress={onSold}>
-            <Text style={[styles.actionTxt, compact && styles.actionTxtCompact]}>Sold</Text>
+          <Pressable
+            style={[
+              lotBidPhase === 'timer_ended_unsettled' ? styles.actionGold : styles.action,
+              compact && styles.actionCompact,
+            ]}
+            disabled={busy}
+            onPress={onSold}
+          >
+            <Text
+              style={[
+                lotBidPhase === 'timer_ended_unsettled' ? styles.actionGoldTxt : styles.actionTxt,
+                compact && styles.actionTxtCompact,
+              ]}
+            >
+              {lotBidPhase === 'timer_ended_unsettled' ? 'Mark sold' : 'Sold'}
+            </Text>
           </Pressable>
           <Pressable style={[styles.action, compact && styles.actionCompact]} disabled={busy} onPress={onSkip}>
             <Text style={[styles.actionTxt, compact && styles.actionTxtCompact]}>Skip</Text>
@@ -354,6 +392,13 @@ const styles = StyleSheet.create({
   meta: { fontSize: 10, fontWeight: '600', color: colors.textMuted },
   metaCompact: { fontSize: 9 },
   metaOk: { color: colors.success },
+  hostEndedCopy: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#fbbf24',
+    marginTop: 4,
+    lineHeight: 14,
+  },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   actionsCompact: { gap: 5, marginTop: 2 },
   actionGold: {

@@ -75,7 +75,7 @@ export type ListingPreview = {
   title: string;
   imageUrl: string;
   price: string;
-  status: 'active' | 'draft' | 'sold' | 'expiring' | 'pending' | 'in_auction';
+  status: 'active' | 'draft' | 'sold' | 'expiring' | 'pending' | 'in_auction' | 'ended';
   watches: number;
   /** @deprecated Prefer `channel`. */
   live?: boolean;

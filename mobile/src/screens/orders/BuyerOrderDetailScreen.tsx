@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Linking,
   Pressable,
   ScrollView,
@@ -12,6 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchBuyerOrderById, isOrderCompleteForReview } from '../../api/ordersRepository';
+import { touchAuctionPaymentExpiries } from '../../api/touchAuctionPaymentExpiries';
 import type { BuyerOrder } from '../../api/ordersRepository';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { VaultImage } from '../../components/ui/VaultImage';
@@ -25,6 +27,7 @@ import {
 } from '../../navigation/openPlatform';
 import { hasReviewedReference } from '../../platform/platformStore';
 import type { RootStackParamList } from '../../navigation/types';
+import { openWebCommerceUrl, webOrderPayUrl } from '../../lib/openWebCommerce';
 import { colors, radii, spacing } from '../../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BuyerOrderDetail'>;
@@ -47,7 +50,7 @@ function stepIndex(status: string): number {
 
 export function BuyerOrderDetailScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const { orderId } = route.params;
   const [order, setOrder] = useState<BuyerOrder | null>(null);
   const [reviewed, setReviewed] = useState(false);
@@ -57,6 +60,7 @@ export function BuyerOrderDetailScreen({ navigation, route }: Props) {
     if (!user?.id) return;
     setLoading(true);
     try {
+      void touchAuctionPaymentExpiries(session?.access_token);
       const row = await fetchBuyerOrderById(user.id, orderId);
       setOrder(row);
       if (row && isOrderCompleteForReview(row.status)) {
@@ -65,7 +69,7 @@ export function BuyerOrderDetailScreen({ navigation, route }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [orderId, user?.id]);
+  }, [orderId, session?.access_token, user?.id]);
 
   useEffect(() => {
     void load();
@@ -129,6 +133,21 @@ export function BuyerOrderDetailScreen({ navigation, route }: Props) {
           <Text style={styles.eta}>{order.estimatedDelivery}</Text>
 
           <View style={styles.actions}>
+            {order.status === 'pending_payment' ? (
+              <ActionBtn
+                icon="card-outline"
+                label="Complete payment"
+                highlight
+                onPress={() => {
+                  const url = webOrderPayUrl(order.id);
+                  if (!url) {
+                    Alert.alert('Configuration', 'Set EXPO_PUBLIC_SITE_URL to complete payment in your browser.');
+                    return;
+                  }
+                  void openWebCommerceUrl(url);
+                }}
+              />
+            ) : null}
             <ActionBtn
               icon="navigate-outline"
               label="Track package"

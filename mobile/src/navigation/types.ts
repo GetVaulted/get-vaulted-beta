@@ -44,6 +44,7 @@ export type RootStackParamList = {
   AuthSignUp: undefined;
   ProfileEdit: undefined;
   ProductDetail: { productId: string };
+  SellerListingManagement: { listingId: string };
   SellerHostRoom: { roomId: string };
   MessagesInbox: undefined;
   MessageThread: { threadId: string };

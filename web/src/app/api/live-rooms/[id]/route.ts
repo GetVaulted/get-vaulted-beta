@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { getBuyerLiveWalletReadiness } from "@/lib/buyer-live-wallet-readiness";
 import { notifyFollowersSellerWentLive } from "@/lib/seller-follow-notify";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
+import { processAuctionPaymentExpiries } from "@/services/payments";
 import { emitAuctionEnded, emitAuctionStarted, emitTeamBoardChanged } from "@/lib/realtime-emit-server";
 
 const includeDetail = {
@@ -34,6 +35,14 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const { id: raw } = await ctx.params;
   const id = safeDecodeRouteSegment(raw ?? "");
   const viewerId = await resolveOptionalLiveRoomsUserId(req);
+
+  if (viewerId) {
+    try {
+      await processAuctionPaymentExpiries();
+    } catch (e) {
+      console.error("[api/live-rooms/[id]] processAuctionPaymentExpiries", e);
+    }
+  }
 
   const room = await prisma.liveRoom.findUnique({
     where: { id },

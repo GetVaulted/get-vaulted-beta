@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { canSellerCreateShippingLabel } from "@/lib/order-shipping-guards";
+import {
+  canSellerCreateShippingLabel,
+  sellerMayMarkOrderShipped,
+  sellerMayShowFulfillmentControls,
+} from "@/lib/order-shipping-guards";
 
 describe("canSellerCreateShippingLabel", () => {
   it("rejects unpaid orders", () => {
@@ -36,5 +40,27 @@ describe("canSellerCreateShippingLabel", () => {
       labelUrl: null,
     });
     expect(r).toEqual({ ok: true });
+  });
+});
+
+describe("sellerMayMarkOrderShipped", () => {
+  it("rejects pending_payment", () => {
+    expect(sellerMayMarkOrderShipped({ paymentStatus: "pending_payment", status: "pending" })).toEqual({
+      ok: false,
+      code: "UNPAID",
+    });
+  });
+
+  it("allows paid + pending lifecycle", () => {
+    expect(sellerMayMarkOrderShipped({ paymentStatus: "paid", status: "pending" })).toEqual({ ok: true });
+  });
+});
+
+describe("sellerMayShowFulfillmentControls", () => {
+  it("hides controls for unpaid and terminal payment states", () => {
+    expect(sellerMayShowFulfillmentControls({ paymentStatus: "pending_payment" })).toBe(false);
+    expect(sellerMayShowFulfillmentControls({ paymentStatus: "failed" })).toBe(false);
+    expect(sellerMayShowFulfillmentControls({ paymentStatus: "expired" })).toBe(false);
+    expect(sellerMayShowFulfillmentControls({ paymentStatus: "paid" })).toBe(true);
   });
 });

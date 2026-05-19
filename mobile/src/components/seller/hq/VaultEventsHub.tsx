@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchMyLiveRooms, type LiveRoomApiRow } from '../../../api/liveRoomsRepository';
-import type { SellerConnectStatusResponse } from '../../../api/stripeConnectRepository';
+import type { LiveSalesGate } from '../../../lib/sellerLiveReadiness';
 import { bucketRooms, primaryCta, type VaultEventDisplayStatus, type VaultEventSection } from '../../../lib/vaultEventModel';
 import { colors, radii, spacing } from '../../../theme';
 import { VaultEventCard } from './VaultEventCard';
@@ -45,19 +45,21 @@ const EMPTY_COPY: Record<VaultEventSection, { title: string; body: string }> = {
 
 export function VaultEventsHub({
   accessToken,
-  sellerConnect,
+  liveGate,
   sellerAvatarUrl,
   onHostRoom,
   onViewRecap,
   onScheduleNew,
+  onBlockedSchedule,
   roomsRefreshKey = 0,
 }: {
   accessToken?: string;
-  sellerConnect: { status: SellerConnectStatusResponse | null; loading: boolean };
+  liveGate: LiveSalesGate;
   sellerAvatarUrl?: string | null;
   onHostRoom: (roomId: string) => void;
   onViewRecap: (roomId: string) => void;
   onScheduleNew: () => void;
+  onBlockedSchedule?: () => void;
   roomsRefreshKey?: number;
 }) {
   const insets = useSafeAreaInsets();
@@ -66,8 +68,15 @@ export function VaultEventsHub({
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const liveBlocked =
-    sellerConnect.status?.stripeConfigured === true && sellerConnect.status.can_host_live_sales === false;
+  const liveBlocked = liveGate.blocked;
+
+  const trySchedule = useCallback(() => {
+    if (liveBlocked) {
+      onBlockedSchedule?.();
+      return;
+    }
+    onScheduleNew();
+  }, [liveBlocked, onBlockedSchedule, onScheduleNew]);
 
   const load = useCallback(async () => {
     if (!accessToken) {
@@ -129,10 +138,10 @@ export function VaultEventsHub({
           handles business ops; this tab handles shows.
         </Text>
 
-        {liveBlocked ? (
+        {liveBlocked && liveGate.bannerMessage ? (
           <View style={styles.blockBanner}>
             <Ionicons name="shield-checkmark-outline" size={18} color={colors.gold} />
-            <Text style={styles.blockTxt}>Finish payout setup before scheduling or hosting live events.</Text>
+            <Text style={styles.blockTxt}>{liveGate.bannerMessage}</Text>
           </View>
         ) : null}
 
@@ -165,7 +174,7 @@ export function VaultEventsHub({
             <Text style={styles.emptyTitle}>{EMPTY_COPY[segment].title}</Text>
             <Text style={styles.emptyBody}>{EMPTY_COPY[segment].body}</Text>
             {segment !== 'past' ? (
-              <Pressable style={styles.emptyCta} onPress={onScheduleNew} disabled={liveBlocked}>
+              <Pressable style={styles.emptyCta} onPress={trySchedule} disabled={liveBlocked}>
                 <Text style={styles.emptyCtaTxt}>Schedule vault event</Text>
               </Pressable>
             ) : null}
@@ -189,7 +198,7 @@ export function VaultEventsHub({
 
       <Pressable
         style={[styles.fab, { bottom: Math.max(insets.bottom, 12) + 8 }]}
-        onPress={onScheduleNew}
+        onPress={trySchedule}
         disabled={liveBlocked}
         accessibilityRole="button"
         accessibilityLabel="Schedule vault event"

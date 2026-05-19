@@ -1,6 +1,6 @@
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { SellerHubTabId } from '../../../data/sellerHubMock';
 import type { useSellerCommandCenterData } from '../../../hooks/useSellerCommandCenterData';
@@ -60,6 +60,12 @@ export function SellerHQCommandCenter({
       : 'Studio Initiate';
 
   const onQuickLaunch = (id: QuickLaunchId) => {
+    if (id === 'schedule' && data.liveGate.blocked) {
+      Alert.alert(data.liveGate.alertTitle, data.liveGate.alertBody);
+      if (data.liveGate.nextStep === 'ship_from') onOpenTab('overview');
+      else if (data.liveGate.nextStep === 'stripe') void onStripeSetup();
+      return;
+    }
     switch (id) {
       case 'schedule':
         setPendingVaultEventSchedule(true);

@@ -18,7 +18,7 @@ export function LiveRoomScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const route = useRoute<RouteProp<LiveStackParamList, 'LiveRoom'>>();
   const { streamId } = route.params;
-  const { user, guestExploreMode } = useAuth();
+  const { user, guestExploreMode, session } = useAuth();
   const [streams, setStreams] = useState<LiveStream[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -80,6 +80,7 @@ export function LiveRoomScreen() {
         onBack={() => navigation.goBack()}
         signedIn={Boolean(user)}
         onRequireAuth={onRequireAuth}
+        accessToken={session?.access_token}
       />
     </View>
   );

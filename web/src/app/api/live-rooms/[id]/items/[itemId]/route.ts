@@ -9,7 +9,11 @@ import type { LiveRoomItemStatus } from "@/generated/prisma/client";
 import { settleLiveAuctionItemWhenMarkedSold } from "@/lib/live-auction-item-sold-settle";
 import { getLiveRoomItemSnapshotDto } from "@/lib/live-room-item-snapshot-server";
 import { prisma } from "@/lib/prisma";
-import { chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard } from "@/lib/stripe-charge-order-saved-pm";
+import { notifyLiveAuctionWinPaymentOutcome } from "@/lib/live-auction-win-payment-notify";
+import {
+  chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard,
+  type ChargeOrderSavedPmOutcome,
+} from "@/lib/stripe-charge-order-saved-pm";
 import {
   emitActiveItemChanged,
   emitActiveItemChangedAwait,
@@ -340,7 +344,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
         if (!cur) throw new Error("ITEM_NOT_FOUND");
         if (cur.status === "sold") throw new Error("ITEM_ALREADY_SOLD");
         if (cur.status !== "active") throw new Error("ITEM_NOT_ACTIVE");
-        const settleOut = await settleLiveAuctionItemWhenMarkedSold(tx, { liveRoomId, liveRoomItemId: itemId });
+        const settleOut = await settleLiveAuctionItemWhenMarkedSold(tx, {
+          liveRoomId,
+          liveRoomItemId: itemId,
+          skipWinNotifications: true,
+        });
         const updated = await tx.liveRoomItem.updateMany({
           where: { id: itemId, liveRoomId, status: "active" },
           data: { ...data, biddingOpen: false, auctionEndsAt: null, clutchTimeEnabled: false, itemVersion: { increment: 1 } },
@@ -365,23 +373,49 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
         if (!ord) {
           throw new Error("LIVE_AUCTION_ORDER_MISSING");
         }
-        return { roomVersion: roomNext.roomVersion, itemVersion: itemNext.itemVersion, orderId: settleOut.orderId };
+        return {
+          roomVersion: roomNext.roomVersion,
+          itemVersion: itemNext.itemVersion,
+          orderId: settleOut.orderId,
+          buyerId: settleOut.buyerId,
+          sellerId: settleOut.sellerId,
+          listingTitle: settleOut.listingTitle,
+          itemPriceUsd: settleOut.itemPriceUsd,
+        };
       });
       emitPurchaseCompleted(liveRoomId, itemId, {
         roomVersion: settled.roomVersion,
         itemVersion: settled.itemVersion,
       });
-      const buyerRow = await prisma.order.findUnique({
-        where: { id: settled.orderId },
-        select: { buyerId: true },
-      });
-      if (buyerRow?.buyerId) {
-        void chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard({
-          buyerId: buyerRow.buyerId,
-          orderId: settled.orderId,
-        }).catch((err) => console.error("[live-room item PATCH sold] auto-charge", err));
+      let autoCharge: ChargeOrderSavedPmOutcome = { outcome: "error", code: "NO_BUYER" };
+      if (settled.buyerId) {
+        try {
+          autoCharge = await chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard({
+            buyerId: settled.buyerId,
+            orderId: settled.orderId,
+          });
+        } catch (err) {
+          console.error("[live-room item PATCH sold] auto-charge", err);
+          autoCharge = { outcome: "error", code: "CHARGE_EXCEPTION" };
+        }
+        try {
+          await notifyLiveAuctionWinPaymentOutcome({
+            buyerId: settled.buyerId,
+            sellerId: settled.sellerId,
+            orderId: settled.orderId,
+            listingTitle: settled.listingTitle,
+            itemPriceUsd: settled.itemPriceUsd,
+            charge: autoCharge,
+          });
+        } catch (err) {
+          console.error("[live-room item PATCH sold] win notify", err);
+        }
       }
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({
+        ok: true,
+        orderId: settled.orderId,
+        autoCharge: { outcome: autoCharge.outcome, ...(autoCharge.outcome === "error" ? { code: autoCharge.code } : {}) },
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "";
       if (msg === "ITEM_ALREADY_SOLD" || msg === "ITEM_SOLD_CONFLICT") {

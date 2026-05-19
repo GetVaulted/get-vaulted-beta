@@ -4,6 +4,10 @@ import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { createNotification } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
+import {
+  ORDER_MUST_BE_PAID_BEFORE_FULFILLMENT,
+  sellerMayMarkOrderShipped,
+} from "@/lib/order-shipping-guards";
 import { assertValidEscrowTransition } from "@/services/escrow/state-machine";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -71,6 +75,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       buyerId: true,
       sellerId: true,
       status: true,
+      paymentStatus: true,
       paymentMethod: true,
       escrowStatus: true,
       listing: { select: { id: true, title: true } },
@@ -86,7 +91,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   if (body.markShipped === true) {
-    if (order.status !== "pending" && order.status !== "paid") {
+    const fulfillGate = sellerMayMarkOrderShipped({
+      paymentStatus: order.paymentStatus,
+      status: order.status,
+    });
+    if (!fulfillGate.ok) {
+      if (fulfillGate.code === "UNPAID") {
+        return NextResponse.json({ error: ORDER_MUST_BE_PAID_BEFORE_FULFILLMENT }, { status: 403 });
+      }
       return NextResponse.json({ error: "Order is already shipped or cannot be marked shipped." }, { status: 400 });
     }
     const tn =

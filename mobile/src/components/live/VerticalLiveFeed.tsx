@@ -46,6 +46,7 @@ type Props = {
   onBack?: () => void;
   signedIn?: boolean;
   onRequireAuth?: () => void;
+  accessToken?: string;
 };
 
 function formatViewers(n: number) {
@@ -100,6 +101,7 @@ function LiveSlide({
   onBack,
   signedIn = true,
   onRequireAuth,
+  accessToken,
 }: {
   stream: LiveStream;
   isActive: boolean;
@@ -108,6 +110,7 @@ function LiveSlide({
   onBack?: () => void;
   signedIn?: boolean;
   onRequireAuth?: () => void;
+  accessToken?: string;
 }) {
   const insets = useSafeAreaInsets();
   const stackNav = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
@@ -402,6 +405,7 @@ function LiveSlide({
           bottomSafeInset={insets.bottom}
           signedIn={signedIn}
           onRequireAuth={onRequireAuth}
+          accessToken={accessToken}
           onOpenInlineShop={() => setShopOpen(true)}
         />
       </View>
@@ -418,6 +422,7 @@ export function VerticalLiveFeed({
   onBack,
   signedIn = true,
   onRequireAuth,
+  accessToken,
 }: Props) {
   const insets = useSafeAreaInsets();
   const reserve = bottomOffset ?? insets.bottom + 16;
@@ -487,6 +492,7 @@ export function VerticalLiveFeed({
             onBack={onBack}
             signedIn={signedIn}
             onRequireAuth={onRequireAuth}
+            accessToken={accessToken}
           />
         </View>
       ))}

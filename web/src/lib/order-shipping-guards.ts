@@ -1,10 +1,31 @@
+import { PAYMENT_PAID } from "@/services/payments";
+
+export const ORDER_MUST_BE_PAID_BEFORE_FULFILLMENT = "Order must be paid before fulfillment.";
+
+/** Seller sales UI: show mark-shipped, create-label, and related fulfillment controls. */
+export function sellerMayShowFulfillmentControls(order: { paymentStatus: string }): boolean {
+  return order.paymentStatus === PAYMENT_PAID;
+}
+
+/** PATCH markShipped — payment must be paid; lifecycle status must allow first ship. */
+export function sellerMayMarkOrderShipped(order: {
+  paymentStatus: string;
+  status: string;
+}): { ok: true } | { ok: false; code: "UNPAID" | "INVALID_STATUS" } {
+  if (order.paymentStatus !== PAYMENT_PAID) return { ok: false, code: "UNPAID" };
+  if (order.status !== "pending" && order.status !== "paid") {
+    return { ok: false, code: "INVALID_STATUS" };
+  }
+  return { ok: true };
+}
+
 /** Pure guards for label creation (mirrors API rules; used in tests). */
 export function canSellerCreateShippingLabel(order: {
   paymentStatus: string;
   shippoTransactionId: string | null;
   labelUrl: string | null;
 }): { ok: true } | { ok: false; code: "UNPAID" | "LABEL_EXISTS" } {
-  if (order.paymentStatus !== "paid") return { ok: false, code: "UNPAID" };
+  if (order.paymentStatus !== PAYMENT_PAID) return { ok: false, code: "UNPAID" };
   if (order.shippoTransactionId || order.labelUrl) return { ok: false, code: "LABEL_EXISTS" };
   return { ok: true };
 }

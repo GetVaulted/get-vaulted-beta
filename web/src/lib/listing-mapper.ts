@@ -150,7 +150,7 @@ export function dbListingToMarketplace(
     auctionTimeLeft,
     condition: row.condition,
     listedAt: row.createdAt.toISOString(),
-    href: `/marketplace/${encodeURIComponent(row.id)}`,
+    href: `/listing/${encodeURIComponent(row.id)}`,
     sellerId: row.sellerId,
     longDescription: row.description,
     shippingPriceUsd: row.shippingPriceUsd,

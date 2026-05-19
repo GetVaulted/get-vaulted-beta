@@ -3,8 +3,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchMyLiveRooms, type LiveRoomApiRow } from '../api/liveRoomsRepository';
 import { fetchSellerAnalytics, type SellerAnalyticsSnapshot } from '../api/sellerAnalyticsRepository';
 import { useSellerStripeConnect } from './useSellerStripeConnect';
+import { useSellerLiveReadiness } from './useSellerLiveReadiness';
 import { useSellerWallet } from './useSellerWallet';
 import { isSellerHQApproved } from '../lib/sellerHubEntry';
+import { resolveLiveSalesGate } from '../lib/sellerLiveReadiness';
 
 const EMPTY_ANALYTICS: SellerAnalyticsSnapshot = {
   activeListings: 0,
@@ -21,6 +23,7 @@ const EMPTY_ANALYTICS: SellerAnalyticsSnapshot = {
 
 export function useSellerCommandCenterData(accessToken: string | undefined, vaultListingCount: number) {
   const sellerConnect = useSellerStripeConnect(accessToken);
+  const liveReadiness = useSellerLiveReadiness(accessToken);
   const sellerWallet = useSellerWallet(accessToken);
   const [rooms, setRooms] = useState<LiveRoomApiRow[]>([]);
   const [roomsLoading, setRoomsLoading] = useState(false);
@@ -71,6 +74,21 @@ export function useSellerCommandCenterData(accessToken: string | undefined, vaul
     [rooms],
   );
   const approved = isSellerHQApproved(sellerConnect.status);
+  const liveGate = useMemo(
+    () =>
+      resolveLiveSalesGate(
+        sellerConnect.status,
+        liveReadiness.readinessLoaded ? liveReadiness.readiness : null,
+        { connectLoading: sellerConnect.loading, readinessLoading: liveReadiness.loading },
+      ),
+    [
+      sellerConnect.loading,
+      sellerConnect.status,
+      liveReadiness.loading,
+      liveReadiness.readiness,
+      liveReadiness.readinessLoaded,
+    ],
+  );
   const liveCount = liveRoom ? 1 : 0;
 
   const setupProgress = useMemo(() => {
@@ -164,6 +182,8 @@ export function useSellerCommandCenterData(accessToken: string | undefined, vaul
     approved,
     setupProgress,
     sellerConnect,
+    liveReadiness,
+    liveGate,
     sellerWallet,
     rooms,
     roomsLoading,

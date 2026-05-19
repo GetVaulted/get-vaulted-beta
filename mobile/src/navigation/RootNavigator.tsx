@@ -75,6 +75,10 @@ const BuyerOrderDetailScreen = lazyScreen(
   () => import('../screens/orders/BuyerOrderDetailScreen'),
   (m) => m.BuyerOrderDetailScreen,
 );
+const SellerListingManagementScreen = lazyScreen(
+  () => import('../screens/seller/SellerListingManagementScreen'),
+  (m) => m.SellerListingManagementScreen,
+);
 
 const theme = {
   ...DarkTheme,
@@ -134,6 +138,11 @@ export function RootNavigator() {
               presentation: 'modal',
               animation: 'slide_from_bottom',
             }}
+          />
+          <Stack.Screen
+            name="SellerListingManagement"
+            component={SellerListingManagementScreen}
+            options={{ animation: 'slide_from_right', presentation: 'card' }}
           />
           <Stack.Screen name="MessagesInbox" component={MessagesInboxScreen} />
           <Stack.Screen name="MessageThread" component={MessageThreadScreen} />

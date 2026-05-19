@@ -4,8 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Animated,
   PanResponder,
   Platform,
@@ -14,6 +16,17 @@ import {
   Text,
   View,
 } from 'react-native';
+import {
+  createLiveBidIdempotencyKey,
+  fetchLiveRoomBuyerSnapshot,
+  placeLiveRoomBid,
+  type LiveRoomBuyerSnapshot,
+} from '../../api/liveRoomBuyerRepository';
+import {
+  LIVE_AUCTION_BUYER_NOT_STARTED_COPY,
+  LIVE_AUCTION_BUYER_TIMER_ENDED_COPY,
+} from '../../lib/liveAuctionLotPhase';
+import { openWebCommerceUrl, webLiveRoomUrl } from '../../lib/openWebCommerce';
 import type { LiveStackParamList, MainTabParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
 import type { LiveStream } from '../../types';
@@ -82,6 +95,7 @@ type Props = {
   onRequireAuth?: () => void;
   /** Opens the in-room shop sheet (same as the rail “Shop” control). */
   onOpenInlineShop?: () => void;
+  accessToken?: string;
 };
 
 export function LivePinnedActionBar({
@@ -90,10 +104,16 @@ export function LivePinnedActionBar({
   signedIn = true,
   onRequireAuth,
   onOpenInlineShop,
+  accessToken,
 }: Props) {
   const stackNav = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const tabNav = stackNav.getParent<BottomTabNavigationProp<MainTabParamList>>();
+  const [bidBusy, setBidBusy] = useState(false);
+  const [roomSnap, setRoomSnap] = useState<LiveRoomBuyerSnapshot | null>(null);
+  const [syncRefreshing, setSyncRefreshing] = useState(false);
   const m = useMemo(() => resolveLiveCommerceHud(stream), [stream]);
+  const auctionLane =
+    m.format === 'auction' || (m.format === 'hybrid' && m.hybridFocus === 'auction');
   const padBottom = 4 + Math.min(10, Math.round(bottomSafeInset * 0.35));
   const metaLine = [m.winningLine, m.stateLine].filter(Boolean).join(' · ');
 
@@ -109,9 +129,124 @@ export function LivePinnedActionBar({
     tabNav?.navigate('TradeCenter', { screen: 'InitiateTrade', params: {} });
   };
 
-  const onSecondary = () => guard(() => tabNav?.navigate('TradeCenter', { screen: 'TradeCenterHome' }));
-  const onPrimary = () => guard(() => goInitiateTrade());
-  const onSlide = () => guard(() => goInitiateTrade());
+  const refreshRoomSnapshot = useCallback(async (): Promise<LiveRoomBuyerSnapshot | null> => {
+    if (!accessToken?.trim() || !auctionLane) return null;
+    setSyncRefreshing(true);
+    try {
+      const snap = await fetchLiveRoomBuyerSnapshot(accessToken, stream.id);
+      setRoomSnap(snap);
+      return snap;
+    } catch {
+      return null;
+    } finally {
+      setSyncRefreshing(false);
+    }
+  }, [accessToken, auctionLane, stream.id]);
+
+  useEffect(() => {
+    if (!auctionLane || !accessToken?.trim()) {
+      setRoomSnap(null);
+      return;
+    }
+    void refreshRoomSnapshot();
+  }, [accessToken, auctionLane, refreshRoomSnapshot]);
+
+  const syncStatusLine = useMemo(() => {
+    if (!auctionLane) return null;
+    if (syncRefreshing) return 'Refreshing room…';
+    if (roomSnap?.fetchedAtMs) {
+      const t = new Date(roomSnap.fetchedAtMs);
+      return `Last updated ${t.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+    }
+    return null;
+  }, [auctionLane, roomSnap?.fetchedAtMs, syncRefreshing]);
+
+  const openFullLiveRoom = useCallback(() => {
+    const url = webLiveRoomUrl(stream.id);
+    if (!url) {
+      Alert.alert('Configuration', 'Set EXPO_PUBLIC_SITE_URL to open the live room in your browser.');
+      return;
+    }
+    void openWebCommerceUrl(url);
+  }, [stream.id]);
+
+  const tryPlaceLiveBid = useCallback(async () => {
+    if (!accessToken) {
+      onRequireAuth?.();
+      return;
+    }
+    if (bidBusy) return;
+    setBidBusy(true);
+    try {
+      const snap = roomSnap ?? (await refreshRoomSnapshot());
+      if (!snap) {
+        Alert.alert('Could not load room', 'Try again or open the live room in your browser.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open live room', onPress: openFullLiveRoom },
+        ]);
+        return;
+      }
+      if (snap.status !== 'live' || !snap.activeItemId) {
+        Alert.alert(
+          'Bidding not open',
+          'This lot is not accepting bids right now. Open the full live room for the latest state.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open live room', onPress: openFullLiveRoom },
+          ],
+        );
+        return;
+      }
+      if (snap.lotBidPhase === 'timer_ended_unsettled') {
+        Alert.alert('Bidding closed', LIVE_AUCTION_BUYER_TIMER_ENDED_COPY, [
+          { text: 'OK', style: 'cancel' },
+          { text: 'Open live room', onPress: openFullLiveRoom },
+        ]);
+        return;
+      }
+      if (snap.lotBidPhase !== 'bidding_open') {
+        Alert.alert('Bidding not open yet', LIVE_AUCTION_BUYER_NOT_STARTED_COPY, [
+          { text: 'OK', style: 'cancel' },
+          { text: 'Open live room', onPress: openFullLiveRoom },
+        ]);
+        return;
+      }
+      const amount = snap.minNextBidUsd;
+      if (amount == null || !Number.isFinite(amount) || amount <= 0) {
+        Alert.alert('Could not bid', 'Minimum bid is unavailable. Try the full live room.');
+        return;
+      }
+      await placeLiveRoomBid({
+        accessToken,
+        roomId: stream.id,
+        itemId: snap.activeItemId,
+        amountUsd: amount,
+        idempotencyKey: createLiveBidIdempotencyKey(),
+      });
+      await refreshRoomSnapshot();
+      Alert.alert('Bid placed', `Your bid of $${amount.toLocaleString('en-US')} was recorded.`);
+    } catch (e) {
+      Alert.alert('Could not place bid', e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setBidBusy(false);
+    }
+  }, [
+    accessToken,
+    bidBusy,
+    onRequireAuth,
+    openFullLiveRoom,
+    refreshRoomSnapshot,
+    roomSnap,
+    stream.id,
+  ]);
+
+  const onSecondary = () =>
+    guard(() => {
+      if (auctionLane) openFullLiveRoom();
+      else tabNav?.navigate('TradeCenter', { screen: 'TradeCenterHome' });
+    });
+  const onPrimary = () => guard(() => (auctionLane ? void tryPlaceLiveBid() : goInitiateTrade()));
+  const onSlide = () => guard(() => (auctionLane ? void tryPlaceLiveBid() : goInitiateTrade()));
   const onShop = () =>
     guard(() => {
       if (onOpenInlineShop) onOpenInlineShop();
@@ -155,6 +290,12 @@ export function LivePinnedActionBar({
             {metaLine}
           </Text>
         ) : null}
+        {auctionLane ? (
+          <Text style={styles.syncLine} numberOfLines={2}>
+            {syncStatusLine ??
+              'This feed is not full live sync — open the live room in your browser for real-time bids.'}
+          </Text>
+        ) : null}
 
         <View style={styles.ctaBand}>
           <Pressable style={styles.ctaGhost} onPress={onSecondary}>
@@ -170,7 +311,11 @@ export function LivePinnedActionBar({
           ) : null}
 
           <View style={styles.ctaPrimaryWrap}>
-            {m.bottomRightIsSlide ? (
+            {bidBusy ? (
+              <View style={[styles.ctaPrimary, styles.ctaPrimaryBusy]}>
+                <ActivityIndicator color="#0a0a0a" />
+              </View>
+            ) : m.bottomRightIsSlide ? (
               <CompactSlideToBid onCommit={onSlide} />
             ) : (
               <Pressable style={styles.ctaGold} onPress={onPrimary}>
@@ -265,6 +410,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: -0.05,
   },
+  syncLine: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 9,
+    fontWeight: '600',
+    lineHeight: 12,
+  },
   ctaBand: {
     flexDirection: 'row',
     alignItems: 'stretch',
@@ -303,6 +454,17 @@ const styles = StyleSheet.create({
     minWidth: 0,
     minHeight: 36,
     justifyContent: 'center',
+  },
+  ctaPrimary: {
+    flex: 1,
+    minHeight: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radii.sm,
+    backgroundColor: colors.gold,
+  },
+  ctaPrimaryBusy: {
+    opacity: 0.88,
   },
   ctaGold: {
     flex: 1,

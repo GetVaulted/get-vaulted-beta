@@ -26,6 +26,11 @@ import {
   fetchMarketplaceListingByIdWithRetry,
   fetchMarketplaceListings,
 } from '../api/listingsFeedRepository';
+import { mapStoredListingToProduct } from '../api/mapStoredListingToProduct';
+import { mapWebMarketplaceListingToProduct } from '../api/mapWebMarketplaceListing';
+import type { WebListingEndRequest } from '../api/listingEndRepository';
+import { fetchListingDetailFromWeb, type WebStoredListing } from '../api/webListingsRepository';
+import { SellerListingEndControls } from '../components/seller/SellerListingEndControls';
 import { PremiumEmptyPanel } from '../components/empty/PremiumEmptyPanel';
 import { HostRow } from '../components/ui/HostRow';
 import { enrichListing } from '../data/productListingEnrichment';
@@ -66,11 +71,17 @@ export function ProductDetailScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { width: winW } = useWindowDimensions();
   const rootNav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { guestExploreMode, user } = useAuth();
+  const { guestExploreMode, user, session } = useAuth();
   const [loading, setLoading] = useState(true);
   const [product, setProduct] = useState<Product | null>(null);
   const [similarFromApi, setSimilarFromApi] = useState<Product[]>([]);
   const [sellerFromApi, setSellerFromApi] = useState<Product[]>([]);
+  const [ownerStored, setOwnerStored] = useState<WebStoredListing | null>(null);
+  const [endRequest, setEndRequest] = useState<WebListingEndRequest | null>(null);
+  const [ownerBidCount, setOwnerBidCount] = useState(0);
+  const [detailReloadNonce, setDetailReloadNonce] = useState(0);
+
+  const isOwner = Boolean(ownerStored && user?.id && ownerStored.sellerId === user.id);
 
   useEffect(() => {
     const listingId = route.params.productId;
@@ -78,14 +89,38 @@ export function ProductDetailScreen({ navigation, route }: Props) {
 
     async function load() {
       setLoading(true);
-      const remote = await fetchMarketplaceListingByIdWithRetry(listingId);
+      const token = session?.access_token;
+      const detail = token ? await fetchListingDetailFromWeb(listingId, token) : null;
+
+      let remote =
+        detail?.marketplace != null ? mapWebMarketplaceListingToProduct(detail.marketplace) : null;
+
+      if (!remote && detail?.stored) {
+        remote = mapStoredListingToProduct(detail.stored);
+      }
+      if (!remote) {
+        remote = await fetchMarketplaceListingByIdWithRetry(listingId);
+      }
+
       if (cancelled) return;
       if (!remote) {
         setProduct(null);
+        setOwnerStored(null);
+        setEndRequest(null);
         setSimilarFromApi([]);
         setSellerFromApi([]);
         setLoading(false);
         return;
+      }
+
+      if (detail?.stored && user?.id === detail.stored.sellerId) {
+        setOwnerStored(detail.stored);
+        setEndRequest(detail.endRequest ?? null);
+        setOwnerBidCount(detail.bidCount ?? 0);
+      } else {
+        setOwnerStored(null);
+        setEndRequest(null);
+        setOwnerBidCount(0);
       }
 
       const [bySeller, byCategory] = await Promise.all([
@@ -103,7 +138,7 @@ export function ProductDetailScreen({ navigation, route }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [route.params.productId]);
+  }, [route.params.productId, session?.access_token, user?.id, detailReloadNonce]);
 
   const vm = useMemo(() => (product ? enrichListing(product) : null), [product]);
   const [slide, setSlide] = useState(0);
@@ -364,6 +399,18 @@ export function ProductDetailScreen({ navigation, route }: Props) {
             <Text style={styles.payNote}>{vm.pricing.paymentNote}</Text>
             <Text style={styles.feeNote}>{vm.pricing.feeTransparency}</Text>
           </LinearGradient>
+
+          {isOwner && ownerStored ? (
+            <SellerListingEndControls
+              listingId={ownerStored.id}
+              title={ownerStored.title}
+              buyingFormat={ownerStored.buyingFormat ?? 'buy_now'}
+              listingStatus={ownerStored.status ?? 'active'}
+              bidCount={ownerBidCount}
+              endRequest={endRequest}
+              onChanged={() => setDetailReloadNonce((n) => n + 1)}
+            />
+          ) : null}
 
           <Text style={styles.sectionKicker}>Collector signals</Text>
           <Text style={styles.signal}>

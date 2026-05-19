@@ -873,7 +873,7 @@ export function CreateListingPage() {
         });
         return;
       }
-      setSuccess({ id: publishedId, href: `/marketplace/${encodeURIComponent(publishedId)}` });
+      setSuccess({ id: publishedId, href: `/seller/listings/${encodeURIComponent(publishedId)}` });
     } finally {
       setSubmitting(false);
     }
@@ -966,7 +966,7 @@ export function CreateListingPage() {
               href={success.href}
               className="inline-flex h-12 flex-1 items-center justify-center rounded-full bg-gradient-to-r from-gold to-gold-bright px-8 text-sm font-bold text-zinc-950 shadow-[0_0_32px_-6px_rgba(201,162,39,0.55)] transition hover:brightness-110 sm:flex-none"
             >
-              View listing
+              Open Seller Studio
             </Link>
             <button
               type="button"

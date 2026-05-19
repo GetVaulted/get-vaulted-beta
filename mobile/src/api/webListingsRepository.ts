@@ -41,7 +41,7 @@ function fetchApiErrorMessage(res: Response, body: unknown): string {
   return formatApiErrorMessage(res, body, 'fetch failed');
 }
 
-async function fetchWebApi(path: string, init: RequestInit = {}): Promise<Response> {
+export async function fetchWebApi(path: string, init: RequestInit = {}): Promise<Response> {
   const base = getWebApiBaseUrl();
   if (!base) {
     throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
@@ -98,18 +98,37 @@ export async function fetchListingsByIdsFromWeb(ids: string[]): Promise<WebMarke
 }
 
 export async function fetchMarketplaceListingFromWeb(listingId: string): Promise<WebMarketplaceListing | null> {
-  const res = await fetchWebApi(`/api/listings/${encodeURIComponent(listingId)}`);
-  const body = (await res.json().catch(() => null)) as {
-    marketplace?: WebMarketplaceListing | null;
-    error?: string;
-  } | null;
+  const detail = await fetchListingDetailFromWeb(listingId);
+  return detail?.marketplace ?? null;
+}
+
+export type WebListingDetailResponse = {
+  marketplace: WebMarketplaceListing | null;
+  stored: WebStoredListing | null;
+  endRequest: import('./listingEndRepository').WebListingEndRequest | null;
+  bidCount?: number;
+};
+
+export async function fetchListingDetailFromWeb(
+  listingId: string,
+  accessToken?: string,
+): Promise<WebListingDetailResponse | null> {
+  const headers: Record<string, string> = {};
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  const res = await fetchWebApi(`/api/listings/${encodeURIComponent(listingId)}`, { headers });
+  const body = (await res.json().catch(() => null)) as WebListingDetailResponse & { error?: string };
   if (!res.ok) {
     if (res.status !== 404) {
-      console.warn('[fetchMarketplaceListingFromWeb]', fetchApiErrorMessage(res, body));
+      console.warn('[fetchListingDetailFromWeb]', fetchApiErrorMessage(res, body));
     }
     return null;
   }
-  return body?.marketplace ?? null;
+  return {
+    marketplace: body.marketplace ?? null,
+    stored: body.stored ?? null,
+    endRequest: body.endRequest ?? null,
+    bidCount: body.bidCount,
+  };
 }
 
 function mimeFromUri(uri: string): string {
@@ -147,11 +166,18 @@ export type WebStoredListing = {
   id: string;
   sellerId: string;
   title: string;
-  status: string;
+  status?: string;
+  buyingFormat?: 'buy_now' | 'auction';
   acceptTradeOffers?: boolean;
   imageDataUrls?: string[];
   price?: number;
+  startingBid?: number;
+  displayBid?: number;
+  shippingPriceUsd?: number;
+  handlingTime?: string;
   condition?: string;
+  category?: string;
+  watchers?: number;
 };
 
 export async function fetchMyListingsFromWeb(accessToken: string): Promise<WebStoredListing[]> {
@@ -164,6 +190,18 @@ export async function fetchMyListingsFromWeb(accessToken: string): Promise<WebSt
     return [];
   }
   return Array.isArray(body?.listings) ? body!.listings! : [];
+}
+
+export async function fetchListingWorkspaceFromWeb(accessToken: string): Promise<WebStoredListing | null> {
+  const res = await fetchWebApi('/api/listings?scope=workspace', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const body = (await res.json().catch(() => null)) as { listing?: WebStoredListing | null } | null;
+  if (!res.ok) {
+    console.warn('[fetchListingWorkspaceFromWeb]', fetchApiErrorMessage(res, body));
+    return null;
+  }
+  return body?.listing ?? null;
 }
 
 export async function fetchListingSellerId(

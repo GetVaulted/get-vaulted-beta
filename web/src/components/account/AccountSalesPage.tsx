@@ -8,6 +8,7 @@ import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
 import { ExpiredAuctionRecoveryPanel } from "@/components/listings/ExpiredAuctionRecoveryPanel";
 import { PaymentDeadlineCountdown } from "@/components/orders/PaymentDeadlineCountdown";
 import { orderStatusLabel, orderStatusTone } from "@/lib/order-status";
+import { sellerMayShowFulfillmentControls } from "@/lib/order-shipping-guards";
 import type { SellerLiveShippingDashboard } from "@/lib/seller-live-shipping-dashboard-types";
 
 type SaleRow = {
@@ -327,11 +328,13 @@ export function AccountSalesPage() {
                   {rows.map((o) => {
                     const showRecovery = o.paymentStatus === "expired" || o.listing.status === "auction_ended_unpaid";
                     const thumb = o.listing.images[0]?.url;
-                    const canMarkShipped = o.status === "pending" || o.status === "paid";
-                    const canTracking = o.status === "shipped";
+                    const fulfillmentAllowed = sellerMayShowFulfillmentControls(o);
+                    const canMarkShipped =
+                      fulfillmentAllowed && (o.status === "pending" || o.status === "paid");
+                    const canTracking = fulfillmentAllowed && o.status === "shipped";
                     const paid = o.paymentStatus === "paid";
                     const hasLabel = Boolean(o.shippoTransactionId || o.labelUrl);
-                    const canCreateLabel = paid && !hasLabel;
+                    const canCreateLabel = fulfillmentAllowed && !hasLabel;
                     return (
                       <Fragment key={o.id}>
                       <tr className="border-b border-white/[0.05] last:border-0 hover:bg-white/[0.02]">
@@ -450,11 +453,13 @@ export function AccountSalesPage() {
               {rows.map((o) => {
                 const showRecovery = o.paymentStatus === "expired" || o.listing.status === "auction_ended_unpaid";
                 const thumb = o.listing.images[0]?.url;
-                const canMarkShipped = o.status === "pending" || o.status === "paid";
-                const canTracking = o.status === "shipped";
+                const fulfillmentAllowed = sellerMayShowFulfillmentControls(o);
+                const canMarkShipped =
+                  fulfillmentAllowed && (o.status === "pending" || o.status === "paid");
+                const canTracking = fulfillmentAllowed && o.status === "shipped";
                 const paid = o.paymentStatus === "paid";
                 const hasLabel = Boolean(o.shippoTransactionId || o.labelUrl);
-                const canCreateLabel = paid && !hasLabel;
+                const canCreateLabel = fulfillmentAllowed && !hasLabel;
                 return (
                   <div key={o.id} className="rounded-xl border border-white/[0.08] bg-[#0a0a0d] p-3.5">
                     <div className="flex gap-3">

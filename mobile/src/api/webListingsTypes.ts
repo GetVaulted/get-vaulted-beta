@@ -1,0 +1,22 @@
+/** Subset of web `MarketplaceListing` returned by `/api/listings`. */
+export type WebMarketplaceListing = {
+  id: string;
+  title: string;
+  price: number;
+  imageSeed: string;
+  imageUrls?: string[];
+  sellerUsername: string;
+  sellerVerified: boolean;
+  category: string;
+  buyingFormat: 'buy_now' | 'auction';
+  auctionTimeLeft?: string;
+  condition: string;
+  listedAt: string;
+  href: string;
+  sellerId?: string;
+  longDescription?: string;
+  vaultPick?: boolean;
+  listingStatus?: string;
+  allowOffers?: boolean;
+  acceptTradeOffers?: boolean;
+};

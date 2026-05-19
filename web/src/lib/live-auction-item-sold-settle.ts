@@ -8,8 +8,8 @@ import { resolveProxyAuction, type BidLike } from "@/lib/proxy-auction";
  */
 export async function settleLiveAuctionItemWhenMarkedSold(
   tx: TransactionClient,
-  args: { liveRoomId: string; liveRoomItemId: string },
-): Promise<{ orderId: string }> {
+  args: { liveRoomId: string; liveRoomItemId: string; skipWinNotifications?: boolean },
+): Promise<{ orderId: string; buyerId: string; listingTitle: string; itemPriceUsd: number; sellerId: string }> {
   const room = await tx.liveRoom.findUnique({
     where: { id: args.liveRoomId },
     select: { id: true, sellerId: true, roomType: true },
@@ -140,12 +140,13 @@ export async function settleLiveAuctionItemWhenMarkedSold(
       b.paymentLabel,
   );
 
-  return createOrderFromAuctionWin(tx, {
+  const order = await createOrderFromAuctionWin(tx, {
     listingId: listingRow.id,
     listingTitle: listingRow.title,
     buyerId: leaderId,
     sellerId: listingRow.sellerId,
     itemPriceUsd,
+    skipWinNotifications: args.skipWinNotifications,
     shippingPriceUsd: listingRow.shippingPriceUsd,
     sellerShipFromAddressId: listingRow.shipFromAddressId ?? null,
     ...(winCheckout
@@ -162,4 +163,11 @@ export async function settleLiveAuctionItemWhenMarkedSold(
     liveAuctionLiveShowId: args.liveRoomId,
     liveRoomItemId: args.liveRoomItemId,
   });
+  return {
+    orderId: order.orderId,
+    buyerId: leaderId,
+    listingTitle: listingRow.title,
+    itemPriceUsd,
+    sellerId: listingRow.sellerId,
+  };
 }

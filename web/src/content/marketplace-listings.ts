@@ -75,7 +75,9 @@ export const marketplaceListings: MarketplaceListing[] = [];
 
 export function getMarketplaceListingBySlug(slug: string): MarketplaceListing | undefined {
   const decoded = decodeURIComponent(slug);
-  return marketplaceListings.find((l) => l.id === decoded || l.href === `/marketplace/${decoded}`);
+  return marketplaceListings.find(
+    (l) => l.id === decoded || l.href === `/listing/${decoded}` || l.href === `/marketplace/${decoded}`,
+  );
 }
 
 export function getRelatedMarketplaceListings(

@@ -4,12 +4,22 @@ import {
   LISTING_MIN_PHOTOS,
   type CreateListingFormState,
   type ListingCommerceType,
+  type ListingMediaItem,
   type ListingPreview,
   normalizeAuctionDurationDays,
 } from '../createListing/types';
 import type { CategoryId } from '../types';
-import { getSupabase } from '../lib/supabase';
-import { uploadListingMediaForPublish } from './listingMediaRepository';
+import { prepareListingPhotoForUpload, isRemoteListingImageUri } from '../lib/listingImagePrepare';
+import { createPublishTimer, newPublishRequestId } from '../lib/publishTiming';
+import {
+  webCategoryFromMobileCategory,
+  webShippingCategoryFromMobile,
+} from './mapWebMarketplaceListing';
+import {
+  createListingViaWeb,
+  getListingsAccessToken,
+  uploadListingImageViaWeb,
+} from './webListingsRepository';
 
 export class PublishListingError extends Error {
   constructor(message: string) {
@@ -18,37 +28,19 @@ export class PublishListingError extends Error {
   }
 }
 
-function mapSupabasePublishError(message: string): string {
-  const m = message.toLowerCase();
-  if (m.includes('row-level security') || m.includes('permission denied')) {
-    return 'Permission denied — sign in again and confirm your seller profile is set up.';
-  }
-  if (m.includes('violates foreign key') && m.includes('seller_id')) {
-    return 'Seller profile not found — finish account setup, then try publishing again.';
-  }
-  if (m.includes('invalid input value for enum')) {
-    return 'Listing data was rejected by the server — check category and listing type.';
-  }
-  if (m.includes('payload too large') || m.includes('entity too large')) {
-    return 'Images are too large — try fewer or smaller photos.';
-  }
-  return message;
-}
-
-async function assertSellerProfileExists(sellerId: string): Promise<void> {
-  const sb = getSupabase();
-  if (!sb) throw new PublishListingError('Supabase is not configured.');
-  const { data, error } = await sb.from('profiles').select('id').eq('id', sellerId).maybeSingle();
-  if (error) throw new PublishListingError(mapSupabasePublishError(error.message));
-  if (!data?.id) {
-    throw new PublishListingError('Complete your profile before publishing listings.');
-  }
-}
-
 export type PublishListingResult = {
   listingId: string;
   preview: ListingPreview;
 };
+
+export type PublishCreateListingOptions = {
+  /** Stable per tap — server dedupes on this id. */
+  publishRequestId?: string;
+};
+
+/** Coalesce concurrent publish calls (double tap, StrictMode) into one in-flight request. */
+let inFlightPublish: Promise<PublishListingResult> | null = null;
+let inFlightPublishRequestId: string | null = null;
 
 function parseUsdAmount(raw: string, label: string): number {
   const n = Number(String(raw).replace(/[^0-9.]/g, ''));
@@ -73,33 +65,6 @@ function resolvePrice(form: CreateListingFormState): number {
     default:
       throw new PublishListingError('Choose a listing type before publishing.');
   }
-}
-
-function mapAuthenticationStatus(form: CreateListingFormState): string {
-  if (form.vaultedVerification) return 'vaulted_verified';
-  if (form.verificationSource === 'visible_in_media') return 'visible_in_media';
-  if (form.verificationSource === 'seller_provided') return 'seller_declared';
-  return 'unknown';
-}
-
-function mapShippingTier(category: CategoryId | null): string | null {
-  switch (category) {
-    case 'cards':
-      return 'cards_slabs';
-    case 'sneakers':
-      return 'sneakers';
-    case 'memorabilia':
-      return 'memorabilia';
-    case 'watches':
-    case 'luxury':
-      return 'watches_luxury';
-    default:
-      return 'oversized_custom';
-  }
-}
-
-function listingStatusForChannel(channel: ListingChannel): 'live' | 'pending' {
-  return channel === 'marketplace' ? 'live' : 'pending';
 }
 
 function previewStatus(t: ListingCommerceType | null): ListingPreview['status'] {
@@ -149,84 +114,138 @@ export function buildListingPreview(
   };
 }
 
-function buildDescription(form: CreateListingFormState): string {
-  const parts = [form.description.trim()];
-  if (form.shippingNotes.trim()) parts.push(`Shipping: ${form.shippingNotes.trim()}`);
-  if (form.tags.trim()) parts.push(`Tags: ${form.tags.trim()}`);
-  return parts.filter(Boolean).join('\n\n') || '';
+async function uploadListingImagesForWeb(
+  accessToken: string,
+  media: ListingMediaItem[],
+  timer: ReturnType<typeof createPublishTimer>,
+): Promise<string[]> {
+  const photos = media.filter((m) => m.kind === 'photo');
+  if (photos.length < LISTING_MIN_PHOTOS) {
+    throw new PublishListingError(`Add at least ${LISTING_MIN_PHOTOS} photos before publishing.`);
+  }
+
+  const prepared = await Promise.all(
+    photos.map(async (item) => {
+      if (isRemoteListingImageUri(item.uri)) return item.uri;
+      return prepareListingPhotoForUpload(item.uri);
+    }),
+  );
+  timer.mark(`compress (${photos.length} photos)`);
+
+  const urls = await Promise.all(
+    prepared.map(async (uri, index) => {
+      if (isRemoteListingImageUri(uri)) return uri;
+      try {
+        return await uploadListingImageViaWeb(accessToken, uri);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new PublishListingError(msg || `Photo ${index + 1} upload failed.`);
+      }
+    }),
+  );
+  timer.mark(`upload (${photos.length} photos)`);
+  return urls;
 }
 
-function buildMetadata(form: CreateListingFormState, channel: ListingChannel): Record<string, unknown> {
-  const meta: Record<string, unknown> = {
-    listing_channel: channel,
-    subcategories: form.subcategories,
-    brand: form.brand.trim() || null,
-    reference_number: form.referenceNumber.trim() || null,
-    year: form.year.trim() || null,
-    accessories: form.accessories.trim() || null,
-    accept_trades: form.acceptTrades,
-    feature_in_live: form.featureInLive,
-    published_from: 'mobile',
+function packageWeightOzTotal(form: CreateListingFormState): number {
+  const lb = Number(String(form.packageWeightLb).replace(/[^0-9.]/g, '')) || 0;
+  const oz = Number(String(form.packageWeightOz).replace(/[^0-9.]/g, '')) || 0;
+  const total = lb * 16 + oz;
+  return total > 0 ? total : 16;
+}
+
+function parcelInches(form: CreateListingFormState, field: 'packageLengthIn' | 'packageWidthIn' | 'packageHeightIn'): number {
+  const n = Number(String(form[field]).replace(/[^0-9.]/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : 6;
+}
+
+function buyingFormatFromListingType(t: ListingCommerceType | null): 'buy_now' | 'auction' {
+  if (t === 'auction' || t === 'live_auction') return 'auction';
+  return 'buy_now';
+}
+
+function publishStatus(
+  channel: ListingChannel,
+  listingType: ListingCommerceType | null,
+): 'active' | 'auction_live' | 'draft' {
+  if (channel === 'live_show') return 'draft';
+  if (listingType === 'auction' || listingType === 'live_auction') return 'auction_live';
+  return 'active';
+}
+
+function shippingWeightsForCategory(shippingCategory: string): { base: number; incremental: number } {
+  switch (shippingCategory) {
+    case 'slab':
+      return { base: 8, incremental: 3 };
+    case 'small_collectible':
+      return { base: 6, incremental: 2 };
+    case 'custom':
+      return { base: 4, incremental: 1 };
+    case 'raw_card':
+    default:
+      return { base: 4, incremental: 1 };
+  }
+}
+
+function buildWebListingBody(
+  form: CreateListingFormState,
+  imageUrls: string[],
+  channel: ListingChannel,
+  publishRequestId: string,
+): Record<string, unknown> {
+  const listingType = form.listingType;
+  const buyingFormat = buyingFormatFromListingType(listingType);
+  const status = publishStatus(channel, listingType);
+  const price = resolvePrice(form);
+  const category = form.category as CategoryId;
+  const shippingCategory = webShippingCategoryFromMobile(category);
+  const shippingWeights = shippingWeightsForCategory(shippingCategory);
+
+  const body: Record<string, unknown> = {
+    publishRequestId,
+    title: form.title.trim(),
+    description: form.description.trim(),
+    category: webCategoryFromMobileCategory(category),
+    condition: form.condition.trim() || 'Other',
+    buyingFormat,
+    status,
+    images: imageUrls,
+    allowOffers: false,
+    acceptTradeOffers: form.acceptTrades || listingType === 'trade_only',
+    signatureRequired: Boolean(form.signature),
+    vaultPick: Boolean(form.vaultedVerification),
+    shippingPriceUsd: 0,
+    handlingTime: form.shippingNotes.trim() || '—',
+    shippingCategory,
+    shippingBaseWeightOz: shippingWeights.base,
+    shippingIncrementalWeightOz: shippingWeights.incremental,
+    parcelWeightOz: packageWeightOzTotal(form),
+    parcelLengthIn: parcelInches(form, 'packageLengthIn'),
+    parcelWidthIn: parcelInches(form, 'packageWidthIn'),
+    parcelHeightIn: parcelInches(form, 'packageHeightIn'),
   };
 
-  if (form.listingType === 'auction' || form.listingType === 'live_auction') {
-    meta.auction_duration_days = Number(normalizeAuctionDurationDays(form));
-    if (form.reservePrice.trim()) meta.reserve_price = form.reservePrice.trim();
-  }
-
-  if (channel === 'marketplace') {
-    meta.marketplace_shipping = {
-      ship_from_zip: form.shipFromZip.replace(/\D/g, '').slice(0, 5),
-      ship_to_zip: form.shipToZip.replace(/\D/g, '').slice(0, 5) || null,
-      package_weight_lb: form.packageWeightLb,
-      package_weight_oz: form.packageWeightOz,
-      package_length_in: form.packageLengthIn,
-      package_width_in: form.packageWidthIn,
-      package_height_in: form.packageHeightIn,
-      handling_fee: form.shippingHandlingFee,
-      offer_scope: form.marketplaceShippingOfferScope,
-      allowed_rate_keys: form.marketplaceAllowedRateKeys,
-      insurance: form.insurance,
-      signature: form.signature,
-      international: form.international,
-      selected_rate: form.selectedShippoRate,
-    };
+  if (buyingFormat === 'buy_now') {
+    body.priceUsd = price;
   } else {
-    meta.live_shipping = {
-      preset: form.liveShippingPreset,
-      profile_id: form.liveShippingProfileId,
-      ship_from_zip: form.liveShipFromZip.replace(/\D/g, '').slice(0, 5),
-      bundle_eligible: form.liveBundleEligible,
-      international: form.liveShipInternational,
-      handling_surcharge: form.liveHandlingSurcharge,
-      show_title: form.liveShowTitle,
-      queue_notes: form.queueNotes,
-    };
+    body.startingBidUsd = price;
+    body.auctionDurationDays = Number(normalizeAuctionDurationDays(form));
+    if (form.reservePrice.trim()) {
+      body.reservePriceUsd = parseUsdAmount(form.reservePrice, 'reserve price');
+    }
   }
 
-  return meta;
+  return body;
 }
 
-export async function publishCreateListingForm(
+async function runPublishCreateListingForm(
   sellerId: string,
   form: CreateListingFormState,
+  publishRequestId: string,
 ): Promise<PublishListingResult> {
-  const sb = getSupabase();
-  if (!sb) throw new PublishListingError('Supabase is not configured.');
-
-  const { data: sessionData, error: sessionErr } = await sb.auth.getSession();
-  if (sessionErr || !sessionData.session?.user?.id) {
-    throw new PublishListingError('Sign in to publish listings.');
-  }
-  if (sessionData.session.user.id !== sellerId) {
-    throw new PublishListingError('Session mismatch — sign in again and retry.');
-  }
-
-  await assertSellerProfileExists(sellerId);
-
+  const timer = createPublishTimer();
   const title = form.title.trim();
   if (!title) throw new PublishListingError('Add a title before publishing.');
-
   if (!form.category) throw new PublishListingError('Choose a category before publishing.');
   if (!form.listingType) throw new PublishListingError('Choose a listing type before publishing.');
 
@@ -235,40 +254,68 @@ export async function publishCreateListingForm(
     throw new PublishListingError(`Add at least ${LISTING_MIN_PHOTOS} photos before publishing.`);
   }
 
+  let accessToken: string;
+  try {
+    accessToken = await getListingsAccessToken();
+  } catch (e) {
+    throw new PublishListingError(e instanceof Error ? e.message : 'Sign in to publish listings.');
+  }
+  timer.mark('auth token');
+
   const channel = form.listingChannel ?? 'marketplace';
-  const mediaUrls = await uploadListingMediaForPublish(sellerId, form.media);
-  const price = resolvePrice(form);
-  const subcategory =
-    form.subcategories.length > 0 ? form.subcategories.slice(0, 3).join(' · ') : null;
+  const imageUrls = await uploadListingImagesForWeb(accessToken, form.media, timer);
+  const body = buildWebListingBody(form, imageUrls, channel, publishRequestId);
 
-  const row = {
-    seller_id: sellerId,
-    title,
-    description: buildDescription(form),
-    category: form.category,
-    subcategory,
-    price,
-    currency: 'usd',
-    listing_type: form.listingType,
-    condition: form.condition.trim() || null,
-    grade: form.grade.trim() || null,
-    authentication_status: mapAuthenticationStatus(form),
-    media_urls: mediaUrls,
-    status: listingStatusForChannel(channel),
-    accepts_trades: form.acceptTrades || form.listingType === 'trade_only',
-    shipping_weight_tier: mapShippingTier(form.category),
-    metadata: buildMetadata(form, channel),
-  };
-
-  const { data, error } = await sb.from('listings').insert(row).select('id').single();
-  if (error || !data?.id) {
-    throw new PublishListingError(
-      mapSupabasePublishError(error?.message ?? 'Could not save listing to the vault.'),
-    );
+  if (__DEV__) {
+    console.info('[publishCreateListingForm] POST /api/listings', {
+      publishRequestId,
+      title: body.title,
+      imageCount: imageUrls.length,
+    });
   }
 
-  const listingId = data.id as string;
-  const preview = buildListingPreview(listingId, form, mediaUrls[0] ?? '');
+  let listingId: string;
+  try {
+    const created = await createListingViaWeb(accessToken, body);
+    listingId = created.listingId;
+  } catch (e) {
+    throw new PublishListingError(e instanceof Error ? e.message : 'Could not save listing.');
+  }
+  timer.mark('create listing');
 
+  if (!listingId) {
+    throw new PublishListingError('Listing was saved but no id was returned.');
+  }
+
+  void sellerId;
+  timer.finish();
+  const preview = buildListingPreview(listingId, form, imageUrls[0] ?? '');
   return { listingId, preview };
 }
+
+export async function publishCreateListingForm(
+  sellerId: string,
+  form: CreateListingFormState,
+  opts?: PublishCreateListingOptions,
+): Promise<PublishListingResult> {
+  const publishRequestId = opts?.publishRequestId?.trim() || newPublishRequestId();
+
+  if (inFlightPublish && inFlightPublishRequestId === publishRequestId) {
+    console.warn('[publish] coalescing duplicate in-flight publish', { publishRequestId });
+    return inFlightPublish;
+  }
+  if (inFlightPublish) {
+    throw new PublishListingError('A publish is already in progress. Please wait.');
+  }
+
+  inFlightPublishRequestId = publishRequestId;
+  inFlightPublish = runPublishCreateListingForm(sellerId, form, publishRequestId);
+  try {
+    return await inFlightPublish;
+  } finally {
+    inFlightPublish = null;
+    inFlightPublishRequestId = null;
+  }
+}
+
+export { newPublishRequestId };

@@ -1,6 +1,6 @@
 import { NextResponse, after } from "next/server";
 import type { Prisma } from "@/generated/prisma/client";
-import { getServerSessionSafe } from "@/lib/auth";
+import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { minNextBidUsd } from "@/lib/auction";
 import { placeListingBid } from "@/lib/place-listing-bid";
 import { createNotification } from "@/lib/notifications";
@@ -44,7 +44,8 @@ async function flushAuctionFanoutForRoom(liveRoomId: string): Promise<void> {
 type Body = { amountUsd?: unknown; maxProxyUsd?: unknown };
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string; itemId: string }> }) {
-  const session = await getServerSessionSafe();
+  const auth = await resolveLiveRoomsUserId(req);
+  if (auth instanceof NextResponse) return auth;
   const { id: rawRoom, itemId: rawItem } = await ctx.params;
   const liveRoomId = decodeURIComponent(rawRoom);
   const itemId = decodeURIComponent(rawItem);
@@ -91,10 +92,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
     return NextResponse.json({ error: "The bidding window for this lot has ended." }, { status: 409 });
   }
 
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Sign in to bid.", signInUrl: signInUrl(returnPath) }, { status: 401 });
-  }
-  if (room.sellerId === session.user.id) {
+  if (room.sellerId === auth.userId) {
     return NextResponse.json({ error: "You cannot bid on items in your own live room." }, { status: 400 });
   }
 
@@ -115,7 +113,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
     );
   }
 
-  const bidderId = session.user.id;
+  const bidderId = auth.userId;
 
   if (idempotencyKey) {
     const cached = await prisma.liveBidIdempotency.findFirst({
