@@ -43,7 +43,8 @@ function toSellerStatus(s: ListingStatus): SellerListingStatus {
     s === "active" ||
     s === "auction_live" ||
     s === "awaiting_auction_payment" ||
-    s === "auction_ended_unpaid"
+    s === "auction_ended_unpaid" ||
+    s === "ended"
   )
     return s;
   return "active";

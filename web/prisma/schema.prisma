@@ -21,6 +21,24 @@ enum ListingStatus {
   awaiting_auction_payment
   /// Winner did not pay within the payment window; listing is not sold.
   auction_ended_unpaid
+  /// Seller-ended (or admin-approved early end); hidden from marketplace discovery.
+  ended
+}
+
+enum ListingEndRequestStatus {
+  pending
+  approved
+  denied
+  canceled_by_seller
+}
+
+enum ListingEndReasonCategory {
+  item_damaged
+  listing_mistake
+  inventory_unavailable
+  suspected_fraud
+  shipping_issue
+  other
 }
 
 enum UserRole {
@@ -191,7 +209,9 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  listings      Listing[]       @relation("SellerListings")
+  listings           Listing[]           @relation("SellerListings")
+  listingEndRequests ListingEndRequest[] @relation("ListingEndRequestSeller")
+  listingEndReviews  ListingEndRequest[] @relation("ListingEndRequestReviewer")
   bids          Bid[]
   offers        Offer[]         @relation("OfferBuyer")
   sellerOffers  Offer[]       @relation("OfferSeller")
@@ -373,8 +393,44 @@ model Listing {
   incomingTradeOffers TradeOffer[]     @relation("TradeOfferTargetListing")
   tradeOfferItems     TradeOfferItem[] @relation("TradeOfferItemListing")
   inventoryHolds      LiveAuctionInventoryHold[]
+  endRequests         ListingEndRequest[]
+  endAuditLogs        ListingEndAuditLog[]
 
   @@unique([sellerId, workspaceKey])
+}
+
+model ListingEndRequest {
+  id             String                   @id @default(cuid())
+  listingId      String
+  listing        Listing                  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  sellerId       String
+  seller         User                     @relation("ListingEndRequestSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  status         ListingEndRequestStatus  @default(pending)
+  reasonCategory ListingEndReasonCategory
+  reasonText     String
+  adminNote      String?
+  createdAt      DateTime                 @default(now())
+  reviewedAt     DateTime?
+  reviewedById   String?
+  reviewedBy     User?                    @relation("ListingEndRequestReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  auditLogs      ListingEndAuditLog[]
+
+  @@index([listingId, status, createdAt])
+  @@index([sellerId, createdAt])
+}
+
+model ListingEndAuditLog {
+  id                  String             @id @default(cuid())
+  listingId           String
+  listing             Listing            @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  listingEndRequestId String?
+  listingEndRequest   ListingEndRequest? @relation(fields: [listingEndRequestId], references: [id], onDelete: SetNull)
+  actorUserId         String?
+  action              String
+  detail              String             @default("")
+  createdAt           DateTime           @default(now())
+
+  @@index([listingId, createdAt])
 }
 
 model TradeOffer {

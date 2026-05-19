@@ -9,7 +9,8 @@ export type SellerListingStatus =
   | "sold"
   | "auction_live"
   | "awaiting_auction_payment"
-  | "auction_ended_unpaid";
+  | "auction_ended_unpaid"
+  | "ended";
 
 export type StoredUserListing = {
   id: string;
@@ -66,7 +67,7 @@ export type StoredUserListing = {
 };
 
 export function effectiveSellerListingStatus(s: StoredUserListing): SellerListingStatus {
-  if (s.status === "draft" || s.status === "sold") return s.status;
+  if (s.status === "draft" || s.status === "sold" || s.status === "ended") return s.status;
   if (s.status === "active" || s.status === "auction_live") return s.status;
   if (s.status === "awaiting_auction_payment") return "awaiting_auction_payment";
   if (s.status === "auction_ended_unpaid") return "auction_ended_unpaid";

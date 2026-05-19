@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { TradeBuilderPage, type TradePickerListing } from "@/components/trade/TradeBuilderPage";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { isHiddenFixtureSellerEmail, prismaSellerVisibleOnPublicMarketplace } from "@/lib/demo-seed-sellers";
+import type { ListingStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ function toPickerListing(row: {
   category: string;
   condition: string;
   priceUsd: number;
-  status: "active" | "auction_live" | "sold" | "draft" | "awaiting_auction_payment" | "auction_ended_unpaid";
+  status: ListingStatus;
   sellerId: string;
   acceptTradeOffers: boolean;
   images: Array<{ url: string; sortOrder: number }>;

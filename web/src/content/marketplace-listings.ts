@@ -45,7 +45,8 @@ export type MarketplaceListing = {
     | "sold"
     | "auction_live"
     | "awaiting_auction_payment"
-    | "auction_ended_unpaid";
+    | "auction_ended_unpaid"
+    | "ended";
   /** Auction: server ISO end time for countdown. */
   auctionEndsAtIso?: string | null;
   /** Auction: opening bid from seller. */

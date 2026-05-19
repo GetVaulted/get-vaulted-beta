@@ -1,5 +1,6 @@
 "use client";
 
+import type { ListingStatus } from "@/generated/prisma/client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -11,7 +12,7 @@ export type TradePickerListing = {
   priceUsd: number;
   category: string;
   condition: string;
-  status: "active" | "auction_live" | "sold" | "draft" | "awaiting_auction_payment" | "auction_ended_unpaid";
+  status: ListingStatus;
   sellerId: string;
   sellerUsername: string;
   acceptTradeOffers: boolean;

@@ -5,6 +5,7 @@ import { computeAuctionEndsAt } from "@/lib/auction";
 import { hasCompleteParcel } from "@/lib/listing-publish";
 import { closeAuctionIfDuePrisma } from "@/lib/auction-close";
 import { isListingPubliclyVisible } from "@/lib/listing-moderation";
+import { getLatestEndRequestForListing } from "@/lib/listing-end-service";
 import { prisma } from "@/lib/prisma";
 import { assertSellerCanPublishListing } from "@/lib/seller-publish-readiness";
 import { dbListingToMarketplace, dbListingToStored } from "@/lib/listing-mapper";
@@ -42,7 +43,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const isOwner = viewerUserId === row.sellerId;
   const isAdmin = session?.user?.role === "admin";
   const isPublic = isListingPubliclyVisible(row);
-  if (!isPublic && !isOwner) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const ownerCanView = isOwner && (isPublic || row.status === "ended" || row.status === "draft");
+  if (!isPublic && !ownerCanView && !isAdmin) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   if (isPublic && isHiddenFixtureSellerEmail(row.seller.email) && !isOwner && !isAdmin) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -60,9 +64,16 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     });
     auctionPaymentDeadlineIso = ord?.paymentDeadlineAt?.toISOString() ?? null;
   }
+  const endRequest =
+    isOwner && row.buyingFormat === "auction"
+      ? await getLatestEndRequestForListing(row.id)
+      : null;
+
   return NextResponse.json({
     marketplace: isPublic ? dbListingToMarketplace(row, bc != null ? { bidCount: bc } : undefined) : null,
     stored: isOwner ? dbListingToStored(row, pending, bc, { auctionPaymentDeadlineIso }) : null,
+    bidCount: isOwner && row.buyingFormat === "auction" ? bc ?? 0 : undefined,
+    endRequest: isOwner ? endRequest : null,
   });
 }
 

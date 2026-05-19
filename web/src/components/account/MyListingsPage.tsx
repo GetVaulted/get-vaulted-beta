@@ -57,6 +57,7 @@ function formatShortDate(iso: string) {
 }
 
 function statusLabel(st: SellerListingStatus): string {
+  if (st === "ended") return "Ended";
   if (st === "auction_live") return "Auction live";
   if (st === "awaiting_auction_payment") return "Auction ended — payment pending";
   if (st === "auction_ended_unpaid") return "Payment expired";
@@ -66,6 +67,7 @@ function statusLabel(st: SellerListingStatus): string {
 function statusTone(st: SellerListingStatus): string {
   if (st === "active") return "border-emerald-400/25 bg-emerald-500/10 text-emerald-200/95";
   if (st === "draft") return "border-zinc-500/25 bg-zinc-800/40 text-zinc-300";
+  if (st === "ended") return "border-zinc-500/25 bg-zinc-900/50 text-zinc-400";
   if (st === "sold") return "border-rose-400/25 bg-rose-950/35 text-rose-100/90";
   if (st === "awaiting_auction_payment") return "border-amber-400/25 bg-amber-950/35 text-amber-100/90";
   if (st === "auction_ended_unpaid") return "border-rose-400/25 bg-rose-950/30 text-rose-100/90";
