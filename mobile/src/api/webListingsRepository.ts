@@ -1,0 +1,201 @@
+import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
+import { getSupabase } from '../lib/supabase';
+import type { WebMarketplaceListing } from './webListingsTypes';
+
+type ApiErrorBody = {
+  error?: string;
+  code?: string;
+  issues?: string[];
+  detail?: string;
+  hint?: string;
+};
+
+function readApiErrorBody(body: unknown): ApiErrorBody {
+  return body && typeof body === 'object' ? (body as ApiErrorBody) : {};
+}
+
+function formatApiErrorMessage(res: Response, body: unknown, context: string): string {
+  const o = readApiErrorBody(body);
+  const detail = typeof o.detail === 'string' ? o.detail.trim() : '';
+  const hint = typeof o.hint === 'string' ? o.hint.trim() : '';
+  const err = typeof o.error === 'string' ? o.error.trim() : '';
+  const parts = [err, detail, hint].filter((s) => Boolean(s));
+  if (parts.length) return `${context}: ${parts.join(' ')}`;
+  return `${context}: Request failed (${res.status})`;
+}
+
+function publishApiErrorMessage(res: Response, body: unknown): string {
+  const o = readApiErrorBody(body);
+  if (o.code === 'PARCEL_REQUIRED') {
+    return 'Publish failed: Add package weight and dimensions before publishing.';
+  }
+  if (o.code === 'SELLER_REQUIREMENTS_INCOMPLETE' || o.error === 'SELLER_REQUIREMENTS_INCOMPLETE') {
+    const issues = o.issues?.length ? ` ${o.issues.join(' ')}` : '';
+    return `Publish failed: Complete seller setup before publishing.${issues}`;
+  }
+  const msg = formatApiErrorMessage(res, body, 'Publish failed');
+  return msg.startsWith('Publish failed:') ? msg : `Publish failed: ${msg}`;
+}
+
+function fetchApiErrorMessage(res: Response, body: unknown): string {
+  return formatApiErrorMessage(res, body, 'fetch failed');
+}
+
+async function fetchWebApi(path: string, init: RequestInit = {}): Promise<Response> {
+  const base = getWebApiBaseUrl();
+  if (!base) {
+    throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
+  }
+  const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
+  try {
+    return await fetch(url, {
+      ...init,
+      headers: {
+        Accept: 'application/json',
+        ...(init.headers ?? {}),
+      },
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      msg.includes('Network request failed') || e instanceof TypeError
+        ? `Could not reach the Vaulted API at ${base}. Check your connection and env.`
+        : msg,
+    );
+  }
+}
+
+export async function getListingsAccessToken(): Promise<string> {
+  const sb = getSupabase();
+  if (!sb) throw new Error('Supabase is not configured.');
+  const { data, error } = await sb.auth.getSession();
+  if (error || !data.session?.access_token) {
+    throw new Error('Sign in to publish listings.');
+  }
+  return data.session.access_token;
+}
+
+export async function fetchPublishedListingsFromWeb(): Promise<WebMarketplaceListing[]> {
+  const res = await fetchWebApi('/api/listings?scope=published');
+  const body = (await res.json().catch(() => null)) as { listings?: WebMarketplaceListing[] } | null;
+  if (!res.ok) {
+    console.warn('[fetchPublishedListingsFromWeb]', fetchApiErrorMessage(res, body));
+    return [];
+  }
+  return Array.isArray(body?.listings) ? body!.listings! : [];
+}
+
+export async function fetchListingsByIdsFromWeb(ids: string[]): Promise<WebMarketplaceListing[]> {
+  const uniq = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  if (!uniq.length) return [];
+  const res = await fetchWebApi(`/api/listings?scope=ids&ids=${encodeURIComponent(uniq.join(','))}`);
+  const body = (await res.json().catch(() => null)) as { listings?: WebMarketplaceListing[] } | null;
+  if (!res.ok) {
+    console.warn('[fetchListingsByIdsFromWeb]', fetchApiErrorMessage(res, body));
+    return [];
+  }
+  return Array.isArray(body?.listings) ? body!.listings! : [];
+}
+
+export async function fetchMarketplaceListingFromWeb(listingId: string): Promise<WebMarketplaceListing | null> {
+  const res = await fetchWebApi(`/api/listings/${encodeURIComponent(listingId)}`);
+  const body = (await res.json().catch(() => null)) as {
+    marketplace?: WebMarketplaceListing | null;
+    error?: string;
+  } | null;
+  if (!res.ok) {
+    if (res.status !== 404) {
+      console.warn('[fetchMarketplaceListingFromWeb]', fetchApiErrorMessage(res, body));
+    }
+    return null;
+  }
+  return body?.marketplace ?? null;
+}
+
+function mimeFromUri(uri: string): string {
+  const lower = uri.toLowerCase();
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  return 'image/jpeg';
+}
+
+export async function uploadListingImageViaWeb(accessToken: string, localUri: string): Promise<string> {
+  const mime = mimeFromUri(localUri);
+  const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
+  const form = new FormData();
+  form.append('file', {
+    uri: localUri,
+    name: `listing-${Date.now()}.${ext}`,
+    type: mime,
+  } as unknown as Blob);
+
+  const res = await fetchWebApi('/api/uploads/listing-image', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  });
+  const body = (await res.json().catch(() => null)) as { url?: string; error?: string } | null;
+  if (!res.ok) throw new Error(publishApiErrorMessage(res, body));
+  const url = body?.url?.trim();
+  if (!url) throw new Error('Image upload did not return a URL.');
+  return url;
+}
+
+export type CreateListingViaWebBody = Record<string, unknown>;
+
+export type WebStoredListing = {
+  id: string;
+  sellerId: string;
+  title: string;
+  status: string;
+  acceptTradeOffers?: boolean;
+  imageDataUrls?: string[];
+  price?: number;
+  condition?: string;
+};
+
+export async function fetchMyListingsFromWeb(accessToken: string): Promise<WebStoredListing[]> {
+  const res = await fetchWebApi('/api/listings?scope=mine', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const body = (await res.json().catch(() => null)) as { listings?: WebStoredListing[] } | null;
+  if (!res.ok) {
+    console.warn('[fetchMyListingsFromWeb]', fetchApiErrorMessage(res, body));
+    return [];
+  }
+  return Array.isArray(body?.listings) ? body!.listings! : [];
+}
+
+export async function fetchListingSellerId(
+  listingId: string,
+  accessToken?: string,
+): Promise<string | null> {
+  const headers: Record<string, string> = {};
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  const res = await fetchWebApi(`/api/listings/${encodeURIComponent(listingId)}`, { headers });
+  const body = (await res.json().catch(() => null)) as {
+    marketplace?: { sellerId?: string };
+    stored?: { sellerId?: string };
+  } | null;
+  if (!res.ok) return null;
+  return body?.marketplace?.sellerId ?? body?.stored?.sellerId ?? null;
+}
+
+export async function createListingViaWeb(
+  accessToken: string,
+  body: CreateListingViaWebBody,
+): Promise<{ listingId: string }> {
+  const res = await fetchWebApi('/api/listings', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const json = (await res.json().catch(() => null)) as { listing?: { id?: string }; error?: string } | null;
+  if (!res.ok) throw new Error(publishApiErrorMessage(res, json));
+  const id = json?.listing?.id;
+  if (!id) throw new Error('Listing was created but no id was returned.');
+  return { listingId: id };
+}

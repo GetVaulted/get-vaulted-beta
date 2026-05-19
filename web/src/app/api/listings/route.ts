@@ -7,7 +7,7 @@ import { hasCompleteParcel } from "@/lib/listing-publish";
 import { prisma } from "@/lib/prisma";
 import { processAuctionPaymentExpiries } from "@/services/payments";
 import { assertSellerCanPublishListing } from "@/lib/seller-publish-readiness";
-import { dbListingToMarketplace, dbListingToStored } from "@/lib/listing-mapper";
+import { dbListingToMarketplace, dbListingToStored, type ListingWithSellerImages } from "@/lib/listing-mapper";
 import { listingWithSellerFulfillmentInclude } from "@/lib/listing-with-seller-include";
 import { LISTING_WORKSPACE_KEY } from "@/lib/listing-workspace";
 import { prismaSellerVisibleOnPublicMarketplace } from "@/lib/demo-seed-sellers";
@@ -113,33 +113,49 @@ function parsePublishRequestId(v: unknown): string | null {
   return id.length > 0 ? id : null;
 }
 
-async function idempotentListingResponse(
-  sellerId: string,
-  publishRequestId: string,
-): Promise<NextResponse | null> {
-  const existing = await prisma.listing.findFirst({
-    where: { publishRequestId, sellerId },
-    include: listingInclude,
-  });
-  if (!existing) return null;
-  console.info("[POST /api/listings] idempotent replay", {
-    publishRequestId,
-    listingId: existing.id,
-    sellerId,
-  });
-  const offers = await prisma.offer.count({ where: { listingId: existing.id, status: "pending" } });
+function imageUrlsSignature(urls: string[]): string {
+  return [...urls]
+    .map((u) => u.trim())
+    .filter(Boolean)
+    .sort()
+    .join("\0");
+}
+
+async function storedListingResponse(row: ListingWithSellerImages | null): Promise<NextResponse | null> {
+  if (!row) return null;
+  const offers = await prisma.offer.count({ where: { listingId: row.id, status: "pending" } });
   const bc =
-    existing.buyingFormat === "auction"
-      ? await prisma.bid.count({ where: { listingId: existing.id } })
-      : undefined;
-  return NextResponse.json({ listing: dbListingToStored(existing, offers, bc) });
+    row.buyingFormat === "auction" ? await prisma.bid.count({ where: { listingId: row.id } }) : undefined;
+  return NextResponse.json({ listing: dbListingToStored(row, offers, bc) });
+}
+
+/** Replay recent publish when mobile retries the same title + image set (no DB column required). */
+async function findRecentMatchingListing(
+  sellerId: string,
+  title: string,
+  imageUrls: string[],
+): Promise<ListingWithSellerImages | null> {
+  if (!title.trim() || imageUrls.length === 0) return null;
+  const since = new Date(Date.now() - 120_000);
+  const sig = imageUrlsSignature(imageUrls);
+  const candidates = await prisma.listing.findMany({
+    where: { sellerId, title, createdAt: { gte: since } },
+    include: listingInclude,
+    orderBy: { createdAt: "desc" },
+    take: 5,
+  });
+  for (const row of candidates) {
+    const urls = [...row.images].sort((a, b) => a.sortOrder - b.sortOrder).map((i) => i.url);
+    if (imageUrlsSignature(urls) === sig) return row;
+  }
+  return null;
 }
 
 async function warnPossibleDuplicateCreates(sellerId: string, title: string): Promise<void> {
   const since = new Date(Date.now() - 120_000);
   const recent = await prisma.listing.findMany({
     where: { sellerId, title, createdAt: { gte: since } },
-    select: { id: true, createdAt: true, publishRequestId: true },
+    select: { id: true, createdAt: true },
     orderBy: { createdAt: "desc" },
     take: 5,
   });
@@ -149,7 +165,6 @@ async function warnPossibleDuplicateCreates(sellerId: string, title: string): Pr
       title,
       listings: recent.map((r) => ({
         id: r.id,
-        publishRequestId: r.publishRequestId,
         createdAt: r.createdAt.toISOString(),
       })),
     });
@@ -207,26 +222,40 @@ export async function GET(req: Request) {
   }
 
   if (scope === "published") {
-    const rows = await prisma.listing.findMany({
-      where: {
-        status: { in: ["active", "auction_live"] },
-        moderationRemovedAt: null,
-        isCompanyListing: false,
-        seller: prismaSellerVisibleOnPublicMarketplace(),
-      },
-      include: listingInclude,
-      orderBy: { createdAt: "desc" },
-    });
-    const auctionIds = rows.filter((r) => r.buyingFormat === "auction").map((r) => r.id);
-    const bidCounts = await auctionBidCountsByListingIds(auctionIds);
-    return NextResponse.json({
-      listings: rows.map((r) =>
-        dbListingToMarketplace(
-          r,
-          r.buyingFormat === "auction" ? { bidCount: bidCounts.get(r.id) ?? 0 } : undefined,
+    try {
+      const rows = await prisma.listing.findMany({
+        where: {
+          status: { in: ["active", "auction_live"] },
+          moderationRemovedAt: null,
+          isCompanyListing: false,
+          seller: prismaSellerVisibleOnPublicMarketplace(),
+        },
+        include: listingInclude,
+        orderBy: { createdAt: "desc" },
+      });
+      const auctionIds = rows.filter((r) => r.buyingFormat === "auction").map((r) => r.id);
+      const bidCounts = await auctionBidCountsByListingIds(auctionIds);
+      return NextResponse.json({
+        listings: rows.map((r) =>
+          dbListingToMarketplace(
+            r,
+            r.buyingFormat === "auction" ? { bidCount: bidCounts.get(r.id) ?? 0 } : undefined,
+          ),
         ),
-      ),
-    });
+      });
+    } catch (e) {
+      const prismaDto = serializePrismaClientError(e);
+      console.error("[GET /api/listings] scope=published failed", { prisma: prismaDto });
+      return NextResponse.json(
+        {
+          error: "Could not load marketplace listings.",
+          detail: prismaDto.message,
+          code: prismaDto.code,
+          hint: prismaListingCreateHint(prismaDto),
+        },
+        { status: 500 },
+      );
+    }
   }
 
   if (scope === "mine") {
@@ -366,8 +395,14 @@ export async function POST(req: Request) {
   }
   const title = typeof body.title === "string" ? body.title.trim() : "";
   const publishRequestId = parsePublishRequestId(body.publishRequestId);
-  if (publishRequestId) {
-    const replay = await idempotentListingResponse(sessionUserId, publishRequestId);
+  const existingMatch = await findRecentMatchingListing(sessionUserId, title, images);
+  if (existingMatch) {
+    console.info("[POST /api/listings] idempotent replay (title+images)", {
+      publishRequestId,
+      listingId: existingMatch.id,
+      sellerId: sessionUserId,
+    });
+    const replay = await storedListingResponse(existingMatch);
     if (replay) return replay;
   }
   const category = typeof body.category === "string" && body.category.trim() ? body.category.trim() : "Other";
@@ -611,7 +646,6 @@ export async function POST(req: Request) {
     row = await prisma.listing.create({
       data: {
         sellerId: sessionUserId,
-        publishRequestId,
         ...baseData,
         workspaceKey: null,
       },
@@ -619,8 +653,13 @@ export async function POST(req: Request) {
     });
     await replaceListingImages(row.id, images);
   } catch (e) {
-    if (publishRequestId) {
-      const replay = await idempotentListingResponse(sessionUserId, publishRequestId);
+    const replayRow = await findRecentMatchingListing(sessionUserId, title, images);
+    if (replayRow) {
+      console.info("[POST /api/listings] create raced; returning existing listing", {
+        publishRequestId,
+        listingId: replayRow.id,
+      });
+      const replay = await storedListingResponse(replayRow);
       if (replay) return replay;
     }
     return listingCreateFailureResponse(e, {

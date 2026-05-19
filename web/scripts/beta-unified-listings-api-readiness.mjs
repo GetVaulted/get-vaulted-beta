@@ -72,7 +72,13 @@ async function main() {
       "GET /api/listings?scope=published",
       `${base}/api/listings?scope=published`,
       { method: "GET" },
-      (res, body) => res.ok && Array.isArray(body.listings),
+      (res, body) => {
+        if (!res.ok) {
+          fail(`scope=published must not be ${res.status} — check Prisma migrations on beta`);
+          return false;
+        }
+        return Array.isArray(body.listings);
+      },
     ),
   );
 
