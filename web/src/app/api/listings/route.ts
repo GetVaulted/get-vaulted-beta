@@ -104,7 +104,57 @@ type ListingBody = {
   shippingCategory?: unknown;
   shipAlone?: unknown;
   shipFromAddressId?: unknown;
+  publishRequestId?: unknown;
 };
+
+function parsePublishRequestId(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const id = v.trim().slice(0, 64);
+  return id.length > 0 ? id : null;
+}
+
+async function idempotentListingResponse(
+  sellerId: string,
+  publishRequestId: string,
+): Promise<NextResponse | null> {
+  const existing = await prisma.listing.findFirst({
+    where: { publishRequestId, sellerId },
+    include: listingInclude,
+  });
+  if (!existing) return null;
+  console.info("[POST /api/listings] idempotent replay", {
+    publishRequestId,
+    listingId: existing.id,
+    sellerId,
+  });
+  const offers = await prisma.offer.count({ where: { listingId: existing.id, status: "pending" } });
+  const bc =
+    existing.buyingFormat === "auction"
+      ? await prisma.bid.count({ where: { listingId: existing.id } })
+      : undefined;
+  return NextResponse.json({ listing: dbListingToStored(existing, offers, bc) });
+}
+
+async function warnPossibleDuplicateCreates(sellerId: string, title: string): Promise<void> {
+  const since = new Date(Date.now() - 120_000);
+  const recent = await prisma.listing.findMany({
+    where: { sellerId, title, createdAt: { gte: since } },
+    select: { id: true, createdAt: true, publishRequestId: true },
+    orderBy: { createdAt: "desc" },
+    take: 5,
+  });
+  if (recent.length > 1) {
+    console.warn("[POST /api/listings] possible duplicate creates (same seller/title within 2m)", {
+      sellerId,
+      title,
+      listings: recent.map((r) => ({
+        id: r.id,
+        publishRequestId: r.publishRequestId,
+        createdAt: r.createdAt.toISOString(),
+      })),
+    });
+  }
+}
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -315,6 +365,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "At least one image is required to publish." }, { status: 400 });
   }
   const title = typeof body.title === "string" ? body.title.trim() : "";
+  const publishRequestId = parsePublishRequestId(body.publishRequestId);
+  if (publishRequestId) {
+    const replay = await idempotentListingResponse(sessionUserId, publishRequestId);
+    if (replay) return replay;
+  }
   const category = typeof body.category === "string" && body.category.trim() ? body.category.trim() : "Other";
   const condition = typeof body.condition === "string" && body.condition.trim() ? body.condition.trim() : "Other";
   const description = typeof body.description === "string" ? body.description : "";
@@ -533,6 +588,7 @@ export async function POST(req: Request) {
 
   logListingCreateAttempt({
     userId: sessionUserId,
+    publishRequestId,
     buyingFormat,
     status: effectiveStatus,
     category,
@@ -548,11 +604,14 @@ export async function POST(req: Request) {
     publishedLive,
   });
 
+  await warnPossibleDuplicateCreates(sessionUserId, title || "Untitled draft");
+
   let row;
   try {
     row = await prisma.listing.create({
       data: {
         sellerId: sessionUserId,
+        publishRequestId,
         ...baseData,
         workspaceKey: null,
       },
@@ -560,8 +619,13 @@ export async function POST(req: Request) {
     });
     await replaceListingImages(row.id, images);
   } catch (e) {
+    if (publishRequestId) {
+      const replay = await idempotentListingResponse(sessionUserId, publishRequestId);
+      if (replay) return replay;
+    }
     return listingCreateFailureResponse(e, {
       userId: sessionUserId,
+      publishRequestId,
       buyingFormat,
       status: effectiveStatus,
       category,

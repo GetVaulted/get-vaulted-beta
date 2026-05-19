@@ -315,6 +315,8 @@ model Notification {
 
 model Listing {
   id                  String         @id @default(cuid())
+  /// Client idempotency key from mobile/web publish (one listing per key per seller).
+  publishRequestId    String?        @unique
   sellerId            String
   seller              User           @relation("SellerListings", fields: [sellerId], references: [id], onDelete: Cascade)
   title               String
