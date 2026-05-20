@@ -1,6 +1,8 @@
 # Beta QA reset — clean seller + buyer path
 
-Use this pass **instead of** debugging legacy accounts (e.g. `brysmith31`). All manual commerce QA is blocked until this checklist is **Pass**.
+**Prerequisite:** [Local QA pre-deploy gate](./local-qa-pre-deploy-gate.md) must be **Pass** on the commit you deploy. Beta is for **smoke / near-final validation**, not primary debugging.
+
+Use this pass **instead of** debugging legacy accounts (e.g. `brysmith31`). Commerce manual QA on beta is **paused** until local gate L0 is green.
 
 **Canonical project:** `xkaaicokjgmpbctfermj`  
 **Canonical API host:** `https://beta.shopgetvaulted.com`

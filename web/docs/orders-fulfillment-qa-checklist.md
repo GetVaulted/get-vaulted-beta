@@ -11,9 +11,9 @@ Run in **staging** with Stripe test mode, Shippo test token (when label flows ar
 
 **Documentation-only lane** — this file defines QA scope; it does not change product behavior.
 
-**Policy:** No new commerce feature work until the commerce staging gate is closed — see [`LIVE_AUCTION_E2E_QA.md`](./LIVE_AUCTION_E2E_QA.md#commerce-staging-gate).
+**Policy:** Commerce staging gate closed only after [local pre-deploy gate](./local-qa-pre-deploy-gate.md) **Pass** — see [`LIVE_AUCTION_E2E_QA.md`](./LIVE_AUCTION_E2E_QA.md#commerce-staging-gate). Beta manual QA **paused** until L0 is green locally.
 
-**Prerequisite:** [`beta-qa-reset-checklist.md`](./beta-qa-reset-checklist.md) (sellerqa / buyerqa on `xkaaicokjgmpbctfermj`).
+**Prerequisite:** [Local pre-deploy gate](./local-qa-pre-deploy-gate.md) → [`beta-qa-reset-checklist.md`](./beta-qa-reset-checklist.md) smoke.
 
 ---
 
@@ -34,12 +34,13 @@ Same gate as live auction — **all three steps must Pass** before the commerce 
 
 | Step | Gate | Pass/Fail | Date | Build / env | Notes |
 |------|------|-----------|------|-------------|-------|
-| 0 | [Beta QA reset](./beta-qa-reset-checklist.md) | **Pending** | | | sellerqa / buyerqa |
-| 1 | `web/.env` + `npm run staging:validate` | **Pass** | 2026-05-19 | integration DB | See [live auction doc § gate](./LIVE_AUCTION_E2E_QA.md#commerce-staging-gate) |
-| 2 | Live Auction E2E manual | **Pending** | | | After step 0 |
+| L0 | [Local pre-deploy gate](./local-qa-pre-deploy-gate.md) | **Pending** | | | Before beta deploy |
+| 0 | [Beta QA reset](./beta-qa-reset-checklist.md) | **Paused** | | | After L0 |
+| 1 | `npm run staging:validate` | **Pass** | 2026-05-19 | integration DB | |
+| 2 | Live Auction E2E manual | **Pending** | | | |
 | 3 | **Orders & Fulfillment** manual ([checklist below](#orders--fulfillment-manual-staging-checklist)) | **Pending** | | | After step 2 |
 
-**Commerce loop staging-signed** = steps **1 + 2 + 3** all **Pass**. Until then: **not staging-signed**, **not launch-signed**.
+**Commerce loop staging-signed** = **L0 + 1 + 2 + 3** all **Pass**.
 
 ---
 
@@ -241,7 +242,8 @@ Fill during staging. One row per flow; extend Notes with order ids.
 
 | Milestone | Status |
 |-----------|--------|
-| Commerce staging gate step 0 (beta QA reset) | **Pending** |
+| Commerce staging gate L0 (local pre-deploy) | **Pending** |
+| Commerce staging gate step 0 (beta smoke) | **Paused** |
 | Commerce staging gate step 1 (`staging:validate`) | **Pass** |
 | Commerce staging gate steps 2–3 (manual) | **Pending** |
 | Staging-signed | **No** |

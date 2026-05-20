@@ -1,5 +1,7 @@
 # Beta environment alignment (Supabase + Postgres)
 
+**Deploy policy:** Run [local-qa-pre-deploy-gate.md](./local-qa-pre-deploy-gate.md) locally before pushing to beta. Beta is smoke-only after local green.
+
 Mobile beta QA fails when **Supabase Auth** (mobile JWT) and **Prisma Postgres** (Netlify `DATABASE_URL`) point at **different projects**, or when local `web/.env` does not use the same project as the phone build.
 
 ## Single source of truth
