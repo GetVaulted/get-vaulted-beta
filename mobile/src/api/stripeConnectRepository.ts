@@ -1,3 +1,4 @@
+import { fetchSellerAccount } from './sellerAccountRepository';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { getSupabase } from '../lib/supabase';
 
@@ -135,6 +136,34 @@ export type SellerConnectFetchResult = {
   error: string | null;
 };
 
+/** Fallback when `/api/stripe/connect/status` fails but seller profile exists. */
+function connectStatusFromSellerAccount(
+  seller: { stripeAccountId: string | null; stripeOnboardingComplete: boolean },
+  stripePlatformConfigured: boolean,
+): SellerConnectStatusResponse {
+  const hasAccount = Boolean(seller.stripeAccountId?.trim());
+  const complete = Boolean(seller.stripeOnboardingComplete && hasAccount);
+  return {
+    stripeConfigured: stripePlatformConfigured,
+    stripe_account_id: seller.stripeAccountId,
+    stripe_onboarding_complete: seller.stripeOnboardingComplete,
+    stripe_charges_enabled: complete ? true : null,
+    stripe_payouts_enabled: complete ? true : null,
+    stripe_requirements_due: null,
+    stripe_verification_status: null,
+    onboarding_ui_status: complete ? 'verified' : hasAccount ? 'pending_review' : 'not_started',
+    can_publish_active_listings: complete,
+    can_host_live_sales: complete,
+    payouts_ready: complete,
+    payout_setup_complete: complete,
+    payout_setup_submitted: complete,
+    message_onboarding: complete ? null : 'Finish Stripe payout setup in Seller HQ.',
+    message_payouts: complete
+      ? 'Payout setup complete. You can publish listings and host live sales.'
+      : null,
+  };
+}
+
 export async function fetchSellerConnectStatus(
   accessToken?: string | null,
 ): Promise<SellerConnectFetchResult> {
@@ -170,6 +199,18 @@ export async function fetchSellerConnectStatus(
       if (typeof j.error === 'string' && j.error.trim()) message = j.error.trim();
     } catch {
       /* ignore */
+    }
+    try {
+      const account = await fetchSellerAccount(token);
+      const stripeOk = account.stripePlatformConfigured !== false;
+      if (account.seller?.stripeAccountId || account.seller?.stripeOnboardingComplete) {
+        return {
+          status: connectStatusFromSellerAccount(account.seller, stripeOk),
+          error: null,
+        };
+      }
+    } catch {
+      /* ignore — use connect error below */
     }
     return { status: null, error: message };
   }

@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { ensurePrismaUserForSupabaseAuth } from "@/lib/ensure-prisma-user-from-supabase-auth";
+import { syncStripeConnectFromEmailSibling } from "@/lib/link-stripe-account-from-email-sibling";
 
 /**
  * Validates `Authorization: Bearer <supabase_access_token>` for mobile / native clients,
@@ -33,12 +34,30 @@ export async function requireUserIdFromSupabaseBearer(
     return NextResponse.json({ error: "Invalid or expired session" }, { status: 401 });
   }
 
-  const prismaUserId = await ensurePrismaUserForSupabaseAuth(data.user);
+  let prismaUserId: string | null;
+  try {
+    prismaUserId = await ensurePrismaUserForSupabaseAuth(data.user);
+  } catch (e) {
+    console.error("[requireUserIdFromSupabaseBearer] ensurePrismaUser failed", e);
+    return NextResponse.json(
+      { error: "Could not resolve your seller profile. Try again or sign out and back in." },
+      { status: 503 },
+    );
+  }
   if (!prismaUserId) {
     return NextResponse.json(
       { error: "Add a verified email to your account before setting up payouts." },
       { status: 400 },
     );
+  }
+
+  try {
+    await syncStripeConnectFromEmailSibling(prismaUserId);
+  } catch (e) {
+    console.warn("[requireUserIdFromSupabaseBearer] stripe sibling sync failed", {
+      userId: prismaUserId,
+      error: e instanceof Error ? e.message : String(e),
+    });
   }
 
   return { userId: prismaUserId };

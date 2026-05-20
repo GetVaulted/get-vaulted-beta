@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { linkStripeAccountFromEmailSiblingIfMissing } from "@/lib/link-stripe-account-from-email-sibling";
+import { syncStripeConnectFromEmailSibling } from "@/lib/link-stripe-account-from-email-sibling";
 import { requireUserIdFromSupabaseBearer } from "@/lib/require-supabase-bearer";
 import { getServerSessionSafe } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -49,11 +49,7 @@ export async function GET(request: Request) {
     }
 
     try {
-      await linkStripeAccountFromEmailSiblingIfMissing({
-        id: auth.userId,
-        email: user.email,
-        stripeAccountId: user.stripeAccountId,
-      });
+      await syncStripeConnectFromEmailSibling(auth.userId);
     } catch {
       /* non-fatal */
     }
