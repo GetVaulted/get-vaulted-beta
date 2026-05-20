@@ -254,7 +254,7 @@ export function liveRoomRowToLiveStream(row: LiveRoomApiRow): LiveStream {
     giveawayLine: '',
     packStatusLine: '',
     liveRoomFormat: liveRoomFormatFromType(row.roomType),
-    hybridFocus: 'auction',
+    hybridFocus: row.roomType === 'break' ? 'break' : 'auction',
   };
 }
 

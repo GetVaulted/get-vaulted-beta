@@ -30,7 +30,7 @@ import { openWebCommerceUrl, webLiveRoomUrl } from '../../lib/openWebCommerce';
 import type { LiveStackParamList, MainTabParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
 import type { LiveStream } from '../../types';
-import { resolveLiveCommerceHud } from './liveActionModule';
+import { resolveBuyerRoomKind, resolveLiveBuyerCommerceHud } from './liveActionModule';
 
 /** Used by `VerticalLiveFeed` to stack chat/composer/sheet above this overlay. */
 export const LIVE_COMMERCE_OVERLAY_HEIGHT = 118;
@@ -111,9 +111,10 @@ export function LivePinnedActionBar({
   const [bidBusy, setBidBusy] = useState(false);
   const [roomSnap, setRoomSnap] = useState<LiveRoomBuyerSnapshot | null>(null);
   const [syncRefreshing, setSyncRefreshing] = useState(false);
-  const m = useMemo(() => resolveLiveCommerceHud(stream), [stream]);
-  const auctionLane =
-    m.format === 'auction' || (m.format === 'hybrid' && m.hybridFocus === 'auction');
+  const buyerKind = useMemo(() => resolveBuyerRoomKind(roomSnap, stream), [roomSnap, stream]);
+  const m = useMemo(() => resolveLiveBuyerCommerceHud(stream, roomSnap), [stream, roomSnap]);
+  const auctionLane = buyerKind === 'auction';
+  const primaryDisabled = m.buyerPrimaryDisabled === true;
   const padBottom = 4 + Math.min(10, Math.round(bottomSafeInset * 0.35));
   const metaLine = [m.winningLine, m.stateLine].filter(Boolean).join(' · ');
 
@@ -130,7 +131,6 @@ export function LivePinnedActionBar({
   };
 
   const refreshRoomSnapshot = useCallback(async (): Promise<LiveRoomBuyerSnapshot | null> => {
-    if (!accessToken?.trim() || !auctionLane) return null;
     setSyncRefreshing(true);
     try {
       const snap = await fetchLiveRoomBuyerSnapshot(accessToken, stream.id);
@@ -141,15 +141,16 @@ export function LivePinnedActionBar({
     } finally {
       setSyncRefreshing(false);
     }
-  }, [accessToken, auctionLane, stream.id]);
+  }, [accessToken, stream.id]);
 
   useEffect(() => {
-    if (!auctionLane || !accessToken?.trim()) {
-      setRoomSnap(null);
-      return;
-    }
     void refreshRoomSnapshot();
-  }, [accessToken, auctionLane, refreshRoomSnapshot]);
+    const pollMs = buyerKind === 'auction' ? 4000 : 12000;
+    const id = setInterval(() => {
+      void refreshRoomSnapshot();
+    }, pollMs);
+    return () => clearInterval(id);
+  }, [buyerKind, refreshRoomSnapshot]);
 
   const syncStatusLine = useMemo(() => {
     if (!auctionLane) return null;
@@ -245,8 +246,14 @@ export function LivePinnedActionBar({
       if (auctionLane) openFullLiveRoom();
       else tabNav?.navigate('TradeCenter', { screen: 'TradeCenterHome' });
     });
-  const onPrimary = () => guard(() => (auctionLane ? void tryPlaceLiveBid() : goInitiateTrade()));
-  const onSlide = () => guard(() => (auctionLane ? void tryPlaceLiveBid() : goInitiateTrade()));
+  const onPrimary = () => {
+    if (primaryDisabled) return;
+    guard(() => (auctionLane ? void tryPlaceLiveBid() : goInitiateTrade()));
+  };
+  const onSlide = () => {
+    if (primaryDisabled) return;
+    guard(() => (auctionLane ? void tryPlaceLiveBid() : goInitiateTrade()));
+  };
   const onShop = () =>
     guard(() => {
       if (onOpenInlineShop) onOpenInlineShop();
@@ -290,10 +297,9 @@ export function LivePinnedActionBar({
             {metaLine}
           </Text>
         ) : null}
-        {auctionLane ? (
+        {auctionLane && signedIn ? (
           <Text style={styles.syncLine} numberOfLines={2}>
-            {syncStatusLine ??
-              'This feed is not full live sync — open the live room in your browser for real-time bids.'}
+            {syncStatusLine ?? 'Syncing auction state from the vault…'}
           </Text>
         ) : null}
 
@@ -315,11 +321,15 @@ export function LivePinnedActionBar({
               <View style={[styles.ctaPrimary, styles.ctaPrimaryBusy]}>
                 <ActivityIndicator color="#0a0a0a" />
               </View>
-            ) : m.bottomRightIsSlide ? (
+            ) : m.bottomRightIsSlide && !primaryDisabled ? (
               <CompactSlideToBid onCommit={onSlide} />
             ) : (
-              <Pressable style={styles.ctaGold} onPress={onPrimary}>
-                <Text style={styles.ctaGoldText} numberOfLines={1}>
+              <Pressable
+                style={[styles.ctaGold, primaryDisabled && styles.ctaDisabled]}
+                onPress={onPrimary}
+                disabled={primaryDisabled}
+              >
+                <Text style={[styles.ctaGoldText, primaryDisabled && styles.ctaDisabledText]} numberOfLines={1}>
                   {m.bottomRightLabel}
                 </Text>
               </Pressable>
@@ -519,5 +529,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
     marginTop: -1,
+  },
+  ctaDisabled: {
+    opacity: 0.45,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  ctaDisabledText: {
+    color: 'rgba(255,255,255,0.55)',
   },
 });

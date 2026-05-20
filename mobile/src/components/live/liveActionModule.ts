@@ -1,3 +1,6 @@
+import type { LiveRoomBuyerSnapshot } from '../../api/liveRoomBuyerRepository';
+import { LIVE_AUCTION_BUYER_TIMER_ENDED_COPY } from '../../lib/liveAuctionLotPhase';
+import { pickVaultWaitingMessage } from '../../lib/liveAuctionBuyerVaultCopy';
 import type { CategoryId, HybridFocus, LiveCommerceMode, LiveRoomFormat, LiveStream } from '../../types';
 
 export function resolveLiveRoomFormat(stream: LiveStream): LiveRoomFormat {
@@ -6,7 +9,28 @@ export function resolveLiveRoomFormat(stream: LiveStream): LiveRoomFormat {
   if (legacy === 'auction') return 'auction';
   if (legacy === 'shop') return 'shop';
   if (legacy === 'break') return 'break';
-  return 'break';
+  return 'auction';
+}
+
+/** Buyer lane: break spot controls only when API says `break`. */
+export function resolveBuyerRoomKind(
+  snap: LiveRoomBuyerSnapshot | null | undefined,
+  stream: LiveStream,
+): 'break' | 'auction' {
+  if (snap?.roomType === 'break') return 'break';
+  if (snap?.roomType === 'auction' || snap?.roomType === 'sale') return 'auction';
+  const format = resolveLiveRoomFormat(stream);
+  if (format === 'break') return 'break';
+  if (format === 'hybrid' && effectiveHybridFocus(stream) === 'break') return 'break';
+  return 'auction';
+}
+
+function auctionCountdownMmSs(endsAt: string | null, nowMs: number): string {
+  if (!endsAt) return '—';
+  const end = Date.parse(endsAt);
+  if (Number.isNaN(end)) return '—';
+  const diffSec = Math.max(0, Math.ceil((end - nowMs) / 1000));
+  return formatCountdown(diffSec);
 }
 
 export function formatMoney(n: number): string {
@@ -97,6 +121,8 @@ export type LiveCommerceHudModel = {
   bottomRightIsSlide: boolean;
   showShopButton: boolean;
   shopButtonLabel: string;
+  /** Buyer auction: disable bid / slide when lot not open. */
+  buyerPrimaryDisabled?: boolean;
 };
 
 /** Two-row live commerce tile: title + bidder/amount; custom CTA + bid/slide. */
@@ -204,6 +230,146 @@ export function resolveLiveCommerceHud(stream: LiveStream): LiveCommerceHudModel
     bottomRightIsSlide,
     showShopButton,
     shopButtonLabel,
+  };
+}
+
+/**
+ * Buyer overlay HUD — uses live room `roomType` from API when available.
+ * Break rooms keep break CTAs; auction/sale rooms use vault waiting + bid phases.
+ */
+export function resolveLiveBuyerCommerceHud(
+  stream: LiveStream,
+  snap: LiveRoomBuyerSnapshot | null | undefined,
+): LiveCommerceHudModel {
+  const kind = resolveBuyerRoomKind(snap, stream);
+  if (kind === 'break') {
+    return resolveLiveCommerceHud({
+      ...stream,
+      liveRoomFormat: 'break',
+      hybridFocus: 'break',
+    });
+  }
+
+  const auctionStream: LiveStream = {
+    ...stream,
+    liveRoomFormat: 'auction',
+    hybridFocus: 'auction',
+    liveTileUseBidSlider: stream.liveTileUseBidSlider ?? true,
+  };
+  const base = resolveLiveCommerceHud(auctionStream);
+  const nowMs = snap?.fetchedAtMs ?? Date.now();
+
+  if (!snap || snap.status === 'scheduled') {
+    return {
+      ...base,
+      format: 'auction',
+      hybridFocus: null,
+      categoryType: 'Live auction',
+      timerMmSs: '—',
+      itemTitle: stream.pinnedProductLabel || stream.currentItem || 'Vault event',
+      currentPrefix: 'Status',
+      currentAmount: 'Soon',
+      winningLine: '',
+      stateLine: pickVaultWaitingMessage(stream.id, 'vault_loading'),
+      bottomLeftLabel: 'Open live room',
+      bottomRightLabel: 'Starting soon',
+      bottomRightIsSlide: false,
+      buyerPrimaryDisabled: true,
+    };
+  }
+
+  if (snap.status === 'ended') {
+    return {
+      ...base,
+      timerMmSs: '—',
+      winningLine: '',
+      stateLine: 'This show has ended.',
+      bottomLeftLabel: 'Open live room',
+      bottomRightLabel: 'Show ended',
+      bottomRightIsSlide: false,
+      buyerPrimaryDisabled: true,
+    };
+  }
+
+  if (!snap.activeItemId) {
+    return {
+      ...base,
+      itemTitle: stream.currentItem?.trim() || 'Next lot',
+      timerMmSs: '—',
+      currentPrefix: 'Next bid',
+      currentAmount: '—',
+      winningLine: '',
+      stateLine: pickVaultWaitingMessage(stream.id, 'stay_locked_in'),
+      bottomLeftLabel: 'Open live room',
+      bottomRightLabel: 'Lot loading',
+      bottomRightIsSlide: false,
+      buyerPrimaryDisabled: true,
+    };
+  }
+
+  const current = snap.currentBidUsd ?? 0;
+  const next = snap.minNextBidUsd ?? current;
+
+  if (snap.lotBidPhase === 'bidding_open') {
+    return {
+      ...base,
+      itemTitle: stream.currentItem?.trim() || stream.pinnedProductLabel,
+      timerMmSs: auctionCountdownMmSs(snap.auctionEndsAt, nowMs),
+      currentPrefix: 'Current',
+      currentAmount: formatMoney(current),
+      winningLine: current > 0 ? 'High bid on the floor' : '',
+      stateLine: 'Bidding is live — place the next bid to take the lead.',
+      bottomLeftLabel: 'Open live room',
+      bottomRightLabel: `Bid ${formatMoney(next)}`,
+      bottomRightIsSlide: true,
+      buyerPrimaryDisabled: false,
+    };
+  }
+
+  if (snap.lotBidPhase === 'timer_ended_unsettled') {
+    return {
+      ...base,
+      timerMmSs: '0:00',
+      currentPrefix: 'Current',
+      currentAmount: formatMoney(current),
+      winningLine: '',
+      stateLine: LIVE_AUCTION_BUYER_TIMER_ENDED_COPY,
+      bottomLeftLabel: 'Open live room',
+      bottomRightLabel: 'Bidding closed',
+      bottomRightIsSlide: false,
+      buyerPrimaryDisabled: true,
+    };
+  }
+
+  if (snap.lotBidPhase === 'settled') {
+    return {
+      ...base,
+      timerMmSs: '—',
+      currentPrefix: 'Final',
+      currentAmount: formatMoney(current),
+      winningLine: '',
+      stateLine: 'Lot closed — watch for the next item.',
+      bottomLeftLabel: 'Open live room',
+      bottomRightLabel: 'Lot ended',
+      bottomRightIsSlide: false,
+      buyerPrimaryDisabled: true,
+    };
+  }
+
+  return {
+    ...base,
+    timerMmSs: '—',
+    currentPrefix: 'Next bid',
+    currentAmount: next > 0 ? formatMoney(next) : '—',
+    winningLine: '',
+    stateLine:
+      snap.lotBidPhase === 'not_started'
+        ? pickVaultWaitingMessage(stream.id, 'controls_when_live')
+        : pickVaultWaitingMessage(stream.id, 'lot_almost_ready'),
+    bottomLeftLabel: 'Open live room',
+    bottomRightLabel: 'Bids open soon',
+    bottomRightIsSlide: false,
+    buyerPrimaryDisabled: true,
   };
 }
 

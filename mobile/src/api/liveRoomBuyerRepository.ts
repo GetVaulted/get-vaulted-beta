@@ -28,14 +28,14 @@ function apiErrorMessage(res: Response, body: unknown): string {
 
 /** Buyer snapshot for placing bids from mobile (same room GET as web). */
 export async function fetchLiveRoomBuyerSnapshot(
-  accessToken: string,
+  accessToken: string | undefined,
   roomId: string,
 ): Promise<LiveRoomBuyerSnapshot> {
   const base = getWebApiBaseUrl();
   if (!base) throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
-  const res = await fetch(`${base}/api/live-rooms/${encodeURIComponent(roomId)}`, {
-    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
-  });
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (accessToken?.trim()) headers.Authorization = `Bearer ${accessToken}`;
+  const res = await fetch(`${base}/api/live-rooms/${encodeURIComponent(roomId)}`, { headers });
   let j: {
     room?: {
       status?: string;

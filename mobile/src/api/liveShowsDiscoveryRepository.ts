@@ -73,7 +73,7 @@ function showToLiveStream(row: ShowRow, host?: ProfileRow): LiveStream {
     pinnedProductLabel: 'Live show',
     giveawayLine: '',
     packStatusLine: '',
-    liveRoomFormat: 'hybrid',
+    liveRoomFormat: 'auction',
     hybridFocus: 'auction',
   };
 }
