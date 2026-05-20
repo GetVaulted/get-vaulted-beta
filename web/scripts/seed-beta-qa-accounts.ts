@@ -12,7 +12,7 @@
  *   ALLOW_BETA_QA_SEED=1 npx tsx scripts/seed-beta-qa-accounts.ts --reset
  */
 import { config } from "dotenv";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { prisma } from "../src/lib/prisma";
@@ -73,7 +73,7 @@ function qaPassword(): string {
 }
 
 async function findAuthUserIdByEmail(
-  admin: ReturnType<typeof createClient>,
+  admin: SupabaseClient,
   email: string,
 ): Promise<string | null> {
   const { data, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 500 });
@@ -82,7 +82,7 @@ async function findAuthUserIdByEmail(
   return hit?.id ?? null;
 }
 
-async function deleteExistingAccount(admin: ReturnType<typeof createClient>, spec: QaAccountSpec) {
+async function deleteExistingAccount(admin: SupabaseClient, spec: QaAccountSpec) {
   const authId = await findAuthUserIdByEmail(admin, spec.email);
   if (authId) {
     const { error } = await admin.auth.admin.deleteUser(authId);
@@ -97,7 +97,7 @@ async function deleteExistingAccount(admin: ReturnType<typeof createClient>, spe
   });
 }
 
-async function createAccount(admin: ReturnType<typeof createClient>, spec: QaAccountSpec) {
+async function createAccount(admin: SupabaseClient, spec: QaAccountSpec) {
   const password = qaPassword();
   const { data, error } = await admin.auth.admin.createUser({
     email: spec.email,

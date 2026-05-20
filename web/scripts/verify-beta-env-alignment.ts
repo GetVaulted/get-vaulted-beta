@@ -137,7 +137,7 @@ async function main() {
     console.log(`\nSupabase Auth: ${auth.reason}`);
   } else if ("error" in auth && auth.error) {
     console.log(`\nSupabase Auth lookup failed: ${auth.error}`);
-  } else {
+  } else if ("hits" in auth && auth.hits) {
     console.log(`\nSupabase Auth search "${q}": ${auth.hits.length} user(s)`);
     for (const u of auth.hits) {
       console.log(`  - ${u.id} | ${u.email}`);
