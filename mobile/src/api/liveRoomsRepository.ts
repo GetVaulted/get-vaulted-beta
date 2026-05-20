@@ -113,9 +113,64 @@ export async function fetchLiveRoomsPublic(limit = 80): Promise<LiveRoomApiRow[]
     method: 'GET',
     headers: { Accept: 'application/json' },
   });
-  if (!res.ok) return [];
-  const j = (await res.json()) as { rooms?: LiveRoomApiRow[] };
+  let j: { rooms?: LiveRoomApiRow[]; error?: string; code?: string } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
   return Array.isArray(j.rooms) ? j.rooms : [];
+}
+
+/** Public room detail for deep links (scheduled or live) when not in the directory list. */
+export async function fetchLiveRoomPublicById(roomId: string): Promise<LiveRoomApiRow | null> {
+  const res = await fetchLiveRoomsApi(`/api/live-rooms/${encodeURIComponent(roomId)}`, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+  });
+  let j: {
+    room?: {
+      id?: string;
+      title?: string;
+      description?: string | null;
+      category?: string;
+      roomType?: LiveRoomApiRow['roomType'];
+      status?: LiveRoomApiRow['status'];
+      thumbnailUrl?: string;
+      viewerCount?: number;
+      scheduledStartAt?: string | null;
+      startedAt?: string | null;
+      endedAt?: string | null;
+      sellerUsername?: string;
+      itemCount?: number;
+      activeItem?: { title?: string } | null;
+    };
+    error?: string;
+  } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok || !j.room?.id) return null;
+  const r = j.room;
+  return {
+    id: r.id!,
+    title: r.title ?? 'Live show',
+    description: r.description ?? null,
+    category: r.category ?? 'Other',
+    roomType: r.roomType ?? 'auction',
+    status: r.status ?? 'scheduled',
+    thumbnailUrl: r.thumbnailUrl ?? '',
+    viewerCount: r.viewerCount ?? 0,
+    scheduledStartAt: r.scheduledStartAt ?? null,
+    startedAt: r.startedAt ?? null,
+    endedAt: r.endedAt ?? null,
+    sellerUsername: r.sellerUsername ?? 'host',
+    itemCount: r.itemCount ?? 0,
+    activeItemTitle: r.activeItem?.title ?? null,
+  };
 }
 
 export async function fetchMyLiveRooms(accessToken: string): Promise<LiveRoomApiRow[]> {

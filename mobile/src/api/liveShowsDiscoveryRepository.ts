@@ -1,4 +1,5 @@
 import { getSupabase } from '../lib/supabase';
+import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { liveRoomCategoryTagsForRow } from '../lib/liveRoomDisplay';
 import { mapListingCategoryToCategoryId } from './listingsFeedRepository';
 import type { Bid, CategoryId, ChatMessage, Host, LiveStream, ScheduledStream } from '../types';
@@ -120,14 +121,18 @@ async function fetchProfilesMap(sb: NonNullable<ReturnType<typeof getSupabase>>,
 }
 
 export async function fetchLiveShowsForDiscovery(): Promise<{ live: LiveStream[]; scheduled: ScheduledStream[] }> {
-  try {
-    const { fetchLiveRoomsPublic, mapLiveRoomsToDiscovery } = await import('./liveRoomsRepository');
-    const rows = await fetchLiveRoomsPublic(80);
-    if (rows.length > 0) {
+  const apiBase = getWebApiBaseUrl();
+  if (apiBase) {
+    try {
+      const { fetchLiveRoomsPublic, mapLiveRoomsToDiscovery } = await import('./liveRoomsRepository');
+      const rows = await fetchLiveRoomsPublic(80);
       return mapLiveRoomsToDiscovery(rows);
+    } catch (e) {
+      console.warn(
+        '[fetchLiveShowsForDiscovery] Next.js live directory failed — check EXPO_PUBLIC_SITE_URL points at beta',
+        e instanceof Error ? e.message : e,
+      );
     }
-  } catch (e) {
-    console.warn('fetchLiveShowsForDiscovery api', e instanceof Error ? e.message : e);
   }
 
   const sb = getSupabase();

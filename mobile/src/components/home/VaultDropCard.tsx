@@ -8,6 +8,7 @@ import { categoryMeta } from '../../data/categoryTaxonomy';
 type Props = {
   event: ScheduledStream;
   onRemind: () => void;
+  onPress?: () => void;
 };
 
 function formatInterested(n: number) {
@@ -15,10 +16,10 @@ function formatInterested(n: number) {
   return `${n} interested`;
 }
 
-export function VaultDropCard({ event, onRemind }: Props) {
+export function VaultDropCard({ event, onRemind, onPress }: Props) {
   const cat = categoryMeta[event.category].label;
 
-  return (
+  const card = (
     <View style={styles.card}>
       <LinearGradient
         colors={event.cardGradient}
@@ -66,6 +67,13 @@ export function VaultDropCard({ event, onRemind }: Props) {
         </Pressable>
       </View>
     </View>
+  );
+
+  if (!onPress) return card;
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`Open ${event.title}`}>
+      {card}
+    </Pressable>
   );
 }
 

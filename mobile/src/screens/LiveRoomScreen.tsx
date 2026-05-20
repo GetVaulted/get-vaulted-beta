@@ -4,6 +4,8 @@ import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchLiveShowsForDiscovery } from '../api/liveShowsDiscoveryRepository';
+import { fetchLiveRoomPublicById, liveRoomRowToLiveStream } from '../api/liveRoomsRepository';
+import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { VerticalLiveFeed } from '../components/live/VerticalLiveFeed';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from '../auth/AuthContext';
@@ -31,7 +33,7 @@ export function LiveRoomScreen() {
   }, [blockGuestLive, navigation]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured()) {
+    if (!isSupabaseConfigured() && !getWebApiBaseUrl()) {
       setStreams([]);
       setLoading(false);
       return;
@@ -41,7 +43,14 @@ export function LiveRoomScreen() {
       setLoading(true);
       try {
         const pack = await fetchLiveShowsForDiscovery();
-        if (!cancelled) setStreams(pack.live);
+        let next = pack.live;
+        if (streamId && !next.some((s) => s.id === streamId)) {
+          const row = await fetchLiveRoomPublicById(streamId);
+          if (row && (row.status === 'live' || row.status === 'scheduled')) {
+            next = [liveRoomRowToLiveStream(row), ...next];
+          }
+        }
+        if (!cancelled) setStreams(next);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -49,7 +58,7 @@ export function LiveRoomScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [streamId]);
 
   const onRequireAuth = useCallback(() => {
     Alert.alert('Account required', 'Log in to chat, follow, shop, and bid in live rooms.', [

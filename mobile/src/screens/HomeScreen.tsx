@@ -395,7 +395,7 @@ export function HomeScreen() {
         {scheduledRows.length ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
             {scheduledRows.map((s) => (
-              <VaultDropCard key={s.id} event={s} onRemind={() => {}} />
+              <VaultDropCard key={s.id} event={s} onRemind={() => {}} onPress={() => openLiveShow(s.id)} />
             ))}
           </ScrollView>
         ) : (

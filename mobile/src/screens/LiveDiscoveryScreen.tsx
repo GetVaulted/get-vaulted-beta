@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -20,24 +20,28 @@ import {
   LiveRoomCardSkeletonRail,
 } from '../components/home/LiveRoomCardSkeleton';
 import { LiveNowPreviewCard } from '../components/home/LiveNowPreviewCard';
+import { VaultDropCard } from '../components/home/VaultDropCard';
 import { LiveEmptyBroadcastBlock } from '../components/live/LiveEmptyBroadcastBlock';
 import { SearchBar } from '../components/ui/SearchBar';
 import { discoveryCategoryChips, filterShowsByChip } from '../data/categoryTaxonomy';
 import {
+  clearHomeFeedCache,
   getHomeFeedMemorySnapshot,
   hasWarmHomeFeedCache,
   loadHomeFeedCache,
   saveHomeFeedCache,
+  subscribeHomeFeedInvalidation,
 } from '../lib/homeFeedCache';
 import { orderLiveDiscoveryRooms, type OrderedLiveRoom } from '../lib/liveDiscoveryOrder';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { useAuth } from '../auth/AuthContext';
 import { openSellerHQ } from '../navigation/openSellerHQ';
 import type { LiveStackParamList } from '../navigation/types';
 import { alertGuestLiveRestricted } from '../navigation/guestExploreGuards';
 import { openHelpCenter } from '../navigation/openPlatform';
 import { colors, radii, spacing } from '../theme';
-import type { LiveStream } from '../types';
+import type { LiveStream, ScheduledStream } from '../types';
 
 const SCREEN_W = Dimensions.get('window').width;
 const GRID_PAD = spacing.lg;
@@ -94,8 +98,9 @@ function chipInactiveAccent(label: string): { border: string; fill: string } {
   }
 }
 
-function initialLiveState(): LiveStream[] {
-  return getHomeFeedMemorySnapshot()?.live ?? [];
+function initialDiscoveryState(): { live: LiveStream[]; scheduled: ScheduledStream[] } {
+  const snap = getHomeFeedMemorySnapshot();
+  return { live: snap?.live ?? [], scheduled: snap?.scheduled ?? [] };
 }
 
 export function LiveDiscoveryScreen() {
@@ -103,23 +108,34 @@ export function LiveDiscoveryScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const { guestExploreMode } = useAuth();
   const [chip, setChip] = useState<string>('All');
-  const [initialLoad, setInitialLoad] = useState(() => initialLiveState().length === 0);
+  const seed = initialDiscoveryState();
+  const [initialLoad, setInitialLoad] = useState(() => seed.live.length === 0 && seed.scheduled.length === 0);
   const [refreshing, setRefreshing] = useState(false);
-  const [liveAll, setLiveAll] = useState<LiveStream[]>(initialLiveState);
+  const [liveAll, setLiveAll] = useState<LiveStream[]>(seed.live);
+  const [scheduledAll, setScheduledAll] = useState<ScheduledStream[]>(seed.scheduled);
+  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
 
-  const load = useCallback(async (opts?: { hadCache?: boolean }) => {
-    if (!isSupabaseConfigured()) {
+  const load = useCallback(async (opts?: { hadCache?: boolean; bustCache?: boolean }) => {
+    if (!isSupabaseConfigured() && !getWebApiBaseUrl()) {
+      setDiscoveryError('Set EXPO_PUBLIC_SITE_URL to https://beta.shopgetvaulted.com for live discovery.');
       setInitialLoad(false);
       return;
     }
+    if (!getWebApiBaseUrl()) {
+      setDiscoveryError('EXPO_PUBLIC_SITE_URL is missing — live shows from web will not load.');
+    } else {
+      setDiscoveryError(null);
+    }
     if (opts?.hadCache) setRefreshing(true);
+    if (opts?.bustCache) await clearHomeFeedCache();
     try {
       const pack = await fetchLiveShowsForDiscovery();
       setLiveAll(pack.live);
+      setScheduledAll(pack.scheduled);
       const prev = getHomeFeedMemorySnapshot();
       void saveHomeFeedCache({
         live: pack.live,
-        scheduled: prev?.scheduled ?? [],
+        scheduled: pack.scheduled,
         listings: prev?.listings ?? [],
       });
     } catch {
@@ -136,17 +152,32 @@ export function LiveDiscoveryScreen() {
       const warm = hasWarmHomeFeedCache();
       const cache = warm ? getHomeFeedMemorySnapshot() : await loadHomeFeedCache();
       if (cancelled) return;
-      const hadCache = Boolean(cache?.live.length ?? liveAll.length);
-      if (cache?.live.length && !liveAll.length) {
-        setLiveAll(cache.live);
-        setInitialLoad(false);
+      const hadCache = Boolean(cache?.live.length || cache?.scheduled.length || liveAll.length || scheduledAll.length);
+      if (cache) {
+        if (cache.live.length && !liveAll.length) setLiveAll(cache.live);
+        if (cache.scheduled.length && !scheduledAll.length) setScheduledAll(cache.scheduled);
+        if (cache.live.length || cache.scheduled.length) setInitialLoad(false);
       }
       await load({ hadCache });
     })();
     return () => {
       cancelled = true;
     };
-  }, [load, liveAll.length]);
+  }, [load, liveAll.length, scheduledAll.length]);
+
+  useEffect(() => {
+    return subscribeHomeFeedInvalidation(() => {
+      void load();
+    });
+  }, [load]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!hasWarmHomeFeedCache()) {
+        void load();
+      }
+    }, [load]),
+  );
 
   const filteredLive = useMemo(() => filterShowsByChip(liveAll, chip), [liveAll, chip]);
   const orderedRooms = useMemo(() => orderLiveDiscoveryRooms(filteredLive), [filteredLive]);
@@ -159,9 +190,9 @@ export function LiveDiscoveryScreen() {
     navigation.navigate('LiveRoom', { streamId });
   };
 
-  const liveEmpty = !initialLoad && liveAll.length === 0;
+  const liveEmpty = !initialLoad && liveAll.length === 0 && scheduledAll.length === 0;
   const filterEmpty = !initialLoad && liveAll.length > 0 && filteredLive.length === 0;
-  const showSkeleton = initialLoad && orderedRooms.length === 0;
+  const showSkeleton = initialLoad && orderedRooms.length === 0 && scheduledAll.length === 0;
 
   const renderRoom = ({ item }: { item: OrderedLiveRoom }) => (
     <LiveNowPreviewCard
@@ -206,8 +237,9 @@ export function LiveDiscoveryScreen() {
           );
         })}
       </ScrollView>
-      {refreshing && orderedRooms.length > 0 ? (
-        <Text style={styles.syncHint}>Updating live rooms…</Text>
+      {discoveryError ? <Text style={styles.configHint}>{discoveryError}</Text> : null}
+      {refreshing && (orderedRooms.length > 0 || scheduledAll.length > 0) ? (
+        <Text style={styles.syncHint}>Updating vault events…</Text>
       ) : null}
       {showSkeleton ? (
         <View style={styles.skelSlot}>
@@ -273,6 +305,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.textMuted,
     marginBottom: spacing.sm,
+  },
+  configHint: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.live,
+    marginBottom: spacing.sm,
+  },
+  upcomingBlock: {
+    marginTop: spacing.lg,
+  },
+  upcomingRail: {
+    paddingRight: spacing.xl,
+    gap: spacing.md,
   },
   skelSlot: {
     minHeight: LIVE_ROOM_CARD_TOTAL_HEIGHT,

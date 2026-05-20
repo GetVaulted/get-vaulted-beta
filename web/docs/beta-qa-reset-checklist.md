@@ -63,6 +63,7 @@ Mobile uses **Supabase Auth**; beta web sign-in must validate the same credentia
 - [ ] After Netlify deploy with unified web auth: open `https://beta.shopgetvaulted.com/api/auth/config` — `projectRef` = `xkaaicokjgmpbctfermj`, `alignedWithBeta` = true, `webSignInSupportsSupabaseAuth` = true.
 - [ ] Sign in at `/signin` with **`sellerqa@getvaultedtest.com`** (same password as mobile). Session loads; Seller HQ / account pages work.
 - [ ] Web **Join** may show “email not configured” without `RESEND_API_KEY` — that only blocks **web** sign-up, not mobile-created accounts.
+- [ ] **Buyer mobile discovery:** `EXPO_PUBLIC_SITE_URL=https://beta.shopgetvaulted.com` in the buyer build. Pull-to-refresh on **Live** tab; `sellerqa` scheduled + live rooms appear (from `GET /api/live-rooms`, not legacy Supabase `live_shows`).
 
 ---
 
