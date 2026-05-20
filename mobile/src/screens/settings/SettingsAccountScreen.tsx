@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthContext';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { SettingsRow } from '../../components/platform/SettingsRow';
-import { navigateToAuthWelcome } from '../../navigation/rootNavigationRef';
+import { performSignOut } from '../../lib/signOutSession';
 import type { RootStackParamList } from '../../navigation/types';
 import { spacing } from '../../theme';
 
@@ -32,9 +32,9 @@ export function SettingsAccountScreen({ navigation }: Props) {
         <SettingsRow
           label="Sign out"
           icon="log-out-outline"
+          destructive
           onPress={() => {
-            void signOut();
-            navigateToAuthWelcome();
+            void performSignOut(signOut);
           }}
           chevron={false}
         />

@@ -72,8 +72,14 @@ export function SellerHQCommandHeader({
           <Text style={styles.studioTag}>Seller operating system</Text>
         </View>
         {onSettings ? (
-          <Pressable onPress={onSettings} hitSlop={12} style={styles.settingsBtn}>
-            <Ionicons name="options-outline" size={22} color={colors.textMuted} />
+          <Pressable
+            onPress={onSettings}
+            hitSlop={12}
+            style={styles.settingsBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Account settings"
+          >
+            <Ionicons name="settings-outline" size={22} color={colors.textMuted} />
           </Pressable>
         ) : null}
       </View>

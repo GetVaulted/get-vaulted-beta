@@ -49,7 +49,8 @@ import type { SellerHQEntryPhase } from '../lib/sellerHubEntry';
 import { openMessagesInbox } from '../navigation/openMessages';
 import { NotificationBadge } from '../components/platform/NotificationBadge';
 import { useNotificationBadge } from '../hooks/useNotificationBadge';
-import { openHelpCenter, openMyOrders, openNotificationInbox } from '../navigation/openPlatform';
+import { openHelpCenter, openMyOrders, openNotificationInbox, openSettings } from '../navigation/openPlatform';
+import { confirmAndSignOut } from '../lib/signOutSession';
 import { countActiveBuyerOrders } from '../api/ordersRepository';
 import { openSellerHostRoom } from '../navigation/openSellerHostRoom';
 import { openSellerHQ } from '../navigation/openSellerHQ';
@@ -75,7 +76,7 @@ function initialFeedState() {
 export function HomeScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<Nav>();
-  const { user, guestExploreMode, session } = useAuth();
+  const { user, guestExploreMode, session, signOut } = useAuth();
   const { count: notificationCount } = useNotificationBadge(user?.id);
   const sellerConnect = useSellerStripeConnect(session?.access_token);
 
@@ -283,6 +284,24 @@ export function HomeScreen() {
             <Pressable style={styles.bell} onPress={() => openMessagesInbox(navigation)}>
               <Ionicons name="chatbubbles-outline" size={22} color={colors.textPrimary} />
             </Pressable>
+            {user ? (
+              <>
+                <Pressable
+                  style={styles.bell}
+                  onPress={() => openSettings(navigation)}
+                  accessibilityLabel="Account settings"
+                >
+                  <Ionicons name="person-circle-outline" size={24} color={colors.textPrimary} />
+                </Pressable>
+                <Pressable
+                  style={styles.bell}
+                  onPress={() => confirmAndSignOut(signOut)}
+                  accessibilityLabel="Sign out"
+                >
+                  <Ionicons name="log-out-outline" size={22} color={colors.live} />
+                </Pressable>
+              </>
+            ) : null}
           </View>
         </View>
 

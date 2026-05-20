@@ -13,7 +13,7 @@ import {
   openSupportInbox,
   openVaultComms,
 } from '../../navigation/openPlatform';
-import { navigateToAuthWelcome } from '../../navigation/rootNavigationRef';
+import { performSignOut } from '../../lib/signOutSession';
 import type { RootStackParamList } from '../../navigation/types';
 import { spacing } from '../../theme';
 
@@ -80,9 +80,9 @@ export function SettingsScreen({ navigation }: Props) {
         <SettingsRow
           label="Sign out"
           icon="log-out-outline"
+          destructive
           onPress={() => {
-            void signOut();
-            navigateToAuthWelcome();
+            void performSignOut(signOut);
           }}
           chevron={false}
         />

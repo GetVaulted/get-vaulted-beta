@@ -28,6 +28,7 @@ import { SellerShipFromSetupCard } from '../components/seller/hq/SellerShipFromS
 import { useCreateListingDraft } from '../createListing/CreateListingDraftContext';
 import { openCreateListing } from '../navigation/openCreateListing';
 import { openContactSupport } from '../navigation/openPlatform';
+import { AccountAccessBar } from '../components/account/AccountAccessBar';
 import { SellerHQCommandCenter } from '../components/seller/hq/SellerHQCommandCenter';
 import { SellerHQFab, type FabActionId } from '../components/seller/hq/SellerHQFab';
 import type { SellerHQEntryPhase } from '../lib/sellerHubEntry';
@@ -388,6 +389,7 @@ export function SellerHubScreen() {
         </View>
 
         <View style={styles.tabBody}>{renderTab()}</View>
+        <AccountAccessBar variant="footer" />
         <View style={{ height: spacing.xxxl + 24 }} />
       </ScrollView>
     </View>
