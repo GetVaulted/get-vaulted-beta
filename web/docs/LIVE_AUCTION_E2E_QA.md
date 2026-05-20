@@ -18,6 +18,8 @@ Record outcomes and metrics in **Part B §12** (spreadsheet or ticket).
 
 **Policy:** No new commerce feature work until the [commerce staging gate](#commerce-staging-gate) is closed (all three steps **Pass**). Exception: [unpaid fulfillment guard](./bugs/unpaid-order-fulfillment-guard.md) fix required for O&F sign-off.
 
+**Prerequisite:** Complete [beta QA reset](./beta-qa-reset-checklist.md) with `sellerqa@getvaultedtest.com` / `buyerqa@getvaultedtest.com` on project `xkaaicokjgmpbctfermj`. Do not use legacy `brysmith31` for this pass.
+
 ---
 
 ## Commerce staging gate
@@ -26,9 +28,10 @@ Complete **in order**. Record **Pass/Fail**, date, build/env, and notes in the t
 
 | Step | Gate | Pass/Fail | Date | Build / env | Notes |
 |------|------|-----------|------|-------------|-------|
+| 0 | [Beta QA reset](./beta-qa-reset-checklist.md) — env + sellerqa/buyerqa | **Pending** | | | Blocks steps 2–3 |
 | 1 | `DATABASE_URL` or `INTEGRATION_DATABASE_URL` in `web/.env`; `npm run staging:validate` green | **Pass** | 2026-05-19 | local / integration DB | `staging-green-path.integration.test.ts` |
-| 2 | **Live Auction E2E** — manual staging ([checklist below](#live-auction-manual-staging-checklist)) | **Pending** | | | Run on beta or local after seed |
-| 3 | **Orders & Fulfillment** — manual staging ([orders doc](./orders-fulfillment-qa-checklist.md#orders--fulfillment-manual-staging-checklist)) | **Pending** | | | Blocked on [unpaid ship guard](./bugs/unpaid-order-fulfillment-guard.md) manual verify |
+| 2 | **Live Auction E2E** — manual staging ([checklist below](#live-auction-manual-staging-checklist)) | **Pending** | | | sellerqa + buyerqa on beta |
+| 3 | **Orders & Fulfillment** — manual staging ([orders doc](./orders-fulfillment-qa-checklist.md#orders--fulfillment-manual-staging-checklist)) | **Pending** | | | After step 2 + [unpaid ship guard](./bugs/unpaid-order-fulfillment-guard.md) |
 
 **Commerce loop staging-signed** = steps **1 + 2 + 3** all **Pass**. Until then: **not staging-signed**, **not launch-signed**.
 
@@ -45,7 +48,7 @@ Harness: `web/src/test/staging-green-path.integration.test.ts`.
 
 ### Live Auction manual staging checklist
 
-Run on staging (e.g. beta or local after `ALLOW_QA_LIVE_SEED=1 npm run qa:seed-live-auction`). Two browsers + one mobile device. `EXPO_PUBLIC_SITE_URL` must match API host.
+Run on **beta** (`https://beta.shopgetvaulted.com`) after [beta QA reset](./beta-qa-reset-checklist.md). Seller: `sellerqa@getvaultedtest.com`. Buyer: `buyerqa@getvaultedtest.com`. Two browsers + one mobile device.
 
 - [ ] Seller starts auction room (go live → activate lot → open bidding)
 - [ ] Web buyer bids
@@ -374,6 +377,7 @@ Creates a **seller** (Stripe-ready + ship-from + Trustap placeholder), **buyer**
 | Milestone | Status |
 |-----------|--------|
 | Beta-ready (engineering) | **Yes** |
+| Commerce staging gate step 0 (beta QA reset) | **Pending** |
 | Commerce staging gate step 1 (`staging:validate`) | **Pass** |
 | Commerce staging gate steps 2–3 (manual) | **Pending** |
 | Staging-signed | **No** |

@@ -13,6 +13,8 @@ Run in **staging** with Stripe test mode, Shippo test token (when label flows ar
 
 **Policy:** No new commerce feature work until the commerce staging gate is closed — see [`LIVE_AUCTION_E2E_QA.md`](./LIVE_AUCTION_E2E_QA.md#commerce-staging-gate).
 
+**Prerequisite:** [`beta-qa-reset-checklist.md`](./beta-qa-reset-checklist.md) (sellerqa / buyerqa on `xkaaicokjgmpbctfermj`).
+
 ---
 
 ## Release status
@@ -32,9 +34,10 @@ Same gate as live auction — **all three steps must Pass** before the commerce 
 
 | Step | Gate | Pass/Fail | Date | Build / env | Notes |
 |------|------|-----------|------|-------------|-------|
+| 0 | [Beta QA reset](./beta-qa-reset-checklist.md) | **Pending** | | | sellerqa / buyerqa |
 | 1 | `web/.env` + `npm run staging:validate` | **Pass** | 2026-05-19 | integration DB | See [live auction doc § gate](./LIVE_AUCTION_E2E_QA.md#commerce-staging-gate) |
-| 2 | Live Auction E2E manual | **Pending** | | | |
-| 3 | **Orders & Fulfillment** manual ([checklist below](#orders--fulfillment-manual-staging-checklist)) | **Pending** | | | Includes [unpaid ship guard](./bugs/unpaid-order-fulfillment-guard.md) verify |
+| 2 | Live Auction E2E manual | **Pending** | | | After step 0 |
+| 3 | **Orders & Fulfillment** manual ([checklist below](#orders--fulfillment-manual-staging-checklist)) | **Pending** | | | After step 2 |
 
 **Commerce loop staging-signed** = steps **1 + 2 + 3** all **Pass**. Until then: **not staging-signed**, **not launch-signed**.
 
@@ -238,6 +241,7 @@ Fill during staging. One row per flow; extend Notes with order ids.
 
 | Milestone | Status |
 |-----------|--------|
+| Commerce staging gate step 0 (beta QA reset) | **Pending** |
 | Commerce staging gate step 1 (`staging:validate`) | **Pass** |
 | Commerce staging gate steps 2–3 (manual) | **Pending** |
 | Staging-signed | **No** |

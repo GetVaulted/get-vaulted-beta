@@ -4,7 +4,9 @@ Mobile beta QA fails when **Supabase Auth** (mobile JWT) and **Prisma Postgres**
 
 ## Single source of truth
 
-Everything must share one **Supabase project ref** (subdomain), e.g. `xkaaicokjgmpbctfermj`:
+**Beta QA canonical project:** `xkaaicokjgmpbctfermj` (`https://xkaaicokjgmpbctfermj.supabase.co`).
+
+Everything must share one **Supabase project ref** (subdomain):
 
 | Surface | Variable | Must match ref |
 |---------|----------|----------------|
@@ -35,10 +37,12 @@ Use the **Transaction pooler** URI for serverless (append `?pgbouncer=true&conne
 From `web/`:
 
 ```bash
-npx tsx scripts/verify-beta-env-alignment.ts
-npx tsx scripts/verify-beta-env-alignment.ts brysmith31@gmail.com
-npx tsx scripts/diagnose-seller-user.ts brysmith31
+npm run verify:beta-env
+npx tsx scripts/verify-beta-env-alignment.ts sellerqa@getvaultedtest.com
+npx tsx scripts/diagnose-seller-user.ts sellerqa
 ```
+
+**Clean beta QA:** use [`beta-qa-reset-checklist.md`](./beta-qa-reset-checklist.md) with `sellerqa@getvaultedtest.com` / `buyerqa@getvaultedtest.com` — not legacy `brysmith31`.
 
 Interpretation:
 
