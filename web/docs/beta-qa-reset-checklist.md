@@ -64,6 +64,7 @@ Mobile uses **Supabase Auth**; beta web sign-in must validate the same credentia
 - [ ] Sign in at `/signin` with **`sellerqa@getvaultedtest.com`** (same password as mobile). Session loads; Seller HQ / account pages work.
 - [ ] Web **Join** may show “email not configured” without `RESEND_API_KEY` — that only blocks **web** sign-up, not mobile-created accounts.
 - [ ] **Buyer mobile discovery:** `EXPO_PUBLIC_SITE_URL=https://beta.shopgetvaulted.com` in the buyer build. Pull-to-refresh on **Live** tab; `sellerqa` scheduled + live rooms appear (from `GET /api/live-rooms`, not legacy Supabase `live_shows`).
+- [ ] **Seller payout stability:** After Stripe setup, pull-to-refresh Seller HQ — payout stays **Ready/Complete** across app restart (same `sellerqa` email → one Connect account; check `GET /api/stripe/connect/status` `stripe_account_id` unchanged).
 
 ---
 

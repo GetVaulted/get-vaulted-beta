@@ -1,7 +1,8 @@
+import { stripeConnectSnapshotScore, type StripeConnectSnapshotFields } from "@/lib/stripe-connect-snapshot-score";
+
 /** Minimal row shape for resolving which Prisma `User.id` mobile APIs should use. */
-export type PrismaUserStripePick = {
+export type PrismaUserStripePick = StripeConnectSnapshotFields & {
   id: string;
-  stripeAccountId: string | null;
 };
 
 function hasStripeAccountId(row: PrismaUserStripePick | null | undefined): boolean {
@@ -9,8 +10,8 @@ function hasStripeAccountId(row: PrismaUserStripePick | null | undefined): boole
 }
 
 /**
- * When Supabase auth id and email map to different Prisma users, prefer the row that
- * already has Connect onboarding (common when web NextAuth created the seller first).
+ * When Supabase auth id and email map to different Prisma users, prefer the row with the
+ * strongest Connect snapshot (not always the Supabase-id row).
  */
 export function pickPrismaUserIdForSupabaseSession(args: {
   supabaseUserId: string;
@@ -24,6 +25,11 @@ export function pickPrismaUserIdForSupabaseSession(args: {
     const emailHasStripe = hasStripeAccountId(byEmail);
     if (emailHasStripe && !idHasStripe) return byEmail.id;
     if (idHasStripe && !emailHasStripe) return byId.id;
+
+    const idScore = stripeConnectSnapshotScore(byId);
+    const emailScore = stripeConnectSnapshotScore(byEmail);
+    if (emailScore > idScore) return byEmail.id;
+    if (idScore > emailScore) return byId.id;
     return byId.id;
   }
 

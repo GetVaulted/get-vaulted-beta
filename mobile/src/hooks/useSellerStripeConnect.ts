@@ -16,7 +16,11 @@ export function useSellerStripeConnect(accessToken: string | undefined) {
     }
     setLoading(true);
     const { status: s, error } = await fetchSellerConnectStatus(accessToken);
-    setStatus(s);
+    setStatus((prev) => {
+      if (s) return s;
+      if (error && prev?.stripe_account_id?.trim()) return prev;
+      return s;
+    });
     setStatusError(error);
     setLoading(false);
     return s;

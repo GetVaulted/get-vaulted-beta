@@ -39,15 +39,23 @@ async function allocateUsername(base: string): Promise<string> {
 export async function ensurePrismaUserForSupabaseAuth(supabaseUser: SupabaseAuthUser): Promise<string | null> {
   const email = normalizeEmail(supabaseUser.email ?? undefined);
 
+  const stripePickSelect = {
+    id: true,
+    stripeAccountId: true,
+    stripeOnboardingComplete: true,
+    stripeChargesEnabled: true,
+    stripePayoutsEnabled: true,
+  } as const;
+
   const byId = await prisma.user.findUnique({
     where: { id: supabaseUser.id },
-    select: { id: true, stripeAccountId: true },
+    select: stripePickSelect,
   });
 
   const byEmail = email
     ? await prisma.user.findUnique({
         where: { email },
-        select: { id: true, stripeAccountId: true },
+        select: stripePickSelect,
       })
     : null;
 

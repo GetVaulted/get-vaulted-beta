@@ -70,6 +70,13 @@ export async function GET(request: Request) {
         payoutSetupSubmitted =
           Boolean(account.details_submitted) && currentlyDue.length === 0;
         const { data, onboardingUiStatus: liveUi } = connectFieldsFromStripeAccount(account);
+        if (
+          user.stripeOnboardingComplete &&
+          data.stripeChargesEnabled === true &&
+          data.stripePayoutsEnabled === true
+        ) {
+          data.stripeOnboardingComplete = true;
+        }
         try {
           await persistStripeConnectSnapshot(auth.userId, data);
           await syncStripeConnectUserRowsForAccountId(user.stripeAccountId);

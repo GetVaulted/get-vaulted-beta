@@ -11,11 +11,32 @@ describe("pickPrismaUserIdForSupabaseSession", () => {
     expect(id).toBe("legacy-cuid");
   });
 
-  it("keeps Supabase-id user when it already has Stripe", () => {
+  it("prefers the row with the stronger Connect snapshot when both have Stripe", () => {
     const id = pickPrismaUserIdForSupabaseSession({
       supabaseUserId: "supabase-uuid",
-      byId: { id: "supabase-uuid", stripeAccountId: "acct_mobile" },
-      byEmail: { id: "legacy-cuid", stripeAccountId: "acct_web" },
+      byId: { id: "supabase-uuid", stripeAccountId: "acct_1", stripeOnboardingComplete: false },
+      byEmail: {
+        id: "legacy-cuid",
+        stripeAccountId: "acct_1",
+        stripeOnboardingComplete: true,
+        stripeChargesEnabled: true,
+        stripePayoutsEnabled: true,
+      },
+    });
+    expect(id).toBe("legacy-cuid");
+  });
+
+  it("keeps Supabase-id user when its snapshot is stronger", () => {
+    const id = pickPrismaUserIdForSupabaseSession({
+      supabaseUserId: "supabase-uuid",
+      byId: {
+        id: "supabase-uuid",
+        stripeAccountId: "acct_mobile",
+        stripeOnboardingComplete: true,
+        stripeChargesEnabled: true,
+        stripePayoutsEnabled: true,
+      },
+      byEmail: { id: "legacy-cuid", stripeAccountId: "acct_web", stripeOnboardingComplete: false },
     });
     expect(id).toBe("supabase-uuid");
   });

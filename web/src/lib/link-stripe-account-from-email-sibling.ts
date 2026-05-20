@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { stripeConnectSnapshotScore } from "@/lib/stripe-connect-snapshot-score";
 
 function normalizeEmail(email: string | undefined | null): string | null {
   const e = email?.trim().toLowerCase();
@@ -13,20 +14,6 @@ const stripeSnapshotSelect = {
   stripeRequirementsDue: true,
   stripeVerificationStatus: true,
 } as const;
-
-function snapshotScore(row: {
-  stripeAccountId: string | null;
-  stripeOnboardingComplete: boolean;
-  stripeChargesEnabled: boolean | null;
-  stripePayoutsEnabled: boolean | null;
-}): number {
-  let score = 0;
-  if (row.stripeAccountId?.trim()) score += 1;
-  if (row.stripeOnboardingComplete) score += 4;
-  if (row.stripeChargesEnabled === true) score += 2;
-  if (row.stripePayoutsEnabled === true) score += 2;
-  return score;
-}
 
 /**
  * When Supabase auth maps to a User row missing Connect data, copy the fullest snapshot
@@ -55,8 +42,19 @@ export async function syncStripeConnectFromEmailSibling(userId: string): Promise
   const donorId = donor?.stripeAccountId?.trim();
   if (!donor || !donorId) return user.stripeAccountId?.trim() ?? null;
 
-  if (snapshotScore(user) >= snapshotScore({ ...user, ...donor, stripeAccountId: donorId })) {
-    return user.stripeAccountId?.trim() ?? null;
+  const userAcct = user.stripeAccountId?.trim() ?? null;
+  if (userAcct && donorId !== userAcct) {
+    console.warn("[syncStripeConnectFromEmailSibling] skip — different Connect accounts on same email", {
+      userId,
+      userAcct,
+      donorAcct: donorId,
+    });
+    return userAcct;
+  }
+
+  const mergedDonorView = { ...user, ...donor, stripeAccountId: donorId };
+  if (stripeConnectSnapshotScore(user) >= stripeConnectSnapshotScore(mergedDonorView)) {
+    return userAcct ?? null;
   }
 
   await prisma.user.update({
