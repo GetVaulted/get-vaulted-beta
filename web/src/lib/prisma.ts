@@ -1,5 +1,6 @@
 import { PrismaClient } from "@/generated/prisma/client";
 import { createPostgresPrismaClient } from "@/lib/prisma-pg-factory";
+import { resolveDatabaseUrl } from "@/lib/resolve-database-url";
 
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
@@ -14,23 +15,7 @@ declare global {
 }
 
 function requireDatabaseUrl(): string {
-  let url = process.env.DATABASE_URL?.trim() ?? "";
-  if (!url) {
-    throw new Error(
-      "DATABASE_URL is not set. Add your Supabase Postgres connection string to .env or .env.local (see .env.example).",
-    );
-  }
-  // Copy/paste mistakes: strip a single pair of wrapping quotes
-  if (
-    url.length >= 2 &&
-    ((url.startsWith('"') && url.endsWith('"')) || (url.startsWith("'") && url.endsWith("'")))
-  ) {
-    url = url.slice(1, -1).trim();
-  }
-  if (!url) {
-    throw new Error("DATABASE_URL is empty after trimming.");
-  }
-  return url;
+  return resolveDatabaseUrl();
 }
 
 function resolveClient(): PrismaClient {
