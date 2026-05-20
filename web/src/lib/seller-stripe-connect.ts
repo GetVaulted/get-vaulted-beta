@@ -101,24 +101,36 @@ export async function ensureSellerStripeExpressAccountId(
   let accountId = user.stripeAccountId ?? null;
   if (!accountId) {
     const sellerUrl = sellerStripeBusinessProfileUrl(user);
-    const acct = await stripe.accounts.create({
-      type: "express",
-      country: "US",
-      email: user.email ?? undefined,
-      business_type: "individual",
-      business_profile: {
-        name: user.username?.trim() ? `${user.username.trim()} on Get Vaulted` : "Get Vaulted Seller",
-        product_description:
-          "Seller offers trading cards, collectibles, and live auction items through the Get Vaulted marketplace.",
-        url: sellerUrl,
-        mcc: "5999",
-      },
-      capabilities: {
-        card_payments: { requested: true },
-        transfers: { requested: true },
-      },
-      metadata: { userId: user.id },
-    });
+    const profileBase = {
+      name: user.username?.trim() ? `${user.username.trim()} on Get Vaulted` : "Get Vaulted Seller",
+      product_description:
+        "Seller offers trading cards, collectibles, and live auction items through the Get Vaulted marketplace.",
+      mcc: "5999" as const,
+    };
+    const createPayload = (url: string | undefined) =>
+      ({
+        type: "express" as const,
+        country: "US" as const,
+        email: user.email ?? undefined,
+        business_type: "individual" as const,
+        business_profile: url ? { ...profileBase, url } : profileBase,
+        capabilities: {
+          card_payments: { requested: true as const },
+          transfers: { requested: true as const },
+        },
+        metadata: { userId: user.id },
+      }) satisfies Stripe.AccountCreateParams;
+
+    let acct: Stripe.Account;
+    try {
+      acct = await stripe.accounts.create(createPayload(sellerUrl));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const urlRejected = /url|business_profile|invalid/i.test(msg);
+      if (!urlRejected) throw e;
+      const fallbackUrl = publicBaseForStripeBusinessProfile();
+      acct = await stripe.accounts.create(createPayload(fallbackUrl));
+    }
     accountId = acct.id;
     await db.user.update({
       where: { id: user.id },
