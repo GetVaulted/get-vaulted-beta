@@ -56,6 +56,14 @@ This creates Auth + Prisma `User` rows. It does **not** complete Stripe — sell
 
 **Or** sign up manually in the app (validates full signup UX).
 
+### Web sign-in (PC) — required before auction QA
+
+Mobile uses **Supabase Auth**; beta web sign-in must validate the same credentials (not legacy Prisma-only passwords).
+
+- [ ] After Netlify deploy with unified web auth: open `https://beta.shopgetvaulted.com/api/auth/config` — `projectRef` = `xkaaicokjgmpbctfermj`, `alignedWithBeta` = true, `webSignInSupportsSupabaseAuth` = true.
+- [ ] Sign in at `/signin` with **`sellerqa@getvaultedtest.com`** (same password as mobile). Session loads; Seller HQ / account pages work.
+- [ ] Web **Join** may show “email not configured” without `RESEND_API_KEY` — that only blocks **web** sign-up, not mobile-created accounts.
+
 ---
 
 ## Step 1 — Fresh seller path

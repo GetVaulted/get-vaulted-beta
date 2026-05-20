@@ -42,7 +42,7 @@ function SignInForm() {
       });
       if (!res?.ok || res.error) {
         setError(
-          "Invalid email or password. If you just signed up, confirm the 6-digit code from your email first — new accounts cannot sign in until verified.",
+          "Invalid email or password. Web sign-up needs email verification; accounts created in the mobile app use the same email and password here once Supabase env is aligned on beta.",
         );
         return;
       }
@@ -126,7 +126,8 @@ function SignInForm() {
       </form>
 
       <p className="mt-5 text-center text-xs leading-relaxed text-zinc-600 sm:text-left">
-        New accounts must enter the verification code emailed after sign-up before signing in here.
+        Signed up on the mobile app? Use the same email and password. Signed up on the web? Enter the
+        verification code from your email before signing in.
       </p>
       <p className="mt-3 text-center text-xs text-zinc-600 sm:text-left">
         New here?{" "}

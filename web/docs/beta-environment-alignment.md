@@ -19,6 +19,19 @@ Everything must share one **Supabase project ref** (subdomain):
 
 `EXPO_PUBLIC_SITE_URL=https://beta.shopgetvaulted.com` only selects the **API host** (Next.js on Netlify). It does **not** choose the database.
 
+## Auth (mobile vs web)
+
+| Surface | Sign-up | Sign-in |
+|---------|---------|---------|
+| Mobile | Supabase `auth.signUp` | Supabase `auth.signInWithPassword` |
+| Web `/signin` | Prisma + Resend verification (`/api/register`) | NextAuth credentials: Prisma `passwordHash` **or** Supabase `signInWithPassword` (same as mobile) |
+
+Mobile-created users live in **Supabase Auth** first. Web sign-in calls the same Supabase project (`NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY`), then links/creates the Prisma `User` row.
+
+**Beta check:** `GET https://beta.shopgetvaulted.com/api/auth/config` → `projectRef` must be `xkaaicokjgmpbctfermj`.
+
+**Web sign-up blocked on beta** with “email not configured” means `RESEND_API_KEY` is unset in production — use mobile sign-up or the seed script; do not treat that as a Supabase project mismatch.
+
 ## Local `web/.env` gotcha
 
 `@/lib/prisma` reads **`DATABASE_URL` first**, then falls back to **`INTEGRATION_DATABASE_URL`**.

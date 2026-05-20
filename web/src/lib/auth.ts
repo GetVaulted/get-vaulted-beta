@@ -2,6 +2,7 @@ import type { NextAuthOptions } from "next-auth";
 import { getServerSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
+import { authorizeCredentialsViaSupabase } from "@/lib/authenticate-supabase-credentials";
 import { expiredJwtToken, resolveAuthUserForToken } from "@/lib/auth-resolve-user";
 import { prisma } from "@/lib/prisma";
 
@@ -34,19 +35,21 @@ export const authOptions: NextAuthOptions = {
             emailVerified: true,
           },
         });
-        if (!user?.passwordHash) return null;
-        if (user.suspendedAt) return null;
-        if (!user.emailVerified) return null;
 
-        const ok = await bcrypt.compare(password, user.passwordHash);
-        if (!ok) return null;
+        if (user?.passwordHash && !user.suspendedAt && user.emailVerified) {
+          const ok = await bcrypt.compare(password, user.passwordHash);
+          if (ok) {
+            return {
+              id: user.id,
+              email: user.email,
+              name: user.username,
+              role: user.role as "user" | "admin",
+            };
+          }
+        }
 
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.username,
-          role: user.role as "user" | "admin",
-        };
+        // Mobile / Supabase Auth accounts (no Prisma passwordHash)
+        return authorizeCredentialsViaSupabase(email, password);
       },
     }),
   ],
