@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -23,16 +23,21 @@ import { LiveNowPreviewCard } from '../components/home/LiveNowPreviewCard';
 import { VaultDropCard } from '../components/home/VaultDropCard';
 import { LiveEmptyBroadcastBlock } from '../components/live/LiveEmptyBroadcastBlock';
 import { SearchBar } from '../components/ui/SearchBar';
-import { discoveryCategoryChips, filterShowsByChip } from '../data/categoryTaxonomy';
+import { discoveryCategoryChips, filterScheduledByChip, filterShowsByChip } from '../data/categoryTaxonomy';
+import { useLiveDiscoverySync } from '../hooks/useLiveDiscoverySync';
 import {
   clearHomeFeedCache,
   getHomeFeedMemorySnapshot,
   hasWarmHomeFeedCache,
   loadHomeFeedCache,
   saveHomeFeedCache,
-  subscribeHomeFeedInvalidation,
 } from '../lib/homeFeedCache';
 import { orderLiveDiscoveryRooms, type OrderedLiveRoom } from '../lib/liveDiscoveryOrder';
+import {
+  markLiveDiscoveryFetchAttempt,
+  markLiveDiscoveryFetchResult,
+  shouldThrottleLiveDiscoveryFetch,
+} from '../lib/liveDiscoveryFetchPolicy';
 import { isSupabaseConfigured } from '../lib/supabase';
 import {
   formatLiveDiscoveryMetaLine,
@@ -121,25 +126,30 @@ export function LiveDiscoveryScreen() {
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
   const [discoveryMetaLine, setDiscoveryMetaLine] = useState(() => formatLiveDiscoveryMetaLine());
 
-  const load = useCallback(async (opts?: { hadCache?: boolean; bustCache?: boolean }) => {
+  const load = useCallback(async (opts?: { hadCache?: boolean; bustCache?: boolean; force?: boolean }) => {
     if (!isSupabaseConfigured() && !getWebApiBaseUrl()) {
       setDiscoveryError('Set EXPO_PUBLIC_SITE_URL to https://beta.shopgetvaulted.com for live discovery.');
       setInitialLoad(false);
       return;
     }
-    if (!getWebApiBaseUrl()) {
-      setDiscoveryError('EXPO_PUBLIC_SITE_URL is missing — live shows from web will not load.');
-    } else {
-      setDiscoveryError(null);
-    }
+    const force = Boolean(opts?.force || opts?.bustCache);
+    if (shouldThrottleLiveDiscoveryFetch({ force })) return;
+
+    markLiveDiscoveryFetchAttempt();
     if (opts?.hadCache) setRefreshing(true);
     if (opts?.bustCache) await clearHomeFeedCache();
     try {
       const pack = await fetchLiveShowsForDiscovery();
+      setDiscoveryMetaLine(formatLiveDiscoveryMetaLine(getLiveDiscoveryMeta()));
+      if (!pack.meta.success) {
+        setDiscoveryError(pack.meta.error);
+        markLiveDiscoveryFetchResult(false, pack.meta.error);
+        return;
+      }
+      markLiveDiscoveryFetchResult(true);
+      setDiscoveryError(null);
       setLiveAll(pack.live);
       setScheduledAll(pack.scheduled);
-      setDiscoveryMetaLine(formatLiveDiscoveryMetaLine(getLiveDiscoveryMeta()));
-      if (pack.meta.error) setDiscoveryError(pack.meta.error);
       const prev = getHomeFeedMemorySnapshot();
       void saveHomeFeedCache({
         live: pack.live,
@@ -147,7 +157,7 @@ export function LiveDiscoveryScreen() {
         listings: prev?.listings ?? [],
       });
     } catch {
-      /* keep cached rows */
+      markLiveDiscoveryFetchResult(false, 'Discovery fetch failed');
     } finally {
       setInitialLoad(false);
       setRefreshing(false);
@@ -160,24 +170,20 @@ export function LiveDiscoveryScreen() {
       const warm = hasWarmHomeFeedCache();
       const cache = warm ? getHomeFeedMemorySnapshot() : await loadHomeFeedCache();
       if (cancelled) return;
-      const hadCache = Boolean(cache?.live.length || cache?.scheduled.length || liveAll.length || scheduledAll.length);
+      const hadCache = Boolean(cache?.live.length || cache?.scheduled.length);
       if (cache) {
-        if (cache.live.length && !liveAll.length) setLiveAll(cache.live);
-        if (cache.scheduled.length && !scheduledAll.length) setScheduledAll(cache.scheduled);
+        if (cache.live.length) setLiveAll(cache.live);
+        if (cache.scheduled.length) setScheduledAll(cache.scheduled);
         if (cache.live.length || cache.scheduled.length) setInitialLoad(false);
       }
-      await load({ hadCache });
+      await load({ hadCache, force: !hadCache });
     })();
     return () => {
       cancelled = true;
     };
-  }, [load, liveAll.length, scheduledAll.length]);
-
-  useEffect(() => {
-    return subscribeHomeFeedInvalidation(() => {
-      void load();
-    });
   }, [load]);
+
+  useLiveDiscoverySync((opts) => load({ hadCache: opts?.hadCache, bustCache: opts?.bustCache, force: opts?.force }));
 
   useEffect(() => {
     return subscribeLiveDiscoveryMeta(() => {
@@ -185,15 +191,11 @@ export function LiveDiscoveryScreen() {
     });
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      if (!hasWarmHomeFeedCache()) {
-        void load();
-      }
-    }, [load]),
-  );
-
   const filteredLive = useMemo(() => filterShowsByChip(liveAll, chip), [liveAll, chip]);
+  const filteredScheduled = useMemo(
+    () => filterScheduledByChip(scheduledAll, chip),
+    [scheduledAll, chip],
+  );
   const orderedRooms = useMemo(() => orderLiveDiscoveryRooms(filteredLive), [filteredLive]);
 
   const openShow = (streamId: string) => {
@@ -204,8 +206,12 @@ export function LiveDiscoveryScreen() {
     navigation.navigate('LiveRoom', { streamId });
   };
 
-  const liveEmpty = !initialLoad && liveAll.length === 0 && scheduledAll.length === 0;
-  const filterEmpty = !initialLoad && liveAll.length > 0 && filteredLive.length === 0;
+  const liveEmpty = !initialLoad && liveAll.length === 0 && scheduledAll.length === 0 && !discoveryError;
+  const filterEmpty =
+    !initialLoad &&
+    liveAll.length > 0 &&
+    filteredLive.length === 0 &&
+    filteredScheduled.length === 0;
   const showSkeleton = initialLoad && orderedRooms.length === 0 && scheduledAll.length === 0;
 
   const renderRoom = ({ item }: { item: OrderedLiveRoom }) => (
@@ -251,7 +257,14 @@ export function LiveDiscoveryScreen() {
           );
         })}
       </ScrollView>
-      {discoveryError ? <Text style={styles.configHint}>{discoveryError}</Text> : null}
+      {discoveryError ? (
+        <View style={styles.warnBanner}>
+          <Ionicons name="cloud-offline-outline" size={14} color={colors.live} style={styles.warnIcon} />
+          <Text style={styles.configHint} numberOfLines={3}>
+            {discoveryError}
+          </Text>
+        </View>
+      ) : null}
       <Text style={styles.syncHint}>{discoveryMetaLine}</Text>
       {refreshing && (orderedRooms.length > 0 || scheduledAll.length > 0) ? (
         <Text style={styles.syncHint}>Updating vault events…</Text>
@@ -261,7 +274,7 @@ export function LiveDiscoveryScreen() {
           <LiveRoomCardSkeletonRail count={6} />
         </View>
       ) : null}
-      {!showSkeleton && !liveEmpty && !filterEmpty ? (
+      {!showSkeleton && !liveEmpty && !filterEmpty && orderedRooms.length > 0 ? (
         <View style={styles.liveHead}>
           <Text style={styles.liveTitle}>Live now</Text>
           <Text style={styles.liveCount}>{orderedRooms.length} rooms</Text>
@@ -299,12 +312,34 @@ export function LiveDiscoveryScreen() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => load({ hadCache: true, bustCache: true })}
+            onRefresh={() => load({ hadCache: true, bustCache: true, force: true })}
             tintColor={colors.gold}
           />
         }
         renderItem={renderRoom}
-        ListFooterComponent={<View style={{ height: 120 }} />}
+        ListFooterComponent={
+          !showSkeleton && filteredScheduled.length > 0 ? (
+            <View style={styles.upcomingBlock}>
+              <View style={styles.liveHead}>
+                <Text style={styles.liveTitle}>Upcoming vault events</Text>
+                <Text style={styles.liveCount}>{filteredScheduled.length} scheduled</Text>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.upcomingRail}>
+                {filteredScheduled.map((event) => (
+                  <VaultDropCard
+                    key={event.id}
+                    event={event}
+                    onRemind={() => {}}
+                    onPress={() => openShow(event.id)}
+                  />
+                ))}
+              </ScrollView>
+              <View style={{ height: 120 }} />
+            </View>
+          ) : (
+            <View style={{ height: 120 }} />
+          )
+        }
       />
     </View>
   );
@@ -326,10 +361,27 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   configHint: {
+    flex: 1,
     fontSize: 11,
     fontWeight: '600',
     color: colors.live,
+    lineHeight: 15,
+  },
+  warnBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.xs,
+    minHeight: 44,
     marginBottom: spacing.sm,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,80,80,0.22)',
+    backgroundColor: 'rgba(40,18,18,0.55)',
+  },
+  warnIcon: {
+    marginTop: 1,
   },
   upcomingBlock: {
     marginTop: spacing.lg,

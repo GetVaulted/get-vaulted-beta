@@ -14,7 +14,8 @@
  * **Kill switch:** `LIVE_MARKETPLACE_COMING_SOON=1` forces live off even when otherwise allowed.
  *
  * When blocked, middleware redirects `/live`, `/live/*`, `/seller/live/*` → `/coming-soon` and
- * returns 503 for `/api/live-rooms/*` and `/api/seller/live-readiness`.
+ * returns 503 for mutating `/api/live-rooms/*` paths. Public buyer GETs (`/api/live-rooms`, `/api/live-rooms/{id}`)
+ * stay available for mobile/web discovery.
  */
 
 const DEFAULT_BETA_LIVE_HOSTS = ["beta.shopgetvaulted.com"];

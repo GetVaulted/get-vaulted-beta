@@ -52,9 +52,11 @@ export async function getLiveRoomHostAccess(
   return { ok: true, room, isAdmin: Boolean(isAdmin) };
 }
 
-export function parseTeamLabelsJson(raw: string): string[] {
+export function parseTeamLabelsJson(raw: string | null | undefined): string[] {
+  const s = raw?.trim();
+  if (!s) return [];
   try {
-    const j = JSON.parse(raw) as unknown;
+    const j = JSON.parse(s) as unknown;
     if (!Array.isArray(j)) return [];
     return j.filter((x): x is string => typeof x === "string" && x.trim().length > 0).map((s) => s.trim().slice(0, 200));
   } catch {

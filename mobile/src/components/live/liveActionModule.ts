@@ -12,17 +12,154 @@ export function resolveLiveRoomFormat(stream: LiveStream): LiveRoomFormat {
   return 'auction';
 }
 
-/** Buyer lane: break spot controls only when API says `break`. */
+/** Buyer lane: break spot controls only when API confirms a break room. */
 export function resolveBuyerRoomKind(
   snap: LiveRoomBuyerSnapshot | null | undefined,
   stream: LiveStream,
 ): 'break' | 'auction' {
   if (snap?.roomType === 'break') return 'break';
   if (snap?.roomType === 'auction' || snap?.roomType === 'sale') return 'auction';
-  const format = resolveLiveRoomFormat(stream);
-  if (format === 'break') return 'break';
-  if (format === 'hybrid' && effectiveHybridFocus(stream) === 'break') return 'break';
+
+  if (stream.liveRoomFormat === 'break') return 'break';
+  if (stream.liveRoomFormat === 'auction' || stream.liveRoomFormat === 'shop') return 'auction';
+  if (stream.liveRoomFormat === 'hybrid') {
+    return effectiveHybridFocus(stream) === 'break' ? 'break' : 'auction';
+  }
+
   return 'auction';
+}
+
+/** Team-claim CTAs only when break purchases are open and no auction lot is on screen. */
+export function shouldShowBreakTeamControls(
+  snap: LiveRoomBuyerSnapshot | null | undefined,
+): boolean {
+  if (!snap || snap.roomType !== 'break' || snap.status !== 'live') return false;
+  if (snap.activeItemId) return false;
+  if (snap.breakLockPurchases || snap.breakPaused || snap.breakFull) return false;
+  const phase = snap.breakPhase;
+  if (!phase || phase === 'not_started' || phase === 'complete' || phase === 'ready' || phase === 'filling') {
+    return false;
+  }
+  return phase === 'in_progress' || phase === 'randomizing';
+}
+
+function resolveBuyerAuctionItemHud(
+  stream: LiveStream,
+  snap: LiveRoomBuyerSnapshot,
+  base: LiveCommerceHudModel,
+): LiveCommerceHudModel {
+  const nowMs = snap.fetchedAtMs ?? Date.now();
+  const itemTitle =
+    stream.currentItem?.trim() || stream.pinnedProductLabel?.trim() || stream.title?.trim() || 'Live lot';
+
+  if (!snap.activeItemId) {
+    return buildBuyerWaitingHud(base, stream.id, {
+      itemTitle: stream.currentItem?.trim() || 'Next lot',
+      stateLine: pickVaultWaitingMessage(stream.id, 'stay_locked_in'),
+    });
+  }
+
+  const current = snap.currentBidUsd ?? 0;
+  const next = snap.minNextBidUsd ?? current;
+
+  if (snap.lotBidPhase === 'bidding_open') {
+    return buildBuyerBidHud(base, {
+      itemTitle,
+      timerMmSs: auctionCountdownMmSs(snap.auctionEndsAt, nowMs),
+      currentPrefix: 'Current',
+      currentAmount: formatMoney(current),
+      winningLine: current > 0 ? 'High bid on the floor' : '',
+      stateLine: 'Bidding is live — place the next bid to take the lead.',
+      nextBidUsd: next,
+      biddingOpen: true,
+    });
+  }
+
+  if (snap.lotBidPhase === 'timer_ended_unsettled') {
+    return buildBuyerWaitingHud(base, stream.id, {
+      itemTitle,
+      stateLine: LIVE_AUCTION_BUYER_TIMER_ENDED_COPY,
+      rightLabel: 'Bidding closed',
+    });
+  }
+
+  if (snap.lotBidPhase === 'settled') {
+    return buildBuyerWaitingHud(base, stream.id, {
+      itemTitle,
+      stateLine: 'Lot closed — watch for the next item.',
+      rightLabel: 'Lot ended',
+    });
+  }
+
+  return buildBuyerBidHud(base, {
+    itemTitle,
+    timerMmSs: '—',
+    currentPrefix: 'Next bid',
+    currentAmount: next > 0 ? formatBidMoney(next) : '—',
+    winningLine: '',
+    stateLine:
+      snap.lotBidPhase === 'not_started'
+        ? pickVaultWaitingMessage(stream.id, 'controls_when_live')
+        : pickVaultWaitingMessage(stream.id, 'lot_almost_ready'),
+    nextBidUsd: next > 0 ? next : 1,
+    biddingOpen: false,
+    useSlide: false,
+  });
+}
+
+function buildBuyerWaitingHud(
+  base: LiveCommerceHudModel,
+  roomId: string,
+  opts?: { itemTitle?: string; stateLine?: string; rightLabel?: string },
+): LiveCommerceHudModel {
+  return {
+    ...base,
+    format: 'auction',
+    hybridFocus: null,
+    timerMmSs: '—',
+    itemTitle: opts?.itemTitle ?? 'Waiting for item',
+    currentPrefix: 'Status',
+    currentAmount: '—',
+    winningLine: '',
+    stateLine: opts?.stateLine ?? pickVaultWaitingMessage(roomId, 'stay_locked_in'),
+    bottomLeftLabel: 'Custom',
+    bottomRightLabel: opts?.rightLabel ?? 'Waiting for Item',
+    bottomRightIsSlide: false,
+    buyerPrimaryDisabled: true,
+    buyerSecondaryDisabled: true,
+  };
+}
+
+function buildBuyerBidHud(
+  base: LiveCommerceHudModel,
+  opts: {
+    itemTitle: string;
+    timerMmSs: string;
+    currentPrefix: string;
+    currentAmount: string;
+    winningLine: string;
+    stateLine: string | null;
+    nextBidUsd: number;
+    biddingOpen: boolean;
+    useSlide?: boolean;
+  },
+): LiveCommerceHudModel {
+  return {
+    ...base,
+    format: 'auction',
+    hybridFocus: null,
+    itemTitle: opts.itemTitle,
+    timerMmSs: opts.timerMmSs,
+    currentPrefix: opts.currentPrefix,
+    currentAmount: opts.currentAmount,
+    winningLine: opts.winningLine,
+    stateLine: opts.stateLine,
+    bottomLeftLabel: 'Custom',
+    bottomRightLabel: `Bid ${formatBidMoney(opts.nextBidUsd)}`,
+    bottomRightIsSlide: opts.biddingOpen && (opts.useSlide ?? true),
+    buyerPrimaryDisabled: !opts.biddingOpen,
+    buyerSecondaryDisabled: false,
+  };
 }
 
 function auctionCountdownMmSs(endsAt: string | null, nowMs: number): string {
@@ -37,6 +174,11 @@ export function formatMoney(n: number): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 10_000) return `$${(n / 1000).toFixed(1)}k`;
   return `$${n.toLocaleString('en-US')}`;
+}
+
+/** Bid CTA — always two decimal places (e.g. Bid $1.00). */
+export function formatBidMoney(n: number): string {
+  return `$${n.toFixed(2)}`;
 }
 
 export function formatCountdown(totalSeconds: number): string {
@@ -81,7 +223,7 @@ function nextBidAmount(stream: LiveStream): number {
 }
 
 export function effectiveHybridFocus(stream: LiveStream): HybridFocus {
-  return stream.hybridFocus ?? 'break';
+  return stream.hybridFocus ?? 'auction';
 }
 
 function formatHandle(raw: string | undefined): string {
@@ -123,6 +265,8 @@ export type LiveCommerceHudModel = {
   shopButtonLabel: string;
   /** Buyer auction: disable bid / slide when lot not open. */
   buyerPrimaryDisabled?: boolean;
+  /** Secondary ghost CTA (Custom) — disabled while waiting for host lot. */
+  buyerSecondaryDisabled?: boolean;
 };
 
 /** Two-row live commerce tile: title + bidder/amount; custom CTA + bid/slide. */
@@ -199,8 +343,8 @@ export function resolveLiveCommerceHud(stream: LiveStream): LiveCommerceHudModel
     bottomLeftDefault = 'Join Break';
     bottomRightDefault = 'Claim Team';
   } else {
-    bottomLeftDefault = 'View Details';
-    bottomRightDefault = 'Join Break';
+    bottomLeftDefault = 'Custom';
+    bottomRightDefault = 'Waiting for Item';
   }
 
   const bottomLeftLabel = stream.liveActionSecondaryLabel ?? bottomLeftDefault;
@@ -242,14 +386,6 @@ export function resolveLiveBuyerCommerceHud(
   snap: LiveRoomBuyerSnapshot | null | undefined,
 ): LiveCommerceHudModel {
   const kind = resolveBuyerRoomKind(snap, stream);
-  if (kind === 'break') {
-    return resolveLiveCommerceHud({
-      ...stream,
-      liveRoomFormat: 'break',
-      hybridFocus: 'break',
-    });
-  }
-
   const auctionStream: LiveStream = {
     ...stream,
     liveRoomFormat: 'auction',
@@ -257,120 +393,50 @@ export function resolveLiveBuyerCommerceHud(
     liveTileUseBidSlider: stream.liveTileUseBidSlider ?? true,
   };
   const base = resolveLiveCommerceHud(auctionStream);
-  const nowMs = snap?.fetchedAtMs ?? Date.now();
 
-  if (!snap || snap.status === 'scheduled') {
-    return {
-      ...base,
-      format: 'auction',
-      hybridFocus: null,
-      categoryType: 'Live auction',
-      timerMmSs: '—',
-      itemTitle: stream.pinnedProductLabel || stream.currentItem || 'Vault event',
-      currentPrefix: 'Status',
-      currentAmount: 'Soon',
-      winningLine: '',
+  if (!snap) {
+    return buildBuyerWaitingHud(base, stream.id, {
       stateLine: pickVaultWaitingMessage(stream.id, 'vault_loading'),
-      bottomLeftLabel: 'Open live room',
-      bottomRightLabel: 'Starting soon',
-      bottomRightIsSlide: false,
-      buyerPrimaryDisabled: true,
-    };
+    });
+  }
+
+  if (snap.status === 'scheduled') {
+    return buildBuyerWaitingHud(base, stream.id, {
+      itemTitle: stream.pinnedProductLabel || stream.currentItem || 'Vault event',
+      stateLine: pickVaultWaitingMessage(stream.id, 'vault_loading'),
+      rightLabel: 'Starting soon',
+    });
   }
 
   if (snap.status === 'ended') {
-    return {
-      ...base,
-      timerMmSs: '—',
-      winningLine: '',
+    return buildBuyerWaitingHud(base, stream.id, {
       stateLine: 'This show has ended.',
-      bottomLeftLabel: 'Open live room',
-      bottomRightLabel: 'Show ended',
-      bottomRightIsSlide: false,
-      buyerPrimaryDisabled: true,
-    };
+      rightLabel: 'Show ended',
+    });
   }
 
-  if (!snap.activeItemId) {
-    return {
-      ...base,
-      itemTitle: stream.currentItem?.trim() || 'Next lot',
-      timerMmSs: '—',
-      currentPrefix: 'Next bid',
-      currentAmount: '—',
-      winningLine: '',
-      stateLine: pickVaultWaitingMessage(stream.id, 'stay_locked_in'),
-      bottomLeftLabel: 'Open live room',
-      bottomRightLabel: 'Lot loading',
-      bottomRightIsSlide: false,
-      buyerPrimaryDisabled: true,
-    };
+  if (kind === 'auction' || snap.roomType === 'auction' || snap.roomType === 'sale') {
+    return resolveBuyerAuctionItemHud(stream, snap, base);
   }
 
-  const current = snap.currentBidUsd ?? 0;
-  const next = snap.minNextBidUsd ?? current;
-
-  if (snap.lotBidPhase === 'bidding_open') {
-    return {
-      ...base,
-      itemTitle: stream.currentItem?.trim() || stream.pinnedProductLabel,
-      timerMmSs: auctionCountdownMmSs(snap.auctionEndsAt, nowMs),
-      currentPrefix: 'Current',
-      currentAmount: formatMoney(current),
-      winningLine: current > 0 ? 'High bid on the floor' : '',
-      stateLine: 'Bidding is live — place the next bid to take the lead.',
-      bottomLeftLabel: 'Open live room',
-      bottomRightLabel: `Bid ${formatMoney(next)}`,
-      bottomRightIsSlide: true,
-      buyerPrimaryDisabled: false,
-    };
+  if (snap.activeItemId) {
+    return resolveBuyerAuctionItemHud(stream, snap, base);
   }
 
-  if (snap.lotBidPhase === 'timer_ended_unsettled') {
-    return {
-      ...base,
-      timerMmSs: '0:00',
-      currentPrefix: 'Current',
-      currentAmount: formatMoney(current),
-      winningLine: '',
-      stateLine: LIVE_AUCTION_BUYER_TIMER_ENDED_COPY,
-      bottomLeftLabel: 'Open live room',
-      bottomRightLabel: 'Bidding closed',
-      bottomRightIsSlide: false,
-      buyerPrimaryDisabled: true,
-    };
+  if (shouldShowBreakTeamControls(snap)) {
+    return resolveLiveCommerceHud({
+      ...stream,
+      liveRoomFormat: 'break',
+      hybridFocus: 'break',
+    });
   }
 
-  if (snap.lotBidPhase === 'settled') {
-    return {
-      ...base,
-      timerMmSs: '—',
-      currentPrefix: 'Final',
-      currentAmount: formatMoney(current),
-      winningLine: '',
-      stateLine: 'Lot closed — watch for the next item.',
-      bottomLeftLabel: 'Open live room',
-      bottomRightLabel: 'Lot ended',
-      bottomRightIsSlide: false,
-      buyerPrimaryDisabled: true,
-    };
-  }
-
-  return {
-    ...base,
-    timerMmSs: '—',
-    currentPrefix: 'Next bid',
-    currentAmount: next > 0 ? formatMoney(next) : '—',
-    winningLine: '',
+  return buildBuyerWaitingHud(base, stream.id, {
     stateLine:
-      snap.lotBidPhase === 'not_started'
-        ? pickVaultWaitingMessage(stream.id, 'controls_when_live')
-        : pickVaultWaitingMessage(stream.id, 'lot_almost_ready'),
-    bottomLeftLabel: 'Open live room',
-    bottomRightLabel: 'Bids open soon',
-    bottomRightIsSlide: false,
-    buyerPrimaryDisabled: true,
-  };
+      snap.roomType === 'break'
+        ? 'Break controls appear when the host opens team selection.'
+        : pickVaultWaitingMessage(stream.id, 'stay_locked_in'),
+  });
 }
 
 export function resolveLiveMiniTile(stream: LiveStream): LiveMiniTileModel {

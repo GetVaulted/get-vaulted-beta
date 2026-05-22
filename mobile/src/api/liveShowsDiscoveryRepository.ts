@@ -129,6 +129,7 @@ export type LiveDiscoveryFetchResult = {
     fetchedAt: number;
     apiBaseUrl: string | null;
     error: string | null;
+    success: boolean;
   };
 };
 
@@ -146,6 +147,7 @@ export async function fetchLiveShowsForDiscovery(): Promise<LiveDiscoveryFetchRe
         fetchedAt,
         apiBaseUrl: apiBase,
         error: null,
+        success: true,
       };
       setLiveDiscoveryMeta(meta);
       return { ...pack, meta };
@@ -157,6 +159,7 @@ export async function fetchLiveShowsForDiscovery(): Promise<LiveDiscoveryFetchRe
         fetchedAt,
         apiBaseUrl: apiBase,
         error: msg,
+        success: false,
       };
       setLiveDiscoveryMeta(meta);
       return { live: [], scheduled: [], meta };
@@ -170,6 +173,7 @@ export async function fetchLiveShowsForDiscovery(): Promise<LiveDiscoveryFetchRe
       fetchedAt,
       apiBaseUrl: null,
       error: 'Set EXPO_PUBLIC_SITE_URL to your web API host.',
+      success: false,
     };
     setLiveDiscoveryMeta(meta);
     return { live: [], scheduled: [], meta };
@@ -187,6 +191,7 @@ export async function fetchLiveShowsForDiscovery(): Promise<LiveDiscoveryFetchRe
       fetchedAt,
       apiBaseUrl: null,
       error: error?.message ?? 'No rows in live_shows_public',
+      success: false,
     };
     setLiveDiscoveryMeta(meta);
     return { live: [], scheduled: [], meta };
@@ -205,6 +210,7 @@ export async function fetchLiveShowsForDiscovery(): Promise<LiveDiscoveryFetchRe
     fetchedAt,
     apiBaseUrl: null,
     error: null,
+    success: true,
   };
   setLiveDiscoveryMeta(meta);
   return { live, scheduled, meta };

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
 import { compressImageFileToBlob } from "@/lib/listing-image-compress";
 import { logLiveDebugEvent } from "@/lib/live-debug";
+import { notifyLiveDiscoveryChanged } from "@/lib/notify-live-discovery-changed";
 import type { LiveRoomListApiRow } from "@/lib/live-room-directory-mapper";
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import type { LiveShowReadiness } from "@/lib/live-show-readiness-types";
@@ -570,6 +571,7 @@ export function SellerLivePage() {
       await loadRooms();
       setSelectedId(j.id);
       router.refresh();
+      notifyLiveDiscoveryChanged();
       if (goLater) {
         await loadDetail(j.id, { trustSelection: true });
       } else {

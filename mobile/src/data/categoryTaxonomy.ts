@@ -1,4 +1,4 @@
-import type { CategoryId, LiveStream } from '../types';
+import type { CategoryId, LiveStream, ScheduledStream } from '../types';
 import { formatLiveRoomCategoryLabel } from './categoryDisplayShared';
 
 /** Discovery filter chips — premium live collectible lanes. */
@@ -61,4 +61,14 @@ function showMatchesChip(show: LiveStream, chip: string): boolean {
 export function filterShowsByChip(shows: LiveStream[], chip: string): LiveStream[] {
   if (chip === 'All') return shows;
   return shows.filter((s) => showMatchesChip(s, chip));
+}
+
+export function filterScheduledByChip(events: ScheduledStream[], chip: string): ScheduledStream[] {
+  if (chip === 'All') return events;
+  return events.filter((s) => {
+    const lane = categoryMeta[s.category]?.label ?? '';
+    if (lane === chip) return true;
+    if (chip === 'Vault Drops') return true;
+    return false;
+  });
 }

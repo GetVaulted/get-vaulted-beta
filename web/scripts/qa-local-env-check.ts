@@ -277,23 +277,38 @@ async function main() {
   const apiBase = parseApiBaseArg();
   try {
     const res = await fetch(`${apiBase}/api/live-rooms?limit=40`, {
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        "X-GV-Client": "getvaulted-mobile",
+      },
+      cache: "no-store",
       signal: AbortSignal.timeout(12_000),
     });
+    let body: { rooms?: unknown[]; error?: string; code?: string; detail?: string } = {};
+    try {
+      body = (await res.json()) as typeof body;
+    } catch {
+      /* non-JSON */
+    }
     if (!res.ok) {
+      const hint =
+        res.status === 403
+          ? "403 — wrong API host, deploy password, or dev origin block. Use https://beta.shopgetvaulted.com in mobile EXPO_PUBLIC_SITE_URL."
+          : res.status === 503 && body.code === "LIVE_COMING_SOON"
+            ? "503 LIVE_COMING_SOON — set LIVE_MARKETPLACE_ENABLED=1 or deploy to beta host."
+            : body.detail ?? body.error ?? `HTTP ${res.status}`;
       record(
-        "Live rooms API",
+        "Live rooms API (mobile discovery)",
         false,
-        `${apiBase}/api/live-rooms → HTTP ${res.status} (is \`npm run dev\` running?)`,
+        `${apiBase}/api/live-rooms → ${hint}`,
       );
     } else {
-      const body = (await res.json()) as { rooms?: { sellerUsername?: string; status?: string }[] };
-      const rooms = body.rooms ?? [];
+      const rooms = (body.rooms ?? []) as { sellerUsername?: string; status?: string }[];
       const sellerRooms = rooms.filter(
         (r) => (r.sellerUsername ?? "").toLowerCase() === BETA_QA_SELLER_USERNAME,
       );
       record(
-        "Live rooms API",
+        "Live rooms API (mobile discovery)",
         true,
         `${rooms.length} public room(s); ${sellerRooms.length} for @${BETA_QA_SELLER_USERNAME}`,
       );
@@ -305,7 +320,7 @@ async function main() {
     }
   } catch (e) {
     record(
-      "Live rooms API",
+      "Live rooms API (mobile discovery)",
       false,
       `Could not reach ${apiBase} — ${e instanceof Error ? e.message : String(e)}. Start web dev server or pass --api-base`,
     );

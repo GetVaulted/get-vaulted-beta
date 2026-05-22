@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { serializeLiveRoomMessage } from "@/lib/live-room-serialize";
 import { broadcastRealtimeEvent, broadcastRealtimeEventOnce } from "@/lib/supabase-realtime-broadcast";
+import { LIVE_DISCOVERY_CHANNEL, LIVE_DISCOVERY_EVENT } from "@/lib/live-discovery-realtime";
 import { listingBidsChannel, roomChannel, RT_EVENT, RT_EVENT_ALIASES, userNotificationsChannel } from "@/lib/realtime-channels";
 
 function buildRoomBroadcastEnriched(liveRoomId: string, payload: Record<string, unknown>) {
@@ -190,5 +191,17 @@ export function emitStreamStatusChanged(
     streamHealth: payload.streamHealth,
     roomVersion: payload.roomVersion,
     lastStatusSyncAt: payload.lastStatusSyncAt,
+  });
+}
+
+/** Public live directory changed (room scheduled, updated, went live, or ended). */
+export function emitLiveDiscoveryChanged(payload?: {
+  roomId?: string;
+  status?: string;
+  reason?: "created" | "updated" | "started" | "ended";
+}): void {
+  broadcastRealtimeEvent(LIVE_DISCOVERY_CHANNEL, LIVE_DISCOVERY_EVENT, {
+    emittedAt: new Date().toISOString(),
+    ...payload,
   });
 }

@@ -33,6 +33,7 @@ describe('fetchLiveShowsForDiscovery', () => {
     expect(pack.live).toEqual([]);
     expect(pack.scheduled).toEqual([]);
     expect(pack.meta.source).toBe('next_api');
+    expect(pack.meta.success).toBe(true);
   });
 
   it('maps scheduled and live from API rows', async () => {

@@ -6,6 +6,7 @@ import { LiveNowRoomCard } from "@/components/cards/LiveNowRoomCard";
 import { MarketRowHeader } from "@/components/layout/MarketRowHeader";
 import { useLiveMarketplaceEnabled } from "@/components/providers/LiveMarketplaceGateProvider";
 import { liveNowFilters, type LiveNowRoom } from "@/content/live-rooms";
+import { LIVE_DISCOVERY_WINDOW_EVENT } from "@/lib/live-discovery-realtime";
 import { mapApiRowToLiveNowRoom, type LiveRoomListApiRow } from "@/lib/live-room-directory-mapper";
 
 export function LiveNowSection() {
@@ -25,6 +26,9 @@ export function LiveNowSection() {
       setDbRows(Array.isArray(j.rooms) ? j.rooms : []);
     };
     void run();
+    const onDiscoveryChange = () => void run();
+    window.addEventListener(LIVE_DISCOVERY_WINDOW_EVENT, onDiscoveryChange);
+    return () => window.removeEventListener(LIVE_DISCOVERY_WINDOW_EVENT, onDiscoveryChange);
   }, [liveMarketplaceEnabled]);
 
   const liveNowRooms = useMemo(() => dbRows.map(mapApiRowToLiveNowRoom).filter((r) => r.status === "live_now"), [dbRows]);

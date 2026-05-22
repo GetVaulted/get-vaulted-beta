@@ -23,17 +23,70 @@ export type LiveRoomApiRow = {
 const FALLBACK_PREVIEW =
   'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1200&q=78&auto=format&fit=crop';
 
-function apiErrorMessage(res: Response, body: unknown): string {
-  if (body && typeof body === 'object') {
-    const o = body as { error?: string; code?: string };
-    if (o.code === 'LIVE_COMING_SOON' || res.status === 503) {
-      return (
-        'Live is disabled on this server. Redeploy beta with the latest web build, or set LIVE_MARKETPLACE_ENABLED=1 in Netlify env (and clear LIVE_MARKETPLACE_COMING_SOON).'
-      );
+function parseApiErrorBody(raw: unknown): {
+  json: { error?: string; code?: string; detail?: string } | null;
+  text: string;
+} {
+  if (typeof raw === 'string') {
+    const text = raw.trim();
+    if (!text) return { json: null, text: '' };
+    try {
+      const parsed = JSON.parse(text) as { error?: string; code?: string; detail?: string };
+      return { json: parsed, text };
+    } catch {
+      return { json: null, text: text.slice(0, 240) };
     }
-    if (typeof o.error === 'string' && o.error.trim()) return o.error.trim();
   }
-  return `Request failed (${res.status})`;
+  if (raw && typeof raw === 'object') {
+    return { json: raw as { error?: string; code?: string; detail?: string }, text: '' };
+  }
+  return { json: null, text: '' };
+}
+
+function apiErrorMessage(res: Response, body: unknown, apiBase?: string): string {
+  const status = res.status;
+  const { json: o, text: rawText } = parseApiErrorBody(body);
+  const code = o?.code;
+  const detail = o?.detail?.trim();
+  const errText = o?.error?.trim();
+  const htmlHint =
+    rawText && /password|visitor|forbidden|access denied|netlify/i.test(rawText)
+      ? ' Edge/WAF or Netlify visitor gate returned HTML — open beta in Safari once, or set EXPO_PUBLIC_BETA_HTTP_BASIC if deploy password is enabled.'
+      : '';
+
+  if (code === "LIVE_COMING_SOON" || status === 503) {
+    return (
+      errText ??
+      'Live is disabled on this server. Use https://beta.shopgetvaulted.com or set LIVE_MARKETPLACE_ENABLED=1 on the API host.'
+    );
+  }
+  if (code === "LIVE_ROOMS_LIST_FAILED" || status === 500) {
+    return (
+      errText ??
+      `Live rooms API error (500)${detail ? `: ${detail}` : ''}. Check Netlify function logs for Prisma/DB issues.`
+    );
+  }
+  if (status === 403) {
+    const host = apiBase ?? 'API host';
+    if (errText) return `${errText} (403 from ${host})${htmlHint}`;
+    return (
+      `Forbidden (403) from ${host}.${htmlHint} Not from live-room auth (public GET). If this persists, check Netlify visitor/WAF rules or rate limits from rapid retries.`
+    );
+  }
+  if (status === 404) {
+    return (
+      errText ??
+      `Not found (404) at ${apiBase ?? 'API'}/api/live-rooms — wrong EXPO_PUBLIC_SITE_URL or API not deployed on this host.`
+    );
+  }
+  if (errText) return errText;
+  return `Request failed (${status})`;
+}
+
+function applyBetaAccessHeaders(headers: Headers): void {
+  const basic = process.env.EXPO_PUBLIC_BETA_HTTP_BASIC?.trim();
+  if (!basic || headers.has('Authorization')) return;
+  headers.set('Authorization', basic.startsWith('Basic ') ? basic : `Basic ${basic}`);
 }
 
 async function fetchLiveRoomsApi(
@@ -43,8 +96,13 @@ async function fetchLiveRoomsApi(
   const base = getWebApiBaseUrl();
   if (!base) throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
   const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
+  const headers = new Headers(init.headers);
+  if (!headers.has('Accept')) headers.set('Accept', 'application/json');
+  headers.set('X-GV-Client', 'getvaulted-mobile');
+  if (!headers.has('User-Agent')) headers.set('User-Agent', 'GetVaultedMobile/1.0 (Expo)');
+  applyBetaAccessHeaders(headers);
   try {
-    return await fetch(url, init);
+    return await fetch(url, { ...init, headers, cache: 'no-store' });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(
@@ -109,17 +167,20 @@ export async function createLiveRoom(
 }
 
 export async function fetchLiveRoomsPublic(limit = 80): Promise<LiveRoomApiRow[]> {
+  const base = getWebApiBaseUrl();
   const res = await fetchLiveRoomsApi(`/api/live-rooms?limit=${limit}`, {
     method: 'GET',
-    headers: { Accept: 'application/json' },
   });
-  let j: { rooms?: LiveRoomApiRow[]; error?: string; code?: string } = {};
-  try {
-    j = (await res.json()) as typeof j;
-  } catch {
-    /* ignore */
+  const rawText = await res.text();
+  let j: { rooms?: LiveRoomApiRow[]; error?: string; code?: string; detail?: string } = {};
+  if (rawText) {
+    try {
+      j = JSON.parse(rawText) as typeof j;
+    } catch {
+      if (!res.ok) throw new Error(apiErrorMessage(res, rawText, base ?? undefined));
+    }
   }
-  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+  if (!res.ok) throw new Error(apiErrorMessage(res, j.rooms ? j : rawText, base ?? undefined));
   return Array.isArray(j.rooms) ? j.rooms : [];
 }
 
@@ -222,7 +283,8 @@ function fmtSchedule(iso: string | null): string {
 function liveRoomFormatFromType(roomType: LiveRoomApiRow['roomType']): LiveStream['liveRoomFormat'] {
   if (roomType === 'break') return 'break';
   if (roomType === 'auction') return 'auction';
-  return 'hybrid';
+  if (roomType === 'sale') return 'shop';
+  return 'auction';
 }
 
 export function liveRoomRowToLiveStream(row: LiveRoomApiRow): LiveStream {

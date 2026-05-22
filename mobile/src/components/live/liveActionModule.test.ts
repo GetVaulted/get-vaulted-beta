@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { LiveRoomBuyerSnapshot } from '../../api/liveRoomBuyerRepository';
 import type { LiveStream } from '../../types';
 import {
+  formatBidMoney,
   resolveBuyerRoomKind,
   resolveLiveBuyerCommerceHud,
   resolveLiveCommerceHud,
   resolveLiveRoomFormat,
+  shouldShowBreakTeamControls,
 } from './liveActionModule';
 
 function baseStream(overrides: Partial<LiveStream> = {}): LiveStream {
@@ -54,17 +56,74 @@ describe('resolveBuyerRoomKind', () => {
     const snap = { roomType: 'auction' } as LiveRoomBuyerSnapshot;
     expect(resolveBuyerRoomKind(snap, baseStream())).toBe('auction');
   });
+
+  it('treats sale API room as auction lane (not break)', () => {
+    const snap = { roomType: 'sale' } as LiveRoomBuyerSnapshot;
+    expect(resolveBuyerRoomKind(snap, baseStream({ liveRoomFormat: 'hybrid' }))).toBe('auction');
+  });
+
+  it('defaults hybrid stream without focus to auction', () => {
+    expect(resolveBuyerRoomKind(null, baseStream({ liveRoomFormat: 'hybrid' }))).toBe('auction');
+  });
+});
+
+describe('shouldShowBreakTeamControls', () => {
+  it('is false during filling (waiting for host / items first)', () => {
+    expect(
+      shouldShowBreakTeamControls({
+        roomType: 'break',
+        status: 'live',
+        breakPhase: 'filling',
+      } as LiveRoomBuyerSnapshot),
+    ).toBe(false);
+  });
+
+  it('is true when break is in progress and no lot on screen', () => {
+    expect(
+      shouldShowBreakTeamControls({
+        roomType: 'break',
+        status: 'live',
+        breakPhase: 'in_progress',
+        activeItemId: null,
+      } as LiveRoomBuyerSnapshot),
+    ).toBe(true);
+  });
 });
 
 describe('resolveLiveBuyerCommerceHud', () => {
-  it('shows break controls only for break rooms', () => {
-    const snap = { roomType: 'break', status: 'live' } as LiveRoomBuyerSnapshot;
+  it('shows break controls only when break is actively in progress', () => {
+    const snap = {
+      roomType: 'break',
+      status: 'live',
+      breakPhase: 'in_progress',
+      activeItemId: null,
+    } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
     expect(hud.bottomLeftLabel).toBe('Join Break');
     expect(hud.bottomRightLabel).toBe('Claim Team');
   });
 
-  it('shows vault waiting copy when auction room has no active lot', () => {
+  it('shows waiting for live break room in filling phase (no lot yet)', () => {
+    const snap = {
+      roomType: 'break',
+      status: 'live',
+      breakPhase: 'filling',
+      activeItemId: null,
+      lotBidPhase: 'inactive',
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream({ liveRoomFormat: 'break' }), snap);
+    expect(hud.bottomRightLabel).toBe('Waiting for Item');
+    expect(hud.bottomLeftLabel).toBe('Custom');
+    expect(hud.stateLine).not.toMatch(/spots left/i);
+  });
+
+  it('does not show break controls before break room snapshot loads', () => {
+    const hud = resolveLiveBuyerCommerceHud(baseStream({ liveRoomFormat: 'break' }), null);
+    expect(hud.bottomRightLabel).toBe('Waiting for Item');
+    expect(hud.bottomLeftLabel).toBe('Custom');
+  });
+
+  it('shows waiting state when auction room has no active lot', () => {
     const snap = {
       roomType: 'auction',
       status: 'live',
@@ -72,30 +131,71 @@ describe('resolveLiveBuyerCommerceHud', () => {
       lotBidPhase: 'inactive',
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.bottomRightLabel).toBe('Waiting for Item');
+    expect(hud.bottomLeftLabel).toBe('Custom');
     expect(hud.bottomRightLabel).not.toBe('Claim Team');
-    expect(hud.stateLine).toContain('host is setting the next lot');
     expect(hud.buyerPrimaryDisabled).toBe(true);
+    expect(hud.buyerSecondaryDisabled).toBe(true);
   });
 
-  it('shows bid controls when bidding is open', () => {
+  it('shows Custom + Bid when bidding is open', () => {
     const snap = {
       roomType: 'auction',
       status: 'live',
       activeItemId: 'item-1',
       lotBidPhase: 'bidding_open',
       currentBidUsd: 50,
-      minNextBidUsd: 75,
+      minNextBidUsd: 52,
       auctionEndsAt: new Date(Date.now() + 15000).toISOString(),
       fetchedAtMs: Date.now(),
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
-    expect(hud.bottomRightLabel).toContain('Bid $');
+    expect(hud.bottomLeftLabel).toBe('Custom');
+    expect(hud.bottomRightLabel).toBe('Bid $52.00');
     expect(hud.bottomRightIsSlide).toBe(true);
     expect(hud.buyerPrimaryDisabled).toBe(false);
+  });
+
+  it('shows bid preview (disabled) when lot is active but bidding not started', () => {
+    const snap = {
+      roomType: 'auction',
+      status: 'live',
+      activeItemId: 'item-1',
+      lotBidPhase: 'not_started',
+      currentBidUsd: 0,
+      minNextBidUsd: 1,
+      fetchedAtMs: Date.now(),
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.bottomRightLabel).toBe('Bid $1.00');
+    expect(hud.buyerPrimaryDisabled).toBe(true);
+  });
+
+  it('uses auction bid flow when break room has active lot', () => {
+    const snap = {
+      roomType: 'break',
+      status: 'live',
+      breakPhase: 'filling',
+      activeItemId: 'item-1',
+      lotBidPhase: 'bidding_open',
+      currentBidUsd: 10,
+      minNextBidUsd: 11,
+      auctionEndsAt: new Date(Date.now() + 15000).toISOString(),
+      fetchedAtMs: Date.now(),
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream({ liveRoomFormat: 'break' }), snap);
+    expect(hud.bottomRightLabel).toBe('Bid $11.00');
+    expect(hud.bottomRightLabel).not.toBe('Claim Team');
   });
 
   it('legacy stream without format no longer maps to Join Break', () => {
     const hud = resolveLiveCommerceHud(baseStream());
     expect(hud.bottomRightLabel).not.toBe('Claim Team');
+  });
+});
+
+describe('formatBidMoney', () => {
+  it('formats two decimal places', () => {
+    expect(formatBidMoney(1)).toBe('$1.00');
   });
 });

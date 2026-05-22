@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createLiveRoom, streamFormatToRoomType } from '../../../api/liveRoomsRepository';
+import { notifyLiveDiscoveryChanged } from '../../../lib/notifyLiveDiscoveryChanged';
 import type { LiveSalesGate } from '../../../lib/sellerLiveReadiness';
 import { streamCategories } from '../../../data/sellerHubMock';
 import { colors, radii, spacing } from '../../../theme';
@@ -104,6 +105,7 @@ export function ScheduleVaultEventModal({
         scheduledStartAt: scheduledDate.toISOString(),
         teamBoardLeague: streamFormat === 'break' ? 'nba' : undefined,
       });
+      await notifyLiveDiscoveryChanged();
       onScheduled?.();
       onClose();
       Alert.alert(

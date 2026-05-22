@@ -61,6 +61,14 @@ export function sanitizeLiveError(raw: unknown, context?: 'stream' | 'room' | 'c
     return { userMessage: 'This vault event could not be found.', devDetail, isNetwork: false };
   }
 
+  if (/host console|500|HOST_CONSOLE_FAILED/i.test(text)) {
+    return {
+      userMessage: 'Vault sync hit a server error. Showing your last synced queue.',
+      devDetail,
+      isNetwork: false,
+    };
+  }
+
   return { userMessage: text, devDetail, isNetwork: false };
 }
 

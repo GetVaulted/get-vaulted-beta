@@ -10,7 +10,7 @@ import { getBuyerLiveWalletReadiness } from "@/lib/buyer-live-wallet-readiness";
 import { notifyFollowersSellerWentLive } from "@/lib/seller-follow-notify";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
 import { processAuctionPaymentExpiries } from "@/services/payments";
-import { emitAuctionEnded, emitAuctionStarted, emitTeamBoardChanged } from "@/lib/realtime-emit-server";
+import { emitAuctionEnded, emitAuctionStarted, emitLiveDiscoveryChanged, emitTeamBoardChanged } from "@/lib/realtime-emit-server";
 
 const includeDetail = {
   seller: { select: { id: true, username: true } as const },
@@ -195,6 +195,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     if (seller) {
       await notifyFollowersSellerWentLive(existing.sellerId, seller.username, id);
     }
+    emitLiveDiscoveryChanged({ roomId: id, status: "live", reason: "started" });
     return NextResponse.json({ ok: true });
   }
 
@@ -215,6 +216,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     }
     const roomNow = await prisma.liveRoom.findUnique({ where: { id }, select: { roomVersion: true } });
     emitAuctionEnded(id, roomNow?.roomVersion);
+    emitLiveDiscoveryChanged({ roomId: id, status: "ended", reason: "ended" });
     return NextResponse.json({ ok: true });
   }
 
@@ -239,6 +241,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   if (Object.keys(data).length > 0) {
     await prisma.liveRoom.update({ where: { id }, data });
+    emitLiveDiscoveryChanged({ roomId: id, status: existing.status, reason: "updated" });
   }
 
   return NextResponse.json({ ok: true });

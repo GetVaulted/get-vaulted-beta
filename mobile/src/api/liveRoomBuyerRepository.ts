@@ -16,6 +16,11 @@ export type LiveRoomBuyerSnapshot = {
   lotBidPhase: LiveAuctionLotBidPhase;
   /** Client wall time when this snapshot was fetched (for stale-sync UX). */
   fetchedAtMs: number;
+  /** Break rooms — from API `room.break` when present. */
+  breakPhase?: 'not_started' | 'filling' | 'randomizing' | 'ready' | 'in_progress' | 'complete' | null;
+  breakLockPurchases?: boolean;
+  breakPaused?: boolean;
+  breakFull?: boolean;
 };
 
 function apiErrorMessage(res: Response, body: unknown): string {
@@ -24,6 +29,11 @@ function apiErrorMessage(res: Response, body: unknown): string {
     if (typeof o.error === 'string' && o.error.trim()) return o.error.trim();
   }
   return `Request failed (${res.status})`;
+}
+
+function minNextBidUsd(currentHighUsd: number): number {
+  const inc = Math.max(1, Math.ceil(currentHighUsd / 25));
+  return currentHighUsd + inc;
 }
 
 /** Buyer snapshot for placing bids from mobile (same room GET as web). */
@@ -48,6 +58,12 @@ export async function fetchLiveRoomBuyerSnapshot(
         startingBidUsd?: number | null;
         auctionEndsAt?: string | null;
       } | null;
+      break?: {
+        phase?: string;
+        lockPurchases?: boolean;
+        breakPaused?: boolean;
+        breakFull?: boolean;
+      } | null;
     };
     error?: string;
   } = {};
@@ -59,12 +75,16 @@ export async function fetchLiveRoomBuyerSnapshot(
   if (!res.ok) throw new Error(apiErrorMessage(res, j));
   const detail = j.room;
   const active = detail?.activeItem;
-  const current = active?.currentBidUsd ?? active?.startingBidUsd ?? null;
-  let minNext: number | null = null;
-  if (current != null && Number.isFinite(current)) {
-    const inc = current < 100 ? 5 : current < 500 ? 25 : current < 2000 ? 50 : current < 10000 ? 100 : 250;
-    minNext = current + inc;
-  }
+  const highBid = active?.currentBidUsd;
+  const starting = active?.startingBidUsd ?? 0;
+  const currentHigh =
+    typeof highBid === 'number' && Number.isFinite(highBid) && highBid > 0
+      ? highBid
+      : typeof starting === 'number' && Number.isFinite(starting)
+        ? starting
+        : 0;
+  const minNext = active ? minNextBidUsd(currentHigh) : null;
+  const current = typeof highBid === 'number' && Number.isFinite(highBid) ? highBid : currentHigh;
   const fetchedAtMs = Date.now();
   const lotBidPhase = resolveLiveAuctionLotBidPhase(
     {
@@ -74,6 +94,17 @@ export async function fetchLiveRoomBuyerSnapshot(
     },
     fetchedAtMs,
   );
+  const breakSnap = detail?.break;
+  const breakPhaseRaw = breakSnap?.phase?.trim();
+  const breakPhase =
+    breakPhaseRaw === 'not_started' ||
+    breakPhaseRaw === 'filling' ||
+    breakPhaseRaw === 'randomizing' ||
+    breakPhaseRaw === 'ready' ||
+    breakPhaseRaw === 'in_progress' ||
+    breakPhaseRaw === 'complete'
+      ? breakPhaseRaw
+      : null;
   return {
     roomId,
     status: (detail?.status as LiveRoomBuyerSnapshot['status']) ?? 'ended',
@@ -85,6 +116,10 @@ export async function fetchLiveRoomBuyerSnapshot(
     auctionEndsAt: active?.auctionEndsAt ?? null,
     lotBidPhase,
     fetchedAtMs,
+    breakPhase,
+    breakLockPurchases: breakSnap?.lockPurchases === true,
+    breakPaused: breakSnap?.breakPaused === true,
+    breakFull: breakSnap?.breakFull === true,
   };
 }
 

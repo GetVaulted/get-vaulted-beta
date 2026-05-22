@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -31,13 +31,18 @@ import { ProductCard } from '../components/ui/ProductCard';
 import { SearchBar } from '../components/ui/SearchBar';
 import { SectionHeader } from '../components/ui/SectionHeader';
 import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
+import {
+  markLiveDiscoveryFetchAttempt,
+  markLiveDiscoveryFetchResult,
+  shouldThrottleLiveDiscoveryFetch,
+} from '../lib/liveDiscoveryFetchPolicy';
 import { openCreateListing } from '../navigation/openCreateListing';
+import { useLiveDiscoverySync } from '../hooks/useLiveDiscoverySync';
 import {
   getHomeFeedMemorySnapshot,
   hasWarmHomeFeedCache,
   loadHomeFeedCache,
   saveHomeFeedCache,
-  subscribeHomeFeedInvalidation,
 } from '../lib/homeFeedCache';
 import { isSupabaseConfigured } from '../lib/supabase';
 import type { MainTabParamList, RootStackParamList } from '../navigation/types';
@@ -103,7 +108,7 @@ export function HomeScreen() {
     return () => task.cancel();
   }, [user?.id]);
 
-  const loadFeed = useCallback(async (opts?: { hadCachedLive?: boolean; hadCachedListings?: boolean }) => {
+  const loadFeed = useCallback(async (opts?: { hadCachedLive?: boolean; hadCachedListings?: boolean; force?: boolean }) => {
     if (!isSupabaseConfigured()) {
       setClips([]);
       setSellerNextRoom(null);
@@ -111,6 +116,9 @@ export function HomeScreen() {
       setRefreshing(false);
       return;
     }
+
+    const force = Boolean(opts?.force);
+    const skipDiscovery = shouldThrottleLiveDiscoveryFetch({ force });
 
     if (opts?.hadCachedLive || opts?.hadCachedListings) setRefreshing(true);
 
@@ -120,16 +128,31 @@ export function HomeScreen() {
           ? fetchMyLiveRooms(session.access_token).catch(() => [] as LiveRoomApiRow[])
           : Promise.resolve([] as LiveRoomApiRow[]);
 
+      if (!skipDiscovery) markLiveDiscoveryFetchAttempt();
+
       const [products, livePack, myRooms] = await Promise.all([
         fetchMarketplaceListings({ limit: 24 }),
-        fetchLiveShowsForDiscovery(),
+        skipDiscovery
+          ? Promise.resolve({
+              live: [] as LiveStream[],
+              scheduled: [] as ScheduledStream[],
+              meta: { success: false, error: null, source: 'none' as const, fetchedAt: Date.now(), apiBaseUrl: null },
+            })
+          : fetchLiveShowsForDiscovery(),
         sellerFetch,
       ]);
 
-      setLiveRows(livePack.live);
-      setScheduledRows(livePack.scheduled);
-      setClips([]);
+      if (!skipDiscovery) {
+        if (livePack.meta.success) {
+          markLiveDiscoveryFetchResult(true);
+          setLiveRows(livePack.live);
+          setScheduledRows(livePack.scheduled);
+        } else {
+          markLiveDiscoveryFetchResult(false, livePack.meta.error);
+        }
+      }
 
+      setClips([]);
       setListings(products);
 
       const upcoming = myRooms
@@ -141,11 +164,20 @@ export function HomeScreen() {
         })[0];
       setSellerNextRoom(upcoming ?? null);
 
-      void saveHomeFeedCache({
-        live: livePack.live,
-        scheduled: livePack.scheduled,
-        listings: products.length ? products : [],
-      });
+      if (!skipDiscovery && livePack.meta.success) {
+        void saveHomeFeedCache({
+          live: livePack.live,
+          scheduled: livePack.scheduled,
+          listings: products.length ? products : [],
+        });
+      } else if (products.length) {
+        const prev = getHomeFeedMemorySnapshot();
+        void saveHomeFeedCache({
+          live: prev?.live ?? [],
+          scheduled: prev?.scheduled ?? [],
+          listings: products,
+        });
+      }
     } finally {
       setInitialLoad(false);
       setRefreshing(false);
@@ -179,20 +211,14 @@ export function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [loadFeed, seed.hasCache, seed.liveRows.length, seed.listings.length]);
-
-  useEffect(() => {
-    return subscribeHomeFeedInvalidation(() => {
-      void loadFeed();
-    });
   }, [loadFeed]);
 
-  useFocusEffect(
-    useCallback(() => {
-      if (!hasWarmHomeFeedCache()) {
-        void loadFeed();
-      }
-    }, [loadFeed]),
+  useLiveDiscoverySync((opts) =>
+    loadFeed({
+      hadCachedLive: true,
+      hadCachedListings: true,
+      force: opts?.force,
+    }),
   );
 
   const goLive = () => {

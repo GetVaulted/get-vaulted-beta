@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { isLiveMarketplaceBlocked } from "@/lib/live-coming-soon";
+import { isPublicLiveRoomsBuyerRead } from "@/lib/public-live-rooms-read";
 
 let loggedMissingNextAuthSecret = false;
 
@@ -48,7 +49,7 @@ export default async function middleware(request: NextRequest) {
   }
 
   if (isLiveMarketplaceBlocked()) {
-    if (pathname.startsWith("/api/live-rooms")) {
+    if (pathname.startsWith("/api/live-rooms") && !isPublicLiveRoomsBuyerRead(request)) {
       return NextResponse.json(LIVE_COMING_SOON_JSON, {
         status: 503,
         headers: { "Cache-Control": "no-store" },

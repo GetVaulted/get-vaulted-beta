@@ -1,5 +1,5 @@
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import { fetchHostConsole } from '../api/liveHostRepository';
 import {
@@ -41,24 +41,50 @@ export function useSellerLiveConsole({
   const [quickTitle, setQuickTitle] = useState('');
   const [consoleError, setConsoleError] = useState<SanitizedLiveError | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const hydratedRef = useRef(false);
 
-  const reload = useCallback(async () => {
-    const data = await fetchHostConsole(accessToken, roomId);
-    setItems(data.items);
-    setActiveItem(data.activeItem);
-    setViewerCount(data.room.viewerCount);
-    setServerNowMs(data.serverNowMs);
-    const hostUser = sellerUsername?.trim().toLowerCase() ?? '';
-    setChatMessages(
-      data.messages.map((m) => ({
-        id: m.id,
-        user: m.senderUsername,
-        text: m.body,
-        isHost: hostUser.length > 0 && m.senderUsername.toLowerCase() === hostUser,
-      })),
-    );
-    return data;
-  }, [accessToken, roomId, sellerUsername]);
+  const applyConsolePayload = useCallback(
+    (data: Awaited<ReturnType<typeof fetchHostConsole>>) => {
+      setItems(data.items);
+      setActiveItem(data.activeItem);
+      setViewerCount(data.room.viewerCount);
+      setServerNowMs(data.serverNowMs);
+      const hostUser = sellerUsername?.trim().toLowerCase() ?? '';
+      setChatMessages(
+        data.messages.map((m) => ({
+          id: m.id,
+          user: m.senderUsername,
+          text: m.body,
+          isHost: hostUser.length > 0 && m.senderUsername.toLowerCase() === hostUser,
+        })),
+      );
+      hydratedRef.current = true;
+      setConsoleError(null);
+    },
+    [sellerUsername],
+  );
+
+  const reload = useCallback(
+    async (opts?: { soft?: boolean }) => {
+      try {
+        const data = await fetchHostConsole(accessToken, roomId);
+        applyConsolePayload(data);
+        return data;
+      } catch (e) {
+        const sanitized = sanitizeLiveError(e, 'console');
+        if (hydratedRef.current || opts?.soft) {
+          setConsoleError(sanitized);
+          return null;
+        }
+        throw e;
+      }
+    },
+    [accessToken, applyConsolePayload, roomId],
+  );
+
+  useEffect(() => {
+    hydratedRef.current = false;
+  }, [roomId]);
 
   const loadOnce = useCallback(async () => {
     setLoading(true);
@@ -79,7 +105,7 @@ export function useSellerLiveConsole({
   useEffect(() => {
     if (roomStatus !== 'live') return;
     const id = setInterval(() => {
-      void reload().catch(() => undefined);
+      void reload({ soft: true });
     }, 5000);
     return () => clearInterval(id);
   }, [reload, roomStatus]);

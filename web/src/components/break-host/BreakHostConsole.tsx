@@ -151,6 +151,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const hostDataRef = useRef<HostPayload | null>(null);
   hostDataRef.current = data;
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   /** Short-lived buyer/room activity hint (does not replace error `toast`). */
@@ -207,8 +208,11 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         const raw = await res.text();
         let msg = `Could not load host console (HTTP ${res.status}).`;
         try {
-          const j = JSON.parse(raw) as { error?: string };
+          const j = JSON.parse(raw) as { error?: string; detail?: string };
           if (typeof j.error === "string" && j.error.trim()) msg = j.error.trim();
+          if (res.status >= 500 && typeof j.detail === "string" && j.detail.trim()) {
+            msg = `${msg} ${j.detail.trim()}`;
+          }
         } catch {
           /* ignore */
         }
@@ -218,17 +222,30 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         if (res.status === 404) {
           msg = "Host console: room not found. Check the URL or DATABASE_URL.";
         }
+        if (hostConsoleHydratedRef.current && res.status >= 500) {
+          setRefreshWarning(`${msg} Showing last synced queue — retrying automatically.`);
+          return;
+        }
+        if (hostConsoleHydratedRef.current && res.status !== 404 && res.status !== 403) {
+          setRefreshWarning(msg);
+          return;
+        }
         setLoadError(msg);
         setData(null);
         hostConsoleHydratedRef.current = false;
         return;
       }
       setLoadError(null);
+      setRefreshWarning(null);
       const j = (await res.json()) as HostPayload & { serverNowMs?: number };
       if (typeof j.serverNowMs === "number") {
         setHostClockSkewMs(estimateClockSkewMs(t0, t1, j.serverNowMs));
       }
       if (!j?.room || typeof j.room.status !== "string") {
+        if (hostConsoleHydratedRef.current) {
+          setRefreshWarning("Host console returned invalid room data. Showing last synced queue.");
+          return;
+        }
         setLoadError("Could not load host console (invalid room data).");
         setData(null);
         hostConsoleHydratedRef.current = false;
@@ -255,7 +272,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         setLoadError("Could not reach the server. Check your connection or refresh.");
         setData(null);
       } else {
-        setToast("Could not refresh the queue. Reload the page or try again in a moment.");
+        setRefreshWarning("Could not refresh the queue. Showing last synced state — retrying automatically.");
       }
     }
   }, [roomId]);
@@ -1081,9 +1098,17 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     <div
       className={`fixed inset-x-0 bottom-0 top-[var(--site-header-offset)] z-40 flex min-h-0 flex-col overflow-hidden bg-black text-sm leading-normal text-zinc-100 ${vaultModeRootClass(vaultMode)}`}
     >
-      {(toast || hostNotice) ? (
+      {(toast || hostNotice || refreshWarning) ? (
         <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[62] w-[min(92vw,26rem)] -translate-x-1/2 px-2">
-          <div className="pointer-events-auto">
+          <div className="pointer-events-auto space-y-2">
+            {refreshWarning ? (
+              <p
+                role="status"
+                className="break-words rounded-2xl border border-rose-500/30 bg-rose-950/50 px-3 py-2 text-[11px] leading-snug text-rose-50 shadow-[0_16px_50px_-24px_rgba(0,0,0,0.9)] backdrop-blur-xl whitespace-pre-wrap ring-1 ring-rose-400/20"
+              >
+                {refreshWarning}
+              </p>
+            ) : null}
             {toast ? (
               <p
                 role="alert"

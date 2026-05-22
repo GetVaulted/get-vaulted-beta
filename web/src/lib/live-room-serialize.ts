@@ -135,12 +135,14 @@ export function serializeLiveRoomItem(row: LiveRoomItem): LiveRoomItemDTO {
   };
 }
 
-export function serializeLiveRoomMessage(row: LiveRoomMessage & { sender: Pick<User, "username"> }): LiveRoomMessageDTO {
+export function serializeLiveRoomMessage(
+  row: LiveRoomMessage & { sender?: Pick<User, "username"> | null },
+): LiveRoomMessageDTO {
   return {
     id: row.id,
     liveRoomId: row.liveRoomId,
     senderId: row.senderId,
-    senderUsername: row.sender.username,
+    senderUsername: row.sender?.username?.trim() || "System",
     body: row.body,
     messageType: row.messageType,
     createdAt: row.createdAt.toISOString(),

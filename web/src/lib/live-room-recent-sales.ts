@@ -41,7 +41,7 @@ function mapOrder(o: OrderWithBuyer): HostRecentSaleRowDTO {
   return {
     id: `order:${o.id}`,
     kind: "order",
-    buyerUsername: o.buyer.username,
+    buyerUsername: o.buyer?.username?.trim() || "buyer",
     amountUsd: o.totalUsd,
     paymentTone,
     statusLabel,
@@ -57,7 +57,7 @@ function mapBreakSpot(s: SpotWithUser): HostRecentSaleRowDTO {
   return {
     id: `break_spot:${s.id}`,
     kind: "break_spot",
-    buyerUsername: s.user.username,
+    buyerUsername: s.user?.username?.trim() || "buyer",
     amountUsd: s.priceUsd,
     paymentTone,
     statusLabel,

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { UpcomingBreakCard } from "@/components/cards/UpcomingBreakCard";
 import { SectionHeading } from "@/components/sections/SectionHeading";
 import { useLiveMarketplaceEnabled } from "@/components/providers/LiveMarketplaceGateProvider";
+import { LIVE_DISCOVERY_WINDOW_EVENT } from "@/lib/live-discovery-realtime";
 import type { LiveRoomListApiRow } from "@/lib/live-room-directory-mapper";
 
 function scheduledCardProps(row: LiveRoomListApiRow) {
@@ -56,6 +57,9 @@ export function UpcomingBreaksSection() {
       }
     };
     void run();
+    const onDiscoveryChange = () => void run();
+    window.addEventListener(LIVE_DISCOVERY_WINDOW_EVENT, onDiscoveryChange);
+    return () => window.removeEventListener(LIVE_DISCOVERY_WINDOW_EVENT, onDiscoveryChange);
   }, [liveMarketplaceEnabled]);
 
   const cards = useMemo(() => {

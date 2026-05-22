@@ -115,6 +115,7 @@ export function LivePinnedActionBar({
   const m = useMemo(() => resolveLiveBuyerCommerceHud(stream, roomSnap), [stream, roomSnap]);
   const auctionLane = buyerKind === 'auction';
   const primaryDisabled = m.buyerPrimaryDisabled === true;
+  const secondaryDisabled = m.buyerSecondaryDisabled === true;
   const padBottom = 4 + Math.min(10, Math.round(bottomSafeInset * 0.35));
   const metaLine = [m.winningLine, m.stateLine].filter(Boolean).join(' · ');
 
@@ -241,11 +242,13 @@ export function LivePinnedActionBar({
     stream.id,
   ]);
 
-  const onSecondary = () =>
+  const onSecondary = () => {
+    if (secondaryDisabled) return;
     guard(() => {
-      if (auctionLane) openFullLiveRoom();
-      else tabNav?.navigate('TradeCenter', { screen: 'TradeCenterHome' });
+      if (auctionLane) return;
+      tabNav?.navigate('TradeCenter', { screen: 'TradeCenterHome' });
     });
+  };
   const onPrimary = () => {
     if (primaryDisabled) return;
     guard(() => (auctionLane ? void tryPlaceLiveBid() : goInitiateTrade()));
@@ -304,8 +307,15 @@ export function LivePinnedActionBar({
         ) : null}
 
         <View style={styles.ctaBand}>
-          <Pressable style={styles.ctaGhost} onPress={onSecondary}>
-            <Text style={styles.ctaGhostText} numberOfLines={1}>
+          <Pressable
+            style={[styles.ctaGhost, secondaryDisabled && styles.ctaDisabled]}
+            onPress={onSecondary}
+            disabled={secondaryDisabled}
+          >
+            <Text
+              style={[styles.ctaGhostText, secondaryDisabled && styles.ctaDisabledText]}
+              numberOfLines={1}
+            >
               {m.bottomLeftLabel}
             </Text>
           </Pressable>

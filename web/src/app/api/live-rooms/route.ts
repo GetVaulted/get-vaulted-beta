@@ -7,6 +7,7 @@ import { isHiddenFixtureSellerEmail, prismaSellerVisibleOnPublicMarketplace } fr
 import { prismaLiveRoomCreateHint, serializePrismaClientError } from "@/lib/prisma-client-error-serialize";
 import { prisma } from "@/lib/prisma";
 import { parseTeamBoardLeague } from "@/lib/team-board-sets";
+import { emitLiveDiscoveryChanged } from "@/lib/realtime-emit-server";
 
 const ROOM_TYPES: LiveRoomType[] = ["auction", "sale", "break"];
 
@@ -21,91 +22,107 @@ export async function GET(req: Request) {
     return NextResponse.json({ rooms: [] });
   }
 
-  const { searchParams } = new URL(req.url);
-  const session = await getServerSessionSafe();
-  const listingId = (searchParams.get("listingId") ?? "").trim();
-  const sellerIdParam = (searchParams.get("sellerId") ?? "").trim();
-  const mine = searchParams.get("mine") === "1";
-  const limit = parseLimit(searchParams.get("limit"));
-  let includeEnded = searchParams.get("includeEnded") === "1";
+  try {
+    const { searchParams } = new URL(req.url);
+    const session = await getServerSessionSafe();
+    const listingId = (searchParams.get("listingId") ?? "").trim();
+    const sellerIdParam = (searchParams.get("sellerId") ?? "").trim();
+    const mine = searchParams.get("mine") === "1";
+    const limit = parseLimit(searchParams.get("limit"));
+    let includeEnded = searchParams.get("includeEnded") === "1";
 
-  let sellerId = sellerIdParam;
-  let bearerUserId: string | null = null;
-  if (mine) {
-    const auth = await resolveLiveRoomsUserId(req);
-    if (auth instanceof NextResponse) return auth;
-    bearerUserId = auth.userId;
-    sellerId = auth.userId;
-    includeEnded = true;
-  }
-  if (listingId) {
-    const listing = await prisma.listing.findUnique({
-      where: { id: listingId },
-      select: { sellerId: true, seller: { select: { email: true } } },
-    });
-    if (!listing) {
-      return NextResponse.json({ rooms: [] });
+    let sellerId = sellerIdParam;
+    let bearerUserId: string | null = null;
+    if (mine) {
+      const auth = await resolveLiveRoomsUserId(req);
+      if (auth instanceof NextResponse) return auth;
+      bearerUserId = auth.userId;
+      sellerId = auth.userId;
+      includeEnded = true;
     }
-    if (isHiddenFixtureSellerEmail(listing.seller.email)) {
-      return NextResponse.json({ rooms: [] });
+    if (listingId) {
+      const listing = await prisma.listing.findUnique({
+        where: { id: listingId },
+        select: { sellerId: true, seller: { select: { email: true } } },
+      });
+      if (!listing) {
+        return NextResponse.json({ rooms: [] });
+      }
+      if (isHiddenFixtureSellerEmail(listing.seller.email)) {
+        return NextResponse.json({ rooms: [] });
+      }
+      sellerId = listing.sellerId;
     }
-    sellerId = listing.sellerId;
-  }
 
-  const ownerListingEnded =
-    Boolean(sellerId) && includeEnded && session?.user?.id === sellerId;
+    const ownerListingEnded =
+      Boolean(sellerId) && includeEnded && session?.user?.id === sellerId;
 
-  const viewingOwnSellerRooms = Boolean(
-    sellerId && (session?.user?.id === sellerId || bearerUserId === sellerId),
-  );
+    const viewingOwnSellerRooms = Boolean(
+      sellerId && (session?.user?.id === sellerId || bearerUserId === sellerId),
+    );
 
-  const where: Prisma.LiveRoomWhereInput = {
-    ...(sellerId ? { sellerId } : {}),
-    ...(ownerListingEnded ? {} : { status: { in: ["live", "scheduled"] } }),
-    ...(!viewingOwnSellerRooms
-      ? { seller: prismaSellerVisibleOnPublicMarketplace() }
-      : {}),
-  };
-
-  const rows = await prisma.liveRoom.findMany({
-    where,
-    include: {
-      seller: { select: { username: true } },
-      items: { select: { id: true, title: true, status: true } },
-    },
-    orderBy: { updatedAt: "desc" },
-    take: limit,
-  });
-
-  const sorted = [...rows].sort((a, b) => {
-    if (a.status === b.status) return 0;
-    if (a.status === "live") return -1;
-    if (b.status === "live") return 1;
-    return 0;
-  });
-
-  const rooms = sorted.map((r) => {
-    const active = r.items.find((i) => i.status === "active");
-    return {
-      id: r.id,
-      title: r.title,
-      description: r.description,
-      category: r.category,
-      roomType: r.roomType,
-      status: r.status,
-      thumbnailUrl: r.thumbnailUrl,
-      viewerCount: r.viewerCount,
-      scheduledStartAt: r.scheduledStartAt?.toISOString() ?? null,
-      startedAt: r.startedAt?.toISOString() ?? null,
-      endedAt: r.endedAt?.toISOString() ?? null,
-      sellerUsername: r.seller.username,
-      itemCount: r.items.length,
-      activeItemTitle: active?.title ?? null,
-      teamBoardLeague: r.teamBoardLeague,
+    const where: Prisma.LiveRoomWhereInput = {
+      ...(sellerId ? { sellerId } : {}),
+      ...(ownerListingEnded ? {} : { status: { in: ["live", "scheduled"] } }),
+      ...(!viewingOwnSellerRooms
+        ? { seller: prismaSellerVisibleOnPublicMarketplace() }
+        : {}),
     };
-  });
 
-  return NextResponse.json({ rooms });
+    const rows = await prisma.liveRoom.findMany({
+      where,
+      include: {
+        seller: { select: { username: true } },
+        items: { select: { id: true, title: true, status: true } },
+      },
+      orderBy: { updatedAt: "desc" },
+      take: limit,
+    });
+
+    const sorted = [...rows].sort((a, b) => {
+      if (a.status === b.status) return 0;
+      if (a.status === "live") return -1;
+      if (b.status === "live") return 1;
+      return 0;
+    });
+
+    const rooms = sorted.map((r) => {
+      const active = r.items.find((i) => i.status === "active");
+      return {
+        id: r.id,
+        title: r.title,
+        description: r.description ?? "",
+        category: r.category,
+        roomType: r.roomType,
+        status: r.status,
+        thumbnailUrl: r.thumbnailUrl ?? "",
+        viewerCount: r.viewerCount,
+        scheduledStartAt: r.scheduledStartAt?.toISOString() ?? null,
+        startedAt: r.startedAt?.toISOString() ?? null,
+        endedAt: r.endedAt?.toISOString() ?? null,
+        sellerUsername: r.seller?.username ?? "seller",
+        itemCount: r.items.length,
+        activeItemTitle: active?.title ?? null,
+        teamBoardLeague: r.teamBoardLeague,
+      };
+    });
+
+    return NextResponse.json(
+      { rooms },
+      { headers: { "Cache-Control": "public, max-age=0, must-revalidate" } },
+    );
+  } catch (e) {
+    const prismaDto = serializePrismaClientError(e);
+    console.error("[api GET /api/live-rooms] list failed", { prisma: prismaDto, raw: e });
+    return NextResponse.json(
+      {
+        error: "Could not load live rooms.",
+        code: "LIVE_ROOMS_LIST_FAILED",
+        detail: prismaDto.message,
+      },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
+    );
+  }
 }
 
 type PostBody = {
@@ -281,6 +298,7 @@ export async function POST(req: Request) {
         return r;
       });
       logCreate("created_break", { id: created.id });
+      emitLiveDiscoveryChanged({ roomId: created.id, status: "scheduled", reason: "created" });
       return NextResponse.json({ id: created.id });
     }
 
@@ -289,6 +307,7 @@ export async function POST(req: Request) {
       select: { id: true },
     });
     logCreate("created", { id: room.id });
+    emitLiveDiscoveryChanged({ roomId: room.id, status: "scheduled", reason: "created" });
     return NextResponse.json({ id: room.id });
   } catch (e) {
     const prismaDto = serializePrismaClientError(e);

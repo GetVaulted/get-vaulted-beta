@@ -17,6 +17,7 @@ import { useAuth } from '../auth/AuthContext';
 import { SellerLiveHostView } from '../components/seller/liveOverlay/SellerLiveHostView';
 import { LiveConsoleWarningBanner } from '../components/seller/liveConsole/LiveConsoleWarningBanner';
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
+import { notifyLiveDiscoveryChanged } from '../lib/notifyLiveDiscoveryChanged';
 import type { RootStackParamList } from '../navigation/types';
 import { colors, spacing } from '../theme';
 
@@ -160,6 +161,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     setRoomError(null);
     try {
       await patchLiveRoomAction(token, roomId, 'start');
+      await notifyLiveDiscoveryChanged();
       await reload();
     } catch (e) {
       setRoomError(sanitizeLiveError(e, 'room'));
@@ -173,6 +175,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     setBusy('end');
     try {
       await patchLiveRoomAction(token, roomId, 'end');
+      await notifyLiveDiscoveryChanged();
       await reload();
     } catch (e) {
       setRoomError(sanitizeLiveError(e, 'room'));
