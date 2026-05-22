@@ -33,7 +33,7 @@ import { SellerHQCommandCenter } from '../components/seller/hq/SellerHQCommandCe
 import { SellerHQFab, type FabActionId } from '../components/seller/hq/SellerHQFab';
 import type { SellerHQEntryPhase } from '../lib/sellerHubEntry';
 import { openSellerHostRoom } from '../navigation/openSellerHostRoom';
-import { openSellerListingManagement } from '../navigation/openSellerListingManagement';
+import { openSellerListingManagementFromTab } from '../navigation/openSellerListingManagement';
 import { consumePendingSellerHQTab, setPendingVaultEventSchedule } from '../navigation/openSellerHQ';
 import { navigateAuthLogin, navigateAuthSignUp, rootNavigationRef } from '../navigation/rootNavigationRef';
 import { useAuth } from '../auth/AuthContext';
@@ -467,7 +467,7 @@ function ListingInventorySection({
                   );
                   return;
                 }
-                openSellerListingManagement(L.id);
+                openSellerListingManagementFromTab(navigation, L.id);
               }}
             >
               <Image source={{ uri: L.imageUrl }} style={styles.listingImg} />

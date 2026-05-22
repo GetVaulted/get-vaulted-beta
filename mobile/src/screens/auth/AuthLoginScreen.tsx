@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { AuthPasswordField } from '../../components/auth/AuthPasswordField';
 import { GetVaultedBrandMark } from '../../components/branding/GetVaultedBrandMark';
 import { useAuth } from '../../auth/AuthContext';
 import { getKeepMeLoggedInPreference } from '../../lib/authSessionStorage';
@@ -29,6 +30,7 @@ export function AuthLoginScreen({ navigation }: Props) {
   const { signInWithPassword, requestPasswordReset, loading: authLoading, enterGuestExplore } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [keepLoggedIn, setKeepLoggedIn] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -103,14 +105,13 @@ export function AuthLoginScreen({ navigation }: Props) {
           value={email}
           onChangeText={setEmail}
         />
-        <TextInput
-          style={styles.input}
+        <AuthPasswordField
           placeholder="Password"
-          placeholderTextColor={colors.textMuted}
-          secureTextEntry
-          autoComplete="password"
           value={password}
           onChangeText={setPassword}
+          visible={passwordVisible}
+          onToggleVisible={() => setPasswordVisible((v) => !v)}
+          autoComplete="password"
         />
 
         <Pressable

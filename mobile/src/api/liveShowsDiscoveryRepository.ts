@@ -1,3 +1,4 @@
+import { setLiveDiscoveryMeta } from '../lib/liveDiscoveryMeta';
 import { getSupabase } from '../lib/supabase';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { liveRoomCategoryTagsForRow } from '../lib/liveRoomDisplay';
@@ -120,23 +121,59 @@ async function fetchProfilesMap(sb: NonNullable<ReturnType<typeof getSupabase>>,
   return m;
 }
 
-export async function fetchLiveShowsForDiscovery(): Promise<{ live: LiveStream[]; scheduled: ScheduledStream[] }> {
+export type LiveDiscoveryFetchResult = {
+  live: LiveStream[];
+  scheduled: ScheduledStream[];
+  meta: {
+    source: 'next_api' | 'supabase_fallback' | 'none';
+    fetchedAt: number;
+    apiBaseUrl: string | null;
+    error: string | null;
+  };
+};
+
+export async function fetchLiveShowsForDiscovery(): Promise<LiveDiscoveryFetchResult> {
   const apiBase = getWebApiBaseUrl();
+  const fetchedAt = Date.now();
+
   if (apiBase) {
     try {
       const { fetchLiveRoomsPublic, mapLiveRoomsToDiscovery } = await import('./liveRoomsRepository');
       const rows = await fetchLiveRoomsPublic(80);
-      return mapLiveRoomsToDiscovery(rows);
+      const pack = mapLiveRoomsToDiscovery(rows);
+      const meta = {
+        source: 'next_api' as const,
+        fetchedAt,
+        apiBaseUrl: apiBase,
+        error: null,
+      };
+      setLiveDiscoveryMeta(meta);
+      return { ...pack, meta };
     } catch (e) {
-      console.warn(
-        '[fetchLiveShowsForDiscovery] Next.js live directory failed — check EXPO_PUBLIC_SITE_URL points at beta',
-        e instanceof Error ? e.message : e,
-      );
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn('[fetchLiveShowsForDiscovery] API failed — no Supabase fallback when API base is set', msg);
+      const meta = {
+        source: 'none' as const,
+        fetchedAt,
+        apiBaseUrl: apiBase,
+        error: msg,
+      };
+      setLiveDiscoveryMeta(meta);
+      return { live: [], scheduled: [], meta };
     }
   }
 
   const sb = getSupabase();
-  if (!sb) return { live: [], scheduled: [] };
+  if (!sb) {
+    const meta = {
+      source: 'none' as const,
+      fetchedAt,
+      apiBaseUrl: null,
+      error: 'Set EXPO_PUBLIC_SITE_URL to your web API host.',
+    };
+    setLiveDiscoveryMeta(meta);
+    return { live: [], scheduled: [], meta };
+  }
   const { data, error } = await sb
     .from('live_shows_public')
     .select('id, host_id, title, description, category, thumbnail_url, status, viewer_count, scheduled_start')
@@ -145,7 +182,14 @@ export async function fetchLiveShowsForDiscovery(): Promise<{ live: LiveStream[]
     .limit(40);
   if (error || !data?.length) {
     if (error) console.warn('fetchLiveShowsForDiscovery', error.message);
-    return { live: [], scheduled: [] };
+    const meta = {
+      source: 'supabase_fallback' as const,
+      fetchedAt,
+      apiBaseUrl: null,
+      error: error?.message ?? 'No rows in live_shows_public',
+    };
+    setLiveDiscoveryMeta(meta);
+    return { live: [], scheduled: [], meta };
   }
   const rows = data as ShowRow[];
   const hostIds = rows.map((r) => r.host_id);
@@ -156,7 +200,14 @@ export async function fetchLiveShowsForDiscovery(): Promise<{ live: LiveStream[]
     if (r.status === 'live') live.push(showToLiveStream(r, profiles.get(r.host_id)));
     else scheduled.push(showToScheduledStream(r, profiles.get(r.host_id)));
   }
-  return { live, scheduled };
+  const meta = {
+    source: 'supabase_fallback' as const,
+    fetchedAt,
+    apiBaseUrl: null,
+    error: null,
+  };
+  setLiveDiscoveryMeta(meta);
+  return { live, scheduled, meta };
 }
 
 /** Public live + scheduled shows for a host profile. */

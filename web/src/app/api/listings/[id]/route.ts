@@ -78,14 +78,15 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await resolveListingsUserId(req);
+  if (auth instanceof NextResponse) return auth;
+  const sellerId = auth.userId;
 
   const { id: raw } = await ctx.params;
   const id = decodeURIComponent(raw);
 
   const existing = await prisma.listing.findFirst({
-    where: { id, sellerId: session.user.id },
+    where: { id, sellerId },
     include: { images: true },
   });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -338,7 +339,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       const owned = await prisma.address.findFirst({
         where: {
           id: mergedShipFromAddressId,
-          userId: session.user.id,
+          userId: sellerId,
           type: "ship_from",
         },
         select: { id: true },
@@ -348,7 +349,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       }
     }
     try {
-      await assertSellerCanPublishListing(prisma, session.user.id, {
+      await assertSellerCanPublishListing(prisma, sellerId, {
         shippingBaseWeightOz: data.shippingBaseWeightOz ?? existing.shippingBaseWeightOz,
         shippingIncrementalWeightOz: data.shippingIncrementalWeightOz ?? existing.shippingIncrementalWeightOz,
         shippingCategory: data.shippingCategory ?? existing.shippingCategory,
@@ -389,14 +390,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   return NextResponse.json({ listing: dbListingToStored(full, pending, bc) });
 }
 
-export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const auth = await resolveListingsUserId(req);
+  if (auth instanceof NextResponse) return auth;
+  const sellerId = auth.userId;
 
   const { id: raw } = await ctx.params;
   const id = decodeURIComponent(raw);
 
-  const res = await prisma.listing.deleteMany({ where: { id, sellerId: session.user.id } });
+  const res = await prisma.listing.deleteMany({ where: { id, sellerId } });
   if (res.count === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

@@ -34,6 +34,11 @@ import {
 } from '../lib/homeFeedCache';
 import { orderLiveDiscoveryRooms, type OrderedLiveRoom } from '../lib/liveDiscoveryOrder';
 import { isSupabaseConfigured } from '../lib/supabase';
+import {
+  formatLiveDiscoveryMetaLine,
+  getLiveDiscoveryMeta,
+  subscribeLiveDiscoveryMeta,
+} from '../lib/liveDiscoveryMeta';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { useAuth } from '../auth/AuthContext';
 import { openSellerHQ } from '../navigation/openSellerHQ';
@@ -114,6 +119,7 @@ export function LiveDiscoveryScreen() {
   const [liveAll, setLiveAll] = useState<LiveStream[]>(seed.live);
   const [scheduledAll, setScheduledAll] = useState<ScheduledStream[]>(seed.scheduled);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+  const [discoveryMetaLine, setDiscoveryMetaLine] = useState(() => formatLiveDiscoveryMetaLine());
 
   const load = useCallback(async (opts?: { hadCache?: boolean; bustCache?: boolean }) => {
     if (!isSupabaseConfigured() && !getWebApiBaseUrl()) {
@@ -132,6 +138,8 @@ export function LiveDiscoveryScreen() {
       const pack = await fetchLiveShowsForDiscovery();
       setLiveAll(pack.live);
       setScheduledAll(pack.scheduled);
+      setDiscoveryMetaLine(formatLiveDiscoveryMetaLine(getLiveDiscoveryMeta()));
+      if (pack.meta.error) setDiscoveryError(pack.meta.error);
       const prev = getHomeFeedMemorySnapshot();
       void saveHomeFeedCache({
         live: pack.live,
@@ -170,6 +178,12 @@ export function LiveDiscoveryScreen() {
       void load();
     });
   }, [load]);
+
+  useEffect(() => {
+    return subscribeLiveDiscoveryMeta(() => {
+      setDiscoveryMetaLine(formatLiveDiscoveryMetaLine());
+    });
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -238,6 +252,7 @@ export function LiveDiscoveryScreen() {
         })}
       </ScrollView>
       {discoveryError ? <Text style={styles.configHint}>{discoveryError}</Text> : null}
+      <Text style={styles.syncHint}>{discoveryMetaLine}</Text>
       {refreshing && (orderedRooms.length > 0 || scheduledAll.length > 0) ? (
         <Text style={styles.syncHint}>Updating vault events…</Text>
       ) : null}
@@ -282,7 +297,11 @@ export function LiveDiscoveryScreen() {
           ) : null
         }
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => load({ hadCache: true })} tintColor={colors.gold} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => load({ hadCache: true, bustCache: true })}
+            tintColor={colors.gold}
+          />
         }
         renderItem={renderRoom}
         ListFooterComponent={<View style={{ height: 120 }} />}

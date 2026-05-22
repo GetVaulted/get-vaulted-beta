@@ -1,5 +1,6 @@
-import { MyListingsPage } from "@/components/account/MyListingsPage";
+import { redirect } from "next/navigation";
 
-export default function AccountListingsPage() {
-  return <MyListingsPage />;
+/** Seller inventory index — canonical Seller Studio listings hub. */
+export default function AccountListingsRedirectPage() {
+  redirect("/seller/listings");
 }

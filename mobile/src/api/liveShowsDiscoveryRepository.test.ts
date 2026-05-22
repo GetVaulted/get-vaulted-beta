@@ -30,7 +30,9 @@ describe('fetchLiveShowsForDiscovery', () => {
     fetchLiveRoomsPublic.mockResolvedValue([]);
     const pack = await fetchLiveShowsForDiscovery();
     expect(fetchLiveRoomsPublic).toHaveBeenCalledWith(80);
-    expect(pack).toEqual({ live: [], scheduled: [] });
+    expect(pack.live).toEqual([]);
+    expect(pack.scheduled).toEqual([]);
+    expect(pack.meta.source).toBe('next_api');
   });
 
   it('maps scheduled and live from API rows', async () => {

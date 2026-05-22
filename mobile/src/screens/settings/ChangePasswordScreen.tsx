@@ -1,7 +1,8 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState } from 'react';
+import { AuthPasswordField } from '../../components/auth/AuthPasswordField';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { getSupabase } from '../../lib/supabase';
 import type { RootStackParamList } from '../../navigation/types';
@@ -13,6 +14,8 @@ export function ChangePasswordScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [confirmVisible, setConfirmVisible] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
@@ -45,21 +48,22 @@ export function ChangePasswordScreen({ navigation }: Props) {
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
       <PlatformFlowHeader title="Change password" onBack={() => navigation.goBack()} />
-      <TextInput
-        style={styles.input}
+      <AuthPasswordField
         value={password}
         onChangeText={setPassword}
-        secureTextEntry
         placeholder="New password"
-        placeholderTextColor={colors.textMuted}
+        visible={passwordVisible}
+        onToggleVisible={() => setPasswordVisible((v) => !v)}
+        autoComplete="new-password"
       />
-      <TextInput
-        style={[styles.input, { marginTop: spacing.sm }]}
+      <AuthPasswordField
         value={confirm}
         onChangeText={setConfirm}
-        secureTextEntry
         placeholder="Confirm password"
-        placeholderTextColor={colors.textMuted}
+        visible={confirmVisible}
+        onToggleVisible={() => setConfirmVisible((v) => !v)}
+        autoComplete="new-password"
+        containerStyle={{ marginTop: spacing.sm }}
       />
       <Pressable style={[styles.btn, busy && styles.btnOff]} disabled={busy} onPress={() => void submit()}>
         <Text style={styles.btnTxt}>Update password</Text>
@@ -70,15 +74,6 @@ export function ChangePasswordScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, paddingHorizontal: spacing.lg },
-  input: {
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    color: colors.textPrimary,
-    backgroundColor: colors.surface,
-    fontSize: 16,
-  },
   btn: {
     marginTop: spacing.lg,
     backgroundColor: colors.gold,

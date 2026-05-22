@@ -2,7 +2,7 @@
 
 **Policy:** Beta (`beta.shopgetvaulted.com`) validates **near-final** behavior. It is **not** the primary debugging environment.
 
-**Status (commerce / live):** Beta manual QA is **paused** until this gate is **green** on the build you intend to deploy.
+**Status (commerce / live):** Manual QA is **blocked** until [QA environment reset](./qa-environment-reset.md) passes (`qa:local-env-check` + Clear QA Session on every device).
 
 Do not push to `get-vaulted-beta` / trigger Netlify until every row in the [regression matrix](#regression-matrix) is **Pass** locally.
 
@@ -19,7 +19,24 @@ Project: **`xkaaicokjgmpbctfermj`** — same Supabase + Postgres for web and mob
 
 ---
 
-## Step 0 — Automated (from `web/`)
+## Step 0 — QA environment gate (required first)
+
+From `web/` with `npm run dev` running:
+
+```bash
+npm run qa:local-env-check
+# device testing: npm run qa:local-env-check -- --api-base http://<LAN-IP>:3000
+```
+
+Then on **each** mobile device and web browser: **Clear QA session** (see [qa-environment-reset.md](./qa-environment-reset.md)), sign in again, confirm diagnostics show the same Supabase ref + room counts.
+
+**Do not start Step 2 manual flows until this passes.**
+
+Then run [cross-client-sync-qa.md](./cross-client-sync-qa.md) (web + two mobiles, same API host).
+
+---
+
+## Step 0b — Automated build (from `web/`)
 
 ```bash
 npm run qa:pre-deploy
@@ -78,6 +95,8 @@ Rebuild after any `EXPO_PUBLIC_*` change.
 | Seller sign-in | `sellerqa` session loads Seller HQ |
 | Buyer sign-in | `buyerqa` on second device or profile |
 | API reachability | No “Could not reach Vaulted API” on Seller HQ refresh |
+| Auth password fields | Sign-in, sign-up, launch intro sign-in, and Settings → Change password each show eye toggle; labels “Show password” / “Hide password” | ☐ |
+| QA diagnostics parity | Settings → QA environment: same Supabase ref, Prisma id, room count as web `/qa/diagnostics` for same account | ☐ |
 
 ---
 
@@ -124,6 +143,8 @@ Mark **Pass** only after Steps 0–4 on the **same commit** you will deploy.
 | R5 | Scheduled + live rooms in buyer discovery | — | ☐ | ☐ | `GET /api/live-rooms` |
 | R6 | Web sign-in works for mobile-created `sellerqa` | ☐ | — | ☐ | |
 | R7 | No Supabase project / DB ref drift | — | — | ☐ | `verify:beta-env` |
+| R8 | Mobile auth password show/hide on all password fields | ☐ | ☐ | — | Sign-in · sign-up · change password |
+| R9 | Env/session parity across devices (`qa:local-env-check` + diagnostics) | ☐ | ☐ | ☐ | See [qa-environment-reset.md](./qa-environment-reset.md) |
 
 **Pre-deploy gate:** ☐ Pass · Date ______ · Git commit ______ · Tester ______
 

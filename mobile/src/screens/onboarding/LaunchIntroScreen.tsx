@@ -33,6 +33,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { AuthPasswordField } from '../../components/auth/AuthPasswordField';
 import { BrandLogo } from '../../components/ui/BrandLogo';
 import { useAuth } from '../../auth/AuthContext';
 import { enterGuestExploreAndOpenHome } from '../../navigation/enterGuestExploreFlow';
@@ -411,6 +412,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [forgotOpen, setForgotOpen] = useState(false);
@@ -732,14 +734,14 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
                 value={email}
                 onChangeText={setEmail}
               />
-              <TextInput
-                style={styles.input}
+              <AuthPasswordField
                 placeholder="Password"
-                placeholderTextColor={colors.textMuted}
-                secureTextEntry
-                autoComplete="password"
                 value={password}
                 onChangeText={setPassword}
+                visible={passwordVisible}
+                onToggleVisible={() => setPasswordVisible((v) => !v)}
+                autoComplete="password"
+                containerStyle={styles.introPasswordRow}
               />
 
               <Pressable style={styles.forgotWrap} onPress={() => { setForgotEmail(email); setForgotOpen(true); }}>
@@ -932,6 +934,10 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     backgroundColor: 'rgba(255,255,255,0.05)',
     fontSize: 16,
+  },
+  introPasswordRow: {
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
   },
   forgotWrap: { alignSelf: 'flex-end', paddingVertical: spacing.xs },
   forgotTxt: { color: colors.gold, fontSize: 14, fontWeight: '600' },

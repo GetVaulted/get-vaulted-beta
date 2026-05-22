@@ -89,6 +89,7 @@ export function SellerHubPage() {
   const [homeStats, setHomeStats] = useState<SellerHomeStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -171,20 +172,29 @@ export function SellerHubPage() {
 
   const load = useCallback(async () => {
     setLoadError(null);
+    setLoadWarnings([]);
     setLoading(true);
     try {
       const res = await fetch("/api/account/seller", { credentials: "same-origin" });
       if (!res.ok) {
-        const errBody = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+        const errBody = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          code?: string;
+          detail?: string;
+        };
         const detail =
           typeof errBody.error === "string" && errBody.error.trim() ? errBody.error.trim() : null;
+        const debugDetail =
+          typeof errBody.detail === "string" && errBody.detail.trim() ? errBody.detail.trim() : null;
         setLoadError(
           res.status === 401
             ? "Sign in to view seller settings."
             : res.status === 404 && errBody.code === "SESSION_USER_MISSING"
               ? (detail ??
                   "No account in this database for your current sign-in. Sign out, then sign in or sign up again.")
-            : detail ?? "Could not load seller settings.",
+            : debugDetail
+              ? `${detail ?? "Could not load seller settings."} (${debugDetail})`
+              : detail ?? "Could not load seller settings.",
         );
         setSeller({
           username: "",
@@ -207,7 +217,12 @@ export function SellerHubPage() {
         readiness?: LiveReadiness;
         sellerHomeStats?: SellerHomeStats;
         recommendedCategories?: { category: string; count: number }[];
+        partialErrors?: string[];
+        provisioned?: boolean;
       };
+      if (Array.isArray(j.partialErrors) && j.partialErrors.length) {
+        setLoadWarnings(j.partialErrors);
+      }
       const s = j.seller ?? {
         username: "",
         stripeAccountId: null,
@@ -424,7 +439,7 @@ export function SellerHubPage() {
         <nav className="mt-5 flex flex-wrap gap-2 border-b border-white/[0.07] pb-3" aria-label="Seller navigation">
           {[
             { href: "/account/seller", label: "Home" },
-            { href: "/account/listings", label: "Listings" },
+            { href: "/seller/listings", label: "Listings" },
             { href: "/account/sales", label: "Orders" },
             { href: "/account/messages", label: "Messages" },
             { href: "/seller/live", label: "Live" },
@@ -444,6 +459,13 @@ export function SellerHubPage() {
         </nav>
 
         {loadError ? <p className="mt-4 text-sm font-medium text-amber-200">{loadError}</p> : null}
+        {loadWarnings.length && !loadError ? (
+          <p className="mt-4 text-sm text-amber-200/90">
+            Some seller data could not be loaded ({loadWarnings.length} issue
+            {loadWarnings.length === 1 ? "" : "s"}). Core settings are shown; retry or check migrations if counts look
+            wrong.
+          </p>
+        ) : null}
 
         <section className="mt-6 rounded-2xl border border-white/[0.08] bg-zinc-950/60 p-5 sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -654,7 +676,7 @@ export function SellerHubPage() {
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/[0.06] bg-black/30 px-3 py-2.5">
               <span className="text-zinc-300">Favorite categories</span>
-              <Link href="/account/listings" className="rounded-full border border-white/15 px-3 py-1 text-[11px] font-semibold text-zinc-200">
+              <Link href="/seller/listings" className="rounded-full border border-white/15 px-3 py-1 text-[11px] font-semibold text-zinc-200">
                 Open listings
               </Link>
             </div>

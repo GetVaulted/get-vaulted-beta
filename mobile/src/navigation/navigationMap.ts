@@ -38,6 +38,7 @@ export const NAVIGATION_MAP = {
     activeTrade: { route: 'TradeDetail', status: 'live' as const },
   },
   sellerHQ: {
+    listingCard: { route: 'SellerListingManagement', status: 'live' as const, notes: 'Vault Seller Studio — not ProductDetail' },
     studioRows: { route: 'HQ tabs / Vault Events / listings', status: 'live' as const },
     settingsGear: { route: 'Settings', status: 'live' as const },
     tradeCenterShortcut: { route: 'TradeCenterHome', status: 'live' as const },

@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
-import { sellerPrimaryNextAction } from "@/lib/seller-fulfillment-next-action";
+import { resolveAccountSellerUserId } from "@/lib/resolve-account-seller-user";
+import { loadAccountSellerPayload } from "@/lib/load-account-seller-payload";
+import { serializePrismaClientError } from "@/lib/prisma-client-error-serialize";
+import { isQaSessionDebugAllowed } from "@/lib/qa-session-debug-allowed";
 import { prisma } from "@/lib/prisma";
-import { isStripeConfigured } from "@/lib/stripe";
-import { processAuctionPaymentExpiries } from "@/services/payments";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
+import { processAuctionPaymentExpiries } from "@/services/payments";
 
 export async function GET(req: Request) {
   const auth = await resolveAccountUserId(req);
   if (auth instanceof NextResponse) return auth;
-  const userId = auth.userId;
 
   try {
     await processAuctionPaymentExpiries();
@@ -17,224 +18,22 @@ export async function GET(req: Request) {
     console.error("[api/account/seller] processAuctionPaymentExpiries", e);
   }
 
+  const resolved = await resolveAccountSellerUserId(req);
+  if (resolved instanceof NextResponse) return resolved;
+
   try {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      username: true,
-      stripeAccountId: true,
-      stripeOnboardingComplete: true,
-      name: true,
-      image: true,
-      shipFromName: true,
-      shipFromStreet: true,
-      shipFromCity: true,
-      shipFromState: true,
-      shipFromZip: true,
-      shipFromCountry: true,
-      defaultShipFromAddressId: true,
-    },
-  });
-  if (!user) {
-    return NextResponse.json(
-      {
-        error:
-          "Your session does not match any user in this database. Sign out and sign in again (common after switching which Postgres database the app uses).",
-        code: "SESSION_USER_MISSING",
-      },
-      { status: 404 },
-    );
-  }
-
-  const recentSales = await prisma.order.findMany({
-    where: { sellerId: userId },
-    orderBy: { createdAt: "desc" },
-    take: 40,
-    select: {
-      id: true,
-      status: true,
-      paymentStatus: true,
-      fulfillmentStatus: true,
-      shippoTransactionId: true,
-      labelUrl: true,
-      trackingNumber: true,
-      trackingUrl: true,
-    },
-  });
-
-  const fulfillmentNextAction = sellerPrimaryNextAction(user, recentSales);
-
-  const [
-    auctionEndedUnpaidCount,
-    auctionRecoveryListing,
-    commerceEvents,
-    paidOrdersNeedingLabelCount,
-    paidOrderNeedingLabel,
-    readiness,
-    shipFromAddresses,
-  ] =
-    await Promise.all([
-      prisma.listing.count({
-        where: { sellerId: userId, status: "auction_ended_unpaid" },
-      }),
-      prisma.listing.findFirst({
-        where: { sellerId: userId, status: "auction_ended_unpaid" },
-        orderBy: { updatedAt: "desc" },
-        select: { id: true, title: true },
-      }),
-      prisma.sellerCommerceEvent.findMany({
-        where: { sellerId: userId },
-        orderBy: { createdAt: "desc" },
-        take: 30,
-        select: {
-          id: true,
-          kind: true,
-          title: true,
-          body: true,
-          listingId: true,
-          orderId: true,
-          createdAt: true,
-        },
-      }),
-      prisma.order.count({
-        where: {
-          sellerId: userId,
-          paymentStatus: "paid",
-          shippoTransactionId: null,
-          labelUrl: null,
-          status: { not: "cancelled" },
-        },
-      }),
-      prisma.order.findFirst({
-        where: {
-          sellerId: userId,
-          paymentStatus: "paid",
-          shippoTransactionId: null,
-          labelUrl: null,
-          status: { not: "cancelled" },
-        },
-        orderBy: { createdAt: "asc" },
-        select: { id: true },
-      }),
-      getSellerLiveReadiness(userId, prisma),
-      prisma.address.findMany({
-        where: { userId: userId, type: "ship_from" },
-        orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
-      }),
-    ]);
-
-  const [activeListingsCount, draftListingsCount, openOrdersCount, awaitingShipmentCount, recentSalesCount, unreadBuyerMessagesCount, liveRoom] =
-    await Promise.all([
-      prisma.listing.count({
-        where: { sellerId: userId, status: { in: ["active", "auction_live"] }, moderationRemovedAt: null },
-      }),
-      prisma.listing.count({
-        where: { sellerId: userId, status: "draft", moderationRemovedAt: null },
-      }),
-      prisma.order.count({
-        where: {
-          sellerId: userId,
-          status: { notIn: ["delivered", "cancelled"] },
-        },
-      }),
-      prisma.order.count({
-        where: {
-          sellerId: userId,
-          paymentStatus: "paid",
-          fulfillmentStatus: { in: ["pending", "processing"] },
-          status: { not: "cancelled" },
-        },
-      }),
-      prisma.order.count({
-        where: {
-          sellerId: userId,
-          paymentStatus: "paid",
-        },
-      }),
-      prisma.message.count({
-        where: {
-          recipientId: userId,
-          readAt: null,
-        },
-      }),
-      prisma.liveRoom.findFirst({
-        where: {
-          sellerId: userId,
-          status: { in: ["live", "scheduled"] },
-        },
-        orderBy: [{ status: "asc" }, { scheduledStartAt: "asc" }],
-        select: {
-          id: true,
-          title: true,
-          status: true,
-          scheduledStartAt: true,
-        },
-      }),
-    ]);
-
-  // Lightweight seller profile suggestions: infer “favorite categories” from the categories you sell most.
-  // This is non-blocking UI and does not require any new stored profile fields.
-  const sellerListingCategoryRows = await prisma.listing.findMany({
-    where: {
-      sellerId: userId,
-      moderationRemovedAt: null,
-      status: { in: ["active", "auction_live", "sold"] },
-    },
-    select: { category: true },
-    take: 200,
-    orderBy: { updatedAt: "desc" },
-  });
-
-  const categoryCounts = new Map<string, number>();
-  for (const row of sellerListingCategoryRows) {
-    const c = row.category?.trim();
-    if (!c) continue;
-    categoryCounts.set(c, (categoryCounts.get(c) ?? 0) + 1);
-  }
-  const recommendedCategories = Array.from(categoryCounts.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([category, count]) => ({ category, count }));
-
-  return NextResponse.json({
-    seller: user,
-    /** Server-only: whether `STRIPE_SECRET_KEY` is set (never infer this in `"use client"` code). */
-    stripePlatformConfigured: isStripeConfigured(),
-    fulfillmentNextAction: fulfillmentNextAction.label,
-    auctionRecoveryListingId: auctionRecoveryListing?.id ?? null,
-    auctionRecoveryListingTitle: auctionRecoveryListing?.title ?? null,
-    auctionEndedUnpaidCount,
-    paidOrdersNeedingLabelCount,
-    paidOrderNeedingLabelId: paidOrderNeedingLabel?.id ?? null,
-    readiness,
-    shipFromAddresses,
-    recommendedCategories,
-    sellerHomeStats: {
-      activeListingsCount,
-      draftListingsCount,
-      openOrdersCount,
-      awaitingShipmentCount,
-      recentSalesCount,
-      unreadBuyerMessagesCount,
-      liveRoom: liveRoom
-        ? {
-            id: liveRoom.id,
-            title: liveRoom.title,
-            status: liveRoom.status,
-            scheduledStartAt: liveRoom.scheduledStartAt?.toISOString() ?? null,
-          }
-        : null,
-    },
-    commerceEvents: commerceEvents.map((e) => ({
-      ...e,
-      createdAt: e.createdAt.toISOString(),
-    })),
-  });
+    const payload = await loadAccountSellerPayload(resolved.userId, {
+      provisioned: resolved.provisioned,
+    });
+    return NextResponse.json(payload);
   } catch (e) {
-    console.error("[api/account/seller] GET", e);
+    const pe = serializePrismaClientError(e);
+    console.error("[api/account/seller] GET", pe);
     return NextResponse.json(
       {
         error: "Seller settings could not be loaded. Check your database connection or try again.",
+        code: pe.code ?? "SELLER_SETTINGS_LOAD_FAILED",
+        ...(isQaSessionDebugAllowed() ? { detail: pe.message, prisma: pe } : {}),
       },
       { status: 503 },
     );
@@ -259,9 +58,9 @@ function trim(s: unknown, max: number): string | undefined {
 }
 
 export async function PATCH(req: Request) {
-  const auth = await resolveAccountUserId(req);
-  if (auth instanceof NextResponse) return auth;
-  const userId = auth.userId;
+  const resolved = await resolveAccountSellerUserId(req);
+  if (resolved instanceof NextResponse) return resolved;
+  const userId = resolved.userId;
 
   let body: PatchBody;
   try {
@@ -306,20 +105,20 @@ export async function PATCH(req: Request) {
     let selectedAddress =
       requestedId
         ? await tx.address.findFirst({
-            where: { id: requestedId, userId: userId, type: "ship_from" },
+            where: { id: requestedId, userId, type: "ship_from" },
           })
         : null;
 
     if (!selectedAddress && baseUser.defaultShipFromAddressId) {
       selectedAddress = await tx.address.findFirst({
-        where: { id: baseUser.defaultShipFromAddressId, userId: userId, type: "ship_from" },
+        where: { id: baseUser.defaultShipFromAddressId, userId, type: "ship_from" },
       });
     }
 
     if (!selectedAddress) {
       selectedAddress = await tx.address.findFirst({
-        where: { userId: userId, type: "ship_from" },
-        orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }],
+        where: { userId, type: "ship_from" },
+        orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
       });
     }
 
@@ -328,7 +127,7 @@ export async function PATCH(req: Request) {
     const email = baseUser.email?.trim() || null;
 
     await tx.address.updateMany({
-      where: { userId: userId, type: "ship_from" },
+      where: { userId, type: "ship_from" },
       data: { isDefault: false },
     });
 
@@ -352,7 +151,7 @@ export async function PATCH(req: Request) {
 
     return tx.address.create({
       data: {
-        userId: userId,
+        userId,
         type: "ship_from",
         name,
         fullName,

@@ -106,7 +106,7 @@ export default async function PublicListingPage({ params }: { params: Promise<{ 
   const isOwner = session?.user?.id === row.sellerId;
   const isPublic = isListingPubliclyVisible(row) && !isHiddenFixtureSellerEmail(row.seller.email);
 
-  if (isOwner && !isPublic) {
+  if (isOwner) {
     redirect(sellerListingHref(listingId));
   }
 
@@ -122,7 +122,6 @@ export default async function PublicListingPage({ params }: { params: Promise<{ 
 
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
-      {isOwner ? <OwnerPreviewBanner listingId={listingId} /> : null}
       <div
         className="pointer-events-none absolute inset-x-0 top-0 h-[min(380px,50vh)] bg-[radial-gradient(ellipse_80%_55%_at_50%_-8%,rgba(201,162,39,0.07),transparent_55%)]"
         aria-hidden
@@ -149,18 +148,3 @@ function ListingNotFound() {
   );
 }
 
-function OwnerPreviewBanner({ listingId }: { listingId: string }) {
-  return (
-    <div className="relative z-20 border-b border-gold/25 bg-gold/10 px-3 py-2.5 sm:px-4">
-      <div className="mx-auto flex max-w-[1920px] flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-medium text-gold-bright/95">You are previewing the buyer listing page.</p>
-        <Link
-          href={sellerListingHref(listingId)}
-          className="inline-flex h-8 items-center rounded-full border border-gold/40 bg-gold/15 px-4 text-[11px] font-bold uppercase tracking-wide text-gold-bright transition hover:bg-gold/25"
-        >
-          Open Seller Studio
-        </Link>
-      </div>
-    </div>
-  );
-}

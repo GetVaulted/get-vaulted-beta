@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -20,11 +21,14 @@ import {
   getListingsAccessToken,
   type WebStoredListing,
 } from '../../api/webListingsRepository';
+import { fetchMyLiveRooms, type LiveRoomApiRow } from '../../api/liveRoomsRepository';
 import { SellerListingEndControls } from '../../components/seller/SellerListingEndControls';
 import { useAuth } from '../../auth/AuthContext';
 import { openCreateListing } from '../../navigation/openCreateListing';
+import { openSellerHostRoom } from '../../navigation/openSellerHostRoom';
 import { openSellerHQ } from '../../navigation/openSellerHQ';
 import { getWebApiBaseUrl } from '../../lib/webApiBaseUrl';
+import { publicListingPath } from '../../lib/sellerListingRoutes';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
 
@@ -42,6 +46,7 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
   const [priceUsd, setPriceUsd] = useState('');
   const [shippingUsd, setShippingUsd] = useState('');
   const [handlingTime, setHandlingTime] = useState('1–3 business days');
+  const [liveRooms, setLiveRooms] = useState<LiveRoomApiRow[]>([]);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -74,6 +79,16 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
     void reload();
   }, [reload]);
 
+  useEffect(() => {
+    const token = session?.access_token;
+    if (!token) return;
+    void fetchMyLiveRooms(token)
+      .then((rows) =>
+        setLiveRooms(rows.filter((r) => r.status === 'live' || r.status === 'scheduled').slice(0, 12)),
+      )
+      .catch(() => setLiveRooms([]));
+  }, [session?.access_token]);
+
   const patchListing = async (body: Record<string, unknown>) => {
     setBusy(true);
     try {
@@ -92,6 +107,7 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
         throw new Error(j?.error ?? 'Update failed');
       }
       await reload();
+      await notifyListingCatalogChanged();
     } catch (e) {
       Alert.alert('Update failed', e instanceof Error ? e.message : 'Try again.');
     } finally {
@@ -99,7 +115,13 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
     }
   };
 
-  const publicUrl = `${getWebApiBaseUrl()}/listing/${encodeURIComponent(listingId)}`;
+  useFocusEffect(
+    useCallback(() => {
+      void reload();
+    }, [reload]),
+  );
+
+  const publicUrl = `${getWebApiBaseUrl() ?? ''}${publicListingPath(listingId)}`;
 
   const onShare = async () => {
     try {
@@ -172,30 +194,26 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
           </View>
         </View>
 
-        <View style={styles.metricsRow}>
+        <Section title="Performance">
+          <View style={styles.metricsRow}>
           {[
             { label: 'Watchers', value: stored.watchers ?? '—' },
             { label: 'Bids', value: stored.buyingFormat === 'auction' ? bidCount : '—' },
+            { label: 'Format', value: stored.buyingFormat === 'auction' ? 'Auction' : 'Buy now' },
+            { label: 'Status', value: status.replace(/_/g, ' ') },
           ].map((m) => (
             <View key={m.label} style={styles.metric}>
               <Text style={styles.metricLbl}>{m.label}</Text>
               <Text style={styles.metricVal}>{m.value}</Text>
             </View>
           ))}
-        </View>
-
-        <Section title="Quick actions">
-          <View style={styles.actionRow}>
-            <Pressable style={styles.primaryBtn} onPress={() => void openCreateListing(navigation, { draftId: listingId })}>
-              <Text style={styles.primaryBtnTxt}>Full editor</Text>
-            </Pressable>
-            <Pressable style={styles.secondaryBtn} onPress={onPreview}>
-              <Text style={styles.secondaryBtnTxt}>Buyer preview</Text>
-            </Pressable>
           </View>
-          <Pressable style={styles.secondaryBtn} onPress={() => void onShare()}>
-            <Ionicons name="share-outline" size={18} color={colors.gold} />
-            <Text style={styles.secondaryBtnTxt}>Share listing link</Text>
+        </Section>
+
+        <Section title="Listing editor">
+          <Text style={styles.hint}>Update title, photos, category, and full listing fields in the create-listing flow.</Text>
+          <Pressable style={styles.primaryBtn} onPress={() => void openCreateListing(navigation, { draftId: listingId })}>
+            <Text style={styles.primaryBtnTxt}>Edit listing details</Text>
           </Pressable>
         </Section>
 
@@ -322,14 +340,44 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
           />
         </Section>
 
-        <Section title="Live show">
-          <Text style={styles.hint}>Queue this lot from your host console during a vault event.</Text>
+        <Section title="Assign to live show">
+          <Text style={styles.hint}>Queue this lot from your host console during a scheduled or live vault event.</Text>
+          {liveRooms.length === 0 ? (
+            <Text style={styles.hint}>No scheduled or live rooms yet.</Text>
+          ) : (
+            liveRooms.map((room) => (
+              <View key={room.id} style={styles.liveRoomRow}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.liveRoomTitle} numberOfLines={1}>
+                    {room.title}
+                  </Text>
+                  <Text style={styles.liveRoomMeta}>{room.status} · {room.roomType}</Text>
+                </View>
+                <Pressable
+                  style={styles.liveRoomBtn}
+                  onPress={() => openSellerHostRoom(navigation, room.id)}
+                >
+                  <Text style={styles.liveRoomBtnTxt}>Host console</Text>
+                </Pressable>
+              </View>
+            ))
+          )}
           <Pressable style={styles.secondaryBtn} onPress={() => openSellerHQ(navigation, { tab: 'live' })}>
-            <Text style={styles.secondaryBtnTxt}>Open Seller Live</Text>
+            <Text style={styles.secondaryBtnTxt}>Manage vault events</Text>
           </Pressable>
         </Section>
 
-        <Section title="Danger zone">
+        <Section title="Share & promote">
+          <Pressable style={styles.primaryBtn} onPress={() => void onShare()}>
+            <Ionicons name="share-outline" size={18} color="#0a0a0a" />
+            <Text style={styles.primaryBtnTxt}>Share buyer link</Text>
+          </Pressable>
+          <Pressable style={styles.secondaryBtn} onPress={onPreview}>
+            <Text style={styles.secondaryBtnTxt}>Open buyer preview (external)</Text>
+          </Pressable>
+        </Section>
+
+        <Section title="Archive">
           <Pressable
             style={styles.dangerBtn}
             disabled={busy}
@@ -350,6 +398,7 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
                           headers: { Authorization: `Bearer ${token}` },
                         });
                         if (!res.ok) throw new Error('Delete failed');
+                        await notifyListingCatalogChanged();
                         navigation.goBack();
                       } catch (e) {
                         Alert.alert('Delete failed', e instanceof Error ? e.message : 'Try again.');
@@ -438,9 +487,11 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   meta: { ...typography.caption, color: colors.textSecondary },
-  metricsRow: { flexDirection: 'row', gap: spacing.sm },
+  metricsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   metric: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: '45%',
+    minWidth: 120,
     padding: spacing.md,
     borderRadius: radii.lg,
     borderWidth: 1,
@@ -505,4 +556,22 @@ const styles = StyleSheet.create({
   },
   dangerBtnTxt: { color: '#ffb4a8', fontWeight: '800' },
   btnOff: { opacity: 0.5 },
+  liveRoomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  liveRoomTitle: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
+  liveRoomMeta: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
+  liveRoomBtn: {
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.35)',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.pill,
+  },
+  liveRoomBtnTxt: { fontSize: 11, fontWeight: '800', color: colors.gold },
 });

@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { checkUsernameAvailable, validateUsernameFormat } from '../../api/profilesRepository';
+import { AuthPasswordField } from '../../components/auth/AuthPasswordField';
 import { GetVaultedBrandMark } from '../../components/branding/GetVaultedBrandMark';
 import { LegalConsentNote } from '../../components/legal/LegalConsentNote';
 import { useAuth } from '../../auth/AuthContext';
@@ -25,47 +26,6 @@ import { colors, radii, spacing, typography } from '../../theme';
 type Props = NativeStackScreenProps<RootStackParamList, 'AuthSignUp'>;
 
 type UsernameStatus = 'idle' | 'checking' | 'available' | 'unavailable' | 'invalid';
-
-function PasswordField({
-  value,
-  onChangeText,
-  placeholder,
-  visible,
-  onToggleVisible,
-  autoComplete,
-}: {
-  value: string;
-  onChangeText: (t: string) => void;
-  placeholder: string;
-  visible: boolean;
-  onToggleVisible: () => void;
-  autoComplete: 'new-password' | 'password';
-}) {
-  return (
-    <View style={styles.passwordRow}>
-      <TextInput
-        style={styles.passwordInput}
-        placeholder={placeholder}
-        placeholderTextColor={colors.textMuted}
-        secureTextEntry={!visible}
-        autoCapitalize="none"
-        autoComplete={autoComplete}
-        textContentType={autoComplete === 'new-password' ? 'newPassword' : 'password'}
-        value={value}
-        onChangeText={onChangeText}
-      />
-      <Pressable
-        style={styles.eyeBtn}
-        onPress={onToggleVisible}
-        accessibilityRole="button"
-        accessibilityLabel={visible ? 'Hide password' : 'Show password'}
-        hitSlop={8}
-      >
-        <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={22} color={colors.textMuted} />
-      </Pressable>
-    </View>
-  );
-}
 
 export function AuthSignUpScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
@@ -236,7 +196,7 @@ export function AuthSignUpScreen({ navigation }: Props) {
           )}
         </View>
 
-        <PasswordField
+        <AuthPasswordField
           value={password}
           onChangeText={setPassword}
           placeholder="Password (8+ characters)"
@@ -244,7 +204,7 @@ export function AuthSignUpScreen({ navigation }: Props) {
           onToggleVisible={() => setPasswordVisible((v) => !v)}
           autoComplete="new-password"
         />
-        <PasswordField
+        <AuthPasswordField
           value={confirmPassword}
           onChangeText={setConfirmPassword}
           placeholder="Confirm password"
@@ -300,23 +260,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     fontSize: 16,
   },
-  passwordRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  passwordInput: {
-    flex: 1,
-    paddingVertical: spacing.md,
-    paddingLeft: spacing.md,
-    paddingRight: spacing.xs,
-    color: colors.textPrimary,
-    fontSize: 16,
-  },
-  eyeBtn: { padding: spacing.md },
   usernameMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',

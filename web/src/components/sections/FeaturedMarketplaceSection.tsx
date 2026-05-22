@@ -24,6 +24,9 @@ export function FeaturedMarketplaceSection() {
       }
     };
     void run();
+    const onCatalogChange = () => void run();
+    window.addEventListener("gv-listings-updated", onCatalogChange);
+    return () => window.removeEventListener("gv-listings-updated", onCatalogChange);
   }, []);
 
   const ready = listings !== null;

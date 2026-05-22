@@ -13,6 +13,7 @@ import {
   openSupportInbox,
   openVaultComms,
 } from '../../navigation/openPlatform';
+import { areDevToolsEnabled } from '../../lib/devTools';
 import { performSignOut } from '../../lib/signOutSession';
 import type { RootStackParamList } from '../../navigation/types';
 import { spacing } from '../../theme';
@@ -77,6 +78,14 @@ export function SettingsScreen({ navigation }: Props) {
           icon="create-outline"
           onPress={() => navigation.navigate('ProfileEdit')}
         />
+        {(areDevToolsEnabled() || __DEV__) ? (
+          <SettingsRow
+            label="QA environment"
+            sub="API ref, session, discovery source, hard reset"
+            icon="pulse-outline"
+            onPress={() => navigation.navigate('QaEnvironmentDiagnostics')}
+          />
+        ) : null}
         <SettingsRow
           label="Sign out"
           icon="log-out-outline"

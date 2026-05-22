@@ -43,6 +43,12 @@ export function navigateToSellerHostRoom(roomId: string) {
   }
 }
 
+export function navigateToSellerListingManagement(listingId: string) {
+  if (rootNavigationRef.isReady()) {
+    rootNavigationRef.navigate('SellerListingManagement', { listingId });
+  }
+}
+
 export function navigateToMainHome() {
   if (rootNavigationRef.isReady()) {
     rootNavigationRef.dispatch(

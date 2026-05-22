@@ -9,6 +9,7 @@ import { ProfileEditScreen } from '../screens/auth/ProfileEditScreen';
 import { LaunchIntroScreen } from '../screens/onboarding/LaunchIntroScreen';
 import { AuthWelcomeScreen } from '../screens/onboarding/AuthWelcomeScreen';
 import { SettingsScreen } from '../screens/settings/SettingsScreen';
+import { QaEnvironmentDiagnosticsScreen } from '../screens/settings/QaEnvironmentDiagnosticsScreen';
 import { SettingsAccountScreen } from '../screens/settings/SettingsAccountScreen';
 import { ChangeEmailScreen } from '../screens/settings/ChangeEmailScreen';
 import { ChangePasswordScreen } from '../screens/settings/ChangePasswordScreen';
@@ -163,6 +164,7 @@ export function RootNavigator() {
             }}
           />
           <Stack.Screen name="Settings" component={SettingsScreen} />
+          <Stack.Screen name="QaEnvironmentDiagnostics" component={QaEnvironmentDiagnosticsScreen} />
           <Stack.Screen name="SettingsAccount" component={SettingsAccountScreen} />
           <Stack.Screen name="ChangeEmail" component={ChangeEmailScreen} />
           <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />

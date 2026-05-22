@@ -114,9 +114,10 @@ export function ProductDetailScreen({ navigation, route }: Props) {
       }
 
       if (detail?.stored && user?.id === detail.stored.sellerId) {
-        setOwnerStored(detail.stored);
-        setEndRequest(detail.endRequest ?? null);
-        setOwnerBidCount(detail.bidCount ?? 0);
+        if (!cancelled) {
+          navigation.replace('SellerListingManagement', { listingId });
+        }
+        return;
       } else {
         setOwnerStored(null);
         setEndRequest(null);

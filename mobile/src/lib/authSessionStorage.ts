@@ -129,3 +129,11 @@ export const supabaseAuthStorage = {
     }
   },
 };
+
+/** Wipe all persisted Supabase auth tokens (QA hard reset). */
+export async function clearAuthStore(): Promise<void> {
+  memory.clear();
+  prefCache = null;
+  rootCache = defaultRoot();
+  await saveRoot(rootCache);
+}
