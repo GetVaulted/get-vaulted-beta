@@ -11,6 +11,10 @@ import { assertSellerCanPublishListing } from "@/lib/seller-publish-readiness";
 import { dbListingToMarketplace, dbListingToStored } from "@/lib/listing-mapper";
 import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
 import { listingWithSellerFulfillmentInclude } from "@/lib/listing-with-seller-include";
+import {
+  isMarketplaceTimedAuctionPublishAttempt,
+  MARKETPLACE_AUCTION_DISABLED_MESSAGE,
+} from "@/lib/marketplace-commerce-policy";
 import type { BuyingFormat, ListingStatus } from "@/generated/prisma/client";
 
 const listingInclude = listingWithSellerFulfillmentInclude;
@@ -210,6 +214,19 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   const formatBeforeCoerce = data.buyingFormat ?? existing.buyingFormat;
   const statusBeforeCoerce = data.status ?? existing.status;
+
+  if (
+    isMarketplaceTimedAuctionPublishAttempt({
+      buyingFormat: formatBeforeCoerce,
+      status: statusBeforeCoerce,
+    }) &&
+    existing.status !== "auction_live"
+  ) {
+    return NextResponse.json(
+      { error: MARKETPLACE_AUCTION_DISABLED_MESSAGE, code: "MARKETPLACE_AUCTION_DISABLED" },
+      { status: 400 },
+    );
+  }
 
   if (body.buyingFormat === "buy_now" && existing.buyingFormat === "auction") {
     const bids = await prisma.bid.count({ where: { listingId: id } });

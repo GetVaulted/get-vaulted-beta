@@ -169,7 +169,6 @@ function publishStatus(
   listingType: ListingCommerceType | null,
 ): 'active' | 'auction_live' | 'draft' {
   if (channel === 'live_show') return 'draft';
-  if (listingType === 'auction' || listingType === 'live_auction') return 'auction_live';
   return 'active';
 }
 
@@ -201,6 +200,12 @@ function buildWebListingBody(
   const shippingCategory = webShippingCategoryFromMobile(category);
   const shippingWeights = shippingWeightsForCategory(shippingCategory);
 
+  if (channel === 'marketplace' && listingType === 'auction') {
+    throw new PublishListingError(
+      'Marketplace timed auctions are no longer available. Use Live Shows for auctions.',
+    );
+  }
+
   const body: Record<string, unknown> = {
     publishRequestId,
     title: form.title.trim(),
@@ -210,7 +215,7 @@ function buildWebListingBody(
     buyingFormat,
     status,
     images: imageUrls,
-    allowOffers: false,
+    allowOffers: channel === 'marketplace' ? Boolean(form.allowOffers) : false,
     acceptTradeOffers: form.acceptTrades || listingType === 'trade_only',
     signatureRequired: Boolean(form.signature),
     vaultPick: Boolean(form.vaultedVerification),

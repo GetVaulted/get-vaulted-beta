@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MarketplaceBrowseCard } from "@/components/marketplace/MarketplaceBrowseCard";
-import type { MarketplaceBuyingFormat, MarketplaceCategory, MarketplaceListing } from "@/content/marketplace-listings";
+import type { MarketplaceCategory, MarketplaceListing } from "@/content/marketplace-listings";
 import {
   getAddAnotherPreservedValues,
   getFieldsHiddenInQuickListMode,
@@ -31,13 +31,6 @@ const CATEGORY_OPTIONS: MarketplaceCategory[] = [
 
 const CONDITION_OPTIONS = ["Raw", "PSA 10", "PSA 9", "BGS 9.5", "DS", "Used", "Other"] as const;
 
-const AUCTION_DURATIONS = [
-  { value: 1, label: "1 day" },
-  { value: 3, label: "3 days" },
-  { value: 7, label: "7 days" },
-  { value: 14, label: "14 days" },
-] as const;
-
 const DRAFT_KEY = "gv_create_listing_draft";
 
 const UPLOAD_ALLOWED = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -60,7 +53,6 @@ type FieldErrors = Partial<{
   category: string;
   condition: string;
   price: string;
-  startingBid: string;
   minimumOffer: string;
   parcel: string;
   shippingProfile: string;
@@ -72,11 +64,7 @@ type DraftPayload = {
   title: string;
   category: MarketplaceCategory | "";
   condition: string;
-  buyingFormat: MarketplaceBuyingFormat;
   price: string;
-  startingBid: string;
-  reservePrice: string;
-  auctionDurationDays: number;
   description: string;
   shippingPrice: string;
   handlingTime: string;
@@ -145,11 +133,7 @@ export function CreateListingPage() {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<MarketplaceCategory | "">("");
   const [condition, setCondition] = useState<string>("");
-  const [buyingFormat, setBuyingFormat] = useState<MarketplaceBuyingFormat>("buy_now");
   const [price, setPrice] = useState("");
-  const [startingBid, setStartingBid] = useState("");
-  const [reservePrice, setReservePrice] = useState("");
-  const [auctionDurationDays, setAuctionDurationDays] = useState<number>(7);
   const [description, setDescription] = useState("");
   const [shippingPrice, setShippingPrice] = useState("");
   const [handlingTime, setHandlingTime] = useState("1–2 business days");
@@ -203,11 +187,7 @@ export function CreateListingPage() {
     setTitle(l.title);
     setCategory(l.category);
     setCondition(l.condition);
-    setBuyingFormat(l.buyingFormat);
-    setPrice(l.buyingFormat === "buy_now" ? String(l.price) : "");
-    setStartingBid(l.buyingFormat === "auction" ? String(l.startingBid ?? l.price) : "");
-    setReservePrice(l.reservePrice != null ? String(l.reservePrice) : "");
-    setAuctionDurationDays(l.auctionDurationDays ?? 7);
+    setPrice(String(l.buyingFormat === "buy_now" ? l.price : (l.startingBid ?? l.price)));
     setDescription(l.description);
     setShippingPrice(String(l.shippingPriceUsd));
     setHandlingTime(l.handlingTime);
@@ -315,11 +295,8 @@ export function CreateListingPage() {
         if (d.title != null) setTitle(d.title);
         if (d.category) setCategory(d.category);
         if (d.condition) setCondition(d.condition);
-        if (d.buyingFormat) setBuyingFormat(d.buyingFormat);
         if (d.price != null) setPrice(d.price);
-        if (d.startingBid != null) setStartingBid(d.startingBid);
-        if (d.reservePrice != null) setReservePrice(d.reservePrice);
-        if (d.auctionDurationDays) setAuctionDurationDays(d.auctionDurationDays);
+        else if ((d as { startingBid?: string }).startingBid != null) setPrice((d as { startingBid?: string }).startingBid!);
         if (d.description != null) setDescription(d.description);
         if (d.shippingPrice != null) setShippingPrice(d.shippingPrice);
         if (d.handlingTime != null) setHandlingTime(d.handlingTime);
@@ -399,22 +376,20 @@ export function CreateListingPage() {
     const defaults = getQuickListDefaults({
       category,
       condition,
-      format: buyingFormat,
+      format: "buy_now",
       shippingPreset,
     });
     if (!category) setCategory(defaults.category as MarketplaceCategory);
     if (!condition) setCondition(defaults.condition);
     setHandlingTime(defaults.handlingTime);
-    setBuyingFormat(defaults.format);
     applyShippingPreset(defaults.shippingPreset);
     setShippingAdvancedOpen(false);
-  }, [applyShippingPreset, buyingFormat, category, condition, quickListMode, shippingPreset]);
+  }, [applyShippingPreset, category, condition, quickListMode, shippingPreset]);
 
   const resetFormForNextListing = useCallback(
     (preserve: {
       category: MarketplaceCategory | "";
       condition: string;
-      format: MarketplaceBuyingFormat;
       preset: ShippingPreset;
     }) => {
       setImages([]);
@@ -422,11 +397,7 @@ export function CreateListingPage() {
       setTitle("");
       setCategory(preserve.category);
       setCondition(preserve.condition);
-      setBuyingFormat(preserve.format);
       setPrice("");
-      setStartingBid("");
-      setReservePrice("");
-      setAuctionDurationDays(7);
       setDescription("");
       setShippingPrice("");
       setHandlingTime("1–2 business days");
@@ -452,11 +423,7 @@ export function CreateListingPage() {
       title,
       category,
       condition,
-      buyingFormat,
       price,
-      startingBid,
-      reservePrice,
-      auctionDurationDays,
       description,
       shippingPrice,
       handlingTime,
@@ -488,17 +455,13 @@ export function CreateListingPage() {
     shippingIncrementalWeightOz,
     shippingPreset,
     shipFromAddressId,
-    auctionDurationDays,
-    buyingFormat,
     category,
     condition,
     description,
     handlingTime,
     price,
-    reservePrice,
     shippingPrice,
     signatureRequired,
-    startingBid,
     title,
   ]);
 
@@ -508,7 +471,6 @@ export function CreateListingPage() {
     setErrors((e) => ({ ...e, minimumOffer: undefined, images: undefined }));
     persistDraft();
     const buy = parseMoney(price) ?? 1;
-    const start = parseMoney(startingBid);
     let minOffer: number | null = null;
     if (allowOffers && minimumOfferUsd.trim() !== "") {
       const p = parseNonNegativeMoney(minimumOfferUsd);
@@ -526,12 +488,12 @@ export function CreateListingPage() {
       title: title.trim() || "Untitled draft",
       category: (category || "Other") as MarketplaceCategory,
       condition: condition.trim() || "Other",
-      buyingFormat,
-      priceUsd: buyingFormat === "buy_now" ? buy : start ?? buy,
-      startingBidUsd: buyingFormat === "auction" ? start ?? buy : null,
-      currentBidUsd: buyingFormat === "auction" ? start ?? buy : null,
-      reservePriceUsd: buyingFormat === "auction" ? (reservePrice.trim() === "" ? null : parseMoney(reservePrice)) : null,
-      auctionDurationDays: buyingFormat === "auction" ? auctionDurationDays : null,
+      buyingFormat: "buy_now" as const,
+      priceUsd: buy,
+      startingBidUsd: null,
+      currentBidUsd: null,
+      reservePriceUsd: null,
+      auctionDurationDays: null,
       description: description.trim(),
       shippingPriceUsd: parseNonNegativeMoney(shippingPrice) ?? 0,
       handlingTime: handlingTime.trim() || "—",
@@ -671,11 +633,7 @@ export function CreateListingPage() {
     const displayCategory = (category || "Trading Cards") as MarketplaceCategory;
     const id = "preview";
     const buyNow = parseMoney(price);
-    const start = parseMoney(startingBid);
-    const displayPrice =
-      buyingFormat === "buy_now" ? Math.max(1, buyNow ?? 1) : Math.max(1, start ?? 99);
-    const auctionTimeLeft =
-      buyingFormat === "auction" ? `${auctionDurationDays}d left` : undefined;
+    const displayPrice = Math.max(1, buyNow ?? 1);
     return {
       id,
       title: displayTitle,
@@ -686,12 +644,10 @@ export function CreateListingPage() {
       /** Credentials sign-in requires a verified email. */
       sellerVerified: true,
       category: displayCategory,
-      buyingFormat,
-      auctionTimeLeft,
+      buyingFormat: "buy_now",
       condition: displayCondition,
       listedAt: new Date().toISOString(),
       href: "/marketplace",
-      auctionDurationDays: buyingFormat === "auction" ? auctionDurationDays : undefined,
       allowOffers: allowOffers ? true : undefined,
       acceptTradeOffers: acceptTradeOffers ? true : undefined,
       minimumOfferUsd: allowOffers && minimumOfferUsd.trim() ? parseNonNegativeMoney(minimumOfferUsd) ?? undefined : undefined,
@@ -700,14 +656,11 @@ export function CreateListingPage() {
     allowOffers,
     acceptTradeOffers,
     minimumOfferUsd,
-    auctionDurationDays,
-    buyingFormat,
     category,
     condition,
     images,
     price,
     session,
-    startingBid,
     title,
   ]);
 
@@ -717,11 +670,7 @@ export function CreateListingPage() {
     if (!title.trim()) next.title = "Enter a title.";
     if (!category) next.category = "Choose a category.";
     if (!condition.trim()) next.condition = "Choose or enter condition.";
-    if (buyingFormat === "buy_now") {
-      if (parseMoney(price) == null) next.price = "Enter a valid buy now price.";
-    } else if (parseMoney(startingBid) == null) {
-      next.startingBid = "Enter a valid starting bid.";
-    }
+    if (parseMoney(price) == null) next.price = "Enter a valid buy now price.";
     if (allowOffers && minimumOfferUsd.trim() !== "") {
       if (parseNonNegativeMoney(minimumOfferUsd) == null) {
         next.minimumOffer = "Enter a valid minimum offer, or leave blank for no minimum.";
@@ -756,10 +705,8 @@ export function CreateListingPage() {
 
     const isWorkspaceDraft = workspaceListingId != null && editingListingId === workspaceListingId;
     const buy = parseMoney(price)!;
-    const start = parseMoney(startingBid);
-    const reserveParsed = reservePrice.trim() === "" ? null : parseMoney(reservePrice);
     const ship = parseNonNegativeMoney(shippingPrice) ?? 0;
-    const status: SellerListingStatus = buyingFormat === "auction" ? "auction_live" : "active";
+    const status: SellerListingStatus = "active";
     let minOfferPublish: number | null = null;
     if (allowOffers && minimumOfferUsd.trim() !== "") {
       minOfferPublish = parseNonNegativeMoney(minimumOfferUsd);
@@ -776,7 +723,7 @@ export function CreateListingPage() {
       title: title.trim(),
       category,
       condition,
-      buyingFormat,
+      buyingFormat: "buy_now" as const,
       description: description.trim(),
       shippingPriceUsd: ship,
       handlingTime: handlingTime.trim() || "Ships soon",
@@ -786,11 +733,11 @@ export function CreateListingPage() {
       minimumOfferUsd: allowOffers ? minOfferPublish : null,
       status,
       images,
-      priceUsd: buyingFormat === "buy_now" ? buy : start ?? buy,
-      startingBidUsd: buyingFormat === "auction" ? start : null,
-      currentBidUsd: buyingFormat === "auction" ? start : null,
-      reservePriceUsd: buyingFormat === "auction" ? reserveParsed : null,
-      auctionDurationDays: buyingFormat === "auction" ? auctionDurationDays : null,
+      priceUsd: buy,
+      startingBidUsd: null,
+      currentBidUsd: null,
+      reservePriceUsd: null,
+      auctionDurationDays: null,
       parcelWeightOz: pw,
       parcelLengthIn: pl,
       parcelWidthIn: pwi,
@@ -868,7 +815,6 @@ export function CreateListingPage() {
         resetFormForNextListing({
           category: addAnotherPreserve.category as MarketplaceCategory | "",
           condition: addAnotherPreserve.condition,
-          format: addAnotherPreserve.format,
           preset: addAnotherPreserve.shippingPreset,
         });
         return;
@@ -975,7 +921,6 @@ export function CreateListingPage() {
                 resetFormForNextListing({
                   category: addAnotherPreserve.category as MarketplaceCategory | "",
                   condition: addAnotherPreserve.condition,
-                  format: addAnotherPreserve.format,
                   preset: addAnotherPreserve.shippingPreset,
                 });
               }}
@@ -1003,18 +948,18 @@ export function CreateListingPage() {
     hasValidationErrors: !readyToPublish,
   });
   const saveDraftDisabled = isSaveDraftDisabled({ submitting, draftSaving });
-  const summaryFormat = buyingFormat === "auction" ? "Auction" : "Buy now";
-  const summaryPrice = buyingFormat === "auction" ? startingBid || "—" : price || "—";
+  const summaryFormat = "Buy now";
+  const summaryPrice = price || "—";
   const quickHiddenFields = getFieldsHiddenInQuickListMode(quickListMode);
   const showAdvancedShipping = isAdvancedShippingVisible({ quickListMode, expanded: shippingAdvancedOpen });
   const addAnotherPreserve = getAddAnotherPreservedValues({
     category,
     condition,
-    format: buyingFormat,
+    format: "buy_now",
     shippingPreset,
   });
   const conciseMissingRequirement = !readyToPublish
-    ? validationState.title ?? validationState.price ?? validationState.startingBid ?? validationState.images ?? "Missing required fields."
+    ? validationState.title ?? validationState.price ?? validationState.images ?? "Missing required fields."
     : null;
 
   if (readinessLoading) {
@@ -1199,47 +1144,23 @@ export function CreateListingPage() {
                   {errors.title ? <p className="mt-1 text-xs text-rose-300">{errors.title}</p> : null}
                 </div>
 
-                <div className="space-y-2">
-                  <p className="text-[11px] font-medium text-zinc-500">Buying format</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setBuyingFormat("buy_now")}
-                      className={`rounded-2xl px-3 py-3 text-left text-sm transition ${
-                        buyingFormat === "buy_now" ? "bg-gold/15 text-gold-bright ring-1 ring-gold/40" : "bg-white/[0.03] text-zinc-400 ring-1 ring-white/10"
-                      }`}
-                    >
-                      Buy now
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setBuyingFormat("auction")}
-                      className={`rounded-2xl px-3 py-3 text-left text-sm transition ${
-                        buyingFormat === "auction" ? "bg-gold/15 text-gold-bright ring-1 ring-gold/40" : "bg-white/[0.03] text-zinc-400 ring-1 ring-white/10"
-                      }`}
-                    >
-                      Auction
-                    </button>
-                  </div>
-                </div>
-
                 <div>
-                  <label htmlFor={buyingFormat === "auction" ? "listing-start" : "listing-price"} className="text-[11px] font-medium text-zinc-500">
-                    {buyingFormat === "auction" ? "Starting bid" : "Price"}
+                  <label htmlFor="listing-price" className="text-[11px] font-medium text-zinc-500">
+                    Price
                   </label>
                   <div className="relative mt-1">
                     <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-xl font-semibold text-zinc-500">$</span>
                     <input
-                      id={buyingFormat === "auction" ? "listing-start" : "listing-price"}
+                      id="listing-price"
                       inputMode="decimal"
-                      value={buyingFormat === "auction" ? startingBid : price}
-                      onChange={(e) => (buyingFormat === "auction" ? setStartingBid(e.target.value) : setPrice(e.target.value))}
+                      value={price}
+                      onChange={(e) => setPrice(e.target.value)}
                       placeholder="0.00"
                       className="h-14 w-full rounded-2xl bg-[#101014] pl-10 pr-4 text-2xl font-semibold text-foreground outline-none ring-1 ring-white/10 placeholder:text-zinc-600 focus:ring-2 focus:ring-gold/40"
                     />
                   </div>
-                  {buyingFormat === "auction" && errors.startingBid ? <p className="mt-1 text-xs text-rose-300">{errors.startingBid}</p> : null}
-                  {buyingFormat === "buy_now" && errors.price ? <p className="mt-1 text-xs text-rose-300">{errors.price}</p> : null}
+                  {errors.price ? <p className="mt-1 text-xs text-rose-300">{errors.price}</p> : null}
+                  <p className="mt-2 text-xs text-zinc-500">Buy now with optional offers and trades. For auctions, use Live Shows.</p>
                 </div>
                 <button
                   type="button"
@@ -1285,29 +1206,6 @@ export function CreateListingPage() {
                           ))}
                         </select>
                         {errors.condition ? <p className="text-xs text-rose-300">{errors.condition}</p> : null}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {buyingFormat === "auction" ? (
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-1.5">
-                        <label htmlFor="listing-duration" className={labelClass}>
-                          Auction duration
-                        </label>
-                        <select id="listing-duration" value={auctionDurationDays} onChange={(e) => setAuctionDurationDays(Number(e.target.value))} className={fieldClass}>
-                          {AUCTION_DURATIONS.map((d) => (
-                            <option key={d.value} value={d.value}>
-                              {d.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label htmlFor="listing-reserve" className={labelClass}>
-                          Reserve price
-                        </label>
-                        <input id="listing-reserve" inputMode="decimal" value={reservePrice} onChange={(e) => setReservePrice(e.target.value)} placeholder="None" className={fieldClass} />
                       </div>
                     </div>
                   ) : null}
@@ -1627,7 +1525,7 @@ export function CreateListingPage() {
                   <dd>{summaryFormat}</dd>
                 </div>
                 <div className="flex items-center justify-between gap-2">
-                  <dt className="text-zinc-500">{buyingFormat === "auction" ? "Start bid" : "Price"}</dt>
+                  <dt className="text-zinc-500">Price</dt>
                   <dd>{summaryPrice}</dd>
                 </div>
                 <div className="flex items-center justify-between gap-2">

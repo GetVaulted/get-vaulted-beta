@@ -14,6 +14,11 @@ import { prismaSellerVisibleOnPublicMarketplace } from "@/lib/demo-seed-sellers"
 import type { BuyingFormat, ListingStatus } from "@/generated/prisma/client";
 import type { ShippingCategory } from "@/generated/prisma/enums";
 import {
+  isMarketplaceTimedAuctionPublishAttempt,
+  MARKETPLACE_AUCTION_DISABLED_MESSAGE,
+  PUBLIC_MARKETPLACE_LISTING_WHERE,
+} from "@/lib/marketplace-commerce-policy";
+import {
   prismaListingCreateHint,
   serializePrismaClientError,
 } from "@/lib/prisma-client-error-serialize";
@@ -185,17 +190,13 @@ export async function GET(req: Request) {
     const rows = await prisma.listing.findMany({
       where: {
         id: { in: ids },
-        status: { in: ["active", "auction_live"] },
-        moderationRemovedAt: null,
+        ...PUBLIC_MARKETPLACE_LISTING_WHERE,
+        isCompanyListing: false,
       },
       include: listingInclude,
     });
-    const auctionIds = rows.filter((r) => r.buyingFormat === "auction").map((r) => r.id);
-    const bidCounts = await auctionBidCountsByListingIds(auctionIds);
     return NextResponse.json({
-      listings: rows.map((r) =>
-        dbListingToMarketplace(r, r.buyingFormat === "auction" ? { bidCount: bidCounts.get(r.id) ?? 0 } : undefined),
-      ),
+      listings: rows.map((r) => dbListingToMarketplace(r)),
     });
   }
 
@@ -203,21 +204,15 @@ export async function GET(req: Request) {
     const rows = await prisma.listing.findMany({
       where: {
         isCompanyListing: true,
-        status: { in: ["active", "auction_live"] },
+        status: "active",
+        buyingFormat: "buy_now",
         moderationRemovedAt: null,
       },
       include: listingInclude,
       orderBy: { createdAt: "desc" },
     });
-    const auctionIds = rows.filter((r) => r.buyingFormat === "auction").map((r) => r.id);
-    const bidCounts = await auctionBidCountsByListingIds(auctionIds);
     return NextResponse.json({
-      listings: rows.map((r) =>
-        dbListingToMarketplace(
-          r,
-          r.buyingFormat === "auction" ? { bidCount: bidCounts.get(r.id) ?? 0 } : undefined,
-        ),
-      ),
+      listings: rows.map((r) => dbListingToMarketplace(r)),
     });
   }
 
@@ -225,23 +220,14 @@ export async function GET(req: Request) {
     try {
       const rows = await prisma.listing.findMany({
         where: {
-          status: { in: ["active", "auction_live"] },
-          moderationRemovedAt: null,
-          isCompanyListing: false,
+          ...PUBLIC_MARKETPLACE_LISTING_WHERE,
           seller: prismaSellerVisibleOnPublicMarketplace(),
         },
         include: listingInclude,
         orderBy: { createdAt: "desc" },
       });
-      const auctionIds = rows.filter((r) => r.buyingFormat === "auction").map((r) => r.id);
-      const bidCounts = await auctionBidCountsByListingIds(auctionIds);
       return NextResponse.json({
-        listings: rows.map((r) =>
-          dbListingToMarketplace(
-            r,
-            r.buyingFormat === "auction" ? { bidCount: bidCounts.get(r.id) ?? 0 } : undefined,
-          ),
-        ),
+        listings: rows.map((r) => dbListingToMarketplace(r)),
       });
     } catch (e) {
       const prismaDto = serializePrismaClientError(e);
@@ -389,6 +375,12 @@ export async function POST(req: Request) {
   if (!buyingFormat) return NextResponse.json({ error: "Invalid buyingFormat" }, { status: 400 });
 
   const status = parseStatus(body.status) ?? "draft";
+  if (isMarketplaceTimedAuctionPublishAttempt({ buyingFormat, status })) {
+    return NextResponse.json(
+      { error: MARKETPLACE_AUCTION_DISABLED_MESSAGE, code: "MARKETPLACE_AUCTION_DISABLED" },
+      { status: 400 },
+    );
+  }
   const publishedLive = status === "active" || status === "auction_live";
   if (publishedLive && images.length === 0) {
     return NextResponse.json({ error: "At least one image is required to publish." }, { status: 400 });

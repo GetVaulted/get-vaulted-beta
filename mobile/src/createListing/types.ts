@@ -104,7 +104,7 @@ export type CreateListingFormState = {
   buyNowPrice: string;
   startingBid: string;
   reservePrice: string;
-  /** Timed auction length in full days (marketplace `auction` + `live_auction`). */
+  /** Timed auction length in full days (live show `auction` / `live_auction`). */
   auctionDurationDays: string;
   breakSpots: string;
   spotPrice: string;
@@ -157,6 +157,8 @@ export type CreateListingFormState = {
   liveShowTitle: string;
   queueNotes: string;
   acceptTrades: boolean;
+  /** Marketplace buy-now listings — buyers can submit offers on the PDP. */
+  allowOffers: boolean;
   vaultedVerification: boolean;
   whiteGlove: boolean;
   escrowProtection: boolean;
@@ -176,7 +178,7 @@ export type CreateListingFormState = {
   aiAcknowledgedReviews: boolean;
 };
 
-/** Preset auction lengths for timed marketplace / live auctions (full days). */
+/** Preset auction lengths for live show timed auctions (full days). */
 export const AUCTION_DURATION_DAY_OPTIONS = [3, 5, 7, 10, 14, 30] as const;
 
 function pickClosestAuctionDays(n: number): (typeof AUCTION_DURATION_DAY_OPTIONS)[number] {
@@ -269,6 +271,7 @@ export const emptyCreateListingForm = (): CreateListingFormState => ({
   liveShowTitle: '',
   queueNotes: '',
   acceptTrades: true,
+  allowOffers: false,
   vaultedVerification: false,
   whiteGlove: false,
   escrowProtection: true,

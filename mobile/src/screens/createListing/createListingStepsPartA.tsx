@@ -293,7 +293,7 @@ export function CreateListingTypeScreen({
       subtitle={
         isLiveShow
           ? 'Auction, break, or drop lanes — optimized for on-air velocity.'
-          : 'Buy now, timed auction, or trade — built for vault discovery and offers.'
+          : 'Buy now or trade — built for vault discovery, offers, and trades.'
       }
       onBack={goBackStep}
       onExit={exitFlow}

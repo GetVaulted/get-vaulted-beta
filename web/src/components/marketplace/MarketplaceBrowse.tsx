@@ -14,12 +14,6 @@ const sortOptions = [
 
 const conditionOptions = ["Any", "PSA 10", "PSA 9", "BGS 9.5", "Raw", "DS", "Excellent", "Authenticated", "LOA", "Unworn"] as const;
 
-const buyingFormatFilters = [
-  { value: "all", label: "All" },
-  { value: "buy_now", label: "Buy Now" },
-  { value: "auction", label: "Auction" },
-] as const;
-
 /** Same grid as `FeaturedMarketplaceSection` so tile width matches the homepage marketplace row */
 const listingGridClass = "grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6 lg:gap-3";
 
@@ -35,7 +29,6 @@ export function MarketplaceBrowse() {
   const [priceMin, setPriceMin] = useState("");
   const [priceMax, setPriceMax] = useState("");
   const [condition, setCondition] = useState<string>("Any");
-  const [buyingFormat, setBuyingFormat] = useState<(typeof buyingFormatFilters)[number]["value"]>("all");
 
   useEffect(() => {
     const load = async () => {
@@ -81,9 +74,6 @@ export function MarketplaceBrowse() {
       list = list.filter((l) => l.condition === condition);
     }
 
-    if (buyingFormat === "buy_now") list = list.filter((l) => l.buyingFormat === "buy_now");
-    if (buyingFormat === "auction") list = list.filter((l) => l.buyingFormat === "auction");
-
     const sorted = [...list];
     if (sort === "recent") sorted.sort((a, b) => parseListedAt(b.listedAt) - parseListedAt(a.listedAt));
     if (sort === "price-asc") sorted.sort((a, b) => a.price - b.price);
@@ -92,7 +82,7 @@ export function MarketplaceBrowse() {
       sorted.sort((a, b) => (b.sellerRating ?? 0) - (a.sellerRating ?? 0));
 
     return sorted;
-  }, [allListings, buyingFormat, category, condition, priceMax, priceMin, query, sort]);
+  }, [allListings, category, condition, priceMax, priceMin, query, sort]);
 
   const vaultPicks = useMemo(() => filtered.filter((l) => l.vaultPick), [filtered]);
   const gridListings = useMemo(() => filtered.filter((l) => !l.vaultPick), [filtered]);
@@ -104,14 +94,12 @@ export function MarketplaceBrowse() {
     setPriceMin("");
     setPriceMax("");
     setCondition("Any");
-    setBuyingFormat("all");
   };
 
   const empty = filtered.length === 0;
   const marketplaceIsEmpty =
     dbListings.length === 0 &&
     category === "All" &&
-    buyingFormat === "all" &&
     condition === "Any" &&
     priceMin === "" &&
     priceMax === "" &&
@@ -251,25 +239,6 @@ export function MarketplaceBrowse() {
                 </option>
               ))}
             </select>
-          </div>
-          <div>
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Buying Format</p>
-            <div className="flex gap-1.5">
-              {buyingFormatFilters.map((f) => (
-                <button
-                  key={f.value}
-                  type="button"
-                  onClick={() => setBuyingFormat(f.value)}
-                  className={`inline-flex h-10 min-w-0 flex-1 items-center justify-center rounded-lg border px-2 text-xs font-bold uppercase leading-none tracking-wide transition sm:px-2.5 ${
-                    buyingFormat === f.value
-                      ? "border-gold/45 bg-gold/12 text-gold-bright"
-                      : "border-white/10 bg-white/[0.03] text-zinc-500 hover:border-white/18"
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
           </div>
         </div>
       </section>

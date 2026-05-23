@@ -6,7 +6,7 @@ import { useSession } from "next-auth/react";
 import { useMemo, useState } from "react";
 import type { MarketplaceListing } from "@/content/marketplace-listings";
 import type { ItemPageExtras } from "@/lib/marketplace-item-extras";
-import { MarketplaceItemAuctionBlock } from "@/components/marketplace/MarketplaceItemAuctionBlock";
+import { isLegacyMarketplaceTimedAuction } from "@/lib/marketplace-commerce-policy";
 import { MarketplaceMakeOfferModal } from "@/components/marketplace/MarketplaceMakeOfferModal";
 import { MarketplaceWatchlistToggle } from "@/components/marketplace/MarketplaceWatchlistToggle";
 
@@ -84,30 +84,30 @@ export function MarketplaceItemPurchasePanel({ listing, extras }: MarketplaceIte
   const router = useRouter();
   const pathname = usePathname();
   const [offerOpen, setOfferOpen] = useState(false);
-  const isBuyNow = listing.buyingFormat === "buy_now";
   const allowOffers = listing.allowOffers === true;
   const allowTrades = listing.acceptTradeOffers === true;
   const isOwnListing = Boolean(session?.user?.id && listing.sellerId && session.user.id === listing.sellerId);
-  const listingIsActive =
-    listing.listingStatus === "active" || listing.listingStatus === "auction_live";
+  const legacyAuction =
+    listing.buyingFormat === "auction" &&
+    listing.listingStatus != null &&
+    isLegacyMarketplaceTimedAuction({
+      buyingFormat: "auction",
+      status: listing.listingStatus,
+    });
+  const listingIsActive = listing.listingStatus === "active";
   const listingUnavailable =
+    legacyAuction ||
     listing.listingStatus === "sold" ||
     listing.listingStatus === "awaiting_auction_payment" ||
     listing.listingStatus === "auction_ended_unpaid" ||
-    Boolean(extras.auctionEnded);
+    listing.listingStatus === "ended" ||
+    listing.listingStatus === "auction_live";
   const checkoutHref = `/checkout/${encodeURIComponent(listing.id)}`;
 
-  const askingLines = useMemo(() => {
-    if (isBuyNow) {
-      return [{ label: "Asking price", value: formatMoney(listing.price) }];
-    }
-    const hasBids = listing.currentBidUsd != null || (listing.auctionBidCount ?? 0) > 0;
-    const opening = extras.startingBidUsd ?? listing.price;
-    return [
-      { label: hasBids ? "Current bid" : "Starting bid", value: formatMoney(extras.currentBid) },
-      { label: "Opening", value: formatMoney(opening) },
-    ];
-  }, [extras.currentBid, extras.startingBidUsd, isBuyNow, listing.auctionBidCount, listing.currentBidUsd, listing.price]);
+  const askingLines = useMemo(
+    () => [{ label: "Asking price", value: formatMoney(listing.price) }],
+    [listing.price],
+  );
 
   const handleOfferSubmit = async (amountUsd: number, message: string) => {
     const res = await fetch("/api/offers", {
@@ -131,8 +131,24 @@ export function MarketplaceItemPurchasePanel({ listing, extras }: MarketplaceIte
     setOfferOpen(true);
   };
 
-  const showMakeOffer = allowOffers && !isOwnListing && (isBuyNow || !extras.auctionEnded);
+  const showMakeOffer = allowOffers && !isOwnListing && listingIsActive && !listingUnavailable;
   const showTradeButton = allowTrades && listingIsActive && !listingUnavailable && !isOwnListing;
+
+  if (listingUnavailable) {
+    return (
+      <div className="space-y-3">
+        <p className="rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-zinc-400">
+          {legacyAuction
+            ? "This listing is no longer available in the marketplace. Auctions now run only during Live Shows."
+            : "This listing is not available for purchase right now."}
+        </p>
+        <Link href="/marketplace" className="text-sm font-semibold text-gold-bright hover:underline">
+          Browse marketplace
+        </Link>
+      </div>
+    );
+  }
+
   const makeOfferControl = showMakeOffer ? (
     <button
       type="button"
@@ -153,63 +169,36 @@ export function MarketplaceItemPurchasePanel({ listing, extras }: MarketplaceIte
 
   return (
     <>
-      {isBuyNow ? (
-        <>
-          <p className="font-mono text-3xl font-black tracking-tight text-gold-bright sm:text-4xl">{formatMoney(listing.price)}</p>
-          <div className="pt-1">
-            {isOwnListing ? (
-              <p className="rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 text-center text-sm text-zinc-400">
-                This is your listing — buyers will use Buy now here.
-              </p>
-            ) : (
-              <Link
-                id="checkout"
-                href={checkoutHref}
-                className="inline-flex h-12 w-full items-center justify-center rounded-lg bg-gradient-to-r from-gold to-gold-bright px-6 text-sm font-bold text-zinc-950 shadow-[0_0_28px_-8px_rgba(201,162,39,0.5)] transition hover:brightness-110 active:scale-[0.99]"
-              >
-                Buy now
-              </Link>
-            )}
-            {makeOfferControl ? <div className="mt-2.5">{makeOfferControl}</div> : null}
-            {tradeControl ? <div className="mt-2.5">{tradeControl}</div> : null}
-            <p className="mt-2 text-center text-xs leading-snug text-zinc-400">
-              Free protected checkout <span className="text-zinc-500">·</span> {extras.handlingEstimateDisplay}
-            </p>
-          </div>
-          <div className="mt-4">
-            <ShippingTransparencyBlock extras={extras} />
-          </div>
-          <div className="mt-4">
-            <ItemBuyAssuranceList shipLine={extras.shipSpeedLine} />
-          </div>
-        </>
-      ) : (
-        <>
-          <MarketplaceItemAuctionBlock
-            listingId={listing.id}
-            isOwnListing={isOwnListing}
-            initialStartingBidUsd={extras.startingBidUsd ?? listing.price}
-            initialCurrentBidUsd={listing.currentBidUsd ?? null}
-            initialBidCount={extras.bidCount ?? 0}
-            initialMinNextBidUsd={extras.minNextBidUsd ?? extras.currentBid + 1}
-            initialAuctionEndsAtIso={extras.auctionEndsAt ?? null}
-            initialAuctionEnded={extras.auctionEnded ?? false}
-            shippingEstimate={`${extras.estimatedShippingDisplay} (at checkout)`}
-            watchingCount={extras.watchingCount}
-            makeOfferButton={makeOfferControl}
-            watchButton={
-              <MarketplaceWatchlistToggle listingId={listing.id} sellerId={listing.sellerId} variant="row" />
-            }
-          />
-          {tradeControl ? <div className="mt-2.5">{tradeControl}</div> : null}
-          <div className="mt-4">
-            <ShippingTransparencyBlock extras={extras} />
-          </div>
-          <div className="mt-4">
-            <ItemBuyAssuranceList shipLine={extras.shipSpeedLine} />
-          </div>
-        </>
-      )}
+      <p className="font-mono text-3xl font-black tracking-tight text-gold-bright sm:text-4xl">{formatMoney(listing.price)}</p>
+      <div className="pt-1">
+        {isOwnListing ? (
+          <p className="rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 text-center text-sm text-zinc-400">
+            This is your listing — buyers will use Buy now here.
+          </p>
+        ) : (
+          <Link
+            id="checkout"
+            href={checkoutHref}
+            className="inline-flex h-12 w-full items-center justify-center rounded-lg bg-gradient-to-r from-gold to-gold-bright px-6 text-sm font-bold text-zinc-950 shadow-[0_0_28px_-8px_rgba(201,162,39,0.5)] transition hover:brightness-110 active:scale-[0.99]"
+          >
+            Buy now
+          </Link>
+        )}
+        {makeOfferControl ? <div className="mt-2.5">{makeOfferControl}</div> : null}
+        {tradeControl ? <div className="mt-2.5">{tradeControl}</div> : null}
+        <p className="mt-2 text-center text-xs leading-snug text-zinc-400">
+          Free protected checkout <span className="text-zinc-500">·</span> {extras.handlingEstimateDisplay}
+        </p>
+      </div>
+      <div className="mt-4">
+        <ShippingTransparencyBlock extras={extras} />
+      </div>
+      <div className="mt-4">
+        <ItemBuyAssuranceList shipLine={extras.shipSpeedLine} />
+      </div>
+      <div className="mt-4">
+        <MarketplaceWatchlistToggle listingId={listing.id} sellerId={listing.sellerId} variant="row" />
+      </div>
 
       <MarketplaceMakeOfferModal
         open={offerOpen}

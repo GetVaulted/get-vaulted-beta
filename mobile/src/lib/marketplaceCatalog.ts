@@ -32,8 +32,13 @@ export function pickVaultVerified(catalog: Product[], n = 8): Product[] {
   return catalog.filter((p) => p.vaultVerified).slice(0, n);
 }
 
-export function pickEndingSoon(catalog: Product[], n = 6): Product[] {
-  return catalog.filter((p) => p.auctionEnds).slice(0, n);
+export function pickEndingSoon(_catalog: Product[], _n = 6): Product[] {
+  return [];
+}
+
+export function pickTrending(catalog: Product[], n = 8): Product[] {
+  const trend = catalog.filter((p) => p.storyline?.toLowerCase().includes('trending'));
+  return trend.length ? trend.slice(0, n) : catalog.slice(0, Math.min(n, catalog.length));
 }
 
 export function pickLuxuryLane(catalog: Product[], n = 6): Product[] {
@@ -48,11 +53,4 @@ export function pickNewArrivals(catalog: Product[], n = 8): Product[] {
 export function pickMostWatched(catalog: Product[], n = 6): Product[] {
   const hot = catalog.filter((p) => p.storyline?.toLowerCase().includes('watched'));
   return hot.length ? hot.slice(0, n) : [];
-}
-
-export function pickTrending(catalog: Product[], n = 8): Product[] {
-  const trend = catalog.filter(
-    (p) => p.storyline?.toLowerCase().includes('trending') || p.auctionEnds,
-  );
-  return trend.length ? trend.slice(0, n) : [];
 }

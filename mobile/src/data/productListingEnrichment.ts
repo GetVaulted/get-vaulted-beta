@@ -21,6 +21,7 @@ export type ListingViewModel = {
     featuredInLive?: string;
   };
   trade: {
+    allowOffers: boolean;
     acceptsTrades: boolean;
     tradeEligible: boolean;
     lookingFor: string[];
@@ -170,8 +171,9 @@ export function enrichListing(product: Product): ListingViewModel {
       featuredInLive: undefined,
     },
     trade: {
-      acceptsTrades: true,
-      tradeEligible: product.vaultVerified,
+      allowOffers: product.allowOffers === true,
+      acceptsTrades: product.acceptTradeOffers === true,
+      tradeEligible: product.acceptTradeOffers === true && product.vaultVerified,
       lookingFor: neutralLookingFor(product.category),
     },
     pricing: {

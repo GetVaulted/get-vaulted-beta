@@ -42,7 +42,7 @@ export const LISTING_CHANNEL_CONFIG: Record<ListingChannel, ListingChannelAccent
   },
 };
 
-const MARKETPLACE_COMMERCE: ListingCommerceType[] = ['buy_now', 'auction', 'trade_only'];
+const MARKETPLACE_COMMERCE: ListingCommerceType[] = ['buy_now', 'trade_only'];
 const LIVE_COMMERCE: ListingCommerceType[] = ['live_auction', 'break_spot', 'vault_drop', 'auction'];
 
 export function commerceOptionsForChannel(channel: ListingChannel | null): ListingCommerceType[] {

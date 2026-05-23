@@ -166,8 +166,7 @@ export function CreateListingPricingScreen({
           <Field label="Reserve (optional)" value={form.reservePrice} onChange={(v) => setForm({ reservePrice: v })} placeholder="$8,000" />
           <Text style={styles.fieldLbl}>Auction length (days)</Text>
           <Text style={styles.auctionDurHint}>
-            Timed auction — runs for the number of full days you select, then the highest bid wins. Marketplace default
-            at checkout shows time remaining.
+            Timed auction — runs for the number of full days you select during the live show, then the highest bid wins.
           </Text>
           <View style={styles.dayChipWrap}>
             {AUCTION_DURATION_DAY_OPTIONS.map((d) => {
@@ -650,7 +649,14 @@ export function CreateListingReviewScreen({
           </Text>
         ) : null}
 
-        <Text style={styles.blockK}>Trade integration</Text>
+        <Text style={styles.blockK}>Buyer actions</Text>
+        {!isLiveShow ? (
+          <Toggle
+            label="Accept offers"
+            value={form.allowOffers}
+            onValueChange={(v) => setForm({ allowOffers: v })}
+          />
+        ) : null}
         <Toggle label="Accept trade offers" value={form.acceptTrades} onValueChange={(v) => setForm({ acceptTrades: v })} />
 
         <Text style={styles.blockK}>Verification upsells</Text>

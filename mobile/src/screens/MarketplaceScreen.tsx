@@ -145,7 +145,7 @@ export function MarketplaceScreen() {
             icon="storefront-outline"
             kicker="The vault"
             title="No listings in the vault yet."
-            subtitle="Be the first to list authenticated inventory — buy-now, offers, and auctions surface here for collectors."
+            subtitle="Be the first to list authenticated inventory — buy now with optional offers and trades."
             actions={[
               {
                 label: 'Create first listing',
@@ -170,8 +170,8 @@ export function MarketplaceScreen() {
 
             {rails.trending.length ? (
               <MarketplaceListingRail
-                title="Auctions & demand"
-                subtitle="Timed lots and active bids"
+                title="Trending now"
+                subtitle="Popular buy-now listings"
                 products={rails.trending}
                 onPressProduct={openProduct}
                 pulseIndex={0}
@@ -180,7 +180,7 @@ export function MarketplaceScreen() {
 
             <MarketplaceListingRail
               title="Recently listed"
-              subtitle="Fresh buy-now & auction lots"
+              subtitle="Fresh buy-now inventory"
               products={rails.recent}
               onPressProduct={openProduct}
             />

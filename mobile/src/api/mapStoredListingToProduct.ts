@@ -40,5 +40,7 @@ export function mapStoredListingToProduct(row: WebStoredListing, seller?: Host):
     conditionGrade: row.condition || undefined,
     seller: host,
     buyNow: formatMoney(price),
+    allowOffers: row.allowOffers === true,
+    acceptTradeOffers: row.acceptTradeOffers === true,
   };
 }

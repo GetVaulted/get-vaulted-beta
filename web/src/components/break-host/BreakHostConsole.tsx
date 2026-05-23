@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LiveAuctionChat } from "@/components/live-auction/LiveAuctionChat";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
 import { TeamBoardChromeButton } from "@/components/team-board/TeamBoardChromeButton";
 import { TeamBoardOverlay } from "@/components/team-board/TeamBoardOverlay";
@@ -833,17 +832,6 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       }
     })();
 
-  const onHostMessagesChange = useCallback(
-    (next: LiveRoomMessageDTO[] | ((prev: LiveRoomMessageDTO[]) => LiveRoomMessageDTO[])) => {
-      setData((prev) => {
-        if (!prev) return prev;
-        const resolved = typeof next === "function" ? next(prev.messages) : next;
-        return { ...prev, messages: resolved };
-      });
-    },
-    [],
-  );
-
   const submitAuctionAdd = () => {
     const title = auctionDraftTitle.trim();
     if (!title) {
@@ -1072,17 +1060,6 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     />
   );
 
-  const floatingChat = (
-    <LiveAuctionChat
-      liveRoomId={roomId}
-      messages={data.messages}
-      onMessagesChange={onHostMessagesChange}
-      overlayMode
-      compact
-      scrollMessages
-    />
-  );
-
   const vaultControlsPill = (
     <button
       type="button"
@@ -1163,7 +1140,6 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
               centerOverlay={teamBoardStageOverlay}
               actionOverlay={hostDesktopItemOverlay}
               mobileActionOverlay={hostMobileItemOverlay}
-              chatOverlay={floatingChat}
               sellerHostRail={
                 <VaultHostRightRail
                   roomId={roomId}

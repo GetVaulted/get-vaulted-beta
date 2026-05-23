@@ -285,7 +285,24 @@ export function SellerListingStudio({ listingId }: { listingId: string }) {
               </span>
               <span className="text-[10px] text-zinc-500">{listing.category}</span>
               <span className="text-zinc-700">·</span>
-              <span className="text-[10px] text-zinc-500">{listing.buyingFormat === "buy_now" ? "Buy now" : "Auction"}</span>
+              <span className="inline-flex rounded-md border border-emerald-400/25 bg-emerald-950/25 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-100/90">
+                Buy now
+              </span>
+              {listing.allowOffers ? (
+                <span className="inline-flex rounded-md border border-sky-400/25 bg-sky-950/30 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-sky-100/90">
+                  Offers on
+                </span>
+              ) : null}
+              {listing.acceptTradeOffers ? (
+                <span className="inline-flex rounded-md border border-amber-400/25 bg-amber-950/30 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-100/90">
+                  Trades on
+                </span>
+              ) : null}
+              {listing.buyingFormat === "auction" ? (
+                <span className="inline-flex rounded-md border border-zinc-500/25 bg-zinc-900/50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-zinc-400">
+                  Legacy auction
+                </span>
+              ) : null}
             </div>
             {status === "awaiting_auction_payment" && listing.auctionPaymentDeadlineIso ? (
               <p className="mt-2 text-[11px] text-amber-200/90">
@@ -313,7 +330,7 @@ export function SellerListingStudio({ listingId }: { listingId: string }) {
 
         <StudioSection title="Pricing">
           <label className="block text-xs font-medium text-zinc-400">
-            {listing.buyingFormat === "auction" ? "Starting / current bid (USD)" : "Buy now price (USD)"}
+            Buy now price (USD)
             <input
               type="number"
               min={1}
@@ -323,11 +340,10 @@ export function SellerListingStudio({ listingId }: { listingId: string }) {
               className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#0c0c10] px-3 text-sm text-foreground outline-none focus:border-gold/35"
             />
           </label>
-          {listing.buyingFormat === "auction" && listing.auctionEndsAt ? (
-            <p className="text-[11px] text-zinc-500">Auction ends {new Date(listing.auctionEndsAt).toLocaleString()}</p>
-          ) : null}
-          {listing.buyingFormat === "auction" && bidCount > 0 ? (
-            <p className="text-[11px] text-zinc-500">Starting bid is locked while the auction has active bids.</p>
+          {listing.buyingFormat === "auction" ? (
+            <p className="text-[11px] text-amber-200/90">
+              This is a legacy marketplace auction listing. New listings are buy now only — use Live Shows for auctions.
+            </p>
           ) : null}
           <button
             type="button"
@@ -337,6 +353,32 @@ export function SellerListingStudio({ listingId }: { listingId: string }) {
           >
             Save pricing
           </button>
+        </StudioSection>
+
+        <StudioSection title="Offers & trades">
+          <p className="text-xs text-zinc-500">Control optional buyer actions on the marketplace listing page.</p>
+          <div className="mt-3 space-y-3">
+            <label className="flex items-center gap-3 text-sm text-zinc-300">
+              <input
+                type="checkbox"
+                checked={listing.allowOffers === true}
+                onChange={(e) => void patchListing({ allowOffers: e.target.checked })}
+                disabled={busy}
+                className="size-4 rounded border-white/20 accent-gold"
+              />
+              Accept offers
+            </label>
+            <label className="flex items-center gap-3 text-sm text-zinc-300">
+              <input
+                type="checkbox"
+                checked={listing.acceptTradeOffers === true}
+                onChange={(e) => void patchListing({ acceptTradeOffers: e.target.checked })}
+                disabled={busy}
+                className="size-4 rounded border-white/20 accent-gold"
+              />
+              Accept trades
+            </label>
+          </div>
         </StudioSection>
 
         <StudioSection title="Shipping">

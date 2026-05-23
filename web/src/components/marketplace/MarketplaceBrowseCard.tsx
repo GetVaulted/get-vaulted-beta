@@ -1,20 +1,10 @@
 import Link from "next/link";
 import { CardImagePlaceholder } from "@/components/ui/CardImagePlaceholder";
 import type { MarketplaceCategory, MarketplaceListing } from "@/content/marketplace-listings";
-import { formatAuctionTimeRemaining } from "@/lib/auction-display";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 
 function formatPrice(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-}
-
-/** Hide auction badge when copy implies finished — no static “ended” state in the grid */
-function isEndedAuctionTimeLabel(left?: string): boolean {
-  const t = left?.trim().toLowerCase() ?? "";
-  if (!t) return false;
-  const endedExact = ["ended", "auction ended", "closed", "complete", "bidding closed", "lot closed"];
-  if (endedExact.includes(t)) return true;
-  return t.endsWith(" ended") || t.startsWith("ended ");
 }
 
 const categoryTone: Record<MarketplaceCategory, string> = {
@@ -27,18 +17,16 @@ const categoryTone: Record<MarketplaceCategory, string> = {
 
 const buyNowBadgeTone =
   "border-emerald-400/28 bg-emerald-950/40 text-emerald-100/95 shadow-[0_4px_14px_rgba(0,0,0,0.45)]";
-
-const auctionBadgeTone =
-  "border-rose-400/45 bg-rose-950/50 text-rose-100 shadow-[0_4px_16px_rgba(0,0,0,0.5),0_0_14px_-6px_rgba(244,63,94,0.35)]";
+const offersBadgeTone =
+  "border-sky-400/28 bg-sky-950/40 text-sky-100/95 shadow-[0_4px_14px_rgba(0,0,0,0.45)]";
+const tradesBadgeTone =
+  "border-amber-400/28 bg-amber-950/40 text-amber-100/95 shadow-[0_4px_14px_rgba(0,0,0,0.45)]";
 
 type MarketplaceBrowseCardProps = {
   listing: MarketplaceListing;
   vaultPick?: boolean;
-  /** Stronger hover lift/shadow for related grids and carousels */
   emphasizeHover?: boolean;
-  /** Non-interactive shell for live form preview */
   asPreview?: boolean;
-  /** Tighter card for item detail “more from seller” rail */
   compact?: boolean;
 };
 
@@ -53,10 +41,6 @@ export function MarketplaceBrowseCard({
     ? "border-gold/30 shadow-[0_14px_40px_-24px_rgba(0,0,0,0.88),0_0_22px_-14px_rgba(201,162,39,0.22),inset_0_1px_0_rgba(255,255,255,0.05)]"
     : "border-white/10 shadow-[0_14px_44px_-26px_rgba(0,0,0,0.88),inset_0_1px_0_rgba(255,255,255,0.04)]";
 
-  const isAuction = listing.buyingFormat === "auction";
-  const auctionEnded = isAuction && isEndedAuctionTimeLabel(listing.auctionTimeLeft);
-  const showBuyingFormatBadge = listing.buyingFormat === "buy_now" || (isAuction && !auctionEnded);
-
   const hoverMotion =
     asPreview
       ? ""
@@ -70,7 +54,6 @@ export function MarketplaceBrowseCard({
 
   const inner = (
     <>
-      {/* Image: aspect-square matches homepage MarketplaceProductCard (compact) */}
       <div className="pointer-events-none relative aspect-square w-full overflow-hidden border-b border-white/5">
         <div className="absolute inset-0 z-0">
           {listing.imageUrls && listing.imageUrls.length > 0 ? (
@@ -94,27 +77,23 @@ export function MarketplaceBrowseCard({
             {listing.category}
           </span>
         </div>
-        {showBuyingFormatBadge ? (
+        <div className="absolute right-1.5 top-1.5 z-[2] flex max-w-[min(62%,calc(100%-4.75rem))] flex-col items-end gap-1">
           <span
-            className={`absolute right-1.5 top-1.5 z-[2] inline-flex max-w-[min(62%,calc(100%-4.75rem))] items-baseline justify-end gap-0.5 truncate rounded-md border px-1.5 py-0.5 text-[8px] leading-tight backdrop-blur-sm sm:max-w-[min(58%,calc(100%-5rem))] sm:px-2 sm:py-0.5 sm:text-[9px] ${
-              isAuction ? auctionBadgeTone : buyNowBadgeTone
-            }`}
+            className={`inline-flex rounded-md border px-1.5 py-0.5 text-[8px] font-black uppercase leading-tight tracking-wide backdrop-blur-sm sm:px-2 sm:text-[9px] ${buyNowBadgeTone}`}
           >
-            {isAuction ? (
-              <span className="min-w-0 truncate text-right font-semibold tabular-nums">
-                <span className="font-black uppercase tracking-wide">Auction</span>
-                {listing.auctionTimeLeft?.trim() ? (
-                  <>
-                    <span className="text-white/55"> · </span>
-                    <span>{listing.auctionTimeLeft.trim()}</span>
-                  </>
-                ) : null}
-              </span>
-            ) : (
-              <span className="font-black uppercase tracking-wide">Buy now</span>
-            )}
+            Buy now
           </span>
-        ) : null}
+          {listing.allowOffers ? (
+            <span className={`inline-flex rounded-md border px-1.5 py-0.5 text-[8px] font-black uppercase leading-tight tracking-wide backdrop-blur-sm sm:text-[9px] ${offersBadgeTone}`}>
+              Offers on
+            </span>
+          ) : null}
+          {listing.acceptTradeOffers ? (
+            <span className={`inline-flex rounded-md border px-1.5 py-0.5 text-[8px] font-black uppercase leading-tight tracking-wide backdrop-blur-sm sm:text-[9px] ${tradesBadgeTone}`}>
+              Trades on
+            </span>
+          ) : null}
+        </div>
         <span className="absolute bottom-1.5 left-1.5 z-[2] max-w-[calc(100%-0.75rem)] truncate rounded-md border border-white/15 bg-black/70 px-1.5 py-0.5 text-[8px] font-semibold leading-tight text-zinc-200 backdrop-blur-sm sm:text-[9px]">
           {listing.condition}
         </span>
@@ -128,37 +107,11 @@ export function MarketplaceBrowseCard({
         >
           {listing.title}
         </h3>
-        {isAuction ? (
-          <div className={compact ? "space-y-0.5" : "space-y-1"}>
-            <p className={`font-bold uppercase tracking-wide text-zinc-500 ${compact ? "text-[8px]" : "text-[9px]"}`}>
-              {(listing.auctionBidCount ?? 0) === 0 ? "Starting bid" : "Current bid"}
-            </p>
-            <p
-              className={`font-mono font-black leading-none tracking-tight text-gold-bright ${compact ? "text-sm sm:text-base" : "text-base sm:text-lg"}`}
-            >
-              {formatPrice(listing.price)}
-            </p>
-            <p className={`leading-snug text-zinc-500 ${compact ? "text-[9px]" : "text-[10px]"}`}>
-              <span className="font-medium text-zinc-400">
-                {(listing.auctionBidCount ?? 0) === 0
-                  ? "No bids yet"
-                  : `${listing.auctionBidCount} ${listing.auctionBidCount === 1 ? "bid" : "bids"}`}
-              </span>
-              {listing.auctionEndsAtIso ? (
-                <>
-                  <span className="text-zinc-600"> · </span>
-                  <span className="tabular-nums text-zinc-400">{formatAuctionTimeRemaining(listing.auctionEndsAtIso)}</span>
-                </>
-              ) : null}
-            </p>
-          </div>
-        ) : (
-          <p
-            className={`font-mono font-black leading-none tracking-tight text-gold-bright ${compact ? "text-sm sm:text-base" : "text-base sm:text-lg"}`}
-          >
-            {formatPrice(listing.price)}
-          </p>
-        )}
+        <p
+          className={`font-mono font-black leading-none tracking-tight text-gold-bright ${compact ? "text-sm sm:text-base" : "text-base sm:text-lg"}`}
+        >
+          {formatPrice(listing.price)}
+        </p>
         <div
           className={`pointer-events-auto flex flex-wrap items-center gap-x-1.5 gap-y-1 leading-tight text-zinc-500 ${compact ? "text-[9px]" : "text-[10px]"}`}
         >

@@ -38,6 +38,7 @@ import type { RootStackParamList } from '../navigation/types';
 import { alertGuestBuyRestricted } from '../navigation/guestExploreGuards';
 import { openMessageSellerForListing } from '../navigation/openMessages';
 import { openContactSupport, openDispute, openUserProfile } from '../navigation/openPlatform';
+import { openWebCommerceUrl, webListingCheckoutUrl, webListingUrl } from '../lib/openWebCommerce';
 import { isFollowing, toggleFollow } from '../platform/platformStore';
 import { useAuth } from '../auth/AuthContext';
 import type { Product } from '../types';
@@ -165,6 +166,34 @@ export function ProductDetailScreen({ navigation, route }: Props) {
         params: { requestedListingId: product.id },
       },
     });
+  };
+
+  const goMakeOffer = () => {
+    if (guestExploreMode) {
+      alertGuestBuyRestricted();
+      return;
+    }
+    if (!product) return;
+    const url = webListingUrl(product.id);
+    if (!url) {
+      Alert.alert('Make offer', 'Set EXPO_PUBLIC_SITE_URL to open offers on the web listing page.');
+      return;
+    }
+    void openWebCommerceUrl(url);
+  };
+
+  const goBuyNow = () => {
+    if (guestExploreMode) {
+      alertGuestBuyRestricted();
+      return;
+    }
+    if (!product) return;
+    const url = webListingCheckoutUrl(product.id) ?? webListingUrl(product.id);
+    if (!url) {
+      Alert.alert('Buy now', 'Set EXPO_PUBLIC_SITE_URL to complete checkout on the web.');
+      return;
+    }
+    void openWebCommerceUrl(url);
   };
 
   const shareListing = async () => {
@@ -358,9 +387,20 @@ export function ProductDetailScreen({ navigation, route }: Props) {
           <View style={styles.tradeCard}>
             <Text style={styles.sectionKicker}>Trade intelligence</Text>
             <View style={styles.tradeRow}>
-              <View style={styles.tradePill}>
-                <Text style={styles.tradePillTxt}>{vm.trade.acceptsTrades ? 'Accepts trades' : 'Trades off'}</Text>
-              </View>
+              {vm.trade.allowOffers ? (
+                <View style={styles.tradePill}>
+                  <Text style={styles.tradePillTxt}>Offers welcome</Text>
+                </View>
+              ) : null}
+              {vm.trade.acceptsTrades ? (
+                <View style={styles.tradePill}>
+                  <Text style={styles.tradePillTxt}>Accepts trades</Text>
+                </View>
+              ) : (
+                <View style={styles.tradePill}>
+                  <Text style={styles.tradePillTxt}>Trades off</Text>
+                </View>
+              )}
               <View style={styles.tradePill}>
                 <Text style={styles.tradePillTxt}>{vm.trade.tradeEligible ? 'Trade eligible' : 'Buy only'}</Text>
               </View>
@@ -376,10 +416,18 @@ export function ProductDetailScreen({ navigation, route }: Props) {
                 <Ionicons name="eye-outline" size={18} color={colors.gold} />
                 <Text style={styles.outlineCtaTxt}>Watch</Text>
               </Pressable>
-              <Pressable style={styles.outlineCta} onPress={goTradeOffer}>
-                <Ionicons name="swap-horizontal-outline" size={18} color={colors.gold} />
-                <Text style={styles.outlineCtaTxt}>Trade offer</Text>
-              </Pressable>
+              {vm.trade.allowOffers ? (
+                <Pressable style={styles.outlineCta} onPress={goMakeOffer}>
+                  <Ionicons name="pricetag-outline" size={18} color={colors.gold} />
+                  <Text style={styles.outlineCtaTxt}>Make offer</Text>
+                </Pressable>
+              ) : null}
+              {vm.trade.acceptsTrades ? (
+                <Pressable style={styles.outlineCta} onPress={goTradeOffer}>
+                  <Ionicons name="swap-horizontal-outline" size={18} color={colors.gold} />
+                  <Text style={styles.outlineCtaTxt}>Trade offer</Text>
+                </Pressable>
+              ) : null}
             </View>
           </View>
 
@@ -611,18 +659,22 @@ export function ProductDetailScreen({ navigation, route }: Props) {
           <Pressable style={styles.saveBtn} onPress={() => setSaved((s) => !s)}>
             <Ionicons name={saved ? 'heart' : 'heart-outline'} size={22} color={saved ? colors.live : colors.textPrimary} />
           </Pressable>
-          <Pressable
-            style={styles.stickyOffer}
-            onPress={() => (guestExploreMode ? alertGuestBuyRestricted() : goTradeOffer())}
-          >
-            <Text style={styles.stickyOfferTxt}>Offer</Text>
-          </Pressable>
-          <Pressable style={styles.stickyTrade} onPress={goTradeOffer}>
-            <Text style={styles.stickyTradeTxt}>Trade</Text>
-          </Pressable>
+          {vm.trade.allowOffers ? (
+            <Pressable
+              style={styles.stickyOffer}
+              onPress={() => (guestExploreMode ? alertGuestBuyRestricted() : goMakeOffer())}
+            >
+              <Text style={styles.stickyOfferTxt}>Make offer</Text>
+            </Pressable>
+          ) : null}
+          {vm.trade.acceptsTrades ? (
+            <Pressable style={styles.stickyTrade} onPress={goTradeOffer}>
+              <Text style={styles.stickyTradeTxt}>Trade</Text>
+            </Pressable>
+          ) : null}
           <Pressable
             style={styles.stickyBuy}
-            onPress={() => (guestExploreMode ? alertGuestBuyRestricted() : goTradeOffer())}
+            onPress={() => (guestExploreMode ? alertGuestBuyRestricted() : goBuyNow())}
           >
             <Text style={styles.stickyBuyTop}>Buy now</Text>
             <Text style={styles.stickyBuyPrice}>{vm.pricing.buyNow}</Text>

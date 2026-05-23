@@ -13,6 +13,18 @@ export function webLiveRoomUrl(roomId: string): string | null {
   return `${base.replace(/\/$/, '')}/live/${encodeURIComponent(roomId.trim())}`;
 }
 
+export function webListingUrl(listingId: string): string | null {
+  const base = getWebApiBaseUrl();
+  if (!base || !listingId.trim()) return null;
+  return `${base.replace(/\/$/, '')}/listing/${encodeURIComponent(listingId.trim())}`;
+}
+
+export function webListingCheckoutUrl(listingId: string): string | null {
+  const base = getWebApiBaseUrl();
+  if (!base || !listingId.trim()) return null;
+  return `${base.replace(/\/$/, '')}/checkout/${encodeURIComponent(listingId.trim())}`;
+}
+
 /** Opens web checkout / live room in system browser when mobile native pay is not wired. */
 export async function openWebCommerceUrl(url: string): Promise<void> {
   await WebBrowser.openBrowserAsync(url, {

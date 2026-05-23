@@ -7,6 +7,10 @@ import { emitListingBidPlaced } from "@/lib/realtime-emit-server";
 import { assertPaymentMethodOwnedByUser } from "@/lib/stripe-customer";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
 import { isStripeConfigured } from "@/lib/stripe";
+import {
+  isLegacyMarketplaceTimedAuction,
+  MARKETPLACE_AUCTION_DISABLED_MESSAGE,
+} from "@/lib/marketplace-commerce-policy";
 
 type CheckoutJson = {
   shipRecipientName?: unknown;
@@ -97,6 +101,20 @@ export async function POST(req: Request) {
 
   if (!listingId) return NextResponse.json({ error: "Missing listing." }, { status: 400 });
   if (!(maxFromBody > 0)) return NextResponse.json({ error: "Enter a valid bid amount." }, { status: 400 });
+
+  if (!liveRoomItemId) {
+    const listingRow = await prisma.listing.findUnique({
+      where: { id: listingId },
+      select: { buyingFormat: true, status: true },
+    });
+    if (!listingRow) return NextResponse.json({ error: "Listing not found." }, { status: 404 });
+    if (isLegacyMarketplaceTimedAuction(listingRow)) {
+      return NextResponse.json(
+        { error: MARKETPLACE_AUCTION_DISABLED_MESSAGE, code: "MARKETPLACE_AUCTION_DISABLED" },
+        { status: 400 },
+      );
+    }
+  }
 
   const bidderId = session.user.id;
 

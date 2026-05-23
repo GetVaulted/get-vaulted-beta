@@ -23,10 +23,6 @@ type MarketplaceItemViewProps = {
   sellerFulfillmentWarnings?: FulfillmentReadinessIssue[];
 };
 
-function listingFormatLabel(listing: MarketplaceListing) {
-  if (listing.buyingFormat === "buy_now") return "Buy now";
-  return listing.auctionTimeLeft?.trim() ? `Auction · ${listing.auctionTimeLeft.trim()}` : "Live auction";
-}
 
 export function MarketplaceItemView({
   listing,
@@ -36,8 +32,13 @@ export function MarketplaceItemView({
   sellerFulfillmentWarnings,
 }: MarketplaceItemViewProps) {
   const related = getRelatedMarketplaceListings(listing, 4, relatedPool);
-  const isBuyNow = listing.buyingFormat === "buy_now";
-  const showLowStock = isBuyNow && extras.stockRemaining === 1;
+  const showLowStock = extras.stockRemaining === 1;
+  const legacyAuction =
+    listing.buyingFormat === "auction" &&
+    listing.listingStatus != null &&
+    (listing.listingStatus === "auction_live" ||
+      listing.listingStatus === "awaiting_auction_payment" ||
+      listing.listingStatus === "auction_ended_unpaid");
 
   return (
     <article className="mx-auto w-full max-w-[1400px] px-6 pb-24 pt-5 sm:pt-6 lg:px-10">
@@ -85,22 +86,26 @@ export function MarketplaceItemView({
               <span className="inline-flex rounded-md border border-white/15 bg-white/[0.06] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-zinc-100">
                 {listing.condition}
               </span>
-              {!isBuyNow ? (
-                <span className="inline-flex rounded-md border border-rose-400/25 bg-rose-950/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-100/90">
-                  {listingFormatLabel(listing)}
+              <span className="inline-flex rounded-md border border-emerald-400/25 bg-emerald-950/25 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-100/90">
+                Buy now
+              </span>
+              {listing.allowOffers ? (
+                <span className="inline-flex rounded-md border border-sky-400/25 bg-sky-950/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-100/90">
+                  Offers on
                 </span>
-              ) : (
-                <span className="inline-flex rounded-md border border-emerald-400/25 bg-emerald-950/25 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-100/90">
-                  {listingFormatLabel(listing)}
+              ) : null}
+              {listing.acceptTradeOffers ? (
+                <span className="inline-flex rounded-md border border-amber-400/25 bg-amber-950/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-100/90">
+                  Trades on
                 </span>
-              )}
+              ) : null}
             </div>
 
             <div className="mt-3 flex items-start justify-between gap-3">
               <h1 className="min-w-0 flex-1 font-display text-xl font-bold leading-snug tracking-tight text-foreground sm:text-2xl">
                 {listing.title}
               </h1>
-              {isBuyNow ? (
+              {!legacyAuction ? (
                 <MarketplaceWatchlistToggle listingId={listing.id} sellerId={listing.sellerId} variant="title" />
               ) : null}
             </div>
@@ -109,7 +114,7 @@ export function MarketplaceItemView({
               {showLowStock ? (
                 <span className="font-semibold text-rose-200">Only 1 available</span>
               ) : null}
-              {isBuyNow ? (
+              {!legacyAuction ? (
                 <span className="text-zinc-400">
                   <span className="font-semibold tabular-nums text-zinc-100">{extras.watchingCount}</span> watching
                 </span>
@@ -163,15 +168,16 @@ export function MarketplaceItemView({
         </section>
       ) : null}
 
-      <MarketplaceItemStickyBuyBar
-        mode={isBuyNow ? "buy_now" : "auction"}
-        buyNowPrice={listing.price}
-        auctionCurrentBid={extras.currentBid}
-        listingId={listing.id}
-        listingTitle={listing.title}
-        sellerId={listing.sellerId}
-        auctionEnded={!isBuyNow && Boolean(extras.auctionEnded)}
-      />
+      {!legacyAuction ? (
+        <MarketplaceItemStickyBuyBar
+          mode="buy_now"
+          buyNowPrice={listing.price}
+          auctionCurrentBid={listing.price}
+          listingId={listing.id}
+          listingTitle={listing.title}
+          sellerId={listing.sellerId}
+        />
+      ) : null}
     </article>
   );
 }

@@ -47,7 +47,12 @@ test.describe("Vaulted Live reliability smoke", () => {
       const chatText = `e2e-${Date.now()}`;
       await buyerLive.getByTestId("live-chat-input").fill(chatText);
       await buyerLive.getByTestId("live-chat-send").click();
-      await expect(sellerConsole.getByTestId("live-chat-messages")).toContainText(chatText);
+      await expect(buyerLive.getByTestId("live-chat-messages")).toContainText(chatText);
+
+      const hostLine = `host-e2e-${Date.now()}`;
+      await sellerConsole.getByPlaceholder("Push a line to the room…").fill(hostLine);
+      await sellerConsole.getByRole("button", { name: /send to chat/i }).click();
+      await expect(buyerLive.getByTestId("live-chat-messages")).toContainText(hostLine);
 
       await expect(buyerLive.getByTestId("live-viewer-count")).toContainText(/watching|waiting/i);
       await expect(buyerLive.getByTestId("live-active-item-title")).toBeVisible();

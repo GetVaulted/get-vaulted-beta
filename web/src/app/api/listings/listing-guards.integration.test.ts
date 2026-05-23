@@ -114,8 +114,9 @@ describe("listing publish + live room Stripe guards (API)", () => {
       { params: Promise.resolve({ id: listing.id }) },
     );
     expect(res.status).toBe(403);
-    const j = (await res.json()) as { error?: string; issues?: string[] };
-    expect(j.error).toBe("SELLER_REQUIREMENTS_INCOMPLETE");
+    const j = (await res.json()) as { error?: string; code?: string; issues?: string[] };
+    expect(j.error).toBe("Complete seller setup before publishing.");
+    expect(j.code).toBe("SELLER_REQUIREMENTS_INCOMPLETE");
     expect(Array.isArray(j.issues)).toBe(true);
     expect((j.issues ?? []).some((m) => /stripe/i.test(m))).toBe(true);
   });
@@ -149,8 +150,9 @@ describe("listing publish + live room Stripe guards (API)", () => {
       { params: Promise.resolve({ id: listing.id }) },
     );
     expect(res.status).toBe(403);
-    const j = (await res.json()) as { error?: string; issues?: string[] };
-    expect(j.error).toBe("SELLER_REQUIREMENTS_INCOMPLETE");
+    const j = (await res.json()) as { error?: string; code?: string; issues?: string[] };
+    expect(j.error).toBe("Complete seller setup before publishing.");
+    expect(j.code).toBe("SELLER_REQUIREMENTS_INCOMPLETE");
     expect((j.issues ?? []).some((m) => /ship-from address/i.test(m))).toBe(true);
   });
 
@@ -196,8 +198,9 @@ describe("listing publish + live room Stripe guards (API)", () => {
       { params: Promise.resolve({ id: listing.id }) },
     );
     expect(res.status).toBe(403);
-    const j = (await res.json()) as { error?: string; issues?: string[] };
-    expect(j.error).toBe("SELLER_REQUIREMENTS_INCOMPLETE");
+    const j = (await res.json()) as { error?: string; code?: string; issues?: string[] };
+    expect(j.error).toBe("Complete seller setup before publishing.");
+    expect(j.code).toBe("SELLER_REQUIREMENTS_INCOMPLETE");
     expect((j.issues ?? []).some((m) => /shipping profile/i.test(m))).toBe(true);
   });
 
@@ -289,8 +292,9 @@ describe("listing publish + live room Stripe guards (API)", () => {
       }),
     );
     expect(res.status).toBe(403);
-    const j = (await res.json()) as { error?: string; issues?: string[] };
-    expect(j.error).toBe("SELLER_REQUIREMENTS_INCOMPLETE");
+    const j = (await res.json()) as { error?: string; code?: string; issues?: string[] };
+    expect(j.error).toBe("Complete seller setup before publishing.");
+    expect(j.code).toBe("SELLER_REQUIREMENTS_INCOMPLETE");
     expect(Array.isArray(j.issues)).toBe(true);
     expect((j.issues ?? []).length).toBeGreaterThan(0);
   });
@@ -370,7 +374,7 @@ describe("listing publish + live room Stripe guards (API)", () => {
     expect(res.status).toBe(400);
     const j = (await res.json()) as { issues?: unknown; checks?: { hasStripeAccount?: boolean } };
     expect(Array.isArray(j.issues)).toBe(true);
-    expect((j.issues as string[]).some((m) => /Stripe/i.test(m))).toBe(true);
+    expect((j.issues as string[]).some((m) => /payout/i.test(m))).toBe(true);
     expect(j.checks?.hasStripeAccount).toBe(false);
   });
 });

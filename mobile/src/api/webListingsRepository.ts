@@ -168,6 +168,7 @@ export type WebStoredListing = {
   title: string;
   status?: string;
   buyingFormat?: 'buy_now' | 'auction';
+  allowOffers?: boolean;
   acceptTradeOffers?: boolean;
   imageDataUrls?: string[];
   price?: number;

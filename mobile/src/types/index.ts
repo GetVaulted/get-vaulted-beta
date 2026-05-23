@@ -175,6 +175,10 @@ export type Product = {
   buyNow?: string;
   /** Subtle Browse-only line when item is highlighted on a live show. */
   featuredInLive?: string;
+  /** Marketplace PDP — buyer can make an offer when true. */
+  allowOffers?: boolean;
+  /** Marketplace PDP — buyer can start a structured trade when true. */
+  acceptTradeOffers?: boolean;
 };
 
 export type SaleActivity = {

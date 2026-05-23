@@ -11,7 +11,7 @@ import { SellerOffersModal } from "@/components/account/SellerOffersModal";
 import { ExpiredAuctionRecoveryPanel } from "@/components/listings/ExpiredAuctionRecoveryPanel";
 import { PaymentDeadlineCountdown } from "@/components/orders/PaymentDeadlineCountdown";
 
-type TabKey = "all" | "active" | "drafts" | "sold" | "auctions" | "offers";
+type TabKey = "all" | "active" | "drafts" | "sold" | "offers";
 type SortKey = "updated" | "created" | "price-desc" | "price-asc";
 
 const TABS: { key: TabKey; label: string }[] = [
@@ -19,7 +19,6 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "active", label: "Active" },
   { key: "drafts", label: "Drafts" },
   { key: "sold", label: "Sold" },
-  { key: "auctions", label: "Auctions" },
   { key: "offers", label: "Offers" },
 ];
 
@@ -73,6 +72,14 @@ function statusTone(st: SellerListingStatus): string {
   if (st === "awaiting_auction_payment") return "border-amber-400/25 bg-amber-950/35 text-amber-100/90";
   if (st === "auction_ended_unpaid") return "border-rose-400/25 bg-rose-950/30 text-rose-100/90";
   return "border-amber-400/25 bg-amber-950/30 text-amber-100/90";
+}
+
+function listingCommerceBadges(l: StoredUserListing): string {
+  const parts = ["Buy now"];
+  if (l.allowOffers) parts.push("Offers on");
+  if (l.acceptTradeOffers) parts.push("Trades on");
+  if (l.buyingFormat === "auction") parts.push("Legacy auction");
+  return parts.join(" · ");
 }
 
 function displayPriceRow(l: StoredUserListing): string {
@@ -145,9 +152,8 @@ export function MyListingsPage() {
     const active = rows.filter((l) => effectiveSellerListingStatus(l) === "active").length;
     const drafts = rows.filter((l) => effectiveSellerListingStatus(l) === "draft").length;
     const sold = rows.filter((l) => effectiveSellerListingStatus(l) === "sold").length;
-    const auctions = rows.filter((l) => effectiveSellerListingStatus(l) === "auction_live").length;
     const offersRecv = rows.reduce((a, l) => a + (l.pendingOffersCount ?? 0), 0);
-    return { active, drafts, sold, auctions, offersRecv };
+    return { active, drafts, sold, offersRecv };
   }, [rows]);
 
   const filtered = useMemo(() => {
@@ -158,7 +164,6 @@ export function MyListingsPage() {
     if (tab === "active") list = list.filter((l) => effectiveSellerListingStatus(l) === "active");
     if (tab === "drafts") list = list.filter((l) => effectiveSellerListingStatus(l) === "draft");
     if (tab === "sold") list = list.filter((l) => effectiveSellerListingStatus(l) === "sold");
-    if (tab === "auctions") list = list.filter((l) => effectiveSellerListingStatus(l) === "auction_live");
     if (tab === "offers") list = list.filter((l) => (l.pendingOffersCount ?? 0) > 0);
 
     const parseT = (iso: string) => new Date(iso).getTime();
@@ -188,7 +193,6 @@ export function MyListingsPage() {
     { label: "Drafts", value: stats.drafts },
     { label: "Sold", value: stats.sold },
     { label: "Offers received", value: stats.offersRecv },
-    { label: "Auctions live", value: stats.auctions },
   ] as const;
 
   return (
@@ -204,7 +208,7 @@ export function MyListingsPage() {
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Seller</p>
               <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">My Listings</h1>
-              <p className="mt-1.5 max-w-xl text-sm text-zinc-500">Manage your active, draft, sold, and auction listings.</p>
+              <p className="mt-1.5 max-w-xl text-sm text-zinc-500">Manage your active, draft, and sold buy-now listings.</p>
               <div className="mt-4">
                 <AccountOrdersNav active="listings" />
               </div>
@@ -413,7 +417,7 @@ export function MyListingsPage() {
                             </div>
                           </td>
                           <td className="px-2 py-2 text-xs text-zinc-400">{l.category}</td>
-                          <td className="px-2 py-2 text-xs text-zinc-400">{l.buyingFormat === "buy_now" ? "Buy now" : "Auction"}</td>
+                          <td className="px-2 py-2 text-xs text-zinc-400">{listingCommerceBadges(l)}</td>
                           <td className="px-2 py-2 font-mono text-xs font-semibold tabular-nums text-zinc-200">{displayPriceRow(l)}</td>
                           <td className="px-2 py-2">
                             <span className={`inline-flex rounded-md border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${statusTone(st)}`}>
@@ -504,7 +508,7 @@ export function MyListingsPage() {
                           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-zinc-500">
                             <span>{l.category}</span>
                             <span className="text-zinc-700">·</span>
-                            <span>{l.buyingFormat === "buy_now" ? "Buy now" : "Auction"}</span>
+                            <span>{listingCommerceBadges(l)}</span>
                             <span className="text-zinc-700">·</span>
                             <span className="font-mono font-semibold text-zinc-300">{displayPriceRow(l)}</span>
                           </div>
