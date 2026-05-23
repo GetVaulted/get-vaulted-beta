@@ -899,6 +899,18 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     }
   };
 
+  const toggleStreamPreviewMute = useCallback(() => {
+    setStreamPreviewMuted((prev) => {
+      const next = !prev;
+      const video = document.querySelector<HTMLVideoElement>('video[data-live-stage-video="true"]');
+      if (video) {
+        video.muted = next;
+        if (!next) void video.play().catch(() => undefined);
+      }
+      return next;
+    });
+  }, []);
+
   const [liveStreamTimerTick, setLiveStreamTimerTick] = useState(0);
   const liveStreamTimerActive = data?.room?.status === "live" && Boolean(data.room.startedAt);
   useEffect(() => {
@@ -1024,18 +1036,6 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       : null;
   const hostStartLiveAuctionEnabled =
     room.status === "live" && Boolean(activeBoardRow) && !biddingWindowStillRunningHost;
-
-  const toggleStreamPreviewMute = useCallback(() => {
-    setStreamPreviewMuted((prev) => {
-      const next = !prev;
-      const video = document.querySelector<HTMLVideoElement>('video[data-live-stage-video="true"]');
-      if (video) {
-        video.muted = next;
-        if (!next) void video.play().catch(() => undefined);
-      }
-      return next;
-    });
-  }, []);
 
   const hostDesktopItemOverlay = (
     <VaultPinnedLot
