@@ -27,6 +27,8 @@ function hostQueueTitleLine(title: string, quantity: number) {
 
 type VaultPinnedLotProps = {
   variant: "desktop" | "mobile";
+  /** In-stage bottom overlay for 9:16 host console (less card chrome). */
+  embedded?: boolean;
   vaultMode: VaultMode;
   overlayQueueRow: QueueRowLite | null;
   activeBoardRow: QueueRowLite | null;
@@ -78,6 +80,7 @@ function BidVelocityBar({
 
 export function VaultPinnedLot({
   variant,
+  embedded = false,
   vaultMode,
   overlayQueueRow,
   activeBoardRow,
@@ -110,8 +113,10 @@ export function VaultPinnedLot({
         aria-hidden
       />
       <div
-        className={`relative overflow-hidden rounded-[inherit] border border-white/[0.08] bg-zinc-950/55 ${meta.glow} backdrop-blur-[var(--live-blur-xl)]`}
-        style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), 0 24px 48px -28px rgba(0,0,0,0.85)" }}
+        className={`relative overflow-hidden rounded-[inherit] border border-white/[0.08] backdrop-blur-[var(--live-blur-xl)] ${
+          embedded ? "bg-black/72" : `bg-zinc-950/55 ${meta.glow}`
+        }`}
+        style={{ boxShadow: embedded ? "0 8px 32px -16px rgba(0,0,0,0.85)" : "inset 0 1px 0 rgba(255,255,255,0.06), 0 24px 48px -28px rgba(0,0,0,0.85)" }}
       >
         <div
           className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_80%_at_10%_0%,var(--vault-chrome-tint),transparent_55%)]"
@@ -179,7 +184,7 @@ export function VaultPinnedLot({
 
           <div className="shrink-0 text-right">
             <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-500">Asking</p>
-            <p className={`font-mono font-black tabular-nums text-white ${isMobile ? "text-base" : "text-xl"} tracking-tight`}>
+            <p className={`font-mono font-black tabular-nums text-white ${isMobile ? "text-base" : embedded ? "text-lg" : "text-xl"} tracking-tight`}>
               {item ? fmtOverlayLead(item) : "—"}
             </p>
             {item?.priceUsd != null && Number.isFinite(item.priceUsd) ? (
@@ -258,7 +263,9 @@ export function VaultPinnedLot({
 
   const wrapClass = isMobile
     ? "relative w-full max-w-[100vw] rounded-2xl p-px motion-safe:animate-[live-stage-mobile-in_var(--live-duration-enter)_var(--live-ease)_both] motion-reduce:animate-none"
-    : "relative w-full rounded-2xl p-px";
+    : embedded
+      ? "relative w-full rounded-xl p-px"
+      : "relative w-full rounded-2xl p-px";
 
   return <div className={wrapClass}>{shell}</div>;
 }

@@ -39,6 +39,8 @@ type LiveVideoStageProps = {
   sellerHostRail?: ReactNode;
   /** Optional class names on the host rail positioning wrapper. */
   hostRailClassName?: string;
+  /** Stacked action buttons on the right edge of the video frame (desktop host dashboard). */
+  stageEdgeRail?: ReactNode;
   /** Narrower auction/item overlay for 9:16 host console stage. */
   compactActionOverlay?: boolean;
   /** Extra controls in the top chrome row (before the Live / viewer cluster). */
@@ -81,6 +83,7 @@ export function LiveVideoStage({
   chatOverlayClassName,
   sellerHostRail,
   hostRailClassName,
+  stageEdgeRail,
   compactActionOverlay = false,
   topChromeTrailing,
   showRightActions = false,
@@ -211,10 +214,10 @@ export function LiveVideoStage({
 
       {actionOverlay ? (
         <div
-          className={`absolute bottom-4 left-1/2 z-10 hidden -translate-x-1/2 min-[1400px]:block ${
+          className={`absolute z-10 hidden min-[1400px]:block ${
             compactActionOverlay
-              ? "w-[min(94%,100%)] min-w-0 max-w-full px-1"
-              : "w-[min(72%,700px)] min-w-[320px]"
+              ? "bottom-2 left-2 right-14"
+              : "bottom-4 left-1/2 w-[min(72%,700px)] min-w-[320px] -translate-x-1/2"
           }`}
         >
           {actionOverlay}
@@ -237,6 +240,12 @@ export function LiveVideoStage({
           } ${chatOverlayClassName ?? ""}`}
         >
           {chatOverlay}
+        </div>
+      ) : null}
+
+      {stageEdgeRail ? (
+        <div className="pointer-events-none absolute inset-y-0 right-1.5 z-20 hidden items-center min-[1400px]:flex">
+          <div className="pointer-events-auto">{stageEdgeRail}</div>
         </div>
       ) : null}
 

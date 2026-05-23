@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 
 const PALETTE = ["text-sky-400", "text-emerald-400", "text-violet-400", "text-amber-400", "text-rose-400", "text-cyan-400"] as const;
@@ -36,7 +36,8 @@ type VaultHostLiveChatPanelProps = {
   onSystemMsgChange: (v: string) => void;
   onSendSystem: () => void;
   busy: boolean;
-  /** `sidebar` = full-height desktop left column; `overlay` = mobile/in-stage panel. */
+  viewerCount?: number;
+  /** `sidebar` = full-height desktop column; `overlay` = mobile/in-stage panel. */
   variant?: "sidebar" | "overlay";
 };
 
@@ -46,73 +47,142 @@ export function VaultHostLiveChatPanel({
   onSystemMsgChange,
   onSendSystem,
   busy,
+  viewerCount = 0,
   variant = "overlay",
 }: VaultHostLiveChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [tab, setTab] = useState<"chat" | "watching">("chat");
   const chatMessages = useMemo(() => messages.filter((m) => m.messageType !== "bid"), [messages]);
   const visibleMessages = useMemo(() => chatMessages.slice(-120), [chatMessages]);
 
+  const recentChatters = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (let i = chatMessages.length - 1; i >= 0 && out.length < 24; i--) {
+      const u = chatMessages[i]?.senderUsername?.trim();
+      if (!u || u === "System" || seen.has(u.toLowerCase())) continue;
+      seen.add(u.toLowerCase());
+      out.push(u);
+    }
+    return out;
+  }, [chatMessages]);
+
   useEffect(() => {
+    if (tab !== "chat") return;
     const el = scrollRef.current;
     if (!el) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
     if (nearBottom || visibleMessages.length <= 1) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [visibleMessages]);
+  }, [visibleMessages, tab]);
 
   const shellClass =
     variant === "sidebar"
-      ? "flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-zinc-950/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+      ? "flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-zinc-950/95"
       : "pointer-events-auto flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-white/[0.1] bg-black/55 shadow-[0_16px_48px_-20px_rgba(0,0,0,0.9)] ring-1 ring-white/[0.05] backdrop-blur-[var(--live-blur-xl)]";
+
+  const showTabs = variant === "sidebar";
 
   return (
     <div className={shellClass}>
-      <div className="shrink-0 border-b border-white/[0.08] px-3 py-2">
-        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-400">Live Chat</p>
-      </div>
+      {showTabs ? (
+        <div className="shrink-0 border-b border-white/[0.08] px-3 pt-3">
+          <div className="flex gap-1 rounded-lg bg-black/40 p-0.5">
+            <button
+              type="button"
+              onClick={() => setTab("chat")}
+              className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] transition ${
+                tab === "chat" ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              Chat
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("watching")}
+              className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] transition ${
+                tab === "watching" ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              Watching
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="shrink-0 border-b border-white/[0.08] px-3 py-2">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-400">Live Chat</p>
+        </div>
+      )}
 
-      <div
-        ref={scrollRef}
-        data-testid="host-live-chat-messages"
-        className="chat-messages min-h-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden overscroll-contain px-3 py-2 [-webkit-overflow-scrolling:touch] touch-pan-y"
-      >
-        {visibleMessages.length === 0 ? (
-          <p className="py-8 text-center text-xs font-medium text-zinc-500">No chat messages yet.</p>
-        ) : (
-          visibleMessages.map((m) => {
-            const label = chatLabelForMessage(m);
-            const labelClass = chatLabelClassForMessage(m);
-            const isSystem = m.messageType === "system";
-            return (
-              <div key={m.id} className="text-[13px] leading-snug max-[380px]:text-[12px]">
-                <span className={labelClass}>{label}</span>
-                <span className="text-zinc-600">: </span>
-                <span className={isSystem ? "text-zinc-100" : "text-zinc-300"}>{m.body}</span>
-              </div>
-            );
-          })
-        )}
-      </div>
+      {(showTabs ? tab === "chat" : true) ? (
+        <>
+          <div
+            ref={scrollRef}
+            data-testid="host-live-chat-messages"
+            className="chat-messages min-h-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden overscroll-contain px-3 py-2 [-webkit-overflow-scrolling:touch] touch-pan-y"
+          >
+            {visibleMessages.length === 0 ? (
+              <p className="py-8 text-center text-xs font-medium text-zinc-500">No chat messages yet.</p>
+            ) : (
+              visibleMessages.map((m) => {
+                const label = chatLabelForMessage(m);
+                const labelClass = chatLabelClassForMessage(m);
+                const isSystem = m.messageType === "system";
+                return (
+                  <div key={m.id} className="text-[13px] leading-snug max-[380px]:text-[12px]">
+                    <span className={labelClass}>{label}</span>
+                    <span className="text-zinc-600">: </span>
+                    <span className={isSystem ? "text-zinc-100" : "text-zinc-300"}>{m.body}</span>
+                  </div>
+                );
+              })
+            )}
+          </div>
 
-      <div className="shrink-0 border-t border-amber-400/15 bg-gradient-to-br from-amber-500/10 via-black/50 to-black/65 p-2.5">
-        <p className="text-[9px] font-black uppercase tracking-[0.16em] text-amber-100/85">Live broadcast</p>
-        <textarea
-          value={systemMsg}
-          onChange={(e) => onSystemMsgChange(e.target.value)}
-          placeholder="Push a line to the room…"
-          rows={2}
-          className="mt-1.5 w-full resize-none rounded-lg border border-white/10 bg-black/50 px-2.5 py-1.5 text-[11px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-amber-400/35"
-        />
-        <button
-          type="button"
-          disabled={busy || !systemMsg.trim()}
-          onClick={onSendSystem}
-          className="mt-2 w-full rounded-lg bg-gradient-to-r from-amber-500/90 to-yellow-400/90 py-1.5 text-[10px] font-black uppercase tracking-wide text-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] disabled:opacity-40"
-        >
-          Send to chat
-        </button>
-      </div>
+          <div className="shrink-0 border-t border-white/[0.08] bg-zinc-950/90 p-3">
+            <textarea
+              value={systemMsg}
+              onChange={(e) => onSystemMsgChange(e.target.value)}
+              placeholder="Send to chat…"
+              rows={2}
+              className="w-full resize-none rounded-lg border border-white/10 bg-black/50 px-2.5 py-2 text-[12px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-amber-400/35"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (!busy && systemMsg.trim()) onSendSystem();
+                }
+              }}
+            />
+            <button
+              type="button"
+              disabled={busy || !systemMsg.trim()}
+              onClick={onSendSystem}
+              className="mt-2 w-full rounded-lg bg-gradient-to-r from-amber-500/90 to-yellow-400/90 py-2 text-[10px] font-black uppercase tracking-wide text-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] disabled:opacity-40"
+            >
+              Send to chat
+            </button>
+          </div>
+        </>
+      ) : showTabs ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">In the room</p>
+          <p className="mt-2 text-2xl font-black tabular-nums text-zinc-100">{viewerCount.toLocaleString()}</p>
+          <p className="text-xs text-zinc-500">viewers watching now</p>
+          {recentChatters.length > 0 ? (
+            <div className="mt-4 space-y-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-600">Recent in chat</p>
+              {recentChatters.map((u) => (
+                <p key={u} className={`text-sm font-semibold ${colorForUser(u)}`}>
+                  @{u}
+                </p>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-6 text-center text-xs text-zinc-600">Viewer names appear as chat activity picks up.</p>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

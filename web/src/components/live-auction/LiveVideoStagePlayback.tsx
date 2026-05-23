@@ -365,6 +365,7 @@ export function LiveVideoStagePlayback({
           <div className={PORTRAIT_LIVE_PLATE}>
             <video
               ref={videoRef}
+              data-live-stage-video="true"
               className="absolute inset-0 h-full w-full object-cover object-center opacity-[0.97]"
               muted={muted}
               playsInline
