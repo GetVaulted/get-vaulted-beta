@@ -27,7 +27,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 type PostBody = {
   body?: string;
   messageType?: string;
+  clientMessageId?: string;
 };
+
+const CHAT_DUPLICATE_WINDOW_MS = 5000;
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const auth = await resolveLiveRoomsUserId(req);
@@ -62,6 +65,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   /** Only chat may be created via this endpoint; bid/purchase/system are server-side. */
   const messageType: LiveRoomMessageType = "chat";
+
+  const duplicate = await prisma.liveRoomMessage.findFirst({
+    where: {
+      liveRoomId,
+      senderId: auth.userId,
+      body: text,
+      messageType,
+      createdAt: { gte: new Date(Date.now() - CHAT_DUPLICATE_WINDOW_MS) },
+    },
+    orderBy: { createdAt: "desc" },
+    include: { sender: { select: { username: true } } },
+  });
+  if (duplicate) {
+    return NextResponse.json({ message: serializeLiveRoomMessage(duplicate) });
+  }
 
   const row = await prisma.liveRoomMessage.create({
     data: {

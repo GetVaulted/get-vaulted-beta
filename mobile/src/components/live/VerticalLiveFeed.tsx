@@ -3,7 +3,7 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Dimensions,
   Image,
@@ -152,11 +152,7 @@ function LiveSlide({
     };
   }, [insets.bottom]);
 
-  const chatPool = useMemo(() => {
-    const c = liveChat.messages;
-    if (!c.length) return [];
-    return c.length >= 3 ? c : [...c, ...c, ...c];
-  }, [liveChat.messages]);
+  const chatPool = liveChat.messages;
 
   const dockPaddingBottom = Math.max(bottomReserve, insets.bottom + spacing.sm);
   const bottomStack = computeLiveRoomBottomStack({
@@ -170,19 +166,22 @@ function LiveSlide({
     chatBottom: bottomStack.chatBottom,
   });
 
-  const sendFloatingChat = () => {
+  const sendFloatingChat = useCallback(() => {
     if (!signedIn) {
       onRequireAuth?.();
       return;
     }
     const t = chatDraft.trim();
     if (!t || liveChat.sending) return;
-    setChatDraft('');
-    void liveChat.send(t).catch((e) => {
-      setChatDraft(t);
-      if (__DEV__) console.warn('[liveRoom chat] send failed', e instanceof Error ? e.message : e);
-    });
-  };
+    void liveChat
+      .send(t)
+      .then((ok) => {
+        if (ok) setChatDraft('');
+      })
+      .catch((e) => {
+        if (__DEV__) console.warn('[liveRoom chat] send failed', e instanceof Error ? e.message : e);
+      });
+  }, [signedIn, onRequireAuth, chatDraft, liveChat.sending, liveChat.send]);
 
   const appendComposer = (emoji: string) => {
     setChatDraft((d) => {

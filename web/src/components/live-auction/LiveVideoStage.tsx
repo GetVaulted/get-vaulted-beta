@@ -33,8 +33,14 @@ type LiveVideoStageProps = {
   onNotifyMe?: () => void;
   /** Floating chat (right/bottom) overlay. */
   chatOverlay?: ReactNode;
+  /** Optional class names on the chat overlay positioning wrapper. */
+  chatOverlayClassName?: string;
   /** Seller/host right-side quick rail (e.g. Vault Command Center). Takes precedence over buyer actions when set. */
   sellerHostRail?: ReactNode;
+  /** Optional class names on the host rail positioning wrapper. */
+  hostRailClassName?: string;
+  /** Narrower auction/item overlay for 9:16 host console stage. */
+  compactActionOverlay?: boolean;
   /** Extra controls in the top chrome row (before the Live / viewer cluster). */
   topChromeTrailing?: ReactNode;
   /** Buyer-only right-side quick actions. */
@@ -72,7 +78,10 @@ export function LiveVideoStage({
   stageBelowAudience,
   onNotifyMe,
   chatOverlay,
+  chatOverlayClassName,
   sellerHostRail,
+  hostRailClassName,
+  compactActionOverlay = false,
   topChromeTrailing,
   showRightActions = false,
   onShare,
@@ -201,7 +210,13 @@ export function LiveVideoStage({
       </div>
 
       {actionOverlay ? (
-        <div className="absolute bottom-4 left-1/2 z-10 hidden w-[min(72%,700px)] min-w-[320px] -translate-x-1/2 min-[1400px]:block">
+        <div
+          className={`absolute bottom-4 left-1/2 z-10 hidden -translate-x-1/2 min-[1400px]:block ${
+            compactActionOverlay
+              ? "w-[min(94%,100%)] min-w-0 max-w-full px-1"
+              : "w-[min(72%,700px)] min-w-[320px]"
+          }`}
+        >
           {actionOverlay}
         </div>
       ) : null}
@@ -219,7 +234,7 @@ export function LiveVideoStage({
             hasMobileItemSheet
               ? "bottom-[max(8.25rem,calc(env(safe-area-inset-bottom)+7.5rem))]"
               : "bottom-[max(6rem,calc(env(safe-area-inset-bottom)+5rem))]"
-          }`}
+          } ${chatOverlayClassName ?? ""}`}
         >
           {chatOverlay}
         </div>
@@ -231,7 +246,7 @@ export function LiveVideoStage({
             hasMobileItemSheet
               ? "bottom-[max(17.25rem,calc(env(safe-area-inset-bottom)+15.75rem))]"
               : "bottom-[max(7.25rem,calc(env(safe-area-inset-bottom)+6.25rem))]"
-          }`}
+          } ${hostRailClassName ?? ""}`}
         >
           {sellerHostRail}
         </div>

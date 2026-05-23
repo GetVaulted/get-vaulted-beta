@@ -35,9 +35,12 @@ export async function sendLiveRoomChatMessage(args: {
   accessToken: string;
   roomId: string;
   body: string;
+  clientMessageId?: string;
 }): Promise<LiveRoomChatMessageRow> {
   const base = getWebApiBaseUrl();
   if (!base) throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
+  const payload: { body: string; clientMessageId?: string } = { body: args.body.trim() };
+  if (args.clientMessageId?.trim()) payload.clientMessageId = args.clientMessageId.trim();
   const res = await fetch(`${base}/api/live-rooms/${encodeURIComponent(args.roomId)}/messages`, {
     method: 'POST',
     headers: {
@@ -45,7 +48,7 @@ export async function sendLiveRoomChatMessage(args: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${args.accessToken}`,
     },
-    body: JSON.stringify({ body: args.body.trim() }),
+    body: JSON.stringify(payload),
   });
   let j: { message?: LiveRoomChatMessageRow; error?: string } = {};
   try {

@@ -9,6 +9,7 @@ import { TeamBoardChromeButton } from "@/components/team-board/TeamBoardChromeBu
 import { TeamBoardOverlay } from "@/components/team-board/TeamBoardOverlay";
 import { VaultCommandCenterOverlay } from "@/components/break-host/vault/VaultCommandCenterOverlay";
 import { VaultHostAnnouncements } from "@/components/break-host/vault/VaultHostAnnouncements";
+import { VaultHostLiveChatPanel } from "@/components/break-host/vault/VaultHostLiveChatPanel";
 import { VaultHostRightRail } from "@/components/break-host/vault/VaultHostRightRail";
 import { VaultPinnedLot } from "@/components/break-host/vault/VaultPinnedLot";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
@@ -466,8 +467,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const chatPollLive = data?.room?.status?.toLowerCase() === "live";
   useEffect(() => {
     if (!chatPollLive) return;
-    if (getSupabaseBrowserClient()) return;
-    const id = window.setInterval(() => void mergeHostMessagesFromApi(), 2500);
+    void mergeHostMessagesFromApi();
+    const id = window.setInterval(() => void mergeHostMessagesFromApi(), 4000);
     return () => window.clearInterval(id);
   }, [chatPollLive, mergeHostMessagesFromApi]);
 
@@ -790,7 +791,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           return;
         }
         setSystemMsg("");
-        await load();
+        await mergeHostMessagesFromApi();
         router.refresh();
       } finally {
         setBusy(false);
@@ -1067,12 +1068,81 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     <button
       type="button"
       onClick={() => setVaultCommandOpen(true)}
-      className="inline-flex max-w-[9rem] items-center gap-1 rounded-full border border-amber-400/30 bg-gradient-to-r from-amber-500/15 to-yellow-500/10 px-2 py-[3px] text-[8px] font-black uppercase tracking-[0.12em] text-amber-50 shadow-[0_0_22px_-10px_rgba(245,158,11,0.55)] backdrop-blur-md max-[360px]:max-w-[7.5rem] max-[360px]:gap-0.5 max-[360px]:px-1.5 max-[360px]:text-[7px] max-[360px]:tracking-[0.08em]"
+      className="inline-flex max-w-[9rem] items-center gap-1 rounded-full border border-amber-400/30 bg-gradient-to-r from-amber-500/15 to-yellow-500/10 px-2 py-[3px] text-[8px] font-black uppercase tracking-[0.12em] text-amber-50 shadow-[0_0_22px_-10px_rgba(245,158,11,0.55)] backdrop-blur-md max-[360px]:max-w-[7.5rem] max-[360px]:gap-0.5 max-[360px]:px-1.5 max-[360px]:text-[7px] max-[360px]:tracking-[0.08em] min-[1400px]:hidden"
     >
       <span className="inline-flex size-1.5 shrink-0 rounded-full bg-amber-300 shadow-[0_0_10px_rgba(252,211,77,0.9)] motion-safe:animate-pulse" aria-hidden />
       <span className="truncate">Vault controls</span>
     </button>
   );
+
+  const hostLiveChatPanel = (
+    <VaultHostLiveChatPanel
+      messages={data.messages}
+      systemMsg={systemMsg}
+      onSystemMsgChange={setSystemMsg}
+      onSendSystem={() => void sendSystem()}
+      busy={busy}
+      variant="sidebar"
+    />
+  );
+
+  const hostLiveChatPanelMobile = (
+    <VaultHostLiveChatPanel
+      messages={data.messages}
+      systemMsg={systemMsg}
+      onSystemMsgChange={setSystemMsg}
+      onSendSystem={() => void sendSystem()}
+      busy={busy}
+      variant="overlay"
+    />
+  );
+
+  const hostMobileChatOverlay = (
+    <div className="flex h-[min(44vh,20rem)] max-h-[min(52dvh,24rem)] min-h-0 w-full min-w-0 flex-col max-[380px]:h-[min(36vh,16rem)]">
+      {hostLiveChatPanelMobile}
+    </div>
+  );
+
+  const hostStageProps = {
+    layout: "fillHeight" as const,
+    overlayMessage: stageOverlayMessage,
+    viewers: room.viewerCount,
+    hostName: `@${hostUsername}`,
+    streamTitle,
+    isLive: roomStatusKey === "live",
+    roomStatus: room.status as LiveRoomStatus,
+    liveRoomId: roomId,
+    streamPlaybackRefreshNonce,
+    scheduledStartAt: room.scheduledStartAt ?? null,
+    thumbnailUrl: room.thumbnailUrl ?? null,
+    hostSellerId: room.sellerId,
+    onBack: () => router.push("/seller/live"),
+    stageBelowAudience: (
+      <TeamBoardChromeButton
+        league={teamBoardData?.state.league ?? "nba"}
+        tileCount={teamBoardData?.teams.length}
+        boardVisible={Boolean(teamBoardData?.state.visible)}
+        disabled={teamBoardBusy || room.status === "ended"}
+        onPress={() => void patchTeamBoard({ visible: !(teamBoardData?.state.visible ?? false) })}
+      />
+    ),
+    centerOverlay: teamBoardStageOverlay,
+    actionOverlay: hostDesktopItemOverlay,
+    mobileActionOverlay: hostMobileItemOverlay,
+    compactActionOverlay: true,
+    chatOverlay: hostMobileChatOverlay,
+    chatOverlayClassName: "min-[1400px]:hidden",
+    sellerHostRail: (
+      <VaultHostRightRail
+        roomId={roomId}
+        onOpenCommandCenter={() => setVaultCommandOpen(true)}
+        onOpenObs={() => setObsSetupModalOpen(true)}
+        disabled={busy}
+      />
+    ),
+    hostRailClassName: "min-[1400px]:hidden",
+    topChromeTrailing: vaultControlsPill,
+  };
 
   return (
     <div
@@ -1109,51 +1179,32 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       ) : null}
 
       <div className="relative flex min-h-0 flex-1 flex-col p-1.5 sm:p-2.5">
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-950/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-          <VaultHostAnnouncements
-            busy={busy}
-            systemMsg={systemMsg}
-            onSystemMsgChange={setSystemMsg}
-            onSend={() => void sendSystem()}
-          />
-          <div className="relative min-h-0 flex-1">
-            <LiveVideoStage
-              layout="fillHeight"
-              overlayMessage={stageOverlayMessage}
-              viewers={room.viewerCount}
-              hostName={`@${hostUsername}`}
-              streamTitle={streamTitle}
-              isLive={roomStatusKey === "live"}
-              roomStatus={room.status as LiveRoomStatus}
-              liveRoomId={roomId}
-              streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
-              scheduledStartAt={room.scheduledStartAt ?? null}
-              thumbnailUrl={room.thumbnailUrl ?? null}
-              hostSellerId={room.sellerId}
-              onBack={() => router.push("/seller/live")}
-              stageBelowAudience={
-                <TeamBoardChromeButton
-                  league={teamBoardData?.state.league ?? "nba"}
-                  tileCount={teamBoardData?.teams.length}
-                  boardVisible={Boolean(teamBoardData?.state.visible)}
-                  disabled={teamBoardBusy || room.status === "ended"}
-                  onPress={() => void patchTeamBoard({ visible: !(teamBoardData?.state.visible ?? false) })}
-                />
-              }
-              centerOverlay={teamBoardStageOverlay}
-              actionOverlay={hostDesktopItemOverlay}
-              mobileActionOverlay={hostMobileItemOverlay}
-              sellerHostRail={
-                <VaultHostRightRail
-                  roomId={roomId}
-                  onOpenCommandCenter={() => setVaultCommandOpen(true)}
-                  onOpenObs={() => setObsSetupModalOpen(true)}
-                  disabled={busy}
-                />
-              }
-              topChromeTrailing={vaultControlsPill}
-            />
+        <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-950/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[1400px]:flex-row">
+          {/* Desktop — full-height live chat column */}
+          <aside className="hidden min-h-0 w-[min(22rem,26vw)] shrink-0 flex-col border-r border-white/[0.06] bg-zinc-950/70 p-2 min-[1400px]:flex">
+            {hostLiveChatPanel}
+          </aside>
+
+          {/* Center — 9:16 vertical stage on desktop; full-width stage on mobile */}
+          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+            <VaultHostAnnouncements variant="mobileOverlay" />
+            <div className="relative flex min-h-0 flex-1 min-[1400px]:items-center min-[1400px]:justify-center min-[1400px]:bg-[radial-gradient(ellipse_at_center,rgba(250,204,21,0.04),transparent_55%)] min-[1400px]:p-3">
+              <div className="relative flex min-h-0 flex-1 flex-col min-[1400px]:aspect-[9/16] min-[1400px]:h-full min-[1400px]:max-h-full min-[1400px]:w-auto min-[1400px]:max-w-full min-[1400px]:flex-none min-[1400px]:overflow-hidden min-[1400px]:rounded-xl min-[1400px]:border min-[1400px]:border-white/[0.1] min-[1400px]:shadow-[0_24px_80px_-32px_rgba(0,0,0,0.92)]">
+                <LiveVideoStage {...hostStageProps} />
+              </div>
+            </div>
           </div>
+
+          {/* Desktop — right controls + announcements */}
+          <aside className="hidden min-h-0 w-[5.75rem] shrink-0 flex-col items-stretch gap-3 border-l border-white/[0.06] bg-zinc-950/50 px-2 py-4 min-[1400px]:flex">
+            <VaultHostRightRail
+              roomId={roomId}
+              onOpenCommandCenter={() => setVaultCommandOpen(true)}
+              onOpenObs={() => setObsSetupModalOpen(true)}
+              disabled={busy}
+            />
+            <VaultHostAnnouncements variant="desktopSidebar" />
+          </aside>
         </div>
       </div>
 

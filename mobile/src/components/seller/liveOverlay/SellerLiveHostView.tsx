@@ -1,6 +1,6 @@
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { HostStreamPayload, LiveRoomHostDetail } from '../../../api/liveHostRepository';
@@ -104,11 +104,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
 
   const composerPlaceholderIdx = useComposerPlaceholderCycle(true, chatDraft);
 
-  const chatPool = useMemo(() => {
-    const c = console.chatMessages;
-    if (!c.length) return [];
-    return [...c, ...c, ...c];
-  }, [console.chatMessages]);
+  const chatPool = console.chatMessages;
 
   const onGoLive = () => {
     if (host.readinessBlocked?.length) {

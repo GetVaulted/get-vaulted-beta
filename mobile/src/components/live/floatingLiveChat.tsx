@@ -1,8 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Animated,
   Image,
   Platform,
   Pressable,
@@ -16,6 +15,7 @@ import {
   COMPOSER_BAR_HEIGHT,
   CHAT_ABOVE_COMPOSER_GAP,
 } from '../../lib/liveRoomBottomLayout';
+import { tailUniqueChatMessages } from '../../lib/liveRoomChatMessages';
 import type { ChatMessage } from '../../types';
 
 /** @deprecated Use COMPOSER_BAR_HEIGHT from liveRoomBottomLayout */
@@ -33,20 +33,11 @@ const COMPOSER_PLACEHOLDERS = [
 const COMPOSER_QUICK_REACTIONS = ['❤️', '🔥', '👏'] as const;
 
 const MAX_FLOATING_CHAT = 8;
-const CHAT_CYCLE_MS = 3000;
 
 function chatAvatarUri(message: ChatMessage, hostAvatarUrl: string) {
   if (message.isHost) return hostAvatarUrl;
   return `https://i.pravatar.cc/80?u=${encodeURIComponent(message.user)}`;
 }
-
-type AnimatedChatRow = {
-  uid: string;
-  message: ChatMessage;
-  opacity: Animated.Value;
-  translateY: Animated.Value;
-  scale: Animated.Value;
-};
 
 export function FloatingLiveChat({
   pool,
@@ -67,104 +58,28 @@ export function FloatingLiveChat({
   streamKey: string;
   maxHeight?: number;
 }) {
-  const activeRef = useRef(isActive);
-  activeRef.current = isActive;
-  const poolRef = useRef(pool);
-  poolRef.current = pool;
-  const cursorRef = useRef(0);
-  const rowsRef = useRef<AnimatedChatRow[]>([]);
-  const [tick, setTick] = useState(0);
-  const bump = () => setTick((t) => t + 1);
+  const visible = useMemo(
+    () => tailUniqueChatMessages(pool, MAX_FLOATING_CHAT),
+    [pool],
+  );
 
-  useEffect(() => {
-    if (!isActive || pool.length === 0) {
-      rowsRef.current = [];
-      bump();
-      return;
-    }
-    const n = Math.min(MAX_FLOATING_CHAT, pool.length);
-    cursorRef.current = n;
-    rowsRef.current = pool.slice(0, n).map((m, i) => ({
-      uid: `${streamKey}-${m.id}-init${i}`,
-      message: m,
-      opacity: new Animated.Value(1),
-      translateY: new Animated.Value(0),
-      scale: new Animated.Value(1),
-    }));
-    bump();
-  }, [isActive, pool, streamKey]);
-
-  useEffect(() => {
-    if (!isActive || poolRef.current.length === 0) return undefined;
-
-    const advance = () => {
-      if (!activeRef.current) return;
-      const prev = rowsRef.current;
-      if (prev.length === 0) return;
-      const first = prev[0];
-      Animated.parallel([
-        Animated.timing(first.opacity, { toValue: 0, duration: 700, useNativeDriver: true }),
-        Animated.timing(first.translateY, { toValue: -22, duration: 700, useNativeDriver: true }),
-      ]).start(() => {
-        if (!activeRef.current) return;
-        const inner = rowsRef.current;
-        if (inner.length === 0 || inner[0].uid !== first.uid) return;
-        const rest = inner.slice(1);
-        const p = poolRef.current;
-        const m = p[cursorRef.current % p.length];
-        cursorRef.current += 1;
-        const newRow: AnimatedChatRow = {
-          uid: `${streamKey}-${m.id}-${cursorRef.current}`,
-          message: m,
-          opacity: new Animated.Value(0),
-          translateY: new Animated.Value(12),
-          scale: new Animated.Value(0.92),
-        };
-        rowsRef.current = [...rest, newRow];
-        bump();
-        requestAnimationFrame(() => {
-          Animated.parallel([
-            Animated.timing(newRow.opacity, { toValue: 1, duration: 450, useNativeDriver: true }),
-            Animated.timing(newRow.translateY, { toValue: 0, duration: 450, useNativeDriver: true }),
-            Animated.spring(newRow.scale, { toValue: 1, friction: 6, useNativeDriver: true }),
-          ]).start();
-        });
-      });
-    };
-
-    const tid = setInterval(advance, CHAT_CYCLE_MS);
-    return () => clearInterval(tid);
-  }, [isActive, streamKey]);
-
-  const rows = rowsRef.current;
-  void tick;
-  if (rows.length === 0) return null;
+  if (!isActive || visible.length === 0) return null;
 
   return (
     <View
       style={[styles.floatChatColumn, { bottom, left, right: rightEdge, maxHeight }]}
       pointerEvents="none"
     >
-      {rows.map((row) => {
-        const m = row.message;
+      {visible.map((m) => {
         const name = m.isHost ? 'HOST' : m.user;
         return (
-          <Animated.View
-            key={row.uid}
-            style={[
-              styles.floatChatRow,
-              {
-                opacity: row.opacity,
-                transform: [{ translateY: row.translateY }, { scale: row.scale }],
-              },
-            ]}
-          >
+          <View key={`${streamKey}-${m.id}`} style={styles.floatChatRow}>
             <Image source={{ uri: chatAvatarUri(m, hostAvatarUrl) }} style={styles.chatAvatarTiny} />
             <Text style={styles.floatChatTextBlock} numberOfLines={2}>
               <Text style={[styles.chatNameInline, m.isHost && styles.chatNameHost]}>{name}: </Text>
               <Text style={styles.chatMsgInline}>{m.text}</Text>
             </Text>
-          </Animated.View>
+          </View>
         );
       })}
     </View>
@@ -194,8 +109,18 @@ export function FloatingChatComposer({
   onQuickReaction: (emoji: string) => void;
   onEmojiPress: () => void;
 }) {
+  const submitLockRef = useRef(false);
   const canSend = !sendDisabled && value.trim().length > 0;
   const placeholder = COMPOSER_PLACEHOLDERS[placeholderIndex % COMPOSER_PLACEHOLDERS.length];
+
+  const handleSend = () => {
+    if (submitLockRef.current || sendDisabled || !value.trim()) return;
+    submitLockRef.current = true;
+    onSend();
+    setTimeout(() => {
+      submitLockRef.current = false;
+    }, 750);
+  };
 
   return (
     <View
@@ -229,7 +154,8 @@ export function FloatingChatComposer({
           placeholderTextColor="rgba(255,255,255,0.42)"
           returnKeyType="send"
           blurOnSubmit={false}
-          onSubmitEditing={onSend}
+          onSubmitEditing={handleSend}
+          editable={!sendDisabled}
           maxLength={280}
         />
         <Pressable style={styles.composerIconBtn} onPress={onEmojiPress} hitSlop={8}>
@@ -237,7 +163,7 @@ export function FloatingChatComposer({
         </Pressable>
         <Pressable
           style={[styles.composerIconBtn, !canSend && styles.composerIconBtnDim]}
-          onPress={onSend}
+          onPress={handleSend}
           hitSlop={8}
           disabled={!canSend}
         >
