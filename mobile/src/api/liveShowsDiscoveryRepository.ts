@@ -153,7 +153,10 @@ export async function fetchLiveShowsForDiscovery(): Promise<LiveDiscoveryFetchRe
       return { ...pack, meta };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.warn('[fetchLiveShowsForDiscovery] API failed — no Supabase fallback when API base is set', msg);
+      console.warn('[fetchLiveShowsForDiscovery] API failed — no Supabase fallback when API base is set', {
+        apiBase,
+        error: msg,
+      });
       const meta = {
         source: 'none' as const,
         fetchedAt,

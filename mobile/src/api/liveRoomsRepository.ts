@@ -61,6 +61,12 @@ function apiErrorMessage(res: Response, body: unknown, apiBase?: string): string
     );
   }
   if (code === "LIVE_ROOMS_LIST_FAILED" || status === 500) {
+    if (detail?.includes("EMAXCONNSESSION") || detail?.includes("max clients reached")) {
+      return (
+        errText ??
+        "Live rooms temporarily unavailable (database connection pool busy). Pull to refresh in a moment."
+      );
+    }
     return (
       errText ??
       `Live rooms API error (500)${detail ? `: ${detail}` : ''}. Check Netlify function logs for Prisma/DB issues.`
@@ -168,19 +174,40 @@ export async function createLiveRoom(
 
 export async function fetchLiveRoomsPublic(limit = 80): Promise<LiveRoomApiRow[]> {
   const base = getWebApiBaseUrl();
-  const res = await fetchLiveRoomsApi(`/api/live-rooms?limit=${limit}`, {
+  const path = `/api/live-rooms?limit=${limit}`;
+  const res = await fetchLiveRoomsApi(path, {
     method: 'GET',
   });
   const rawText = await res.text();
+  const logLiveFetch = __DEV__ || process.env.EXPO_PUBLIC_LIVE_FETCH_DEBUG === '1';
+  if (logLiveFetch) {
+    console.log('[liveRooms] GET', `${base}${path}`, 'status', res.status, 'body', rawText.slice(0, 500));
+  }
   let j: { rooms?: LiveRoomApiRow[]; error?: string; code?: string; detail?: string } = {};
   if (rawText) {
     try {
       j = JSON.parse(rawText) as typeof j;
-    } catch {
+      if (logLiveFetch) {
+        console.log('[liveRooms] parsed', {
+          roomCount: Array.isArray(j.rooms) ? j.rooms.length : null,
+          code: j.code ?? null,
+          error: j.error ?? null,
+          detail: j.detail?.slice(0, 160) ?? null,
+        });
+      }
+    } catch (parseErr) {
+      if (logLiveFetch) {
+        console.warn('[liveRooms] JSON parse failed', parseErr instanceof Error ? parseErr.message : parseErr);
+      }
       if (!res.ok) throw new Error(apiErrorMessage(res, rawText, base ?? undefined));
     }
   }
-  if (!res.ok) throw new Error(apiErrorMessage(res, j.rooms ? j : rawText, base ?? undefined));
+  if (!res.ok) {
+    if (logLiveFetch) {
+      console.warn('[liveRooms] request failed', res.status, j.error ?? rawText.slice(0, 200));
+    }
+    throw new Error(apiErrorMessage(res, j.rooms ? j : rawText, base ?? undefined));
+  }
   return Array.isArray(j.rooms) ? j.rooms : [];
 }
 
