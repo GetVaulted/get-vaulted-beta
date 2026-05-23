@@ -1121,7 +1121,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   );
 
   const hostStageProps = {
-    layout: "fillHeight" as const,
+    layout: "host916" as const,
     overlayMessage: stageOverlayMessage,
     viewers: room.viewerCount,
     hostName: `@${hostUsername}`,
@@ -1172,6 +1172,13 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     topChromeTrailing: vaultControlsPill,
   };
 
+  const hostStagePropsMobile = {
+    ...hostStageProps,
+    layout: "fillHeight" as const,
+    stageEdgeRail: undefined,
+    compactActionOverlay: false,
+  };
+
   return (
     <div
       className={`fixed inset-x-0 bottom-0 top-[var(--site-header-offset)] z-40 flex min-h-0 flex-col overflow-hidden bg-black text-sm leading-normal text-zinc-100 ${vaultModeRootClass(vaultMode)}`}
@@ -1207,9 +1214,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       ) : null}
 
       <div className="relative flex min-h-0 flex-1 flex-col p-1.5 sm:p-2.5">
-        <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-950/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[1400px]:grid min-[1400px]:grid-cols-[minmax(11rem,1fr)_auto_minmax(18rem,360px)]">
-          {/* Desktop — left show info / spacer */}
-          <aside className="hidden min-h-0 min-[1400px]:block">
+        {/* Desktop — fixed columns: 280px | centered 9:16 stage | 360–420px chat */}
+        <div className="relative hidden min-h-0 flex-1 overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-950/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[1400px]:grid min-[1400px]:grid-cols-[280px_minmax(0,1fr)_minmax(360px,420px)]">
+          <aside className="min-h-0 shrink-0 overflow-y-auto border-r border-white/[0.06] bg-zinc-950/70">
             <VaultHostShowSidePanel
               streamTitle={streamTitle}
               hostUsername={hostUsername}
@@ -1220,28 +1227,34 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
             />
           </aside>
 
-          {/* Center — 9:16 vertical stage; mobile full-width */}
-          <div className="relative flex min-h-0 min-w-0 flex-col">
-            <VaultHostAnnouncements variant="mobileOverlay" />
-            <div className="relative flex min-h-0 flex-1 min-[1400px]:items-center min-[1400px]:justify-center min-[1400px]:overflow-hidden min-[1400px]:p-3">
-              {room.thumbnailUrl ? (
-                <div
-                  className="pointer-events-none absolute inset-0 hidden scale-110 bg-cover bg-center opacity-25 blur-3xl min-[1400px]:block"
-                  style={{ backgroundImage: `url(${room.thumbnailUrl})` }}
-                  aria-hidden
-                />
-              ) : null}
-              <div className="pointer-events-none absolute inset-0 hidden bg-black/55 min-[1400px]:block" aria-hidden />
-              <div className="relative flex min-h-0 flex-1 flex-col min-[1400px]:aspect-[9/16] min-[1400px]:h-full min-[1400px]:max-h-full min-[1400px]:w-auto min-[1400px]:max-w-full min-[1400px]:flex-none min-[1400px]:overflow-hidden min-[1400px]:rounded-2xl min-[1400px]:border min-[1400px]:border-white/[0.12] min-[1400px]:shadow-[0_32px_96px_-36px_rgba(0,0,0,0.95)]">
-                <LiveVideoStage {...hostStageProps} />
-              </div>
+          <main className="relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-zinc-950/80">
+            {room.thumbnailUrl ? (
+              <div
+                className="pointer-events-none absolute inset-0 scale-110 bg-cover bg-center opacity-20 blur-3xl"
+                style={{ backgroundImage: `url(${room.thumbnailUrl})` }}
+                aria-hidden
+              />
+            ) : null}
+            <div className="pointer-events-none absolute inset-0 bg-black/50" aria-hidden />
+            <div
+              className="relative h-[min(calc(100dvh-var(--site-header-offset)-2.5rem),100%)] max-h-full w-auto max-w-full shrink-0 overflow-hidden rounded-2xl border border-white/[0.12] shadow-[0_32px_96px_-36px_rgba(0,0,0,0.95)]"
+              style={{ aspectRatio: "9 / 16" }}
+            >
+              <LiveVideoStage {...hostStageProps} />
             </div>
-          </div>
+          </main>
 
-          {/* Desktop — right full-height chat */}
-          <aside className="hidden min-h-0 overflow-hidden border-l border-white/[0.06] bg-zinc-950/80 min-[1400px]:flex min-[1400px]:flex-col">
+          <aside className="flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-white/[0.06] bg-zinc-950/90">
             {hostLiveChatPanel}
           </aside>
+        </div>
+
+        {/* Mobile — full-width stage + floating chat */}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-950/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[1400px]:hidden">
+          <VaultHostAnnouncements variant="mobileOverlay" />
+          <div className="relative min-h-0 flex-1">
+            <LiveVideoStage {...hostStagePropsMobile} />
+          </div>
         </div>
       </div>
 

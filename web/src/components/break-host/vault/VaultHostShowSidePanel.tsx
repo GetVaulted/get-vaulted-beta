@@ -21,7 +21,7 @@ export function VaultHostShowSidePanel({
   onOpenCommandCenter,
 }: VaultHostShowSidePanelProps) {
   return (
-    <div className="flex h-full min-h-0 flex-col justify-between gap-4 p-3">
+    <div className="flex min-h-0 flex-col gap-4 p-3">
       <div className="space-y-3">
         <Link
           href="/seller/live"
@@ -54,7 +54,7 @@ export function VaultHostShowSidePanel({
         </div>
       </div>
 
-      <div className="mt-auto space-y-3">
+      <div className="space-y-3 pt-2">
         <VaultHostAnnouncements variant="desktopSidebar" />
         <button
           type="button"

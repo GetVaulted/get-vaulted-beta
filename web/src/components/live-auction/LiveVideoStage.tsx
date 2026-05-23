@@ -25,8 +25,8 @@ type LiveVideoStageProps = {
   centerOverlayOnTop?: boolean;
   actionOverlay?: ReactNode;
   mobileActionOverlay?: ReactNode;
-  /** `aspect` (default): 16:9 plate. `fillHeight`: grow with parent height (e.g. host console column). */
-  layout?: "aspect" | "fillHeight";
+  /** `fillHeight`: grow with parent. `host916`: fill a fixed 9:16 host console frame. */
+  layout?: "aspect" | "fillHeight" | "host916";
   /** Shown below the Live / audience row, right-aligned (e.g. host team board control). */
   stageBelowAudience?: ReactNode;
   /** Optional mobile CTA for upcoming streams. */
@@ -57,6 +57,8 @@ type LiveVideoStageProps = {
   scheduledStartAt?: string | null;
   /** Host-uploaded room thumbnail; rendered behind standby/countdown UI until the live video paints. */
   thumbnailUrl?: string | null;
+  /** When true, video/thumbnail fill the stage edge-to-edge (host 9:16 console frame). */
+  fillPortraitFrame?: boolean;
   /** DB room status — bottom playback pill uses this (Live / Upcoming / Ended). */
   roomStatus: LiveRoomStatus;
 };
@@ -93,16 +95,18 @@ export function LiveVideoStage({
   streamPlaybackRefreshNonce,
   scheduledStartAt = null,
   thumbnailUrl = null,
+  fillPortraitFrame: fillPortraitFrameProp,
   roomStatus,
 }: LiveVideoStageProps) {
+  const fillPortraitFrame = fillPortraitFrameProp ?? layout === "host916";
   const avatarLabel = hostName.charAt(0).toUpperCase();
   const statusLabel =
     roomStatus === "ended" ? "Ended" : isLive ? "Live" : startsIn ? `Starts in ${startsIn}` : "Upcoming";
   /** Anchored bottom item sheet (auction/buy bar) — lifts chat + right rail so they clear the panel. */
   const hasMobileItemSheet = Boolean(mobileActionOverlay);
   const rootClass =
-    layout === "fillHeight"
-      ? "relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-gradient-to-br from-zinc-900 via-zinc-950 to-black"
+    layout === "fillHeight" || layout === "host916"
+      ? "relative h-full min-h-0 w-full overflow-hidden bg-gradient-to-br from-zinc-900 via-zinc-950 to-black"
       : "relative h-[100dvh] min-h-[100dvh] w-full overflow-hidden rounded-none bg-gradient-to-br from-zinc-900 via-zinc-950 to-black shadow-[0_24px_80px_-32px_rgba(0,0,0,0.9)] md:aspect-video md:h-auto md:min-h-[calc(56.25vw*1.4)] md:rounded-2xl md:border md:border-zinc-800";
 
   return (
@@ -124,13 +128,16 @@ export function LiveVideoStage({
           streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
           scheduledStartAt={scheduledStartAt}
           thumbnailUrl={thumbnailUrl}
+          fillPortraitFrame={fillPortraitFrame}
         />
       ) : null}
       <div
         className={
           layout === "fillHeight"
             ? "pointer-events-none flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-8"
-            : "pointer-events-none absolute inset-0 flex items-center justify-center"
+            : layout === "host916"
+              ? "pointer-events-none absolute inset-0 flex items-center justify-center"
+              : "pointer-events-none absolute inset-0 flex items-center justify-center"
         }
       >
         {!isLive && !liveRoomId ? (

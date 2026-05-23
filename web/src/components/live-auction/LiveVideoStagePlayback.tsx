@@ -26,6 +26,8 @@ type LiveVideoStagePlaybackProps = {
   scheduledStartAt?: string | null;
   /** Host-uploaded thumbnail. Shown as background placeholder until live video starts playing. */
   thumbnailUrl?: string | null;
+  /** Fill the stage edge-to-edge instead of nested 9:16 letterbox plate. */
+  fillPortraitFrame?: boolean;
 };
 
 /** Whether `value` looks safe to render as an `<img src>` (uploaded URL or root-relative path). */
@@ -54,6 +56,7 @@ export function LiveVideoStagePlayback({
   streamPlaybackRefreshNonce,
   scheduledStartAt = null,
   thumbnailUrl = null,
+  fillPortraitFrame = false,
 }: LiveVideoStagePlaybackProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -345,24 +348,40 @@ export function LiveVideoStagePlayback({
   return (
     <div className="absolute inset-0 z-[1] overflow-hidden bg-black">
       {showThumbnailLayer && thumbnailUrl ? (
-        <div className="absolute inset-0 z-[1] flex min-h-0 min-w-0 size-full items-center justify-center bg-black">
-          <div className={PORTRAIT_LIVE_PLATE}>
-            {/* eslint-disable-next-line @next/next/no-img-element -- host-uploaded thumbnail; same 9:16 plate as live video */}
-            <img
-              src={thumbnailUrl}
-              alt=""
-              aria-hidden
-              draggable={false}
-              className="absolute inset-0 h-full w-full object-cover object-center opacity-80"
-            />
-            <div className="pointer-events-none absolute inset-0 bg-black/45" aria-hidden />
-          </div>
+        <div className="absolute inset-0 z-[1] bg-black">
+          {fillPortraitFrame ? (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element -- host-uploaded thumbnail */}
+              <img
+                src={thumbnailUrl}
+                alt=""
+                aria-hidden
+                draggable={false}
+                className="absolute inset-0 h-full w-full object-cover object-center opacity-80"
+              />
+              <div className="pointer-events-none absolute inset-0 bg-black/45" aria-hidden />
+            </>
+          ) : (
+            <div className="flex min-h-0 min-w-0 size-full items-center justify-center">
+              <div className={PORTRAIT_LIVE_PLATE}>
+                {/* eslint-disable-next-line @next/next/no-img-element -- host-uploaded thumbnail; same 9:16 plate as live video */}
+                <img
+                  src={thumbnailUrl}
+                  alt=""
+                  aria-hidden
+                  draggable={false}
+                  className="absolute inset-0 h-full w-full object-cover object-center opacity-80"
+                />
+                <div className="pointer-events-none absolute inset-0 bg-black/45" aria-hidden />
+              </div>
+            </div>
+          )}
         </div>
       ) : null}
 
       {showVideoLayer ? (
-        <div className="absolute inset-0 z-[2] flex min-h-0 min-w-0 size-full items-center justify-center bg-black">
-          <div className={PORTRAIT_LIVE_PLATE}>
+        <div className="absolute inset-0 z-[2] bg-black">
+          {fillPortraitFrame ? (
             <video
               ref={videoRef}
               data-live-stage-video="true"
@@ -374,7 +393,23 @@ export function LiveVideoStagePlayback({
               preload="metadata"
               aria-label="Live stream"
             />
-          </div>
+          ) : (
+            <div className="flex min-h-0 min-w-0 size-full items-center justify-center">
+              <div className={PORTRAIT_LIVE_PLATE}>
+                <video
+                  ref={videoRef}
+                  data-live-stage-video="true"
+                  className="absolute inset-0 h-full w-full object-cover object-center opacity-[0.97]"
+                  muted={muted}
+                  playsInline
+                  controls={false}
+                  autoPlay
+                  preload="metadata"
+                  aria-label="Live stream"
+                />
+              </div>
+            </div>
+          )}
         </div>
       ) : null}
 
