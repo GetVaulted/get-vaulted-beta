@@ -533,6 +533,8 @@ model LiveRoom {
   roomVersion        Int            @default(0)
   /// Monotonic per-room auction event sequence (`LiveAuctionEvent.seq`); canonical ordering for fan-out.
   auctionEventSeq    Int            @default(0)
+  /// Cumulative completed item-sale GMV (USD) for this show session; resets when the show ends.
+  completedSalesGmvUsd Float        @default(0)
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 

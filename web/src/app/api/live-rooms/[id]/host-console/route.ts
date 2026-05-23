@@ -5,6 +5,7 @@ import { requireLiveRoomHostUser } from "@/lib/resolve-live-room-host-user";
 import { logLiveLoaderDebug, safeDecodeRouteSegment } from "@/lib/live-loader-debug";
 import { prisma } from "@/lib/prisma";
 import { fetchHostRecentSales } from "@/lib/live-room-recent-sales";
+import { buildLiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
 import { attachHighBidderUsernames } from "@/lib/live-room-high-bidder-enrich";
 import { serializeLiveRoomItem, serializeLiveRoomMessage } from "@/lib/live-room-serialize";
 import { prismaLiveRoomCreateHint, serializePrismaClientError } from "@/lib/prisma-client-error-serialize";
@@ -180,7 +181,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
         lockPurchases: room.lockPurchases,
         breakPaused: room.breakPaused,
         teamBoardLeague: room.teamBoardLeague,
+        completedSalesGmvUsd: room.completedSalesGmvUsd,
       },
+      feeTier: buildLiveShowFeeTierSnapshot(room.completedSalesGmvUsd),
       queueItems,
       orphanSpots,
       messages: messagesAsc,

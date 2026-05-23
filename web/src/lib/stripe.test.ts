@@ -27,15 +27,13 @@ describe("marketplaceApplicationFeeCents", () => {
     vi.unstubAllEnvs();
   });
 
-  it("matches platform fee for normal (non-company) listings at 10%", () => {
-    vi.stubEnv("STRIPE_PLATFORM_FEE_PERCENT", "10");
+  it("uses fixed 8% for normal (non-company) listings", () => {
     const subtotal = 100;
     expect(marketplaceApplicationFeeCents(subtotal, false)).toBe(platformFeeCentsFromSubtotalUsd(subtotal));
-    expect(marketplaceApplicationFeeCents(subtotal, false)).toBe(1000);
+    expect(marketplaceApplicationFeeCents(subtotal, false)).toBe(800);
   });
 
   it("returns 0 for company / merch listings regardless of percent", () => {
-    vi.stubEnv("STRIPE_PLATFORM_FEE_PERCENT", "10");
     expect(platformFeeCentsFromSubtotalUsd(100)).toBeGreaterThan(0);
     expect(marketplaceApplicationFeeCents(100, true)).toBe(0);
     expect(marketplaceApplicationFeeCents(9999, true)).toBe(0);

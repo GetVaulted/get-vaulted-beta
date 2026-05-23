@@ -16,7 +16,13 @@ import {
   isMarketplaceOrderPaymentIntentKind,
   logIgnoredMarketplacePaymentIntentWebhook,
 } from "@/lib/stripe-payment-intent-webhook";
-import { getStripe, marketplaceApplicationFeeCents } from "@/lib/stripe";
+import { getStripe } from "@/lib/stripe";
+import {
+  getLiveRoomCompletedSalesGmvUsd,
+  recordLiveShowCompletedSaleTx,
+  resolveCheckoutApplicationFeeCents,
+  resolveLiveRoomIdForOrder,
+} from "@/lib/live-show-gmv";
 import { syncStripeConnectUserRowsForAccountId } from "@/lib/sync-stripe-connect-user";
 import { emitLiveRoomMessagesRefetch, emitPurchaseCompleted } from "@/lib/realtime-emit-server";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
@@ -135,6 +141,8 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
       escrowProvider: true,
       escrowTransactionId: true,
       shippingPriceUsd: true,
+      itemPriceUsd: true,
+      liveShippingSession: { select: { liveShowId: true } },
       listing: { select: { title: true, buyingFormat: true } },
     },
   });
@@ -176,6 +184,11 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
       userId: order.buyerId,
       orderId,
     });
+
+    const liveRoomId = order.liveShippingSession?.liveShowId ?? null;
+    if (liveRoomId) {
+      await recordLiveShowCompletedSaleTx(tx, liveRoomId, order.itemPriceUsd);
+    }
   });
 
   if (prevEscrow !== EscrowStatus.buyer_paid) {
@@ -228,7 +241,7 @@ async function syncOrderShippingFromLiveSessionTx(tx: TransactionClient, orderId
       itemPriceUsd: true,
       taxUsd: true,
       liveShippingSessionId: true,
-      liveShippingSession: { select: { id: true, shippingCostCents: true } },
+      liveShippingSession: { select: { id: true, shippingCostCents: true, liveShowId: true } },
     },
   });
   if (!ord?.liveShippingSession?.id) {
@@ -518,7 +531,12 @@ export async function createBuyNowCheckoutSession(args: {
   });
 
   const subtotalUsd = order.itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
-  const feeCents = marketplaceApplicationFeeCents(subtotalUsd, Boolean(listing.isCompanyListing));
+  const liveRoomIdForFee = await resolveLiveRoomIdForLiveRoomItem(liveRoomItemId);
+  const feeCents = await resolveCheckoutApplicationFeeCents({
+    subtotalUsd,
+    isCompanyListing: Boolean(listing.isCompanyListing),
+    liveRoomId: liveRoomIdForFee,
+  });
   const rowEscrow = order.paymentMethod === OrderPaymentMethod.escrow;
 
   if (rowEscrow) {
@@ -663,7 +681,7 @@ export async function createPayOrderCheckoutSession(args: {
     include: {
       listing: { select: { id: true, title: true, sellerId: true, isCompanyListing: true } },
       seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true, trustapUserId: true } },
-      liveShippingSession: { select: { id: true, shippingCostCents: true } },
+      liveShippingSession: { select: { id: true, shippingCostCents: true, liveShowId: true } },
     },
   });
   if (!order) {
@@ -694,7 +712,7 @@ export async function createPayOrderCheckoutSession(args: {
       include: {
         listing: { select: { id: true, title: true, sellerId: true, isCompanyListing: true } },
         seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true, trustapUserId: true } },
-        liveShippingSession: { select: { id: true, shippingCostCents: true } },
+        liveShippingSession: { select: { id: true, shippingCostCents: true, liveShowId: true } },
       },
     });
   }
@@ -725,7 +743,7 @@ export async function createPayOrderCheckoutSession(args: {
       include: {
         listing: { select: { id: true, title: true, sellerId: true, isCompanyListing: true } },
         seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true, trustapUserId: true } },
-        liveShippingSession: { select: { id: true, shippingCostCents: true } },
+        liveShippingSession: { select: { id: true, shippingCostCents: true, liveShowId: true } },
       },
     });
     order = refreshed;
@@ -787,7 +805,11 @@ export async function createPayOrderCheckoutSession(args: {
   const stripe = getStripe();
   if (!order.seller.stripeAccountId || !order.seller.stripeOnboardingComplete) throw new Error("SELLER_NOT_READY");
 
-  const feeCents = marketplaceApplicationFeeCents(subtotalUsd, Boolean(order.listing.isCompanyListing));
+  const feeCents = await resolveCheckoutApplicationFeeCents({
+    subtotalUsd,
+    isCompanyListing: Boolean(order.listing.isCompanyListing),
+    liveRoomId: order.liveShippingSession?.liveShowId ?? null,
+  });
 
   if (order.stripeCheckoutSessionId && !order.liveShippingSessionId) {
     const existing = await stripe.checkout.sessions.retrieve(order.stripeCheckoutSessionId);
@@ -875,7 +897,11 @@ export async function createBreakSpotCheckoutSession(args: {
   if (!seller?.stripeAccountId || !seller.stripeOnboardingComplete) throw new Error("SELLER_NOT_READY");
 
   const priceUsd = spot.priceUsd;
-  const feeCents = marketplaceApplicationFeeCents(priceUsd, false);
+  const feeCents = await resolveCheckoutApplicationFeeCents({
+    subtotalUsd: priceUsd,
+    isCompanyListing: false,
+    liveRoomId: spot.liveRoomId,
+  });
 
   const session = await stripe.checkout.sessions.create(
     {
@@ -935,6 +961,8 @@ export async function finalizeStripeMarketplaceOrderPaid(
       paymentStatus: true,
       paymentMethod: true,
       shippingPriceUsd: true,
+      itemPriceUsd: true,
+      liveShippingSession: { select: { liveShowId: true } },
       listing: { select: { title: true, buyingFormat: true } },
     },
   });
@@ -969,6 +997,11 @@ export async function finalizeStripeMarketplaceOrderPaid(
       userId: order.buyerId,
       orderId,
     });
+
+    const liveRoomId = order.liveShippingSession?.liveShowId ?? null;
+    if (liveRoomId) {
+      await recordLiveShowCompletedSaleTx(tx, liveRoomId, order.itemPriceUsd);
+    }
   });
 
   void fulfillOrderShippingAfterPayment(orderId);
@@ -1060,9 +1093,14 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
         });
         const spot = await prisma.breakSpot.findUnique({
           where: { id: breakSpotId },
-          select: { liveRoomId: true, userId: true, spotLabel: true },
+          select: { liveRoomId: true, userId: true, spotLabel: true, priceUsd: true },
         });
         if (spot) {
+          if (Number.isFinite(spot.priceUsd) && spot.priceUsd > 0) {
+            await prisma.$transaction(async (tx) => {
+              await recordLiveShowCompletedSaleTx(tx, spot.liveRoomId, spot.priceUsd!);
+            });
+          }
           emitLiveRoomMessagesRefetch(spot.liveRoomId);
           await createNotification(prisma, {
             userId: spot.userId,

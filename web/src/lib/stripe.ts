@@ -1,4 +1,17 @@
 import Stripe from "stripe";
+import {
+  applicationFeeCentsFromSubtotalUsd,
+  liveShowApplicationFeeCents,
+  marketplaceApplicationFeeCents,
+  marketplacePlatformFeePercent,
+} from "@/lib/platform-fee-policy";
+
+export {
+  applicationFeeCentsFromSubtotalUsd,
+  liveShowApplicationFeeCents,
+  marketplaceApplicationFeeCents,
+  marketplacePlatformFeePercent,
+};
 
 /** Server Stripe client; use live `STRIPE_SECRET_KEY` in production. */
 let stripeSingleton: Stripe | null = null;
@@ -30,6 +43,7 @@ export function getStripePublishableKey(): string {
   return process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
 }
 
+/** @deprecated Prefer `marketplacePlatformFeePercent()` — marketplace listings use a fixed 8%. */
 export function getPlatformFeePercent(): number {
   const raw = process.env.STRIPE_PLATFORM_FEE_PERCENT;
   const n = raw != null ? Number(raw) : 10;
@@ -37,20 +51,9 @@ export function getPlatformFeePercent(): number {
   return n;
 }
 
-/** Application fee in cents for Stripe Connect (from item + shipping subtotal). */
+/** Application fee in cents for Stripe Connect (marketplace flat 8%). */
 export function platformFeeCentsFromSubtotalUsd(subtotalUsd: number): number {
-  const pct = getPlatformFeePercent();
-  const feeUsd = (subtotalUsd * pct) / 100;
-  return Math.max(0, Math.round(feeUsd * 100));
-}
-
-/**
- * Marketplace Connect application fee: zero for official company/merch listings so the platform
- * does not take a seller marketplace fee on those checkouts.
- */
-export function marketplaceApplicationFeeCents(subtotalUsd: number, isCompanyListing: boolean): number {
-  if (isCompanyListing) return 0;
-  return platformFeeCentsFromSubtotalUsd(subtotalUsd);
+  return applicationFeeCentsFromSubtotalUsd(subtotalUsd, marketplacePlatformFeePercent());
 }
 
 export function constructStripeWebhookEvent(payload: string | Buffer, signature: string | null): Stripe.Event {

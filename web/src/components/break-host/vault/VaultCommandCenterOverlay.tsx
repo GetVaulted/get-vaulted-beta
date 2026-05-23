@@ -7,6 +7,8 @@ import { VaultQueueCarousel, type VaultQueueRow } from "@/components/break-host/
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { VAULT_MODE_META } from "@/components/break-host/vault/vault-modes";
 import type { HostRecentSaleRowDTO } from "@/lib/live-room-recent-sales";
+import type { LiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
+import { LiveShowFeeTierTile } from "@/components/break-host/LiveShowFeeTierTile";
 
 type HitLite = {
   id: string;
@@ -40,6 +42,7 @@ type VaultCommandCenterOverlayProps = {
   onDeleteItem: (id: string) => void;
   onAddAuction: () => void;
   recentSales: HostRecentSaleRowDTO[];
+  feeTier?: LiveShowFeeTierSnapshot | null;
   hits: HitLite[];
 };
 
@@ -91,6 +94,7 @@ export function VaultCommandCenterOverlay({
   onDeleteItem,
   onAddAuction,
   recentSales,
+  feeTier,
   hits,
 }: VaultCommandCenterOverlayProps) {
   useEffect(() => {
@@ -301,6 +305,9 @@ export function VaultCommandCenterOverlay({
                 <p className="text-[9px] font-bold uppercase tracking-wide text-zinc-500">Recent sales $</p>
                 <p className="mt-1 font-mono text-lg font-black text-white">${revenueHint.toFixed(0)}</p>
               </div>
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <LiveShowFeeTierTile tier={feeTier} />
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
               <GhostButton disabled={false} onClick={() => onSoon("Sell-through rate")}>

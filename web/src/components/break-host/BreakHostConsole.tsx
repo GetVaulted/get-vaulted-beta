@@ -29,6 +29,7 @@ import type { LiveRoomItemDTO, LiveRoomMessageDTO } from "@/lib/live-room-serial
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
 import type { HostRecentSaleRowDTO } from "@/lib/live-room-recent-sales";
+import type { LiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
 import {
   mergeLiveRoomItemsForActiveItemEvent,
   mergeLiveRoomItemsForBidPlaced,
@@ -100,6 +101,7 @@ type HostPayload = {
   hits: HitRow[];
   isAdmin: boolean;
   recentSales?: HostRecentSaleRowDTO[];
+  feeTier?: LiveShowFeeTierSnapshot | null;
 };
 
 function fmtHostSpotUsd(n: number | null | undefined) {
@@ -251,10 +253,11 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         return;
       }
       setData((prev) => {
-        if (!prev) return { ...j, recentSales: j.recentSales ?? [] };
+        if (!prev) return { ...j, recentSales: j.recentSales ?? [], feeTier: j.feeTier ?? null };
         return {
           ...j,
           recentSales: j.recentSales ?? prev.recentSales ?? [],
+          feeTier: j.feeTier ?? prev.feeTier ?? null,
           messages: mergeLiveRoomMessagesById(prev.messages, j.messages),
         };
       });
@@ -1186,6 +1189,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           setQueueAddModal("auction");
         }}
         recentSales={data.recentSales ?? []}
+        feeTier={data.feeTier ?? null}
         hits={data.hits}
       />
 
