@@ -32,7 +32,7 @@ import { colors, radii, spacing } from '../../theme';
 import type { LiveStream } from '../../types';
 import { resolveBuyerRoomKind, resolveLiveBuyerCommerceHud } from './liveActionModule';
 
-/** Used by `VerticalLiveFeed` to stack chat/composer/sheet above this overlay. */
+/** @deprecated Prefer measuring commerce HUD via `onLayout`; used as initial layout estimate only. */
 export const LIVE_COMMERCE_OVERLAY_HEIGHT = 118;
 
 const SLIDE_KNOB = 28;

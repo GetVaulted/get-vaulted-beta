@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import type { LiveRoomMessageType } from "@/generated/prisma/client";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { serializeLiveRoomMessage } from "@/lib/live-room-serialize";
 import { prisma } from "@/lib/prisma";
+import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { emitLiveRoomMessageById } from "@/lib/realtime-emit-server";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -30,8 +30,10 @@ type PostBody = {
 };
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Sign in to chat." }, { status: 401 });
+  const auth = await resolveLiveRoomsUserId(req);
+  if (auth instanceof NextResponse) {
+    return NextResponse.json({ error: "Sign in to chat." }, { status: 401 });
+  }
 
   const { id: raw } = await ctx.params;
   const liveRoomId = decodeURIComponent(raw);
@@ -64,7 +66,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const row = await prisma.liveRoomMessage.create({
     data: {
       liveRoomId,
-      senderId: session.user.id,
+      senderId: auth.userId,
       body: text,
       messageType,
     },

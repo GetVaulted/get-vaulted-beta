@@ -12,10 +12,16 @@ import {
   View,
 } from 'react-native';
 import { colors, radii, spacing } from '../../theme';
+import {
+  COMPOSER_BAR_HEIGHT,
+  CHAT_ABOVE_COMPOSER_GAP,
+} from '../../lib/liveRoomBottomLayout';
 import type { ChatMessage } from '../../types';
 
-export const COMPOSER_BAR_H = 44;
-export const CHAT_ZONE_GAP = 8;
+/** @deprecated Use COMPOSER_BAR_HEIGHT from liveRoomBottomLayout */
+export const COMPOSER_BAR_H = COMPOSER_BAR_HEIGHT;
+/** @deprecated Use CHAT_ABOVE_COMPOSER_GAP from liveRoomBottomLayout */
+export const CHAT_ZONE_GAP = CHAT_ABOVE_COMPOSER_GAP;
 export const CHAT_STACK_RESERVE = 232;
 
 const COMPOSER_PLACEHOLDERS = [
@@ -50,6 +56,7 @@ export function FloatingLiveChat({
   rightEdge,
   isActive,
   streamKey,
+  maxHeight = CHAT_STACK_RESERVE,
 }: {
   pool: ChatMessage[];
   hostAvatarUrl: string;
@@ -58,6 +65,7 @@ export function FloatingLiveChat({
   rightEdge: number;
   isActive: boolean;
   streamKey: string;
+  maxHeight?: number;
 }) {
   const activeRef = useRef(isActive);
   activeRef.current = isActive;
@@ -134,7 +142,7 @@ export function FloatingLiveChat({
 
   return (
     <View
-      style={[styles.floatChatColumn, { bottom, left, right: rightEdge }]}
+      style={[styles.floatChatColumn, { bottom, left, right: rightEdge, maxHeight }]}
       pointerEvents="none"
     >
       {rows.map((row) => {
@@ -191,7 +199,7 @@ export function FloatingChatComposer({
 
   return (
     <View
-      style={[styles.composerWrap, { bottom, left, right: rightEdge, height: COMPOSER_BAR_H }]}
+      style={[styles.composerWrap, { bottom, left, right: rightEdge, height: COMPOSER_BAR_HEIGHT }]}
       pointerEvents="box-none"
     >
       {Platform.OS === 'ios' ? (
@@ -259,10 +267,9 @@ export function useComposerPlaceholderCycle(active: boolean, draft: string) {
 const styles = StyleSheet.create({
   floatChatColumn: {
     position: 'absolute',
-    maxHeight: CHAT_STACK_RESERVE,
     justifyContent: 'flex-end',
     alignItems: 'flex-start',
-    zIndex: 4,
+    zIndex: 14,
   },
   floatChatRow: {
     flexDirection: 'row',
@@ -307,7 +314,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.12)',
-    zIndex: 5,
+    zIndex: 15,
   },
   composerAndroidUnderlay: {
     backgroundColor: 'rgba(18,18,18,0.72)',

@@ -7,8 +7,10 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Dimensions,
   Image,
+  Keyboard,
   Linking,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   Share,
@@ -24,19 +26,24 @@ import type { LiveStackParamList, MainTabParamList } from '../../navigation/type
 import { rootNavigationRef } from '../../navigation/rootNavigationRef';
 import { LiveBadge } from '../ui/LiveBadge';
 import {
-  CHAT_ZONE_GAP,
-  COMPOSER_BAR_H,
+  CHAT_ABOVE_COMPOSER_GAP,
+  COMPOSER_BAR_HEIGHT,
+  computeChatStackMaxHeight,
+  computeLiveRoomBottomStack,
+  DEFAULT_COMMERCE_OVERLAY_HEIGHT,
+} from '../../lib/liveRoomBottomLayout';
+import { useLiveRoomChat } from '../../hooks/useLiveRoomChat';
+import {
   FloatingChatComposer,
   FloatingLiveChat,
   useComposerPlaceholderCycle,
 } from './floatingLiveChat';
-import { LivePinnedActionBar, LIVE_COMMERCE_OVERLAY_HEIGHT } from './LivePinnedActionBar';
+import { LivePinnedActionBar } from './LivePinnedActionBar';
 import { LiveEmptyBroadcastBlock } from './LiveEmptyBroadcastBlock';
 
 const { height: WINDOW_HEIGHT } = Dimensions.get('window');
 
-/** Space between floating commerce HUD and composer. */
-const COMMERCE_TO_COMPOSER_GAP = 10;
+const CHAT_RIGHT_EDGE = 88;
 
 type Props = {
   streams: LiveStream[];
@@ -118,20 +125,50 @@ function LiveSlide({
   const [following, setFollowing] = useState(false);
   const [shopOpen, setShopOpen] = useState(false);
   const [chatDraft, setChatDraft] = useState('');
+  const [commerceHeight, setCommerceHeight] = useState(DEFAULT_COMMERCE_OVERLAY_HEIGHT);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
   const composerPlaceholderIdx = useComposerPlaceholderCycle(isActive, chatDraft);
 
+  const hostHandle = stream.host.handle.replace(/^@/, '') || stream.host.name;
+  const liveChat = useLiveRoomChat({
+    roomId: stream.id,
+    hostUsername: hostHandle,
+    accessToken,
+    enabled: isActive,
+  });
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      setKeyboardOffset(e.endCoordinates.height - insets.bottom);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardOffset(0);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [insets.bottom]);
+
   const chatPool = useMemo(() => {
-    const c = stream.chat;
+    const c = liveChat.messages;
     if (!c.length) return [];
-    return [...c, ...c, ...c];
-  }, [stream.chat]);
+    return c.length >= 3 ? c : [...c, ...c, ...c];
+  }, [liveChat.messages]);
 
-  const dockPaddingBottom = Math.max(bottomReserve + spacing.xs, insets.bottom + 12);
-  const commerceTop = dockPaddingBottom + LIVE_COMMERCE_OVERLAY_HEIGHT;
-  const chatRightEdge = 88;
-
-  const composerBottom = commerceTop + COMMERCE_TO_COMPOSER_GAP;
-  const chatBottom = composerBottom + COMPOSER_BAR_H + CHAT_ZONE_GAP;
+  const dockPaddingBottom = Math.max(bottomReserve, insets.bottom + spacing.sm);
+  const bottomStack = computeLiveRoomBottomStack({
+    dockPaddingBottom,
+    commerceHeight,
+    keyboardOffset,
+  });
+  const chatMaxHeight = computeChatStackMaxHeight({
+    slideHeight: height,
+    topReserve: insets.top + 72,
+    chatBottom: bottomStack.chatBottom,
+  });
 
   const sendFloatingChat = () => {
     if (!signedIn) {
@@ -139,8 +176,12 @@ function LiveSlide({
       return;
     }
     const t = chatDraft.trim();
-    if (!t) return;
+    if (!t || liveChat.sending) return;
     setChatDraft('');
+    void liveChat.send(t).catch((e) => {
+      setChatDraft(t);
+      if (__DEV__) console.warn('[liveRoom chat] send failed', e instanceof Error ? e.message : e);
+    });
   };
 
   const appendComposer = (emoji: string) => {
@@ -270,7 +311,7 @@ function LiveSlide({
         style={[
           styles.rightRail,
           {
-            bottom: commerceTop + spacing.sm,
+            bottom: bottomStack.commerceTop + spacing.sm,
           },
         ]}
       >
@@ -368,37 +409,41 @@ function LiveSlide({
         <FloatingLiveChat
           pool={chatPool}
           hostAvatarUrl={stream.host.avatarUrl}
-          bottom={chatBottom}
+          bottom={bottomStack.chatBottom}
           left={spacing.lg}
-          rightEdge={chatRightEdge}
+          rightEdge={CHAT_RIGHT_EDGE}
+          maxHeight={chatMaxHeight}
           isActive={isActive}
           streamKey={stream.id}
         />
       ) : null}
 
-      {/* Glass composer */}
       <FloatingChatComposer
-        bottom={composerBottom}
+        bottom={bottomStack.composerBottom}
         left={spacing.lg}
-        rightEdge={chatRightEdge}
+        rightEdge={CHAT_RIGHT_EDGE}
         value={chatDraft}
         onChangeText={setChatDraft}
         onSend={sendFloatingChat}
+        sendDisabled={liveChat.sending}
         placeholderIndex={composerPlaceholderIdx}
         onQuickReaction={appendComposer}
         onEmojiPress={() => appendComposer('😊')}
       />
 
-      {/* Floating live-commerce HUD — only persistent bottom chrome */}
       <View
         style={[
           styles.commerceOverlayHost,
           {
-            bottom: dockPaddingBottom,
+            bottom: bottomStack.commerceBottom,
             left: spacing.md,
             right: spacing.md,
           },
         ]}
+        onLayout={(e) => {
+          const h = e.nativeEvent.layout.height;
+          if (h > 0 && Math.abs(h - commerceHeight) > 2) setCommerceHeight(h);
+        }}
       >
         <LivePinnedActionBar
           stream={stream}
@@ -633,7 +678,7 @@ const styles = StyleSheet.create({
   },
   commerceOverlayHost: {
     position: 'absolute',
-    zIndex: 14,
+    zIndex: 12,
     pointerEvents: 'box-none',
   },
   shopModalRoot: {
