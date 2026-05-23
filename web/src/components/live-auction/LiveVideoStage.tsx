@@ -223,7 +223,7 @@ export function LiveVideoStage({
         <div
           className={`absolute z-10 hidden min-[1400px]:block ${
             compactActionOverlay
-              ? "bottom-2 left-2 right-14"
+              ? "bottom-2.5 left-2 right-11"
               : "bottom-4 left-1/2 w-[min(72%,700px)] min-w-[320px] -translate-x-1/2"
           }`}
         >
@@ -251,7 +251,7 @@ export function LiveVideoStage({
       ) : null}
 
       {stageEdgeRail ? (
-        <div className="pointer-events-none absolute inset-y-0 right-1.5 z-20 hidden items-center min-[1400px]:flex">
+        <div className="pointer-events-none absolute inset-y-6 right-2 z-20 hidden items-center min-[1400px]:flex">
           <div className="pointer-events-auto">{stageEdgeRail}</div>
         </div>
       ) : null}

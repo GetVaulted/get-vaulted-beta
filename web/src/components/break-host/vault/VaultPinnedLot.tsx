@@ -99,6 +99,7 @@ export function VaultPinnedLot({
 }: VaultPinnedLotProps) {
   const meta = VAULT_MODE_META[vaultMode];
   const isMobile = variant === "mobile";
+  const compactEmbedded = embedded && !isMobile;
   const item = overlayQueueRow?.item;
   const thumb = item?.imageUrl?.trim();
   const reserveMet =
@@ -122,10 +123,16 @@ export function VaultPinnedLot({
           className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_80%_at_10%_0%,var(--vault-chrome-tint),transparent_55%)]"
           aria-hidden
         />
-        <div className="relative flex items-stretch gap-3 px-3 py-2.5 max-[380px]:gap-2 max-[380px]:px-2.5 max-[380px]:py-2">
+        <div
+          className={`relative flex items-stretch max-[380px]:gap-2 max-[380px]:px-2.5 max-[380px]:py-2 ${
+            compactEmbedded ? "gap-2 px-2.5 py-2" : "gap-3 px-3 py-2.5"
+          }`}
+        >
           <div className="relative shrink-0">
             <div
-              className={`relative overflow-hidden rounded-lg bg-zinc-900 ring-1 ring-white/10 ${isMobile ? "size-[3.25rem]" : "size-14"}`}
+              className={`relative overflow-hidden rounded-lg bg-zinc-900 ring-1 ring-white/10 ${
+                isMobile ? "size-[3.25rem]" : compactEmbedded ? "size-12" : "size-14"
+              }`}
             >
               {thumb ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -147,33 +154,41 @@ export function VaultPinnedLot({
           </div>
 
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="rounded-sm border border-white/10 bg-black/40 px-1.5 py-[2px] text-[8px] font-black uppercase tracking-[0.16em] text-zinc-300">
+            <div className={`flex flex-wrap items-center gap-1 ${compactEmbedded ? "" : "gap-1.5"}`}>
+              <span className="rounded-sm border border-white/10 bg-black/40 px-1.5 py-[2px] text-[8px] font-black uppercase tracking-[0.14em] text-zinc-300">
                 On the block
               </span>
               {item?.listingId ? (
                 <span className="rounded-sm border border-sky-400/25 bg-sky-500/15 px-1.5 py-[2px] text-[8px] font-bold uppercase tracking-wide text-sky-100/95">
                   Vault auth
                 </span>
-              ) : (
+              ) : compactEmbedded ? null : (
                 <span className="rounded-sm border border-zinc-600/40 bg-zinc-800/60 px-1.5 py-[2px] text-[8px] font-bold uppercase tracking-wide text-zinc-400">
                   Floor lot
                 </span>
               )}
-              <span className="rounded-sm border border-amber-400/20 bg-amber-500/10 px-1.5 py-[2px] text-[8px] font-bold uppercase tracking-wide text-amber-100/90">
-                Ship: vault standard
-              </span>
+              {!compactEmbedded ? (
+                <span className="rounded-sm border border-amber-400/20 bg-amber-500/10 px-1.5 py-[2px] text-[8px] font-bold uppercase tracking-wide text-amber-100/90">
+                  Ship: vault standard
+                </span>
+              ) : null}
             </div>
-            <p className={`mt-1 line-clamp-2 text-left font-semibold leading-snug text-white ${isMobile ? "text-[11px]" : "text-sm"}`}>
+            <p
+              className={`mt-0.5 line-clamp-2 text-left font-semibold leading-snug text-white ${
+                isMobile ? "text-[11px]" : compactEmbedded ? "text-[13px]" : "text-sm"
+              }`}
+            >
               {item ? hostQueueTitleLine(item.title, item.quantity) : "No lot pinned"}
               {item ? <span className="font-normal text-zinc-500"> · #{item.sortOrder}</span> : null}
             </p>
-            <p className="mt-1 line-clamp-2 text-left text-[10px] leading-relaxed text-zinc-400">
-              {item?.teamBoardMisc
-                ? "Host note: MISC spot flagged for team board."
-                : "Seller note: lean into the story — authenticity and comps land bids."}
-            </p>
-            {!isMobile ? (
+            {!compactEmbedded ? (
+              <p className="mt-1 line-clamp-2 text-left text-[10px] leading-relaxed text-zinc-400">
+                {item?.teamBoardMisc
+                  ? "Host note: MISC spot flagged for team board."
+                  : "Seller note: lean into the story — authenticity and comps land bids."}
+              </p>
+            ) : null}
+            {!isMobile && !compactEmbedded ? (
               <BidVelocityBar
                 biddingOpen={Boolean(biddingWindowOpen && activeBoardRow?.item.biddingOpen)}
                 endsAt={activeBoardRow?.item.auctionEndsAt ?? null}
@@ -183,12 +198,16 @@ export function VaultPinnedLot({
           </div>
 
           <div className="shrink-0 text-right">
-            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-500">Asking</p>
-            <p className={`font-mono font-black tabular-nums text-white ${isMobile ? "text-base" : embedded ? "text-lg" : "text-xl"} tracking-tight`}>
+            <p className="text-[8px] font-bold uppercase tracking-[0.12em] text-zinc-500">Asking</p>
+            <p
+              className={`font-mono font-black tabular-nums text-white tracking-tight ${
+                isMobile ? "text-base" : compactEmbedded ? "text-base" : embedded ? "text-lg" : "text-xl"
+              }`}
+            >
               {item ? fmtOverlayLead(item) : "—"}
             </p>
             {item?.priceUsd != null && Number.isFinite(item.priceUsd) ? (
-              <p className="mt-0.5 text-[9px] font-semibold text-zinc-400">
+              <p className="mt-0.5 text-[8px] font-semibold text-zinc-400">
                 Reserve{" "}
                 {reserveMet === true ? (
                   <span className="text-emerald-300/95">met</span>
@@ -199,11 +218,13 @@ export function VaultPinnedLot({
                 )}
               </p>
             ) : (
-              <p className="mt-0.5 text-[9px] text-zinc-600">No reserve</p>
+              <p className="mt-0.5 text-[8px] text-zinc-600">No reserve</p>
             )}
-            <p className="mt-1 text-[9px] font-semibold text-zinc-500">
-              <span className="text-zinc-400">{viewerCount}</span> watching
-            </p>
+            {!compactEmbedded ? (
+              <p className="mt-1 text-[9px] font-semibold text-zinc-500">
+                <span className="text-zinc-400">{viewerCount}</span> watching
+              </p>
+            ) : null}
             {hostAuctionCountdownLabel ? (
               <p className="mt-1 inline-flex items-center justify-end gap-1 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-black tabular-nums text-emerald-100 shadow-[0_0_16px_-6px_rgba(16,185,129,0.55)]">
                 <span className="size-1.5 animate-pulse rounded-full bg-emerald-300" aria-hidden />
@@ -214,7 +235,7 @@ export function VaultPinnedLot({
         </div>
 
         {activeBoardRow ? (
-          <div className="relative border-t border-white/[0.07] bg-black/35 px-3 py-2 max-[380px]:px-2.5">
+          <div className={`relative border-t border-white/[0.07] bg-black/40 px-2.5 ${compactEmbedded ? "py-1.5" : "px-3 py-2 max-[380px]:px-2.5"}`}>
             {biddingWindowOpen ? null : roomStatusLive ? (
               <div className={`flex flex-wrap items-center gap-2 ${isMobile ? "justify-center" : "justify-between"}`}>
                 <label className={`flex items-center gap-2 text-zinc-400 ${isMobile ? "text-[9px]" : "text-[10px]"}`}>

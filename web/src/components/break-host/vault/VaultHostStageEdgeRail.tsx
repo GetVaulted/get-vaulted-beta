@@ -17,7 +17,7 @@ function EdgeBtn({
   href?: string;
 }) {
   const className =
-    "group inline-flex size-10 flex-col items-center justify-center gap-0.5 rounded-full border border-white/[0.12] bg-black/55 text-white/90 shadow-[0_8px_28px_-12px_rgba(0,0,0,0.9)] backdrop-blur-md transition hover:border-amber-400/25 hover:bg-black/70 active:scale-95 disabled:opacity-35";
+    "group inline-flex size-9 flex-col items-center justify-center rounded-full border border-white/[0.14] bg-black/60 text-white/90 shadow-[0_6px_20px_-10px_rgba(0,0,0,0.9)] backdrop-blur-md transition hover:border-amber-400/30 hover:bg-black/75 active:scale-95 disabled:opacity-35";
 
   if (href && !disabled) {
     return (
@@ -54,7 +54,7 @@ export function VaultHostStageEdgeRail({
   muted,
 }: VaultHostStageEdgeRailProps) {
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex flex-col items-center gap-1.5 py-1">
       <EdgeBtn label={muted ? "Unmute stream" : "Mute stream"} onClick={onToggleMute} disabled={disabled}>
         {muted ? (
           <svg viewBox="0 0 24 24" fill="none" className="size-[18px]" aria-hidden>

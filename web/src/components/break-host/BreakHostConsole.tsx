@@ -1213,10 +1213,10 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         </div>
       ) : null}
 
-      <div className="relative flex min-h-0 flex-1 flex-col p-1.5 sm:p-2.5">
-        {/* Desktop — fixed columns: 280px | centered 9:16 stage | 360–420px chat */}
-        <div className="relative hidden min-h-0 flex-1 overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-950/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[1400px]:grid min-[1400px]:grid-cols-[280px_minmax(0,1fr)_minmax(360px,420px)]">
-          <aside className="min-h-0 shrink-0 overflow-y-auto border-r border-white/[0.06] bg-zinc-950/70">
+      <div className="relative flex min-h-0 flex-1 flex-col p-1 sm:p-1.5 min-[1400px]:p-1">
+        {/* Desktop — fixed columns: compact info | large centered 9:16 stage | chat */}
+        <div className="relative hidden min-h-0 flex-1 overflow-hidden rounded-xl border border-white/[0.06] bg-zinc-950/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[1400px]:grid min-[1400px]:grid-cols-[248px_minmax(0,1fr)_340px]">
+          <aside className="min-h-0 shrink-0 overflow-y-auto border-r border-white/[0.06] bg-zinc-950/75">
             <VaultHostShowSidePanel
               streamTitle={streamTitle}
               hostUsername={hostUsername}
@@ -1227,24 +1227,29 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
             />
           </aside>
 
-          <main className="relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-zinc-950/80">
+          <main className="relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-zinc-950/85 px-1">
             {room.thumbnailUrl ? (
               <div
-                className="pointer-events-none absolute inset-0 scale-110 bg-cover bg-center opacity-20 blur-3xl"
+                className="pointer-events-none absolute inset-0 scale-105 bg-cover bg-center opacity-25 blur-2xl"
                 style={{ backgroundImage: `url(${room.thumbnailUrl})` }}
                 aria-hidden
               />
             ) : null}
-            <div className="pointer-events-none absolute inset-0 bg-black/50" aria-hidden />
+            <div className="pointer-events-none absolute inset-0 bg-black/40" aria-hidden />
             <div
-              className="relative h-[min(calc(100dvh-var(--site-header-offset)-2.5rem),100%)] max-h-full w-auto max-w-full shrink-0 overflow-hidden rounded-2xl border border-white/[0.12] shadow-[0_32px_96px_-36px_rgba(0,0,0,0.95)]"
-              style={{ aspectRatio: "9 / 16" }}
+              className="relative w-auto max-w-full shrink-0 overflow-hidden rounded-xl border border-white/[0.14] shadow-[0_24px_80px_-28px_rgba(0,0,0,0.92)] min-[1600px]:max-w-[580px] min-[1800px]:max-w-[620px]"
+              style={{
+                aspectRatio: "9 / 16",
+                height: "min(calc(100dvh - var(--site-header-offset) - 0.75rem), 920px)",
+                maxHeight: "min(calc(100dvh - var(--site-header-offset) - 0.75rem), 920px)",
+                width: "min(100%, calc(min(calc(100dvh - var(--site-header-offset) - 0.75rem), 920px) * 9 / 16))",
+              }}
             >
               <LiveVideoStage {...hostStageProps} />
             </div>
           </main>
 
-          <aside className="flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-white/[0.06] bg-zinc-950/90">
+          <aside className="flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-white/[0.06] bg-zinc-950/95">
             {hostLiveChatPanel}
           </aside>
         </div>

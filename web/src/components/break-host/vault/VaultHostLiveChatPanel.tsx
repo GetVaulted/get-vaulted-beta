@@ -79,21 +79,23 @@ export function VaultHostLiveChatPanel({
 
   const shellClass =
     variant === "sidebar"
-      ? "flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-zinc-950/95"
+      ? "flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-zinc-950"
       : "pointer-events-auto flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-white/[0.1] bg-black/55 shadow-[0_16px_48px_-20px_rgba(0,0,0,0.9)] ring-1 ring-white/[0.05] backdrop-blur-[var(--live-blur-xl)]";
 
   const showTabs = variant === "sidebar";
+  const msgClass = variant === "sidebar" ? "text-[14px] leading-relaxed" : "text-[13px] leading-snug max-[380px]:text-[12px]";
+  const msgListClass = variant === "sidebar" ? "space-y-2.5 px-3.5 py-3" : "space-y-2 px-3 py-2";
 
   return (
     <div className={shellClass}>
       {showTabs ? (
-        <div className="shrink-0 border-b border-white/[0.08] px-3 pt-3">
-          <div className="flex gap-1 rounded-lg bg-black/40 p-0.5">
+        <div className="shrink-0 border-b border-white/[0.08] bg-zinc-900/40 px-3 py-2.5">
+          <div className="flex gap-1 rounded-lg bg-black/50 p-0.5 ring-1 ring-white/[0.04]">
             <button
               type="button"
               onClick={() => setTab("chat")}
-              className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] transition ${
-                tab === "chat" ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+              className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black uppercase tracking-[0.1em] transition ${
+                tab === "chat" ? "bg-zinc-700/90 text-zinc-50 shadow-sm" : "text-zinc-500 hover:text-zinc-300"
               }`}
             >
               Chat
@@ -101,8 +103,8 @@ export function VaultHostLiveChatPanel({
             <button
               type="button"
               onClick={() => setTab("watching")}
-              className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] transition ${
-                tab === "watching" ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+              className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black uppercase tracking-[0.1em] transition ${
+                tab === "watching" ? "bg-zinc-700/90 text-zinc-50 shadow-sm" : "text-zinc-500 hover:text-zinc-300"
               }`}
             >
               Watching
@@ -120,7 +122,7 @@ export function VaultHostLiveChatPanel({
           <div
             ref={scrollRef}
             data-testid="host-live-chat-messages"
-            className="chat-messages min-h-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden overscroll-contain px-3 py-2 [-webkit-overflow-scrolling:touch] touch-pan-y"
+            className={`chat-messages min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [-webkit-overflow-scrolling:touch] touch-pan-y ${msgListClass}`}
           >
             {visibleMessages.length === 0 ? (
               <p className="py-8 text-center text-xs font-medium text-zinc-500">No chat messages yet.</p>
@@ -130,7 +132,7 @@ export function VaultHostLiveChatPanel({
                 const labelClass = chatLabelClassForMessage(m);
                 const isSystem = m.messageType === "system";
                 return (
-                  <div key={m.id} className="text-[13px] leading-snug max-[380px]:text-[12px]">
+                  <div key={m.id} className={msgClass}>
                     <span className={labelClass}>{label}</span>
                     <span className="text-zinc-600">: </span>
                     <span className={isSystem ? "text-zinc-100" : "text-zinc-300"}>{m.body}</span>
@@ -140,13 +142,15 @@ export function VaultHostLiveChatPanel({
             )}
           </div>
 
-          <div className="shrink-0 border-t border-white/[0.08] bg-zinc-950/90 p-3">
+          <div className={`shrink-0 border-t border-white/[0.08] bg-zinc-900/50 ${variant === "sidebar" ? "p-3" : "p-3"}`}>
             <textarea
               value={systemMsg}
               onChange={(e) => onSystemMsgChange(e.target.value)}
               placeholder="Send to chat…"
               rows={2}
-              className="w-full resize-none rounded-lg border border-white/10 bg-black/50 px-2.5 py-2 text-[12px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-amber-400/35"
+              className={`w-full resize-none rounded-lg border border-white/10 bg-black/55 text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-amber-400/35 ${
+                variant === "sidebar" ? "px-3 py-2.5 text-[13px]" : "px-2.5 py-2 text-[12px]"
+              }`}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
