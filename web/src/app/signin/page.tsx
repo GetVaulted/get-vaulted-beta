@@ -11,7 +11,9 @@ function SignInForm() {
   const searchParams = useSearchParams();
   const returnTo = safeReturnTo(searchParams.get("returnTo") || searchParams.get("callbackUrl"));
   const registered = searchParams.get("registered");
+  const confirm = searchParams.get("confirm");
   const suspended = searchParams.get("suspended") === "1";
+  const emailFromQuery = searchParams.get("email")?.trim().toLowerCase() ?? "";
 
   /** If credentials ever landed in the query string (native GET fallback), strip them from the address bar. */
   useEffect(() => {
@@ -22,10 +24,11 @@ function SignInForm() {
     const qs = next.toString();
     router.replace(`/signin${qs ? `?${qs}` : ""}`, { scroll: false });
   }, [router, searchParams]);
+
   const joinHref =
     returnTo !== "/marketplace" ? `/join?returnTo=${encodeURIComponent(returnTo)}` : "/join";
 
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(() => emailFromQuery);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -60,7 +63,11 @@ function SignInForm() {
     <div className="mx-auto w-full max-w-md rounded-2xl border border-white/[0.08] bg-[#0a0a0d] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_24px_56px_-28px_rgba(0,0,0,0.85)] sm:p-7">
       <h1 className="font-display text-center text-2xl font-bold text-foreground sm:text-left">Sign in</h1>
       <p className="mt-2 text-center text-sm text-zinc-500 sm:text-left">
-        {registered === "1" ? (
+        {confirm === "1" ? (
+          <span className="text-emerald-200/90">
+            Check your email for a confirmation link, then sign in here with your email and password.
+          </span>
+        ) : registered === "1" ? (
           <span className="text-emerald-200/90">
             Account ready. Sign in with your email and password (you should already be verified).
           </span>

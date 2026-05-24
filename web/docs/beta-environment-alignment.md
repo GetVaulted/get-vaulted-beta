@@ -32,7 +32,7 @@ Mobile-created users live in **Supabase Auth** first. Web sign-in calls the same
 
 **Beta check:** `GET https://beta.shopgetvaulted.com/api/auth/config` → `projectRef` must be `xkaaicokjgmpbctfermj`.
 
-**Web sign-up blocked on beta** with “email not configured” means `RESEND_API_KEY` is unset in production — use mobile sign-up or the seed script; do not treat that as a Supabase project mismatch.
+**Web sign-up blocked on beta** with “email not configured” means `RESEND_API_KEY` is unset in Netlify production env. After the beta fallback deploy, web Join uses Supabase Auth until Resend is configured (`npm run configure:beta-signup-email`). Mobile sign-up always uses Supabase Auth directly.
 
 ## Local `web/.env` gotcha
 
@@ -77,6 +77,31 @@ For site **beta.shopgetvaulted.com** (package dir `web`):
 4. `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `SUPABASE_ANON_KEY` — matching anon key
 5. `SUPABASE_SERVICE_ROLE_KEY` — same project (webhooks, admin scripts)
 6. `NEXTAUTH_URL` / `STRIPE_CONNECT_PUBLIC_APP_URL` — `https://beta.shopgetvaulted.com` (not the static apex)
+7. **`RESEND_API_KEY`** — required for web Join OTP emails (`/api/register`). Without it, beta uses Supabase Auth signup fallback until configured.
+8. **`RESEND_FROM`** — optional; defaults to `Get Vaulted <onboarding@resend.dev>` for Resend trial.
+
+Configure Resend + Supabase Auth redirects:
+
+```bash
+CONFIRM_BETA_SIGNUP_EMAIL=1 RESEND_API_KEY=re_... npm run configure:beta-signup-email
+```
+
+Verify after deploy:
+
+```bash
+curl https://beta.shopgetvaulted.com/api/auth/config
+```
+
+Expect `webSignupAvailable: true`. With Resend: `webSignupVerificationMethod: "resend_code"`. Without Resend on beta: `"supabase_link"` (confirmation email via Supabase).
+
+**Supabase Dashboard** (project `xkaaicokjgmpbctfermj` → Authentication → URL configuration):
+
+| Setting | Value |
+|---------|--------|
+| Site URL | `https://beta.shopgetvaulted.com` |
+| Redirect URLs | `https://beta.shopgetvaulted.com/**`, `http://localhost:3000/**` |
+
+Optional: Authentication → SMTP → Resend (`smtp.resend.com`, user `resend`, password = `RESEND_API_KEY`) so mobile confirmation emails use your domain.
 
 Compare `<ref>` to the mobile build’s `EXPO_PUBLIC_SUPABASE_URL` (EAS secrets or `mobile/.env` at build time).
 

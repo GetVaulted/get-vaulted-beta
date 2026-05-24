@@ -346,6 +346,8 @@ export function SignupForm() {
         ok?: boolean;
         _localDevVerificationCode?: string;
         debugMessage?: string;
+        verificationMethod?: "supabase_link" | "immediate";
+        needsEmailConfirmation?: boolean;
       };
       devSignupLog("register response", { status: res.status, code: data.code, error: data.error });
       if (!res.ok) {
@@ -354,6 +356,21 @@ export function SignupForm() {
       }
 
       const normalizedEmail = email.trim().toLowerCase();
+      if (data.verificationMethod === "supabase_link") {
+        router.push(
+          `/signin?email=${encodeURIComponent(normalizedEmail)}&confirm=1${returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ""}`,
+        );
+        router.refresh();
+        return;
+      }
+      if (data.verificationMethod === "immediate") {
+        router.push(
+          `/signin?email=${encodeURIComponent(normalizedEmail)}&registered=1${returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ""}`,
+        );
+        router.refresh();
+        return;
+      }
+
       try {
         sessionStorage.setItem(
           "gv_signup_pending",

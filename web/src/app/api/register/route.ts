@@ -9,6 +9,8 @@ import { Prisma } from "@/generated/prisma/client";
 import { isDevTempNoDatabaseMode } from "@/lib/dev-temp-no-db";
 import { prisma } from "@/lib/prisma";
 import { isApiDevVerificationAssistAllowed, isDevSkipVerificationEmail } from "@/lib/dev-verification-assist";
+import { isBetaDeployment, isWebSignupResendConfigured } from "@/lib/is-beta-deployment";
+import { registerAccountViaSupabaseAuth } from "@/lib/register-via-supabase-auth";
 import { validateUsernameForRegistration } from "@/lib/register-validate-username";
 import { sendSignupVerificationEmail } from "@/lib/send-verification-email";
 
@@ -76,8 +78,24 @@ export async function POST(req: Request) {
       );
     }
 
-    const hasResend = Boolean(process.env.RESEND_API_KEY?.trim());
+    const hasResend = isWebSignupResendConfigured();
     if (process.env.NODE_ENV === "production" && !hasResend) {
+      if (isBetaDeployment()) {
+        const supa = await registerAccountViaSupabaseAuth({
+          email,
+          password,
+          username: usernameResult.normalized,
+        });
+        if (!supa.ok) {
+          const status = supa.code === "ACCOUNT_EXISTS" ? 409 : 503;
+          return NextResponse.json({ error: supa.message, code: supa.code }, { status });
+        }
+        return NextResponse.json({
+          ok: true as const,
+          verificationMethod: supa.verificationMethod,
+          needsEmailConfirmation: supa.needsEmailConfirmation,
+        });
+      }
       return NextResponse.json(
         {
           error: "Sign-up is temporarily unavailable (email not configured). Please try again later.",
