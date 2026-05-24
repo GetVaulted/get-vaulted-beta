@@ -55,5 +55,9 @@ next-env.d.ts
 /blob-report
 /playwright/.cache
 
+# Local beta QA helpers (tracked scripts: purge-beta-*, verify-beta-*, wipe-beta-*)
+/scripts/_beta-*
+/beta-wallet-*.png
+
 # Local Netlify folder
 .netlify
