@@ -109,7 +109,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json(
       { rooms },
-      { headers: { "Cache-Control": "public, max-age=0, must-revalidate" } },
+      { headers: { "Cache-Control": "no-store, max-age=0" } },
     );
   } catch (e) {
     const prismaDto = serializePrismaClientError(e);

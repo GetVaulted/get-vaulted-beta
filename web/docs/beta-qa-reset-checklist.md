@@ -43,20 +43,54 @@ npm run verify:beta-env
 
 ---
 
-## Step 0b — Bootstrap accounts (optional script)
+## Step 0b — Complete beta wipe (launch simulation — recommended)
 
-If Supabase Auth users do not exist yet, from `web/` with service role in `.env`:
+For a **brand-new platform** with zero legacy users/products:
 
 ```bash
-# web/.env needs: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL, ALLOW_BETA_QA_SEED=1
+# Preview (prints every table row count + Auth users that will be deleted):
+CONFIRM_BETA_FULL_WIPE=1 ALLOW_BETA_QA_SEED=1 npm run qa:wipe-beta-full -- --dry-run
+
+# Execute full wipe + fresh seed:
+CONFIRM_BETA_FULL_WIPE=1 ALLOW_BETA_QA_SEED=1 npm run qa:wipe-beta-full
+```
+
+**Hard guards:** requires `CONFIRM_BETA_FULL_WIPE=1` + `ALLOW_BETA_QA_SEED=1` + project ref **`xkaaicokjgmpbctfermj`** on both `DATABASE_URL` and `SUPABASE_URL`. Refuses any other database.
+
+Wipes **everything** — all Prisma app tables, all Supabase Auth users — then seeds only `sellerqa` / `buyerqa` with Stripe snapshot + buyer wallet.
+
+**Critical:** `web/.env.local` must contain beta `DATABASE_URL` (ref `xkaaicokjgmpbctfermj`) — same URI as Netlify. Without it, the script cannot reach beta Postgres (local machine had no `.env`).
+
+After wipe, confirm deployed API is empty:
+
+```bash
+npm run qa:verify-beta-clean
+```
+
+Emergency partial cleanup (no DATABASE_URL — sellerqa only):
+
+```bash
+npm run qa:purge-beta-catalog-api
+```
+
+Or run `scripts/beta-supabase-sql-wipe.sql` in Supabase SQL editor, then re-seed with `qa:wipe-beta-full`.
+
+### Partial QA reset (preserves other beta users)
+
+If you need to clean only sellerqa/buyerqa without deleting every beta user:
+
+```bash
+CONFIRM_BETA_QA_RESET=1 ALLOW_BETA_QA_SEED=1 npm run qa:reset-beta-environment
+```
+
+### Bootstrap accounts only (no commerce wipe)
+
+```bash
 ALLOW_BETA_QA_SEED=1 npm run qa:seed-beta-accounts
-# Recreate from scratch:
 ALLOW_BETA_QA_SEED=1 npm run qa:seed-beta-accounts -- --reset
 ```
 
-This creates Auth + Prisma `User` rows. It does **not** complete Stripe — seller still runs Seller Setup on device.
-
-**Or** sign up manually in the app (validates full signup UX).
+Account-only seed does **not** complete Stripe — use full wipe above for PC launch simulation.
 
 ### Web sign-in (PC) — required before auction QA
 

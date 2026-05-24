@@ -221,6 +221,31 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ ok: true });
   }
 
+  /** End a scheduled (or live) show — removes it from public live discovery. */
+  if (action === "cancel") {
+    if (existing.status === "ended") {
+      return NextResponse.json({ ok: true });
+    }
+    const ended = await prisma.liveRoom.updateMany({
+      where: { id, status: { in: ["scheduled", "live"] } },
+      data: {
+        status: "ended",
+        endedAt: new Date(),
+        completedSalesGmvUsd: 0,
+        roomVersion: { increment: 1 },
+      },
+    });
+    if (ended.count === 0) {
+      return NextResponse.json({ error: "Room state changed. Refresh and try again." }, { status: 409 });
+    }
+    const roomNow = await prisma.liveRoom.findUnique({ where: { id }, select: { roomVersion: true } });
+    if (existing.status === "live") {
+      emitAuctionEnded(id, roomNow?.roomVersion);
+    }
+    emitLiveDiscoveryChanged({ roomId: id, status: "ended", reason: "cancelled" });
+    return NextResponse.json({ ok: true });
+  }
+
   const data: {
     title?: string;
     description?: string;

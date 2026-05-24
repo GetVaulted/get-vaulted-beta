@@ -5,8 +5,10 @@ import bcrypt from "bcryptjs";
 import type { BuyingFormat, ListingStatus, Prisma, ShippingCategory } from "@/generated/prisma/client";
 import { EscrowStatus, LiveRoomStatus, LiveRoomType, OrderPaymentMethod } from "@/generated/prisma/enums";
 import { PrismaClient } from "@/generated/prisma/client";
+import { EXPECTED_BETA_PROJECT_REF } from "@/lib/beta-qa-scope";
 import { createPostgresPrismaClient } from "@/lib/prisma-pg-factory";
 import { setIntegrationPrismaClient } from "@/lib/prisma";
+import { supabaseProjectRefFromUrl } from "@/lib/resolve-database-url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const INTEGRATION_PROJECT_ROOT = join(__dirname, "..", "..");
@@ -22,6 +24,13 @@ function integrationDatabaseUrl(): string {
   }
   if (!url.startsWith("postgres://") && !url.startsWith("postgresql://")) {
     throw new Error("INTEGRATION_DATABASE_URL / DATABASE_URL must be a postgres:// or postgresql:// URI.");
+  }
+  const ref = supabaseProjectRefFromUrl(url);
+  if (ref === EXPECTED_BETA_PROJECT_REF) {
+    throw new Error(
+      `Refusing integration tests against beta Supabase (${EXPECTED_BETA_PROJECT_REF}). ` +
+        "Use a disposable local/integration Postgres — never beta DATABASE_URL.",
+    );
   }
   return url;
 }
@@ -50,6 +59,11 @@ export async function bootstrapIntegrationPrisma(): Promise<PrismaClient> {
 
 export async function teardownIntegrationPrisma(): Promise<void> {
   if (sharedClient) {
+    try {
+      await resetIntegrationDatabase(sharedClient);
+    } catch (e) {
+      console.warn("[integration] teardown reset failed:", e);
+    }
     await sharedClient.$disconnect().catch(() => {});
     sharedClient = null;
   }

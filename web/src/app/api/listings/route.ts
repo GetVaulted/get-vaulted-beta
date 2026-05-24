@@ -226,9 +226,10 @@ export async function GET(req: Request) {
         include: listingInclude,
         orderBy: { createdAt: "desc" },
       });
-      return NextResponse.json({
-        listings: rows.map((r) => dbListingToMarketplace(r)),
-      });
+      return NextResponse.json(
+        { listings: rows.map((r) => dbListingToMarketplace(r)) },
+        { headers: { "Cache-Control": "no-store, max-age=0" } },
+      );
     } catch (e) {
       const prismaDto = serializePrismaClientError(e);
       console.error("[GET /api/listings] scope=published failed", { prisma: prismaDto });

@@ -6,7 +6,9 @@ import {
   type LiveRoomStatus,
   type LiveRoomType,
 } from "../src/generated/prisma/client";
+import { EXPECTED_BETA_PROJECT_REF } from "../src/lib/beta-qa-scope";
 import { createPostgresPrismaClient } from "../src/lib/prisma-pg-factory";
+import { supabaseProjectRefFromUrl } from "../src/lib/resolve-database-url";
 import { seedMarketplaceListings } from "./seed-marketplace-fixtures";
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
@@ -15,6 +17,13 @@ if (!databaseUrl) {
 }
 if (!databaseUrl.startsWith("postgres://") && !databaseUrl.startsWith("postgresql://")) {
   throw new Error("DATABASE_URL must be a postgres:// or postgresql:// URI.");
+}
+const seedRef = supabaseProjectRefFromUrl(databaseUrl);
+if (seedRef === EXPECTED_BETA_PROJECT_REF && process.env.ALLOW_BETA_PRISMA_SEED !== "1") {
+  throw new Error(
+    `Refusing prisma db seed on beta (${EXPECTED_BETA_PROJECT_REF}). ` +
+      "Beta launch simulation uses qa:wipe-beta-full — not db:seed. Set ALLOW_BETA_PRISMA_SEED=1 to override.",
+  );
 }
 
 const prisma: PrismaClient = createPostgresPrismaClient(databaseUrl);
