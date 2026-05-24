@@ -198,7 +198,7 @@ export function emitStreamStatusChanged(
 export function emitLiveDiscoveryChanged(payload?: {
   roomId?: string;
   status?: string;
-  reason?: "created" | "updated" | "started" | "ended";
+  reason?: "created" | "updated" | "started" | "ended" | "cancelled";
 }): void {
   broadcastRealtimeEvent(LIVE_DISCOVERY_CHANNEL, LIVE_DISCOVERY_EVENT, {
     emittedAt: new Date().toISOString(),
