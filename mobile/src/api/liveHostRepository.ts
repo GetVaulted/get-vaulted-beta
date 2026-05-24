@@ -168,6 +168,7 @@ export type HostConsoleMessage = {
   id: string;
   senderUsername: string;
   body: string;
+  messageType?: 'chat' | 'bid' | 'purchase' | 'system';
   createdAt: string;
 };
 

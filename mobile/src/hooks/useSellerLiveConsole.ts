@@ -51,12 +51,15 @@ export function useSellerLiveConsole({
       setServerNowMs(data.serverNowMs);
       const hostUser = sellerUsername?.trim().toLowerCase() ?? '';
       setChatMessages(
-        data.messages.map((m) => ({
-          id: m.id,
-          user: m.senderUsername,
-          text: m.body,
-          isHost: hostUser.length > 0 && m.senderUsername.toLowerCase() === hostUser,
-        })),
+        data.messages
+          .filter((m) => m.messageType !== 'bid')
+          .map((m) => ({
+            id: m.id,
+            user: m.senderUsername,
+            text: m.body,
+            isHost: hostUser.length > 0 && m.senderUsername.toLowerCase() === hostUser,
+            messageType: m.messageType,
+          })),
       );
       hydratedRef.current = true;
       setConsoleError(null);

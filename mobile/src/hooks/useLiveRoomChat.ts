@@ -1,21 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  announceLiveRoomViewerEvent,
   fetchLiveRoomChatMessages,
   sendLiveRoomChatMessage,
+  type LiveRoomChatMessageRow,
 } from '../api/liveRoomChatRepository';
 import { dedupeChatMessagesById } from '../lib/liveRoomChatMessages';
-import type { ChatMessage } from '../types';
+import type { ChatMessage, ChatMessageKind } from '../types';
 
-function mapRows(rows: Awaited<ReturnType<typeof fetchLiveRoomChatMessages>>, hostUsername: string): ChatMessage[] {
+function mapRow(m: LiveRoomChatMessageRow, hostUsername: string): ChatMessage | null {
+  const text = m.body?.trim();
+  if (!text) return null;
   const host = hostUsername.trim().toLowerCase();
-  return rows
-    .filter((m) => m.body?.trim())
-    .map((m) => ({
-      id: m.id,
-      user: m.senderUsername?.trim() || 'Guest',
-      text: m.body.trim(),
-      isHost: Boolean(host && m.senderUsername?.trim().toLowerCase() === host),
-    }));
+  const sender = m.senderUsername?.trim() || 'Guest';
+  const messageType = (m.messageType ?? 'chat') as ChatMessageKind;
+  if (messageType === 'bid') return null;
+  return {
+    id: m.id,
+    user: sender,
+    text,
+    isHost: Boolean(host && sender.toLowerCase() === host),
+    messageType,
+  };
+}
+
+function mapRows(rows: LiveRoomChatMessageRow[], hostUsername: string): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  for (const row of rows) {
+    const mapped = mapRow(row, hostUsername);
+    if (mapped) out.push(mapped);
+  }
+  return out;
 }
 
 function mergeChatMessages(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
@@ -33,6 +48,18 @@ export function useLiveRoomChat(args: {
   const [error, setError] = useState<string | null>(null);
   const sendLockRef = useRef(false);
   const reloadLockRef = useRef(false);
+  const joinAnnouncedRef = useRef(false);
+
+  useEffect(() => {
+    joinAnnouncedRef.current = false;
+    setMessages([]);
+  }, [args.roomId]);
+
+  const appendRows = useCallback((rows: LiveRoomChatMessageRow[]) => {
+    const mapped = mapRows(rows, args.hostUsername);
+    if (mapped.length === 0) return;
+    setMessages((prev) => mergeChatMessages(prev, mapped));
+  }, [args.hostUsername]);
 
   const reload = useCallback(async () => {
     if (reloadLockRef.current) return;
@@ -59,6 +86,45 @@ export function useLiveRoomChat(args: {
     return () => clearInterval(id);
   }, [args.enabled, reload]);
 
+  const announceJoin = useCallback(async (): Promise<boolean> => {
+    if (!args.accessToken || !args.enabled) return false;
+    if (joinAnnouncedRef.current) return false;
+    joinAnnouncedRef.current = true;
+    try {
+      const row = await announceLiveRoomViewerEvent({
+        accessToken: args.accessToken,
+        roomId: args.roomId,
+        kind: 'join',
+      });
+      appendRows([row]);
+      setError(null);
+      return true;
+    } catch (e) {
+      joinAnnouncedRef.current = false;
+      const msg = e instanceof Error ? e.message : String(e);
+      if (__DEV__) console.warn('[useLiveRoomChat] join announce failed', msg);
+      return false;
+    }
+  }, [appendRows, args.accessToken, args.enabled, args.roomId]);
+
+  const announceShare = useCallback(async (): Promise<boolean> => {
+    if (!args.accessToken) return false;
+    try {
+      const row = await announceLiveRoomViewerEvent({
+        accessToken: args.accessToken,
+        roomId: args.roomId,
+        kind: 'share',
+      });
+      appendRows([row]);
+      setError(null);
+      return true;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (__DEV__) console.warn('[useLiveRoomChat] share announce failed', msg);
+      return false;
+    }
+  }, [appendRows, args.accessToken, args.roomId]);
+
   const send = useCallback(
     async (text: string): Promise<boolean> => {
       const body = text.trim();
@@ -77,7 +143,7 @@ export function useLiveRoomChat(args: {
           body,
           clientMessageId,
         });
-        const next = mapRows([row], args.hostUsername)[0];
+        const next = mapRow(row, args.hostUsername);
         if (next) {
           setMessages((prev) => mergeChatMessages(prev, [next]));
         }
@@ -91,5 +157,5 @@ export function useLiveRoomChat(args: {
     [args.accessToken, args.hostUsername, args.roomId],
   );
 
-  return { messages, send, sending, error, reload };
+  return { messages, send, sending, error, reload, announceJoin, announceShare };
 }

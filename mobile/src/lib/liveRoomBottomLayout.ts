@@ -41,6 +41,6 @@ export function computeChatStackMaxHeight(args: {
   chatBottom: number;
 }): number {
   const available = args.slideHeight - args.topReserve - args.chatBottom - 12;
-  const scaled = Math.floor(available * 0.38);
-  return Math.min(228, Math.max(96, scaled));
+  const scaled = Math.floor(available * 0.42);
+  return Math.min(248, Math.max(108, scaled));
 }

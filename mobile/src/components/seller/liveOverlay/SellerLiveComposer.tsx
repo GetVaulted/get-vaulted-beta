@@ -14,35 +14,17 @@ export function SellerLiveComposer({
   onChangeText,
   onSend,
   sendDisabled,
-  placeholderIndex,
-  onQuickReaction,
-  onEmojiPress,
 }: {
   bottom: number;
   left: number;
   rightEdge: number;
   value: string;
   onChangeText: (t: string) => void;
-  onSend: () => void;
+  onSend: () => void | Promise<void>;
   sendDisabled?: boolean;
-  placeholderIndex: number;
-  onQuickReaction: (emoji: string) => void;
-  onEmojiPress: () => void;
 }) {
   const glow = useRef(new Animated.Value(0)).current;
   const active = value.trim().length > 0;
-
-  const bumpGlow = () => {
-    Animated.sequence([
-      Animated.timing(glow, { toValue: 1, duration: 100, useNativeDriver: true }),
-      Animated.timing(glow, { toValue: active ? 0.65 : 0.2, duration: 280, useNativeDriver: true }),
-    ]).start();
-  };
-
-  const handleReaction = (emoji: string) => {
-    bumpGlow();
-    onQuickReaction(emoji);
-  };
 
   return (
     <Animated.View
@@ -82,9 +64,6 @@ export function SellerLiveComposer({
         }}
         onSend={sendDisabled ? () => undefined : onSend}
         sendDisabled={sendDisabled}
-        placeholderIndex={placeholderIndex}
-        onQuickReaction={handleReaction}
-        onEmojiPress={onEmojiPress}
       />
     </Animated.View>
   );

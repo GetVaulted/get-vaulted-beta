@@ -10,7 +10,6 @@ import {
   CHAT_ZONE_GAP,
   COMPOSER_BAR_H,
   FloatingLiveChat,
-  useComposerPlaceholderCycle,
 } from '../../live/floatingLiveChat';
 import { SellerLiveComposer } from './SellerLiveComposer';
 import { SellerLiveGestureLayer } from './SellerLiveGestureLayer';
@@ -102,8 +101,6 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   const chatBottom = composerBottom + COMPOSER_BAR_H + CHAT_ZONE_GAP;
   const railBottom = commerceBottom + SELLER_PINNED_OVERLAY_HEIGHT + spacing.sm;
 
-  const composerPlaceholderIdx = useComposerPlaceholderCycle(true, chatDraft);
-
   const chatPool = console.chatMessages;
 
   const onGoLive = () => {
@@ -165,17 +162,15 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         onCamera={() => setBroadcastOpen(true)}
       />
 
-      {chatPool.length > 0 ? (
-        <FloatingLiveChat
-          pool={chatPool}
-          hostAvatarUrl={hostAvatarUrl}
-          bottom={chatBottom}
-          left={spacing.lg}
-          rightEdge={CHAT_RIGHT_EDGE}
-          isActive
-          streamKey={roomId}
-        />
-      ) : null}
+      <FloatingLiveChat
+        pool={chatPool}
+        hostAvatarUrl={hostAvatarUrl}
+        bottom={chatBottom}
+        left={spacing.lg}
+        rightEdge={CHAT_RIGHT_EDGE}
+        isActive
+        streamKey={roomId}
+      />
 
       <SellerLiveComposer
         bottom={composerBottom}
@@ -188,9 +183,6 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
           setChatDraft('');
         }}
         sendDisabled
-        placeholderIndex={composerPlaceholderIdx}
-        onQuickReaction={(e) => setChatDraft((d) => (d.trim() ? `${d.trim()} ${e}` : e))}
-        onEmojiPress={() => setChatDraft((d) => (d.trim() ? `${d.trim()} 😊` : '😊'))}
       />
 
       <SellerLivePinnedOverlay

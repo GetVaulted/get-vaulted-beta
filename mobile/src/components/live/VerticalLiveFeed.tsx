@@ -21,7 +21,7 @@ import {
 import PagerView from 'react-native-pager-view';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radii, spacing } from '../../theme';
-import type { ChatMessage, LiveStream } from '../../types';
+import type { LiveStream } from '../../types';
 import type { LiveStackParamList, MainTabParamList } from '../../navigation/types';
 import { rootNavigationRef } from '../../navigation/rootNavigationRef';
 import { LiveBadge } from '../ui/LiveBadge';
@@ -36,14 +36,13 @@ import { useLiveRoomChat } from '../../hooks/useLiveRoomChat';
 import {
   FloatingChatComposer,
   FloatingLiveChat,
-  useComposerPlaceholderCycle,
 } from './floatingLiveChat';
 import { LivePinnedActionBar } from './LivePinnedActionBar';
 import { LiveEmptyBroadcastBlock } from './LiveEmptyBroadcastBlock';
 
 const { height: WINDOW_HEIGHT } = Dimensions.get('window');
 
-const CHAT_RIGHT_EDGE = 88;
+const CHAT_RIGHT_EDGE = 92;
 
 type Props = {
   streams: LiveStream[];
@@ -127,7 +126,6 @@ function LiveSlide({
   const [chatDraft, setChatDraft] = useState('');
   const [commerceHeight, setCommerceHeight] = useState(DEFAULT_COMMERCE_OVERLAY_HEIGHT);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
-  const composerPlaceholderIdx = useComposerPlaceholderCycle(isActive, chatDraft);
 
   const hostHandle = stream.host.handle.replace(/^@/, '') || stream.host.name;
   const liveChat = useLiveRoomChat({
@@ -152,6 +150,11 @@ function LiveSlide({
     };
   }, [insets.bottom]);
 
+  useEffect(() => {
+    if (!isActive || !signedIn || !accessToken) return;
+    void liveChat.announceJoin();
+  }, [isActive, signedIn, accessToken, liveChat.announceJoin]);
+
   const chatPool = liveChat.messages;
 
   const dockPaddingBottom = Math.max(bottomReserve, insets.bottom + spacing.sm);
@@ -166,29 +169,20 @@ function LiveSlide({
     chatBottom: bottomStack.chatBottom,
   });
 
-  const sendFloatingChat = useCallback(() => {
+  const sendFloatingChat = useCallback(async () => {
     if (!signedIn) {
       onRequireAuth?.();
       return;
     }
     const t = chatDraft.trim();
     if (!t || liveChat.sending) return;
-    void liveChat
-      .send(t)
-      .then((ok) => {
-        if (ok) setChatDraft('');
-      })
-      .catch((e) => {
-        if (__DEV__) console.warn('[liveRoom chat] send failed', e instanceof Error ? e.message : e);
-      });
+    try {
+      const ok = await liveChat.send(t);
+      if (ok) setChatDraft('');
+    } catch (e) {
+      if (__DEV__) console.warn('[liveRoom chat] send failed', e instanceof Error ? e.message : e);
+    }
   }, [signedIn, onRequireAuth, chatDraft, liveChat.sending, liveChat.send]);
-
-  const appendComposer = (emoji: string) => {
-    setChatDraft((d) => {
-      const cur = d.trim();
-      return cur ? `${cur} ${emoji}` : emoji;
-    });
-  };
 
   const openMarketplace = () => tabNav?.navigate('Marketplace');
 
@@ -201,6 +195,9 @@ function LiveSlide({
       await Share.share({
         message: `Watch “${stream.title}” with ${stream.host.name} on Get Vaulted`,
       });
+      if (signedIn && accessToken) {
+        void liveChat.announceShare();
+      }
     } catch {
       /* cancelled */
     }
@@ -403,19 +400,16 @@ function LiveSlide({
         </Pressable>
       </View>
 
-      {/* Floating chat — ambient; transparent */}
-      {chatPool.length > 0 ? (
-        <FloatingLiveChat
-          pool={chatPool}
-          hostAvatarUrl={stream.host.avatarUrl}
-          bottom={bottomStack.chatBottom}
-          left={spacing.lg}
-          rightEdge={CHAT_RIGHT_EDGE}
-          maxHeight={chatMaxHeight}
-          isActive={isActive}
-          streamKey={stream.id}
-        />
-      ) : null}
+      <FloatingLiveChat
+        pool={chatPool}
+        hostAvatarUrl={stream.host.avatarUrl}
+        bottom={bottomStack.chatBottom}
+        left={spacing.lg}
+        rightEdge={CHAT_RIGHT_EDGE}
+        maxHeight={chatMaxHeight}
+        isActive={isActive}
+        streamKey={stream.id}
+      />
 
       <FloatingChatComposer
         bottom={bottomStack.composerBottom}
@@ -425,9 +419,6 @@ function LiveSlide({
         onChangeText={setChatDraft}
         onSend={sendFloatingChat}
         sendDisabled={liveChat.sending}
-        placeholderIndex={composerPlaceholderIdx}
-        onQuickReaction={appendComposer}
-        onEmojiPress={() => appendComposer('😊')}
       />
 
       <View

@@ -46,6 +46,6 @@ describe('computeChatStackMaxHeight', () => {
     });
     expect(small).toBeGreaterThanOrEqual(96);
     expect(small).toBeLessThan(large);
-    expect(large).toBeLessThanOrEqual(228);
+    expect(large).toBeLessThanOrEqual(248);
   });
 });

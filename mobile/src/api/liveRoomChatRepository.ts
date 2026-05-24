@@ -1,9 +1,12 @@
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 
+export type LiveRoomChatMessageType = 'chat' | 'bid' | 'purchase' | 'system';
+
 export type LiveRoomChatMessageRow = {
   id: string;
   senderUsername: string;
   body: string;
+  messageType?: LiveRoomChatMessageType;
   createdAt: string;
 };
 
@@ -58,5 +61,34 @@ export async function sendLiveRoomChatMessage(args: {
   }
   if (!res.ok) throw new Error(apiErrorMessage(res, j));
   if (!j.message?.id) throw new Error('Server did not return a chat message.');
+  return j.message;
+}
+
+export type ViewerEventKind = 'join' | 'share';
+
+export async function announceLiveRoomViewerEvent(args: {
+  accessToken: string;
+  roomId: string;
+  kind: ViewerEventKind;
+}): Promise<LiveRoomChatMessageRow> {
+  const base = getWebApiBaseUrl();
+  if (!base) throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
+  const res = await fetch(`${base}/api/live-rooms/${encodeURIComponent(args.roomId)}/viewer-event`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${args.accessToken}`,
+    },
+    body: JSON.stringify({ kind: args.kind }),
+  });
+  let j: { message?: LiveRoomChatMessageRow; error?: string } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+  if (!j.message?.id) throw new Error('Server did not return a viewer event.');
   return j.message;
 }

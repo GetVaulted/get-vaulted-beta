@@ -25,11 +25,14 @@ export type Host = {
   followers: string;
 };
 
+export type ChatMessageKind = 'chat' | 'system' | 'purchase' | 'bid';
+
 export type ChatMessage = {
   id: string;
   user: string;
   text: string;
   isHost?: boolean;
+  messageType?: ChatMessageKind;
 };
 
 export type Bid = {
