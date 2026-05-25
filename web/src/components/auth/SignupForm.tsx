@@ -2,9 +2,16 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { signIn } from "next-auth/react";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { isClientDevVerificationUiAllowed } from "@/lib/dev-verification-assist";
 import { safeReturnTo } from "@/lib/safe-return-to";
+import {
+  clearSignupPendingStorage,
+  signupPendingStorageKeys,
+  signupRequiresOtpVerification,
+  type RegisterSuccessPayload,
+} from "@/lib/signup-register-routing";
 import type { UsernameRejectReason } from "@/lib/username-policy";
 import { normalizeUsernameForStorage } from "@/lib/username-policy";
 
@@ -340,14 +347,10 @@ export function SignupForm() {
           password,
         }),
       });
-      const data = (await res.json().catch(() => ({}))) as {
+      const data = (await res.json().catch(() => ({}))) as RegisterSuccessPayload & {
         error?: string;
         code?: string;
-        ok?: boolean;
-        _localDevVerificationCode?: string;
         debugMessage?: string;
-        verificationMethod?: "supabase_link" | "immediate";
-        needsEmailConfirmation?: boolean;
       };
       devSignupLog("register response", { status: res.status, code: data.code, error: data.error });
       if (!res.ok) {
@@ -356,30 +359,49 @@ export function SignupForm() {
       }
 
       const normalizedEmail = email.trim().toLowerCase();
-      if (data.verificationMethod === "supabase_link") {
+      const dest = safeReturnTo(returnTo);
+
+      if (!signupRequiresOtpVerification(data)) {
+        clearSignupPendingStorage();
+
+        const isImmediate =
+          data.verificationMethod === "immediate" || data.needsEmailConfirmation === false;
+
+        if (isImmediate) {
+          const signInRes = await signIn("credentials", {
+            email: normalizedEmail,
+            password,
+            redirect: false,
+          });
+          if (signInRes?.ok) {
+            router.replace(dest);
+            router.refresh();
+            return;
+          }
+          router.push(
+            `/signin?email=${encodeURIComponent(normalizedEmail)}&registered=1${returnTo !== "/marketplace" ? `&returnTo=${encodeURIComponent(returnTo)}` : ""}`,
+          );
+          router.refresh();
+          return;
+        }
+
         router.push(
-          `/signin?email=${encodeURIComponent(normalizedEmail)}&confirm=1${returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ""}`,
-        );
-        router.refresh();
-        return;
-      }
-      if (data.verificationMethod === "immediate") {
-        router.push(
-          `/signin?email=${encodeURIComponent(normalizedEmail)}&registered=1${returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ""}`,
+          `/signin?email=${encodeURIComponent(normalizedEmail)}&confirm=1${returnTo !== "/marketplace" ? `&returnTo=${encodeURIComponent(returnTo)}` : ""}`,
         );
         router.refresh();
         return;
       }
 
+      const { pending, devCode } = signupPendingStorageKeys();
       try {
         sessionStorage.setItem(
-          "gv_signup_pending",
+          pending,
           JSON.stringify({ v: 1 as const, email: normalizedEmail, password, returnTo }),
         );
         if (isClientDevVerificationUiAllowed() && data._localDevVerificationCode) {
-          sessionStorage.setItem("gv_dev_last_code", data._localDevVerificationCode);
+          sessionStorage.setItem(devCode, data._localDevVerificationCode);
         } else {
-          sessionStorage.removeItem("gv_dev_last_code");
+          sessionStorage.removeItem(devCode);
         }
       } catch {
         setError("Could not continue sign-up in this browser (storage blocked). Allow storage and try again.");

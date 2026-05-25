@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { useCallback, useEffect, useState } from "react";
 import { isClientDevVerificationUiAllowed } from "@/lib/dev-verification-assist";
+import { clearSignupPendingStorage } from "@/lib/signup-register-routing";
 import { safeReturnTo } from "@/lib/safe-return-to";
 
 const PENDING_KEY = "gv_signup_pending";
@@ -39,20 +40,38 @@ export function VerifyEmailForm() {
 
   useEffect(() => {
     queueMicrotask(() => {
-      const pending = parsePending(typeof window !== "undefined" ? sessionStorage.getItem(PENDING_KEY) : null);
-      if (!pending) {
-        setBootError("missing");
-        return;
-      }
-      setEmail(pending.email);
-      setPassword(pending.password);
-      setReturnTo(safeReturnTo(pending.returnTo));
-      const hint = sessionStorage.getItem(DEV_CODE_KEY);
-      if (hint && isClientDevVerificationUiAllowed()) {
-        setDevHint(hint);
-      }
+      void (async () => {
+        const pending = parsePending(typeof window !== "undefined" ? sessionStorage.getItem(PENDING_KEY) : null);
+
+        try {
+          const cfg = (await fetch("/api/auth/config", { cache: "no-store" }).then((r) => r.json())) as {
+            webSignupVerificationMethod?: string;
+          };
+          if (cfg.webSignupVerificationMethod && cfg.webSignupVerificationMethod !== "resend_code") {
+            clearSignupPendingStorage();
+            const emailParam = pending?.email ? `&email=${encodeURIComponent(pending.email)}` : "";
+            const rt = pending?.returnTo ? `&returnTo=${encodeURIComponent(safeReturnTo(pending.returnTo))}` : "";
+            router.replace(`/signin?registered=1${emailParam}${rt}`);
+            return;
+          }
+        } catch {
+          /* fall through */
+        }
+
+        if (!pending) {
+          setBootError("missing");
+          return;
+        }
+        setEmail(pending.email);
+        setPassword(pending.password);
+        setReturnTo(safeReturnTo(pending.returnTo));
+        const hint = sessionStorage.getItem(DEV_CODE_KEY);
+        if (hint && isClientDevVerificationUiAllowed()) {
+          setDevHint(hint);
+        }
+      })();
     });
-  }, []);
+  }, [router]);
 
   const clearPending = useCallback(() => {
     try {

@@ -172,7 +172,11 @@ export async function POST(req: Request) {
           { status: 503 },
         );
       }
-      return NextResponse.json({ ok: true as const });
+      return NextResponse.json({
+        ok: true as const,
+        verificationMethod: "resend_code" as const,
+        needsEmailConfirmation: true,
+      });
     }
 
     if (isApiDevVerificationAssistAllowed()) {
