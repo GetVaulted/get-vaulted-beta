@@ -16,6 +16,7 @@ export type SellerAccountPayload = {
 };
 
 export type SellerAccountResponse = {
+  setupWizardComplete?: boolean;
   seller: SellerAccountPayload;
   stripePlatformConfigured?: boolean;
   readiness?: SellerLiveReadiness;
@@ -71,6 +72,44 @@ export async function patchSellerShipFrom(
     body: JSON.stringify(body),
   });
   let j: { error?: string; message?: string; readiness?: SellerLiveReadiness; seller?: SellerAccountPayload } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) {
+    throw new Error(typeof j.error === 'string' && j.error.trim() ? j.error.trim() : `Request failed (${res.status})`);
+  }
+  return j;
+}
+
+export async function patchSellerProfile(
+  accessToken: string,
+  body: { name?: string; image?: string },
+): Promise<{ user?: { name: string | null; image: string | null; username: string } }> {
+  const res = await accountFetch('/api/account/profile', accessToken, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+  let j: { error?: string; user?: { name: string | null; image: string | null; username: string } } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) {
+    throw new Error(typeof j.error === 'string' && j.error.trim() ? j.error.trim() : `Request failed (${res.status})`);
+  }
+  return j;
+}
+
+export async function markSellerSetupWizardCompleteOnServer(
+  accessToken: string,
+): Promise<{ setupWizardComplete?: boolean }> {
+  const res = await accountFetch('/api/account/seller/wizard-complete', accessToken, {
+    method: 'POST',
+  });
+  let j: { error?: string; setupWizardComplete?: boolean } = {};
   try {
     j = (await res.json()) as typeof j;
   } catch {

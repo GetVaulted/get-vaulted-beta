@@ -10,7 +10,7 @@ export function hasStartedSellerSetup(status: SellerConnectStatusResponse | null
   return status.onboarding_ui_status !== 'not_started';
 }
 
-/** Seller can use HQ tools (listings, live, payouts in progress or complete). */
+/** @deprecated Stripe-only readiness; prefer useSellerSetupState().activated for HQ gating. */
 export function isSellerHQApproved(status: SellerConnectStatusResponse | null | undefined): boolean {
   if (!status) return false;
   if (isSellerPayoutSetupComplete(status)) return true;

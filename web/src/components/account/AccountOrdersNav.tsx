@@ -1,15 +1,19 @@
+"use client";
+
 import Link from "next/link";
+import { useSession } from "next-auth/react";
+import { useSellerSetupState } from "@/hooks/useSellerSetupState";
 
 const links = [
-  { href: "/account/orders", label: "Orders", key: "orders" as const },
-  { href: "/account/payment-methods", label: "Wallet", key: "payments" as const },
-  { href: "/account/sales", label: "Sales", key: "sales" as const },
-  { href: "/account/seller", label: "Seller HQ", key: "seller" as const },
-  { href: "/account/offers", label: "Offers", key: "offers" as const },
-  { href: "/account/messages", label: "Messages", key: "messages" as const },
-  { href: "/account/notifications", label: "Notifications", key: "notifications" as const },
-  { href: "/account/watchlist", label: "Watchlist", key: "watchlist" as const },
-  { href: "/account/listings", label: "Listings", key: "listings" as const },
+  { href: "/account/orders", label: "Orders", key: "orders" as const, sellerOnly: false },
+  { href: "/account/payment-methods", label: "Wallet", key: "payments" as const, sellerOnly: false },
+  { href: "/account/sales", label: "Sales", key: "sales" as const, sellerOnly: true },
+  { href: "/account/seller", label: "Seller HQ", key: "seller" as const, sellerOnly: true },
+  { href: "/account/offers", label: "Offers", key: "offers" as const, sellerOnly: true },
+  { href: "/account/messages", label: "Messages", key: "messages" as const, sellerOnly: false },
+  { href: "/account/notifications", label: "Notifications", key: "notifications" as const, sellerOnly: false },
+  { href: "/account/watchlist", label: "Watchlist", key: "watchlist" as const, sellerOnly: false },
+  { href: "/account/listings", label: "Listings", key: "listings" as const, sellerOnly: true },
 ];
 
 export function AccountOrdersNav({
@@ -26,9 +30,13 @@ export function AccountOrdersNav({
     | "watchlist"
     | "listings";
 }) {
+  const { status } = useSession();
+  const { phase } = useSellerSetupState(status === "authenticated");
+  const visibleLinks = links.filter((link) => !link.sellerOnly || phase === "ready");
+
   return (
     <nav className="flex flex-wrap gap-1.5 border-b border-white/[0.07] pb-3" aria-label="Account">
-      {links.map(({ href, label, key }) => {
+      {visibleLinks.map(({ href, label, key }) => {
         const sel = key === active;
         return (
           <Link

@@ -202,6 +202,8 @@ model User {
   shipFromState   String?
   shipFromZip     String?
   shipFromCountry String?
+  /// Set when seller finishes the onboarding wizard (step 5); syncs web + mobile activation.
+  sellerSetupWizardCompletedAt DateTime?
   defaultShipFromAddressId String?
   defaultShipFromAddress   Address? @relation("UserDefaultShipFromAddress", fields: [defaultShipFromAddressId], references: [id], onDelete: SetNull)
   /// Trustap external user id (`1-…`) when this user participates in escrow as seller (or linked buyer).

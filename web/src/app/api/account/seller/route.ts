@@ -5,6 +5,7 @@ import { loadAccountSellerPayload } from "@/lib/load-account-seller-payload";
 import { serializePrismaClientError } from "@/lib/prisma-client-error-serialize";
 import { isQaSessionDebugAllowed } from "@/lib/qa-session-debug-allowed";
 import { prisma } from "@/lib/prisma";
+import { SELLER_SHIP_FROM_COUNTRY } from "@/lib/seller-shipping-readiness";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
 import { processAuctionPaymentExpiries } from "@/services/payments";
 
@@ -74,10 +75,18 @@ export async function PATCH(req: Request) {
   const shipFromCity = trim(body.shipFromCity, 120) ?? "";
   const shipFromState = trim(body.shipFromState, 120) ?? "";
   const shipFromZip = trim(body.shipFromZip, 32) ?? "";
-  const shipFromCountry = trim(body.shipFromCountry, 120) ?? "";
+  const shipFromCountryRaw = trim(body.shipFromCountry, 120) ?? "";
+  const shipFromCountry = shipFromCountryRaw || SELLER_SHIP_FROM_COUNTRY;
 
-  if (!shipFromStreet || !shipFromCity || !shipFromState || !shipFromZip || !shipFromCountry) {
+  if (!shipFromStreet || !shipFromCity || !shipFromState || !shipFromZip) {
     return NextResponse.json({ error: "Please complete your address." }, { status: 400 });
+  }
+
+  if (shipFromCountry.toUpperCase() !== SELLER_SHIP_FROM_COUNTRY) {
+    return NextResponse.json(
+      { error: "Only US ship-from addresses are supported during launch." },
+      { status: 400 },
+    );
   }
 
   const baseUser = await prisma.user.findUnique({

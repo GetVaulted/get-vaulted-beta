@@ -1,5 +1,5 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthContext';
 import { SettingsSectionHeader } from '../../components/settings/SettingsSectionHeader';
@@ -7,8 +7,6 @@ import { SettingsRow } from '../../components/platform/SettingsRow';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { useNotificationBadge } from '../../hooks/useNotificationBadge';
 import { useSellerSetupState } from '../../hooks/useSellerSetupState';
-import { areDevToolsEnabled } from '../../lib/devTools';
-import { performSignOut } from '../../lib/signOutSession';
 import { sellerSetupMenuLabel } from '../../lib/seller-setup-state';
 import {
   openContactSupport,
@@ -22,20 +20,23 @@ import { openSellerSetup } from '../../navigation/openSellerSetup';
 import type { RootStackParamList } from '../../navigation/types';
 import { spacing } from '../../theme';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Settings'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'AccountHub'>;
 
-export function SettingsScreen({ navigation }: Props) {
+export function AccountHubScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { signOut, user, session } = useAuth();
+  const { user, session } = useAuth();
   const { count: notificationCount } = useNotificationBadge(user?.id);
   const setup = useSellerSetupState(session?.access_token, Boolean(user?.id));
   const activated = setup.activated;
-  const setupPhase = setup.phase === 'loading' ? 'not_started' : setup.phase;
-  const setupLabel = sellerSetupMenuLabel(setupPhase);
+  const setupLabel = sellerSetupMenuLabel(setup.phase === 'loading' ? 'not_started' : setup.phase);
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
-      <PlatformFlowHeader title="Account" subtitle="Profile, selling, and activity" onBack={() => navigation.goBack()} />
+      <PlatformFlowHeader
+        title="My Account"
+        subtitle="Purchases, wallet, messages, and seller tools"
+        onBack={() => navigation.goBack()}
+      />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <SettingsSectionHeader title="Account" />
         <SettingsRow
@@ -43,12 +44,6 @@ export function SettingsScreen({ navigation }: Props) {
           sub="Your public storefront"
           icon="person-outline"
           onPress={() => user?.id && openUserProfile(user.id, navigation)}
-        />
-        <SettingsRow
-          label="My Account"
-          sub="Purchases, wallet, messages, seller tools"
-          icon="grid-outline"
-          onPress={() => navigation.navigate('AccountHub')}
         />
 
         <SettingsSectionHeader title="Selling" />
@@ -135,8 +130,8 @@ export function SettingsScreen({ navigation }: Props) {
 
         <SettingsSectionHeader title="Settings" />
         <SettingsRow
-          label="Settings"
-          sub="Email, password, account deletion"
+          label="Account settings"
+          sub="Email, password, deletion"
           icon="settings-outline"
           onPress={() => navigation.navigate('SettingsAccount')}
         />
@@ -145,29 +140,6 @@ export function SettingsScreen({ navigation }: Props) {
           sub="Help center and contact"
           icon="help-circle-outline"
           onPress={() => openHelpCenter(navigation)}
-        />
-        <SettingsRow
-          label="Contact Support"
-          sub="Open a support ticket"
-          icon="chatbox-ellipses-outline"
-          onPress={() => openContactSupport(undefined, navigation)}
-        />
-        {(areDevToolsEnabled() || __DEV__) ? (
-          <SettingsRow
-            label="QA environment"
-            sub="API ref, session, discovery source, hard reset"
-            icon="pulse-outline"
-            onPress={() => navigation.navigate('QaEnvironmentDiagnostics')}
-          />
-        ) : null}
-        <SettingsRow
-          label="Sign out"
-          icon="log-out-outline"
-          destructive
-          onPress={() => {
-            void performSignOut(signOut);
-          }}
-          chevron={false}
         />
       </ScrollView>
     </View>

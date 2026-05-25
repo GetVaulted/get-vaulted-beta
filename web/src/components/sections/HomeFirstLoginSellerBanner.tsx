@@ -3,20 +3,20 @@
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
-import { useNavSellerStatus } from "@/hooks/useNavSellerStatus";
+import { useSellerSetupState } from "@/hooks/useSellerSetupState";
 
 const DISMISS_KEY = "gv-home-seller-banner-dismissed";
 
 export function HomeFirstLoginSellerBanner() {
   const { status } = useSession();
-  const sellerStatus = useNavSellerStatus(status === "authenticated");
+  const { phase: setupPhase } = useSellerSetupState(status === "authenticated");
   const [dismissed, setDismissed] = useState(true);
 
   useEffect(() => {
     setDismissed(window.localStorage.getItem(DISMISS_KEY) === "1");
   }, []);
 
-  if (status !== "authenticated" || sellerStatus !== "not_onboarded" || dismissed) {
+  if (status !== "authenticated" || setupPhase === "ready" || setupPhase === "loading" || dismissed) {
     return null;
   }
 
@@ -40,7 +40,7 @@ export function HomeFirstLoginSellerBanner() {
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           <Link
-            href="/account/seller"
+            href="/account/seller/setup"
             className="inline-flex h-10 items-center justify-center rounded-full bg-gradient-to-r from-gold to-gold-bright px-5 text-sm font-bold text-zinc-950 shadow-[0_0_24px_-6px_rgba(201,162,39,0.55)] transition hover:brightness-110"
           >
             Start Seller Setup

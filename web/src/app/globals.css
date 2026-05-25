@@ -339,3 +339,7 @@ body {
   border-radius: 999px;
   border: 1px solid #000000;
 }
+
+body.seller-onboarding footer {
+  display: none;
+}

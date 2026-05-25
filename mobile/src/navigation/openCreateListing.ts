@@ -1,7 +1,11 @@
 import { Alert } from 'react-native';
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
+import { fetchSellerAccount } from '../api/sellerAccountRepository';
 import type { ListingChannel } from '../createListing/listingChannel';
+import { isSellerActivated, normalizeSellerReadinessChecks } from '../lib/seller-setup-state';
+import { readSellerWizardComplete } from '../lib/sellerWizardStorage';
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase';
+import { openSellerSetup } from './openSellerSetup';
 import { navigateAuthLogin } from './rootNavigationRef';
 
 export type OpenCreateListingOptions = {
@@ -29,6 +33,28 @@ export async function openCreateListing(
     navigateAuthLogin();
     return;
   }
+
+  const wizardDone = await readSellerWizardComplete();
+  try {
+    const payload = await fetchSellerAccount(data.session.access_token);
+    const checks = normalizeSellerReadinessChecks(payload.readiness?.checks as Record<string, boolean> | undefined);
+    const serverWizard = payload.setupWizardComplete === true;
+    if (!isSellerActivated(checks, serverWizard || wizardDone)) {
+      Alert.alert(
+        'Seller setup required',
+        'Complete seller setup to create listings and unlock Seller HQ.',
+        [
+          { text: 'Continue setup', onPress: () => openSellerSetup() },
+          { text: 'Cancel', style: 'cancel' },
+        ],
+      );
+      return;
+    }
+  } catch {
+    Alert.alert('Seller setup', 'We could not verify your seller status. Try again from Seller HQ.');
+    return;
+  }
+
   const tabNav = navigation.getParent();
   const root = tabNav?.getParent?.() ?? tabNav;
   if (!root || !('navigate' in root)) return;

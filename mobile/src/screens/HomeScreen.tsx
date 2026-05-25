@@ -48,9 +48,7 @@ import { isSupabaseConfigured } from '../lib/supabase';
 import type { MainTabParamList, RootStackParamList } from '../navigation/types';
 import { alertGuestLiveRestricted } from '../navigation/guestExploreGuards';
 import { useAuth } from '../auth/AuthContext';
-import { useSellerStripeConnect } from '../hooks/useSellerStripeConnect';
-import { isSellerHQApproved } from '../lib/sellerHubEntry';
-import type { SellerHQEntryPhase } from '../lib/sellerHubEntry';
+import { useSellerSetupState } from '../hooks/useSellerSetupState';
 import { openMessagesInbox } from '../navigation/openMessages';
 import { NotificationBadge } from '../components/platform/NotificationBadge';
 import { useNotificationBadge } from '../hooks/useNotificationBadge';
@@ -59,6 +57,7 @@ import { confirmAndSignOut } from '../lib/signOutSession';
 import { countActiveBuyerOrders } from '../api/ordersRepository';
 import { openSellerHostRoom } from '../navigation/openSellerHostRoom';
 import { openSellerHQ } from '../navigation/openSellerHQ';
+import { openSellerSetup } from '../navigation/openSellerSetup';
 import { navigateAuthSignUp } from '../navigation/rootNavigationRef';
 import { colors, radii, spacing } from '../theme';
 import type { HotClip, LiveStream, Product, ScheduledStream } from '../types';
@@ -83,7 +82,7 @@ export function HomeScreen() {
   const navigation = useNavigation<Nav>();
   const { user, guestExploreMode, session, signOut } = useAuth();
   const { count: notificationCount } = useNotificationBadge(user?.id);
-  const sellerConnect = useSellerStripeConnect(session?.access_token);
+  const sellerSetup = useSellerSetupState(session?.access_token, Boolean(user?.id));
 
   const seed = useMemo(() => initialFeedState(), []);
   const [initialLoad, setInitialLoad] = useState(!seed.hasCache);
@@ -95,7 +94,7 @@ export function HomeScreen() {
   const [sellerNextRoom, setSellerNextRoom] = useState<LiveRoomApiRow | null>(null);
   const [activeBuyerOrders, setActiveBuyerOrders] = useState(0);
 
-  const sellerApproved = isSellerHQApproved(sellerConnect.status);
+  const sellerActivated = sellerSetup.activated;
 
   useEffect(() => {
     if (!user?.id) {
@@ -124,7 +123,7 @@ export function HomeScreen() {
 
     try {
       const sellerFetch =
-        sellerApproved && session?.access_token
+        sellerActivated && session?.access_token
           ? fetchMyLiveRooms(session.access_token).catch(() => [] as LiveRoomApiRow[])
           : Promise.resolve([] as LiveRoomApiRow[]);
 
@@ -182,7 +181,7 @@ export function HomeScreen() {
       setInitialLoad(false);
       setRefreshing(false);
     }
-  }, [sellerApproved, session?.access_token]);
+  }, [sellerActivated, session?.access_token]);
 
   useEffect(() => {
     let cancelled = false;
@@ -225,12 +224,12 @@ export function HomeScreen() {
     navigation.navigate('Live', { screen: 'LiveDiscovery' });
   };
 
-  const onSellerOnboarding = (phase: SellerHQEntryPhase) => {
-    if (phase === 'guest') {
+  const onSellerOnboarding = () => {
+    if (!user) {
       navigateAuthSignUp();
       return;
     }
-    openSellerHQ(navigation, { tab: 'overview' });
+    openSellerSetup();
   };
 
   const openLiveShow = (streamId: string) => {
@@ -340,11 +339,11 @@ export function HomeScreen() {
 
         <HomeSellerOnboardingStrip
           hasUser={Boolean(user)}
-          connect={sellerConnect.status}
+          phase={sellerSetup.phase}
           onPress={onSellerOnboarding}
         />
 
-        {sellerApproved ? (
+        {sellerActivated ? (
           <HomeSellerEventBanner
             event={sellerEventForBanner}
             onOpenCommandCenter={() => {

@@ -34,7 +34,7 @@ export function HomeStartSellingSection() {
             </ul>
             <div className="mt-7 flex flex-wrap gap-3">
               <Link
-                href="/account/seller"
+                href="/account/seller/setup"
                 className="inline-flex h-11 items-center justify-center rounded-full bg-gradient-to-r from-gold to-gold-bright px-6 text-sm font-bold text-zinc-950 shadow-[0_0_28px_-6px_rgba(201,162,39,0.55)] transition hover:brightness-110"
               >
                 Start Seller Setup

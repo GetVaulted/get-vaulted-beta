@@ -1,34 +1,31 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import type { SellerConnectStatusResponse } from '../../api/stripeConnectRepository';
 import {
-  resolveSellerHQEntryPhase,
-  sellerHQEntryCopy,
-  type SellerHQEntryPhase,
-} from '../../lib/sellerHubEntry';
+  sellerSetupStripCopy,
+  type SellerSetupPhase,
+} from '../../lib/seller-setup-state';
 import { colors, radii, spacing } from '../../theme';
 
 /**
- * Compact seller onboarding only — never shows "Command Center" on Home.
- * Approved sellers use Seller HQ tab; no permanent ops tile on the feed.
+ * Compact seller onboarding only — never shows Seller HQ ops on Home.
+ * Activated sellers use the HQ tab; no permanent ops tile on the feed.
  */
 export function HomeSellerOnboardingStrip({
   hasUser,
-  connect,
+  phase,
   onPress,
 }: {
   hasUser: boolean;
-  connect: SellerConnectStatusResponse | null;
-  onPress: (phase: SellerHQEntryPhase) => void;
+  phase: SellerSetupPhase;
+  onPress: () => void;
 }) {
-  const phase = resolveSellerHQEntryPhase({ hasUser, connect });
-  if (phase === 'ready') return null;
+  if (!hasUser || phase === 'loading' || phase === 'ready') return null;
 
-  const copy = sellerHQEntryCopy(phase);
+  const copy = sellerSetupStripCopy(phase);
 
   return (
     <Pressable
-      onPress={() => onPress(phase)}
+      onPress={onPress}
       style={({ pressed }) => [styles.shell, pressed && styles.pressed]}
       accessibilityRole="button"
       accessibilityLabel={copy.cta}

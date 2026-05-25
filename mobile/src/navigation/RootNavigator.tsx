@@ -80,6 +80,14 @@ const SellerListingManagementScreen = lazyScreen(
   () => import('../screens/seller/SellerListingManagementScreen'),
   (m) => m.SellerListingManagementScreen,
 );
+const SellerSetupWizardScreen = lazyScreen(
+  () => import('../screens/sellerSetup/SellerSetupWizardScreen'),
+  (m) => m.SellerSetupWizardScreen,
+);
+const AccountHubScreen = lazyScreen(
+  () => import('../screens/settings/AccountHubScreen'),
+  (m) => m.AccountHubScreen,
+);
 
 const theme = {
   ...DarkTheme,
@@ -164,6 +172,15 @@ export function RootNavigator() {
             }}
           />
           <Stack.Screen name="Settings" component={SettingsScreen} />
+          <Stack.Screen name="AccountHub" component={AccountHubScreen} />
+          <Stack.Screen
+            name="SellerSetupWizard"
+            component={SellerSetupWizardScreen}
+            options={{
+              presentation: 'fullScreenModal',
+              animation: 'slide_from_bottom',
+            }}
+          />
           <Stack.Screen name="QaEnvironmentDiagnostics" component={QaEnvironmentDiagnosticsScreen} />
           <Stack.Screen name="SettingsAccount" component={SettingsAccountScreen} />
           <Stack.Screen name="ChangeEmail" component={ChangeEmailScreen} />

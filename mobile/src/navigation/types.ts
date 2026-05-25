@@ -55,6 +55,8 @@ export type RootStackParamList = {
   };
   CreateListingFlow: NavigatorScreenParams<CreateListingStackParamList> | undefined;
   Settings: undefined;
+  AccountHub: undefined;
+  SellerSetupWizard: undefined;
   QaEnvironmentDiagnostics: undefined;
   SettingsAccount: undefined;
   ChangeEmail: undefined;

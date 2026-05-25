@@ -1,0 +1,661 @@
+import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { patchSellerProfile, patchSellerShipFrom } from '../../api/sellerAccountRepository';
+import { uploadMyAvatar } from '../../api/profilesRepository';
+import { useAuth } from '../../auth/AuthContext';
+import { useSellerSetupState } from '../../hooks/useSellerSetupState';
+import { isPayoutSetupComplete } from '../../lib/seller-setup-state';
+import {
+  resolveSellerWizardStep,
+  SELLER_WIZARD_TOTAL_STEPS,
+  WIZARD_STEP_LABELS,
+  type SellerWizardStep,
+} from '../../lib/seller-setup-wizard';
+import {
+  clearSellerWizardComplete,
+  markSellerWizardCompleteLocal,
+  readSellerWizardComplete,
+} from '../../lib/sellerWizardStorage';
+import { markSellerSetupWizardCompleteOnServer } from '../../api/sellerAccountRepository';
+import {
+  SELLER_SHIP_FROM_COUNTRY,
+  SELLER_SHIP_FROM_COUNTRY_LABEL,
+} from '../../lib/seller-shipping-readiness';
+import { openStripeConnectOnboarding, refreshSellerConnectAfterOnboarding } from '../../lib/openStripeConnectOnboarding';
+import { useSellerStripeConnect } from '../../hooks/useSellerStripeConnect';
+import { openSellerHQ } from '../../navigation/openSellerHQ';
+import type { RootStackParamList } from '../../navigation/types';
+import { colors, radii, spacing, typography } from '../../theme';
+
+type Props = NativeStackScreenProps<RootStackParamList, 'SellerSetupWizard'>;
+
+export function SellerSetupWizardScreen({ navigation }: Props) {
+  const insets = useSafeAreaInsets();
+  const { user, session } = useAuth();
+  const token = session?.access_token;
+  const setup = useSellerSetupState(token, Boolean(user?.id));
+  const stripeConnect = useSellerStripeConnect(token);
+
+  const [step, setStep] = useState<SellerWizardStep>(1);
+  const [stepReady, setStepReady] = useState(false);
+  const stepInitRef = useRef(false);
+
+  const [shipName, setShipName] = useState('');
+  const [shipStreet, setShipStreet] = useState('');
+  const [shipCity, setShipCity] = useState('');
+  const [shipState, setShipState] = useState('');
+  const [shipZip, setShipZip] = useState('');
+  const [shippingSaved, setShippingSaved] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
+
+  const [displayName, setDisplayName] = useState('');
+  const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [profileBusy, setProfileBusy] = useState(false);
+
+  const [payoutBusy, setPayoutBusy] = useState(false);
+
+  useEffect(() => {
+    if (!setup.seller) return;
+    setShipName(setup.seller.shipFromName ?? '');
+    setShipStreet(setup.seller.shipFromStreet ?? '');
+    setShipCity(setup.seller.shipFromCity ?? '');
+    setShipState(setup.seller.shipFromState ?? '');
+    setShipZip(setup.seller.shipFromZip ?? '');
+    setDisplayName(setup.seller.name ?? '');
+    setProfileImage(setup.seller.image);
+    setShippingSaved(Boolean(setup.checks?.hasShipFromAddress));
+  }, [setup.seller, setup.checks?.hasShipFromAddress]);
+
+  useEffect(() => {
+    if (setup.phase === 'loading' || !setup.checks || stepInitRef.current) return;
+    stepInitRef.current = true;
+    void readSellerWizardComplete().then((wizardComplete) => {
+      setStep(
+        resolveSellerWizardStep({
+          checks: setup.checks,
+          wizardComplete,
+        }),
+      );
+      setStepReady(true);
+    });
+  }, [setup.phase, setup.checks]);
+
+  const goBack = useCallback(() => {
+    if (step === 2) {
+      setStep(1);
+      return;
+    }
+    if (step === 3) {
+      setShippingSaved(false);
+      setStep(2);
+      return;
+    }
+    if (step === 4) {
+      setStep(3);
+      return;
+    }
+    if (step === 5) {
+      void clearSellerWizardComplete().then(() => {
+        setup.setWizardCompleteLocal(false);
+        setStep(4);
+      });
+    }
+  }, [step, setup]);
+
+  const openPayouts = async () => {
+    if (!token) return;
+    setPayoutBusy(true);
+    try {
+      const result = await openStripeConnectOnboarding(token);
+      if (result === 'success') {
+        await refreshSellerConnectAfterOnboarding(() => stripeConnect.refresh());
+        await setup.refetch();
+      }
+    } catch (e) {
+      Alert.alert('Payout setup', e instanceof Error ? e.message : 'Could not open Stripe.');
+    } finally {
+      setPayoutBusy(false);
+    }
+  };
+
+  const saveShipping = async () => {
+    if (!token) return;
+    const required = [shipStreet, shipCity, shipState, shipZip].map((v) => v.trim());
+    if (required.some((v) => !v)) {
+      Alert.alert('Complete your address', 'Street, city, state, and ZIP are required.');
+      return;
+    }
+    setSaveBusy(true);
+    try {
+      await patchSellerShipFrom(token, {
+        shipFromName: shipName.trim() || undefined,
+        shipFromStreet: shipStreet.trim(),
+        shipFromCity: shipCity.trim(),
+        shipFromState: shipState.trim(),
+        shipFromZip: shipZip.trim(),
+        shipFromCountry: SELLER_SHIP_FROM_COUNTRY,
+      });
+      setShippingSaved(true);
+      await setup.refetch();
+      setStep(4);
+    } catch (e) {
+      Alert.alert('Could not save', e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setSaveBusy(false);
+    }
+  };
+
+  const pickPhoto = async () => {
+    if (!user?.id) return;
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Photos', 'Allow photo library access to add a profile photo.');
+      return;
+    }
+    const picked = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.82,
+    });
+    if (picked.canceled || !picked.assets[0]) return;
+    const asset = picked.assets[0];
+    try {
+      const url = await uploadMyAvatar(user.id, asset.uri, asset.mimeType ?? 'image/jpeg');
+      setProfileImage(url);
+    } catch (e) {
+      Alert.alert('Upload failed', e instanceof Error ? e.message : 'Could not upload photo.');
+    }
+  };
+
+  const finishWizard = async () => {
+    await markSellerWizardCompleteLocal();
+    if (token) {
+      try {
+        await markSellerSetupWizardCompleteOnServer(token);
+      } catch {
+        /* local flag still unlocks this device */
+      }
+    }
+    setup.setWizardCompleteLocal(true);
+    setStep(5);
+  };
+
+  const saveProfile = async () => {
+    if (!token) return;
+    setProfileBusy(true);
+    try {
+      const body: { name?: string; image?: string } = {};
+      if (displayName.trim()) body.name = displayName.trim();
+      if (profileImage) body.image = profileImage;
+      if (Object.keys(body).length) await patchSellerProfile(token, body);
+      await finishWizard();
+    } catch (e) {
+      Alert.alert('Could not save', e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setProfileBusy(false);
+    }
+  };
+
+  const enterHq = () => {
+    void setup.refetch();
+    navigation.goBack();
+    openSellerHQ();
+  };
+
+  if (!user) {
+    return (
+      <View style={[styles.screen, { paddingTop: insets.top + spacing.lg }]}>
+        <Text style={styles.muted}>Sign in to start seller setup.</Text>
+      </View>
+    );
+  }
+
+  if (setup.phase === 'loading' || !stepReady) {
+    return (
+      <View style={[styles.screen, styles.centered, { paddingTop: insets.top }]}>
+        <ActivityIndicator color={colors.gold} />
+      </View>
+    );
+  }
+
+  const checks = setup.checks;
+  const payoutsDone = isPayoutSetupComplete(checks);
+  const progressPct = Math.round((step / SELLER_WIZARD_TOTAL_STEPS) * 100);
+
+  return (
+    <View style={[styles.screen, { paddingTop: insets.top + spacing.sm, paddingBottom: insets.bottom + spacing.md }]}>
+      <View style={styles.header}>
+        <Pressable onPress={() => navigation.goBack()} hitSlop={12} accessibilityLabel="Close setup">
+          <Ionicons name="close" size={24} color={colors.textMuted} />
+        </Pressable>
+        <View style={{ flex: 1, alignItems: 'center' }}>
+          <Text style={styles.eyebrow}>Seller onboarding</Text>
+          <Text style={styles.stepMeta}>
+            Step {step} of {SELLER_WIZARD_TOTAL_STEPS} · {WIZARD_STEP_LABELS[step]}
+          </Text>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+          </View>
+        </View>
+        <View style={{ width: 24 }} />
+      </View>
+
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <View style={styles.card}>
+          {step === 1 ? (
+            <>
+              <Text style={styles.title}>Become a Seller</Text>
+              <Text style={styles.body}>
+                Set up your seller account to start listing products and hosting live shows on Get Vaulted.
+              </Text>
+              <Text style={styles.hint}>Estimated setup time: ~2 minutes</Text>
+              <Text style={styles.sectionLabel}>What you unlock</Text>
+              {[
+                ['Listings', 'Create and manage buy-now and auction inventory'],
+                ['Live selling', 'Host live shows and run breaks'],
+                ['Payouts', 'Get paid when your items sell'],
+                ['Seller HQ', 'Your command center for sales and live events'],
+              ].map(([label, desc]) => (
+                <View key={label} style={styles.unlockRow}>
+                  <Text style={styles.unlockTitle}>{label}</Text>
+                  <Text style={styles.unlockDesc}>{desc}</Text>
+                </View>
+              ))}
+              <PrimaryButton label="Start setup" onPress={() => setStep(2)} />
+            </>
+          ) : null}
+
+          {step === 2 ? (
+            <>
+              <Text style={styles.title}>Payout setup</Text>
+              <Text style={styles.body}>
+                Connect Stripe so you can receive payouts when items sell. Required before you can list or go live.
+              </Text>
+              {payoutsDone ? (
+                <View style={styles.successBox}>
+                  <Text style={styles.successIcon}>✓</Text>
+                  <Text style={styles.successTitle}>Payouts connected</Text>
+                  <Text style={styles.successSub}>Stripe is linked and ready for seller payouts.</Text>
+                </View>
+              ) : (
+                <View style={styles.dashedBox}>
+                  <Text style={styles.body}>Stripe securely handles identity verification and payout details.</Text>
+                </View>
+              )}
+              <StepActions
+                showBack
+                onBack={goBack}
+                primaryLabel={payoutsDone ? 'Continue' : payoutBusy ? 'Opening…' : 'Connect payouts'}
+                onPrimary={() => (payoutsDone ? setStep(3) : void openPayouts())}
+                primaryDisabled={payoutBusy || (!setup.stripePlatformConfigured && !payoutsDone)}
+              />
+            </>
+          ) : null}
+
+          {step === 3 ? (
+            <>
+              <Text style={styles.title}>Shipping address</Text>
+              <Text style={styles.body}>
+                Where packages ship from when you fulfill orders. We use this for shipping labels and buyer estimates.
+              </Text>
+              {shippingSaved ? (
+                <>
+                  <View style={styles.successBox}>
+                    <Text style={styles.successIcon}>✓</Text>
+                    <Text style={styles.successTitle}>Address saved</Text>
+                    <Text style={styles.successSub}>
+                      {[shipStreet, shipCity, shipState, shipZip, SELLER_SHIP_FROM_COUNTRY].filter(Boolean).join(', ')}
+                    </Text>
+                  </View>
+                  <StepActions showBack onBack={goBack} primaryLabel="Continue" onPrimary={() => setStep(4)} />
+                </>
+              ) : (
+                <>
+                  <Field label="Name / company" value={shipName} onChangeText={setShipName} />
+                  <Field label="Street" value={shipStreet} onChangeText={setShipStreet} required />
+                  <View style={styles.row}>
+                    <View style={styles.half}>
+                      <Field label="City" value={shipCity} onChangeText={setShipCity} required />
+                    </View>
+                    <View style={styles.half}>
+                      <Field label="State" value={shipState} onChangeText={setShipState} required />
+                    </View>
+                  </View>
+                  <View style={styles.row}>
+                    <View style={styles.half}>
+                      <Field label="ZIP" value={shipZip} onChangeText={setShipZip} required />
+                    </View>
+                    <View style={styles.half}>
+                      <Text style={styles.fieldLabel}>Country</Text>
+                      <View style={styles.readOnlyField}>
+                        <Text style={styles.readOnlyText}>
+                          {SELLER_SHIP_FROM_COUNTRY_LABEL} ({SELLER_SHIP_FROM_COUNTRY})
+                        </Text>
+                      </View>
+                      <Text style={styles.fieldHint}>US-only selling during launch.</Text>
+                    </View>
+                  </View>
+                  <StepActions
+                    showBack
+                    onBack={goBack}
+                    primaryLabel={saveBusy ? 'Saving…' : 'Save & continue'}
+                    onPrimary={() => void saveShipping()}
+                    primaryDisabled={saveBusy}
+                  />
+                </>
+              )}
+            </>
+          ) : null}
+
+          {step === 4 ? (
+            <>
+              <Text style={styles.title}>Seller profile</Text>
+              <Text style={styles.body}>
+                Optional — photo and display name help buyers recognize your shop. Favorite categories are set when you
+                create listings.
+              </Text>
+              <View style={styles.avatarBlock}>
+                {profileImage ? (
+                  <Image source={{ uri: profileImage }} style={styles.avatar} />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    <Text style={styles.avatarPlaceholderText}>?</Text>
+                  </View>
+                )}
+                <Pressable onPress={() => void pickPhoto()}>
+                  <Text style={styles.link}>{profileImage ? 'Change photo' : 'Add profile photo'}</Text>
+                </Pressable>
+              </View>
+              <Text style={styles.fieldLabel}>Display name / bio</Text>
+              <TextInput
+                value={displayName}
+                onChangeText={setDisplayName}
+                placeholder="Tell buyers a little about your shop…"
+                placeholderTextColor={colors.textMuted}
+                multiline
+                numberOfLines={3}
+                style={[styles.input, styles.textArea]}
+              />
+              <StepActions
+                showBack
+                onBack={goBack}
+                primaryLabel={profileBusy ? 'Saving…' : 'Save & continue'}
+                onPrimary={() => void saveProfile()}
+                primaryDisabled={profileBusy}
+              />
+              <SecondaryButton label="Skip for now" onPress={() => void finishWizard()} disabled={profileBusy} />
+            </>
+          ) : null}
+
+          {step === 5 ? (
+            <>
+              <Text style={styles.completionIcon}>✅</Text>
+              <Text style={[styles.title, styles.centerText]}>Seller setup complete</Text>
+              <Text style={[styles.goldSub, styles.centerText]}>Welcome to Seller HQ</Text>
+              <Text style={[styles.body, styles.centerText]}>
+                You are ready to sell on Get Vaulted. Here is what is now unlocked:
+              </Text>
+              {['Create listings', 'Host live shows', 'Manage orders', 'Access Seller HQ'].map((item) => (
+                <View key={item} style={styles.checkRow}>
+                  <Text style={styles.checkMark}>✓</Text>
+                  <Text style={styles.checkText}>{item}</Text>
+                </View>
+              ))}
+              <StepActions
+                showBack
+                onBack={goBack}
+                primaryLabel="Enter Seller HQ"
+                onPrimary={enterHq}
+              />
+            </>
+          ) : null}
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChangeText,
+  required,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (v: string) => void;
+  required?: boolean;
+}) {
+  return (
+    <View style={{ marginBottom: spacing.sm }}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        style={styles.input}
+        placeholderTextColor={colors.textMuted}
+        autoCapitalize="words"
+      />
+    </View>
+  );
+}
+
+function PrimaryButton({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
+  return (
+    <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [pressed && { opacity: 0.92 }]}>
+      <LinearGradient colors={[colors.gold, '#E8D48B']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.primaryBtn}>
+        <Text style={styles.primaryBtnText}>{label}</Text>
+      </LinearGradient>
+    </Pressable>
+  );
+}
+
+function SecondaryButton({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
+  return (
+    <Pressable
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.92 }, disabled && { opacity: 0.5 }]}
+    >
+      <Text style={styles.secondaryBtnText}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function StepActions({
+  showBack,
+  onBack,
+  primaryLabel,
+  onPrimary,
+  primaryDisabled,
+}: {
+  showBack?: boolean;
+  onBack?: () => void;
+  primaryLabel: string;
+  onPrimary: () => void;
+  primaryDisabled?: boolean;
+}) {
+  return (
+    <View style={styles.actions}>
+      {showBack && onBack ? (
+        <Pressable onPress={onBack} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.92 }]}>
+          <Text style={styles.backBtnText}>Back</Text>
+        </Pressable>
+      ) : null}
+      <View style={{ flex: 1 }}>
+        <PrimaryButton label={primaryLabel} onPress={onPrimary} disabled={primaryDisabled} />
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: colors.background, paddingHorizontal: spacing.lg },
+  centered: { alignItems: 'center', justifyContent: 'center' },
+  muted: { color: colors.textMuted, textAlign: 'center', marginTop: spacing.xxl },
+  header: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginBottom: spacing.lg },
+  eyebrow: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    color: colors.gold,
+  },
+  stepMeta: { fontSize: 12, fontWeight: '600', color: colors.textMuted, marginTop: 4 },
+  progressTrack: {
+    marginTop: spacing.sm,
+    height: 6,
+    width: 200,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    overflow: 'hidden',
+  },
+  progressFill: { height: '100%', backgroundColor: colors.gold, borderRadius: 999 },
+  scroll: { paddingBottom: spacing.xxxl },
+  card: {
+    borderRadius: radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.09)',
+    backgroundColor: colors.surfaceElevated,
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  title: { ...typography.title, color: colors.textPrimary },
+  body: { fontSize: 14, lineHeight: 20, color: colors.textMuted },
+  hint: { fontSize: 12, color: colors.textMuted, textAlign: 'center' },
+  sectionLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    color: colors.textMuted,
+    marginTop: spacing.sm,
+  },
+  unlockRow: {
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  unlockTitle: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
+  unlockDesc: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  dashedBox: {
+    padding: spacing.lg,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  successBox: {
+    padding: spacing.lg,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(52,199,89,0.3)',
+    backgroundColor: 'rgba(52,199,89,0.08)',
+    alignItems: 'center',
+  },
+  successIcon: { fontSize: 28, color: colors.success },
+  successTitle: { fontSize: 14, fontWeight: '700', color: colors.success, marginTop: spacing.xs },
+  successSub: { fontSize: 12, color: 'rgba(52,199,89,0.7)', marginTop: 4, textAlign: 'center' },
+  fieldLabel: { fontSize: 12, fontWeight: '600', color: colors.textMuted, marginBottom: 4 },
+  fieldHint: { fontSize: 11, color: colors.textMuted, marginTop: 4 },
+  input: {
+    height: 44,
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#0c0c10',
+    paddingHorizontal: spacing.md,
+    color: colors.textPrimary,
+    fontSize: 14,
+  },
+  textArea: { height: 88, paddingTop: spacing.sm, textAlignVertical: 'top' },
+  readOnlyField: {
+    height: 44,
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#08080a',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  readOnlyText: { fontSize: 14, color: colors.textMuted },
+  row: { flexDirection: 'row', gap: spacing.sm },
+  half: { flex: 1 },
+  avatarBlock: { alignItems: 'center', gap: spacing.sm },
+  avatar: { width: 80, height: 80, borderRadius: 40 },
+  avatarPlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.3)',
+    backgroundColor: 'rgba(212,175,55,0.1)',
+  },
+  avatarPlaceholderText: { fontSize: 28, fontWeight: '700', color: colors.gold },
+  link: { fontSize: 12, fontWeight: '700', color: colors.gold },
+  completionIcon: { fontSize: 36, textAlign: 'center' },
+  centerText: { textAlign: 'center' },
+  goldSub: { fontSize: 14, fontWeight: '700', color: colors.gold },
+  checkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  checkMark: { color: colors.success, fontWeight: '700' },
+  checkText: { fontSize: 14, color: colors.textPrimary },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md },
+  backBtn: {
+    height: 44,
+    paddingHorizontal: spacing.lg,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backBtnText: { fontSize: 14, fontWeight: '600', color: colors.textSecondary },
+  primaryBtn: {
+    height: 48,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  primaryBtnText: { fontSize: 14, fontWeight: '800', color: '#1a1a1a' },
+  secondaryBtn: {
+    height: 44,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.sm,
+  },
+  secondaryBtnText: { fontSize: 14, fontWeight: '600', color: colors.textSecondary },
+});

@@ -4,7 +4,13 @@ import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLiveMarketplaceEnabled } from "@/components/providers/LiveMarketplaceGateProvider";
-import { useNavSellerStatus } from "@/hooks/useNavSellerStatus";
+import { useSellerSetupState } from "@/hooks/useSellerSetupState";
+import {
+  SELLER_HQ_PATH,
+  SELLER_SETUP_PATH,
+  sellerSetupMenuHref,
+  sellerSetupMenuLabel,
+} from "@/lib/seller-setup-state";
 
 export type NavMenuUser = {
   username: string;
@@ -39,91 +45,60 @@ function liveHref(enabled: boolean, path: string): string {
 }
 
 function buildSections(
-  user: NavMenuUser,
-  isAdmin: boolean,
-  sellerStatus: ReturnType<typeof useNavSellerStatus>,
+  setupPhase: ReturnType<typeof useSellerSetupState>["phase"],
   liveEnabled: boolean,
-): MenuSection[] {
-  const sections: MenuSection[] = [
-    {
-      id: "activity",
-      items: [
-        { href: "/account/notifications", label: "Notifications", icon: <BellIcon /> },
-        { href: "/account/messages", label: "Messages", icon: <ChatIcon /> },
-      ],
-    },
-    {
-      id: "buying",
-      title: "Buying",
-      items: [
-        { href: "/marketplace", label: "Marketplace", icon: <ShopIcon /> },
-        { href: "/account/watchlist", label: "Watchlist", icon: <HeartIcon /> },
-        { href: "/account/following", label: "Following", icon: <UsersIcon /> },
-        { href: "/account/orders", label: "Orders", icon: <PackageIcon /> },
-        { href: "/account/payment-methods", label: "Wallet", icon: <WalletIcon /> },
-      ],
-    },
-  ];
+): { sections: MenuSection[]; bottomItems: MenuItem[] } {
+  const setupHref = sellerSetupMenuHref(setupPhase === "loading" ? "not_started" : setupPhase);
+  const setupLabel =
+    setupPhase === "loading" ? "Start Seller Setup" : sellerSetupMenuLabel(setupPhase);
 
-  if (sellerStatus === "onboarded") {
-    sections.push({
-      id: "selling",
-      title: "Selling",
-      items: [
-        { href: "/account/seller", label: "Seller HQ", icon: <StoreIcon /> },
-        { href: "/account/listings", label: "My Listings", icon: <TagIcon /> },
-        { href: "/account/sales", label: "Sales", icon: <ReceiptIcon /> },
-        { href: "/account/offers", label: "Offers", icon: <OfferIcon /> },
-      ],
-    });
-  } else if (sellerStatus === "not_onboarded") {
-    sections.push({
-      id: "selling-cta",
-      title: "Sell on Get Vaulted",
-      items: [
-        {
-          href: "/account/seller",
-          label: "Start Seller Setup",
-          icon: <SparkIcon />,
-          variant: "cta",
-        },
-      ],
-    });
-  }
+  const sellingItems: MenuItem[] =
+    setupPhase === "ready"
+      ? [
+          { href: SELLER_HQ_PATH, label: "Seller HQ", icon: <StoreIcon /> },
+          { href: "/account/listings", label: "My Listings", icon: <TagIcon /> },
+          { href: "/account/sales", label: "Sales", icon: <ReceiptIcon /> },
+          {
+            href: liveHref(liveEnabled, "/seller/live"),
+            label: "Go Live",
+            icon: <BroadcastIcon />,
+            variant: "cta",
+          },
+        ]
+      : [
+          {
+            href: setupHref,
+            label: setupLabel,
+            icon: <SparkIcon />,
+            variant: "cta",
+          },
+        ];
 
-  sections.push({
-    id: "live",
-    title: "Live",
+  const activitySection: MenuSection = {
+    id: "activity",
+    title: "Activity",
     items: [
-      { href: liveHref(liveEnabled, "/live"), label: "Browse Live Shows", icon: <LiveIcon /> },
-      {
-        href: liveHref(liveEnabled, "/seller/live"),
-        label: "My Live Events",
-        icon: <CalendarIcon />,
-      },
-      {
-        href: liveHref(liveEnabled, "/seller/live"),
-        label: "Go Live",
-        icon: <BroadcastIcon />,
-        variant: "cta",
-      },
+      { href: "/account/notifications", label: "Notifications", icon: <BellIcon /> },
+      { href: "/account/messages", label: "Messages", icon: <ChatIcon /> },
+      { href: "/account/orders", label: "Orders", icon: <PackageIcon /> },
+      { href: "/account/watchlist", label: "Watchlist", icon: <HeartIcon /> },
+      { href: "/account/following", label: "Following", icon: <UsersIcon /> },
     ],
-  });
+  };
 
-  const settingsItems: MenuItem[] = [
-    { href: "/account/seller", label: "Account Settings", icon: <GearIcon /> },
+  const bottomItems: MenuItem[] = [
     {
-      href: "mailto:support@shopgetvaulted.com",
-      label: "Support",
-      icon: <HelpIcon />,
+      href: setupPhase === "ready" ? SELLER_HQ_PATH : SELLER_SETUP_PATH,
+      label: "Settings",
+      icon: <GearIcon />,
     },
+    { href: "mailto:support@shopgetvaulted.com", label: "Support", icon: <HelpIcon /> },
   ];
-  if (isAdmin) {
-    settingsItems.unshift({ href: "/admin", label: "Admin", icon: <ShieldIcon /> });
-  }
-  sections.push({ id: "settings", title: "Settings", items: settingsItems });
 
-  return sections;
+  return {
+    sections: [{ id: "selling", title: "Selling", items: sellingItems }, activitySection],
+    bottomItems,
+  };
 }
 
 function userInitials(user: NavMenuUser): string {
@@ -142,6 +117,9 @@ function IdentityHeader({
   compact?: boolean;
 }) {
   const profileHref = `/seller/${encodeURIComponent(user.username)}`;
+  const linkClass =
+    "inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:border-gold/30 hover:bg-gold/10 hover:text-gold-bright";
+
   return (
     <div className={`border-b border-white/[0.08] ${compact ? "px-3 pb-3 pt-1" : "px-3 pb-4 pt-2"}`}>
       <div className="flex items-center gap-3">
@@ -170,21 +148,23 @@ function IdentityHeader({
           ) : null}
         </div>
       </div>
-      <Link
-        href={profileHref}
-        onClick={() => onNavigate?.()}
-        className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-zinc-300 transition hover:text-gold-bright"
-      >
-        <UserIcon className="size-3.5 shrink-0" />
-        View Profile / My Vault
-      </Link>
+      <div className="mt-3 flex gap-2">
+        <Link href={profileHref} onClick={() => onNavigate?.()} className={linkClass}>
+          <UserIcon className="size-3.5 shrink-0" />
+          View Profile
+        </Link>
+        <Link href="/account" onClick={() => onNavigate?.()} className={linkClass}>
+          <GridIcon className="size-3.5 shrink-0" />
+          My Account
+        </Link>
+      </div>
     </div>
   );
 }
 
 function SectionHeader({ title }: { title: string }) {
   return (
-    <p className="mb-1.5 mt-4 first:mt-0 px-3 text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">
+    <p className="mb-1.5 mt-4 first:mt-2 px-3 text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">
       {title}
     </p>
   );
@@ -233,11 +213,15 @@ function MenuLink({
 
 function MenuSections({
   sections,
+  bottomItems,
+  isAdmin,
   onNavigate,
   listVariant,
   onSignOut,
 }: {
   sections: MenuSection[];
+  bottomItems: MenuItem[];
+  isAdmin: boolean;
   onNavigate?: () => void;
   listVariant: boolean;
   onSignOut: () => void;
@@ -247,7 +231,7 @@ function MenuSections({
       {sections.map((section) => (
         <div key={section.id}>
           {section.title ? <SectionHeader title={section.title} /> : null}
-          <div className={listVariant ? "flex flex-col gap-0.5" : "flex flex-col gap-0.5"}>
+          <div className="flex flex-col gap-0.5">
             {section.items.map((item) => (
               <MenuLink
                 key={`${section.id}-${item.href}-${item.label}`}
@@ -260,6 +244,21 @@ function MenuSections({
         </div>
       ))}
       <div className="mt-4 border-t border-white/[0.08] pt-3">
+        {isAdmin ? (
+          <MenuLink
+            item={{ href: "/admin", label: "Admin", icon: <ShieldIcon /> }}
+            onNavigate={onNavigate}
+            listVariant={listVariant}
+          />
+        ) : null}
+        {bottomItems.map((item) => (
+          <MenuLink
+            key={`bottom-${item.href}-${item.label}`}
+            item={item}
+            onNavigate={onNavigate}
+            listVariant={listVariant}
+          />
+        ))}
         <button
           type="button"
           onClick={onSignOut}
@@ -287,11 +286,11 @@ export function NavbarAccountMenu({
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const liveMarketplaceEnabled = useLiveMarketplaceEnabled();
-  const sellerStatus = useNavSellerStatus(true);
+  const { phase: setupPhase } = useSellerSetupState(true);
 
-  const sections = useMemo(
-    () => buildSections(user, isAdmin, sellerStatus, liveMarketplaceEnabled),
-    [user, isAdmin, sellerStatus, liveMarketplaceEnabled],
+  const { sections, bottomItems } = useMemo(
+    () => buildSections(setupPhase, liveMarketplaceEnabled),
+    [setupPhase, liveMarketplaceEnabled],
   );
 
   useEffect(() => {
@@ -320,6 +319,8 @@ export function NavbarAccountMenu({
         <IdentityHeader user={user} onNavigate={handleNavigate} compact />
         <MenuSections
           sections={sections}
+          bottomItems={bottomItems}
+          isAdmin={isAdmin}
           onNavigate={handleNavigate}
           listVariant
           onSignOut={handleSignOut}
@@ -357,6 +358,8 @@ export function NavbarAccountMenu({
           <IdentityHeader user={user} onNavigate={handleNavigate} />
           <MenuSections
             sections={sections}
+            bottomItems={bottomItems}
+            isAdmin={isAdmin}
             onNavigate={handleNavigate}
             listVariant={false}
             onSignOut={handleSignOut}
@@ -391,14 +394,6 @@ function ChatIcon() {
   );
 }
 
-function ShopIcon() {
-  return (
-    <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-    </svg>
-  );
-}
-
 function HeartIcon() {
   return (
     <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -419,14 +414,6 @@ function PackageIcon() {
   return (
     <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-    </svg>
-  );
-}
-
-function WalletIcon() {
-  return (
-    <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
     </svg>
   );
 }
@@ -455,34 +442,10 @@ function ReceiptIcon() {
   );
 }
 
-function OfferIcon() {
-  return (
-    <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
-  );
-}
-
 function SparkIcon() {
   return (
     <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-    </svg>
-  );
-}
-
-function LiveIcon() {
-  return (
-    <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-    </svg>
-  );
-}
-
-function CalendarIcon() {
-  return (
-    <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
     </svg>
   );
 }
@@ -524,6 +487,14 @@ function UserIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+    </svg>
+  );
+}
+
+function GridIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className ?? "size-4"} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
     </svg>
   );
 }

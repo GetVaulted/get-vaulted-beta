@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -25,13 +25,16 @@ import {
 } from '../data/sellerHubMock';
 import { LaunchVaultEventPanel } from './sellerHub/LaunchVaultEventPanel';
 import { SellerShipFromSetupCard } from '../components/seller/hq/SellerShipFromSetupCard';
+import { SellerSetupGatePanel } from '../components/seller/hq/SellerSetupGatePanel';
 import { useCreateListingDraft } from '../createListing/CreateListingDraftContext';
 import { openCreateListing } from '../navigation/openCreateListing';
 import { openContactSupport } from '../navigation/openPlatform';
+import { openSellerSetup } from '../navigation/openSellerSetup';
 import { AccountAccessBar } from '../components/account/AccountAccessBar';
 import { SellerHQCommandCenter } from '../components/seller/hq/SellerHQCommandCenter';
 import { SellerHQFab, type FabActionId } from '../components/seller/hq/SellerHQFab';
 import type { SellerHQEntryPhase } from '../lib/sellerHubEntry';
+import { useSellerSetupState } from '../hooks/useSellerSetupState';
 import { openSellerHostRoom } from '../navigation/openSellerHostRoom';
 import { openSellerListingManagementFromTab } from '../navigation/openSellerListingManagement';
 import { consumePendingSellerHQTab, setPendingVaultEventSchedule } from '../navigation/openSellerHQ';
@@ -86,6 +89,7 @@ export function SellerHubScreen() {
     session?.access_token,
     inventoryListingCount || userListings.length,
   );
+  const sellerSetup = useSellerSetupState(session?.access_token, Boolean(user?.id));
 
   useEffect(() => {
     if (user?.id) void cmdData.reloadAnalytics(user.id);
@@ -105,7 +109,13 @@ export function SellerHubScreen() {
     if (pending) setTab(pending);
   }, []);
 
-  const sellerApproved = cmdData.approved;
+  useFocusEffect(
+    useCallback(() => {
+      void sellerSetup.refetch();
+    }, [sellerSetup.refetch]),
+  );
+
+  const sellerActivated = sellerSetup.activated;
 
   const sellerLaunchMeta = useMemo(() => {
     const meta = user?.user_metadata as Record<string, unknown> | undefined;
@@ -175,14 +185,9 @@ export function SellerHubScreen() {
         navigateAuthSignUp();
         return;
       }
-      if (phase === 'finish_setup' || phase === 'become_seller') {
-        setTab('overview');
-        void openStripeOnboarding();
-        return;
-      }
-      setTab('overview');
+      openSellerSetup();
     },
-    [openStripeOnboarding],
+    [],
   );
 
   const onFabAction = useCallback(
@@ -333,9 +338,9 @@ export function SellerHubScreen() {
     return (
       <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          <Text style={styles.hqGateTitle}>Seller Studio</Text>
+          <Text style={styles.hqGateTitle}>Seller HQ</Text>
           <Text style={styles.hqGateBody}>
-            Log in to Seller Studio — revenue, fulfillment, collector network, and vault events.
+            Log in to unlock Seller HQ — revenue, fulfillment, collector network, and vault events.
           </Text>
           <Pressable style={styles.hqGatePrimary} onPress={navigateAuthSignUp}>
             <Text style={styles.hqGatePrimaryTxt}>Create account</Text>
@@ -348,9 +353,29 @@ export function SellerHubScreen() {
     );
   }
 
+  if (sellerSetup.phase === 'loading') {
+    return (
+      <View style={[styles.screen, { paddingTop: insets.top + spacing.xl, alignItems: 'center' }]}>
+        <ActivityIndicator color={colors.gold} size="large" />
+      </View>
+    );
+  }
+
+  if (!sellerActivated) {
+    return (
+      <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <Text style={styles.hqGateTitle}>Seller HQ</Text>
+          <SellerSetupGatePanel phase={sellerSetup.phase} />
+        </ScrollView>
+        <AccountAccessBar variant="footer" />
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.sm }]}>
-      {sellerApproved && tab !== 'live' && tab !== 'listings' ? (
+      {sellerActivated && tab !== 'live' && tab !== 'listings' ? (
         <SellerHQFab onAction={onFabAction} />
       ) : null}
       <ScrollView

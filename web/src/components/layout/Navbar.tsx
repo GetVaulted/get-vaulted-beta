@@ -55,6 +55,7 @@ export function Navbar() {
   const drawerPanelRef = useRef<HTMLElement>(null);
   const drawerTitleId = useId();
   const pathname = usePathname();
+  const isSellerOnboarding = pathname?.startsWith("/account/seller/setup") ?? false;
   const { data: session, status } = useSession();
   const hideOnMobileLiveRoom = /^\/live\/[^/]+/.test(pathname ?? "");
   const liveMarketplaceEnabled = useLiveMarketplaceEnabled();
@@ -198,20 +199,24 @@ export function Navbar() {
                     </Link>
                   </div>
                 )}
-                <div className="mx-3 my-4 border-t border-white/[0.06]" />
-                <p className="mb-2 px-3 text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">Explore</p>
-                <nav className="flex flex-col gap-0.5 px-1" aria-label="Primary">
-                  {primaryNav.map(({ href, label }) => (
-                    <Link
-                      key={href}
-                      href={href}
-                      className="rounded-xl px-3 py-2.5 text-base font-medium text-foreground transition-colors hover:bg-surface-elevated active:bg-surface-elevated"
-                      onClick={closeMenu}
-                    >
-                      {label}
-                    </Link>
-                  ))}
-                </nav>
+                {!isSellerOnboarding ? (
+                  <>
+                    <div className="mx-3 my-4 border-t border-white/[0.06]" />
+                    <p className="mb-2 px-3 text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">Explore</p>
+                    <nav className="flex flex-col gap-0.5 px-1" aria-label="Primary">
+                      {primaryNav.map(({ href, label }) => (
+                        <Link
+                          key={href}
+                          href={href}
+                          className="rounded-xl px-3 py-2.5 text-base font-medium text-foreground transition-colors hover:bg-surface-elevated active:bg-surface-elevated"
+                          onClick={closeMenu}
+                        >
+                          {label}
+                        </Link>
+                      ))}
+                    </nav>
+                  </>
+                ) : null}
               </div>
             </aside>
           </div>,
@@ -244,7 +249,7 @@ export function Navbar() {
             />
           </Link>
 
-          <nav className="hidden min-w-0 items-center gap-1 md:flex lg:gap-2">
+          <nav className={`hidden min-w-0 items-center gap-1 md:flex lg:gap-2 ${isSellerOnboarding ? "!hidden" : ""}`}>
             {primaryNav.map(({ href, label }) => (
               <Link
                 key={href}
@@ -256,7 +261,7 @@ export function Navbar() {
             ))}
           </nav>
 
-          <div className="mx-auto hidden min-w-0 max-w-md flex-1 md:block lg:max-w-lg">
+          <div className={`mx-auto hidden min-w-0 max-w-md flex-1 md:block lg:max-w-lg ${isSellerOnboarding ? "!hidden" : ""}`}>
             <label htmlFor="site-search" className="sr-only">
               Search
             </label>
@@ -274,13 +279,13 @@ export function Navbar() {
           </div>
 
           <div className="ml-auto flex min-w-0 shrink-0 items-center gap-1 sm:gap-3 md:gap-3">
-            <button type="button" className={`${MOBILE_ICON_BTN} md:hidden`} aria-label="Open search">
+            <button type="button" className={`${MOBILE_ICON_BTN} md:hidden ${isSellerOnboarding ? "hidden" : ""}`} aria-label="Open search">
               <SearchIcon className="size-5" />
             </button>
             {status === "authenticated" && session?.user ? (
               <>
                 <NavbarNotificationsBell
-                  triggerClassName="!p-0 min-h-11 min-w-11 inline-flex items-center justify-center touch-manipulation"
+                  triggerClassName={`!p-0 min-h-11 min-w-11 inline-flex items-center justify-center touch-manipulation ${isSellerOnboarding ? "hidden md:hidden" : ""}`}
                 />
                 <NavbarAccountMenu
                   user={{

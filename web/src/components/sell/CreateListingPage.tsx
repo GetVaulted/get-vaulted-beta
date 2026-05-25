@@ -20,6 +20,7 @@ import { hasCompleteParcel } from "@/lib/listing-publish";
 import { LISTING_WORKSPACE_KEY } from "@/lib/listing-workspace";
 import { compressImageFileToBlob } from "@/lib/listing-image-compress";
 import type { SellerListingStatus, StoredUserListing } from "@/lib/user-listings-storage";
+import { useRequireSellerActivation } from "@/hooks/useRequireSellerActivation";
 
 const CATEGORY_OPTIONS: MarketplaceCategory[] = [
   "Trading Cards",
@@ -127,6 +128,7 @@ export function CreateListingPage() {
   const duplicateIdParam = searchParams.get("duplicate");
 
   const { data: session, status } = useSession();
+  const { ready: sellerReady, loading: sellerGateLoading } = useRequireSellerActivation();
   const [workspaceListingId, setWorkspaceListingId] = useState<string | null>(null);
   const [images, setImages] = useState<string[]>([]);
   const [activeImage, setActiveImage] = useState(0);
@@ -884,7 +886,7 @@ export function CreateListingPage() {
     return () => window.clearTimeout(id);
   }, [estimateRequestSignature]);
 
-  if (status === "loading") {
+  if (status === "loading" || sellerGateLoading) {
     return (
       <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
         <div className="mx-auto w-full max-w-[1920px] px-4 py-24 text-center text-sm text-zinc-500 lg:px-10">Checking your session…</div>
@@ -894,6 +896,14 @@ export function CreateListingPage() {
 
   if (status === "unauthenticated" || !session?.user) {
     return null;
+  }
+
+  if (!sellerReady) {
+    return (
+      <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
+        <div className="mx-auto w-full max-w-[1920px] px-4 py-24 text-center text-sm text-zinc-500 lg:px-10">Redirecting to seller setup…</div>
+      </main>
+    );
   }
 
   if (success) {

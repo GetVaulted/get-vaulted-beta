@@ -1,6 +1,10 @@
 import type { ListingStatus } from "@/generated/prisma/client";
 import { hasCompleteParcel, type ParcelFields } from "@/lib/listing-publish";
 
+/** Launch default: domestic US ship-from only. */
+export const SELLER_SHIP_FROM_COUNTRY = "US";
+export const SELLER_SHIP_FROM_COUNTRY_LABEL = "United States";
+
 export type SellerShipFromFields = {
   shipFromStreet: string | null;
   shipFromCity: string | null;

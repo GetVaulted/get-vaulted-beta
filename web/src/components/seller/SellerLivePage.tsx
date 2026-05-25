@@ -18,6 +18,7 @@ import {
   patchLiveRoomItemStatus,
 } from "@/lib/live-room-control-client";
 import { HostStreamSetupCard } from "@/components/live-auction/HostStreamSetupCard";
+import { useRequireSellerActivation } from "@/hooks/useRequireSellerActivation";
 
 type RoomTypeChoice = "auction" | "sale" | "break";
 type BreakPricingMode = "fixed" | "auction";
@@ -155,6 +156,7 @@ export function SellerLivePage() {
   const router = useRouter();
   const pathname = usePathname();
   const { data: session, status } = useSession();
+  const { ready: sellerReady, loading: sellerGateLoading } = useRequireSellerActivation();
   const [rooms, setRooms] = useState<LiveRoomListApiRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [items, setItems] = useState<LiveRoomItemDTO[]>([]);
@@ -768,10 +770,18 @@ export function SellerLivePage() {
     },
   });
 
-  if (status === "loading" || status === "unauthenticated") {
+  if (status === "loading" || status === "unauthenticated" || sellerGateLoading) {
     return (
       <main className="relative flex min-h-screen w-full flex-1 flex-col bg-zinc-950">
         <div className="mx-auto w-full max-w-[1920px] px-6 py-24 text-center text-sm text-zinc-500 lg:px-10">Loading…</div>
+      </main>
+    );
+  }
+
+  if (!sellerReady) {
+    return (
+      <main className="relative flex min-h-screen w-full flex-1 flex-col bg-zinc-950">
+        <div className="mx-auto w-full max-w-[1920px] px-6 py-24 text-center text-sm text-zinc-500 lg:px-10">Redirecting to seller setup…</div>
       </main>
     );
   }
