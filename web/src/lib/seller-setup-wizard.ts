@@ -34,12 +34,14 @@ export function markSellerWizardComplete(): void {
 }
 
 /** Local session flag + server persistence for cross-platform HQ unlock. */
-export async function persistSellerWizardComplete(): Promise<void> {
+export async function persistSellerWizardComplete(sellerAgreementAccepted: boolean): Promise<void> {
   markSellerWizardComplete();
   try {
     await fetch("/api/account/seller/wizard-complete", {
       method: "POST",
       credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sellerAgreementAccepted }),
     });
   } catch {
     /* local flag still unlocks this browser session */

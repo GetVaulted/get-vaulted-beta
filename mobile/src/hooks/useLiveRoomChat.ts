@@ -6,6 +6,7 @@ import {
   type LiveRoomChatMessageRow,
 } from '../api/liveRoomChatRepository';
 import { dedupeChatMessagesById } from '../lib/liveRoomChatMessages';
+import type { LiveRoomChatBroadcastMessage } from './useRealtimeRoomSubscription';
 import type { ChatMessage, ChatMessageKind } from '../types';
 
 function mapRow(m: LiveRoomChatMessageRow, hostUsername: string): ChatMessage | null {
@@ -19,6 +20,7 @@ function mapRow(m: LiveRoomChatMessageRow, hostUsername: string): ChatMessage | 
     id: m.id,
     user: sender,
     text,
+    senderId: m.senderId,
     isHost: Boolean(host && sender.toLowerCase() === host),
     messageType,
   };
@@ -42,6 +44,8 @@ export function useLiveRoomChat(args: {
   hostUsername: string;
   accessToken?: string;
   enabled: boolean;
+  /** When true, rely on Supabase chat events; poll slowly as fallback. */
+  realtimePrimary?: boolean;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -77,14 +81,31 @@ export function useLiveRoomChat(args: {
     }
   }, [args.hostUsername, args.roomId]);
 
+  const appendBroadcast = useCallback(
+    (message: LiveRoomChatBroadcastMessage) => {
+      if (!message.id) return;
+      const row: LiveRoomChatMessageRow = {
+        id: message.id,
+        body: message.body,
+        senderId: message.senderId,
+        senderUsername: message.senderUsername ?? 'Guest',
+        messageType: (message.messageType as LiveRoomChatMessageRow['messageType']) ?? 'chat',
+        createdAt: new Date().toISOString(),
+      };
+      appendRows([row]);
+    },
+    [appendRows],
+  );
+
   useEffect(() => {
     if (!args.enabled) return undefined;
     void reload();
+    const pollMs = args.realtimePrimary ? 30_000 : 4000;
     const id = setInterval(() => {
       void reload();
-    }, 4000);
+    }, pollMs);
     return () => clearInterval(id);
-  }, [args.enabled, reload]);
+  }, [args.enabled, args.realtimePrimary, reload]);
 
   const announceJoin = useCallback(async (): Promise<boolean> => {
     if (!args.accessToken || !args.enabled) return false;
@@ -102,8 +123,9 @@ export function useLiveRoomChat(args: {
     } catch (e) {
       joinAnnouncedRef.current = false;
       const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
       if (__DEV__) console.warn('[useLiveRoomChat] join announce failed', msg);
-      return false;
+      throw e;
     }
   }, [appendRows, args.accessToken, args.enabled, args.roomId]);
 
@@ -149,6 +171,10 @@ export function useLiveRoomChat(args: {
         }
         setError(null);
         return true;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setError(msg);
+        throw e;
       } finally {
         sendLockRef.current = false;
         setSending(false);
@@ -157,5 +183,5 @@ export function useLiveRoomChat(args: {
     [args.accessToken, args.hostUsername, args.roomId],
   );
 
-  return { messages, send, sending, error, reload, announceJoin, announceShare };
+  return { messages, send, sending, error, reload, announceJoin, announceShare, appendBroadcast };
 }

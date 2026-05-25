@@ -78,6 +78,8 @@ export async function resetIntegrationDatabase(p: PrismaClient): Promise<void> {
     await tx.sellerFollow.deleteMany();
     await tx.webhookEventLog.deleteMany();
     await tx.sellerCommerceEvent.deleteMany();
+    await tx.payoutEligibilityAuditLog.deleteMany();
+    await tx.taxNexusState.deleteMany();
     await tx.notification.deleteMany();
     await tx.liveAuctionInventoryHold.deleteMany();
     await tx.liveShippingSessionItem.deleteMany();
@@ -96,6 +98,10 @@ export async function resetIntegrationDatabase(p: PrismaClient): Promise<void> {
     await tx.liveRoom.deleteMany();
     await tx.listing.deleteMany();
     await tx.user.deleteMany();
+    await tx.taxNexusState.createMany({
+      data: [{ stateCode: "TX", label: "Texas", enabled: true, registeredAt: new Date() }],
+      skipDuplicates: true,
+    });
   });
 }
 

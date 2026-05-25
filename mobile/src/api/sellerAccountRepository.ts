@@ -17,6 +17,7 @@ export type SellerAccountPayload = {
 
 export type SellerAccountResponse = {
   setupWizardComplete?: boolean;
+  sellerSetupWizardCompletedAt?: string | null;
   seller: SellerAccountPayload;
   stripePlatformConfigured?: boolean;
   readiness?: SellerLiveReadiness;
@@ -105,9 +106,11 @@ export async function patchSellerProfile(
 
 export async function markSellerSetupWizardCompleteOnServer(
   accessToken: string,
+  sellerAgreementAccepted = true,
 ): Promise<{ setupWizardComplete?: boolean }> {
   const res = await accountFetch('/api/account/seller/wizard-complete', accessToken, {
     method: 'POST',
+    body: JSON.stringify({ sellerAgreementAccepted }),
   });
   let j: { error?: string; setupWizardComplete?: boolean } = {};
   try {

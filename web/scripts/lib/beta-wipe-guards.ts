@@ -11,15 +11,19 @@ export type BetaWipeEnv = {
   dbRef: string;
 };
 
-export function assertBetaFullWipeAllowed(): BetaWipeEnv {
+export function assertBetaFullWipeAllowed(opts?: { noSeed?: boolean }): BetaWipeEnv {
   if (process.env.CONFIRM_BETA_FULL_WIPE !== "1") {
     console.error(
       "Refusing: set CONFIRM_BETA_FULL_WIPE=1 to wipe ALL beta application data.",
     );
     process.exit(1);
   }
-  if (process.env.ALLOW_BETA_QA_SEED !== "1") {
-    console.error("Refusing: set ALLOW_BETA_QA_SEED=1 (required for post-wipe seed).");
+  if (!opts?.noSeed && process.env.ALLOW_BETA_QA_SEED !== "1") {
+    console.error("Refusing: set ALLOW_BETA_QA_SEED=1 (required for post-wipe seed). Use --no-seed for empty beta.");
+    process.exit(1);
+  }
+  if (opts?.noSeed && process.env.CONFIRM_BETA_EMPTY_WIPE !== "1") {
+    console.error("Refusing: set CONFIRM_BETA_EMPTY_WIPE=1 when using --no-seed (zero accounts after wipe).");
     process.exit(1);
   }
 
@@ -59,10 +63,18 @@ export function assertBetaFullWipeAllowed(): BetaWipeEnv {
   return { supabaseUrl, serviceKey, dbRef: dbRef! };
 }
 
-export function printBetaWipeBanner(dryRun: boolean) {
+export function printBetaWipeBanner(dryRun: boolean, empty = false) {
   console.log("");
   console.log("=".repeat(72));
-  console.log(dryRun ? "BETA FULL WIPE — DRY RUN (no changes)" : "BETA FULL WIPE — LIVE");
+  console.log(
+    dryRun
+      ? empty
+        ? "BETA EMPTY WIPE — DRY RUN (no changes, no seed)"
+        : "BETA FULL WIPE — DRY RUN (no changes)"
+      : empty
+        ? "BETA EMPTY WIPE — LIVE (zero users, no seed)"
+        : "BETA FULL WIPE — LIVE",
+  );
   console.log(`Target: Supabase project ${EXPECTED_BETA_PROJECT_REF} ONLY`);
   console.log("Production and other project refs are blocked.");
   console.log("=".repeat(72));

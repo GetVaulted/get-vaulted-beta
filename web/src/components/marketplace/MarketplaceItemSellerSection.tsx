@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { useState } from "react";
 import { AskSellerModal } from "@/components/marketplace/AskSellerModal";
 import { SellerFollowButton } from "@/components/seller/SellerFollowButton";
+import { ListingReportLink, UserReportLink } from "@/components/trust/TrustReportLinks";
 import type { MarketplaceListing } from "@/content/marketplace-listings";
 import type { ItemPageExtras } from "@/lib/marketplace-item-extras";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
@@ -86,6 +87,10 @@ export function MarketplaceItemSellerSection({ listing, extras }: MarketplaceIte
           {listing.sellerId ? (
             <SellerFollowButton sellerUserId={listing.sellerId} variant="inline" showFollowerCount className="flex-1 sm:flex-none" />
           ) : null}
+          {listing.sellerId ? (
+            <UserReportLink userId={listing.sellerId} label="Report seller" className="inline-flex h-9 items-center px-2" />
+          ) : null}
+          <ListingReportLink listingId={listing.id} className="inline-flex h-9 items-center px-2" />
         </div>
       ) : (
         <p className="mt-3 text-sm text-zinc-500">This is your listing.</p>

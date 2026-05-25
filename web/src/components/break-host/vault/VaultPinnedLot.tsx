@@ -236,45 +236,64 @@ export function VaultPinnedLot({
 
         {activeBoardRow ? (
           <div className={`relative border-t border-white/[0.07] bg-black/40 px-2.5 ${compactEmbedded ? "py-1.5" : "px-3 py-2 max-[380px]:px-2.5"}`}>
-            {biddingWindowOpen ? null : roomStatusLive ? (
+            {activeBoardRow.item.status === "sold" ? (
+              <p className="text-center text-[11px] font-bold uppercase tracking-wide text-emerald-300/95">Lot sold</p>
+            ) : activeBoardRow.item.status === "skipped" ? (
+              <p className="text-center text-[11px] font-bold uppercase tracking-wide text-zinc-400">Lot skipped</p>
+            ) : biddingWindowOpen ? (
               <div className={`flex flex-wrap items-center gap-2 ${isMobile ? "justify-center" : "justify-between"}`}>
-                <label className={`flex items-center gap-2 text-zinc-400 ${isMobile ? "text-[9px]" : "text-[10px]"}`}>
-                  <span className="font-bold uppercase tracking-wide">Clock</span>
-                  <select
-                    value={hostAuctionDurationSec}
-                    onChange={(e) => onHostAuctionDurationSec(Number(e.target.value))}
-                    className="rounded-md border border-white/15 bg-black/55 px-2 py-1 text-[10px] font-semibold text-zinc-100"
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/15 px-2.5 py-1 text-[9px] font-black uppercase tracking-wide text-emerald-100">
+                  <span className="size-1.5 animate-pulse rounded-full bg-emerald-300" aria-hidden />
+                  Auction running
+                </span>
+                {hostAuctionCountdownLabel ? (
+                  <span className="text-[11px] font-black tabular-nums text-amber-100">{hostAuctionCountdownLabel}</span>
+                ) : null}
+                <span className="font-mono text-sm font-black tabular-nums text-white">
+                  {item ? fmtOverlayLead(item) : "—"}
+                </span>
+              </div>
+            ) : roomStatusLive ? (
+              <div className={`flex flex-col gap-2 ${isMobile ? "items-stretch" : ""}`}>
+                <div className={`flex flex-wrap items-center gap-2 ${isMobile ? "justify-center" : "justify-between"}`}>
+                  <label className={`flex items-center gap-2 text-zinc-400 ${isMobile ? "text-[9px]" : "text-[10px]"}`}>
+                    <span className="font-bold uppercase tracking-wide">Clock</span>
+                    <select
+                      value={hostAuctionDurationSec}
+                      onChange={(e) => onHostAuctionDurationSec(Number(e.target.value))}
+                      className="rounded-md border border-white/15 bg-black/55 px-2 py-1 text-[10px] font-semibold text-zinc-100"
+                    >
+                      {[5, 10, 15, 20, 30].map((sec) => (
+                        <option key={sec} value={sec}>
+                          {sec}s
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    aria-pressed={hostClutchTimeEnabled}
+                    onClick={onToggleClutch}
+                    className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wide transition ${
+                      hostClutchTimeEnabled
+                        ? "border-fuchsia-300/60 bg-gradient-to-r from-fuchsia-500/20 via-violet-500/20 to-amber-400/20 text-white"
+                        : "border-white/15 bg-black/40 text-zinc-400"
+                    }`}
                   >
-                    {[5, 10, 15, 20, 30].map((sec) => (
-                      <option key={sec} value={sec}>
-                        {sec}s
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  aria-pressed={hostClutchTimeEnabled}
-                  onClick={onToggleClutch}
-                  className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wide transition ${
-                    hostClutchTimeEnabled
-                      ? "border-fuchsia-300/60 bg-gradient-to-r from-fuchsia-500/20 via-violet-500/20 to-amber-400/20 text-white"
-                      : "border-white/15 bg-black/40 text-zinc-400"
-                  }`}
-                >
-                  Sudden death
-                </button>
+                    Sudden death
+                  </button>
+                </div>
                 <button
                   type="button"
                   disabled={!hostStartLiveAuctionEnabled || hostLiveItemAuctionBusy}
                   onClick={onStartAuction}
-                  className="rounded-full bg-gradient-to-r from-emerald-600 to-emerald-500 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-white shadow-[0_0_20px_-8px_rgba(16,185,129,0.8)] disabled:opacity-40"
+                  className={`w-full rounded-full bg-gradient-to-r from-amber-400 via-amber-300 to-yellow-200 px-4 py-2.5 text-[11px] font-black uppercase tracking-wide text-zinc-950 shadow-[0_0_24px_-8px_rgba(251,191,36,0.85)] disabled:opacity-40 ${isMobile ? "py-2" : ""}`}
                 >
-                  {hostLiveItemAuctionBusy ? "…" : "Open bidding"}
+                  {hostLiveItemAuctionBusy ? "Starting…" : "Start Auction"}
                 </button>
               </div>
             ) : (
-              <p className="text-center text-[10px] text-amber-200/90">Go live to open the auction clock.</p>
+              <p className="text-center text-[10px] text-amber-200/90">Go live to start the auction.</p>
             )}
           </div>
         ) : null}

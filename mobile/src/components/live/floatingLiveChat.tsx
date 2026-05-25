@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useMemo, useRef } from 'react';
 import {
   Image,
@@ -20,6 +21,9 @@ import {
   isViewerEventMessage,
   tailUniqueChatMessages,
 } from '../../lib/liveRoomChatMessages';
+import { LIVE_ROOM_TEXT_PROPS } from '../../lib/liveRoomUiScale';
+import { LiveRoomText } from './LiveRoomText';
+import { LiveChatRowActions } from '../trust/LiveChatRowActions';
 import type { ChatMessage } from '../../types';
 
 /** @deprecated Use COMPOSER_BAR_HEIGHT from liveRoomBottomLayout */
@@ -30,7 +34,8 @@ export const CHAT_STACK_RESERVE = 248;
 
 const COMPOSER_PLACEHOLDER = 'Say something';
 
-const MAX_FLOATING_CHAT = 10;
+/** TikTok/Whatnot-style overlay: last N lines, oldest fade at top. */
+export const MAX_FLOATING_CHAT = 5;
 
 const TEXT_SHADOW = {
   textShadowColor: 'rgba(0,0,0,0.85)',
@@ -43,44 +48,72 @@ function chatAvatarUri(message: ChatMessage, hostAvatarUrl: string) {
   return `https://i.pravatar.cc/80?u=${encodeURIComponent(message.user)}`;
 }
 
+/** Oldest row (top) fades out; newest (bottom) stays fully visible. */
 function rowOpacity(index: number, total: number): number {
   if (total <= 1) return 1;
-  return 0.34 + (index / (total - 1)) * 0.66;
+  const progress = index / (total - 1);
+  return 0.14 + progress ** 1.75 * 0.86;
 }
 
 function FloatingChatRow({
   message,
   hostAvatarUrl,
   opacity,
+  liveRoomId,
+  hostUserId,
+  accessToken,
+  canModerate,
+  onModerationComplete,
 }: {
   message: ChatMessage;
   hostAvatarUrl: string;
   opacity: number;
+  liveRoomId?: string;
+  hostUserId?: string;
+  accessToken?: string;
+  canModerate?: boolean;
+  onModerationComplete?: () => void;
 }) {
   if (isViewerEventMessage(message)) {
     const name = formatViewerEventName(message.user);
     return (
       <View style={[styles.eventRow, { opacity }]}>
-        <Text style={styles.eventText} numberOfLines={2}>
-          <Text style={[styles.eventName, message.isHost && styles.usernameHost]}>{name}</Text>
-          <Text style={styles.eventAction}> {message.text}</Text>
-        </Text>
+        <LiveRoomText style={styles.inlineLine} numberOfLines={2}>
+          <LiveRoomText style={[styles.username, message.isHost && styles.usernameGold]}>{name}</LiveRoomText>
+          <LiveRoomText style={styles.messageBody}> {message.text}</LiveRoomText>
+        </LiveRoomText>
       </View>
     );
   }
 
-  const name = formatChatDisplayName(message.user, message.isHost);
+  const name = formatChatDisplayName(message.user);
+  const showActions =
+    message.messageType === 'chat' &&
+    liveRoomId &&
+    message.senderId &&
+    (!hostUserId || message.senderId !== hostUserId);
+
   return (
     <View style={[styles.chatRow, { opacity }]}>
       <Image source={{ uri: chatAvatarUri(message, hostAvatarUrl) }} style={styles.chatAvatar} />
-      <View style={styles.chatTextCol}>
-        <Text style={[styles.username, message.isHost && styles.usernameHost]} numberOfLines={1}>
-          {name}
-        </Text>
-        <Text style={styles.messageText} numberOfLines={3}>
-          {message.text}
-        </Text>
+      <View style={styles.chatTextWrap}>
+        <LiveRoomText style={styles.inlineLine} numberOfLines={3}>
+          <LiveRoomText style={[styles.username, message.isHost && styles.usernameGold]}>{name}</LiveRoomText>
+          {message.isHost ? <LiveRoomText style={styles.hostBadgeInline}> HOST</LiveRoomText> : null}
+          <LiveRoomText style={styles.messageBody}> {message.text}</LiveRoomText>
+        </LiveRoomText>
       </View>
+      {showActions ? (
+        <LiveChatRowActions
+          liveRoomId={liveRoomId}
+          messageId={message.id}
+          senderId={message.senderId}
+          senderUsername={message.user}
+          accessToken={accessToken}
+          canModerate={canModerate}
+          onComplete={onModerationComplete}
+        />
+      ) : null}
     </View>
   );
 }
@@ -94,6 +127,11 @@ export function FloatingLiveChat({
   isActive,
   streamKey,
   maxHeight = CHAT_STACK_RESERVE,
+  liveRoomId,
+  hostUserId,
+  accessToken,
+  canModerate,
+  onModerationComplete,
 }: {
   pool: ChatMessage[];
   hostAvatarUrl: string;
@@ -103,6 +141,11 @@ export function FloatingLiveChat({
   isActive: boolean;
   streamKey: string;
   maxHeight?: number;
+  liveRoomId?: string;
+  hostUserId?: string;
+  accessToken?: string;
+  canModerate?: boolean;
+  onModerationComplete?: () => void;
 }) {
   const visible = useMemo(
     () => tailUniqueChatMessages(pool, MAX_FLOATING_CHAT),
@@ -114,16 +157,31 @@ export function FloatingLiveChat({
   return (
     <View
       style={[styles.floatChatColumn, { bottom, left, right: rightEdge, maxHeight }]}
-      pointerEvents="none"
+      pointerEvents="box-none"
     >
-      {visible.map((m, idx) => (
-        <FloatingChatRow
-          key={`${streamKey}-${m.id}`}
-          message={m}
-          hostAvatarUrl={hostAvatarUrl}
-          opacity={rowOpacity(idx, visible.length)}
+      <View style={styles.stackInner} pointerEvents="box-none">
+        {visible.map((m, idx) => (
+          <FloatingChatRow
+            key={`${streamKey}-${m.id}`}
+            message={m}
+            hostAvatarUrl={hostAvatarUrl}
+            opacity={rowOpacity(idx, visible.length)}
+            liveRoomId={liveRoomId}
+            hostUserId={hostUserId}
+            accessToken={accessToken}
+            canModerate={canModerate}
+            onModerationComplete={onModerationComplete}
+          />
+        ))}
+      </View>
+      {visible.length >= 3 ? (
+        <LinearGradient
+          pointerEvents="none"
+          colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0.18)', 'transparent']}
+          locations={[0, 0.42, 0.72]}
+          style={styles.topFadeMask}
         />
-      ))}
+      ) : null}
     </View>
   );
 }
@@ -175,6 +233,8 @@ export function FloatingChatComposer({
           onSubmitEditing={() => void handleSend()}
           editable={!sendDisabled}
           maxLength={280}
+          allowFontScaling={LIVE_ROOM_TEXT_PROPS.allowFontScaling}
+          maxFontSizeMultiplier={LIVE_ROOM_TEXT_PROPS.maxFontSizeMultiplier}
         />
         <Pressable
           style={[styles.composerSendBtn, !canSend && styles.composerSendBtnDim]}
@@ -198,13 +258,26 @@ const styles = StyleSheet.create({
     position: 'absolute',
     justifyContent: 'flex-end',
     alignItems: 'flex-start',
+    overflow: 'hidden',
     zIndex: 14,
+  },
+  stackInner: {
+    width: '100%',
+    justifyContent: 'flex-end',
+    alignItems: 'flex-start',
+  },
+  topFadeMask: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '62%',
   },
   chatRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 8,
-    marginBottom: 10,
+    marginBottom: 7,
     maxWidth: '100%',
   },
   chatAvatar: {
@@ -213,47 +286,40 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.28)',
-    marginTop: 1,
+    flexShrink: 0,
   },
-  chatTextCol: {
+  chatTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  inlineLine: {
     flex: 1,
     flexShrink: 1,
     minWidth: 0,
+    fontSize: 13,
+    lineHeight: 17,
+    ...TEXT_SHADOW,
   },
   username: {
-    fontSize: 13,
     fontWeight: '800',
     color: 'rgba(255,255,255,0.96)',
-    letterSpacing: -0.15,
-    marginBottom: 1,
-    ...TEXT_SHADOW,
   },
-  usernameHost: {
+  usernameGold: {
     color: colors.gold,
   },
-  messageText: {
-    fontSize: 13,
+  hostBadgeInline: {
+    fontWeight: '900',
+    fontSize: 9,
+    letterSpacing: 0.5,
+    color: colors.gold,
+  },
+  messageBody: {
     fontWeight: '500',
     color: 'rgba(255,255,255,0.92)',
-    lineHeight: 17,
-    ...TEXT_SHADOW,
   },
   eventRow: {
-    marginBottom: 8,
+    marginBottom: 6,
     maxWidth: '100%',
-  },
-  eventText: {
-    fontSize: 13,
-    lineHeight: 17,
-    ...TEXT_SHADOW,
-  },
-  eventName: {
-    fontWeight: '800',
-    color: 'rgba(255,255,255,0.96)',
-  },
-  eventAction: {
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.88)',
   },
   composerWrap: {
     position: 'absolute',

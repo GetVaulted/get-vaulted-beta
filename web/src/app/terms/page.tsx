@@ -73,7 +73,7 @@ export default function TermsPage() {
           </p>
         </section>
 
-        <section>
+        <section id="seller-obligations">
           <h2 className="font-display text-lg font-semibold text-foreground">5. Seller Responsibility</h2>
           <p className="mt-3 text-muted">Sellers are solely responsible for:</p>
           <ul className="mt-3 list-disc space-y-2 pl-5 text-muted">
@@ -161,7 +161,7 @@ export default function TermsPage() {
           </ul>
         </section>
 
-        <section>
+        <section id="payments-stripe-connect">
           <h2 className="font-display text-lg font-semibold text-foreground">11. Payments, Fees, and Payouts</h2>
           <p className="mt-3 text-muted">
             You authorize us and our payment providers to process charges, refunds, reversals, payouts, and

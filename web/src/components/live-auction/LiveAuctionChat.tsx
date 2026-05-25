@@ -4,6 +4,8 @@ import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { appendLiveRoomMessageDedupe } from "@/lib/realtime-merge-messages";
+import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
+import { LiveChatMessageRowActions } from "@/components/trust/LiveChatMessageRowActions";
 
 const PALETTE = ["text-sky-400", "text-emerald-400", "text-violet-400", "text-amber-400", "text-rose-400", "text-cyan-400"] as const;
 
@@ -49,6 +51,9 @@ type LiveAuctionChatProps = {
    * Default true for buyer / overlay chat.
    */
   scrollMessages?: boolean;
+  /** Host/seller user id — never show mod/report actions on host rows. */
+  hostUserId?: string | null;
+  onMessagesRefresh?: () => void;
 };
 
 export function LiveAuctionChat({
@@ -59,8 +64,11 @@ export function LiveAuctionChat({
   compact = false,
   overlayMode = false,
   scrollMessages = true,
+  hostUserId = null,
+  onMessagesRefresh,
 }: LiveAuctionChatProps) {
   const { data: session, status } = useSession();
+  const mod = useLiveRoomModerationState(liveRoomId, Boolean(liveRoomId));
   /** Bid lines are not shown in arena chat (bids surface via realtime / UI elsewhere). */
   const chatMessages = useMemo(() => messages.filter((m) => m.messageType !== "bid"), [messages]);
   const [draft, setDraft] = useState("");
@@ -90,7 +98,9 @@ export function LiveAuctionChat({
       });
       const j = (await res.json().catch(() => ({}))) as { message?: LiveRoomMessageDTO; error?: string };
       if (!res.ok) {
-        setSendError(typeof j.error === "string" ? j.error : "Message could not be sent.");
+        const err = typeof j.error === "string" ? j.error : "Message could not be sent.";
+        setSendError(err);
+        mod.handleRestrictionError(err);
         return;
       }
       if (j.message) {
@@ -102,7 +112,36 @@ export function LiveAuctionChat({
     } finally {
       setSending(false);
     }
-  }, [draft, liveRoomId, onMessagesChange, status]);
+  }, [draft, liveRoomId, mod, onMessagesChange, status]);
+
+  const renderMessageActions = (m: LiveRoomMessageDTO) => {
+    if (m.messageType !== "chat") return null;
+    if (hostUserId && m.senderId === hostUserId) return null;
+    return (
+      <LiveChatMessageRowActions
+        liveRoomId={liveRoomId}
+        messageId={m.id}
+        senderId={m.senderId}
+        senderUsername={m.senderUsername}
+        canModerate={mod.canModerate}
+        onModerationComplete={() => {
+          void mod.reload();
+          onMessagesRefresh?.();
+        }}
+      />
+    );
+  };
+
+  const blockedBanner =
+    mod.roomBlocked || mod.myRestrictions?.roomBanned || mod.myRestrictions?.kickedUntil ? (
+      <div className="shrink-0 border-b border-rose-500/30 bg-rose-950/40 px-3 py-2 text-center text-[11px] text-rose-200">
+        You cannot participate in this room. Return to{" "}
+        <a href="/live" className="font-semibold underline">
+          live directory
+        </a>
+        .
+      </div>
+    ) : null;
 
   const panelMessages = useMemo(
     () => (scrollMessages ? chatMessages.slice(-33) : chatMessages.slice(-500)),
@@ -116,6 +155,12 @@ export function LiveAuctionChat({
     return (
       <div className="pointer-events-none flex h-full min-h-0 w-full min-w-0 flex-col">
         <div className="pointer-events-auto flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
+          {blockedBanner}
+          {mod.pinnedModeratorMessage ? (
+            <p className="pointer-events-none shrink-0 border-b border-amber-500/20 bg-amber-950/30 px-2 py-1 text-[10px] text-amber-100">
+              📌 {mod.pinnedModeratorMessage}
+            </p>
+          ) : null}
           <div
             ref={overlayScrollRef}
             data-testid="live-chat-messages"
@@ -135,7 +180,7 @@ export function LiveAuctionChat({
               return (
                 <div
                   key={m.id}
-                  className={`relative max-w-[94%] text-[13px] leading-snug motion-reduce:animate-none max-[380px]:text-[12px] ${
+                  className={`chat-msg-row group relative max-w-[94%] text-[13px] leading-snug motion-reduce:animate-none max-[380px]:text-[12px] ${
                     isNewest
                       ? "motion-safe:animate-[live-chat-slide_var(--live-duration-enter)_var(--live-ease)_both]"
                       : "animate-[chat-rise_var(--live-duration-enter)_var(--live-ease)]"
@@ -146,6 +191,7 @@ export function LiveAuctionChat({
                     <span className={labelClass}>{label}</span>
                     <span className="text-zinc-400">: </span>
                     <span className={isSystem ? "text-zinc-100" : "text-zinc-50"}>{m.body}</span>
+                    {renderMessageActions(m)}
                   </span>
                 </div>
               );
@@ -153,7 +199,7 @@ export function LiveAuctionChat({
           </div>
           <div className="shrink-0 bg-transparent px-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-1.5">
             <div className="flex w-full min-w-0 items-center gap-2 rounded-full border border-[color:var(--live-border)] bg-black/35 px-3 py-1 shadow-[var(--live-shadow-rail)] backdrop-blur-[var(--live-blur-xl)]">
-              {status === "authenticated" ? (
+              {status === "authenticated" && !mod.myRestrictions?.muted && !mod.roomBlocked ? (
                 <>
                   <input
                     data-testid="live-chat-input"
@@ -179,6 +225,8 @@ export function LiveAuctionChat({
                     Send
                   </button>
                 </>
+              ) : status === "authenticated" && mod.myRestrictions?.muted ? (
+                <p className="px-1 py-1 text-[13px] text-rose-300 max-[380px]:text-[12px]">You are muted in this room.</p>
               ) : (
                 <p className="px-1 py-1 text-[13px] text-zinc-300 max-[380px]:text-[12px]">Sign in to chat</p>
               )}
@@ -203,6 +251,12 @@ export function LiveAuctionChat({
       <div className={`shrink-0 border-b border-zinc-800 ${compact ? "px-2.5 py-1.5" : "px-4 py-2.5"}`}>
         <p className={`${compact ? "text-[10px]" : "text-[11px]"} font-bold uppercase tracking-wider text-zinc-500`}>Live chat</p>
       </div>
+      {blockedBanner}
+      {mod.pinnedModeratorMessage ? (
+        <p className="shrink-0 border-b border-amber-500/20 bg-amber-950/30 px-3 py-1.5 text-[10px] text-amber-100">
+          📌 {mod.pinnedModeratorMessage}
+        </p>
+      ) : null}
       <div
         data-testid="live-chat-messages"
         className={`chat-messages space-y-2 overflow-x-hidden overscroll-contain [-webkit-overflow-scrolling:touch] touch-pan-y ${compact ? "p-2.5" : "p-4"} ${
@@ -225,12 +279,13 @@ export function LiveAuctionChat({
             return (
               <div
                 key={m.id}
-                className={`animate-[chat-rise_var(--live-duration-ui)_var(--live-ease)] leading-snug ${compact ? "text-sm" : "text-[15px]"}`}
+                className={`chat-msg-row group animate-[chat-rise_var(--live-duration-ui)_var(--live-ease)] leading-snug ${compact ? "text-sm" : "text-[15px]"}`}
                 style={compact ? { opacity: 0.35 + (idx / Math.max(1, arr.length - 1)) * 0.65 } : undefined}
               >
                 <span className={labelClass}>{label}</span>
                 <span className="text-zinc-600">: </span>
                 <span className={isSystem ? "text-zinc-200" : "text-zinc-300"}>{m.body}</span>
+                {renderMessageActions(m)}
                 {m.messageType !== "chat" && !isSystem && !isPurchase ? (
                   <span className="ml-2 text-[10px] uppercase tracking-wide text-zinc-600">({m.messageType})</span>
                 ) : null}
@@ -244,6 +299,10 @@ export function LiveAuctionChat({
           <p className="text-center text-[11px] text-zinc-500">Loading session…</p>
         ) : status === "unauthenticated" ? (
           <p className="text-center text-[11px] text-zinc-500">Sign in to participate in chat.</p>
+        ) : mod.myRestrictions?.muted || mod.roomBlocked ? (
+          <p className="text-center text-[11px] text-rose-300">
+            {mod.roomBlocked ? "You cannot participate in this room." : "You are muted in this room."}
+          </p>
         ) : (
           <>
             <div className="flex items-center gap-2">

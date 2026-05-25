@@ -8,6 +8,7 @@ import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader
 import { useNotificationBadge } from '../../hooks/useNotificationBadge';
 import { useSellerSetupState } from '../../hooks/useSellerSetupState';
 import { areDevToolsEnabled } from '../../lib/devTools';
+import { openLegalUrl } from '../../lib/openLegalUrl';
 import { performSignOut } from '../../lib/signOutSession';
 import { sellerSetupMenuLabel } from '../../lib/seller-setup-state';
 import {
@@ -131,6 +132,28 @@ export function SettingsScreen({ navigation }: Props) {
           sub="Sellers and collectors you follow"
           icon="people-outline"
           onPress={() => user?.id && openUserProfile(user.id, navigation)}
+        />
+
+        <SettingsSectionHeader title="Legal & trust" />
+        <SettingsRow
+          label="Terms of Service"
+          icon="document-text-outline"
+          onPress={() => openLegalUrl('terms')}
+        />
+        <SettingsRow
+          label="Privacy Policy"
+          icon="shield-outline"
+          onPress={() => openLegalUrl('privacy')}
+        />
+        <SettingsRow
+          label="Community Guidelines"
+          icon="people-circle-outline"
+          onPress={() => navigation.navigate('CommunityGuidelines')}
+        />
+        <SettingsRow
+          label="Reporting & Safety"
+          icon="flag-outline"
+          onPress={() => navigation.navigate('ReportingSafety')}
         />
 
         <SettingsSectionHeader title="Settings" />

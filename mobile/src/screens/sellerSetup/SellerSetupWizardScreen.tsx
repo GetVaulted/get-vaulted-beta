@@ -3,10 +3,12 @@ import * as ImagePicker from 'expo-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,7 +21,10 @@ import { patchSellerProfile, patchSellerShipFrom } from '../../api/sellerAccount
 import { uploadMyAvatar } from '../../api/profilesRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { useSellerSetupState } from '../../hooks/useSellerSetupState';
-import { isPayoutSetupComplete } from '../../lib/seller-setup-state';
+import {
+  isWizardPayoutStepComplete,
+  reconcileSellerPayoutAfterStripe,
+} from '../../lib/reconcileSellerPayoutAfterStripe';
 import {
   resolveSellerWizardStep,
   SELLER_WIZARD_TOTAL_STEPS,
@@ -35,11 +40,13 @@ import { markSellerSetupWizardCompleteOnServer } from '../../api/sellerAccountRe
 import {
   SELLER_SHIP_FROM_COUNTRY,
   SELLER_SHIP_FROM_COUNTRY_LABEL,
+  sellerHasShipFromAddress,
 } from '../../lib/seller-shipping-readiness';
-import { openStripeConnectOnboarding, refreshSellerConnectAfterOnboarding } from '../../lib/openStripeConnectOnboarding';
+import { openStripeConnectOnboarding } from '../../lib/openStripeConnectOnboarding';
 import { useSellerStripeConnect } from '../../hooks/useSellerStripeConnect';
 import { openSellerHQ } from '../../navigation/openSellerHQ';
 import type { RootStackParamList } from '../../navigation/types';
+import { siteUrls } from '../../lib/siteUrls';
 import { colors, radii, spacing, typography } from '../../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SellerSetupWizard'>;
@@ -66,8 +73,42 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   const [displayName, setDisplayName] = useState('');
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [profileBusy, setProfileBusy] = useState(false);
+  const [sellerAgreementAccepted, setSellerAgreementAccepted] = useState(false);
 
   const [payoutBusy, setPayoutBusy] = useState(false);
+  const [payoutReconciling, setPayoutReconciling] = useState(false);
+  const stripeReturnRef = useRef(false);
+  const reconcileInFlightRef = useRef(false);
+
+  const reconcilePayoutState = useCallback(
+    async (opts?: { autoAdvance?: boolean }) => {
+      if (!token || reconcileInFlightRef.current) return false;
+      reconcileInFlightRef.current = true;
+      setPayoutReconciling(true);
+      try {
+        const result = await reconcileSellerPayoutAfterStripe(token);
+        await Promise.all([setup.refetchSilent(), stripeConnect.refresh()]);
+        if (result.complete && opts?.autoAdvance !== false) {
+          setStep((current) => (current === 2 ? 3 : current));
+        }
+        return result.complete;
+      } finally {
+        reconcileInFlightRef.current = false;
+        setPayoutReconciling(false);
+      }
+    },
+    [token, setup, stripeConnect],
+  );
+
+  useEffect(() => {
+    if (!token) return;
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active' && step === 2 && stripeReturnRef.current) {
+        void reconcilePayoutState({ autoAdvance: true });
+      }
+    });
+    return () => sub.remove();
+  }, [token, step, reconcilePayoutState]);
 
   useEffect(() => {
     if (!setup.seller) return;
@@ -78,8 +119,8 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
     setShipZip(setup.seller.shipFromZip ?? '');
     setDisplayName(setup.seller.name ?? '');
     setProfileImage(setup.seller.image);
-    setShippingSaved(Boolean(setup.checks?.hasShipFromAddress));
-  }, [setup.seller, setup.checks?.hasShipFromAddress]);
+    setShippingSaved(sellerHasShipFromAddress(setup.checks, setup.seller));
+  }, [setup.seller, setup.checks]);
 
   useEffect(() => {
     if (setup.phase === 'loading' || !setup.checks || stepInitRef.current) return;
@@ -120,15 +161,14 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   const openPayouts = async () => {
     if (!token) return;
     setPayoutBusy(true);
+    stripeReturnRef.current = true;
     try {
-      const result = await openStripeConnectOnboarding(token);
-      if (result === 'success') {
-        await refreshSellerConnectAfterOnboarding(() => stripeConnect.refresh());
-        await setup.refetch();
-      }
+      await openStripeConnectOnboarding(token);
+      await reconcilePayoutState({ autoAdvance: true });
     } catch (e) {
       Alert.alert('Payout setup', e instanceof Error ? e.message : 'Could not open Stripe.');
     } finally {
+      stripeReturnRef.current = false;
       setPayoutBusy(false);
     }
   };
@@ -142,7 +182,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
     }
     setSaveBusy(true);
     try {
-      await patchSellerShipFrom(token, {
+      const res = await patchSellerShipFrom(token, {
         shipFromName: shipName.trim() || undefined,
         shipFromStreet: shipStreet.trim(),
         shipFromCity: shipCity.trim(),
@@ -150,8 +190,12 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
         shipFromZip: shipZip.trim(),
         shipFromCountry: SELLER_SHIP_FROM_COUNTRY,
       });
+      if (res.readiness) {
+        setup.applyReadinessFromServer(res.readiness, res.seller);
+      } else {
+        await setup.refetchSilent();
+      }
       setShippingSaved(true);
-      await setup.refetch();
       setStep(4);
     } catch (e) {
       Alert.alert('Could not save', e instanceof Error ? e.message : 'Unknown error');
@@ -184,10 +228,14 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   };
 
   const finishWizard = async () => {
+    if (!sellerAgreementAccepted) {
+      Alert.alert('Seller agreement', 'Accept the seller agreement before finishing setup.');
+      return;
+    }
     await markSellerWizardCompleteLocal();
     if (token) {
       try {
-        await markSellerSetupWizardCompleteOnServer(token);
+        await markSellerSetupWizardCompleteOnServer(token, true);
       } catch {
         /* local flag still unlocks this device */
       }
@@ -213,7 +261,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   };
 
   const enterHq = () => {
-    void setup.refetch();
+    void setup.refetchSilent();
     navigation.goBack();
     openSellerHQ();
   };
@@ -235,8 +283,9 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   }
 
   const checks = setup.checks;
-  const payoutsDone = isPayoutSetupComplete(checks);
+  const payoutsDone = isWizardPayoutStepComplete(checks, stripeConnect.status);
   const progressPct = Math.round((step / SELLER_WIZARD_TOTAL_STEPS) * 100);
+  const payoutStepLoading = payoutBusy || payoutReconciling;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.sm, paddingBottom: insets.bottom + spacing.md }]}>
@@ -287,7 +336,12 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
               <Text style={styles.body}>
                 Connect Stripe so you can receive payouts when items sell. Required before you can list or go live.
               </Text>
-              {payoutsDone ? (
+              {payoutStepLoading ? (
+                <View style={styles.reconcileBox}>
+                  <ActivityIndicator color={colors.gold} />
+                  <Text style={styles.reconcileText}>Confirming payout setup…</Text>
+                </View>
+              ) : payoutsDone ? (
                 <View style={styles.successBox}>
                   <Text style={styles.successIcon}>✓</Text>
                   <Text style={styles.successTitle}>Payouts connected</Text>
@@ -301,9 +355,17 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
               <StepActions
                 showBack
                 onBack={goBack}
-                primaryLabel={payoutsDone ? 'Continue' : payoutBusy ? 'Opening…' : 'Connect payouts'}
+                primaryLabel={
+                  payoutStepLoading
+                    ? 'Confirming…'
+                    : payoutsDone
+                      ? 'Continue'
+                      : payoutBusy
+                        ? 'Opening…'
+                        : 'Connect payouts'
+                }
                 onPrimary={() => (payoutsDone ? setStep(3) : void openPayouts())}
-                primaryDisabled={payoutBusy || (!setup.stripePlatformConfigured && !payoutsDone)}
+                primaryDisabled={payoutStepLoading || (!setup.stripePlatformConfigured && !payoutsDone)}
               />
             </>
           ) : null}
@@ -392,14 +454,43 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
                 numberOfLines={3}
                 style={[styles.input, styles.textArea]}
               />
+              <Pressable
+                style={styles.agreementRow}
+                onPress={() => setSellerAgreementAccepted((v) => !v)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: sellerAgreementAccepted }}
+              >
+                <View style={[styles.agreementBox, sellerAgreementAccepted && styles.agreementBoxOn]}>
+                  {sellerAgreementAccepted ? <Text style={styles.agreementCheck}>✓</Text> : null}
+                </View>
+                <Text style={styles.agreementText}>
+                  I agree to the Get Vaulted{' '}
+                  <Text style={styles.link} onPress={() => void Linking.openURL(siteUrls.termsSellerObligations())}>
+                    seller obligations
+                  </Text>
+                  ,{' '}
+                  <Text style={styles.link} onPress={() => void Linking.openURL(siteUrls.terms())}>
+                    Terms of Service
+                  </Text>
+                  , and{' '}
+                  <Text style={styles.link} onPress={() => void Linking.openURL(siteUrls.communityGuidelines())}>
+                    Community Guidelines
+                  </Text>
+                  .
+                </Text>
+              </Pressable>
               <StepActions
                 showBack
                 onBack={goBack}
                 primaryLabel={profileBusy ? 'Saving…' : 'Save & continue'}
                 onPrimary={() => void saveProfile()}
-                primaryDisabled={profileBusy}
+                primaryDisabled={profileBusy || !sellerAgreementAccepted}
               />
-              <SecondaryButton label="Skip for now" onPress={() => void finishWizard()} disabled={profileBusy} />
+              <SecondaryButton
+                label="Skip for now"
+                onPress={() => void finishWizard()}
+                disabled={profileBusy || !sellerAgreementAccepted}
+              />
             </>
           ) : null}
 
@@ -575,6 +666,16 @@ const styles = StyleSheet.create({
   successIcon: { fontSize: 28, color: colors.success },
   successTitle: { fontSize: 14, fontWeight: '700', color: colors.success, marginTop: spacing.xs },
   successSub: { fontSize: 12, color: 'rgba(52,199,89,0.7)', marginTop: 4, textAlign: 'center' },
+  reconcileBox: {
+    padding: spacing.lg,
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(212,175,55,0.25)',
+    backgroundColor: 'rgba(212,175,55,0.06)',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  reconcileText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary, textAlign: 'center' },
   fieldLabel: { fontSize: 12, fontWeight: '600', color: colors.textMuted, marginBottom: 4 },
   fieldHint: { fontSize: 11, color: colors.textMuted, marginTop: 4 },
   input: {
@@ -613,6 +714,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(212,175,55,0.1)',
   },
   avatarPlaceholderText: { fontSize: 28, fontWeight: '700', color: colors.gold },
+  agreementRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginTop: spacing.sm },
+  agreementBox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  agreementBoxOn: { borderColor: colors.gold, backgroundColor: 'rgba(212,175,55,0.15)' },
+  agreementCheck: { fontSize: 12, fontWeight: '800', color: colors.gold },
+  agreementText: { flex: 1, fontSize: 13, lineHeight: 19, color: colors.textSecondary },
   link: { fontSize: 12, fontWeight: '700', color: colors.gold },
   completionIcon: { fontSize: 36, textAlign: 'center' },
   centerText: { textAlign: 'center' },

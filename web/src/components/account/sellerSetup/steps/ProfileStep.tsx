@@ -6,12 +6,15 @@ import {
   WizardSecondaryButton,
   WizardStepActions,
 } from "@/components/account/sellerSetup/WizardShell";
+import { SellerAgreementField } from "@/components/account/sellerSetup/SellerAgreementField";
 
 export function ProfileStep({
   displayName,
   imageUrl,
   saveBusy,
   saveError,
+  sellerAgreementAccepted,
+  onSellerAgreementChange,
   onBack,
   onDisplayNameChange,
   onImageChange,
@@ -22,6 +25,8 @@ export function ProfileStep({
   imageUrl: string | null;
   saveBusy: boolean;
   saveError: string | null;
+  sellerAgreementAccepted: boolean;
+  onSellerAgreementChange: (value: boolean) => void;
   onBack: () => void;
   onDisplayNameChange: (value: string) => void;
   onImageChange: (url: string) => void;
@@ -103,16 +108,22 @@ export function ProfileStep({
 
       {saveError ? <p className="mt-4 text-sm font-medium text-amber-200">{saveError}</p> : null}
 
+      <SellerAgreementField
+        checked={sellerAgreementAccepted}
+        onChange={onSellerAgreementChange}
+        disabled={saveBusy}
+      />
+
       <WizardStepActions
         onBack={onBack}
         backDisabled={saveBusy}
         primary={
-          <WizardPrimaryButton disabled={saveBusy} onClick={onSave}>
+          <WizardPrimaryButton disabled={saveBusy || !sellerAgreementAccepted} onClick={onSave}>
             {saveBusy ? "Saving…" : "Save & continue"}
           </WizardPrimaryButton>
         }
         below={
-          <WizardSecondaryButton disabled={saveBusy} onClick={onSkip}>
+          <WizardSecondaryButton disabled={saveBusy || !sellerAgreementAccepted} onClick={onSkip}>
             Skip for now
           </WizardSecondaryButton>
         }

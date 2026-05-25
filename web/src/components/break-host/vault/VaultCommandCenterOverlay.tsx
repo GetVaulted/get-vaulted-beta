@@ -9,6 +9,8 @@ import { VAULT_MODE_META } from "@/components/break-host/vault/vault-modes";
 import type { HostRecentSaleRowDTO } from "@/lib/live-room-recent-sales";
 import type { LiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
 import { LiveShowFeeTierTile } from "@/components/break-host/LiveShowFeeTierTile";
+import { LiveHostRoomGovernance } from "@/components/trust/LiveHostRoomGovernance";
+import type { LiveRoomModeratorRow } from "@/hooks/useLiveRoomModerationState";
 
 type HitLite = {
   id: string;
@@ -33,12 +35,26 @@ type VaultCommandCenterOverlayProps = {
   onOpenObs: () => void;
   onCopyPublic: () => void;
   onSoon: (label: string) => void;
+  /** When set, replaces placeholder audience-control buttons with live moderation wiring. */
+  roomGovernance?: {
+    slowModeSeconds: number;
+    moderators: LiveRoomModeratorRow[];
+    busy: boolean;
+    error: string | null;
+    onSetSlowMode: (seconds: number) => void;
+    onAssignModerator: (userId: string) => void;
+    onRevokeModerator: (userId: string) => void;
+  };
+  onStartAuction: () => void;
+  startAuctionEnabled: boolean;
+  startAuctionBusy: boolean;
   queueTab: "auction" | "bin" | "givvy" | "sold";
   onQueueTab: (t: "auction" | "bin" | "givvy" | "sold") => void;
   queueRows: VaultQueueRow[];
   selectedQueueItemId: string;
   onSelectQueueItem: (id: string) => void;
   onPostItem: (id: string) => void;
+  onSkipItem?: (id: string) => void;
   onDeleteItem: (id: string) => void;
   onAddAuction: () => void;
   recentSales: HostRecentSaleRowDTO[];
@@ -85,12 +101,17 @@ export function VaultCommandCenterOverlay({
   onOpenObs,
   onCopyPublic,
   onSoon,
+  roomGovernance,
+  onStartAuction,
+  startAuctionEnabled,
+  startAuctionBusy,
   queueTab,
   onQueueTab,
   queueRows,
   selectedQueueItemId,
   onSelectQueueItem,
   onPostItem,
+  onSkipItem,
   onDeleteItem,
   onAddAuction,
   recentSales,
@@ -211,9 +232,14 @@ export function VaultCommandCenterOverlay({
           <section className="mb-8">
             <SectionTitle k="B · Sales controls">Auction desk</SectionTitle>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              <GhostButton disabled={busy} onClick={() => onSoon("Start auction")}>
-                Start auction
-              </GhostButton>
+              <button
+                type="button"
+                disabled={!startAuctionEnabled || startAuctionBusy || busy}
+                onClick={onStartAuction}
+                className="rounded-xl border border-amber-400/35 bg-gradient-to-r from-amber-500/25 to-yellow-500/15 px-3 py-2.5 text-left text-[11px] font-black uppercase tracking-wide text-amber-50 hover:bg-amber-500/20 disabled:opacity-40"
+              >
+                {startAuctionBusy ? "Starting auction…" : "Start auction"}
+              </button>
               <GhostButton disabled={busy} onClick={() => onSoon("Pin item")}>
                 Pin item
               </GhostButton>
@@ -240,26 +266,40 @@ export function VaultCommandCenterOverlay({
 
           <section className="mb-8">
             <SectionTitle k="C · Audience controls">Room governance</SectionTitle>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              <GhostButton disabled={busy} onClick={() => onSoon("Verified buyers only")}>
-                Verified buyers only
-              </GhostButton>
-              <GhostButton disabled={busy} onClick={() => onSoon("Slow mode")}>
-                Slow mode
-              </GhostButton>
-              <GhostButton disabled={busy} onClick={() => onSoon("Mute users")}>
-                Mute users
-              </GhostButton>
-              <GhostButton disabled={busy} onClick={() => onSoon("Moderator controls")}>
-                Moderator controls
-              </GhostButton>
-              <GhostButton disabled={busy} onClick={() => onSoon("Polls")}>
-                Polls
-              </GhostButton>
-              <GhostButton disabled={busy} onClick={() => onSoon("Viewer milestones")}>
-                Viewer milestones
-              </GhostButton>
-            </div>
+            {roomGovernance ? (
+              <LiveHostRoomGovernance {...roomGovernance} />
+            ) : (
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <GhostButton disabled={busy} onClick={() => onSoon("Verified buyers only")}>
+                  Verified buyers only
+                </GhostButton>
+                <GhostButton disabled={busy} onClick={() => onSoon("Slow mode")}>
+                  Slow mode
+                </GhostButton>
+                <GhostButton disabled={busy} onClick={() => onSoon("Mute users")}>
+                  Mute users
+                </GhostButton>
+                <GhostButton disabled={busy} onClick={() => onSoon("Moderator controls")}>
+                  Moderator controls
+                </GhostButton>
+                <GhostButton disabled={busy} onClick={() => onSoon("Polls")}>
+                  Polls
+                </GhostButton>
+                <GhostButton disabled={busy} onClick={() => onSoon("Viewer milestones")}>
+                  Viewer milestones
+                </GhostButton>
+              </div>
+            )}
+            {roomGovernance ? (
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <GhostButton disabled={busy} onClick={() => onSoon("Polls")}>
+                  Polls
+                </GhostButton>
+                <GhostButton disabled={busy} onClick={() => onSoon("Viewer milestones")}>
+                  Viewer milestones
+                </GhostButton>
+              </div>
+            ) : null}
           </section>
 
           <section className="mb-8">
@@ -352,6 +392,7 @@ export function VaultCommandCenterOverlay({
               viewerCount={viewerCount}
               busy={busy}
               onPost={onPostItem}
+              onSkip={onSkipItem}
               onDelete={onDeleteItem}
               onAddAuction={onAddAuction}
             />

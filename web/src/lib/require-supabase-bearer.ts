@@ -1,7 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { isAccountDeleted } from "@/lib/account-deletion";
 import { ensurePrismaUserForSupabaseAuth } from "@/lib/ensure-prisma-user-from-supabase-auth";
 import { syncStripeConnectFromEmailSibling } from "@/lib/link-stripe-account-from-email-sibling";
+import { prisma } from "@/lib/prisma";
 
 /**
  * Validates `Authorization: Bearer <supabase_access_token>` for mobile / native clients,
@@ -49,6 +51,17 @@ export async function requireUserIdFromSupabaseBearer(
       { error: "Add a verified email to your account before setting up payouts." },
       { status: 400 },
     );
+  }
+
+  const accountRow = await prisma.user.findUnique({
+    where: { id: prismaUserId },
+    select: { accountDeletedAt: true, suspendedAt: true },
+  });
+  if (accountRow && isAccountDeleted(accountRow)) {
+    return NextResponse.json({ error: "This account has been deleted." }, { status: 403 });
+  }
+  if (accountRow?.suspendedAt) {
+    return NextResponse.json({ error: "This account is suspended." }, { status: 403 });
   }
 
   try {

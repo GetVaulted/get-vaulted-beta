@@ -76,6 +76,7 @@ export function SellerSetupWizard() {
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [profileSaveBusy, setProfileSaveBusy] = useState(false);
   const [profileSaveError, setProfileSaveError] = useState<string | null>(null);
+  const [sellerAgreementAccepted, setSellerAgreementAccepted] = useState(false);
   const stepInitializedRef = useRef(false);
 
   const toast = useCallback((message: string) => {
@@ -212,7 +213,11 @@ export function SellerSetupWizard() {
   };
 
   const finishWizard = async () => {
-    await persistSellerWizardComplete();
+    if (!sellerAgreementAccepted) {
+      toast("Accept the seller agreement to continue.");
+      return;
+    }
+    await persistSellerWizardComplete(true);
     setStep(5);
   };
 
@@ -354,6 +359,8 @@ export function SellerSetupWizard() {
           imageUrl={profileImage}
           saveBusy={profileSaveBusy}
           saveError={profileSaveError}
+          sellerAgreementAccepted={sellerAgreementAccepted}
+          onSellerAgreementChange={setSellerAgreementAccepted}
           onBack={goBack}
           onDisplayNameChange={setDisplayName}
           onImageChange={setProfileImage}

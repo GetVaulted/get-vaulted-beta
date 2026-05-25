@@ -1,4 +1,4 @@
-/** Public web URLs (policies, support) — hosted on Netlify `static/`. */
+/** Public web URLs (policies, support). */
 
 export function getSiteBaseUrl(): string {
   const raw = process.env.EXPO_PUBLIC_SITE_URL?.trim();
@@ -6,8 +6,11 @@ export function getSiteBaseUrl(): string {
 }
 
 export const siteUrls = {
-  privacy: () => `${getSiteBaseUrl()}/privacy.html`,
-  terms: () => `${getSiteBaseUrl()}/terms.html`,
+  privacy: () => `${getSiteBaseUrl()}/privacy`,
+  terms: () => `${getSiteBaseUrl()}/terms`,
+  termsSellerObligations: () => `${getSiteBaseUrl()}/terms#seller-obligations`,
+  communityGuidelines: () => `${getSiteBaseUrl()}/community-guidelines`,
+  reportingSafety: () => `${getSiteBaseUrl()}/reporting-safety`,
   support: () => `${getSiteBaseUrl()}/support.html`,
   home: () => `${getSiteBaseUrl()}/`,
 };

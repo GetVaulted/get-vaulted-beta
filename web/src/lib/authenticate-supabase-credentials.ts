@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { ensurePrismaUserForSupabaseAuth } from "@/lib/ensure-prisma-user-from-supabase-auth";
 import { prisma } from "@/lib/prisma";
+import { syncPrismaEmailVerifiedFromSupabase } from "@/lib/sync-prisma-email-verified";
 
 export type CredentialsSessionUser = {
   id: string;
@@ -58,7 +59,12 @@ export async function authorizeCredentialsViaSupabase(
       emailVerified: true,
     },
   });
-  if (!user || user.suspendedAt || !user.emailVerified) return null;
+  if (!user || user.suspendedAt) return null;
+
+  if (!user.emailVerified) {
+    const synced = await syncPrismaEmailVerifiedFromSupabase(user.id, data.user);
+    if (!synced) return null;
+  }
 
   return {
     id: user.id,

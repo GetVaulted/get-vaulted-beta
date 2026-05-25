@@ -4,8 +4,8 @@ import { Platform, StyleSheet, View } from 'react-native';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { VaultPinnedLotCard } from '../liveConsole/VaultPinnedLotCard';
 
-/** Compact broadcast overlay — ~18% shorter than prior dock card stack. */
-export const SELLER_PINNED_OVERLAY_HEIGHT = 168;
+/** Compact broadcast overlay — room for primary Start Auction CTA. */
+export const SELLER_PINNED_OVERLAY_HEIGHT = 184;
 
 export function SellerLivePinnedOverlay({
   bottom,
@@ -14,8 +14,8 @@ export function SellerLivePinnedOverlay({
   item,
   serverNowMs,
   roomLive,
-  auctionRoom,
   busy,
+  startingAuction,
   onStartBidding,
   onSold,
   onSkip,
@@ -27,8 +27,8 @@ export function SellerLivePinnedOverlay({
   item: LiveRoomItemRow | null;
   serverNowMs: number;
   roomLive: boolean;
-  auctionRoom: boolean;
   busy: boolean;
+  startingAuction?: boolean;
   onStartBidding: () => void;
   onSold: () => void;
   onSkip: () => void;
@@ -52,8 +52,8 @@ export function SellerLivePinnedOverlay({
             item={item}
             serverNowMs={serverNowMs}
             roomLive={roomLive}
-            auctionRoom={auctionRoom}
             busy={busy}
+            startingAuction={startingAuction}
             onStartBidding={onStartBidding}
             onSold={onSold}
             onSkip={onSkip}

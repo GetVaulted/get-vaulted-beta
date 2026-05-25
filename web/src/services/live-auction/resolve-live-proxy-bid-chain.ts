@@ -19,8 +19,10 @@ export async function resolveLiveProxyBidChain(
     clutchTimeEnabled: boolean;
     listingId: string | null;
   },
-): Promise<void> {
-  if (ctx.listingId) return;
+): Promise<Array<{ userId: string; amountUsd: number }>> {
+  if (ctx.listingId) return [];
+
+  const outbids: Array<{ userId: string; amountUsd: number }> = [];
 
   for (let i = 0; i < MAX_PROXY_CHAIN; i += 1) {
     const row = await tx.liveRoomItem.findUnique({
@@ -35,15 +37,15 @@ export async function resolveLiveProxyBidChain(
         auctionEndsAt: true,
       },
     });
-    if (!row || row.liveRoomId !== ctx.liveRoomId || row.status !== "active" || !row.biddingOpen) return;
-    if (row.listingId) return;
+    if (!row || row.liveRoomId !== ctx.liveRoomId || row.status !== "active" || !row.biddingOpen) return outbids;
+    if (row.listingId) return outbids;
 
     const high = row.currentBidUsd ?? 0;
     const leaderId = row.lastHighBidderId;
-    if (!leaderId) return;
+    if (!leaderId) return outbids;
 
     const now = new Date();
-    if (row.auctionEndsAt && row.auctionEndsAt <= now) return;
+    if (row.auctionEndsAt && row.auctionEndsAt <= now) return outbids;
 
     const minNeed = minNextBidUsd(high);
     const proxy = await tx.liveAuctionProxyBid.findFirst({
@@ -54,7 +56,9 @@ export async function resolveLiveProxyBidChain(
       },
       orderBy: [{ maxAmountUsd: "desc" }, { userId: "asc" }],
     });
-    if (!proxy) return;
+    if (!proxy) return outbids;
+
+    outbids.push({ userId: leaderId, amountUsd: minNeed });
 
     const bidAmount = minNeed;
     const nextEndsAt = computeNextAuctionEndsAtAfterBid(now, ctx.clutchTimeEnabled, row.auctionEndsAt);
@@ -81,7 +85,7 @@ export async function resolveLiveProxyBidChain(
         itemVersion: { increment: 1 },
       },
     });
-    if (write.count === 0) return;
+    if (write.count === 0) return outbids;
 
     const roomWrite = await tx.liveRoom.update({
       where: { id: ctx.liveRoomId },
@@ -125,6 +129,7 @@ export async function resolveLiveProxyBidChain(
       },
     });
   }
+  return outbids;
 }
 
 export async function upsertLiveAuctionProxyBid(

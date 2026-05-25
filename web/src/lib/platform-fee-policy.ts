@@ -8,6 +8,14 @@ export const LIVE_SHOW_TIER_1_FEE_PERCENT = 8;
 export const LIVE_SHOW_TIER_2_FEE_PERCENT = 7.25;
 export const LIVE_SHOW_TIER_3_FEE_PERCENT = 6.5;
 
+/**
+ * Platform fee applies to item/sale price only.
+ * Shipping, tax, and tips are excluded from platform fee (Stripe processing is separate).
+ */
+export function platformFeeBaseUsd(saleAmountUsd: number): number {
+  return Math.max(0, Number.isFinite(saleAmountUsd) ? saleAmountUsd : 0);
+}
+
 export type LiveShowFeeTierSnapshot = {
   completedGmvUsd: number;
   currentFeePercent: number;
@@ -74,17 +82,50 @@ export function buildLiveShowFeeTierSnapshot(completedGmvUsd: number): LiveShowF
   };
 }
 
-export function marketplaceApplicationFeeCents(subtotalUsd: number, isCompanyListing: boolean): number {
+export function marketplaceApplicationFeeCents(saleAmountUsd: number, isCompanyListing: boolean): number {
   if (isCompanyListing) return 0;
-  return applicationFeeCentsFromSubtotalUsd(subtotalUsd, marketplacePlatformFeePercent());
+  return applicationFeeCentsFromSubtotalUsd(platformFeeBaseUsd(saleAmountUsd), marketplacePlatformFeePercent());
 }
 
 export function liveShowApplicationFeeCents(
-  subtotalUsd: number,
+  saleAmountUsd: number,
   completedGmvUsd: number,
   isCompanyListing = false,
 ): number {
   if (isCompanyListing) return 0;
   const pct = liveShowPlatformFeePercent(completedGmvUsd);
-  return applicationFeeCentsFromSubtotalUsd(subtotalUsd, pct);
+  return applicationFeeCentsFromSubtotalUsd(platformFeeBaseUsd(saleAmountUsd), pct);
+}
+
+/** Resolve platform fee percent for a checkout (sync; use completed GMV before this sale). */
+export function resolvePlatformFeePercentForCheckout(args: {
+  isCompanyListing: boolean;
+  liveRoomId?: string | null;
+  completedLiveShowGmvUsd?: number;
+}): number {
+  if (args.isCompanyListing) return 0;
+  if (args.liveRoomId) {
+    return liveShowPlatformFeePercent(args.completedLiveShowGmvUsd ?? 0);
+  }
+  return marketplacePlatformFeePercent();
+}
+
+/** Stripe Connect `application_fee_amount` — platform fee only, never processing. */
+export function resolveCheckoutApplicationFeeCentsSync(args: {
+  saleAmountUsd: number;
+  isCompanyListing: boolean;
+  liveRoomId?: string | null;
+  completedLiveShowGmvUsd?: number;
+}): number {
+  if (args.isCompanyListing) return 0;
+  const base = platformFeeBaseUsd(args.saleAmountUsd);
+  if (args.liveRoomId) {
+    return liveShowApplicationFeeCents(base, args.completedLiveShowGmvUsd ?? 0, false);
+  }
+  return marketplaceApplicationFeeCents(base, false);
+}
+
+/** GMV credited before this sale when reconstructing tier for a completed live order. */
+export function completedLiveShowGmvBeforeSale(completedGmvUsd: number, saleAmountUsd: number): number {
+  return Math.max(0, completedGmvUsd - platformFeeBaseUsd(saleAmountUsd));
 }

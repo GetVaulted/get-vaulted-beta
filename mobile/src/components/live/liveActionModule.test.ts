@@ -16,6 +16,8 @@ function baseStream(overrides: Partial<LiveStream> = {}): LiveStream {
     title: 'Test room',
     category: 'cards',
     viewers: 10,
+    roomStatus: 'live',
+    scheduledStartAtIso: null,
     previewImageUrl: 'https://example.com/x.jpg',
     thumbnailGradient: ['#000', '#111'],
     host: { id: 'h1', name: 'Host', handle: '@host', avatarUrl: 'https://example.com/a.jpg', verified: false, followers: '1k' },

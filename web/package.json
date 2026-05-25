@@ -41,6 +41,7 @@
     "qa:cleanup-beta-accounts": "tsx scripts/cleanup-beta-accounts-only.ts",
     "staging:validate": "vitest run --config vitest.integration.config.ts src/test/staging-green-path.integration.test.ts",
     "verify:beta-env": "tsx scripts/verify-beta-env-alignment.ts",
+    "setup:local-auth-env": "tsx scripts/setup-local-auth-env.ts",
     "qa:local-env-check": "tsx scripts/qa-local-env-check.ts",
     "qa:diagnose-account-seller": "tsx scripts/diagnose-account-seller-api.ts",
     "qa:pre-deploy": "npm run build && npm run staging:validate && npm run verify:beta-env",

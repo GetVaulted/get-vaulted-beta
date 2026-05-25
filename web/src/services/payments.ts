@@ -18,6 +18,14 @@ import {
 } from "@/lib/stripe-payment-intent-webhook";
 import { getStripe } from "@/lib/stripe";
 import {
+  buildCheckoutTaxSessionFields,
+  fetchCheckoutSessionTax,
+  STRIPE_TAX_CODE_SHIPPING,
+  STRIPE_TAX_CODE_TANGIBLE,
+  stripeLineItemProductData,
+  TAX_PROVIDER_STRIPE,
+} from "@/lib/stripe-tax";
+import {
   getLiveRoomCompletedSalesGmvUsd,
   recordLiveShowCompletedSaleTx,
   resolveCheckoutApplicationFeeCents,
@@ -26,11 +34,13 @@ import {
 } from "@/lib/live-show-gmv";
 import { syncStripeConnectUserRowsForAccountId } from "@/lib/sync-stripe-connect-user";
 import { emitLiveRoomMessagesRefetch, emitPurchaseCompleted } from "@/lib/realtime-emit-server";
+import { finalizeLiveTipPaid, markLiveTipCheckoutFailed } from "@/services/live-tips";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import { logEscrowStatusTransition } from "@/lib/escrow-audit-log";
 import { getEscrowProvider } from "@/services/escrow/factory";
 import { assertValidEscrowTransition } from "@/services/escrow/state-machine";
 import { fulfillOrderShippingAfterPayment } from "@/services/shipping";
+import { initializeOrderPayoutOnPayment } from "@/services/payout/process-delivery-payout";
 import {
   addOrderToLiveShippingSessionTx,
   estimateFirstItemLiveShippingCentsForListingTx,
@@ -206,6 +216,7 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
   }
 
   void fulfillOrderShippingAfterPayment(orderId);
+  void initializeOrderPayoutOnPayment(orderId);
 
   const lt = order.listing.title.length > 90 ? `${order.listing.title.slice(0, 87)}…` : order.listing.title;
   await createNotification(prisma, {
@@ -531,10 +542,9 @@ export async function createBuyNowCheckoutSession(args: {
     return { order: orderOut, listing: listingRow, liveRoomItemId: liveRoomItemIdOut };
   });
 
-  const subtotalUsd = order.itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
   const liveRoomIdForFee = await resolveLiveRoomIdForLiveRoomItem(liveRoomItemId);
   const feeCents = await resolveCheckoutApplicationFeeCents({
-    subtotalUsd,
+    saleAmountUsd: order.itemPriceUsd,
     isCompanyListing: Boolean(listing.isCompanyListing),
     liveRoomId: liveRoomIdForFee,
   });
@@ -589,6 +599,18 @@ export async function createBuyNowCheckoutSession(args: {
 
   const stripe = getStripe();
 
+  const taxFields = await buildCheckoutTaxSessionFields({
+    buyerId: args.buyerId,
+    shipTo: {
+      shipRecipientName: order.shipRecipientName,
+      shipAddress: order.shipAddress,
+      shipCity: order.shipCity,
+      shipState: order.shipState,
+      shipZip: order.shipZip,
+      shipCountry: order.shipCountry,
+    },
+  });
+
   try {
     const session = await stripe.checkout.sessions.create(
       {
@@ -596,6 +618,7 @@ export async function createBuyNowCheckoutSession(args: {
         success_url: successUrl,
         cancel_url: cancelUrl,
         client_reference_id: order.id,
+        ...taxFields,
         metadata: {
           kind: "buy_now",
           orderId: order.id,
@@ -614,7 +637,8 @@ export async function createBuyNowCheckoutSession(args: {
             price_data: {
               currency: "usd",
               unit_amount: Math.round(order.itemPriceUsd * 100),
-              product_data: { name: listing.title.slice(0, 120) },
+              tax_behavior: "exclusive",
+              product_data: stripeLineItemProductData(listing.title, STRIPE_TAX_CODE_TANGIBLE),
             },
           },
           {
@@ -622,9 +646,11 @@ export async function createBuyNowCheckoutSession(args: {
             price_data: {
               currency: "usd",
               unit_amount: Math.round(order.shippingPriceUsd * 100),
-              product_data: {
-                name: liveRoomItemId ? "Live bundled shipping" : "Shipping",
-              },
+              tax_behavior: "exclusive",
+              product_data: stripeLineItemProductData(
+                liveRoomItemId ? "Live bundled shipping" : "Shipping",
+                STRIPE_TAX_CODE_SHIPPING,
+              ),
             },
           },
         ],
@@ -807,7 +833,7 @@ export async function createPayOrderCheckoutSession(args: {
   if (!order.seller.stripeAccountId || !order.seller.stripeOnboardingComplete) throw new Error("SELLER_NOT_READY");
 
   const feeCents = await resolveCheckoutApplicationFeeCents({
-    subtotalUsd,
+    saleAmountUsd: order.itemPriceUsd,
     isCompanyListing: Boolean(order.listing.isCompanyListing),
     liveRoomId: order.liveShippingSession?.liveShowId ?? null,
   });
@@ -817,12 +843,25 @@ export async function createPayOrderCheckoutSession(args: {
     if (existing.status === "open" && existing.url) return { url: existing.url };
   }
 
+  const taxFields = await buildCheckoutTaxSessionFields({
+    buyerId: args.buyerId,
+    shipTo: {
+      shipRecipientName: order.shipRecipientName,
+      shipAddress: order.shipAddress,
+      shipCity: order.shipCity,
+      shipState: order.shipState,
+      shipZip: order.shipZip,
+      shipCountry: order.shipCountry,
+    },
+  });
+
   const session = await stripe.checkout.sessions.create(
     {
       mode: "payment",
       success_url: `${base}${args.successPath ?? `/orders/${encodeURIComponent(order.id)}`}?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}${args.cancelPath ?? `/orders/${encodeURIComponent(order.id)}`}`,
       client_reference_id: order.id,
+      ...taxFields,
       metadata: {
         kind: "pay_order",
         orderId: order.id,
@@ -840,7 +879,8 @@ export async function createPayOrderCheckoutSession(args: {
           price_data: {
             currency: "usd",
             unit_amount: Math.round(order.itemPriceUsd * 100),
-            product_data: { name: order.listing.title.slice(0, 120) },
+            tax_behavior: "exclusive",
+            product_data: stripeLineItemProductData(order.listing.title, STRIPE_TAX_CODE_TANGIBLE),
           },
         },
         {
@@ -848,7 +888,11 @@ export async function createPayOrderCheckoutSession(args: {
           price_data: {
             currency: "usd",
             unit_amount: Math.round(shippingPriceUsd * 100),
-            product_data: { name: order.liveShippingSessionId ? "Live bundled shipping" : "Shipping" },
+            tax_behavior: "exclusive",
+            product_data: stripeLineItemProductData(
+              order.liveShippingSessionId ? "Live bundled shipping" : "Shipping",
+              STRIPE_TAX_CODE_SHIPPING,
+            ),
           },
         },
       ],
@@ -899,9 +943,14 @@ export async function createBreakSpotCheckoutSession(args: {
 
   const priceUsd = spot.priceUsd;
   const feeCents = await resolveCheckoutApplicationFeeCents({
-    subtotalUsd: priceUsd,
+    saleAmountUsd: priceUsd,
     isCompanyListing: false,
     liveRoomId: spot.liveRoomId,
+  });
+
+  const taxFields = await buildCheckoutTaxSessionFields({
+    buyerId: args.userId,
+    collectShippingAddress: true,
   });
 
   const session = await stripe.checkout.sessions.create(
@@ -909,6 +958,7 @@ export async function createBreakSpotCheckoutSession(args: {
       mode: "payment",
       success_url: `${base}${args.successPath ?? `/live/${encodeURIComponent(spot.liveRoomId)}`}?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}${args.cancelPath ?? `/live/${encodeURIComponent(spot.liveRoomId)}`}`,
+      ...taxFields,
       metadata: {
         kind: "break_spot",
         breakSpotId: spot.id,
@@ -926,7 +976,8 @@ export async function createBreakSpotCheckoutSession(args: {
           price_data: {
             currency: "usd",
             unit_amount: Math.round(priceUsd * 100),
-            product_data: { name: `Break spot: ${spot.spotLabel}`.slice(0, 120) },
+            tax_behavior: "exclusive",
+            product_data: stripeLineItemProductData(`Break spot: ${spot.spotLabel}`, STRIPE_TAX_CODE_TANGIBLE),
           },
         },
       ],
@@ -963,12 +1014,19 @@ export async function finalizeStripeMarketplaceOrderPaid(
       paymentMethod: true,
       shippingPriceUsd: true,
       itemPriceUsd: true,
+      taxUsd: true,
       liveShippingSession: { select: { liveShowId: true } },
       listing: { select: { title: true, buyingFormat: true } },
     },
   });
   if (!order || order.paymentStatus === PAYMENT_PAID || order.paymentStatus === PAYMENT_EXPIRED) return;
   if (order.paymentMethod === OrderPaymentMethod.escrow) return;
+
+  const taxFromSession =
+    sessionId != null ? await fetchCheckoutSessionTax(sessionId) : null;
+  const taxAmountCents = taxFromSession?.taxAmountCents ?? 0;
+  const taxUsd = taxAmountCents / 100;
+  const totalUsd = order.itemPriceUsd + order.shippingPriceUsd + taxUsd;
 
   const shippingChargedCents = Math.round(Math.max(0, order.shippingPriceUsd) * 100);
 
@@ -981,6 +1039,11 @@ export async function finalizeStripeMarketplaceOrderPaid(
         stripePaymentIntentId: paymentIntentId ?? undefined,
         stripeCheckoutSessionId: sessionId ?? undefined,
         shippingChargedCents,
+        taxAmountCents,
+        taxUsd,
+        taxProvider: taxAmountCents > 0 ? TAX_PROVIDER_STRIPE : null,
+        stripeTaxCalculationId: taxFromSession?.stripeTaxCalculationId ?? null,
+        totalUsd,
       },
     });
 
@@ -1006,6 +1069,7 @@ export async function finalizeStripeMarketplaceOrderPaid(
   });
 
   void fulfillOrderShippingAfterPayment(orderId);
+  void initializeOrderPayoutOnPayment(orderId);
 
   const lt = order.listing.title.length > 90 ? `${order.listing.title.slice(0, 87)}…` : order.listing.title;
   await createNotification(prisma, {
@@ -1034,6 +1098,31 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
       const session = event.data.object as Stripe.Checkout.Session;
       const kind = session.metadata?.kind;
       const pi = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null;
+
+      if (kind === "live_tip") {
+        const liveTipId = session.metadata?.liveTipId;
+        if (!liveTipId) return;
+        await finalizeLiveTipPaid({
+          liveTipId,
+          paymentIntentId: pi,
+          checkoutSessionId: session.id,
+        });
+        const tip = await prisma.liveTip.findUnique({
+          where: { id: liveTipId },
+          select: { liveRoomId: true, recipientId: true, amountUsd: true, sender: { select: { username: true } } },
+        });
+        if (tip) {
+          emitLiveRoomMessagesRefetch(tip.liveRoomId);
+          await createNotification(prisma, {
+            userId: tip.recipientId,
+            type: "live_tip_received",
+            title: "Tip received",
+            body: `@${tip.sender.username} sent you a $${tip.amountUsd.toFixed(2)} tip during the live show.`,
+            href: `/live/${encodeURIComponent(tip.liveRoomId)}`,
+          });
+        }
+        return;
+      }
 
       if (kind === "buy_now" || kind === "pay_order") {
         const orderId = session.metadata?.orderId;
@@ -1148,6 +1237,9 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
           data: { breakPaymentStatus: "failed", stripeCheckoutSessionId: null },
         });
       }
+      if (session.metadata?.kind === "live_tip" && session.metadata.liveTipId) {
+        await markLiveTipCheckoutFailed(session.metadata.liveTipId);
+      }
       break;
     }
     case "payment_intent.succeeded": {
@@ -1156,7 +1248,7 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
       const kind = pi.metadata?.kind ?? null;
 
       if (!orderId) break;
-      if (kind === "break_spot") break;
+      if (kind === "break_spot" || kind === "live_tip") break;
 
       if (!isMarketplaceOrderPaymentIntentKind(kind)) {
         logIgnoredMarketplacePaymentIntentWebhook(

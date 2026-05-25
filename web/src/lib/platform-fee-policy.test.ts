@@ -9,10 +9,15 @@ import {
 } from "@/lib/platform-fee-policy";
 
 describe("marketplaceApplicationFeeCents", () => {
-  it("uses fixed 8% for normal listings", () => {
+  it("uses fixed 8% on item/sale amount only", () => {
     expect(MARKETPLACE_PLATFORM_FEE_PERCENT).toBe(8);
     expect(marketplaceApplicationFeeCents(100, false)).toBe(800);
     expect(marketplaceApplicationFeeCents(77, false)).toBe(616);
+  });
+
+  it("does not fee shipping pass-through amounts when passed as sale base", () => {
+    expect(marketplaceApplicationFeeCents(100, false)).toBe(800);
+    expect(marketplaceApplicationFeeCents(15, false)).toBe(120);
   });
 
   it("returns 0 for company listings", () => {

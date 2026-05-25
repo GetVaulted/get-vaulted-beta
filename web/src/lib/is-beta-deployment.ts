@@ -24,7 +24,7 @@ export type WebSignupVerificationMethod = "resend_code" | "supabase_link" | "una
 
 /** How web `/api/register` verifies new accounts on this deploy. */
 export function webSignupVerificationMethod(): WebSignupVerificationMethod {
-  if (isWebSignupResendConfigured()) return "resend_code";
   if (isBetaDeployment()) return "supabase_link";
+  if (isWebSignupResendConfigured()) return "resend_code";
   return "unavailable";
 }

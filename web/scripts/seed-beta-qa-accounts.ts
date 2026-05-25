@@ -12,17 +12,18 @@
  *   ALLOW_BETA_QA_SEED=1 npx tsx scripts/seed-beta-qa-accounts.ts --reset
  */
 import { config } from "dotenv";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { prisma } from "../src/lib/prisma";
-import { resolveDatabaseUrl, supabaseProjectRefFromUrl } from "../src/lib/resolve-database-url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = path.join(__dirname, "..");
 
 config({ path: path.join(webRoot, ".env"), quiet: true });
 config({ path: path.join(webRoot, ".env.local"), override: true, quiet: true });
+
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { PrismaClient } from "@prisma/client";
+import { resolveDatabaseUrl, supabaseProjectRefFromUrl } from "../src/lib/resolve-database-url";
 
 const EXPECTED_REF = "xkaaicokjgmpbctfermj";
 
@@ -82,7 +83,7 @@ async function findAuthUserIdByEmail(
   return hit?.id ?? null;
 }
 
-async function deleteExistingAccount(admin: SupabaseClient, spec: QaAccountSpec) {
+async function deleteExistingAccount(prisma: PrismaClient, admin: SupabaseClient, spec: QaAccountSpec) {
   const authId = await findAuthUserIdByEmail(admin, spec.email);
   if (authId) {
     const { error } = await admin.auth.admin.deleteUser(authId);
@@ -97,7 +98,7 @@ async function deleteExistingAccount(admin: SupabaseClient, spec: QaAccountSpec)
   });
 }
 
-async function createAccount(admin: SupabaseClient, spec: QaAccountSpec) {
+async function createAccount(prisma: PrismaClient, admin: SupabaseClient, spec: QaAccountSpec) {
   const password = qaPassword();
   const { data, error } = await admin.auth.admin.createUser({
     email: spec.email,
@@ -136,6 +137,7 @@ async function createAccount(admin: SupabaseClient, spec: QaAccountSpec) {
 async function main() {
   const reset = process.argv.includes("--reset");
   const { supabaseUrl, serviceKey } = assertEnv();
+  const { prisma } = await import("../src/lib/prisma");
 
   const admin = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -144,7 +146,7 @@ async function main() {
   if (reset) {
     console.log("--reset: removing prior QA rows for sellerqa / buyerqa …");
     for (const spec of ACCOUNTS) {
-      await deleteExistingAccount(admin, spec);
+      await deleteExistingAccount(prisma, admin, spec);
     }
   }
 
@@ -154,7 +156,7 @@ async function main() {
       console.log(`Skip ${spec.email} — already exists (use --reset to recreate).`);
       continue;
     }
-    await createAccount(admin, spec);
+    await createAccount(prisma, admin, spec);
   }
 
   const password = qaPassword();
@@ -176,4 +178,11 @@ main()
     console.error(e);
     process.exit(1);
   })
-  .finally(() => prisma.$disconnect());
+  .finally(async () => {
+    try {
+      const { prisma } = await import("../src/lib/prisma");
+      await prisma.$disconnect();
+    } catch {
+      /* env not loaded */
+    }
+  });

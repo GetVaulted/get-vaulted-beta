@@ -31,6 +31,7 @@ export type ChatMessage = {
   id: string;
   user: string;
   text: string;
+  senderId?: string;
   isHost?: boolean;
   messageType?: ChatMessageKind;
 };
@@ -72,6 +73,10 @@ export type LiveStream = {
   title: string;
   category: CategoryId;
   viewers: number;
+  /** DB room lifecycle for playback + badges. */
+  roomStatus: 'scheduled' | 'live' | 'ended';
+  /** ISO scheduled start (buyer countdown / pre-live UX). */
+  scheduledStartAtIso: string | null;
   /** Rich preview art — collectibles, desk breaks, host energy (shown under gradients). */
   previewImageUrl: string;
   thumbnailGradient: [string, string];

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { verifyShippoWebhookSignature } from "@/lib/shippo";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import { mapShippoTrackingToFulfillment } from "@/services/shipping";
+import { processDeliveryPayoutEvaluation } from "@/services/payout/process-delivery-payout";
 import {
   createWebhookLogEntry,
   markWebhookLogFailure,
@@ -133,6 +134,7 @@ export async function POST(req: Request) {
           body: `Carrier reports “${lt}” reached the buyer.`,
           href: `/orders/${encodeURIComponent(o.id)}`,
         });
+        void processDeliveryPayoutEvaluation(o.id);
       } else if (mapped === "in_transit" && prev !== "in_transit" && prev !== "delivered") {
         await logSellerCommerceEvent({
           sellerId: o.sellerId,

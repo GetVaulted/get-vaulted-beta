@@ -4,11 +4,14 @@ import { prisma } from "@/lib/prisma";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { emitLiveRoomMessageById } from "@/lib/realtime-emit-server";
 
-export const VIEWER_EVENT_JOIN_BODY = "joined 👋";
+export const VIEWER_EVENT_JOIN_BODY = "joined 🔥";
+export const VIEWER_EVENT_JOIN_BODY_LEGACY = "joined 👋";
 export const VIEWER_EVENT_SHARE_BODY = "shared this show ✉️";
 
 const JOIN_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
 const SHARE_DEDUPE_WINDOW_MS = 30 * 1000;
+
+import { getLiveRoomUserRestrictions } from "@/lib/trust/live-room-moderation";
 
 type PostBody = { kind?: string };
 
@@ -31,6 +34,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
   if (room.status !== "live") {
     return NextResponse.json({ error: "Room is not live yet." }, { status: 409 });
+  }
+
+  const restrictions = await getLiveRoomUserRestrictions({ liveRoomId, userId: auth.userId });
+  if (restrictions.roomBanned || restrictions.kickedUntil) {
+    return NextResponse.json({ error: "You cannot join this room." }, { status: 403 });
   }
 
   let body: PostBody;

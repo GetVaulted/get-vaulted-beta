@@ -19,7 +19,8 @@ function signupRedirectUrl(): string {
 }
 
 /**
- * Beta fallback: create account via Supabase Auth (same path as mobile) when Resend OTP is not configured.
+ * Register account via Supabase Auth — same path as mobile `signUpWithPassword`.
+ * Used for all beta web Join flows so credentials work on both platforms.
  */
 export async function registerAccountViaSupabaseAuth(params: {
   email: string;

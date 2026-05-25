@@ -3,11 +3,11 @@ export const DEFAULT_COMMERCE_OVERLAY_HEIGHT = 118;
 
 export const COMPOSER_BAR_HEIGHT = 44;
 
-/** Space between commerce HUD and chat composer. */
-export const COMMERCE_TO_COMPOSER_GAP = 14;
+/** Space between commerce HUD top edge and composer bottom edge. */
+export const COMPOSER_ABOVE_HUD_GAP = 8;
 
-/** Space between chat composer and floating message stack. */
-export const CHAT_ABOVE_COMPOSER_GAP = 12;
+/** Space between composer top edge and chat stack bottom edge. */
+export const CHAT_ABOVE_COMPOSER_GAP = 18;
 
 export type LiveRoomBottomStack = {
   commerceBottom: number;
@@ -24,7 +24,7 @@ export function computeLiveRoomBottomStack(args: {
 }): LiveRoomBottomStack {
   const keyboardOffset = Math.max(0, args.keyboardOffset ?? 0);
   const commerceBottom = args.dockPaddingBottom + keyboardOffset;
-  const composerBottom = commerceBottom + args.commerceHeight + COMMERCE_TO_COMPOSER_GAP;
+  const composerBottom = commerceBottom + args.commerceHeight + COMPOSER_ABOVE_HUD_GAP;
   const chatBottom = composerBottom + COMPOSER_BAR_HEIGHT + CHAT_ABOVE_COMPOSER_GAP;
   return {
     commerceBottom,

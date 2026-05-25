@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { describeAuctionChargeSlotForAdmin } from "@/lib/auction-bid-payment-labels";
+import { AdminOrderPayoutPanel } from "@/components/admin/AdminOrderPayoutPanel";
+import { AdminOrderEvidencePanel } from "@/components/admin/AdminOrderEvidencePanel";
 
 type OrderPayload = {
   id: string;
@@ -14,6 +16,8 @@ type OrderPayload = {
   trackingNumber: string | null;
   shippedAt: string | null;
   paymentLabel: string;
+  paymentStatus: string;
+  fulfillmentStatus: string;
   createdAt: string;
   updatedAt: string;
   shipRecipientName: string;
@@ -22,6 +26,18 @@ type OrderPayload = {
   shipState: string;
   shipZip: string;
   shipCountry: string;
+  payoutStatus: string;
+  deliveryConfirmedAt: string | null;
+  payoutBlockedReason: string | null;
+  payoutHoldUntil: string | null;
+  payoutReserveAmountCents: number;
+  payoutMethod: string;
+  payoutEvaluation: {
+    sellerEligible: boolean;
+    instantPayoutAllowed: boolean;
+    disqualifiers: string[];
+    sellerRequirementsFailed: string[];
+  } | null;
   buyer: { id: string; username: string; email: string };
   seller: { id: string; username: string; email: string };
   listing: {
@@ -112,6 +128,12 @@ export function AdminOrderDetailPage() {
             <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Seller</p>
             <p className="mt-1 text-zinc-200">@{data.seller.username}</p>
             <p className="text-[10px] text-zinc-600">{data.seller.email}</p>
+            <Link
+              href={`/admin/users/${encodeURIComponent(data.seller.id)}`}
+              className="mt-1 inline-block text-[10px] font-semibold text-gold-bright hover:underline"
+            >
+              Payout controls →
+            </Link>
           </div>
         </div>
         <div>
@@ -157,6 +179,21 @@ export function AdminOrderDetailPage() {
           {data.shippedAt ? ` · Shipped ${new Date(data.shippedAt).toLocaleString()}` : ""}
         </p>
       </section>
+
+      <AdminOrderPayoutPanel
+        orderId={data.id}
+        payoutStatus={data.payoutStatus}
+        fulfillmentStatus={data.fulfillmentStatus}
+        deliveryConfirmedAt={data.deliveryConfirmedAt}
+        payoutBlockedReason={data.payoutBlockedReason}
+        payoutHoldUntil={data.payoutHoldUntil}
+        payoutReserveAmountCents={data.payoutReserveAmountCents}
+        payoutMethod={data.payoutMethod}
+        payoutEvaluation={data.payoutEvaluation}
+        onUpdated={() => void load()}
+      />
+
+      <AdminOrderEvidencePanel orderId={data.id} />
     </main>
   );
 }

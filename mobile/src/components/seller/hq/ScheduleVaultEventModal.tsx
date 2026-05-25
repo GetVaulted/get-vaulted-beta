@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createLiveRoom, streamFormatToRoomType } from '../../../api/liveRoomsRepository';
+import { LiveShowTipModeratorFields } from './LiveShowTipModeratorFields';
 import { notifyLiveDiscoveryChanged } from '../../../lib/notifyLiveDiscoveryChanged';
 import type { LiveSalesGate } from '../../../lib/sellerLiveReadiness';
 import { streamCategories } from '../../../data/sellerHubMock';
@@ -74,6 +75,9 @@ export function ScheduleVaultEventModal({
   const [scheduledDate, setScheduledDate] = useState(defaultScheduledDate);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [tipModeratorId, setTipModeratorId] = useState<string | null>(null);
+  const [tipModeratorUsername, setTipModeratorUsername] = useState('');
+  const [tipsToModerator, setTipsToModerator] = useState(false);
 
   const liveBlocked = liveGate.blocked;
 
@@ -104,6 +108,8 @@ export function ScheduleVaultEventModal({
         roomType: streamFormatToRoomType(streamFormat),
         scheduledStartAt: scheduledDate.toISOString(),
         teamBoardLeague: streamFormat === 'break' ? 'nba' : undefined,
+        tipModeratorId,
+        tipsToModerator,
       });
       await notifyLiveDiscoveryChanged();
       onScheduled?.();
@@ -133,6 +139,8 @@ export function ScheduleVaultEventModal({
     scheduledDate,
     streamFormat,
     tagline,
+    tipModeratorId,
+    tipsToModerator,
   ]);
 
   return (
@@ -214,6 +222,19 @@ export function ScheduleVaultEventModal({
               <Text style={styles.donePickerTxt}>Done</Text>
             </Pressable>
           ) : null}
+          <LiveShowTipModeratorFields
+            accessToken={accessToken}
+            tipModeratorId={tipModeratorId}
+            tipModeratorUsername={tipModeratorUsername}
+            tipsToModerator={tipsToModerator}
+            disabled={busy}
+            onModeratorChange={(id, username) => {
+              setTipModeratorId(id);
+              setTipModeratorUsername(username);
+              if (!id) setTipsToModerator(false);
+            }}
+            onTipsToModeratorChange={setTipsToModerator}
+          />
         </ScrollView>
 
         <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>

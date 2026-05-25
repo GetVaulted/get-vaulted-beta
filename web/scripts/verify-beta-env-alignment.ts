@@ -103,6 +103,36 @@ async function main() {
       : `\n✗ MISMATCH — multiple project refs: ${[...refs].join(", ")}`,
   );
 
+  const authLocalRows = [
+    {
+      label: "NEXTAUTH_URL",
+      ok: Boolean(process.env.NEXTAUTH_URL?.trim()),
+      detail: process.env.NEXTAUTH_URL?.trim() || "missing — set http://localhost:3000 in web/.env.local",
+    },
+    {
+      label: "NEXTAUTH_SECRET",
+      ok: Boolean(process.env.NEXTAUTH_SECRET?.trim()),
+      detail: process.env.NEXTAUTH_SECRET?.trim() ? "set" : "missing — required for NextAuth sessions",
+    },
+    {
+      label: "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+      ok: Boolean(
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ?? process.env.SUPABASE_ANON_KEY?.trim(),
+      ),
+      detail:
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() || process.env.SUPABASE_ANON_KEY?.trim()
+          ? "set (Supabase credential sign-in enabled)"
+          : "missing — beta/mobile accounts cannot sign in on web without this",
+    },
+  ];
+  console.log("\n=== Local web sign-in (NextAuth) ===");
+  for (const r of authLocalRows) {
+    console.log(`${r.ok ? "✓" : "✗"} ${r.label}: ${r.detail}`);
+  }
+  if (authLocalRows.some((r) => !r.ok)) {
+    console.log("\nFix: npm run setup:local-auth-env  (writes web/.env.local from mobile/.env anon key)");
+  }
+
   if (!process.env.DATABASE_URL?.trim() && process.env.INTEGRATION_DATABASE_URL?.trim()) {
     console.log(
       "\n⚠ web/.env has INTEGRATION_DATABASE_URL but no DATABASE_URL. Scripts now fall back, but set DATABASE_URL to the same URI for Next.js dev and Netlify parity.",

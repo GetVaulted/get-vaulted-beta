@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { authorizeCredentialsViaSupabase } from "@/lib/authenticate-supabase-credentials";
 import { expiredJwtToken, resolveAuthUserForToken } from "@/lib/auth-resolve-user";
 import { prisma } from "@/lib/prisma";
+import { usesUnifiedSupabaseAuth } from "@/lib/unified-auth";
 
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt", maxAge: 30 * 24 * 60 * 60 },
@@ -23,6 +24,11 @@ export const authOptions: NextAuthOptions = {
         const password = credentials?.password;
         if (!email || !password) return null;
 
+        if (usesUnifiedSupabaseAuth()) {
+          const supaUser = await authorizeCredentialsViaSupabase(email, password);
+          if (supaUser) return supaUser;
+        }
+
         const user = await prisma.user.findUnique({
           where: { email },
           select: {
@@ -32,11 +38,12 @@ export const authOptions: NextAuthOptions = {
             passwordHash: true,
             role: true,
             suspendedAt: true,
+            accountDeletedAt: true,
             emailVerified: true,
           },
         });
 
-        if (user?.passwordHash && !user.suspendedAt && user.emailVerified) {
+        if (user?.passwordHash && !user.suspendedAt && !user.accountDeletedAt && user.emailVerified) {
           const ok = await bcrypt.compare(password, user.passwordHash);
           if (ok) {
             return {
@@ -48,7 +55,7 @@ export const authOptions: NextAuthOptions = {
           }
         }
 
-        // Mobile / Supabase Auth accounts (no Prisma passwordHash)
+        // Legacy web-only accounts (Resend OTP path) or non-beta deploys
         return authorizeCredentialsViaSupabase(email, password);
       },
     }),

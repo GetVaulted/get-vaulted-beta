@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { sellerNextActionForOrder } from "@/lib/seller-fulfillment-next-action";
+import {
+  estimateSellerOrderPayoutUsd,
+  resolvePlatformFeePercentForSellerOrder,
+  sellerInstantPayoutBannerMessage,
+} from "@/lib/seller-payout-estimate";
 import { prisma } from "@/lib/prisma";
 import { processAuctionPaymentExpiries } from "@/services/payments";
 
@@ -23,6 +28,10 @@ export async function GET() {
       shipFromState: true,
       shipFromZip: true,
       shipFromCountry: true,
+      instantPayoutEligible: true,
+      instantPayoutStatus: true,
+      payoutHoldDays: true,
+      payoutReservePercent: true,
     },
   });
   if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -33,6 +42,8 @@ export async function GET() {
     select: {
       id: true,
       totalUsd: true,
+      itemPriceUsd: true,
+      shippingPriceUsd: true,
       status: true,
       paymentStatus: true,
       fulfillmentStatus: true,
@@ -44,11 +55,24 @@ export async function GET() {
       labelUrl: true,
       shippoTransactionId: true,
       paymentDeadlineAt: true,
+      payoutStatus: true,
+      payoutBlockedReason: true,
+      payoutHoldUntil: true,
+      payoutReserveAmountCents: true,
+      deliveryConfirmedAt: true,
+      payoutMethod: true,
+      liveShippingSession: {
+        select: {
+          liveShowId: true,
+          liveShow: { select: { completedSalesGmvUsd: true, status: true } },
+        },
+      },
       listing: {
         select: {
           id: true,
           title: true,
           status: true,
+          isCompanyListing: true,
           images: { orderBy: { sortOrder: "asc" }, take: 1, select: { url: true } },
         },
       },
@@ -57,7 +81,27 @@ export async function GET() {
   });
 
   return NextResponse.json({
-    orders: orders.map((o) => ({
+    sellerPayout: {
+      instantPayoutEligible: user.instantPayoutEligible,
+      instantPayoutStatus: user.instantPayoutStatus,
+      payoutHoldDays: user.payoutHoldDays,
+      payoutReservePercent: user.payoutReservePercent,
+      eligibilityMessage: sellerInstantPayoutBannerMessage({
+        instantPayoutEligible: user.instantPayoutEligible,
+        instantPayoutStatus: user.instantPayoutStatus,
+      }),
+    },
+    orders: orders.map((o) => {
+      const liveShowId = o.liveShippingSession?.liveShowId ?? null;
+      const liveShow = o.liveShippingSession?.liveShow;
+      const platformFeePercent = resolvePlatformFeePercentForSellerOrder({
+        isCompanyListing: Boolean(o.listing.isCompanyListing),
+        liveShowId,
+        liveShowCompletedGmvUsd: liveShow?.status === "live" ? liveShow.completedSalesGmvUsd : null,
+        orderItemPriceUsd: o.itemPriceUsd,
+        orderPaymentStatus: o.paymentStatus,
+      });
+      return {
       id: o.id,
       totalUsd: o.totalUsd,
       status: o.status,
@@ -71,9 +115,23 @@ export async function GET() {
       labelUrl: o.labelUrl,
       shippoTransactionId: o.shippoTransactionId,
       paymentDeadlineAt: o.paymentDeadlineAt?.toISOString() ?? null,
+      payoutStatus: o.payoutStatus,
+      payoutBlockedReason: o.payoutBlockedReason,
+      payoutHoldUntil: o.payoutHoldUntil?.toISOString() ?? null,
+      payoutReserveAmountCents: o.payoutReserveAmountCents,
+      deliveryConfirmedAt: o.deliveryConfirmedAt?.toISOString() ?? null,
+      payoutMethod: o.payoutMethod,
+      platformFeePercent,
+      payoutEstimateUsd: estimateSellerOrderPayoutUsd({
+        itemPriceUsd: o.itemPriceUsd,
+        shippingPriceUsd: o.shippingPriceUsd,
+        payoutReserveAmountCents: o.payoutReserveAmountCents,
+        platformFeePercent,
+      }),
       listing: o.listing,
       buyer: o.buyer,
       sellerNextAction: sellerNextActionForOrder(user, o).label,
-    })),
+    };
+    }),
   });
 }

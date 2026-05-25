@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
+import { LiveChatMessageRowActions } from "@/components/trust/LiveChatMessageRowActions";
 
 const PALETTE = ["text-sky-400", "text-emerald-400", "text-violet-400", "text-amber-400", "text-rose-400", "text-cyan-400"] as const;
 
@@ -31,23 +32,29 @@ function chatLabelClassForMessage(m: LiveRoomMessageDTO) {
 }
 
 type VaultHostLiveChatPanelProps = {
+  liveRoomId: string;
+  hostUserId: string;
   messages: LiveRoomMessageDTO[];
   systemMsg: string;
   onSystemMsgChange: (v: string) => void;
   onSendSystem: () => void;
   busy: boolean;
   viewerCount?: number;
+  onMessagesRefresh?: () => void;
   /** `sidebar` = full-height desktop column; `overlay` = mobile/in-stage panel. */
   variant?: "sidebar" | "overlay";
 };
 
 export function VaultHostLiveChatPanel({
+  liveRoomId,
+  hostUserId,
   messages,
   systemMsg,
   onSystemMsgChange,
   onSendSystem,
   busy,
   viewerCount = 0,
+  onMessagesRefresh,
   variant = "overlay",
 }: VaultHostLiveChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -132,10 +139,20 @@ export function VaultHostLiveChatPanel({
                 const labelClass = chatLabelClassForMessage(m);
                 const isSystem = m.messageType === "system";
                 return (
-                  <div key={m.id} className={msgClass}>
+                  <div key={m.id} className={`group chat-msg-row ${msgClass}`}>
                     <span className={labelClass}>{label}</span>
                     <span className="text-zinc-600">: </span>
                     <span className={isSystem ? "text-zinc-100" : "text-zinc-300"}>{m.body}</span>
+                    {m.messageType === "chat" && m.senderId !== hostUserId ? (
+                      <LiveChatMessageRowActions
+                        liveRoomId={liveRoomId}
+                        messageId={m.id}
+                        senderId={m.senderId}
+                        senderUsername={m.senderUsername}
+                        canModerate
+                        onModerationComplete={() => onMessagesRefresh?.()}
+                      />
+                    ) : null}
                   </div>
                 );
               })

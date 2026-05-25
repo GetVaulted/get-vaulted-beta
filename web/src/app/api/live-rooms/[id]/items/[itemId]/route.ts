@@ -442,6 +442,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
   }
 
   try {
+    const wasActive = item.status === "active";
     const next = await prisma.$transaction(async (tx) => {
       const updated = await tx.liveRoomItem.updateMany({
         where: { id: itemId, liveRoomId },
@@ -460,6 +461,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       return { roomVersion: roomNext.roomVersion, itemVersion: itemNext?.itemVersion ?? item.itemVersion + 1 };
     });
     if (data.status === "sold") emitPurchaseCompleted(liveRoomId, itemId, next);
+    if (data.status === "skipped") {
+      emitLiveRoomQueueItemsChanged(liveRoomId);
+      if (wasActive) {
+        emitActiveItemChanged(liveRoomId, itemId, {
+          roomVersion: next.roomVersion,
+          itemVersion: next.itemVersion,
+          biddingOpen: false,
+          auctionEndsAt: null,
+        });
+      }
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
     if (msg === "ITEM_UPDATE_CONFLICT") {

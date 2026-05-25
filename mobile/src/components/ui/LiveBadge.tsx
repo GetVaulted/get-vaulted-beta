@@ -8,13 +8,16 @@ type Props = {
   pulse?: boolean;
   /** Dot + label only — no chip (stream header / overlays). */
   inline?: boolean;
+  /** Override label (default LIVE). */
+  label?: string;
+  variant?: 'live' | 'scheduled';
 };
 
-export function LiveBadge({ compact, pulse, inline }: Props) {
+export function LiveBadge({ compact, pulse, inline, label = 'LIVE', variant = 'live' }: Props) {
   const dotOpacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    if (!pulse) {
+    if (!pulse || variant !== 'live') {
       dotOpacity.setValue(1);
       return;
     }
@@ -37,9 +40,24 @@ export function LiveBadge({ compact, pulse, inline }: Props) {
   }, [pulse, dotOpacity]);
 
   return (
-    <View style={[styles.wrap, compact && styles.compact, inline && styles.inline]}>
-      <Animated.View style={[styles.dot, { opacity: dotOpacity }]} />
-      <Text style={[styles.text, compact && styles.textCompact]}>LIVE</Text>
+    <View
+      style={[
+        styles.wrap,
+        compact && styles.compact,
+        inline && styles.inline,
+        variant === 'scheduled' && styles.scheduledWrap,
+      ]}
+    >
+      <Animated.View
+        style={[
+          styles.dot,
+          variant === 'scheduled' && styles.scheduledDot,
+          { opacity: dotOpacity },
+        ]}
+      />
+      <Text style={[styles.text, compact && styles.textCompact, variant === 'scheduled' && styles.scheduledText]}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -81,5 +99,15 @@ const styles = StyleSheet.create({
   },
   textCompact: {
     fontSize: 10,
+  },
+  scheduledWrap: {
+    backgroundColor: 'rgba(212,175,55,0.12)',
+    borderColor: 'rgba(212,175,55,0.35)',
+  },
+  scheduledDot: {
+    backgroundColor: colors.gold,
+  },
+  scheduledText: {
+    color: colors.gold,
   },
 });

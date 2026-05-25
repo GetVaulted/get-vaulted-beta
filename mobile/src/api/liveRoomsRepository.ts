@@ -132,6 +132,8 @@ export type CreateLiveRoomInput = {
   roomType: LiveRoomApiRow['roomType'];
   scheduledStartAt?: string | null;
   teamBoardLeague?: 'nba' | 'nfl' | 'mlb';
+  tipModeratorId?: string | null;
+  tipsToModerator?: boolean;
 };
 
 export async function createLiveRoom(
@@ -149,6 +151,10 @@ export async function createLiveRoom(
   }
   if (input.roomType === 'break') {
     body.teamBoardLeague = input.teamBoardLeague ?? 'nba';
+  }
+  if (input.tipModeratorId) {
+    body.tipModeratorId = input.tipModeratorId;
+    body.tipsToModerator = input.tipsToModerator === true;
   }
 
   const res = await fetchLiveRoomsApi('/api/live-rooms', {
@@ -322,6 +328,8 @@ export function liveRoomRowToLiveStream(row: LiveRoomApiRow): LiveStream {
     title: row.title,
     category: cat,
     viewers: Math.max(0, row.viewerCount ?? 0),
+    roomStatus: row.status,
+    scheduledStartAtIso: row.scheduledStartAt,
     previewImageUrl: row.thumbnailUrl?.trim() || FALLBACK_PREVIEW,
     thumbnailGradient: ['#05070a', '#0c1018'] as [string, string],
     host: hostFromRow(row),

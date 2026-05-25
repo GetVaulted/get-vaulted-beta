@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthContext';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { SettingsRow } from '../../components/platform/SettingsRow';
+import { openLegalUrl } from '../../lib/openLegalUrl';
 import { performSignOut } from '../../lib/signOutSession';
 import type { RootStackParamList } from '../../navigation/types';
 import { spacing } from '../../theme';
@@ -44,6 +45,18 @@ export function SettingsAccountScreen({ navigation }: Props) {
           icon="trash-outline"
           destructive
           onPress={() => navigation.navigate('DeleteAccount')}
+        />
+        <SettingsRow label="Terms of Service" icon="document-text-outline" onPress={() => openLegalUrl('terms')} />
+        <SettingsRow label="Privacy Policy" icon="shield-outline" onPress={() => openLegalUrl('privacy')} />
+        <SettingsRow
+          label="Community Guidelines"
+          icon="people-circle-outline"
+          onPress={() => navigation.navigate('CommunityGuidelines')}
+        />
+        <SettingsRow
+          label="Reporting & Safety"
+          icon="flag-outline"
+          onPress={() => navigation.navigate('ReportingSafety')}
         />
       </ScrollView>
     </View>

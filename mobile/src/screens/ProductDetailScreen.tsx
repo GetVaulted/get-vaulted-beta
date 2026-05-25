@@ -33,6 +33,7 @@ import { fetchListingDetailFromWeb, type WebStoredListing } from '../api/webList
 import { SellerListingEndControls } from '../components/seller/SellerListingEndControls';
 import { PremiumEmptyPanel } from '../components/empty/PremiumEmptyPanel';
 import { HostRow } from '../components/ui/HostRow';
+import { ReportButton } from '../components/trust/ReportSheet';
 import { enrichListing } from '../data/productListingEnrichment';
 import type { RootStackParamList } from '../navigation/types';
 import { alertGuestBuyRestricted } from '../navigation/guestExploreGuards';
@@ -548,6 +549,22 @@ export function ProductDetailScreen({ navigation, route }: Props) {
                 <Text style={[styles.liveCtaTxt, { color: colors.live }]}>Open dispute</Text>
               </Pressable>
             </View>
+            {!isOwner ? (
+              <View style={styles.reportRow}>
+                <ReportButton
+                  targetType="listing"
+                  targetId={product.id}
+                  accessToken={session?.access_token}
+                  label="Report listing"
+                />
+                <ReportButton
+                  targetType="user"
+                  targetId={product.seller.id}
+                  accessToken={session?.access_token}
+                  label="Report seller"
+                />
+              </View>
+            ) : null}
           </View>
 
           {recents.length ? (
@@ -993,6 +1010,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     marginTop: spacing.md,
+  },
+  reportRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+    marginTop: spacing.sm,
   },
   messageCta: {
     flex: 1,

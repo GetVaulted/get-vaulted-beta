@@ -84,6 +84,18 @@ enum LiveRoomMessageType {
   bid
   purchase
   system
+  tip
+}
+
+enum TipRecipientMode {
+  host
+  moderator
+}
+
+enum LiveTipStatus {
+  pending
+  paid
+  failed
 }
 
 enum BreakFormat {
@@ -131,6 +143,82 @@ enum LiveAuctionInventoryHoldStatus {
   consumed
   released
   expired
+}
+
+enum InstantPayoutStatus {
+  eligible
+  ineligible
+  suspended
+  admin_override
+}
+
+enum PayoutRiskLevel {
+  low
+  medium
+  high
+}
+
+enum OrderPayoutStatus {
+  pending
+  held
+  delivery_confirmed
+  instant_payout_ready
+  paid_out
+  blocked
+  manual_review
+}
+
+enum OrderPayoutMethod {
+  standard
+  instant_after_delivery
+}
+
+enum ReportTargetType {
+  user
+  listing
+  live_room
+  message
+  order
+  break
+}
+
+enum ReportReason {
+  harassment
+  counterfeit
+  scam_fraud
+  spam
+  inappropriate_content
+  fake_bids
+  seller_misconduct
+  buyer_misconduct
+  ip_violation
+  other
+}
+
+enum ReportStatus {
+  open
+  reviewing
+  resolved
+  dismissed
+}
+
+enum LiveRoomModerationActionType {
+  mute
+  unmute
+  delete_message
+  kick
+  room_ban
+  unban
+  block_bidding
+  unblock_bidding
+  slow_mode
+  pin_message
+}
+
+enum DisputeEvidenceStatus {
+  pending
+  ready
+  failed
 }
 
 enum ShippingCategory {
@@ -204,10 +292,26 @@ model User {
   shipFromCountry String?
   /// Set when seller finishes the onboarding wizard (step 5); syncs web + mobile activation.
   sellerSetupWizardCompletedAt DateTime?
+  /// Seller accepted marketplace seller agreement (Terms §5).
+  sellerAgreementAcceptedAt   DateTime?
+  /// Soft-delete — account anonymized; financial records retained.
+  accountDeletedAt            DateTime?
   defaultShipFromAddressId String?
   defaultShipFromAddress   Address? @relation("UserDefaultShipFromAddress", fields: [defaultShipFromAddressId], references: [id], onDelete: SetNull)
   /// Trustap external user id (`1-…`) when this user participates in escrow as seller (or linked buyer).
   trustapUserId String?
+  /// Cached result of seller instant-payout eligibility checks (admin may override).
+  instantPayoutEligible        Boolean             @default(false)
+  instantPayoutStatus          InstantPayoutStatus @default(ineligible)
+  instantPayoutOverrideByAdmin Boolean             @default(false)
+  instantPayoutOverrideReason  String?
+  instantPayoutOverrideAdminId String?
+  instantPayoutOverrideAt      DateTime?
+  payoutRiskLevel              PayoutRiskLevel     @default(medium)
+  /// Standard payout hold length (days) when instant payout is not available.
+  payoutHoldDays               Int                 @default(7)
+  /// Percent of order GMV held in reserve (0–100).
+  payoutReservePercent         Float               @default(0)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -247,6 +351,22 @@ model User {
   emailVerificationCodes EmailVerificationCode[]
   liveAuctionProxyBids LiveAuctionProxyBid[]
   liveAuctionInventoryHolds LiveAuctionInventoryHold[]
+  liveRoomsAsTipModerator LiveRoom[] @relation("LiveRoomTipModerator")
+  liveTipsSent     LiveTip[] @relation("LiveTipSender")
+  liveTipsReceived LiveTip[] @relation("LiveTipRecipient")
+  payoutEligibilityAuditLogsAsSeller PayoutEligibilityAuditLog[] @relation("PayoutAuditSeller")
+  payoutEligibilityAuditLogsAsAdmin  PayoutEligibilityAuditLog[] @relation("PayoutAuditAdmin")
+  reportsFiled                       Report[]                    @relation("ReportReporter")
+  reportsAssigned                    Report[]                    @relation("ReportAssignee")
+  liveRoomModeratorAssignments       LiveRoomModerator[]         @relation("LiveRoomModeratorUser")
+  liveRoomModeratorAssignedBy        LiveRoomModerator[]         @relation("LiveRoomModeratorAssignedBy")
+  liveRoomModerationActionsTaken     LiveRoomModerationAction[]  @relation("LiveRoomModerationActor")
+  liveRoomModerationActionsReceived  LiveRoomModerationAction[]  @relation("LiveRoomModerationTarget")
+  reportAuditLogs                    ReportAuditLog[]
+  trustModerationAuditLogs           TrustModerationAuditLog[]
+  liveStreamReplaysAsSeller          LiveStreamReplay[]          @relation("LiveStreamReplaySeller")
+  disputeEvidenceGenerated           DisputeEvidenceBundle[]     @relation("DisputeEvidenceAdmin")
+  liveRoomMessagesDeleted            LiveRoomMessage[]           @relation("LiveRoomMessageDeletedBy")
 }
 
 /// Single-use email verification OTP for signup (hashed at rest; expires).
@@ -537,6 +657,10 @@ model LiveRoom {
   auctionEventSeq    Int            @default(0)
   /// Cumulative completed item-sale GMV (USD) for this show session; resets when the show ends.
   completedSalesGmvUsd Float        @default(0)
+  /// Who receives tips during this show (`moderator` requires `tipModeratorId`).
+  tipRecipientMode   TipRecipientMode @default(host)
+  tipModeratorId     String?
+  tipModerator       User?            @relation("LiveRoomTipModerator", fields: [tipModeratorId], references: [id], onDelete: SetNull)
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
@@ -568,9 +692,41 @@ model LiveRoom {
   shippingSessions LiveShippingSession[]
   auctionEvents LiveAuctionEvent[]
   proxyBids LiveAuctionProxyBid[]
+  tips      LiveTip[]
+  moderators LiveRoomModerator[]
+  moderationActions LiveRoomModerationAction[]
+  streamReplays LiveStreamReplay[]
+  reports Report[]
+  slowModeSeconds Int @default(0)
+  pinnedModeratorMessage String?
+  pinnedModeratorMessageAt DateTime?
 
   @@index([sellerId, status])
   @@index([status, scheduledStartAt])
+  @@index([tipModeratorId])
+}
+
+/// Viewer tip during a live show — tracked separately from item/break sales (no platform fee, no GMV tier impact).
+model LiveTip {
+  id                      String         @id @default(cuid())
+  liveRoomId              String
+  liveRoom                LiveRoom       @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  senderId                String
+  sender                  User           @relation("LiveTipSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipientId             String
+  recipient               User           @relation("LiveTipRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  amountUsd               Float
+  message                 String         @default("")
+  status                  LiveTipStatus  @default(pending)
+  stripeCheckoutSessionId String?
+  stripePaymentIntentId   String?
+  paidAt                  DateTime?
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+
+  @@index([liveRoomId, createdAt])
+  @@index([recipientId, createdAt])
+  @@index([senderId, createdAt])
 }
 
 /// Durable canonical auction fan-out stream (per room). `seq` is monotonic per `liveRoomId`.
@@ -795,6 +951,9 @@ model LiveRoomMessage {
   sender      User                @relation(fields: [senderId], references: [id], onDelete: Cascade)
   body        String
   messageType LiveRoomMessageType @default(chat)
+  deletedAt   DateTime?
+  deletedByUserId String?
+  deletedBy   User?               @relation("LiveRoomMessageDeletedBy", fields: [deletedByUserId], references: [id], onDelete: SetNull)
   createdAt   DateTime            @default(now())
 
   @@index([liveRoomId, createdAt])
@@ -856,8 +1015,12 @@ model Order {
   seller    User     @relation("OrderSeller", fields: [sellerId], references: [id], onDelete: Cascade)
   itemPriceUsd      Float
   shippingPriceUsd  Float    @default(0)
-  /// Tax / fees placeholder (USD); included in Stripe line items when > 0.
+  /// Tax / fees placeholder (USD); buyer-paid sales tax synced from Stripe Tax.
   taxUsd            Float    @default(0)
+  /// Buyer-paid sales tax in cents (Stripe Tax); excluded from seller payout and platform fee base.
+  taxAmountCents    Int      @default(0)
+  taxProvider       String?
+  stripeTaxCalculationId String?
   totalUsd          Float
   /// Legacy lifecycle: pending → paid → shipped (mirrors fulfillment where applicable).
   status            String   @default("pending")
@@ -912,11 +1075,32 @@ model Order {
   shippingChargedCents   Int?
   /// Carrier label price from Shippo (cents) when a label is purchased.
   shippingLabelCostCents Int?
+  /// Seller payout lifecycle (instant after delivery vs standard hold).
+  payoutStatus             OrderPayoutStatus @default(pending)
+  deliveryConfirmedAt      DateTime?
+  payoutEligibleAt         DateTime?
+  payoutReleasedAt         DateTime?
+  payoutBlockedReason      String?
+  payoutMethod             OrderPayoutMethod @default(standard)
+  payoutReserveAmountCents Int               @default(0)
+  payoutHoldUntil          DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([escrowTransactionId])
   @@index([liveShippingSessionId])
+  @@index([sellerId, payoutStatus])
+}
+
+/// Admin-tracked sales tax nexus — gates Stripe Tax collection per US state.
+model TaxNexusState {
+  stateCode    String   @id
+  label        String
+  enabled      Boolean  @default(false)
+  registeredAt DateTime?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model LiveShippingSession {
@@ -1063,4 +1247,154 @@ model Message {
   createdAt   DateTime     @default(now())
 
   @@index([threadId, createdAt])
+}
+
+/// Audit trail for instant payout eligibility decisions and admin overrides.
+model PayoutEligibilityAuditLog {
+  id             String   @id @default(cuid())
+  sellerId       String
+  seller         User     @relation("PayoutAuditSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  orderId        String?
+  adminId        String?
+  admin          User?    @relation("PayoutAuditAdmin", fields: [adminId], references: [id], onDelete: SetNull)
+  action         String
+  previousStatus String?
+  newStatus      String?
+  reason         String?
+  createdAt      DateTime @default(now())
+
+  @@index([sellerId, createdAt])
+  @@index([orderId, createdAt])
+}
+
+/// Universal user/content report — shared web + mobile intake.
+model Report {
+  id              String           @id @default(cuid())
+  reporterUserId  String
+  reporter        User             @relation("ReportReporter", fields: [reporterUserId], references: [id], onDelete: Cascade)
+  targetType      ReportTargetType
+  targetId        String
+  reason          ReportReason
+  description     String           @default("")
+  status          ReportStatus     @default(open)
+  assignedAdminId String?
+  assignedAdmin   User?            @relation("ReportAssignee", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+  moderationNotes String           @default("")
+  liveRoomId      String?
+  liveRoom        LiveRoom?        @relation(fields: [liveRoomId], references: [id], onDelete: SetNull)
+  createdAt       DateTime         @default(now())
+  resolvedAt      DateTime?
+  updatedAt       DateTime         @updatedAt
+
+  auditLogs ReportAuditLog[]
+
+  @@index([status, createdAt])
+  @@index([targetType, targetId])
+  @@index([reporterUserId, createdAt])
+  @@index([assignedAdminId])
+}
+
+model ReportAuditLog {
+  id          String   @id @default(cuid())
+  reportId    String
+  report      Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  actorUserId String
+  actor       User     @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
+  action      String
+  detail      String?
+  createdAt   DateTime @default(now())
+
+  @@index([reportId, createdAt])
+}
+
+/// Host-assigned live room moderators (chat/bid governance — distinct from tip moderator).
+model LiveRoomModerator {
+  id               String    @id @default(cuid())
+  liveRoomId       String
+  liveRoom         LiveRoom  @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User      @relation("LiveRoomModeratorUser", fields: [userId], references: [id], onDelete: Cascade)
+  assignedByUserId String
+  assignedBy       User      @relation("LiveRoomModeratorAssignedBy", fields: [assignedByUserId], references: [id], onDelete: Cascade)
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@unique([liveRoomId, userId])
+  @@index([liveRoomId, revokedAt])
+}
+
+/// Append-only moderation actions for live rooms (mute, kick, ban, etc.).
+model LiveRoomModerationAction {
+  id              String                       @id @default(cuid())
+  liveRoomId      String
+  liveRoom        LiveRoom                     @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  targetUserId    String?
+  targetUser      User?                        @relation("LiveRoomModerationTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  moderatorUserId String
+  moderator       User                         @relation("LiveRoomModerationActor", fields: [moderatorUserId], references: [id], onDelete: Cascade)
+  actionType      LiveRoomModerationActionType
+  reason          String                       @default("")
+  targetMessageId String?
+  metadata        Json?
+  expiresAt       DateTime?
+  createdAt       DateTime                     @default(now())
+
+  @@index([liveRoomId, targetUserId, createdAt])
+  @@index([liveRoomId, actionType, createdAt])
+}
+
+/// Post-show stream replay metadata (IVS recording URL or manifest).
+model LiveStreamReplay {
+  id              String    @id @default(cuid())
+  liveRoomId      String
+  liveRoom        LiveRoom  @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  sellerId        String
+  seller          User      @relation("LiveStreamReplaySeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  streamSessionId String?
+  replayUrl       String
+  durationSeconds Int?
+  startedAt       DateTime
+  endedAt         DateTime
+  deletedAt       DateTime?
+  deletedByAdminId String?
+  createdAt       DateTime  @default(now())
+
+  @@index([liveRoomId, createdAt])
+  @@index([sellerId, createdAt])
+}
+
+/// Admin-generated dispute / moderation evidence package (JSON summary + links).
+model DisputeEvidenceBundle {
+  id                   String                @id @default(cuid())
+  orderId              String?
+  liveRoomId           String?
+  reportId             String?
+  generatedByAdminId   String?
+  generatedByAdmin     User?                 @relation("DisputeEvidenceAdmin", fields: [generatedByAdminId], references: [id], onDelete: SetNull)
+  status               DisputeEvidenceStatus @default(pending)
+  summaryJson          Json?
+  errorMessage         String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+
+  @@index([orderId, createdAt])
+  @@index([liveRoomId, createdAt])
+  @@index([reportId, createdAt])
+}
+
+/// Cross-domain trust & safety audit trail (moderation, evidence, admin overrides).
+model TrustModerationAuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String
+  actor       User     @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
+  action      String
+  targetType  String?
+  targetId    String?
+  liveRoomId  String?
+  detail      Json?
+  createdAt   DateTime @default(now())
+
+  @@index([liveRoomId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([targetType, targetId])
 }

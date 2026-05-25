@@ -1,8 +1,13 @@
 import type { ChatMessage } from '../types';
 
 /** System bodies persisted by POST /api/live-rooms/:id/viewer-event */
-export const VIEWER_EVENT_JOIN_BODY = 'joined 👋';
+export const VIEWER_EVENT_JOIN_BODY = 'joined 🔥';
+export const VIEWER_EVENT_JOIN_BODY_LEGACY = 'joined 👋';
 export const VIEWER_EVENT_SHARE_BODY = 'shared this show ✉️';
+
+export function isJoinEventBody(text: string): boolean {
+  return text === VIEWER_EVENT_JOIN_BODY || text === VIEWER_EVENT_JOIN_BODY_LEGACY;
+}
 
 /** Preserve first-seen order; drop duplicate ids from repeated pool entries. */
 export function dedupeChatMessagesById(messages: ChatMessage[]): ChatMessage[] {
@@ -18,7 +23,7 @@ export function dedupeChatMessagesById(messages: ChatMessage[]): ChatMessage[] {
 
 export function isViewerEventMessage(m: ChatMessage): boolean {
   if (m.messageType !== 'system') return false;
-  return m.text === VIEWER_EVENT_JOIN_BODY || m.text === VIEWER_EVENT_SHARE_BODY;
+  return isJoinEventBody(m.text) || m.text === VIEWER_EVENT_SHARE_BODY;
 }
 
 /** Keep one join/share line per username in the visible feed. */
@@ -30,7 +35,9 @@ export function dedupeViewerEventMessages(messages: ChatMessage[]): ChatMessage[
       out.push(m);
       continue;
     }
-    const key = `${m.text}:${m.user.trim().toLowerCase()}`;
+    const key = isJoinEventBody(m.text)
+      ? `join:${m.user.trim().toLowerCase()}`
+      : `${m.text}:${m.user.trim().toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(m);
@@ -42,11 +49,10 @@ export function tailUniqueChatMessages(messages: ChatMessage[], max: number): Ch
   return dedupeViewerEventMessages(dedupeChatMessagesById(messages)).slice(-max);
 }
 
-export function formatChatDisplayName(user: string, isHost?: boolean): string {
-  if (isHost) return 'HOST';
+export function formatChatDisplayName(user: string): string {
   const trimmed = user.trim();
   if (!trimmed) return 'Guest';
-  return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
+  return trimmed.startsWith('@') ? trimmed.slice(1) : trimmed;
 }
 
 export function formatViewerEventName(user: string): string {

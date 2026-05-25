@@ -85,7 +85,7 @@ export function FeaturedMarketplaceSection() {
                 Browse marketplace
               </Link>
               <Link
-                href="/account/seller"
+                href="/account/seller/setup"
                 className="inline-flex h-10 items-center justify-center rounded-full bg-gradient-to-r from-gold to-gold-bright px-5 text-sm font-bold text-zinc-950 shadow-[0_0_24px_-6px_rgba(201,162,39,0.45)] transition hover:brightness-110"
               >
                 Start selling

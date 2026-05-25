@@ -15,6 +15,7 @@ export function OrderPaySection({
   listingBuyingFormat,
   totalUsd,
   savedCardPayEligible,
+  checkoutRequiredForTax = false,
 }: {
   orderId: string;
   paymentStatus: string;
@@ -23,6 +24,7 @@ export function OrderPaySection({
   listingBuyingFormat: string;
   totalUsd: number;
   savedCardPayEligible: boolean;
+  checkoutRequiredForTax?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -167,7 +169,9 @@ export function OrderPaySection({
           <VaultedSecureCheckoutPanel feeCents={secureFeeCents} />
         </div>
       ) : null}
-      {showSavedCardCta ? (
+      {checkoutRequiredForTax && isAuctionCheckout ? (
+        <p className="mt-3 text-xs text-zinc-400">Secure checkout required for tax calculation.</p>
+      ) : showSavedCardCta ? (
         <p className="mt-3 text-xs text-zinc-400">
           Pay with the card you saved when you placed the winning bid, or open Stripe Checkout to use a different card.
         </p>

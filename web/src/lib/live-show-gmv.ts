@@ -53,14 +53,15 @@ export async function resolveLiveRoomIdForLiveRoomItem(liveRoomItemId: string | 
 }
 
 export async function resolveCheckoutApplicationFeeCents(args: {
-  subtotalUsd: number;
+  /** Item/sale price only — excludes shipping, tax, and tips. */
+  saleAmountUsd: number;
   isCompanyListing: boolean;
   liveRoomId?: string | null;
 }): Promise<number> {
   if (args.isCompanyListing) return 0;
   if (args.liveRoomId) {
     const gmv = await getLiveRoomCompletedSalesGmvUsd(args.liveRoomId);
-    return liveShowApplicationFeeCents(args.subtotalUsd, gmv, false);
+    return liveShowApplicationFeeCents(args.saleAmountUsd, gmv, false);
   }
-  return marketplaceApplicationFeeCents(args.subtotalUsd, false);
+  return marketplaceApplicationFeeCents(args.saleAmountUsd, false);
 }

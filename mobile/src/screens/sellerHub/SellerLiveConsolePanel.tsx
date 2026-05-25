@@ -64,8 +64,8 @@ export function SellerLiveConsolePanel({
               item={c.activeItem}
               serverNowMs={c.serverNowMs}
               roomLive={c.roomLive}
-              auctionRoom={c.auctionRoom}
               busy={c.busy}
+              startingAuction={c.startingAuction}
               onStartBidding={c.onStartBidding}
               onSold={c.onSold}
               onSkip={c.onSkip}

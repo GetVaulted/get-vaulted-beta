@@ -4,6 +4,7 @@ import {
   getSellerFulfillmentReadinessIssues,
   hasCompleteSellerShipFrom,
   hasStripeConnectReady,
+  sellerHasShipFromAddress,
 } from "@/lib/seller-shipping-readiness";
 
 const baseSeller = {
@@ -85,5 +86,13 @@ describe("getSellerFulfillmentReadinessIssues", () => {
       seller: baseSeller,
     });
     expect(issues).toHaveLength(0);
+  });
+});
+
+describe("sellerHasShipFromAddress", () => {
+  it("falls back to seller profile when readiness checks are stale", () => {
+    expect(
+      sellerHasShipFromAddress({ hasShipFromAddress: false }, baseSeller),
+    ).toBe(true);
   });
 });

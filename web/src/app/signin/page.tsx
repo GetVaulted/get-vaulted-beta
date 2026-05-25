@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { Suspense, useEffect, useState } from "react";
 import { safeReturnTo } from "@/lib/safe-return-to";
+import { AUTH_USER_MESSAGES } from "@/lib/unified-auth";
 
 function SignInForm() {
   const router = useRouter();
@@ -44,9 +45,7 @@ function SignInForm() {
         redirect: false,
       });
       if (!res?.ok || res.error) {
-        setError(
-          "Invalid email or password. Web sign-up needs email verification; accounts created in the mobile app use the same email and password here once Supabase env is aligned on beta.",
-        );
+        setError(AUTH_USER_MESSAGES.signInInvalidCredentials);
         return;
       }
       const next = returnTo.startsWith("/") ? returnTo : "/marketplace";
@@ -64,15 +63,11 @@ function SignInForm() {
       <h1 className="font-display text-center text-2xl font-bold text-foreground sm:text-left">Sign in</h1>
       <p className="mt-2 text-center text-sm text-zinc-500 sm:text-left">
         {confirm === "1" ? (
-          <span className="text-emerald-200/90">
-            Check your email for a confirmation link, then sign in here with your email and password.
-          </span>
+          <span className="text-emerald-200/90">{AUTH_USER_MESSAGES.signInConfirmEmail}</span>
         ) : registered === "1" ? (
-          <span className="text-emerald-200/90">
-            Account ready. Sign in with your email and password (you should already be verified).
-          </span>
+          <span className="text-emerald-200/90">{AUTH_USER_MESSAGES.signInReady}</span>
         ) : (
-          "Use the email and password for your Get Vaulted account."
+          AUTH_USER_MESSAGES.signInSubtitle
         )}
       </p>
 
@@ -132,11 +127,7 @@ function SignInForm() {
         </button>
       </form>
 
-      <p className="mt-5 text-center text-xs leading-relaxed text-zinc-600 sm:text-left">
-        Signed up on the mobile app? Use the same email and password. Signed up on the web? Enter the
-        verification code from your email before signing in.
-      </p>
-      <p className="mt-3 text-center text-xs text-zinc-600 sm:text-left">
+      <p className="mt-5 text-center text-xs text-zinc-600 sm:text-left">
         New here?{" "}
         <Link href={joinHref} className="font-semibold text-gold-bright hover:underline">
           Join Get Vaulted

@@ -67,6 +67,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         msg: "High-value alternate checkout is not configured. Set ESCROW_ENABLED=true and provider env vars (see .env.example), or use Stripe checkout.",
       },
       ORDER_NOT_ELIGIBLE_SAVED_CARD: { status: 400, msg: "Saved-card charge is only available for auction wins awaiting payment." },
+      REQUIRES_CHECKOUT_FOR_TAX: {
+        status: 409,
+        msg: "Secure checkout required for tax calculation.",
+      },
       SELLER_NOT_READY: { status: 409, msg: "Seller has not finished Stripe Connect onboarding." },
       ORDER_SAVED_PM_MISSING: {
         status: 400,

@@ -106,3 +106,56 @@ export function normalizeSellerReadinessChecks(
     hasShipFromAddress: Boolean(raw?.hasShipFromAddress),
   };
 }
+
+export type SellerSetupDataSource = 'cache' | 'server' | 'loading' | 'error';
+
+/** Server `sellerSetupWizardCompletedAt` wins; AsyncStorage is optimistic fallback only. */
+export function resolveWizardCompleteFromSources(input: {
+  sellerSetupWizardCompletedAt?: string | null;
+  setupWizardComplete?: boolean;
+  localWizardComplete: boolean;
+  stickyServerConfirmed: boolean;
+  serverResponded: boolean;
+}): {
+  wizardComplete: boolean;
+  serverWizardConfirmed: boolean;
+  serverExplicitIncomplete: boolean;
+} {
+  const serverAt = input.sellerSetupWizardCompletedAt ?? null;
+  const serverComplete = input.setupWizardComplete === true || Boolean(serverAt);
+  if (serverComplete) {
+    return { wizardComplete: true, serverWizardConfirmed: true, serverExplicitIncomplete: false };
+  }
+  if (input.stickyServerConfirmed) {
+    return { wizardComplete: true, serverWizardConfirmed: true, serverExplicitIncomplete: false };
+  }
+  if (input.serverResponded && input.setupWizardComplete === false && !serverAt) {
+    return {
+      wizardComplete: input.localWizardComplete,
+      serverWizardConfirmed: false,
+      serverExplicitIncomplete: true,
+    };
+  }
+  return {
+    wizardComplete: input.localWizardComplete,
+    serverWizardConfirmed: false,
+    serverExplicitIncomplete: false,
+  };
+}
+
+export function logSellerSetupTransition(args: {
+  previousLifecycle: SellerLifecycleState;
+  nextLifecycle: SellerLifecycleState;
+  source: SellerSetupDataSource;
+  sellerSetupWizardCompletedAt: string | null;
+  activated: boolean;
+}): void {
+  if (!__DEV__) return;
+  console.log(
+    '[sellerSetup]',
+    `lifecycle ${args.previousLifecycle} → ${args.nextLifecycle}`,
+    `source=${args.source}`,
+    `wizardAt=${args.sellerSetupWizardCompletedAt ?? 'null'}`,
+    `activated=${args.activated}`,
+  );
+}

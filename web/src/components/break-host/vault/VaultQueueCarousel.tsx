@@ -27,6 +27,7 @@ type VaultQueueCarouselProps = {
   viewerCount: number;
   busy: boolean;
   onPost: (id: string) => void;
+  onSkip?: (id: string) => void;
   onDelete: (id: string) => void;
   onAddAuction: () => void;
 };
@@ -40,6 +41,7 @@ export function VaultQueueCarousel({
   viewerCount,
   busy,
   onPost,
+  onSkip,
   onDelete,
   onAddAuction,
 }: VaultQueueCarouselProps) {
@@ -154,7 +156,7 @@ export function VaultQueueCarousel({
                     </p>
                   ) : null}
                   <div className="flex gap-1.5 pt-1">
-                    {item.status !== "active" && item.status !== "sold" ? (
+                    {item.status !== "active" && item.status !== "sold" && item.status !== "skipped" ? (
                       <button
                         type="button"
                         disabled={busy}
@@ -162,6 +164,16 @@ export function VaultQueueCarousel({
                         className="min-h-8 flex-1 rounded-lg border border-violet-400/30 bg-violet-500/15 text-[10px] font-black uppercase tracking-wide text-violet-100 hover:bg-violet-500/25"
                       >
                         Pin
+                      </button>
+                    ) : null}
+                    {item.status !== "sold" && item.status !== "skipped" && onSkip ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => onSkip(item.id)}
+                        className="min-h-8 flex-1 rounded-lg border border-amber-500/25 bg-amber-500/10 text-[10px] font-semibold text-amber-100 hover:bg-amber-500/20"
+                      >
+                        Skip
                       </button>
                     ) : null}
                     {item.status !== "sold" ? (

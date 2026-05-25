@@ -170,6 +170,11 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         rightEdge={CHAT_RIGHT_EDGE}
         isActive
         streamKey={roomId}
+        liveRoomId={roomId}
+        hostUserId={user?.id}
+        accessToken={accessToken}
+        canModerate
+        onModerationComplete={() => void console.loadOnce()}
       />
 
       <SellerLiveComposer
@@ -192,8 +197,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         item={console.activeItem}
         serverNowMs={console.serverNowMs}
         roomLive={console.roomLive}
-        auctionRoom={console.auctionRoom}
         busy={console.busy}
+        startingAuction={console.startingAuction}
         onStartBidding={console.onStartBidding}
         onSold={console.onSold}
         onSkip={console.onSkip}

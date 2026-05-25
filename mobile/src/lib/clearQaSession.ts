@@ -1,7 +1,5 @@
 import { Alert } from 'react-native';
-import { clearAuthStore } from './authSessionStorage';
-import { clearHomeFeedCache } from './homeFeedCache';
-import { setLiveDiscoveryMeta } from './liveDiscoveryMeta';
+import { recoverFromStaleAuthSession } from './recoverInvalidAuthSession';
 import { navigateToAuthWelcome } from '../navigation/rootNavigationRef';
 
 /**
@@ -14,17 +12,7 @@ export async function performClearQaSession(signOut: () => Promise<void>): Promi
   } catch {
     /* continue */
   }
-  try {
-    await clearAuthStore();
-  } catch {
-    /* continue */
-  }
-  try {
-    await clearHomeFeedCache();
-  } catch {
-    /* continue */
-  }
-  setLiveDiscoveryMeta({ source: 'none', fetchedAt: null, apiBaseUrl: null, error: null });
+  await recoverFromStaleAuthSession({ signOut: false, navigate: false });
   navigateToAuthWelcome();
 }
 

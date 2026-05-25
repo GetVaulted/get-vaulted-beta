@@ -18,6 +18,7 @@ import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { vaultModeRootClass } from "@/components/break-host/vault/vault-modes";
 import { HostStreamSetupCard } from "@/components/live-auction/HostStreamSetupCard";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
+import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
 import { logLiveDebugEvent } from "@/lib/live-debug";
 import {
   createLiveRoomItem,
@@ -194,6 +195,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const seenEventIdsRef = useRef<Set<string>>(new Set());
   const [streamPlaybackRefreshNonce, setStreamPlaybackRefreshNonce] = useState(0);
   const [hostStreamCardRefreshNonce, setHostStreamCardRefreshNonce] = useState(0);
+  const hostModeration = useLiveRoomModerationState(roomId, true);
+  const [modBusy, setModBusy] = useState(false);
+  const [modError, setModError] = useState<string | null>(null);
 
   /** After first successful host-console load for this mount/room; avoids wiping UI on poll network blips. */
   const hostConsoleHydratedRef = useRef(false);
@@ -466,6 +470,75 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       /* Failed to fetch — next poll retries */
     }
   }, [roomId]);
+
+  const runHostModeration = useCallback(
+    async (actionType: string, extra?: { targetUserId?: string; metadata?: Record<string, unknown> }) => {
+      setModBusy(true);
+      setModError(null);
+      try {
+        const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/moderation`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ actionType, ...extra }),
+        });
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          setModError(j.error ?? "Moderation action failed.");
+          return;
+        }
+        void hostModeration.reload();
+      } finally {
+        setModBusy(false);
+      }
+    },
+    [hostModeration, roomId],
+  );
+
+  const assignHostModerator = useCallback(
+    async (userId: string) => {
+      setModBusy(true);
+      setModError(null);
+      try {
+        const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/moderators`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId }),
+        });
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          setModError(j.error ?? "Could not assign moderator.");
+          return;
+        }
+        void hostModeration.reload();
+      } finally {
+        setModBusy(false);
+      }
+    },
+    [hostModeration, roomId],
+  );
+
+  const revokeHostModerator = useCallback(
+    async (userId: string) => {
+      setModBusy(true);
+      setModError(null);
+      try {
+        const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/moderators`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId }),
+        });
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          setModError(j.error ?? "Could not remove moderator.");
+          return;
+        }
+        void hostModeration.reload();
+      } finally {
+        setModBusy(false);
+      }
+    },
+    [hostModeration, roomId],
+  );
 
   const chatPollLive = data?.room?.status?.toLowerCase() === "live";
   useEffect(() => {
@@ -1093,23 +1166,29 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
   const hostLiveChatPanel = (
     <VaultHostLiveChatPanel
+      liveRoomId={roomId}
+      hostUserId={room.sellerId}
       messages={data.messages}
       systemMsg={systemMsg}
       onSystemMsgChange={setSystemMsg}
       onSendSystem={() => void sendSystem()}
       busy={busy}
       viewerCount={room.viewerCount}
+      onMessagesRefresh={() => void mergeHostMessagesFromApi()}
       variant="sidebar"
     />
   );
 
   const hostLiveChatPanelMobile = (
     <VaultHostLiveChatPanel
+      liveRoomId={roomId}
+      hostUserId={room.sellerId}
       messages={data.messages}
       systemMsg={systemMsg}
       onSystemMsgChange={setSystemMsg}
       onSendSystem={() => void sendSystem()}
       busy={busy}
+      onMessagesRefresh={() => void mergeHostMessagesFromApi()}
       variant="overlay"
     />
   );
@@ -1281,12 +1360,25 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         }}
         onCopyPublic={() => void copyPublic()}
         onSoon={(label) => setToast(`${label} — coming soon`)}
+        roomGovernance={{
+          slowModeSeconds: hostModeration.slowModeSeconds,
+          moderators: hostModeration.moderators,
+          busy: modBusy,
+          error: modError,
+          onSetSlowMode: (seconds) => void runHostModeration("slow_mode", { metadata: { seconds } }),
+          onAssignModerator: (userId) => void assignHostModerator(userId),
+          onRevokeModerator: (userId) => void revokeHostModerator(userId),
+        }}
+        onStartAuction={() => void handleHostStartLiveItemAuction()}
+        startAuctionEnabled={hostStartLiveAuctionEnabled}
+        startAuctionBusy={hostLiveItemAuctionBusy}
         queueTab={hostQueueTab}
         onQueueTab={setHostQueueTab}
         queueRows={data.queueItems}
         selectedQueueItemId={selectedQueueItemId}
         onSelectQueueItem={setSelectedQueueItemId}
         onPostItem={(id) => void patchItem(id, "active")}
+        onSkipItem={(id) => void patchItem(id, "skipped")}
         onDeleteItem={(id) => void deleteQueueItem(id)}
         onAddAuction={() => {
           setVaultCommandOpen(false);

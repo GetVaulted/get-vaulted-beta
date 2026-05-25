@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { Session, User } from '@supabase/supabase-js';
 import { updateMyProfile } from '../api/profilesRepository';
 import { setKeepMeLoggedInPreference } from '../lib/authSessionStorage';
+import { resolveInitialAuthSession } from '../lib/recoverInvalidAuthSession';
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase';
 
 type AuthCtx = {
@@ -33,14 +34,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       return;
     }
-    void sb.auth.getSession().then(({ data }) => {
-      setSession(data.session ?? null);
-      setLoading(false);
-    });
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const { session: initial } = await resolveInitialAuthSession(sb);
+        if (cancelled) return;
+        setSession(initial);
+        setGuestExploreMode(false);
+      } catch {
+        if (cancelled) return;
+        setSession(null);
+        setGuestExploreMode(false);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
     const { data: sub } = sb.auth.onAuthStateChange((_event, next) => {
       setSession(next);
     });
-    return () => sub.subscription.unsubscribe();
+
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -74,6 +93,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             username,
             display_name: displayName,
           },
+          emailRedirectTo:
+            process.env.EXPO_PUBLIC_SITE_URL?.trim()?.replace(/\/+$/, '') ||
+            'https://beta.shopgetvaulted.com',
         },
       });
       if (error) throw error;

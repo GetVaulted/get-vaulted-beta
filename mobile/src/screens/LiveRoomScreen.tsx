@@ -2,7 +2,6 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchLiveShowsForDiscovery } from '../api/liveShowsDiscoveryRepository';
 import { fetchLiveRoomPublicById, liveRoomRowToLiveStream } from '../api/liveRoomsRepository';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
@@ -16,7 +15,6 @@ import { colors } from '../theme';
 import type { LiveStream } from '../types';
 
 export function LiveRoomScreen() {
-  const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const route = useRoute<RouteProp<LiveStackParamList, 'LiveRoom'>>();
   const { streamId } = route.params;
@@ -85,11 +83,11 @@ export function LiveRoomScreen() {
       <VerticalLiveFeed
         streams={streams}
         initialStreamId={streamId}
-        bottomOffset={insets.bottom + 8}
         onBack={() => navigation.goBack()}
         signedIn={Boolean(user)}
         onRequireAuth={onRequireAuth}
         accessToken={session?.access_token}
+        userId={user?.id}
       />
     </View>
   );

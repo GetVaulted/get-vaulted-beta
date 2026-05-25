@@ -62,6 +62,8 @@ export type RootStackParamList = {
   ChangeEmail: undefined;
   ChangePassword: undefined;
   DeleteAccount: undefined;
+  CommunityGuidelines: undefined;
+  ReportingSafety: undefined;
   HelpCenter: { focusSearch?: boolean } | undefined;
   HelpArticle: { articleId: string };
   ContactSupport:

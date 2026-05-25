@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { LiveViewerCount } from "@/components/live-auction/LiveViewerCount";
 import { LiveVideoStagePlayback } from "@/components/live-auction/LiveVideoStagePlayback";
+import { ReportTrigger } from "@/components/trust/ReportModal";
 import { SellerFollowButton } from "@/components/seller/SellerFollowButton";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
 
@@ -49,6 +50,8 @@ type LiveVideoStageProps = {
   showRightActions?: boolean;
   onShare?: () => void;
   onWallet?: () => void;
+  /** Opens buyer tip sheet — shown on the right rail when the show is live. */
+  onTip?: () => void;
   /** When set, loads buyer-safe stream info and renders IVS HLS playback behind overlays (never exposes keys). */
   liveRoomId?: string;
   /** Bumped when room `stream_status` realtime fires so playback refetches stream info. */
@@ -91,6 +94,7 @@ export function LiveVideoStage({
   showRightActions = false,
   onShare,
   onWallet,
+  onTip,
   liveRoomId,
   streamPlaybackRefreshNonce,
   scheduledStartAt = null,
@@ -275,9 +279,23 @@ export function LiveVideoStage({
           }`}
         >
           <div className="motion-reduce:animate-none flex flex-col items-center gap-1 max-[380px]:gap-0.5 rounded-2xl border border-[color:var(--live-border)] bg-black/18 px-1 py-1.5 backdrop-blur-[var(--live-blur-xl)] shadow-[var(--live-shadow-rail)] [animation:live-rail-in_var(--live-duration-enter)_var(--live-ease)_both] motion-reduce:[animation:none] md:gap-1.5 md:px-1.5 md:py-2">
+            {onTip ? <ActionPill label="Tip" icon={<TipIcon />} onClick={onTip} /> : null}
             <ActionPill label="Share" icon={<ShareIcon />} onClick={onShare} />
             <ActionPill label="Wallet" icon={<WalletIcon />} onClick={onWallet} />
             <ActionPill label="Shop" icon={<ShopIcon />} href="/marketplace" />
+            {liveRoomId ? (
+              <ReportTrigger
+                targetType="live_room"
+                targetId={liveRoomId}
+                liveRoomId={liveRoomId}
+                className="group inline-flex min-h-10 min-w-10 flex-col items-center justify-center gap-0.5 rounded-[var(--live-radius-chrome)] border border-[color:var(--live-border)] bg-white/[0.02] px-0.5 py-1 text-white/90 backdrop-blur-[var(--live-blur-md)] transition-[transform,background-color,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] hover:-translate-y-0.5 hover:bg-white/[0.07] active:scale-[0.94] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:scale-100 md:min-h-11 md:min-w-11 md:px-1 md:py-1.5"
+              >
+                <span className="inline-flex size-4 items-center justify-center">
+                  <FlagIcon />
+                </span>
+                <span className="text-[9px] font-semibold leading-none text-zinc-200">Report</span>
+              </ReportTrigger>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -324,6 +342,15 @@ function ActionPill({
   );
 }
 
+function TipIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v18M8 7h8M9 11h6" />
+      <circle cx="12" cy="5" r="1.5" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 function ShareIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4" aria-hidden>
@@ -348,6 +375,14 @@ function ShopIcon() {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4" aria-hidden>
       <path strokeLinecap="round" strokeLinejoin="round" d="M4 9l1-4h14l1 4M5 9h14v10H5z" />
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 13h6" />
+    </svg>
+  );
+}
+
+function FlagIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v18M5 4h12l-2 3 2 3H5" />
     </svg>
   );
 }

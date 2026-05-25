@@ -11,11 +11,16 @@ import { notifyFollowersSellerWentLive } from "@/lib/seller-follow-notify";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
 import { processAuctionPaymentExpiries } from "@/services/payments";
 import { emitAuctionEnded, emitAuctionStarted, emitLiveDiscoveryChanged, emitTeamBoardChanged } from "@/lib/realtime-emit-server";
+import { buildLiveTipRoomData } from "@/lib/live-tip-moderator";
+import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
+import { finalizeLiveStreamReplay } from "@/lib/trust/live-replay-service";
 
 const includeDetail = {
   seller: { select: { id: true, username: true } as const },
+  tipModerator: { select: { id: true, username: true } as const },
   items: true as const,
   messages: {
+    where: { deletedAt: null },
     orderBy: { createdAt: "asc" as const },
     take: 200,
     include: { sender: { select: { username: true } as const } },
@@ -111,6 +116,9 @@ type PatchBody = {
   scheduledStartAt?: string | null;
   thumbnailUrl?: string;
   action?: string;
+  tipModeratorId?: string | null;
+  tipRecipientMode?: string;
+  tipsToModerator?: boolean;
 };
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -167,6 +175,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         status: "live",
         startedAt: new Date(),
         endedAt: null,
+        completedSalesGmvUsd: 0,
         roomVersion: { increment: 1 },
       },
     });
@@ -218,6 +227,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     const roomNow = await prisma.liveRoom.findUnique({ where: { id }, select: { roomVersion: true } });
     emitAuctionEnded(id, roomNow?.roomVersion);
     emitLiveDiscoveryChanged({ roomId: id, status: "ended", reason: "ended" });
+    void finalizeLiveStreamReplay(id).catch((e) => console.error("[live-room end] replay", e));
     return NextResponse.json({ ok: true });
   }
 
@@ -243,6 +253,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       emitAuctionEnded(id, roomNow?.roomVersion);
     }
     emitLiveDiscoveryChanged({ roomId: id, status: "ended", reason: "cancelled" });
+    void finalizeLiveStreamReplay(id).catch((e) => console.error("[live-room cancel] replay", e));
     return NextResponse.json({ ok: true });
   }
 
@@ -251,6 +262,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     description?: string;
     thumbnailUrl?: string;
     scheduledStartAt?: Date | null;
+    tipModeratorId?: string | null;
+    tipRecipientMode?: "host" | "moderator";
   } = {};
 
   if (typeof body.title === "string") data.title = body.title.trim().slice(0, 200);
@@ -265,9 +278,35 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     }
   }
 
+  if ("tipModeratorId" in body || "tipRecipientMode" in body || "tipsToModerator" in body) {
+    if (existing.status === "ended") {
+      return NextResponse.json({ error: "Cannot change tip settings on an ended show." }, { status: 409 });
+    }
+    const tipBuilt = await buildLiveTipRoomData(existing.sellerId, body);
+    if (!tipBuilt.ok) {
+      return NextResponse.json({ error: tipBuilt.error }, { status: 400 });
+    }
+    data.tipModeratorId = tipBuilt.data.tipModeratorId;
+    data.tipRecipientMode = tipBuilt.data.tipRecipientMode;
+  }
+
   if (Object.keys(data).length > 0) {
     await prisma.liveRoom.update({ where: { id }, data });
     emitLiveDiscoveryChanged({ roomId: id, status: existing.status, reason: "updated" });
+  }
+
+  if ("tipModeratorId" in body || "tipRecipientMode" in body || "tipsToModerator" in body) {
+    const room = await prisma.liveRoom.findUnique({
+      where: { id },
+      select: {
+        tipRecipientMode: true,
+        tipModeratorId: true,
+        tipModerator: { select: { id: true, username: true } },
+      },
+    });
+    if (room) {
+      return NextResponse.json({ ok: true, tip: serializeLiveTipConfig(room) });
+    }
   }
 
   return NextResponse.json({ ok: true });

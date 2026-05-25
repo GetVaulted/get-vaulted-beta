@@ -4,12 +4,14 @@ import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { buildBuyerOrderTimeline, buildSellerOrderMilestones } from "@/lib/order-timeline";
 import { OrderEscrowBuyerPanel } from "@/components/orders/OrderEscrowBuyerPanel";
 import { OrderPaySection } from "@/components/orders/OrderPaySection";
+import { OrderReportLink } from "@/components/orders/OrderReportLink";
 import { PaymentDeadlineCountdown } from "@/components/orders/PaymentDeadlineCountdown";
 import { OrderTimelineSteps, SellerMilestoneSteps } from "@/components/orders/OrderTimeline";
 import { orderStatusLabel } from "@/lib/order-status";
 import { prisma } from "@/lib/prisma";
 import { isEscrowConfigured, orderTotalQualifiesForEscrow } from "@/lib/escrow-config";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
+import { orderRequiresCheckoutForTax } from "@/lib/stripe-tax";
 import { processAuctionPaymentExpiries } from "@/services/payments";
 
 export const dynamic = "force-dynamic";
@@ -109,10 +111,13 @@ export default async function OrderPage({ params }: { params: Promise<{ orderId:
     );
   }
 
-  const savedCardPayEligible =
+  const savedCardPayEligibleBase =
     order.listing.buyingFormat === "auction" &&
     isStripePaymentMethodId(order.paymentLabel ?? "") &&
     !(orderTotalQualifiesForEscrow(order.totalUsd) && isEscrowConfigured());
+
+  const checkoutRequiredForTax = await orderRequiresCheckoutForTax(order.shipState, order.shipCountry);
+  const savedCardPayEligible = savedCardPayEligibleBase && !checkoutRequiredForTax;
 
   const isBuyer = order.buyerId === session.user.id;
 
@@ -256,6 +261,7 @@ export default async function OrderPage({ params }: { params: Promise<{ orderId:
           listingBuyingFormat={order.listing.buyingFormat}
           totalUsd={order.totalUsd}
           savedCardPayEligible={savedCardPayEligible}
+          checkoutRequiredForTax={checkoutRequiredForTax}
         />
 
         {isBuyer && order.paymentMethod === "escrow" ? (
@@ -285,6 +291,12 @@ export default async function OrderPage({ params }: { params: Promise<{ orderId:
         ) : null}
 
         <div className="mt-8 flex flex-wrap gap-3 text-[11px] font-semibold uppercase tracking-wide">
+          {isBuyer ? (
+            <>
+              <OrderReportLink orderId={order.id} />
+              <span className="text-zinc-700">·</span>
+            </>
+          ) : null}
           <Link href="/account/orders" className="text-gold-bright/90 hover:text-gold-bright">
             Your orders
           </Link>

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import {
   LIVE_AUCTION_HOST_TIMER_ENDED_COPY,
@@ -11,6 +11,31 @@ import { colors, radii, spacing } from '../../../theme';
 import { lc } from './liveConsoleTheme';
 
 const DEFAULT_AUCTION_SEC = 15;
+
+type HostLotHudPhase =
+  | 'empty'
+  | 'sold'
+  | 'skipped'
+  | 'prelive'
+  | 'ready'
+  | 'running'
+  | 'ended';
+
+function resolveHostLotHudPhase(args: {
+  item: LiveRoomItemRow | null;
+  roomLive: boolean;
+  lotBidPhase: ReturnType<typeof resolveLiveAuctionLotBidPhase>;
+}): HostLotHudPhase {
+  const { item, roomLive, lotBidPhase } = args;
+  if (!item) return 'empty';
+  if (item.status === 'sold') return 'sold';
+  if (item.status === 'skipped') return 'skipped';
+  if (!roomLive) return 'prelive';
+  if (lotBidPhase === 'bidding_open') return 'running';
+  if (lotBidPhase === 'timer_ended_unsettled') return 'ended';
+  if (item.status === 'active' && lotBidPhase === 'not_started') return 'ready';
+  return 'prelive';
+}
 
 function fmtMoney(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return '—';
@@ -34,8 +59,8 @@ export function VaultPinnedLotCard({
   item,
   serverNowMs,
   roomLive,
-  auctionRoom,
   busy,
+  startingAuction = false,
   density = 'default',
   onStartBidding,
   onSold,
@@ -45,8 +70,8 @@ export function VaultPinnedLotCard({
   item: LiveRoomItemRow | null;
   serverNowMs: number;
   roomLive: boolean;
-  auctionRoom: boolean;
   busy: boolean;
+  startingAuction?: boolean;
   /** Compact broadcast overlay — ~18% smaller with live energy FX. */
   density?: 'default' | 'broadcast';
   onStartBidding: () => void;
@@ -184,6 +209,11 @@ export function VaultPinnedLotCard({
   const reserve =
     item.priceUsd != null && item.currentBidUsd != null && item.currentBidUsd >= item.priceUsd;
   const closingSoon = countdown != null && countdown.progress <= 0.28;
+  const hudPhase = resolveHostLotHudPhase({ item, roomLive, lotBidPhase });
+  const showStartAuction = hudPhase === 'ready';
+  const showRunningStrip = hudPhase === 'running';
+  const showEndedActions = hudPhase === 'ended';
+  const showSecondaryActions = roomLive && hudPhase !== 'sold' && hudPhase !== 'skipped';
 
   return (
     <Animated.View
@@ -250,12 +280,22 @@ export function VaultPinnedLotCard({
           ) : (
             <Text style={[styles.meta, compact && styles.metaCompact]}>Waiting for first bid</Text>
           )}
-          {auctionRoom && lotBidPhase === 'timer_ended_unsettled' ? (
+          {hudPhase === 'ended' ? (
             <Text style={styles.hostEndedCopy}>{LIVE_AUCTION_HOST_TIMER_ENDED_COPY}</Text>
           ) : null}
           <View style={styles.metaRow}>
             <Text style={[styles.meta, compact && styles.metaCompact]}>
-              {item.biddingOpen ? 'Hammer live' : lotBidPhase === 'timer_ended_unsettled' ? 'Awaiting mark sold' : 'Ready'}
+              {showRunningStrip
+                ? 'Auction running'
+                : hudPhase === 'ended'
+                  ? 'Awaiting mark sold'
+                  : hudPhase === 'sold'
+                    ? 'Sold'
+                    : hudPhase === 'skipped'
+                      ? 'Skipped'
+                      : hudPhase === 'ready'
+                        ? 'Ready to start'
+                        : 'Ready'}
             </Text>
             {item.priceUsd != null ? (
               <Text style={[styles.meta, compact && styles.metaCompact, reserve && styles.metaOk]}>
@@ -265,37 +305,66 @@ export function VaultPinnedLotCard({
           </View>
         </View>
       </View>
-      {roomLive ? (
-        <View style={[styles.actions, compact && styles.actionsCompact]}>
-          {auctionRoom && !item.biddingOpen ? (
-            <Pressable style={[styles.actionGold, compact && styles.actionCompact]} disabled={busy} onPress={onStartBidding}>
-              <Text style={[styles.actionGoldTxt, compact && styles.actionTxtCompact]}>Open bid</Text>
-            </Pressable>
+
+      {showRunningStrip ? (
+        <View style={[styles.runningStrip, compact && styles.runningStripCompact]}>
+          <View style={styles.runningBadge}>
+            <Animated.View style={[styles.bidderDot, { opacity: pulse }]} />
+            <Text style={styles.runningBadgeTxt}>Auction Running</Text>
+          </View>
+          {countdown ? (
+            <Text style={[styles.runningTimer, closingSoon && styles.runningTimerUrgent]}>{countdown.label}</Text>
           ) : null}
-          <Pressable
-            style={[
-              lotBidPhase === 'timer_ended_unsettled' ? styles.actionGold : styles.action,
-              compact && styles.actionCompact,
-            ]}
-            disabled={busy}
-            onPress={onSold}
-          >
-            <Text
-              style={[
-                lotBidPhase === 'timer_ended_unsettled' ? styles.actionGoldTxt : styles.actionTxt,
-                compact && styles.actionTxtCompact,
-              ]}
-            >
-              {lotBidPhase === 'timer_ended_unsettled' ? 'Mark sold' : 'Sold'}
+          <Text style={styles.runningBid}>{fmtMoney(item.currentBidUsd ?? item.startingBidUsd)}</Text>
+        </View>
+      ) : null}
+
+      {hudPhase === 'sold' || hudPhase === 'skipped' ? (
+        <View style={[styles.statusBanner, hudPhase === 'sold' ? styles.statusBannerSold : styles.statusBannerSkipped]}>
+          <Text style={styles.statusBannerTxt}>{hudPhase === 'sold' ? 'Lot sold' : 'Lot skipped'}</Text>
+        </View>
+      ) : null}
+
+      {showStartAuction ? (
+        <Pressable
+          style={[styles.startAuctionPrimary, compact && styles.startAuctionPrimaryCompact]}
+          disabled={busy || startingAuction}
+          onPress={onStartBidding}
+          accessibilityRole="button"
+          accessibilityLabel="Start auction"
+        >
+          {startingAuction ? (
+            <ActivityIndicator color="#0a0a0a" size="small" />
+          ) : (
+            <Text style={[styles.startAuctionPrimaryTxt, compact && styles.startAuctionPrimaryTxtCompact]}>
+              Start Auction
             </Text>
-          </Pressable>
+          )}
+        </Pressable>
+      ) : null}
+
+      {showSecondaryActions ? (
+        <View style={[styles.actions, compact && styles.actionsCompact]}>
+          {showEndedActions ? (
+            <Pressable
+              style={[styles.actionGold, styles.actionFlex, compact && styles.actionCompact]}
+              disabled={busy}
+              onPress={onSold}
+            >
+              <Text style={[styles.actionGoldTxt, compact && styles.actionTxtCompact]}>Mark sold</Text>
+            </Pressable>
+          ) : (
+            <Pressable style={[styles.action, compact && styles.actionCompact]} disabled={busy} onPress={onSold}>
+              <Text style={[styles.actionTxt, compact && styles.actionTxtCompact]}>Sold</Text>
+            </Pressable>
+          )}
           <Pressable style={[styles.action, compact && styles.actionCompact]} disabled={busy} onPress={onSkip}>
             <Text style={[styles.actionTxt, compact && styles.actionTxtCompact]}>Skip</Text>
           </Pressable>
         </View>
-      ) : (
+      ) : hudPhase === 'prelive' ? (
         <Text style={[styles.hint, compact && styles.metaCompact]}>Go live to run this lot</Text>
-      )}
+      ) : null}
     </Animated.View>
   );
 }
@@ -399,8 +468,94 @@ const styles = StyleSheet.create({
     marginTop: 4,
     lineHeight: 14,
   },
+  runningStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: radii.md,
+    backgroundColor: 'rgba(16,185,129,0.12)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(16,185,129,0.35)',
+  },
+  runningStripCompact: {
+    paddingVertical: 5,
+    paddingHorizontal: 6,
+    gap: 6,
+  },
+  runningBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    flexShrink: 0,
+  },
+  runningBadgeTxt: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#6ee7b7',
+    letterSpacing: 0.3,
+  },
+  runningTimer: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: colors.gold,
+    fontVariant: ['tabular-nums'],
+  },
+  runningTimerUrgent: {
+    color: colors.live,
+  },
+  runningBid: {
+    marginLeft: 'auto',
+    fontSize: 14,
+    fontWeight: '900',
+    color: colors.gold,
+    fontVariant: ['tabular-nums'],
+  },
+  statusBanner: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: radii.md,
+    alignItems: 'center',
+  },
+  statusBannerSold: {
+    backgroundColor: 'rgba(16,185,129,0.15)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(16,185,129,0.35)',
+  },
+  statusBannerSkipped: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  statusBannerTxt: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  startAuctionPrimary: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 40,
+    borderRadius: radii.pill,
+    backgroundColor: colors.gold,
+    paddingHorizontal: spacing.md,
+  },
+  startAuctionPrimaryCompact: {
+    minHeight: 36,
+  },
+  startAuctionPrimaryTxt: {
+    fontWeight: '900',
+    fontSize: 13,
+    color: '#0a0a0a',
+    letterSpacing: 0.2,
+  },
+  startAuctionPrimaryTxtCompact: {
+    fontSize: 12,
+  },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   actionsCompact: { gap: 5, marginTop: 2 },
+  actionFlex: { flex: 1 },
   actionGold: {
     paddingVertical: 7,
     paddingHorizontal: 12,

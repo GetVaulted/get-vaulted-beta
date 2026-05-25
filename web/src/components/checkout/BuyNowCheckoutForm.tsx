@@ -43,6 +43,10 @@ export function BuyNowCheckoutForm({
     Array<{ id: string; fullName: string; line1: string; line2: string | null; city: string; state: string; postalCode: string; country: string; type?: string }>
   >([]);
   const [buyerAddressId, setBuyerAddressId] = useState("");
+  const [taxUsd, setTaxUsd] = useState(0);
+  const [taxCollect, setTaxCollect] = useState(false);
+  const [taxLoading, setTaxLoading] = useState(false);
+  const [taxNote, setTaxNote] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,13 +73,65 @@ export function BuyNowCheckoutForm({
     };
   }, []);
 
-  const total = useMemo(
+  useEffect(() => {
+    if (!address.trim() || !city.trim() || !state.trim() || !zip.trim()) {
+      setTaxUsd(0);
+      setTaxCollect(false);
+      setTaxNote(null);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      void (async () => {
+        setTaxLoading(true);
+        try {
+          const res = await fetch("/api/checkout/tax-estimate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              itemPriceUsd: listing.itemPriceUsd,
+              shippingPriceUsd: listing.shippingPriceUsd,
+              shipping: {
+                shipRecipientName: name,
+                shipAddress: address,
+                shipCity: city,
+                shipState: state,
+                shipZip: zip,
+                shipCountry: country || "US",
+              },
+            }),
+          });
+          const j = (await res.json().catch(() => ({}))) as {
+            taxUsd?: number;
+            collectTax?: boolean;
+            note?: string;
+            error?: string;
+          };
+          if (res.ok) {
+            setTaxUsd(typeof j.taxUsd === "number" ? j.taxUsd : 0);
+            setTaxCollect(Boolean(j.collectTax));
+            setTaxNote(typeof j.note === "string" ? j.note : null);
+          } else {
+            setTaxUsd(0);
+            setTaxCollect(false);
+            setTaxNote(j.error ?? "Tax calculated at checkout.");
+          }
+        } finally {
+          setTaxLoading(false);
+        }
+      })();
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [address, city, state, zip, country, name, listing.itemPriceUsd, listing.shippingPriceUsd]);
+
+  const subtotal = useMemo(
     () => listing.itemPriceUsd + listing.shippingPriceUsd,
     [listing.itemPriceUsd, listing.shippingPriceUsd],
   );
 
-  const useVaultedSecureCheckout = orderTotalQualifiesForEscrow(total);
-  const secureFeeCents = useMemo(() => estimateEscrowFeeCents(total), [total]);
+  const total = useMemo(() => subtotal + taxUsd, [subtotal, taxUsd]);
+
+  const useVaultedSecureCheckout = orderTotalQualifiesForEscrow(subtotal);
+  const secureFeeCents = useMemo(() => estimateEscrowFeeCents(subtotal), [subtotal]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,10 +223,21 @@ export function BuyNowCheckoutForm({
               <dt className="text-zinc-500">Shipping</dt>
               <dd className="font-mono font-semibold text-zinc-200">{formatMoney(listing.shippingPriceUsd)}</dd>
             </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-zinc-500">Sales tax</dt>
+              <dd className="font-mono font-semibold text-zinc-200">
+                {taxLoading ? "Calculating…" : taxCollect ? formatMoney(taxUsd) : taxNote ?? "Calculated at checkout"}
+              </dd>
+            </div>
             <div className="flex justify-between gap-4 border-t border-white/[0.06] pt-3">
               <dt className="font-semibold text-zinc-300">Total</dt>
               <dd className="font-mono text-base font-bold text-gold-bright">{formatMoney(total)}</dd>
             </div>
+            {taxCollect ? (
+              <p className="text-[10px] leading-snug text-zinc-500">
+                Sales tax is buyer-paid via Stripe Tax and is not included in seller payout or platform fees.
+              </p>
+            ) : null}
           </dl>
         </div>
 

@@ -14,6 +14,8 @@ import { SettingsAccountScreen } from '../screens/settings/SettingsAccountScreen
 import { ChangeEmailScreen } from '../screens/settings/ChangeEmailScreen';
 import { ChangePasswordScreen } from '../screens/settings/ChangePasswordScreen';
 import { DeleteAccountScreen } from '../screens/settings/DeleteAccountScreen';
+import { CommunityGuidelinesScreen } from '../screens/settings/CommunityGuidelinesScreen';
+import { ReportingSafetyScreen } from '../screens/settings/ReportingSafetyScreen';
 import { HelpCenterScreen } from '../screens/help/HelpCenterScreen';
 import { HelpArticleScreen } from '../screens/help/HelpArticleScreen';
 import { ContactSupportScreen } from '../screens/support/ContactSupportScreen';
@@ -186,6 +188,8 @@ export function RootNavigator() {
           <Stack.Screen name="ChangeEmail" component={ChangeEmailScreen} />
           <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
           <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
+          <Stack.Screen name="CommunityGuidelines" component={CommunityGuidelinesScreen} />
+          <Stack.Screen name="ReportingSafety" component={ReportingSafetyScreen} />
           <Stack.Screen name="HelpCenter" component={HelpCenterScreen} />
           <Stack.Screen name="HelpArticle" component={HelpArticleScreen} />
           <Stack.Screen name="ContactSupport" component={ContactSupportScreen} />

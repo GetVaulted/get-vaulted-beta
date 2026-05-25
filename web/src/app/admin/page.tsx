@@ -16,6 +16,16 @@ const cards = [
     title: "Orders",
     body: "Inspect orders by status and open detail views.",
   },
+  {
+    href: "/admin/reports",
+    title: "Reports",
+    body: "Trust & safety queue — user and content reports from web and mobile.",
+  },
+  {
+    href: "/admin/tax",
+    title: "Sales tax nexus",
+    body: "Enable Stripe Tax collection per state (Texas default).",
+  },
 ] as const;
 
 export default function AdminHomePage() {

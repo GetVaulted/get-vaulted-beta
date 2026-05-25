@@ -36,12 +36,20 @@ export async function openStripeConnectOnboarding(accessToken: string): Promise<
   return 'dismiss';
 }
 
-/** Stripe may take a moment to enable payouts after redirect — refresh status twice. */
+/** Stripe may take a moment to enable payouts after redirect — poll until ready or timeout. */
 export async function refreshSellerConnectAfterOnboarding(
   refresh: () => Promise<SellerConnectStatusResponse | null>,
+  opts?: { attempts?: number; delayMs?: number },
 ): Promise<SellerConnectStatusResponse | null> {
-  let latest = await refresh();
-  await new Promise((r) => setTimeout(r, 1500));
-  latest = await refresh();
+  const attempts = opts?.attempts ?? 4;
+  const delayMs = opts?.delayMs ?? 1200;
+  let latest: SellerConnectStatusResponse | null = null;
+  for (let i = 0; i < attempts; i++) {
+    latest = await refresh();
+    if (latest && (latest.payout_setup_complete || latest.can_publish_active_listings || latest.payout_setup_submitted)) {
+      return latest;
+    }
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+  }
   return latest;
 }

@@ -43,25 +43,37 @@ npm run verify:beta-env
 
 ---
 
-## Step 0b — Complete beta wipe (launch simulation — recommended)
+## Step 0b — Complete beta wipe
 
-For a **brand-new platform** with zero legacy users/products:
+### Empty beta (manual signup from zero — recommended for launch flow)
+
+No users, no auth accounts, no seeded state. Use when you want to walk through account creation → buyer setup → seller setup → Stripe → listings → live → wallet → bidding gate yourself.
 
 ```bash
-# Preview (prints every table row count + Auth users that will be deleted):
+# Preview:
+CONFIRM_BETA_FULL_WIPE=1 CONFIRM_BETA_EMPTY_WIPE=1 npm run qa:wipe-beta-empty -- --dry-run
+
+# Execute (zero users, no seed):
+CONFIRM_BETA_FULL_WIPE=1 CONFIRM_BETA_EMPTY_WIPE=1 npm run qa:wipe-beta-empty
+```
+
+**Hard guards:** `CONFIRM_BETA_FULL_WIPE=1` + `CONFIRM_BETA_EMPTY_WIPE=1` + project ref **`xkaaicokjgmpbctfermj`** only. Does **not** create sellerqa/buyerqa.
+
+### Full wipe + QA seed (pre-provisioned sellerqa/buyerqa)
+
+```bash
+# Preview:
 CONFIRM_BETA_FULL_WIPE=1 ALLOW_BETA_QA_SEED=1 npm run qa:wipe-beta-full -- --dry-run
 
 # Execute full wipe + fresh seed:
 CONFIRM_BETA_FULL_WIPE=1 ALLOW_BETA_QA_SEED=1 npm run qa:wipe-beta-full
 ```
 
-**Hard guards:** requires `CONFIRM_BETA_FULL_WIPE=1` + `ALLOW_BETA_QA_SEED=1` + project ref **`xkaaicokjgmpbctfermj`** on both `DATABASE_URL` and `SUPABASE_URL`. Refuses any other database.
+Wipes everything, then seeds only `sellerqa` / `buyerqa` with Stripe snapshot + buyer wallet.
 
-Wipes **everything** — all Prisma app tables, all Supabase Auth users — then seeds only `sellerqa` / `buyerqa` with Stripe snapshot + buyer wallet.
+**Critical:** `web/.env` must contain beta `DATABASE_URL` (ref `xkaaicokjgmpbctfermj`) — same URI as Netlify.
 
-**Critical:** `web/.env.local` must contain beta `DATABASE_URL` (ref `xkaaicokjgmpbctfermj`) — same URI as Netlify. Without it, the script cannot reach beta Postgres (local machine had no `.env`).
-
-After wipe, confirm deployed API is empty:
+After either wipe, confirm deployed API is empty:
 
 ```bash
 npm run qa:verify-beta-clean
@@ -73,7 +85,7 @@ Emergency partial cleanup (no DATABASE_URL — sellerqa only):
 npm run qa:purge-beta-catalog-api
 ```
 
-Or run `scripts/beta-supabase-sql-wipe.sql` in Supabase SQL editor, then re-seed with `qa:wipe-beta-full`.
+Or run `scripts/beta-supabase-sql-wipe.sql` in Supabase SQL editor (manual re-seed only if you want QA accounts back).
 
 ### Partial QA reset (preserves other beta users)
 

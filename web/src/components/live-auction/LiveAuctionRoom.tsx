@@ -10,6 +10,7 @@ import { BreakDisclaimerModal, breakDisclaimerStorageKey } from "@/components/li
 import { LiveBuyerWalletGateHint } from "@/components/live-auction/LiveBuyerWalletGateHint";
 import { LiveAuctionChat } from "@/components/live-auction/LiveAuctionChat";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
+import { LiveTipSheet } from "@/components/live-auction/LiveTipSheet";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
 import { TeamBoardChromeButton } from "@/components/team-board/TeamBoardChromeButton";
 import { TeamBoardOverlay } from "@/components/team-board/TeamBoardOverlay";
@@ -188,6 +189,7 @@ export function LiveAuctionRoom({
 
   /** Two-column rail only on wide desktop (1400px+). Tablets/iPads stay stacked: queue below video like phone. */
   const [buyerWideRail, setBuyerWideRail] = useState(false);
+  const [tipOpen, setTipOpen] = useState(false);
   useLayoutEffect(() => {
     const mq = window.matchMedia("(min-width: 1400px)");
     const apply = () => setBuyerWideRail(mq.matches);
@@ -224,6 +226,8 @@ export function LiveAuctionRoom({
   const [bidFlight, setBidFlight] = useState(false);
   /** Pending bid amount until server/realtime confirms `currentBidUsd` (instant buyer UX). */
   const [optimisticBidUsd, setOptimisticBidUsd] = useState<number | null>(null);
+  const [userHighBidUsd, setUserHighBidUsd] = useState<number | null>(null);
+  const [showOutbidToast, setShowOutbidToast] = useState(false);
   const [teamBoardData, setTeamBoardData] = useState<TeamBoardPublicPayload | null>(null);
   const [teamBoardBusy, setTeamBoardBusy] = useState(false);
   const toast = useCallback((message: string) => {
@@ -296,6 +300,22 @@ export function LiveAuctionRoom({
     const cur = activeDbItem.currentBidUsd ?? 0;
     if (cur >= optimisticBidUsd - 0.005) setOptimisticBidUsd(null);
   }, [activeDbItem, optimisticBidUsd]);
+
+  useEffect(() => {
+    setUserHighBidUsd(null);
+  }, [activeDbItem?.id]);
+
+  useEffect(() => {
+    const cur = buyerCurrentHighUsd;
+    const mine = userHighBidUsd;
+    if (mine == null || cur == null) return;
+    if (cur > mine + 0.01) {
+      setShowOutbidToast(true);
+      setUserHighBidUsd(null);
+      const t = window.setTimeout(() => setShowOutbidToast(false), 3200);
+      return () => window.clearTimeout(t);
+    }
+  }, [buyerCurrentHighUsd, userHighBidUsd]);
 
   const overlayMessage = `Live · ${selectedQueue?.title ?? activeQueueItem?.title ?? "Item"} · ${fmt(
     selectedQueue?.buyNow ?? selectedQueue?.topBid ?? activeQueueItem?.buyNow ?? activeQueueItem?.topBid ?? 0,
@@ -504,6 +524,7 @@ export function LiveAuctionRoom({
           console.debug("[live-auction-client] bid HTTP ACK (break overlay)", ack);
         }
         onAuctionHttpAck?.(ack);
+        setUserHighBidUsd(amount);
         toast("Bid placed.");
         // Let bid_placed realtime merge apply before full-room GET — immediate refetch can race replicas and
         // overwrite the extended timer with stale `auctionEndsAt` (e.g. still showing the host’s short window).
@@ -620,6 +641,18 @@ export function LiveAuctionRoom({
     toast("Opening wallet and payment status.");
     router.push("/account/orders");
   }, [liveRoomId, router, status, toast]);
+
+  const handleTip = useCallback(() => {
+    if (status !== "authenticated") {
+      redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
+      return;
+    }
+    if (!isLive) {
+      toast("Tips are available when the show is live.");
+      return;
+    }
+    setTipOpen(true);
+  }, [isLive, liveRoomId, status, toast]);
 
   const desktopVideoOverlay = (
     <div className="rounded-[var(--live-radius-chrome)] border border-violet-300/30 bg-black/75 p-4 backdrop-blur-[var(--live-blur-lg)] shadow-[var(--live-shadow-overlay),0_0_28px_-12px_rgba(167,139,250,0.35),inset_0_1px_0_rgba(255,255,255,0.08)]">
@@ -975,6 +1008,8 @@ export function LiveAuctionRoom({
         embedded
         compact
         overlayMode
+        hostUserId={sellerId}
+        onMessagesRefresh={() => void onRefetch?.()}
       />
     </div>
   );
@@ -1104,6 +1139,17 @@ export function LiveAuctionRoom({
         onAccept={handleAcceptBreakDisclaimer}
         onDecline={handleDeclineBreakDisclaimer}
       />
+      {showOutbidToast ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none fixed left-1/2 top-[max(4.25rem,env(safe-area-inset-top)+2.75rem)] z-[70] w-[min(92vw,20rem)] -translate-x-1/2"
+        >
+          <div className="rounded-full border border-[color:var(--live-border)] bg-black/50 px-4 py-2 text-center text-[11px] font-medium leading-snug text-zinc-100 shadow-[var(--live-shadow-toast)] backdrop-blur-[var(--live-blur-xl)]">
+            Outbid — new high bid on this item
+          </div>
+        </div>
+      ) : null}
       {breakSnapshot && !isHost ? (
         <BuyerBreakPaymentPrompt
           liveRoomId={liveRoomId}
@@ -1136,6 +1182,7 @@ export function LiveAuctionRoom({
                 showRightActions={!isHost}
                 onShare={handleShare}
                 onWallet={handleWallet}
+                onTip={isLive && !isHost ? handleTip : undefined}
                 onNotifyMe={() => redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`)}
                 streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
                 scheduledStartAt={scheduledStartAt}
@@ -1210,6 +1257,12 @@ export function LiveAuctionRoom({
           </aside>
         </div>
       </div>
+      <LiveTipSheet
+        open={tipOpen}
+        onClose={() => setTipOpen(false)}
+        liveRoomId={liveRoomId}
+        onError={(msg) => toast(msg)}
+      />
     </div>
   );
 }

@@ -4,7 +4,9 @@ import { prisma } from "@/lib/prisma";
 import { isEscrowConfigured, orderTotalQualifiesForEscrow } from "@/lib/escrow-config";
 import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId } from "@/lib/stripe-customer";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
-import { getStripe, isStripeConfigured, marketplaceApplicationFeeCents } from "@/lib/stripe";
+import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { orderRequiresCheckoutForTax } from "@/lib/stripe-tax";
+import { resolveCheckoutApplicationFeeCents, resolveLiveRoomIdForOrder } from "@/lib/live-show-gmv";
 import {
   finalizeStripeMarketplaceOrderPaid,
   processAuctionPaymentExpiries,
@@ -32,7 +34,7 @@ async function syncLiveBundledShippingOnOrder(orderId: string): Promise<void> {
       shippingPriceUsd: true,
       taxUsd: true,
       liveShippingSessionId: true,
-      liveShippingSession: { select: { id: true, shippingCostCents: true } },
+      liveShippingSession: { select: { id: true, shippingCostCents: true, liveShowId: true } },
     },
   });
   let shippingPriceUsd = payOrder.shippingPriceUsd;
@@ -115,7 +117,7 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
     include: {
       listing: { select: { id: true, buyingFormat: true, status: true, isCompanyListing: true } },
       seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true } },
-      liveShippingSession: { select: { id: true, shippingCostCents: true } },
+      liveShippingSession: { select: { id: true, shippingCostCents: true, liveShowId: true } },
     },
   });
 
@@ -147,6 +149,10 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
 
   if (row.listing.buyingFormat !== "auction" || row.listing.status !== "awaiting_auction_payment") {
     return { outcome: "error", code: "ORDER_NOT_ELIGIBLE_SAVED_CARD" };
+  }
+
+  if (await orderRequiresCheckoutForTax(row.shipState, row.shipCountry)) {
+    return { outcome: "error", code: "REQUIRES_CHECKOUT_FOR_TAX" };
   }
 
   if (!row.seller.stripeAccountId || !row.seller.stripeOnboardingComplete) {
@@ -189,8 +195,13 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
     },
   });
 
-  const subtotalUsd = orderFresh.itemPriceUsd + orderFresh.shippingPriceUsd + orderFresh.taxUsd;
-  const feeCents = marketplaceApplicationFeeCents(subtotalUsd, Boolean(row.listing.isCompanyListing));
+  const liveRoomId =
+    row.liveShippingSession?.liveShowId ?? (await resolveLiveRoomIdForOrder(row.id));
+  const feeCents = await resolveCheckoutApplicationFeeCents({
+    saleAmountUsd: orderFresh.itemPriceUsd,
+    isCompanyListing: Boolean(row.listing.isCompanyListing),
+    liveRoomId,
+  });
   const amountCents = Math.round(Math.max(0, orderFresh.totalUsd) * 100);
   if (amountCents < 50) {
     return { outcome: "error", code: "INVALID_ORDER_AMOUNT" };

@@ -18,6 +18,7 @@ import {
   patchLiveRoomItemStatus,
 } from "@/lib/live-room-control-client";
 import { HostStreamSetupCard } from "@/components/live-auction/HostStreamSetupCard";
+import { LiveShowTipModeratorSettings, patchLiveRoomTipSettings } from "@/components/seller/LiveShowTipModeratorSettings";
 import { useRequireSellerActivation } from "@/hooks/useRequireSellerActivation";
 
 type RoomTypeChoice = "auction" | "sale" | "break";
@@ -185,6 +186,13 @@ export function SellerLivePage() {
   const [checkProducts, setCheckProducts] = useState(false);
   const [checkFormat, setCheckFormat] = useState(false);
   const [checkPayments, setCheckPayments] = useState(false);
+
+  const [createTipModeratorId, setCreateTipModeratorId] = useState<string | null>(null);
+  const [createTipModeratorUsername, setCreateTipModeratorUsername] = useState("");
+  const [createTipsToModerator, setCreateTipsToModerator] = useState(false);
+  const [editTipModeratorId, setEditTipModeratorId] = useState<string | null>(null);
+  const [editTipModeratorUsername, setEditTipModeratorUsername] = useState("");
+  const [editTipsToModerator, setEditTipsToModerator] = useState(false);
 
   const [readiness, setReadiness] = useState<LiveReadinessApi | null>(null);
   const [readinessLoading, setReadinessLoading] = useState(false);
@@ -382,6 +390,14 @@ export function SellerLivePage() {
   }, [selectedId]);
 
   useEffect(() => {
+    const r = rooms.find((x) => x.id === selectedId);
+    if (!r) return;
+    setEditTipModeratorId(r.tipModeratorId ?? null);
+    setEditTipModeratorUsername(r.tipModeratorUsername ?? "");
+    setEditTipsToModerator(r.tipsToModerator ?? false);
+  }, [selectedId, rooms]);
+
+  useEffect(() => {
     if (fallbackRefreshTimerRef.current != null) {
       window.clearTimeout(fallbackRefreshTimerRef.current);
       fallbackRefreshTimerRef.current = null;
@@ -492,6 +508,10 @@ export function SellerLivePage() {
           body.breakSpotPriceUsd = null;
         }
       }
+      if (createTipModeratorId) {
+        body.tipModeratorId = createTipModeratorId;
+        body.tipsToModerator = createTipsToModerator;
+      }
 
       logCreateLiveRoom("POST /api/live-rooms payload", { body });
 
@@ -570,6 +590,9 @@ export function SellerLivePage() {
       setCheckCamera(false);
       setCheckProducts(false);
       setCheckPayments(false);
+      setCreateTipModeratorId(null);
+      setCreateTipModeratorUsername("");
+      setCreateTipsToModerator(false);
       await loadRooms();
       setSelectedId(j.id);
       router.refresh();
@@ -579,6 +602,25 @@ export function SellerLivePage() {
       } else {
         router.push(sellerConsolePath);
       }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveTipSettings = async () => {
+    if (!selectedId) return;
+    setBusy(true);
+    setCreateError(null);
+    try {
+      const r = await patchLiveRoomTipSettings(selectedId, {
+        tipModeratorId: editTipModeratorId,
+        tipsToModerator: editTipsToModerator,
+      });
+      if (!r.ok) {
+        setCreateError(r.error);
+        return;
+      }
+      await loadRooms();
     } finally {
       setBusy(false);
     }
@@ -1305,10 +1347,35 @@ export function SellerLivePage() {
               </section>
             )}
 
+            {/* Moderator + tip routing */}
+            <section className="space-y-4 rounded-2xl border border-white/[0.06] bg-zinc-950/50 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+              <div className="flex items-baseline gap-3">
+                <span className="font-mono text-xs font-bold text-gold-bright/90">
+                  {roomType === "break" ? "04" : "03"}
+                </span>
+                <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-zinc-500">Moderator & tips</h2>
+              </div>
+              <LiveShowTipModeratorSettings
+                idPrefix="create-tip"
+                disabled={busy}
+                tipModeratorId={createTipModeratorId}
+                tipModeratorUsername={createTipModeratorUsername}
+                tipsToModerator={createTipsToModerator}
+                onModeratorChange={(id, username) => {
+                  setCreateTipModeratorId(id);
+                  setCreateTipModeratorUsername(username);
+                  if (!id) setCreateTipsToModerator(false);
+                }}
+                onTipsToModeratorChange={setCreateTipsToModerator}
+              />
+            </section>
+
             {/* Step 4 checklist */}
             <section className="space-y-4">
               <div className="flex items-baseline gap-3">
-                <span className="font-mono text-xs font-bold text-gold-bright/90">04</span>
+                <span className="font-mono text-xs font-bold text-gold-bright/90">
+                  {roomType === "break" ? "05" : "04"}
+                </span>
                 <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-zinc-500">Pre-live checklist</h2>
               </div>
               <div className="space-y-3 rounded-2xl border border-white/[0.06] bg-gradient-to-b from-zinc-900/40 to-black/40 p-5">
@@ -1538,6 +1605,33 @@ export function SellerLivePage() {
               <HostStreamSetupCard roomId={selected.id} realtimeRefreshNonce={streamSetupCardRefreshNonce} />
             </div>
 
+            {selected.status !== "ended" ? (
+              <section className="space-y-4 rounded-xl border border-white/[0.06] p-4">
+                <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Moderator & tips</h3>
+                <LiveShowTipModeratorSettings
+                  idPrefix="edit-tip"
+                  disabled={busy}
+                  tipModeratorId={editTipModeratorId}
+                  tipModeratorUsername={editTipModeratorUsername}
+                  tipsToModerator={editTipsToModerator}
+                  onModeratorChange={(id, username) => {
+                    setEditTipModeratorId(id);
+                    setEditTipModeratorUsername(username);
+                    if (!id) setEditTipsToModerator(false);
+                  }}
+                  onTipsToModeratorChange={setEditTipsToModerator}
+                />
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void saveTipSettings()}
+                  className="inline-flex min-h-10 items-center justify-center rounded-xl border border-gold/35 bg-gold/10 px-4 text-xs font-bold text-gold-bright transition hover:bg-gold/15 disabled:opacity-50"
+                >
+                  Save tip settings
+                </button>
+              </section>
+            ) : null}
+
             <form
               className="rounded-xl border border-white/[0.06] p-4"
               onSubmit={(e) => {
@@ -1634,7 +1728,7 @@ export function SellerLivePage() {
                       </span>
                     </span>
                     <span className="flex flex-wrap items-center gap-2">
-                      {it.status !== "active" && it.status !== "sold" ? (
+                      {it.status !== "active" && it.status !== "sold" && it.status !== "skipped" ? (
                         <button
                           type="button"
                           disabled={busy}
@@ -1642,6 +1736,16 @@ export function SellerLivePage() {
                           onClick={() => void patchItem(it.id, "active")}
                         >
                           Post
+                        </button>
+                      ) : null}
+                      {it.status !== "sold" && it.status !== "skipped" ? (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          className="rounded-lg border border-amber-500/30 bg-amber-950/25 px-2.5 py-1 text-[10px] font-semibold text-amber-100 transition hover:bg-amber-950/40 disabled:opacity-40"
+                          onClick={() => void patchItem(it.id, "skipped")}
+                        >
+                          Skip
                         </button>
                       ) : null}
                       {it.status !== "sold" ? (

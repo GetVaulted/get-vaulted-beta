@@ -31,6 +31,10 @@ export type LiveRoomListApiRow = {
   itemCount: number;
   activeItemTitle: string | null;
   teamBoardLeague: "nfl" | "nba" | "mlb";
+  tipRecipientMode?: "host" | "moderator";
+  tipModeratorId?: string | null;
+  tipModeratorUsername?: string | null;
+  tipsToModerator?: boolean;
 };
 
 function roomKindAndBadge(roomType: LiveRoomListApiRow["roomType"]): { roomKind: LiveRoomKind; formatBadge: LiveRoomFormatBadge } {

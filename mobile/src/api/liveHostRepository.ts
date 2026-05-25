@@ -166,6 +166,7 @@ export type HostConsoleRoom = LiveRoomHostDetail & {
 
 export type HostConsoleMessage = {
   id: string;
+  senderId?: string;
   senderUsername: string;
   body: string;
   messageType?: 'chat' | 'bid' | 'purchase' | 'system';

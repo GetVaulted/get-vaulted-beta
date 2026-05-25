@@ -47,6 +47,14 @@ export function hasCompleteSellerShipFrom(s: SellerShipFromFields): boolean {
   );
 }
 
+/** Unified ship-from gate: API readiness checks and/or persisted seller profile fields. */
+export function sellerHasShipFromAddress(
+  checks: { hasShipFromAddress?: boolean } | null | undefined,
+  seller: SellerShipFromFields | null | undefined,
+): boolean {
+  return Boolean(checks?.hasShipFromAddress) || (seller ? hasCompleteSellerShipFrom(seller) : false);
+}
+
 export function hasStripeConnectReady(s: SellerStripeFields): boolean {
   return Boolean(s.stripeAccountId && s.stripeOnboardingComplete);
 }

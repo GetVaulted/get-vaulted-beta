@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
@@ -125,6 +126,12 @@ export function AdminUsersPage() {
                       <span className="font-medium text-zinc-100">@{r.username}</span>
                       <p className="text-[10px] text-zinc-500">{r.email}</p>
                       <p className="font-mono text-[10px] text-zinc-600">{r.id}</p>
+                      <Link
+                        href={`/admin/users/${encodeURIComponent(r.id)}`}
+                        className="text-[10px] font-semibold text-gold-bright hover:underline"
+                      >
+                        Payout →
+                      </Link>
                     </td>
                     <td className="px-3 py-2 align-top capitalize">{r.role}</td>
                     <td className="px-3 py-2 align-top">

@@ -52,6 +52,7 @@ import {
 } from '../api/stripeConnectRepository';
 import { useSellerCommandCenterData } from '../hooks/useSellerCommandCenterData';
 import { useSellerInventory } from '../hooks/useSellerInventory';
+import { sellerHasShipFromAddress } from '../lib/seller-shipping-readiness';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { openStripeConnectDashboard } from '../lib/openStripeConnectDashboard';
 import { openStripeConnectOnboarding, refreshSellerConnectAfterOnboarding } from '../lib/openStripeConnectOnboarding';
@@ -111,11 +112,13 @@ export function SellerHubScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      void sellerSetup.refetch();
-    }, [sellerSetup.refetch]),
+      void sellerSetup.refetchSilent();
+      void cmdData.liveReadiness.refresh();
+    }, [sellerSetup.refetchSilent, cmdData.liveReadiness.refresh]),
   );
 
-  const sellerActivated = sellerSetup.activated;
+  const shipFromComplete = sellerHasShipFromAddress(sellerSetup.checks, sellerSetup.seller);
+  const sellerActivated = sellerSetup.displayActivated;
 
   const sellerLaunchMeta = useMemo(() => {
     const meta = user?.user_metadata as Record<string, unknown> | undefined;
@@ -287,12 +290,13 @@ export function SellerHubScreen() {
               stripeSetupBusy={stripeSetupBusy}
               onProfileSettings={openProfileSettings}
             />
-            {cmdData.liveReadiness.readinessLoaded &&
-            cmdData.liveReadiness.readiness.checks &&
-            !cmdData.liveReadiness.readiness.checks.hasShipFromAddress ? (
+            {(cmdData.liveReadiness.readinessLoaded || sellerSetup.seller) && !shipFromComplete ? (
               <SellerShipFromSetupCard
                 accessToken={session?.access_token}
-                onSaved={() => void cmdData.liveReadiness.refresh()}
+                onSaved={() => {
+                  void sellerSetup.refetchSilent();
+                  void cmdData.liveReadiness.refresh();
+                }}
               />
             ) : null}
             <View style={styles.futureLane}>
@@ -353,7 +357,7 @@ export function SellerHubScreen() {
     );
   }
 
-  if (sellerSetup.phase === 'loading') {
+  if (sellerSetup.showInitialLoading) {
     return (
       <View style={[styles.screen, { paddingTop: insets.top + spacing.xl, alignItems: 'center' }]}>
         <ActivityIndicator color={colors.gold} size="large" />
@@ -361,7 +365,7 @@ export function SellerHubScreen() {
     );
   }
 
-  if (!sellerActivated) {
+  if (sellerSetup.showSetupGate) {
     return (
       <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>

@@ -18,6 +18,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AuthPasswordField } from '../../components/auth/AuthPasswordField';
 import { GetVaultedBrandMark } from '../../components/branding/GetVaultedBrandMark';
 import { useAuth } from '../../auth/AuthContext';
+import { AUTH_USER_MESSAGES } from '../../lib/authUserMessages';
 import { getKeepMeLoggedInPreference } from '../../lib/authSessionStorage';
 import { enterGuestExploreAndOpenHome } from '../../navigation/enterGuestExploreFlow';
 import type { RootStackParamList } from '../../navigation/types';
@@ -54,7 +55,7 @@ export function AuthLoginScreen({ navigation }: Props) {
       await signInWithPassword(email, password, { persistSession: keepLoggedIn });
       navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Sign-in failed');
+      setErr(e instanceof Error ? e.message : AUTH_USER_MESSAGES.signInInvalidCredentials);
     } finally {
       setBusy(false);
     }
@@ -70,7 +71,7 @@ export function AuthLoginScreen({ navigation }: Props) {
     try {
       await requestPasswordReset(em);
       setForgotOpen(false);
-      Alert.alert('Check your email', 'If an account exists for that address, you will receive a reset link shortly.');
+      Alert.alert('Check your email', AUTH_USER_MESSAGES.passwordResetSent);
     } catch (e) {
       Alert.alert('Could not send reset', e instanceof Error ? e.message : 'Error');
     } finally {
@@ -159,7 +160,7 @@ export function AuthLoginScreen({ navigation }: Props) {
         <Pressable style={styles.modalBackdrop} onPress={() => setForgotOpen(false)}>
           <Pressable style={[styles.modalCard, { marginBottom: insets.bottom }]} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.modalTitle}>Reset password</Text>
-            <Text style={styles.modalBody}>We will email you a link from Supabase to choose a new password.</Text>
+            <Text style={styles.modalBody}>{AUTH_USER_MESSAGES.passwordResetBody}</Text>
             <TextInput
               style={styles.input}
               placeholder="Your account email"

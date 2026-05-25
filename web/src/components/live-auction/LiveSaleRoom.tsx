@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { LiveAuctionChat } from "@/components/live-auction/LiveAuctionChat";
 import { LiveBuyerWalletGateHint } from "@/components/live-auction/LiveBuyerWalletGateHint";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
+import { LiveTipSheet } from "@/components/live-auction/LiveTipSheet";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
@@ -211,6 +212,7 @@ export function LiveSaleRoom({
   const [hostMarkSoldBusy, setHostMarkSoldBusy] = useState(false);
 
   const [buyerWideRail, setBuyerWideRail] = useState(false);
+  const [tipOpen, setTipOpen] = useState(false);
   useLayoutEffect(() => {
     const mq = window.matchMedia("(min-width: 1400px)");
     const apply = () => setBuyerWideRail(mq.matches);
@@ -595,6 +597,18 @@ export function LiveSaleRoom({
     router.push("/account/orders");
   }, [liveRoomId, router, status, toast]);
 
+  const handleTip = useCallback(() => {
+    if (status !== "authenticated") {
+      redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
+      return;
+    }
+    if (!isLive) {
+      toast("Tips are available when the show is live.");
+      return;
+    }
+    setTipOpen(true);
+  }, [isLive, liveRoomId, status, toast]);
+
   const streamTitle = liveTitle;
 
   const priceLine =
@@ -937,6 +951,8 @@ export function LiveSaleRoom({
         embedded
         compact
         overlayMode
+        hostUserId={sellerId}
+        onMessagesRefresh={() => void onRefetch?.()}
       />
     </div>
   );
@@ -1055,6 +1071,7 @@ export function LiveSaleRoom({
                 showRightActions={!isHost}
                 onShare={handleShare}
                 onWallet={handleWallet}
+                onTip={isLive && !isHost ? handleTip : undefined}
                 onNotifyMe={() => redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`)}
                 streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
                 scheduledStartAt={scheduledStartAt}
@@ -1116,6 +1133,12 @@ export function LiveSaleRoom({
           </aside>
         </div>
       </div>
+      <LiveTipSheet
+        open={tipOpen}
+        onClose={() => setTipOpen(false)}
+        liveRoomId={liveRoomId}
+        onError={(msg) => toast(msg)}
+      />
     </div>
   );
 }

@@ -144,6 +144,11 @@ export function MyAccountPage() {
       title: "Account Settings",
       description: "Shipping address, payouts, and seller preferences.",
     },
+    {
+      href: "/account/delete",
+      title: "Delete account",
+      description: "Permanently delete your account and sign out.",
+    },
   ];
 
   return (

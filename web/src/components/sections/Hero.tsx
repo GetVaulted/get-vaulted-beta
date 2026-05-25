@@ -72,7 +72,7 @@ export function Hero({ liveMarketplaceEnabled = true }: HeroProps) {
                 {liveMarketplaceEnabled ? "Watch live" : "Live — coming soon"}
               </Link>
               <Link
-                href="/account/seller"
+                href="/account/seller/setup"
                 className="inline-flex h-9 items-center justify-center rounded-full border border-gold/35 bg-gold/10 px-5 text-[11px] font-bold uppercase tracking-wide text-gold-bright transition-all duration-200 hover:border-gold/50 hover:bg-gold/15"
               >
                 Start selling

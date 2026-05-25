@@ -1,6 +1,7 @@
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js";
 import { prisma } from "@/lib/prisma";
 import { pickPrismaUserIdForSupabaseSession } from "@/lib/pick-prisma-user-for-supabase-auth";
+import { syncPrismaEmailVerifiedFromSupabase } from "@/lib/sync-prisma-email-verified";
 
 function normalizeEmail(email: string | undefined): string | null {
   const e = email?.trim().toLowerCase();
@@ -64,7 +65,10 @@ export async function ensurePrismaUserForSupabaseAuth(supabaseUser: SupabaseAuth
     byId,
     byEmail,
   });
-  if (picked) return picked;
+  if (picked) {
+    await syncPrismaEmailVerifiedFromSupabase(picked, supabaseUser);
+    return picked;
+  }
 
   if (!email) return null;
 

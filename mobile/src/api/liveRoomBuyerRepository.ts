@@ -16,6 +16,8 @@ export type LiveRoomBuyerSnapshot = {
   lotBidPhase: LiveAuctionLotBidPhase;
   /** Client wall time when this snapshot was fetched (for stale-sync UX). */
   fetchedAtMs: number;
+  /** Server time from GET response (timer sync). */
+  serverNowMs?: number;
   /** Break rooms — from API `room.break` when present. */
   breakPhase?: 'not_started' | 'filling' | 'randomizing' | 'ready' | 'in_progress' | 'complete' | null;
   breakLockPurchases?: boolean;
@@ -65,6 +67,7 @@ export async function fetchLiveRoomBuyerSnapshot(
         breakFull?: boolean;
       } | null;
     };
+    serverNowMs?: number;
     error?: string;
   } = {};
   try {
@@ -116,6 +119,7 @@ export async function fetchLiveRoomBuyerSnapshot(
     auctionEndsAt: active?.auctionEndsAt ?? null,
     lotBidPhase,
     fetchedAtMs,
+    serverNowMs: typeof j.serverNowMs === 'number' ? j.serverNowMs : undefined,
     breakPhase,
     breakLockPurchases: breakSnap?.lockPurchases === true,
     breakPaused: breakSnap?.breakPaused === true,

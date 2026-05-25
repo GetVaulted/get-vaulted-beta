@@ -13,7 +13,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   if (!exists) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const rows = await prisma.liveRoomMessage.findMany({
-    where: { liveRoomId },
+    where: { liveRoomId, deletedAt: null },
     orderBy: { createdAt: "asc" },
     take: 300,
     include: { sender: { select: { username: true } } },
@@ -29,6 +29,12 @@ type PostBody = {
   messageType?: string;
   clientMessageId?: string;
 };
+
+import {
+  getLastChatAt,
+  getLiveRoomSlowModeSeconds,
+  getLiveRoomUserRestrictions,
+} from "@/lib/trust/live-room-moderation";
 
 const CHAT_DUPLICATE_WINDOW_MS = 5000;
 
@@ -51,6 +57,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
   if (room.status !== "live") {
     return NextResponse.json({ error: "Chat opens when the room is live." }, { status: 409 });
+  }
+
+  const restrictions = await getLiveRoomUserRestrictions({ liveRoomId, userId: auth.userId });
+  if (restrictions.roomBanned || restrictions.kickedUntil) {
+    return NextResponse.json({ error: "You cannot participate in this room." }, { status: 403 });
+  }
+  if (restrictions.muted) {
+    return NextResponse.json({ error: "You are muted in this room." }, { status: 403 });
+  }
+
+  const slowMode = await getLiveRoomSlowModeSeconds(liveRoomId);
+  if (slowMode > 0) {
+    const lastChat = await getLastChatAt(liveRoomId, auth.userId);
+    if (lastChat && Date.now() - lastChat.getTime() < slowMode * 1000) {
+      return NextResponse.json({ error: `Slow mode — wait ${slowMode}s between messages.` }, { status: 429 });
+    }
   }
 
   let body: PostBody;

@@ -94,7 +94,7 @@ export function HomeScreen() {
   const [sellerNextRoom, setSellerNextRoom] = useState<LiveRoomApiRow | null>(null);
   const [activeBuyerOrders, setActiveBuyerOrders] = useState(0);
 
-  const sellerActivated = sellerSetup.activated;
+  const sellerActivated = sellerSetup.displayActivated;
 
   useEffect(() => {
     if (!user?.id) {
@@ -337,11 +337,13 @@ export function HomeScreen() {
 
         <HomeCultureHero onLiveHub={goLive} onVault={goMarketplace} />
 
-        <HomeSellerOnboardingStrip
-          hasUser={Boolean(user)}
-          phase={sellerSetup.phase}
-          onPress={onSellerOnboarding}
-        />
+        {sellerSetup.showSetupGate ? (
+          <HomeSellerOnboardingStrip
+            hasUser={Boolean(user)}
+            phase={sellerSetup.phase}
+            onPress={onSellerOnboarding}
+          />
+        ) : null}
 
         {sellerActivated ? (
           <HomeSellerEventBanner

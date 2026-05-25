@@ -10,6 +10,25 @@ export async function POST(req: Request) {
   if (resolved instanceof NextResponse) return resolved;
   const userId = resolved.userId;
 
+  let sellerAgreementAccepted = false;
+  try {
+    const body = (await req.json()) as { sellerAgreementAccepted?: boolean };
+    sellerAgreementAccepted = body.sellerAgreementAccepted === true;
+  } catch {
+    /* empty body ok when agreement already recorded */
+  }
+
+  const existing = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { sellerAgreementAcceptedAt: true },
+  });
+  if (!existing?.sellerAgreementAcceptedAt && !sellerAgreementAccepted) {
+    return NextResponse.json(
+      { error: "Accept the seller agreement before finishing setup." },
+      { status: 400 },
+    );
+  }
+
   const readiness = await getSellerLiveReadiness(userId);
   if (!isRequiredSellerSetupComplete(readiness.checks)) {
     return NextResponse.json(
@@ -18,10 +37,14 @@ export async function POST(req: Request) {
     );
   }
 
+  const now = new Date();
   const updated = await prisma.user.update({
     where: { id: userId },
-    data: { sellerSetupWizardCompletedAt: new Date() },
-    select: { sellerSetupWizardCompletedAt: true },
+    data: {
+      sellerSetupWizardCompletedAt: now,
+      sellerAgreementAcceptedAt: existing?.sellerAgreementAcceptedAt ?? now,
+    },
+    select: { sellerSetupWizardCompletedAt: true, sellerAgreementAcceptedAt: true },
   });
 
   return NextResponse.json({

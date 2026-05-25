@@ -182,7 +182,7 @@ export default async function SellerShopPage({
               </div>
             </div>
           </div>
-          <SellerProfileActions sellerId={user.id} sellerUsername={user.username} />
+          <SellerProfileActions sellerId={user.id} sellerUsername={user.username} isOwnShop={isOwnShop} />
         </header>
 
         <section className="mt-8 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:gap-3" aria-label="Seller stats">

@@ -17,6 +17,7 @@ import { touchAuctionPaymentExpiries } from '../../api/touchAuctionPaymentExpiri
 import type { BuyerOrder } from '../../api/ordersRepository';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { VaultImage } from '../../components/ui/VaultImage';
+import { ReportButton } from '../../components/trust/ReportSheet';
 import { useAuth } from '../../auth/AuthContext';
 import {
   openContactSupport,
@@ -155,6 +156,14 @@ export function BuyerOrderDetailScreen({ navigation, route }: Props) {
               onPress={() => order.trackingUrl && void Linking.openURL(order.trackingUrl)}
             />
             <ActionBtn icon="chatbubble-ellipses-outline" label="Contact seller" onPress={() => openVaultComms(navigation)} />
+            <View style={styles.reportRow}>
+              <ReportButton
+                targetType="order"
+                targetId={order.id}
+                accessToken={session?.access_token}
+                label="Report order issue"
+              />
+            </View>
             {canReview ? (
               <ActionBtn
                 icon="star"
@@ -277,6 +286,7 @@ const styles = StyleSheet.create({
   tracking: { fontSize: 13, fontWeight: '700', color: colors.textPrimary },
   eta: { fontSize: 12, color: colors.textMuted },
   actions: { gap: spacing.sm, marginTop: spacing.sm },
+  reportRow: { paddingHorizontal: spacing.xs },
   action: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -2,16 +2,15 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fetchTradeOffersForUser } from '../../api/tradeOffersRepository';
+import {
+  deleteAccountApi,
+  fetchAccountDeletionBlockers,
+  type AccountDeletionBlocker,
+} from '../../api/accountRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
-import { useSellerStripeConnect } from '../../hooks/useSellerStripeConnect';
-import { partitionTradeOffers } from '../../trade/tradeSections';
-import { updateMyProfile } from '../../api/profilesRepository';
-import { getAccountDeletionBlockers, markUserDeleted } from '../../platform/platformStore';
 import { navigateToAuthWelcome } from '../../navigation/rootNavigationRef';
 import type { RootStackParamList } from '../../navigation/types';
-import type { AccountDeletionBlocker } from '../../platform/types';
 import { colors, radii, spacing } from '../../theme';
 
 const CONFIRM = 'DELETE';
@@ -20,45 +19,36 @@ type Props = NativeStackScreenProps<RootStackParamList, 'DeleteAccount'>;
 
 export function DeleteAccountScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { user, session, signOut } = useAuth();
-  const sellerConnect = useSellerStripeConnect(session?.access_token);
+  const { session, signOut } = useAuth();
   const [typed, setTyped] = useState('');
   const [blockers, setBlockers] = useState<AccountDeletionBlocker[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
   const loadBlockers = useCallback(async () => {
-    if (!user?.id) return;
+    const token = session?.access_token;
+    if (!token) return;
     setLoading(true);
     try {
-      let activeTradeCount = 0;
-      try {
-        const offers = await fetchTradeOffersForUser(user.id);
-        activeTradeCount = partitionTradeOffers(offers, user.id).active.length;
-      } catch {
-        /* ignore */
-      }
-      const pendingPayout =
-        sellerConnect.status?.stripeConfigured === true &&
-        sellerConnect.status?.can_host_live_sales === false;
-      const list = await getAccountDeletionBlockers(user.id, { activeTradeCount, pendingPayout });
+      const list = await fetchAccountDeletionBlockers(token);
       setBlockers(list);
     } finally {
       setLoading(false);
     }
-  }, [user?.id, sellerConnect.status]);
+  }, [session?.access_token]);
 
   useEffect(() => {
     void loadBlockers();
   }, [loadBlockers]);
 
-  const canDelete = typed === CONFIRM && blockers.length === 0 && !busy;
+  const canDelete = typed === CONFIRM && blockers.length === 0 && !busy && Boolean(session?.access_token);
 
   const submit = async () => {
-    if (!user?.id || !canDelete) return;
+    const token = session?.access_token;
+    if (!token || !canDelete) return;
     Alert.alert(
       'Delete account permanently?',
-      'Your profile will be hidden and you will be signed out. This cannot be undone.',
+      'Your profile will be anonymized and you will be signed out. Financial records may be retained where required. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -68,11 +58,12 @@ export function DeleteAccountScreen({ navigation }: Props) {
             void (async () => {
               setBusy(true);
               try {
-                await markUserDeleted(user.id);
-                await updateMyProfile(user.id, {
-                  display_name: 'Deleted collector',
-                  username: `deleted_${user.id.slice(0, 8)}`,
-                });
+                const result = await deleteAccountApi(token);
+                if (!result.ok) {
+                  Alert.alert('Could not delete', result.error);
+                  await loadBlockers();
+                  return;
+                }
                 await signOut();
                 navigateToAuthWelcome();
               } catch (e) {
@@ -92,8 +83,9 @@ export function DeleteAccountScreen({ navigation }: Props) {
       <PlatformFlowHeader title="Delete account" subtitle="Permanent action" onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={styles.warn}>
-          Deleting your account removes public profile visibility and signs you out permanently. Active trades,
-          disputes, or pending payouts must be cleared first.
+          Deleting your account anonymizes your profile, revokes sign-in, and disconnects seller payout settings.
+          Open orders, live shows, or pending payouts must be cleared first. Financial records may be retained where
+          legally required.
         </Text>
         {loading ? <ActivityIndicator color={colors.gold} /> : null}
         {blockers.map((b) => (

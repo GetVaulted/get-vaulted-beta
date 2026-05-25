@@ -4,6 +4,7 @@ export type LiveRoomChatMessageType = 'chat' | 'bid' | 'purchase' | 'system';
 
 export type LiveRoomChatMessageRow = {
   id: string;
+  senderId?: string;
   senderUsername: string;
   body: string;
   messageType?: LiveRoomChatMessageType;

@@ -19,6 +19,7 @@ import { AuthPasswordField } from '../../components/auth/AuthPasswordField';
 import { GetVaultedBrandMark } from '../../components/branding/GetVaultedBrandMark';
 import { LegalConsentNote } from '../../components/legal/LegalConsentNote';
 import { useAuth } from '../../auth/AuthContext';
+import { AUTH_USER_MESSAGES } from '../../lib/authUserMessages';
 import { enterGuestExploreAndOpenHome } from '../../navigation/enterGuestExploreFlow';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
@@ -122,7 +123,7 @@ export function AuthSignUpScreen({ navigation }: Props) {
       if (needsEmailConfirmation) {
         Alert.alert(
           'Confirm your email',
-          'We sent a confirmation link. After you confirm, return here and sign in.',
+          AUTH_USER_MESSAGES.signUpConfirmEmail,
           [{ text: 'OK', onPress: () => navigation.replace('AuthLogin') }],
         );
         return;

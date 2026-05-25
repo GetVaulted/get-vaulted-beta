@@ -16,8 +16,9 @@ import { fetchProfileById } from '../../api/profilesRepository';
 import { fetchCompletedTradesForUser } from '../../api/tradeOffersRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
+import { ReportSheet } from '../../components/trust/ReportSheet';
 import { VaultImage } from '../../components/ui/VaultImage';
-import { openContactSupport, openDispute } from '../../navigation/openPlatform';
+import { openDispute } from '../../navigation/openPlatform';
 import { openMessageSellerForListing } from '../../navigation/openMessages';
 import type { RootStackParamList } from '../../navigation/types';
 import { computeTrustProfile } from '../../platform/computeTrustProfile';
@@ -44,8 +45,9 @@ type Props = NativeStackScreenProps<RootStackParamList, 'UserProfile'>;
 
 export function UserProfileScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const userId = route.params.userId;
+  const [reportOpen, setReportOpen] = useState(false);
   const [profile, setProfile] = useState<ProfileLite | null>(null);
   const [deleted, setDeleted] = useState(false);
   const [followers, setFollowers] = useState(0);
@@ -120,9 +122,7 @@ export function UserProfileScreen({ navigation, route }: Props) {
     setFollowers((c) => (now ? c + 1 : Math.max(0, c - 1)));
   };
 
-  const reportUser = () => {
-    openContactSupport({ category: 'report_user', referenceId: userId }, navigation);
-  };
+  const reportUser = () => setReportOpen(true);
 
   if (loading) {
     return (
@@ -339,6 +339,14 @@ export function UserProfileScreen({ navigation, route }: Props) {
           </View>
         ) : null}
       </ScrollView>
+      <ReportSheet
+        visible={reportOpen}
+        onClose={() => setReportOpen(false)}
+        targetType="user"
+        targetId={userId}
+        accessToken={session?.access_token}
+        title="Report user"
+      />
     </View>
   );
 }

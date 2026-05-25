@@ -12,10 +12,12 @@ import type {
   User,
 } from "@/generated/prisma/client";
 import { buildBreakPublicSnapshot, type LiveRoomBreakPublicDTO } from "@/lib/live-room-break-public";
+import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
 
 /** Result of `liveRoom.findUnique` with seller, items, messages+sender, and optional break relations. */
 export type LiveRoomDetailPayload = LiveRoom & {
   seller: Pick<User, "id" | "username">;
+  tipModerator?: Pick<User, "id" | "username"> | null;
   items: LiveRoomItem[];
   messages: (LiveRoomMessage & { sender: Pick<User, "username"> })[];
   breakSpots?: (BreakSpot & { user: Pick<User, "username"> })[];
@@ -88,6 +90,10 @@ export type LiveRoomDetailDTO = {
   break: LiveRoomBreakPublicDTO | null;
   /** PYT team board league (break rooms). */
   teamBoardLeague: TeamBoardLeague;
+  tipRecipientMode: "host" | "moderator";
+  tipModeratorId: string | null;
+  tipModeratorUsername: string | null;
+  tipsToModerator: boolean;
   /**
    * When `false`, the signed-in viewer (non-host) must add a saved card before live bids are accepted.
    * Omitted or `true` when Stripe is off, the viewer is the host, or the viewer is not signed in.
@@ -136,14 +142,15 @@ export function serializeLiveRoomItem(row: LiveRoomItem): LiveRoomItemDTO {
 }
 
 export function serializeLiveRoomMessage(
-  row: LiveRoomMessage & { sender?: Pick<User, "username"> | null },
+  row: LiveRoomMessage & { sender?: Pick<User, "username"> | null; deletedAt?: Date | null },
 ): LiveRoomMessageDTO {
+  const deleted = row.deletedAt != null;
   return {
     id: row.id,
     liveRoomId: row.liveRoomId,
     senderId: row.senderId,
     senderUsername: row.sender?.username?.trim() || "System",
-    body: row.body,
+    body: deleted ? "[message removed]" : row.body,
     messageType: row.messageType,
     createdAt: row.createdAt.toISOString(),
   };
@@ -182,5 +189,10 @@ export function buildLiveRoomDetail(room: LiveRoomDetailPayload): LiveRoomDetail
     activeItem: active ? serializeLiveRoomItem(active) : null,
     break: breakSnapshot,
     teamBoardLeague: room.teamBoardLeague,
+    ...serializeLiveTipConfig({
+      tipRecipientMode: room.tipRecipientMode,
+      tipModeratorId: room.tipModeratorId,
+      tipModerator: room.tipModerator ?? null,
+    }),
   };
 }

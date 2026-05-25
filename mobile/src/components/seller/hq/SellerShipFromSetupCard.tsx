@@ -10,6 +10,10 @@ import {
   View,
 } from 'react-native';
 import { fetchSellerAccount, patchSellerShipFrom } from '../../../api/sellerAccountRepository';
+import {
+  formatSellerShipFromSummary,
+  hasCompleteSellerShipFrom,
+} from '../../../lib/seller-shipping-readiness';
 import { colors, radii, spacing } from '../../../theme';
 
 export function SellerShipFromSetupCard({
@@ -27,6 +31,7 @@ export function SellerShipFromSetupCard({
   const [state, setState] = useState('');
   const [zip, setZip] = useState('');
   const [country, setCountry] = useState('US');
+  const [editing, setEditing] = useState(false);
 
   const load = useCallback(async () => {
     if (!accessToken) {
@@ -42,6 +47,7 @@ export function SellerShipFromSetupCard({
       setState(seller.shipFromState ?? '');
       setZip(seller.shipFromZip ?? '');
       setCountry(seller.shipFromCountry?.trim() || 'US');
+      setEditing(!hasCompleteSellerShipFrom(seller));
     } catch {
       /* keep defaults */
     } finally {
@@ -65,7 +71,7 @@ export function SellerShipFromSetupCard({
     }
     setBusy(true);
     try {
-      await patchSellerShipFrom(accessToken, {
+      const res = await patchSellerShipFrom(accessToken, {
         shipFromName: name.trim() || undefined,
         shipFromStreet: street.trim(),
         shipFromCity: city.trim(),
@@ -73,8 +79,11 @@ export function SellerShipFromSetupCard({
         shipFromZip: zip.trim(),
         shipFromCountry: country.trim(),
       });
-      Alert.alert('Shipping address saved', 'You can schedule and host live events once payouts are ready.');
+      setEditing(false);
       onSaved?.();
+      if (!res.readiness?.checks?.hasShipFromAddress) {
+        Alert.alert('Shipping address saved', 'You can schedule and host live events once payouts are ready.');
+      }
     } catch (e) {
       Alert.alert('Could not save', e instanceof Error ? e.message : 'Unknown error');
     } finally {
@@ -83,6 +92,21 @@ export function SellerShipFromSetupCard({
   };
 
   if (!accessToken) return null;
+
+  const savedSummary = formatSellerShipFromSummary({
+    shipFromStreet: street,
+    shipFromCity: city,
+    shipFromState: state,
+    shipFromZip: zip,
+    shipFromCountry: country,
+  });
+  const showSaved = !editing && hasCompleteSellerShipFrom({
+    shipFromStreet: street,
+    shipFromCity: city,
+    shipFromState: state,
+    shipFromZip: zip,
+    shipFromCountry: country,
+  });
 
   return (
     <View style={styles.card}>
@@ -95,6 +119,17 @@ export function SellerShipFromSetupCard({
       </View>
       {loading ? (
         <ActivityIndicator color={colors.gold} style={{ marginVertical: spacing.md }} />
+      ) : showSaved ? (
+        <View style={styles.savedBox}>
+          <View style={styles.savedRow}>
+            <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+            <Text style={styles.savedTitle}>Shipping address connected</Text>
+          </View>
+          <Text style={styles.savedSummary}>{savedSummary}</Text>
+          <Pressable style={styles.editBtn} onPress={() => setEditing(true)}>
+            <Text style={styles.editBtnTxt}>Edit address</Text>
+          </Pressable>
+        </View>
       ) : (
         <View style={styles.form}>
           <TextInput
@@ -193,4 +228,22 @@ const styles = StyleSheet.create({
   },
   saveOff: { opacity: 0.6 },
   saveTxt: { fontSize: 14, fontWeight: '900', color: colors.background },
+  savedBox: {
+    gap: spacing.sm,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(52,199,89,0.28)',
+    backgroundColor: 'rgba(52,199,89,0.08)',
+    padding: spacing.md,
+  },
+  savedRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  savedTitle: { fontSize: 14, fontWeight: '800', color: colors.success },
+  savedSummary: { fontSize: 13, lineHeight: 18, color: colors.textSecondary },
+  editBtn: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.xs,
+    paddingVertical: 6,
+    paddingHorizontal: spacing.sm,
+  },
+  editBtnTxt: { fontSize: 13, fontWeight: '700', color: colors.gold },
 });

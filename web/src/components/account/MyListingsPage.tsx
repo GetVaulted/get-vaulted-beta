@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
+import { useRequireSellerActivation } from "@/hooks/useRequireSellerActivation";
 import { sellerListingHref } from "@/lib/listing-routes";
 import { effectiveSellerListingStatus, type SellerListingStatus, type StoredUserListing } from "@/lib/user-listings-storage";
 import { SellerOffersModal } from "@/components/account/SellerOffersModal";
@@ -99,6 +100,7 @@ export function MyListingsPage() {
   const router = useRouter();
   const pathname = usePathname();
   const { data: session, status } = useSession();
+  const { ready: sellerReady, loading: sellerGateLoading } = useRequireSellerActivation();
   const [rows, setRows] = useState<StoredUserListing[]>([]);
   const [listLoadError, setListLoadError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>("all");
@@ -178,7 +180,7 @@ export function MyListingsPage() {
     return list;
   }, [query, rows, sort, tab]);
 
-  if (status === "loading") {
+  if (status === "loading" || sellerGateLoading) {
     return (
       <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
         <div className="mx-auto max-w-[1920px] px-4 py-24 text-center text-sm text-zinc-500">Loading…</div>
@@ -187,6 +189,14 @@ export function MyListingsPage() {
   }
 
   if (status === "unauthenticated" || !session?.user) return null;
+
+  if (!sellerReady) {
+    return (
+      <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
+        <div className="mx-auto max-w-[1920px] px-4 py-24 text-center text-sm text-zinc-500">Redirecting to seller setup…</div>
+      </main>
+    );
+  }
 
   const statCards = [
     { label: "Active listings", value: stats.active },

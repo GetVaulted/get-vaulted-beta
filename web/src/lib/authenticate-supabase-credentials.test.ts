@@ -17,6 +17,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: {
       findUnique: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
   },
 }));
@@ -58,5 +59,25 @@ describe("authorizeCredentialsViaSupabase", () => {
       name: "sellerqa",
       role: "user",
     });
+  });
+
+  it("syncs emailVerified when Supabase sign-in succeeds on beta", async () => {
+    signInWithPassword.mockResolvedValue({
+      data: { user: { id: "auth-uuid", email: "sellerqa@getvaultedtest.com" } },
+      error: null,
+    });
+    ensurePrismaUser.mockResolvedValue("auth-uuid");
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: "auth-uuid",
+      email: "sellerqa@getvaultedtest.com",
+      username: "sellerqa",
+      role: "user",
+      suspendedAt: null,
+      emailVerified: null,
+    } as never);
+
+    const user = await authorizeCredentialsViaSupabase("sellerqa@getvaultedtest.com", "VaultedBetaQA1!");
+    expect(user?.id).toBe("auth-uuid");
+    expect(prisma.user.updateMany).toHaveBeenCalled();
   });
 });

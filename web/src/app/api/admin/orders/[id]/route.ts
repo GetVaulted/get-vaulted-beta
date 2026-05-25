@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
+import { loadOrderPayoutDetailForAdmin } from "@/services/payout/process-delivery-payout";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireAdmin();
@@ -30,6 +31,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   if (!order) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  const payoutDetail = await loadOrderPayoutDetailForAdmin(id);
+
   return NextResponse.json({
     order: {
       id: order.id,
@@ -49,6 +52,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       shipZip: order.shipZip,
       shipCountry: order.shipCountry,
       paymentMethod: order.paymentMethod,
+      paymentStatus: order.paymentStatus,
+      fulfillmentStatus: order.fulfillmentStatus,
       escrowProvider: order.escrowProvider,
       escrowTransactionId: order.escrowTransactionId,
       escrowStatus: order.escrowStatus,
@@ -57,19 +62,34 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       escrowReleasePaused: order.escrowReleasePaused,
       fundsReleasedAt: order.fundsReleasedAt?.toISOString() ?? null,
       trustapBuyerUserId: order.trustapBuyerUserId,
-      fulfillmentStatus: order.fulfillmentStatus,
       shippingChargedCents: order.shippingChargedCents,
       shippingLabelCostCents: order.shippingLabelCostCents,
       shippingMarginCents:
         order.shippingChargedCents != null && order.shippingLabelCostCents != null
           ? order.shippingChargedCents - order.shippingLabelCostCents
           : null,
+      payoutStatus: order.payoutStatus,
+      deliveryConfirmedAt: order.deliveryConfirmedAt?.toISOString() ?? null,
+      payoutEligibleAt: order.payoutEligibleAt?.toISOString() ?? null,
+      payoutReleasedAt: order.payoutReleasedAt?.toISOString() ?? null,
+      payoutBlockedReason: order.payoutBlockedReason,
+      payoutMethod: order.payoutMethod,
+      payoutReserveAmountCents: order.payoutReserveAmountCents,
+      payoutHoldUntil: order.payoutHoldUntil?.toISOString() ?? null,
       buyer: order.buyer,
       seller: order.seller,
       listing: {
         ...order.listing,
         moderationRemovedAt: order.listing.moderationRemovedAt?.toISOString() ?? null,
       },
+      payoutEvaluation: payoutDetail
+        ? {
+            sellerEligible: payoutDetail.sellerEval.eligible,
+            instantPayoutAllowed: payoutDetail.orderEval.instantPayoutAllowed,
+            disqualifiers: payoutDetail.orderEval.disqualifiers,
+            sellerRequirementsFailed: payoutDetail.sellerEval.requirementsFailed,
+          }
+        : null,
     },
   });
 }

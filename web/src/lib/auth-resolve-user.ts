@@ -6,6 +6,7 @@ const userSelect = {
   username: true,
   role: true,
   suspendedAt: true,
+  accountDeletedAt: true,
   emailVerified: true,
   passwordHash: true,
 } as const;
@@ -20,7 +21,7 @@ export type AuthResolvedUser = {
   passwordHash: string | null;
 };
 
-export type AuthResolveUserFailure = "not_found" | "suspended" | "unverified_credentials";
+export type AuthResolveUserFailure = "not_found" | "suspended" | "deleted" | "unverified_credentials";
 
 /**
  * Maps JWT/session identifiers to the current `User` row.
@@ -53,6 +54,7 @@ export async function resolveAuthUserForToken(args: {
   }
 
   if (!row) return { ok: false, reason: "not_found" };
+  if (row.accountDeletedAt) return { ok: false, reason: "deleted" };
   if (row.suspendedAt) return { ok: false, reason: "suspended" };
   if (row.passwordHash && !row.emailVerified) return { ok: false, reason: "unverified_credentials" };
 

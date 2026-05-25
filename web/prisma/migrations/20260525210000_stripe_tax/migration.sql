@@ -1,0 +1,72 @@
+-- AlterTable
+ALTER TABLE "Order" ADD COLUMN     "taxAmountCents" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "taxProvider" TEXT,
+ADD COLUMN     "stripeTaxCalculationId" TEXT;
+
+-- CreateTable
+CREATE TABLE "TaxNexusState" (
+    "stateCode" TEXT NOT NULL,
+    "label" TEXT NOT NULL,
+    "enabled" BOOLEAN NOT NULL DEFAULT false,
+    "registeredAt" TIMESTAMP(3),
+    "notes" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "TaxNexusState_pkey" PRIMARY KEY ("stateCode")
+);
+
+-- Seed Texas nexus (primary obligation) + common states disabled by default
+INSERT INTO "TaxNexusState" ("stateCode", "label", "enabled", "registeredAt", "updatedAt") VALUES
+  ('TX', 'Texas', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('AL', 'Alabama', false, NULL, CURRENT_TIMESTAMP),
+  ('AK', 'Alaska', false, NULL, CURRENT_TIMESTAMP),
+  ('AZ', 'Arizona', false, NULL, CURRENT_TIMESTAMP),
+  ('AR', 'Arkansas', false, NULL, CURRENT_TIMESTAMP),
+  ('CA', 'California', false, NULL, CURRENT_TIMESTAMP),
+  ('CO', 'Colorado', false, NULL, CURRENT_TIMESTAMP),
+  ('CT', 'Connecticut', false, NULL, CURRENT_TIMESTAMP),
+  ('DE', 'Delaware', false, NULL, CURRENT_TIMESTAMP),
+  ('FL', 'Florida', false, NULL, CURRENT_TIMESTAMP),
+  ('GA', 'Georgia', false, NULL, CURRENT_TIMESTAMP),
+  ('HI', 'Hawaii', false, NULL, CURRENT_TIMESTAMP),
+  ('ID', 'Idaho', false, NULL, CURRENT_TIMESTAMP),
+  ('IL', 'Illinois', false, NULL, CURRENT_TIMESTAMP),
+  ('IN', 'Indiana', false, NULL, CURRENT_TIMESTAMP),
+  ('IA', 'Iowa', false, NULL, CURRENT_TIMESTAMP),
+  ('KS', 'Kansas', false, NULL, CURRENT_TIMESTAMP),
+  ('KY', 'Kentucky', false, NULL, CURRENT_TIMESTAMP),
+  ('LA', 'Louisiana', false, NULL, CURRENT_TIMESTAMP),
+  ('ME', 'Maine', false, NULL, CURRENT_TIMESTAMP),
+  ('MD', 'Maryland', false, NULL, CURRENT_TIMESTAMP),
+  ('MA', 'Massachusetts', false, NULL, CURRENT_TIMESTAMP),
+  ('MI', 'Michigan', false, NULL, CURRENT_TIMESTAMP),
+  ('MN', 'Minnesota', false, NULL, CURRENT_TIMESTAMP),
+  ('MS', 'Mississippi', false, NULL, CURRENT_TIMESTAMP),
+  ('MO', 'Missouri', false, NULL, CURRENT_TIMESTAMP),
+  ('MT', 'Montana', false, NULL, CURRENT_TIMESTAMP),
+  ('NE', 'Nebraska', false, NULL, CURRENT_TIMESTAMP),
+  ('NV', 'Nevada', false, NULL, CURRENT_TIMESTAMP),
+  ('NH', 'New Hampshire', false, NULL, CURRENT_TIMESTAMP),
+  ('NJ', 'New Jersey', false, NULL, CURRENT_TIMESTAMP),
+  ('NM', 'New Mexico', false, NULL, CURRENT_TIMESTAMP),
+  ('NY', 'New York', false, NULL, CURRENT_TIMESTAMP),
+  ('NC', 'North Carolina', false, NULL, CURRENT_TIMESTAMP),
+  ('ND', 'North Dakota', false, NULL, CURRENT_TIMESTAMP),
+  ('OH', 'Ohio', false, NULL, CURRENT_TIMESTAMP),
+  ('OK', 'Oklahoma', false, NULL, CURRENT_TIMESTAMP),
+  ('OR', 'Oregon', false, NULL, CURRENT_TIMESTAMP),
+  ('PA', 'Pennsylvania', false, NULL, CURRENT_TIMESTAMP),
+  ('RI', 'Rhode Island', false, NULL, CURRENT_TIMESTAMP),
+  ('SC', 'South Carolina', false, NULL, CURRENT_TIMESTAMP),
+  ('SD', 'South Dakota', false, NULL, CURRENT_TIMESTAMP),
+  ('TN', 'Tennessee', false, NULL, CURRENT_TIMESTAMP),
+  ('UT', 'Utah', false, NULL, CURRENT_TIMESTAMP),
+  ('VT', 'Vermont', false, NULL, CURRENT_TIMESTAMP),
+  ('VA', 'Virginia', false, NULL, CURRENT_TIMESTAMP),
+  ('WA', 'Washington', false, NULL, CURRENT_TIMESTAMP),
+  ('WV', 'West Virginia', false, NULL, CURRENT_TIMESTAMP),
+  ('WI', 'Wisconsin', false, NULL, CURRENT_TIMESTAMP),
+  ('WY', 'Wyoming', false, NULL, CURRENT_TIMESTAMP),
+  ('DC', 'District of Columbia', false, NULL, CURRENT_TIMESTAMP)
+ON CONFLICT ("stateCode") DO NOTHING;

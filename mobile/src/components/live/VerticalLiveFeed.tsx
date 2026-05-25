@@ -2,13 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Dimensions,
-  Image,
+  Alert,
   Keyboard,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -16,11 +15,13 @@ import {
   Share,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import PagerView from 'react-native-pager-view';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radii, spacing } from '../../theme';
+import { fetchLiveRoomPublicById } from '../../api/liveRoomsRepository';
 import type { LiveStream } from '../../types';
 import type { LiveStackParamList, MainTabParamList } from '../../navigation/types';
 import { rootNavigationRef } from '../../navigation/rootNavigationRef';
@@ -33,26 +34,41 @@ import {
   DEFAULT_COMMERCE_OVERLAY_HEIGHT,
 } from '../../lib/liveRoomBottomLayout';
 import { useLiveRoomChat } from '../../hooks/useLiveRoomChat';
+import { useLiveRoomRealtimeSession } from '../../hooks/useLiveRoomRealtimeSession';
+import { BreakDisclaimerModal, breakDisclaimerStorageKey, readBreakDisclaimerAccepted, writeBreakDisclaimerAccepted } from './BreakDisclaimerModal';
+import { useLiveRoomModeration } from '../../hooks/useLiveRoomModeration';
+import { ReportSheet } from '../trust/ReportSheet';
 import {
   FloatingChatComposer,
   FloatingLiveChat,
 } from './floatingLiveChat';
+import { LiveTipSheet } from './LiveTipSheet';
 import { LivePinnedActionBar } from './LivePinnedActionBar';
 import { LiveEmptyBroadcastBlock } from './LiveEmptyBroadcastBlock';
-
-const { height: WINDOW_HEIGHT } = Dimensions.get('window');
+import { LiveStagePlayback } from './LiveStagePlayback';
+import { LiveRoomText } from './LiveRoomText';
+import {
+  computeLiveStageContainer,
+  computeLiveStageHostStyle,
+  computeLiveStageRootStyle,
+  computeLiveStageSafeInsets,
+  computeLiveTopReserve,
+  LIVE_STAGE_CONTENT_FIT,
+  logLiveStageLayoutDebug,
+  type LiveStageContainer,
+} from '../../lib/liveRoomViewport';
 
 const CHAT_RIGHT_EDGE = 92;
 
 type Props = {
   streams: LiveStream[];
   initialStreamId?: string;
-  bottomOffset?: number;
   /** Minimal back control — rendered inside the stream header when provided. */
   onBack?: () => void;
   signedIn?: boolean;
   onRequireAuth?: () => void;
   accessToken?: string;
+  userId?: string;
 };
 
 function formatViewers(n: number) {
@@ -102,35 +118,102 @@ function CompactShopModal({
 function LiveSlide({
   stream,
   isActive,
-  height,
-  bottomReserve,
+  stageContainer,
+  screenHeight,
   onBack,
   signedIn = true,
   onRequireAuth,
   accessToken,
+  userId,
 }: {
   stream: LiveStream;
   isActive: boolean;
-  height: number;
-  bottomReserve: number;
+  stageContainer: LiveStageContainer;
+  screenHeight: number;
   onBack?: () => void;
   signedIn?: boolean;
   onRequireAuth?: () => void;
   accessToken?: string;
+  userId?: string;
 }) {
   const insets = useSafeAreaInsets();
+  const stageInsets = computeLiveStageSafeInsets(stageContainer, screenHeight, insets, spacing.sm);
   const stackNav = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const tabNav = stackNav.getParent<BottomTabNavigationProp<MainTabParamList>>();
   const [following, setFollowing] = useState(false);
   const [shopOpen, setShopOpen] = useState(false);
+  const [tipOpen, setTipOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const [chatDraft, setChatDraft] = useState('');
+  const [streamMuted, setStreamMuted] = useState(true);
+  const [streamRefreshNonce, setStreamRefreshNonce] = useState(0);
+  const [roomStatus, setRoomStatus] = useState(stream.roomStatus);
   const [commerceHeight, setCommerceHeight] = useState(DEFAULT_COMMERCE_OVERLAY_HEIGHT);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
+  const [breakDisclaimerAccepted, setBreakDisclaimerAccepted] = useState(true);
+  const [breakDisclaimerReady, setBreakDisclaimerReady] = useState(false);
 
-  const hostHandle = stream.host.handle.replace(/^@/, '') || stream.host.name;
   const liveChat = useLiveRoomChat({
     roomId: stream.id,
-    hostUsername: hostHandle,
+    hostUsername: stream.host.handle.replace(/^@/, '') || stream.host.name,
+    accessToken,
+    enabled: isActive,
+    realtimePrimary: true,
+  });
+
+  const liveSession = useLiveRoomRealtimeSession({
+    roomId: stream.id,
+    accessToken,
+    userId,
+    enabled: isActive,
+    hostUsername: stream.host.handle.replace(/^@/, '') || stream.host.name,
+    onChatBroadcast: (message) => {
+      if (!message.id) {
+        void liveChat.reload();
+        return;
+      }
+      liveChat.appendBroadcast(message);
+    },
+    onStreamRefresh: () => setStreamRefreshNonce((n) => n + 1),
+  });
+
+  useEffect(() => {
+    if (!isActive || (stream.liveRoomFormat !== 'break' && liveSession.roomSnap?.roomType !== 'break')) {
+      setBreakDisclaimerAccepted(true);
+      setBreakDisclaimerReady(true);
+      return;
+    }
+    const key = breakDisclaimerStorageKey(stream.id, userId);
+    void readBreakDisclaimerAccepted(key).then((accepted) => {
+      setBreakDisclaimerAccepted(accepted);
+      setBreakDisclaimerReady(true);
+    });
+  }, [isActive, stream.id, stream.liveRoomFormat, userId]);
+
+  const breakParticipationBlocked =
+    breakDisclaimerReady &&
+    (stream.liveRoomFormat === 'break' || liveSession.roomSnap?.roomType === 'break') &&
+    !breakDisclaimerAccepted;
+
+  useEffect(() => {
+    setRoomStatus(stream.roomStatus);
+  }, [stream.id, stream.roomStatus]);
+
+  useEffect(() => {
+    if (!isActive || roomStatus === 'live' || roomStatus === 'ended') return undefined;
+    const id = setInterval(() => {
+      void fetchLiveRoomPublicById(stream.id).then((row) => {
+        if (!row?.status || row.status === roomStatus) return;
+        setRoomStatus(row.status);
+        if (row.status === 'live') setStreamRefreshNonce((n) => n + 1);
+      });
+    }, 15_000);
+    return () => clearInterval(id);
+  }, [isActive, roomStatus, stream.id]);
+
+  const hostHandle = stream.host.handle.replace(/^@/, '') || stream.host.name;
+  const moderation = useLiveRoomModeration({
+    roomId: stream.id,
     accessToken,
     enabled: isActive,
   });
@@ -151,21 +234,41 @@ function LiveSlide({
   }, [insets.bottom]);
 
   useEffect(() => {
+    if (!isActive) return;
+    logLiveStageLayoutDebug({
+      roomId: stream.id,
+      screenWidth: stageContainer.designWidth,
+      screenHeight,
+      designWidth: stageContainer.designWidth,
+      designHeight: stageContainer.designHeight,
+      uniformScale: stageContainer.uniformScale,
+      layoutWidth: stageContainer.layoutWidth,
+      layoutHeight: stageContainer.layoutHeight,
+      offsetLeft: stageContainer.offsetLeft,
+      offsetTop: stageContainer.offsetTop,
+      contentFit: LIVE_STAGE_CONTENT_FIT,
+    });
+  }, [isActive, stream.id, stageContainer, screenHeight]);
+
+  useEffect(() => {
     if (!isActive || !signedIn || !accessToken) return;
-    void liveChat.announceJoin();
-  }, [isActive, signedIn, accessToken, liveChat.announceJoin]);
+    void liveChat.announceJoin().catch((e) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      moderation.handleRestrictionError(msg);
+    });
+  }, [isActive, signedIn, accessToken, liveChat.announceJoin, moderation.handleRestrictionError]);
 
   const chatPool = liveChat.messages;
 
-  const dockPaddingBottom = Math.max(bottomReserve, insets.bottom + spacing.sm);
+  const dockPaddingBottom = stageInsets.bottom;
   const bottomStack = computeLiveRoomBottomStack({
     dockPaddingBottom,
     commerceHeight,
-    keyboardOffset,
+    keyboardOffset: keyboardOffset / Math.max(0.001, stageContainer.uniformScale),
   });
   const chatMaxHeight = computeChatStackMaxHeight({
-    slideHeight: height,
-    topReserve: insets.top + 72,
+    slideHeight: stageContainer.designHeight,
+    topReserve: computeLiveTopReserve(stageInsets.top),
     chatBottom: bottomStack.chatBottom,
   });
 
@@ -174,15 +277,21 @@ function LiveSlide({
       onRequireAuth?.();
       return;
     }
+    if (breakParticipationBlocked) {
+      Alert.alert('Accept notice', 'Accept the live break notice before chatting.');
+      return;
+    }
     const t = chatDraft.trim();
     if (!t || liveChat.sending) return;
     try {
       const ok = await liveChat.send(t);
       if (ok) setChatDraft('');
     } catch (e) {
-      if (__DEV__) console.warn('[liveRoom chat] send failed', e instanceof Error ? e.message : e);
+      const msg = e instanceof Error ? e.message : String(e);
+      moderation.handleRestrictionError(msg);
+      if (__DEV__) console.warn('[liveRoom chat] send failed', msg);
     }
-  }, [signedIn, onRequireAuth, chatDraft, liveChat.sending, liveChat.send]);
+  }, [signedIn, onRequireAuth, breakParticipationBlocked, chatDraft, liveChat.sending, liveChat.send, moderation.handleRestrictionError]);
 
   const openMarketplace = () => tabNav?.navigate('Marketplace');
 
@@ -214,35 +323,51 @@ function LiveSlide({
   };
 
   return (
-    <View style={[styles.slide, { height }]}>
-      {/* CENTER — stream hero */}
-      <Image
-        source={{ uri: stream.previewImageUrl }}
-        style={StyleSheet.absoluteFill}
-        resizeMode="cover"
-      />
-      <LinearGradient
-        colors={stream.thumbnailGradient}
-        start={{ x: 0.1, y: 0 }}
-        end={{ x: 0.9, y: 1 }}
-        style={[StyleSheet.absoluteFill, { opacity: 0.16 }]}
-      />
-      <LinearGradient
-        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.06)', 'rgba(0,0,0,0.28)']}
-        locations={[0, 0.5, 1]}
-        style={StyleSheet.absoluteFill}
-      />
+    <>
+      {liveSession.connectionBanner ? (
+        <View style={styles.connectionBanner} pointerEvents="none">
+          <Text style={styles.connectionBannerTxt}>{liveSession.connectionBanner}</Text>
+        </View>
+      ) : null}
+      {liveSession.showOutbidToast ? (
+        <View style={styles.outbidToast} pointerEvents="none">
+          <Text style={styles.outbidToastTxt}>Outbid — new high bid on this item</Text>
+        </View>
+      ) : null}
+      <View style={styles.slide}>
+        <View style={computeLiveStageHostStyle(stageContainer)}>
+          <View style={[styles.stageRoot, computeLiveStageRootStyle(stageContainer)]}>
+            <View style={styles.stageVideoFrame}>
+              <LiveStagePlayback
+                roomId={stream.id}
+                roomStatus={roomStatus}
+                scheduledStartAtIso={stream.scheduledStartAtIso}
+                thumbnailUrl={stream.previewImageUrl}
+                enabled={isActive}
+                accessToken={accessToken}
+                refreshNonce={streamRefreshNonce}
+                muted={streamMuted}
+                onMutedChange={setStreamMuted}
+              />
+              <LinearGradient
+                colors={stream.thumbnailGradient}
+                start={{ x: 0.1, y: 0 }}
+                end={{ x: 0.9, y: 1 }}
+                style={[StyleSheet.absoluteFill, { opacity: 0.08 }]}
+                pointerEvents="none"
+              />
+            </View>
 
-      {/* TOP — cinematic header: identity left, stat center, controls right */}
-      <View
-        style={[
-          styles.topBar,
-          {
-            paddingTop: insets.top + 6,
-            paddingHorizontal: spacing.md,
-          },
-        ]}
-      >
+            {/* TOP — header overlays the 9:16 stage */}
+            <View
+              style={[
+                styles.topBar,
+                {
+                  paddingTop: stageInsets.top + 6,
+                  paddingHorizontal: spacing.md,
+                },
+              ]}
+            >
         <View style={styles.topBarRow}>
           <View style={styles.topBarLeft}>
             {onBack ? (
@@ -264,16 +389,16 @@ function LiveSlide({
             >
               <Image source={{ uri: stream.host.avatarUrl }} style={styles.hostAvatarTop} />
               <View style={styles.hostTextCol}>
-                <Text style={styles.hostNameTop} numberOfLines={1}>
+                <LiveRoomText style={styles.hostNameTop} numberOfLines={1}>
                   {stream.host.name}
-                </Text>
-                <Text style={styles.hostSubtitleTop} numberOfLines={1}>
+                </LiveRoomText>
+                <LiveRoomText style={styles.hostSubtitleTop} numberOfLines={1}>
                   {stream.title}
-                </Text>
+                </LiveRoomText>
                 {stream.pinnedItemSubtitle ? (
-                  <Text style={styles.hostMetaLine} numberOfLines={1}>
+                  <LiveRoomText style={styles.hostMetaLine} numberOfLines={1}>
                     {stream.pinnedItemSubtitle}
-                  </Text>
+                  </LiveRoomText>
                 ) : null}
               </View>
             </Pressable>
@@ -281,15 +406,25 @@ function LiveSlide({
 
           <View style={styles.topBarRight}>
             <View style={styles.liveStatusCluster}>
-              <LiveBadge compact pulse />
-              <Text style={styles.viewersTopRight}>{formatViewers(stream.viewers)}</Text>
+              {roomStatus === 'live' ? (
+                <LiveBadge compact pulse inline />
+              ) : roomStatus === 'scheduled' ? (
+                <LiveBadge compact inline label="SOON" variant="scheduled" pulse={false} />
+              ) : (
+                <LiveRoomText style={styles.endedBadge}>ENDED</LiveRoomText>
+              )}
+              <LiveRoomText style={styles.viewersTopRight}>{formatViewers(stream.viewers)}</LiveRoomText>
             </View>
             <Pressable
               style={styles.iconTopBare}
-              onPress={() => void Linking.openSettings()}
-              accessibilityLabel="Mute or audio options"
+              onPress={() => setStreamMuted((m) => !m)}
+              accessibilityLabel={streamMuted ? 'Unmute stream' : 'Mute stream'}
             >
-              <Ionicons name="volume-high-outline" size={20} color="rgba(255,255,255,0.88)" />
+              <Ionicons
+                name={streamMuted ? 'volume-mute-outline' : 'volume-high-outline'}
+                size={20}
+                color="rgba(255,255,255,0.88)"
+              />
             </Pressable>
             <Pressable
               style={styles.iconTopBare}
@@ -297,6 +432,19 @@ function LiveSlide({
               accessibilityLabel="Stream settings"
             >
               <Ionicons name="settings-outline" size={19} color="rgba(255,255,255,0.88)" />
+            </Pressable>
+            <Pressable
+              style={styles.iconTopBare}
+              onPress={() => {
+                if (!signedIn) {
+                  onRequireAuth?.();
+                  return;
+                }
+                setReportOpen(true);
+              }}
+              accessibilityLabel="Report show"
+            >
+              <Ionicons name="flag-outline" size={19} color="rgba(255,255,255,0.88)" />
             </Pressable>
           </View>
         </View>
@@ -327,7 +475,7 @@ function LiveSlide({
             size={22}
             color={following ? colors.gold : 'rgba(255,255,255,0.92)'}
           />
-          <Text style={styles.railLabel}>{following ? 'Following' : 'Follow'}</Text>
+          <LiveRoomText style={styles.railLabel}>{following ? 'Following' : 'Follow'}</LiveRoomText>
         </Pressable>
         <Pressable
           style={styles.railBtn}
@@ -343,7 +491,25 @@ function LiveSlide({
           accessibilityLabel="Message seller privately"
         >
           <Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.gold} />
-          <Text style={[styles.railLabel, { color: colors.gold }]}>Message</Text>
+          <LiveRoomText style={[styles.railLabel, { color: colors.gold }]}>Message</LiveRoomText>
+        </Pressable>
+        <Pressable
+          style={styles.railBtn}
+          onPress={() => {
+            if (!signedIn) {
+              onRequireAuth?.();
+              return;
+            }
+            if (!accessToken) {
+              Alert.alert('Sign in required', 'Log in to send a tip.');
+              return;
+            }
+            setTipOpen(true);
+          }}
+          accessibilityLabel="Send a tip"
+        >
+          <Ionicons name="cash-outline" size={22} color={colors.gold} />
+          <LiveRoomText style={[styles.railLabel, { color: colors.gold }]}>Tip</LiveRoomText>
         </Pressable>
         <Pressable
           style={styles.railBtn}
@@ -356,7 +522,7 @@ function LiveSlide({
           }}
         >
           <Ionicons name="wallet-outline" size={22} color="rgba(255,255,255,0.92)" />
-          <Text style={styles.railLabel}>Wallet</Text>
+          <LiveRoomText style={styles.railLabel}>Wallet</LiveRoomText>
         </Pressable>
         <Pressable
           style={styles.railBtn}
@@ -370,7 +536,7 @@ function LiveSlide({
           accessibilityLabel="Shop this room"
         >
           <Ionicons name="bag-handle-outline" size={22} color="rgba(255,255,255,0.92)" />
-          <Text style={styles.railLabel}>Shop</Text>
+          <LiveRoomText style={styles.railLabel}>Shop</LiveRoomText>
         </Pressable>
         <Pressable
           style={styles.railBtn}
@@ -383,7 +549,7 @@ function LiveSlide({
           }}
         >
           <Ionicons name="cut-outline" size={22} color="rgba(255,255,255,0.92)" />
-          <Text style={styles.railLabel}>Clip</Text>
+          <LiveRoomText style={styles.railLabel}>Clip</LiveRoomText>
         </Pressable>
         <Pressable
           style={styles.railBtn}
@@ -396,7 +562,7 @@ function LiveSlide({
           }}
         >
           <Ionicons name="share-outline" size={22} color="rgba(255,255,255,0.92)" />
-          <Text style={styles.railLabel}>Share</Text>
+          <LiveRoomText style={styles.railLabel}>Share</LiveRoomText>
         </Pressable>
       </View>
 
@@ -409,7 +575,34 @@ function LiveSlide({
         maxHeight={chatMaxHeight}
         isActive={isActive}
         streamKey={stream.id}
+        liveRoomId={stream.id}
+        hostUserId={stream.host.id}
+        accessToken={accessToken}
+        canModerate={moderation.canModerate}
+        onModerationComplete={() => {
+          void liveChat.reload();
+          void moderation.reload();
+        }}
       />
+
+      {moderation.roomBlocked || moderation.myRestrictions?.roomBanned || moderation.myRestrictions?.kickedUntil ? (
+        <View style={[styles.blockedBanner, { top: stageInsets.top + 56 }]}>
+          <LiveRoomText style={styles.blockedBannerText}>
+            You cannot participate in this room.
+          </LiveRoomText>
+          {onBack ? (
+            <Pressable onPress={onBack} style={styles.blockedBannerBtn}>
+              <LiveRoomText style={styles.blockedBannerBtnText}>Leave show</LiveRoomText>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+      {(moderation.myRestrictions?.muted || liveChat.error?.includes('muted')) && !moderation.roomBlocked ? (
+        <View style={[styles.mutedBanner, { bottom: bottomStack.composerBottom + COMPOSER_BAR_HEIGHT + 8 }]}>
+          <LiveRoomText style={styles.mutedBannerText}>You are muted in this room.</LiveRoomText>
+        </View>
+      ) : null}
 
       <FloatingChatComposer
         bottom={bottomStack.composerBottom}
@@ -418,7 +611,7 @@ function LiveSlide({
         value={chatDraft}
         onChangeText={setChatDraft}
         onSend={sendFloatingChat}
-        sendDisabled={liveChat.sending}
+        sendDisabled={liveChat.sending || breakParticipationBlocked}
       />
 
       <View
@@ -437,31 +630,76 @@ function LiveSlide({
       >
         <LivePinnedActionBar
           stream={stream}
-          bottomSafeInset={insets.bottom}
+          bottomSafeInset={stageInsets.bottom}
           signedIn={signedIn}
           onRequireAuth={onRequireAuth}
           accessToken={accessToken}
           onOpenInlineShop={() => setShopOpen(true)}
+          roomSnap={liveSession.roomSnap}
+          syncRefreshing={liveSession.syncRefreshing}
+          onRefreshSnapshot={liveSession.fetchSnapshot}
+          onBidPlaced={(amount) => liveSession.setMyHighBidUsd(amount)}
+          participationBlocked={breakParticipationBlocked}
         />
+      </View>
+          </View>
+        </View>
       </View>
 
       <CompactShopModal visible={shopOpen} onClose={() => setShopOpen(false)} stream={stream} />
-    </View>
+      {accessToken ? (
+        <LiveTipSheet
+          visible={tipOpen}
+          onClose={() => setTipOpen(false)}
+          liveRoomId={stream.id}
+          accessToken={accessToken}
+          onError={(msg) => Alert.alert('Tip', msg)}
+        />
+      ) : null}
+      <ReportSheet
+        visible={reportOpen}
+        onClose={() => setReportOpen(false)}
+        targetType="live_room"
+        targetId={stream.id}
+        liveRoomId={stream.id}
+        accessToken={accessToken}
+        title="Report show"
+      />
+      {breakDisclaimerReady && (stream.liveRoomFormat === 'break' || liveSession.roomSnap?.roomType === 'break') && !breakDisclaimerAccepted ? (
+        <BreakDisclaimerModal
+          visible
+          onAccept={() => {
+            const key = breakDisclaimerStorageKey(stream.id, userId);
+            void writeBreakDisclaimerAccepted(key);
+            setBreakDisclaimerAccepted(true);
+          }}
+          onDecline={() => stackNav.goBack()}
+        />
+      ) : null}
+    </>
   );
 }
 
 export function VerticalLiveFeed({
   streams,
   initialStreamId,
-  bottomOffset,
   onBack,
   signedIn = true,
   onRequireAuth,
   accessToken,
+  userId,
 }: Props) {
-  const insets = useSafeAreaInsets();
-  const reserve = bottomOffset ?? insets.bottom + 16;
-  const pageHeight = Math.max(WINDOW_HEIGHT - reserve, 520);
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const [layoutSize, setLayoutSize] = useState<{ width: number; height: number } | null>(null);
+
+  const layoutWidth = layoutSize?.width ?? windowWidth;
+  const layoutHeight = layoutSize?.height ?? windowHeight;
+  const viewportWidth = layoutWidth;
+  const viewportHeight = layoutHeight;
+  const stageContainer = useMemo(
+    () => computeLiveStageContainer(viewportWidth, viewportHeight),
+    [viewportWidth, viewportHeight],
+  );
 
   const startIndex = useMemo(() => {
     if (!initialStreamId) return 0;
@@ -510,35 +748,92 @@ export function VerticalLiveFeed({
   }
 
   return (
-    <PagerView
-      key={initialStreamId ?? 'default'}
-      style={{ flex: 1 }}
-      initialPage={startIndex}
-      orientation="vertical"
-      onPageSelected={(e) => setPage(e.nativeEvent.position)}
+    <View
+      style={styles.feedRoot}
+      onLayout={(e) => {
+        const { width, height } = e.nativeEvent.layout;
+        if (width > 0 && height > 0) {
+          setLayoutSize((prev) =>
+            prev?.width === width && prev?.height === height ? prev : { width, height },
+          );
+        }
+      }}
     >
-      {streams.map((stream, index) => (
-        <View key={stream.id} style={{ flex: 1 }} collapsable={false}>
-          <LiveSlide
-            stream={stream}
-            isActive={index === page}
-            height={pageHeight}
-            bottomReserve={reserve}
-            onBack={onBack}
-            signedIn={signedIn}
-            onRequireAuth={onRequireAuth}
-            accessToken={accessToken}
-          />
-        </View>
-      ))}
-    </PagerView>
+      <PagerView
+        key={initialStreamId ?? 'default'}
+        style={styles.feedPager}
+        initialPage={startIndex}
+        orientation="vertical"
+        onPageSelected={(e) => setPage(e.nativeEvent.position)}
+      >
+        {streams.map((stream, index) => (
+          <View key={stream.id} style={styles.page} collapsable={false}>
+            <LiveSlide
+              stream={stream}
+              isActive={index === page}
+              stageContainer={stageContainer}
+              screenHeight={viewportHeight}
+              onBack={onBack}
+              signedIn={signedIn}
+              onRequireAuth={onRequireAuth}
+              accessToken={accessToken}
+              userId={userId}
+            />
+          </View>
+        ))}
+      </PagerView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  feedRoot: {
+    flex: 1,
+  },
+  feedPager: {
+    flex: 1,
+  },
+  page: {
+    flex: 1,
+  },
   slide: {
     flex: 1,
-    backgroundColor: colors.background,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+  },
+  connectionBanner: {
+    position: 'absolute',
+    top: 72,
+    alignSelf: 'center',
+    zIndex: 90,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  connectionBannerTxt: { color: colors.textSecondary, fontSize: 11, fontWeight: '600' },
+  outbidToast: {
+    position: 'absolute',
+    top: 108,
+    alignSelf: 'center',
+    zIndex: 91,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,59,48,0.35)',
+  },
+  outbidToastTxt: { color: colors.textPrimary, fontSize: 12, fontWeight: '700' },
+  stageRoot: {
+    backgroundColor: '#000',
+  },
+  stageVideoFrame: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
+    backgroundColor: '#000',
   },
   topBar: {
     position: 'absolute',
@@ -633,6 +928,12 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.35)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
+  },
+  endedBadge: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.2,
   },
   topBarRight: {
     flexDirection: 'row',
@@ -730,5 +1031,52 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontSize: 15,
     fontWeight: '800',
+  },
+  blockedBanner: {
+    position: 'absolute',
+    left: spacing.md,
+    right: spacing.md,
+    zIndex: 30,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(244,63,94,0.35)',
+    backgroundColor: 'rgba(76,5,25,0.82)',
+    padding: spacing.md,
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  blockedBannerText: {
+    color: '#fecdd3',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  blockedBannerBtn: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(244,63,94,0.35)',
+  },
+  blockedBannerBtnText: {
+    color: '#fecdd3',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  mutedBanner: {
+    position: 'absolute',
+    left: spacing.lg,
+    right: spacing.lg,
+    zIndex: 20,
+    borderRadius: radii.md,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  mutedBannerText: {
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });

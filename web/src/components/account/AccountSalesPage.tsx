@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { AccountLiveShipmentsSection } from "@/components/account/AccountLiveShipmentsSection";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
+import { useRequireSellerActivation } from "@/hooks/useRequireSellerActivation";
 import { ExpiredAuctionRecoveryPanel } from "@/components/listings/ExpiredAuctionRecoveryPanel";
 import { PaymentDeadlineCountdown } from "@/components/orders/PaymentDeadlineCountdown";
 import { orderStatusLabel, orderStatusTone } from "@/lib/order-status";
@@ -26,6 +27,13 @@ type SaleRow = {
   shippoTransactionId: string | null;
   paymentDeadlineAt: string | null;
   sellerNextAction: string;
+  payoutStatus: string;
+  payoutBlockedReason: string | null;
+  payoutHoldUntil: string | null;
+  payoutReserveAmountCents: number;
+  deliveryConfirmedAt: string | null;
+  payoutMethod: string;
+  payoutEstimateUsd: number;
   buyer: { username: string };
   listing: { id: string; title: string; status?: string; images: { url: string }[] };
 };
@@ -134,9 +142,25 @@ function ShipModal({
   );
 }
 
+function formatPayoutStatus(status: string): string {
+  return status.replace(/_/g, " ");
+}
+
+function payoutStatusTone(status: string): string {
+  if (status === "paid_out" || status === "instant_payout_ready") return "text-emerald-300";
+  if (status === "blocked" || status === "manual_review") return "text-amber-300";
+  return "text-zinc-300";
+}
+
 export function AccountSalesPage() {
   const { status } = useSession();
+  const { ready: sellerReady, loading: sellerGateLoading } = useRequireSellerActivation();
   const [rows, setRows] = useState<SaleRow[] | null>(null);
+  const [sellerPayout, setSellerPayout] = useState<{
+    instantPayoutEligible: boolean;
+    instantPayoutStatus: string;
+    eligibilityMessage?: string;
+  } | null>(null);
   const [liveShipping, setLiveShipping] = useState<SellerLiveShippingDashboard | null>(null);
   const [liveShippingLoading, setLiveShippingLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -159,8 +183,16 @@ export function AccountSalesPage() {
         setLoadError(salesRes.status === 401 ? "Please sign in again." : "Could not load sales. Try again.");
         return;
       }
-      const data = (await salesRes.json()) as { orders?: SaleRow[] };
+      const data = (await salesRes.json()) as {
+        orders?: SaleRow[];
+        sellerPayout?: {
+          instantPayoutEligible: boolean;
+          instantPayoutStatus: string;
+          eligibilityMessage?: string;
+        };
+      };
       setRows(Array.isArray(data.orders) ? data.orders : []);
+      setSellerPayout(data.sellerPayout ?? null);
       if (liveRes.ok) {
         const live = (await liveRes.json()) as SellerLiveShippingDashboard;
         if (live && Array.isArray(live.sessions) && live.totals) {
@@ -217,10 +249,18 @@ export function AccountSalesPage() {
     }
   };
 
-  if (status === "loading" || rows === null) {
+  if (status === "loading" || sellerGateLoading || rows === null) {
     return (
       <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
         <div className="mx-auto max-w-[1920px] px-4 py-24 text-center text-sm text-zinc-500">Loading…</div>
+      </main>
+    );
+  }
+
+  if (!sellerReady) {
+    return (
+      <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
+        <div className="mx-auto max-w-[1920px] px-4 py-24 text-center text-sm text-zinc-500">Redirecting to seller setup…</div>
       </main>
     );
   }
@@ -251,6 +291,13 @@ export function AccountSalesPage() {
 
         {labelError ? (
           <p className="mt-6 rounded-lg border border-rose-500/30 bg-rose-950/30 px-4 py-2 text-sm text-rose-100">{labelError}</p>
+        ) : null}
+
+        {sellerPayout ? (
+          <p className="mt-4 rounded-lg border border-white/[0.08] bg-[#0a0a0d]/60 px-4 py-2 text-xs text-zinc-400">
+            {sellerPayout.eligibilityMessage ??
+              `Instant payout: ${sellerPayout.instantPayoutEligible ? "Eligible" : "Not eligible"} (${sellerPayout.instantPayoutStatus.replace(/_/g, " ")}). Payouts release after carrier delivery confirmation.`}
+          </p>
         ) : null}
 
         {loadError ? (
@@ -319,6 +366,7 @@ export function AccountSalesPage() {
                     <th className="px-2 py-2.5">Payment</th>
                     <th className="px-2 py-2.5">Next step</th>
                     <th className="px-2 py-2.5">Fulfillment</th>
+                    <th className="px-2 py-2.5">Payout</th>
                     <th className="px-2 py-2.5">Tracking</th>
                     <th className="px-2 py-2.5">Date</th>
                     <th className="px-3 py-2.5 pr-3.5 text-right">Actions</th>
@@ -366,6 +414,29 @@ export function AccountSalesPage() {
                           ) : null}
                         </td>
                         <td className="px-2 py-2 font-mono text-[10px] uppercase text-zinc-300">{o.fulfillmentStatus}</td>
+                        <td className="px-2 py-2 text-[10px]">
+                          <span className={`font-mono uppercase ${payoutStatusTone(o.payoutStatus)}`}>
+                            {formatPayoutStatus(o.payoutStatus)}
+                          </span>
+                          {o.payoutBlockedReason ? (
+                            <span className="mt-0.5 block text-[9px] text-amber-200/80">{o.payoutBlockedReason}</span>
+                          ) : null}
+                          {o.payoutReserveAmountCents > 0 ? (
+                            <span className="mt-0.5 block text-[9px] text-zinc-500">
+                              Reserve {formatMoney(o.payoutReserveAmountCents / 100)}
+                            </span>
+                          ) : null}
+                          {o.payoutHoldUntil && o.payoutStatus !== "paid_out" ? (
+                            <span className="mt-0.5 block text-[9px] text-zinc-500">
+                              Hold until {formatDate(o.payoutHoldUntil)}
+                            </span>
+                          ) : null}
+                          {o.paymentStatus === "paid" ? (
+                            <span className="mt-0.5 block text-[9px] text-zinc-400">
+                              Est. payout {formatMoney(o.payoutEstimateUsd)}
+                            </span>
+                          ) : null}
+                        </td>
                         <td className="px-2 py-2 text-[10px] text-zinc-400">
                           {o.trackingNumber ? (
                             <span className="font-mono text-zinc-200">{o.trackingNumber}</span>
@@ -485,6 +556,18 @@ export function AccountSalesPage() {
                         <p className="mt-1 text-[10px] text-zinc-500">
                           Pay: <span className="font-mono text-zinc-300">{o.paymentStatus}</span> · Ship:{" "}
                           <span className="font-mono text-zinc-300">{o.fulfillmentStatus}</span>
+                        </p>
+                        <p className="mt-1 text-[10px] text-zinc-500">
+                          Payout:{" "}
+                          <span className={`font-mono uppercase ${payoutStatusTone(o.payoutStatus)}`}>
+                            {formatPayoutStatus(o.payoutStatus)}
+                          </span>
+                          {o.payoutBlockedReason ? (
+                            <span className="block text-amber-200/80">{o.payoutBlockedReason}</span>
+                          ) : null}
+                          {o.paymentStatus === "paid" ? (
+                            <span className="block text-zinc-500">Est. payout {formatMoney(o.payoutEstimateUsd)}</span>
+                          ) : null}
                         </p>
                         <p className="mt-1 text-[10px] font-semibold text-zinc-200">Next: {o.sellerNextAction}</p>
                         {o.paymentStatus === "pending_payment" && o.paymentDeadlineAt ? (

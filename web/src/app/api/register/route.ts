@@ -78,24 +78,25 @@ export async function POST(req: Request) {
       );
     }
 
+    if (isBetaDeployment()) {
+      const supa = await registerAccountViaSupabaseAuth({
+        email,
+        password,
+        username: usernameResult.normalized,
+      });
+      if (!supa.ok) {
+        const status = supa.code === "ACCOUNT_EXISTS" ? 409 : 503;
+        return NextResponse.json({ error: supa.message, code: supa.code }, { status });
+      }
+      return NextResponse.json({
+        ok: true as const,
+        verificationMethod: supa.verificationMethod,
+        needsEmailConfirmation: supa.needsEmailConfirmation,
+      });
+    }
+
     const hasResend = isWebSignupResendConfigured();
     if (process.env.NODE_ENV === "production" && !hasResend) {
-      if (isBetaDeployment()) {
-        const supa = await registerAccountViaSupabaseAuth({
-          email,
-          password,
-          username: usernameResult.normalized,
-        });
-        if (!supa.ok) {
-          const status = supa.code === "ACCOUNT_EXISTS" ? 409 : 503;
-          return NextResponse.json({ error: supa.message, code: supa.code }, { status });
-        }
-        return NextResponse.json({
-          ok: true as const,
-          verificationMethod: supa.verificationMethod,
-          needsEmailConfirmation: supa.needsEmailConfirmation,
-        });
-      }
       return NextResponse.json(
         {
           error: "Sign-up is temporarily unavailable (email not configured). Please try again later.",

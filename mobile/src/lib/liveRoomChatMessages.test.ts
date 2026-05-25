@@ -35,6 +35,14 @@ describe('liveRoomChatMessages', () => {
     ).toBe(true);
     expect(
       isViewerEventMessage({
+        id: '1b',
+        user: 'alice',
+        text: 'joined 👋',
+        messageType: 'system',
+      }),
+    ).toBe(true);
+    expect(
+      isViewerEventMessage({
         id: '2',
         user: 'bob',
         text: VIEWER_EVENT_SHARE_BODY,
@@ -44,12 +52,12 @@ describe('liveRoomChatMessages', () => {
     expect(isViewerEventMessage(msg('3', 'hello'))).toBe(false);
   });
 
-  it('dedupes repeated join lines per username', () => {
+  it('dedupes legacy and new join lines per username', () => {
     const input = [
       {
         id: '1',
         user: 'alice',
-        text: VIEWER_EVENT_JOIN_BODY,
+        text: 'joined 👋',
         messageType: 'system' as const,
       },
       {

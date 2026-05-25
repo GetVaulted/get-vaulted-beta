@@ -37,6 +37,7 @@ export function useSellerLiveConsole({
   const [serverNowMs, setServerNowMs] = useState(Date.now());
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [startingAuction, setStartingAuction] = useState(false);
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [quickTitle, setQuickTitle] = useState('');
   const [consoleError, setConsoleError] = useState<SanitizedLiveError | null>(null);
@@ -57,6 +58,7 @@ export function useSellerLiveConsole({
             id: m.id,
             user: m.senderUsername,
             text: m.body,
+            senderId: m.senderId,
             isHost: hostUser.length > 0 && m.senderUsername.toLowerCase() === hostUser,
             messageType: m.messageType,
           })),
@@ -181,11 +183,16 @@ export function useSellerLiveConsole({
   const onStartBidding = () => {
     if (!activeItem) return;
     void run(async () => {
-      await patchLiveRoomItem(accessToken, roomId, activeItem.id, {
-        action: 'startAuction',
-        auctionDurationSec: DEFAULT_AUCTION_SEC,
-        clutchTimeEnabled: false,
-      });
+      setStartingAuction(true);
+      try {
+        await patchLiveRoomItem(accessToken, roomId, activeItem.id, {
+          action: 'startAuction',
+          auctionDurationSec: DEFAULT_AUCTION_SEC,
+          clutchTimeEnabled: false,
+        });
+      } finally {
+        setStartingAuction(false);
+      }
     });
   };
 
@@ -240,6 +247,7 @@ export function useSellerLiveConsole({
     serverNowMs,
     loading,
     busy,
+    startingAuction,
     inventoryOpen,
     setInventoryOpen,
     quickTitle,

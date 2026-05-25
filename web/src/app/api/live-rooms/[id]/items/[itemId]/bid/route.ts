@@ -3,7 +3,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { minNextBidUsd } from "@/lib/auction";
 import { placeListingBid } from "@/lib/place-listing-bid";
-import { createNotification } from "@/lib/notifications";
+import { notifyAuctionOutbid } from "@/lib/notify-auction-outbid";
 import { prisma } from "@/lib/prisma";
 import { computeNextAuctionEndsAtAfterBid } from "@/lib/live-auction-bid-extension";
 import { LIVE_AUCTION_EVENT_PAYLOAD_VERSION, type LiveAuctionBidPlacedPayloadV1 } from "@/lib/live-auction-event-schema";
@@ -14,6 +14,7 @@ import { getLiveRoomItemSnapshotDto } from "@/lib/live-room-item-snapshot-server
 import { resolveLiveProxyBidChain, upsertLiveAuctionProxyBid } from "@/services/live-auction/resolve-live-proxy-bid-chain";
 import { isStripeConfigured } from "@/lib/stripe";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
+import { getLiveRoomUserRestrictions } from "@/lib/trust/live-room-moderation";
 
 function signInUrl(returnPath: string) {
   return `/signin?returnTo=${encodeURIComponent(returnPath)}`;
@@ -70,6 +71,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
         biddingOpen: true,
         auctionEndsAt: true,
         clutchTimeEnabled: true,
+        lastHighBidderId: true,
       },
     }),
   ]);
@@ -94,6 +96,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
 
   if (room.sellerId === auth.userId) {
     return NextResponse.json({ error: "You cannot bid on items in your own live room." }, { status: 400 });
+  }
+
+  const modRestrictions = await getLiveRoomUserRestrictions({ liveRoomId, userId: auth.userId });
+  if (modRestrictions.roomBanned || modRestrictions.kickedUntil) {
+    return NextResponse.json({ error: "You cannot participate in this room." }, { status: 403 });
+  }
+  if (modRestrictions.bidBlocked) {
+    return NextResponse.json({ error: "Bidding is disabled for your account in this room." }, { status: 403 });
   }
 
   let body: Body;
@@ -243,19 +253,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
       });
 
       if (result.prevLeaderId && result.prevLeaderId !== bidderId) {
-        const lt =
-          result.listingTitle.length > 80 ? `${result.listingTitle.slice(0, 77)}…` : result.listingTitle;
-        const high = result.amountUsd.toLocaleString("en-US", {
-          style: "currency",
-          currency: "USD",
-          maximumFractionDigits: 0,
-        });
         queueMicrotask(() => {
-          void createNotification(prisma, {
-            userId: result.prevLeaderId!,
-            type: "auction_outbid",
-            title: "You’ve been outbid",
-            body: `Someone bid ${high} on “${lt}”.`,
+          void notifyAuctionOutbid(prisma, {
+            outbidUserId: result.prevLeaderId!,
+            amountUsd: result.amountUsd,
+            title: result.listingTitle,
             href: `/marketplace/${encodeURIComponent(listingId)}`,
           });
         });
@@ -304,6 +306,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
       return NextResponse.json({ error: `Bid must be at least ${formatMoney(minBid)}.` }, { status: 400 });
     }
 
+    const prevLeaderId = item.lastHighBidderId;
     const state = await prisma.$transaction(async (tx) => {
       const now = new Date();
       const nextEndsAt = computeNextAuctionEndsAtAfterBid(now, item.clutchTimeEnabled, item.auctionEndsAt);
@@ -382,7 +385,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
           listingId: item.listingId,
         });
       }
-      await resolveLiveProxyBidChain(tx, {
+      const proxyOutbids = await resolveLiveProxyBidChain(tx, {
         liveRoomId,
         itemId,
         clutchTimeEnabled: item.clutchTimeEnabled,
@@ -395,7 +398,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
       if (!roomFinal) throw new Error("ROOM_MISSING");
       const itemFinal = await tx.liveRoomItem.findUnique({
         where: { id: itemId },
-        select: { itemVersion: true, auctionEndsAt: true, lastHighBidderId: true },
+        select: { itemVersion: true, auctionEndsAt: true, lastHighBidderId: true, currentBidUsd: true },
       });
       const leaderIdFinal = itemFinal?.lastHighBidderId ?? bidderId;
       const leaderUserFinal = await tx.user.findUnique({
@@ -409,8 +412,29 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
         itemVersion: itemFinal?.itemVersion ?? null,
         auctionEndsAt: endsIsoFinal,
         leaderUsername: leaderUserFinal?.username ?? null,
+        proxyOutbids,
+        finalHighUsd: itemFinal?.currentBidUsd ?? amountUsd,
       };
     });
+
+    const outbidTargets = new Map<string, number>();
+    if (prevLeaderId && prevLeaderId !== bidderId) {
+      outbidTargets.set(prevLeaderId, amountUsd);
+    }
+    for (const o of state.proxyOutbids) {
+      outbidTargets.set(o.userId, o.amountUsd);
+    }
+    const liveHref = `/live/${encodeURIComponent(liveRoomId)}`;
+    for (const [outbidUserId, amt] of outbidTargets) {
+      queueMicrotask(() => {
+        void notifyAuctionOutbid(prisma, {
+          outbidUserId,
+          amountUsd: amt,
+          title: item.title,
+          href: liveHref,
+        });
+      });
+    }
 
     logLiveAuctionRtDebug("bid accepted host", {
       liveRoomId,

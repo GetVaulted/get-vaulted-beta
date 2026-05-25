@@ -32,7 +32,9 @@ Mobile-created users live in **Supabase Auth** first. Web sign-in calls the same
 
 **Beta check:** `GET https://beta.shopgetvaulted.com/api/auth/config` → `projectRef` must be `xkaaicokjgmpbctfermj`.
 
-**Web sign-up blocked on beta** with “email not configured” means `RESEND_API_KEY` is unset in Netlify production env. After the beta fallback deploy, web Join uses Supabase Auth until Resend is configured (`npm run configure:beta-signup-email`). Mobile sign-up always uses Supabase Auth directly.
+**Unified auth (beta):** Web Join and mobile Create Account both register through **Supabase Auth** on the beta project (`xkaaicokjgmpbctfermj`). Web sign-in uses the same Supabase credentials (via NextAuth) so accounts work on either platform with one email/password. Email confirmation is **off** on beta Supabase (`enable_confirmations = false`) — sign-up returns an immediate session unless your hosted Supabase project differs.
+
+Legacy Resend OTP sign-up (non-beta / local dev with `RESEND_API_KEY`) creates web-only Prisma password accounts and does not sync to mobile.
 
 ## Local `web/.env` gotcha
 
@@ -46,6 +48,37 @@ INTEGRATION_DATABASE_URL="<optional; same URI for integration tests>"
 ```
 
 Use the **Transaction pooler** URI for serverless (append `?pgbouncer=true&connection_limit=1` per `.env.example`).
+
+### Local sign-in with beta-created accounts
+
+Beta web Join (Supabase Auth fallback) creates users in **Supabase Auth + Prisma** without a Prisma `passwordHash`. Local `/signin` must therefore have:
+
+| Variable | Local value | Why |
+|----------|-------------|-----|
+| `DATABASE_URL` | Same beta project `xkaaicokjgmpbctfermj` | Prisma user lookup |
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://xkaaicokjgmpbctfermj.supabase.co` | Already in `.env` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Anon key from **same** Supabase project | Enables `signInWithPassword` in NextAuth |
+| `NEXTAUTH_URL` | `http://localhost:3000` | Session cookies for local dev |
+| `NEXTAUTH_SECRET` | Any long random string (local only) | Required by NextAuth |
+
+Put localhost overrides in **`web/.env.local`** (gitignored), not Netlify:
+
+```bash
+cd web
+npm run setup:local-auth-env   # copies anon key from mobile/.env, sets NEXTAUTH_URL + secret
+npm run verify:beta-env
+npm run dev
+```
+
+Test credential path without the browser:
+
+```bash
+npx tsx scripts/test-local-supabase-signin.ts your@email.com
+```
+
+**Not required for email/password sign-in:** Supabase redirect allowlist (`http://localhost:3000/**`) only affects magic-link/OAuth flows. Credentials sign-in is server-side.
+
+**Beta cookies on localhost:** Sessions from `beta.shopgetvaulted.com` do not carry over — different host and usually different `NEXTAUTH_SECRET`. Clear site data for localhost if sign-in acts stuck after fixing env.
 
 ## Verify locally
 

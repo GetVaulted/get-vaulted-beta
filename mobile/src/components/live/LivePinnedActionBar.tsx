@@ -13,9 +13,9 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
+import { LiveRoomText } from './LiveRoomText';
 import {
   createLiveBidIdempotencyKey,
   fetchLiveRoomBuyerSnapshot,
@@ -79,9 +79,9 @@ function CompactSlideToBid({ onCommit }: SlideProps) {
       }}
       {...panResponder.panHandlers}
     >
-      <Text style={styles.slideHint}>Slide to bid</Text>
+      <LiveRoomText style={styles.slideHint}>Slide to bid</LiveRoomText>
       <Animated.View style={[styles.slideKnob, { transform: [{ translateX: pan }] }]}>
-        <Text style={styles.slideKnobChev}>›</Text>
+        <LiveRoomText style={styles.slideKnobChev}>›</LiveRoomText>
       </Animated.View>
     </View>
   );
@@ -96,6 +96,13 @@ type Props = {
   /** Opens the in-room shop sheet (same as the rail “Shop” control). */
   onOpenInlineShop?: () => void;
   accessToken?: string;
+  /** Realtime-managed buyer snapshot (from `useLiveRoomRealtimeSession`). */
+  roomSnap?: LiveRoomBuyerSnapshot | null;
+  syncRefreshing?: boolean;
+  onRefreshSnapshot?: () => Promise<LiveRoomBuyerSnapshot | null>;
+  onBidPlaced?: (amountUsd: number) => void;
+  /** Break rooms: block bid CTAs until disclaimer accepted. */
+  participationBlocked?: boolean;
 };
 
 export function LivePinnedActionBar({
@@ -105,17 +112,25 @@ export function LivePinnedActionBar({
   onRequireAuth,
   onOpenInlineShop,
   accessToken,
+  roomSnap: roomSnapProp,
+  syncRefreshing: syncRefreshingProp,
+  onRefreshSnapshot,
+  onBidPlaced,
+  participationBlocked = false,
 }: Props) {
   const stackNav = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const tabNav = stackNav.getParent<BottomTabNavigationProp<MainTabParamList>>();
   const [bidBusy, setBidBusy] = useState(false);
-  const [roomSnap, setRoomSnap] = useState<LiveRoomBuyerSnapshot | null>(null);
-  const [syncRefreshing, setSyncRefreshing] = useState(false);
+  const [localRoomSnap, setLocalRoomSnap] = useState<LiveRoomBuyerSnapshot | null>(null);
+  const [localSyncRefreshing, setLocalSyncRefreshing] = useState(false);
+  const usingExternalSync = onRefreshSnapshot != null;
+  const roomSnap = usingExternalSync ? (roomSnapProp ?? null) : localRoomSnap;
+  const syncRefreshing = usingExternalSync ? (syncRefreshingProp ?? false) : localSyncRefreshing;
   const buyerKind = useMemo(() => resolveBuyerRoomKind(roomSnap, stream), [roomSnap, stream]);
   const m = useMemo(() => resolveLiveBuyerCommerceHud(stream, roomSnap), [stream, roomSnap]);
   const auctionLane = buyerKind === 'auction';
-  const primaryDisabled = m.buyerPrimaryDisabled === true;
-  const secondaryDisabled = m.buyerSecondaryDisabled === true;
+  const primaryDisabled = m.buyerPrimaryDisabled === true || participationBlocked;
+  const secondaryDisabled = m.buyerSecondaryDisabled === true || participationBlocked;
   const padBottom = 4 + Math.min(10, Math.round(bottomSafeInset * 0.35));
   const metaLine = [m.winningLine, m.stateLine].filter(Boolean).join(' · ');
 
@@ -132,26 +147,28 @@ export function LivePinnedActionBar({
   };
 
   const refreshRoomSnapshot = useCallback(async (): Promise<LiveRoomBuyerSnapshot | null> => {
-    setSyncRefreshing(true);
+    if (onRefreshSnapshot) return onRefreshSnapshot();
+    setLocalSyncRefreshing(true);
     try {
       const snap = await fetchLiveRoomBuyerSnapshot(accessToken, stream.id);
-      setRoomSnap(snap);
+      setLocalRoomSnap(snap);
       return snap;
     } catch {
       return null;
     } finally {
-      setSyncRefreshing(false);
+      setLocalSyncRefreshing(false);
     }
-  }, [accessToken, stream.id]);
+  }, [accessToken, onRefreshSnapshot, stream.id]);
 
   useEffect(() => {
+    if (usingExternalSync) return undefined;
     void refreshRoomSnapshot();
     const pollMs = buyerKind === 'auction' ? 4000 : 12000;
     const id = setInterval(() => {
       void refreshRoomSnapshot();
     }, pollMs);
     return () => clearInterval(id);
-  }, [buyerKind, refreshRoomSnapshot]);
+  }, [buyerKind, refreshRoomSnapshot, usingExternalSync]);
 
   const syncStatusLine = useMemo(() => {
     if (!auctionLane) return null;
@@ -175,6 +192,10 @@ export function LivePinnedActionBar({
   const tryPlaceLiveBid = useCallback(async () => {
     if (!accessToken) {
       onRequireAuth?.();
+      return;
+    }
+    if (participationBlocked) {
+      Alert.alert('Accept notice', 'Accept the live break notice before bidding.');
       return;
     }
     if (bidBusy) return;
@@ -225,8 +246,8 @@ export function LivePinnedActionBar({
         amountUsd: amount,
         idempotencyKey: createLiveBidIdempotencyKey(),
       });
+      onBidPlaced?.(amount);
       await refreshRoomSnapshot();
-      Alert.alert('Bid placed', `Your bid of $${amount.toLocaleString('en-US')} was recorded.`);
     } catch (e) {
       Alert.alert('Could not place bid', e instanceof Error ? e.message : 'Unknown error');
     } finally {
@@ -236,8 +257,10 @@ export function LivePinnedActionBar({
     accessToken,
     bidBusy,
     onRequireAuth,
+    onBidPlaced,
     openFullLiveRoom,
     refreshRoomSnapshot,
+    participationBlocked,
     roomSnap,
     stream.id,
   ]);
@@ -280,30 +303,30 @@ export function LivePinnedActionBar({
 
       <View style={styles.hudInner}>
         <View style={styles.topBand}>
-          <Text style={styles.timer}>{m.timerMmSs}</Text>
+          <LiveRoomText style={styles.timer}>{m.timerMmSs}</LiveRoomText>
           <View style={styles.titleBlock}>
-            <Text style={styles.itemTitle} numberOfLines={1}>
+            <LiveRoomText style={styles.itemTitle} numberOfLines={1}>
               {m.itemTitle}
-            </Text>
-            <Text style={styles.categoryType} numberOfLines={1}>
+            </LiveRoomText>
+            <LiveRoomText style={styles.categoryType} numberOfLines={1}>
               {m.categoryType}
-            </Text>
+            </LiveRoomText>
           </View>
           <View style={styles.priceBlock}>
-            <Text style={styles.currentPrefix}>{m.currentPrefix}</Text>
-            <Text style={styles.currentAmount}>{m.currentAmount}</Text>
+            <LiveRoomText style={styles.currentPrefix}>{m.currentPrefix}</LiveRoomText>
+            <LiveRoomText style={styles.currentAmount}>{m.currentAmount}</LiveRoomText>
           </View>
         </View>
 
         {metaLine ? (
-          <Text style={styles.metaLine} numberOfLines={1}>
+          <LiveRoomText style={styles.metaLine} numberOfLines={1}>
             {metaLine}
-          </Text>
+          </LiveRoomText>
         ) : null}
         {auctionLane && signedIn ? (
-          <Text style={styles.syncLine} numberOfLines={2}>
+          <LiveRoomText style={styles.syncLine} numberOfLines={2}>
             {syncStatusLine ?? 'Syncing auction state from the vault…'}
-          </Text>
+          </LiveRoomText>
         ) : null}
 
         <View style={styles.ctaBand}>
@@ -312,12 +335,12 @@ export function LivePinnedActionBar({
             onPress={onSecondary}
             disabled={secondaryDisabled}
           >
-            <Text
+            <LiveRoomText
               style={[styles.ctaGhostText, secondaryDisabled && styles.ctaDisabledText]}
               numberOfLines={1}
             >
               {m.bottomLeftLabel}
-            </Text>
+            </LiveRoomText>
           </Pressable>
 
           {m.showShopButton ? (
@@ -339,9 +362,9 @@ export function LivePinnedActionBar({
                 onPress={onPrimary}
                 disabled={primaryDisabled}
               >
-                <Text style={[styles.ctaGoldText, primaryDisabled && styles.ctaDisabledText]} numberOfLines={1}>
+                <LiveRoomText style={[styles.ctaGoldText, primaryDisabled && styles.ctaDisabledText]} numberOfLines={1}>
                   {m.bottomRightLabel}
-                </Text>
+                </LiveRoomText>
               </Pressable>
             )}
           </View>

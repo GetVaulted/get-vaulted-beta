@@ -8,6 +8,7 @@ import { prismaLiveRoomCreateHint, serializePrismaClientError } from "@/lib/pris
 import { prisma } from "@/lib/prisma";
 import { parseTeamBoardLeague } from "@/lib/team-board-sets";
 import { emitLiveDiscoveryChanged } from "@/lib/realtime-emit-server";
+import { buildLiveTipRoomData } from "@/lib/live-tip-moderator";
 
 const ROOM_TYPES: LiveRoomType[] = ["auction", "sale", "break"];
 
@@ -73,6 +74,7 @@ export async function GET(req: Request) {
       where,
       include: {
         seller: { select: { username: true } },
+        tipModerator: { select: { username: true } },
         items: { select: { id: true, title: true, status: true } },
       },
       orderBy: { updatedAt: "desc" },
@@ -104,6 +106,10 @@ export async function GET(req: Request) {
         itemCount: r.items.length,
         activeItemTitle: active?.title ?? null,
         teamBoardLeague: r.teamBoardLeague,
+        tipRecipientMode: r.tipRecipientMode,
+        tipModeratorId: r.tipModeratorId,
+        tipModeratorUsername: r.tipModerator?.username ?? null,
+        tipsToModerator: r.tipRecipientMode === "moderator" && Boolean(r.tipModeratorId),
       };
     });
 
@@ -142,6 +148,9 @@ type PostBody = {
   breakSpotPriceUsd?: number | null;
   /** Break: when false, team board starts hidden for the stream. Default true. */
   teamSelectionBoardEnabled?: boolean;
+  tipModeratorId?: string | null;
+  tipRecipientMode?: string;
+  tipsToModerator?: boolean;
 };
 
 export async function POST(req: Request) {
@@ -209,6 +218,11 @@ export async function POST(req: Request) {
 
   const teamSelectionBoardEnabled = body.teamSelectionBoardEnabled !== false;
 
+  const tipBuilt = await buildLiveTipRoomData(sellerId, body);
+  if (!tipBuilt.ok) {
+    return NextResponse.json({ error: tipBuilt.error }, { status: 400 });
+  }
+
   if (isDevTempNoDatabaseMode()) {
     return NextResponse.json(
       {
@@ -235,6 +249,8 @@ export async function POST(req: Request) {
     thumbnailUrl,
     scheduledStartAt,
     teamBoardLeague,
+    tipModeratorId: tipBuilt.data.tipModeratorId,
+    tipRecipientMode: tipBuilt.data.tipRecipientMode,
     ...(rt === "break"
       ? {
           ...(breakTotalSpots != null ? { breakTotalSpots } : {}),
