@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { signOut, useSession } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
@@ -144,7 +144,7 @@ export function Navbar() {
               role="dialog"
               aria-modal="true"
               aria-labelledby={drawerTitleId}
-              className={`absolute right-0 top-0 z-10 flex h-[100dvh] max-h-[100dvh] w-[min(100vw,20rem)] flex-col border-l border-border-subtle bg-[#0a0a0c] shadow-[0_0_48px_-12px_rgba(0,0,0,0.9)] transition-transform duration-300 ease-out ${
+              className={`absolute right-0 top-0 z-10 flex h-[100dvh] max-h-[100dvh] w-[min(100vw,22rem)] flex-col border-l border-border-subtle bg-[#0a0a0c] shadow-[0_0_48px_-12px_rgba(0,0,0,0.9)] transition-transform duration-300 ease-out ${
                 slidIn ? "translate-x-0" : "translate-x-full"
               }`}
               style={{
@@ -167,65 +167,51 @@ export function Navbar() {
                   <CloseIcon className="size-6" />
                 </button>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pt-4">
-                <div className="relative mb-4">
-                  <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-muted">
-                    <SearchIcon className="size-4" aria-hidden />
-                  </span>
-                  <input
-                    type="search"
-                    placeholder="Search…"
-                    className="h-11 w-full rounded-full border border-border-subtle bg-background pl-10 pr-4 text-sm text-foreground outline-none ring-gold/30 placeholder:text-muted focus:border-gold/40 focus:ring-2"
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pt-2">
+                {status === "authenticated" && session?.user ? (
+                  <NavbarAccountMenu
+                    user={{
+                      username: session.user.username,
+                      name: session.user.name,
+                      email: session.user.email,
+                      image: session.user.image,
+                    }}
+                    isAdmin={session.user.role === "admin"}
+                    variant="list"
+                    onNavigate={closeMenu}
                   />
-                </div>
-                <nav className="flex flex-col gap-1" aria-label="Primary">
+                ) : (
+                  <div className="px-3 pt-2">
+                    <Link
+                      href="/signin"
+                      className="block rounded-xl border border-border-subtle px-3 py-3 text-center text-base font-medium text-foreground transition-colors hover:bg-surface-elevated"
+                      onClick={closeMenu}
+                    >
+                      Sign in
+                    </Link>
+                    <Link
+                      href="/join"
+                      className="mt-3 block rounded-xl bg-gold px-3 py-3 text-center text-base font-semibold text-background shadow-[0_0_24px_-4px_rgba(201,162,39,0.45)] transition-all duration-200 hover:brightness-110"
+                      onClick={closeMenu}
+                    >
+                      Join Now
+                    </Link>
+                  </div>
+                )}
+                <div className="mx-3 my-4 border-t border-white/[0.06]" />
+                <p className="mb-2 px-3 text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">Explore</p>
+                <nav className="flex flex-col gap-0.5 px-1" aria-label="Primary">
                   {primaryNav.map(({ href, label }) => (
                     <Link
                       key={href}
                       href={href}
-                      className="rounded-xl px-3 py-3 text-base font-medium text-foreground transition-colors hover:bg-surface-elevated active:bg-surface-elevated"
+                      className="rounded-xl px-3 py-2.5 text-base font-medium text-foreground transition-colors hover:bg-surface-elevated active:bg-surface-elevated"
                       onClick={closeMenu}
                     >
                       {label}
                     </Link>
                   ))}
                 </nav>
-                {status === "authenticated" && session?.user ? (
-                  <div className="mt-4 border-t border-white/[0.06] pt-4">
-                    <NavbarAccountMenu
-                      isAdmin={session.user.role === "admin"}
-                      variant="list"
-                      onNavigate={closeMenu}
-                    />
-                    <button
-                      type="button"
-                      className="mt-3 w-full rounded-xl border border-border-subtle px-3 py-3 text-center text-base font-medium text-foreground transition-colors hover:bg-surface-elevated"
-                      onClick={() => {
-                        closeMenu();
-                        void signOut({ callbackUrl: "/" });
-                      }}
-                    >
-                      Sign out
-                    </button>
-                  </div>
-                ) : (
-                  <Link
-                    href="/signin"
-                    className="mt-4 block rounded-xl border border-border-subtle px-3 py-3 text-center text-base font-medium text-foreground transition-colors hover:bg-surface-elevated"
-                    onClick={closeMenu}
-                  >
-                    Sign in
-                  </Link>
-                )}
-                {status === "unauthenticated" && (
-                  <Link
-                    href="/join"
-                    className="mt-3 block rounded-xl bg-gold px-3 py-3 text-center text-base font-semibold text-background shadow-[0_0_24px_-4px_rgba(201,162,39,0.45)] transition-all duration-200 hover:brightness-110"
-                    onClick={closeMenu}
-                  >
-                    Join Now
-                  </Link>
-                )}
               </div>
             </aside>
           </div>,
@@ -293,23 +279,19 @@ export function Navbar() {
             </button>
             {status === "authenticated" && session?.user ? (
               <>
-                <NavbarAccountMenu isAdmin={session.user.role === "admin"} className="hidden md:block" />
                 <NavbarNotificationsBell
                   triggerClassName="!p-0 min-h-11 min-w-11 inline-flex items-center justify-center touch-manipulation"
                 />
-                <span
-                  className="hidden max-w-[10rem] truncate text-xs font-medium text-zinc-400 md:inline"
-                  title={session.user.email ?? undefined}
-                >
-                  @{session.user.username}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => void signOut({ callbackUrl: "/" })}
-                  className="hidden rounded-full border border-border-subtle px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-gold/35 hover:bg-surface-elevated md:inline-flex"
-                >
-                  Sign out
-                </button>
+                <NavbarAccountMenu
+                  user={{
+                    username: session.user.username,
+                    name: session.user.name,
+                    email: session.user.email,
+                    image: session.user.image,
+                  }}
+                  isAdmin={session.user.role === "admin"}
+                  className="hidden md:block"
+                />
               </>
             ) : (
               <Link

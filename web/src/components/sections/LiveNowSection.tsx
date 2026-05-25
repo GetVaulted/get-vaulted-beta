@@ -111,7 +111,26 @@ export function LiveNowSection() {
           <div className="px-1 sm:px-1.5 lg:px-2">
             <div className="grid grid-cols-2 gap-x-3.5 gap-y-4 sm:grid-cols-3 sm:gap-x-4 sm:gap-y-[1.125rem] lg:grid-cols-6 lg:gap-x-[1.125rem] lg:gap-y-5">
               {visibleRooms.length === 0 ? (
-                <p className="col-span-full py-6 text-center text-sm text-zinc-500">No live rooms right now. Check back soon.</p>
+                <div className="col-span-full rounded-xl border border-white/[0.06] bg-black/25 px-4 py-10 text-center sm:px-8">
+                  <p className="text-sm font-medium text-zinc-200">No live shows right now</p>
+                  <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-zinc-500">
+                    Be the first to go live — schedule a break or start streaming when your seller setup is complete.
+                  </p>
+                  <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                    <Link
+                      href="/live"
+                      className="inline-flex h-10 items-center justify-center rounded-full border border-white/15 px-5 text-sm font-semibold text-zinc-200 transition hover:border-gold/35 hover:text-gold-bright"
+                    >
+                      Browse live shows
+                    </Link>
+                    <Link
+                      href="/seller/live"
+                      className="inline-flex h-10 items-center justify-center rounded-full bg-gradient-to-r from-gold to-gold-bright px-5 text-sm font-bold text-zinc-950 shadow-[0_0_24px_-6px_rgba(201,162,39,0.45)] transition hover:brightness-110"
+                    >
+                      Go Live
+                    </Link>
+                  </div>
+                </div>
               ) : (
                 visibleRooms.map((room: LiveNowRoom) => (
                   <LiveNowRoomCard key={room.id} room={room} featured={room.id === visibleRooms[0]?.id} />

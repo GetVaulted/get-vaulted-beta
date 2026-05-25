@@ -4,7 +4,7 @@ const links = [
   { href: "/account/orders", label: "Orders", key: "orders" as const },
   { href: "/account/payment-methods", label: "Wallet", key: "payments" as const },
   { href: "/account/sales", label: "Sales", key: "sales" as const },
-  { href: "/account/seller", label: "Seller", key: "seller" as const },
+  { href: "/account/seller", label: "Seller HQ", key: "seller" as const },
   { href: "/account/offers", label: "Offers", key: "offers" as const },
   { href: "/account/messages", label: "Messages", key: "messages" as const },
   { href: "/account/notifications", label: "Notifications", key: "notifications" as const },

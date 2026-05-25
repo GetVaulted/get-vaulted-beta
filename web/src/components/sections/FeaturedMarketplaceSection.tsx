@@ -72,16 +72,25 @@ export function FeaturedMarketplaceSection() {
           </div>
         ) : (
           <div className="mt-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] px-5 py-10 text-center sm:px-8">
-            <p className="text-sm font-medium text-zinc-300">No published listings yet</p>
-            <p className="mt-2 text-xs text-zinc-500">
-              When sellers go live on the marketplace, highlights will appear here automatically.
+            <p className="text-sm font-medium text-zinc-300">Marketplace is warming up</p>
+            <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-zinc-500">
+              No featured listings yet. Browse the full catalog or be among the first sellers to list graded cards and
+              slabs.
             </p>
-            <Link
-              href="/sell/create"
-              className="mt-5 inline-flex h-10 items-center justify-center rounded-full border border-gold/35 bg-gold/10 px-6 text-sm font-semibold text-gold-bright transition hover:border-gold/50 hover:bg-gold/15"
-            >
-              List an item
-            </Link>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+              <Link
+                href="/marketplace"
+                className="inline-flex h-10 items-center justify-center rounded-full border border-white/15 px-5 text-sm font-semibold text-zinc-200 transition hover:border-gold/35 hover:text-gold-bright"
+              >
+                Browse marketplace
+              </Link>
+              <Link
+                href="/account/seller"
+                className="inline-flex h-10 items-center justify-center rounded-full bg-gradient-to-r from-gold to-gold-bright px-5 text-sm font-bold text-zinc-950 shadow-[0_0_24px_-6px_rgba(201,162,39,0.45)] transition hover:brightness-110"
+              >
+                Start selling
+              </Link>
+            </div>
           </div>
         )}
       </div>

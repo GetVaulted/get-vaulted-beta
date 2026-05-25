@@ -69,7 +69,13 @@ export function Hero({ liveMarketplaceEnabled = true }: HeroProps) {
                 href={liveMarketplaceEnabled ? "/live" : "/coming-soon"}
                 className="inline-flex h-9 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] px-5 text-[11px] font-bold uppercase tracking-wide text-gold-bright shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-200 hover:border-gold/40 hover:bg-gold/10 hover:brightness-110"
               >
-                {liveMarketplaceEnabled ? "Join a break" : "Live — coming soon"}
+                {liveMarketplaceEnabled ? "Watch live" : "Live — coming soon"}
+              </Link>
+              <Link
+                href="/account/seller"
+                className="inline-flex h-9 items-center justify-center rounded-full border border-gold/35 bg-gold/10 px-5 text-[11px] font-bold uppercase tracking-wide text-gold-bright transition-all duration-200 hover:border-gold/50 hover:bg-gold/15"
+              >
+                Start selling
               </Link>
             </div>
             <ul className="mt-4 flex flex-wrap gap-1.5">

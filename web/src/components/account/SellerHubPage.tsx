@@ -573,7 +573,7 @@ export function SellerHubPage() {
 
         <section className="mt-6 grid gap-4 md:grid-cols-2">
           <article className="rounded-2xl border border-white/[0.08] bg-zinc-950/60 p-5 sm:p-6">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Live Rooms</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">My Live Events</p>
             <p className="mt-2 text-sm font-semibold text-zinc-100">
               {homeStats?.liveRoom ? homeStats.liveRoom.title : "No active or scheduled room"}
             </p>
@@ -589,7 +589,7 @@ export function SellerHubPage() {
                 Go Live
               </Link>
               <Link href="/seller/live" className="inline-flex min-h-9 items-center rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200">
-                Manage live rooms
+                My Live Events
               </Link>
             </div>
           </article>
