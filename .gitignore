@@ -13,6 +13,7 @@ dist/
 mobile/.env
 mobile/node_modules/
 mobile/.expo/
+mobile/.expo-bundle-check/
 mobile/dist/
 
 # Beta website (Next.js)
