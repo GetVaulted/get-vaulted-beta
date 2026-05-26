@@ -453,8 +453,7 @@ export function SignupForm() {
 
   return (
     <>
-      <SocialAuthButtons returnTo={returnTo} disabled={loading} />
-      <form className="mt-2 flex flex-col gap-3.5" onSubmit={onSubmit} noValidate>
+      <form className="mt-5 flex flex-col gap-3.5" onSubmit={onSubmit} noValidate>
       {error ? <p className="text-xs font-medium text-rose-300">{error}</p> : null}
       <div className="flex flex-col gap-1.5">
         <label htmlFor="join-email" className="text-xs font-medium text-zinc-300">
@@ -576,6 +575,9 @@ export function SignupForm() {
       >
         {loading ? "Creating…" : "Create Account"}
       </button>
+    </form>
+
+      <SocialAuthButtons returnTo={returnTo} disabled={loading} />
 
       <p className="mt-4 text-center text-xs text-zinc-600 md:text-left">
         Already have an account?{" "}
@@ -586,7 +588,6 @@ export function SignupForm() {
           Sign in
         </Link>
       </p>
-    </form>
     </>
   );
 }

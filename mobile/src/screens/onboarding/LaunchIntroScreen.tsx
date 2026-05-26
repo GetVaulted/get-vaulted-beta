@@ -34,8 +34,10 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AuthPasswordField } from '../../components/auth/AuthPasswordField';
+import { SocialAuthButtons, socialAuthErrorMessage } from '../../components/auth/SocialAuthButtons';
 import { BrandLogo } from '../../components/ui/BrandLogo';
 import { useAuth } from '../../auth/AuthContext';
+import { AUTH_USER_MESSAGES } from '../../lib/authUserMessages';
 import { enterGuestExploreAndOpenHome } from '../../navigation/enterGuestExploreFlow';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
@@ -387,7 +389,7 @@ function MontageLayer({
 export function LaunchIntroScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const instantAuth = route.params?.instantAuth === true;
-  const { user, loading: authLoading, signInWithPassword, requestPasswordReset, enterGuestExplore } = useAuth();
+  const { user, loading: authLoading, signInWithPassword, signInWithGoogle, signInWithApple, requestPasswordReset, enterGuestExplore } = useAuth();
   const userRef = useRef(user);
   const authLoadingRef = useRef(authLoading);
   userRef.current = user;
@@ -414,6 +416,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [socialBusy, setSocialBusy] = useState<'google' | 'apple' | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
@@ -648,6 +651,26 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
     }
   };
 
+  const onSocial = async (provider: 'google' | 'apple') => {
+    setErr(null);
+    setSocialBusy(provider);
+    try {
+      const result =
+        provider === 'google'
+          ? await signInWithGoogle({ persistSession: true })
+          : await signInWithApple({ persistSession: true });
+      if (result === 'success') {
+        navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
+      } else if (result === 'error') {
+        setErr(AUTH_USER_MESSAGES.socialSignInFailed);
+      }
+    } catch (e) {
+      setErr(socialAuthErrorMessage(e));
+    } finally {
+      setSocialBusy(null);
+    }
+  };
+
   const onForgotSend = async () => {
     const em = forgotEmail.trim() || email.trim();
     if (!em) {
@@ -752,11 +775,19 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
 
               <Pressable
                 style={[styles.primary, (busy || authLoading) && { opacity: 0.7 }]}
-                disabled={busy || authLoading}
+                disabled={busy || authLoading || Boolean(socialBusy)}
                 onPress={() => void onSubmit()}
               >
                 {busy ? <ActivityIndicator color={colors.background} /> : <Text style={styles.primaryTxt}>Sign In</Text>}
               </Pressable>
+
+              <SocialAuthButtons
+                onGoogle={() => void onSocial('google')}
+                onApple={() => void onSocial('apple')}
+                busy={socialBusy}
+                disabled={busy || authLoading}
+                error={null}
+              />
 
               <Pressable style={styles.link} onPress={() => navigation.navigate('AuthSignUp')}>
                 <Text style={styles.linkTxt}>Create account</Text>

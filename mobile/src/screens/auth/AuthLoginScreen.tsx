@@ -119,14 +119,6 @@ export function AuthLoginScreen({ navigation }: Props) {
         <Text style={styles.title}>Sign In</Text>
         <Text style={styles.sub}>Welcome back to your vault.</Text>
 
-        <SocialAuthButtons
-          onGoogle={() => void onSocial('google')}
-          onApple={() => void onSocial('apple')}
-          busy={socialBusy}
-          disabled={busy || authLoading}
-          error={null}
-        />
-
         <TextInput
           style={styles.input}
           placeholder="Email"
@@ -174,6 +166,14 @@ export function AuthLoginScreen({ navigation }: Props) {
         >
           {busy ? <ActivityIndicator color={colors.background} /> : <Text style={styles.primaryTxt}>Sign In</Text>}
         </Pressable>
+
+        <SocialAuthButtons
+          onGoogle={() => void onSocial('google')}
+          onApple={() => void onSocial('apple')}
+          busy={socialBusy}
+          disabled={busy || authLoading}
+          error={null}
+        />
 
         <Pressable style={styles.link} onPress={() => navigation.navigate('AuthSignUp')}>
           <Text style={styles.linkTxt}>Create account</Text>

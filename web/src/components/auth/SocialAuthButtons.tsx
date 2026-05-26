@@ -68,7 +68,12 @@ export function SocialAuthButtons({ returnTo, disabled }: Props) {
   };
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="mt-4 flex flex-col gap-3">
+      <div className="flex items-center gap-3">
+        <span className="h-px flex-1 bg-white/10" aria-hidden />
+        <span className="text-[11px] font-medium text-zinc-500">or continue with</span>
+        <span className="h-px flex-1 bg-white/10" aria-hidden />
+      </div>
       <button
         type="button"
         disabled={disabled || busy}
@@ -79,11 +84,6 @@ export function SocialAuthButtons({ returnTo, disabled }: Props) {
         {busy ? "Redirecting…" : "Continue with Google"}
       </button>
       {error ? <p className="text-center text-xs font-medium text-rose-300">{error}</p> : null}
-      <div className="flex items-center gap-3 py-1">
-        <span className="h-px flex-1 bg-white/10" aria-hidden />
-        <span className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">or</span>
-        <span className="h-px flex-1 bg-white/10" aria-hidden />
-      </div>
     </div>
   );
 }

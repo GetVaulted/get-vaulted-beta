@@ -78,9 +78,7 @@ function SignInForm() {
         </p>
       ) : null}
 
-      <SocialAuthButtons returnTo={returnTo} disabled={loading} />
-
-      <form className="mt-2 flex flex-col gap-4" method="post" onSubmit={onSubmit}>
+      <form className="mt-6 flex flex-col gap-4" method="post" onSubmit={onSubmit}>
         <div className="space-y-1.5">
           <label htmlFor="signin-email" className="text-xs font-medium text-zinc-300">
             Email
@@ -129,6 +127,8 @@ function SignInForm() {
           {loading ? "Signing in…" : "Sign in"}
         </button>
       </form>
+
+      <SocialAuthButtons returnTo={returnTo} disabled={loading} />
 
       <p className="mt-5 text-center text-xs text-zinc-600 sm:text-left">
         New here?{" "}

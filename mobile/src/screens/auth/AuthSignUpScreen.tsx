@@ -176,14 +176,6 @@ export function AuthSignUpScreen({ navigation }: Props) {
         <Text style={styles.title}>Create Account</Text>
         <Text style={styles.sub}>Join the premium live collectible network.</Text>
 
-        <SocialAuthButtons
-          onGoogle={() => void onSocial('google')}
-          onApple={() => void onSocial('apple')}
-          busy={socialBusy}
-          disabled={busy || authLoading}
-          error={null}
-        />
-
         <TextInput
           style={styles.input}
           placeholder="Email"
@@ -260,6 +252,14 @@ export function AuthSignUpScreen({ navigation }: Props) {
             <Text style={styles.primaryTxt}>Create Account</Text>
           )}
         </Pressable>
+
+        <SocialAuthButtons
+          onGoogle={() => void onSocial('google')}
+          onApple={() => void onSocial('apple')}
+          busy={socialBusy}
+          disabled={busy || authLoading}
+          error={null}
+        />
 
         <Pressable style={styles.link} onPress={() => navigation.navigate('AuthLogin')}>
           <Text style={styles.linkTxt}>Already have an account? Sign In</Text>

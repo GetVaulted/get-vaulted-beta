@@ -26,6 +26,12 @@ export function SocialAuthButtons({ onGoogle, onApple, busy, disabled, error }: 
 
   return (
     <View style={styles.wrap}>
+      <View style={styles.dividerRow}>
+        <View style={styles.dividerLine} />
+        <Text style={styles.dividerTxt}>or continue with</Text>
+        <View style={styles.dividerLine} />
+      </View>
+
       <Pressable
         style={[styles.btn, (disabled || busy) && styles.btnDisabled]}
         onPress={onGoogle}
@@ -61,12 +67,6 @@ export function SocialAuthButtons({ onGoogle, onApple, busy, disabled, error }: 
       ) : null}
 
       {error ? <Text style={styles.err}>{error}</Text> : null}
-
-      <View style={styles.dividerRow}>
-        <View style={styles.dividerLine} />
-        <Text style={styles.dividerTxt}>or</Text>
-        <View style={styles.dividerLine} />
-      </View>
     </View>
   );
 }
@@ -81,7 +81,7 @@ export function socialAuthErrorMessage(e: unknown, cancelledMsg = AUTH_USER_MESS
 }
 
 const styles = StyleSheet.create({
-  wrap: { gap: spacing.sm, marginBottom: spacing.sm },
+  wrap: { gap: spacing.sm, marginTop: spacing.sm },
   btn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -109,13 +109,12 @@ const styles = StyleSheet.create({
     color: '#4285F4',
   },
   err: { color: '#e08080', fontSize: 12, textAlign: 'center' },
-  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
+  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.xs },
   dividerLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.12)' },
   dividerTxt: {
     color: colors.textMuted,
     fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
 });
