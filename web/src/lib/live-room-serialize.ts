@@ -12,6 +12,7 @@ import type {
   User,
 } from "@/generated/prisma/client";
 import { buildBreakPublicSnapshot, type LiveRoomBreakPublicDTO } from "@/lib/live-room-break-public";
+import { resolveLiveRoomItemQuantityState } from "@/lib/live-room-item-quantity-display";
 import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
 
 /** Result of `liveRoom.findUnique` with seller, items, messages+sender, and optional break relations. */
@@ -31,7 +32,15 @@ export type LiveRoomItemDTO = {
   liveRoomId: string;
   listingId: string | null;
   title: string;
+  /** Remaining units on this queue row. */
   quantity: number;
+  /** Original unit count when the row was created. */
+  quantityInitial: number;
+  soldQuantity: number;
+  remainingQuantity: number;
+  currentUnitNumber: number | null;
+  displayTitle: string;
+  progressLabel: string | null;
   imageUrl: string;
   priceUsd: number | null;
   startingBidUsd: number | null;
@@ -106,10 +115,27 @@ export type LiveRoomDetailDTO = {
   buyerLiveShippingReady?: boolean;
 };
 
-export function serializeLiveRoomItem(row: LiveRoomItem): LiveRoomItemDTO {
+export function serializeLiveRoomItem(
+  row: LiveRoomItem,
+  options?: { unitsClaimed?: number | null },
+): LiveRoomItemDTO {
   const qtyRaw = (row as { quantity?: unknown }).quantity;
   const quantity =
-    typeof qtyRaw === "number" && Number.isFinite(qtyRaw) && qtyRaw >= 1 ? Math.min(512, Math.floor(qtyRaw)) : 1;
+    typeof qtyRaw === "number" && Number.isFinite(qtyRaw)
+      ? Math.min(512, Math.max(0, Math.floor(qtyRaw)))
+      : 1;
+  const qtyInitRaw = (row as { quantityInitial?: unknown }).quantityInitial;
+  const quantityInitial =
+    typeof qtyInitRaw === "number" && Number.isFinite(qtyInitRaw) && qtyInitRaw >= 1
+      ? Math.min(512, Math.floor(qtyInitRaw))
+      : Math.max(1, quantity);
+  const qtyState = resolveLiveRoomItemQuantityState({
+    title: row.title,
+    quantity,
+    quantityInitial,
+    status: row.status,
+    unitsClaimed: options?.unitsClaimed ?? null,
+  });
   const ext = row as LiveRoomItem & { biddingOpen?: unknown; auctionEndsAt?: Date | null; clutchTimeEnabled?: unknown };
   const biddingOpen = ext.biddingOpen === true;
   const auctionEndsAt =
@@ -123,6 +149,12 @@ export function serializeLiveRoomItem(row: LiveRoomItem): LiveRoomItemDTO {
     listingId: row.listingId,
     title: row.title,
     quantity,
+    quantityInitial: qtyState.totalQuantity,
+    soldQuantity: qtyState.soldQuantity,
+    remainingQuantity: qtyState.remainingQuantity,
+    currentUnitNumber: qtyState.currentUnitNumber,
+    displayTitle: qtyState.displayTitle,
+    progressLabel: qtyState.progressLabel,
     imageUrl: row.imageUrl,
     priceUsd: row.priceUsd,
     startingBidUsd: row.startingBidUsd,
@@ -184,7 +216,7 @@ export function buildLiveRoomDetail(room: LiveRoomDetailPayload): LiveRoomDetail
     endedAt: room.endedAt?.toISOString() ?? null,
     createdAt: room.createdAt.toISOString(),
     updatedAt: room.updatedAt.toISOString(),
-    items: items.map(serializeLiveRoomItem),
+    items: items.map((item) => serializeLiveRoomItem(item)),
     messages,
     activeItem: active ? serializeLiveRoomItem(active) : null,
     break: breakSnapshot,

@@ -30,6 +30,8 @@ import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
 type SaleItem = {
   id: string;
   title: string;
+  displayTitle: string;
+  progressLabel: string | null;
   quantity: number;
   category: "Trading Cards" | "Memorabilia" | "Watches" | "Sneakers" | "Other";
   buyNow: number;
@@ -37,12 +39,6 @@ type SaleItem = {
   bids: number;
   status: "live" | "posted" | "queued" | "sold" | "skipped";
 };
-
-function buyerQueueTitleSale(title: string, quantity: number) {
-  const q = typeof quantity === "number" && Number.isFinite(quantity) && quantity >= 1 ? Math.floor(quantity) : 1;
-  if (q <= 1) return title;
-  return `${title} · ×${q}`;
-}
 
 function mapDbItem(i: LiveRoomItemDTO, roomIsLive: boolean, clockSkewMs = 0): SaleItem {
   const now = syncedWallTimeMs(clockSkewMs);
@@ -64,8 +60,19 @@ function mapDbItem(i: LiveRoomItemDTO, roomIsLive: boolean, clockSkewMs = 0): Sa
           : "queued";
   const top = i.currentBidUsd ?? i.startingBidUsd ?? i.priceUsd ?? 0;
   const buy = i.priceUsd ?? Math.max(top, 1);
-  const quantity = typeof i.quantity === "number" && Number.isFinite(i.quantity) && i.quantity >= 1 ? Math.floor(i.quantity) : 1;
-  return { id: i.id, title: i.title, quantity, category: "Other", buyNow: buy, topBid: top, bids: 0, status };
+  const quantity = typeof i.quantity === "number" && Number.isFinite(i.quantity) && i.quantity >= 0 ? Math.floor(i.quantity) : 1;
+  return {
+    id: i.id,
+    title: i.title,
+    displayTitle: i.displayTitle ?? i.title,
+    progressLabel: i.progressLabel ?? null,
+    quantity,
+    category: "Other",
+    buyNow: buy,
+    topBid: top,
+    bids: 0,
+    status,
+  };
 }
 
 function fmt(n: number) {
@@ -317,7 +324,7 @@ export function LiveSaleRoom({
     return "0.00";
   }, [roomType, actionUi, activeListingId, bidMeta, minNextFromLiveItem]);
   const currentTopBid = actionUi?.topBid ?? 0;
-  const liveTitle = actionUi ? buyerQueueTitleSale(actionUi.title, actionUi.quantity) : (roomTitle ?? "Vaulted Live");
+  const liveTitle = actionUi ? actionUi.displayTitle : (roomTitle ?? "Vaulted Live");
 
   const secondsLeft = useMemo(() => {
     void clockTick;
@@ -609,10 +616,10 @@ export function LiveSaleRoom({
   const priceLine =
     roomType === "sale"
       ? actionUi
-        ? `${buyerQueueTitleSale(actionUi.title, actionUi.quantity)} · Buy now ${fmt(actionUi.buyNow)}`
+        ? `${actionUi.displayTitle} · Buy now ${fmt(actionUi.buyNow)}`
         : "Select an item"
       : actionUi
-        ? `${buyerQueueTitleSale(actionUi.title, actionUi.quantity)} · High bid ${fmt(currentTopBid)}`
+        ? `${actionUi.displayTitle} · High bid ${fmt(currentTopBid)}`
         : "Select an item";
 
   const desktopVideoOverlay = (
@@ -762,7 +769,7 @@ export function LiveSaleRoom({
   const mobileVideoOverlay = (
     <div className="live-glass-sheet relative min-h-0 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 max-[380px]:px-1.5 max-[380px]:pt-1.5">
       <p className="line-clamp-1 text-[11px] font-semibold leading-tight text-zinc-100">
-        {actionUi ? buyerQueueTitleSale(actionUi.title, actionUi.quantity) : "Current item"}
+        {actionUi ? actionUi.displayTitle : "Current item"}
       </p>
       <div className="mt-1 min-h-[1.35rem]">
         <p
@@ -987,7 +994,7 @@ export function LiveSaleRoom({
                   : "border-zinc-800 bg-black/50 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
               }`}
             >
-              <p className="font-semibold">{buyerQueueTitleSale(item.title, item.quantity)}</p>
+              <p className="font-semibold">{item.displayTitle}</p>
               <p className="mt-0.5 font-mono text-[11px]">
                 {roomType === "auction" ? `${fmt(item.topBid)} bid` : `${fmt(item.buyNow)}`}
               </p>
@@ -1016,7 +1023,7 @@ export function LiveSaleRoom({
         ) : (
           sold.map((item) => (
             <p key={item.id}>
-              • {buyerQueueTitleSale(item.title, item.quantity)}
+              • {item.displayTitle}
               {item.status === "skipped" ? " skipped" : ` sold at ${fmt(item.topBid)}`}
             </p>
           ))
@@ -1034,7 +1041,7 @@ export function LiveSaleRoom({
         ) : (
           sold.map((item) => (
             <p key={item.id}>
-              • {buyerQueueTitleSale(item.title, item.quantity)}
+              • {item.displayTitle}
               {item.status === "skipped" ? " skipped" : ` sold at ${fmt(item.topBid)}`}
             </p>
           ))
@@ -1061,7 +1068,7 @@ export function LiveSaleRoom({
             <div className="w-full min-h-0 min-[1400px]:min-h-0 min-[1400px]:h-full min-[1400px]:max-h-full">
               <LiveVideoStage
                 layout={buyerWideRail ? "fillHeight" : "aspect"}
-                overlayMessage={`Live · ${actionUi ? buyerQueueTitleSale(actionUi.title, actionUi.quantity) : "Current item"} · ${fmt(currentTopBid)}`}
+                overlayMessage={`Live · ${actionUi ? actionUi.displayTitle : "Current item"} · ${fmt(currentTopBid)}`}
                 viewers={viewerCount}
                 hostName={hostDisplayName}
                 streamTitle={streamTitle}
@@ -1116,7 +1123,7 @@ export function LiveSaleRoom({
                           : "border-zinc-800 bg-black/50 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
                       }`}
                     >
-                      <p className="font-semibold">{buyerQueueTitleSale(item.title, item.quantity)}</p>
+                      <p className="font-semibold">{item.displayTitle}</p>
                       <p className="mt-0.5 font-mono text-[11px]">
                         {roomType === "auction" ? `${fmt(item.topBid)} bid` : `${fmt(item.buyNow)}`}
                       </p>

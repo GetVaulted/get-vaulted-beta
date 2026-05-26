@@ -238,7 +238,7 @@ export async function fetchLiveRoomPublicById(roomId: string): Promise<LiveRoomA
       endedAt?: string | null;
       sellerUsername?: string;
       itemCount?: number;
-      activeItem?: { title?: string } | null;
+      activeItem?: { title?: string; displayTitle?: string } | null;
     };
     error?: string;
   } = {};
@@ -263,7 +263,7 @@ export async function fetchLiveRoomPublicById(roomId: string): Promise<LiveRoomA
     endedAt: r.endedAt ?? null,
     sellerUsername: r.sellerUsername ?? 'host',
     itemCount: r.itemCount ?? 0,
-    activeItemTitle: r.activeItem?.title ?? null,
+    activeItemTitle: r.activeItem?.displayTitle?.trim() || r.activeItem?.title ?? null,
   };
 }
 

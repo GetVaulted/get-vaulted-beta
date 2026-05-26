@@ -58,7 +58,7 @@ export function VaultQueueCarousel({
               </View>
             )}
             <Text style={styles.cardTitle} numberOfLines={2}>
-              {item.title}
+              {item.displayTitle ?? item.title}
             </Text>
             <Text style={styles.bid}>Start {fmtMoney(item.startingBidUsd ?? item.priceUsd)}</Text>
             <View style={styles.tagRow}>

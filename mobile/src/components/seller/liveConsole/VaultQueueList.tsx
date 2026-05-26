@@ -57,7 +57,7 @@ export function VaultQueueList({
             )}
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.title} numberOfLines={2}>
-                {item.title}
+                {item.displayTitle ?? item.title}
               </Text>
               <Text style={styles.bid}>Bid {fmtMoney(item.currentBidUsd ?? item.startingBidUsd)}</Text>
               <View style={styles.tagRow}>

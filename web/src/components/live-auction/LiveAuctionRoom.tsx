@@ -33,6 +33,8 @@ import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 type SaleItem = {
   id: string;
   title: string;
+  displayTitle: string;
+  progressLabel: string | null;
   quantity: number;
   imageUrl: string;
   description?: string;
@@ -43,12 +45,6 @@ type SaleItem = {
   /** `posted` = on the board before the show is live; bidding still closed. */
   status: "live" | "posted" | "queued" | "sold" | "skipped";
 };
-
-function buyerQueueTitle(title: string, quantity: number) {
-  const q = typeof quantity === "number" && Number.isFinite(quantity) && quantity >= 1 ? Math.floor(quantity) : 1;
-  if (q <= 1) return title;
-  return `${title} · ×${q}`;
-}
 
 function mapDbItem(i: LiveRoomItemDTO, roomIsLive: boolean, clockSkewMs = 0): SaleItem {
   const now = syncedWallTimeMs(clockSkewMs);
@@ -71,8 +67,19 @@ function mapDbItem(i: LiveRoomItemDTO, roomIsLive: boolean, clockSkewMs = 0): Sa
           : "queued";
   const top = i.currentBidUsd ?? i.startingBidUsd ?? i.priceUsd ?? 0;
   const buy = i.priceUsd ?? Math.max(top, 1);
-  const quantity = typeof i.quantity === "number" && Number.isFinite(i.quantity) && i.quantity >= 1 ? Math.floor(i.quantity) : 1;
-  return { id: i.id, title: i.title, quantity, imageUrl: i.imageUrl, buyNow: buy, topBid: top, bids: 0, status };
+  const quantity = typeof i.quantity === "number" && Number.isFinite(i.quantity) && i.quantity >= 0 ? Math.floor(i.quantity) : 1;
+  return {
+    id: i.id,
+    title: i.title,
+    displayTitle: i.displayTitle ?? i.title,
+    progressLabel: i.progressLabel ?? null,
+    quantity,
+    imageUrl: i.imageUrl,
+    buyNow: buy,
+    topBid: top,
+    bids: 0,
+    status,
+  };
 }
 
 export type LiveAuctionRoomProps = {
@@ -650,10 +657,7 @@ export function LiveAuctionRoom({
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p data-testid="live-active-item-title" className="line-clamp-1 text-sm font-bold text-zinc-100">
-            {buyerQueueTitle(
-              selectedQueue?.title ?? activeQueueItem?.title ?? "Current item",
-              selectedQueue?.quantity ?? activeQueueItem?.quantity ?? 1,
-            )}
+            {selectedQueue?.displayTitle ?? activeQueueItem?.displayTitle ?? "Current item"}
           </p>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
             <p className="font-black text-violet-100">${displaySpotAmount}</p>
@@ -765,7 +769,7 @@ export function LiveAuctionRoom({
             <span>•</span>
             <span>
               Active:{" "}
-              {selectedQueue ? buyerQueueTitle(selectedQueue.title, selectedQueue.quantity) : "none"}
+              {selectedQueue ? selectedQueue.displayTitle : "none"}
             </span>
             <span>•</span>
             <span>Role: {isHost ? "seller" : "buyer"}</span>
@@ -824,7 +828,7 @@ export function LiveAuctionRoom({
         </div>
         <div className="min-w-0 flex-1">
           <p data-testid="live-active-item-title" className="line-clamp-1 text-[11px] font-semibold leading-tight text-zinc-100">
-            {overlayItem ? buyerQueueTitle(overlayItem.title, overlayItem.quantity) : "Current item"}
+            {overlayItem ? overlayItem.displayTitle : "Current item"}
           </p>
           <p className="line-clamp-1 text-[10px] text-zinc-400/90">{overlayItem?.description ?? "Premium break spot with live reveal."}</p>
           <p className="mt-0.5 line-clamp-1 text-[9px] text-zinc-500">{overlayItem?.shippingLine ?? "Shipping + taxes calculated at checkout"}</p>
@@ -1036,7 +1040,7 @@ export function LiveAuctionRoom({
                   item.id === selectedId ? "border-gold/45 bg-zinc-900 text-zinc-100" : "border-zinc-800 bg-black/50 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
                 }`}
               >
-                <p className="line-clamp-1 font-semibold">{buyerQueueTitle(item.title, item.quantity)}</p>
+                <p className="line-clamp-1 font-semibold">{item.displayTitle}</p>
                 <div className="mt-0.5 flex items-center justify-between text-[11px]">
                   <p className="font-mono text-zinc-200">{fmt(item.topBid || item.buyNow)}</p>
                   <p className="text-zinc-500">
@@ -1232,7 +1236,7 @@ export function LiveAuctionRoom({
                             : "border-zinc-800 bg-black/50 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
                         }`}
                       >
-                        <p className="line-clamp-1 font-semibold">{buyerQueueTitle(item.title, item.quantity)}</p>
+                        <p className="line-clamp-1 font-semibold">{item.displayTitle}</p>
                         <div className="mt-0.5 flex items-center justify-between text-[11px]">
                           <p className="font-mono text-zinc-200">{fmt(item.topBid || item.buyNow)}</p>
                           <p className="text-zinc-500">

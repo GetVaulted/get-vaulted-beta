@@ -133,10 +133,8 @@ function formatHostAuctionCountdownMs(ms: number) {
   return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
 }
 
-function hostQueueTitleLine(title: string, quantity: number) {
-  const q = typeof quantity === "number" && Number.isFinite(quantity) && quantity >= 1 ? Math.floor(quantity) : 1;
-  if (q <= 1) return title;
-  return `${title} · ×${q}`;
+function hostQueueTitleLine(item: Pick<LiveRoomItemDTO, "title" | "displayTitle">) {
+  return item.displayTitle?.trim() || item.title;
 }
 
 /** Elapsed since room went live (H:MM:SS). */
@@ -1131,12 +1129,31 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
   const handleHostNextItem = () => {
     const active = activeBoardRow?.item;
-    if (active?.status === "active" && !biddingWindowStillRunningHost) {
-      if (active.lastHighBidderId?.trim()) patchItem(active.id, "sold");
-      else patchItem(active.id, "skipped");
-    }
-    const next = data.queueItems.find((q) => q.item.status === "queued");
-    if (next) patchItem(next.item.id, "active");
+    return void (async () => {
+      if (active?.status === "active" && !biddingWindowStillRunningHost) {
+        const status = active.lastHighBidderId?.trim() ? "sold" : "skipped";
+        setBusy(true);
+        setToast(null);
+        try {
+          const res = await patchLiveRoomItemStatus(roomId, active.id, status);
+          if (!res.ok) {
+            setToast(res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error);
+            return;
+          }
+          const itemSoldOut = res.data?.itemSoldOut !== false;
+          await load();
+          router.refresh();
+          if (!itemSoldOut) {
+            setToast("Unit sold — next numbered unit is now active.");
+            return;
+          }
+        } finally {
+          setBusy(false);
+        }
+      }
+      const next = hostDataRef.current?.queueItems.find((q) => q.item.status === "queued");
+      if (next) patchItem(next.item.id, "active");
+    })();
   };
 
   const handleHostPinSelected = () => {
@@ -1479,20 +1496,24 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
                   className="mt-2 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm"
                 />
                 <input
-                  inputMode="numeric"
-                  value={auctionDraftQuantity}
-                  onChange={(e) => setAuctionDraftQuantity(e.target.value)}
-                  placeholder="Quantity"
-                  className="mt-2 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm"
-                  aria-label="Quantity"
-                />
-                <p className="mt-1 text-[11px] text-zinc-500">Quantity appears on a single queue card (for example ×32).</p>
-                <input
                   value={auctionDraftStartBid}
                   onChange={(e) => setAuctionDraftStartBid(e.target.value)}
                   placeholder="Starting bid USD (default 1.00)"
                   className="mt-2 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm"
                 />
+                <label className="mt-2 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Quantity</label>
+                <input
+                  inputMode="numeric"
+                  min={1}
+                  value={auctionDraftQuantity}
+                  onChange={(e) => setAuctionDraftQuantity(e.target.value.replace(/[^\d]/g, ""))}
+                  placeholder="1"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm"
+                  aria-label="Quantity"
+                />
+                <p className="mt-1 text-[11px] text-zinc-500">
+                  Quantity creates numbered units, like PYT Break 1 #1, #2, #3.
+                </p>
                 {data.room.teamBoardLeague === "nfl" ? (
                   <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-zinc-300">
                     <input

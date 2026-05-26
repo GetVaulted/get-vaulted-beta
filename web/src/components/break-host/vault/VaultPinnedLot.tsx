@@ -20,10 +20,8 @@ function fmtOverlayLead(item: Pick<LiveRoomItemDTO, "priceUsd" | "startingBidUsd
   return fmtMoney(p);
 }
 
-function hostQueueTitleLine(title: string, quantity: number) {
-  const q = typeof quantity === "number" && Number.isFinite(quantity) && quantity >= 1 ? Math.floor(quantity) : 1;
-  if (q <= 1) return title;
-  return `${title} · ×${q}`;
+function hostQueueTitleLine(item: Pick<LiveRoomItemDTO, "title" | "displayTitle">) {
+  return item.displayTitle?.trim() || item.title;
 }
 
 type VaultPinnedLotProps = {
@@ -179,7 +177,7 @@ export function VaultPinnedLot({
                 isMobile ? "text-[11px]" : compactEmbedded ? "text-[13px]" : "text-sm"
               }`}
             >
-              {item ? hostQueueTitleLine(item.title, item.quantity) : "No lot pinned"}
+              {item ? hostQueueTitleLine(item) : "No lot pinned"}
               {item ? <span className="font-normal text-zinc-500"> · #{item.sortOrder}</span> : null}
             </p>
             {item ? (

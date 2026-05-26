@@ -3,6 +3,11 @@ import { createNotification } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import { createOrderFromAuctionWin } from "@/lib/offer-fulfillment";
 import { chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard } from "@/lib/stripe-charge-order-saved-pm";
+import {
+  formatLiveQueueItemUnitTitle,
+  normalizeQuantityInitial,
+  resolveClosingUnitNumber,
+} from "@/lib/live-room-item-quantity-display";
 
 export type BreakRoundFinalizeResult = {
   /** True when a prior timed round was closed (winner sale and/or bid reset). */
@@ -10,6 +15,7 @@ export type BreakRoundFinalizeResult = {
   /** When the last unit sold, caller must not open a new timed window. */
   skipStartAuction: boolean;
   orderId?: string;
+  soldUnitNumber?: number;
   /** When `createOrderFromAuctionWin` ran with deferred notifications, caller sends these after commit. */
   pendingWinNotifications?: {
     buyerId: string;
@@ -23,10 +29,7 @@ export type BreakRoundFinalizeResult = {
 /**
  * Break-room PYT tiles: when a timed round has ended and the host starts the next one, close the
  * previous round — create an `Order` for recent sales, decrement `quantity` by one on a winning
- * sale, reset the lot to $1 for the next round, and mark the queue row sold when quantity hits 0.
- *
- * Skips when the lot still has an attached marketplace `listingId` (multi-round + linked listing
- * is not auto-finalized here).
+ * sale, reset the lot for the next numbered unit, and mark the queue row sold when quantity hits 0.
  */
 export async function finalizeBreakAuctionRoundIfEnded(
   tx: TransactionClient,
@@ -38,6 +41,7 @@ export async function finalizeBreakAuctionRoundIfEnded(
       id: true,
       status: true,
       quantity: true,
+      quantityInitial: true,
       title: true,
       listingId: true,
       currentBidUsd: true,
@@ -58,6 +62,7 @@ export async function finalizeBreakAuctionRoundIfEnded(
 
   if (item.listingId) {
     /** Linked-listing break bids need a manual / separate close path. */
+    const resetStart = item.startingBidUsd ?? item.priceUsd ?? 1;
     await tx.liveRoomItem.update({
       where: { id: item.id },
       data: {
@@ -65,7 +70,7 @@ export async function finalizeBreakAuctionRoundIfEnded(
         auctionEndsAt: null,
         clutchTimeEnabled: false,
         currentBidUsd: null,
-        startingBidUsd: 1,
+        startingBidUsd: resetStart,
         lastHighBidderId: null,
         itemVersion: { increment: 1 },
       },
@@ -80,6 +85,10 @@ export async function finalizeBreakAuctionRoundIfEnded(
   const winnerId = item.lastHighBidderId?.trim();
   const winUsdRaw = item.currentBidUsd ?? item.startingBidUsd ?? item.priceUsd ?? 0;
   const winUsd = typeof winUsdRaw === "number" && Number.isFinite(winUsdRaw) ? winUsdRaw : 0;
+  const totalQuantity = normalizeQuantityInitial(item);
+  const soldUnitNumber = resolveClosingUnitNumber(item);
+  const unitTitle =
+    totalQuantity > 1 ? formatLiveQueueItemUnitTitle(item.title, soldUnitNumber) : item.title.slice(0, 200) || "Live break";
 
   let orderId: string | undefined;
   let nextQty = item.quantity;
@@ -89,13 +98,13 @@ export async function finalizeBreakAuctionRoundIfEnded(
     const listing = await tx.listing.create({
       data: {
         sellerId: args.sellerId,
-        title: item.title.slice(0, 200) || "Live break",
+        title: unitTitle,
         category: "Live break",
         condition: "See title",
         buyingFormat: "auction",
         status: "auction_live",
         priceUsd: winUsd,
-        startingBidUsd: 1,
+        startingBidUsd: item.startingBidUsd ?? item.priceUsd ?? 1,
         currentBidUsd: winUsd,
         auctionEndsAt: new Date(0),
         shippingPriceUsd: 0,
@@ -112,7 +121,7 @@ export async function finalizeBreakAuctionRoundIfEnded(
     });
     const { orderId: oid } = await createOrderFromAuctionWin(tx, {
       listingId: listing.id,
-      listingTitle: item.title.slice(0, 200) || "Live break",
+      listingTitle: unitTitle,
       buyerId: winnerId,
       sellerId: args.sellerId,
       itemPriceUsd: winUsd,
@@ -126,6 +135,7 @@ export async function finalizeBreakAuctionRoundIfEnded(
     itemSold = nextQty < 1;
   }
 
+  const resetStart = item.startingBidUsd ?? item.priceUsd ?? 1;
   await tx.liveRoomItem.update({
     where: { id: item.id },
     data: {
@@ -133,7 +143,7 @@ export async function finalizeBreakAuctionRoundIfEnded(
       status: itemSold ? "sold" : "active",
       listingId: null,
       currentBidUsd: null,
-      startingBidUsd: 1,
+      startingBidUsd: resetStart,
       lastHighBidderId: null,
       biddingOpen: false,
       auctionEndsAt: null,
@@ -150,13 +160,14 @@ export async function finalizeBreakAuctionRoundIfEnded(
     finalized: true,
     skipStartAuction: itemSold,
     orderId,
+    soldUnitNumber: winnerId && winUsd >= 1 ? soldUnitNumber : undefined,
     pendingWinNotifications:
       orderId && winnerId && winUsd >= 1
         ? {
             buyerId: winnerId,
             sellerId: args.sellerId,
             orderId,
-            listingTitle: item.title.slice(0, 200) || "Live break",
+            listingTitle: unitTitle,
             itemPriceUsd: winUsd,
           }
         : undefined,

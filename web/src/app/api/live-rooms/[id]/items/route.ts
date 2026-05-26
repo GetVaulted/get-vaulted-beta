@@ -98,6 +98,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     status: "queued" as const,
     sortOrder,
     teamBoardMisc,
+    quantity,
+    quantityInitial: quantity,
   };
 
   /** Turbopack / dev can keep an older bundled Prisma client that rejects `quantity` even after `prisma generate`. */

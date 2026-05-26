@@ -10,10 +10,9 @@ function fmtMoney(n: number | null | undefined) {
   return `$${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 }
 
-function titleLine(title: string, quantity: number) {
-  const q = typeof quantity === "number" && Number.isFinite(quantity) && quantity >= 1 ? Math.floor(quantity) : 1;
-  if (q <= 1) return title;
-  return `${title} · ×${q}`;
+function titleLine(item: Pick<LiveRoomItemDTO, "title" | "displayTitle" | "progressLabel">) {
+  const label = item.displayTitle?.trim() || item.title;
+  return item.progressLabel ? `${label} · ${item.progressLabel}` : label;
 }
 
 type Tab = "auction" | "bin" | "givvy" | "sold";
@@ -135,7 +134,7 @@ export function VaultQueueCarousel({
                       </div>
                     )}
                     <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-2 pb-2 pt-8">
-                      <p className="line-clamp-2 text-[11px] font-semibold leading-snug text-white">{titleLine(item.title, item.quantity)}</p>
+                      <p className="line-clamp-2 text-[11px] font-semibold leading-snug text-white">{titleLine(item)}</p>
                     </div>
                   </div>
                 </button>

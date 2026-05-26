@@ -4,6 +4,12 @@ import type { LiveRoomHostDetail } from './liveHostRepository';
 export type LiveRoomItemRow = {
   id: string;
   title: string;
+  displayTitle?: string;
+  progressLabel?: string | null;
+  quantityInitial?: number;
+  soldQuantity?: number;
+  remainingQuantity?: number;
+  currentUnitNumber?: number | null;
   status: 'queued' | 'active' | 'sold' | 'skipped';
   listingId?: string | null;
   imageUrl?: string;

@@ -847,8 +847,10 @@ model LiveRoomItem {
   /// When the item has no `listingId`, host-settled auctions still need a winner id (see live bid route).
   lastHighBidderId String?
   title          String
-  /// Units represented by this queue row (one tile can show e.g. ×32).
+  /// Remaining units on this queue row (decrements as each numbered unit sells).
   quantity       Int                @default(1)
+  /// Original unit count when the row was created (never decrements).
+  quantityInitial Int               @default(1)
   imageUrl       String             @default("")
   priceUsd       Float?
   startingBidUsd Float?

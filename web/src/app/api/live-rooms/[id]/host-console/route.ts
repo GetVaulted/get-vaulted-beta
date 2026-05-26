@@ -29,9 +29,9 @@ function mapClaim(claim: SpotWithUser) {
   };
 }
 
-function safeSerializeItem(it: LiveRoomItem) {
+function safeSerializeItem(it: LiveRoomItem, unitsClaimed?: number) {
   try {
-    return serializeLiveRoomItem(it);
+    return serializeLiveRoomItem(it, { unitsClaimed });
   } catch (e) {
     console.error("[host-console] serializeLiveRoomItem failed", { itemId: it.id, e });
     throw e;
@@ -126,7 +126,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       const rawSpots = spotsByItemId.get(it.id) ?? [];
       const claims = rawSpots.map(mapClaim);
       return {
-        item: safeSerializeItem(it),
+        item: safeSerializeItem(it, claims.length),
         claim: claims[0] ?? null,
         claims,
       };

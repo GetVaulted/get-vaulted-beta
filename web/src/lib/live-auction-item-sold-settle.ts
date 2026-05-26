@@ -8,7 +8,13 @@ import { resolveProxyAuction, type BidLike } from "@/lib/proxy-auction";
  */
 export async function settleLiveAuctionItemWhenMarkedSold(
   tx: TransactionClient,
-  args: { liveRoomId: string; liveRoomItemId: string; skipWinNotifications?: boolean },
+  args: {
+    liveRoomId: string;
+    liveRoomItemId: string;
+    skipWinNotifications?: boolean;
+    /** When set, used for the generated listing / order title (numbered multi-unit lots). */
+    unitListingTitle?: string;
+  },
 ): Promise<{ orderId: string; buyerId: string; listingTitle: string; itemPriceUsd: number; sellerId: string }> {
   const room = await tx.liveRoom.findUnique({
     where: { id: args.liveRoomId },
@@ -43,7 +49,7 @@ export async function settleLiveAuctionItemWhenMarkedSold(
     const listing = await tx.listing.create({
       data: {
         sellerId: room.sellerId,
-        title: item.title.slice(0, 200) || "Live auction",
+        title: (args.unitListingTitle ?? item.title).slice(0, 200) || "Live auction",
         category: "Live auction",
         condition: "See title",
         buyingFormat: "auction",

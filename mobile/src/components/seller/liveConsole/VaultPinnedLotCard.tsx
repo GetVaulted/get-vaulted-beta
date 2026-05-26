@@ -265,7 +265,7 @@ export function VaultPinnedLotCard({
             </View>
           ) : null}
           <Text style={[styles.title, compact && styles.titleCompact]} numberOfLines={2}>
-            {item.title}
+            {item.displayTitle ?? item.title}
           </Text>
           <Animated.Text style={[styles.bidVal, compact && styles.bidValCompact, { transform: [{ scale: priceScale }] }]}>
             {fmtMoney(item.currentBidUsd ?? item.startingBidUsd)}

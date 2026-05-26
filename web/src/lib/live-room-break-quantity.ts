@@ -10,11 +10,11 @@ export async function refreshLiveRoomItemSoldAfterBreakSpotChange(
 ): Promise<void> {
   const item = await tx.liveRoomItem.findUnique({
     where: { id: liveRoomItemId },
-    select: { id: true, liveRoomId: true, quantity: true, status: true },
+    select: { id: true, liveRoomId: true, quantity: true, quantityInitial: true, status: true },
   });
   if (!item || item.status === "skipped") return;
 
-  const qty = Math.max(1, item.quantity);
+  const qty = Math.max(1, item.quantityInitial ?? item.quantity);
   const count = await tx.breakSpot.count({ where: { liveRoomItemId } });
 
   if (count >= qty) {

@@ -1666,13 +1666,15 @@ export function SellerLivePage() {
                   onChange={(e) => setItemPrice(e.target.value)}
                   className="rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-sm text-zinc-100"
                 />
+                <label className="mt-2 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Quantity</label>
                 <input
                   inputMode="numeric"
-                  placeholder="Quantity"
+                  min={1}
+                  placeholder="1"
                   aria-label="Quantity"
                   value={itemQuantity}
-                  onChange={(e) => setItemQuantity(e.target.value)}
-                  className="rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-sm text-zinc-100"
+                  onChange={(e) => setItemQuantity(e.target.value.replace(/[^\d]/g, ""))}
+                  className="mt-1 w-full rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-sm text-zinc-100"
                 />
                 <input
                   placeholder="Starting bid USD (default 1.00)"
@@ -1680,7 +1682,9 @@ export function SellerLivePage() {
                   onChange={(e) => setItemStartBid(e.target.value)}
                   className="rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-sm text-zinc-100 sm:col-span-2"
                 />
-                <p className="text-xs text-zinc-500 sm:col-span-2">Quantity is shown on one queue card (for example ×32).</p>
+                <p className="text-xs text-zinc-500 sm:col-span-2">
+                  Quantity creates numbered units, like PYT Break 1 #1, #2, #3.
+                </p>
                 {selected.roomType === "break" && selected.teamBoardLeague === "nfl" ? (
                   <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
                     <input
@@ -1719,10 +1723,8 @@ export function SellerLivePage() {
                     className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/[0.06] bg-black/30 px-3 py-2"
                   >
                     <span>
-                      {it.title}
-                      {(it.quantity ?? 1) > 1 ? (
-                        <span className="text-zinc-400"> · ×{it.quantity ?? 1}</span>
-                      ) : null}{" "}
+                      {it.displayTitle ?? it.title}
+                      {it.progressLabel ? <span className="text-zinc-400"> · {it.progressLabel}</span> : null}{" "}
                       <span className="text-zinc-500">
                         ({it.status}){it.currentBidUsd != null ? ` · bid ${it.currentBidUsd}` : ""}
                       </span>

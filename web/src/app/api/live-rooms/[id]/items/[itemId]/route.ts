@@ -5,8 +5,8 @@ import {
   sendBreakAuctionWinNotificationsDeferred,
   type BreakRoundFinalizeResult,
 } from "@/lib/break-live-auction-round-finalize";
+import { closeActiveLiveRoomItemUnitSale } from "@/lib/live-room-item-unit-sale";
 import type { LiveRoomItemStatus } from "@/generated/prisma/client";
-import { settleLiveAuctionItemWhenMarkedSold } from "@/lib/live-auction-item-sold-settle";
 import { getLiveRoomItemSnapshotDto } from "@/lib/live-room-item-snapshot-server";
 import { prisma } from "@/lib/prisma";
 import { notifyLiveAuctionWinPaymentOutcome } from "@/lib/live-auction-win-payment-notify";
@@ -341,55 +341,56 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
     return NextResponse.json({ error: "No updates." }, { status: 400 });
   }
 
-  if (data.status === "sold" && room.roomType === "auction") {
+  if (data.status === "sold" && (room.roomType === "auction" || room.roomType === "break")) {
     try {
       const settled = await prisma.$transaction(async (tx) => {
         const cur = await tx.liveRoomItem.findFirst({
           where: { id: itemId, liveRoomId },
-          select: { status: true, itemVersion: true },
+          select: { status: true, itemVersion: true, lastHighBidderId: true },
         });
         if (!cur) throw new Error("ITEM_NOT_FOUND");
         if (cur.status === "sold") throw new Error("ITEM_ALREADY_SOLD");
         if (cur.status !== "active") throw new Error("ITEM_NOT_ACTIVE");
-        const settleOut = await settleLiveAuctionItemWhenMarkedSold(tx, {
+        const closed = await closeActiveLiveRoomItemUnitSale(tx, {
           liveRoomId,
           liveRoomItemId: itemId,
+          sellerId: room.sellerId,
+          roomType: room.roomType,
           skipWinNotifications: true,
         });
-        const updated = await tx.liveRoomItem.updateMany({
-          where: { id: itemId, liveRoomId, status: "active" },
-          data: { ...data, biddingOpen: false, auctionEndsAt: null, clutchTimeEnabled: false, itemVersion: { increment: 1 } },
-        });
-        if (updated.count === 0) throw new Error("ITEM_SOLD_CONFLICT");
-        const roomNext = await tx.liveRoom.update({
+        if (!closed.closed) throw new Error("LIVE_AUCTION_NO_WINNER");
+        const roomNext = await tx.liveRoom.findUnique({
           where: { id: liveRoomId },
-          data: { roomVersion: { increment: 1 } },
           select: { roomVersion: true },
         });
         const itemNext = await tx.liveRoomItem.findUnique({
           where: { id: itemId },
-          select: { listingId: true, itemVersion: true },
+          select: { itemVersion: true, status: true, listingId: true },
         });
-        if (!itemNext?.listingId) {
-          throw new Error("LIVE_AUCTION_SETTLE_NO_LISTING");
-        }
-        const ord = await tx.order.findUnique({
-          where: { id: settleOut.orderId },
-          select: { id: true },
-        });
-        if (!ord) {
-          throw new Error("LIVE_AUCTION_ORDER_MISSING");
+        if (closed.orderId && room.roomType === "auction") {
+          const ord = await tx.order.findUnique({
+            where: { id: closed.orderId },
+            select: { id: true },
+          });
+          if (!ord) throw new Error("LIVE_AUCTION_ORDER_MISSING");
         }
         return {
-          roomVersion: roomNext.roomVersion,
-          itemVersion: itemNext.itemVersion,
-          orderId: settleOut.orderId,
-          buyerId: settleOut.buyerId,
-          sellerId: settleOut.sellerId,
-          listingTitle: settleOut.listingTitle,
-          itemPriceUsd: settleOut.itemPriceUsd,
+          roomVersion: roomNext?.roomVersion ?? room.roomVersion,
+          itemVersion: itemNext?.itemVersion ?? cur.itemVersion + 1,
+          orderId: closed.orderId,
+          buyerId: closed.buyerId,
+          sellerId: closed.sellerId,
+          listingTitle: closed.listingTitle,
+          itemPriceUsd: closed.itemPriceUsd,
+          itemSoldOut: closed.itemSoldOut,
+          pendingWinNotifications: closed.pendingWinNotifications,
         };
       });
+      if (settled.pendingWinNotifications) {
+        void sendBreakAuctionWinNotificationsDeferred(settled.pendingWinNotifications).catch((err) =>
+          console.error("[live-room item PATCH sold] deferred win notifications", err),
+        );
+      }
       const winnerUsername = settled.buyerId
         ? (
             await prisma.user.findUnique({
@@ -405,8 +406,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
         winnerId: settled.buyerId,
         winningAmountUsd: settled.itemPriceUsd,
       });
+      if (!settled.itemSoldOut) {
+        emitActiveItemChanged(liveRoomId, itemId, {
+          roomVersion: settled.roomVersion,
+          itemVersion: settled.itemVersion,
+          biddingOpen: false,
+          auctionEndsAt: null,
+        });
+        emitLiveRoomQueueItemsChanged(liveRoomId);
+      }
       let autoCharge: ChargeOrderSavedPmOutcome = { outcome: "error", code: "NO_BUYER" };
-      if (settled.buyerId) {
+      if (settled.buyerId && settled.orderId) {
         try {
           autoCharge = await chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard({
             buyerId: settled.buyerId,
@@ -416,22 +426,25 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
           console.error("[live-room item PATCH sold] auto-charge", err);
           autoCharge = { outcome: "error", code: "CHARGE_EXCEPTION" };
         }
-        try {
-          await notifyLiveAuctionWinPaymentOutcome({
-            buyerId: settled.buyerId,
-            sellerId: settled.sellerId,
-            orderId: settled.orderId,
-            listingTitle: settled.listingTitle,
-            itemPriceUsd: settled.itemPriceUsd,
-            charge: autoCharge,
-          });
-        } catch (err) {
-          console.error("[live-room item PATCH sold] win notify", err);
+        if (settled.sellerId && settled.listingTitle && settled.itemPriceUsd != null) {
+          try {
+            await notifyLiveAuctionWinPaymentOutcome({
+              buyerId: settled.buyerId,
+              sellerId: settled.sellerId,
+              orderId: settled.orderId,
+              listingTitle: settled.listingTitle,
+              itemPriceUsd: settled.itemPriceUsd,
+              charge: autoCharge,
+            });
+          } catch (err) {
+            console.error("[live-room item PATCH sold] win notify", err);
+          }
         }
       }
       return NextResponse.json({
         ok: true,
         orderId: settled.orderId,
+        itemSoldOut: settled.itemSoldOut,
         autoCharge: { outcome: autoCharge.outcome, ...(autoCharge.outcome === "error" ? { code: autoCharge.code } : {}) },
       });
     } catch (e) {
