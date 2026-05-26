@@ -99,6 +99,16 @@ export async function POST(req: Request) {
         : NaN;
   const liveRoomItemId = typeof body.liveRoomItemId === "string" ? body.liveRoomItemId.trim() : "";
 
+  if (liveRoomItemId) {
+    return NextResponse.json(
+      {
+        error: "Live auction bids must use POST /api/live-rooms/{roomId}/items/{itemId}/bid.",
+        code: "USE_LIVE_BID_ROUTE",
+      },
+      { status: 400 },
+    );
+  }
+
   if (!listingId) return NextResponse.json({ error: "Missing listing." }, { status: 400 });
   if (!(maxFromBody > 0)) return NextResponse.json({ error: "Enter a valid bid amount." }, { status: 400 });
 
@@ -189,21 +199,7 @@ export async function POST(req: Request) {
     }
     const { result, liveRoomIdForRealtime } = await prisma.$transaction(async (tx) => {
       const r = await placeListingProxyBid(tx, { listingId, bidderId, maxBidUsd: maxFromBody, checkout });
-      let liveRoomIdForRealtime: string | null = null;
-      if (liveRoomItemId) {
-        const item = await tx.liveRoomItem.findFirst({
-          where: { id: liveRoomItemId, listingId },
-          select: { id: true, liveRoomId: true },
-        });
-        if (item) {
-          liveRoomIdForRealtime = item.liveRoomId;
-          await tx.liveRoomItem.update({
-            where: { id: item.id },
-            data: { currentBidUsd: r.amountUsd },
-          });
-        }
-      }
-      return { result: r, liveRoomIdForRealtime };
+      return { result: r, liveRoomIdForRealtime: null as string | null };
     });
 
     if (result.prevLeaderId && result.prevLeaderId !== bidderId) {

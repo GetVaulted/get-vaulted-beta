@@ -351,6 +351,7 @@ model User {
   emailVerificationCodes EmailVerificationCode[]
   liveAuctionProxyBids LiveAuctionProxyBid[]
   liveAuctionInventoryHolds LiveAuctionInventoryHold[]
+  liveRoomBids              LiveRoomBid[]
   liveRoomsAsTipModerator LiveRoom[] @relation("LiveRoomTipModerator")
   liveTipsSent     LiveTip[] @relation("LiveTipSender")
   liveTipsReceived LiveTip[] @relation("LiveTipRecipient")
@@ -692,6 +693,7 @@ model LiveRoom {
   shippingSessions LiveShippingSession[]
   auctionEvents LiveAuctionEvent[]
   proxyBids LiveAuctionProxyBid[]
+  roomBids LiveRoomBid[]
   tips      LiveTip[]
   moderators LiveRoomModerator[]
   moderationActions LiveRoomModerationAction[]
@@ -869,8 +871,30 @@ model LiveRoomItem {
 
   proxyBids         LiveAuctionProxyBid[]
   inventoryHolds    LiveAuctionInventoryHold[]
+  roomBids          LiveRoomBid[]
 
   @@index([liveRoomId, sortOrder])
+}
+
+/// Accepted bid on a host lot (`listingId` null). Listing-backed lots use marketplace `Bid` rows.
+model LiveRoomBid {
+  id              String       @id @default(cuid())
+  liveRoomId      String
+  liveRoom        LiveRoom     @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  liveRoomItemId  String
+  liveRoomItem    LiveRoomItem @relation(fields: [liveRoomItemId], references: [id], onDelete: Cascade)
+  bidderId        String
+  bidder          User         @relation(fields: [bidderId], references: [id], onDelete: Cascade)
+  amountUsd       Float
+  auctionEventSeq Int
+  idempotencyKey  String?
+  /// Postgres transaction `now()` when the bid was accepted.
+  acceptedAt      DateTime
+  createdAt       DateTime     @default(now())
+
+  @@index([liveRoomItemId, acceptedAt])
+  @@index([liveRoomId, acceptedAt])
+  @@index([bidderId, acceptedAt])
 }
 
 /// PYT / break spot claims (placeholder commerce — no Order row).

@@ -2,6 +2,7 @@ import type { TransactionClient } from "@/generated/prisma/internal/prismaNamesp
 import { minNextBidUsd } from "@/lib/auction";
 import { closeAuctionIfDue } from "@/lib/auction-close";
 import { resolveProxyAuction, type BidLike } from "@/lib/proxy-auction";
+import { getTransactionServerNow } from "@/lib/server-transaction-now";
 
 /** Ship + payment snapshot saved on the bid (marketplace); used when this bidder wins. */
 export type AuctionBidCheckoutSnapshot = {
@@ -71,7 +72,9 @@ export async function placeListingProxyBid(
   if (listing.sellerId === bidderId) {
     throw new Error("OWN_LISTING");
   }
-  if (listing.auctionEndsAt && listing.auctionEndsAt <= new Date()) {
+
+  const now = await getTransactionServerNow(tx);
+  if (listing.auctionEndsAt && listing.auctionEndsAt <= now) {
     throw new Error("ENDED");
   }
 
@@ -95,7 +98,6 @@ export async function placeListingProxyBid(
     createdAt: b.createdAt,
   }));
 
-  const now = new Date();
   const oldResolved = resolveProxyAuction(startingHigh, bidsLike);
 
   const provisional: BidLike = {

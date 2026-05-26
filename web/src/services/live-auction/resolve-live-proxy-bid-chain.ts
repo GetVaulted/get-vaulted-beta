@@ -2,6 +2,8 @@ import type { Prisma } from "@/generated/prisma/client";
 import { minNextBidUsd } from "@/lib/auction";
 import { computeNextAuctionEndsAtAfterBid } from "@/lib/live-auction-bid-extension";
 import { LIVE_AUCTION_EVENT_PAYLOAD_VERSION, type LiveAuctionBidPlacedPayloadV1 } from "@/lib/live-auction-event-schema";
+import { getTransactionServerNow } from "@/lib/server-transaction-now";
+import { recordLiveRoomBid } from "@/lib/record-live-room-bid";
 
 const MAX_PROXY_CHAIN = 32;
 
@@ -44,7 +46,7 @@ export async function resolveLiveProxyBidChain(
     const leaderId = row.lastHighBidderId;
     if (!leaderId) return outbids;
 
-    const now = new Date();
+    const now = await getTransactionServerNow(tx);
     if (row.auctionEndsAt && row.auctionEndsAt <= now) return outbids;
 
     const minNeed = minNextBidUsd(high);
@@ -127,6 +129,14 @@ export async function resolveLiveProxyBidChain(
         itemId: ctx.itemId,
         payload: payload as unknown as Prisma.InputJsonValue,
       },
+    });
+    await recordLiveRoomBid(tx, {
+      liveRoomId: ctx.liveRoomId,
+      liveRoomItemId: ctx.itemId,
+      bidderId: proxy.userId,
+      amountUsd: bidAmount,
+      auctionEventSeq: roomWrite.auctionEventSeq,
+      acceptedAt: now,
     });
   }
   return outbids;
