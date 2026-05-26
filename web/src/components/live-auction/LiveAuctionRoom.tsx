@@ -18,6 +18,7 @@ import type { LiveRoomBreakPublicDTO, LiveRoomItemDTO, LiveRoomMessageDTO } from
 import type { LiveRoomStatus } from "@/generated/prisma/client";
 import { parseTeamBoardPublicPayload, type TeamBoardPublicPayload } from "@/lib/team-board-public";
 import { liveAuctionMinBidUsd } from "@/lib/auction";
+import { liveAuctionDisplayBidUsd } from "@/lib/live-auction-overlay-price";
 import { LIVE_AUCTION_CLIENT_END_GRACE_MS } from "@/lib/live-auction-bid-extension";
 import { createLiveBidIdempotencyKey, liveBidRequestHeaders } from "@/lib/live-bid-client";
 import {
@@ -65,7 +66,12 @@ function mapDbItem(i: LiveRoomItemDTO, roomIsLive: boolean, clockSkewMs = 0): Sa
             ? "live"
             : "posted"
           : "queued";
-  const top = i.currentBidUsd ?? i.startingBidUsd ?? i.priceUsd ?? 0;
+  const top = liveAuctionDisplayBidUsd({
+    currentBidUsd: i.currentBidUsd,
+    startingBidUsd: i.startingBidUsd,
+    lastHighBidderId: i.lastHighBidderId,
+    lastHighBidderUsername: i.lastHighBidderUsername,
+  });
   const buy = i.priceUsd ?? Math.max(top, 1);
   const quantity = typeof i.quantity === "number" && Number.isFinite(i.quantity) && i.quantity >= 0 ? Math.floor(i.quantity) : 1;
   return {
@@ -294,7 +300,12 @@ export function LiveAuctionRoom({
 
   const buyerCurrentHighUsd = useMemo(() => {
     if (!activeDbItem) return 0;
-    return activeDbItem.currentBidUsd ?? activeDbItem.startingBidUsd ?? activeDbItem.priceUsd ?? 0;
+    return liveAuctionDisplayBidUsd({
+      currentBidUsd: activeDbItem.currentBidUsd,
+      startingBidUsd: activeDbItem.startingBidUsd,
+      lastHighBidderId: activeDbItem.lastHighBidderId,
+      lastHighBidderUsername: activeDbItem.lastHighBidderUsername,
+    });
   }, [activeDbItem]);
 
   const buyerNextBidUsd = useMemo(

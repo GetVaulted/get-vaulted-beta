@@ -63,24 +63,25 @@ function resolveBuyerAuctionItemHud(
     });
   }
 
-  const current = snap.currentBidUsd ?? 0;
-  const next = snap.minNextBidUsd ?? current;
+  const hasBid = Boolean(snap.lastHighBidderId?.trim() || snap.lastHighBidderUsername?.trim());
+  const opening = snap.startingBidUsd ?? 1;
+  const displayAmount = hasBid ? (snap.currentBidUsd ?? opening) : opening;
+  const next = snap.minNextBidUsd ?? displayAmount;
 
   if (snap.lotBidPhase === 'bidding_open') {
     return buildBuyerBidHud(base, {
       itemTitle,
       timerMmSs: auctionCountdownMmSs(snap.auctionEndsAt, nowMs),
-      currentPrefix: 'Current',
-      currentAmount: formatMoney(current),
+      currentPrefix: hasBid ? 'Current' : 'Opening',
+      currentAmount: formatMoney(displayAmount),
       winningLine: formatAuctionLeaderLine({
         lastHighBidderUsername: snap.lastHighBidderUsername,
         lastHighBidderId: snap.lastHighBidderId,
         currentBidUsd: snap.currentBidUsd,
         startingBidUsd: snap.startingBidUsd,
-        priceUsd: snap.priceUsd,
       }),
       stateLine: 'Bidding is live — place the next bid to take the lead.',
-      nextBidUsd: next,
+      nextBidUsd: snap.minNextBidUsd ?? displayAmount,
       biddingOpen: true,
     });
   }

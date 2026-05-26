@@ -7,6 +7,7 @@ import { VaultQueueCarousel, type VaultQueueRow } from "@/components/break-host/
 import { LiveHostRoomGovernance } from "@/components/trust/LiveHostRoomGovernance";
 import type { HostRecentSaleRowDTO } from "@/lib/live-room-recent-sales";
 import { formatAuctionLeaderLine, formatAuctionMoneyUsd } from "@/lib/live-auction-winner-display";
+import { liveAuctionDisplayBidUsd } from "@/lib/live-auction-overlay-price";
 import type { LiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
 import type { LiveRoomModeratorRow } from "@/hooks/useLiveRoomModerationState";
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
@@ -106,8 +107,14 @@ function CollapsibleSection({ title, children, defaultOpen = false }: { title: s
 }
 
 function itemMoney(item: LiveRoomItemDTO) {
-  const n = item.currentBidUsd ?? item.startingBidUsd ?? item.priceUsd;
-  return formatAuctionMoneyUsd(n);
+  return formatAuctionMoneyUsd(
+    liveAuctionDisplayBidUsd({
+      currentBidUsd: item.currentBidUsd,
+      startingBidUsd: item.startingBidUsd,
+      lastHighBidderId: item.lastHighBidderId,
+      lastHighBidderUsername: item.lastHighBidderUsername,
+    }),
+  );
 }
 
 /** Simplified live seller command center — primary controls visible, rest tucked away. */

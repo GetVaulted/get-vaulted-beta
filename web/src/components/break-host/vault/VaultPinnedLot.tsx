@@ -2,22 +2,29 @@
 
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { formatAuctionLeaderLine, formatAuctionMoneyUsd } from "@/lib/live-auction-winner-display";
+import { resolveLiveItemOverlayPrice } from "@/lib/live-auction-overlay-price";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { VAULT_MODE_META } from "@/components/break-host/vault/vault-modes";
 
 type ClaimLite = { user: { username: string } } | null;
 type QueueRowLite = { item: LiveRoomItemDTO; claim: ClaimLite; claims: { user: { username: string } }[] };
 
-function fmtMoney(n: number | null | undefined) {
-  if (n == null || !Number.isFinite(n)) return "—";
-  return `$${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
-}
-
-function fmtOverlayLead(item: Pick<LiveRoomItemDTO, "priceUsd" | "startingBidUsd" | "currentBidUsd">) {
-  const cur = item.currentBidUsd;
-  if (cur != null && Number.isFinite(cur)) return fmtMoney(cur);
-  const p = item.priceUsd ?? item.startingBidUsd;
-  return fmtMoney(p);
+function fmtOverlayLead(
+  item: Pick<
+    LiveRoomItemDTO,
+    "priceUsd" | "startingBidUsd" | "currentBidUsd" | "status" | "lastHighBidderId" | "lastHighBidderUsername"
+  >,
+  commerceMode: "auction" | "buy_now" = "auction",
+) {
+  return resolveLiveItemOverlayPrice({
+    commerceMode,
+    status: item.status,
+    currentBidUsd: item.currentBidUsd,
+    startingBidUsd: item.startingBidUsd,
+    priceUsd: item.priceUsd,
+    lastHighBidderId: item.lastHighBidderId,
+    lastHighBidderUsername: item.lastHighBidderUsername,
+  });
 }
 
 function hostQueueTitleLine(item: Pick<LiveRoomItemDTO, "title" | "displayTitle">) {
@@ -105,6 +112,7 @@ export function VaultPinnedLot({
     item?.priceUsd != null && Number.isFinite(item.priceUsd) && item.currentBidUsd != null && Number.isFinite(item.currentBidUsd)
       ? item.currentBidUsd >= item.priceUsd
       : null;
+  const overlayPrice = item ? fmtOverlayLead(item) : null;
 
   const shell = (
     <>
@@ -208,13 +216,15 @@ export function VaultPinnedLot({
           </div>
 
           <div className="shrink-0 text-right">
-            <p className="text-[8px] font-bold uppercase tracking-[0.12em] text-zinc-500">Asking</p>
+            <p className="text-[8px] font-bold uppercase tracking-[0.12em] text-zinc-500">
+              {overlayPrice?.label ?? "Opening bid"}
+            </p>
             <p
               className={`font-mono font-black tabular-nums text-white tracking-tight ${
                 isMobile ? "text-base" : compactEmbedded ? "text-base" : embedded ? "text-lg" : "text-xl"
               }`}
             >
-              {item ? fmtOverlayLead(item) : "—"}
+              {overlayPrice?.amountFormatted ?? "—"}
             </p>
             {item?.priceUsd != null && Number.isFinite(item.priceUsd) ? (
               <p className="mt-0.5 text-[8px] font-semibold text-zinc-400">
@@ -265,7 +275,7 @@ export function VaultPinnedLot({
                   <span className="text-[11px] font-black tabular-nums text-amber-100">{hostAuctionCountdownLabel}</span>
                 ) : null}
                 <span className="font-mono text-sm font-black tabular-nums text-white">
-                  {item ? fmtOverlayLead(item) : "—"}
+                  {overlayPrice?.amountFormatted ?? "—"}
                 </span>
               </div>
             ) : roomStatusLive ? (

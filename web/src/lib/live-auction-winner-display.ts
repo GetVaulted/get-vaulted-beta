@@ -16,7 +16,7 @@ export function formatAuctionLeaderLine(args: {
   const hasBidder = Boolean(handle || args.lastHighBidderId?.trim());
   if (handle) return `Winning: @${handle}`;
   if (hasBidder) return "High bid on the floor";
-  const opening = args.startingBidUsd ?? args.priceUsd ?? 1;
+  const opening = args.startingBidUsd ?? 1;
   if (typeof opening === "number" && Number.isFinite(opening) && opening > 0) {
     return `Opening bid ${formatAuctionMoneyUsd(opening)}`;
   }

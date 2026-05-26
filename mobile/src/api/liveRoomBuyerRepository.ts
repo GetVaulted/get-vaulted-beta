@@ -68,8 +68,6 @@ export async function fetchLiveRoomBuyerSnapshot(
         priceUsd?: number | null;
         lastHighBidderId?: string | null;
         lastHighBidderUsername?: string | null;
-        startingBidUsd?: number | null;
-        priceUsd?: number | null;
         auctionEndsAt?: string | null;
       } | null;
       break?: {
@@ -91,7 +89,7 @@ export async function fetchLiveRoomBuyerSnapshot(
   const detail = j.room;
   const active = detail?.activeItem;
   const highBid = active?.currentBidUsd;
-  const starting = active?.startingBidUsd ?? active?.priceUsd ?? 0;
+  const starting = active?.startingBidUsd ?? 1;
   const hasAcceptedBid = Boolean(active?.lastHighBidderId?.trim());
   const currentHigh =
     hasAcceptedBid && typeof highBid === 'number' && Number.isFinite(highBid) && highBid > 0

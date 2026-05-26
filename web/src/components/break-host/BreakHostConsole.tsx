@@ -40,6 +40,7 @@ import {
 } from "@/lib/live-room-realtime-merge";
 import { estimateClockSkewMs, syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { parsePurchaseCompletedCelebration, type LiveAuctionCloseCelebration } from "@/lib/live-auction-winner-display";
+import { liveAuctionDisplayBidUsd } from "@/lib/live-auction-overlay-price";
 import { parseTeamBoardPublicPayload, type TeamBoardPublicPayload } from "@/lib/team-board-public";
 
 type RoomPayload = {
@@ -114,8 +115,20 @@ function fmtHostSpotUsd(n: number | null | undefined) {
   return `$${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 }
 
-function fmtHostQueueMoney(item: Pick<QueueRow["item"], "priceUsd" | "startingBidUsd" | "currentBidUsd">) {
-  return fmtHostSpotUsd(item.priceUsd ?? item.startingBidUsd ?? item.currentBidUsd);
+function fmtHostQueueMoney(
+  item: Pick<
+    QueueRow["item"],
+    "priceUsd" | "startingBidUsd" | "currentBidUsd" | "lastHighBidderId" | "lastHighBidderUsername"
+  >,
+) {
+  return fmtHostSpotUsd(
+    liveAuctionDisplayBidUsd({
+      currentBidUsd: item.currentBidUsd,
+      startingBidUsd: item.startingBidUsd,
+      lastHighBidderId: item.lastHighBidderId,
+      lastHighBidderUsername: item.lastHighBidderUsername,
+    }),
+  );
 }
 
 const HOST_AUCTION_DURATION_CHOICES: { sec: number; label: string }[] = [

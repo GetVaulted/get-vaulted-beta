@@ -263,7 +263,7 @@ export async function fetchLiveRoomPublicById(roomId: string): Promise<LiveRoomA
     endedAt: r.endedAt ?? null,
     sellerUsername: r.sellerUsername ?? 'host',
     itemCount: r.itemCount ?? 0,
-    activeItemTitle: r.activeItem?.displayTitle?.trim() || r.activeItem?.title ?? null,
+    activeItemTitle: (r.activeItem?.displayTitle?.trim() || r.activeItem?.title) ?? null,
   };
 }
 

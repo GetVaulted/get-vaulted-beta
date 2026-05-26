@@ -3,10 +3,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
-import {
-  LIVE_AUCTION_HOST_TIMER_ENDED_COPY,
-  resolveLiveAuctionLotBidPhase,
-} from '../../../lib/liveAuctionLotPhase';
+import { LIVE_AUCTION_HOST_TIMER_ENDED_COPY, resolveLiveAuctionLotBidPhase } from '../../../lib/liveAuctionLotPhase';
+import { resolveLiveItemOverlayPrice } from '../../../lib/liveAuctionOverlayPrice';
 import { colors, radii, spacing } from '../../../theme';
 import { lc } from './liveConsoleTheme';
 
@@ -206,6 +204,14 @@ export function VaultPinnedLotCard({
   }
 
   const thumb = item.imageUrl?.trim();
+  const overlayPrice = resolveLiveItemOverlayPrice({
+    commerceMode: 'auction',
+    status: item.status,
+    currentBidUsd: item.currentBidUsd,
+    startingBidUsd: item.startingBidUsd,
+    priceUsd: item.priceUsd,
+    lastHighBidderUsername: item.lastHighBidderUsername,
+  });
   const reserve =
     item.priceUsd != null && item.currentBidUsd != null && item.currentBidUsd >= item.priceUsd;
   const closingSoon = countdown != null && countdown.progress <= 0.28;
@@ -267,8 +273,9 @@ export function VaultPinnedLotCard({
           <Text style={[styles.title, compact && styles.titleCompact]} numberOfLines={2}>
             {item.displayTitle ?? item.title}
           </Text>
+          <Text style={[lc.eyebrow, compact && styles.eyebrowCompact]}>{overlayPrice.label}</Text>
           <Animated.Text style={[styles.bidVal, compact && styles.bidValCompact, { transform: [{ scale: priceScale }] }]}>
-            {fmtMoney(item.currentBidUsd ?? item.startingBidUsd)}
+            {overlayPrice.amountFormatted}
           </Animated.Text>
           {item.lastHighBidderUsername ? (
             <View style={styles.bidderRow}>
@@ -315,7 +322,7 @@ export function VaultPinnedLotCard({
           {countdown ? (
             <Text style={[styles.runningTimer, closingSoon && styles.runningTimerUrgent]}>{countdown.label}</Text>
           ) : null}
-          <Text style={styles.runningBid}>{fmtMoney(item.currentBidUsd ?? item.startingBidUsd)}</Text>
+          <Text style={styles.runningBid}>{overlayPrice.amountFormatted}</Text>
         </View>
       ) : null}
 

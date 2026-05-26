@@ -14,6 +14,7 @@ import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
 import type { LiveRoomItemDTO, LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { liveAuctionMinBidUsd } from "@/lib/auction";
+import { liveAuctionDisplayBidUsd, resolveLiveItemOverlayPrice } from "@/lib/live-auction-overlay-price";
 import { LIVE_AUCTION_CLIENT_END_GRACE_MS } from "@/lib/live-auction-bid-extension";
 import { createLiveBidIdempotencyKey, liveBidRequestHeaders } from "@/lib/live-bid-client";
 import {
@@ -40,7 +41,12 @@ type SaleItem = {
   status: "live" | "posted" | "queued" | "sold" | "skipped";
 };
 
-function mapDbItem(i: LiveRoomItemDTO, roomIsLive: boolean, clockSkewMs = 0): SaleItem {
+function mapDbItem(
+  i: LiveRoomItemDTO,
+  roomIsLive: boolean,
+  clockSkewMs = 0,
+  roomType: "auction" | "sale" | "break" = "auction",
+): SaleItem {
   const now = syncedWallTimeMs(clockSkewMs);
   const endsMs = i.auctionEndsAt ? Date.parse(i.auctionEndsAt) : NaN;
   const hasScheduledEnd = Number.isFinite(endsMs);
@@ -58,8 +64,16 @@ function mapDbItem(i: LiveRoomItemDTO, roomIsLive: boolean, clockSkewMs = 0): Sa
             ? "live"
             : "posted"
           : "queued";
-  const top = i.currentBidUsd ?? i.startingBidUsd ?? i.priceUsd ?? 0;
-  const buy = i.priceUsd ?? Math.max(top, 1);
+  const top =
+    roomType === "sale"
+      ? (i.priceUsd ?? i.currentBidUsd ?? i.startingBidUsd ?? 0)
+      : liveAuctionDisplayBidUsd({
+          currentBidUsd: i.currentBidUsd,
+          startingBidUsd: i.startingBidUsd,
+          lastHighBidderId: i.lastHighBidderId,
+          lastHighBidderUsername: i.lastHighBidderUsername,
+        });
+  const buy = roomType === "sale" ? (i.priceUsd ?? Math.max(top, 1)) : Math.max(top, 1);
   const quantity = typeof i.quantity === "number" && Number.isFinite(i.quantity) && i.quantity >= 0 ? Math.floor(i.quantity) : 1;
   return {
     id: i.id,
@@ -198,7 +212,7 @@ export function LiveSaleRoom({
   }, [dbItems]);
 
   const mapped = useMemo(
-    () => dbItems.map((i) => mapDbItem(i, isLive, clockSkewMs)),
+    () => dbItems.map((i) => mapDbItem(i, isLive, clockSkewMs, roomType)),
     [dbItems, isLive, liveAuctionResolutionTick, clockSkewMs],
   );
   const [items, setItems] = useState<SaleItem[]>(mapped);
@@ -241,7 +255,7 @@ export function LiveSaleRoom({
   const selected = useMemo(() => items.find((i) => i.id === selectedId) ?? items[0], [items, selectedId]);
   const activeDb = useMemo(() => dbItems.find((i) => i.status === "active") ?? null, [dbItems]);
   const actionUi = useMemo(() => {
-    if (activeDb) return mapDbItem(activeDb, isLive, clockSkewMs);
+    if (activeDb) return mapDbItem(activeDb, isLive, clockSkewMs, roomType);
     return selected;
   }, [activeDb, isLive, selected, liveAuctionResolutionTick]);
 
@@ -325,6 +339,25 @@ export function LiveSaleRoom({
   }, [roomType, actionUi, activeListingId, bidMeta, minNextFromLiveItem]);
   const currentTopBid = actionUi?.topBid ?? 0;
   const liveTitle = actionUi ? actionUi.displayTitle : (roomTitle ?? "Vaulted Live");
+
+  const activeOverlayPrice = useMemo(() => {
+    if (!activeDb) return null;
+    if (roomType === "sale") {
+      return resolveLiveItemOverlayPrice({
+        commerceMode: "buy_now",
+        priceUsd: activeDb.priceUsd,
+      });
+    }
+    return resolveLiveItemOverlayPrice({
+      commerceMode: "auction",
+      status: activeDb.status,
+      currentBidUsd: activeDb.currentBidUsd,
+      startingBidUsd: activeDb.startingBidUsd,
+      priceUsd: activeDb.priceUsd,
+      lastHighBidderId: activeDb.lastHighBidderId,
+      lastHighBidderUsername: activeDb.lastHighBidderUsername,
+    });
+  }, [activeDb, roomType]);
 
   const secondsLeft = useMemo(() => {
     void clockTick;
@@ -618,9 +651,11 @@ export function LiveSaleRoom({
       ? actionUi
         ? `${actionUi.displayTitle} · Buy now ${fmt(actionUi.buyNow)}`
         : "Select an item"
-      : actionUi
-        ? `${actionUi.displayTitle} · High bid ${fmt(currentTopBid)}`
-        : "Select an item";
+      : actionUi && activeOverlayPrice
+        ? `${actionUi.displayTitle} · ${activeOverlayPrice.label} ${activeOverlayPrice.amountFormatted}`
+        : actionUi
+          ? `${actionUi.displayTitle} · Opening bid ${fmt(currentTopBid)}`
+          : "Select an item";
 
   const desktopVideoOverlay = (
     <div className="rounded-[var(--live-radius-chrome)] border border-emerald-300/25 bg-black/60 p-4 backdrop-blur-[var(--live-blur-md)] shadow-[var(--live-shadow-overlay),0_0_24px_-12px_rgba(16,185,129,0.35),inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors duration-[var(--live-duration-ui)] hover:brightness-[1.06]">
@@ -632,7 +667,11 @@ export function LiveSaleRoom({
             : "text-emerald-200"
         }`}
       >
-        {actionUi ? fmt(currentTopBid) : "$0"}
+        {actionUi
+          ? roomType === "auction" && activeOverlayPrice
+            ? activeOverlayPrice.amountFormatted
+            : fmt(currentTopBid)
+          : "$0"}
       </p>
       <p className="mt-0.5 line-clamp-2 text-[10px] text-zinc-300">{priceLine}</p>
       {!isHost && (roomType === "auction" || roomType === "sale") ? (
@@ -782,7 +821,11 @@ export function LiveSaleRoom({
           }`}
         >
           {actionUi
-            ? `${fmt(currentTopBid)}${roomType === "auction" ? " high bid" : " · price"}`
+            ? roomType === "auction" && activeOverlayPrice
+              ? `${activeOverlayPrice.label} ${activeOverlayPrice.amountFormatted}`
+              : roomType === "sale"
+                ? `${fmt(currentTopBid)} · price`
+                : fmt(currentTopBid)
             : "Select an item"}
         </p>
         {roomType === "auction" && isWinning ? (
@@ -794,7 +837,6 @@ export function LiveSaleRoom({
               lastHighBidderId: activeDb.lastHighBidderId,
               currentBidUsd: activeDb.currentBidUsd,
               startingBidUsd: activeDb.startingBidUsd,
-              priceUsd: activeDb.priceUsd,
             })}
           </p>
         ) : null}
@@ -1068,7 +1110,11 @@ export function LiveSaleRoom({
             <div className="w-full min-h-0 min-[1400px]:min-h-0 min-[1400px]:h-full min-[1400px]:max-h-full">
               <LiveVideoStage
                 layout={buyerWideRail ? "fillHeight" : "aspect"}
-                overlayMessage={`Live · ${actionUi ? actionUi.displayTitle : "Current item"} · ${fmt(currentTopBid)}`}
+                overlayMessage={`Live · ${actionUi ? actionUi.displayTitle : "Current item"} · ${
+                  roomType === "auction" && activeOverlayPrice
+                    ? `${activeOverlayPrice.label} ${activeOverlayPrice.amountFormatted}`
+                    : fmt(currentTopBid)
+                }`}
                 viewers={viewerCount}
                 hostName={hostDisplayName}
                 streamTitle={streamTitle}

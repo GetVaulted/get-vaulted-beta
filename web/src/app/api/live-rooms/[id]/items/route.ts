@@ -82,7 +82,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       ? Math.floor(body.sortOrder)
       : (maxSort._max.sortOrder ?? -1) + 1;
 
-  const currentBidUsd = startingBidUsd ?? priceUsd ?? null;
+  const startingBidFinal =
+    typeof startingBidUsd === "number" && Number.isFinite(startingBidUsd) && startingBidUsd > 0
+      ? startingBidUsd
+      : 1;
+  const currentBidUsd = null;
 
   const teamBoardMisc =
     body.teamBoardMisc === true && room.roomType === "break" && room.teamBoardLeague === "nfl";
@@ -93,7 +97,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     title: title.slice(0, 300),
     imageUrl,
     priceUsd,
-    startingBidUsd,
+    startingBidUsd: startingBidFinal,
     currentBidUsd,
     status: "queued" as const,
     sortOrder,
