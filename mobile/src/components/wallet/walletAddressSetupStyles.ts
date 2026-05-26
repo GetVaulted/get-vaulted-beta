@@ -1,0 +1,93 @@
+import { StyleSheet } from 'react-native';
+import { colors, radii, spacing } from '../../theme';
+
+export const walletAddressSetupStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
+  },
+  panelShell: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  panel: {
+    flex: 1,
+    marginTop: spacing.md,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    backgroundColor: '#F7F7F8',
+    overflow: 'hidden',
+  },
+  body: { flex: 1 },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
+    minHeight: 52,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E4E4E7',
+    backgroundColor: '#FFFFFF',
+  },
+  headerSpacer: { width: 32 },
+  headerTitle: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#18181B',
+  },
+  scroll: { flex: 1 },
+  scrollContent: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    gap: spacing.md,
+  },
+  subtitle: {
+    color: '#52525B',
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  field: { gap: spacing.xs },
+  fieldLabel: {
+    color: '#3F3F46',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  input: {
+    minHeight: 52,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: '#D4D4D8',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: spacing.md,
+    fontSize: 17,
+    color: '#18181B',
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  switchLabel: { color: '#52525B', fontSize: 14, fontWeight: '600', flex: 1 },
+  footer: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E4E4E7',
+    backgroundColor: '#FFFFFF',
+  },
+  primaryBtn: {
+    minHeight: 54,
+    borderRadius: radii.md,
+    backgroundColor: colors.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryBtnDisabled: { opacity: 0.45 },
+  primaryBtnText: { color: '#0A0A0A', fontSize: 16, fontWeight: '900' },
+  errorText: { color: '#DC2626', fontSize: 14, fontWeight: '600' },
+});

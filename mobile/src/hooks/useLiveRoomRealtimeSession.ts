@@ -6,6 +6,10 @@ import {
   type LiveRoomBuyerSnapshot,
 } from '../api/liveRoomBuyerRepository';
 import { mergeBuyerSnapshotForBidPlaced } from '../lib/liveRoomBuyerSnapshotMerge';
+import {
+  parsePurchaseCompletedCelebration,
+  type LiveAuctionCloseCelebration,
+} from '../lib/liveAuctionWinnerDisplay';
 import { createRealtimeEventGuard, shouldProcessRealtimeEvent } from '../lib/realtimeEventGuard';
 import type { RoomBroadcastPayload } from '../lib/realtimeChannels';
 import { estimateClockSkewMs, syncedWallTimeMs } from '../lib/serverClockSync';
@@ -36,6 +40,7 @@ export function useLiveRoomRealtimeSession(args: {
   const [connectionBanner, setConnectionBanner] = useState<string | null>(null);
   const [myHighBidUsd, setMyHighBidUsd] = useState<number | null>(null);
   const [showOutbidToast, setShowOutbidToast] = useState(false);
+  const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
 
   const myHighBidUsdRef = useRef<number | null>(null);
   useEffect(() => {
@@ -158,6 +163,8 @@ export function useLiveRoomRealtimeSession(args: {
     },
     onPurchaseCompleted: (payload) => {
       if (!shouldProcessRealtimeEvent(guardRef.current, 'purchase_completed', payload)) return;
+      const celebration = parsePurchaseCompletedCelebration(payload);
+      if (celebration) setSoldCelebration(celebration);
       scheduleReconcile(900);
     },
     onStreamStatusChange: () => args.onStreamRefresh?.(),
@@ -227,6 +234,8 @@ export function useLiveRoomRealtimeSession(args: {
     myHighBidUsd,
     setMyHighBidUsd,
     showOutbidToast,
+    soldCelebration,
+    clearSoldCelebration: () => setSoldCelebration(null),
     fetchSnapshot,
     syncedNowMs: () => syncedWallTimeMs(clockSkewMs),
   };

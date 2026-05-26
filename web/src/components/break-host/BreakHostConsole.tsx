@@ -7,10 +7,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
 import { TeamBoardChromeButton } from "@/components/team-board/TeamBoardChromeButton";
 import { TeamBoardOverlay } from "@/components/team-board/TeamBoardOverlay";
-import { VaultCommandCenterOverlay } from "@/components/break-host/vault/VaultCommandCenterOverlay";
+import { LiveSellerCommandCenter } from "@/components/break-host/LiveSellerCommandCenter";
+import { LiveAuctionSoldCelebration } from "@/components/live-auction/LiveAuctionSoldCelebration";
 import { VaultHostAnnouncements } from "@/components/break-host/vault/VaultHostAnnouncements";
 import { VaultHostLiveChatPanel } from "@/components/break-host/vault/VaultHostLiveChatPanel";
-import { VaultHostShowSidePanel } from "@/components/break-host/vault/VaultHostShowSidePanel";
 import { VaultHostStageEdgeRail } from "@/components/break-host/vault/VaultHostStageEdgeRail";
 import { VaultHostRightRail } from "@/components/break-host/vault/VaultHostRightRail";
 import { VaultPinnedLot } from "@/components/break-host/vault/VaultPinnedLot";
@@ -39,6 +39,7 @@ import {
   mergeLiveRoomItemsForBidPlaced,
 } from "@/lib/live-room-realtime-merge";
 import { estimateClockSkewMs, syncedWallTimeMs } from "@/lib/server-clock-sync";
+import { parsePurchaseCompletedCelebration, type LiveAuctionCloseCelebration } from "@/lib/live-auction-winner-display";
 import { parseTeamBoardPublicPayload, type TeamBoardPublicPayload } from "@/lib/team-board-public";
 
 type RoomPayload = {
@@ -186,6 +187,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const [hostQueueTab, setHostQueueTab] = useState<"auction" | "bin" | "givvy" | "sold">("auction");
   const [vaultMode, setVaultMode] = useState<VaultMode>("auction_night");
   const [vaultCommandOpen, setVaultCommandOpen] = useState(false);
+  const [realtimeConnectionStatus, setRealtimeConnectionStatus] = useState("Connecting…");
+  const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
   const lastRefreshAtRef = useRef<number | null>(null);
   const reconnectCountRef = useRef(0);
   const fallbackRefreshTimerRef = useRef<number | null>(null);
@@ -775,6 +778,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         extra: { type: "purchase_completed", surface: "host_console" },
       });
       if (!shouldProcessRealtimePayload("purchase_completed", payload)) return;
+      const celebration = parsePurchaseCompletedCelebration(payload);
+      if (celebration) setSoldCelebration(celebration);
       flashHostNotice("Item sold · syncing");
       scheduleFallbackRefresh("purchase_completed", 40);
     },
@@ -795,13 +800,20 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       setHostStreamCardRefreshNonce((n) => n + 1);
       scheduleFallbackRefresh("reconnect", 40);
     },
-    onConnectionStateChange: ({ status, reconnectCount }) =>
+    onConnectionStateChange: ({ status, reconnectCount }) => {
+      if (status === "SUBSCRIBED") setRealtimeConnectionStatus("Connected");
+      else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        setRealtimeConnectionStatus("Reconnecting…");
+      } else if (status === "JOINING") {
+        setRealtimeConnectionStatus(reconnectCount > 0 ? "Reconnecting…" : "Connecting…");
+      }
       logLiveDebugEvent({
         event: "realtime_connection_state",
         roomId,
         lastRefreshAtMs: lastRefreshAtRef.current,
         extra: { status, reconnectCount, surface: "host_console" },
-      }),
+      });
+    },
   });
 
   const patchTeamBoard = async (body: Record<string, unknown>) => {
@@ -1110,6 +1122,78 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const hostStartLiveAuctionEnabled =
     room.status === "live" && Boolean(activeBoardRow) && !biddingWindowStillRunningHost;
 
+  const handleHostEndAuction = () => {
+    const item = activeBoardRow?.item;
+    if (!item) return;
+    if (item.lastHighBidderId?.trim()) patchItem(item.id, "sold");
+    else patchItem(item.id, "skipped");
+  };
+
+  const handleHostNextItem = () => {
+    const active = activeBoardRow?.item;
+    if (active?.status === "active" && !biddingWindowStillRunningHost) {
+      if (active.lastHighBidderId?.trim()) patchItem(active.id, "sold");
+      else patchItem(active.id, "skipped");
+    }
+    const next = data.queueItems.find((q) => q.item.status === "queued");
+    if (next) patchItem(next.item.id, "active");
+  };
+
+  const handleHostPinSelected = () => {
+    if (selectedQueueItemId) patchItem(selectedQueueItemId, "active");
+  };
+
+  const commandCenterProps = {
+    roomTitle: streamTitle,
+    roomStatus: room.status,
+    viewerCount: room.viewerCount,
+    streamTimerDisplay,
+    connectionLabel: realtimeConnectionStatus,
+    connectionOk: realtimeConnectionStatus === "Connected",
+    busy,
+    overlayQueueRow,
+    activeBoardRow,
+    hostAuctionCountdownLabel,
+    biddingWindowOpen: biddingWindowStillRunningHost,
+    hostStartLiveAuctionEnabled,
+    hostLiveItemAuctionBusy,
+    onPatchRoom: patchRoom,
+    onStartAuction: () => void handleHostStartLiveItemAuction(),
+    onEndAuction: handleHostEndAuction,
+    onPinSelected: handleHostPinSelected,
+    onNextItem: handleHostNextItem,
+    queueTab: hostQueueTab,
+    onQueueTab: setHostQueueTab,
+    queueRows: data.queueItems,
+    selectedQueueItemId,
+    onSelectQueueItem: setSelectedQueueItemId,
+    onPostItem: (id: string) => void patchItem(id, "active"),
+    onSkipItem: (id: string) => void patchItem(id, "skipped"),
+    onDeleteItem: (id: string) => void deleteQueueItem(id),
+    onAddAuction: () => {
+      setVaultCommandOpen(false);
+      setAuctionDraftTitle("");
+      setAuctionDraftPrice("");
+      setQueueAddModal("auction");
+    },
+    onOpenObs: () => {
+      setVaultCommandOpen(false);
+      setObsSetupModalOpen(true);
+    },
+    onCopyPublic: () => void copyPublic(),
+    recentSales: data.recentSales ?? [],
+    feeTier: data.feeTier ?? null,
+    roomGovernance: {
+      slowModeSeconds: hostModeration.slowModeSeconds,
+      moderators: hostModeration.moderators,
+      busy: modBusy,
+      error: modError,
+      onSetSlowMode: (seconds: number) => void runHostModeration("slow_mode", { metadata: { seconds } }),
+      onAssignModerator: (userId: string) => void assignHostModerator(userId),
+      onRevokeModerator: (userId: string) => void revokeHostModerator(userId),
+    },
+  };
+
   const hostDesktopItemOverlay = (
     <VaultPinnedLot
       variant="desktop"
@@ -1294,16 +1378,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
       <div className="relative flex min-h-0 flex-1 flex-col p-1 sm:p-1.5 min-[1400px]:p-1">
         {/* Desktop — fixed columns: compact info | large centered 9:16 stage | chat */}
-        <div className="relative hidden min-h-0 flex-1 overflow-hidden rounded-xl border border-white/[0.06] bg-zinc-950/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[1400px]:grid min-[1400px]:grid-cols-[248px_minmax(0,1fr)_340px]">
-          <aside className="min-h-0 shrink-0 overflow-y-auto border-r border-white/[0.06] bg-zinc-950/75">
-            <VaultHostShowSidePanel
-              streamTitle={streamTitle}
-              hostUsername={hostUsername}
-              viewerCount={room.viewerCount}
-              streamTimerDisplay={streamTimerDisplay}
-              roomLive={room.status === "live"}
-              onOpenCommandCenter={() => setVaultCommandOpen(true)}
-            />
+        <div className="relative hidden min-h-0 flex-1 overflow-hidden rounded-xl border border-white/[0.06] bg-zinc-950/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[1400px]:grid min-[1400px]:grid-cols-[minmax(280px,340px)_minmax(0,1fr)_300px]">
+          <aside className="min-h-0 shrink-0 overflow-hidden border-r border-white/[0.06]">
+            <LiveSellerCommandCenter {...commandCenterProps} variant="panel" />
           </aside>
 
           <main className="relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-zinc-950/85 px-1">
@@ -1342,54 +1419,20 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         </div>
       </div>
 
-      <VaultCommandCenterOverlay
-        open={vaultCommandOpen}
-        onClose={() => setVaultCommandOpen(false)}
-        roomId={roomId}
-        roomTitle={streamTitle}
-        roomStatus={room.status}
-        viewerCount={room.viewerCount}
-        streamTimerDisplay={streamTimerDisplay}
-        busy={busy}
-        vaultMode={vaultMode}
-        onVaultModeChange={setVaultMode}
-        onPatchRoom={patchRoom}
-        onOpenObs={() => {
-          setVaultCommandOpen(false);
-          setObsSetupModalOpen(true);
-        }}
-        onCopyPublic={() => void copyPublic()}
-        onSoon={(label) => setToast(`${label} — coming soon`)}
-        roomGovernance={{
-          slowModeSeconds: hostModeration.slowModeSeconds,
-          moderators: hostModeration.moderators,
-          busy: modBusy,
-          error: modError,
-          onSetSlowMode: (seconds) => void runHostModeration("slow_mode", { metadata: { seconds } }),
-          onAssignModerator: (userId) => void assignHostModerator(userId),
-          onRevokeModerator: (userId) => void revokeHostModerator(userId),
-        }}
-        onStartAuction={() => void handleHostStartLiveItemAuction()}
-        startAuctionEnabled={hostStartLiveAuctionEnabled}
-        startAuctionBusy={hostLiveItemAuctionBusy}
-        queueTab={hostQueueTab}
-        onQueueTab={setHostQueueTab}
-        queueRows={data.queueItems}
-        selectedQueueItemId={selectedQueueItemId}
-        onSelectQueueItem={setSelectedQueueItemId}
-        onPostItem={(id) => void patchItem(id, "active")}
-        onSkipItem={(id) => void patchItem(id, "skipped")}
-        onDeleteItem={(id) => void deleteQueueItem(id)}
-        onAddAuction={() => {
-          setVaultCommandOpen(false);
-          setAuctionDraftTitle("");
-          setAuctionDraftPrice("");
-          setQueueAddModal("auction");
-        }}
-        recentSales={data.recentSales ?? []}
-        feeTier={data.feeTier ?? null}
-        hits={data.hits}
-      />
+      {vaultCommandOpen ? (
+        <div className="fixed inset-0 z-[65] min-[1400px]:hidden">
+          <div className="absolute inset-0 bg-black/70" onClick={() => setVaultCommandOpen(false)} aria-hidden />
+          <div className="absolute inset-x-0 bottom-0 top-[var(--site-header-offset)] overflow-hidden rounded-t-2xl border border-white/10 shadow-2xl">
+            <LiveSellerCommandCenter
+              {...commandCenterProps}
+              variant="overlay"
+              onClose={() => setVaultCommandOpen(false)}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
 
       {obsSetupModalOpen ? (
         <div

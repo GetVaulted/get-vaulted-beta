@@ -42,5 +42,8 @@ export type RoomBroadcastPayload = {
   eventId?: string;
   emittedAt?: string;
   streamHealth?: string;
-  lastStatusSyncAt?: string;
+  winnerUsername?: string | null;
+  winnerId?: string | null;
+  winningAmountUsd?: number | null;
+  noBids?: boolean;
 };

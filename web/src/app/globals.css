@@ -157,6 +157,56 @@ body {
   }
 }
 
+@keyframes live-auction-sold-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  18% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes live-auction-sold-shimmer {
+  0% {
+    transform: translateX(-120%) rotate(12deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.55;
+  }
+  100% {
+    transform: translateX(120%) rotate(12deg);
+    opacity: 0;
+  }
+}
+
+.live-auction-sold-burst {
+  animation: live-auction-sold-pop 0.55s var(--live-ease, cubic-bezier(0.22, 1, 0.36, 1)) both;
+}
+
+.live-auction-sold-title {
+  text-shadow: 0 0 28px rgba(212, 175, 55, 0.45);
+}
+
+.live-auction-sold-sparkle::after {
+  content: "";
+  position: absolute;
+  inset: -40% -20%;
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(212, 175, 55, 0.35) 50%,
+    transparent 60%
+  );
+  animation: live-auction-sold-shimmer 1.4s ease-out 0.15s both;
+}
+
 @keyframes live-countdown-pulse {
   0%,
   100% {

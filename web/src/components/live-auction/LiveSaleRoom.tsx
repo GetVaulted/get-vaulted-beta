@@ -25,6 +25,7 @@ import {
 import { patchLiveRoomItemStatus, startLiveRoomItemAuction } from "@/lib/live-room-control-client";
 import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
+import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
 
 type SaleItem = {
   id: string;
@@ -779,6 +780,16 @@ export function LiveSaleRoom({
         </p>
         {roomType === "auction" && isWinning ? (
           <p className="text-[9px] font-semibold uppercase tracking-wide text-gold-bright/85">You&apos;re winning</p>
+        ) : roomType === "auction" && activeDb ? (
+          <p className="text-[10px] font-semibold text-zinc-300">
+            {formatAuctionLeaderLine({
+              lastHighBidderUsername: activeDb.lastHighBidderUsername,
+              lastHighBidderId: activeDb.lastHighBidderId,
+              currentBidUsd: activeDb.currentBidUsd,
+              startingBidUsd: activeDb.startingBidUsd,
+              priceUsd: activeDb.priceUsd,
+            })}
+          </p>
         ) : null}
       </div>
       {!isHost && (roomType === "auction" || roomType === "sale") ? (

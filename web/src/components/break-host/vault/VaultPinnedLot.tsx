@@ -1,6 +1,7 @@
 "use client";
 
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
+import { formatAuctionLeaderLine, formatAuctionMoneyUsd } from "@/lib/live-auction-winner-display";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { VAULT_MODE_META } from "@/components/break-host/vault/vault-modes";
 
@@ -181,6 +182,17 @@ export function VaultPinnedLot({
               {item ? hostQueueTitleLine(item.title, item.quantity) : "No lot pinned"}
               {item ? <span className="font-normal text-zinc-500"> · #{item.sortOrder}</span> : null}
             </p>
+            {item ? (
+              <p className={`mt-1 text-left font-semibold text-amber-100/95 ${compactEmbedded ? "text-[10px]" : "text-[11px]"}`}>
+                {formatAuctionLeaderLine({
+                  lastHighBidderUsername: item.lastHighBidderUsername,
+                  lastHighBidderId: item.lastHighBidderId,
+                  currentBidUsd: item.currentBidUsd,
+                  startingBidUsd: item.startingBidUsd,
+                  priceUsd: item.priceUsd,
+                })}
+              </p>
+            ) : null}
             {!compactEmbedded ? (
               <p className="mt-1 line-clamp-2 text-left text-[10px] leading-relaxed text-zinc-400">
                 {item?.teamBoardMisc
@@ -237,7 +249,12 @@ export function VaultPinnedLot({
         {activeBoardRow ? (
           <div className={`relative border-t border-white/[0.07] bg-black/40 px-2.5 ${compactEmbedded ? "py-1.5" : "px-3 py-2 max-[380px]:px-2.5"}`}>
             {activeBoardRow.item.status === "sold" ? (
-              <p className="text-center text-[11px] font-bold uppercase tracking-wide text-emerald-300/95">Lot sold</p>
+              <p className="text-center text-[11px] font-bold uppercase tracking-wide text-emerald-300/95">
+                Lot sold
+                {activeBoardRow.item.lastHighBidderUsername?.trim()
+                  ? ` · @${activeBoardRow.item.lastHighBidderUsername.trim()} · ${formatAuctionMoneyUsd(activeBoardRow.item.currentBidUsd)}`
+                  : ""}
+              </p>
             ) : activeBoardRow.item.status === "skipped" ? (
               <p className="text-center text-[11px] font-bold uppercase tracking-wide text-zinc-400">Lot skipped</p>
             ) : biddingWindowOpen ? (

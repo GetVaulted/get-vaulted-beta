@@ -166,15 +166,29 @@ export async function emitActiveItemChangedAwait(
   });
 }
 
+export type PurchaseCompletedEmitOpts = {
+  roomVersion?: number;
+  itemVersion?: number;
+  winnerUsername?: string | null;
+  winnerId?: string | null;
+  winningAmountUsd?: number | null;
+  /** Active lot closed with zero bids — show no-winner UX (not a sale). */
+  noBids?: boolean;
+};
+
 export function emitPurchaseCompleted(
   liveRoomId: string,
   itemId: string,
-  opts?: { roomVersion?: number; itemVersion?: number },
+  opts?: PurchaseCompletedEmitOpts,
 ): void {
   emitRoomEventWithAliases(liveRoomId, RT_EVENT.purchaseCompleted, {
     itemId,
     roomVersion: opts?.roomVersion,
     itemVersion: opts?.itemVersion,
+    winnerUsername: opts?.winnerUsername ?? null,
+    winnerId: opts?.winnerId ?? null,
+    winningAmountUsd: opts?.winningAmountUsd ?? null,
+    noBids: opts?.noBids === true,
   });
 }
 

@@ -16,6 +16,8 @@ import {
   mergeLiveRoomItemsForBidPlaced,
 } from "@/lib/live-room-realtime-merge";
 import { estimateClockSkewMs } from "@/lib/server-clock-sync";
+import { parsePurchaseCompletedCelebration, type LiveAuctionCloseCelebration } from "@/lib/live-auction-winner-display";
+import { LiveAuctionSoldCelebration } from "@/components/live-auction/LiveAuctionSoldCelebration";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 
 type LiveRoomShellProps = {
@@ -44,6 +46,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const lastItemVersionRef = useRef<Record<string, number>>({});
   /** Monotonic `auctionSeq` from bid HTTP ACK + `bid_placed` realtime (canonical ordering). */
   const lastAuctionSeqRef = useRef(0);
+  const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
   const appendSystemMessage = useCallback((body: string, chatLabel = "System") => {
     setMessages((prev) => {
       const next: LiveRoomMessageDTO = {
@@ -597,6 +600,8 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         extra: { type: "purchase_completed", hasItem: Boolean(payload.itemId) },
       });
       if (!shouldProcessRealtimePayload("purchase_completed", payload)) return;
+      const celebration = parsePurchaseCompletedCelebration(payload);
+      if (celebration) setSoldCelebration(celebration);
       if (payload.itemId) {
         setDetail((prev) => {
           if (!prev) return prev;
@@ -696,35 +701,39 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
 
   if (detail.roomType === "break") {
     return (
-      <LiveAuctionRoom
-        breakId={detail.id}
-        roomTitle={detail.title}
-        sellerId={detail.sellerId}
-        sellerShopUsername={detail.sellerUsername}
-        hostDisplayName={host}
-        viewerCount={viewerCount}
-        isLive={isLive}
-        roomStatus={detail.status}
-        liveRoomId={detail.id}
-        dbItems={detail.items}
-        messages={messages}
-        onMessagesChange={setMessages}
-        onRefetch={load}
-        onAuctionHttpAck={mergeAuctionHttpAck}
-        break={detail.break}
-        teamBoardTick={teamBoardTick}
-        streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
-        scheduledStartAt={detail.scheduledStartAt}
-        thumbnailUrl={detail.thumbnailUrl}
-        clockSkewMs={clockSkewMs}
-        buyerLiveBidPaymentReady={detail.buyerLiveBidPaymentReady}
-        buyerLiveShippingReady={detail.buyerLiveShippingReady}
-      />
+      <>
+        <LiveAuctionRoom
+          breakId={detail.id}
+          roomTitle={detail.title}
+          sellerId={detail.sellerId}
+          sellerShopUsername={detail.sellerUsername}
+          hostDisplayName={host}
+          viewerCount={viewerCount}
+          isLive={isLive}
+          roomStatus={detail.status}
+          liveRoomId={detail.id}
+          dbItems={detail.items}
+          messages={messages}
+          onMessagesChange={setMessages}
+          onRefetch={load}
+          onAuctionHttpAck={mergeAuctionHttpAck}
+          break={detail.break}
+          teamBoardTick={teamBoardTick}
+          streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
+          scheduledStartAt={detail.scheduledStartAt}
+          thumbnailUrl={detail.thumbnailUrl}
+          clockSkewMs={clockSkewMs}
+          buyerLiveBidPaymentReady={detail.buyerLiveBidPaymentReady}
+          buyerLiveShippingReady={detail.buyerLiveShippingReady}
+        />
+        <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
+      </>
     );
   }
 
   return (
-    <LiveSaleRoom
+    <>
+      <LiveSaleRoom
       roomId={detail.id}
       roomTitle={detail.title}
       sellerId={detail.sellerId}
@@ -747,5 +756,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       buyerLiveBidPaymentReady={detail.buyerLiveBidPaymentReady}
       buyerLiveShippingReady={detail.buyerLiveShippingReady}
     />
+      <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
+    </>
   );
 }

@@ -35,6 +35,10 @@ export function mergeBuyerSnapshotForBidPlaced(
       currentBidUsd: nextHigh,
       lastHighBidderId: payload.leadingBidderId ?? 'bidder',
     }),
+    lastHighBidderUsername:
+      payload.leadingBidderUsername !== undefined ? payload.leadingBidderUsername : snap.lastHighBidderUsername,
+    lastHighBidderId:
+      payload.leadingBidderId !== undefined ? payload.leadingBidderId : snap.lastHighBidderId,
     auctionEndsAt,
     biddingOpen: lotBidPhase === 'bidding_open',
     lotBidPhase,

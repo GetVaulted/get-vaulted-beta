@@ -1,4 +1,3 @@
-import type { ReactNode, RefObject } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -9,14 +8,11 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
-  TextInput,
   useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  createBuyerShippingAddress,
   fetchBuyerPaymentMethods,
   fetchBuyerShippingAddresses,
   fetchBuyerWalletReadiness,
@@ -38,62 +34,9 @@ import {
 } from './walletSheetUtils';
 import { logWalletSheet, useKeyboardInset } from './walletSheetKeyboard';
 import { WalletPaymentSetupModal } from './WalletPaymentSetupStep';
+import { WalletAddressSetupModal } from './WalletAddressSetupModal';
 
-export type WalletStep = 'main' | 'delivery' | 'addresses' | 'payment' | 'addAddress';
-
-function useFormScrollAssist() {
-  const scrollRef = useRef<ScrollView>(null);
-  const fieldOffsets = useRef<Record<string, number>>({});
-
-  const registerField = useCallback((key: string, y: number) => {
-    fieldOffsets.current[key] = y;
-  }, []);
-
-  const focusField = useCallback((key: string) => {
-    const y = fieldOffsets.current[key] ?? 0;
-    scrollRef.current?.scrollTo({ y: Math.max(0, y - 20), animated: true });
-  }, []);
-
-  return { scrollRef, registerField, focusField };
-}
-
-function FormStepLayout({
-  header,
-  footer,
-  scrollRef,
-  keyboardInset,
-  safeBottom,
-  children,
-}: {
-  header: ReactNode;
-  footer: ReactNode;
-  scrollRef: RefObject<ScrollView | null>;
-  keyboardInset: number;
-  safeBottom: number;
-  children: ReactNode;
-}) {
-  return (
-    <>
-      {header}
-      <ScrollView
-        ref={scrollRef}
-        style={s.scrollBody}
-        contentContainerStyle={[
-          s.scrollContent,
-          { paddingBottom: keyboardInset + safeBottom + spacing.lg },
-        ]}
-        showsVerticalScrollIndicator={false}
-        bounces={false}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
-        automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
-      >
-        {children}
-      </ScrollView>
-      <View style={s.footer}>{footer}</View>
-    </>
-  );
-}
+export type WalletStep = 'main' | 'delivery' | 'addresses' | 'payment';
 
 type Props = {
   visible: boolean;
@@ -126,7 +69,7 @@ function SheetHeader({
 }: {
   title: string;
   onBack?: () => void;
-  rightSlot?: ReactNode;
+  rightSlot?: React.ReactNode;
 }) {
   return (
     <View style={s.headerRow}>
@@ -175,47 +118,6 @@ function NavRow({
   );
 }
 
-function AddressField({
-  label,
-  value,
-  onChange,
-  placeholder,
-  autoCapitalize = 'words',
-  keyboardType = 'default',
-  fieldKey,
-  onFieldLayout,
-  onFieldFocus,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder: string;
-  autoCapitalize?: 'none' | 'words' | 'sentences' | 'characters';
-  keyboardType?: 'default' | 'number-pad';
-  fieldKey: string;
-  onFieldLayout: (key: string, y: number) => void;
-  onFieldFocus: (key: string) => void;
-}) {
-  return (
-    <View
-      style={s.field}
-      onLayout={(e) => onFieldLayout(fieldKey, e.nativeEvent.layout.y)}
-    >
-      <LiveRoomText style={s.fieldLabel}>{label}</LiveRoomText>
-      <TextInput
-        value={value}
-        onChangeText={onChange}
-        placeholder={placeholder}
-        placeholderTextColor="rgba(255,255,255,0.35)"
-        style={s.input}
-        autoCapitalize={autoCapitalize}
-        keyboardType={keyboardType}
-        onFocus={() => onFieldFocus(fieldKey)}
-      />
-    </View>
-  );
-}
-
 export function WalletSheet({
   visible,
   onClose,
@@ -230,19 +132,17 @@ export function WalletSheet({
   const keyboardInset = useKeyboardInset();
   const sheetMaxHeight = Math.min(windowHeight * 0.9, 680);
   const safeBottom = Math.max(insets.bottom, spacing.lg);
-  const addressFormScroll = useFormScrollAssist();
   const openSeedAppliedRef = useRef(false);
 
   const [step, setStep] = useState<WalletStep>('main');
   const [paymentSetupOpen, setPaymentSetupOpen] = useState(false);
+  const [addressSetupOpen, setAddressSetupOpen] = useState(false);
+  const [addressModalDraft, setAddressModalDraft] = useState<CreateShippingAddressInput | null>(null);
+  const [addressModalEditing, setAddressModalEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [readiness, setReadiness] = useState<BuyerWalletReadiness | null>(initialReadiness ?? null);
   const [paymentMethods, setPaymentMethods] = useState<BuyerPaymentMethodRow[]>([]);
   const [addresses, setAddresses] = useState<BuyerShippingAddressRow[]>([]);
-  const [addressDraft, setAddressDraft] = useState<AddressDraft>(EMPTY_ADDRESS);
-  const [addressEditing, setAddressEditing] = useState(false);
-  const [addressBusy, setAddressBusy] = useState(false);
-  const [addressError, setAddressError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const loadInFlight = useRef(false);
@@ -297,9 +197,8 @@ export function WalletSheet({
     if (!visible) {
       setStep('main');
       setPaymentSetupOpen(false);
-      setAddressDraft(EMPTY_ADDRESS);
-      setAddressEditing(false);
-      setAddressError(null);
+      setAddressSetupOpen(false);
+      setAddressModalDraft(null);
       setActionError(null);
       openSeedAppliedRef.current = false;
       return;
@@ -315,7 +214,7 @@ export function WalletSheet({
 
   const openAddAddress = (seed?: BuyerShippingAddressRow) => {
     if (seed) {
-      setAddressDraft({
+      setAddressModalDraft({
         name: seed.name,
         fullName: seed.fullName,
         line1: seed.line1,
@@ -326,30 +225,12 @@ export function WalletSheet({
         country: seed.country,
         isDefault: seed.isDefault !== false,
       });
-      setAddressEditing(true);
+      setAddressModalEditing(true);
     } else {
-      setAddressDraft(EMPTY_ADDRESS);
-      setAddressEditing(false);
+      setAddressModalDraft(EMPTY_ADDRESS);
+      setAddressModalEditing(false);
     }
-    setAddressError(null);
-    setStep('addAddress');
-  };
-
-  const saveAddress = async () => {
-    if (!accessToken || addressBusy) return;
-    setAddressBusy(true);
-    setAddressError(null);
-    try {
-      await createBuyerShippingAddress(accessToken, addressDraft);
-      await loadWalletData();
-      setStep(addressEditing ? 'addresses' : 'delivery');
-      setAddressDraft(EMPTY_ADDRESS);
-      setAddressEditing(false);
-    } catch (e) {
-      setAddressError(e instanceof Error ? e.message : 'Could not save address.');
-    } finally {
-      setAddressBusy(false);
-    }
+    setAddressSetupOpen(true);
   };
 
   const finishWalletSetup = () => {
@@ -548,117 +429,6 @@ export function WalletSheet({
     </>
   );
 
-  const renderAddAddress = () => (
-    <FormStepLayout
-      header={
-        <SheetHeader
-          title={addressEditing ? 'Edit Address' : 'Add Address'}
-          onBack={() => setStep(addresses.length > 0 ? 'addresses' : 'delivery')}
-        />
-      }
-      footer={
-        <Pressable
-          style={[s.primaryBtn, addressBusy && s.primaryBtnDisabled]}
-          onPress={() => void saveAddress()}
-          disabled={addressBusy}
-        >
-          {addressBusy ? (
-            <ActivityIndicator color="#0a0a0a" />
-          ) : (
-            <LiveRoomText style={s.primaryBtnText}>Save address</LiveRoomText>
-          )}
-        </Pressable>
-      }
-      scrollRef={addressFormScroll.scrollRef}
-      keyboardInset={keyboardInset}
-      safeBottom={safeBottom}
-    >
-      {addressError ? <LiveRoomText style={s.errorText}>{addressError}</LiveRoomText> : null}
-      <AddressField
-        fieldKey="name"
-        onFieldLayout={addressFormScroll.registerField}
-        onFieldFocus={addressFormScroll.focusField}
-        label="Label"
-        value={addressDraft.name}
-        onChange={(v) => setAddressDraft((d) => ({ ...d, name: v }))}
-        placeholder="Shipping"
-      />
-      <AddressField
-        fieldKey="fullName"
-        onFieldLayout={addressFormScroll.registerField}
-        onFieldFocus={addressFormScroll.focusField}
-        label="Full name"
-        value={addressDraft.fullName}
-        onChange={(v) => setAddressDraft((d) => ({ ...d, fullName: v }))}
-        placeholder="Jane Collector"
-      />
-      <AddressField
-        fieldKey="line1"
-        onFieldLayout={addressFormScroll.registerField}
-        onFieldFocus={addressFormScroll.focusField}
-        label="Address line 1"
-        value={addressDraft.line1}
-        onChange={(v) => setAddressDraft((d) => ({ ...d, line1: v }))}
-        placeholder="123 Main St"
-      />
-      <AddressField
-        fieldKey="line2"
-        onFieldLayout={addressFormScroll.registerField}
-        onFieldFocus={addressFormScroll.focusField}
-        label="Address line 2 (optional)"
-        value={addressDraft.line2 ?? ''}
-        onChange={(v) => setAddressDraft((d) => ({ ...d, line2: v }))}
-        placeholder="Apt 4"
-      />
-      <AddressField
-        fieldKey="city"
-        onFieldLayout={addressFormScroll.registerField}
-        onFieldFocus={addressFormScroll.focusField}
-        label="City"
-        value={addressDraft.city}
-        onChange={(v) => setAddressDraft((d) => ({ ...d, city: v }))}
-        placeholder="City"
-      />
-      <AddressField
-        fieldKey="state"
-        onFieldLayout={addressFormScroll.registerField}
-        onFieldFocus={addressFormScroll.focusField}
-        label="State / region"
-        value={addressDraft.state}
-        onChange={(v) => setAddressDraft((d) => ({ ...d, state: v }))}
-        placeholder="CA"
-      />
-      <AddressField
-        fieldKey="postalCode"
-        onFieldLayout={addressFormScroll.registerField}
-        onFieldFocus={addressFormScroll.focusField}
-        label="Postal code"
-        value={addressDraft.postalCode}
-        onChange={(v) => setAddressDraft((d) => ({ ...d, postalCode: v }))}
-        placeholder="90210"
-        keyboardType="number-pad"
-      />
-      <AddressField
-        fieldKey="country"
-        onFieldLayout={addressFormScroll.registerField}
-        onFieldFocus={addressFormScroll.focusField}
-        label="Country (ISO)"
-        value={addressDraft.country}
-        onChange={(v) => setAddressDraft((d) => ({ ...d, country: v.toUpperCase().slice(0, 2) }))}
-        placeholder="US"
-        autoCapitalize="characters"
-      />
-      <View style={s.switchRow}>
-        <LiveRoomText style={s.switchLabel}>Set as default shipping address</LiveRoomText>
-        <Switch
-          value={addressDraft.isDefault !== false}
-          onValueChange={(v) => setAddressDraft((d) => ({ ...d, isDefault: v }))}
-          trackColor={{ true: colors.gold }}
-        />
-      </View>
-    </FormStepLayout>
-  );
-
   const renderStep = () => {
     switch (step) {
       case 'delivery':
@@ -667,8 +437,6 @@ export function WalletSheet({
         return renderAddresses();
       case 'payment':
         return renderPayment();
-      case 'addAddress':
-        return renderAddAddress();
       case 'main':
       default:
         return renderMain();
@@ -678,7 +446,7 @@ export function WalletSheet({
   return (
     <>
       <Modal
-        visible={visible && !paymentSetupOpen}
+        visible={visible && !paymentSetupOpen && !addressSetupOpen}
         animationType="slide"
         transparent
         onRequestClose={step === 'main' ? onClose : () => setStep('main')}
@@ -710,6 +478,18 @@ export function WalletSheet({
           void loadWalletData();
           setPaymentSetupOpen(false);
           setStep('payment');
+        }}
+      />
+      <WalletAddressSetupModal
+        visible={visible && addressSetupOpen}
+        accessToken={accessToken}
+        editing={addressModalEditing}
+        initialDraft={addressModalDraft ?? undefined}
+        onClose={() => setAddressSetupOpen(false)}
+        onSaved={() => {
+          void loadWalletData();
+          setAddressSetupOpen(false);
+          setStep(addressModalEditing ? 'addresses' : 'delivery');
         }}
       />
     </>

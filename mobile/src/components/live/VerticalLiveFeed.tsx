@@ -25,7 +25,7 @@ import { fetchLiveRoomPublicById } from '../../api/liveRoomsRepository';
 import type { LiveStream } from '../../types';
 import type { LiveStackParamList, MainTabParamList } from '../../navigation/types';
 import { rootNavigationRef } from '../../navigation/rootNavigationRef';
-import { LiveBadge } from '../ui/LiveBadge';
+import { LiveAuctionSoldCelebration } from './LiveAuctionSoldCelebration';
 import {
   CHAT_ABOVE_COMPOSER_GAP,
   COMPOSER_BAR_HEIGHT,
@@ -336,6 +336,10 @@ function LiveSlide({
           <Text style={styles.outbidToastTxt}>Outbid — new high bid on this item</Text>
         </View>
       ) : null}
+      <LiveAuctionSoldCelebration
+        celebration={liveSession.soldCelebration}
+        onDone={liveSession.clearSoldCelebration}
+      />
       <View style={styles.slide}>
         <View style={computeLiveStageHostStyle(stageContainer)}>
           <View style={[styles.stageRoot, computeLiveStageRootStyle(stageContainer)]}>

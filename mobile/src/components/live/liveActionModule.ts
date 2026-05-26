@@ -1,5 +1,6 @@
 import type { LiveRoomBuyerSnapshot } from '../../api/liveRoomBuyerRepository';
 import { LIVE_AUCTION_BUYER_TIMER_ENDED_COPY } from '../../lib/liveAuctionLotPhase';
+import { formatAuctionLeaderLine } from '../../lib/liveAuctionWinnerDisplay';
 import { pickVaultWaitingMessage } from '../../lib/liveAuctionBuyerVaultCopy';
 import type { CategoryId, HybridFocus, LiveCommerceMode, LiveRoomFormat, LiveStream } from '../../types';
 
@@ -71,7 +72,13 @@ function resolveBuyerAuctionItemHud(
       timerMmSs: auctionCountdownMmSs(snap.auctionEndsAt, nowMs),
       currentPrefix: 'Current',
       currentAmount: formatMoney(current),
-      winningLine: current > 0 ? 'High bid on the floor' : '',
+      winningLine: formatAuctionLeaderLine({
+        lastHighBidderUsername: snap.lastHighBidderUsername,
+        lastHighBidderId: snap.lastHighBidderId,
+        currentBidUsd: snap.currentBidUsd,
+        startingBidUsd: snap.startingBidUsd,
+        priceUsd: snap.priceUsd,
+      }),
       stateLine: 'Bidding is live — place the next bid to take the lead.',
       nextBidUsd: next,
       biddingOpen: true,

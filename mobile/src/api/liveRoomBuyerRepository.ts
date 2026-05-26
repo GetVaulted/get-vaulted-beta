@@ -26,6 +26,11 @@ export type LiveRoomBuyerSnapshot = {
   breakPaused?: boolean;
   breakFull?: boolean;
   /** From GET /api/live-rooms/:id when authenticated buyer. */
+  /** Resolved high bidder @handle from GET / activeItem enrichment. */
+  lastHighBidderUsername?: string | null;
+  lastHighBidderId?: string | null;
+  startingBidUsd?: number | null;
+  priceUsd?: number | null;
   paymentReady?: boolean | null;
   shippingReady?: boolean | null;
 };
@@ -62,6 +67,9 @@ export async function fetchLiveRoomBuyerSnapshot(
         startingBidUsd?: number | null;
         priceUsd?: number | null;
         lastHighBidderId?: string | null;
+        lastHighBidderUsername?: string | null;
+        startingBidUsd?: number | null;
+        priceUsd?: number | null;
         auctionEndsAt?: string | null;
       } | null;
       break?: {
@@ -140,6 +148,10 @@ export async function fetchLiveRoomBuyerSnapshot(
     breakFull: breakSnap?.breakFull === true,
     paymentReady: typeof detail?.buyerLiveBidPaymentReady === 'boolean' ? detail.buyerLiveBidPaymentReady : null,
     shippingReady: typeof detail?.buyerLiveShippingReady === 'boolean' ? detail.buyerLiveShippingReady : null,
+    lastHighBidderUsername: active?.lastHighBidderUsername?.trim() || null,
+    lastHighBidderId: active?.lastHighBidderId?.trim() || null,
+    startingBidUsd: typeof active?.startingBidUsd === 'number' ? active.startingBidUsd : null,
+    priceUsd: typeof active?.priceUsd === 'number' ? active.priceUsd : null,
   };
 }
 

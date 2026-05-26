@@ -90,7 +90,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
 
   const item = await prisma.liveRoomItem.findFirst({
     where: { id: itemId, liveRoomId },
-    select: { id: true, status: true, itemVersion: true, biddingOpen: true, auctionEndsAt: true },
+    select: {
+      id: true,
+      status: true,
+      itemVersion: true,
+      biddingOpen: true,
+      auctionEndsAt: true,
+      lastHighBidderId: true,
+    },
   });
   if (!item) return NextResponse.json({ error: "Item not found" }, { status: 404 });
 
@@ -383,9 +390,20 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
           itemPriceUsd: settleOut.itemPriceUsd,
         };
       });
+      const winnerUsername = settled.buyerId
+        ? (
+            await prisma.user.findUnique({
+              where: { id: settled.buyerId },
+              select: { username: true },
+            })
+          )?.username ?? null
+        : null;
       emitPurchaseCompleted(liveRoomId, itemId, {
         roomVersion: settled.roomVersion,
         itemVersion: settled.itemVersion,
+        winnerUsername,
+        winnerId: settled.buyerId,
+        winningAmountUsd: settled.itemPriceUsd,
       });
       let autoCharge: ChargeOrderSavedPmOutcome = { outcome: "error", code: "NO_BUYER" };
       if (settled.buyerId) {
@@ -464,6 +482,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
     if (data.status === "skipped") {
       emitLiveRoomQueueItemsChanged(liveRoomId);
       if (wasActive) {
+        const hadNoBids = !item.lastHighBidderId?.trim();
+        emitPurchaseCompleted(liveRoomId, itemId, {
+          roomVersion: next.roomVersion,
+          itemVersion: next.itemVersion,
+          noBids: hadNoBids,
+        });
         emitActiveItemChanged(liveRoomId, itemId, {
           roomVersion: next.roomVersion,
           itemVersion: next.itemVersion,
