@@ -125,6 +125,7 @@ function LiveSlide({
   onRequireAuth,
   accessToken,
   userId,
+  onWalletOverlayChange,
 }: {
   stream: LiveStream;
   isActive: boolean;
@@ -135,6 +136,7 @@ function LiveSlide({
   onRequireAuth?: () => void;
   accessToken?: string;
   userId?: string;
+  onWalletOverlayChange?: (active: boolean) => void;
 }) {
   const insets = useSafeAreaInsets();
   const stageInsets = computeLiveStageSafeInsets(stageContainer, screenHeight, insets, spacing.sm);
@@ -640,6 +642,7 @@ function LiveSlide({
           onRefreshSnapshot={liveSession.fetchSnapshot}
           onBidPlaced={(amount) => liveSession.setMyHighBidUsd(amount)}
           participationBlocked={breakParticipationBlocked}
+          onWalletOverlayChange={isActive ? onWalletOverlayChange : undefined}
         />
       </View>
           </View>
@@ -708,10 +711,16 @@ export function VerticalLiveFeed({
   }, [initialStreamId, streams]);
 
   const [page, setPage] = useState(startIndex);
+  const [walletOverlayActive, setWalletOverlayActive] = useState(false);
 
   useEffect(() => {
     setPage(startIndex);
   }, [startIndex]);
+
+  useEffect(() => {
+    if (!walletOverlayActive) return;
+    setWalletOverlayActive(false);
+  }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!streams.length) {
     return (
@@ -764,6 +773,7 @@ export function VerticalLiveFeed({
         style={styles.feedPager}
         initialPage={startIndex}
         orientation="vertical"
+        scrollEnabled={!walletOverlayActive}
         onPageSelected={(e) => setPage(e.nativeEvent.position)}
       >
         {streams.map((stream, index) => (
@@ -778,6 +788,7 @@ export function VerticalLiveFeed({
               onRequireAuth={onRequireAuth}
               accessToken={accessToken}
               userId={userId}
+              onWalletOverlayChange={setWalletOverlayActive}
             />
           </View>
         ))}

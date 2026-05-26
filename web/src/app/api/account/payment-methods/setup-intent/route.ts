@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { ensureStripeCustomerIdForUser } from "@/lib/stripe-customer";
 import { getStripe, getStripePublishableKey, isStripeConfigured } from "@/lib/stripe";
 
 /**
  * Creates a SetupIntent so the buyer can add a card to their Stripe Customer (off-session usage for wins).
  */
-export async function POST() {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export async function POST(req: Request) {
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
 
   if (!isStripeConfigured()) {
     return NextResponse.json(
@@ -28,7 +26,7 @@ export async function POST() {
   }
 
   try {
-    const customerId = await ensureStripeCustomerIdForUser(session.user.id);
+    const customerId = await ensureStripeCustomerIdForUser(auth.userId);
     const stripe = getStripe();
     const setupIntent = await stripe.setupIntents.create({
       customer: customerId,

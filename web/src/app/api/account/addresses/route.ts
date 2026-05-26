@@ -1,21 +1,21 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
 import { validateAddressCreateInput, type AddressInput } from "@/lib/address-book";
 
-export async function GET() {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(req: Request) {
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
   const addresses = await prisma.address.findMany({
-    where: { userId: session.user.id },
+    where: { userId: auth.userId },
     orderBy: [{ type: "asc" }, { isDefault: "desc" }, { createdAt: "desc" }],
   });
   return NextResponse.json({ addresses });
 }
 
 export async function POST(req: Request) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
   let body: AddressInput;
   try {
     body = (await req.json()) as AddressInput;
@@ -28,13 +28,13 @@ export async function POST(req: Request) {
   const address = await prisma.$transaction(async (tx) => {
     if (data.isDefault) {
       await tx.address.updateMany({
-        where: { userId: session.user.id, type: data.type, isDefault: true },
+        where: { userId: auth.userId, type: data.type, isDefault: true },
         data: { isDefault: false },
       });
     }
     return tx.address.create({
       data: {
-        userId: session.user.id,
+        userId: auth.userId,
         ...data,
       },
     });

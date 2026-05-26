@@ -52,7 +52,14 @@
       ],
       "expo-web-browser",
       "expo-apple-authentication",
-      "expo-video"
+      "expo-video",
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.getvaulted.app",
+          "enableGooglePay": false
+        }
+      ]
     ]
   }
 }

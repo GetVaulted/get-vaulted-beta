@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { listBuyerCardPaymentMethods } from "@/lib/stripe-customer";
 import { isStripeConfigured } from "@/lib/stripe";
 
@@ -14,11 +14,9 @@ export type PaymentMethodApiRow = {
 /**
  * Buyer saved card payment methods (Stripe Customer + PaymentMethod).
  */
-export async function GET() {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export async function GET(req: Request) {
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
 
   if (!isStripeConfigured()) {
     return NextResponse.json({
@@ -29,7 +27,7 @@ export async function GET() {
   }
 
   try {
-    const paymentMethods = await listBuyerCardPaymentMethods(session.user.id);
+    const paymentMethods = await listBuyerCardPaymentMethods(auth.userId);
     return NextResponse.json({
       paymentMethods,
       stripeConfigured: true,

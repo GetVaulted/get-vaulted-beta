@@ -111,6 +111,8 @@ type Props = {
   onBidPlaced?: (amountUsd: number) => void;
   /** Break rooms: block bid CTAs until disclaimer accepted. */
   participationBlocked?: boolean;
+  /** Parent can disable feed gestures while wallet overlay is open. */
+  onWalletOverlayChange?: (active: boolean) => void;
 };
 
 export function LivePinnedActionBar({
@@ -125,11 +127,13 @@ export function LivePinnedActionBar({
   onRefreshSnapshot,
   onBidPlaced,
   participationBlocked = false,
+  onWalletOverlayChange,
 }: Props) {
   const stackNav = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const tabNav = stackNav.getParent<BottomTabNavigationProp<MainTabParamList>>();
   const [bidBusy, setBidBusy] = useState(false);
   const [walletSheetOpen, setWalletSheetOpen] = useState(false);
+  const [walletOverlayActive, setWalletOverlayActive] = useState(false);
   const [walletReadiness, setWalletReadiness] = useState<BuyerWalletReadiness | null>(null);
   const [localRoomSnap, setLocalRoomSnap] = useState<LiveRoomBuyerSnapshot | null>(null);
   const [localSyncRefreshing, setLocalSyncRefreshing] = useState(false);
@@ -139,8 +143,9 @@ export function LivePinnedActionBar({
   const buyerKind = useMemo(() => resolveBuyerRoomKind(roomSnap, stream), [roomSnap, stream]);
   const m = useMemo(() => resolveLiveBuyerCommerceHud(stream, roomSnap), [stream, roomSnap]);
   const auctionLane = buyerKind === 'auction';
-  const primaryDisabled = m.buyerPrimaryDisabled === true || participationBlocked;
-  const secondaryDisabled = m.buyerSecondaryDisabled === true || participationBlocked;
+  const commerceBlocked = walletOverlayActive || walletSheetOpen;
+  const primaryDisabled = m.buyerPrimaryDisabled === true || participationBlocked || commerceBlocked;
+  const secondaryDisabled = m.buyerSecondaryDisabled === true || participationBlocked || commerceBlocked;
   const padBottom = 4 + Math.min(10, Math.round(bottomSafeInset * 0.35));
   const metaLine = [m.winningLine, m.stateLine].filter(Boolean).join(' · ');
 
@@ -355,7 +360,10 @@ export function LivePinnedActionBar({
     });
 
   return (
-    <View style={[styles.floatRoot, { paddingBottom: padBottom }]}>
+    <View
+      style={[styles.floatRoot, { paddingBottom: padBottom }]}
+      pointerEvents={commerceBlocked ? 'box-none' : 'auto'}
+    >
       {Platform.OS === 'ios' ? (
         <BlurView intensity={42} tint="dark" style={StyleSheet.absoluteFill} />
       ) : (
@@ -450,6 +458,10 @@ export function LivePinnedActionBar({
           if (next.paymentReady && next.shippingReady) {
             void refreshRoomSnapshot();
           }
+        }}
+        onActiveChange={(active) => {
+          setWalletOverlayActive(active);
+          onWalletOverlayChange?.(active);
         }}
       />
     </View>
