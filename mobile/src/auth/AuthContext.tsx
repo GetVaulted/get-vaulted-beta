@@ -4,6 +4,7 @@ import { updateMyProfile } from '../api/profilesRepository';
 import { setKeepMeLoggedInPreference } from '../lib/authSessionStorage';
 import { resolveInitialAuthSession } from '../lib/recoverInvalidAuthSession';
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase';
+import { signInWithAppleOAuth, signInWithGoogleOAuth, type SocialAuthResult } from '../lib/socialAuth';
 
 type AuthCtx = {
   user: User | null;
@@ -13,6 +14,8 @@ type AuthCtx = {
   guestExploreMode: boolean;
   enterGuestExplore: () => void;
   signInWithPassword: (email: string, password: string, opts?: { persistSession?: boolean }) => Promise<void>;
+  signInWithGoogle: (opts?: { persistSession?: boolean }) => Promise<SocialAuthResult>;
+  signInWithApple: (opts?: { persistSession?: boolean }) => Promise<SocialAuthResult>;
   signUpWithPassword: (params: { email: string; password: string; username: string }) => Promise<{
     needsEmailConfirmation: boolean;
   }>;
@@ -79,6 +82,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) throw error;
   }, []);
 
+  const signInWithGoogle = useCallback(async (opts?: { persistSession?: boolean }) => {
+    await setKeepMeLoggedInPreference(opts?.persistSession ?? true);
+    return signInWithGoogleOAuth();
+  }, []);
+
+  const signInWithApple = useCallback(async (opts?: { persistSession?: boolean }) => {
+    await setKeepMeLoggedInPreference(opts?.persistSession ?? true);
+    return signInWithAppleOAuth();
+  }, []);
+
   const signUpWithPassword = useCallback(
     async (params: { email: string; password: string; username: string }) => {
       const sb = getSupabase();
@@ -137,6 +150,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       guestExploreMode,
       enterGuestExplore,
       signInWithPassword,
+      signInWithGoogle,
+      signInWithApple,
       signUpWithPassword,
       requestPasswordReset,
       signOut,
@@ -147,6 +162,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       guestExploreMode,
       enterGuestExplore,
       signInWithPassword,
+      signInWithGoogle,
+      signInWithApple,
       signUpWithPassword,
       requestPasswordReset,
       signOut,

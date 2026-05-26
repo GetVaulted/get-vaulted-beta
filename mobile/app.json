@@ -3,6 +3,7 @@
     "name": "Get Vaulted",
     "slug": "get-vaulted",
     "version": "1.0.0",
+    "scheme": "getvaulted",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -14,12 +15,15 @@
     },
     "ios": {
       "supportsTablet": true,
+      "usesAppleSignIn": true,
+      "bundleIdentifier": "com.getvaulted.app",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Get Vaulted uses your photo library for profile photos and listing images.",
         "NSCameraUsageDescription": "Get Vaulted uses the camera for profile photos and listing images."
       }
     },
     "android": {
+      "package": "com.getvaulted.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#050505"
@@ -47,6 +51,7 @@
         }
       ],
       "expo-web-browser",
+      "expo-apple-authentication",
       "expo-video"
     ]
   }

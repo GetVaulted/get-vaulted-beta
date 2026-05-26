@@ -6,6 +6,7 @@ import { signIn } from "next-auth/react";
 import { Suspense, useEffect, useState } from "react";
 import { safeReturnTo } from "@/lib/safe-return-to";
 import { AUTH_USER_MESSAGES } from "@/lib/unified-auth";
+import { SocialAuthButtons } from "@/components/auth/SocialAuthButtons";
 
 function SignInForm() {
   const router = useRouter();
@@ -77,7 +78,9 @@ function SignInForm() {
         </p>
       ) : null}
 
-      <form className="mt-6 flex flex-col gap-4" method="post" onSubmit={onSubmit}>
+      <SocialAuthButtons returnTo={returnTo} disabled={loading} />
+
+      <form className="mt-2 flex flex-col gap-4" method="post" onSubmit={onSubmit}>
         <div className="space-y-1.5">
           <label htmlFor="signin-email" className="text-xs font-medium text-zinc-300">
             Email

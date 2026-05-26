@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { checkUsernameAvailable, validateUsernameFormat } from '../../api/profilesRepository';
 import { AuthPasswordField } from '../../components/auth/AuthPasswordField';
+import { SocialAuthButtons, socialAuthErrorMessage } from '../../components/auth/SocialAuthButtons';
 import { GetVaultedBrandMark } from '../../components/branding/GetVaultedBrandMark';
 import { LegalConsentNote } from '../../components/legal/LegalConsentNote';
 import { useAuth } from '../../auth/AuthContext';
@@ -30,7 +31,7 @@ type UsernameStatus = 'idle' | 'checking' | 'available' | 'unavailable' | 'inval
 
 export function AuthSignUpScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { signUpWithPassword, loading: authLoading, enterGuestExplore } = useAuth();
+  const { signUpWithPassword, signInWithGoogle, signInWithApple, loading: authLoading, enterGuestExplore } = useAuth();
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -40,6 +41,7 @@ export function AuthSignUpScreen({ navigation }: Props) {
   const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>('idle');
   const [usernameHint, setUsernameHint] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [socialBusy, setSocialBusy] = useState<'google' | 'apple' | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -80,6 +82,27 @@ export function AuthSignUpScreen({ navigation }: Props) {
   const goBack = () => {
     if (navigation.canGoBack()) navigation.goBack();
     else navigation.replace('LaunchIntro', { instantAuth: true });
+  };
+
+  const finishAuth = () => {
+    navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'HQ' } }] });
+  };
+
+  const onSocial = async (provider: 'google' | 'apple') => {
+    setErr(null);
+    setSocialBusy(provider);
+    try {
+      const result =
+        provider === 'google'
+          ? await signInWithGoogle({ persistSession: true })
+          : await signInWithApple({ persistSession: true });
+      if (result === 'success') finishAuth();
+      else if (result === 'error') setErr(AUTH_USER_MESSAGES.socialSignInFailed);
+    } catch (e) {
+      setErr(socialAuthErrorMessage(e));
+    } finally {
+      setSocialBusy(null);
+    }
   };
 
   const onSubmit = async () => {
@@ -152,6 +175,14 @@ export function AuthSignUpScreen({ navigation }: Props) {
 
         <Text style={styles.title}>Create Account</Text>
         <Text style={styles.sub}>Join the premium live collectible network.</Text>
+
+        <SocialAuthButtons
+          onGoogle={() => void onSocial('google')}
+          onApple={() => void onSocial('apple')}
+          busy={socialBusy}
+          disabled={busy || authLoading}
+          error={null}
+        />
 
         <TextInput
           style={styles.input}

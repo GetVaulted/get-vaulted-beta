@@ -16,6 +16,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AuthPasswordField } from '../../components/auth/AuthPasswordField';
+import { SocialAuthButtons, socialAuthErrorMessage } from '../../components/auth/SocialAuthButtons';
 import { GetVaultedBrandMark } from '../../components/branding/GetVaultedBrandMark';
 import { useAuth } from '../../auth/AuthContext';
 import { AUTH_USER_MESSAGES } from '../../lib/authUserMessages';
@@ -28,7 +29,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'AuthLogin'>;
 
 export function AuthLoginScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { signInWithPassword, requestPasswordReset, loading: authLoading, enterGuestExplore } = useAuth();
+  const { signInWithPassword, signInWithGoogle, signInWithApple, requestPasswordReset, loading: authLoading, enterGuestExplore } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -38,6 +39,7 @@ export function AuthLoginScreen({ navigation }: Props) {
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotBusy, setForgotBusy] = useState(false);
+  const [socialBusy, setSocialBusy] = useState<'google' | 'apple' | null>(null);
 
   useEffect(() => {
     void getKeepMeLoggedInPreference().then(setKeepLoggedIn);
@@ -48,12 +50,33 @@ export function AuthLoginScreen({ navigation }: Props) {
     else navigation.replace('LaunchIntro', { instantAuth: true });
   };
 
+  const finishAuth = () => {
+    navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
+  };
+
+  const onSocial = async (provider: 'google' | 'apple') => {
+    setErr(null);
+    setSocialBusy(provider);
+    try {
+      const result =
+        provider === 'google'
+          ? await signInWithGoogle({ persistSession: keepLoggedIn })
+          : await signInWithApple({ persistSession: keepLoggedIn });
+      if (result === 'success') finishAuth();
+      else if (result === 'error') setErr(AUTH_USER_MESSAGES.socialSignInFailed);
+    } catch (e) {
+      setErr(socialAuthErrorMessage(e));
+    } finally {
+      setSocialBusy(null);
+    }
+  };
+
   const onSubmit = async () => {
     setErr(null);
     setBusy(true);
     try {
       await signInWithPassword(email, password, { persistSession: keepLoggedIn });
-      navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
+      finishAuth();
     } catch (e) {
       setErr(e instanceof Error ? e.message : AUTH_USER_MESSAGES.signInInvalidCredentials);
     } finally {
@@ -95,6 +118,14 @@ export function AuthLoginScreen({ navigation }: Props) {
 
         <Text style={styles.title}>Sign In</Text>
         <Text style={styles.sub}>Welcome back to your vault.</Text>
+
+        <SocialAuthButtons
+          onGoogle={() => void onSocial('google')}
+          onApple={() => void onSocial('apple')}
+          busy={socialBusy}
+          disabled={busy || authLoading}
+          error={null}
+        />
 
         <TextInput
           style={styles.input}

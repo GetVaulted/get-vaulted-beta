@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { authorizeCredentialsViaSupabase } from "@/lib/authenticate-supabase-credentials";
+import { authorizeSupabaseAccessToken } from "@/lib/authorize-supabase-access-token";
 import { expiredJwtToken, resolveAuthUserForToken } from "@/lib/auth-resolve-user";
 import { prisma } from "@/lib/prisma";
 import { usesUnifiedSupabaseAuth } from "@/lib/unified-auth";
@@ -57,6 +58,16 @@ export const authOptions: NextAuthOptions = {
 
         // Legacy web-only accounts (Resend OTP path) or non-beta deploys
         return authorizeCredentialsViaSupabase(email, password);
+      },
+    }),
+    CredentialsProvider({
+      id: "supabase-oauth",
+      name: "Supabase OAuth",
+      credentials: {
+        accessToken: { type: "text" },
+      },
+      async authorize(credentials) {
+        return authorizeSupabaseAccessToken(credentials?.accessToken);
       },
     }),
   ],

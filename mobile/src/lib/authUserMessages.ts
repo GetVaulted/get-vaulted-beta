@@ -7,4 +7,7 @@ export const AUTH_USER_MESSAGES = {
   passwordResetSent:
     'If an account exists for that address, you will receive a reset link shortly.',
   passwordResetBody: 'We will email you a link to choose a new password.',
+  socialNotConfigured: 'Social sign-in is not configured.',
+  socialSignInFailed: 'Could not complete social sign-in. Try again or use email and password.',
+  socialSignInCancelled: 'Sign-in was cancelled.',
 } as const;

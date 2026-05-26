@@ -14,6 +14,7 @@ import {
 } from "@/lib/signup-register-routing";
 import type { UsernameRejectReason } from "@/lib/username-policy";
 import { normalizeUsernameForStorage } from "@/lib/username-policy";
+import { SocialAuthButtons } from "@/components/auth/SocialAuthButtons";
 
 type UsernameUiStatus =
   | "idle"
@@ -451,7 +452,9 @@ export function SignupForm() {
   })();
 
   return (
-    <form className="mt-5 flex flex-col gap-3.5" onSubmit={onSubmit} noValidate>
+    <>
+      <SocialAuthButtons returnTo={returnTo} disabled={loading} />
+      <form className="mt-2 flex flex-col gap-3.5" onSubmit={onSubmit} noValidate>
       {error ? <p className="text-xs font-medium text-rose-300">{error}</p> : null}
       <div className="flex flex-col gap-1.5">
         <label htmlFor="join-email" className="text-xs font-medium text-zinc-300">
@@ -584,5 +587,6 @@ export function SignupForm() {
         </Link>
       </p>
     </form>
+    </>
   );
 }
