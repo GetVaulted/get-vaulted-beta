@@ -37,9 +37,9 @@ import {
   pickPrimaryPaymentMethod,
 } from './walletSheetUtils';
 import { logWalletSheet, useKeyboardInset } from './walletSheetKeyboard';
-import { WalletPaymentSetupStep } from './WalletPaymentSetupStep';
+import { WalletPaymentSetupModal } from './WalletPaymentSetupStep';
 
-export type WalletStep = 'main' | 'delivery' | 'addresses' | 'payment' | 'addCard' | 'addAddress';
+export type WalletStep = 'main' | 'delivery' | 'addresses' | 'payment' | 'addAddress';
 
 function useFormScrollAssist() {
   const scrollRef = useRef<ScrollView>(null);
@@ -231,10 +231,10 @@ export function WalletSheet({
   const sheetMaxHeight = Math.min(windowHeight * 0.9, 680);
   const safeBottom = Math.max(insets.bottom, spacing.lg);
   const addressFormScroll = useFormScrollAssist();
-  const cardFormScroll = useFormScrollAssist();
   const openSeedAppliedRef = useRef(false);
 
   const [step, setStep] = useState<WalletStep>('main');
+  const [paymentSetupOpen, setPaymentSetupOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [readiness, setReadiness] = useState<BuyerWalletReadiness | null>(initialReadiness ?? null);
   const [paymentMethods, setPaymentMethods] = useState<BuyerPaymentMethodRow[]>([]);
@@ -291,9 +291,12 @@ export function WalletSheet({
     return () => onActiveChange?.(false);
   }, [visible, onActiveChange]);
 
+  const openPaymentSetup = () => setPaymentSetupOpen(true);
+
   useEffect(() => {
     if (!visible) {
       setStep('main');
+      setPaymentSetupOpen(false);
       setAddressDraft(EMPTY_ADDRESS);
       setAddressEditing(false);
       setAddressError(null);
@@ -529,7 +532,7 @@ export function WalletSheet({
             </View>
           ))
         )}
-        <Pressable style={s.navRow} onPress={() => setStep('addCard')}>
+        <Pressable style={s.navRow} onPress={openPaymentSetup}>
           <View style={s.navIconWrap}>
             <Ionicons name="add" size={20} color={colors.gold} />
           </View>
@@ -543,19 +546,6 @@ export function WalletSheet({
         </Pressable>
       </View>
     </>
-  );
-
-  const renderAddCard = () => (
-    <WalletPaymentSetupStep
-      accessToken={accessToken}
-      keyboardInset={keyboardInset}
-      safeBottom={safeBottom}
-      scrollRef={cardFormScroll.scrollRef}
-      onBack={() => setStep('payment')}
-      onSaved={() => {
-        void loadWalletData().then(() => setStep('payment'));
-      }}
-    />
   );
 
   const renderAddAddress = () => (
@@ -677,8 +667,6 @@ export function WalletSheet({
         return renderAddresses();
       case 'payment':
         return renderPayment();
-      case 'addCard':
-        return renderAddCard();
       case 'addAddress':
         return renderAddAddress();
       case 'main':
@@ -688,31 +676,43 @@ export function WalletSheet({
   };
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent
-      onRequestClose={step === 'main' ? onClose : () => setStep('main')}
-      statusBarTranslucent
-    >
-      <View style={s.backdrop}>
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={step === 'main' ? onClose : undefined}
-          accessibilityLabel="Dismiss wallet sheet"
-        />
-        <KeyboardAvoidingView
-          style={[s.sheetKeyboardWrap, { maxHeight: sheetMaxHeight }]}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 10 : 0}
-        >
-          <View style={[s.sheet, { paddingBottom: safeBottom }]}>
-            <View style={s.handle} />
-            {renderStep()}
-          </View>
-        </KeyboardAvoidingView>
-      </View>
-    </Modal>
+    <>
+      <Modal
+        visible={visible && !paymentSetupOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={step === 'main' ? onClose : () => setStep('main')}
+        statusBarTranslucent
+      >
+        <View style={s.backdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={step === 'main' ? onClose : undefined}
+            accessibilityLabel="Dismiss wallet sheet"
+          />
+          <KeyboardAvoidingView
+            style={[s.sheetKeyboardWrap, { maxHeight: sheetMaxHeight }]}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 10 : 0}
+          >
+            <View style={[s.sheet, { paddingBottom: safeBottom }]}>
+              <View style={s.handle} />
+              {renderStep()}
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
+      <WalletPaymentSetupModal
+        visible={visible && paymentSetupOpen}
+        accessToken={accessToken}
+        onClose={() => setPaymentSetupOpen(false)}
+        onSaved={() => {
+          void loadWalletData();
+          setPaymentSetupOpen(false);
+          setStep('payment');
+        }}
+      />
+    </>
   );
 }
 

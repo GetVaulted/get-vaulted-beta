@@ -6,14 +6,17 @@ import {
   useStripe,
 } from '@stripe/stripe-react-native';
 import * as Linking from 'expo-linking';
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
   View,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   createBuyerSetupIntent,
   type BuyerSetupIntentPayload,
@@ -21,42 +24,43 @@ import {
 import { colors, spacing } from '../../theme';
 import { LiveRoomText } from '../live/LiveRoomText';
 import { WALLET_CARD_FIELD_PLACEHOLDERS, WALLET_CARD_FIELD_STYLE } from './walletCardFieldStyle';
-import { walletSheetStyles as s } from './walletSheetStyles';
+import { useKeyboardInset } from './walletSheetKeyboard';
+import { walletPaymentSetupStyles as ps } from './walletPaymentSetupStyles';
 
 type Props = {
+  visible: boolean;
   accessToken?: string;
-  keyboardInset: number;
-  safeBottom: number;
-  scrollRef: RefObject<ScrollView | null>;
-  onBack: () => void;
+  onClose: () => void;
   onSaved: () => void;
 };
 
-function SheetHeader({ title, onBack }: { title: string; onBack: () => void }) {
+function PaymentSetupHeader({ onBack }: { onBack: () => void }) {
   return (
-    <View style={s.headerRow}>
-      <Pressable onPress={onBack} hitSlop={12} style={s.headerSpacer}>
+    <View style={ps.headerRow}>
+      <Pressable onPress={onBack} hitSlop={12} style={ps.headerSpacer}>
         <Ionicons name="chevron-back" size={24} color={colors.gold} />
       </Pressable>
-      <LiveRoomText style={s.headerTitle}>{title}</LiveRoomText>
-      <View style={s.headerSpacer} />
+      <LiveRoomText style={ps.headerTitle}>Add Payment Method</LiveRoomText>
+      <View style={ps.headerSpacer} />
     </View>
   );
 }
 
 function WalletPaymentSetupInner({
-  accessToken,
-  keyboardInset,
-  safeBottom,
-  scrollRef,
-  onBack,
+  onClose,
   onSaved,
   payload,
-}: Props & { payload: BuyerSetupIntentPayload }) {
+}: {
+  onClose: () => void;
+  onSaved: () => void;
+  payload: BuyerSetupIntentPayload;
+}) {
+  const insets = useSafeAreaInsets();
+  const keyboardInset = useKeyboardInset();
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
-  const [mode, setMode] = useState<'paymentSheet' | 'manual'>('paymentSheet');
+  const [useManualCard, setUseManualCard] = useState(false);
   const [sheetReady, setSheetReady] = useState(false);
-  const [sheetInitError, setSheetInitError] = useState<string | null>(null);
+  const [initError, setInitError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cardComplete, setCardComplete] = useState(false);
@@ -65,10 +69,10 @@ function WalletPaymentSetupInner({
   const initPaymentSheetFlow = useCallback(async () => {
     if (initStartedRef.current) return;
     initStartedRef.current = true;
-    setSheetInitError(null);
+    setInitError(null);
     try {
       const returnURL = Linking.createURL('stripe-redirect');
-      const { error: initError } = await initPaymentSheet({
+      const { error: stripeInitError } = await initPaymentSheet({
         setupIntentClientSecret: payload.clientSecret,
         merchantDisplayName: 'Get Vaulted',
         returnURL,
@@ -96,21 +100,27 @@ function WalletPaymentSetupInner({
           },
         },
       });
-      if (initError) {
-        setSheetInitError(initError.message ?? 'Could not open payment sheet.');
-        setMode('manual');
+      if (stripeInitError) {
+        setInitError(stripeInitError.message ?? 'Stripe payment sheet unavailable.');
+        setUseManualCard(true);
         return;
       }
       setSheetReady(true);
     } catch (e) {
-      setSheetInitError(e instanceof Error ? e.message : 'Could not open payment sheet.');
-      setMode('manual');
+      setInitError(e instanceof Error ? e.message : 'Stripe payment sheet unavailable.');
+      setUseManualCard(true);
     }
   }, [initPaymentSheet, payload]);
 
   useEffect(() => {
+    initStartedRef.current = false;
+    setUseManualCard(false);
+    setSheetReady(false);
+    setInitError(null);
+    setError(null);
+    setCardComplete(false);
     void initPaymentSheetFlow();
-  }, [initPaymentSheetFlow]);
+  }, [payload.clientSecret, initPaymentSheetFlow]);
 
   const presentSheet = async () => {
     if (!sheetReady || busy) return;
@@ -147,117 +157,126 @@ function WalletPaymentSetupInner({
     }
   };
 
-  const supportedLabel =
-    payload.paymentMethodTypes?.includes('card') && Platform.OS === 'ios'
-      ? 'Card and Apple Pay (when available on your device)'
-      : 'Card';
-
-  const footer =
-    mode === 'paymentSheet' ? (
-      <Pressable
-        style={[s.primaryBtn, (!sheetReady || busy) && s.primaryBtnDisabled]}
-        onPress={() => void presentSheet()}
-        disabled={!sheetReady || busy}
-      >
-        {busy ? (
-          <ActivityIndicator color="#0a0a0a" />
-        ) : (
-          <LiveRoomText style={s.primaryBtnText}>Add payment method</LiveRoomText>
-        )}
-      </Pressable>
-    ) : (
-      <Pressable
-        style={[s.primaryBtn, (!cardComplete || busy) && s.primaryBtnDisabled]}
-        onPress={() => void saveManualCard()}
-        disabled={!cardComplete || busy}
-      >
-        {busy ? (
-          <ActivityIndicator color="#0a0a0a" />
-        ) : (
-          <LiveRoomText style={s.primaryBtnText}>Save card</LiveRoomText>
-        )}
-      </Pressable>
-    );
+  const footerPadding = Math.max(insets.bottom, spacing.lg);
+  const scrollBottomPad = keyboardInset + footerPadding + 72;
 
   return (
-    <>
-      <SheetHeader title="Add Payment Method" onBack={onBack} />
+    <KeyboardAvoidingView
+      style={ps.body}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+    >
+      <PaymentSetupHeader onBack={onClose} />
       <ScrollView
-        ref={scrollRef}
-        style={s.scrollBody}
-        contentContainerStyle={[
-          s.scrollContent,
-          { paddingBottom: keyboardInset + safeBottom + spacing.lg },
-        ]}
+        style={ps.scroll}
+        contentContainerStyle={[ps.scrollContent, { paddingBottom: scrollBottomPad }]}
         showsVerticalScrollIndicator={false}
         bounces={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
-        automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
       >
-        <LiveRoomText style={s.navRowSub}>
-          Add a saved payment method for live bids and auction wins. Payments stay in-app via Stripe.
+        <LiveRoomText style={ps.subtitle}>
+          Cards are saved securely with Stripe for live bids and auction wins.
         </LiveRoomText>
-        <LiveRoomText style={s.paymentSupportLine}>Supported now: {supportedLabel}</LiveRoomText>
 
-        {error ? <LiveRoomText style={s.errorText}>{error}</LiveRoomText> : null}
-        {sheetInitError && mode === 'manual' ? (
-          <LiveRoomText style={s.paymentHintText}>{sheetInitError} Enter your card below.</LiveRoomText>
-        ) : null}
+        {error ? <LiveRoomText style={ps.errorText}>{error}</LiveRoomText> : null}
 
-        {mode === 'paymentSheet' ? (
-          <View style={s.paymentSheetIntro}>
-            <View style={s.paymentSheetIconRow}>
+        {!useManualCard ? (
+          <View style={ps.introCard}>
+            <View style={ps.iconRow}>
               <Ionicons name="card-outline" size={22} color={colors.gold} />
               {Platform.OS === 'ios' && payload.applePayEnabled !== false ? (
                 <Ionicons name="logo-apple" size={22} color="#fff" />
               ) : null}
             </View>
-            <LiveRoomText style={s.paymentSheetIntroTitle}>Secure payment setup</LiveRoomText>
-            <LiveRoomText style={s.paymentSheetIntroBody}>
-              Tap Add payment method to open Stripe&apos;s secure sheet. Apple Pay appears automatically when
-              your device and Stripe account support it.
+            <LiveRoomText style={ps.introTitle}>Secure Stripe checkout</LiveRoomText>
+            <LiveRoomText style={ps.introBody}>
+              Add your card or Apple Pay through Stripe&apos;s native payment sheet. Everything stays in the
+              app — no browser.
             </LiveRoomText>
             {!sheetReady ? (
-              <View style={s.loadingRow}>
+              <View style={ps.loadingRow}>
                 <ActivityIndicator color={colors.gold} />
-                <LiveRoomText style={s.loadingText}>Preparing payment options…</LiveRoomText>
+                <LiveRoomText style={ps.loadingText}>Preparing Stripe…</LiveRoomText>
               </View>
             ) : null}
-            <Pressable style={s.linkBtn} onPress={() => setMode('manual')}>
-              <LiveRoomText style={s.linkBtnText}>Enter card manually instead</LiveRoomText>
-            </Pressable>
           </View>
         ) : (
-          <View style={s.cardFieldWrap}>
-            <LiveRoomText style={s.cardFieldLabel}>Card details</LiveRoomText>
-            <CardField
-              postalCodeEnabled
-              placeholders={WALLET_CARD_FIELD_PLACEHOLDERS}
-              cardStyle={WALLET_CARD_FIELD_STYLE}
-              style={s.cardFieldTall}
-              onCardChange={(details) => setCardComplete(details.complete)}
-            />
-            {sheetReady ? (
-              <Pressable style={s.linkBtn} onPress={() => setMode('paymentSheet')}>
-                <LiveRoomText style={s.linkBtnText}>Use secure payment sheet instead</LiveRoomText>
-              </Pressable>
+          <>
+            {initError ? (
+              <LiveRoomText style={ps.hintText}>{initError} Enter your card below.</LiveRoomText>
             ) : null}
-          </View>
+            <View style={ps.cardFieldWrap}>
+              <LiveRoomText style={ps.cardFieldLabel}>Card details</LiveRoomText>
+              <CardField
+                postalCodeEnabled
+                placeholders={WALLET_CARD_FIELD_PLACEHOLDERS}
+                cardStyle={WALLET_CARD_FIELD_STYLE}
+                style={ps.cardFieldFixed}
+                onCardChange={(details) => setCardComplete(details.complete)}
+              />
+            </View>
+          </>
         )}
       </ScrollView>
-      <View style={s.footer}>{footer}</View>
-    </>
+
+      <View style={[ps.footer, { paddingBottom: footerPadding + keyboardInset }]}>
+        {!useManualCard ? (
+          <Pressable
+            style={[ps.primaryBtn, (!sheetReady || busy) && ps.primaryBtnDisabled]}
+            onPress={() => void presentSheet()}
+            disabled={!sheetReady || busy}
+          >
+            {busy ? (
+              <ActivityIndicator color="#0a0a0a" />
+            ) : (
+              <LiveRoomText style={ps.primaryBtnText}>Add card with Stripe</LiveRoomText>
+            )}
+          </Pressable>
+        ) : (
+          <Pressable
+            style={[ps.primaryBtn, (!cardComplete || busy) && ps.primaryBtnDisabled]}
+            onPress={() => void saveManualCard()}
+            disabled={!cardComplete || busy}
+          >
+            {busy ? (
+              <ActivityIndicator color="#0a0a0a" />
+            ) : (
+              <LiveRoomText style={ps.primaryBtnText}>Save payment method</LiveRoomText>
+            )}
+          </Pressable>
+        )}
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
-export function WalletPaymentSetupStep(props: Props) {
-  const [loading, setLoading] = useState(true);
+function PaymentSetupLoader({ onClose }: { onClose: () => void }) {
+  return (
+    <View style={ps.body}>
+      <PaymentSetupHeader onBack={onClose} />
+      <View style={ps.loadingRow}>
+        <ActivityIndicator color={colors.gold} />
+        <LiveRoomText style={ps.loadingText}>Preparing secure payment…</LiveRoomText>
+      </View>
+    </View>
+  );
+}
+
+/** Full-screen slide-up payment setup — separate from the wallet bottom sheet. */
+export function WalletPaymentSetupModal({ visible, accessToken, onClose, onSaved }: Props) {
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<BuyerSetupIntentPayload | null>(null);
 
   useEffect(() => {
-    if (!props.accessToken) {
+    if (!visible) {
+      setPayload(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+    if (!accessToken) {
       setError('Sign in to add a payment method.');
       setLoading(false);
       return;
@@ -267,7 +286,7 @@ export function WalletPaymentSetupStep(props: Props) {
     setError(null);
     void (async () => {
       try {
-        const next = await createBuyerSetupIntent(props.accessToken);
+        const next = await createBuyerSetupIntent(accessToken);
         if (!cancelled) setPayload(next);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Could not start card setup.');
@@ -278,32 +297,35 @@ export function WalletPaymentSetupStep(props: Props) {
     return () => {
       cancelled = true;
     };
-  }, [props.accessToken]);
-
-  if (loading) {
-    return (
-      <>
-        <SheetHeader title="Add Payment Method" onBack={props.onBack} />
-        <View style={s.loadingRow}>
-          <ActivityIndicator color={colors.gold} />
-          <LiveRoomText style={s.loadingText}>Preparing secure payment…</LiveRoomText>
-        </View>
-      </>
-    );
-  }
-
-  if (error || !payload) {
-    return (
-      <>
-        <SheetHeader title="Add Payment Method" onBack={props.onBack} />
-        <LiveRoomText style={s.errorText}>{error ?? 'Could not start card setup.'}</LiveRoomText>
-      </>
-    );
-  }
+  }, [visible, accessToken]);
 
   return (
-    <StripeProvider publishableKey={payload.publishableKey}>
-      <WalletPaymentSetupInner {...props} payload={payload} />
-    </StripeProvider>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      <SafeAreaView style={ps.screen} edges={['top', 'left', 'right']}>
+        {loading ? (
+          <PaymentSetupLoader onClose={onClose} />
+        ) : error || !payload ? (
+          <View style={ps.body}>
+            <PaymentSetupHeader onClose={onClose} />
+            <View style={ps.scrollContent}>
+              <LiveRoomText style={ps.errorText}>{error ?? 'Could not start card setup.'}</LiveRoomText>
+            </View>
+          </View>
+        ) : (
+          <StripeProvider publishableKey={payload.publishableKey}>
+            <WalletPaymentSetupInner onClose={onClose} onSaved={onSaved} payload={payload} />
+          </StripeProvider>
+        )}
+      </SafeAreaView>
+    </Modal>
   );
 }
+
+/** @deprecated Use WalletPaymentSetupModal */
+export const WalletPaymentSetupStep = WalletPaymentSetupModal;
