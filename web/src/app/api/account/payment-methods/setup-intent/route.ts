@@ -30,16 +30,26 @@ export async function POST(req: Request) {
     const stripe = getStripe();
     const setupIntent = await stripe.setupIntents.create({
       customer: customerId,
-      payment_method_types: ["card"],
+      // PaymentSheet-friendly: card + Apple Pay (when configured). No redirect wallets on mobile.
+      automatic_payment_methods: {
+        enabled: true,
+        allow_redirects: "never",
+      },
       usage: "off_session",
     });
     const clientSecret = setupIntent.client_secret;
     if (!clientSecret) {
       return NextResponse.json({ error: "Could not start card setup." }, { status: 500 });
     }
+    const paymentMethodTypes = Array.isArray(setupIntent.payment_method_types)
+      ? setupIntent.payment_method_types
+      : ["card"];
     return NextResponse.json({
       clientSecret,
       publishableKey,
+      merchantCountryCode: "US",
+      applePayEnabled: paymentMethodTypes.includes("card"),
+      paymentMethodTypes,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";

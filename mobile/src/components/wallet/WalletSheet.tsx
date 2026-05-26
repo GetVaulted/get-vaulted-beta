@@ -1,6 +1,5 @@
 import type { ReactNode, RefObject } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { CardField, StripeProvider, confirmSetupIntent } from '@stripe/stripe-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -17,7 +16,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  createBuyerSetupIntent,
   createBuyerShippingAddress,
   fetchBuyerPaymentMethods,
   fetchBuyerShippingAddresses,
@@ -39,6 +37,7 @@ import {
   pickPrimaryPaymentMethod,
 } from './walletSheetUtils';
 import { logWalletSheet, useKeyboardInset } from './walletSheetKeyboard';
+import { WalletPaymentSetupStep } from './WalletPaymentSetupStep';
 
 export type WalletStep = 'main' | 'delivery' | 'addresses' | 'payment' | 'addCard' | 'addAddress';
 
@@ -242,14 +241,6 @@ export function WalletSheet({
   const [addresses, setAddresses] = useState<BuyerShippingAddressRow[]>([]);
   const [addressDraft, setAddressDraft] = useState<AddressDraft>(EMPTY_ADDRESS);
   const [addressEditing, setAddressEditing] = useState(false);
-
-  const [cardPublishableKey, setCardPublishableKey] = useState<string | null>(null);
-  const [cardClientSecret, setCardClientSecret] = useState<string | null>(null);
-  const [cardLoading, setCardLoading] = useState(false);
-  const [cardBusy, setCardBusy] = useState(false);
-  const [cardComplete, setCardComplete] = useState(false);
-  const [cardError, setCardError] = useState<string | null>(null);
-
   const [addressBusy, setAddressBusy] = useState(false);
   const [addressError, setAddressError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -305,9 +296,6 @@ export function WalletSheet({
       setStep('main');
       setAddressDraft(EMPTY_ADDRESS);
       setAddressEditing(false);
-      setCardPublishableKey(null);
-      setCardClientSecret(null);
-      setCardError(null);
       setAddressError(null);
       setActionError(null);
       openSeedAppliedRef.current = false;
@@ -319,33 +307,6 @@ export function WalletSheet({
     }
     void loadRef.current();
   }, [visible]);
-
-  useEffect(() => {
-    if (step !== 'addCard' || !accessToken) return;
-    let cancelled = false;
-    setCardLoading(true);
-    setCardError(null);
-    setCardPublishableKey(null);
-    setCardClientSecret(null);
-    setCardComplete(false);
-    void (async () => {
-      try {
-        const payload = await createBuyerSetupIntent(accessToken);
-        if (cancelled) return;
-        setCardPublishableKey(payload.publishableKey);
-        setCardClientSecret(payload.clientSecret);
-      } catch (e) {
-        if (!cancelled) {
-          setCardError(e instanceof Error ? e.message : 'Could not start card setup.');
-        }
-      } finally {
-        if (!cancelled) setCardLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [step, accessToken]);
 
   const goMain = () => setStep('main');
 
@@ -385,27 +346,6 @@ export function WalletSheet({
       setAddressError(e instanceof Error ? e.message : 'Could not save address.');
     } finally {
       setAddressBusy(false);
-    }
-  };
-
-  const saveCard = async () => {
-    if (!cardClientSecret || !cardComplete || cardBusy) return;
-    setCardBusy(true);
-    setCardError(null);
-    try {
-      const { error: stripeError } = await confirmSetupIntent(cardClientSecret, {
-        paymentMethodType: 'Card',
-      });
-      if (stripeError) {
-        setCardError(stripeError.message ?? 'Card could not be saved.');
-        return;
-      }
-      await loadWalletData();
-      setStep('payment');
-    } catch (e) {
-      setCardError(e instanceof Error ? e.message : 'Card could not be saved.');
-    } finally {
-      setCardBusy(false);
     }
   };
 
@@ -593,7 +533,7 @@ export function WalletSheet({
           <View style={s.navIconWrap}>
             <Ionicons name="add" size={20} color={colors.gold} />
           </View>
-          <LiveRoomText style={s.navRowTitle}>Add New Card</LiveRoomText>
+          <LiveRoomText style={s.navRowTitle}>Add Payment Method</LiveRoomText>
           <Ionicons name="chevron-forward" size={18} color="#fff" style={s.chevron} />
         </Pressable>
       </ScrollView>
@@ -605,65 +545,18 @@ export function WalletSheet({
     </>
   );
 
-  const renderAddCard = () => {
-    const header = (
-      <SheetHeader title="Add Payment Method" onBack={() => setStep('payment')} />
-    );
-    const footer = (
-      <Pressable
-        style={[s.primaryBtn, (cardBusy || cardLoading || !cardComplete) && s.primaryBtnDisabled]}
-        onPress={() => void saveCard()}
-        disabled={cardBusy || cardLoading || !cardComplete}
-      >
-        {cardBusy ? (
-          <ActivityIndicator color="#0a0a0a" />
-        ) : (
-          <LiveRoomText style={s.primaryBtnText}>Save payment method</LiveRoomText>
-        )}
-      </Pressable>
-    );
-    const body = (
-      <FormStepLayout
-        header={header}
-        footer={footer}
-        scrollRef={cardFormScroll.scrollRef}
-        keyboardInset={keyboardInset}
-        safeBottom={safeBottom}
-      >
-        <LiveRoomText style={s.navRowSub}>
-          Cards are saved securely with Stripe for live bids and auction wins.
-        </LiveRoomText>
-        {cardError ? <LiveRoomText style={s.errorText}>{cardError}</LiveRoomText> : null}
-        {cardLoading ? (
-          <View style={s.loadingRow}>
-            <ActivityIndicator color={colors.gold} />
-            <LiveRoomText style={s.loadingText}>Preparing secure card entry…</LiveRoomText>
-          </View>
-        ) : cardPublishableKey && cardClientSecret ? (
-          <View onLayout={(e) => cardFormScroll.registerField('card', e.nativeEvent.layout.y)}>
-            <CardField
-              postalCodeEnabled
-              placeholders={{ number: '4242 4242 4242 4242' }}
-              cardStyle={{
-                backgroundColor: '#0a0a0d',
-                textColor: '#ffffff',
-                placeholderColor: 'rgba(255,255,255,0.35)',
-                borderColor: 'rgba(212,175,55,0.35)',
-                borderWidth: 1,
-                borderRadius: 8,
-              }}
-              style={s.cardField}
-              onCardChange={(details) => setCardComplete(details.complete)}
-            />
-          </View>
-        ) : null}
-      </FormStepLayout>
-    );
-    if (cardPublishableKey) {
-      return <StripeProvider publishableKey={cardPublishableKey}>{body}</StripeProvider>;
-    }
-    return body;
-  };
+  const renderAddCard = () => (
+    <WalletPaymentSetupStep
+      accessToken={accessToken}
+      keyboardInset={keyboardInset}
+      safeBottom={safeBottom}
+      scrollRef={cardFormScroll.scrollRef}
+      onBack={() => setStep('payment')}
+      onSaved={() => {
+        void loadWalletData().then(() => setStep('payment'));
+      }}
+    />
+  );
 
   const renderAddAddress = () => (
     <FormStepLayout

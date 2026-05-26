@@ -26,6 +26,9 @@ export type BuyerShippingAddressRow = {
 export type BuyerSetupIntentPayload = {
   clientSecret: string;
   publishableKey: string;
+  merchantCountryCode?: string;
+  applePayEnabled?: boolean;
+  paymentMethodTypes?: string[];
 };
 
 export type CreateShippingAddressInput = {
@@ -112,6 +115,9 @@ export async function createBuyerSetupIntent(
   const j = (await res.json().catch(() => ({}))) as {
     clientSecret?: string;
     publishableKey?: string;
+    merchantCountryCode?: string;
+    applePayEnabled?: boolean;
+    paymentMethodTypes?: string[];
     error?: string;
   };
   if (!res.ok) {
@@ -120,7 +126,13 @@ export async function createBuyerSetupIntent(
   if (!j.clientSecret?.trim() || !j.publishableKey?.trim()) {
     throw new Error('Could not start card setup.');
   }
-  return { clientSecret: j.clientSecret, publishableKey: j.publishableKey };
+  return {
+    clientSecret: j.clientSecret,
+    publishableKey: j.publishableKey,
+    merchantCountryCode: j.merchantCountryCode ?? 'US',
+    applePayEnabled: j.applePayEnabled !== false,
+    paymentMethodTypes: Array.isArray(j.paymentMethodTypes) ? j.paymentMethodTypes : ['card'],
+  };
 }
 
 export async function fetchBuyerShippingAddresses(
