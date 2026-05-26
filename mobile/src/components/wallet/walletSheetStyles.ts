@@ -17,6 +17,10 @@ export const walletSheetStyles = StyleSheet.create({
     borderColor: 'rgba(212,175,55,0.35)',
     flexShrink: 1,
   },
+  sheetKeyboardWrap: {
+    flexShrink: 1,
+    width: '100%',
+  },
   handle: {
     alignSelf: 'center',
     width: 40,

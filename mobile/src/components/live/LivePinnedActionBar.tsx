@@ -34,6 +34,7 @@ import {
 } from '../../lib/liveAuctionLotPhase';
 import { logLiveBidButtonPress, mustUseLiveBidFlow } from '../../lib/liveCommerceRouting';
 import { openWebCommerceUrl, webLiveRoomUrl } from '../../lib/openWebCommerce';
+import { logLiveBidBlocked, logWalletSheet } from '../wallet/walletSheetKeyboard';
 import { WalletSheet } from '../wallet/WalletSheet';
 import type { LiveStackParamList, MainTabParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
@@ -47,36 +48,47 @@ const SLIDE_KNOB = 28;
 
 type SlideProps = {
   onCommit: () => void;
+  disabled?: boolean;
 };
 
-function CompactSlideToBid({ onCommit }: SlideProps) {
+function CompactSlideToBid({ onCommit, disabled = false }: SlideProps) {
   const trackW = useRef(1);
   const pan = useRef(new Animated.Value(0)).current;
   const dragStart = useRef(0);
   const maxX = useRef(1);
+  const committedRef = useRef(false);
 
   const panResponder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 3,
+        onStartShouldSetPanResponder: () => !disabled,
+        onMoveShouldSetPanResponder: (_, g) => !disabled && Math.abs(g.dx) > 3,
         onPanResponderGrant: () => {
+          committedRef.current = false;
           pan.stopAnimation((v) => {
             dragStart.current = v;
           });
           maxX.current = Math.max(6, trackW.current - SLIDE_KNOB);
         },
         onPanResponderMove: (_, g) => {
+          if (disabled) return;
           const next = Math.min(maxX.current, Math.max(0, dragStart.current + g.dx));
           pan.setValue(next);
         },
         onPanResponderRelease: (_, g) => {
+          if (disabled || committedRef.current) {
+            Animated.spring(pan, { toValue: 0, friction: 9, useNativeDriver: false }).start();
+            return;
+          }
           const pos = Math.min(maxX.current, Math.max(0, dragStart.current + g.dx));
-          if (pos >= maxX.current * 0.55) onCommit();
+          if (pos >= maxX.current * 0.55) {
+            committedRef.current = true;
+            onCommit();
+          }
           Animated.spring(pan, { toValue: 0, friction: 9, useNativeDriver: false }).start();
         },
       }),
-    [onCommit, pan]
+    [disabled, onCommit, pan]
   );
 
   return (
@@ -134,6 +146,10 @@ export function LivePinnedActionBar({
   const [bidBusy, setBidBusy] = useState(false);
   const [walletSheetOpen, setWalletSheetOpen] = useState(false);
   const [walletOverlayActive, setWalletOverlayActive] = useState(false);
+  const walletOverlayOpenRef = useRef(false);
+  const bidInFlightRef = useRef(false);
+  const lastBidAttemptMsRef = useRef(0);
+  const BID_THROTTLE_MS = 700;
   const [walletReadiness, setWalletReadiness] = useState<BuyerWalletReadiness | null>(null);
   const [localRoomSnap, setLocalRoomSnap] = useState<LiveRoomBuyerSnapshot | null>(null);
   const [localSyncRefreshing, setLocalSyncRefreshing] = useState(false);
@@ -157,14 +173,33 @@ export function LivePinnedActionBar({
     fn();
   };
 
-  const openWalletSetup = useCallback((seed?: BuyerWalletReadiness | null) => {
+  const openWalletSetup = useCallback((reason: string, seed?: BuyerWalletReadiness | null) => {
+    if (walletOverlayOpenRef.current || walletSheetOpen) {
+      logWalletSheet('ignored duplicate open', { reason });
+      return false;
+    }
+    logWalletSheet('open reason', { reason });
+    walletOverlayOpenRef.current = true;
+    setWalletOverlayActive(true);
+    onWalletOverlayChange?.(true);
     if (seed) setWalletReadiness(seed);
     else {
       const fromSnap = walletReadinessFromSnapshot(roomSnap);
       if (fromSnap) setWalletReadiness(fromSnap);
     }
     setWalletSheetOpen(true);
-  }, [roomSnap]);
+    return true;
+  }, [onWalletOverlayChange, roomSnap, walletSheetOpen]);
+
+  const closeWalletSetup = useCallback(() => {
+    logWalletSheet('close');
+    walletOverlayOpenRef.current = false;
+    setWalletSheetOpen(false);
+    setWalletOverlayActive(false);
+    onWalletOverlayChange?.(false);
+    setBidBusy(false);
+    bidInFlightRef.current = false;
+  }, [onWalletOverlayChange]);
 
   const useLiveAuctionBidFlow = mustUseLiveBidFlow(stream, roomSnap, {
     bottomRightIsSlide: m.bottomRightIsSlide,
@@ -215,6 +250,15 @@ export function LivePinnedActionBar({
   }, [stream.id]);
 
   const tryPlaceLiveBid = useCallback(async () => {
+    const now = Date.now();
+    if (now - lastBidAttemptMsRef.current < BID_THROTTLE_MS) {
+      logLiveBidBlocked('bid throttle', { msSinceLast: now - lastBidAttemptMsRef.current });
+      return;
+    }
+    if (walletOverlayOpenRef.current || walletSheetOpen) {
+      logLiveBidBlocked('wallet overlay open');
+      return;
+    }
     if (!accessToken) {
       onRequireAuth?.();
       return;
@@ -223,8 +267,12 @@ export function LivePinnedActionBar({
       Alert.alert('Accept notice', 'Accept the live break notice before bidding.');
       return;
     }
-    if (bidBusy) return;
+    if (bidInFlightRef.current || bidBusy) return;
+
+    lastBidAttemptMsRef.current = now;
+    bidInFlightRef.current = true;
     setBidBusy(true);
+    let openedWallet = false;
     try {
       const snap = roomSnap ?? (await refreshRoomSnapshot());
       if (!snap) {
@@ -236,7 +284,7 @@ export function LivePinnedActionBar({
       }
       const walletFromSnap = walletReadinessFromSnapshot(snap);
       if (walletFromSnap && isWalletIncompleteReadiness(walletFromSnap)) {
-        openWalletSetup(walletFromSnap);
+        openedWallet = openWalletSetup('precheck_incomplete', walletFromSnap);
         return;
       }
       if (snap.status !== 'live' || !snap.activeItemId) {
@@ -280,15 +328,22 @@ export function LivePinnedActionBar({
       await refreshRoomSnapshot();
     } catch (e) {
       if (isWalletIncompleteError(e)) {
-        openWalletSetup({
-          paymentReady: e.paymentReady,
-          shippingReady: e.shippingReady,
-        });
+        if (!walletOverlayOpenRef.current && !walletSheetOpen) {
+          openedWallet = openWalletSetup('api_402', {
+            paymentReady: e.paymentReady,
+            shippingReady: e.shippingReady,
+          });
+        } else {
+          logWalletSheet('ignored duplicate open', { reason: 'api_402' });
+        }
         return;
       }
       Alert.alert('Could not place bid', e instanceof Error ? e.message : 'Unknown error');
     } finally {
-      setBidBusy(false);
+      bidInFlightRef.current = false;
+      if (!openedWallet && !walletOverlayOpenRef.current) {
+        setBidBusy(false);
+      }
     }
   }, [
     accessToken,
@@ -301,9 +356,14 @@ export function LivePinnedActionBar({
     participationBlocked,
     roomSnap,
     stream.id,
+    walletSheetOpen,
   ]);
 
   const runPrimaryLiveCommerceAction = useCallback(() => {
+    if (walletOverlayOpenRef.current || walletSheetOpen || bidInFlightRef.current) {
+      logLiveBidBlocked('wallet overlay open');
+      return;
+    }
     logLiveBidButtonPress({
       roomId: stream.id,
       activeItemId: roomSnap?.activeItemId ?? null,
@@ -336,6 +396,7 @@ export function LivePinnedActionBar({
     stream.id,
     tryPlaceLiveBid,
     useLiveAuctionBidFlow,
+    walletSheetOpen,
   ]);
 
   const onSecondary = () => {
@@ -431,7 +492,7 @@ export function LivePinnedActionBar({
                 <ActivityIndicator color="#0a0a0a" />
               </View>
             ) : m.bottomRightIsSlide && !primaryDisabled ? (
-              <CompactSlideToBid onCommit={onSlide} />
+              <CompactSlideToBid onCommit={onSlide} disabled={commerceBlocked || bidBusy} />
             ) : (
               <Pressable
                 style={[styles.ctaGold, primaryDisabled && styles.ctaDisabled]}
@@ -449,7 +510,7 @@ export function LivePinnedActionBar({
 
       <WalletSheet
         visible={walletSheetOpen}
-        onClose={() => setWalletSheetOpen(false)}
+        onClose={closeWalletSetup}
         accessToken={accessToken}
         roomId={stream.id}
         initialReadiness={walletReadiness}
@@ -458,10 +519,6 @@ export function LivePinnedActionBar({
           if (next.paymentReady && next.shippingReady) {
             void refreshRoomSnapshot();
           }
-        }}
-        onActiveChange={(active) => {
-          setWalletOverlayActive(active);
-          onWalletOverlayChange?.(active);
         }}
       />
     </View>

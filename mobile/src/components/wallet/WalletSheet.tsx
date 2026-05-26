@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { CardField, StripeProvider, confirmSetupIntent } from '@stripe/stripe-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -38,8 +38,63 @@ import {
   pickDefaultShippingAddress,
   pickPrimaryPaymentMethod,
 } from './walletSheetUtils';
+import { logWalletSheet, useKeyboardInset } from './walletSheetKeyboard';
 
 export type WalletStep = 'main' | 'delivery' | 'addresses' | 'payment' | 'addCard' | 'addAddress';
+
+function useFormScrollAssist() {
+  const scrollRef = useRef<ScrollView>(null);
+  const fieldOffsets = useRef<Record<string, number>>({});
+
+  const registerField = useCallback((key: string, y: number) => {
+    fieldOffsets.current[key] = y;
+  }, []);
+
+  const focusField = useCallback((key: string) => {
+    const y = fieldOffsets.current[key] ?? 0;
+    scrollRef.current?.scrollTo({ y: Math.max(0, y - 20), animated: true });
+  }, []);
+
+  return { scrollRef, registerField, focusField };
+}
+
+function FormStepLayout({
+  header,
+  footer,
+  scrollRef,
+  keyboardInset,
+  safeBottom,
+  children,
+}: {
+  header: ReactNode;
+  footer: ReactNode;
+  scrollRef: RefObject<ScrollView | null>;
+  keyboardInset: number;
+  safeBottom: number;
+  children: ReactNode;
+}) {
+  return (
+    <>
+      {header}
+      <ScrollView
+        ref={scrollRef}
+        style={s.scrollBody}
+        contentContainerStyle={[
+          s.scrollContent,
+          { paddingBottom: keyboardInset + safeBottom + spacing.lg },
+        ]}
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+      >
+        {children}
+      </ScrollView>
+      <View style={s.footer}>{footer}</View>
+    </>
+  );
+}
 
 type Props = {
   visible: boolean;
@@ -128,6 +183,9 @@ function AddressField({
   placeholder,
   autoCapitalize = 'words',
   keyboardType = 'default',
+  fieldKey,
+  onFieldLayout,
+  onFieldFocus,
 }: {
   label: string;
   value: string;
@@ -135,9 +193,15 @@ function AddressField({
   placeholder: string;
   autoCapitalize?: 'none' | 'words' | 'sentences' | 'characters';
   keyboardType?: 'default' | 'number-pad';
+  fieldKey: string;
+  onFieldLayout: (key: string, y: number) => void;
+  onFieldFocus: (key: string) => void;
 }) {
   return (
-    <View style={s.field}>
+    <View
+      style={s.field}
+      onLayout={(e) => onFieldLayout(fieldKey, e.nativeEvent.layout.y)}
+    >
       <LiveRoomText style={s.fieldLabel}>{label}</LiveRoomText>
       <TextInput
         value={value}
@@ -147,6 +211,7 @@ function AddressField({
         style={s.input}
         autoCapitalize={autoCapitalize}
         keyboardType={keyboardType}
+        onFocus={() => onFieldFocus(fieldKey)}
       />
     </View>
   );
@@ -163,7 +228,12 @@ export function WalletSheet({
 }: Props) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
+  const keyboardInset = useKeyboardInset();
   const sheetMaxHeight = Math.min(windowHeight * 0.9, 680);
+  const safeBottom = Math.max(insets.bottom, spacing.lg);
+  const addressFormScroll = useFormScrollAssist();
+  const cardFormScroll = useFormScrollAssist();
+  const openSeedAppliedRef = useRef(false);
 
   const [step, setStep] = useState<WalletStep>('main');
   const [loading, setLoading] = useState(false);
@@ -197,6 +267,7 @@ export function WalletSheet({
     loadInFlight.current = true;
     setLoading(true);
     setActionError(null);
+    logWalletSheet('refresh start');
     try {
       const [nextReadiness, pmRes, addrList] = await Promise.all([
         fetchBuyerWalletReadiness(accessToken, roomId),
@@ -217,6 +288,7 @@ export function WalletSheet({
     } finally {
       loadInFlight.current = false;
       setLoading(false);
+      logWalletSheet('refresh end');
     }
   }, [accessToken, onReadinessChange, roomId]);
 
@@ -238,11 +310,15 @@ export function WalletSheet({
       setCardError(null);
       setAddressError(null);
       setActionError(null);
+      openSeedAppliedRef.current = false;
       return;
     }
-    if (initialReadiness) setReadiness(initialReadiness);
+    if (initialReadiness && !openSeedAppliedRef.current) {
+      setReadiness(initialReadiness);
+      openSeedAppliedRef.current = true;
+    }
     void loadRef.current();
-  }, [visible, initialReadiness]);
+  }, [visible]);
 
   useEffect(() => {
     if (step !== 'addCard' || !accessToken) return;
@@ -530,26 +606,41 @@ export function WalletSheet({
   );
 
   const renderAddCard = () => {
+    const header = (
+      <SheetHeader title="Add Payment Method" onBack={() => setStep('payment')} />
+    );
+    const footer = (
+      <Pressable
+        style={[s.primaryBtn, (cardBusy || cardLoading || !cardComplete) && s.primaryBtnDisabled]}
+        onPress={() => void saveCard()}
+        disabled={cardBusy || cardLoading || !cardComplete}
+      >
+        {cardBusy ? (
+          <ActivityIndicator color="#0a0a0a" />
+        ) : (
+          <LiveRoomText style={s.primaryBtnText}>Save payment method</LiveRoomText>
+        )}
+      </Pressable>
+    );
     const body = (
-      <>
-        <SheetHeader title="Add Payment Method" onBack={() => setStep('payment')} />
-        <ScrollView
-          style={s.scrollBody}
-          contentContainerStyle={s.scrollContent}
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          <LiveRoomText style={s.navRowSub}>
-            Cards are saved securely with Stripe for live bids and auction wins.
-          </LiveRoomText>
-          {cardError ? <LiveRoomText style={s.errorText}>{cardError}</LiveRoomText> : null}
-          {cardLoading ? (
-            <View style={s.loadingRow}>
-              <ActivityIndicator color={colors.gold} />
-              <LiveRoomText style={s.loadingText}>Preparing secure card entry…</LiveRoomText>
-            </View>
-          ) : cardPublishableKey && cardClientSecret ? (
+      <FormStepLayout
+        header={header}
+        footer={footer}
+        scrollRef={cardFormScroll.scrollRef}
+        keyboardInset={keyboardInset}
+        safeBottom={safeBottom}
+      >
+        <LiveRoomText style={s.navRowSub}>
+          Cards are saved securely with Stripe for live bids and auction wins.
+        </LiveRoomText>
+        {cardError ? <LiveRoomText style={s.errorText}>{cardError}</LiveRoomText> : null}
+        {cardLoading ? (
+          <View style={s.loadingRow}>
+            <ActivityIndicator color={colors.gold} />
+            <LiveRoomText style={s.loadingText}>Preparing secure card entry…</LiveRoomText>
+          </View>
+        ) : cardPublishableKey && cardClientSecret ? (
+          <View onLayout={(e) => cardFormScroll.registerField('card', e.nativeEvent.layout.y)}>
             <CardField
               postalCodeEnabled
               placeholders={{ number: '4242 4242 4242 4242' }}
@@ -564,22 +655,9 @@ export function WalletSheet({
               style={s.cardField}
               onCardChange={(details) => setCardComplete(details.complete)}
             />
-          ) : null}
-        </ScrollView>
-        <View style={s.footer}>
-          <Pressable
-            style={[s.primaryBtn, (cardBusy || cardLoading || !cardComplete) && s.primaryBtnDisabled]}
-            onPress={() => void saveCard()}
-            disabled={cardBusy || cardLoading || !cardComplete}
-          >
-            {cardBusy ? (
-              <ActivityIndicator color="#0a0a0a" />
-            ) : (
-              <LiveRoomText style={s.primaryBtnText}>Save payment method</LiveRoomText>
-            )}
-          </Pressable>
-        </View>
-      </>
+          </View>
+        ) : null}
+      </FormStepLayout>
     );
     if (cardPublishableKey) {
       return <StripeProvider publishableKey={cardPublishableKey}>{body}</StripeProvider>;
@@ -588,79 +666,14 @@ export function WalletSheet({
   };
 
   const renderAddAddress = () => (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flexShrink: 1 }}>
-      <SheetHeader
-        title={addressEditing ? 'Edit Address' : 'Add Address'}
-        onBack={() => setStep(addresses.length > 0 ? 'addresses' : 'delivery')}
-      />
-      <ScrollView
-        style={s.scrollBody}
-        contentContainerStyle={s.scrollContent}
-        showsVerticalScrollIndicator={false}
-        bounces={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {addressError ? <LiveRoomText style={s.errorText}>{addressError}</LiveRoomText> : null}
-        <AddressField
-          label="Label"
-          value={addressDraft.name}
-          onChange={(v) => setAddressDraft((d) => ({ ...d, name: v }))}
-          placeholder="Shipping"
+    <FormStepLayout
+      header={
+        <SheetHeader
+          title={addressEditing ? 'Edit Address' : 'Add Address'}
+          onBack={() => setStep(addresses.length > 0 ? 'addresses' : 'delivery')}
         />
-        <AddressField
-          label="Full name"
-          value={addressDraft.fullName}
-          onChange={(v) => setAddressDraft((d) => ({ ...d, fullName: v }))}
-          placeholder="Jane Collector"
-        />
-        <AddressField
-          label="Address line 1"
-          value={addressDraft.line1}
-          onChange={(v) => setAddressDraft((d) => ({ ...d, line1: v }))}
-          placeholder="123 Main St"
-        />
-        <AddressField
-          label="Address line 2 (optional)"
-          value={addressDraft.line2 ?? ''}
-          onChange={(v) => setAddressDraft((d) => ({ ...d, line2: v }))}
-          placeholder="Apt 4"
-        />
-        <AddressField
-          label="City"
-          value={addressDraft.city}
-          onChange={(v) => setAddressDraft((d) => ({ ...d, city: v }))}
-          placeholder="City"
-        />
-        <AddressField
-          label="State / region"
-          value={addressDraft.state}
-          onChange={(v) => setAddressDraft((d) => ({ ...d, state: v }))}
-          placeholder="CA"
-        />
-        <AddressField
-          label="Postal code"
-          value={addressDraft.postalCode}
-          onChange={(v) => setAddressDraft((d) => ({ ...d, postalCode: v }))}
-          placeholder="90210"
-          keyboardType="number-pad"
-        />
-        <AddressField
-          label="Country (ISO)"
-          value={addressDraft.country}
-          onChange={(v) => setAddressDraft((d) => ({ ...d, country: v.toUpperCase().slice(0, 2) }))}
-          placeholder="US"
-          autoCapitalize="characters"
-        />
-        <View style={s.switchRow}>
-          <LiveRoomText style={s.switchLabel}>Set as default shipping address</LiveRoomText>
-          <Switch
-            value={addressDraft.isDefault !== false}
-            onValueChange={(v) => setAddressDraft((d) => ({ ...d, isDefault: v }))}
-            trackColor={{ true: colors.gold }}
-          />
-        </View>
-      </ScrollView>
-      <View style={s.footer}>
+      }
+      footer={
         <Pressable
           style={[s.primaryBtn, addressBusy && s.primaryBtnDisabled]}
           onPress={() => void saveAddress()}
@@ -672,8 +685,95 @@ export function WalletSheet({
             <LiveRoomText style={s.primaryBtnText}>Save address</LiveRoomText>
           )}
         </Pressable>
+      }
+      scrollRef={addressFormScroll.scrollRef}
+      keyboardInset={keyboardInset}
+      safeBottom={safeBottom}
+    >
+      {addressError ? <LiveRoomText style={s.errorText}>{addressError}</LiveRoomText> : null}
+      <AddressField
+        fieldKey="name"
+        onFieldLayout={addressFormScroll.registerField}
+        onFieldFocus={addressFormScroll.focusField}
+        label="Label"
+        value={addressDraft.name}
+        onChange={(v) => setAddressDraft((d) => ({ ...d, name: v }))}
+        placeholder="Shipping"
+      />
+      <AddressField
+        fieldKey="fullName"
+        onFieldLayout={addressFormScroll.registerField}
+        onFieldFocus={addressFormScroll.focusField}
+        label="Full name"
+        value={addressDraft.fullName}
+        onChange={(v) => setAddressDraft((d) => ({ ...d, fullName: v }))}
+        placeholder="Jane Collector"
+      />
+      <AddressField
+        fieldKey="line1"
+        onFieldLayout={addressFormScroll.registerField}
+        onFieldFocus={addressFormScroll.focusField}
+        label="Address line 1"
+        value={addressDraft.line1}
+        onChange={(v) => setAddressDraft((d) => ({ ...d, line1: v }))}
+        placeholder="123 Main St"
+      />
+      <AddressField
+        fieldKey="line2"
+        onFieldLayout={addressFormScroll.registerField}
+        onFieldFocus={addressFormScroll.focusField}
+        label="Address line 2 (optional)"
+        value={addressDraft.line2 ?? ''}
+        onChange={(v) => setAddressDraft((d) => ({ ...d, line2: v }))}
+        placeholder="Apt 4"
+      />
+      <AddressField
+        fieldKey="city"
+        onFieldLayout={addressFormScroll.registerField}
+        onFieldFocus={addressFormScroll.focusField}
+        label="City"
+        value={addressDraft.city}
+        onChange={(v) => setAddressDraft((d) => ({ ...d, city: v }))}
+        placeholder="City"
+      />
+      <AddressField
+        fieldKey="state"
+        onFieldLayout={addressFormScroll.registerField}
+        onFieldFocus={addressFormScroll.focusField}
+        label="State / region"
+        value={addressDraft.state}
+        onChange={(v) => setAddressDraft((d) => ({ ...d, state: v }))}
+        placeholder="CA"
+      />
+      <AddressField
+        fieldKey="postalCode"
+        onFieldLayout={addressFormScroll.registerField}
+        onFieldFocus={addressFormScroll.focusField}
+        label="Postal code"
+        value={addressDraft.postalCode}
+        onChange={(v) => setAddressDraft((d) => ({ ...d, postalCode: v }))}
+        placeholder="90210"
+        keyboardType="number-pad"
+      />
+      <AddressField
+        fieldKey="country"
+        onFieldLayout={addressFormScroll.registerField}
+        onFieldFocus={addressFormScroll.focusField}
+        label="Country (ISO)"
+        value={addressDraft.country}
+        onChange={(v) => setAddressDraft((d) => ({ ...d, country: v.toUpperCase().slice(0, 2) }))}
+        placeholder="US"
+        autoCapitalize="characters"
+      />
+      <View style={s.switchRow}>
+        <LiveRoomText style={s.switchLabel}>Set as default shipping address</LiveRoomText>
+        <Switch
+          value={addressDraft.isDefault !== false}
+          onValueChange={(v) => setAddressDraft((d) => ({ ...d, isDefault: v }))}
+          trackColor={{ true: colors.gold }}
+        />
       </View>
-    </KeyboardAvoidingView>
+    </FormStepLayout>
   );
 
   const renderStep = () => {
@@ -708,18 +808,16 @@ export function WalletSheet({
           onPress={step === 'main' ? onClose : undefined}
           accessibilityLabel="Dismiss wallet sheet"
         />
-        <View
-          style={[
-            s.sheet,
-            {
-              maxHeight: sheetMaxHeight,
-              paddingBottom: Math.max(insets.bottom, spacing.lg),
-            },
-          ]}
+        <KeyboardAvoidingView
+          style={[s.sheetKeyboardWrap, { maxHeight: sheetMaxHeight }]}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 10 : 0}
         >
-          <View style={s.handle} />
-          {renderStep()}
-        </View>
+          <View style={[s.sheet, { paddingBottom: safeBottom }]}>
+            <View style={s.handle} />
+            {renderStep()}
+          </View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
