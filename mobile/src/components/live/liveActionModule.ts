@@ -166,8 +166,8 @@ function buildBuyerBidHud(
     winningLine: opts.winningLine,
     stateLine: opts.stateLine,
     bottomLeftLabel: 'Custom',
-    bottomRightLabel: `Bid ${formatBidMoney(opts.nextBidUsd)}`,
-    bottomRightIsSlide: opts.biddingOpen && (opts.useSlide ?? true),
+    bottomRightLabel: `Hold to Bid ${formatBidMoney(opts.nextBidUsd)}`,
+    bottomRightIsSlide: false,
     buyerPrimaryDisabled: !opts.biddingOpen,
     buyerSecondaryDisabled: false,
   };
@@ -342,7 +342,7 @@ export function resolveLiveCommerceHud(stream: LiveStream): LiveCommerceHudModel
   let bottomRightDefault: string;
   if (auctionLane) {
     bottomLeftDefault = 'Chase It';
-    bottomRightDefault = `Bid ${formatMoney(next)}`;
+    bottomRightDefault = `Hold to Bid ${formatMoney(next)}`;
   } else if (format === 'shop') {
     bottomLeftDefault = 'Buy Now';
     bottomRightDefault =
@@ -362,10 +362,7 @@ export function resolveLiveCommerceHud(stream: LiveStream): LiveCommerceHudModel
   const primaryOverride = stream.liveActionPrimaryLabel;
   const bottomRightLabel = primaryOverride ?? bottomRightDefault;
 
-  const bottomRightIsSlide =
-    !primaryOverride &&
-    auctionLane &&
-    stream.liveTileUseBidSlider === true;
+  const bottomRightIsSlide = false;
 
   const showShopButton = false;
   const shopButtonLabel = 'Shop';

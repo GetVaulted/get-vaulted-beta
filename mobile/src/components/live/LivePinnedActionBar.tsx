@@ -1,21 +1,20 @@
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
-  Animated,
-  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
   View,
 } from 'react-native';
 import { LiveRoomText } from './LiveRoomText';
+import { HoldToBidButton } from './HoldToBidButton';
 import {
   createLiveBidIdempotencyKey,
   fetchLiveRoomBuyerSnapshot,
@@ -33,6 +32,7 @@ import {
   LIVE_AUCTION_BUYER_TIMER_ENDED_COPY,
 } from '../../lib/liveAuctionLotPhase';
 import { logLiveBidButtonPress, mustUseLiveBidFlow } from '../../lib/liveCommerceRouting';
+import { logBidControl } from '../../lib/bidControlLog';
 import { openWebCommerceUrl, webLiveRoomUrl } from '../../lib/openWebCommerce';
 import { logLiveBidBlocked, logWalletSheet } from '../wallet/walletSheetKeyboard';
 import { WalletSheet } from '../wallet/WalletSheet';
@@ -44,68 +44,7 @@ import { resolveBuyerRoomKind, resolveLiveBuyerCommerceHud } from './liveActionM
 /** @deprecated Prefer measuring commerce HUD via `onLayout`; used as initial layout estimate only. */
 export const LIVE_COMMERCE_OVERLAY_HEIGHT = 118;
 
-const SLIDE_KNOB = 28;
-
-type SlideProps = {
-  onCommit: () => void;
-  disabled?: boolean;
-};
-
-function CompactSlideToBid({ onCommit, disabled = false }: SlideProps) {
-  const trackW = useRef(1);
-  const pan = useRef(new Animated.Value(0)).current;
-  const dragStart = useRef(0);
-  const maxX = useRef(1);
-  const committedRef = useRef(false);
-
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => !disabled,
-        onMoveShouldSetPanResponder: (_, g) => !disabled && Math.abs(g.dx) > 3,
-        onPanResponderGrant: () => {
-          committedRef.current = false;
-          pan.stopAnimation((v) => {
-            dragStart.current = v;
-          });
-          maxX.current = Math.max(6, trackW.current - SLIDE_KNOB);
-        },
-        onPanResponderMove: (_, g) => {
-          if (disabled) return;
-          const next = Math.min(maxX.current, Math.max(0, dragStart.current + g.dx));
-          pan.setValue(next);
-        },
-        onPanResponderRelease: (_, g) => {
-          if (disabled || committedRef.current) {
-            Animated.spring(pan, { toValue: 0, friction: 9, useNativeDriver: false }).start();
-            return;
-          }
-          const pos = Math.min(maxX.current, Math.max(0, dragStart.current + g.dx));
-          if (pos >= maxX.current * 0.55) {
-            committedRef.current = true;
-            onCommit();
-          }
-          Animated.spring(pan, { toValue: 0, friction: 9, useNativeDriver: false }).start();
-        },
-      }),
-    [disabled, onCommit, pan]
-  );
-
-  return (
-    <View
-      style={styles.slideTrack}
-      onLayout={(e) => {
-        trackW.current = e.nativeEvent.layout.width;
-      }}
-      {...panResponder.panHandlers}
-    >
-      <LiveRoomText style={styles.slideHint}>Slide to bid</LiveRoomText>
-      <Animated.View style={[styles.slideKnob, { transform: [{ translateX: pan }] }]}>
-        <LiveRoomText style={styles.slideKnobChev}>›</LiveRoomText>
-      </Animated.View>
-    </View>
-  );
-}
+const BID_THROTTLE_MS = 850;
 
 type Props = {
   stream: LiveStream;
@@ -149,7 +88,6 @@ export function LivePinnedActionBar({
   const walletOverlayOpenRef = useRef(false);
   const bidInFlightRef = useRef(false);
   const lastBidAttemptMsRef = useRef(0);
-  const BID_THROTTLE_MS = 700;
   const [walletReadiness, setWalletReadiness] = useState<BuyerWalletReadiness | null>(null);
   const [localRoomSnap, setLocalRoomSnap] = useState<LiveRoomBuyerSnapshot | null>(null);
   const [localSyncRefreshing, setLocalSyncRefreshing] = useState(false);
@@ -191,15 +129,20 @@ export function LivePinnedActionBar({
     return true;
   }, [onWalletOverlayChange, roomSnap, walletSheetOpen]);
 
+  const resetBidControl = useCallback((reason: string) => {
+    logBidControl('reset', { reason, roomId: stream.id });
+    bidInFlightRef.current = false;
+    setBidBusy(false);
+  }, [stream.id]);
+
   const closeWalletSetup = useCallback(() => {
     logWalletSheet('close');
     walletOverlayOpenRef.current = false;
     setWalletSheetOpen(false);
     setWalletOverlayActive(false);
     onWalletOverlayChange?.(false);
-    setBidBusy(false);
-    bidInFlightRef.current = false;
-  }, [onWalletOverlayChange]);
+    resetBidControl('wallet_closed');
+  }, [onWalletOverlayChange, resetBidControl]);
 
   const useLiveAuctionBidFlow = mustUseLiveBidFlow(stream, roomSnap, {
     bottomRightIsSlide: m.bottomRightIsSlide,
@@ -252,22 +195,29 @@ export function LivePinnedActionBar({
   const tryPlaceLiveBid = useCallback(async () => {
     const now = Date.now();
     if (now - lastBidAttemptMsRef.current < BID_THROTTLE_MS) {
+      logBidControl('blocked', { reason: 'bid throttle', msSinceLast: now - lastBidAttemptMsRef.current });
       logLiveBidBlocked('bid throttle', { msSinceLast: now - lastBidAttemptMsRef.current });
       return;
     }
     if (walletOverlayOpenRef.current || walletSheetOpen) {
+      logBidControl('blocked', { reason: 'wallet overlay open' });
       logLiveBidBlocked('wallet overlay open');
       return;
     }
     if (!accessToken) {
+      logBidControl('blocked', { reason: 'auth required' });
       onRequireAuth?.();
       return;
     }
     if (participationBlocked) {
+      logBidControl('blocked', { reason: 'participation blocked' });
       Alert.alert('Accept notice', 'Accept the live break notice before bidding.');
       return;
     }
-    if (bidInFlightRef.current || bidBusy) return;
+    if (bidInFlightRef.current || bidBusy) {
+      logBidControl('blocked', { reason: 'bid in flight' });
+      return;
+    }
 
     lastBidAttemptMsRef.current = now;
     bidInFlightRef.current = true;
@@ -276,6 +226,7 @@ export function LivePinnedActionBar({
     try {
       const snap = roomSnap ?? (await refreshRoomSnapshot());
       if (!snap) {
+        logBidControl('blocked', { reason: 'snapshot unavailable' });
         Alert.alert('Could not load room', 'Try again or open the live room in your browser.', [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Open live room', onPress: openFullLiveRoom },
@@ -284,10 +235,12 @@ export function LivePinnedActionBar({
       }
       const walletFromSnap = walletReadinessFromSnapshot(snap);
       if (walletFromSnap && isWalletIncompleteReadiness(walletFromSnap)) {
+        logBidControl('blocked', { reason: 'wallet incomplete' });
         openedWallet = openWalletSetup('precheck_incomplete', walletFromSnap);
         return;
       }
       if (snap.status !== 'live' || !snap.activeItemId) {
+        logBidControl('blocked', { reason: 'bidding not open', lotBidPhase: snap.lotBidPhase });
         Alert.alert(
           'Bidding not open',
           'This lot is not accepting bids right now. Open the full live room for the latest state.',
@@ -299,6 +252,7 @@ export function LivePinnedActionBar({
         return;
       }
       if (snap.lotBidPhase === 'timer_ended_unsettled') {
+        logBidControl('blocked', { reason: 'timer ended unsettled' });
         Alert.alert('Bidding closed', LIVE_AUCTION_BUYER_TIMER_ENDED_COPY, [
           { text: 'OK', style: 'cancel' },
           { text: 'Open live room', onPress: openFullLiveRoom },
@@ -306,6 +260,7 @@ export function LivePinnedActionBar({
         return;
       }
       if (snap.lotBidPhase !== 'bidding_open') {
+        logBidControl('blocked', { reason: 'lot not open', lotBidPhase: snap.lotBidPhase });
         Alert.alert('Bidding not open yet', LIVE_AUCTION_BUYER_NOT_STARTED_COPY, [
           { text: 'OK', style: 'cancel' },
           { text: 'Open live room', onPress: openFullLiveRoom },
@@ -314,9 +269,15 @@ export function LivePinnedActionBar({
       }
       const amount = snap.minNextBidUsd;
       if (amount == null || !Number.isFinite(amount) || amount <= 0) {
+        logBidControl('blocked', { reason: 'invalid min bid', amount });
         Alert.alert('Could not bid', 'Minimum bid is unavailable. Try the full live room.');
         return;
       }
+      logBidControl('commit', {
+        roomId: stream.id,
+        itemId: snap.activeItemId,
+        amountUsd: amount,
+      });
       await placeLiveRoomBid({
         accessToken,
         roomId: stream.id,
@@ -324,10 +285,12 @@ export function LivePinnedActionBar({
         amountUsd: amount,
         idempotencyKey: createLiveBidIdempotencyKey(),
       });
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       onBidPlaced?.(amount);
       await refreshRoomSnapshot();
     } catch (e) {
       if (isWalletIncompleteError(e)) {
+        logBidControl('blocked', { reason: 'wallet incomplete api 402' });
         if (!walletOverlayOpenRef.current && !walletSheetOpen) {
           openedWallet = openWalletSetup('api_402', {
             paymentReady: e.paymentReady,
@@ -338,11 +301,15 @@ export function LivePinnedActionBar({
         }
         return;
       }
+      logBidControl('blocked', { reason: 'bid failed', message: e instanceof Error ? e.message : 'unknown' });
       Alert.alert('Could not place bid', e instanceof Error ? e.message : 'Unknown error');
     } finally {
-      bidInFlightRef.current = false;
       if (!openedWallet && !walletOverlayOpenRef.current) {
+        resetBidControl('bid_complete');
+      } else if (openedWallet) {
+        bidInFlightRef.current = false;
         setBidBusy(false);
+        logBidControl('reset', { reason: 'wallet_opened', roomId: stream.id });
       }
     }
   }, [
@@ -357,10 +324,12 @@ export function LivePinnedActionBar({
     roomSnap,
     stream.id,
     walletSheetOpen,
+    resetBidControl,
   ]);
 
   const runPrimaryLiveCommerceAction = useCallback(() => {
     if (walletOverlayOpenRef.current || walletSheetOpen || bidInFlightRef.current) {
+      logBidControl('blocked', { reason: 'wallet overlay open' });
       logLiveBidBlocked('wallet overlay open');
       return;
     }
@@ -406,12 +375,48 @@ export function LivePinnedActionBar({
       tabNav?.navigate('TradeCenter', { screen: 'TradeCenterHome' });
     });
   };
-  const onPrimary = () => {
-    if (primaryDisabled) return;
+  const onHoldStart = useCallback((): boolean => {
+    if (primaryDisabled || bidBusy) {
+      logBidControl('blocked', {
+        reason: primaryDisabled ? 'primary disabled' : 'bid busy',
+        lotBidPhase: roomSnap?.lotBidPhase ?? null,
+      });
+      return false;
+    }
+    if (!signedIn) {
+      logBidControl('blocked', { reason: 'auth required' });
+      onRequireAuth?.();
+      return false;
+    }
+    logBidControl('press', {
+      roomId: stream.id,
+      label: m.bottomRightLabel,
+      useLiveAuctionBidFlow,
+    });
+    return true;
+  }, [
+    bidBusy,
+    m.bottomRightLabel,
+    onRequireAuth,
+    primaryDisabled,
+    roomSnap?.lotBidPhase,
+    signedIn,
+    stream.id,
+    useLiveAuctionBidFlow,
+  ]);
+
+  const onHoldCommit = useCallback(() => {
     guard(() => runPrimaryLiveCommerceAction());
-  };
-  const onSlide = () => {
-    if (primaryDisabled) return;
+  }, [guard, runPrimaryLiveCommerceAction]);
+
+  const onPrimary = () => {
+    if (primaryDisabled || bidBusy) {
+      logBidControl('blocked', {
+        reason: primaryDisabled ? 'primary disabled' : 'bid busy',
+        lotBidPhase: roomSnap?.lotBidPhase ?? null,
+      });
+      return;
+    }
     guard(() => runPrimaryLiveCommerceAction());
   };
   const onShop = () =>
@@ -487,19 +492,26 @@ export function LivePinnedActionBar({
           ) : null}
 
           <View style={styles.ctaPrimaryWrap}>
-            {bidBusy ? (
-              <View style={[styles.ctaPrimary, styles.ctaPrimaryBusy]}>
-                <ActivityIndicator color="#0a0a0a" />
-              </View>
-            ) : m.bottomRightIsSlide && !primaryDisabled ? (
-              <CompactSlideToBid onCommit={onSlide} disabled={commerceBlocked || bidBusy} />
+            {useLiveAuctionBidFlow ? (
+              <HoldToBidButton
+                label={m.bottomRightLabel}
+                disabled={primaryDisabled}
+                busy={bidBusy}
+                onHoldStart={onHoldStart}
+                onCommit={onHoldCommit}
+              />
             ) : (
               <Pressable
-                style={[styles.ctaGold, primaryDisabled && styles.ctaDisabled]}
+                style={[styles.ctaGold, (primaryDisabled || bidBusy) && styles.ctaDisabled]}
                 onPress={onPrimary}
-                disabled={primaryDisabled}
+                disabled={primaryDisabled || bidBusy}
+                accessibilityRole="button"
+                accessibilityLabel={m.bottomRightLabel}
               >
-                <LiveRoomText style={[styles.ctaGoldText, primaryDisabled && styles.ctaDisabledText]} numberOfLines={1}>
+                <LiveRoomText
+                  style={[styles.ctaGoldText, (primaryDisabled || bidBusy) && styles.ctaDisabledText]}
+                  numberOfLines={1}
+                >
                   {m.bottomRightLabel}
                 </LiveRoomText>
               </Pressable>
@@ -646,19 +658,8 @@ const styles = StyleSheet.create({
   ctaPrimaryWrap: {
     flex: 1.15,
     minWidth: 0,
-    minHeight: 36,
+    minHeight: 44,
     justifyContent: 'center',
-  },
-  ctaPrimary: {
-    flex: 1,
-    minHeight: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radii.sm,
-    backgroundColor: colors.gold,
-  },
-  ctaPrimaryBusy: {
-    opacity: 0.88,
   },
   ctaGold: {
     flex: 1,
@@ -676,43 +677,6 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textAlign: 'center',
     letterSpacing: 0.15,
-  },
-  slideTrack: {
-    flex: 1,
-    height: 36,
-    borderRadius: radii.sm,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.45)',
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    justifyContent: 'center',
-  },
-  slideHint: {
-    textAlign: 'center',
-    fontSize: 10,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.42)',
-    pointerEvents: 'none',
-  },
-  slideKnob: {
-    position: 'absolute',
-    left: 2,
-    top: 3,
-    width: SLIDE_KNOB,
-    height: SLIDE_KNOB,
-    borderRadius: 7,
-    backgroundColor: 'rgba(212,175,55,0.35)',
-    borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.6)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    pointerEvents: 'none',
-  },
-  slideKnobChev: {
-    color: colors.gold,
-    fontSize: 16,
-    fontWeight: '900',
-    marginTop: -1,
   },
   ctaDisabled: {
     opacity: 0.45,

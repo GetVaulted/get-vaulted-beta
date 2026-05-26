@@ -162,8 +162,8 @@ describe('resolveLiveBuyerCommerceHud', () => {
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
     expect(hud.bottomLeftLabel).toBe('Custom');
-    expect(hud.bottomRightLabel).toBe('Bid $52.00');
-    expect(hud.bottomRightIsSlide).toBe(true);
+    expect(hud.bottomRightLabel).toBe('Hold to Bid $52.00');
+    expect(hud.bottomRightIsSlide).toBe(false);
     expect(hud.buyerPrimaryDisabled).toBe(false);
   });
 
@@ -178,7 +178,7 @@ describe('resolveLiveBuyerCommerceHud', () => {
       fetchedAtMs: Date.now(),
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
-    expect(hud.bottomRightLabel).toBe('Bid $1.00');
+    expect(hud.bottomRightLabel).toBe('Hold to Bid $1.00');
     expect(hud.buyerPrimaryDisabled).toBe(true);
   });
 
@@ -195,7 +195,7 @@ describe('resolveLiveBuyerCommerceHud', () => {
       fetchedAtMs: Date.now(),
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream({ liveRoomFormat: 'break' }), snap);
-    expect(hud.bottomRightLabel).toBe('Bid $11.00');
+    expect(hud.bottomRightLabel).toBe('Hold to Bid $11.00');
     expect(hud.bottomRightLabel).not.toBe('Claim Team');
   });
 
