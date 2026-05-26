@@ -7,6 +7,9 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "test": "vitest run",
+    "export:ios": "expo export --platform ios",
+    "export:ios:clear": "expo export --platform ios --clear",
     "db:login": "npx supabase --workdir .. login",
     "db:link": "npx supabase --workdir .. link",
     "db:push": "npx supabase --workdir .. db push",
@@ -55,7 +58,8 @@
   "devDependencies": {
     "@types/react": "~19.1.0",
     "react-native-svg-transformer": "^1.5.3",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "vitest": "^3.2.4"
   },
   "private": true
 }

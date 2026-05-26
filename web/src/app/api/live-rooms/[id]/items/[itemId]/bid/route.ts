@@ -1,7 +1,7 @@
 import { NextResponse, after } from "next/server";
 import type { Prisma } from "@/generated/prisma/client";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
-import { minNextBidUsd } from "@/lib/auction";
+import { liveAuctionMinBidUsd, minNextBidUsd } from "@/lib/auction";
 import { placeListingBid } from "@/lib/place-listing-bid";
 import { notifyAuctionOutbid } from "@/lib/notify-auction-outbid";
 import { prisma } from "@/lib/prisma";
@@ -15,6 +15,13 @@ import { resolveLiveProxyBidChain, upsertLiveAuctionProxyBid } from "@/services/
 import { isStripeConfigured } from "@/lib/stripe";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
 import { getLiveRoomUserRestrictions } from "@/lib/trust/live-room-moderation";
+import { getTransactionServerNow, getServerNow } from "@/lib/server-transaction-now";
+import { recordLiveRoomBid } from "@/lib/record-live-room-bid";
+import {
+  assertBidExceedsCurrentHigh,
+  currentHighUsdFromLockedItem,
+  lockActiveLiveRoomItemForBid,
+} from "@/lib/live-room-bid-lock";
 
 function signInUrl(returnPath: string) {
   return `/signin?returnTo=${encodeURIComponent(returnPath)}`;
@@ -90,7 +97,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   if (!item.biddingOpen) {
     return NextResponse.json({ error: "The host has not started bidding on this lot yet." }, { status: 409 });
   }
-  if (item.auctionEndsAt && item.auctionEndsAt <= new Date()) {
+  const preflightNow = await getServerNow(prisma);
+  if (item.auctionEndsAt && item.auctionEndsAt <= preflightNow) {
     return NextResponse.json({ error: "The bidding window for this lot has ended." }, { status: 409 });
   }
 
@@ -161,7 +169,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
         },
       });
       const currentHigh = meta?.currentBidUsd ?? meta?.startingBidUsd ?? meta?.priceUsd ?? 0;
-      const minBid = minNextBidUsd(currentHigh);
+      const minBid = liveAuctionMinBidUsd({
+        currentBidUsd: currentHigh,
+        startingBidUsd: meta?.startingBidUsd,
+        priceUsd: meta?.priceUsd,
+        lastHighBidderId: item.lastHighBidderId,
+      });
       const amountUsd =
         typeof body.amountUsd === "number" && Number.isFinite(body.amountUsd) ? body.amountUsd : minBid;
       if (amountUsd < minBid) {
@@ -172,27 +185,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
       }
 
       const result = await prisma.$transaction(async (tx) => {
-        const now = new Date();
-        const nextEndsAt = computeNextAuctionEndsAtAfterBid(now, item.clutchTimeEnabled, item.auctionEndsAt);
+        const now = await getTransactionServerNow(tx);
+        const locked = await lockActiveLiveRoomItemForBid(tx, { liveRoomId, itemId, now });
+        if (!locked.listingId || locked.listingId !== listingId) throw new Error("NOT_FOUND");
+        const lockedHigh = currentHighUsdFromLockedItem(locked);
+        const minBidLocked = liveAuctionMinBidUsd(locked);
+        if (amountUsd < minBidLocked) throw new Error(`MIN_BID:${minBidLocked}`);
+        assertBidExceedsCurrentHigh({
+          bidderId,
+          amountUsd,
+          lastHighBidderId: locked.lastHighBidderId,
+          currentHighUsd: lockedHigh,
+        });
+        const nextEndsAt = computeNextAuctionEndsAtAfterBid(now, locked.clutchTimeEnabled, locked.auctionEndsAt);
         const r = await placeListingBid(tx, { listingId, bidderId, amountUsd });
-        const itemWrite = await tx.liveRoomItem.updateMany({
-          where: {
-            id: itemId,
-            liveRoomId,
-            status: "active",
-            biddingOpen: true,
-            AND: [
-              {
-                OR: [
-                  { auctionEndsAt: null },
-                  { auctionEndsAt: { gt: now } },
-                ],
-              },
-              {
-                OR: [{ currentBidUsd: null }, { currentBidUsd: { lt: r.amountUsd } }],
-              },
-            ],
-          },
+        await tx.liveRoomItem.update({
+          where: { id: itemId },
           data: {
             currentBidUsd: r.amountUsd,
             lastHighBidderId: r.leaderBidderId ?? bidderId,
@@ -200,7 +208,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
             itemVersion: { increment: 1 },
           },
         });
-        if (itemWrite.count === 0) throw new Error("CONCURRENT_HIGHER_BID");
         const roomWrite = await tx.liveRoom.update({
           where: { id: liveRoomId },
           data: { roomVersion: { increment: 1 }, auctionEventSeq: { increment: 1 } },
@@ -216,7 +223,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
           select: { username: true },
         });
         const endsIso = itemState?.auctionEndsAt?.toISOString() ?? null;
-        const emitActiveItemChanged = !item.clutchTimeEnabled && Boolean(endsIso);
+        const emitActiveItemChanged = !locked.clutchTimeEnabled && Boolean(endsIso);
         const payload: LiveAuctionBidPlacedPayloadV1 = {
           v: LIVE_AUCTION_EVENT_PAYLOAD_VERSION,
           liveRoomId,
@@ -230,7 +237,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
           biddingOpen: true,
           leadingBidderId: leaderId,
           leadingBidderUsername: leaderUserRow?.username ?? null,
-          clutchTimeEnabled: item.clutchTimeEnabled,
+          clutchTimeEnabled: locked.clutchTimeEnabled,
           emitActiveItemChanged,
         };
         await tx.liveAuctionEvent.create({
@@ -298,8 +305,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
       return NextResponse.json(jsonBody);
     }
 
-    const high = item.currentBidUsd ?? item.startingBidUsd ?? item.priceUsd ?? 0;
-    const minBid = minNextBidUsd(high);
+    const minBid = liveAuctionMinBidUsd(item);
     const amountUsd =
       typeof body.amountUsd === "number" && Number.isFinite(body.amountUsd) ? body.amountUsd : minBid;
     if (amountUsd < minBid) {
@@ -308,26 +314,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
 
     const prevLeaderId = item.lastHighBidderId;
     const state = await prisma.$transaction(async (tx) => {
-      const now = new Date();
-      const nextEndsAt = computeNextAuctionEndsAtAfterBid(now, item.clutchTimeEnabled, item.auctionEndsAt);
-      const write = await tx.liveRoomItem.updateMany({
-        where: {
-          id: itemId,
-          liveRoomId,
-          status: "active",
-          biddingOpen: true,
-          AND: [
-            {
-              OR: [
-                { auctionEndsAt: null },
-                { auctionEndsAt: { gt: now } },
-              ],
-            },
-            {
-              OR: [{ currentBidUsd: null }, { currentBidUsd: { lt: amountUsd } }],
-            },
-          ],
-        },
+      const now = await getTransactionServerNow(tx);
+      const locked = await lockActiveLiveRoomItemForBid(tx, { liveRoomId, itemId, now });
+      const lockedHigh = currentHighUsdFromLockedItem(locked);
+      const minBidLocked = liveAuctionMinBidUsd(locked);
+      if (amountUsd < minBidLocked) throw new Error(`MIN_BID:${minBidLocked}`);
+      assertBidExceedsCurrentHigh({
+        bidderId,
+        amountUsd,
+        lastHighBidderId: locked.lastHighBidderId,
+        currentHighUsd: lockedHigh,
+      });
+      const nextEndsAt = computeNextAuctionEndsAtAfterBid(now, locked.clutchTimeEnabled, locked.auctionEndsAt);
+      await tx.liveRoomItem.update({
+        where: { id: itemId },
         data: {
           currentBidUsd: amountUsd,
           lastHighBidderId: bidderId,
@@ -335,9 +335,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
           itemVersion: { increment: 1 },
         },
       });
-      if (write.count === 0) {
-        throw new Error("CONCURRENT_HIGHER_BID");
-      }
       const roomWrite = await tx.liveRoom.update({
         where: { id: liveRoomId },
         data: { roomVersion: { increment: 1 }, auctionEventSeq: { increment: 1 } },
@@ -349,21 +346,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
       });
       const bidder = await tx.user.findUnique({ where: { id: bidderId }, select: { username: true } });
       const endsIso = itemState?.auctionEndsAt?.toISOString() ?? null;
-      const emitActiveItemChanged = !item.clutchTimeEnabled && Boolean(endsIso);
+      const emitActiveItemChanged = !locked.clutchTimeEnabled && Boolean(endsIso);
       const payload: LiveAuctionBidPlacedPayloadV1 = {
         v: LIVE_AUCTION_EVENT_PAYLOAD_VERSION,
         liveRoomId,
         itemId,
         amountUsd,
         bidderId,
-        listingId: item.listingId,
+        listingId: locked.listingId,
         roomVersion: roomWrite.roomVersion,
         itemVersion: itemState?.itemVersion ?? null,
         auctionEndsAt: endsIso,
         biddingOpen: true,
         leadingBidderId: bidderId,
         leadingBidderUsername: bidder?.username ?? null,
-        clutchTimeEnabled: item.clutchTimeEnabled,
+        clutchTimeEnabled: locked.clutchTimeEnabled,
         emitActiveItemChanged,
       };
       await tx.liveAuctionEvent.create({
@@ -374,6 +371,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
           itemId,
           payload: payload as unknown as Prisma.InputJsonValue,
         },
+      });
+      await recordLiveRoomBid(tx, {
+        liveRoomId,
+        liveRoomItemId: itemId,
+        bidderId,
+        amountUsd,
+        auctionEventSeq: roomWrite.auctionEventSeq,
+        acceptedAt: now,
+        idempotencyKey: idempotencyKey || undefined,
       });
       if (maxProxyUsd != null) {
         if (maxProxyUsd < amountUsd) throw new Error("PROXY_MAX_LT_BID");
@@ -388,8 +394,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
       const proxyOutbids = await resolveLiveProxyBidChain(tx, {
         liveRoomId,
         itemId,
-        clutchTimeEnabled: item.clutchTimeEnabled,
-        listingId: item.listingId,
+        clutchTimeEnabled: locked.clutchTimeEnabled,
+        listingId: locked.listingId,
       });
       const roomFinal = await tx.liveRoom.findUnique({
         where: { id: liveRoomId },
@@ -479,6 +485,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
       return NextResponse.json({ error: "You cannot bid on your own listing." }, { status: 400 });
     }
     if (msg === "ENDED") return NextResponse.json({ error: "Auction has ended" }, { status: 409 });
+    if (msg === "ITEM_NOT_FOUND") return NextResponse.json({ error: "Item not found." }, { status: 404 });
+    if (msg === "ITEM_NOT_ACTIVE") {
+      return NextResponse.json({ error: "Bidding is only open on the active item." }, { status: 409 });
+    }
+    if (msg === "BIDDING_NOT_OPEN") {
+      return NextResponse.json({ error: "The host has not started bidding on this lot yet." }, { status: 409 });
+    }
+    if (msg === "ALREADY_HIGH_BIDDER") {
+      return NextResponse.json({ error: "You are already the high bidder at this amount." }, { status: 409 });
+    }
     if (msg === "CONCURRENT_HIGHER_BID") {
       return NextResponse.json({ error: "Another higher bid was placed. Try the next amount." }, { status: 409 });
     }

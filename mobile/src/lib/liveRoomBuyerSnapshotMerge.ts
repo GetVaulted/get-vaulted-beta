@@ -1,11 +1,7 @@
+import { liveAuctionMinBidUsd } from './liveAuctionBidMath';
 import { resolveLiveAuctionLotBidPhase } from './liveAuctionLotPhase';
 import type { LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
 import type { RoomBroadcastPayload } from './realtimeChannels';
-
-function minNextBidUsd(currentHighUsd: number): number {
-  const inc = Math.max(1, Math.ceil(currentHighUsd / 25));
-  return currentHighUsd + inc;
-}
 
 /** Optimistic merge for `bid_placed` on the active lot snapshot. */
 export function mergeBuyerSnapshotForBidPlaced(
@@ -35,7 +31,10 @@ export function mergeBuyerSnapshotForBidPlaced(
     ...snap,
     activeItemId: payload.itemId,
     currentBidUsd: nextHigh,
-    minNextBidUsd: minNextBidUsd(nextHigh),
+    minNextBidUsd: liveAuctionMinBidUsd({
+      currentBidUsd: nextHigh,
+      lastHighBidderId: payload.leadingBidderId ?? 'bidder',
+    }),
     auctionEndsAt,
     biddingOpen: lotBidPhase === 'bidding_open',
     lotBidPhase,

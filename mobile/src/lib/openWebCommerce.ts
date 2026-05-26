@@ -25,6 +25,18 @@ export function webListingCheckoutUrl(listingId: string): string | null {
   return `${base.replace(/\/$/, '')}/checkout/${encodeURIComponent(listingId.trim())}`;
 }
 
+export function webAccountPaymentMethodsUrl(): string | null {
+  const base = getWebApiBaseUrl();
+  if (!base) return null;
+  return `${base.replace(/\/$/, '')}/account/payment-methods`;
+}
+
+export function webAccountWalletShippingUrl(): string | null {
+  const base = getWebApiBaseUrl();
+  if (!base) return null;
+  return `${base.replace(/\/$/, '')}/account/payment-methods#wallet-shipping`;
+}
+
 /** Opens web checkout / live room in system browser when mobile native pay is not wired. */
 export async function openWebCommerceUrl(url: string): Promise<void> {
   await WebBrowser.openBrowserAsync(url, {

@@ -13,7 +13,7 @@ import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
 import type { LiveRoomItemDTO, LiveRoomMessageDTO } from "@/lib/live-room-serialize";
-import { minNextBidUsd } from "@/lib/auction";
+import { liveAuctionMinBidUsd } from "@/lib/auction";
 import { LIVE_AUCTION_CLIENT_END_GRACE_MS } from "@/lib/live-auction-bid-extension";
 import { createLiveBidIdempotencyKey, liveBidRequestHeaders } from "@/lib/live-bid-client";
 import {
@@ -197,11 +197,10 @@ export function LiveSaleRoom({
   const [selectedId, setSelectedId] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  /** Auction bid POST in flight — disables button without “Placing…” (optimistic amounts). */
+  /** Auction bid POST in flight — disables button. */
   const [bidFlight, setBidFlight] = useState(false);
   const [bidMeta, setBidMeta] = useState<ListingBidMeta | null>(null);
   const [shipUxNonce, setShipUxNonce] = useState(0);
-  const [optimisticBidUsd, setOptimisticBidUsd] = useState<number | null>(null);
   /** Last successful bid amount from this client — drives winning / outbid UX (auction rooms). */
   const [userHighBidUsd, setUserHighBidUsd] = useState<number | null>(null);
   const [showOutbidToast, setShowOutbidToast] = useState(false);
@@ -239,10 +238,6 @@ export function LiveSaleRoom({
   }, [activeDb, isLive, selected, liveAuctionResolutionTick]);
 
   const activeListingId = activeDb?.listingId ?? null;
-
-  useEffect(() => {
-    setOptimisticBidUsd(null);
-  }, [activeDb?.id, activeDb?.currentBidUsd]);
 
   useEffect(() => {
     setUserHighBidUsd(null);
@@ -306,11 +301,10 @@ export function LiveSaleRoom({
     roomType === "auction" && Boolean(activeListingId),
   );
 
-  /** Matches `/api/live-rooms/.../bid` and `/api/listings/.../bids` (see `minNextBidUsd`). */
+  /** Matches `/api/live-rooms/.../bid` opening bid + increment rules. */
   const minNextFromLiveItem = useMemo(() => {
     if (roomType !== "auction" || !activeDb) return null;
-    const high = activeDb.currentBidUsd ?? activeDb.startingBidUsd ?? activeDb.priceUsd ?? 0;
-    return minNextBidUsd(high);
+    return liveAuctionMinBidUsd(activeDb);
   }, [roomType, activeDb]);
 
   const nextBidAmount = useMemo(() => {
@@ -321,7 +315,7 @@ export function LiveSaleRoom({
     if (minNextFromLiveItem != null) return minNextFromLiveItem.toFixed(2);
     return "0.00";
   }, [roomType, actionUi, activeListingId, bidMeta, minNextFromLiveItem]);
-  const currentTopBid = optimisticBidUsd ?? actionUi?.topBid ?? 0;
+  const currentTopBid = actionUi?.topBid ?? 0;
   const liveTitle = actionUi ? buyerQueueTitleSale(actionUi.title, actionUi.quantity) : (roomTitle ?? "Vaulted Live");
 
   const secondsLeft = useMemo(() => {
@@ -473,8 +467,6 @@ export function LiveSaleRoom({
       setActionError("Invalid bid amount.");
       return;
     }
-    const prevOptimistic = optimisticBidUsd;
-    setOptimisticBidUsd(amount);
     setBidFlight(true);
     const idempotencyKey = createLiveBidIdempotencyKey();
     try {
@@ -488,13 +480,11 @@ export function LiveSaleRoom({
       );
       const data = (await res.json().catch(() => ({}))) as { error?: string; signInUrl?: string };
       if (res.status === 401) {
-        setOptimisticBidUsd(prevOptimistic);
         if (data.signInUrl) router.push(data.signInUrl);
         else redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
         return;
       }
       if (!res.ok) {
-        setOptimisticBidUsd(prevOptimistic);
         setActionError(data.error ?? "Could not place bid.");
         toast(data.error ?? "Could not place bid.");
         return;
@@ -505,14 +495,18 @@ export function LiveSaleRoom({
       }
       onAuctionHttpAck?.(ack);
       toast("Bid placed.");
-      setUserHighBidUsd(amount);
+      const uid = session?.user?.id;
+      if (uid && ack.item?.lastHighBidderId === uid) {
+        setUserHighBidUsd(ack.item.currentBidUsd ?? amount);
+      } else {
+        setUserHighBidUsd(null);
+      }
       setShipUxNonce((n) => n + 1);
       window.setTimeout(() => {
         void onRefetch?.();
         router.refresh();
       }, 750);
     } catch {
-      setOptimisticBidUsd(prevOptimistic);
       toast("Could not place bid.");
     } finally {
       setBidFlight(false);

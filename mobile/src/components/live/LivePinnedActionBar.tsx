@@ -23,10 +23,18 @@ import {
   type LiveRoomBuyerSnapshot,
 } from '../../api/liveRoomBuyerRepository';
 import {
+  isWalletIncompleteError,
+  isWalletIncompleteReadiness,
+  walletReadinessFromSnapshot,
+  type BuyerWalletReadiness,
+} from '../../lib/buyerWalletErrors';
+import {
   LIVE_AUCTION_BUYER_NOT_STARTED_COPY,
   LIVE_AUCTION_BUYER_TIMER_ENDED_COPY,
 } from '../../lib/liveAuctionLotPhase';
+import { logLiveBidButtonPress, mustUseLiveBidFlow } from '../../lib/liveCommerceRouting';
 import { openWebCommerceUrl, webLiveRoomUrl } from '../../lib/openWebCommerce';
+import { WalletRequirementSheet } from '../wallet/WalletRequirementSheet';
 import type { LiveStackParamList, MainTabParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
 import type { LiveStream } from '../../types';
@@ -121,6 +129,8 @@ export function LivePinnedActionBar({
   const stackNav = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const tabNav = stackNav.getParent<BottomTabNavigationProp<MainTabParamList>>();
   const [bidBusy, setBidBusy] = useState(false);
+  const [walletSheetOpen, setWalletSheetOpen] = useState(false);
+  const [walletReadiness, setWalletReadiness] = useState<BuyerWalletReadiness | null>(null);
   const [localRoomSnap, setLocalRoomSnap] = useState<LiveRoomBuyerSnapshot | null>(null);
   const [localSyncRefreshing, setLocalSyncRefreshing] = useState(false);
   const usingExternalSync = onRefreshSnapshot != null;
@@ -142,9 +152,19 @@ export function LivePinnedActionBar({
     fn();
   };
 
-  const goInitiateTrade = () => {
-    tabNav?.navigate('TradeCenter', { screen: 'InitiateTrade', params: {} });
-  };
+  const openWalletSetup = useCallback((seed?: BuyerWalletReadiness | null) => {
+    if (seed) setWalletReadiness(seed);
+    else {
+      const fromSnap = walletReadinessFromSnapshot(roomSnap);
+      if (fromSnap) setWalletReadiness(fromSnap);
+    }
+    setWalletSheetOpen(true);
+  }, [roomSnap]);
+
+  const useLiveAuctionBidFlow = mustUseLiveBidFlow(stream, roomSnap, {
+    bottomRightIsSlide: m.bottomRightIsSlide,
+    bottomRightLabel: m.bottomRightLabel,
+  });
 
   const refreshRoomSnapshot = useCallback(async (): Promise<LiveRoomBuyerSnapshot | null> => {
     if (onRefreshSnapshot) return onRefreshSnapshot();
@@ -209,6 +229,11 @@ export function LivePinnedActionBar({
         ]);
         return;
       }
+      const walletFromSnap = walletReadinessFromSnapshot(snap);
+      if (walletFromSnap && isWalletIncompleteReadiness(walletFromSnap)) {
+        openWalletSetup(walletFromSnap);
+        return;
+      }
       if (snap.status !== 'live' || !snap.activeItemId) {
         Alert.alert(
           'Bidding not open',
@@ -249,6 +274,13 @@ export function LivePinnedActionBar({
       onBidPlaced?.(amount);
       await refreshRoomSnapshot();
     } catch (e) {
+      if (isWalletIncompleteError(e)) {
+        openWalletSetup({
+          paymentReady: e.paymentReady,
+          shippingReady: e.shippingReady,
+        });
+        return;
+      }
       Alert.alert('Could not place bid', e instanceof Error ? e.message : 'Unknown error');
     } finally {
       setBidBusy(false);
@@ -259,10 +291,46 @@ export function LivePinnedActionBar({
     onRequireAuth,
     onBidPlaced,
     openFullLiveRoom,
+    openWalletSetup,
     refreshRoomSnapshot,
     participationBlocked,
     roomSnap,
     stream.id,
+  ]);
+
+  const runPrimaryLiveCommerceAction = useCallback(() => {
+    logLiveBidButtonPress({
+      roomId: stream.id,
+      activeItemId: roomSnap?.activeItemId ?? null,
+      auctionLane,
+      useLiveAuctionBidFlow,
+      selectedAction: useLiveAuctionBidFlow ? 'live_bid' : 'blocked_not_live_bid_ui',
+      bottomRightLabel: m.bottomRightLabel,
+      bottomRightIsSlide: m.bottomRightIsSlide,
+      roomType: roomSnap?.roomType ?? null,
+      lotBidPhase: roomSnap?.lotBidPhase ?? null,
+    });
+
+    if (useLiveAuctionBidFlow) {
+      void tryPlaceLiveBid();
+      return;
+    }
+
+    // Live room hard guard: never route pinned commerce to Initiate Trade.
+    Alert.alert(
+      'Not available yet',
+      'This action is not open for the current lot. Wait for the host or refresh the room.',
+    );
+  }, [
+    auctionLane,
+    m.bottomRightIsSlide,
+    m.bottomRightLabel,
+    roomSnap?.activeItemId,
+    roomSnap?.lotBidPhase,
+    roomSnap?.roomType,
+    stream.id,
+    tryPlaceLiveBid,
+    useLiveAuctionBidFlow,
   ]);
 
   const onSecondary = () => {
@@ -274,11 +342,11 @@ export function LivePinnedActionBar({
   };
   const onPrimary = () => {
     if (primaryDisabled) return;
-    guard(() => (auctionLane ? void tryPlaceLiveBid() : goInitiateTrade()));
+    guard(() => runPrimaryLiveCommerceAction());
   };
   const onSlide = () => {
     if (primaryDisabled) return;
-    guard(() => (auctionLane ? void tryPlaceLiveBid() : goInitiateTrade()));
+    guard(() => runPrimaryLiveCommerceAction());
   };
   const onShop = () =>
     guard(() => {
@@ -370,6 +438,20 @@ export function LivePinnedActionBar({
           </View>
         </View>
       </View>
+
+      <WalletRequirementSheet
+        visible={walletSheetOpen}
+        onClose={() => setWalletSheetOpen(false)}
+        accessToken={accessToken}
+        roomId={stream.id}
+        initialReadiness={walletReadiness}
+        onReadinessChange={(next) => {
+          setWalletReadiness(next);
+          if (next.paymentReady && next.shippingReady) {
+            void refreshRoomSnapshot();
+          }
+        }}
+      />
     </View>
   );
 }

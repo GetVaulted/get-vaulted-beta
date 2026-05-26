@@ -1,4 +1,6 @@
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
+import { WalletIncompleteError } from '../lib/buyerWalletErrors';
+import { liveAuctionMinBidUsd } from '../lib/liveAuctionBidMath';
 import {
   resolveLiveAuctionLotBidPhase,
   type LiveAuctionLotBidPhase,
@@ -23,6 +25,9 @@ export type LiveRoomBuyerSnapshot = {
   breakLockPurchases?: boolean;
   breakPaused?: boolean;
   breakFull?: boolean;
+  /** From GET /api/live-rooms/:id when authenticated buyer. */
+  paymentReady?: boolean | null;
+  shippingReady?: boolean | null;
 };
 
 function apiErrorMessage(res: Response, body: unknown): string {
@@ -31,11 +36,6 @@ function apiErrorMessage(res: Response, body: unknown): string {
     if (typeof o.error === 'string' && o.error.trim()) return o.error.trim();
   }
   return `Request failed (${res.status})`;
-}
-
-function minNextBidUsd(currentHighUsd: number): number {
-  const inc = Math.max(1, Math.ceil(currentHighUsd / 25));
-  return currentHighUsd + inc;
 }
 
 /** Buyer snapshot for placing bids from mobile (same room GET as web). */
@@ -52,12 +52,16 @@ export async function fetchLiveRoomBuyerSnapshot(
     room?: {
       status?: string;
       roomType?: string;
+      buyerLiveBidPaymentReady?: boolean;
+      buyerLiveShippingReady?: boolean;
       activeItem?: {
         id?: string;
         status?: string;
         biddingOpen?: boolean;
         currentBidUsd?: number | null;
         startingBidUsd?: number | null;
+        priceUsd?: number | null;
+        lastHighBidderId?: string | null;
         auctionEndsAt?: string | null;
       } | null;
       break?: {
@@ -79,15 +83,25 @@ export async function fetchLiveRoomBuyerSnapshot(
   const detail = j.room;
   const active = detail?.activeItem;
   const highBid = active?.currentBidUsd;
-  const starting = active?.startingBidUsd ?? 0;
+  const starting = active?.startingBidUsd ?? active?.priceUsd ?? 0;
+  const hasAcceptedBid = Boolean(active?.lastHighBidderId?.trim());
   const currentHigh =
-    typeof highBid === 'number' && Number.isFinite(highBid) && highBid > 0
+    hasAcceptedBid && typeof highBid === 'number' && Number.isFinite(highBid) && highBid > 0
       ? highBid
       : typeof starting === 'number' && Number.isFinite(starting)
         ? starting
-        : 0;
-  const minNext = active ? minNextBidUsd(currentHigh) : null;
-  const current = typeof highBid === 'number' && Number.isFinite(highBid) ? highBid : currentHigh;
+        : typeof highBid === 'number' && Number.isFinite(highBid)
+          ? highBid
+          : 0;
+  const minNext = active
+    ? liveAuctionMinBidUsd({
+        currentBidUsd: typeof highBid === 'number' ? highBid : null,
+        startingBidUsd: active.startingBidUsd,
+        priceUsd: active.priceUsd,
+        lastHighBidderId: active.lastHighBidderId,
+      })
+    : null;
+  const current = hasAcceptedBid && typeof highBid === 'number' && Number.isFinite(highBid) ? highBid : currentHigh;
   const fetchedAtMs = Date.now();
   const lotBidPhase = resolveLiveAuctionLotBidPhase(
     {
@@ -124,6 +138,8 @@ export async function fetchLiveRoomBuyerSnapshot(
     breakLockPurchases: breakSnap?.lockPurchases === true,
     breakPaused: breakSnap?.breakPaused === true,
     breakFull: breakSnap?.breakFull === true,
+    paymentReady: typeof detail?.buyerLiveBidPaymentReady === 'boolean' ? detail.buyerLiveBidPaymentReady : null,
+    shippingReady: typeof detail?.buyerLiveShippingReady === 'boolean' ? detail.buyerLiveShippingReady : null,
   };
 }
 
@@ -153,15 +169,22 @@ export async function placeLiveRoomBid(args: {
       body: JSON.stringify({ amountUsd: args.amountUsd }),
     },
   );
-  let j: { error?: string; signInUrl?: string } = {};
+  let j: {
+    error?: string;
+    signInUrl?: string;
+    code?: string;
+    paymentReady?: boolean;
+    shippingReady?: boolean;
+    addPaymentMethodsUrl?: string;
+    addShippingUrl?: string;
+  } = {};
   try {
     j = (await res.json()) as typeof j;
   } catch {
     /* ignore */
   }
   if (res.status === 402 && j && typeof j === 'object') {
-    const wallet = j as { error?: string; walletIncomplete?: boolean };
-    throw new Error(wallet.error ?? 'Add a payment method and shipping address before bidding.');
+    throw new WalletIncompleteError(j);
   }
   if (!res.ok) {
     throw new Error(apiErrorMessage(res, j));

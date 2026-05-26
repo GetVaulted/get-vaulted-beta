@@ -64,6 +64,15 @@ describe('resolveBuyerRoomKind', () => {
     expect(resolveBuyerRoomKind(snap, baseStream({ liveRoomFormat: 'hybrid' }))).toBe('auction');
   });
 
+  it('uses auction lane when break room has active live lot', () => {
+    const snap = {
+      roomType: 'break',
+      status: 'live',
+      activeItemId: 'item-1',
+    } as LiveRoomBuyerSnapshot;
+    expect(resolveBuyerRoomKind(snap, baseStream({ liveRoomFormat: 'break' }))).toBe('auction');
+  });
+
   it('defaults hybrid stream without focus to auction', () => {
     expect(resolveBuyerRoomKind(null, baseStream({ liveRoomFormat: 'hybrid' }))).toBe('auction');
   });

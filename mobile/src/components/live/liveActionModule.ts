@@ -17,6 +17,9 @@ export function resolveBuyerRoomKind(
   snap: LiveRoomBuyerSnapshot | null | undefined,
   stream: LiveStream,
 ): 'break' | 'auction' {
+  /** Pinned live lot always uses auction bid API (even in hybrid/break rooms). */
+  if (snap?.activeItemId && snap.status === 'live') return 'auction';
+
   if (snap?.roomType === 'break') return 'break';
   if (snap?.roomType === 'auction' || snap?.roomType === 'sale') return 'auction';
 

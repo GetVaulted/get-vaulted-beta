@@ -17,7 +17,7 @@ import { TeamBoardOverlay } from "@/components/team-board/TeamBoardOverlay";
 import type { LiveRoomBreakPublicDTO, LiveRoomItemDTO, LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
 import { parseTeamBoardPublicPayload, type TeamBoardPublicPayload } from "@/lib/team-board-public";
-import { minNextBidUsd } from "@/lib/auction";
+import { liveAuctionMinBidUsd } from "@/lib/auction";
 import { LIVE_AUCTION_CLIENT_END_GRACE_MS } from "@/lib/live-auction-bid-extension";
 import { createLiveBidIdempotencyKey, liveBidRequestHeaders } from "@/lib/live-bid-client";
 import {
@@ -222,10 +222,8 @@ export function LiveAuctionRoom({
   const [selectedId, setSelectedId] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  /** Blocks double-submit while bid POST is in flight (no “Placing…” spinner — optimistic UI). */
+  /** Blocks double-submit while bid POST is in flight. */
   const [bidFlight, setBidFlight] = useState(false);
-  /** Pending bid amount until server/realtime confirms `currentBidUsd` (instant buyer UX). */
-  const [optimisticBidUsd, setOptimisticBidUsd] = useState<number | null>(null);
   const [userHighBidUsd, setUserHighBidUsd] = useState<number | null>(null);
   const [showOutbidToast, setShowOutbidToast] = useState(false);
   const [teamBoardData, setTeamBoardData] = useState<TeamBoardPublicPayload | null>(null);
@@ -289,17 +287,13 @@ export function LiveAuctionRoom({
 
   const buyerCurrentHighUsd = useMemo(() => {
     if (!activeDbItem) return 0;
-    const serverHigh = activeDbItem.currentBidUsd ?? activeDbItem.startingBidUsd ?? activeDbItem.priceUsd ?? 0;
-    return optimisticBidUsd != null ? Math.max(serverHigh, optimisticBidUsd) : serverHigh;
-  }, [activeDbItem, optimisticBidUsd]);
+    return activeDbItem.currentBidUsd ?? activeDbItem.startingBidUsd ?? activeDbItem.priceUsd ?? 0;
+  }, [activeDbItem]);
 
-  const buyerNextBidUsd = useMemo(() => minNextBidUsd(buyerCurrentHighUsd), [buyerCurrentHighUsd]);
-
-  useEffect(() => {
-    if (optimisticBidUsd == null || !activeDbItem) return;
-    const cur = activeDbItem.currentBidUsd ?? 0;
-    if (cur >= optimisticBidUsd - 0.005) setOptimisticBidUsd(null);
-  }, [activeDbItem, optimisticBidUsd]);
+  const buyerNextBidUsd = useMemo(
+    () => (activeDbItem ? liveAuctionMinBidUsd(activeDbItem) : 0),
+    [activeDbItem],
+  );
 
   useEffect(() => {
     setUserHighBidUsd(null);
@@ -486,15 +480,12 @@ export function LiveAuctionRoom({
       setActionError("Accept the live break notice before bidding.");
       return;
     }
-    const prevOptimistic = optimisticBidUsd;
-
     if (activeLotBidPhase === "timer_ended_unsettled") {
       setActionError(LIVE_AUCTION_BUYER_TIMER_ENDED_COPY);
       return;
     }
     if (overlayIsLive && activeDbItem) {
       const amount = buyerNextBidUsd;
-      setOptimisticBidUsd(amount);
       setBidFlight(true);
       const idempotencyKey = createLiveBidIdempotencyKey();
       try {
@@ -508,13 +499,11 @@ export function LiveAuctionRoom({
         );
         const data = (await res.json().catch(() => ({}))) as { error?: string; signInUrl?: string };
         if (res.status === 401) {
-          setOptimisticBidUsd(prevOptimistic);
           if (data.signInUrl) router.push(data.signInUrl);
           else redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
           return;
         }
         if (!res.ok) {
-          setOptimisticBidUsd(prevOptimistic);
           setActionError(data.error ?? "Could not place bid.");
           toast(data.error ?? "Could not place bid.");
           return;
@@ -524,16 +513,18 @@ export function LiveAuctionRoom({
           console.debug("[live-auction-client] bid HTTP ACK (break overlay)", ack);
         }
         onAuctionHttpAck?.(ack);
-        setUserHighBidUsd(amount);
+        const uid = session?.user?.id;
+        if (uid && ack.item?.lastHighBidderId === uid) {
+          setUserHighBidUsd(ack.item.currentBidUsd ?? amount);
+        } else {
+          setUserHighBidUsd(null);
+        }
         toast("Bid placed.");
-        // Let bid_placed realtime merge apply before full-room GET — immediate refetch can race replicas and
-        // overwrite the extended timer with stale `auctionEndsAt` (e.g. still showing the host’s short window).
         window.setTimeout(() => {
           void onRefetch?.();
           router.refresh();
         }, 750);
       } catch {
-        setOptimisticBidUsd(prevOptimistic);
         toast("Could not place bid.");
       } finally {
         setBidFlight(false);
