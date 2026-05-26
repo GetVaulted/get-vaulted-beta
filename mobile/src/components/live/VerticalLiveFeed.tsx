@@ -47,6 +47,7 @@ import { LivePinnedActionBar } from './LivePinnedActionBar';
 import { LiveEmptyBroadcastBlock } from './LiveEmptyBroadcastBlock';
 import { LiveStagePlayback } from './LiveStagePlayback';
 import { LiveRoomText } from './LiveRoomText';
+import { LiveBadge } from '../ui/LiveBadge';
 import {
   computeLiveStageContainer,
   computeLiveStageHostStyle,
