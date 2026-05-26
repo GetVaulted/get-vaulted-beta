@@ -34,7 +34,7 @@ import {
 } from '../../lib/liveAuctionLotPhase';
 import { logLiveBidButtonPress, mustUseLiveBidFlow } from '../../lib/liveCommerceRouting';
 import { openWebCommerceUrl, webLiveRoomUrl } from '../../lib/openWebCommerce';
-import { WalletRequirementSheet } from '../wallet/WalletRequirementSheet';
+import { WalletSheet } from '../wallet/WalletSheet';
 import type { LiveStackParamList, MainTabParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
 import type { LiveStream } from '../../types';
@@ -447,7 +447,7 @@ export function LivePinnedActionBar({
         </View>
       </View>
 
-      <WalletRequirementSheet
+      <WalletSheet
         visible={walletSheetOpen}
         onClose={() => setWalletSheetOpen(false)}
         accessToken={accessToken}
