@@ -1284,7 +1284,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   );
 
   const hostStageProps = {
-    layout: "host916" as const,
+    layout: "fillHeight" as const,
     overlayMessage: stageOverlayMessage,
     viewers: room.viewerCount,
     hostName: `@${hostUsername}`,
@@ -1383,7 +1383,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
             <LiveSellerCommandCenter {...commandCenterProps} variant="panel" />
           </aside>
 
-          <main className="relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-zinc-950/85 px-1">
+          <main className="relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-zinc-950/85">
             {room.thumbnailUrl ? (
               <div
                 className="pointer-events-none absolute inset-0 scale-105 bg-cover bg-center opacity-25 blur-2xl"
@@ -1392,15 +1392,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
               />
             ) : null}
             <div className="pointer-events-none absolute inset-0 bg-black/40" aria-hidden />
-            <div
-              className="relative w-auto max-w-full shrink-0 overflow-hidden rounded-xl border border-white/[0.14] shadow-[0_24px_80px_-28px_rgba(0,0,0,0.92)] min-[1600px]:max-w-[580px] min-[1800px]:max-w-[620px]"
-              style={{
-                aspectRatio: "9 / 16",
-                height: "min(calc(100dvh - var(--site-header-offset) - 0.75rem), 920px)",
-                maxHeight: "min(calc(100dvh - var(--site-header-offset) - 0.75rem), 920px)",
-                width: "min(100%, calc(min(calc(100dvh - var(--site-header-offset) - 0.75rem), 920px) * 9 / 16))",
-              }}
-            >
+            <div className="relative min-h-0 flex-1">
               <LiveVideoStage {...hostStageProps} />
             </div>
           </main>

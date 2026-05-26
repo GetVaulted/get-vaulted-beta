@@ -26,7 +26,7 @@ type LiveVideoStageProps = {
   centerOverlayOnTop?: boolean;
   actionOverlay?: ReactNode;
   mobileActionOverlay?: ReactNode;
-  /** `fillHeight`: grow with parent. `host916`: fill a fixed 9:16 host console frame. */
+  /** `fillHeight`: grow with parent. `host916`: legacy alias — video stays 9:16, overlays use full stage on desktop. */
   layout?: "aspect" | "fillHeight" | "host916";
   /** Shown below the Live / audience row, right-aligned (e.g. host team board control). */
   stageBelowAudience?: ReactNode;
@@ -66,6 +66,10 @@ type LiveVideoStageProps = {
   roomStatus: LiveRoomStatus;
 };
 
+/** Centered 9:16 plate — video only; overlays attach to outer stage on desktop. */
+const PORTRAIT_VIDEO_FRAME =
+  "relative aspect-[9/16] min-h-0 shrink-0 overflow-hidden min-[1400px]:rounded-xl min-[1400px]:border min-[1400px]:border-white/[0.14] min-[1400px]:shadow-[0_24px_80px_-28px_rgba(0,0,0,0.92)]";
+
 export function LiveVideoStage({
   overlayMessage,
   viewers = 0,
@@ -99,206 +103,237 @@ export function LiveVideoStage({
   streamPlaybackRefreshNonce,
   scheduledStartAt = null,
   thumbnailUrl = null,
-  fillPortraitFrame: fillPortraitFrameProp,
+  fillPortraitFrame: _fillPortraitFrameProp,
   roomStatus,
 }: LiveVideoStageProps) {
-  const fillPortraitFrame = fillPortraitFrameProp ?? layout === "host916";
   const avatarLabel = hostName.charAt(0).toUpperCase();
   const statusLabel =
     roomStatus === "ended" ? "Ended" : isLive ? "Live" : startsIn ? `Starts in ${startsIn}` : "Upcoming";
   /** Anchored bottom item sheet (auction/buy bar) — lifts chat + right rail so they clear the panel. */
   const hasMobileItemSheet = Boolean(mobileActionOverlay);
-  const rootClass =
-    layout === "fillHeight" || layout === "host916"
-      ? "relative h-full min-h-0 w-full overflow-hidden bg-gradient-to-br from-zinc-900 via-zinc-950 to-black"
-      : "relative h-[100dvh] min-h-[100dvh] w-full overflow-hidden rounded-none bg-gradient-to-br from-zinc-900 via-zinc-950 to-black shadow-[0_24px_80px_-32px_rgba(0,0,0,0.9)] md:aspect-video md:h-auto md:min-h-[calc(56.25vw*1.4)] md:rounded-2xl md:border md:border-zinc-800";
+  const fillsParentHeight = layout === "fillHeight" || layout === "host916";
+  const rootClass = fillsParentHeight
+    ? "relative h-full min-h-0 w-full overflow-hidden bg-gradient-to-br from-zinc-900 via-zinc-950 to-black"
+    : "relative h-[100dvh] min-h-[100dvh] w-full overflow-hidden rounded-none bg-gradient-to-br from-zinc-900 via-zinc-950 to-black shadow-[0_24px_80px_-32px_rgba(0,0,0,0.9)] md:aspect-video md:h-auto md:min-h-[calc(56.25vw*1.4)] md:rounded-2xl md:border md:border-zinc-800";
+
+  const portraitSizingClass = fillsParentHeight
+    ? "h-full max-h-full w-auto max-w-full"
+    : "h-auto max-h-full w-full max-w-full";
+
+  const desktopActionOverlayClass = compactActionOverlay
+    ? "bottom-4 left-4 right-20"
+    : "bottom-4 left-4 right-4";
+
+  const topChrome = (
+    <div className="pointer-events-auto flex items-start justify-between gap-1 rounded-[var(--live-radius-chrome)] border border-[color:var(--live-border-muted)] bg-[color:var(--live-chrome-fill)] px-1 py-0.5 backdrop-blur-[var(--live-blur-sm)] md:gap-1 md:px-1 md:py-0.5">
+      <div className="flex min-w-0 items-center gap-1">
+        {onBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-black/45 text-[9px] font-semibold text-zinc-100 transition hover:bg-black/65"
+          >
+            ←
+          </button>
+        ) : null}
+        <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-white/16 bg-zinc-900/75 text-[8px] font-black text-zinc-100">
+          {avatarLabel}
+        </span>
+        <div className="min-w-0">
+          <div className="flex items-center gap-0.5">
+            <p className="truncate text-[9px] font-bold text-zinc-100/95 max-[360px]:text-[8px]">{hostName}</p>
+            {hostSellerId ? (
+              <span className="inline-flex">
+                <SellerFollowButton sellerUserId={hostSellerId} variant="overlay" />
+              </span>
+            ) : null}
+            {hostVerified ? (
+              <span className="inline-flex items-center rounded-full border border-sky-300/30 bg-sky-400/12 px-1 py-[2px] text-[8px] font-bold text-sky-200/90 max-[360px]:text-[7px]">
+                Verified
+              </span>
+            ) : null}
+            {hostRating ? (
+              <p className="hidden text-[10px] font-semibold text-zinc-300/90 sm:block">{"⭐ "}{hostRating}</p>
+            ) : null}
+          </div>
+          {streamTitle ? <p className="truncate text-[9px] text-zinc-300/80">{streamTitle}</p> : null}
+        </div>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-0.5">
+        {topChromeTrailing}
+        <span
+          data-testid="live-status-pill"
+          className={`inline-flex items-center gap-1 rounded-full px-1.5 py-[2px] text-[8px] font-black uppercase tracking-wide text-white max-[360px]:text-[7px] ${
+            isLive ? "bg-red-600 shadow-[0_0_20px_rgba(220,38,38,0.45)] ring-1 ring-red-400/50" : "bg-zinc-700/80"
+          }`}
+        >
+          {isLive ? <span className="size-1.5 animate-pulse rounded-full bg-white" aria-hidden /> : null}
+          {statusLabel}
+        </span>
+        <LiveViewerCount viewers={viewers} isLive={isLive} />
+      </div>
+    </div>
+  );
+
+  const buyerRightRail = showRightActions ? (
+    <div className="motion-reduce:animate-none flex flex-col items-center gap-1 max-[380px]:gap-0.5 rounded-2xl border border-[color:var(--live-border)] bg-black/18 px-1 py-1.5 backdrop-blur-[var(--live-blur-xl)] shadow-[var(--live-shadow-rail)] [animation:live-rail-in_var(--live-duration-enter)_var(--live-ease)_both] motion-reduce:[animation:none] md:gap-1.5 md:px-1.5 md:py-2">
+      {onTip ? <ActionPill label="Tip" icon={<TipIcon />} onClick={onTip} /> : null}
+      <ActionPill label="Share" icon={<ShareIcon />} onClick={onShare} />
+      <ActionPill label="Wallet" icon={<WalletIcon />} onClick={onWallet} />
+      <ActionPill label="Shop" icon={<ShopIcon />} href="/marketplace" />
+      {liveRoomId ? (
+        <ReportTrigger
+          targetType="live_room"
+          targetId={liveRoomId}
+          liveRoomId={liveRoomId}
+          className="group inline-flex min-h-10 min-w-10 flex-col items-center justify-center gap-0.5 rounded-[var(--live-radius-chrome)] border border-[color:var(--live-border)] bg-white/[0.02] px-0.5 py-1 text-white/90 backdrop-blur-[var(--live-blur-md)] transition-[transform,background-color,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] hover:-translate-y-0.5 hover:bg-white/[0.07] active:scale-[0.94] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:scale-100 md:min-h-11 md:min-w-11 md:px-1 md:py-1.5"
+        >
+          <span className="inline-flex size-4 items-center justify-center">
+            <FlagIcon />
+          </span>
+          <span className="text-[9px] font-semibold leading-none text-zinc-200">Report</span>
+        </ReportTrigger>
+      ) : null}
+    </div>
+  ) : null;
+
+  const mobileChatClass = `absolute left-1.5 z-10 flex w-[min(96vw,34rem)] min-h-0 max-h-[min(54dvh,28rem)] min-w-0 flex-col max-[380px]:left-1 max-[380px]:w-[min(94vw,26rem)] transition-opacity duration-[var(--live-duration-ui)] ease-[var(--live-ease)] ${
+    hasMobileItemSheet
+      ? "bottom-[max(8.25rem,calc(env(safe-area-inset-bottom)+7.5rem))]"
+      : "bottom-[max(6rem,calc(env(safe-area-inset-bottom)+5rem))]"
+  } ${chatOverlayClassName ?? ""}`;
+
+  const desktopChatClass = `absolute bottom-7 left-3 z-10 flex w-[min(48vw,32rem)] min-h-0 max-h-[min(70vh,32rem)] min-w-0 flex-col transition-opacity duration-[var(--live-duration-ui)] ease-[var(--live-ease)] ${chatOverlayClassName ?? ""}`;
+
+  const mobileHostRailClass = `absolute right-2 z-10 ${
+    hasMobileItemSheet
+      ? "bottom-[max(17.25rem,calc(env(safe-area-inset-bottom)+15.75rem))]"
+      : "bottom-[max(7.25rem,calc(env(safe-area-inset-bottom)+6.25rem))]"
+  } ${hostRailClassName ?? ""}`;
 
   return (
-    <div className={rootClass}>
+    <div className={rootClass} data-live-stage-root>
       <div
-        className="absolute inset-0 opacity-40"
+        className="pointer-events-none absolute inset-0 opacity-40"
         style={{
           backgroundImage:
             "radial-gradient(circle at 20% 30%, rgba(250,204,21,0.08), transparent 45%), radial-gradient(circle at 80% 70%, rgba(63,63,70,0.4), transparent 50%)",
         }}
         aria-hidden
       />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/34 via-black/10 to-transparent" aria-hidden />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/68 via-black/26 to-transparent" aria-hidden />
-      {liveRoomId ? (
-        <LiveVideoStagePlayback
-          liveRoomId={liveRoomId}
-          roomLifecycleLive={isLive}
-          streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
-          scheduledStartAt={scheduledStartAt}
-          thumbnailUrl={thumbnailUrl}
-          fillPortraitFrame={fillPortraitFrame}
-        />
-      ) : null}
-      <div
-        className={
-          layout === "fillHeight"
-            ? "pointer-events-none flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-8"
-            : layout === "host916"
-              ? "pointer-events-none absolute inset-0 flex items-center justify-center"
-              : "pointer-events-none absolute inset-0 flex items-center justify-center"
-        }
-      >
-        {!isLive && !liveRoomId ? (
-          <div className="mx-4 w-full max-w-sm text-center">
-            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-gold-bright/85">Live preview</p>
-            <p className="mt-1 text-sm font-medium text-zinc-300">Stream preview will appear here</p>
-            <button
-              type="button"
-              onClick={onNotifyMe}
-              className="pointer-events-auto mt-3 min-h-10 rounded-full border border-gold/40 bg-gold/20 px-4 text-xs font-bold uppercase tracking-wide text-gold-bright transition hover:bg-gold/30"
+
+      {/* 9:16 video plate — centered; overlays are not positioned relative to this on desktop. */}
+      <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+        <div className={`${PORTRAIT_VIDEO_FRAME} ${portraitSizingClass}`}>
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/34 via-black/10 to-transparent" aria-hidden />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/68 via-black/26 to-transparent" aria-hidden />
+          {liveRoomId ? (
+            <LiveVideoStagePlayback
+              liveRoomId={liveRoomId}
+              roomLifecycleLive={isLive}
+              streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
+              scheduledStartAt={scheduledStartAt}
+              thumbnailUrl={thumbnailUrl}
+              fillPortraitFrame
+            />
+          ) : null}
+          {!isLive && !liveRoomId ? (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4 py-8">
+              <div className="mx-4 w-full max-w-sm text-center">
+                <p className="text-[10px] font-black uppercase tracking-[0.24em] text-gold-bright/85">Live preview</p>
+                <p className="mt-1 text-sm font-medium text-zinc-300">Stream preview will appear here</p>
+                <button
+                  type="button"
+                  onClick={onNotifyMe}
+                  className="pointer-events-auto mt-3 min-h-10 rounded-full border border-gold/40 bg-gold/20 px-4 text-xs font-bold uppercase tracking-wide text-gold-bright transition hover:bg-gold/30"
+                >
+                  Notify Me
+                </button>
+              </div>
+            </div>
+          ) : null}
+          <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-white/[0.04]" aria-hidden />
+
+          {centerOverlay ? (
+            <div
+              className={`pointer-events-none absolute inset-0 min-[1400px]:hidden ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} flex items-center justify-center p-2 sm:p-4`}
             >
-              Notify Me
-            </button>
+              <div className="pointer-events-auto max-h-full min-h-0 w-full max-w-full overflow-y-auto">{centerOverlay}</div>
+            </div>
+          ) : null}
+
+          {/* Mobile / tablet overlays — constrained to the 9:16 video frame. */}
+          <div className="absolute inset-0 min-[1400px]:hidden">
+            <div className="pointer-events-none absolute left-1.5 right-1.5 top-[max(0.35rem,env(safe-area-inset-top))] z-10 flex flex-col items-stretch gap-1 md:left-2 md:right-2 md:top-2 md:gap-2">
+              {topChrome}
+              {stageBelowAudience ? (
+                <div className="pointer-events-auto flex justify-end pr-0.5">{stageBelowAudience}</div>
+              ) : null}
+            </div>
+
+            {mobileActionOverlay ? (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10">
+                <div className="pointer-events-auto motion-reduce:animate-none [animation:live-stage-mobile-in_var(--live-duration-enter)_var(--live-ease)_both] motion-reduce:[animation:none]">
+                  {mobileActionOverlay}
+                </div>
+              </div>
+            ) : null}
+
+            {chatOverlay ? <div className={mobileChatClass}>{chatOverlay}</div> : null}
+
+            {sellerHostRail ? <div className={mobileHostRailClass}>{sellerHostRail}</div> : buyerRightRail ? (
+              <div
+                className={`absolute right-2 z-10 ${
+                  hasMobileItemSheet
+                    ? "bottom-[max(17.25rem,calc(env(safe-area-inset-bottom)+15.75rem))]"
+                    : "bottom-[max(7.25rem,calc(env(safe-area-inset-bottom)+6.25rem))]"
+                }`}
+              >
+                {buyerRightRail}
+              </div>
+            ) : null}
           </div>
-        ) : null}
+        </div>
       </div>
-      <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-white/[0.04]" aria-hidden />
 
       {centerOverlay ? (
         <div
-          className={`pointer-events-none absolute inset-0 ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} flex items-center justify-center p-2 sm:p-4`}
+          className={`pointer-events-none absolute inset-0 hidden min-[1400px]:flex ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} items-center justify-center p-4`}
         >
           <div className="pointer-events-auto max-h-full min-h-0 w-full max-w-[1920px] overflow-y-auto">{centerOverlay}</div>
         </div>
       ) : null}
 
-      <div className="pointer-events-none absolute left-1.5 right-1.5 top-[max(0.35rem,env(safe-area-inset-top))] z-10 flex flex-col items-stretch gap-1 md:left-2 md:right-2 md:top-2 md:gap-2">
-        <div className="pointer-events-auto flex items-start justify-between gap-1 rounded-[var(--live-radius-chrome)] border border-[color:var(--live-border-muted)] bg-[color:var(--live-chrome-fill)] px-1 py-0.5 backdrop-blur-[var(--live-blur-sm)] md:gap-1 md:px-1 md:py-0.5">
-          <div className="flex min-w-0 items-center gap-1">
-            {onBack ? (
-              <button
-                type="button"
-                onClick={onBack}
-                className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-black/45 text-[9px] font-semibold text-zinc-100 transition hover:bg-black/65"
-              >
-                ←
-              </button>
-            ) : null}
-            <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-white/16 bg-zinc-900/75 text-[8px] font-black text-zinc-100">
-              {avatarLabel}
-            </span>
-            <div className="min-w-0">
-              <div className="flex items-center gap-0.5">
-                <p className="truncate text-[9px] font-bold text-zinc-100/95 max-[360px]:text-[8px]">{hostName}</p>
-                {hostSellerId ? (
-                  <span className="inline-flex">
-                    <SellerFollowButton sellerUserId={hostSellerId} variant="overlay" />
-                  </span>
-                ) : null}
-                {hostVerified ? (
-                  <span className="inline-flex items-center rounded-full border border-sky-300/30 bg-sky-400/12 px-1 py-[2px] text-[8px] font-bold text-sky-200/90 max-[360px]:text-[7px]">
-                    Verified
-                  </span>
-                ) : null}
-                {hostRating ? (
-                  <p className="hidden text-[10px] font-semibold text-zinc-300/90 sm:block">{"⭐ "}{hostRating}</p>
-                ) : null}
-              </div>
-              {streamTitle ? <p className="truncate text-[9px] text-zinc-300/80">{streamTitle}</p> : null}
-            </div>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-0.5">
-            {topChromeTrailing}
-            <span
-              data-testid="live-status-pill"
-              className={`inline-flex items-center gap-1 rounded-full px-1.5 py-[2px] text-[8px] font-black uppercase tracking-wide text-white max-[360px]:text-[7px] ${
-                isLive ? "bg-red-600 shadow-[0_0_20px_rgba(220,38,38,0.45)] ring-1 ring-red-400/50" : "bg-zinc-700/80"
-              }`}
-            >
-              {isLive ? <span className="size-1.5 animate-pulse rounded-full bg-white" aria-hidden /> : null}
-              {statusLabel}
-            </span>
-            <LiveViewerCount viewers={viewers} isLive={isLive} />
-          </div>
+      {/* Desktop overlays — full player / placecard stage, wider than the 9:16 video. */}
+      <div className="pointer-events-none absolute inset-0 hidden min-[1400px]:block">
+        <div className="pointer-events-none absolute left-3 right-3 top-3 z-10 flex flex-col items-stretch gap-2">
+          {topChrome}
+          {stageBelowAudience ? (
+            <div className="pointer-events-auto flex justify-end">{stageBelowAudience}</div>
+          ) : null}
         </div>
-        {stageBelowAudience ? (
-          <div className="pointer-events-auto flex justify-end pr-0.5">{stageBelowAudience}</div>
+
+        {actionOverlay ? (
+          <div className={`pointer-events-auto absolute z-10 ${desktopActionOverlayClass}`}>{actionOverlay}</div>
+        ) : null}
+
+        {chatOverlay ? <div className={`pointer-events-auto ${desktopChatClass}`}>{chatOverlay}</div> : null}
+
+        {stageEdgeRail ? (
+          <div className="pointer-events-none absolute inset-y-8 right-3 z-20 flex items-center">
+            <div className="pointer-events-auto">{stageEdgeRail}</div>
+          </div>
+        ) : null}
+
+        {sellerHostRail ? (
+          <div className={`pointer-events-auto absolute right-3 top-1/2 z-10 -translate-y-1/2 ${hostRailClassName ?? ""}`}>
+            {sellerHostRail}
+          </div>
+        ) : buyerRightRail ? (
+          <div className="pointer-events-auto absolute right-3 top-1/2 z-10 -translate-y-1/2">{buyerRightRail}</div>
         ) : null}
       </div>
-
-      {actionOverlay ? (
-        <div
-          className={`absolute z-10 hidden min-[1400px]:block ${
-            compactActionOverlay
-              ? "bottom-2.5 left-2 right-11"
-              : "bottom-4 left-1/2 w-[min(72%,700px)] min-w-[320px] -translate-x-1/2"
-          }`}
-        >
-          {actionOverlay}
-        </div>
-      ) : null}
-
-      {mobileActionOverlay ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 min-[1400px]:hidden">
-          <div className="pointer-events-auto motion-reduce:animate-none [animation:live-stage-mobile-in_var(--live-duration-enter)_var(--live-ease)_both] motion-reduce:[animation:none]">
-            {mobileActionOverlay}
-          </div>
-        </div>
-      ) : null}
-      {chatOverlay ? (
-        <div
-          className={`absolute left-1.5 z-10 flex w-[min(96vw,34rem)] min-h-0 max-h-[min(54dvh,28rem)] min-w-0 flex-col max-[380px]:left-1 max-[380px]:w-[min(94vw,26rem)] transition-opacity duration-[var(--live-duration-ui)] ease-[var(--live-ease)] min-[1400px]:bottom-7 min-[1400px]:left-3 min-[1400px]:max-h-[min(70vh,32rem)] min-[1400px]:w-[min(48vw,32rem)] ${
-            hasMobileItemSheet
-              ? "bottom-[max(8.25rem,calc(env(safe-area-inset-bottom)+7.5rem))]"
-              : "bottom-[max(6rem,calc(env(safe-area-inset-bottom)+5rem))]"
-          } ${chatOverlayClassName ?? ""}`}
-        >
-          {chatOverlay}
-        </div>
-      ) : null}
-
-      {stageEdgeRail ? (
-        <div className="pointer-events-none absolute inset-y-6 right-2 z-20 hidden items-center min-[1400px]:flex">
-          <div className="pointer-events-auto">{stageEdgeRail}</div>
-        </div>
-      ) : null}
-
-      {sellerHostRail ? (
-        <div
-          className={`absolute right-2 z-10 min-[1400px]:right-3 min-[1400px]:top-[46%] min-[1400px]:bottom-auto min-[1400px]:-translate-y-1/2 ${
-            hasMobileItemSheet
-              ? "bottom-[max(17.25rem,calc(env(safe-area-inset-bottom)+15.75rem))]"
-              : "bottom-[max(7.25rem,calc(env(safe-area-inset-bottom)+6.25rem))]"
-          } ${hostRailClassName ?? ""}`}
-        >
-          {sellerHostRail}
-        </div>
-      ) : showRightActions ? (
-        <div
-          className={`absolute right-2 z-10 min-[1400px]:right-3 min-[1400px]:top-[46%] min-[1400px]:bottom-auto min-[1400px]:-translate-y-1/2 ${
-            hasMobileItemSheet
-              ? "bottom-[max(17.25rem,calc(env(safe-area-inset-bottom)+15.75rem))]"
-              : "bottom-[max(7.25rem,calc(env(safe-area-inset-bottom)+6.25rem))]"
-          }`}
-        >
-          <div className="motion-reduce:animate-none flex flex-col items-center gap-1 max-[380px]:gap-0.5 rounded-2xl border border-[color:var(--live-border)] bg-black/18 px-1 py-1.5 backdrop-blur-[var(--live-blur-xl)] shadow-[var(--live-shadow-rail)] [animation:live-rail-in_var(--live-duration-enter)_var(--live-ease)_both] motion-reduce:[animation:none] md:gap-1.5 md:px-1.5 md:py-2">
-            {onTip ? <ActionPill label="Tip" icon={<TipIcon />} onClick={onTip} /> : null}
-            <ActionPill label="Share" icon={<ShareIcon />} onClick={onShare} />
-            <ActionPill label="Wallet" icon={<WalletIcon />} onClick={onWallet} />
-            <ActionPill label="Shop" icon={<ShopIcon />} href="/marketplace" />
-            {liveRoomId ? (
-              <ReportTrigger
-                targetType="live_room"
-                targetId={liveRoomId}
-                liveRoomId={liveRoomId}
-                className="group inline-flex min-h-10 min-w-10 flex-col items-center justify-center gap-0.5 rounded-[var(--live-radius-chrome)] border border-[color:var(--live-border)] bg-white/[0.02] px-0.5 py-1 text-white/90 backdrop-blur-[var(--live-blur-md)] transition-[transform,background-color,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] hover:-translate-y-0.5 hover:bg-white/[0.07] active:scale-[0.94] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:scale-100 md:min-h-11 md:min-w-11 md:px-1 md:py-1.5"
-              >
-                <span className="inline-flex size-4 items-center justify-center">
-                  <FlagIcon />
-                </span>
-                <span className="text-[9px] font-semibold leading-none text-zinc-200">Report</span>
-              </ReportTrigger>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
