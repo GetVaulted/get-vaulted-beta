@@ -4,8 +4,15 @@ import * as Haptics from 'expo-haptics';
 import {
   fetchLiveRoomBuyerSnapshot,
   type LiveRoomBuyerSnapshot,
+  type LiveBidHttpAck,
 } from '../api/liveRoomBuyerRepository';
-import { mergeBuyerSnapshotForBidPlaced } from '../lib/liveRoomBuyerSnapshotMerge';
+import { mergeBuyerSnapshotForBidPlaced, mergeBuyerSnapshotForBidAck, mergeBuyerSnapshotForActiveItemChanged } from '../lib/liveRoomBuyerSnapshotMerge';
+import {
+  applyBuyerSnapshotPurchaseCompleted,
+  recomputeBuyerSnapshotPhase,
+} from '../lib/liveBuyerSnapshotClock';
+import { computeAuctionRemainingMs, logAuctionTimer } from '../lib/auctionTimerSync';
+import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import {
   parsePurchaseCompletedCelebration,
   type LiveAuctionCloseCelebration,
@@ -19,6 +26,7 @@ import { useRealtimeRoomSubscription, type LiveRoomChatBroadcastMessage } from '
 const FALLBACK_POLL_CONNECTED_MS = 30_000;
 const FALLBACK_POLL_DISCONNECTED_MS = 5000;
 const RECONCILE_DEBOUNCE_MS = 120;
+const SKEW_REFRESH_MS = 45_000;
 
 export type LiveRoomConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'polling';
 
@@ -86,13 +94,28 @@ export function useLiveRoomRealtimeSession(args: {
   );
 
   const refreshSkewFromRealtime = useCallback(
-    (serverNowMs: number | undefined) => {
-      if (typeof serverNowMs === 'number') {
-        setClockSkewMs(estimateClockSkewMs(Date.now(), Date.now(), serverNowMs));
-      }
+    (serverNowMs: number | undefined, clientStartMs?: number) => {
+      if (typeof serverNowMs !== 'number') return;
+      const start = clientStartMs ?? Date.now();
+      const end = Date.now();
+      setClockSkewMs(estimateClockSkewMs(start, end, serverNowMs));
     },
     [],
   );
+
+  const refreshSkewFromTimeEndpoint = useCallback(async () => {
+    const base = getWebApiBaseUrl();
+    if (!base) return;
+    const t0 = Date.now();
+    try {
+      const res = await fetch(`${base}/api/time`, { headers: { Accept: 'application/json' } });
+      if (!res.ok) return;
+      const j = (await res.json()) as { serverNowMs?: number };
+      refreshSkewFromRealtime(j.serverNowMs, t0);
+    } catch {
+      /* ignore */
+    }
+  }, [refreshSkewFromRealtime]);
 
   const maybeShowOutbid = useCallback(
     (payload: RoomBroadcastPayload, snap: LiveRoomBuyerSnapshot | null) => {
@@ -121,7 +144,19 @@ export function useLiveRoomRealtimeSession(args: {
       setRoomSnap((prev) => {
         if (!prev) return prev;
         const merged = mergeBuyerSnapshotForBidPlaced(prev, payload, wallNow);
-        if (merged) maybeShowOutbid(payload, merged);
+        if (merged) {
+          logAuctionTimer({
+            source: 'bid_placed',
+            serverNowMs: payload.serverNowMs,
+            localNowMs: Date.now(),
+            offsetMs: clockSkewMs,
+            auctionEndsAt: merged.auctionEndsAt,
+            remainingMs: computeAuctionRemainingMs(merged.auctionEndsAt, clockSkewMs),
+            auctionSeq: payload.auctionSeq,
+            lotBidPhase: merged.lotBidPhase,
+          });
+          maybeShowOutbid(payload, merged);
+        }
         return merged ?? prev;
       });
       scheduleReconcile(80);
@@ -133,10 +168,27 @@ export function useLiveRoomRealtimeSession(args: {
     (payload: RoomBroadcastPayload) => {
       if (!shouldProcessRealtimeEvent(guardRef.current, 'active_item_changed', payload)) return;
       refreshSkewFromRealtime(payload.serverNowMs);
+      const wallNow = syncedWallTimeMs(clockSkewMs);
       setMyHighBidUsd(null);
+      setRoomSnap((prev) => {
+        if (!prev) return prev;
+        const merged = mergeBuyerSnapshotForActiveItemChanged(prev, payload, wallNow);
+        if (merged) {
+          logAuctionTimer({
+            source: 'active_item_changed',
+            serverNowMs: payload.serverNowMs,
+            localNowMs: Date.now(),
+            offsetMs: clockSkewMs,
+            auctionEndsAt: merged.auctionEndsAt,
+            remainingMs: computeAuctionRemainingMs(merged.auctionEndsAt, clockSkewMs),
+            lotBidPhase: merged.lotBidPhase,
+          });
+        }
+        return merged ?? prev;
+      });
       scheduleReconcile(40);
     },
-    [refreshSkewFromRealtime, scheduleReconcile],
+    [clockSkewMs, refreshSkewFromRealtime, scheduleReconcile],
   );
 
   useRealtimeRoomSubscription({
@@ -163,8 +215,23 @@ export function useLiveRoomRealtimeSession(args: {
     },
     onPurchaseCompleted: (payload) => {
       if (!shouldProcessRealtimeEvent(guardRef.current, 'purchase_completed', payload)) return;
+      refreshSkewFromRealtime(payload.serverNowMs);
+      const wallNow = syncedWallTimeMs(clockSkewMs);
+      setRoomSnap((prev) => {
+        if (!prev) return prev;
+        return applyBuyerSnapshotPurchaseCompleted(prev, payload.itemId, wallNow);
+      });
       const celebration = parsePurchaseCompletedCelebration(payload);
       if (celebration) setSoldCelebration(celebration);
+      logAuctionTimer({
+        source: 'purchase_completed',
+        serverNowMs: payload.serverNowMs,
+        localNowMs: Date.now(),
+        offsetMs: clockSkewMs,
+        auctionEndsAt: null,
+        remainingMs: 0,
+        lotBidPhase: 'settled',
+      });
       scheduleReconcile(900);
     },
     onStreamStatusChange: () => args.onStreamRefresh?.(),
@@ -193,6 +260,7 @@ export function useLiveRoomRealtimeSession(args: {
     if (!args.enabled) return undefined;
     guardRef.current = createRealtimeEventGuard();
     void fetchSnapshot();
+    void refreshSkewFromTimeEndpoint();
     const pollMs = isSupabaseConfigured() ? FALLBACK_POLL_CONNECTED_MS : FALLBACK_POLL_DISCONNECTED_MS;
     const id = setInterval(() => {
       const disconnected = !realtimeConnectedRef.current || !isSupabaseConfigured();
@@ -203,8 +271,14 @@ export function useLiveRoomRealtimeSession(args: {
         void fetchSnapshot();
       }
     }, pollMs);
-    return () => clearInterval(id);
-  }, [args.enabled, fetchSnapshot]);
+    const skewId = setInterval(() => {
+      void refreshSkewFromTimeEndpoint();
+    }, SKEW_REFRESH_MS);
+    return () => {
+      clearInterval(id);
+      clearInterval(skewId);
+    };
+  }, [args.enabled, fetchSnapshot, refreshSkewFromTimeEndpoint]);
 
   useEffect(() => {
     if (!args.enabled) return undefined;
@@ -238,5 +312,30 @@ export function useLiveRoomRealtimeSession(args: {
     clearSoldCelebration: () => setSoldCelebration(null),
     fetchSnapshot,
     syncedNowMs: () => syncedWallTimeMs(clockSkewMs),
+    mergeBidAck: (ack: LiveBidHttpAck) => {
+      refreshSkewFromRealtime(ack.serverNowMs);
+      const wallNow = syncedWallTimeMs(
+        typeof ack.serverNowMs === 'number'
+          ? estimateClockSkewMs(Date.now(), Date.now(), ack.serverNowMs)
+          : clockSkewMs,
+      );
+      setRoomSnap((prev) => {
+        if (!prev) return prev;
+        const merged = mergeBuyerSnapshotForBidAck(prev, ack, wallNow);
+        if (merged) {
+          logAuctionTimer({
+            source: 'bid_http_ack',
+            serverNowMs: ack.serverNowMs,
+            localNowMs: Date.now(),
+            offsetMs: clockSkewMs,
+            auctionEndsAt: merged.auctionEndsAt,
+            remainingMs: computeAuctionRemainingMs(merged.auctionEndsAt, clockSkewMs),
+            auctionSeq: ack.auctionSeq,
+            lotBidPhase: merged.lotBidPhase,
+          });
+        }
+        return merged ?? prev;
+      });
+    },
   };
 }

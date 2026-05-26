@@ -172,6 +172,9 @@ export type PurchaseCompletedEmitOpts = {
   winnerUsername?: string | null;
   winnerId?: string | null;
   winningAmountUsd?: number | null;
+  orderId?: string | null;
+  /** paid | pending | payment_failed | requires_action */
+  paymentStatus?: string | null;
   /** Active lot closed with zero bids — show no-winner UX (not a sale). */
   noBids?: boolean;
 };
@@ -188,6 +191,8 @@ export function emitPurchaseCompleted(
     winnerUsername: opts?.winnerUsername ?? null,
     winnerId: opts?.winnerId ?? null,
     winningAmountUsd: opts?.winningAmountUsd ?? null,
+    orderId: opts?.orderId ?? null,
+    paymentStatus: opts?.paymentStatus ?? null,
     noBids: opts?.noBids === true,
   });
 }

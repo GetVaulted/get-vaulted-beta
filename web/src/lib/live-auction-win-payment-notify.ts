@@ -19,21 +19,28 @@ export async function notifyLiveAuctionWinPaymentOutcome(args: {
     maximumFractionDigits: 0,
   });
   const paid = args.charge.outcome === "paid";
+  const paymentFailed = args.charge.outcome === "error";
   const needsAuth =
     args.charge.outcome === "requires_action" || args.charge.outcome === "processing";
 
   const buyerBody = paid
-    ? `You won “${titleShort}” at ${priceStr}. Your saved card was charged. Open your order for details.`
+    ? `You won "${titleShort}" at ${priceStr}. Your saved card was charged. Open your order for details.`
     : needsAuth
-      ? `You won “${titleShort}” at ${priceStr}. Complete payment on your order — your bank may require an extra step.`
-      : `You won “${titleShort}” at ${priceStr}. We could not charge your card automatically. Open your order and pay within 30 minutes.`;
+      ? `You won "${titleShort}" at ${priceStr}. Complete payment on your order — your bank may require an extra step.`
+      : `You won "${titleShort}" at ${priceStr}. We could not charge your card automatically. Open your order and pay within 30 minutes.`;
 
-  const sellerTitle = paid ? "Auction ended — paid" : "Auction ended — payment pending";
+  const sellerTitle = paid
+    ? "Auction ended — paid"
+    : paymentFailed
+      ? "Auction ended — payment failed"
+      : "Auction ended — payment pending";
   const sellerBody = paid
-    ? `Payment received for “${titleShort}”.`
-    : needsAuth
-      ? `The winner may need to complete authentication for “${titleShort}”.`
-      : `Winner has 30 minutes to pay for “${titleShort}”. You will be notified when payment clears.`;
+    ? `Payment received for "${titleShort}".`
+    : paymentFailed
+      ? `Auto-charge failed for "${titleShort}". The winner can retry payment on their order — you will be notified when it clears.`
+      : needsAuth
+        ? `The winner may need to complete authentication for "${titleShort}".`
+        : `Winner has 30 minutes to pay for "${titleShort}". You will be notified when payment clears.`;
 
   await createNotification(prisma, {
     userId: args.buyerId,

@@ -52,6 +52,7 @@ export async function fetchLiveRoomBuyerSnapshot(
   if (!base) throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (accessToken?.trim()) headers.Authorization = `Bearer ${accessToken}`;
+  const clientStart = Date.now();
   const res = await fetch(`${base}/api/live-rooms/${encodeURIComponent(roomId)}`, { headers });
   let j: {
     room?: {
@@ -108,14 +109,19 @@ export async function fetchLiveRoomBuyerSnapshot(
       })
     : null;
   const current = hasAcceptedBid && typeof highBid === 'number' && Number.isFinite(highBid) ? highBid : currentHigh;
-  const fetchedAtMs = Date.now();
+  const clientEnd = Date.now();
+  const fetchedAtMs = clientEnd;
+  const serverNowMs = typeof j.serverNowMs === 'number' ? j.serverNowMs : undefined;
+  const clockSkewMs =
+    typeof serverNowMs === 'number' ? serverNowMs - (clientStart + clientEnd) / 2 : 0;
+  const phaseNowMs = typeof serverNowMs === 'number' ? serverNowMs : fetchedAtMs + clockSkewMs;
   const lotBidPhase = resolveLiveAuctionLotBidPhase(
     {
       status: active?.status ?? 'active',
       biddingOpen: active?.biddingOpen,
       auctionEndsAt: active?.auctionEndsAt,
     },
-    fetchedAtMs,
+    phaseNowMs,
   );
   const breakSnap = detail?.break;
   const breakPhaseRaw = breakSnap?.phase?.trim();
@@ -157,15 +163,32 @@ export function createLiveBidIdempotencyKey(): string {
   return `bid-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
+export type LiveBidHttpAck = {
+  serverNowMs?: number;
+  roomVersion?: number;
+  auctionSeq?: number;
+  item?: {
+    id?: string;
+    auctionEndsAt?: string | null;
+    biddingOpen?: boolean;
+    currentBidUsd?: number | null;
+    startingBidUsd?: number | null;
+    lastHighBidderId?: string | null;
+    lastHighBidderUsername?: string | null;
+    itemVersion?: number;
+  };
+};
+
 export async function placeLiveRoomBid(args: {
   accessToken: string;
   roomId: string;
   itemId: string;
   amountUsd: number;
   idempotencyKey: string;
-}): Promise<void> {
+}): Promise<LiveBidHttpAck> {
   const base = getWebApiBaseUrl();
   if (!base) throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
+  const clientStart = Date.now();
   const res = await fetch(
     `${base}/api/live-rooms/${encodeURIComponent(args.roomId)}/items/${encodeURIComponent(args.itemId)}/bid`,
     {
@@ -179,7 +202,7 @@ export async function placeLiveRoomBid(args: {
       body: JSON.stringify({ amountUsd: args.amountUsd }),
     },
   );
-  let j: {
+  let j: LiveBidHttpAck & {
     error?: string;
     signInUrl?: string;
     code?: string;
@@ -187,6 +210,7 @@ export async function placeLiveRoomBid(args: {
     shippingReady?: boolean;
     addPaymentMethodsUrl?: string;
     addShippingUrl?: string;
+    ok?: boolean;
   } = {};
   try {
     j = (await res.json()) as typeof j;
@@ -199,4 +223,11 @@ export async function placeLiveRoomBid(args: {
   if (!res.ok) {
     throw new Error(apiErrorMessage(res, j));
   }
+  void clientStart;
+  return {
+    serverNowMs: j.serverNowMs,
+    roomVersion: j.roomVersion,
+    auctionSeq: j.auctionSeq,
+    item: j.item,
+  };
 }

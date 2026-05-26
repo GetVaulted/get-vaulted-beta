@@ -40,6 +40,8 @@ import type { LiveStackParamList, MainTabParamList } from '../../navigation/type
 import { colors, radii, spacing } from '../../theme';
 import type { LiveStream } from '../../types';
 import { resolveBuyerRoomKind, resolveLiveBuyerCommerceHud } from './liveActionModule';
+import { computeAuctionRemainingMs, logAuctionTimer } from '../../lib/auctionTimerSync';
+import { syncedWallTimeMs } from '../../lib/serverClockSync';
 
 /** @deprecated Prefer measuring commerce HUD via `onLayout`; used as initial layout estimate only. */
 export const LIVE_COMMERCE_OVERLAY_HEIGHT = 118;
@@ -59,6 +61,10 @@ type Props = {
   roomSnap?: LiveRoomBuyerSnapshot | null;
   syncRefreshing?: boolean;
   onRefreshSnapshot?: () => Promise<LiveRoomBuyerSnapshot | null>;
+  /** Server clock skew for auction timer sync. */
+  clockSkewMs?: number;
+  /** Merge bid HTTP ACK into live snapshot (timer + high bid). */
+  mergeBidAck?: (ack: import('../../api/liveRoomBuyerRepository').LiveBidHttpAck) => void;
   onBidPlaced?: (amountUsd: number) => void;
   /** Break rooms: block bid CTAs until disclaimer accepted. */
   participationBlocked?: boolean;
@@ -76,6 +82,8 @@ export function LivePinnedActionBar({
   roomSnap: roomSnapProp,
   syncRefreshing: syncRefreshingProp,
   onRefreshSnapshot,
+  clockSkewMs = 0,
+  mergeBidAck,
   onBidPlaced,
   participationBlocked = false,
   onWalletOverlayChange,
@@ -89,13 +97,38 @@ export function LivePinnedActionBar({
   const bidInFlightRef = useRef(false);
   const lastBidAttemptMsRef = useRef(0);
   const [walletReadiness, setWalletReadiness] = useState<BuyerWalletReadiness | null>(null);
+  const [timerTick, setTimerTick] = useState(0);
   const [localRoomSnap, setLocalRoomSnap] = useState<LiveRoomBuyerSnapshot | null>(null);
   const [localSyncRefreshing, setLocalSyncRefreshing] = useState(false);
   const usingExternalSync = onRefreshSnapshot != null;
   const roomSnap = usingExternalSync ? (roomSnapProp ?? null) : localRoomSnap;
   const syncRefreshing = usingExternalSync ? (syncRefreshingProp ?? false) : localSyncRefreshing;
   const buyerKind = useMemo(() => resolveBuyerRoomKind(roomSnap, stream), [roomSnap, stream]);
-  const m = useMemo(() => resolveLiveBuyerCommerceHud(stream, roomSnap), [stream, roomSnap]);
+  const syncedNowMs = useMemo(() => syncedWallTimeMs(clockSkewMs), [clockSkewMs, timerTick]);
+  const m = useMemo(
+    () => resolveLiveBuyerCommerceHud(stream, roomSnap, syncedNowMs),
+    [stream, roomSnap, syncedNowMs],
+  );
+
+  useEffect(() => {
+    if (roomSnap?.lotBidPhase !== 'bidding_open' || !roomSnap.auctionEndsAt) return undefined;
+    const id = setInterval(() => setTimerTick((t) => t + 1), 250);
+    return () => clearInterval(id);
+  }, [roomSnap?.lotBidPhase, roomSnap?.auctionEndsAt]);
+
+  useEffect(() => {
+    if (roomSnap?.lotBidPhase !== 'bidding_open' || !roomSnap.auctionEndsAt) return;
+    if (timerTick % 4 !== 0) return;
+    logAuctionTimer({
+      source: 'buyer_hud_tick',
+      serverNowMs: roomSnap.serverNowMs,
+      localNowMs: Date.now(),
+      offsetMs: clockSkewMs,
+      auctionEndsAt: roomSnap.auctionEndsAt,
+      remainingMs: computeAuctionRemainingMs(roomSnap.auctionEndsAt, clockSkewMs),
+      lotBidPhase: roomSnap.lotBidPhase,
+    });
+  }, [clockSkewMs, roomSnap?.auctionEndsAt, roomSnap?.lotBidPhase, roomSnap?.serverNowMs, timerTick]);
   const auctionLane = buyerKind === 'auction';
   const commerceBlocked = walletOverlayActive || walletSheetOpen;
   const primaryDisabled = m.buyerPrimaryDisabled === true || participationBlocked || commerceBlocked;
@@ -278,13 +311,14 @@ export function LivePinnedActionBar({
         itemId: snap.activeItemId,
         amountUsd: amount,
       });
-      await placeLiveRoomBid({
+      const ack = await placeLiveRoomBid({
         accessToken,
         roomId: stream.id,
         itemId: snap.activeItemId,
         amountUsd: amount,
         idempotencyKey: createLiveBidIdempotencyKey(),
       });
+      mergeBidAck?.(ack);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       onBidPlaced?.(amount);
       await refreshRoomSnapshot();
@@ -325,6 +359,7 @@ export function LivePinnedActionBar({
     stream.id,
     walletSheetOpen,
     resetBidControl,
+    mergeBidAck,
   ]);
 
   const runPrimaryLiveCommerceAction = useCallback(() => {

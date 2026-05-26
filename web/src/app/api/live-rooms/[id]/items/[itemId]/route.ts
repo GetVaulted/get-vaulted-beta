@@ -399,13 +399,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
             })
           )?.username ?? null
         : null;
-      emitPurchaseCompleted(liveRoomId, itemId, {
-        roomVersion: settled.roomVersion,
-        itemVersion: settled.itemVersion,
-        winnerUsername,
-        winnerId: settled.buyerId,
-        winningAmountUsd: settled.itemPriceUsd,
-      });
       if (!settled.itemSoldOut) {
         emitActiveItemChanged(liveRoomId, itemId, {
           roomVersion: settled.roomVersion,
@@ -426,6 +419,23 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
           console.error("[live-room item PATCH sold] auto-charge", err);
           autoCharge = { outcome: "error", code: "CHARGE_EXCEPTION" };
         }
+        const paymentStatus =
+          autoCharge.outcome === "paid"
+            ? "paid"
+            : autoCharge.outcome === "requires_action" || autoCharge.outcome === "processing"
+              ? "requires_action"
+              : autoCharge.outcome === "error"
+                ? "payment_failed"
+                : "pending";
+        emitPurchaseCompleted(liveRoomId, itemId, {
+          roomVersion: settled.roomVersion,
+          itemVersion: settled.itemVersion,
+          winnerUsername,
+          winnerId: settled.buyerId,
+          winningAmountUsd: settled.itemPriceUsd,
+          orderId: settled.orderId,
+          paymentStatus,
+        });
         if (settled.sellerId && settled.listingTitle && settled.itemPriceUsd != null) {
           try {
             await notifyLiveAuctionWinPaymentOutcome({
@@ -440,6 +450,16 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
             console.error("[live-room item PATCH sold] win notify", err);
           }
         }
+      } else if (settled.buyerId) {
+        emitPurchaseCompleted(liveRoomId, itemId, {
+          roomVersion: settled.roomVersion,
+          itemVersion: settled.itemVersion,
+          winnerUsername,
+          winnerId: settled.buyerId,
+          winningAmountUsd: settled.itemPriceUsd,
+          orderId: settled.orderId ?? null,
+          paymentStatus: "pending",
+        });
       }
       return NextResponse.json({
         ok: true,

@@ -1,4 +1,5 @@
 import type { LiveRoomBuyerSnapshot } from '../../api/liveRoomBuyerRepository';
+import { recomputeBuyerSnapshotPhase } from '../../lib/liveBuyerSnapshotClock';
 import { LIVE_AUCTION_BUYER_TIMER_ENDED_COPY } from '../../lib/liveAuctionLotPhase';
 import { formatAuctionLeaderLine } from '../../lib/liveAuctionWinnerDisplay';
 import { pickVaultWaitingMessage } from '../../lib/liveAuctionBuyerVaultCopy';
@@ -51,8 +52,9 @@ function resolveBuyerAuctionItemHud(
   stream: LiveStream,
   snap: LiveRoomBuyerSnapshot,
   base: LiveCommerceHudModel,
+  nowMs?: number,
 ): LiveCommerceHudModel {
-  const nowMs = snap.fetchedAtMs ?? Date.now();
+  const wallNow = nowMs ?? snap.fetchedAtMs ?? Date.now();
   const itemTitle =
     stream.currentItem?.trim() || stream.pinnedProductLabel?.trim() || stream.title?.trim() || 'Live lot';
 
@@ -71,7 +73,7 @@ function resolveBuyerAuctionItemHud(
   if (snap.lotBidPhase === 'bidding_open') {
     return buildBuyerBidHud(base, {
       itemTitle,
-      timerMmSs: auctionCountdownMmSs(snap.auctionEndsAt, nowMs),
+      timerMmSs: auctionCountdownMmSs(snap.auctionEndsAt, wallNow),
       currentPrefix: hasBid ? 'Current' : 'Opening',
       currentAmount: formatMoney(displayAmount),
       winningLine: formatAuctionLeaderLine({
@@ -392,8 +394,11 @@ export function resolveLiveCommerceHud(stream: LiveStream): LiveCommerceHudModel
 export function resolveLiveBuyerCommerceHud(
   stream: LiveStream,
   snap: LiveRoomBuyerSnapshot | null | undefined,
+  nowMs?: number,
 ): LiveCommerceHudModel {
-  const kind = resolveBuyerRoomKind(snap, stream);
+  const effectiveSnap =
+    snap && nowMs != null ? recomputeBuyerSnapshotPhase(snap, nowMs) : snap;
+  const kind = resolveBuyerRoomKind(effectiveSnap ?? null, stream);
   const auctionStream: LiveStream = {
     ...stream,
     liveRoomFormat: 'auction',
@@ -402,13 +407,13 @@ export function resolveLiveBuyerCommerceHud(
   };
   const base = resolveLiveCommerceHud(auctionStream);
 
-  if (!snap) {
+  if (!effectiveSnap) {
     return buildBuyerWaitingHud(base, stream.id, {
       stateLine: pickVaultWaitingMessage(stream.id, 'vault_loading'),
     });
   }
 
-  if (snap.status === 'scheduled') {
+  if (effectiveSnap.status === 'scheduled') {
     return buildBuyerWaitingHud(base, stream.id, {
       itemTitle: stream.pinnedProductLabel || stream.currentItem || 'Vault event',
       stateLine: pickVaultWaitingMessage(stream.id, 'vault_loading'),
@@ -416,22 +421,22 @@ export function resolveLiveBuyerCommerceHud(
     });
   }
 
-  if (snap.status === 'ended') {
+  if (effectiveSnap.status === 'ended') {
     return buildBuyerWaitingHud(base, stream.id, {
       stateLine: 'This show has ended.',
       rightLabel: 'Show ended',
     });
   }
 
-  if (kind === 'auction' || snap.roomType === 'auction' || snap.roomType === 'sale') {
-    return resolveBuyerAuctionItemHud(stream, snap, base);
+  if (kind === 'auction' || effectiveSnap.roomType === 'auction' || effectiveSnap.roomType === 'sale') {
+    return resolveBuyerAuctionItemHud(stream, effectiveSnap, base, nowMs);
   }
 
-  if (snap.activeItemId) {
-    return resolveBuyerAuctionItemHud(stream, snap, base);
+  if (effectiveSnap.activeItemId) {
+    return resolveBuyerAuctionItemHud(stream, effectiveSnap, base, nowMs);
   }
 
-  if (shouldShowBreakTeamControls(snap)) {
+  if (shouldShowBreakTeamControls(effectiveSnap)) {
     return resolveLiveCommerceHud({
       ...stream,
       liveRoomFormat: 'break',
@@ -441,7 +446,7 @@ export function resolveLiveBuyerCommerceHud(
 
   return buildBuyerWaitingHud(base, stream.id, {
     stateLine:
-      snap.roomType === 'break'
+      effectiveSnap.roomType === 'break'
         ? 'Break controls appear when the host opens team selection.'
         : pickVaultWaitingMessage(stream.id, 'stay_locked_in'),
   });

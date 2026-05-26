@@ -645,6 +645,8 @@ function LiveSlide({
           roomSnap={liveSession.roomSnap}
           syncRefreshing={liveSession.syncRefreshing}
           onRefreshSnapshot={liveSession.fetchSnapshot}
+          clockSkewMs={liveSession.clockSkewMs}
+          mergeBidAck={liveSession.mergeBidAck}
           onBidPlaced={(amount) => liveSession.setMyHighBidUsd(amount)}
           participationBlocked={breakParticipationBlocked}
           onWalletOverlayChange={isActive ? onWalletOverlayChange : undefined}

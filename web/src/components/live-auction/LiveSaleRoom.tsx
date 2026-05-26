@@ -25,6 +25,7 @@ import {
 } from "@/lib/live-auction-lot-phase";
 import { patchLiveRoomItemStatus, startLiveRoomItemAuction } from "@/lib/live-room-control-client";
 import { syncedWallTimeMs } from "@/lib/server-clock-sync";
+import { logAuctionTimer } from "@/lib/auction-timer-sync";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
 
@@ -365,7 +366,19 @@ export function LiveSaleRoom({
     const now = syncedWallTimeMs(clockSkewMs);
     if (roomType === "auction" && activeDb?.biddingOpen && activeDb.auctionEndsAt) {
       const ends = Date.parse(activeDb.auctionEndsAt);
-      if (Number.isFinite(ends)) return Math.max(0, Math.ceil((ends - now) / 1000));
+      if (Number.isFinite(ends)) {
+        const remaining = Math.max(0, Math.ceil((ends - now) / 1000));
+        if (clockTick % 20 === 0) {
+          logAuctionTimer({
+            source: "live_sale_room",
+            localNowMs: Date.now(),
+            offsetMs: clockSkewMs,
+            auctionEndsAt: activeDb.auctionEndsAt,
+            remainingMs: Math.max(0, ends - now),
+          });
+        }
+        return remaining;
+      }
     }
     if (roomType !== "auction" || !bidMeta || bidMeta.auctionEnded || !bidMeta.auctionEndsAt) return null;
     return Math.max(0, Math.ceil((Date.parse(bidMeta.auctionEndsAt) - now) / 1000));
