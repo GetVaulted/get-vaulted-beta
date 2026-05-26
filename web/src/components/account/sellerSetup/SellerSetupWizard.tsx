@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CompletionStep } from "@/components/account/sellerSetup/steps/CompletionStep";
@@ -61,6 +61,7 @@ export function SellerSetupWizard() {
 
   const [busy, setBusy] = useState(false);
   const [stripePlatformConfigured, setStripePlatformConfigured] = useState(false);
+  const [stripeEmbedOnboardingAvailable, setStripeEmbedOnboardingAvailable] = useState(false);
   const [stripeEmbedOpen, setStripeEmbedOpen] = useState(false);
 
   const [shipName, setShipName] = useState("");
@@ -78,6 +79,8 @@ export function SellerSetupWizard() {
   const [profileSaveError, setProfileSaveError] = useState<string | null>(null);
   const [sellerAgreementAccepted, setSellerAgreementAccepted] = useState(false);
   const stepInitializedRef = useRef(false);
+  const stripeReturnHandledRef = useRef(false);
+  const searchParams = useSearchParams();
 
   const toast = useCallback((message: string) => {
     window.dispatchEvent(new CustomEvent(WATCHLIST_TOAST_EVENT, { detail: { message } }));
@@ -96,12 +99,14 @@ export function SellerSetupWizard() {
       const j = (await res.json()) as {
         seller?: SellerPayload;
         stripePlatformConfigured?: boolean;
+        stripeEmbedOnboardingAvailable?: boolean;
         readiness?: LiveReadiness;
       };
       const s = j.seller ?? null;
       setSeller(s);
       setReadiness(j.readiness ?? null);
       setStripePlatformConfigured(j.stripePlatformConfigured === true);
+      setStripeEmbedOnboardingAvailable(j.stripeEmbedOnboardingAvailable === true);
       if (s) {
         setShipName(s.shipFromName ?? "");
         setShipStreet(s.shipFromStreet ?? "");
@@ -137,10 +142,13 @@ export function SellerSetupWizard() {
     if (!stripeEmbedOpen) return;
     const poll = async () => {
       try {
-        const res = await fetch("/api/account/seller/stripe-status", { cache: "no-store" });
+        const res = await fetch("/api/account/seller/stripe-status", { cache: "no-store", credentials: "same-origin" });
         if (!res.ok) return;
-        const j = (await res.json()) as { stripeOnboardingComplete?: boolean };
-        if (j.stripeOnboardingComplete) {
+        const j = (await res.json()) as {
+          stripeOnboardingComplete?: boolean;
+          stripeChargesEnabled?: boolean | null;
+        };
+        if (j.stripeOnboardingComplete || j.stripeChargesEnabled === true) {
           setStripeEmbedOpen(false);
           await load();
           toast("Payouts connected.");
@@ -153,10 +161,10 @@ export function SellerSetupWizard() {
     return () => clearInterval(id);
   }, [stripeEmbedOpen, load, toast]);
 
-  const connectPayoutsExternal = async () => {
+  const connectPayoutsExternal = useCallback(async () => {
     setBusy(true);
     try {
-      const res = await fetch("/api/seller/stripe/onboard", { method: "POST" });
+      const res = await fetch("/api/seller/stripe/onboard", { method: "POST", credentials: "same-origin" });
       const j = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
       if (!res.ok) {
         setLoadError(j.error ?? "Could not start payout setup.");
@@ -166,14 +174,58 @@ export function SellerSetupWizard() {
     } finally {
       setBusy(false);
     }
-  };
+  }, []);
+
+  const syncStripeAfterReturn = useCallback(async () => {
+    setBusy(true);
+    setLoadError(null);
+    try {
+      const res = await fetch("/api/account/seller/stripe-status", { cache: "no-store", credentials: "same-origin" });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        stripeOnboardingComplete?: boolean;
+        stripeChargesEnabled?: boolean | null;
+      };
+      if (!res.ok) {
+        setLoadError(j.error ?? "Could not refresh payout status after Stripe.");
+        return;
+      }
+      await load();
+      if (j.stripeOnboardingComplete || j.stripeChargesEnabled === true) {
+        toast("Payout setup updated.");
+      } else {
+        toast("Thanks — Stripe received your details. Refresh if status does not update yet.");
+      }
+      router.replace("/account/seller/setup", { scroll: false });
+    } finally {
+      setBusy(false);
+    }
+  }, [load, router, toast]);
+
+  useEffect(() => {
+    const isReturn = searchParams.get("stripe_return") === "1";
+    const isRefresh = searchParams.get("stripe_refresh") === "1";
+    if (!isReturn && !isRefresh) return;
+    if (status !== "authenticated" || stripeReturnHandledRef.current) return;
+    stripeReturnHandledRef.current = true;
+    if (isRefresh) {
+      toast("Stripe link expired — opening a new session…");
+      void connectPayoutsExternal();
+      return;
+    }
+    void syncStripeAfterReturn();
+  }, [searchParams, status, connectPayoutsExternal, syncStripeAfterReturn, toast]);
 
   const openPayoutConnect = () => {
     if (isPayoutSetupComplete(readiness?.checks)) {
       void connectPayoutsExternal();
       return;
     }
-    setStripeEmbedOpen(true);
+    if (stripeEmbedOnboardingAvailable) {
+      setStripeEmbedOpen(true);
+    } else {
+      void connectPayoutsExternal();
+    }
   };
 
   const saveShipFrom = async () => {
@@ -326,6 +378,10 @@ export function SellerSetupWizard() {
           onEmbedSessionEnd={() => {
             setStripeEmbedOpen(false);
             void load();
+          }}
+          onEmbedFallback={() => {
+            setStripeEmbedOpen(false);
+            void connectPayoutsExternal();
           }}
         />
       ) : null}

@@ -19,6 +19,7 @@ export function PayoutStep({
   onContinue,
   onEmbedClose,
   onEmbedSessionEnd,
+  onEmbedFallback,
 }: {
   phase: PayoutPhase;
   stripePlatformConfigured: boolean;
@@ -30,6 +31,7 @@ export function PayoutStep({
   onContinue: () => void;
   onEmbedClose: () => void;
   onEmbedSessionEnd: () => void;
+  onEmbedFallback: () => void;
 }) {
   return (
     <WizardCard className="flex flex-1 flex-col">
@@ -63,7 +65,7 @@ export function PayoutStep({
                 <StripeOnboardingEmbed
                   active={embedOpen}
                   onSessionEnd={onEmbedSessionEnd}
-                  onNeedsFallbackHint={() => undefined}
+                  onNeedsFallbackHint={onEmbedFallback}
                 />
               </div>
             </div>

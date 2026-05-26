@@ -1,99 +1,80 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { loadUserForStripeConnectStatus } from "@/lib/load-user-stripe-connect-status";
+import { refreshSellerStripeFromStripeApi } from "@/lib/refresh-seller-stripe-from-api";
+import { logStripeOnboarding, resolveSellerStripeUserId } from "@/lib/resolve-seller-stripe-user";
+import { parseRequirementsDue } from "@/lib/stripe-connect-status-response";
+import { stripeRouteErrorResponse } from "@/lib/stripe-route-errors";
+import { isStripeConfigured } from "@/lib/stripe";
+
+export const dynamic = "force-dynamic";
 
 /**
- * Lightweight polling endpoint for Stripe onboarding completion state.
- * Use this while embedded onboarding modal is open to avoid reloading the whole seller dashboard payload.
+ * Poll / refresh Stripe Connect onboarding state after embedded or hosted onboarding.
+ * Stripe is the source of truth — full snapshot is persisted to Postgres on each call.
  */
-export async function GET() {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export async function GET(request: Request) {
+  try {
+    const resolved = await resolveSellerStripeUserId(request);
+    if (resolved instanceof NextResponse) return resolved;
+    const { userId } = resolved;
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { stripeOnboardingComplete: true, stripeAccountId: true },
-  });
-  if (!user) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  const includeDebug = process.env.NODE_ENV !== "production";
-  let debugStripeOnboardingBlockedBy: string[] | undefined;
-  let debugStripeRequirements:
-    | {
-        currentlyDue: string[];
-        pendingVerification: string[];
-        eventuallyDue: string[];
-        disabledReason?: string | null;
-      }
-    | undefined;
-
-  let liveOnboardingComplete = Boolean(user.stripeOnboardingComplete);
-
-  // Debug aid: inspect live Stripe account state to identify blockers and sync onboarding completion.
-  if (isStripeConfigured() && user.stripeAccountId) {
-    try {
-      const stripe = getStripe();
-      const account = await stripe.accounts.retrieve(user.stripeAccountId);
-      const currentlyDue = account.requirements?.currently_due ?? [];
-      const pendingVerification = account.requirements?.pending_verification ?? [];
-      const eventuallyDue = account.requirements?.eventually_due ?? [];
-      const disabledReason = account.requirements?.disabled_reason ?? null;
-      liveOnboardingComplete =
-        Boolean(account.details_submitted) && currentlyDue.length === 0 && pendingVerification.length === 0;
-      const onboardingBlockedBy =
-        !liveOnboardingComplete && currentlyDue.length > 0
-          ? currentlyDue
-          : !liveOnboardingComplete && pendingVerification.length > 0
-            ? pendingVerification
-            : !liveOnboardingComplete && !account.charges_enabled
-              ? ["charges_enabled=false"]
-              : !liveOnboardingComplete && !account.payouts_enabled
-                ? ["payouts_enabled=false"]
-                : !liveOnboardingComplete && !account.details_submitted
-                  ? ["details_submitted=false"]
-                  : [];
-      if (liveOnboardingComplete !== Boolean(user.stripeOnboardingComplete)) {
-        await prisma.user.update({
-          where: { id: session.user.id },
-          data: { stripeOnboardingComplete: liveOnboardingComplete },
-        });
-      }
-      if (includeDebug) {
-        debugStripeOnboardingBlockedBy = onboardingBlockedBy;
-        debugStripeRequirements = {
-          currentlyDue,
-          pendingVerification,
-          eventuallyDue,
-          disabledReason,
-        };
-      }
-      console.info("[stripe onboarding debug]", {
-        sellerId: session.user.id,
-        stripeAccountId: user.stripeAccountId,
-        charges_enabled: account.charges_enabled,
-        payouts_enabled: account.payouts_enabled,
-        details_submitted: account.details_submitted,
-        requirements: account.requirements,
-        onboardingBlockedBy,
-      });
-    } catch (e) {
-      console.warn("[stripe onboarding debug] retrieve failed", {
-        sellerId: session.user.id,
-        stripeAccountId: user.stripeAccountId,
-        error: e instanceof Error ? e.message : String(e),
-      });
+    let user = await loadUserForStripeConnectStatus(userId);
+    if (!user) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
+
+    logStripeOnboarding("stripe_status_poll", {
+      userId,
+      existingStripeAccountId: user.stripeAccountId ?? null,
+      persistedOnboardingComplete: user.stripeOnboardingComplete,
+    });
+
+    let dbSynced = false;
+    let stripeOnboardingComplete = Boolean(user.stripeOnboardingComplete);
+    let stripeChargesEnabled = user.stripeChargesEnabled ?? null;
+    let stripePayoutsEnabled = user.stripePayoutsEnabled ?? null;
+
+    if (isStripeConfigured() && user.stripeAccountId?.trim()) {
+      try {
+        const refreshed = await refreshSellerStripeFromStripeApi({
+          userId,
+          stripeAccountId: user.stripeAccountId,
+        });
+        dbSynced = refreshed.synced;
+        user = (await loadUserForStripeConnectStatus(userId)) ?? user;
+        stripeOnboardingComplete = Boolean(user.stripeOnboardingComplete);
+        stripeChargesEnabled = user.stripeChargesEnabled ?? null;
+        stripePayoutsEnabled = user.stripePayoutsEnabled ?? null;
+      } catch (e) {
+        const { status, body } = stripeRouteErrorResponse("account seller stripe-status", e);
+        return NextResponse.json(body, { status });
+      }
+    }
+
+    const includeDebug = process.env.NODE_ENV !== "production";
+    const requirementsSnap = parseRequirementsDue(user.stripeRequirementsDue);
+
+    return NextResponse.json({
+      stripeOnboardingComplete,
+      stripeAccountId: user.stripeAccountId ?? null,
+      stripeChargesEnabled,
+      stripePayoutsEnabled,
+      dbSynced,
+      ...(includeDebug
+        ? {
+            debugStripeRequirements: requirementsSnap
+              ? {
+                  currentlyDue: requirementsSnap.currentlyDue,
+                  pendingVerification: requirementsSnap.pendingVerification,
+                  eventuallyDue: requirementsSnap.eventuallyDue,
+                  disabledReason: requirementsSnap.disabledReason,
+                }
+              : undefined,
+          }
+        : {}),
+    });
+  } catch (e) {
+    const { status, body } = stripeRouteErrorResponse("account seller stripe-status", e);
+    return NextResponse.json(body, { status });
   }
-
-  return NextResponse.json({
-    stripeOnboardingComplete: liveOnboardingComplete,
-    stripeAccountId: user.stripeAccountId ?? null,
-    ...(includeDebug ? { debugStripeOnboardingBlockedBy, debugStripeRequirements } : {}),
-  });
 }
-

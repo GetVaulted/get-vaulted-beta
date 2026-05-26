@@ -283,14 +283,14 @@ export function SellerHubPage() {
     }
     const poll = async () => {
       try {
-        const res = await fetch("/api/account/seller/stripe-status", { cache: "no-store" });
+        const res = await fetch("/api/account/seller/stripe-status", { cache: "no-store", credentials: "same-origin" });
         if (!res.ok) return;
         const j = (await res.json()) as {
           stripeOnboardingComplete?: boolean;
-          debugStripeOnboardingBlockedBy?: string[];
+          stripeChargesEnabled?: boolean | null;
           debugStripeRequirements?: StripeDebugRequirements;
         };
-        setStripeDebugBlockedBy(Array.isArray(j.debugStripeOnboardingBlockedBy) ? j.debugStripeOnboardingBlockedBy : []);
+        setStripeDebugBlockedBy([]);
         setStripeDebugRequirements(
           j.debugStripeRequirements ?? {
             currentlyDue: [],
@@ -299,7 +299,7 @@ export function SellerHubPage() {
             disabledReason: null,
           },
         );
-        if (j.stripeOnboardingComplete === true) {
+        if (j.stripeOnboardingComplete === true || j.stripeChargesEnabled === true) {
           setStripeEmbedOpen(false);
           setStripeEmbedFallbackHint(false);
           await load();
@@ -316,7 +316,7 @@ export function SellerHubPage() {
   const connectPayouts = async () => {
     setBusy(true);
     try {
-      const res = await fetch("/api/seller/stripe/onboard", { method: "POST" });
+      const res = await fetch("/api/seller/stripe/onboard", { method: "POST", credentials: "same-origin" });
       const j = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
       if (!res.ok) {
         setLoadError(j.error ?? "Could not start Stripe onboarding.");

@@ -47,6 +47,7 @@ export type AccountSellerPayload = {
     defaultShipFromAddressId: string | null;
   };
   stripePlatformConfigured: boolean;
+  stripeEmbedOnboardingAvailable: boolean;
   fulfillmentNextAction: string;
   auctionRecoveryListingId: string | null;
   auctionRecoveryListingTitle: string | null;
@@ -345,6 +346,8 @@ export async function loadAccountSellerPayload(userId: string, opts?: { provisio
     sellerSetupWizardCompletedAt: user.sellerSetupWizardCompletedAt?.toISOString() ?? null,
     seller: user,
     stripePlatformConfigured: isStripeConfigured(),
+    stripeEmbedOnboardingAvailable:
+      isStripeConfigured() && Boolean(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim()),
     fulfillmentNextAction,
     auctionRecoveryListingId: auctionRecoveryListingR.value?.id ?? null,
     auctionRecoveryListingTitle: auctionRecoveryListingR.value?.title ?? null,

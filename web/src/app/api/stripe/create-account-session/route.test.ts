@@ -32,9 +32,15 @@ vi.mock("@/lib/stripe", () => ({
   })),
 }));
 
+vi.mock("@/lib/link-stripe-account-from-email-sibling", () => ({
+  syncStripeConnectFromEmailSibling: vi.fn().mockResolvedValue(null),
+}));
+
 import { POST } from "@/app/api/stripe/create-account-session/route";
 import { getServerSessionSafe } from "@/lib/auth";
 import { isStripeConfigured, getStripe } from "@/lib/stripe";
+
+const testRequest = new Request("http://localhost/api/stripe/create-account-session", { method: "POST" });
 
 describe("POST /api/stripe/create-account-session", () => {
   beforeEach(() => {
@@ -43,6 +49,8 @@ describe("POST /api/stripe/create-account-session", () => {
       id: "seller_1",
       email: "s@test.internal",
       stripeAccountId: "acct_existing_1",
+      accountDeletedAt: null,
+      suspendedAt: null,
     });
     hoisted.accountSessionsCreate.mockResolvedValue({ client_secret: "acs_secret_abc" });
   });
@@ -52,7 +60,7 @@ describe("POST /api/stripe/create-account-session", () => {
   });
 
   it("returns clientSecret when Stripe session is created", async () => {
-    const res = await POST();
+    const res = await POST(testRequest);
     expect(res.status).toBe(200);
     const j = (await res.json()) as { clientSecret?: string };
     expect(j.clientSecret).toBe("acs_secret_abc");
@@ -70,24 +78,33 @@ describe("POST /api/stripe/create-account-session", () => {
 
   it("returns 401 when not authenticated", async () => {
     vi.mocked(getServerSessionSafe).mockResolvedValue(null);
-    const res = await POST();
+    const res = await POST(testRequest);
     expect(res.status).toBe(401);
   });
 
   it("returns 503 when Stripe is not configured", async () => {
     vi.mocked(getServerSessionSafe).mockResolvedValue({ user: { id: "seller_1" } } as never);
     vi.mocked(isStripeConfigured).mockReturnValueOnce(false);
-    const res = await POST();
+    const res = await POST(testRequest);
     expect(res.status).toBe(503);
   });
 
   it("creates Connect account when seller has no stripeAccountId", async () => {
-    hoisted.findUnique.mockResolvedValueOnce({
-      id: "seller_2",
-      email: "s2@test.internal",
-      username: "sellerTwo",
-      stripeAccountId: null,
-    });
+    hoisted.findUnique
+      .mockResolvedValueOnce({
+        stripeAccountId: null,
+        accountDeletedAt: null,
+        suspendedAt: null,
+      })
+      .mockResolvedValueOnce({
+        stripeAccountId: null,
+      })
+      .mockResolvedValueOnce({
+        id: "seller_2",
+        email: "s2@test.internal",
+        username: "sellerTwo",
+        stripeAccountId: null,
+      });
     vi.mocked(getServerSessionSafe).mockResolvedValue({ user: { id: "seller_2" } } as never);
     const accountsCreate = vi.fn().mockResolvedValue({ id: "acct_created_2" });
     vi.mocked(getStripe).mockReturnValueOnce({
@@ -95,7 +112,7 @@ describe("POST /api/stripe/create-account-session", () => {
       accountSessions: { create: hoisted.accountSessionsCreate },
     } as never);
 
-    const res = await POST();
+    const res = await POST(testRequest);
     expect(res.status).toBe(200);
     expect(accountsCreate).toHaveBeenCalledWith(
       expect.objectContaining({

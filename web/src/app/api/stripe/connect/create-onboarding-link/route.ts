@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logStripeOnboarding } from "@/lib/resolve-seller-stripe-user";
 import { ensureSellerStripeExpressAccountId } from "@/lib/seller-stripe-connect";
 import { requireUserIdFromSupabaseBearer } from "@/lib/require-supabase-bearer";
 import { stripeConnectMobileReturnUrls } from "@/lib/stripe-connect-public-app-url";
@@ -24,6 +25,17 @@ export async function POST(request: Request) {
       );
     }
 
+    const before = await prisma.user.findUnique({
+      where: { id: auth.userId },
+      select: { stripeAccountId: true },
+    });
+    const existingStripeAccountId = before?.stripeAccountId ?? null;
+
+    logStripeOnboarding("mobile_onboard_start", {
+      userId: auth.userId,
+      existingStripeAccountId,
+    });
+
     const stripe = getStripe();
     let accountId: string;
     try {
@@ -34,6 +46,15 @@ export async function POST(request: Request) {
     }
 
     const { returnUrl, refreshUrl } = stripeConnectMobileReturnUrls(request);
+
+    logStripeOnboarding("mobile_creating_account_link", {
+      userId: auth.userId,
+      stripeAccountId: accountId,
+      accountAction: existingStripeAccountId ? "reused" : "created",
+      returnUrl,
+      refreshUrl,
+    });
+
     const link = await stripe.accountLinks.create({
       account: accountId,
       refresh_url: refreshUrl,
@@ -44,6 +65,12 @@ export async function POST(request: Request) {
     if (!link.url) {
       return NextResponse.json({ error: "Stripe did not return an onboarding URL." }, { status: 500 });
     }
+
+    logStripeOnboarding("mobile_account_link_created", {
+      userId: auth.userId,
+      stripeAccountId: accountId,
+      url: link.url,
+    });
 
     return NextResponse.json({ url: link.url, stripe_account_id: accountId });
   } catch (e) {

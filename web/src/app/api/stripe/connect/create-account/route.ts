@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logStripeOnboarding } from "@/lib/resolve-seller-stripe-user";
 import { ensureSellerStripeExpressAccountId } from "@/lib/seller-stripe-connect";
 import { requireUserIdFromSupabaseBearer } from "@/lib/require-supabase-bearer";
 import { stripeRouteErrorResponse } from "@/lib/stripe-route-errors";
@@ -23,6 +24,16 @@ export async function POST(request: Request) {
       );
     }
 
+    const before = await prisma.user.findUnique({
+      where: { id: auth.userId },
+      select: { stripeAccountId: true },
+    });
+
+    logStripeOnboarding("create_account_start", {
+      userId: auth.userId,
+      existingStripeAccountId: before?.stripeAccountId ?? null,
+    });
+
     const stripe = getStripe();
     let accountId: string;
     try {
@@ -31,6 +42,12 @@ export async function POST(request: Request) {
       const { status, body } = stripeRouteErrorResponse("stripe connect create-account", e);
       return NextResponse.json(body, { status });
     }
+
+    logStripeOnboarding("create_account_done", {
+      userId: auth.userId,
+      stripeAccountId: accountId,
+      accountAction: before?.stripeAccountId ? "reused" : "created",
+    });
 
     return NextResponse.json({ stripe_account_id: accountId });
   } catch (e) {

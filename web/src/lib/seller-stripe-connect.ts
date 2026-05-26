@@ -100,6 +100,10 @@ export async function ensureSellerStripeExpressAccountId(
   }
   let accountId = user.stripeAccountId ?? null;
   if (!accountId) {
+    console.info("[ensureSellerStripeExpressAccountId] creating connected account", {
+      sellerId: user.id,
+      email: user.email,
+    });
     const sellerUrl = sellerStripeBusinessProfileUrl(user);
     const profileBase = {
       name: user.username?.trim() ? `${user.username.trim()} on Get Vaulted` : "Get Vaulted Seller",
@@ -136,9 +140,17 @@ export async function ensureSellerStripeExpressAccountId(
       where: { id: user.id },
       data: { stripeAccountId: accountId },
     });
+    console.info("[ensureSellerStripeExpressAccountId] connected account created", {
+      sellerId: user.id,
+      stripeAccountId: accountId,
+    });
     return accountId;
   }
 
+  console.info("[ensureSellerStripeExpressAccountId] reusing connected account", {
+    sellerId: user.id,
+    stripeAccountId: accountId,
+  });
   await maybeHealStripeConnectBusinessProfileUrl(stripe, accountId, user);
   return accountId;
 }

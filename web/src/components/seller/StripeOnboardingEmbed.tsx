@@ -57,7 +57,10 @@ export function StripeOnboardingEmbed({ active, onSessionEnd, onNeedsFallbackHin
         const connect = loadConnectAndInitialize({
           publishableKey,
           fetchClientSecret: async () => {
-            const res = await fetch("/api/stripe/create-account-session", { method: "POST" });
+            const res = await fetch("/api/stripe/create-account-session", {
+              method: "POST",
+              credentials: "same-origin",
+            });
             const data = (await res.json().catch(() => ({}))) as { error?: string; clientSecret?: string };
             if (!res.ok) {
               throw new Error(data.error ?? `Account session failed (${res.status})`);
