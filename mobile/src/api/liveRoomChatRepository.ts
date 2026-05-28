@@ -6,6 +6,7 @@ export type LiveRoomChatMessageRow = {
   id: string;
   senderId?: string;
   senderUsername: string;
+  senderAvatarUrl?: string | null;
   body: string;
   messageType?: LiveRoomChatMessageType;
   createdAt: string;

@@ -55,6 +55,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         liveRoomId: roomId,
         senderId: "system",
         senderUsername: chatLabel,
+        senderAvatarUrl: null,
         body,
         messageType: "system",
         createdAt: new Date().toISOString(),

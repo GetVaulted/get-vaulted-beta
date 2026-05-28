@@ -9,6 +9,9 @@ export const COMPOSER_ABOVE_HUD_GAP = 8;
 /** Space between composer top edge and chat stack bottom edge. */
 export const CHAT_ABOVE_COMPOSER_GAP = 18;
 
+export const COMPACT_COMPOSER_ABOVE_HUD_GAP = 6;
+export const COMPACT_CHAT_ABOVE_COMPOSER_GAP = 12;
+
 export type LiveRoomBottomStack = {
   commerceBottom: number;
   composerBottom: number;
@@ -21,11 +24,14 @@ export function computeLiveRoomBottomStack(args: {
   dockPaddingBottom: number;
   commerceHeight: number;
   keyboardOffset?: number;
+  compact?: boolean;
 }): LiveRoomBottomStack {
   const keyboardOffset = Math.max(0, args.keyboardOffset ?? 0);
+  const composerGap = args.compact ? COMPACT_COMPOSER_ABOVE_HUD_GAP : COMPOSER_ABOVE_HUD_GAP;
+  const chatGap = args.compact ? COMPACT_CHAT_ABOVE_COMPOSER_GAP : CHAT_ABOVE_COMPOSER_GAP;
   const commerceBottom = args.dockPaddingBottom + keyboardOffset;
-  const composerBottom = commerceBottom + args.commerceHeight + COMPOSER_ABOVE_HUD_GAP;
-  const chatBottom = composerBottom + COMPOSER_BAR_HEIGHT + CHAT_ABOVE_COMPOSER_GAP;
+  const composerBottom = commerceBottom + args.commerceHeight + composerGap;
+  const chatBottom = composerBottom + COMPOSER_BAR_HEIGHT + chatGap;
   return {
     commerceBottom,
     composerBottom,

@@ -22,6 +22,17 @@ export type LiveRoomUiMetrics = LiveRoomDeviceMetrics & {
   canvasHeight: number;
 };
 
+/** True on iPhone 15-class widths (~393pt) and smaller non-Pro phones. */
+export function isCompactLiveRoomLayout(layoutWidth: number): boolean {
+  return layoutWidth < 400;
+}
+
+/** Uniform HUD scale vs 430pt Pro Max baseline; clamped so Hold to Bid stays ≥44pt. */
+export function liveRoomCompactScale(layoutWidth: number): number {
+  const safeWidth = Math.max(1, layoutWidth);
+  return Math.min(1, Math.max(0.88, safeWidth / LIVE_ROOM_REF_WIDTH));
+}
+
 export function computeLiveRoomUiMetrics(
   layoutWidth: number,
   layoutHeight: number,

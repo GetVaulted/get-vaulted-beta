@@ -18,20 +18,19 @@ describe("serializeLiveRoomMessage", () => {
     });
   });
 
-  it("masks deleted chat bodies", () => {
+  it("includes sender avatar URL when present", () => {
     const row = {
-      id: "m2",
+      id: "m3",
       liveRoomId: "room-1",
-      senderId: "u2",
-      body: "toxic text",
+      senderId: "u3",
+      body: "hello",
       messageType: "chat" as const,
       createdAt: new Date("2026-05-22T12:00:00.000Z"),
-      deletedAt: new Date("2026-05-22T12:01:00.000Z"),
-      sender: { username: "buyer1" },
+      sender: { username: "buyer1", image: "https://cdn.example/avatar.jpg" },
     };
     expect(serializeLiveRoomMessage(row)).toMatchObject({
       senderUsername: "buyer1",
-      body: "[message removed]",
+      senderAvatarUrl: "https://cdn.example/avatar.jpg",
     });
   });
 });

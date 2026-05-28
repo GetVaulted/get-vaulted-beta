@@ -29,7 +29,7 @@ const includeDetail = {
     where: { deletedAt: null },
     orderBy: { createdAt: "asc" as const },
     take: 200,
-    include: { sender: { select: { username: true } as const } },
+    include: { sender: { select: { username: true, image: true } as const } },
   },
   breakSpots: {
     orderBy: { createdAt: "asc" as const },

@@ -43,7 +43,7 @@ async function emitRoomEventWithAliasesAwait(liveRoomId: string, event: string, 
 export async function emitLiveRoomMessageById(messageId: string): Promise<void> {
   const row = await prisma.liveRoomMessage.findUnique({
     where: { id: messageId },
-    include: { sender: { select: { username: true } } },
+    include: { sender: { select: { username: true, image: true } } },
   });
   if (!row) return;
   const dto = serializeLiveRoomMessage(row);

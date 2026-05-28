@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { LiveChatMessageRowActions } from "@/components/trust/LiveChatMessageRowActions";
+import { LiveChatAvatar } from "@/components/live-auction/LiveChatAvatar";
 
 const PALETTE = ["text-sky-300", "text-emerald-300", "text-violet-300", "text-amber-300", "text-rose-300", "text-cyan-300"] as const;
 
@@ -24,11 +25,16 @@ function chatLabelForMessage(m: LiveRoomMessageDTO) {
   return m.senderUsername ?? "User";
 }
 
-function chatLabelClassForMessage(m: LiveRoomMessageDTO) {
+function chatLabelClassForMessage(m: LiveRoomMessageDTO, hostUserId: string) {
+  if (m.senderId === hostUserId && m.messageType === "chat") return "font-bold text-amber-300/95";
   if (isNamedSystemMessage(m)) return `font-bold ${colorForUser(m.senderUsername)}`;
   if (m.messageType === "system") return "font-bold text-amber-200/95";
   if (m.messageType === "purchase") return "font-bold text-emerald-300/95";
   return `font-bold ${colorForUser(m.senderUsername)}`;
+}
+
+function shouldShowChatAvatar(m: LiveRoomMessageDTO) {
+  return m.messageType === "chat" || isNamedSystemMessage(m);
 }
 
 type VaultHostLiveChatPanelProps = {
@@ -142,28 +148,46 @@ export function VaultHostLiveChatPanel({
             ) : (
               visibleMessages.map((m) => {
                 const label = chatLabelForMessage(m);
-                const labelClass = chatLabelClassForMessage(m);
+                const labelClass = chatLabelClassForMessage(m, hostUserId);
                 const isSystem = m.messageType === "system";
                 const isBid = m.messageType === "bid";
                 const isPurchase = m.messageType === "purchase";
                 const rowClass = isBid ? "chat-msg-bid" : isPurchase ? "chat-msg-purchase" : "";
+                const showAvatar = shouldShowChatAvatar(m);
+                const avatarSize = variant === "sidebar" ? 28 : 24;
                 return (
-                  <div key={m.id} className={`group chat-msg-row ${msgClass} ${rowClass}`}>
-                    <span className={labelClass}>{label}</span>
-                    <span className="text-zinc-500">: </span>
-                    <span className={isSystem || isBid ? "font-semibold text-amber-50" : isPurchase ? "font-semibold text-emerald-100" : "text-zinc-100"}>
-                      {m.body}
-                    </span>
-                    {m.messageType === "chat" && m.senderId !== hostUserId ? (
-                      <LiveChatMessageRowActions
-                        liveRoomId={liveRoomId}
-                        messageId={m.id}
-                        senderId={m.senderId}
-                        senderUsername={m.senderUsername}
-                        canModerate
-                        onModerationComplete={() => onMessagesRefresh?.()}
+                  <div key={m.id} className={`group chat-msg-row flex items-start gap-2 ${msgClass} ${rowClass}`}>
+                    {showAvatar ? (
+                      <LiveChatAvatar
+                        username={m.senderUsername}
+                        avatarUrl={m.senderAvatarUrl}
+                        size={avatarSize}
+                        isHost={m.senderId === hostUserId && m.messageType === "chat"}
+                        className="mt-0.5 shrink-0"
                       />
                     ) : null}
+                    <div className="min-w-0 flex-1">
+                      <span className={labelClass}>{label}</span>
+                      {m.senderId === hostUserId && m.messageType === "chat" ? (
+                        <span className="ml-1 text-[9px] font-black uppercase tracking-wide text-amber-300/90">
+                          HOST
+                        </span>
+                      ) : null}
+                      <span className="text-zinc-500">: </span>
+                      <span className={isSystem || isBid ? "font-semibold text-amber-50" : isPurchase ? "font-semibold text-emerald-100" : "text-zinc-100"}>
+                        {m.body}
+                      </span>
+                      {m.messageType === "chat" && m.senderId !== hostUserId ? (
+                        <LiveChatMessageRowActions
+                          liveRoomId={liveRoomId}
+                          messageId={m.id}
+                          senderId={m.senderId}
+                          senderUsername={m.senderUsername}
+                          canModerate
+                          onModerationComplete={() => onMessagesRefresh?.()}
+                        />
+                      ) : null}
+                    </div>
                   </div>
                 );
               })

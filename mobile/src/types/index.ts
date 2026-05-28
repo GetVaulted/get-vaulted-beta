@@ -32,6 +32,7 @@ export type ChatMessage = {
   user: string;
   text: string;
   senderId?: string;
+  senderAvatarUrl?: string | null;
   isHost?: boolean;
   messageType?: ChatMessageKind;
 };

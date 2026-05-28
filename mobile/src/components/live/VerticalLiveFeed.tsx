@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Keyboard,
@@ -59,8 +59,11 @@ import {
   logLiveStageLayoutDebug,
   type LiveStageContainer,
 } from '../../lib/liveRoomViewport';
+import { isCompactLiveRoomLayout } from '../../lib/liveRoomUiScale';
 
-const CHAT_RIGHT_EDGE = 92;
+function chatRightEdgeForWidth(layoutWidth: number): number {
+  return isCompactLiveRoomLayout(layoutWidth) ? 84 : 92;
+}
 
 type Props = {
   streams: LiveStream[];
@@ -144,6 +147,10 @@ function LiveSlide({
   const stageInsets = computeLiveStageSafeInsets(stageContainer, screenHeight, insets, spacing.sm);
   const stackNav = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const tabNav = stackNav.getParent<BottomTabNavigationProp<MainTabParamList>>();
+  const openWalletRef = useRef<(reason?: string) => void>(() => {});
+  const layoutWidth = stageContainer.designWidth;
+  const compact = isCompactLiveRoomLayout(layoutWidth);
+  const chatRightEdge = chatRightEdgeForWidth(layoutWidth);
   const [following, setFollowing] = useState(false);
   const [shopOpen, setShopOpen] = useState(false);
   const [tipOpen, setTipOpen] = useState(false);
@@ -269,10 +276,11 @@ function LiveSlide({
     dockPaddingBottom,
     commerceHeight,
     keyboardOffset: keyboardOffset / Math.max(0.001, stageContainer.uniformScale),
+    compact,
   });
   const chatMaxHeight = computeChatStackMaxHeight({
     slideHeight: stageContainer.designHeight,
-    topReserve: computeLiveTopReserve(stageInsets.top),
+    topReserve: computeLiveTopReserve(stageInsets.top, layoutWidth),
     chatBottom: bottomStack.chatBottom,
   });
 
@@ -371,7 +379,7 @@ function LiveSlide({
               style={[
                 styles.topBar,
                 {
-                  paddingTop: stageInsets.top + 6,
+                  paddingTop: stageInsets.top + (compact ? 4 : 6),
                   paddingHorizontal: spacing.md,
                 },
               ]}
@@ -395,15 +403,18 @@ function LiveSlide({
               accessibilityRole="button"
               accessibilityLabel={`Host ${stream.host.name}`}
             >
-              <Image source={{ uri: stream.host.avatarUrl }} style={styles.hostAvatarTop} />
+              <Image
+                source={{ uri: stream.host.avatarUrl }}
+                style={[styles.hostAvatarTop, compact && styles.hostAvatarTopCompact]}
+              />
               <View style={styles.hostTextCol}>
-                <LiveRoomText style={styles.hostNameTop} numberOfLines={1}>
+                <LiveRoomText style={[styles.hostNameTop, compact && styles.hostNameTopCompact]} numberOfLines={1}>
                   {stream.host.name}
                 </LiveRoomText>
-                <LiveRoomText style={styles.hostSubtitleTop} numberOfLines={1}>
+                <LiveRoomText style={[styles.hostSubtitleTop, compact && styles.hostSubtitleTopCompact]} numberOfLines={1}>
                   {stream.title}
                 </LiveRoomText>
-                {stream.pinnedItemSubtitle ? (
+                {stream.pinnedItemSubtitle && !compact ? (
                   <LiveRoomText style={styles.hostMetaLine} numberOfLines={1}>
                     {stream.pinnedItemSubtitle}
                   </LiveRoomText>
@@ -421,7 +432,9 @@ function LiveSlide({
               ) : (
                 <LiveRoomText style={styles.endedBadge}>ENDED</LiveRoomText>
               )}
-              <LiveRoomText style={styles.viewersTopRight}>{formatViewers(stream.viewers)}</LiveRoomText>
+              <LiveRoomText style={[styles.viewersTopRight, compact && styles.viewersTopRightCompact]}>
+                {formatViewers(stream.viewers)}
+              </LiveRoomText>
             </View>
             <Pressable
               style={styles.iconTopBare}
@@ -462,6 +475,7 @@ function LiveSlide({
       <View
         style={[
           styles.rightRail,
+          compact && styles.rightRailCompact,
           {
             bottom: bottomStack.commerceTop + spacing.sm,
           },
@@ -520,16 +534,17 @@ function LiveSlide({
           <LiveRoomText style={[styles.railLabel, { color: colors.gold }]}>Tip</LiveRoomText>
         </Pressable>
         <Pressable
-          style={styles.railBtn}
+          style={[styles.railBtn, compact && styles.railBtnCompact]}
           onPress={() => {
             if (!signedIn) {
               onRequireAuth?.();
               return;
             }
-            tabNav?.navigate('TradeCenter', { screen: 'TradeCenterHome' });
+            openWalletRef.current('rail_wallet');
           }}
+          accessibilityLabel="Wallet"
         >
-          <Ionicons name="wallet-outline" size={22} color="rgba(255,255,255,0.92)" />
+          <Ionicons name="wallet-outline" size={compact ? 20 : 22} color="rgba(255,255,255,0.92)" />
           <LiveRoomText style={styles.railLabel}>Wallet</LiveRoomText>
         </Pressable>
         <Pressable
@@ -577,14 +592,15 @@ function LiveSlide({
       <FloatingLiveChat
         pool={chatPool}
         hostAvatarUrl={stream.host.avatarUrl}
+        hostUserId={stream.host.id}
         bottom={bottomStack.chatBottom}
         left={spacing.lg}
-        rightEdge={CHAT_RIGHT_EDGE}
+        rightEdge={chatRightEdge}
         maxHeight={chatMaxHeight}
+        compact={compact}
         isActive={isActive}
         streamKey={stream.id}
         liveRoomId={stream.id}
-        hostUserId={stream.host.id}
         accessToken={accessToken}
         canModerate={moderation.canModerate}
         onModerationComplete={() => {
@@ -615,7 +631,7 @@ function LiveSlide({
       <FloatingChatComposer
         bottom={bottomStack.composerBottom}
         left={spacing.lg}
-        rightEdge={CHAT_RIGHT_EDGE}
+        rightEdge={chatRightEdge}
         value={chatDraft}
         onChangeText={setChatDraft}
         onSend={sendFloatingChat}
@@ -651,6 +667,10 @@ function LiveSlide({
           onBidPlaced={(amount) => liveSession.setMyHighBidUsd(amount)}
           participationBlocked={breakParticipationBlocked || Boolean(liveSession.unresolvedPaymentFailure)}
           onWalletOverlayChange={isActive ? onWalletOverlayChange : undefined}
+          layoutWidth={layoutWidth}
+          onRegisterOpenWallet={(open) => {
+            openWalletRef.current = open;
+          }}
         />
       </View>
       {liveSession.unresolvedPaymentFailure && signedIn && accessToken ? (
@@ -908,6 +928,11 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.35)',
   },
+  hostAvatarTopCompact: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+  },
   hostTextCol: {
     flex: 1,
     minWidth: 0,
@@ -923,6 +948,9 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },
+  hostNameTopCompact: {
+    fontSize: 13,
+  },
   hostSubtitleTop: {
     marginTop: 2,
     color: 'rgba(255,255,255,0.72)',
@@ -932,6 +960,9 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.35)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
+  },
+  hostSubtitleTopCompact: {
+    fontSize: 10,
   },
   hostMetaLine: {
     marginTop: 2,
@@ -959,6 +990,9 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
+  viewersTopRightCompact: {
+    fontSize: 12,
+  },
   endedBadge: {
     color: 'rgba(255,255,255,0.75)',
     fontSize: 10,
@@ -985,11 +1019,18 @@ const styles = StyleSheet.create({
     gap: 14,
     zIndex: 5,
   },
+  rightRailCompact: {
+    gap: 10,
+  },
   railBtn: {
     alignItems: 'center',
     gap: 3,
     paddingVertical: 2,
     minWidth: 48,
+  },
+  railBtnCompact: {
+    minWidth: 44,
+    gap: 2,
   },
   railLabel: {
     color: 'rgba(255,255,255,0.75)',

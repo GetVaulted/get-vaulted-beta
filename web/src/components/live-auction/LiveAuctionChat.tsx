@@ -6,6 +6,7 @@ import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { appendLiveRoomMessageDedupe } from "@/lib/realtime-merge-messages";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
 import { LiveChatMessageRowActions } from "@/components/trust/LiveChatMessageRowActions";
+import { LiveChatAvatar } from "@/components/live-auction/LiveChatAvatar";
 
 const PALETTE = ["text-sky-400", "text-emerald-400", "text-violet-400", "text-amber-400", "text-rose-400", "text-cyan-400"] as const;
 
@@ -28,12 +29,28 @@ function chatLabelForMessage(m: LiveRoomMessageDTO) {
   return m.senderUsername ?? "User";
 }
 
-function chatLabelClassForMessage(m: LiveRoomMessageDTO, compact: boolean) {
+function chatLabelClassForMessage(m: LiveRoomMessageDTO, compact: boolean, hostUserId?: string | null) {
   const fw = compact ? "font-extrabold" : "font-bold";
+  if (hostUserId && m.senderId === hostUserId && m.messageType === "chat") return `${fw} text-amber-300/95`;
   if (isNamedSystemMessage(m)) return `${fw} ${colorForUser(m.senderUsername)}`;
   if (m.messageType === "system") return `${fw} text-amber-200/95`;
   if (m.messageType === "purchase") return `${fw} text-emerald-300/95`;
   return `${fw} ${colorForUser(m.senderUsername)}`;
+}
+
+function isHostChatMessage(m: LiveRoomMessageDTO, hostUserId: string | null) {
+  return m.messageType === "chat" && Boolean(hostUserId && m.senderId === hostUserId);
+}
+
+function isModeratorChatMessage(
+  m: LiveRoomMessageDTO,
+  moderators: { userId: string }[],
+) {
+  return m.messageType === "chat" && moderators.some((mod) => mod.userId === m.senderId);
+}
+
+function shouldShowChatAvatar(m: LiveRoomMessageDTO) {
+  return m.messageType === "chat" || isNamedSystemMessage(m);
 }
 
 type LiveAuctionChatProps = {
@@ -175,20 +192,36 @@ export function LiveAuctionChat({
             {overlayList.map((m, idx, arr) => {
               const isSystem = m.messageType === "system";
               const label = chatLabelForMessage(m);
-              const labelClass = chatLabelClassForMessage(m, true);
+              const labelClass = chatLabelClassForMessage(m, true, hostUserId);
               const isNewest = idx === arr.length - 1;
+              const showAvatar = shouldShowChatAvatar(m);
               return (
                 <div
                   key={m.id}
-                  className={`chat-msg-row group relative max-w-[94%] text-[13px] leading-snug motion-reduce:animate-none max-[380px]:text-[12px] ${
+                  className={`chat-msg-row group relative flex max-w-[94%] items-start gap-2 text-[13px] leading-snug motion-reduce:animate-none max-[380px]:text-[12px] ${
                     isNewest
                       ? "motion-safe:animate-[live-chat-slide_var(--live-duration-enter)_var(--live-ease)_both]"
                       : "animate-[chat-rise_var(--live-duration-enter)_var(--live-ease)]"
                   }`}
                   style={{ opacity: 0.2 + (idx / Math.max(1, arr.length - 1)) * 0.74 }}
                 >
-                  <span className={`inline-block max-w-full ${lineShadow}`}>
+                  {showAvatar ? (
+                    <LiveChatAvatar
+                      username={m.senderUsername}
+                      avatarUrl={m.senderAvatarUrl}
+                      size={24}
+                      isHost={isHostChatMessage(m, hostUserId)}
+                      isModerator={isModeratorChatMessage(m, mod.moderators)}
+                      className="mt-0.5 shrink-0"
+                    />
+                  ) : null}
+                  <span className={`inline-block min-w-0 flex-1 ${lineShadow}`}>
                     <span className={labelClass}>{label}</span>
+                    {isHostChatMessage(m, hostUserId) ? (
+                      <span className="ml-1 text-[9px] font-black uppercase tracking-wide text-amber-300/90">
+                        HOST
+                      </span>
+                    ) : null}
                     <span className="text-zinc-400">: </span>
                     <span className={isSystem ? "text-zinc-100" : "text-zinc-50"}>{m.body}</span>
                     {renderMessageActions(m)}
@@ -275,20 +308,38 @@ export function LiveAuctionChat({
             const isSystem = m.messageType === "system";
             const isPurchase = m.messageType === "purchase";
             const label = chatLabelForMessage(m);
-            const labelClass = chatLabelClassForMessage(m, false);
+            const labelClass = chatLabelClassForMessage(m, false, hostUserId);
+            const showAvatar = shouldShowChatAvatar(m);
             return (
               <div
                 key={m.id}
-                className={`chat-msg-row group animate-[chat-rise_var(--live-duration-ui)_var(--live-ease)] leading-snug ${compact ? "text-sm" : "text-[15px]"}`}
+                className={`chat-msg-row group flex animate-[chat-rise_var(--live-duration-ui)_var(--live-ease)] items-start gap-2.5 leading-snug ${compact ? "text-sm" : "text-[15px]"}`}
                 style={compact ? { opacity: 0.35 + (idx / Math.max(1, arr.length - 1)) * 0.65 } : undefined}
               >
-                <span className={labelClass}>{label}</span>
-                <span className="text-zinc-600">: </span>
-                <span className={isSystem ? "text-zinc-200" : "text-zinc-300"}>{m.body}</span>
-                {renderMessageActions(m)}
-                {m.messageType !== "chat" && !isSystem && !isPurchase ? (
-                  <span className="ml-2 text-[10px] uppercase tracking-wide text-zinc-600">({m.messageType})</span>
+                {showAvatar ? (
+                  <LiveChatAvatar
+                    username={m.senderUsername}
+                    avatarUrl={m.senderAvatarUrl}
+                    size={compact ? 28 : 30}
+                    isHost={isHostChatMessage(m, hostUserId)}
+                    isModerator={isModeratorChatMessage(m, mod.moderators)}
+                    className="mt-0.5 shrink-0"
+                  />
                 ) : null}
+                <div className="min-w-0 flex-1">
+                  <span className={labelClass}>{label}</span>
+                  {isHostChatMessage(m, hostUserId) ? (
+                    <span className="ml-1.5 text-[10px] font-black uppercase tracking-wide text-amber-300/90">
+                      HOST
+                    </span>
+                  ) : null}
+                  <span className="text-zinc-600">: </span>
+                  <span className={isSystem ? "text-zinc-200" : "text-zinc-300"}>{m.body}</span>
+                  {renderMessageActions(m)}
+                  {m.messageType !== "chat" && !isSystem && !isPurchase ? (
+                    <span className="ml-2 text-[10px] uppercase tracking-wide text-zinc-600">({m.messageType})</span>
+                  ) : null}
+                </div>
               </div>
             );
           })

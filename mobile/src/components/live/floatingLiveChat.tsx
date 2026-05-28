@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Image,
   Platform,
@@ -21,6 +21,7 @@ import {
   isViewerEventMessage,
   tailUniqueChatMessages,
 } from '../../lib/liveRoomChatMessages';
+import { liveChatUsernameInitial } from '../../lib/liveChatAvatar';
 import { LIVE_ROOM_TEXT_PROPS } from '../../lib/liveRoomUiScale';
 import { LiveRoomText } from './LiveRoomText';
 import { LiveChatRowActions } from '../trust/LiveChatRowActions';
@@ -43,9 +44,53 @@ const TEXT_SHADOW = {
   textShadowRadius: 6,
 } as const;
 
-function chatAvatarUri(message: ChatMessage, hostAvatarUrl: string) {
-  if (message.isHost) return hostAvatarUrl;
-  return `https://i.pravatar.cc/80?u=${encodeURIComponent(message.user)}`;
+function chatAvatarUri(message: ChatMessage, hostAvatarUrl: string): string | null {
+  const fromMessage = message.senderAvatarUrl?.trim();
+  if (fromMessage) return fromMessage;
+  if (message.isHost) return hostAvatarUrl?.trim() || null;
+  return null;
+}
+
+function ChatAvatarBubble({
+  message,
+  hostAvatarUrl,
+  compact,
+}: {
+  message: ChatMessage;
+  hostAvatarUrl: string;
+  compact?: boolean;
+}) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const size = compact ? 22 : 24;
+  const uri = chatAvatarUri(message, hostAvatarUrl);
+  const ringColor = message.isHost ? colors.gold : 'rgba(255,255,255,0.28)';
+  const ringWidth = message.isHost ? 1.5 : StyleSheet.hairlineWidth;
+
+  if (uri && !imgFailed) {
+    return (
+      <Image
+        source={{ uri }}
+        style={[
+          styles.chatAvatar,
+          { width: size, height: size, borderRadius: size / 2, borderColor: ringColor, borderWidth: ringWidth },
+        ]}
+        onError={() => setImgFailed(true)}
+      />
+    );
+  }
+
+  return (
+    <View
+      style={[
+        styles.chatAvatarFallback,
+        { width: size, height: size, borderRadius: size / 2, borderColor: ringColor, borderWidth: ringWidth },
+      ]}
+    >
+      <Text style={[styles.chatAvatarInitial, { fontSize: compact ? 10 : 11 }]}>
+        {liveChatUsernameInitial(message.user)}
+      </Text>
+    </View>
+  );
 }
 
 /** Oldest row (top) fades out; newest (bottom) stays fully visible. */
@@ -64,6 +109,7 @@ function FloatingChatRow({
   accessToken,
   canModerate,
   onModerationComplete,
+  compact,
 }: {
   message: ChatMessage;
   hostAvatarUrl: string;
@@ -73,6 +119,7 @@ function FloatingChatRow({
   accessToken?: string;
   canModerate?: boolean;
   onModerationComplete?: () => void;
+  compact?: boolean;
 }) {
   if (isViewerEventMessage(message)) {
     const name = formatViewerEventName(message.user);
@@ -94,10 +141,10 @@ function FloatingChatRow({
     (!hostUserId || message.senderId !== hostUserId);
 
   return (
-    <View style={[styles.chatRow, { opacity }]}>
-      <Image source={{ uri: chatAvatarUri(message, hostAvatarUrl) }} style={styles.chatAvatar} />
+    <View style={[styles.chatRow, compact && styles.chatRowCompact, { opacity }]}>
+      <ChatAvatarBubble message={message} hostAvatarUrl={hostAvatarUrl} compact={compact} />
       <View style={styles.chatTextWrap}>
-        <LiveRoomText style={styles.inlineLine} numberOfLines={3}>
+        <LiveRoomText style={[styles.inlineLine, compact && styles.inlineLineCompact]} numberOfLines={3}>
           <LiveRoomText style={[styles.username, message.isHost && styles.usernameGold]}>{name}</LiveRoomText>
           {message.isHost ? <LiveRoomText style={styles.hostBadgeInline}> HOST</LiveRoomText> : null}
           <LiveRoomText style={styles.messageBody}> {message.text}</LiveRoomText>
@@ -132,6 +179,7 @@ export function FloatingLiveChat({
   accessToken,
   canModerate,
   onModerationComplete,
+  compact = false,
 }: {
   pool: ChatMessage[];
   hostAvatarUrl: string;
@@ -146,10 +194,12 @@ export function FloatingLiveChat({
   accessToken?: string;
   canModerate?: boolean;
   onModerationComplete?: () => void;
+  compact?: boolean;
 }) {
+  const maxRows = compact ? 4 : MAX_FLOATING_CHAT;
   const visible = useMemo(
-    () => tailUniqueChatMessages(pool, MAX_FLOATING_CHAT),
-    [pool],
+    () => tailUniqueChatMessages(pool, maxRows),
+    [pool, maxRows],
   );
 
   if (!isActive || visible.length === 0) return null;
@@ -171,6 +221,7 @@ export function FloatingLiveChat({
             accessToken={accessToken}
             canModerate={canModerate}
             onModerationComplete={onModerationComplete}
+            compact={compact}
           />
         ))}
       </View>
@@ -280,13 +331,22 @@ const styles = StyleSheet.create({
     marginBottom: 7,
     maxWidth: '100%',
   },
+  chatRowCompact: {
+    gap: 6,
+    marginBottom: 5,
+  },
   chatAvatar: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.28)',
     flexShrink: 0,
+  },
+  chatAvatarFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    flexShrink: 0,
+  },
+  chatAvatarInitial: {
+    color: 'rgba(255,255,255,0.92)',
+    fontWeight: '900',
   },
   chatTextWrap: {
     flex: 1,
@@ -299,6 +359,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 17,
     ...TEXT_SHADOW,
+  },
+  inlineLineCompact: {
+    fontSize: 12,
+    lineHeight: 15,
   },
   username: {
     fontWeight: '800',

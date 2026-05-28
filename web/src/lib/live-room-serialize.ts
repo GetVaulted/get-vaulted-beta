@@ -28,7 +28,7 @@ export type LiveRoomDetailPayload = LiveRoom & {
   seller: Pick<User, "id" | "username">;
   tipModerator?: Pick<User, "id" | "username"> | null;
   items: (LiveRoomItem & { variants?: LiveRoomItemVariantRow[] })[];
-  messages: (LiveRoomMessage & { sender: Pick<User, "username"> })[];
+  messages: (LiveRoomMessage & { sender: Pick<User, "username" | "image"> })[];
   breakSpots?: (BreakSpot & { user: Pick<User, "username"> })[];
   breakHits?: (BreakHit & { buyer: Pick<User, "username"> | null })[];
 };
@@ -82,6 +82,8 @@ export type LiveRoomMessageDTO = {
   liveRoomId: string;
   senderId: string;
   senderUsername: string;
+  /** Profile photo URL when the sender has one set. */
+  senderAvatarUrl: string | null;
   body: string;
   messageType: LiveRoomMessageType;
   createdAt: string;
@@ -232,7 +234,7 @@ export function serializeLiveRoomItem(
 }
 
 export function serializeLiveRoomMessage(
-  row: LiveRoomMessage & { sender?: Pick<User, "username"> | null; deletedAt?: Date | null },
+  row: LiveRoomMessage & { sender?: Pick<User, "username" | "image"> | null; deletedAt?: Date | null },
 ): LiveRoomMessageDTO {
   const deleted = row.deletedAt != null;
   return {
@@ -240,6 +242,7 @@ export function serializeLiveRoomMessage(
     liveRoomId: row.liveRoomId,
     senderId: row.senderId,
     senderUsername: row.sender?.username?.trim() || "System",
+    senderAvatarUrl: row.sender?.image?.trim() || null,
     body: deleted ? "[message removed]" : row.body,
     messageType: row.messageType,
     createdAt: row.createdAt.toISOString(),

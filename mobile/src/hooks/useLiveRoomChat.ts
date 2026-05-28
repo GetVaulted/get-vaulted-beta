@@ -21,6 +21,7 @@ function mapRow(m: LiveRoomChatMessageRow, hostUsername: string): ChatMessage | 
     user: sender,
     text,
     senderId: m.senderId,
+    senderAvatarUrl: m.senderAvatarUrl ?? null,
     isHost: Boolean(host && sender.toLowerCase() === host),
     messageType,
   };
@@ -89,6 +90,7 @@ export function useLiveRoomChat(args: {
         body: message.body,
         senderId: message.senderId,
         senderUsername: message.senderUsername ?? 'Guest',
+        senderAvatarUrl: message.senderAvatarUrl ?? null,
         messageType: (message.messageType as LiveRoomChatMessageRow['messageType']) ?? 'chat',
         createdAt: new Date().toISOString(),
       };

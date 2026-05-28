@@ -107,8 +107,9 @@ export function computeLiveStageSafeInsets(
 }
 
 /** Header overlays the stage; reserve safe-area + compact header for chat cap. */
-export function computeLiveTopReserve(topInset: number): number {
-  return topInset + 72;
+export function computeLiveTopReserve(topInset: number, layoutWidth?: number): number {
+  const compact = layoutWidth != null && layoutWidth < 400;
+  return topInset + (compact ? 62 : 72);
 }
 
 export type LiveStageLayoutDebug = {

@@ -44,6 +44,11 @@ import { LiveVariantSelectionSheet } from './LiveVariantSelectionSheet';
 import { isActiveVariantBuyerItem } from '../../lib/liveItemVariant';
 import { computeAuctionRemainingMs, logAuctionTimer } from '../../lib/auctionTimerSync';
 import { syncedWallTimeMs } from '../../lib/serverClockSync';
+import {
+  isCompactLiveRoomLayout,
+  LIVE_ROOM_REF_WIDTH,
+  liveRoomCompactScale,
+} from '../../lib/liveRoomUiScale';
 
 /** @deprecated Prefer measuring commerce HUD via `onLayout`; used as initial layout estimate only. */
 export const LIVE_COMMERCE_OVERLAY_HEIGHT = 118;
@@ -72,6 +77,10 @@ type Props = {
   participationBlocked?: boolean;
   /** Parent can disable feed gestures while wallet overlay is open. */
   onWalletOverlayChange?: (active: boolean) => void;
+  /** Stage design width — drives compact HUD sizing on iPhone 15-class screens. */
+  layoutWidth?: number;
+  /** Exposes in-room wallet opener for rail / external entry points. */
+  onRegisterOpenWallet?: (open: (reason?: string) => void) => void;
 };
 
 export function LivePinnedActionBar({
@@ -89,9 +98,14 @@ export function LivePinnedActionBar({
   onBidPlaced,
   participationBlocked = false,
   onWalletOverlayChange,
+  layoutWidth,
+  onRegisterOpenWallet,
 }: Props) {
   const stackNav = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const tabNav = stackNav.getParent<BottomTabNavigationProp<MainTabParamList>>();
+  const stageWidth = layoutWidth ?? LIVE_ROOM_REF_WIDTH;
+  const hudScale = liveRoomCompactScale(stageWidth);
+  const compact = isCompactLiveRoomLayout(stageWidth);
   const [bidBusy, setBidBusy] = useState(false);
   const [walletSheetOpen, setWalletSheetOpen] = useState(false);
   const [walletOverlayActive, setWalletOverlayActive] = useState(false);
@@ -137,7 +151,7 @@ export function LivePinnedActionBar({
     walletOverlayActive || walletSheetOpen || variantSheetOpen || Boolean(roomSnap?.unresolvedPaymentFailure);
   const primaryDisabled = m.buyerPrimaryDisabled === true || participationBlocked || commerceBlocked;
   const secondaryDisabled = m.buyerSecondaryDisabled === true || participationBlocked || commerceBlocked;
-  const padBottom = 4 + Math.min(10, Math.round(bottomSafeInset * 0.35));
+  const padBottom = 4 + Math.min(10, Math.round(bottomSafeInset * (compact ? 0.25 : 0.35)));
   const metaLine = [m.winningLine, m.stateLine].filter(Boolean).join(' · ');
 
   const guard = (fn: () => void) => {
@@ -180,6 +194,21 @@ export function LivePinnedActionBar({
     onWalletOverlayChange?.(false);
     resetBidControl('wallet_closed');
   }, [onWalletOverlayChange, resetBidControl]);
+
+  const openWalletFromOutside = useCallback(
+    (reason = 'wallet_rail') => {
+      if (!signedIn) {
+        onRequireAuth?.();
+        return;
+      }
+      openWalletSetup(reason);
+    },
+    [onRequireAuth, openWalletSetup, signedIn],
+  );
+
+  useEffect(() => {
+    onRegisterOpenWallet?.(openWalletFromOutside);
+  }, [onRegisterOpenWallet, openWalletFromOutside]);
 
   const useLiveAuctionBidFlow = mustUseLiveBidFlow(stream, roomSnap, {
     bottomRightIsSlide: m.bottomRightIsSlide,
@@ -427,8 +456,7 @@ export function LivePinnedActionBar({
   const onSecondary = () => {
     if (secondaryDisabled) return;
     guard(() => {
-      if (auctionLane) return;
-      tabNav?.navigate('TradeCenter', { screen: 'TradeCenterHome' });
+      // Stay in room — live commerce secondary never routes to Trade.
     });
   };
   const onHoldStart = useCallback((): boolean => {
@@ -499,11 +527,13 @@ export function LivePinnedActionBar({
       />
       <View style={styles.hudBorder} />
 
-      <View style={styles.hudInner}>
+      <View style={[styles.hudInner, compact && styles.hudInnerCompact]}>
         <View style={styles.topBand}>
-          <LiveRoomText style={styles.timer}>{m.timerMmSs}</LiveRoomText>
+          <LiveRoomText style={[styles.timer, compact && { fontSize: Math.round(13 * hudScale) }]}>
+            {m.timerMmSs}
+          </LiveRoomText>
           <View style={styles.titleBlock}>
-            <LiveRoomText style={styles.itemTitle} numberOfLines={1}>
+            <LiveRoomText style={[styles.itemTitle, compact && { fontSize: 11 }]} numberOfLines={1}>
               {m.itemTitle}
             </LiveRoomText>
             <LiveRoomText style={styles.categoryType} numberOfLines={1}>
@@ -512,7 +542,9 @@ export function LivePinnedActionBar({
           </View>
           <View style={styles.priceBlock}>
             <LiveRoomText style={styles.currentPrefix}>{m.currentPrefix}</LiveRoomText>
-            <LiveRoomText style={styles.currentAmount}>{m.currentAmount}</LiveRoomText>
+            <LiveRoomText style={[styles.currentAmount, compact && { fontSize: Math.round(20 * hudScale) }]}>
+              {m.currentAmount}
+            </LiveRoomText>
           </View>
         </View>
 
@@ -522,14 +554,14 @@ export function LivePinnedActionBar({
           </LiveRoomText>
         ) : null}
         {auctionLane && signedIn ? (
-          <LiveRoomText style={styles.syncLine} numberOfLines={2}>
+          <LiveRoomText style={styles.syncLine} numberOfLines={compact ? 1 : 2}>
             {syncStatusLine ?? 'Syncing auction state from the vault…'}
           </LiveRoomText>
         ) : null}
 
-        <View style={styles.ctaBand}>
+        <View style={[styles.ctaBand, compact && styles.ctaBandCompact]}>
           <Pressable
-            style={[styles.ctaGhost, secondaryDisabled && styles.ctaDisabled]}
+            style={[styles.ctaGhost, compact && styles.ctaGhostCompact, secondaryDisabled && styles.ctaDisabled]}
             onPress={onSecondary}
             disabled={secondaryDisabled}
           >
@@ -636,6 +668,10 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     gap: 5,
   },
+  hudInnerCompact: {
+    paddingTop: 6,
+    gap: 3,
+  },
   topBand: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -705,6 +741,13 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 2,
     paddingBottom: 2,
+  },
+  ctaBandCompact: {
+    gap: 5,
+    marginTop: 1,
+  },
+  ctaGhostCompact: {
+    paddingVertical: 7,
   },
   ctaGhost: {
     flex: 1,

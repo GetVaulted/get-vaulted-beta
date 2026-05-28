@@ -65,7 +65,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       createdAt: { gte: new Date(Date.now() - dedupeWindowMs) },
     },
     orderBy: { createdAt: "desc" },
-    include: { sender: { select: { username: true } } },
+    include: { sender: { select: { username: true, image: true } } },
   });
   if (duplicate) {
     return NextResponse.json({ message: serializeLiveRoomMessage(duplicate) });
@@ -78,7 +78,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       body: text,
       messageType: "system",
     },
-    include: { sender: { select: { username: true } } },
+    include: { sender: { select: { username: true, image: true } } },
   });
 
   void emitLiveRoomMessageById(row.id);

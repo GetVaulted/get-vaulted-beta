@@ -7,6 +7,7 @@ export type LiveRoomChatBroadcastMessage = {
   body: string;
   senderId?: string;
   senderUsername?: string;
+  senderAvatarUrl?: string | null;
   messageType?: string;
 };
 
