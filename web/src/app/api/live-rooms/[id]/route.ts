@@ -3,6 +3,7 @@ import { getServerSessionSafe } from "@/lib/auth";
 import { resolveLiveRoomsUserId, resolveOptionalLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { attachHighBidderUsernames } from "@/lib/live-room-high-bidder-enrich";
 import { buildLiveRoomDetail } from "@/lib/live-room-serialize";
+import { liveRoomItemsWithVariantsInclude } from "@/lib/live-item-variant-include";
 import { logLiveLoaderDebug, safeDecodeRouteSegment } from "@/lib/live-loader-debug";
 import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
 import { prisma } from "@/lib/prisma";
@@ -18,7 +19,7 @@ import { finalizeLiveStreamReplay } from "@/lib/trust/live-replay-service";
 const includeDetail = {
   seller: { select: { id: true, username: true } as const },
   tipModerator: { select: { id: true, username: true } as const },
-  items: true as const,
+  items: liveRoomItemsWithVariantsInclude,
   messages: {
     where: { deletedAt: null },
     orderBy: { createdAt: "asc" as const },

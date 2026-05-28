@@ -1,6 +1,8 @@
 import type {
   BreakHit,
   BreakSpot,
+  LiveItemSalesFormat,
+  LiveItemVariant,
   LiveRoom,
   LiveRoomItem,
   LiveRoomMessage,
@@ -13,16 +15,26 @@ import type {
 } from "@/generated/prisma/client";
 import { buildBreakPublicSnapshot, type LiveRoomBreakPublicDTO } from "@/lib/live-room-break-public";
 import { resolveLiveRoomItemQuantityState } from "@/lib/live-room-item-quantity-display";
+import {
+  serializeLiveItemVariants,
+  type LiveItemVariantDTO,
+} from "@/lib/live-item-variant-serialize";
+
+export type { LiveItemVariantDTO };
 import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
 
 /** Result of `liveRoom.findUnique` with seller, items, messages+sender, and optional break relations. */
 export type LiveRoomDetailPayload = LiveRoom & {
   seller: Pick<User, "id" | "username">;
   tipModerator?: Pick<User, "id" | "username"> | null;
-  items: LiveRoomItem[];
+  items: (LiveRoomItem & { variants?: LiveRoomItemVariantRow[] })[];
   messages: (LiveRoomMessage & { sender: Pick<User, "username"> })[];
   breakSpots?: (BreakSpot & { user: Pick<User, "username"> })[];
   breakHits?: (BreakHit & { buyer: Pick<User, "username"> | null })[];
+};
+
+type LiveRoomItemVariantRow = LiveItemVariant & {
+  purchases?: { buyer?: Pick<User, "username"> | null }[];
 };
 
 export type { LiveRoomBreakPublicDTO };
@@ -59,6 +71,8 @@ export type LiveRoomItemDTO = {
   auctionEndsAt: string | null;
   /** True = sudden death (no timer extension on bids). */
   clutchTimeEnabled: boolean;
+  salesFormat: LiveItemSalesFormat;
+  variants: LiveItemVariantDTO[];
   createdAt: string;
   updatedAt: string;
 };
@@ -116,7 +130,7 @@ export type LiveRoomDetailDTO = {
 };
 
 export function serializeLiveRoomItem(
-  row: LiveRoomItem,
+  row: LiveRoomItem & { variants?: LiveRoomItemVariantRow[] },
   options?: { unitsClaimed?: number | null },
 ): LiveRoomItemDTO {
   const qtyRaw = (row as { quantity?: unknown }).quantity;
@@ -136,13 +150,21 @@ export function serializeLiveRoomItem(
     status: row.status,
     unitsClaimed: options?.unitsClaimed ?? null,
   });
-  const ext = row as LiveRoomItem & { biddingOpen?: unknown; auctionEndsAt?: Date | null; clutchTimeEnabled?: unknown };
+  const ext = row as LiveRoomItem & {
+    biddingOpen?: unknown;
+    auctionEndsAt?: Date | null;
+    clutchTimeEnabled?: unknown;
+    salesFormat?: LiveItemSalesFormat;
+    variants?: LiveRoomItemVariantRow[];
+  };
   const biddingOpen = ext.biddingOpen === true;
   const auctionEndsAt =
     ext.auctionEndsAt instanceof Date && !Number.isNaN(ext.auctionEndsAt.getTime()) ? ext.auctionEndsAt.toISOString() : null;
   const clutchTimeEnabled = ext.clutchTimeEnabled === true;
   const lastHighBidderId =
     typeof row.lastHighBidderId === "string" && row.lastHighBidderId.trim() ? row.lastHighBidderId.trim() : null;
+  const salesFormat = ext.salesFormat ?? "auction";
+  const variants = serializeLiveItemVariants(ext.variants);
   return {
     id: row.id,
     liveRoomId: row.liveRoomId,
@@ -168,6 +190,8 @@ export function serializeLiveRoomItem(
     biddingOpen,
     auctionEndsAt,
     clutchTimeEnabled,
+    salesFormat,
+    variants,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

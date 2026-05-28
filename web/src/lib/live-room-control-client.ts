@@ -120,6 +120,8 @@ export async function createLiveRoomItem(
     teamBoardMisc?: boolean;
     /** Units on this queue row (one tile). */
     quantity?: number;
+    salesFormat?: string;
+    variants?: unknown;
   },
 ): Promise<ApiResult<Record<string, unknown>>> {
   try {

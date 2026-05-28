@@ -7,6 +7,8 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { LiveAuctionChat } from "@/components/live-auction/LiveAuctionChat";
 import { LiveBuyerWalletGateHint } from "@/components/live-auction/LiveBuyerWalletGateHint";
+import { LiveVariantSelectionSheet } from "@/components/live-auction/LiveVariantSelectionSheet";
+import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotBoard";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
 import { LiveTipSheet } from "@/components/live-auction/LiveTipSheet";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
@@ -28,6 +30,7 @@ import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { logAuctionTimer } from "@/lib/auction-timer-sync";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
+import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 
 type SaleItem = {
   id: string;
@@ -220,6 +223,7 @@ export function LiveSaleRoom({
   const [selectedId, setSelectedId] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [variantSheetOpen, setVariantSheetOpen] = useState(false);
   /** Auction bid POST in flight — disables button. */
   const [bidFlight, setBidFlight] = useState(false);
   const [bidMeta, setBidMeta] = useState<ListingBidMeta | null>(null);
@@ -450,6 +454,9 @@ export function LiveSaleRoom({
     roomType === "auction" && !isHost && isLive && activeLotBidPhase !== "bidding_open";
   const activeSaleMissingListing =
     roomType === "sale" && activeDb?.status === "active" && !activeDb.listingId;
+  const activeHasVariants = Boolean(
+    activeDb && isVariantSalesFormat(activeDb.salesFormat) && (activeDb.variants?.length ?? 0) > 0,
+  );
 
   const redirectSignIn = (returnPath: string) => {
     router.push(`/signin?returnTo=${encodeURIComponent(returnPath)}`);
@@ -779,7 +786,17 @@ export function LiveSaleRoom({
             {`Place Bid $${nextBidAmount}`}
           </button>
         ) : null}
-        {roomType === "sale" ? (
+        {roomType === "sale" && activeHasVariants ? (
+          <button
+            type="button"
+            disabled={actionsDisabled || activeDb?.status !== "active"}
+            onClick={() => setVariantSheetOpen(true)}
+            className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
+          >
+            Select spot
+          </button>
+        ) : null}
+        {roomType === "sale" && !activeHasVariants ? (
           <button
             type="button"
             disabled={actionsDisabled || !activeDb?.listingId || activeSaleMissingListing}
@@ -973,7 +990,17 @@ export function LiveSaleRoom({
           </button>
         </div>
       ) : null}
-      {roomType === "sale" ? (
+      {roomType === "sale" && activeHasVariants ? (
+        <button
+          type="button"
+          disabled={actionsDisabled || activeDb?.status !== "active"}
+          onClick={() => setVariantSheetOpen(true)}
+          className="mt-2 min-h-10 w-full rounded-full bg-gradient-to-r from-gold to-gold-bright text-[10px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] disabled:opacity-40 motion-reduce:active:scale-100 md:min-h-11 md:text-[11px]"
+        >
+          Select spot
+        </button>
+      ) : null}
+      {roomType === "sale" && !activeHasVariants ? (
         <button
           type="button"
           disabled={actionsDisabled || !activeDb?.listingId || activeSaleMissingListing}
@@ -1136,6 +1163,13 @@ export function LiveSaleRoom({
                 liveRoomId={liveRoomId}
                 hostSellerId={sellerId}
                 onBack={() => router.back()}
+                centerOverlay={
+                  activeHasVariants && activeDb ? (
+                    <div className="hidden min-[1400px]:flex w-full max-w-md justify-center px-4">
+                      <LiveVariantSpotBoard item={activeDb} />
+                    </div>
+                  ) : undefined
+                }
                 actionOverlay={desktopVideoOverlay}
                 mobileActionOverlay={mobileVideoOverlay}
                 chatOverlay={floatingChatOverlay}
@@ -1204,6 +1238,20 @@ export function LiveSaleRoom({
           </aside>
         </div>
       </div>
+      {activeDb && activeHasVariants ? (
+        <LiveVariantSelectionSheet
+          open={variantSheetOpen}
+          onClose={() => setVariantSheetOpen(false)}
+          item={activeDb}
+          liveRoomId={liveRoomId}
+          walletReady={buyerLiveWalletReady}
+          onWalletRequired={() => setActionError("Add payment and shipping in Wallet before checkout.")}
+          onPurchased={() => {
+            setShipUxNonce((n) => n + 1);
+            router.refresh();
+          }}
+        />
+      ) : null}
       <LiveTipSheet
         open={tipOpen}
         onClose={() => setTipOpen(false)}

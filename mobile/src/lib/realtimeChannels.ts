@@ -13,6 +13,7 @@ export const RT_EVENT = {
   purchaseCompleted: 'purchase_completed',
   messagesRefresh: 'messages_refresh',
   queueItems: 'queue_items',
+  variantPurchased: 'variant_purchased',
   breakSpots: 'break_spots',
   listingBid: 'listing_bid',
   teamBoard: 'team_board',

@@ -30,6 +30,8 @@ export const RT_EVENT = {
   messagesRefresh: "messages_refresh",
   /** Queue rows created/updated/deleted — clients refetch room detail / host console. */
   queueItems: "queue_items",
+  /** Variant option purchased — spot board + queue cards refresh. */
+  variantPurchased: "variant_purchased",
   breakSpots: "break_spots",
   listingBid: "listing_bid",
   notification: "notification",
@@ -53,5 +55,6 @@ export const RT_EVENT_ALIASES = {
   activeItemChanged: [],
   purchaseCompleted: [],
   queueItems: [],
+  variantPurchased: [],
   streamStatus: [],
 } as const;

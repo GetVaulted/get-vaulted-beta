@@ -1202,6 +1202,14 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
         }
         return;
       }
+
+      if (kind === "variant_purchase") {
+        const purchaseId = session.metadata?.purchaseId;
+        if (!purchaseId) return;
+        const { finalizeLiveItemVariantPurchasePaid } = await import("@/lib/live-item-variant-purchase");
+        await finalizeLiveItemVariantPurchasePaid(purchaseId, pi ?? undefined);
+        return;
+      }
       break;
     }
     case "checkout.session.expired": {
@@ -1236,6 +1244,10 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
           where: { id: session.metadata.breakSpotId, breakPaymentStatus: "pending_payment" },
           data: { breakPaymentStatus: "failed", stripeCheckoutSessionId: null },
         });
+      }
+      if (session.metadata?.kind === "variant_purchase" && session.metadata.purchaseId) {
+        const { releaseVariantPurchaseOnCheckoutExpired } = await import("@/lib/live-item-variant-purchase");
+        await releaseVariantPurchaseOnCheckoutExpired(session.metadata.purchaseId);
       }
       if (session.metadata?.kind === "live_tip" && session.metadata.liveTipId) {
         await markLiveTipCheckoutFailed(session.metadata.liveTipId);

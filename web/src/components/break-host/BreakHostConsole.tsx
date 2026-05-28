@@ -15,6 +15,10 @@ import { VaultHostStageEdgeRail } from "@/components/break-host/vault/VaultHostS
 import { VaultHostRightRail } from "@/components/break-host/vault/VaultHostRightRail";
 import { VaultPinnedLot } from "@/components/break-host/vault/VaultPinnedLot";
 import { VaultQueueDrawer } from "@/components/break-host/vault/VaultQueueDrawer";
+import { LiveItemVariantBuilder, type LiveItemSalesFormatDraft } from "@/components/live-auction/LiveItemVariantBuilder";
+import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotBoard";
+import type { VariantDraftInput } from "@/lib/live-item-variant-presets";
+import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { vaultModeRootClass } from "@/components/break-host/vault/vault-modes";
 import { LiveRoomEnergyMeter } from "@/components/live-stage/LiveRoomEnergyMeter";
@@ -197,6 +201,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const [auctionDraftPrice, setAuctionDraftPrice] = useState("");
   const [auctionDraftQuantity, setAuctionDraftQuantity] = useState("1");
   const [auctionDraftStartBid, setAuctionDraftStartBid] = useState("");
+  const [auctionDraftSalesFormat, setAuctionDraftSalesFormat] = useState<LiveItemSalesFormatDraft>("auction");
+  const [auctionDraftVariants, setAuctionDraftVariants] = useState<VariantDraftInput[]>([]);
   const [queueDraftMisc, setQueueDraftMisc] = useState(false);
 
   const [teamBoardData, setTeamBoardData] = useState<TeamBoardPublicPayload | null>(null);
@@ -1059,6 +1065,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           : 1;
     const miscPayload =
       hostDataRef.current?.room.teamBoardLeague === "nfl" ? { teamBoardMisc: queueDraftMisc } : {};
+    const variantPayload = isVariantSalesFormat(auctionDraftSalesFormat)
+      ? { salesFormat: auctionDraftSalesFormat, variants: auctionDraftVariants }
+      : { salesFormat: auctionDraftSalesFormat };
     return void (async () => {
       setBusy(true);
       setToast(null);
@@ -1067,8 +1076,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           title,
           priceUsd: p != null && Number.isFinite(p) ? p : null,
           startingBidUsd,
-          quantity,
+          quantity: isVariantSalesFormat(auctionDraftSalesFormat) ? 1 : quantity,
           ...miscPayload,
+          ...variantPayload,
         });
         if (!res.ok) {
           setToast(res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error);
@@ -1079,6 +1089,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         setAuctionDraftPrice("");
         setAuctionDraftQuantity("1");
         setAuctionDraftStartBid("");
+        setAuctionDraftSalesFormat("auction");
+        setAuctionDraftVariants([]);
         setQueueDraftMisc(false);
         await load();
         router.refresh();
@@ -1498,12 +1510,19 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     vaultEnergyLevel: roomEnergy.level,
     uiDimmed: !stageUiWake,
     stageOverlay: (
-      <LiveLotTransitionBanner
-        phase={lotTransitionPhase}
-        winnerUsername={lotTransitionWinner}
-        soldAmount={lotTransitionAmount}
-        nextItemTitle={lotTransitionNextTitle}
-      />
+      <>
+        <LiveLotTransitionBanner
+          phase={lotTransitionPhase}
+          winnerUsername={lotTransitionWinner}
+          soldAmount={lotTransitionAmount}
+          nextItemTitle={lotTransitionNextTitle}
+        />
+        {overlayQueueRow && isVariantSalesFormat(overlayQueueRow.item.salesFormat) ? (
+          <div className="pointer-events-none absolute inset-x-0 bottom-28 z-[14] hidden justify-center px-4 min-[1400px]:flex">
+            <LiveVariantSpotBoard item={overlayQueueRow.item} pinned />
+          </div>
+        ) : null}
+      </>
     ),
     chatOverlay: hostMobileChatOverlay,
     chatOverlayClassName: "min-[1400px]:hidden",
@@ -1684,6 +1703,17 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
                   placeholder="Price USD (optional)"
                   className="mt-2 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm"
                 />
+                <div className="mt-3">
+                  <LiveItemVariantBuilder
+                    salesFormat={auctionDraftSalesFormat}
+                    onSalesFormatChange={setAuctionDraftSalesFormat}
+                    defaultPriceUsd={auctionDraftPrice}
+                    variants={auctionDraftVariants}
+                    onVariantsChange={setAuctionDraftVariants}
+                  />
+                </div>
+                {!isVariantSalesFormat(auctionDraftSalesFormat) ? (
+                <>
                 <input
                   value={auctionDraftStartBid}
                   onChange={(e) => setAuctionDraftStartBid(e.target.value)}
@@ -1703,6 +1733,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
                 <p className="mt-1 text-[11px] text-zinc-500">
                   Quantity creates numbered units, like PYT Break 1 #1, #2, #3.
                 </p>
+                </>
+                ) : null}
                 {data.room.teamBoardLeague === "nfl" ? (
                   <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-zinc-300">
                     <input

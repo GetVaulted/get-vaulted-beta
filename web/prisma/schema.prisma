@@ -79,6 +79,26 @@ enum LiveRoomItemStatus {
   skipped
 }
 
+enum LiveItemSalesFormat {
+  auction
+  buy_now
+  variant_selection
+  team_break
+}
+
+enum LiveItemVariantStatus {
+  available
+  reserved
+  sold_out
+}
+
+enum LiveItemVariantPurchaseStatus {
+  pending_payment
+  paid
+  failed
+  cancelled
+}
+
 enum LiveRoomMessageType {
   chat
   bid
@@ -333,6 +353,7 @@ model User {
   liveRooms       LiveRoom[]
   liveRoomMessages LiveRoomMessage[]
   breakSpots      BreakSpot[]
+  liveItemVariantPurchases LiveItemVariantPurchase[]
   breakHitsBuyer  BreakHit[] @relation("BreakHitBuyer")
   hitClipsAsSeller HitClip[] @relation("HitClipSeller")
   hitClipsAsBuyer  HitClip[] @relation("HitClipBuyer")
@@ -687,6 +708,7 @@ model LiveRoom {
   items      LiveRoomItem[]
   messages   LiveRoomMessage[]
   breakSpots BreakSpot[]
+  variantPurchases LiveItemVariantPurchase[]
   breakHits  BreakHit[]
   hitClips   HitClip[]
   teamBoard  LiveRoomTeamBoard?
@@ -867,15 +889,66 @@ model LiveRoomItem {
   auctionEndsAt  DateTime?
   /// Clutch Time ON = no bid-time extension; OFF = bids refresh time-to-expiry to 10s.
   clutchTimeEnabled Boolean        @default(false)
+  /// Commerce format for this queue row (variant / team break = selectable options).
+  salesFormat    LiveItemSalesFormat @default(auction)
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
   breakHits      BreakHit[]
+  variants       LiveItemVariant[]
 
   proxyBids         LiveAuctionProxyBid[]
   inventoryHolds    LiveAuctionInventoryHold[]
   roomBids          LiveRoomBid[]
 
   @@index([liveRoomId, sortOrder])
+}
+
+/// Selectable option / spot on a master live queue item (PYT divisions, teams, custom).
+model LiveItemVariant {
+  id                String               @id @default(cuid())
+  liveRoomItemId    String
+  liveRoomItem      LiveRoomItem         @relation(fields: [liveRoomItemId], references: [id], onDelete: Cascade)
+  label             String
+  priceUsd          Float
+  quantityInitial   Int                  @default(1)
+  quantityRemaining Int                  @default(1)
+  soldCount         Int                  @default(0)
+  isHot             Boolean              @default(false)
+  imageUrl          String               @default("")
+  color             String               @default("")
+  sortOrder         Int                  @default(0)
+  status            LiveItemVariantStatus @default(available)
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  purchases         LiveItemVariantPurchase[]
+
+  @@unique([liveRoomItemId, label])
+  @@index([liveRoomItemId, sortOrder])
+}
+
+/// Per-buyer purchase of a variant option — one record per claim (never overwrite winners).
+model LiveItemVariantPurchase {
+  id                      String                        @id @default(cuid())
+  liveRoomId              String
+  liveRoom                LiveRoom                      @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  liveRoomItemId          String
+  variantId               String
+  variant                 LiveItemVariant               @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  buyerId                 String
+  buyer                   User                          @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  quantity                Int                           @default(1)
+  unitPriceUsd            Float
+  totalUsd                Float
+  paymentStatus           LiveItemVariantPurchaseStatus @default(pending_payment)
+  idempotencyKey          String?                       @unique
+  stripeCheckoutSessionId String?
+  stripePaymentIntentId   String?
+  paidAt                  DateTime?
+  createdAt               DateTime                      @default(now())
+
+  @@index([variantId, paymentStatus])
+  @@index([liveRoomId, createdAt])
+  @@index([buyerId, createdAt])
 }
 
 /// Accepted bid on a host lot (`listingId` null). Listing-backed lots use marketplace `Bid` rows.

@@ -3,6 +3,8 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireLiveRoomHostUser } from "@/lib/resolve-live-room-host-user";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
+import { isVariantSalesFormat, normalizeVariantDrafts } from "@/lib/live-item-variant-presets";
+import { parseLiveItemSalesFormat } from "@/lib/live-item-variant-serialize";
 
 type PostBody = {
   title?: string;
@@ -14,6 +16,8 @@ type PostBody = {
   teamBoardMisc?: boolean;
   /** Units on this single queue row (one tile). Max 512. */
   quantity?: number | string;
+  salesFormat?: string;
+  variants?: unknown;
 };
 
 function clampItemQuantity(n: number): number {
@@ -91,19 +95,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const teamBoardMisc =
     body.teamBoardMisc === true && room.roomType === "break" && room.teamBoardLeague === "nfl";
 
+  const salesFormat = parseLiveItemSalesFormat(body.salesFormat);
+  const variantDrafts = isVariantSalesFormat(salesFormat) ? normalizeVariantDrafts(body.variants) : [];
+  if (isVariantSalesFormat(salesFormat) && variantDrafts.length === 0) {
+    return NextResponse.json({ error: "Add at least one selectable option for variant items." }, { status: 400 });
+  }
+
   const baseCreate = {
     liveRoomId,
     listingId,
     title: title.slice(0, 300),
     imageUrl,
-    priceUsd,
+    priceUsd: isVariantSalesFormat(salesFormat) ? (variantDrafts[0]?.priceUsd ?? priceUsd) : priceUsd,
     startingBidUsd: startingBidFinal,
     currentBidUsd,
     status: "queued" as const,
     sortOrder,
     teamBoardMisc,
-    quantity,
-    quantityInitial: quantity,
+    quantity: isVariantSalesFormat(salesFormat) ? 1 : quantity,
+    quantityInitial: isVariantSalesFormat(salesFormat) ? 1 : quantity,
+    salesFormat,
   };
 
   /** Turbopack / dev can keep an older bundled Prisma client that rejects `quantity` even after `prisma generate`. */
@@ -131,9 +142,27 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   let item: { id: string };
   try {
-    item = await prisma.liveRoomItem.create({
-      data: { ...baseCreate, quantity },
-      select: { id: true },
+    item = await prisma.$transaction(async (tx) => {
+      const created = await tx.liveRoomItem.create({
+        data: { ...baseCreate, quantity: baseCreate.quantity },
+        select: { id: true },
+      });
+      if (variantDrafts.length > 0) {
+        await tx.liveItemVariant.createMany({
+          data: variantDrafts.map((v, i) => ({
+            liveRoomItemId: created.id,
+            label: v.label,
+            priceUsd: v.priceUsd,
+            quantityInitial: v.quantityInitial ?? 1,
+            quantityRemaining: v.quantityInitial ?? 1,
+            isHot: v.isHot === true,
+            imageUrl: v.imageUrl ?? "",
+            color: v.color ?? "",
+            sortOrder: v.sortOrder ?? i,
+          })),
+        });
+      }
+      return created;
     });
   } catch (e) {
     if (isStaleClientUnknownQuantityArg(e)) {

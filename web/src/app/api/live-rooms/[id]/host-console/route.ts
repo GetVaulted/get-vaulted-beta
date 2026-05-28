@@ -8,6 +8,7 @@ import { fetchHostRecentSales } from "@/lib/live-room-recent-sales";
 import { buildLiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
 import { attachHighBidderUsernames } from "@/lib/live-room-high-bidder-enrich";
 import { serializeLiveRoomItem, serializeLiveRoomMessage } from "@/lib/live-room-serialize";
+import { liveRoomItemsWithVariantsInclude } from "@/lib/live-item-variant-include";
 import { prismaLiveRoomCreateHint, serializePrismaClientError } from "@/lib/prisma-client-error-serialize";
 
 type SpotWithUser = BreakSpot & { user: Pick<User, "id" | "username" | "email"> };
@@ -57,7 +58,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     const room = await prisma.liveRoom.findUnique({
       where: { id: liveRoomId },
       include: {
-        items: true,
+        items: liveRoomItemsWithVariantsInclude,
         breakSpots: {
           include: { user: { select: { id: true, username: true, email: true } } },
           orderBy: { createdAt: "asc" },

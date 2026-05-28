@@ -21,6 +21,16 @@ export type LiveRoomItemRow = {
   auctionEndsAt: string | null;
   lastHighBidderUsername?: string | null;
   sortOrder: number;
+  salesFormat?: 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
+  variants?: {
+    id: string;
+    label: string;
+    priceUsd: number;
+    quantityRemaining: number;
+    isHot: boolean;
+    status: string;
+    buyerUsername: string | null;
+  }[];
 };
 
 function apiErrorMessage(res: Response, body: unknown): string {

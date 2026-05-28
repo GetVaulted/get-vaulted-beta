@@ -8,6 +8,8 @@ import { BreakBuyerOverview } from "@/components/live-auction/BreakBuyerOverview
 import { BuyerBreakPaymentPrompt } from "@/components/live-auction/BuyerBreakPaymentPrompt";
 import { BreakDisclaimerModal, breakDisclaimerStorageKey } from "@/components/live-auction/BreakDisclaimerModal";
 import { LiveBuyerWalletGateHint } from "@/components/live-auction/LiveBuyerWalletGateHint";
+import { LiveVariantSelectionSheet } from "@/components/live-auction/LiveVariantSelectionSheet";
+import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotBoard";
 import { LiveAuctionChat } from "@/components/live-auction/LiveAuctionChat";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
 import { LiveTipSheet } from "@/components/live-auction/LiveTipSheet";
@@ -30,6 +32,7 @@ import { patchLiveRoomItemStatus, startLiveRoomItemAuction } from "@/lib/live-ro
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
+import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 
 type SaleItem = {
   id: string;
@@ -227,6 +230,9 @@ export function LiveAuctionRoom({
     [dbItems, isLive, auctionResolutionTick, clockSkewMs],
   );
   const activeDbItem = useMemo(() => dbItems.find((x) => x.status === "active") ?? null, [dbItems]);
+  const activeHasVariants = Boolean(
+    activeDbItem && isVariantSalesFormat(activeDbItem.salesFormat) && (activeDbItem.variants?.length ?? 0) > 0,
+  );
   const [hostAuctionDurationSec, setHostAuctionDurationSec] = useState(5);
   const [hostClutchTimeEnabled, setHostClutchTimeEnabled] = useState(false);
   const [hostAuctionBusy, setHostAuctionBusy] = useState(false);
@@ -235,6 +241,7 @@ export function LiveAuctionRoom({
   const [selectedId, setSelectedId] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [variantSheetOpen, setVariantSheetOpen] = useState(false);
   /** Blocks double-submit while bid POST is in flight. */
   const [bidFlight, setBidFlight] = useState(false);
   const [userHighBidUsd, setUserHighBidUsd] = useState<number | null>(null);
@@ -940,7 +947,17 @@ export function LiveAuctionRoom({
       {overlayTimerEndedUnsettled && !isHost ? (
         <p className="mt-2 text-center text-[10px] font-medium text-amber-200/90">{LIVE_AUCTION_BUYER_TIMER_ENDED_COPY}</p>
       ) : null}
-      {overlayIsLive ? (
+      {overlayIsLive && activeHasVariants && activeDbItem ? (
+        <button
+          type="button"
+          disabled={actionsDisabled}
+          onClick={() => setVariantSheetOpen(true)}
+          className="mt-2 min-h-10 w-full rounded-full bg-gradient-to-r from-gold to-gold-bright text-[10px] font-black uppercase tracking-wide text-zinc-950 disabled:opacity-40 md:min-h-11 md:text-[11px]"
+        >
+          Select spot
+        </button>
+      ) : null}
+      {overlayIsLive && !activeHasVariants ? (
         <div className="mt-2 flex min-h-10 items-center gap-1.5 max-[380px]:gap-1 md:min-h-11">
           <button
             type="button"
@@ -976,7 +993,8 @@ export function LiveAuctionRoom({
             )}
           </button>
         </div>
-      ) : overlayTimerEndedUnsettled ? (
+      ) : null}
+      {overlayIsLive ? null : overlayTimerEndedUnsettled ? (
         <button
           type="button"
           disabled
@@ -1179,7 +1197,14 @@ export function LiveAuctionRoom({
                 liveRoomId={liveRoomId}
                 hostSellerId={sellerId}
                 onBack={() => router.back()}
-                centerOverlay={teamBoardOverlay ?? null}
+                centerOverlay={
+                  teamBoardOverlay ??
+                  (activeHasVariants && activeDbItem ? (
+                    <div className="hidden min-[1400px]:flex w-full max-w-md justify-center px-4">
+                      <LiveVariantSpotBoard item={activeDbItem} />
+                    </div>
+                  ) : null)
+                }
                 centerOverlayOnTop={Boolean(teamBoardOverlay)}
                 stageBelowAudience={stageBelowAudience}
                 actionOverlay={showFeaturedAuctionOverlay ? desktopVideoOverlay : null}
@@ -1263,6 +1288,17 @@ export function LiveAuctionRoom({
           </aside>
         </div>
       </div>
+      {activeDbItem && activeHasVariants ? (
+        <LiveVariantSelectionSheet
+          open={variantSheetOpen}
+          onClose={() => setVariantSheetOpen(false)}
+          item={activeDbItem}
+          liveRoomId={liveRoomId}
+          walletReady={buyerLiveWalletReady}
+          onWalletRequired={() => toast("Add payment and shipping in Wallet before checkout.")}
+          onPurchased={() => void onRefetch?.()}
+        />
+      ) : null}
       <LiveTipSheet
         open={tipOpen}
         onClose={() => setTipOpen(false)}

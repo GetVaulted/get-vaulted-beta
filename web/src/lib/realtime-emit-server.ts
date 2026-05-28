@@ -62,6 +62,20 @@ export function emitLiveRoomQueueItemsChanged(liveRoomId: string): void {
   emitRoomEventWithAliases(liveRoomId, RT_EVENT.queueItems, { liveRoomId });
 }
 
+export function emitVariantPurchased(
+  liveRoomId: string,
+  payload: {
+    itemId: string;
+    variantId: string;
+    purchaseId: string;
+    label: string;
+    buyerUsername: string;
+    itemVersion: number;
+  },
+): void {
+  emitRoomEventWithAliases(liveRoomId, RT_EVENT.variantPurchased, payload);
+}
+
 export function emitTeamBoardChanged(liveRoomId: string): void {
   emitRoomEventWithAliases(liveRoomId, RT_EVENT.teamBoard, { liveRoomId });
 }

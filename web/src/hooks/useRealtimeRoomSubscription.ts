@@ -198,6 +198,7 @@ export function useRealtimeRoomSubscription(opts: {
         else void refs.current.onRoomStateEvent?.();
       })
       .on("broadcast", { event: RT_EVENT.queueItems }, () => void refs.current.onQueueItemsChange?.())
+      .on("broadcast", { event: RT_EVENT.variantPurchased }, () => void refs.current.onQueueItemsChange?.())
       .on("broadcast", { event: RT_EVENT.breakSpots }, () => void refs.current.onBreakSpotsChange())
       .on("broadcast", { event: RT_EVENT.listingBid }, ({ payload }) => {
         const listingId = (payload as { listingId?: string } | null)?.listingId;
