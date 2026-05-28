@@ -18,6 +18,8 @@ type LiveItemVariantBuilderProps = {
   onVariantsChange: (v: VariantDraftInput[]) => void;
 };
 
+const FIELD_LABEL = "mb-1 block text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-400";
+
 function parseUsdInput(raw: string): number | null {
   const cleaned = raw.replace(/[^\d.]/g, "");
   if (!cleaned) return null;
@@ -61,24 +63,22 @@ function PriceField({
   label,
   value,
   onChange,
-  compact = false,
 }: {
   id: string;
   label: string;
   value: number;
   onChange: (n: number) => void;
-  compact?: boolean;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   const display = draft ?? formatUsd(value);
 
   return (
-    <div className={compact ? "min-w-[7.5rem] flex-1 sm:flex-none" : "w-full sm:w-auto sm:min-w-[7.5rem]"}>
-      <label htmlFor={id} className="mb-1 block text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-400">
+    <div className="min-w-0">
+      <label htmlFor={id} className={FIELD_LABEL}>
         {label}
       </label>
-      <div className="relative">
-        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-zinc-400">
+      <div className="relative max-w-full">
+        <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-zinc-400">
           $
         </span>
         <input
@@ -95,7 +95,7 @@ function PriceField({
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           }}
           placeholder="0.00"
-          className="w-full min-w-[7.5rem] rounded-lg border border-white/12 bg-[#0c0c10] py-2 pl-7 pr-3 text-sm font-semibold tabular-nums text-zinc-100 outline-none transition focus:border-amber-400/40 focus:ring-1 focus:ring-amber-400/25"
+          className="box-border w-full max-w-full rounded-lg border border-white/12 bg-[#0c0c10] py-2 pl-6 pr-2 text-sm font-semibold tabular-nums text-zinc-100 outline-none transition focus:border-amber-400/40 focus:ring-1 focus:ring-amber-400/25"
         />
       </div>
     </div>
@@ -107,27 +107,25 @@ function QuantityField({
   label,
   value,
   onChange,
-  compact = false,
 }: {
   id: string;
   label: string;
   value: number;
   onChange: (n: number) => void;
-  compact?: boolean;
 }) {
   const bump = (delta: number) => onChange(Math.max(1, Math.min(512, value + delta)));
 
   return (
-    <div className={compact ? "min-w-[4.5rem] flex-1 sm:flex-none" : "w-full sm:w-auto"}>
-      <label htmlFor={id} className="mb-1 block text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-400">
+    <div className="min-w-0">
+      <label htmlFor={id} className={FIELD_LABEL}>
         {label}
       </label>
-      <div className="flex items-stretch overflow-hidden rounded-lg border border-white/12 bg-[#0c0c10] focus-within:border-amber-400/40 focus-within:ring-1 focus-within:ring-amber-400/25">
+      <div className="inline-flex w-[5.75rem] max-w-full items-stretch overflow-hidden rounded-lg border border-white/12 bg-[#0c0c10] focus-within:border-amber-400/40 focus-within:ring-1 focus-within:ring-amber-400/25">
         <button
           type="button"
           onClick={() => bump(-1)}
           disabled={value <= 1}
-          className="flex w-8 shrink-0 items-center justify-center border-r border-white/10 text-sm font-bold text-zinc-400 transition hover:bg-white/[0.04] hover:text-zinc-200 disabled:opacity-30"
+          className="flex h-9 w-7 shrink-0 items-center justify-center border-r border-white/10 text-sm font-bold text-zinc-400 transition hover:bg-white/[0.04] hover:text-zinc-200 disabled:opacity-30"
           aria-label={`Decrease ${label}`}
         >
           −
@@ -142,18 +140,38 @@ function QuantityField({
             const n = Math.max(1, Math.min(512, Number(e.target.value.replace(/[^\d]/g, "")) || 1));
             onChange(n);
           }}
-          className="min-w-[4.5rem] flex-1 bg-transparent py-2 text-center text-sm font-semibold tabular-nums text-zinc-100 outline-none"
+          className="box-border h-9 w-9 shrink-0 bg-transparent text-center text-sm font-semibold tabular-nums text-zinc-100 outline-none"
         />
         <button
           type="button"
           onClick={() => bump(1)}
           disabled={value >= 512}
-          className="flex w-8 shrink-0 items-center justify-center border-l border-white/10 text-sm font-bold text-zinc-400 transition hover:bg-white/[0.04] hover:text-zinc-200 disabled:opacity-30"
+          className="flex h-9 w-7 shrink-0 items-center justify-center border-l border-white/10 text-sm font-bold text-zinc-400 transition hover:bg-white/[0.04] hover:text-zinc-200 disabled:opacity-30"
           aria-label={`Increase ${label}`}
         >
           +
         </button>
       </div>
+    </div>
+  );
+}
+
+function HotSpotButton({ active, onClick }: { active: boolean; onClick: () => void }) {
+  return (
+    <div className="min-w-0">
+      <p className={FIELD_LABEL}>Hot spot</p>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-pressed={active}
+        className={`box-border h-9 w-full min-w-[4.5rem] rounded-lg border px-2.5 text-[10px] font-black uppercase tracking-wide transition sm:w-auto ${
+          active
+            ? "border-amber-400/45 bg-gradient-to-r from-amber-500/25 to-rose-500/15 text-amber-50 shadow-[0_0_16px_-4px_rgba(251,191,36,0.4)]"
+            : "border-white/10 bg-white/[0.03] text-zinc-500 hover:border-white/16 hover:text-zinc-300"
+        }`}
+      >
+        🔥 Hot
+      </button>
     </div>
   );
 }
@@ -173,81 +191,37 @@ function VariantRow({
   const qtyId = `variant-qty-${index}`;
 
   return (
-    <article className="rounded-xl border border-white/10 bg-[#0a0a0e] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition focus-within:border-amber-400/30 focus-within:shadow-[0_0_0_1px_rgba(251,191,36,0.12)]">
-      <div className="flex items-start justify-between gap-2">
-        <h4 className="min-w-0 flex-1 text-sm font-bold text-zinc-100">{variant.label}</h4>
-        <button
-          type="button"
-          onClick={onRemove}
-          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1 text-[10px] font-semibold text-zinc-400 transition hover:border-rose-400/30 hover:bg-rose-950/30 hover:text-rose-200"
-          aria-label={`Remove ${variant.label}`}
-        >
-          <TrashIcon className="size-3.5" />
-          <span className="hidden sm:inline">Remove</span>
-        </button>
-      </div>
-
-      {/* Desktop: horizontal compact row */}
-      <div className="mt-3 hidden items-end gap-3 sm:flex">
-        <PriceField
-          id={priceId}
-          label="Price USD"
-          value={variant.priceUsd}
-          onChange={(n) => onUpdate({ priceUsd: n })}
-          compact
-        />
-        <QuantityField
-          id={qtyId}
-          label="Quantity"
-          value={variant.quantityInitial ?? 1}
-          onChange={(n) => onUpdate({ quantityInitial: n })}
-          compact
-        />
-        <div className="shrink-0 pb-0.5">
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-400">Hot spot</p>
+    <article className="min-w-0 overflow-hidden rounded-xl border border-white/10 bg-[#0a0a0e] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+      <div className="grid min-w-0 grid-cols-1 gap-3">
+        <div className="flex min-w-0 items-start justify-between gap-2">
+          <h4 className="min-w-0 truncate text-sm font-bold text-zinc-100">{variant.label}</h4>
           <button
             type="button"
-            onClick={() => onUpdate({ isHot: !variant.isHot })}
-            aria-pressed={variant.isHot}
-            className={`rounded-lg border px-3 py-2 text-[11px] font-black uppercase tracking-wide transition ${
-              variant.isHot
-                ? "border-amber-400/45 bg-gradient-to-r from-amber-500/25 to-rose-500/15 text-amber-50 shadow-[0_0_18px_-4px_rgba(251,191,36,0.45)]"
-                : "border-white/10 bg-white/[0.03] text-zinc-500 hover:border-white/16 hover:text-zinc-300"
-            }`}
+            onClick={onRemove}
+            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1 text-[10px] font-semibold text-zinc-400 transition hover:border-rose-400/30 hover:bg-rose-950/30 hover:text-rose-200"
+            aria-label={`Remove ${variant.label}`}
           >
-            🔥 Hot
+            <TrashIcon className="size-3.5" />
+            Remove
           </button>
         </div>
-      </div>
 
-      {/* Mobile: stacked fields */}
-      <div className="mt-3 space-y-3 sm:hidden">
-        <PriceField
-          id={`${priceId}-mobile`}
-          label="Price USD"
-          value={variant.priceUsd}
-          onChange={(n) => onUpdate({ priceUsd: n })}
-        />
-        <QuantityField
-          id={`${qtyId}-mobile`}
-          label="Quantity"
-          value={variant.quantityInitial ?? 1}
-          onChange={(n) => onUpdate({ quantityInitial: n })}
-        />
-        <div>
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-400">Hot spot</p>
-          <button
-            type="button"
-            onClick={() => onUpdate({ isHot: !variant.isHot })}
-            aria-pressed={variant.isHot}
-            className={`w-full rounded-lg border px-3 py-2.5 text-[11px] font-black uppercase tracking-wide transition ${
-              variant.isHot
-                ? "border-amber-400/45 bg-gradient-to-r from-amber-500/25 to-rose-500/15 text-amber-50 shadow-[0_0_18px_-4px_rgba(251,191,36,0.45)]"
-                : "border-white/10 bg-white/[0.03] text-zinc-500"
-            }`}
-          >
-            🔥 Hot spot
-          </button>
+        <div className="grid min-w-0 grid-cols-2 gap-3 md:grid-cols-[minmax(0,1fr)_5.75rem_auto] md:items-end">
+          <div className="col-span-2 min-w-0 md:col-span-1">
+            <PriceField
+              id={priceId}
+              label="Price USD"
+              value={variant.priceUsd}
+              onChange={(n) => onUpdate({ priceUsd: n })}
+            />
+          </div>
+          <QuantityField
+            id={qtyId}
+            label="Quantity"
+            value={variant.quantityInitial ?? 1}
+            onChange={(n) => onUpdate({ quantityInitial: n })}
+          />
+          <HotSpotButton active={Boolean(variant.isHot)} onClick={() => onUpdate({ isHot: !variant.isHot })} />
         </div>
       </div>
     </article>
@@ -309,14 +283,13 @@ export function LiveItemVariantBuilder({
     onVariantsChange(variants.map((v) => ({ ...v, quantityInitial: n })));
   };
 
-  const presetSummary =
-    activePresetId != null ? LIVE_ITEM_VARIANT_PRESETS[activePresetId].label : null;
+  const presetSummary = activePresetId != null ? LIVE_ITEM_VARIANT_PRESETS[activePresetId].label : null;
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4 overflow-x-hidden">
       <div>
         <p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">Sales format</p>
-        <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+        <div className="mt-1.5 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
           {(
             [
               { id: "auction" as const, label: "Auction" },
@@ -371,7 +344,7 @@ export function LiveItemVariantBuilder({
               })}
             </div>
             {presetSummary ? (
-              <div className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-950/20 px-3 py-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-950/20 px-3 py-2">
                 <span className="text-[10px] font-black uppercase tracking-[0.14em] text-zinc-500">Active preset</span>
                 <span className="text-sm font-bold text-emerald-100">{presetSummary}</span>
                 <span className="text-emerald-400" aria-hidden>
@@ -381,14 +354,14 @@ export function LiveItemVariantBuilder({
             ) : null}
           </div>
 
-          <div>
+          <div className="min-w-0">
             <p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">Add custom spot</p>
-            <div className="mt-1.5 flex gap-2">
+            <div className="mt-1.5 flex min-w-0 flex-col gap-2 sm:flex-row">
               <input
                 value={customLabel}
                 onChange={(e) => setCustomLabel(e.target.value)}
                 placeholder="e.g. Team name or division"
-                className="min-w-0 flex-1 rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100 outline-none focus:border-amber-400/35 focus:ring-1 focus:ring-amber-400/20"
+                className="box-border min-w-0 flex-1 rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100 outline-none focus:border-amber-400/35 focus:ring-1 focus:ring-amber-400/20"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
@@ -400,7 +373,7 @@ export function LiveItemVariantBuilder({
                 type="button"
                 onClick={addCustom}
                 disabled={!customLabel.trim()}
-                className="shrink-0 rounded-lg border border-amber-400/25 bg-amber-500/12 px-4 py-2 text-[11px] font-black uppercase tracking-wide text-amber-100 transition hover:bg-amber-500/20 disabled:opacity-40"
+                className="shrink-0 rounded-lg border border-amber-400/25 bg-amber-500/12 px-4 py-2 text-[11px] font-black uppercase tracking-wide text-amber-100 transition hover:bg-amber-500/20 disabled:opacity-40 sm:self-end"
               >
                 Add spot
               </button>
@@ -408,10 +381,10 @@ export function LiveItemVariantBuilder({
           </div>
 
           {variants.length > 1 ? (
-            <div className="rounded-xl border border-white/10 bg-[#0a0a0e] p-3">
+            <div className="min-w-0 overflow-hidden rounded-xl border border-white/10 bg-[#0a0a0e] p-3">
               <p className="text-[10px] font-black uppercase tracking-[0.14em] text-zinc-500">Quick apply to all spots</p>
-              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
-                <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-end">
+              <div className="mt-3 grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="min-w-0 space-y-2">
                   <PriceField
                     id="bulk-price-all"
                     label="Price USD"
@@ -421,12 +394,12 @@ export function LiveItemVariantBuilder({
                   <button
                     type="button"
                     onClick={applyPriceToAll}
-                    className="shrink-0 rounded-lg border border-amber-400/30 bg-amber-500/15 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-amber-100 transition hover:bg-amber-500/25 sm:mb-0.5"
+                    className="w-full rounded-lg border border-amber-400/30 bg-amber-500/15 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-amber-100 transition hover:bg-amber-500/25"
                   >
                     Apply price to all
                   </button>
                 </div>
-                <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-end">
+                <div className="min-w-0 space-y-2">
                   <QuantityField
                     id="bulk-qty-all"
                     label="Quantity"
@@ -436,7 +409,7 @@ export function LiveItemVariantBuilder({
                   <button
                     type="button"
                     onClick={applyQtyToAll}
-                    className="shrink-0 rounded-lg border border-white/12 bg-white/[0.04] px-3 py-2 text-[10px] font-black uppercase tracking-wide text-zinc-200 transition hover:bg-white/[0.08] sm:mb-0.5"
+                    className="w-full rounded-lg border border-white/12 bg-white/[0.04] px-3 py-2 text-[10px] font-black uppercase tracking-wide text-zinc-200 transition hover:bg-white/[0.08]"
                   >
                     Apply qty to all
                   </button>
@@ -450,13 +423,11 @@ export function LiveItemVariantBuilder({
             </div>
           ) : null}
 
-          <div>
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">
-                Spots ({variants.length})
-              </p>
-            </div>
-            <div className="max-h-64 space-y-3 overflow-y-auto rounded-xl border border-white/[0.08] bg-black/20 p-3 sm:max-h-72 sm:space-y-4">
+          <div className="min-w-0">
+            <p className="mb-2 text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">
+              Spots ({variants.length})
+            </p>
+            <div className="space-y-3 rounded-xl border border-white/[0.08] bg-black/20 p-3">
               {variants.length === 0 ? (
                 <p className="py-6 text-center text-sm text-zinc-500">
                   Choose a preset above or add custom spots to set up your break.

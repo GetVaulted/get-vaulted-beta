@@ -1676,9 +1676,10 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           onClick={() => setQueueAddModal(null)}
         >
           <div
-            className="w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-950 p-4 shadow-xl"
+            className="flex max-h-[min(92dvh,calc(100vh-48px))] w-full max-w-[min(840px,calc(100vw-48px))] flex-col overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-950 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
+            <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-4 sm:p-5">
             {queueAddModal === "auction" ? (
               <>
                 <h2 className="text-sm font-bold uppercase tracking-wide text-zinc-100">Add queue item</h2>
@@ -1694,7 +1695,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
                   placeholder="Price USD (optional)"
                   className="mt-2 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm"
                 />
-                <div className="mt-3">
+                <div className="mt-3 min-w-0">
                   <LiveItemVariantBuilder
                     salesFormat={auctionDraftSalesFormat}
                     onSalesFormatChange={setAuctionDraftSalesFormat}
@@ -1784,6 +1785,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
                 </button>
               </>
             )}
+            </div>
           </div>
         </div>
       ) : null}
