@@ -1,12 +1,13 @@
 "use client";
 
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
-import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
+import { formatAuctionLeaderLine, formatAuctionMoneyUsd } from "@/lib/live-auction-winner-display";
 import { resolveLiveItemOverlayPrice } from "@/lib/live-auction-overlay-price";
 import type { LiveRoomEnergyLevel } from "@/lib/live-room-energy";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
+import type { LiveLotTransitionPhase } from "@/components/live-stage/LiveLotTransitionBanner";
 
-export type LiveStageMotionBurst = "bid" | "bid_war" | "last_second" | "sold" | null;
+export type LiveStageMotionBurst = "bid" | "bid_war" | "last_second" | "sold" | "no_bids" | null;
 
 type QueueRowLite = { item: LiveRoomItemDTO };
 
@@ -31,11 +32,11 @@ function fmtOverlayLead(
   });
 }
 
-const ENERGY_GLOW: Record<LiveRoomEnergyLevel, string> = {
-  calm: "shadow-[0_0_24px_-16px_rgba(251,191,36,0.15)]",
-  warming: "shadow-[0_0_32px_-14px_rgba(251,191,36,0.28)]",
-  hot: "shadow-[0_0_40px_-12px_rgba(251,191,36,0.42)]",
-  electric: "shadow-[0_0_52px_-8px_rgba(251,191,36,0.55)] live-hud-electric",
+const ENERGY_EDGE: Record<LiveRoomEnergyLevel, string> = {
+  calm: "before:opacity-30",
+  warming: "before:opacity-45",
+  hot: "before:opacity-60",
+  electric: "before:opacity-80 live-hud-electric",
 };
 
 type LiveAuctionHudProps = {
@@ -57,13 +58,8 @@ type LiveAuctionHudProps = {
   hostBusy?: boolean;
   energyLevel?: LiveRoomEnergyLevel;
   motionBurst?: LiveStageMotionBurst;
+  lotTransitionPhase?: LiveLotTransitionPhase;
 };
-
-function HudPill({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`live-stage-hud-pill flex min-w-0 items-center gap-2 ${className}`}>{children}</div>
-  );
-}
 
 function HudAction({
   children,
@@ -78,18 +74,18 @@ function HudAction({
 }) {
   const cls =
     tone === "gold"
-      ? "border-amber-400/45 bg-gradient-to-r from-amber-400/90 via-amber-300/90 to-yellow-200/90 text-zinc-950 shadow-[0_0_20px_-8px_rgba(251,191,36,0.8)]"
+      ? "border-amber-400/30 bg-amber-400/15 text-amber-50 shadow-[0_0_16px_-10px_rgba(251,191,36,0.5)]"
       : tone === "danger"
-        ? "border-rose-400/40 bg-rose-950/55 text-rose-100"
+        ? "border-rose-400/25 bg-rose-950/35 text-rose-100"
         : tone === "urgent"
-          ? "border-orange-400/45 bg-orange-500/20 text-orange-100"
-          : "border-white/10 bg-white/[0.05] text-zinc-200";
+          ? "border-orange-400/30 bg-orange-500/12 text-orange-100"
+          : "border-white/[0.06] bg-white/[0.03] text-zinc-300";
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-[0.12em] transition disabled:opacity-40 ${cls}`}
+      className={`rounded-full border px-2.5 py-0.5 text-[8px] font-black uppercase tracking-[0.14em] transition hover:-translate-y-px disabled:opacity-40 ${cls}`}
     >
       {children}
     </button>
@@ -114,6 +110,7 @@ export function LiveAuctionHud({
   hostBusy,
   energyLevel = "calm",
   motionBurst = null,
+  lotTransitionPhase = "idle",
 }: LiveAuctionHudProps) {
   const item = overlayQueueRow?.item;
   const boardItem = activeBoardRow?.item;
@@ -125,6 +122,7 @@ export function LiveAuctionHud({
   const auctionEndedPendingClose =
     Boolean(boardItem?.biddingOpen && boardItem?.status === "active" && !biddingWindowOpen);
   const canEndAuction = Boolean(boardItem && boardItem.status === "active" && (auctionRunning || auctionEndedPendingClose));
+  const preAuction = roomStatusLive && !auctionRunning && !auctionEndedPendingClose && !sold && !skipped;
 
   const winnerLine = item
     ? formatAuctionLeaderLine({
@@ -154,131 +152,123 @@ export function LiveAuctionHud({
           ? "live-hud-timer-slam"
           : motionBurst === "sold"
             ? "live-hud-sold-pulse"
-            : "";
+            : motionBurst === "no_bids"
+              ? "opacity-80"
+              : "";
 
-  const statusLabel = sold
-    ? "Sold"
-    : skipped
-      ? "Skipped"
-      : auctionRunning
-        ? "Live"
-        : auctionEndedPendingClose
-          ? "Ended"
-          : roomStatusLive
-            ? "Ready"
-            : "Offline";
+  const hudHidden = lotTransitionPhase === "sold_spotlight" || lotTransitionPhase === "next_intro";
 
-  const statusTone = sold
-    ? "border-emerald-400/35 bg-emerald-500/15 text-emerald-100"
-    : skipped
-      ? "border-zinc-500/35 bg-zinc-800/50 text-zinc-300"
-      : auctionRunning
-        ? "border-emerald-400/35 bg-emerald-500/15 text-emerald-100"
-        : auctionEndedPendingClose
-          ? "border-amber-400/35 bg-amber-500/15 text-amber-100"
-          : "border-white/10 bg-black/40 text-zinc-400";
+  if (sold && !auctionRunning) {
+    return (
+      <div
+        className={`live-stage-auction-hud relative w-full live-stage-hud-sold live-stage-hud-sold-sweep ${ENERGY_EDGE[energyLevel]}`}
+        data-testid="live-auction-hud"
+      >
+        <div className="live-stage-hud-glass flex min-h-[48px] items-center justify-between gap-3 px-4 py-2 before:pointer-events-none before:absolute before:-inset-px before:rounded-[inherit] before:bg-gradient-to-r before:from-emerald-400/20 before:via-amber-300/15 before:to-transparent before:content-['']">
+          <div className="relative z-[1] flex min-w-0 items-center gap-2">
+            <span className="text-[9px] font-black uppercase tracking-[0.2em] text-emerald-300/90">Sold</span>
+            <p className="truncate text-sm font-bold text-white">
+              {boardItem?.lastHighBidderUsername?.trim()
+                ? `@${boardItem.lastHighBidderUsername.trim()}`
+                : "No winner"}
+            </p>
+          </div>
+          <p className="relative z-[1] font-mono text-lg font-black tabular-nums text-amber-100">
+            {formatAuctionMoneyUsd(boardItem?.currentBidUsd)}
+          </p>
+          {onNextItem ? (
+            <HudAction tone="ghost" disabled={hostBusy} onClick={onNextItem}>
+              Next
+            </HudAction>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
-      className={`live-stage-auction-hud pointer-events-auto w-full ${ENERGY_GLOW[energyLevel]} ${burstClass}`}
+      className={`live-stage-auction-hud relative w-full transition-opacity duration-500 ${ENERGY_EDGE[energyLevel]} ${burstClass} ${
+        hudHidden ? "pointer-events-none opacity-0" : "opacity-100"
+      } before:pointer-events-none before:absolute before:-inset-px before:rounded-[inherit] before:bg-gradient-to-r before:from-amber-400/25 before:via-transparent before:to-amber-500/10 before:content-['']`}
       data-testid="live-auction-hud"
     >
-      <div className="live-stage-hud-glass flex min-h-[52px] max-h-[64px] items-stretch gap-1.5 p-1.5">
-        {/* LEFT — item identity */}
-        <HudPill className="flex-[1.15] px-2">
-          <div className="relative shrink-0">
-            <div className="size-9 overflow-hidden rounded-lg bg-zinc-900 ring-1 ring-white/10">
-              {thumb ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={thumb} alt="" className="size-full object-cover" />
-              ) : (
-                <div className="flex size-full items-center justify-center text-[9px] font-black text-zinc-500">
-                  {(item?.title ?? "—").slice(0, 2).toUpperCase()}
-                </div>
-              )}
-            </div>
-            {auctionRunning ? (
-              <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border border-emerald-400/50 bg-emerald-400 motion-safe:animate-pulse" aria-hidden />
-            ) : null}
+      <div
+        className={`live-stage-hud-glass relative flex min-h-[48px] max-h-[58px] items-center gap-1 px-1.5 py-1 ${
+          preAuction ? "live-stage-hud-glass-idle" : ""
+        } ${lotTransitionPhase === "incoming" ? "motion-safe:animate-[live-lot-slide-up_0.5s_var(--live-ease)_both]" : ""}`}
+      >
+        {/* LEFT — compact item identity */}
+        <div className="live-stage-hud-pill flex min-w-0 flex-[0.95] items-center gap-1.5 px-2 py-0.5">
+          <div className="size-8 shrink-0 overflow-hidden rounded-md bg-zinc-900/80 ring-1 ring-white/[0.06]">
+            {thumb ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={thumb} alt="" className="size-full object-cover" />
+            ) : (
+              <div className="flex size-full items-center justify-center text-[8px] font-black text-zinc-600">
+                {(item?.title ?? "—").slice(0, 2).toUpperCase()}
+              </div>
+            )}
           </div>
           <div className="min-w-0">
-            <p className="truncate text-[11px] font-semibold leading-tight text-white">
+            <p className="truncate text-[10px] font-medium text-zinc-400">
               {item ? hostQueueTitleLine(item) : "No lot pinned"}
+              {item ? <span className="text-zinc-600"> · #{item.sortOrder}</span> : null}
             </p>
-            {item ? (
-              <p className="truncate text-[8px] font-bold uppercase tracking-[0.16em] text-zinc-500">
-                Unit #{item.sortOrder}
-              </p>
-            ) : null}
             {winnerLine ? (
-              <p className="truncate text-[9px] font-medium text-amber-100/80">{winnerLine}</p>
+              <p className="truncate text-[9px] font-semibold text-amber-100/75">{winnerLine}</p>
             ) : null}
           </div>
-        </HudPill>
+        </div>
 
-        {/* CENTER — bid + timer + status */}
-        <HudPill className="flex-1 justify-center px-3">
-          <div className="flex flex-col items-center gap-0.5">
-            <p
-              className={`font-mono text-xl font-black tabular-nums leading-none tracking-tight text-white motion-safe:transition-transform ${
-                motionBurst === "bid" || motionBurst === "bid_war" ? "[animation:live-price-glow_0.6s_ease-out]" : ""
-              }`}
-            >
-              {overlayPrice?.amountFormatted ?? "—"}
-            </p>
-            <p className="text-[8px] font-bold uppercase tracking-[0.14em] text-zinc-500">
-              {overlayPrice?.label ?? "Opening bid"}
-            </p>
-            <div className="mt-0.5 flex flex-wrap items-center justify-center gap-1">
-              {hostAuctionCountdownLabel ? (
-                <span
-                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[11px] font-black tabular-nums ${
-                    timerUrgent
-                      ? "border-orange-400/45 bg-orange-500/15 text-orange-100 motion-safe:[animation:live-countdown-pulse_0.8s_ease-in-out_infinite]"
-                      : "border-emerald-400/30 bg-emerald-500/12 text-emerald-100"
-                  }`}
-                >
-                  {hostAuctionCountdownLabel}
-                </span>
-              ) : auctionEndedPendingClose ? (
-                <span className="rounded-full border border-amber-400/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[11px] font-black tabular-nums text-amber-100">
-                  00:00
-                </span>
-              ) : null}
-              <span className={`rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-wide ${statusTone}`}>
-                {auctionRunning ? (
-                  <span className="inline-flex items-center gap-1">
-                    <span className="size-1.5 animate-pulse rounded-full bg-emerald-300" aria-hidden />
-                    {statusLabel}
-                  </span>
-                ) : (
-                  statusLabel
-                )}
+        {/* CENTER — bid hero + timer */}
+        <div className="flex min-w-0 flex-1 flex-col items-center justify-center px-1">
+          <p
+            className={`font-mono text-[1.35rem] font-black leading-none tabular-nums tracking-tight text-white drop-shadow-[0_0_20px_rgba(251,191,36,0.25)] ${
+              motionBurst === "bid" || motionBurst === "bid_war" ? "[animation:live-price-glow_0.6s_ease-out]" : ""
+            }`}
+          >
+            {overlayPrice?.amountFormatted ?? "—"}
+          </p>
+          <div className="mt-0.5 flex items-center gap-1">
+            {hostAuctionCountdownLabel ? (
+              <span
+                className={`font-mono text-[11px] font-black tabular-nums ${
+                  timerUrgent
+                    ? "text-orange-200 motion-safe:[animation:live-countdown-pulse_0.7s_ease-in-out_infinite]"
+                    : auctionRunning
+                      ? "text-emerald-200/90"
+                      : "text-zinc-500"
+                }`}
+              >
+                {hostAuctionCountdownLabel}
               </span>
-              {motionBurst === "bid_war" ? (
-                <span className="live-hud-bid-war-tag rounded-full border border-rose-400/40 bg-rose-500/15 px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-rose-100">
-                  Bid war
-                </span>
-              ) : null}
-            </div>
+            ) : auctionEndedPendingClose ? (
+              <span className="font-mono text-[11px] font-black tabular-nums text-amber-200/80">00:00</span>
+            ) : null}
+            {motionBurst === "bid_war" ? (
+              <span className="live-hud-bid-war-tag rounded-full px-1.5 py-px text-[7px] font-black uppercase tracking-wider text-rose-200">
+                Bid war
+              </span>
+            ) : null}
           </div>
-        </HudPill>
+        </div>
 
         {/* RIGHT — contextual actions */}
-        <HudPill className="shrink-0 justify-end gap-1 px-2">
-          {sold || skipped ? null : auctionRunning ? (
+        <div className="live-stage-hud-pill flex shrink-0 items-center gap-1 px-1.5 py-0.5">
+          {skipped ? (
+            <span className="text-[8px] font-bold uppercase tracking-wide text-zinc-500">Skipped</span>
+          ) : auctionRunning ? (
             <>
               <button
                 type="button"
                 aria-pressed={hostClutchTimeEnabled}
                 onClick={onToggleClutch}
-                className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.12em] transition ${
-                  hostClutchTimeEnabled
-                    ? "border-fuchsia-400/45 bg-fuchsia-500/15 text-fuchsia-100"
-                    : "border-white/10 bg-white/[0.05] text-zinc-400"
+                className={`rounded-full px-1.5 py-0.5 text-[7px] font-black uppercase ${
+                  hostClutchTimeEnabled ? "text-fuchsia-200" : "text-zinc-600"
                 }`}
               >
-                {hostClutchTimeEnabled ? "SD on" : "SD"}
+                SD
               </button>
               {onEndAuction ? (
                 <HudAction tone="danger" disabled={hostBusy} onClick={onEndAuction}>
@@ -289,15 +279,15 @@ export function LiveAuctionHud({
           ) : auctionEndedPendingClose ? (
             onEndAuction ? (
               <HudAction tone="urgent" disabled={hostBusy} onClick={onEndAuction}>
-                Close lot
+                Close
               </HudAction>
             ) : null
-          ) : roomStatusLive && hostStartLiveAuctionEnabled ? (
+          ) : preAuction && hostStartLiveAuctionEnabled ? (
             <>
               <select
                 value={hostAuctionDurationSec}
                 onChange={(e) => onHostAuctionDurationSec(Number(e.target.value))}
-                className="rounded-full border border-white/10 bg-black/45 px-2 py-1 text-[9px] font-semibold text-zinc-200"
+                className="max-w-[3rem] rounded-full border border-white/[0.06] bg-transparent px-1 py-0.5 text-[8px] text-zinc-400"
                 aria-label="Auction clock"
               >
                 {[5, 10, 15, 20, 30].map((sec) => (
@@ -306,11 +296,7 @@ export function LiveAuctionHud({
                   </option>
                 ))}
               </select>
-              <HudAction
-                tone="gold"
-                disabled={hostLiveItemAuctionBusy}
-                onClick={onStartAuction}
-              >
+              <HudAction tone="gold" disabled={hostLiveItemAuctionBusy} onClick={onStartAuction}>
                 {hostLiveItemAuctionBusy ? "…" : "Start"}
               </HudAction>
             </>
@@ -319,14 +305,14 @@ export function LiveAuctionHud({
               End
             </HudAction>
           ) : !roomStatusLive ? (
-            <span className="text-[9px] font-semibold text-amber-200/70">Go live</span>
+            <span className="text-[8px] text-zinc-600">Offline</span>
           ) : null}
           {!sold && !skipped && onNextItem ? (
             <HudAction tone="ghost" disabled={hostBusy} onClick={onNextItem}>
               Next
             </HudAction>
           ) : null}
-        </HudPill>
+        </div>
       </div>
     </div>
   );

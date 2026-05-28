@@ -317,50 +317,194 @@ body {
   -webkit-backdrop-filter: blur(var(--live-blur-xl));
 }
 
-/* ── Live Stage HUD — floating broadcast layers ── */
+/* ── Live Stage HUD — floating broadcast layers (Phase 2: lighter, glow-first) ── */
 .live-stage-hud-glass {
   border-radius: 9999px;
-  border: 1px solid rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.08);
   background: linear-gradient(
     135deg,
-    rgba(0, 0, 0, 0.62) 0%,
-    rgba(8, 8, 12, 0.78) 48%,
-    rgba(0, 0, 0, 0.68) 100%
+    rgba(0, 0, 0, 0.38) 0%,
+    rgba(6, 6, 10, 0.52) 50%,
+    rgba(0, 0, 0, 0.42) 100%
   );
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
-    0 8px 32px -16px rgba(0, 0, 0, 0.92),
-    0 0 48px -24px rgba(251, 191, 36, 0.22);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+    0 0 0 1px rgba(255, 255, 255, 0.025) inset,
+    0 12px 40px -20px rgba(0, 0, 0, 0.85),
+    0 0 56px -28px rgba(251, 191, 36, 0.28);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+
+.live-stage-hud-glass-idle {
+  animation: live-hud-idle-shimmer 4.5s ease-in-out infinite;
 }
 
 .live-stage-hud-pill {
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.live-stage-hud-sold {
+  border-color: rgba(52, 211, 153, 0.2) !important;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.03) inset,
+    0 0 64px -16px rgba(52, 211, 153, 0.35),
+    0 0 48px -20px rgba(251, 191, 36, 0.25) !important;
+}
+
+.live-stage-hud-sold-sweep::after {
+  content: "";
+  position: absolute;
+  inset: -20% -40%;
+  background: linear-gradient(
+    105deg,
+    transparent 42%,
+    rgba(251, 191, 36, 0.22) 50%,
+    transparent 58%
+  );
+  animation: live-auction-sold-shimmer 1.2s ease-out both;
+  pointer-events: none;
 }
 
 .live-stage-glass-pill {
   border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .live-stage-glass-tray {
-  border-radius: 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(0, 0, 0, 0.38);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  border-radius: 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 8px 32px -24px rgba(0, 0, 0, 0.9);
+}
+
+.live-stage-floating-rail {
+  border-radius: 1.5rem;
+  border: 1px solid rgba(251, 191, 36, 0.07);
+  background: linear-gradient(
+    165deg,
+    rgba(0, 0, 0, 0.42) 0%,
+    rgba(4, 4, 8, 0.55) 100%
+  );
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.03) inset,
+    0 16px 48px -28px rgba(0, 0, 0, 0.92),
+    0 0 40px -24px rgba(251, 191, 36, 0.12);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.live-stage-floating-rail-hover {
+  transition: box-shadow 0.35s ease, border-color 0.35s ease;
+}
+
+.live-stage-floating-rail-hover:hover {
+  border-color: rgba(251, 191, 36, 0.14);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+    0 20px 56px -24px rgba(0, 0, 0, 0.9),
+    0 0 52px -20px rgba(251, 191, 36, 0.18);
+}
+
+.live-stage-ambient-bleed {
+  z-index: 0;
+}
+
+.live-stage-ambient-canvas-visible {
+  opacity: 0.55 !important;
 }
 
 .live-stage-ambient-glow {
   pointer-events: none;
   background: radial-gradient(ellipse 80% 60% at 50% 100%, var(--vault-pulse, rgba(251, 191, 36, 0.12)), transparent 70%);
-  opacity: 0.55;
-  transition: opacity 0.6s ease;
+  transition: opacity 0.8s ease;
+}
+
+.live-stage-float-subtle {
+  animation: live-stage-float 8s ease-in-out infinite;
+}
+
+@keyframes live-hud-idle-shimmer {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.025) inset,
+      0 12px 40px -20px rgba(0, 0, 0, 0.85),
+      0 0 48px -30px rgba(251, 191, 36, 0.2);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.03) inset,
+      0 12px 40px -20px rgba(0, 0, 0, 0.85),
+      0 0 64px -24px rgba(251, 191, 36, 0.34);
+  }
+}
+
+@keyframes live-stage-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes live-lot-sold-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.88) translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes live-lot-next-in {
+  0% {
+    opacity: 0;
+    letter-spacing: 0.08em;
+  }
+  100% {
+    opacity: 1;
+    letter-spacing: 0.32em;
+  }
+}
+
+@keyframes live-lot-slide-up {
+  0% {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.live-lot-sold-spotlight {
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 0 80px -20px rgba(251, 191, 36, 0.45);
+}
+
+.chat-msg-bid {
+  border-left: 2px solid rgba(251, 191, 36, 0.45);
+  padding-left: 0.5rem;
+  background: linear-gradient(90deg, rgba(251, 191, 36, 0.08), transparent);
+}
+
+.chat-msg-purchase {
+  border-left: 2px solid rgba(52, 211, 153, 0.45);
+  padding-left: 0.5rem;
+  background: linear-gradient(90deg, rgba(52, 211, 153, 0.08), transparent);
 }
 
 @keyframes live-hud-bid-flash-kf {
@@ -443,7 +587,9 @@ body {
   .live-hud-timer-slam,
   .live-hud-sold-pulse,
   .live-hud-bid-war-tag,
-  .live-hud-electric {
+  .live-hud-electric,
+  .live-stage-hud-glass-idle,
+  .live-stage-float-subtle {
     animation: none !important;
   }
 }

@@ -6,6 +6,7 @@ import { resolveLiveItemOverlayPrice } from "@/lib/live-auction-overlay-price";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { VAULT_MODE_META } from "@/components/break-host/vault/vault-modes";
 import { LiveAuctionHud, type LiveStageMotionBurst } from "@/components/live-stage/LiveAuctionHud";
+import type { LiveLotTransitionPhase } from "@/components/live-stage/LiveLotTransitionBanner";
 import type { LiveRoomEnergyLevel } from "@/lib/live-room-energy";
 
 type ClaimLite = { user: { username: string } } | null;
@@ -57,6 +58,7 @@ type VaultPinnedLotProps = {
   hostClockSkewMs: number;
   energyLevel?: LiveRoomEnergyLevel;
   motionBurst?: LiveStageMotionBurst;
+  lotTransitionPhase?: LiveLotTransitionPhase;
 };
 
 function BidVelocityBar({
@@ -114,6 +116,7 @@ export function VaultPinnedLot({
   hostClockSkewMs,
   energyLevel,
   motionBurst,
+  lotTransitionPhase,
 }: VaultPinnedLotProps) {
   const meta = VAULT_MODE_META[vaultMode];
   const isMobile = variant === "mobile";
@@ -147,6 +150,7 @@ export function VaultPinnedLot({
         hostBusy={hostBusy}
         energyLevel={energyLevel}
         motionBurst={motionBurst}
+        lotTransitionPhase={lotTransitionPhase}
       />
     );
   }

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { LiveViewerCount } from "@/components/live-auction/LiveViewerCount";
 import { LiveVideoStagePlayback } from "@/components/live-auction/LiveVideoStagePlayback";
+import { LiveStageAmbientBleed } from "@/components/live-stage/LiveStageAmbientBleed";
 import { ReportTrigger } from "@/components/trust/ReportModal";
 import { SellerFollowButton } from "@/components/seller/SellerFollowButton";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
@@ -58,6 +59,10 @@ type LiveVideoStageProps = {
   liveRoomId?: string;
   /** Ambient bottom glow intensity 0–100 (room energy). Desktop host stage. */
   stageEnergyScore?: number;
+  /** Full-stage blurred video/thumbnail bleed behind 9:16 plate. */
+  ambientBleed?: boolean;
+  /** Cinematic overlays on full stage (lot transitions). */
+  stageOverlay?: ReactNode;
   /** Bumped when room `stream_status` realtime fires so playback refetches stream info. */
   streamPlaybackRefreshNonce?: number;
   /** Room scheduled start (ISO) for pre-live buyer video messaging. */
@@ -106,6 +111,8 @@ export function LiveVideoStage({
   onTip,
   liveRoomId,
   stageEnergyScore = 0,
+  ambientBleed = false,
+  stageOverlay,
   streamPlaybackRefreshNonce,
   scheduledStartAt = null,
   thumbnailUrl = null,
@@ -222,17 +229,25 @@ export function LiveVideoStage({
 
   return (
     <div className={rootClass} data-live-stage-root>
-      <div
-        className="pointer-events-none absolute inset-0 opacity-40"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle at 20% 30%, rgba(250,204,21,0.08), transparent 45%), radial-gradient(circle at 80% 70%, rgba(63,63,70,0.4), transparent 50%)",
-        }}
-        aria-hidden
-      />
+      {ambientBleed ? (
+        <LiveStageAmbientBleed thumbnailUrl={thumbnailUrl} energyScore={stageEnergyScore} />
+      ) : (
+        <div
+          className="pointer-events-none absolute inset-0 opacity-30"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle at 20% 30%, rgba(250,204,21,0.06), transparent 45%), radial-gradient(circle at 80% 70%, rgba(63,63,70,0.35), transparent 50%)",
+          }}
+          aria-hidden
+        />
+      )}
+
+      {stageOverlay ? (
+        <div className="pointer-events-none absolute inset-0 z-[12] hidden min-[1400px]:block">{stageOverlay}</div>
+      ) : null}
 
       {/* 9:16 video plate — centered; overlays are not positioned relative to this on desktop. */}
-      <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+      <div className="absolute inset-0 z-[1] flex items-center justify-center overflow-hidden">
         <div className={`${PORTRAIT_VIDEO_FRAME} ${portraitSizingClass}`}>
           <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/34 via-black/10 to-transparent" aria-hidden />
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/68 via-black/26 to-transparent" aria-hidden />
@@ -330,7 +345,9 @@ export function LiveVideoStage({
         </div>
 
         {actionOverlay ? (
-          <div className={`pointer-events-auto absolute z-10 ${desktopActionOverlayClass}`}>{actionOverlay}</div>
+          <div className={`pointer-events-auto absolute z-10 live-stage-float-subtle ${desktopActionOverlayClass}`}>
+            {actionOverlay}
+          </div>
         ) : null}
 
         {chatOverlay ? <div className={`pointer-events-auto ${desktopChatClass}`}>{chatOverlay}</div> : null}

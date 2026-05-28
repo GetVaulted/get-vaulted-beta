@@ -59,20 +59,20 @@ export function VaultHostLiveChatPanel({
 }: VaultHostLiveChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<"chat" | "watching">("chat");
-  const chatMessages = useMemo(() => messages.filter((m) => m.messageType !== "bid"), [messages]);
-  const visibleMessages = useMemo(() => chatMessages.slice(-120), [chatMessages]);
+  const visibleMessages = useMemo(() => messages.slice(-120), [messages]);
 
   const recentChatters = useMemo(() => {
+    const chatOnly = messages.filter((m) => m.messageType === "chat");
     const seen = new Set<string>();
     const out: string[] = [];
-    for (let i = chatMessages.length - 1; i >= 0 && out.length < 24; i--) {
-      const u = chatMessages[i]?.senderUsername?.trim();
+    for (let i = chatOnly.length - 1; i >= 0 && out.length < 24; i--) {
+      const u = chatOnly[i]?.senderUsername?.trim();
       if (!u || u === "System" || seen.has(u.toLowerCase())) continue;
       seen.add(u.toLowerCase());
       out.push(u);
     }
     return out;
-  }, [chatMessages]);
+  }, [messages]);
 
   useEffect(() => {
     if (tab !== "chat") return;
@@ -87,22 +87,22 @@ export function VaultHostLiveChatPanel({
   const shellClass =
     variant === "sidebar"
       ? "flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-transparent"
-      : "pointer-events-auto flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-white/[0.1] bg-black/55 shadow-[0_16px_48px_-20px_rgba(0,0,0,0.9)] ring-1 ring-white/[0.05] backdrop-blur-[var(--live-blur-xl)]";
+      : "pointer-events-auto flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-white/[0.06] bg-black/45 shadow-[0_12px_40px_-20px_rgba(0,0,0,0.9)] backdrop-blur-[var(--live-blur-xl)]";
 
   const showTabs = variant === "sidebar";
-  const msgClass = variant === "sidebar" ? "text-[14px] leading-relaxed" : "text-[13px] leading-snug max-[380px]:text-[12px]";
-  const msgListClass = variant === "sidebar" ? "space-y-2.5 px-3.5 py-3" : "space-y-2 px-3 py-2";
+  const msgClass = variant === "sidebar" ? "text-[13px] leading-relaxed" : "text-[13px] leading-snug max-[380px]:text-[12px]";
+  const msgListClass = variant === "sidebar" ? "space-y-2 px-2 py-2" : "space-y-2 px-3 py-2";
 
   return (
     <div className={shellClass}>
       {showTabs ? (
-        <div className="shrink-0 border-b border-white/[0.06] px-2.5 py-2">
-          <div className="live-stage-glass-tray flex gap-1 p-0.5">
+        <div className="shrink-0 px-2 pt-2">
+          <div className="live-stage-glass-tray flex gap-0.5 p-0.5">
             <button
               type="button"
               onClick={() => setTab("chat")}
-              className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black uppercase tracking-[0.1em] transition ${
-                tab === "chat" ? "bg-zinc-700/90 text-zinc-50 shadow-sm" : "text-zinc-500 hover:text-zinc-300"
+              className={`flex-1 rounded-xl px-2 py-1 text-[9px] font-black uppercase tracking-[0.12em] transition ${
+                tab === "chat" ? "bg-white/[0.08] text-zinc-100" : "text-zinc-600 hover:text-zinc-400"
               }`}
             >
               Chat
@@ -110,11 +110,11 @@ export function VaultHostLiveChatPanel({
             <button
               type="button"
               onClick={() => setTab("watching")}
-              className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black uppercase tracking-[0.1em] transition ${
-                tab === "watching" ? "bg-zinc-700/90 text-zinc-50 shadow-sm" : "text-zinc-500 hover:text-zinc-300"
+              className={`flex-1 rounded-xl px-2 py-1 text-[9px] font-black uppercase tracking-[0.12em] transition ${
+                tab === "watching" ? "bg-white/[0.08] text-zinc-100" : "text-zinc-600 hover:text-zinc-400"
               }`}
             >
-              Watching
+              Live
             </button>
           </div>
         </div>
@@ -138,11 +138,16 @@ export function VaultHostLiveChatPanel({
                 const label = chatLabelForMessage(m);
                 const labelClass = chatLabelClassForMessage(m);
                 const isSystem = m.messageType === "system";
+                const isBid = m.messageType === "bid";
+                const isPurchase = m.messageType === "purchase";
+                const rowClass = isBid ? "chat-msg-bid" : isPurchase ? "chat-msg-purchase" : "";
                 return (
-                  <div key={m.id} className={`group chat-msg-row ${msgClass}`}>
+                  <div key={m.id} className={`group chat-msg-row ${msgClass} ${rowClass}`}>
                     <span className={labelClass}>{label}</span>
                     <span className="text-zinc-600">: </span>
-                    <span className={isSystem ? "text-zinc-100" : "text-zinc-300"}>{m.body}</span>
+                    <span className={isSystem || isBid ? "font-semibold text-amber-100/90" : isPurchase ? "text-emerald-200/90" : "text-zinc-300"}>
+                      {m.body}
+                    </span>
                     {m.messageType === "chat" && m.senderId !== hostUserId ? (
                       <LiveChatMessageRowActions
                         liveRoomId={liveRoomId}
@@ -159,7 +164,8 @@ export function VaultHostLiveChatPanel({
             )}
           </div>
 
-          <div className={`shrink-0 border-t border-white/[0.06] ${variant === "sidebar" ? "live-stage-glass-tray m-2 p-2" : "bg-zinc-900/50 p-3"}`}>
+          <div className={`shrink-0 ${variant === "sidebar" ? "p-2" : "border-t border-white/[0.06] bg-zinc-900/50 p-3"}`}>
+            <div className={variant === "sidebar" ? "live-stage-glass-tray p-2" : ""}>
             <textarea
               value={systemMsg}
               onChange={(e) => onSystemMsgChange(e.target.value)}
@@ -183,6 +189,7 @@ export function VaultHostLiveChatPanel({
             >
               Send to chat
             </button>
+            </div>
           </div>
         </>
       ) : showTabs ? (

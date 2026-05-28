@@ -66,6 +66,8 @@ export type LiveSellerCommandCenterProps = {
   };
   /** Mobile: full-screen overlay with close button */
   variant?: "panel" | "overlay";
+  /** Desktop floating rail — ultra-compact, utilities collapsed */
+  compactRail?: boolean;
   onClose?: () => void;
 };
 
@@ -177,6 +179,7 @@ export function LiveSellerCommandCenter({
   roomEnergyLevel,
   roomGovernance,
   variant = "panel",
+  compactRail = false,
   onClose,
 }: LiveSellerCommandCenterProps) {
   const live = roomStatus === "live";
@@ -197,6 +200,7 @@ export function LiveSellerCommandCenter({
       : "flex h-full min-h-0 flex-col overflow-hidden bg-transparent";
 
   const isDesktopPanel = variant === "panel";
+  const isCompactRail = isDesktopPanel && compactRail;
   const boardItem = activeBoardRow?.item;
   const sold = boardItem?.status === "sold";
   const skipped = boardItem?.status === "skipped";
@@ -216,12 +220,12 @@ export function LiveSellerCommandCenter({
   return (
     <div className={shellClass}>
       {/* Top status strip */}
-      <header className={`shrink-0 ${isDesktopPanel ? "px-2.5 py-2" : "border-b border-white/[0.08] px-3 py-2.5"}`}>
-        <div className="live-stage-glass-tray px-2.5 py-2">
+      <header className={`shrink-0 ${isCompactRail ? "p-2" : isDesktopPanel ? "px-2.5 py-2" : "border-b border-white/[0.08] px-3 py-2.5"}`}>
+        <div className={isCompactRail ? "px-1 py-1" : "live-stage-glass-tray px-2.5 py-2"}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-bold text-white">{roomTitle}</p>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-wide">
+            <p className={`truncate font-bold text-white ${isCompactRail ? "text-xs" : "text-sm"}`}>{roomTitle}</p>
+            <div className={`mt-0.5 flex flex-wrap items-center gap-1.5 font-semibold uppercase tracking-wide ${isCompactRail ? "text-[9px]" : "text-[10px]"}`}>
               <span
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${
                   live ? "bg-emerald-500/15 text-emerald-200" : "bg-zinc-800 text-zinc-400"
@@ -267,17 +271,21 @@ export function LiveSellerCommandCenter({
         </div>
       </header>
 
-      <div className={`min-h-0 flex-1 overflow-y-auto ${isDesktopPanel ? "space-y-2 px-2.5 py-2" : "space-y-3 px-3 py-3"}`}>
-        {isDesktopPanel ? (
+      <div className={`min-h-0 flex-1 overflow-y-auto ${isCompactRail ? "space-y-1.5 p-2" : isDesktopPanel ? "space-y-2 px-2.5 py-2" : "space-y-3 px-3 py-3"}`}>
+        {!isCompactRail && isDesktopPanel ? (
           <LiveRoomEnergyMeter score={panelEnergy.score} level={panelEnergy.level} compact />
         ) : null}
 
-        {/* Active lot — utility summary; live actions on stage HUD */}
-        <section className="live-stage-glass-tray p-2">
-          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">On the block</p>
-          <p className={`line-clamp-2 font-bold text-white ${isDesktopPanel ? "mt-0.5 text-xs" : "mt-1 text-sm"}`}>
+        {/* Active lot — one-liner in compact rail */}
+        <section className={isCompactRail ? "px-1 py-1" : "live-stage-glass-tray p-2"}>
+          {!isCompactRail ? (
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">On the block</p>
+          ) : null}
+          <p className={`line-clamp-1 font-bold text-white ${isCompactRail ? "text-[11px]" : isDesktopPanel ? "mt-0.5 text-xs" : "mt-1 text-sm"}`}>
             {item?.title ?? "Pin a lot to begin"}
           </p>
+          {!isCompactRail ? (
+            <>
           <p className={`font-mono font-black tabular-nums text-amber-100 ${isDesktopPanel ? "mt-1 text-lg" : "mt-2 text-2xl"}`}>
             {item ? itemMoney(item) : "—"}
           </p>
@@ -295,11 +303,15 @@ export function LiveSellerCommandCenter({
           ) : isDesktopPanel ? (
             <p className="mt-1 text-[10px] text-zinc-500">Auction controls live on the stage HUD.</p>
           ) : null}
+            </>
+          ) : (
+            <p className="mt-0.5 font-mono text-sm font-black tabular-nums text-amber-100/90">{item ? itemMoney(item) : "—"}</p>
+          )}
 
           {isDesktopPanel ? (
-            <div className="mt-2 flex gap-1.5">
+            <div className={`flex gap-1.5 ${isCompactRail ? "mt-1" : "mt-2"}`}>
               <PrimaryBtn compact onClick={onPinSelected} disabled={!selectedQueueItemId || busy} tone="ghost">
-                Pin item
+                Pin
               </PrimaryBtn>
             </div>
           ) : (
@@ -323,7 +335,25 @@ export function LiveSellerCommandCenter({
           )}
         </section>
 
-        {/* Queue tray */}
+        {/* Queue — collapsible in compact rail */}
+        {isCompactRail ? (
+          <CollapsibleSection title="Queue" glass defaultOpen>
+            <VaultQueueCarousel
+              tab={queueTab}
+              onTab={onQueueTab}
+              rows={queueRows}
+              selectedId={selectedQueueItemId}
+              onSelect={onSelectQueueItem}
+              viewerCount={viewerCount}
+              busy={busy}
+              onPost={onPostItem}
+              onSkip={onSkipItem}
+              onDelete={onDeleteItem}
+              onAddAuction={onAddAuction}
+              compact
+            />
+          </CollapsibleSection>
+        ) : (
         <section className="live-stage-glass-tray p-2">
           <VaultQueueCarousel
             tab={queueTab}
@@ -340,10 +370,11 @@ export function LiveSellerCommandCenter({
             compact={isDesktopPanel}
           />
         </section>
+        )}
 
-        {/* Expandable utility drawers */}
-        <div className="space-y-2">
-          {isDesktopPanel && onVaultModeChange ? (
+        {/* Expandable utility drawers — collapsed by default in compact rail */}
+        <div className="space-y-1.5">
+          {isDesktopPanel && onVaultModeChange && !isCompactRail ? (
             <CollapsibleSection title="Room mood" glass>
               <div className="grid grid-cols-2 gap-1.5">
                 {(Object.keys(VAULT_MODE_META) as VaultMode[]).map((m) => {
@@ -368,7 +399,25 @@ export function LiveSellerCommandCenter({
               </div>
             </CollapsibleSection>
           ) : null}
-          <CollapsibleSection title="Tools" glass>
+          {isCompactRail && onVaultModeChange ? (
+            <CollapsibleSection title="Mood" glass>
+              <div className="grid grid-cols-2 gap-1">
+                {(Object.keys(VAULT_MODE_META) as VaultMode[]).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => onVaultModeChange(m)}
+                    className={`rounded-lg px-1.5 py-1.5 text-left text-[9px] font-bold ${
+                      vaultMode === m ? "text-amber-100" : "text-zinc-500"
+                    }`}
+                  >
+                    {VAULT_MODE_META[m].label}
+                  </button>
+                ))}
+              </div>
+            </CollapsibleSection>
+          ) : null}
+          <CollapsibleSection title={isCompactRail ? "Tools" : "Tools"} glass defaultOpen={false}>
             <div className="grid grid-cols-2 gap-1.5">
               <PrimaryBtn compact onClick={onOpenObs} disabled={busy} tone="ghost">
                 OBS
@@ -383,7 +432,7 @@ export function LiveSellerCommandCenter({
               </div>
             ) : null}
           </CollapsibleSection>
-          <CollapsibleSection title="Analytics" glass>
+          <CollapsibleSection title="Analytics" glass defaultOpen={false}>
             <div className="space-y-2">
               {feeTier ? <LiveShowFeeTierTile tier={feeTier} /> : null}
               <HostRecentSalesTile rows={recentSales} />

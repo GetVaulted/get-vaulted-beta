@@ -19,6 +19,10 @@ import { vaultModeRootClass } from "@/components/break-host/vault/vault-modes";
 import { LiveRoomEnergyMeter } from "@/components/live-stage/LiveRoomEnergyMeter";
 import type { LiveStageMotionBurst } from "@/components/live-stage/LiveAuctionHud";
 import {
+  LiveLotTransitionBanner,
+  type LiveLotTransitionPhase,
+} from "@/components/live-stage/LiveLotTransitionBanner";
+import {
   computeLiveRoomEnergy,
   countRecentBids,
   isBidWar,
@@ -208,8 +212,14 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const [vaultCommandOpen, setVaultCommandOpen] = useState(false);
   const [stageMotionBurst, setStageMotionBurst] = useState<LiveStageMotionBurst>(null);
   const [bidsLastMinute, setBidsLastMinute] = useState(0);
+  const [lotTransitionPhase, setLotTransitionPhase] = useState<LiveLotTransitionPhase>("idle");
+  const [lotTransitionWinner, setLotTransitionWinner] = useState<string | null>(null);
+  const [lotTransitionAmount, setLotTransitionAmount] = useState<string | null>(null);
+  const [lotTransitionNextTitle, setLotTransitionNextTitle] = useState<string | null>(null);
   const bidTimestampsRef = useRef<number[]>([]);
   const stageMotionTimerRef = useRef<number | null>(null);
+  const lotTransitionTimerRef = useRef<number | null>(null);
+  const lotTransitionTimersRef = useRef<number[]>([]);
   const [realtimeConnectionStatus, setRealtimeConnectionStatus] = useState("Connecting…");
   const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
   const lastRefreshAtRef = useRef<number | null>(null);
@@ -472,12 +482,59 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     }, ms);
   }, []);
 
+  const clearLotTransitionTimers = useCallback(() => {
+    if (lotTransitionTimerRef.current != null) {
+      window.clearTimeout(lotTransitionTimerRef.current);
+      lotTransitionTimerRef.current = null;
+    }
+    for (const id of lotTransitionTimersRef.current) window.clearTimeout(id);
+    lotTransitionTimersRef.current = [];
+  }, []);
+
+  const scheduleLotTransition = useCallback((fn: () => void, ms: number) => {
+    const id = window.setTimeout(fn, ms);
+    lotTransitionTimersRef.current.push(id);
+    return id;
+  }, []);
+
+  const runLotSoldTransition = useCallback(
+    (winner: string | null, amount: string | null, nextTitle: string | null) => {
+      clearLotTransitionTimers();
+      setLotTransitionWinner(winner);
+      setLotTransitionAmount(amount);
+      setLotTransitionNextTitle(nextTitle);
+      setLotTransitionPhase("sold_spotlight");
+      flashStageMotion("sold", 1400);
+
+      scheduleLotTransition(() => {
+        setLotTransitionPhase("next_intro");
+        scheduleLotTransition(() => {
+          if (nextTitle) {
+            setLotTransitionPhase("incoming");
+            scheduleLotTransition(() => {
+              setLotTransitionPhase("idle");
+              setLotTransitionWinner(null);
+              setLotTransitionAmount(null);
+              setLotTransitionNextTitle(null);
+            }, 1200);
+          } else {
+            setLotTransitionPhase("idle");
+            setLotTransitionWinner(null);
+            setLotTransitionAmount(null);
+          }
+        }, 900);
+      }, 1600);
+    },
+    [clearLotTransitionTimers, flashStageMotion, scheduleLotTransition],
+  );
+
   useEffect(
     () => () => {
       if (hostNoticeTimerRef.current != null) window.clearTimeout(hostNoticeTimerRef.current);
       if (stageMotionTimerRef.current != null) window.clearTimeout(stageMotionTimerRef.current);
+      clearLotTransitionTimers();
     },
-    [],
+    [clearLotTransitionTimers],
   );
 
   const loadTeamBoard = useCallback(async () => {
@@ -826,7 +883,18 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       if (!shouldProcessRealtimePayload("purchase_completed", payload)) return;
       const celebration = parsePurchaseCompletedCelebration(payload);
       if (celebration) setSoldCelebration(celebration);
-      flashStageMotion("sold", 1400);
+      if (celebration?.kind === "sold") {
+        const nextQueued = hostDataRef.current?.queueItems.find((q) => q.item.status === "queued");
+        const nextTitle = nextQueued?.item.displayTitle?.trim() || nextQueued?.item.title || null;
+        runLotSoldTransition(
+          celebration.winnerUsername,
+          fmtHostSpotUsd(celebration.winningAmountUsd),
+          nextTitle,
+        );
+      } else if (celebration?.kind === "no_bids") {
+        flashStageMotion("no_bids", 1200);
+        setLotTransitionPhase("idle");
+      }
       flashHostNotice("Item sold · syncing");
       scheduleFallbackRefresh("purchase_completed", 40);
     },
@@ -1307,6 +1375,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       hostClockSkewMs={hostClockSkewMs}
       energyLevel={roomEnergy.level}
       motionBurst={stageMotionBurst}
+      lotTransitionPhase={lotTransitionPhase}
     />
   );
 
@@ -1408,7 +1477,16 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     mobileActionOverlay: hostMobileItemOverlay,
     compactActionOverlay: true,
     cinematicActionOverlay: true,
+    ambientBleed: true,
     stageEnergyScore: roomEnergy.score,
+    stageOverlay: (
+      <LiveLotTransitionBanner
+        phase={lotTransitionPhase}
+        winnerUsername={lotTransitionWinner}
+        soldAmount={lotTransitionAmount}
+        nextItemTitle={lotTransitionNextTitle}
+      />
+    ),
     chatOverlay: hostMobileChatOverlay,
     chatOverlayClassName: "min-[1400px]:hidden",
     stageEdgeRail: (
@@ -1475,28 +1553,18 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         </div>
       ) : null}
 
-      <div className="relative flex min-h-0 flex-1 flex-col p-1 sm:p-1.5 min-[1400px]:p-1">
-        {/* Desktop — fixed columns: compact info | large centered 9:16 stage | chat */}
-        <div className="relative hidden min-h-0 flex-1 overflow-hidden min-[1400px]:grid min-[1400px]:grid-cols-[minmax(260px,300px)_minmax(0,1fr)_280px]">
-          <aside className="min-h-0 shrink-0 overflow-hidden border-r border-white/[0.04] bg-black/20">
-            <LiveSellerCommandCenter {...commandCenterProps} variant="panel" />
+      <div className="relative flex min-h-0 flex-1 flex-col p-1 sm:p-1.5 min-[1400px]:p-0">
+        {/* Desktop — full-bleed cinematic stage with floating glass rails */}
+        <div className="relative hidden min-h-0 flex-1 overflow-hidden min-[1400px]:block">
+          <div className="absolute inset-0 min-h-0">
+            <LiveVideoStage {...hostStageProps} />
+          </div>
+
+          <aside className="live-stage-floating-rail live-stage-floating-rail-hover pointer-events-auto absolute bottom-20 left-3 top-3 z-30 flex w-[min(252px,19vw)] min-w-0 flex-col overflow-hidden">
+            <LiveSellerCommandCenter {...commandCenterProps} variant="panel" compactRail />
           </aside>
 
-          <main className="relative flex min-h-0 min-w-0 flex-col overflow-hidden">
-            {room.thumbnailUrl ? (
-              <div
-                className="pointer-events-none absolute inset-0 scale-105 bg-cover bg-center opacity-25 blur-2xl"
-                style={{ backgroundImage: `url(${room.thumbnailUrl})` }}
-                aria-hidden
-              />
-            ) : null}
-            <div className="pointer-events-none absolute inset-0 bg-black/40" aria-hidden />
-            <div className="relative min-h-0 flex-1">
-              <LiveVideoStage {...hostStageProps} />
-            </div>
-          </main>
-
-          <aside className="flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-white/[0.04] bg-black/25">
+          <aside className="live-stage-floating-rail live-stage-floating-rail-hover pointer-events-auto absolute bottom-20 right-3 top-3 z-30 flex w-[min(252px,19vw)] min-w-0 flex-col overflow-hidden">
             {hostLiveChatPanel}
           </aside>
         </div>
