@@ -1,5 +1,6 @@
 import { NextResponse, after } from "next/server";
 import type { Prisma } from "@/generated/prisma/client";
+import { liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { liveAuctionMinBidUsd, minNextBidUsd } from "@/lib/auction";
 import { placeListingBid } from "@/lib/place-listing-bid";
@@ -56,6 +57,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   if (auth instanceof NextResponse) return auth;
   const { id: rawRoom, itemId: rawItem } = await ctx.params;
   const liveRoomId = decodeURIComponent(rawRoom);
+  const paymentBlock = await liveRoomPaymentBlockResponse(liveRoomId, auth.userId);
+  if (paymentBlock) return paymentBlock;
   const itemId = decodeURIComponent(rawItem);
   const returnPath = `/live/${encodeURIComponent(liveRoomId)}`;
   const idempotencyKey = req.headers.get("idempotency-key")?.trim() ?? "";

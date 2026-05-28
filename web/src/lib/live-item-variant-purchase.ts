@@ -101,6 +101,7 @@ export async function releaseVariantPurchaseOnCheckoutExpired(purchaseId: string
   });
 }
 
+/** @deprecated Live variant purchases use saved-card instant charge — kept for legacy Checkout session webhook cleanup. */
 export async function createLiveItemVariantCheckoutSession(args: {
   userId: string;
   purchaseId: string;

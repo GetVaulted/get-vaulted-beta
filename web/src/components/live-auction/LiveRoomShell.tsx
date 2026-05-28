@@ -18,6 +18,7 @@ import {
 import { estimateClockSkewMs } from "@/lib/server-clock-sync";
 import { parsePurchaseCompletedCelebration, type LiveAuctionCloseCelebration } from "@/lib/live-auction-winner-display";
 import { LiveAuctionSoldCelebration } from "@/components/live-auction/LiveAuctionSoldCelebration";
+import { LivePaymentFailureBlocker } from "@/components/live-auction/LivePaymentFailureBlocker";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 
 type LiveRoomShellProps = {
@@ -602,6 +603,14 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       if (!shouldProcessRealtimePayload("purchase_completed", payload)) return;
       const celebration = parsePurchaseCompletedCelebration(payload);
       if (celebration) setSoldCelebration(celebration);
+      if (
+        payload.paymentStatus === "payment_failed" &&
+        payload.winnerId &&
+        session?.user?.id &&
+        payload.winnerId === session.user.id
+      ) {
+        void load();
+      }
       if (payload.itemId) {
         setDetail((prev) => {
           if (!prev) return prev;
@@ -623,6 +632,16 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         });
       }
       scheduleFallbackRefresh("purchase_completed", 900);
+    },
+    onPaymentFailed: (payload) => {
+      if (payload.buyerId && session?.user?.id && payload.buyerId === session.user.id) {
+        void load();
+      }
+    },
+    onPaymentRecovered: (payload) => {
+      if (payload.buyerId && session?.user?.id && payload.buyerId === session.user.id) {
+        void load();
+      }
     },
     onRoomStateEvent: () => scheduleFallbackRefresh("room_state_event", 1800),
     onStreamStatusChange: () => {
@@ -698,6 +717,20 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const host = `@${detail.sellerUsername}`;
   const isLive = detail.status === "live";
   const viewerCount = presenceCount ?? 0;
+  const paymentFailure = detail.buyerUnresolvedPaymentFailure ?? null;
+  const isHostViewer = session?.user?.id === detail.sellerId;
+
+  const paymentBlocker =
+    paymentFailure && session?.user?.id && !isHostViewer ? (
+      <LivePaymentFailureBlocker
+        liveRoomId={detail.id}
+        failure={paymentFailure}
+        onResolved={() => void load()}
+        onOpenWallet={() => {
+          window.open("/account/payment-methods", "_blank", "noopener,noreferrer");
+        }}
+      />
+    ) : null;
 
   if (detail.roomType === "break") {
     return (
@@ -727,6 +760,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           buyerLiveShippingReady={detail.buyerLiveShippingReady}
         />
         <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
+        {paymentBlocker}
       </>
     );
   }
@@ -757,6 +791,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       buyerLiveShippingReady={detail.buyerLiveShippingReady}
     />
       <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
+      {paymentBlocker}
     </>
   );
 }

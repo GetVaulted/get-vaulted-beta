@@ -14,7 +14,6 @@ import type { LiveItemVariantSnapshot } from '../../api/liveRoomBuyerRepository'
 import { purchaseLiveItemVariant } from '../../api/liveVariantPurchaseRepository';
 import { isWalletIncompleteError } from '../../lib/buyerWalletErrors';
 import { variantIsAvailable, type LiveItemSalesFormat } from '../../lib/liveItemVariant';
-import { openWebCommerceUrl } from '../../lib/openWebCommerce';
 import { colors, radii, spacing } from '../../theme';
 import { LiveRoomText } from './LiveRoomText';
 
@@ -106,7 +105,7 @@ export function LiveVariantSelectionSheet({
         quantity,
       });
       if (!res.ok) {
-        setError(res.error);
+        setError(res.paymentFailed ? `${res.error} Spot was not sold.` : res.error);
         return;
       }
       if (res.paid) {
@@ -115,9 +114,15 @@ export function LiveVariantSelectionSheet({
         onClose();
         return;
       }
-      await openWebCommerceUrl(res.checkoutUrl);
-      onPurchased();
-      onClose();
+      if (res.requiresAction) {
+        setError('Complete payment verification in your Wallet, then try again.');
+        return;
+      }
+      if (res.processing) {
+        setError('Payment processing — pull to refresh the room.');
+        return;
+      }
+      setError('Purchase could not complete.');
     } catch (e) {
       if (isWalletIncompleteError(e)) {
         onWalletRequired();
@@ -189,7 +194,7 @@ export function LiveVariantSelectionSheet({
             {busy ? (
               <ActivityIndicator color="#111" />
             ) : (
-              <LiveRoomText style={styles.checkoutText}>Checkout</LiveRoomText>
+              <LiveRoomText style={styles.checkoutText}>Confirm purchase</LiveRoomText>
             )}
           </Pressable>
 

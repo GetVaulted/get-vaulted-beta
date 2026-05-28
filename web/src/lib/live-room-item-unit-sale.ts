@@ -24,6 +24,8 @@ export type CloseActiveUnitSaleResult = {
     orderId: string;
     listingTitle: string;
     itemPriceUsd: number;
+    liveRoomId: string;
+    liveRoomItemId: string;
   };
 };
 
@@ -141,6 +143,8 @@ export async function closeActiveLiveRoomItemUnitSale(
         orderId: oid,
         listingTitle: unitTitle,
         itemPriceUsd: winUsd,
+        liveRoomId: args.liveRoomId,
+        liveRoomItemId: args.liveRoomItemId,
       };
     }
   }

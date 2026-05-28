@@ -19,6 +19,21 @@ export type LiveItemVariantSnapshot = {
   buyerUsername: string | null;
 };
 
+export type LiveBuyerPaymentFailureSnapshot = {
+  id: string;
+  kind: string;
+  liveRoomItemId: string | null;
+  orderId: string | null;
+  variantPurchaseId: string | null;
+  breakSpotId: string | null;
+  amountUsd: number;
+  status: 'payment_failed' | 'recovery_pending';
+  failureReason: string | null;
+  failedAt: string;
+  itemTitle: string | null;
+  buyerUsername: string | null;
+};
+
 export type LiveRoomBuyerSnapshot = {
   roomId: string;
   status: 'scheduled' | 'live' | 'ended';
@@ -50,6 +65,8 @@ export type LiveRoomBuyerSnapshot = {
   priceUsd?: number | null;
   paymentReady?: boolean | null;
   shippingReady?: boolean | null;
+  /** Unresolved payment failure — buyer must recover before commerce in this room. */
+  unresolvedPaymentFailure?: LiveBuyerPaymentFailureSnapshot | null;
 };
 
 function apiErrorMessage(res: Response, body: unknown): string {
@@ -92,6 +109,29 @@ function parseVariantSnapshots(raw: unknown): LiveItemVariantSnapshot[] {
   return out.sort((a, b) => a.label.localeCompare(b.label));
 }
 
+function parsePaymentFailure(raw: unknown): LiveBuyerPaymentFailureSnapshot | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const id = typeof o.id === 'string' ? o.id.trim() : '';
+  if (!id) return null;
+  const amountUsd = typeof o.amountUsd === 'number' && Number.isFinite(o.amountUsd) ? o.amountUsd : 0;
+  const status = o.status === 'recovery_pending' ? 'recovery_pending' : 'payment_failed';
+  return {
+    id,
+    kind: typeof o.kind === 'string' ? o.kind : 'auction_win',
+    liveRoomItemId: typeof o.liveRoomItemId === 'string' ? o.liveRoomItemId : null,
+    orderId: typeof o.orderId === 'string' ? o.orderId : null,
+    variantPurchaseId: typeof o.variantPurchaseId === 'string' ? o.variantPurchaseId : null,
+    breakSpotId: typeof o.breakSpotId === 'string' ? o.breakSpotId : null,
+    amountUsd,
+    status,
+    failureReason: typeof o.failureReason === 'string' ? o.failureReason : null,
+    failedAt: typeof o.failedAt === 'string' ? o.failedAt : new Date().toISOString(),
+    itemTitle: typeof o.itemTitle === 'string' ? o.itemTitle : null,
+    buyerUsername: typeof o.buyerUsername === 'string' ? o.buyerUsername : null,
+  };
+}
+
 /** Buyer snapshot for placing bids from mobile (same room GET as web). */
 export async function fetchLiveRoomBuyerSnapshot(
   accessToken: string | undefined,
@@ -109,6 +149,7 @@ export async function fetchLiveRoomBuyerSnapshot(
       roomType?: string;
       buyerLiveBidPaymentReady?: boolean;
       buyerLiveShippingReady?: boolean;
+      buyerUnresolvedPaymentFailure?: unknown;
       activeItem?: {
         id?: string;
         title?: string;
@@ -220,6 +261,7 @@ export async function fetchLiveRoomBuyerSnapshot(
     lastHighBidderId: active?.lastHighBidderId?.trim() || null,
     startingBidUsd: typeof active?.startingBidUsd === 'number' ? active.startingBidUsd : null,
     priceUsd: typeof active?.priceUsd === 'number' ? active.priceUsd : null,
+    unresolvedPaymentFailure: parsePaymentFailure(detail?.buyerUnresolvedPaymentFailure),
   };
 }
 
@@ -283,6 +325,11 @@ export async function placeLiveRoomBid(args: {
   }
   if (res.status === 402 && j && typeof j === 'object') {
     throw new WalletIncompleteError(j);
+  }
+  if (res.status === 403 && j?.code === 'LIVE_PAYMENT_BLOCKED') {
+    const err = new Error(typeof j.error === 'string' ? j.error : 'Payment failed — update your payment method.');
+    (err as Error & { code?: string }).code = 'LIVE_PAYMENT_BLOCKED';
+    throw err;
   }
   if (!res.ok) {
     throw new Error(apiErrorMessage(res, j));

@@ -32,6 +32,10 @@ export const RT_EVENT = {
   queueItems: "queue_items",
   /** Variant option purchased — spot board + queue cards refresh. */
   variantPurchased: "variant_purchased",
+  /** Buyer payment failed in-room — show lockout modal / seller alert. */
+  paymentFailed: "payment_failed",
+  /** Buyer recovered failed payment — lift room restrictions. */
+  paymentRecovered: "payment_recovered",
   breakSpots: "break_spots",
   listingBid: "listing_bid",
   notification: "notification",
@@ -56,5 +60,7 @@ export const RT_EVENT_ALIASES = {
   purchaseCompleted: [],
   queueItems: [],
   variantPurchased: [],
+  paymentFailed: [],
+  paymentRecovered: [],
   streamStatus: [],
 } as const;

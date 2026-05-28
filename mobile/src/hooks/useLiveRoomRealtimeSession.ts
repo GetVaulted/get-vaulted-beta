@@ -50,6 +50,8 @@ export function useLiveRoomRealtimeSession(args: {
   const [showOutbidToast, setShowOutbidToast] = useState(false);
   const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
 
+  const unresolvedPaymentFailure = roomSnap?.unresolvedPaymentFailure ?? null;
+
   const myHighBidUsdRef = useRef<number | null>(null);
   useEffect(() => {
     myHighBidUsdRef.current = myHighBidUsd;
@@ -216,6 +218,9 @@ export function useLiveRoomRealtimeSession(args: {
     onPurchaseCompleted: (payload) => {
       if (!shouldProcessRealtimeEvent(guardRef.current, 'purchase_completed', payload)) return;
       refreshSkewFromRealtime(payload.serverNowMs);
+      if (payload.paymentStatus === 'payment_failed' && payload.winnerId && args.userId && payload.winnerId === args.userId) {
+        void fetchSnapshot();
+      }
       const wallNow = syncedWallTimeMs(clockSkewMs);
       setRoomSnap((prev) => {
         if (!prev) return prev;
@@ -233,6 +238,16 @@ export function useLiveRoomRealtimeSession(args: {
         lotBidPhase: 'settled',
       });
       scheduleReconcile(900);
+    },
+    onPaymentFailed: (payload) => {
+      if (payload.buyerId && args.userId && payload.buyerId === args.userId) {
+        void fetchSnapshot();
+      }
+    },
+    onPaymentRecovered: (payload) => {
+      if (payload.buyerId && args.userId && payload.buyerId === args.userId) {
+        void fetchSnapshot();
+      }
     },
     onStreamStatusChange: () => args.onStreamRefresh?.(),
     onRoomStateEvent: () => scheduleReconcile(600),
@@ -310,6 +325,7 @@ export function useLiveRoomRealtimeSession(args: {
     showOutbidToast,
     soldCelebration,
     clearSoldCelebration: () => setSoldCelebration(null),
+    unresolvedPaymentFailure,
     fetchSnapshot,
     syncedNowMs: () => syncedWallTimeMs(clockSkewMs),
     mergeBidAck: (ack: LiveBidHttpAck) => {

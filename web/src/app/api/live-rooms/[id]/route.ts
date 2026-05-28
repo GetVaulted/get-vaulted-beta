@@ -8,6 +8,11 @@ import { logLiveLoaderDebug, safeDecodeRouteSegment } from "@/lib/live-loader-de
 import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
 import { prisma } from "@/lib/prisma";
 import { getBuyerLiveWalletReadiness } from "@/lib/buyer-live-wallet-readiness";
+import { getLiveBuyerPaymentSessionState } from "@/lib/live-payment-pipeline";
+import {
+  getUnresolvedPaymentFailureForBuyer,
+  listUnresolvedPaymentFailuresForRoom,
+} from "@/lib/live-room-payment-failure";
 import { notifyFollowersSellerWentLive } from "@/lib/seller-follow-notify";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
 import { processAuctionPaymentExpiries } from "@/services/payments";
@@ -100,10 +105,26 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   if (!viewerId || isHost) {
     detail.buyerLiveBidPaymentReady = true;
     detail.buyerLiveShippingReady = true;
+    detail.buyerLivePayment = {
+      liveRoomPaymentReady: true,
+      paymentReady: true,
+      shippingReady: true,
+      activePaymentMethodId: null,
+      preauthorizationStatus: "none",
+      paymentFailureState: null,
+    };
   } else {
     const w = await getBuyerLiveWalletReadiness(viewerId);
     detail.buyerLiveBidPaymentReady = w.paymentReady;
     detail.buyerLiveShippingReady = w.shippingReady;
+    detail.buyerLivePayment = await getLiveBuyerPaymentSessionState({
+      buyerId: viewerId,
+      liveRoomId: id,
+    });
+    detail.buyerUnresolvedPaymentFailure = await getUnresolvedPaymentFailureForBuyer(id, viewerId);
+  }
+  if (isHost && viewerId) {
+    detail.sellerUnresolvedPaymentFailures = await listUnresolvedPaymentFailuresForRoom(id);
   }
   detail.items = await attachHighBidderUsernames(detail.items);
   const activeId = detail.activeItem?.id ?? null;

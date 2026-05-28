@@ -10,6 +10,7 @@ import type { LiveRoomItemStatus } from "@/generated/prisma/client";
 import { getLiveRoomItemSnapshotDto } from "@/lib/live-room-item-snapshot-server";
 import { prisma } from "@/lib/prisma";
 import { notifyLiveAuctionWinPaymentOutcome } from "@/lib/live-auction-win-payment-notify";
+import { recordPaymentFailureFromCharge } from "@/lib/live-room-payment-failure";
 import {
   chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard,
   type ChargeOrderSavedPmOutcome,
@@ -449,6 +450,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
           } catch (err) {
             console.error("[live-room item PATCH sold] win notify", err);
           }
+        }
+        if (settled.buyerId && settled.orderId && autoCharge.outcome !== "paid") {
+          await recordPaymentFailureFromCharge({
+            liveRoomId,
+            buyerId: settled.buyerId,
+            kind: "auction_win",
+            liveRoomItemId: itemId,
+            orderId: settled.orderId,
+            amountUsd: settled.itemPriceUsd ?? 0,
+            itemTitle: settled.listingTitle ?? undefined,
+            charge: autoCharge,
+          });
         }
       } else if (settled.buyerId) {
         emitPurchaseCompleted(liveRoomId, itemId, {

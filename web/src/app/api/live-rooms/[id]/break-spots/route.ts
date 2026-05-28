@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
 import { getServerSessionSafe } from "@/lib/auth";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
 import { prisma } from "@/lib/prisma";
@@ -54,6 +55,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Sign in to claim a spot.", signInUrl: signInUrl(returnPath) }, { status: 401 });
   }
+  const paymentBlock = await liveRoomPaymentBlockResponse(liveRoomId, session.user.id);
+  if (paymentBlock) return paymentBlock;
   if (room.sellerId === session.user.id) {
     return NextResponse.json({ error: "You cannot claim spots in your own break room." }, { status: 400 });
   }

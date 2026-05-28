@@ -34,6 +34,8 @@ import {
 } from "@/lib/live-show-gmv";
 import { syncStripeConnectUserRowsForAccountId } from "@/lib/sync-stripe-connect-user";
 import { emitLiveRoomMessagesRefetch, emitPurchaseCompleted } from "@/lib/realtime-emit-server";
+import { ensureLiveRoomPaymentFailureRecorded } from "@/lib/live-room-payment-failure";
+import { LIVE_BUY_NOW_PI_KIND } from "@/lib/stripe-charge-order-saved-pm";
 import { finalizeLiveTipPaid, markLiveTipCheckoutFailed } from "@/services/live-tips";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import { logEscrowStatusTransition } from "@/lib/escrow-audit-log";
@@ -1218,15 +1220,62 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
       const kind = session.metadata?.kind;
       if (orderId && kind !== "break_spot") {
         if (kind === "buy_now") {
-          await releaseActiveInventoryHoldsForOrderId(orderId).catch(() => {});
-          await releaseActiveInventoryHoldFromBuyNowStripeMetadata(session.metadata ?? {});
-          await prisma.order.deleteMany({
-            where: {
-              id: orderId,
-              paymentStatus: PAYMENT_PENDING,
-              paymentMethod: { not: OrderPaymentMethod.escrow },
-            },
-          });
+          const liveRoomItemId = session.metadata?.liveRoomItemId?.trim() || null;
+          const buyerId = session.metadata?.buyerId?.trim() || null;
+          if (liveRoomItemId && buyerId && orderId) {
+            const order = await prisma.order.findUnique({
+              where: { id: orderId },
+              select: {
+                id: true,
+                buyerId: true,
+                itemPriceUsd: true,
+                paymentStatus: true,
+                listing: { select: { title: true } },
+              },
+            });
+            const item = await prisma.liveRoomItem.findUnique({
+              where: { id: liveRoomItemId },
+              select: { liveRoomId: true, title: true },
+            });
+            if (order && item && order.paymentStatus === PAYMENT_PENDING) {
+              await releaseActiveInventoryHoldsForOrderId(orderId).catch(() => {});
+              await releaseActiveInventoryHoldFromBuyNowStripeMetadata(session.metadata ?? {});
+              await prisma.order.updateMany({
+                where: { id: orderId, paymentStatus: PAYMENT_PENDING },
+                data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
+              });
+              await ensureLiveRoomPaymentFailureRecorded({
+                liveRoomId: item.liveRoomId,
+                buyerId: order.buyerId,
+                kind: "buy_now",
+                orderId: order.id,
+                liveRoomItemId,
+                amountUsd: order.itemPriceUsd,
+                itemTitle: item.title || order.listing.title,
+                failureReason: "Checkout expired before payment completed.",
+              });
+            } else {
+              await releaseActiveInventoryHoldsForOrderId(orderId).catch(() => {});
+              await releaseActiveInventoryHoldFromBuyNowStripeMetadata(session.metadata ?? {});
+              await prisma.order.deleteMany({
+                where: {
+                  id: orderId,
+                  paymentStatus: PAYMENT_PENDING,
+                  paymentMethod: { not: OrderPaymentMethod.escrow },
+                },
+              });
+            }
+          } else {
+            await releaseActiveInventoryHoldsForOrderId(orderId).catch(() => {});
+            await releaseActiveInventoryHoldFromBuyNowStripeMetadata(session.metadata ?? {});
+            await prisma.order.deleteMany({
+              where: {
+                id: orderId,
+                paymentStatus: PAYMENT_PENDING,
+                paymentMethod: { not: OrderPaymentMethod.escrow },
+              },
+            });
+          }
         } else {
           await releaseActiveInventoryHoldsForOrderId(orderId).catch(() => {});
           await prisma.order.updateMany({
@@ -1240,10 +1289,34 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
         }
       }
       if (session.metadata?.kind === "break_spot" && session.metadata.breakSpotId) {
+        const breakSpotId = session.metadata.breakSpotId;
         await prisma.breakSpot.updateMany({
-          where: { id: session.metadata.breakSpotId, breakPaymentStatus: "pending_payment" },
+          where: { id: breakSpotId, breakPaymentStatus: "pending_payment" },
           data: { breakPaymentStatus: "failed", stripeCheckoutSessionId: null },
         });
+        const spot = await prisma.breakSpot.findUnique({
+          where: { id: breakSpotId },
+          select: {
+            id: true,
+            liveRoomId: true,
+            userId: true,
+            spotLabel: true,
+            priceUsd: true,
+            liveRoomItemId: true,
+          },
+        });
+        if (spot) {
+          await ensureLiveRoomPaymentFailureRecorded({
+            liveRoomId: spot.liveRoomId,
+            buyerId: spot.userId,
+            kind: "break_spot",
+            breakSpotId: spot.id,
+            liveRoomItemId: spot.liveRoomItemId,
+            amountUsd: spot.priceUsd,
+            itemTitle: spot.spotLabel,
+            failureReason: "Checkout expired before payment completed.",
+          });
+        }
       }
       if (session.metadata?.kind === "variant_purchase" && session.metadata.purchaseId) {
         const { releaseVariantPurchaseOnCheckoutExpired } = await import("@/lib/live-item-variant-purchase");
@@ -1258,6 +1331,46 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
       const pi = event.data.object as Stripe.PaymentIntent;
       const orderId = pi.metadata?.orderId?.trim() || null;
       const kind = pi.metadata?.kind ?? null;
+
+      if (kind === "variant_purchase_saved_pm") {
+        const purchaseId = pi.metadata?.purchaseId?.trim() || null;
+        if (purchaseId) {
+          const { finalizeLiveItemVariantPurchasePaid } = await import("@/lib/live-item-variant-purchase");
+          const { emitLiveRoomQueueItemsChanged } = await import("@/lib/realtime-emit-server");
+          await finalizeLiveItemVariantPurchasePaid(purchaseId, pi.id);
+          const purchase = await prisma.liveItemVariantPurchase.findUnique({
+            where: { id: purchaseId },
+            select: { liveRoomId: true },
+          });
+          if (purchase) emitLiveRoomQueueItemsChanged(purchase.liveRoomId);
+        }
+        break;
+      }
+
+      if (kind === "break_spot_saved_pm") {
+        const breakSpotId = pi.metadata?.breakSpotId?.trim() || null;
+        if (breakSpotId) {
+          const { finalizeBreakSpotPaid } = await import("@/lib/live-buy-now-purchase");
+          await finalizeBreakSpotPaid({ breakSpotId, paymentIntentId: pi.id });
+        }
+        break;
+      }
+
+      if (kind === LIVE_BUY_NOW_PI_KIND) {
+        const orderId = pi.metadata?.orderId?.trim() || null;
+        const liveRoomId = pi.metadata?.liveRoomId?.trim() || null;
+        const liveRoomItemId = pi.metadata?.liveRoomItemId?.trim() || null;
+        if (orderId && liveRoomId && liveRoomItemId) {
+          const { finalizeLiveBuyNowPurchaseComplete } = await import("@/lib/live-buy-now-purchase");
+          await finalizeLiveBuyNowPurchaseComplete({
+            orderId,
+            liveRoomId,
+            liveRoomItemId,
+            paymentIntentId: pi.id,
+          });
+        }
+        break;
+      }
 
       if (!orderId) break;
       if (kind === "break_spot" || kind === "live_tip") break;
@@ -1289,6 +1402,98 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
       const orderId = pi.metadata?.orderId?.trim() || null;
       const kind = pi.metadata?.kind ?? null;
 
+      if (kind === "variant_purchase_saved_pm") {
+        const purchaseId = pi.metadata?.purchaseId?.trim() || null;
+        if (purchaseId) {
+          const purchase = await prisma.liveItemVariantPurchase.findUnique({
+            where: { id: purchaseId },
+            select: {
+              liveRoomId: true,
+              liveRoomItemId: true,
+              buyerId: true,
+              totalUsd: true,
+              variant: { select: { label: true } },
+            },
+          });
+          const { releaseVariantPurchaseOnCheckoutExpired } = await import("@/lib/live-item-variant-purchase");
+          await releaseVariantPurchaseOnCheckoutExpired(purchaseId);
+          if (purchase) {
+            await ensureLiveRoomPaymentFailureRecorded({
+              liveRoomId: purchase.liveRoomId,
+              buyerId: purchase.buyerId,
+              kind: "variant_purchase",
+              variantPurchaseId: purchaseId,
+              liveRoomItemId: purchase.liveRoomItemId,
+              amountUsd: purchase.totalUsd,
+              itemTitle: purchase.variant.label,
+              failureReason: pi.last_payment_error?.message ?? "Your card was declined.",
+            });
+          }
+        }
+        break;
+      }
+
+      if (kind === LIVE_BUY_NOW_PI_KIND) {
+        const orderId = pi.metadata?.orderId?.trim() || null;
+        const liveRoomId = pi.metadata?.liveRoomId?.trim() || null;
+        const liveRoomItemId = pi.metadata?.liveRoomItemId?.trim() || null;
+        const buyerId = pi.metadata?.userId?.trim() || null;
+        if (orderId && liveRoomId && liveRoomItemId && buyerId) {
+          const order = await prisma.order.findUnique({
+            where: { id: orderId },
+            select: { itemPriceUsd: true, listing: { select: { title: true } } },
+          });
+          await prisma.order.updateMany({
+            where: { id: orderId, paymentStatus: { not: PAYMENT_PAID } },
+            data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
+          });
+          await ensureLiveRoomPaymentFailureRecorded({
+            liveRoomId,
+            buyerId,
+            kind: "buy_now",
+            orderId,
+            liveRoomItemId,
+            amountUsd: order?.itemPriceUsd ?? pi.amount / 100,
+            itemTitle: order?.listing.title ?? null,
+            failureReason: pi.last_payment_error?.message ?? "Your card was declined.",
+          });
+        }
+        break;
+      }
+
+      if (kind === "break_spot_saved_pm" || pi.metadata?.breakSpotId) {
+        const breakSpotId = pi.metadata?.breakSpotId?.trim() || null;
+        if (breakSpotId) {
+          await prisma.breakSpot.updateMany({
+            where: { id: breakSpotId },
+            data: { breakPaymentStatus: "failed" },
+          });
+          const spot = await prisma.breakSpot.findUnique({
+            where: { id: breakSpotId },
+            select: {
+              liveRoomId: true,
+              userId: true,
+              spotLabel: true,
+              priceUsd: true,
+              liveRoomItemId: true,
+            },
+          });
+          if (spot) {
+            await ensureLiveRoomPaymentFailureRecorded({
+              liveRoomId: spot.liveRoomId,
+              buyerId: spot.userId,
+              kind: "break_spot",
+              breakSpotId,
+              liveRoomItemId: spot.liveRoomItemId,
+              amountUsd: spot.priceUsd,
+              itemTitle: spot.spotLabel,
+              failureReason: pi.last_payment_error?.message ?? "Your card was declined.",
+            });
+          }
+        }
+        break;
+      }
+
       if (orderId && kind !== "break_spot") {
         if (!isMarketplaceOrderPaymentIntentKind(kind)) {
           logIgnoredMarketplacePaymentIntentWebhook(
@@ -1305,14 +1510,35 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
               orderId,
             });
           } else if (kind === "buy_now") {
+            const liveRoomItemId = pi.metadata?.liveRoomItemId?.trim() || null;
+            const liveRoomId = pi.metadata?.liveRoomId?.trim() || null;
             await releaseActiveInventoryHoldsForOrderId(orderId).catch(() => {});
-            await prisma.order.deleteMany({
+            await prisma.order.updateMany({
               where: {
                 id: orderId,
                 paymentStatus: PAYMENT_PENDING,
                 paymentMethod: { not: OrderPaymentMethod.escrow },
               },
+              data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
             });
+            if (liveRoomItemId && liveRoomId) {
+              const order = await prisma.order.findUnique({
+                where: { id: orderId },
+                select: { buyerId: true, itemPriceUsd: true, listing: { select: { title: true } } },
+              });
+              if (order) {
+                await ensureLiveRoomPaymentFailureRecorded({
+                  liveRoomId,
+                  buyerId: order.buyerId,
+                  kind: "buy_now",
+                  orderId,
+                  liveRoomItemId,
+                  amountUsd: order.itemPriceUsd,
+                  itemTitle: order.listing.title,
+                  failureReason: pi.last_payment_error?.message ?? "Your card was declined.",
+                });
+              }
+            }
           } else {
             await releaseActiveInventoryHoldsForOrderId(orderId).catch(() => {});
             await prisma.order.updateMany({
@@ -1326,11 +1552,34 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
           }
         }
       }
-      if (pi.metadata?.breakSpotId) {
+      if (pi.metadata?.breakSpotId && kind !== "break_spot_saved_pm") {
+        const breakSpotId = pi.metadata.breakSpotId;
         await prisma.breakSpot.updateMany({
-          where: { id: pi.metadata.breakSpotId },
+          where: { id: breakSpotId },
           data: { breakPaymentStatus: "failed" },
         });
+        const spot = await prisma.breakSpot.findUnique({
+          where: { id: breakSpotId },
+          select: {
+            liveRoomId: true,
+            userId: true,
+            spotLabel: true,
+            priceUsd: true,
+            liveRoomItemId: true,
+          },
+        });
+        if (spot) {
+          await ensureLiveRoomPaymentFailureRecorded({
+            liveRoomId: spot.liveRoomId,
+            buyerId: spot.userId,
+            kind: "break_spot",
+            breakSpotId,
+            liveRoomItemId: spot.liveRoomItemId,
+            amountUsd: spot.priceUsd,
+            itemTitle: spot.spotLabel,
+            failureReason: pi.last_payment_error?.message ?? "Your card was declined.",
+          });
+        }
       }
       break;
     }

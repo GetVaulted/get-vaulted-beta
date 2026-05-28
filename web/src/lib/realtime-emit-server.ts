@@ -211,6 +211,37 @@ export function emitPurchaseCompleted(
   });
 }
 
+export function emitLiveRoomPaymentFailed(
+  liveRoomId: string,
+  payload: {
+    failureId: string;
+    buyerId: string;
+    buyerUsername?: string | null;
+    amountUsd: number;
+    itemTitle?: string | null;
+    liveRoomItemId?: string | null;
+    orderId?: string | null;
+    kind?: string;
+    failureReason?: string | null;
+  },
+): void {
+  emitRoomEventWithAliases(liveRoomId, RT_EVENT.paymentFailed, payload);
+}
+
+export function emitLiveRoomPaymentRecovered(
+  liveRoomId: string,
+  payload: {
+    failureId: string;
+    buyerId: string;
+    buyerUsername?: string | null;
+    amountUsd?: number | null;
+    itemTitle?: string | null;
+    orderId?: string | null;
+  },
+): void {
+  emitRoomEventWithAliases(liveRoomId, RT_EVENT.paymentRecovered, payload);
+}
+
 export function emitUserNotificationCreated(userId: string): void {
   broadcastRealtimeEvent(userNotificationsChannel(userId), RT_EVENT.notification, {});
 }

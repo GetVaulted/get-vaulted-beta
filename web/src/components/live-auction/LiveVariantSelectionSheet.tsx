@@ -1,9 +1,14 @@
 "use client";
 
+import { loadStripe } from "@stripe/stripe-js";
 import { useMemo, useState } from "react";
 import type { LiveItemVariantDTO, LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
-import { createLiveVariantPurchaseIdempotencyKey } from "@/lib/live-variant-purchase-client";
+import {
+  createLiveVariantPurchaseIdempotencyKey,
+  purchaseLiveItemVariant,
+  syncLiveItemVariantPurchase,
+} from "@/lib/live-variant-purchase-client";
 
 type LiveVariantSelectionSheetProps = {
   open: boolean;
@@ -59,46 +64,64 @@ export function LiveVariantSelectionSheet({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(item.id)}/variants/${encodeURIComponent(selected.id)}/purchase`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Idempotency-Key": createLiveVariantPurchaseIdempotencyKey(selected.id),
-          },
-          credentials: "include",
-          body: JSON.stringify({ quantity }),
-        },
-      );
-      const payload = (await res.json()) as {
-        error?: string;
-        checkoutUrl?: string;
-        paid?: boolean;
-        signInUrl?: string;
-      };
-      if (res.status === 401 && payload.signInUrl) {
-        window.location.href = payload.signInUrl;
-        return;
-      }
-      if (res.status === 402) {
-        onWalletRequired();
-        return;
-      }
+      const res = await purchaseLiveItemVariant({
+        liveRoomId,
+        itemId: item.id,
+        variantId: selected.id,
+        quantity,
+        idempotencyKey: createLiveVariantPurchaseIdempotencyKey(selected.id),
+      });
       if (!res.ok) {
-        setError(typeof payload.error === "string" ? payload.error : "Checkout failed.");
+        if (res.status === 401 && res.signInUrl) {
+          window.location.href = res.signInUrl;
+          return;
+        }
+        if (res.walletIncomplete) {
+          onWalletRequired();
+          return;
+        }
+        setError(res.error);
         return;
       }
-      if (payload.paid) {
+      if (res.ok && "paid" in res && res.paid) {
         onPurchased?.();
         onClose();
         return;
       }
-      if (payload.checkoutUrl) {
-        window.location.href = payload.checkoutUrl;
+      if (res.ok && "requiresAction" in res && res.requiresAction) {
+        const pk =
+          res.publishableKey?.trim() ||
+          process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() ||
+          "";
+        const stripe = pk ? await loadStripe(pk) : null;
+        if (!stripe) {
+          setError("Complete payment verification in your Wallet, then try again.");
+          return;
+        }
+        const conf = await stripe.confirmCardPayment(res.clientSecret);
+        if (conf.error) {
+          setError(conf.error.message ?? "Payment authentication failed.");
+          return;
+        }
+        const synced = await syncLiveItemVariantPurchase({
+          liveRoomId,
+          itemId: item.id,
+          variantId: selected.id,
+          purchaseId: res.purchaseId,
+        });
+        if (synced.ok && "paid" in synced && synced.paid) {
+          onPurchased?.();
+          onClose();
+          return;
+        }
+        setError(!synced.ok ? synced.error : "Payment is still processing — refresh the room.");
         return;
       }
-      setError("Checkout could not start.");
+      if (res.ok && "processing" in res && res.processing) {
+        setError("Payment processing — refresh the room in a moment.");
+        return;
+      }
+      setError("Purchase could not complete.");
     } catch {
       setError("Network error — try again.");
     } finally {
@@ -170,7 +193,7 @@ export function LiveVariantSelectionSheet({
           onClick={() => void checkout()}
           className="mt-3 w-full rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 py-3 text-sm font-black uppercase tracking-wide text-zinc-950 disabled:opacity-45"
         >
-          {busy ? "Processing…" : "Checkout"}
+          {busy ? "Processing…" : "Confirm purchase"}
         </button>
       </div>
     </div>

@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { fetchHostRecentSales } from "@/lib/live-room-recent-sales";
 import { buildLiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
 import { attachHighBidderUsernames } from "@/lib/live-room-high-bidder-enrich";
+import { listUnresolvedPaymentFailuresForRoom } from "@/lib/live-room-payment-failure";
 import { serializeLiveRoomItem, serializeLiveRoomMessage } from "@/lib/live-room-serialize";
 import { liveRoomItemsWithVariantsInclude } from "@/lib/live-item-variant-include";
 import { prismaLiveRoomCreateHint, serializePrismaClientError } from "@/lib/prisma-client-error-serialize";
@@ -151,6 +152,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       console.error("[host-console] fetchHostRecentSales failed", { liveRoomId, e });
     }
 
+    let sellerUnresolvedPaymentFailures: Awaited<ReturnType<typeof listUnresolvedPaymentFailuresForRoom>> = [];
+    try {
+      sellerUnresolvedPaymentFailures = await listUnresolvedPaymentFailuresForRoom(liveRoomId);
+    } catch (e) {
+      console.error("[host-console] listUnresolvedPaymentFailuresForRoom failed", { liveRoomId, e });
+    }
+
     const serverNowMs = Date.now();
     return NextResponse.json({
       serverNowMs,
@@ -202,6 +210,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       buyerMatches,
       pickerMatches,
       recentSales,
+      sellerUnresolvedPaymentFailures,
     });
   } catch (e) {
     const prismaDto = serializePrismaClientError(e);

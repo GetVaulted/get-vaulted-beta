@@ -44,6 +44,7 @@ import {
 } from './floatingLiveChat';
 import { LiveTipSheet } from './LiveTipSheet';
 import { LivePinnedActionBar } from './LivePinnedActionBar';
+import { LivePaymentFailureModal } from './LivePaymentFailureModal';
 import { LiveEmptyBroadcastBlock } from './LiveEmptyBroadcastBlock';
 import { LiveStagePlayback } from './LiveStagePlayback';
 import { LiveRoomText } from './LiveRoomText';
@@ -648,10 +649,21 @@ function LiveSlide({
           clockSkewMs={liveSession.clockSkewMs}
           mergeBidAck={liveSession.mergeBidAck}
           onBidPlaced={(amount) => liveSession.setMyHighBidUsd(amount)}
-          participationBlocked={breakParticipationBlocked}
+          participationBlocked={breakParticipationBlocked || Boolean(liveSession.unresolvedPaymentFailure)}
           onWalletOverlayChange={isActive ? onWalletOverlayChange : undefined}
         />
       </View>
+      {liveSession.unresolvedPaymentFailure && signedIn && accessToken ? (
+        <LivePaymentFailureModal
+          visible
+          roomId={stream.id}
+          accessToken={accessToken}
+          failure={liveSession.unresolvedPaymentFailure}
+          onResolved={() => void liveSession.fetchSnapshot()}
+          onLeaveRoom={() => stackNav.goBack()}
+          onWalletOverlayChange={isActive ? onWalletOverlayChange : undefined}
+        />
+      ) : null}
           </View>
         </View>
       </View>

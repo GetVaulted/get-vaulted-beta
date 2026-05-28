@@ -1,15 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import { payLiveBreakSpotWithSca } from "@/lib/live-buy-now-client";
 
 export function BreakSpotPayButton({
   liveRoomId,
   breakSpotId,
   disabled,
+  onPaid,
+  onPaymentFailed,
 }: {
   liveRoomId: string;
   breakSpotId: string;
   disabled?: boolean;
+  onPaid?: () => void;
+  onPaymentFailed?: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,24 +23,15 @@ export function BreakSpotPayButton({
     setError(null);
     setBusy(true);
     try {
-      const res = await fetch("/api/checkout/create-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          kind: "break_spot",
-          breakSpotId,
-          successPath: `/live/${encodeURIComponent(liveRoomId)}`,
-          cancelPath: `/live/${encodeURIComponent(liveRoomId)}?checkout=canceled`,
-        }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; url?: string };
+      const res = await payLiveBreakSpotWithSca({ liveRoomId, breakSpotId });
       if (!res.ok) {
-        setError(data.error ?? "Could not start checkout.");
+        setError(res.error);
+        if (res.paymentFailed) onPaymentFailed?.();
         return;
       }
-      if (data.url) window.location.assign(data.url);
+      onPaid?.();
     } catch {
-      setError("Checkout failed.");
+      setError("Payment failed.");
     } finally {
       setBusy(false);
     }

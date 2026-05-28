@@ -1,5 +1,6 @@
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
 import { createNotification } from "@/lib/notifications";
+import { recordPaymentFailureFromCharge } from "@/lib/live-room-payment-failure";
 import { prisma } from "@/lib/prisma";
 import { createOrderFromAuctionWin } from "@/lib/offer-fulfillment";
 import { chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard } from "@/lib/stripe-charge-order-saved-pm";
@@ -23,6 +24,8 @@ export type BreakRoundFinalizeResult = {
     orderId: string;
     listingTitle: string;
     itemPriceUsd: number;
+    liveRoomId: string;
+    liveRoomItemId: string;
   };
 };
 
@@ -169,6 +172,8 @@ export async function finalizeBreakAuctionRoundIfEnded(
             orderId,
             listingTitle: unitTitle,
             itemPriceUsd: winUsd,
+            liveRoomId: args.liveRoomId,
+            liveRoomItemId: args.liveRoomItemId,
           }
         : undefined,
   };
@@ -190,7 +195,21 @@ export async function sendBreakAuctionWinNotificationsDeferred(
     orderId: pending.orderId,
   });
   const paid = charge.outcome === "paid";
+  const paymentFailed = charge.outcome === "error";
   const needsAuth = charge.outcome === "requires_action" || charge.outcome === "processing";
+
+  if (!paid) {
+    await recordPaymentFailureFromCharge({
+      liveRoomId: pending.liveRoomId,
+      buyerId: pending.buyerId,
+      kind: "auction_win",
+      liveRoomItemId: pending.liveRoomItemId,
+      orderId: pending.orderId,
+      amountUsd: pending.itemPriceUsd,
+      itemTitle: pending.listingTitle,
+      charge,
+    });
+  }
 
   const buyerBody = paid
     ? `You won “${titleShort}” at ${priceStr}. Your saved card was charged. Open your order for details.`
@@ -198,10 +217,14 @@ export async function sendBreakAuctionWinNotificationsDeferred(
       ? `You won “${titleShort}” at ${priceStr}. Complete payment on your order — your bank may require an extra step.`
       : `You won “${titleShort}” at ${priceStr}. We could not charge your card automatically. Open your order and pay within 30 minutes.`;
 
-  const sellerTitle = paid ? "Auction ended — paid" : "Auction ended — payment pending";
+  const sellerTitle = paid ? "Auction ended — paid" : paymentFailed ? "Auction ended — payment failed" : "Auction ended — payment pending";
   const sellerBody = paid
-    ? `Payment received for “${titleShort}”.`
-    : needsAuth
+    ? `Payment received for "${titleShort}".`
+    : paymentFailed
+      ? `Payment failed for @${(
+          await prisma.user.findUnique({ where: { id: pending.buyerId }, select: { username: true } })
+        )?.username ?? "buyer"} on "${titleShort}" — ${priceStr}. They must update payment to continue in the room.`
+      : needsAuth
       ? `The winner may need to complete authentication for “${titleShort}”.`
       : `Winner has 30 minutes to pay for “${titleShort}”. You will be notified when payment clears.`;
 

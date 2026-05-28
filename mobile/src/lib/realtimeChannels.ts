@@ -11,6 +11,8 @@ export const RT_EVENT = {
   auctionEnded: 'auction_ended',
   activeItemChanged: 'active_item_changed',
   purchaseCompleted: 'purchase_completed',
+  paymentFailed: 'payment_failed',
+  paymentRecovered: 'payment_recovered',
   messagesRefresh: 'messages_refresh',
   queueItems: 'queue_items',
   variantPurchased: 'variant_purchased',
@@ -47,4 +49,9 @@ export type RoomBroadcastPayload = {
   winnerId?: string | null;
   winningAmountUsd?: number | null;
   noBids?: boolean;
+  paymentStatus?: string | null;
+  buyerId?: string;
+  failureId?: string;
+  buyerUsername?: string | null;
+  itemTitle?: string | null;
 };

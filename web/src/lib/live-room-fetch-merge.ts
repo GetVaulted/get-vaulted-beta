@@ -51,5 +51,7 @@ export function mergeLiveRoomDetailFromFetch(prev: LiveRoomDetailDTO, incoming: 
     activeItem,
     buyerLiveBidPaymentReady: incoming.buyerLiveBidPaymentReady ?? prev.buyerLiveBidPaymentReady,
     buyerLiveShippingReady: incoming.buyerLiveShippingReady ?? prev.buyerLiveShippingReady,
+    /** Server is authoritative for payment lockout — always take incoming snapshot. */
+    buyerUnresolvedPaymentFailure: incoming.buyerUnresolvedPaymentFailure ?? null,
   };
 }

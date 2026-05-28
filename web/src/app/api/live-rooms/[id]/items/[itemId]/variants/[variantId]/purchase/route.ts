@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
+import { finalizeLiveItemVariantPurchasePaid } from "@/lib/live-item-variant-purchase";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
-import { createLiveItemVariantCheckoutSession, finalizeLiveItemVariantPurchasePaid } from "@/lib/live-item-variant-purchase";
+import {
+  getLiveBuyerPaymentSessionState,
+  settleLiveItemVariantPurchase,
+  syncLiveItemVariantPurchasePaymentIntent,
+} from "@/lib/live-payment-pipeline";
 import { prisma } from "@/lib/prisma";
+import { liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { isStripeConfigured } from "@/lib/stripe";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
@@ -11,7 +17,16 @@ function signInUrl(returnPath: string) {
   return `/signin?returnTo=${encodeURIComponent(returnPath)}`;
 }
 
-type Body = { quantity?: unknown };
+function stripePublishableKey(): string | undefined {
+  return process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() || undefined;
+}
+
+type Body = {
+  quantity?: unknown;
+  paymentMethodId?: unknown;
+  action?: unknown;
+  purchaseId?: unknown;
+};
 
 export async function POST(
   req: Request,
@@ -30,6 +45,44 @@ export async function POST(
     return auth;
   }
   const userId = auth.userId;
+
+  const paymentBlock = await liveRoomPaymentBlockResponse(liveRoomId, userId);
+  if (paymentBlock) return paymentBlock;
+
+  let body: Body = {};
+  try {
+    body = (await req.json()) as Body;
+  } catch {
+    /* empty body ok */
+  }
+
+  const action = typeof body.action === "string" ? body.action.trim() : "";
+  if (action === "sync") {
+    const purchaseId = typeof body.purchaseId === "string" ? body.purchaseId.trim() : "";
+    if (!purchaseId) {
+      return NextResponse.json({ error: "purchaseId is required." }, { status: 400 });
+    }
+    const sync = await syncLiveItemVariantPurchasePaymentIntent({ buyerId: userId, purchaseId });
+    if (sync.outcome === "paid") {
+      return NextResponse.json({ purchaseId, paid: true });
+    }
+    if (sync.outcome === "requires_action") {
+      return NextResponse.json({
+        purchaseId,
+        requiresAction: true,
+        clientSecret: sync.clientSecret,
+        paymentIntentId: sync.paymentIntentId,
+        publishableKey: stripePublishableKey(),
+      });
+    }
+    if (sync.outcome === "processing") {
+      return NextResponse.json({ purchaseId, processing: true, paymentIntentId: sync.paymentIntentId });
+    }
+    return NextResponse.json(
+      { error: sync.message ?? "Payment not completed.", code: sync.code, paymentFailed: true },
+      { status: 402 },
+    );
+  }
 
   const room = await prisma.liveRoom.findUnique({
     where: { id: liveRoomId },
@@ -54,36 +107,56 @@ export async function POST(
     }
   }
 
-  let body: Body = {};
-  try {
-    body = (await req.json()) as Body;
-  } catch {
-    /* empty body ok */
-  }
-
   const qtyRaw = body.quantity;
   const quantity =
     typeof qtyRaw === "number" && Number.isFinite(qtyRaw) && qtyRaw >= 1 ? Math.min(99, Math.floor(qtyRaw)) : 1;
+  const paymentMethodId = typeof body.paymentMethodId === "string" ? body.paymentMethodId.trim() : undefined;
 
   const idempotencyKey = req.headers.get("Idempotency-Key")?.trim().slice(0, 128) ?? null;
   if (idempotencyKey) {
     const existing = await prisma.liveItemVariantPurchase.findFirst({
       where: { idempotencyKey, buyerId: userId },
-      select: { id: true, paymentStatus: true, stripeCheckoutSessionId: true, totalUsd: true },
+      select: { id: true, paymentStatus: true, totalUsd: true },
     });
     if (existing) {
       if (existing.paymentStatus === "paid") {
         return NextResponse.json({ purchaseId: existing.id, paid: true });
       }
-      if (existing.totalUsd > 0 && isStripeConfigured()) {
-        try {
-          const { url } = await createLiveItemVariantCheckoutSession({
-            userId,
-            purchaseId: existing.id,
+      if (existing.paymentStatus === "pending_payment" && existing.totalUsd > 0 && isStripeConfigured()) {
+        const settled = await settleLiveItemVariantPurchase({
+          buyerId: userId,
+          purchaseId: existing.id,
+          paymentMethodId,
+        });
+        if (settled.ok && "paid" in settled && settled.paid) {
+          return NextResponse.json({ purchaseId: settled.purchaseId, paid: true });
+        }
+        if (settled.ok && "requiresAction" in settled && settled.requiresAction) {
+          return NextResponse.json({
+            purchaseId: settled.purchaseId,
+            requiresAction: true,
+            clientSecret: settled.clientSecret,
+            paymentIntentId: settled.paymentIntentId,
+            publishableKey: stripePublishableKey(),
           });
-          return NextResponse.json({ purchaseId: existing.id, checkoutUrl: url });
-        } catch {
-          /* fall through to retry reserve */
+        }
+        if (settled.ok && "processing" in settled && settled.processing) {
+          return NextResponse.json({
+            purchaseId: settled.purchaseId,
+            processing: true,
+            paymentIntentId: settled.paymentIntentId,
+          });
+        }
+        if (!settled.ok) {
+          return NextResponse.json(
+            {
+              error: settled.message,
+              code: settled.code,
+              paymentFailed: true,
+              purchaseId: settled.purchaseId,
+            },
+            { status: 402 },
+          );
         }
       }
     }
@@ -168,19 +241,55 @@ export async function POST(
       return NextResponse.json({ purchaseId: result.id, paid: true });
     }
 
-    const { url } = await createLiveItemVariantCheckoutSession({
-      userId,
+    const settled = await settleLiveItemVariantPurchase({
+      buyerId: userId,
       purchaseId: result.id,
+      paymentMethodId,
     });
-    emitLiveRoomQueueItemsChanged(liveRoomId);
-    return NextResponse.json({ purchaseId: result.id, checkoutUrl: url });
+
+    if (settled.ok && "paid" in settled && settled.paid) {
+      return NextResponse.json({ purchaseId: settled.purchaseId, paid: true });
+    }
+    if (settled.ok && "requiresAction" in settled && settled.requiresAction) {
+      emitLiveRoomQueueItemsChanged(liveRoomId);
+      return NextResponse.json({
+        purchaseId: settled.purchaseId,
+        requiresAction: true,
+        clientSecret: settled.clientSecret,
+        paymentIntentId: settled.paymentIntentId,
+        publishableKey: stripePublishableKey(),
+      });
+    }
+    if (settled.ok && "processing" in settled && settled.processing) {
+      emitLiveRoomQueueItemsChanged(liveRoomId);
+      return NextResponse.json({
+        purchaseId: settled.purchaseId,
+        processing: true,
+        paymentIntentId: settled.paymentIntentId,
+      });
+    }
+    if (!settled.ok) {
+      return NextResponse.json(
+        {
+          error: settled.message,
+          code: settled.code,
+          paymentFailed: true,
+          purchaseId: settled.purchaseId,
+        },
+        { status: 402 },
+      );
+    }
+
+    return NextResponse.json({ error: "Could not complete payment." }, { status: 500 });
   } catch (e) {
     const code = e && typeof e === "object" && "code" in e ? String((e as { code: string }).code) : "";
     if (code === "NOT_FOUND") return NextResponse.json({ error: "Option not found." }, { status: 404 });
-    if (code === "NOT_VARIANT_ITEM") return NextResponse.json({ error: "This item does not support spot selection." }, { status: 400 });
+    if (code === "NOT_VARIANT_ITEM") {
+      return NextResponse.json({ error: "This item does not support spot selection." }, { status: 400 });
+    }
     if (code === "ITEM_UNAVAILABLE") return NextResponse.json({ error: "This item is not available." }, { status: 409 });
     if (code === "SOLD_OUT") return NextResponse.json({ error: "That option is sold out." }, { status: 409 });
     console.error("[variant purchase POST]", e);
-    return NextResponse.json({ error: "Could not start checkout." }, { status: 500 });
+    return NextResponse.json({ error: "Could not complete purchase." }, { status: 500 });
   }
 }

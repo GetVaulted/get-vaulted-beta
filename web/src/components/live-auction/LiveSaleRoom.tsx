@@ -31,6 +31,7 @@ import { logAuctionTimer } from "@/lib/auction-timer-sync";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
+import { purchaseLiveBuyNowWithSca } from "@/lib/live-buy-now-client";
 
 type SaleItem = {
   id: string;
@@ -479,27 +480,25 @@ export function LiveSaleRoom({
     }
     setBusy(true);
     try {
-      const res = await fetch(
-        `/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(activeDb.id)}/buy`,
-        { method: "POST" },
-      );
-      const data = (await res.json().catch(() => ({}))) as { error?: string; checkoutUrl?: string; signInUrl?: string };
-      if (res.status === 401) {
-        if (data.signInUrl) router.push(data.signInUrl);
-        else redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
-        return;
-      }
+      const res = await purchaseLiveBuyNowWithSca({
+        liveRoomId,
+        itemId: activeDb.id,
+      });
       if (!res.ok) {
-        setActionError(data.error ?? "Could not start checkout.");
+        if (res.status === 401 && res.signInUrl) {
+          router.push(res.signInUrl);
+          return;
+        }
+        if (res.walletIncomplete) {
+          setActionError(res.error);
+          return;
+        }
+        setActionError(res.error);
+        if (res.paymentFailed) void onRefetch?.();
         return;
       }
-      if (data.checkoutUrl) {
-        setShipUxNonce((n) => n + 1);
-        router.push(data.checkoutUrl);
-        router.refresh();
-        return;
-      }
-      setActionError("Could not start checkout.");
+      setShipUxNonce((n) => n + 1);
+      void onRefetch?.();
     } finally {
       setBusy(false);
     }

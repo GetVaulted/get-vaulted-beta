@@ -46,7 +46,7 @@ import {
   startLiveRoomItemAuction,
 } from "@/lib/live-room-control-client";
 import { appendLiveRoomMessageDedupe, mergeLiveRoomMessagesById } from "@/lib/realtime-merge-messages";
-import type { LiveRoomItemDTO, LiveRoomMessageDTO } from "@/lib/live-room-serialize";
+import type { LiveRoomItemDTO, LiveRoomMessageDTO, SellerPaymentFailureDTO } from "@/lib/live-room-serialize";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
 import type { HostRecentSaleRowDTO } from "@/lib/live-room-recent-sales";
@@ -125,6 +125,7 @@ type HostPayload = {
   isAdmin: boolean;
   recentSales?: HostRecentSaleRowDTO[];
   feeTier?: LiveShowFeeTierSnapshot | null;
+  sellerUnresolvedPaymentFailures?: SellerPaymentFailureDTO[];
 };
 
 function fmtHostSpotUsd(n: number | null | undefined) {
@@ -305,11 +306,19 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         return;
       }
       setData((prev) => {
-        if (!prev) return { ...j, recentSales: j.recentSales ?? [], feeTier: j.feeTier ?? null };
+        if (!prev) {
+          return {
+            ...j,
+            recentSales: j.recentSales ?? [],
+            feeTier: j.feeTier ?? null,
+            sellerUnresolvedPaymentFailures: j.sellerUnresolvedPaymentFailures ?? [],
+          };
+        }
         return {
           ...j,
           recentSales: j.recentSales ?? prev.recentSales ?? [],
           feeTier: j.feeTier ?? prev.feeTier ?? null,
+          sellerUnresolvedPaymentFailures: j.sellerUnresolvedPaymentFailures ?? prev.sellerUnresolvedPaymentFailures ?? [],
           messages: mergeLiveRoomMessagesById(prev.messages, j.messages),
         };
       });
@@ -903,8 +912,28 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         flashStageMotion("no_bids", 1200);
         setLotTransitionPhase("idle");
       }
-      flashHostNotice("Item sold · syncing");
+      if (payload.paymentStatus === "payment_failed") {
+        const who =
+          celebration?.kind === "sold" ? celebration.winnerUsername ?? "buyer" : "buyer";
+        flashHostNotice(`Payment failed · @${who.replace(/^@/, "")} — awaiting recovery`);
+      } else {
+        flashHostNotice("Item sold · syncing");
+      }
       scheduleFallbackRefresh("purchase_completed", 40);
+    },
+    onPaymentFailed: (payload) => {
+      const who = payload.buyerUsername?.trim() || "buyer";
+      const amt =
+        typeof payload.amountUsd === "number" && Number.isFinite(payload.amountUsd)
+          ? fmtHostSpotUsd(payload.amountUsd)
+          : "";
+      flashHostNotice(`Payment failed · @${who.replace(/^@/, "")}${amt ? ` · ${amt}` : ""}`);
+      void load();
+    },
+    onPaymentRecovered: (payload) => {
+      const who = payload.buyerUsername?.trim() || "buyer";
+      flashHostNotice(`Payment recovered for @${who.replace(/^@/, "")}`);
+      void load();
     },
     onRoomStateEvent: () => scheduleFallbackRefresh("room_state_event", 100),
     onStreamStatusChange: () => {
@@ -1551,12 +1580,27 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     compactActionOverlay: false,
   };
 
+  const hostPaymentFailures = data?.sellerUnresolvedPaymentFailures ?? [];
+
   return (
     <div
       className={`fixed inset-x-0 bottom-0 top-[var(--site-header-offset)] z-40 flex min-h-0 flex-col overflow-hidden bg-black text-sm leading-normal text-zinc-100 ${vaultModeRootClass(vaultMode)}`}
     >
+      {hostPaymentFailures.length > 0 ? (
+        <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[61] w-[min(92vw,28rem)] -translate-x-1/2 px-2">
+          <div className="pointer-events-auto rounded-2xl border border-rose-500/35 bg-rose-950/70 px-3 py-2 text-[11px] leading-snug text-rose-50 shadow-lg backdrop-blur-xl ring-1 ring-rose-400/25">
+            <p className="font-bold uppercase tracking-wide text-rose-200">Payment failed</p>
+            {hostPaymentFailures.slice(0, 3).map((f) => (
+              <p key={f.id} className="mt-1">
+                @{f.buyerUsername?.replace(/^@/, "") ?? "buyer"} · {fmtHostSpotUsd(f.amountUsd)}
+                {f.itemTitle ? ` · ${f.itemTitle}` : ""}
+              </p>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {(toast || hostNotice || refreshWarning) ? (
-        <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[62] w-[min(92vw,26rem)] -translate-x-1/2 px-2">
+        <div className={`pointer-events-none fixed left-1/2 ${hostPaymentFailures.length > 0 ? "top-[calc(var(--site-header-offset)+5.5rem)]" : "top-[calc(var(--site-header-offset)+0.5rem)]"} z-[62] w-[min(92vw,26rem)] -translate-x-1/2 px-2`}>
           <div className="pointer-events-auto space-y-2">
             {refreshWarning ? (
               <p

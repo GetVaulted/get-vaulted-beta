@@ -133,7 +133,8 @@ export function LivePinnedActionBar({
     });
   }, [clockSkewMs, roomSnap?.auctionEndsAt, roomSnap?.lotBidPhase, roomSnap?.serverNowMs, timerTick]);
   const auctionLane = buyerKind === 'auction';
-  const commerceBlocked = walletOverlayActive || walletSheetOpen || variantSheetOpen;
+  const commerceBlocked =
+    walletOverlayActive || walletSheetOpen || variantSheetOpen || Boolean(roomSnap?.unresolvedPaymentFailure);
   const primaryDisabled = m.buyerPrimaryDisabled === true || participationBlocked || commerceBlocked;
   const secondaryDisabled = m.buyerSecondaryDisabled === true || participationBlocked || commerceBlocked;
   const padBottom = 4 + Math.min(10, Math.round(bottomSafeInset * 0.35));
@@ -342,6 +343,11 @@ export function LivePinnedActionBar({
         } else {
           logWalletSheet('ignored duplicate open', { reason: 'api_402' });
         }
+        return;
+      }
+      if (e instanceof Error && (e as Error & { code?: string }).code === 'LIVE_PAYMENT_BLOCKED') {
+        logBidControl('blocked', { reason: 'payment failure lockout' });
+        await refreshRoomSnapshot();
         return;
       }
       logBidControl('blocked', { reason: 'bid failed', message: e instanceof Error ? e.message : 'unknown' });

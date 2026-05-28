@@ -99,6 +99,19 @@ enum LiveItemVariantPurchaseStatus {
   cancelled
 }
 
+enum LiveRoomPaymentFailureStatus {
+  payment_failed
+  recovery_pending
+  paid
+}
+
+enum LiveRoomPaymentFailureKind {
+  auction_win
+  buy_now
+  break_spot
+  variant_purchase
+}
+
 enum LiveRoomMessageType {
   chat
   bid
@@ -354,6 +367,7 @@ model User {
   liveRoomMessages LiveRoomMessage[]
   breakSpots      BreakSpot[]
   liveItemVariantPurchases LiveItemVariantPurchase[]
+  liveRoomPaymentFailures LiveRoomPaymentFailure[]
   breakHitsBuyer  BreakHit[] @relation("BreakHitBuyer")
   hitClipsAsSeller HitClip[] @relation("HitClipSeller")
   hitClipsAsBuyer  HitClip[] @relation("HitClipBuyer")
@@ -720,6 +734,7 @@ model LiveRoom {
   moderators LiveRoomModerator[]
   moderationActions LiveRoomModerationAction[]
   streamReplays LiveStreamReplay[]
+  paymentFailures LiveRoomPaymentFailure[]
   reports Report[]
   slowModeSeconds Int @default(0)
   pinnedModeratorMessage String?
@@ -949,6 +964,32 @@ model LiveItemVariantPurchase {
   @@index([variantId, paymentStatus])
   @@index([liveRoomId, createdAt])
   @@index([buyerId, createdAt])
+}
+
+/// Unresolved live-show payment failure — blocks buyer commerce in-room until paid or cleared.
+model LiveRoomPaymentFailure {
+  id                String                       @id @default(cuid())
+  liveRoomId        String
+  liveRoom          LiveRoom                     @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  buyerId           String
+  buyer             User                         @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  kind              LiveRoomPaymentFailureKind
+  liveRoomItemId    String?
+  orderId           String?
+  variantPurchaseId String?
+  breakSpotId       String?
+  amountUsd         Float
+  status            LiveRoomPaymentFailureStatus @default(payment_failed)
+  failureReason     String?
+  buyerUsername     String?
+  itemTitle         String?
+  failedAt          DateTime                     @default(now())
+  recoveredAt       DateTime?
+  updatedAt         DateTime                     @updatedAt
+
+  @@index([liveRoomId, buyerId, status])
+  @@index([liveRoomId, status])
+  @@index([buyerId, status])
 }
 
 /// Accepted bid on a host lot (`listingId` null). Listing-backed lots use marketplace `Bid` rows.

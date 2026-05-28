@@ -70,7 +70,17 @@ export function useRealtimeRoomSubscription(opts: {
     itemVersion?: number;
     eventId?: string;
     emittedAt?: string;
+    paymentStatus?: string | null;
+    winnerId?: string | null;
   }) => void | Promise<void>;
+  onPaymentFailed?: (payload: {
+    buyerId?: string;
+    failureId?: string;
+    amountUsd?: number;
+    buyerUsername?: string | null;
+    itemTitle?: string | null;
+  }) => void | Promise<void>;
+  onPaymentRecovered?: (payload: { buyerId?: string; failureId?: string; buyerUsername?: string | null }) => void | Promise<void>;
   /** IVS / `streamHealth` sync — refetch `GET /api/live-rooms/[id]/stream` (buyer-safe) or host UI. */
   onStreamStatusChange?: (payload: {
     streamHealth?: string;
@@ -97,6 +107,8 @@ export function useRealtimeRoomSubscription(opts: {
     onAuctionStarted,
     onAuctionEnded,
     onPurchaseCompleted,
+    onPaymentFailed,
+    onPaymentRecovered,
     onStreamStatusChange,
     onReconnect,
     onConnectionStateChange,
@@ -115,6 +127,8 @@ export function useRealtimeRoomSubscription(opts: {
     onAuctionStarted,
     onAuctionEnded,
     onPurchaseCompleted,
+    onPaymentFailed,
+    onPaymentRecovered,
     onStreamStatusChange,
     onReconnect,
     onConnectionStateChange,
@@ -133,6 +147,8 @@ export function useRealtimeRoomSubscription(opts: {
       onAuctionStarted,
       onAuctionEnded,
       onPurchaseCompleted,
+      onPaymentFailed,
+      onPaymentRecovered,
       onStreamStatusChange,
       onReconnect,
       onConnectionStateChange,
@@ -150,6 +166,8 @@ export function useRealtimeRoomSubscription(opts: {
     onAuctionStarted,
     onAuctionEnded,
     onPurchaseCompleted,
+    onPaymentFailed,
+    onPaymentRecovered,
     onStreamStatusChange,
     onReconnect,
     onConnectionStateChange,
@@ -188,9 +206,17 @@ export function useRealtimeRoomSubscription(opts: {
         else void refs.current.onRoomStateEvent?.();
       })
       .on("broadcast", { event: RT_EVENT.purchaseCompleted }, ({ payload }) => {
-        const p = (payload as { liveRoomId?: string; itemId?: string } | null) ?? {};
+        const p = (payload as { liveRoomId?: string; itemId?: string; paymentStatus?: string; winnerId?: string } | null) ?? {};
         if (refs.current.onPurchaseCompleted) void refs.current.onPurchaseCompleted(p);
         else void refs.current.onRoomStateEvent?.();
+      })
+      .on("broadcast", { event: RT_EVENT.paymentFailed }, ({ payload }) => {
+        const p = (payload as { buyerId?: string; failureId?: string } | null) ?? {};
+        if (refs.current.onPaymentFailed) void refs.current.onPaymentFailed(p);
+      })
+      .on("broadcast", { event: RT_EVENT.paymentRecovered }, ({ payload }) => {
+        const p = (payload as { buyerId?: string; failureId?: string } | null) ?? {};
+        if (refs.current.onPaymentRecovered) void refs.current.onPaymentRecovered(p);
       })
       .on("broadcast", { event: RT_EVENT.bidPlaced }, ({ payload }) => {
         const p = (payload as { liveRoomId?: string; itemId?: string; amountUsd?: number } | null) ?? {};

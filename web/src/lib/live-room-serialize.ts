@@ -127,6 +127,40 @@ export type LiveRoomDetailDTO = {
    * Relaxed under the same conditions as `buyerLiveBidPaymentReady`.
    */
   buyerLiveShippingReady?: boolean;
+  /** Unified live buyer payment session (saved card pipeline). */
+  buyerLivePayment?: LiveBuyerPaymentSessionDTO;
+  /** Active unresolved payment failure — buyer must recover before bidding/buying in this room. */
+  buyerUnresolvedPaymentFailure?: LiveBuyerPaymentFailureDTO | null;
+  /** Host-only: buyers with failed payments in this room. */
+  sellerUnresolvedPaymentFailures?: SellerPaymentFailureDTO[];
+};
+
+export type LiveBuyerPaymentFailureDTO = {
+  id: string;
+  kind: string;
+  liveRoomItemId: string | null;
+  orderId: string | null;
+  variantPurchaseId: string | null;
+  breakSpotId: string | null;
+  amountUsd: number;
+  status: "payment_failed" | "recovery_pending";
+  failureReason: string | null;
+  failedAt: string;
+  itemTitle: string | null;
+  buyerUsername: string | null;
+};
+
+export type SellerPaymentFailureDTO = LiveBuyerPaymentFailureDTO & {
+  buyerId: string;
+};
+
+export type LiveBuyerPaymentSessionDTO = {
+  liveRoomPaymentReady: boolean;
+  paymentReady: boolean;
+  shippingReady: boolean;
+  activePaymentMethodId: string | null;
+  preauthorizationStatus: "none" | "wallet_ready" | "authorized";
+  paymentFailureState: { code: string; message: string } | null;
 };
 
 export function serializeLiveRoomItem(

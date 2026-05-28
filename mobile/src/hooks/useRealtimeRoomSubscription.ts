@@ -25,6 +25,8 @@ export function useRealtimeRoomSubscription(opts: {
   onAuctionStarted?: (payload: RoomBroadcastPayload) => void | Promise<void>;
   onAuctionEnded?: (payload: RoomBroadcastPayload) => void | Promise<void>;
   onPurchaseCompleted?: (payload: RoomBroadcastPayload) => void | Promise<void>;
+  onPaymentFailed?: (payload: RoomBroadcastPayload) => void | Promise<void>;
+  onPaymentRecovered?: (payload: RoomBroadcastPayload) => void | Promise<void>;
   onStreamStatusChange?: (payload: RoomBroadcastPayload) => void | Promise<void>;
   onReconnect?: () => void | Promise<void>;
   onConnectionStateChange?: (state: { status: string; reconnectCount: number }) => void;
@@ -71,6 +73,14 @@ export function useRealtimeRoomSubscription(opts: {
         const p = (payload as RoomBroadcastPayload | null) ?? {};
         if (refs.current.onPurchaseCompleted) void refs.current.onPurchaseCompleted(p);
         else void refs.current.onRoomStateEvent?.();
+      })
+      .on('broadcast', { event: RT_EVENT.paymentFailed }, ({ payload }) => {
+        const p = (payload as RoomBroadcastPayload | null) ?? {};
+        if (refs.current.onPaymentFailed) void refs.current.onPaymentFailed(p);
+      })
+      .on('broadcast', { event: RT_EVENT.paymentRecovered }, ({ payload }) => {
+        const p = (payload as RoomBroadcastPayload | null) ?? {};
+        if (refs.current.onPaymentRecovered) void refs.current.onPaymentRecovered(p);
       })
       .on('broadcast', { event: RT_EVENT.bidPlaced }, ({ payload }) => {
         const p = (payload as RoomBroadcastPayload | null) ?? {};

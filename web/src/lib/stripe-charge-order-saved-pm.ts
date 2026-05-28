@@ -7,6 +7,7 @@ import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { orderRequiresCheckoutForTax } from "@/lib/stripe-tax";
 import { resolveCheckoutApplicationFeeCents, resolveLiveRoomIdForOrder } from "@/lib/live-show-gmv";
+import { finalizeLiveBuyNowPurchaseComplete } from "@/lib/live-buy-now-purchase";
 import {
   finalizeStripeMarketplaceOrderPaid,
   processAuctionPaymentExpiries,
@@ -292,6 +293,207 @@ export async function chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard(args: {
     }
   }
   return chargeMarketplaceOrderWithSavedPaymentMethod(args);
+}
+
+export const LIVE_BUY_NOW_PI_KIND = "live_buy_now_saved_pm" as const;
+
+async function handleLiveBuyNowPaymentIntent(
+  orderId: string,
+  liveRoomId: string,
+  liveRoomItemId: string,
+  pi: Stripe.PaymentIntent,
+): Promise<ChargeOrderSavedPmOutcome | null> {
+  if (pi.status === "succeeded") {
+    await finalizeLiveBuyNowPurchaseComplete({
+      orderId,
+      liveRoomId,
+      liveRoomItemId,
+      paymentIntentId: pi.id,
+    });
+    return { outcome: "paid" };
+  }
+  if (pi.status === "requires_action" || pi.status === "requires_confirmation") {
+    const cs = pi.client_secret;
+    if (!cs) return { outcome: "error", code: "MISSING_CLIENT_SECRET" };
+    await prisma.order.updateMany({
+      where: { id: orderId, paymentStatus: { not: PAYMENT_PAID } },
+      data: { paymentStatus: PAYMENT_REQUIRES_ACTION, stripePaymentIntentId: pi.id, status: "pending" },
+    });
+    return { outcome: "requires_action", clientSecret: cs, paymentIntentId: pi.id };
+  }
+  if (pi.status === "processing") {
+    await prisma.order.updateMany({
+      where: { id: orderId, paymentStatus: { not: PAYMENT_PAID } },
+      data: { stripePaymentIntentId: pi.id, status: "pending", paymentStatus: PAYMENT_PENDING },
+    });
+    return { outcome: "processing" };
+  }
+  if (pi.status === "canceled" || pi.status === "requires_payment_method") {
+    await prisma.order.updateMany({
+      where: { id: orderId },
+      data: { stripePaymentIntentId: null, paymentStatus: PAYMENT_FAILED, status: "cancelled" },
+    });
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Instant saved-card charge for a live sale-room buy-now order (no Stripe Checkout redirect).
+ */
+export async function chargeLiveBuyNowOrderWithSavedCard(args: {
+  buyerId: string;
+  orderId: string;
+  liveRoomId: string;
+  liveRoomItemId: string;
+  paymentMethodId?: string | null;
+}): Promise<ChargeOrderSavedPmOutcome> {
+  if (!isStripeConfigured()) return { outcome: "error", code: "STRIPE_NOT_CONFIGURED" };
+
+  const row = await prisma.order.findFirst({
+    where: { id: args.orderId, buyerId: args.buyerId },
+    include: {
+      listing: { select: { id: true, buyingFormat: true, status: true, isCompanyListing: true } },
+      seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true } },
+      liveShippingSession: { select: { liveShowId: true } },
+    },
+  });
+  if (!row) return { outcome: "error", code: "ORDER_NOT_FOUND" };
+  if (row.paymentStatus === PAYMENT_PAID) return { outcome: "paid" };
+  if (row.paymentMethod === OrderPaymentMethod.escrow) return { outcome: "error", code: "USE_ESCROW_CHECKOUT" };
+  if (row.listing.buyingFormat !== "buy_now" || row.listing.status !== "active") {
+    return { outcome: "error", code: "ORDER_NOT_ELIGIBLE_SAVED_CARD" };
+  }
+  if (!row.seller.stripeAccountId || !row.seller.stripeOnboardingComplete) {
+    return { outcome: "error", code: "SELLER_NOT_READY" };
+  }
+
+  let pmId = args.paymentMethodId?.trim() ?? row.paymentLabel?.trim() ?? "";
+  if (!isStripePaymentMethodId(pmId)) {
+    pmId = (await getBuyerDefaultCardPaymentMethodId(args.buyerId)) ?? "";
+  }
+  if (!isStripePaymentMethodId(pmId)) return { outcome: "error", code: "NO_SAVED_CARD" };
+  try {
+    await assertPaymentMethodOwnedByUser(args.buyerId, pmId);
+  } catch (e) {
+    const c = e instanceof Error ? e.message : "";
+    return { outcome: "error", code: c || "PM_VALIDATION_FAILED" };
+  }
+
+  await syncLiveBundledShippingOnOrder(row.id);
+  const orderFresh = await prisma.order.findUniqueOrThrow({
+    where: { id: row.id },
+    select: { totalUsd: true, itemPriceUsd: true, stripePaymentIntentId: true },
+  });
+
+  const liveRoomId = args.liveRoomId || row.liveShippingSession?.liveShowId || (await resolveLiveRoomIdForOrder(row.id));
+  const feeCents = await resolveCheckoutApplicationFeeCents({
+    saleAmountUsd: orderFresh.itemPriceUsd,
+    isCompanyListing: Boolean(row.listing.isCompanyListing),
+    liveRoomId,
+  });
+  const amountCents = Math.round(Math.max(0, orderFresh.totalUsd) * 100);
+  if (amountCents < 50) return { outcome: "error", code: "INVALID_ORDER_AMOUNT" };
+
+  const buyer = await prisma.user.findUnique({
+    where: { id: args.buyerId },
+    select: { stripeCustomerId: true },
+  });
+  const customerId = buyer?.stripeCustomerId?.trim();
+  if (!customerId) return { outcome: "error", code: "BUYER_STRIPE_CUSTOMER_MISSING" };
+
+  const stripe = getStripe();
+  if (orderFresh.stripePaymentIntentId) {
+    const existing = await stripe.paymentIntents.retrieve(orderFresh.stripePaymentIntentId);
+    const handled = await handleLiveBuyNowPaymentIntent(
+      row.id,
+      args.liveRoomId,
+      args.liveRoomItemId,
+      existing,
+    );
+    if (handled) return handled;
+  }
+
+  try {
+    const intent = await stripe.paymentIntents.create(
+      {
+        amount: amountCents,
+        currency: "usd",
+        customer: customerId,
+        payment_method: pmId,
+        confirmation_method: "automatic",
+        confirm: true,
+        off_session: true,
+        metadata: {
+          orderId: row.id,
+          kind: LIVE_BUY_NOW_PI_KIND,
+          listingId: row.listingId,
+          liveRoomId: args.liveRoomId,
+          liveRoomItemId: args.liveRoomItemId,
+          userId: args.buyerId,
+        },
+        application_fee_amount: feeCents,
+        transfer_data: { destination: row.seller.stripeAccountId },
+      },
+      { idempotencyKey: `live_buy_now_${row.id}_${amountCents}` },
+    );
+
+    await prisma.order.updateMany({
+      where: { id: row.id },
+      data: { paymentLabel: pmId, stripePaymentIntentId: intent.id },
+    });
+
+    const postCreate = await handleLiveBuyNowPaymentIntent(
+      row.id,
+      args.liveRoomId,
+      args.liveRoomItemId,
+      intent,
+    );
+    if (postCreate) return postCreate;
+
+    await prisma.order.updateMany({
+      where: { id: row.id, paymentStatus: { not: PAYMENT_PAID } },
+      data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
+    });
+    return { outcome: "error", code: "PAYMENT_INTENT_NOT_COMPLETED" };
+  } catch (e) {
+    await prisma.order
+      .updateMany({
+        where: { id: row.id, paymentStatus: { not: PAYMENT_PAID } },
+        data: { paymentStatus: PAYMENT_FAILED, status: "cancelled", stripePaymentIntentId: null },
+      })
+      .catch(() => {});
+    if (e instanceof Stripe.errors.StripeCardError) {
+      return { outcome: "error", code: "CARD_DECLINED" };
+    }
+    return { outcome: "error", code: "STRIPE_ERROR" };
+  }
+}
+
+export async function syncLiveBuyNowOrderPaymentIntent(args: {
+  buyerId: string;
+  orderId: string;
+  liveRoomId: string;
+  liveRoomItemId: string;
+}): Promise<ChargeOrderSavedPmOutcome> {
+  if (!isStripeConfigured()) return { outcome: "error", code: "STRIPE_NOT_CONFIGURED" };
+  const row = await prisma.order.findFirst({
+    where: { id: args.orderId, buyerId: args.buyerId },
+    select: { id: true, paymentStatus: true, stripePaymentIntentId: true },
+  });
+  if (!row) return { outcome: "error", code: "ORDER_NOT_FOUND" };
+  if (row.paymentStatus === PAYMENT_PAID) return { outcome: "paid" };
+  if (!row.stripePaymentIntentId) return { outcome: "error", code: "NO_PAYMENT_INTENT" };
+
+  const stripe = getStripe();
+  const pi = await stripe.paymentIntents.retrieve(row.stripePaymentIntentId);
+  const handled = await handleLiveBuyNowPaymentIntent(
+    row.id,
+    args.liveRoomId,
+    args.liveRoomItemId,
+    pi,
+  );
+  return handled ?? { outcome: "error", code: "PAYMENT_INTENT_NOT_COMPLETED" };
 }
 
 /** After `confirmCardPayment` on the client, poll Stripe and finalize when succeeded. */
