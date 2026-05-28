@@ -121,7 +121,7 @@ export function LiveVideoStage({
     : "h-auto max-h-full w-full max-w-full";
 
   const desktopActionOverlayClass = compactActionOverlay
-    ? "bottom-4 left-4 right-20"
+    ? "bottom-2 left-2 right-14"
     : "bottom-4 left-4 right-4";
 
   const topChrome = (

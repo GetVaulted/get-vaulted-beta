@@ -1131,7 +1131,10 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         })()
       : null;
   const hostStartLiveAuctionEnabled =
-    room.status === "live" && Boolean(activeBoardRow) && !biddingWindowStillRunningHost;
+    room.status === "live" &&
+    activeBoardRow != null &&
+    activeBoardRow.item.status === "active" &&
+    !activeBoardRow.item.biddingOpen;
 
   const handleHostEndAuction = () => {
     const item = activeBoardRow?.item;
@@ -1242,6 +1245,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       hostStartLiveAuctionEnabled={hostStartLiveAuctionEnabled}
       hostLiveItemAuctionBusy={hostLiveItemAuctionBusy}
       onStartAuction={() => void handleHostStartLiveItemAuction()}
+      onEndAuction={handleHostEndAuction}
+      onNextItem={handleHostNextItem}
+      hostBusy={busy}
       hostClockSkewMs={hostClockSkewMs}
     />
   );

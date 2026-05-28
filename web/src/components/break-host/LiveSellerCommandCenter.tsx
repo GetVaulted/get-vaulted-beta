@@ -65,11 +65,13 @@ function PrimaryBtn({
   onClick,
   disabled,
   tone = "gold",
+  compact = false,
 }: {
   children: ReactNode;
   onClick: () => void;
   disabled?: boolean;
   tone?: "gold" | "danger" | "ghost";
+  compact?: boolean;
 }) {
   const cls =
     tone === "danger"
@@ -82,7 +84,7 @@ function PrimaryBtn({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`min-h-[44px] rounded-xl border px-3 py-2.5 text-[11px] font-black uppercase tracking-wide transition disabled:opacity-40 ${cls}`}
+      className={`${compact ? "min-h-[36px] rounded-lg px-2.5 py-1.5 text-[10px]" : "min-h-[44px] rounded-xl px-3 py-2.5 text-[11px]"} border font-black uppercase tracking-wide transition disabled:opacity-40 ${cls}`}
     >
       {children}
     </button>
@@ -171,6 +173,13 @@ export function LiveSellerCommandCenter({
       ? "flex h-full min-h-0 flex-col overflow-hidden bg-zinc-950"
       : "flex h-full min-h-0 flex-col overflow-hidden bg-zinc-950/95";
 
+  const isDesktopPanel = variant === "panel";
+  const boardItem = activeBoardRow?.item;
+  const sold = boardItem?.status === "sold";
+  const skipped = boardItem?.status === "skipped";
+  const auctionEndedPendingClose =
+    Boolean(boardItem?.biddingOpen && boardItem?.status === "active" && !biddingWindowOpen);
+
   return (
     <div className={shellClass}>
       {/* Top bar */}
@@ -223,40 +232,60 @@ export function LiveSellerCommandCenter({
         ) : null}
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        {/* Active lot command block */}
-        <section className="rounded-xl border border-white/10 bg-black/45 p-3">
+      <div className={`min-h-0 flex-1 overflow-y-auto ${isDesktopPanel ? "px-2.5 py-2" : "px-3 py-3"}`}>
+        {/* Active lot — desktop panel is a compact summary; overlay keeps full controls */}
+        <section className={`rounded-xl border border-white/10 bg-black/45 ${isDesktopPanel ? "p-2" : "p-3"}`}>
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">On the block</p>
-          <p className="mt-1 line-clamp-2 text-sm font-bold text-white">{item?.title ?? "Pin a lot to begin"}</p>
-          <p className="mt-2 font-mono text-2xl font-black tabular-nums text-amber-100">{item ? itemMoney(item) : "—"}</p>
-          <p className="mt-1 text-xs font-semibold text-zinc-300">{leaderLine}</p>
+          <p className={`line-clamp-2 font-bold text-white ${isDesktopPanel ? "mt-0.5 text-xs" : "mt-1 text-sm"}`}>
+            {item?.title ?? "Pin a lot to begin"}
+          </p>
+          <p className={`font-mono font-black tabular-nums text-amber-100 ${isDesktopPanel ? "mt-1 text-lg" : "mt-2 text-2xl"}`}>
+            {item ? itemMoney(item) : "—"}
+          </p>
+          <p className={`font-semibold text-zinc-300 ${isDesktopPanel ? "mt-0.5 text-[10px]" : "mt-1 text-xs"}`}>{leaderLine}</p>
           {hostAuctionCountdownLabel && biddingWindowOpen ? (
-            <p className="mt-2 inline-flex rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-black tabular-nums text-emerald-100">
+            <p className="mt-1.5 inline-flex rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-black tabular-nums text-emerald-100">
               {hostAuctionCountdownLabel}
             </p>
+          ) : auctionEndedPendingClose ? (
+            <p className="mt-1.5 text-[10px] font-semibold text-amber-200/90">Timer ended — close lot on stage overlay</p>
+          ) : sold ? (
+            <p className="mt-1.5 text-[10px] font-semibold text-emerald-300/90">Lot sold</p>
+          ) : skipped ? (
+            <p className="mt-1.5 text-[10px] font-semibold text-zinc-400">Lot skipped</p>
+          ) : isDesktopPanel ? (
+            <p className="mt-1.5 text-[10px] text-zinc-500">Run auctions from the stage bar below the video.</p>
           ) : null}
 
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <PrimaryBtn
-              onClick={onStartAuction}
-              disabled={!hostStartLiveAuctionEnabled || hostLiveItemAuctionBusy || biddingWindowOpen}
-            >
-              {hostLiveItemAuctionBusy ? "Starting…" : "Start auction"}
-            </PrimaryBtn>
-            <PrimaryBtn onClick={onEndAuction} disabled={!item || busy} tone="ghost">
-              End auction
-            </PrimaryBtn>
-            <PrimaryBtn onClick={onPinSelected} disabled={!selectedQueueItemId || busy}>
-              Pin item
-            </PrimaryBtn>
-            <PrimaryBtn onClick={onNextItem} disabled={busy || !queueRows.some((r) => r.item.status === "queued")}>
-              Next item
-            </PrimaryBtn>
-          </div>
+          {isDesktopPanel ? (
+            <div className="mt-2 flex gap-1.5">
+              <PrimaryBtn compact onClick={onPinSelected} disabled={!selectedQueueItemId || busy} tone="ghost">
+                Pin item
+              </PrimaryBtn>
+            </div>
+          ) : (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <PrimaryBtn
+                onClick={onStartAuction}
+                disabled={!hostStartLiveAuctionEnabled || hostLiveItemAuctionBusy || biddingWindowOpen}
+              >
+                {hostLiveItemAuctionBusy ? "Starting…" : "Start auction"}
+              </PrimaryBtn>
+              <PrimaryBtn onClick={onEndAuction} disabled={!item || busy} tone="ghost">
+                End auction
+              </PrimaryBtn>
+              <PrimaryBtn onClick={onPinSelected} disabled={!selectedQueueItemId || busy}>
+                Pin item
+              </PrimaryBtn>
+              <PrimaryBtn onClick={onNextItem} disabled={busy || !queueRows.some((r) => r.item.status === "queued")}>
+                Next item
+              </PrimaryBtn>
+            </div>
+          )}
         </section>
 
         {/* Queue */}
-        <section className="mt-3">
+        <section className={isDesktopPanel ? "mt-2" : "mt-3"}>
           <VaultQueueCarousel
             tab={queueTab}
             onTab={onQueueTab}
@@ -269,11 +298,12 @@ export function LiveSellerCommandCenter({
             onSkip={onSkipItem}
             onDelete={onDeleteItem}
             onAddAuction={onAddAuction}
+            compact={isDesktopPanel}
           />
         </section>
 
         {/* Secondary — collapsed by default */}
-        <div className="mt-3 space-y-2">
+        <div className={`space-y-2 ${isDesktopPanel ? "mt-2" : "mt-3"}`}>
           <CollapsibleSection title="More controls">
             <div className="grid grid-cols-2 gap-2">
               <PrimaryBtn onClick={onOpenObs} disabled={busy} tone="ghost">

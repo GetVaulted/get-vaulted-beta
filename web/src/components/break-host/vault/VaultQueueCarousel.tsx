@@ -29,6 +29,8 @@ type VaultQueueCarouselProps = {
   onSkip?: (id: string) => void;
   onDelete: (id: string) => void;
   onAddAuction: () => void;
+  /** Tighter cards for desktop seller sidebar */
+  compact?: boolean;
 };
 
 export function VaultQueueCarousel({
@@ -43,6 +45,7 @@ export function VaultQueueCarousel({
   onSkip,
   onDelete,
   onAddAuction,
+  compact = false,
 }: VaultQueueCarouselProps) {
   const auctionRows = rows.filter((r) => r.item.status !== "sold" && r.item.status !== "skipped");
   const soldRows = rows.filter((r) => r.item.status === "sold");
@@ -57,8 +60,8 @@ export function VaultQueueCarousel({
         : [];
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap gap-1.5">
+    <div className={compact ? "space-y-2" : "space-y-3"}>
+      <div className="flex flex-wrap gap-1">
         {(
           [
             { id: "auction" as const, label: "Auction" },
@@ -71,7 +74,9 @@ export function VaultQueueCarousel({
             key={t.id}
             type="button"
             onClick={() => onTab(t.id)}
-            className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-wide transition ${
+            className={`rounded-full border font-black uppercase tracking-wide transition ${
+              compact ? "px-2 py-0.5 text-[9px]" : "px-3 py-1 text-[10px]"
+            } ${
               tab === t.id
                 ? "border-amber-400/40 bg-amber-500/15 text-amber-100 shadow-[0_0_20px_-10px_rgba(245,158,11,0.45)]"
                 : "border-white/10 bg-black/40 text-zinc-500 hover:border-white/20 hover:text-zinc-300"
@@ -87,7 +92,9 @@ export function VaultQueueCarousel({
           type="button"
           disabled={busy}
           onClick={onAddAuction}
-          className="w-full rounded-xl border border-amber-400/30 bg-gradient-to-r from-amber-500/15 to-yellow-500/10 py-2.5 text-[11px] font-bold text-amber-100 ring-1 ring-amber-400/20 hover:from-amber-500/25 disabled:opacity-50"
+          className={`w-full rounded-lg border border-amber-400/30 bg-gradient-to-r from-amber-500/15 to-yellow-500/10 font-bold text-amber-100 ring-1 ring-amber-400/20 hover:from-amber-500/25 disabled:opacity-50 ${
+            compact ? "py-1.5 text-[10px]" : "rounded-xl py-2.5 text-[11px]"
+          }`}
         >
           + Add to queue
         </button>
@@ -118,13 +125,15 @@ export function VaultQueueCarousel({
           return (
             <div
               key={item.id}
-              className={`relative w-[min(13.5rem,78vw)] shrink-0 rounded-2xl p-px ${
+              className={`relative shrink-0 rounded-xl p-px ${
+                compact ? "w-[min(11rem,72vw)]" : "w-[min(13.5rem,78vw)]"
+              } ${
                 selected ? "bg-gradient-to-br from-amber-300/50 via-amber-500/30 to-transparent" : "bg-gradient-to-br from-white/10 to-transparent"
               }`}
             >
-              <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-950/70 shadow-[0_18px_50px_-28px_rgba(0,0,0,0.9)] backdrop-blur-md">
+              <div className={`flex h-full flex-col overflow-hidden rounded-xl border border-white/[0.06] bg-zinc-950/70 shadow-[0_18px_50px_-28px_rgba(0,0,0,0.9)] backdrop-blur-md ${compact ? "" : "rounded-2xl"}`}>
                 <button type="button" onClick={() => onSelect(item.id)} className="relative block w-full text-left">
-                  <div className="relative aspect-[4/3] w-full bg-zinc-900">
+                  <div className={`relative w-full bg-zinc-900 ${compact ? "aspect-[5/3]" : "aspect-[4/3]"}`}>
                     {thumb ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={thumb} alt="" className="size-full object-cover opacity-95" />
@@ -138,7 +147,7 @@ export function VaultQueueCarousel({
                     </div>
                   </div>
                 </button>
-                <div className="space-y-1.5 px-2.5 py-2">
+                <div className={`space-y-1 ${compact ? "px-2 py-1.5" : "space-y-1.5 px-2.5 py-2"}`}>
                   <div className="flex items-center justify-between text-[10px]">
                     <span className="font-mono font-bold text-zinc-200">{fmtMoney(item.currentBidUsd ?? item.startingBidUsd)}</span>
                     <span className="text-zinc-500">{viewerCount} room</span>
@@ -198,7 +207,9 @@ export function VaultQueueCarousel({
         })}
       </div>
 
-      <p className="text-center text-[10px] text-zinc-600">Drag-to-reorder sync is coming — order follows your queue for now.</p>
+      {!compact ? (
+        <p className="text-center text-[10px] text-zinc-600">Drag-to-reorder sync is coming — order follows your queue for now.</p>
+      ) : null}
     </div>
   );
 }
