@@ -3,6 +3,7 @@
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { formatAuctionLeaderLine, formatAuctionMoneyUsd } from "@/lib/live-auction-winner-display";
 import { resolveLiveItemOverlayPrice } from "@/lib/live-auction-overlay-price";
+import { isVariantPurchaseItem, summarizeVariantSpots } from "@/lib/live-item-variant-presets";
 import type { LiveRoomEnergyLevel } from "@/lib/live-room-energy";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import type { LiveLotTransitionPhase } from "@/components/live-stage/LiveLotTransitionBanner";
@@ -114,25 +115,42 @@ export function LiveAuctionHud({
 }: LiveAuctionHudProps) {
   const item = overlayQueueRow?.item;
   const boardItem = activeBoardRow?.item;
+  const commerceItem = boardItem ?? item;
+  const isVariantItem = isVariantPurchaseItem(commerceItem);
+  const spotStats = isVariantItem ? summarizeVariantSpots(commerceItem?.variants) : null;
   const thumb = item?.imageUrl?.trim();
-  const overlayPrice = item ? fmtOverlayLead(item) : null;
+  const overlayPrice = item && !isVariantItem ? fmtOverlayLead(item) : null;
   const sold = boardItem?.status === "sold";
   const skipped = boardItem?.status === "skipped";
-  const auctionRunning = Boolean(biddingWindowOpen && boardItem);
-  const auctionEndedPendingClose =
-    Boolean(boardItem?.biddingOpen && boardItem?.status === "active" && !biddingWindowOpen);
-  const canEndAuction = Boolean(boardItem && boardItem.status === "active" && (auctionRunning || auctionEndedPendingClose));
-  const preAuction = roomStatusLive && !auctionRunning && !auctionEndedPendingClose && !sold && !skipped;
+  const auctionRunning = isVariantItem ? false : Boolean(biddingWindowOpen && boardItem);
+  const auctionEndedPendingClose = isVariantItem
+    ? false
+    : Boolean(boardItem?.biddingOpen && boardItem?.status === "active" && !biddingWindowOpen);
+  const canEndAuction = isVariantItem
+    ? false
+    : Boolean(boardItem && boardItem.status === "active" && (auctionRunning || auctionEndedPendingClose));
+  const preAuction = isVariantItem
+    ? roomStatusLive && !sold && !skipped
+    : roomStatusLive && !auctionRunning && !auctionEndedPendingClose && !sold && !skipped;
+  const variantHeroAmount =
+    spotStats?.fromPriceUsd != null ? formatAuctionMoneyUsd(spotStats.fromPriceUsd) : "—";
+  const variantHeroSub =
+    spotStats != null
+      ? `${spotStats.available} open · ${spotStats.sold} sold`
+      : null;
 
-  const winnerLine = item
-    ? formatAuctionLeaderLine({
-        lastHighBidderUsername: item.lastHighBidderUsername,
-        lastHighBidderId: item.lastHighBidderId,
-        currentBidUsd: item.currentBidUsd,
-        startingBidUsd: item.startingBidUsd,
-        priceUsd: item.priceUsd,
-      })
-    : null;
+  const winnerLine =
+    item && !isVariantItem
+      ? formatAuctionLeaderLine({
+          lastHighBidderUsername: item.lastHighBidderUsername,
+          lastHighBidderId: item.lastHighBidderId,
+          currentBidUsd: item.currentBidUsd,
+          startingBidUsd: item.startingBidUsd,
+          priceUsd: item.priceUsd,
+        })
+      : isVariantItem && variantHeroSub
+        ? variantHeroSub
+        : null;
 
   const timerUrgent =
     hostAuctionCountdownLabel != null &&
@@ -228,10 +246,14 @@ export function LiveAuctionHud({
               motionBurst === "bid" || motionBurst === "bid_war" ? "[animation:live-price-glow_0.6s_ease-out]" : ""
             }`}
           >
-            {overlayPrice?.amountFormatted ?? "—"}
+            {isVariantItem ? variantHeroAmount : overlayPrice?.amountFormatted ?? "—"}
           </p>
           <div className="mt-0.5 flex items-center gap-1">
-            {hostAuctionCountdownLabel ? (
+            {isVariantItem ? (
+              <span className="text-[9px] font-bold uppercase tracking-wide text-emerald-200/90">
+                {spotStats?.available === 0 ? "All spots sold" : "Direct spot purchase"}
+              </span>
+            ) : hostAuctionCountdownLabel ? (
               <span
                 className={`font-mono text-[11px] font-black tabular-nums ${
                   timerUrgent
@@ -282,6 +304,10 @@ export function LiveAuctionHud({
                 Close
               </HudAction>
             ) : null
+          ) : isVariantItem && preAuction ? (
+            <span className="rounded-full border border-emerald-400/35 bg-emerald-500/15 px-2 py-0.5 text-[7px] font-black uppercase tracking-[0.12em] text-emerald-100">
+              {roomStatusLive ? "Spot Board Live" : "Go live for spots"}
+            </span>
           ) : preAuction && hostStartLiveAuctionEnabled ? (
             <>
               <select

@@ -56,8 +56,13 @@ export async function purchaseLiveItemVariant(args: {
   if (res.status === 402) {
     throw new WalletIncompleteError(payload);
   }
-  if (res.status === 401 && payload.signInUrl) {
-    return { ok: false, error: 'Sign in required.', status: 401, signInUrl: payload.signInUrl };
+  if (res.status === 401) {
+    return {
+      ok: false,
+      error: typeof payload.error === 'string' ? payload.error : 'Sign in required.',
+      status: 401,
+      signInUrl: payload.signInUrl,
+    };
   }
   if (!res.ok) {
     return {

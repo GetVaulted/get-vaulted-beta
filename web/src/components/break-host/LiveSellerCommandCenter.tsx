@@ -11,6 +11,7 @@ import { liveAuctionDisplayBidUsd } from "@/lib/live-auction-overlay-price";
 import type { LiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
 import type { LiveRoomModeratorRow } from "@/hooks/useLiveRoomModerationState";
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
+import { isVariantPurchaseItem, summarizeVariantSpots } from "@/lib/live-item-variant-presets";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { VAULT_MODE_META } from "@/components/break-host/vault/vault-modes";
 import { LiveRoomEnergyMeter } from "@/components/live-stage/LiveRoomEnergyMeter";
@@ -190,14 +191,19 @@ export function LiveSellerCommandCenter({
 }: LiveSellerCommandCenterProps) {
   const live = roomStatus === "live";
   const item = overlayQueueRow?.item ?? activeBoardRow?.item ?? null;
+  const commerceItem = activeBoardRow?.item ?? item;
+  const isVariantItem = isVariantPurchaseItem(commerceItem);
+  const spotStats = isVariantItem ? summarizeVariantSpots(commerceItem?.variants) : null;
   const leaderLine = item
-    ? formatAuctionLeaderLine({
-        lastHighBidderUsername: item.lastHighBidderUsername,
-        lastHighBidderId: item.lastHighBidderId,
-        currentBidUsd: item.currentBidUsd,
-        startingBidUsd: item.startingBidUsd,
-        priceUsd: item.priceUsd,
-      })
+    ? isVariantItem && spotStats
+      ? `${spotStats.available} spots open · ${spotStats.sold} sold`
+      : formatAuctionLeaderLine({
+          lastHighBidderUsername: item.lastHighBidderUsername,
+          lastHighBidderId: item.lastHighBidderId,
+          currentBidUsd: item.currentBidUsd,
+          startingBidUsd: item.startingBidUsd,
+          priceUsd: item.priceUsd,
+        })
     : "No lot pinned";
 
   const shellClass =
@@ -227,6 +233,7 @@ export function LiveSellerCommandCenter({
 
   if (isCompactRail) {
     const canEndAuction =
+      !isVariantItem &&
       Boolean(boardItem && boardItem.status === "active" && (biddingWindowOpen || auctionEndedPendingClose));
 
     return (
@@ -253,12 +260,20 @@ export function LiveSellerCommandCenter({
 
           <div className="border-t border-white/[0.08] pt-1.5">
             <p className="line-clamp-2 text-[10px] font-bold text-white">{item?.title ?? "Pin a lot to begin"}</p>
-            {hostAuctionCountdownLabel && biddingWindowOpen ? (
+            {hostAuctionCountdownLabel && biddingWindowOpen && !isVariantItem ? (
               <p className="mt-0.5 font-mono text-[11px] font-black tabular-nums text-emerald-200">{hostAuctionCountdownLabel}</p>
             ) : (
-              <p className="mt-0.5 font-mono text-[12px] font-black tabular-nums text-amber-100">{item ? itemMoney(item) : "—"}</p>
+              <p className="mt-0.5 font-mono text-[12px] font-black tabular-nums text-amber-100">
+                {isVariantItem && spotStats?.fromPriceUsd != null
+                  ? `From ${formatAuctionMoneyUsd(spotStats.fromPriceUsd)}`
+                  : item
+                    ? itemMoney(item)
+                    : "—"}
+              </p>
             )}
-            <p className="mt-0.5 truncate text-[9px] font-medium text-amber-200/95">{leaderLine}</p>
+            <p className="mt-0.5 truncate text-[9px] font-medium text-amber-200/95">
+              {isVariantItem && live ? "Spot board live on stage" : leaderLine}
+            </p>
           </div>
 
           <button
@@ -426,10 +441,20 @@ export function LiveSellerCommandCenter({
           {!isCompactRail ? (
             <>
           <p className={`font-mono font-black tabular-nums text-amber-100 ${isDesktopPanel ? "mt-1 text-lg" : "mt-2 text-2xl"}`}>
-            {item ? itemMoney(item) : "—"}
+            {isVariantItem && spotStats?.fromPriceUsd != null
+              ? formatAuctionMoneyUsd(spotStats.fromPriceUsd)
+              : item
+                ? itemMoney(item)
+                : "—"}
           </p>
-          <p className={`font-semibold text-zinc-300 ${isDesktopPanel ? "mt-0.5 text-[10px]" : "mt-1 text-xs"}`}>{leaderLine}</p>
-          {hostAuctionCountdownLabel && biddingWindowOpen ? (
+          <p className={`font-semibold text-zinc-300 ${isDesktopPanel ? "mt-0.5 text-[10px]" : "mt-1 text-xs"}`}>
+            {isVariantItem ? (live ? "Spot board live — buyers pick spots on stage" : leaderLine) : leaderLine}
+          </p>
+          {isVariantItem && live ? (
+            <p className="mt-1.5 inline-flex rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-100">
+              Open spots
+            </p>
+          ) : hostAuctionCountdownLabel && biddingWindowOpen ? (
             <p className="mt-1.5 inline-flex rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-black tabular-nums text-emerald-100">
               {hostAuctionCountdownLabel}
             </p>
@@ -439,8 +464,10 @@ export function LiveSellerCommandCenter({
             <p className="mt-1.5 text-[10px] font-semibold text-emerald-300/90">Lot sold</p>
           ) : skipped ? (
             <p className="mt-1.5 text-[10px] font-semibold text-zinc-400">Lot skipped</p>
-          ) : isDesktopPanel ? (
+          ) : isDesktopPanel && !isVariantItem ? (
             <p className="mt-1 text-[10px] text-zinc-500">Auction controls live on the stage HUD.</p>
+          ) : isDesktopPanel && isVariantItem ? (
+            <p className="mt-1 text-[10px] text-zinc-500">Spot controls live on the stage HUD.</p>
           ) : null}
             </>
           ) : (
@@ -451,6 +478,15 @@ export function LiveSellerCommandCenter({
             <div className={`flex gap-1.5 ${isCompactRail ? "mt-1" : "mt-2"}`}>
               <PrimaryBtn compact onClick={onPinSelected} disabled={!selectedQueueItemId || busy} tone="ghost">
                 Pin
+              </PrimaryBtn>
+            </div>
+          ) : isVariantItem ? (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <PrimaryBtn onClick={onNextItem} disabled={busy || !queueRows.some((r) => r.item.status === "queued")}>
+                Next item
+              </PrimaryBtn>
+              <PrimaryBtn onClick={onPinSelected} disabled={!selectedQueueItemId || busy} tone="ghost">
+                Pin item
               </PrimaryBtn>
             </div>
           ) : (

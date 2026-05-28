@@ -1235,13 +1235,16 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
   const biddingWindowStillRunningHost = Boolean(
     activeBoardRow?.item.biddingOpen &&
+      !isVariantSalesFormat(activeBoardRow.item.salesFormat) &&
       activeBoardRow.item.auctionEndsAt &&
       Number.isFinite(Date.parse(activeBoardRow.item.auctionEndsAt)) &&
       Date.parse(activeBoardRow.item.auctionEndsAt) > syncedWallTimeMs(hostClockSkewMs),
   );
   void auctionTickHost;
   const hostAuctionCountdownLabel =
-    activeBoardRow?.item.biddingOpen && activeBoardRow.item.auctionEndsAt
+    activeBoardRow?.item.biddingOpen &&
+    activeBoardRow.item.auctionEndsAt &&
+    !isVariantSalesFormat(activeBoardRow.item.salesFormat)
       ? (() => {
           const ends = Date.parse(activeBoardRow.item.auctionEndsAt!);
           if (!Number.isFinite(ends)) return null;
@@ -1252,7 +1255,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     room.status === "live" &&
     activeBoardRow != null &&
     activeBoardRow.item.status === "active" &&
-    !activeBoardRow.item.biddingOpen;
+    !activeBoardRow.item.biddingOpen &&
+    !isVariantSalesFormat(activeBoardRow.item.salesFormat);
 
   const recentChatCount = (() => {
     const cutoff = Date.now() - 120_000;

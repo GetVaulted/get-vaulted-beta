@@ -3,6 +3,7 @@
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { formatAuctionLeaderLine, formatAuctionMoneyUsd } from "@/lib/live-auction-winner-display";
 import { resolveLiveItemOverlayPrice } from "@/lib/live-auction-overlay-price";
+import { isVariantPurchaseItem, summarizeVariantSpots } from "@/lib/live-item-variant-presets";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { VAULT_MODE_META } from "@/components/break-host/vault/vault-modes";
 import { LiveAuctionHud, type LiveStageMotionBurst } from "@/components/live-stage/LiveAuctionHud";
@@ -122,12 +123,18 @@ export function VaultPinnedLot({
   const isMobile = variant === "mobile";
   const compactEmbedded = embedded && !isMobile;
   const item = overlayQueueRow?.item;
+  const boardItem = activeBoardRow?.item;
+  const commerceItem = boardItem ?? item;
+  const isVariantItem = isVariantPurchaseItem(commerceItem);
+  const spotStats = isVariantItem ? summarizeVariantSpots(commerceItem?.variants) : null;
   const thumb = item?.imageUrl?.trim();
   const reserveMet =
     item?.priceUsd != null && Number.isFinite(item.priceUsd) && item.currentBidUsd != null && Number.isFinite(item.currentBidUsd)
       ? item.currentBidUsd >= item.priceUsd
       : null;
-  const overlayPrice = item ? fmtOverlayLead(item) : null;
+  const overlayPrice = item && !isVariantItem ? fmtOverlayLead(item) : null;
+  const variantFromPrice =
+    spotStats?.fromPriceUsd != null ? formatAuctionMoneyUsd(spotStats.fromPriceUsd) : "—";
 
   if (compactEmbedded) {
     return (
@@ -231,13 +238,15 @@ export function VaultPinnedLot({
             </p>
             {item ? (
               <p className={`mt-1 text-left font-semibold text-amber-100/95 ${compactEmbedded ? "text-[10px]" : "text-[11px]"}`}>
-                {formatAuctionLeaderLine({
-                  lastHighBidderUsername: item.lastHighBidderUsername,
-                  lastHighBidderId: item.lastHighBidderId,
-                  currentBidUsd: item.currentBidUsd,
-                  startingBidUsd: item.startingBidUsd,
-                  priceUsd: item.priceUsd,
-                })}
+                {isVariantItem && spotStats
+                  ? `${spotStats.available} spots open · ${spotStats.sold} sold`
+                  : formatAuctionLeaderLine({
+                      lastHighBidderUsername: item.lastHighBidderUsername,
+                      lastHighBidderId: item.lastHighBidderId,
+                      currentBidUsd: item.currentBidUsd,
+                      startingBidUsd: item.startingBidUsd,
+                      priceUsd: item.priceUsd,
+                    })}
               </p>
             ) : null}
             {!compactEmbedded ? (
@@ -258,16 +267,20 @@ export function VaultPinnedLot({
 
           <div className="shrink-0 text-right">
             <p className="text-[8px] font-bold uppercase tracking-[0.12em] text-zinc-500">
-              {overlayPrice?.label ?? "Opening bid"}
+              {isVariantItem ? "From" : overlayPrice?.label ?? "Opening bid"}
             </p>
             <p
               className={`font-mono font-black tabular-nums text-white tracking-tight ${
                 isMobile ? "text-base" : compactEmbedded ? "text-base" : embedded ? "text-lg" : "text-xl"
               }`}
             >
-              {overlayPrice?.amountFormatted ?? "—"}
+              {isVariantItem ? variantFromPrice : overlayPrice?.amountFormatted ?? "—"}
             </p>
-            {item?.priceUsd != null && Number.isFinite(item.priceUsd) ? (
+            {isVariantItem && spotStats ? (
+              <p className="mt-0.5 text-[8px] font-semibold text-emerald-300/90">
+                {spotStats.available === 0 ? "All spots sold" : "Spot board live"}
+              </p>
+            ) : item?.priceUsd != null && Number.isFinite(item.priceUsd) ? (
               <p className="mt-0.5 text-[8px] font-semibold text-zinc-400">
                 Reserve{" "}
                 {reserveMet === true ? (
@@ -286,7 +299,7 @@ export function VaultPinnedLot({
                 <span className="text-zinc-400">{viewerCount}</span> watching
               </p>
             ) : null}
-            {hostAuctionCountdownLabel ? (
+            {!isVariantItem && hostAuctionCountdownLabel ? (
               <p className="mt-1 inline-flex items-center justify-end gap-1 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-black tabular-nums text-emerald-100 shadow-[0_0_16px_-6px_rgba(16,185,129,0.55)]">
                 <span className="size-1.5 animate-pulse rounded-full bg-emerald-300" aria-hidden />
                 {hostAuctionCountdownLabel}
@@ -306,6 +319,28 @@ export function VaultPinnedLot({
               </p>
             ) : activeBoardRow.item.status === "skipped" ? (
               <p className="text-center text-[11px] font-bold uppercase tracking-wide text-zinc-400">Lot skipped</p>
+            ) : isVariantItem ? (
+              <div className={`flex flex-wrap items-center gap-2 ${isMobile ? "justify-center" : "justify-between"}`}>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/15 px-2.5 py-1 text-[9px] font-black uppercase tracking-wide text-emerald-100">
+                  <span className="size-1.5 animate-pulse rounded-full bg-emerald-300" aria-hidden />
+                  {roomStatusLive ? "Spot board live" : "Go live for spots"}
+                </span>
+                {spotStats ? (
+                  <span className="text-[10px] font-bold tabular-nums text-amber-100">
+                    {spotStats.available} open · {spotStats.sold} sold
+                  </span>
+                ) : null}
+                {onNextItem ? (
+                  <button
+                    type="button"
+                    disabled={hostBusy}
+                    onClick={onNextItem}
+                    className="rounded-full border border-white/15 bg-black/55 px-3 py-1 text-[9px] font-black uppercase tracking-wide text-zinc-100 disabled:opacity-40"
+                  >
+                    Next item
+                  </button>
+                ) : null}
+              </div>
             ) : biddingWindowOpen ? (
               <div className={`flex flex-wrap items-center gap-2 ${isMobile ? "justify-center" : "justify-between"}`}>
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/15 px-2.5 py-1 text-[9px] font-black uppercase tracking-wide text-emerald-100">

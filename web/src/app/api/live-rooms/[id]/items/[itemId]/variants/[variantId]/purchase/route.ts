@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { getServerSessionSafe } from "@/lib/auth";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import { createLiveItemVariantCheckoutSession, finalizeLiveItemVariantPurchasePaid } from "@/lib/live-item-variant-purchase";
 import { prisma } from "@/lib/prisma";
+import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { isStripeConfigured } from "@/lib/stripe";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
 
@@ -17,10 +17,19 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ id: string; itemId: string; variantId: string }> },
 ) {
-  const session = await getServerSessionSafe();
   const { id: rawRoom, itemId, variantId } = await ctx.params;
   const liveRoomId = decodeURIComponent(rawRoom);
   const returnPath = `/live/${encodeURIComponent(liveRoomId)}`;
+
+  const authHeader = req.headers.get("authorization");
+  const auth = await resolveLiveRoomsUserId(req);
+  if (auth instanceof NextResponse) {
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Sign in to checkout.", signInUrl: signInUrl(returnPath) }, { status: 401 });
+    }
+    return auth;
+  }
+  const userId = auth.userId;
 
   const room = await prisma.liveRoom.findUnique({
     where: { id: liveRoomId },
@@ -34,15 +43,12 @@ export async function POST(
     return NextResponse.json({ error: "Purchases are locked for this room." }, { status: 409 });
   }
 
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Sign in to checkout.", signInUrl: signInUrl(returnPath) }, { status: 401 });
-  }
-  if (room.sellerId === session.user.id) {
+  if (room.sellerId === userId) {
     return NextResponse.json({ error: "You cannot purchase in your own room." }, { status: 400 });
   }
 
   if (isStripeConfigured()) {
-    const wallet = await liveWalletIncompleteOrNull(session.user.id);
+    const wallet = await liveWalletIncompleteOrNull(userId);
     if (wallet) {
       return NextResponse.json(wallet, { status: 402 });
     }
@@ -62,7 +68,7 @@ export async function POST(
   const idempotencyKey = req.headers.get("Idempotency-Key")?.trim().slice(0, 128) ?? null;
   if (idempotencyKey) {
     const existing = await prisma.liveItemVariantPurchase.findFirst({
-      where: { idempotencyKey, buyerId: session.user.id },
+      where: { idempotencyKey, buyerId: userId },
       select: { id: true, paymentStatus: true, stripeCheckoutSessionId: true, totalUsd: true },
     });
     if (existing) {
@@ -72,7 +78,7 @@ export async function POST(
       if (existing.totalUsd > 0 && isStripeConfigured()) {
         try {
           const { url } = await createLiveItemVariantCheckoutSession({
-            userId: session.user.id,
+            userId,
             purchaseId: existing.id,
           });
           return NextResponse.json({ purchaseId: existing.id, checkoutUrl: url });
@@ -126,7 +132,7 @@ export async function POST(
           liveRoomId,
           liveRoomItemId: item.id,
           variantId: variant.id,
-          buyerId: session.user!.id,
+          buyerId: userId,
           quantity,
           unitPriceUsd,
           totalUsd,
@@ -163,7 +169,7 @@ export async function POST(
     }
 
     const { url } = await createLiveItemVariantCheckoutSession({
-      userId: session.user.id,
+      userId,
       purchaseId: result.id,
     });
     emitLiveRoomQueueItemsChanged(liveRoomId);
