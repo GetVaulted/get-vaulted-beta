@@ -677,13 +677,13 @@ export function LiveSaleRoom({
           : "Select an item";
 
   const desktopVideoOverlay = (
-    <div className="rounded-[var(--live-radius-chrome)] border border-emerald-300/25 bg-black/60 p-4 backdrop-blur-[var(--live-blur-md)] shadow-[var(--live-shadow-overlay),0_0_24px_-12px_rgba(16,185,129,0.35),inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors duration-[var(--live-duration-ui)] hover:brightness-[1.06]">
-      <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Live action</p>
+    <div className="live-desktop-action-hud p-4">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">Live action</p>
       <p
-        className={`mt-1 text-base font-black tabular-nums tracking-tight transition-colors duration-500 ease-[var(--live-ease)] ${
+        className={`mt-1 text-lg font-black tabular-nums tracking-tight transition-colors duration-500 ease-[var(--live-ease)] ${
           roomType === "auction" && isWinning
             ? "text-gold-bright motion-safe:[animation:live-price-glow_2.8s_ease-in-out_infinite]"
-            : "text-emerald-200"
+            : "text-amber-100"
         }`}
       >
         {actionUi
@@ -692,7 +692,7 @@ export function LiveSaleRoom({
             : fmt(currentTopBid)
           : "$0"}
       </p>
-      <p className="mt-0.5 line-clamp-2 text-[10px] text-zinc-300">{priceLine}</p>
+      <p className="mt-0.5 line-clamp-2 text-[11px] font-medium text-zinc-200">{priceLine}</p>
       {!isHost && (roomType === "auction" || roomType === "sale") ? (
         <LiveShippingIndicator liveShowId={liveRoomId} refreshNonce={shipUxNonce} pollMs={isLive ? 8000 : 0} className="mt-2" />
       ) : null}
@@ -780,7 +780,7 @@ export function LiveSaleRoom({
               (Boolean(activeListingId) && Boolean(bidMeta?.auctionEnded))
             }
             onClick={() => void handlePlaceBid()}
-            className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] border border-emerald-400/40 bg-emerald-600/25 px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-emerald-200 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] hover:bg-emerald-600/35 active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
+            className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] border border-emerald-300/50 bg-emerald-600/40 px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-emerald-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] hover:bg-emerald-600/55 active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
           >
             {`Place Bid $${nextBidAmount}`}
           </button>

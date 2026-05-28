@@ -301,6 +301,19 @@ body {
   box-shadow: var(--live-shadow-overlay), var(--live-inset-highlight), 0 0 42px -28px rgba(167, 139, 250, 0.18);
 }
 
+/** Desktop buyer bottom action HUD — readable on bright video. */
+.live-desktop-action-hud {
+  border: 1px solid rgba(255, 215, 80, 0.32);
+  border-radius: var(--live-radius-chrome);
+  background: linear-gradient(180deg, rgba(12, 12, 16, 0.92) 0%, rgba(9, 9, 11, 0.88) 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 215, 80, 0.14) inset,
+    0 0 36px rgba(255, 215, 80, 0.14),
+    0 18px 44px -18px rgba(0, 0, 0, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
 /**
  * Full-width mobile modal sheet (queue, controls, etc.).
  */

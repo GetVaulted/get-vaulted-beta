@@ -671,18 +671,18 @@ export function LiveAuctionRoom({
   }, [isLive, liveRoomId, status, toast]);
 
   const desktopVideoOverlay = (
-    <div className="rounded-[var(--live-radius-chrome)] border border-violet-300/30 bg-black/75 p-4 backdrop-blur-[var(--live-blur-lg)] shadow-[var(--live-shadow-overlay),0_0_28px_-12px_rgba(167,139,250,0.35),inset_0_1px_0_rgba(255,255,255,0.08)]">
+    <div className="live-desktop-action-hud p-4">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p data-testid="live-active-item-title" className="line-clamp-1 text-sm font-bold text-zinc-100">
+          <p data-testid="live-active-item-title" className="line-clamp-1 text-sm font-bold text-zinc-50">
             {selectedQueue?.displayTitle ?? activeQueueItem?.displayTitle ?? "Current item"}
           </p>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-            <p className="font-black text-violet-100">${displaySpotAmount}</p>
-            <span className="text-zinc-500">•</span>
-            <p className="text-zinc-300">{selectedQueue?.bids ?? activeQueueItem?.bids ?? 0} bids</p>
-            <span className="text-zinc-500">•</span>
-            <p className="text-zinc-400">{hostDisplayName}</p>
+            <p className="font-black text-amber-100">${displaySpotAmount}</p>
+            <span className="text-zinc-400">•</span>
+            <p className="font-medium text-zinc-200">{selectedQueue?.bids ?? activeQueueItem?.bids ?? 0} bids</p>
+            <span className="text-zinc-400">•</span>
+            <p className="text-zinc-300">{hostDisplayName}</p>
           </div>
           <p
             className={`mt-1 text-[10px] font-semibold uppercase tracking-wide ${

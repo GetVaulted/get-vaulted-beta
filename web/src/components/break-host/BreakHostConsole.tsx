@@ -14,10 +14,9 @@ import { VaultHostLiveChatPanel } from "@/components/break-host/vault/VaultHostL
 import { VaultHostStageEdgeRail } from "@/components/break-host/vault/VaultHostStageEdgeRail";
 import { VaultHostRightRail } from "@/components/break-host/vault/VaultHostRightRail";
 import { VaultPinnedLot } from "@/components/break-host/vault/VaultPinnedLot";
+import { AddQueueItemModal, type AddQueueItemAuctionPayload, type AddQueueItemCloseReason } from "@/components/break-host/AddQueueItemModal";
 import { VaultQueueDrawer } from "@/components/break-host/vault/VaultQueueDrawer";
-import { LiveItemVariantBuilder, type LiveItemSalesFormatDraft } from "@/components/live-auction/LiveItemVariantBuilder";
 import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotBoard";
-import type { VariantDraftInput } from "@/lib/live-item-variant-presets";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { vaultModeRootClass } from "@/components/break-host/vault/vault-modes";
@@ -198,13 +197,6 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
   const [queueAddModal, setQueueAddModal] = useState<null | "auction" | "bin" | "givvy">(null);
   const [obsSetupModalOpen, setObsSetupModalOpen] = useState(false);
-  const [auctionDraftTitle, setAuctionDraftTitle] = useState("");
-  const [auctionDraftPrice, setAuctionDraftPrice] = useState("");
-  const [auctionDraftQuantity, setAuctionDraftQuantity] = useState("1");
-  const [auctionDraftStartBid, setAuctionDraftStartBid] = useState("");
-  const [auctionDraftSalesFormat, setAuctionDraftSalesFormat] = useState<LiveItemSalesFormatDraft>("auction");
-  const [auctionDraftVariants, setAuctionDraftVariants] = useState<VariantDraftInput[]>([]);
-  const [queueDraftMisc, setQueueDraftMisc] = useState(false);
 
   const [teamBoardData, setTeamBoardData] = useState<TeamBoardPublicPayload | null>(null);
   const [teamBoardBusy, setTeamBoardBusy] = useState(false);
@@ -1076,62 +1068,46 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       }
     })();
 
-  const submitAuctionAdd = () => {
-    const title = auctionDraftTitle.trim();
-    if (!title) {
-      setToast("Title required.");
-      return;
-    }
-    const p = auctionDraftPrice.trim() === "" ? null : Number(auctionDraftPrice);
-    const qtyRaw = auctionDraftQuantity.trim() === "" ? 1 : Number(auctionDraftQuantity);
-    const quantity = Number.isFinite(qtyRaw) && qtyRaw >= 1 ? Math.min(512, Math.floor(qtyRaw)) : 1;
-    const sbRaw = auctionDraftStartBid.trim();
-    const startingBidUsd =
-      sbRaw === ""
-        ? 1
-        : Number.isFinite(Number(sbRaw)) && Number(sbRaw) > 0
-          ? Number(sbRaw)
-          : 1;
-    const miscPayload =
-      hostDataRef.current?.room.teamBoardLeague === "nfl" ? { teamBoardMisc: queueDraftMisc } : {};
-    const variantPayload = isVariantSalesFormat(auctionDraftSalesFormat)
-      ? { salesFormat: auctionDraftSalesFormat, variants: auctionDraftVariants }
-      : { salesFormat: auctionDraftSalesFormat };
-    return void (async () => {
+  const handleQueueAddModalClose = useCallback((_reason: AddQueueItemCloseReason) => {
+    setQueueAddModal(null);
+  }, []);
+
+  const handleSubmitAuctionAdd = useCallback(
+    async (payload: AddQueueItemAuctionPayload): Promise<boolean> => {
+      const miscPayload =
+        hostDataRef.current?.room.teamBoardLeague === "nfl" ? { teamBoardMisc: payload.teamBoardMisc } : {};
+      const variantPayload = isVariantSalesFormat(payload.salesFormat)
+        ? { salesFormat: payload.salesFormat, variants: payload.variants }
+        : { salesFormat: payload.salesFormat };
       setBusy(true);
       setToast(null);
       try {
         const res = await createLiveRoomItem(roomId, {
-          title,
-          priceUsd: p != null && Number.isFinite(p) ? p : null,
-          startingBidUsd,
-          quantity: isVariantSalesFormat(auctionDraftSalesFormat) ? 1 : quantity,
+          title: payload.title,
+          priceUsd: payload.priceUsd,
+          startingBidUsd: payload.startingBidUsd,
+          quantity: payload.quantity,
           ...miscPayload,
           ...variantPayload,
         });
         if (!res.ok) {
           setToast(res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error);
-          return;
+          return false;
         }
-        setQueueAddModal(null);
-        setAuctionDraftTitle("");
-        setAuctionDraftPrice("");
-        setAuctionDraftQuantity("1");
-        setAuctionDraftStartBid("");
-        setAuctionDraftSalesFormat("auction");
-        setAuctionDraftVariants([]);
-        setQueueDraftMisc(false);
         await load();
         router.refresh();
         setToast("Added to queue.");
+        return true;
       } catch (err) {
         const msg = err instanceof Error ? err.message.trim() : "";
         setToast(msg ? `Could not add item (${msg}).` : "Could not add item. Check your connection and try again.");
+        return false;
       } finally {
         setBusy(false);
       }
-    })();
-  };
+    },
+    [load, roomId, router],
+  );
 
   const copyPublic = async () => {
     try {
@@ -1372,8 +1348,6 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     onDeleteItem: (id: string) => void deleteQueueItem(id),
     onAddAuction: () => {
       setVaultCommandOpen(false);
-      setAuctionDraftTitle("");
-      setAuctionDraftPrice("");
       setQueueAddModal("auction");
     },
     onOpenObs: () => {
@@ -1659,8 +1633,6 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
             onDelete={(id) => void deleteQueueItem(id)}
             onAddAuction={() => {
               setQueueDrawerOpen(false);
-              setAuctionDraftTitle("");
-              setAuctionDraftPrice("");
               setQueueAddModal("auction");
             }}
           />
@@ -1716,127 +1688,14 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         </div>
       ) : null}
 
-      {queueAddModal ? (
-        <div
-          role="dialog"
-          aria-modal
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4"
-          onClick={() => setQueueAddModal(null)}
-        >
-          <div
-            className="flex max-h-[min(92dvh,calc(100vh-48px))] w-full max-w-[min(840px,calc(100vw-48px))] flex-col overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-950 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-4 sm:p-5">
-            {queueAddModal === "auction" ? (
-              <>
-                <h2 className="text-sm font-bold uppercase tracking-wide text-zinc-100">Add queue item</h2>
-                <input
-                  value={auctionDraftTitle}
-                  onChange={(e) => setAuctionDraftTitle(e.target.value)}
-                  placeholder="Title"
-                  className="mt-3 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm"
-                />
-                <input
-                  value={auctionDraftPrice}
-                  onChange={(e) => setAuctionDraftPrice(e.target.value)}
-                  placeholder="Price USD (optional)"
-                  className="mt-2 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm"
-                />
-                <div className="mt-3 min-w-0">
-                  <LiveItemVariantBuilder
-                    salesFormat={auctionDraftSalesFormat}
-                    onSalesFormatChange={setAuctionDraftSalesFormat}
-                    defaultPriceUsd={auctionDraftPrice}
-                    variants={auctionDraftVariants}
-                    onVariantsChange={setAuctionDraftVariants}
-                  />
-                </div>
-                {!isVariantSalesFormat(auctionDraftSalesFormat) ? (
-                <>
-                <input
-                  value={auctionDraftStartBid}
-                  onChange={(e) => setAuctionDraftStartBid(e.target.value)}
-                  placeholder="Starting bid USD (default 1.00)"
-                  className="mt-2 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm"
-                />
-                <label className="mt-2 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Quantity</label>
-                <input
-                  inputMode="numeric"
-                  min={1}
-                  value={auctionDraftQuantity}
-                  onChange={(e) => setAuctionDraftQuantity(e.target.value.replace(/[^\d]/g, ""))}
-                  placeholder="1"
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm"
-                  aria-label="Quantity"
-                />
-                <p className="mt-1 text-[11px] text-zinc-500">
-                  Quantity creates numbered units, like PYT Break 1 #1, #2, #3.
-                </p>
-                </>
-                ) : null}
-                {data.room.teamBoardLeague === "nfl" ? (
-                  <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-zinc-300">
-                    <input
-                      type="checkbox"
-                      checked={queueDraftMisc}
-                      onChange={(e) => setQueueDraftMisc(e.target.checked)}
-                      className="rounded border-white/20 bg-[#0c0c10]"
-                    />
-                    MISC spot (shows MISC on team board while this item is active)
-                  </label>
-                ) : null}
-                <div className="mt-4 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setQueueAddModal(null)}
-                    className="flex-1 rounded-lg border border-white/12 py-2 text-sm font-semibold text-zinc-200 hover:bg-white/[0.06]"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void submitAuctionAdd()}
-                    className="flex-1 rounded-lg bg-gold/25 py-2 text-sm font-bold text-gold-bright ring-1 ring-gold/35 hover:bg-gold/30 disabled:opacity-50"
-                  >
-                    Add
-                  </button>
-                </div>
-              </>
-            ) : queueAddModal === "bin" ? (
-              <>
-                <h2 className="text-sm font-bold uppercase tracking-wide text-zinc-100">Add BIN item</h2>
-                <p className="mt-2 text-sm leading-relaxed text-zinc-500">
-                  BIN queue is not wired to the API yet. Use the auction queue for live lots for now.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setQueueAddModal(null)}
-                  className="mt-4 w-full rounded-lg bg-gold/25 py-2.5 text-sm font-bold text-gold-bright ring-1 ring-gold/35 hover:bg-gold/30"
-                >
-                  Close
-                </button>
-              </>
-            ) : (
-              <>
-                <h2 className="text-sm font-bold uppercase tracking-wide text-zinc-100">Add Givvy</h2>
-                <p className="mt-2 text-sm leading-relaxed text-zinc-500">
-                  Giveaway queue is not wired yet. This tab will connect to your givvy flow when the API is ready.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setQueueAddModal(null)}
-                  className="mt-4 w-full rounded-lg bg-gold/25 py-2.5 text-sm font-bold text-gold-bright ring-1 ring-gold/35 hover:bg-gold/30"
-                >
-                  Close
-                </button>
-              </>
-            )}
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <AddQueueItemModal
+        open={queueAddModal != null}
+        mode={queueAddModal}
+        teamBoardLeague={data.room.teamBoardLeague}
+        busy={busy}
+        onRequestClose={handleQueueAddModalClose}
+        onSubmitAuction={handleSubmitAuctionAdd}
+      />
     </div>
   );
 }
