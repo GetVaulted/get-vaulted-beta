@@ -89,10 +89,10 @@ function PrimaryBtn({
 }) {
   const cls =
     tone === "danger"
-      ? "border-rose-500/40 bg-rose-950/60 text-rose-100 hover:bg-rose-900/50"
+      ? "border-rose-500/45 bg-rose-950/75 text-rose-50 hover:bg-rose-900/60"
       : tone === "ghost"
-        ? "border-white/12 bg-white/[0.04] text-zinc-200 hover:bg-white/[0.08]"
-        : "border-amber-400/35 bg-gradient-to-r from-amber-500/25 via-amber-400/20 to-yellow-300/15 text-amber-50 hover:from-amber-500/35";
+        ? "border-white/18 bg-black/50 text-zinc-100 hover:bg-black/65"
+        : "border-amber-300/40 bg-gradient-to-r from-amber-500/30 via-amber-400/25 to-yellow-300/20 text-amber-50 hover:from-amber-500/40";
   return (
     <button
       type="button"
@@ -226,35 +226,39 @@ export function LiveSellerCommandCenter({
   const queuedCount = queueRows.filter((r) => r.item.status !== "sold" && r.item.status !== "skipped").length;
 
   if (isCompactRail) {
+    const canEndAuction =
+      Boolean(boardItem && boardItem.status === "active" && (biddingWindowOpen || auctionEndedPendingClose));
+
     return (
-      <div className={`flex flex-col ${uiDimmed ? "live-stage-ui-dimmed" : "live-stage-ui-awake"}`}>
+      <div className="flex flex-col live-stage-ui-awake">
         <div className="live-stage-utility-dock space-y-2 p-2">
           <div className="flex flex-wrap items-center gap-1.5">
             <span
               className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide ${
-                live ? "bg-emerald-500/12 text-emerald-200" : "bg-zinc-800/80 text-zinc-400"
+                live ? "bg-emerald-500/20 text-emerald-100" : "bg-zinc-800/90 text-zinc-300"
               }`}
             >
               {live ? <span className="size-1 animate-pulse rounded-full bg-emerald-400" aria-hidden /> : null}
               {live ? "Live" : roomStatus}
             </span>
-            <span className="text-[9px] font-semibold text-zinc-400">{viewerCount} viewers</span>
+            <span className="text-[9px] font-semibold text-zinc-300">{viewerCount} viewers</span>
           </div>
 
           <div className="flex items-center gap-1.5">
             <span className={`size-1.5 rounded-full ${connectionOk ? "bg-emerald-400" : "bg-amber-400 motion-safe:animate-pulse"}`} aria-hidden />
-            <span className={`text-[9px] font-medium ${connectionOk ? "text-emerald-300/85" : "text-amber-200/85"}`}>
+            <span className={`text-[9px] font-semibold ${connectionOk ? "text-emerald-200" : "text-amber-100"}`}>
               {connectionLabel}
             </span>
           </div>
 
-          <div className="border-t border-white/[0.04] pt-1.5">
-            <p className="line-clamp-1 text-[10px] font-bold text-white">{item?.title ?? "Pin a lot to begin"}</p>
+          <div className="border-t border-white/[0.08] pt-1.5">
+            <p className="line-clamp-2 text-[10px] font-bold text-white">{item?.title ?? "Pin a lot to begin"}</p>
             {hostAuctionCountdownLabel && biddingWindowOpen ? (
-              <p className="mt-0.5 font-mono text-[10px] font-black tabular-nums text-emerald-300/95">{hostAuctionCountdownLabel}</p>
+              <p className="mt-0.5 font-mono text-[11px] font-black tabular-nums text-emerald-200">{hostAuctionCountdownLabel}</p>
             ) : (
-              <p className="mt-0.5 font-mono text-[11px] font-black tabular-nums text-amber-100/90">{item ? itemMoney(item) : "—"}</p>
+              <p className="mt-0.5 font-mono text-[12px] font-black tabular-nums text-amber-100">{item ? itemMoney(item) : "—"}</p>
             )}
+            <p className="mt-0.5 truncate text-[9px] font-medium text-amber-200/95">{leaderLine}</p>
           </div>
 
           <button
@@ -262,12 +266,29 @@ export function LiveSellerCommandCenter({
             onClick={onOpenQueueDrawer}
             className={`w-full rounded-xl border px-2 py-1.5 text-[9px] font-black uppercase tracking-[0.16em] transition ${
               queueDrawerOpen
-                ? "live-stage-queue-btn-active border-amber-400/35 bg-amber-500/15 text-amber-50"
-                : "border-white/[0.06] bg-white/[0.03] text-zinc-300 hover:border-white/12 hover:bg-white/[0.06]"
+                ? "live-stage-queue-btn-active border-amber-300/45 bg-amber-500/22 text-amber-50"
+                : "border-amber-300/20 bg-black/45 text-zinc-100 hover:border-amber-300/35 hover:bg-black/55"
             }`}
           >
             Queue · {queuedCount}
           </button>
+
+          <div className="grid grid-cols-3 gap-1">
+            <PrimaryBtn compact onClick={onPinSelected} disabled={!selectedQueueItemId || busy} tone="ghost">
+              Pin
+            </PrimaryBtn>
+            <PrimaryBtn compact onClick={onEndAuction} disabled={busy || !canEndAuction} tone="danger">
+              End
+            </PrimaryBtn>
+            <PrimaryBtn
+              compact
+              onClick={onNextItem}
+              disabled={busy || !queueRows.some((r) => r.item.status === "queued")}
+              tone="ghost"
+            >
+              Next
+            </PrimaryBtn>
+          </div>
 
           {!live ? (
             <button
@@ -284,12 +305,6 @@ export function LiveSellerCommandCenter({
         <div className="space-y-1 px-2 pb-2">
           <CollapsibleSection title="Tools" glass defaultOpen={false}>
             <div className="grid grid-cols-2 gap-1">
-              <PrimaryBtn compact onClick={onPinSelected} disabled={!selectedQueueItemId || busy} tone="ghost">
-                Pin
-              </PrimaryBtn>
-              <PrimaryBtn compact onClick={onNextItem} disabled={busy || !queueRows.some((r) => r.item.status === "queued")} tone="ghost">
-                Next
-              </PrimaryBtn>
               <PrimaryBtn compact onClick={onOpenObs} disabled={busy} tone="ghost">
                 OBS
               </PrimaryBtn>

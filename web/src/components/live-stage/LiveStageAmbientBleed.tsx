@@ -82,7 +82,7 @@ export function LiveStageAmbientBleed({
     };
   }, [mirrorLiveVideo]);
 
-  const energyOpacity = 0.32 + (Math.min(100, energyScore) / 100) * 0.18;
+  const energyOpacity = 0.14 + (Math.min(100, energyScore) / 100) * 0.1;
 
   return (
     <div className="live-stage-ambient-bleed pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
@@ -92,22 +92,22 @@ export function LiveStageAmbientBleed({
           style={{
             backgroundImage: `url(${thumb})`,
             opacity: energyOpacity,
-            filter: "blur(56px) saturate(1.35) brightness(0.55)",
+            filter: "blur(48px) saturate(1.2) brightness(0.65)",
           }}
         />
       ) : null}
       {mirrorLiveVideo ? (
         <canvas
           ref={canvasRef}
-          className="live-stage-ambient-canvas absolute inset-0 size-full opacity-0 [filter:blur(64px)_saturate(1.4)_brightness(0.5)]"
+          className="live-stage-ambient-canvas absolute inset-0 size-full opacity-0 [filter:blur(48px)_saturate(1.2)_brightness(0.62)]"
         />
       ) : null}
-      <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/35 to-black/65" />
+      <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-black/20 to-black/40" />
       <div
-        className="live-stage-ambient-glow absolute inset-x-0 bottom-0 h-[55%]"
-        style={{ opacity: 0.2 + (Math.min(100, energyScore) / 100) * 0.5 }}
+        className="live-stage-ambient-glow absolute inset-x-0 bottom-0 h-[40%]"
+        style={{ opacity: 0.06 + (Math.min(100, energyScore) / 100) * 0.1 }}
       />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_55%_at_50%_45%,transparent_0%,rgba(0,0,0,0.55)_100%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_65%_50%_at_50%_45%,transparent_0%,rgba(0,0,0,0.35)_100%)]" />
     </div>
   );
 }

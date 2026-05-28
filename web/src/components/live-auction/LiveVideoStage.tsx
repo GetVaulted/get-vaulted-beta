@@ -145,7 +145,7 @@ export function LiveVideoStage({
     : "h-auto max-h-full w-full max-w-full";
 
   const desktopActionOverlayClass = cinematicActionOverlay
-    ? "live-stage-hud-suspended bottom-8 left-1/2 w-[min(920px,calc(100%-3rem))] -translate-x-1/2"
+    ? "live-stage-hud-suspended bottom-4 left-1/2 w-[min(920px,calc(100%-3rem))] -translate-x-1/2"
     : compactActionOverlay
       ? "bottom-2 left-2 right-14"
       : "bottom-4 left-4 right-4";
@@ -346,13 +346,6 @@ export function LiveVideoStage({
 
       {/* Desktop overlays — full player / placecard stage, wider than the 9:16 video. */}
       <div className={`pointer-events-none absolute inset-0 hidden min-[1400px]:block ${desktopChromeDimClass}`}>
-        {stageEnergyScore > 0 ? (
-          <div
-            className="live-stage-ambient-glow absolute inset-x-0 bottom-0 h-[45%]"
-            style={{ opacity: 0.25 + (stageEnergyScore / 100) * 0.45 }}
-            aria-hidden
-          />
-        ) : null}
         <div className="pointer-events-none absolute left-3 right-3 top-3 z-10 flex flex-col items-stretch gap-2">
           {topChrome}
           {stageBelowAudience ? (

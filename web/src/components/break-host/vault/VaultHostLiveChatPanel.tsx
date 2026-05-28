@@ -150,8 +150,8 @@ export function VaultHostLiveChatPanel({
                 return (
                   <div key={m.id} className={`group chat-msg-row ${msgClass} ${rowClass}`}>
                     <span className={labelClass}>{label}</span>
-                    <span className="text-zinc-600">: </span>
-                    <span className={isSystem || isBid ? "font-semibold text-amber-50" : isPurchase ? "font-semibold text-emerald-100" : "text-zinc-200"}>
+                    <span className="text-zinc-500">: </span>
+                    <span className={isSystem || isBid ? "font-semibold text-amber-50" : isPurchase ? "font-semibold text-emerald-100" : "text-zinc-100"}>
                       {m.body}
                     </span>
                     {m.messageType === "chat" && m.senderId !== hostUserId ? (
@@ -177,7 +177,7 @@ export function VaultHostLiveChatPanel({
               onChange={(e) => onSystemMsgChange(e.target.value)}
               placeholder="Send to chat…"
               rows={variant === "sidebar" ? 1 : 2}
-              className={`w-full resize-none rounded-lg border border-white/[0.06] bg-black/35 text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-amber-400/25 ${
+              className={`w-full resize-none rounded-lg border border-white/12 bg-black/55 text-zinc-50 placeholder:text-zinc-500 outline-none focus:border-amber-300/35 ${
                 variant === "sidebar" ? "px-2 py-1.5 text-[12px]" : "px-2.5 py-2 text-[12px]"
               }`}
               onKeyDown={(e) => {

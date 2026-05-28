@@ -317,22 +317,23 @@ body {
   -webkit-backdrop-filter: blur(var(--live-blur-xl));
 }
 
-/* ── Live Stage HUD — gold broadcast identity (cinematic glass, readable) ── */
+/* ── Live Stage HUD — premium readable glass (gold/black, not smoky) ── */
 .live-stage-hud-glass {
   border-radius: 9999px;
-  border: 1px solid rgba(255, 215, 80, 0.22);
+  border: 1px solid rgba(255, 215, 80, 0.32);
   background: linear-gradient(
     90deg,
-    rgba(255, 190, 40, 0.12) 0%,
-    rgba(0, 0, 0, 0.72) 42%,
-    rgba(255, 190, 40, 0.08) 100%
+    rgba(255, 215, 80, 0.07) 0%,
+    rgba(0, 0, 0, 0.78) 28%,
+    rgba(0, 0, 0, 0.7) 72%,
+    rgba(255, 215, 80, 0.05) 100%
   );
   box-shadow:
-    0 0 0 1px rgba(255, 215, 80, 0.14) inset,
-    0 0 40px rgba(255, 190, 40, 0.12),
-    0 16px 48px -20px rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+    0 0 0 1px rgba(255, 215, 80, 0.16) inset,
+    0 0 28px rgba(255, 215, 80, 0.14),
+    0 12px 36px -14px rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .live-stage-hud-glass-idle {
@@ -341,15 +342,15 @@ body {
 
 .live-stage-hud-pill {
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 215, 80, 0.06);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 215, 80, 0.12);
 }
 
 .live-stage-hud-bid-hero {
-  color: rgb(254 243 199);
+  color: rgb(255 251 235);
   text-shadow:
-    0 0 24px rgba(255, 190, 40, 0.45),
-    0 1px 0 rgba(0, 0, 0, 0.6);
+    0 0 20px rgba(255, 215, 80, 0.35),
+    0 1px 0 rgba(0, 0, 0, 0.8);
 }
 
 .live-stage-hud-timer-live {
@@ -364,79 +365,67 @@ body {
     0 0 28px rgba(239, 68, 68, 0.25);
 }
 
-/* Energy ramps — HUD edge glow + arena haze */
+/* Energy ramps — subtle edge lift only (readable at all tiers) */
 .live-stage-hud-energy-calm .live-stage-hud-glass {
-  border-color: rgba(255, 215, 80, 0.18);
+  border-color: rgba(255, 215, 80, 0.28);
 }
 
 .live-stage-hud-energy-warming .live-stage-hud-glass {
-  border-color: rgba(255, 215, 80, 0.26);
+  border-color: rgba(255, 215, 80, 0.34);
   box-shadow:
-    0 0 0 1px rgba(255, 215, 80, 0.16) inset,
-    0 0 48px rgba(255, 190, 40, 0.16),
-    0 16px 48px -20px rgba(0, 0, 0, 0.85);
+    0 0 0 1px rgba(255, 215, 80, 0.18) inset,
+    0 0 32px rgba(255, 215, 80, 0.16),
+    0 12px 36px -14px rgba(0, 0, 0, 0.92);
 }
 
 .live-stage-hud-energy-hot .live-stage-hud-glass {
-  border-color: rgba(255, 200, 60, 0.32);
-  background: linear-gradient(
-    90deg,
-    rgba(255, 170, 40, 0.16) 0%,
-    rgba(0, 0, 0, 0.74) 40%,
-    rgba(255, 140, 40, 0.1) 100%
-  );
+  border-color: rgba(255, 215, 80, 0.38);
   box-shadow:
     0 0 0 1px rgba(255, 215, 80, 0.2) inset,
-    0 0 56px rgba(255, 160, 40, 0.22),
-    0 0 24px rgba(239, 68, 68, 0.08),
-    0 16px 48px -20px rgba(0, 0, 0, 0.85);
+    0 0 36px rgba(255, 215, 80, 0.2),
+    0 0 16px rgba(251, 146, 60, 0.08),
+    0 12px 36px -14px rgba(0, 0, 0, 0.92);
 }
 
 .live-stage-hud-energy-hot .live-stage-hud-bid-hero {
   text-shadow:
-    0 0 32px rgba(255, 190, 40, 0.6),
-    0 0 12px rgba(251, 146, 60, 0.35),
-    0 1px 0 rgba(0, 0, 0, 0.6);
+    0 0 24px rgba(255, 215, 80, 0.45),
+    0 0 10px rgba(251, 146, 60, 0.2),
+    0 1px 0 rgba(0, 0, 0, 0.8);
 }
 
 .live-stage-hud-energy-electric .live-stage-hud-glass {
-  border-color: rgba(255, 220, 90, 0.38);
-  background: linear-gradient(
-    90deg,
-    rgba(255, 180, 40, 0.2) 0%,
-    rgba(0, 0, 0, 0.76) 38%,
-    rgba(255, 120, 40, 0.14) 100%
-  );
+  border-color: rgba(255, 215, 80, 0.42);
   box-shadow:
-    0 0 0 1px rgba(255, 215, 80, 0.24) inset,
-    0 0 64px rgba(255, 170, 40, 0.28),
-    0 0 32px rgba(239, 68, 68, 0.12),
-    0 16px 48px -20px rgba(0, 0, 0, 0.85);
-  animation: live-hud-energy-pulse 2.2s ease-in-out infinite;
+    0 0 0 1px rgba(255, 215, 80, 0.22) inset,
+    0 0 40px rgba(255, 215, 80, 0.22),
+    0 0 18px rgba(251, 146, 60, 0.1),
+    0 12px 36px -14px rgba(0, 0, 0, 0.92);
+  animation: live-hud-energy-pulse 2.4s ease-in-out infinite;
 }
 
 .live-stage-hud-energy-electric .live-stage-hud-bid-hero {
   text-shadow:
-    0 0 40px rgba(255, 200, 50, 0.75),
-    0 0 16px rgba(251, 146, 60, 0.45),
-    0 1px 0 rgba(0, 0, 0, 0.6);
+    0 0 28px rgba(255, 215, 80, 0.5),
+    0 0 12px rgba(251, 146, 60, 0.25),
+    0 1px 0 rgba(0, 0, 0, 0.8);
 }
 
 @keyframes live-hud-energy-pulse {
   0%,
   100% {
     box-shadow:
-      0 0 0 1px rgba(255, 215, 80, 0.22) inset,
-      0 0 56px rgba(255, 170, 40, 0.24),
-      0 0 28px rgba(239, 68, 68, 0.1),
-      0 16px 48px -20px rgba(0, 0, 0, 0.85);
+      0 0 0 1px rgba(255, 215, 80, 0.2) inset,
+      0 0 36px rgba(255, 215, 80, 0.2),
+      0 0 16px rgba(251, 146, 60, 0.08),
+      0 12px 36px -14px rgba(0, 0, 0, 0.92);
   }
   50% {
     box-shadow:
-      0 0 0 1px rgba(255, 215, 80, 0.3) inset,
-      0 0 72px rgba(255, 170, 40, 0.36),
-      0 0 40px rgba(239, 68, 68, 0.16),
-      0 16px 48px -20px rgba(0, 0, 0, 0.85);
+      0 0 0 1px rgba(255, 215, 80, 0.26) inset,
+      0 0 44px rgba(255, 215, 80, 0.26),
+      0 0 22px rgba(251, 146, 60, 0.12),
+      0 12px 36px -14px rgba(0, 0, 0, 0.92);
   }
 }
 
@@ -472,27 +461,61 @@ body {
 
 .live-stage-glass-tray {
   border-radius: 1.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  background: rgba(0, 0, 0, 0.22);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  box-shadow: 0 8px 32px -24px rgba(0, 0, 0, 0.9);
+  border: 1px solid rgba(255, 215, 80, 0.1);
+  background: rgba(8, 8, 12, 0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px -20px rgba(0, 0, 0, 0.9);
 }
 
+/* ── Utility dock + floating rails — readable floating panels ── */
+.live-stage-utility-dock {
+  border-radius: 1.25rem;
+  border: 1px solid rgba(255, 215, 80, 0.18);
+  background: rgba(8, 8, 12, 0.88);
+  box-shadow:
+    0 0 0 1px rgba(255, 215, 80, 0.08) inset,
+    0 12px 40px -20px rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.live-stage-utility-dock-wrap {
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45));
+}
+
+.live-stage-chat-dock {
+  border-radius: 1.25rem;
+  border: 1px solid rgba(255, 215, 80, 0.18);
+  background: rgba(8, 8, 12, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow:
+    0 0 0 1px rgba(255, 215, 80, 0.08) inset,
+    0 16px 48px -24px rgba(0, 0, 0, 0.92);
+}
+
+.live-stage-chat-tabs,
+.live-stage-lineup-tabs {
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 215, 80, 0.12);
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.live-stage-chat-input-tray {
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 215, 80, 0.12);
+  background: rgba(0, 0, 0, 0.55);
+}
 .live-stage-floating-rail {
   border-radius: 1.5rem;
-  border: 1px solid rgba(251, 191, 36, 0.07);
-  background: linear-gradient(
-    165deg,
-    rgba(0, 0, 0, 0.42) 0%,
-    rgba(4, 4, 8, 0.55) 100%
-  );
+  border: 1px solid rgba(255, 215, 80, 0.14);
+  background: rgba(8, 8, 12, 0.88);
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.03) inset,
-    0 16px 48px -28px rgba(0, 0, 0, 0.92),
-    0 0 40px -24px rgba(251, 191, 36, 0.12);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+    0 0 0 1px rgba(255, 215, 80, 0.06) inset,
+    0 16px 48px -24px rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .live-stage-floating-rail-hover {
@@ -500,66 +523,22 @@ body {
 }
 
 .live-stage-floating-rail-hover:hover {
-  border-color: rgba(251, 191, 36, 0.14);
+  border-color: rgba(255, 215, 80, 0.22);
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+    0 0 0 1px rgba(255, 215, 80, 0.1) inset,
     0 20px 56px -24px rgba(0, 0, 0, 0.9),
-    0 0 52px -20px rgba(251, 191, 36, 0.18);
-}
-
-/* ── Utility dock + floating rails — gold rim glass ── */
-.live-stage-utility-dock {
-  border-radius: 1.25rem;
-  border: 1px solid rgba(255, 215, 80, 0.1);
-  background: rgba(8, 8, 10, 0.72);
-  box-shadow:
-    0 0 0 1px rgba(255, 215, 80, 0.06) inset,
-    0 0 60px rgba(255, 180, 0, 0.05),
-    0 12px 40px -24px rgba(0, 0, 0, 0.88);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-}
-
-.live-stage-utility-dock-wrap {
-  filter: drop-shadow(0 4px 20px rgba(255, 180, 0, 0.06));
-}
-
-.live-stage-chat-dock {
-  border-radius: 1.25rem;
-  border: 1px solid rgba(255, 215, 80, 0.1);
-  background: rgba(8, 8, 10, 0.72);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  box-shadow:
-    0 0 0 1px rgba(255, 215, 80, 0.05) inset,
-    0 0 60px rgba(255, 180, 0, 0.05),
-    0 16px 48px -28px rgba(0, 0, 0, 0.88);
-  mask-image: linear-gradient(to bottom, black 0%, black 90%, transparent 100%);
-}
-
-.live-stage-chat-tabs,
-.live-stage-lineup-tabs {
-  border-radius: 0.75rem;
-  border: 1px solid rgba(255, 215, 80, 0.08);
-  background: rgba(0, 0, 0, 0.35);
-}
-
-.live-stage-chat-input-tray {
-  border-radius: 0.75rem;
-  border: 1px solid rgba(255, 215, 80, 0.08);
-  background: rgba(0, 0, 0, 0.4);
+    0 0 32px -20px rgba(255, 215, 80, 0.12);
 }
 
 .live-stage-queue-drawer {
   border-radius: 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  background: linear-gradient(165deg, rgba(0, 0, 0, 0.52) 0%, rgba(4, 4, 8, 0.68) 100%);
+  border: 1px solid rgba(255, 215, 80, 0.12);
+  background: rgba(8, 8, 12, 0.9);
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.025) inset,
-    0 24px 64px -28px rgba(0, 0, 0, 0.95),
-    0 0 48px -24px var(--vault-pulse, rgba(251, 191, 36, 0.15));
-  backdrop-filter: blur(28px);
-  -webkit-backdrop-filter: blur(28px);
+    0 0 0 1px rgba(255, 215, 80, 0.06) inset,
+    0 24px 64px -28px rgba(0, 0, 0, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .live-stage-lineup-tile {
@@ -582,24 +561,17 @@ body {
 }
 
 .live-stage-hud-suspended {
-  mask-image: linear-gradient(to top, black 78%, transparent 100%);
-  filter: drop-shadow(0 -6px 32px rgba(255, 190, 40, 0.18));
+  filter: drop-shadow(0 -4px 20px rgba(255, 215, 80, 0.12));
 }
 
 .live-stage-hud-suspended::before {
-  content: "";
-  position: absolute;
-  inset: -12px -24px -8px;
-  z-index: -1;
-  border-radius: 9999px;
-  background: radial-gradient(ellipse 80% 60% at 50% 100%, rgba(255, 190, 40, 0.12), transparent 70%);
-  pointer-events: none;
+  display: none;
 }
 
 .live-stage-ui-dimmed {
-  opacity: 0.72;
-  filter: saturate(0.9);
-  transition: opacity 0.85s ease, filter 0.85s ease;
+  opacity: 1;
+  filter: saturate(1);
+  transition: opacity 0.45s ease, filter 0.45s ease;
 }
 
 .live-stage-ui-awake {
@@ -730,12 +702,12 @@ body {
 }
 
 .live-stage-ambient-canvas-visible {
-  opacity: 0.55 !important;
+  opacity: 0.28 !important;
 }
 
 .live-stage-ambient-glow {
   pointer-events: none;
-  background: radial-gradient(ellipse 80% 60% at 50% 100%, var(--vault-pulse, rgba(251, 191, 36, 0.18)), transparent 70%);
+  background: radial-gradient(ellipse 70% 50% at 50% 100%, var(--vault-pulse, rgba(255, 215, 80, 0.08)), transparent 72%);
   transition: opacity 0.8s ease;
 }
 
@@ -747,15 +719,15 @@ body {
   0%,
   100% {
     box-shadow:
-      0 0 0 1px rgba(255, 215, 80, 0.14) inset,
-      0 0 36px rgba(255, 190, 40, 0.1),
-      0 12px 40px -20px rgba(0, 0, 0, 0.85);
+      0 0 0 1px rgba(255, 215, 80, 0.16) inset,
+      0 0 24px rgba(255, 215, 80, 0.1),
+      0 12px 36px -14px rgba(0, 0, 0, 0.92);
   }
   50% {
     box-shadow:
-      0 0 0 1px rgba(255, 215, 80, 0.2) inset,
-      0 0 52px rgba(255, 190, 40, 0.18),
-      0 12px 40px -20px rgba(0, 0, 0, 0.85);
+      0 0 0 1px rgba(255, 215, 80, 0.22) inset,
+      0 0 32px rgba(255, 215, 80, 0.14),
+      0 12px 36px -14px rgba(0, 0, 0, 0.92);
   }
 }
 

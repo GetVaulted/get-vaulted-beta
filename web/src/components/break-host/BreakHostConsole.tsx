@@ -1270,15 +1270,6 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     auctionLive: biddingWindowStillRunningHost,
   });
 
-  const stageUiWake =
-    queueDrawerOpen ||
-    biddingWindowStillRunningHost ||
-    stageMotionBurst != null ||
-    lotTransitionPhase !== "idle" ||
-    roomEnergy.level !== "calm" ||
-    Boolean(hostNotice) ||
-    Boolean(toast);
-
   const handleHostEndAuction = () => {
     const item = activeBoardRow?.item;
     if (!item) return;
@@ -1374,7 +1365,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     },
     onOpenQueueDrawer: () => setQueueDrawerOpen((v) => !v),
     queueDrawerOpen,
-    uiDimmed: !stageUiWake,
+    uiDimmed: false,
   };
 
   const hostDesktopItemOverlay = (
@@ -1452,7 +1443,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       viewerCount={room.viewerCount}
       onMessagesRefresh={() => void mergeHostMessagesFromApi()}
       variant="sidebar"
-      uiDimmed={!stageUiWake}
+      uiDimmed={false}
     />
   );
 
@@ -1508,7 +1499,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     stageEnergyScore: roomEnergy.score,
     vaultMode,
     vaultEnergyLevel: roomEnergy.level,
-    uiDimmed: !stageUiWake,
+    uiDimmed: false,
     stageOverlay: (
       <>
         <LiveLotTransitionBanner
@@ -1597,11 +1588,11 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
             <LiveVideoStage {...hostStageProps} />
           </div>
 
-          <aside className={`live-stage-utility-dock-wrap pointer-events-auto absolute left-4 top-4 z-30 w-[min(196px,14vw)] transition-opacity duration-700 ${stageUiWake ? "live-stage-ui-awake" : "live-stage-ui-dimmed"}`}>
+          <aside className="live-stage-utility-dock-wrap pointer-events-auto absolute left-4 top-4 z-30 w-[min(196px,14vw)] live-stage-ui-awake">
             <LiveSellerCommandCenter {...commandCenterProps} variant="panel" compactRail />
           </aside>
 
-          <aside className={`live-stage-chat-dock pointer-events-auto absolute bottom-28 right-4 top-auto z-30 flex max-h-[min(58vh,480px)] w-[min(240px,17vw)] min-w-0 flex-col overflow-hidden transition-opacity duration-700 ${stageUiWake ? "live-stage-ui-awake" : "live-stage-ui-dimmed"}`}>
+          <aside className="live-stage-chat-dock pointer-events-auto absolute bottom-20 right-4 top-4 z-30 flex min-h-0 w-[min(240px,17vw)] min-w-0 flex-col overflow-hidden live-stage-ui-awake">
             {hostLiveChatPanel}
           </aside>
 

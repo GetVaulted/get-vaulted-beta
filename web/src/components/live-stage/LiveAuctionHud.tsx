@@ -33,10 +33,10 @@ function fmtOverlayLead(
 }
 
 const ENERGY_WRAPPER: Record<LiveRoomEnergyLevel, string> = {
-  calm: "live-stage-hud-energy-calm before:opacity-45",
-  warming: "live-stage-hud-energy-warming before:opacity-60",
-  hot: "live-stage-hud-energy-hot before:opacity-75",
-  electric: "live-stage-hud-energy-electric before:opacity-90",
+  calm: "live-stage-hud-energy-calm before:opacity-35",
+  warming: "live-stage-hud-energy-warming before:opacity-45",
+  hot: "live-stage-hud-energy-hot before:opacity-55",
+  electric: "live-stage-hud-energy-electric before:opacity-65",
 };
 
 type LiveAuctionHudProps = {
@@ -74,12 +74,12 @@ function HudAction({
 }) {
   const cls =
     tone === "gold"
-      ? "border-amber-400/30 bg-amber-400/15 text-amber-50 shadow-[0_0_16px_-10px_rgba(251,191,36,0.5)]"
+      ? "border-amber-300/45 bg-amber-500/25 text-amber-50 shadow-[0_0_12px_-4px_rgba(255,215,80,0.35)]"
       : tone === "danger"
-        ? "border-rose-400/25 bg-rose-950/35 text-rose-100"
+        ? "border-rose-400/40 bg-rose-950/70 text-rose-50"
         : tone === "urgent"
-          ? "border-orange-400/30 bg-orange-500/12 text-orange-100"
-          : "border-white/[0.06] bg-white/[0.03] text-zinc-300";
+          ? "border-orange-400/40 bg-orange-500/20 text-orange-50"
+          : "border-white/15 bg-black/55 text-zinc-100";
   return (
     <button
       type="button"
