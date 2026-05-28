@@ -31,6 +31,8 @@ type VaultQueueCarouselProps = {
   onAddAuction: () => void;
   /** Tighter cards for desktop seller sidebar */
   compact?: boolean;
+  /** Flat lineup tiles for floating queue drawer */
+  lineup?: boolean;
 };
 
 export function VaultQueueCarousel({
@@ -46,6 +48,7 @@ export function VaultQueueCarousel({
   onDelete,
   onAddAuction,
   compact = false,
+  lineup = false,
 }: VaultQueueCarouselProps) {
   const auctionRows = rows.filter((r) => r.item.status !== "sold" && r.item.status !== "skipped");
   const soldRows = rows.filter((r) => r.item.status === "sold");
@@ -59,9 +62,24 @@ export function VaultQueueCarousel({
           : rows
         : [];
 
+  const tabBtnClass = (active: boolean) =>
+    lineup
+      ? `rounded-md px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.14em] transition ${
+          active
+            ? "bg-white/[0.08] text-amber-100/95"
+            : "text-zinc-600 hover:text-zinc-400"
+        }`
+      : `rounded-full border font-black uppercase tracking-wide transition ${
+          compact ? "px-2 py-0.5 text-[9px]" : "px-3 py-1 text-[10px]"
+        } ${
+          active
+            ? "border-amber-400/40 bg-amber-500/15 text-amber-100 shadow-[0_0_20px_-10px_rgba(245,158,11,0.45)]"
+            : "border-white/10 bg-black/40 text-zinc-500 hover:border-white/20 hover:text-zinc-300"
+        }`;
+
   return (
-    <div className={compact ? "space-y-2" : "space-y-3"}>
-      <div className="flex flex-wrap gap-1">
+    <div className={lineup ? "space-y-2.5" : compact ? "space-y-2" : "space-y-3"}>
+      <div className={lineup ? "live-stage-lineup-tabs flex gap-0.5 p-0.5" : "flex flex-wrap gap-1"}>
         {(
           [
             { id: "auction" as const, label: "Auction" },
@@ -74,13 +92,7 @@ export function VaultQueueCarousel({
             key={t.id}
             type="button"
             onClick={() => onTab(t.id)}
-            className={`rounded-full border font-black uppercase tracking-wide transition ${
-              compact ? "px-2 py-0.5 text-[9px]" : "px-3 py-1 text-[10px]"
-            } ${
-              tab === t.id
-                ? "border-amber-400/40 bg-amber-500/15 text-amber-100 shadow-[0_0_20px_-10px_rgba(245,158,11,0.45)]"
-                : "border-white/10 bg-black/40 text-zinc-500 hover:border-white/20 hover:text-zinc-300"
-            }`}
+            className={tabBtnClass(tab === t.id)}
           >
             {t.label}
           </button>
@@ -92,11 +104,15 @@ export function VaultQueueCarousel({
           type="button"
           disabled={busy}
           onClick={onAddAuction}
-          className={`w-full rounded-lg border border-amber-400/30 bg-gradient-to-r from-amber-500/15 to-yellow-500/10 font-bold text-amber-100 ring-1 ring-amber-400/20 hover:from-amber-500/25 disabled:opacity-50 ${
-            compact ? "py-1.5 text-[10px]" : "rounded-xl py-2.5 text-[11px]"
+          className={`w-full font-bold text-amber-100 disabled:opacity-50 ${
+            lineup
+              ? "rounded-lg border border-amber-400/20 bg-amber-500/10 py-1.5 text-[9px] uppercase tracking-wide hover:bg-amber-500/18"
+              : `rounded-lg border border-amber-400/30 bg-gradient-to-r from-amber-500/15 to-yellow-500/10 ring-1 ring-amber-400/20 hover:from-amber-500/25 ${
+                  compact ? "py-1.5 text-[10px]" : "rounded-xl py-2.5 text-[11px]"
+                }`
           }`}
         >
-          + Add to queue
+          + Add to lineup
         </button>
       ) : null}
 
@@ -112,7 +128,13 @@ export function VaultQueueCarousel({
         <p className="rounded-xl border border-zinc-800/80 bg-black/30 py-8 text-center text-[11px] text-zinc-600">No lots in this lane yet.</p>
       ) : null}
 
-      <div className="-mx-1 flex gap-2 overflow-x-auto overflow-y-visible pb-2 pt-1 [scrollbar-width:thin]">
+      <div
+        className={
+          lineup
+            ? "flex flex-col gap-1.5"
+            : "-mx-1 flex gap-2 overflow-x-auto overflow-y-visible pb-2 pt-1 [scrollbar-width:thin]"
+        }
+      >
         {visible.map(({ item, claim }) => {
           const thumb = item.imageUrl?.trim();
           const selected = item.id === selectedId;
@@ -122,6 +144,79 @@ export function VaultQueueCarousel({
                 ? "Met"
                 : "Open"
               : "—";
+
+          if (lineup) {
+            const liveNow = item.status === "active";
+            return (
+              <div
+                key={item.id}
+                className={`live-stage-lineup-tile group relative flex items-center gap-2 rounded-xl px-2.5 py-2 transition ${
+                  selected ? "live-stage-lineup-tile-selected" : ""
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => onSelect(item.id)}
+                  className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+                >
+                  <div className="relative size-9 shrink-0 overflow-hidden rounded-lg bg-zinc-900/80">
+                    {thumb ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={thumb} alt="" className="size-full object-cover opacity-90" />
+                    ) : (
+                      <div className="flex size-full items-center justify-center text-[10px] font-black text-zinc-600">
+                        {(item.title ?? "—").slice(0, 1)}
+                      </div>
+                    )}
+                    {liveNow ? (
+                      <span className="absolute inset-x-0 bottom-0 bg-emerald-500/80 py-px text-center text-[6px] font-black uppercase text-white">
+                        Live
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[11px] font-semibold text-zinc-100">{titleLine(item)}</p>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[9px]">
+                      <span className="font-mono font-bold text-amber-100/90">
+                        {fmtMoney(item.currentBidUsd ?? item.startingBidUsd)}
+                      </span>
+                      <span className="text-zinc-600">·</span>
+                      <span className="uppercase tracking-wide text-zinc-500">{item.status}</span>
+                      {item.progressLabel ? (
+                        <>
+                          <span className="text-zinc-700">·</span>
+                          <span className="text-zinc-500">{item.progressLabel}</span>
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
+                </button>
+                <div className="flex shrink-0 gap-1 opacity-80 transition group-hover:opacity-100">
+                  {item.status !== "active" && item.status !== "sold" && item.status !== "skipped" ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => onPost(item.id)}
+                      className="rounded-md px-2 py-1 text-[8px] font-black uppercase tracking-wide text-violet-200/90 hover:bg-violet-500/15"
+                    >
+                      Pin
+                    </button>
+                  ) : null}
+                  {item.status !== "sold" ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => onDelete(item.id)}
+                      className="rounded-md px-1.5 py-1 text-[8px] font-semibold text-zinc-600 hover:text-rose-300/90"
+                    >
+                      ×
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            );
+          }
+
           return (
             <div
               key={item.id}
@@ -207,7 +302,7 @@ export function VaultQueueCarousel({
         })}
       </div>
 
-      {!compact ? (
+      {!compact && !lineup ? (
         <p className="text-center text-[10px] text-zinc-600">Drag-to-reorder sync is coming — order follows your queue for now.</p>
       ) : null}
     </div>

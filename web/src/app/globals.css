@@ -320,19 +320,19 @@ body {
 /* ── Live Stage HUD — floating broadcast layers (Phase 2: lighter, glow-first) ── */
 .live-stage-hud-glass {
   border-radius: 9999px;
-  border: 1px solid rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.06);
   background: linear-gradient(
     135deg,
-    rgba(0, 0, 0, 0.38) 0%,
-    rgba(6, 6, 10, 0.52) 50%,
-    rgba(0, 0, 0, 0.42) 100%
+    rgba(0, 0, 0, 0.32) 0%,
+    rgba(6, 6, 10, 0.44) 50%,
+    rgba(0, 0, 0, 0.36) 100%
   );
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.025) inset,
-    0 12px 40px -20px rgba(0, 0, 0, 0.85),
-    0 0 56px -28px rgba(251, 191, 36, 0.28);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
+    0 0 0 1px rgba(255, 255, 255, 0.02) inset,
+    0 16px 48px -24px rgba(0, 0, 0, 0.88),
+    0 0 56px -28px rgba(251, 191, 36, 0.22);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
 }
 
 .live-stage-hud-glass-idle {
@@ -409,6 +409,220 @@ body {
     0 0 0 1px rgba(255, 255, 255, 0.04) inset,
     0 20px 56px -24px rgba(0, 0, 0, 0.9),
     0 0 52px -20px rgba(251, 191, 36, 0.18);
+}
+
+/* ── Utility dock + floating drawer (refinement pass) ── */
+.live-stage-utility-dock {
+  border-radius: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.035);
+  background: rgba(0, 0, 0, 0.28);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.02) inset,
+    0 12px 40px -28px rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(26px);
+  -webkit-backdrop-filter: blur(26px);
+}
+
+.live-stage-utility-dock-wrap {
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45));
+}
+
+.live-stage-chat-dock {
+  border-radius: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  background: rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 16px 48px -32px rgba(0, 0, 0, 0.88);
+  mask-image: linear-gradient(to bottom, black 0%, black 88%, transparent 100%);
+}
+
+.live-stage-chat-tabs,
+.live-stage-lineup-tabs {
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.live-stage-chat-input-tray {
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.live-stage-queue-drawer {
+  border-radius: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(165deg, rgba(0, 0, 0, 0.52) 0%, rgba(4, 4, 8, 0.68) 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.025) inset,
+    0 24px 64px -28px rgba(0, 0, 0, 0.95),
+    0 0 48px -24px var(--vault-pulse, rgba(251, 191, 36, 0.15));
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+}
+
+.live-stage-lineup-tile {
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.live-stage-lineup-tile:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.live-stage-lineup-tile-selected {
+  border-color: rgba(251, 191, 36, 0.18);
+  background: linear-gradient(90deg, rgba(251, 191, 36, 0.08), rgba(255, 255, 255, 0.02));
+  box-shadow: 0 0 32px -24px rgba(251, 191, 36, 0.35);
+}
+
+.live-stage-queue-btn-active {
+  box-shadow: 0 0 28px -16px rgba(251, 191, 36, 0.45);
+}
+
+.live-stage-hud-suspended {
+  mask-image: linear-gradient(to top, black 72%, transparent 100%);
+  filter: drop-shadow(0 -8px 32px rgba(0, 0, 0, 0.35));
+}
+
+.live-stage-hud-suspended::before {
+  content: "";
+  position: absolute;
+  inset: -12px -24px -8px;
+  z-index: -1;
+  border-radius: 9999px;
+  background: radial-gradient(ellipse 80% 60% at 50% 100%, rgba(0, 0, 0, 0.55), transparent 70%);
+  pointer-events: none;
+}
+
+.live-stage-ui-dimmed {
+  opacity: 0.58;
+  filter: saturate(0.82);
+  transition: opacity 0.85s ease, filter 0.85s ease;
+}
+
+.live-stage-ui-awake {
+  opacity: 1;
+  filter: saturate(1);
+  transition: opacity 0.45s ease, filter 0.45s ease;
+}
+
+.live-stage-hud-awake .live-stage-hud-glass {
+  animation-duration: 3s;
+}
+
+.live-stage-lighting {
+  z-index: 0;
+}
+
+.live-stage-spotlight {
+  pointer-events: none;
+  will-change: opacity, transform;
+}
+
+/* Stage mode moods */
+.live-stage-mode-auction_night .live-stage-spotlight {
+  animation-duration: 5s !important;
+}
+
+.live-stage-mode-auction_night.live-stage-ui-awake .live-stage-particles {
+  animation: live-stage-energy-pulse 3.5s ease-in-out infinite;
+}
+
+.live-stage-mode-break_room .live-stage-particle {
+  background: rgba(167, 139, 250, 0.45) !important;
+}
+
+.live-stage-mode-vault_drop .live-stage-spotlight {
+  animation-duration: 8s !important;
+}
+
+.live-stage-mode-vault_drop .live-stage-lighting::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 50% 40% at 50% 50%, rgba(0, 0, 0, 0.35), transparent 70%);
+  pointer-events: none;
+}
+
+.live-stage-mode-collector_lounge .live-stage-spotlight {
+  animation-duration: 10s !important;
+}
+
+.live-stage-mode-collector_lounge .live-stage-particle {
+  opacity: 0.12 !important;
+}
+
+@keyframes live-stage-spot-pulse {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: inherit;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.06);
+  }
+}
+
+@keyframes live-stage-spot-drift {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    transform: translate(calc(-50% + 12px), calc(-50% - 8px)) scale(1.04);
+  }
+}
+
+@keyframes live-stage-particle-float {
+  0%,
+  100% {
+    transform: translateY(0) translateX(0);
+    opacity: 0.15;
+  }
+  50% {
+    transform: translateY(-18px) translateX(6px);
+    opacity: 0.35;
+  }
+}
+
+@keyframes live-stage-energy-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes live-stage-drawer-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes live-stage-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-stage-spotlight,
+  .live-stage-particle,
+  .live-stage-mode-auction_night .live-stage-particles {
+    animation: none !important;
+  }
 }
 
 .live-stage-ambient-bleed {
@@ -496,15 +710,17 @@ body {
 }
 
 .chat-msg-bid {
-  border-left: 2px solid rgba(251, 191, 36, 0.45);
-  padding-left: 0.5rem;
-  background: linear-gradient(90deg, rgba(251, 191, 36, 0.08), transparent);
+  padding-left: 0.35rem;
+  background: linear-gradient(90deg, rgba(251, 191, 36, 0.06), transparent 80%);
+  border-left: none;
+  box-shadow: none;
 }
 
 .chat-msg-purchase {
-  border-left: 2px solid rgba(52, 211, 153, 0.45);
-  padding-left: 0.5rem;
-  background: linear-gradient(90deg, rgba(52, 211, 153, 0.08), transparent);
+  padding-left: 0.35rem;
+  background: linear-gradient(90deg, rgba(52, 211, 153, 0.06), transparent 80%);
+  border-left: none;
+  box-shadow: none;
 }
 
 @keyframes live-hud-bid-flash-kf {

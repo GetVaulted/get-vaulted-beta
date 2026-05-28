@@ -5,6 +5,9 @@ import Link from "next/link";
 import { LiveViewerCount } from "@/components/live-auction/LiveViewerCount";
 import { LiveVideoStagePlayback } from "@/components/live-auction/LiveVideoStagePlayback";
 import { LiveStageAmbientBleed } from "@/components/live-stage/LiveStageAmbientBleed";
+import { LiveStageLighting } from "@/components/live-stage/LiveStageLighting";
+import type { VaultMode } from "@/components/break-host/vault/vault-modes";
+import type { LiveRoomEnergyLevel } from "@/lib/live-room-energy";
 import { ReportTrigger } from "@/components/trust/ReportModal";
 import { SellerFollowButton } from "@/components/seller/SellerFollowButton";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
@@ -73,6 +76,11 @@ type LiveVideoStageProps = {
   fillPortraitFrame?: boolean;
   /** DB room status — bottom playback pill uses this (Live / Upcoming / Ended). */
   roomStatus: LiveRoomStatus;
+  /** Host stage mood — drives spotlight tint and ambient motion. */
+  vaultMode?: VaultMode;
+  vaultEnergyLevel?: LiveRoomEnergyLevel;
+  /** Fade chrome when stage is idle. */
+  uiDimmed?: boolean;
 };
 
 /** Centered 9:16 plate — video only; overlays attach to outer stage on desktop. */
@@ -118,6 +126,9 @@ export function LiveVideoStage({
   thumbnailUrl = null,
   fillPortraitFrame: _fillPortraitFrameProp,
   roomStatus,
+  vaultMode = "auction_night",
+  vaultEnergyLevel = "calm",
+  uiDimmed = false,
 }: LiveVideoStageProps) {
   const avatarLabel = hostName.charAt(0).toUpperCase();
   const statusLabel =
@@ -134,10 +145,12 @@ export function LiveVideoStage({
     : "h-auto max-h-full w-full max-w-full";
 
   const desktopActionOverlayClass = cinematicActionOverlay
-    ? "bottom-4 left-1/2 w-[min(920px,calc(100%-2rem))] -translate-x-1/2"
+    ? "live-stage-hud-suspended bottom-8 left-1/2 w-[min(920px,calc(100%-3rem))] -translate-x-1/2"
     : compactActionOverlay
       ? "bottom-2 left-2 right-14"
       : "bottom-4 left-4 right-4";
+
+  const desktopChromeDimClass = uiDimmed ? "live-stage-ui-dimmed" : "live-stage-ui-awake";
 
   const topChrome = (
     <div className="pointer-events-auto flex items-start justify-between gap-1 rounded-[var(--live-radius-chrome)] border border-[color:var(--live-border-muted)] bg-[color:var(--live-chrome-fill)] px-1 py-0.5 backdrop-blur-[var(--live-blur-sm)] md:gap-1 md:px-1 md:py-0.5">
@@ -248,6 +261,9 @@ export function LiveVideoStage({
 
       {/* 9:16 video plate — centered; overlays are not positioned relative to this on desktop. */}
       <div className="absolute inset-0 z-[1] flex items-center justify-center overflow-hidden">
+        {ambientBleed ? (
+          <LiveStageLighting vaultMode={vaultMode} energyLevel={vaultEnergyLevel} energyScore={stageEnergyScore} />
+        ) : null}
         <div className={`${PORTRAIT_VIDEO_FRAME} ${portraitSizingClass}`}>
           <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/34 via-black/10 to-transparent" aria-hidden />
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/68 via-black/26 to-transparent" aria-hidden />
@@ -329,7 +345,7 @@ export function LiveVideoStage({
       ) : null}
 
       {/* Desktop overlays — full player / placecard stage, wider than the 9:16 video. */}
-      <div className="pointer-events-none absolute inset-0 hidden min-[1400px]:block">
+      <div className={`pointer-events-none absolute inset-0 hidden min-[1400px]:block ${desktopChromeDimClass}`}>
         {stageEnergyScore > 0 ? (
           <div
             className="live-stage-ambient-glow absolute inset-x-0 bottom-0 h-[45%]"
@@ -345,7 +361,7 @@ export function LiveVideoStage({
         </div>
 
         {actionOverlay ? (
-          <div className={`pointer-events-auto absolute z-10 live-stage-float-subtle ${desktopActionOverlayClass}`}>
+          <div className={`pointer-events-auto absolute z-10 live-stage-float-subtle ${desktopActionOverlayClass} ${uiDimmed ? "" : "live-stage-hud-awake"}`}>
             {actionOverlay}
           </div>
         ) : null}

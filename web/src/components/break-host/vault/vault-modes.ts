@@ -44,15 +44,15 @@ export const VAULT_MODE_META: Record<
 export function vaultModeRootClass(mode: VaultMode): string {
   switch (mode) {
     case "vault_drop":
-      return "[--vault-chrome-tint:rgba(6,182,212,0.12)] [--vault-pulse:rgba(34,211,238,0.35)]";
+      return "live-stage-mode-vault_drop [--vault-chrome-tint:rgba(6,182,212,0.12)] [--vault-pulse:rgba(34,211,238,0.35)]";
     case "break_room":
-      return "[--vault-chrome-tint:rgba(139,92,246,0.14)] [--vault-pulse:rgba(167,139,250,0.38)]";
+      return "live-stage-mode-break_room [--vault-chrome-tint:rgba(139,92,246,0.14)] [--vault-pulse:rgba(167,139,250,0.38)]";
     case "marketplace_showcase":
-      return "[--vault-chrome-tint:rgba(16,185,129,0.12)] [--vault-pulse:rgba(52,211,153,0.32)]";
+      return "live-stage-mode-marketplace_showcase [--vault-chrome-tint:rgba(16,185,129,0.12)] [--vault-pulse:rgba(52,211,153,0.32)]";
     case "collector_lounge":
-      return "[--vault-chrome-tint:rgba(249,115,22,0.11)] [--vault-pulse:rgba(251,146,60,0.3)]";
+      return "live-stage-mode-collector_lounge [--vault-chrome-tint:rgba(249,115,22,0.11)] [--vault-pulse:rgba(251,146,60,0.3)]";
     case "auction_night":
     default:
-      return "[--vault-chrome-tint:rgba(245,158,11,0.14)] [--vault-pulse:rgba(251,191,36,0.4)]";
+      return "live-stage-mode-auction_night [--vault-chrome-tint:rgba(245,158,11,0.14)] [--vault-pulse:rgba(251,191,36,0.4)]";
   }
 }

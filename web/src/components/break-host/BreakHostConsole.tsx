@@ -14,6 +14,7 @@ import { VaultHostLiveChatPanel } from "@/components/break-host/vault/VaultHostL
 import { VaultHostStageEdgeRail } from "@/components/break-host/vault/VaultHostStageEdgeRail";
 import { VaultHostRightRail } from "@/components/break-host/vault/VaultHostRightRail";
 import { VaultPinnedLot } from "@/components/break-host/vault/VaultPinnedLot";
+import { VaultQueueDrawer } from "@/components/break-host/vault/VaultQueueDrawer";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { vaultModeRootClass } from "@/components/break-host/vault/vault-modes";
 import { LiveRoomEnergyMeter } from "@/components/live-stage/LiveRoomEnergyMeter";
@@ -210,6 +211,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const [hostQueueTab, setHostQueueTab] = useState<"auction" | "bin" | "givvy" | "sold">("auction");
   const [vaultMode, setVaultMode] = useState<VaultMode>("auction_night");
   const [vaultCommandOpen, setVaultCommandOpen] = useState(false);
+  const [queueDrawerOpen, setQueueDrawerOpen] = useState(false);
   const [stageMotionBurst, setStageMotionBurst] = useState<LiveStageMotionBurst>(null);
   const [bidsLastMinute, setBidsLastMinute] = useState(0);
   const [lotTransitionPhase, setLotTransitionPhase] = useState<LiveLotTransitionPhase>("idle");
@@ -1256,6 +1258,15 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     auctionLive: biddingWindowStillRunningHost,
   });
 
+  const stageUiWake =
+    queueDrawerOpen ||
+    biddingWindowStillRunningHost ||
+    stageMotionBurst != null ||
+    lotTransitionPhase !== "idle" ||
+    roomEnergy.level !== "calm" ||
+    Boolean(hostNotice) ||
+    Boolean(toast);
+
   const handleHostEndAuction = () => {
     const item = activeBoardRow?.item;
     if (!item) return;
@@ -1349,6 +1360,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       onAssignModerator: (userId: string) => void assignHostModerator(userId),
       onRevokeModerator: (userId: string) => void revokeHostModerator(userId),
     },
+    onOpenQueueDrawer: () => setQueueDrawerOpen((v) => !v),
+    queueDrawerOpen,
+    uiDimmed: !stageUiWake,
   };
 
   const hostDesktopItemOverlay = (
@@ -1426,6 +1440,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       viewerCount={room.viewerCount}
       onMessagesRefresh={() => void mergeHostMessagesFromApi()}
       variant="sidebar"
+      uiDimmed={!stageUiWake}
     />
   );
 
@@ -1479,6 +1494,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     cinematicActionOverlay: true,
     ambientBleed: true,
     stageEnergyScore: roomEnergy.score,
+    vaultMode,
+    vaultEnergyLevel: roomEnergy.level,
+    uiDimmed: !stageUiWake,
     stageOverlay: (
       <LiveLotTransitionBanner
         phase={lotTransitionPhase}
@@ -1560,13 +1578,34 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
             <LiveVideoStage {...hostStageProps} />
           </div>
 
-          <aside className="live-stage-floating-rail live-stage-floating-rail-hover pointer-events-auto absolute bottom-20 left-3 top-3 z-30 flex w-[min(252px,19vw)] min-w-0 flex-col overflow-hidden">
+          <aside className={`live-stage-utility-dock-wrap pointer-events-auto absolute left-4 top-4 z-30 w-[min(196px,14vw)] transition-opacity duration-700 ${stageUiWake ? "live-stage-ui-awake" : "live-stage-ui-dimmed"}`}>
             <LiveSellerCommandCenter {...commandCenterProps} variant="panel" compactRail />
           </aside>
 
-          <aside className="live-stage-floating-rail live-stage-floating-rail-hover pointer-events-auto absolute bottom-20 right-3 top-3 z-30 flex w-[min(252px,19vw)] min-w-0 flex-col overflow-hidden">
+          <aside className={`live-stage-chat-dock pointer-events-auto absolute bottom-28 right-4 top-auto z-30 flex max-h-[min(58vh,480px)] w-[min(240px,17vw)] min-w-0 flex-col overflow-hidden transition-opacity duration-700 ${stageUiWake ? "live-stage-ui-awake" : "live-stage-ui-dimmed"}`}>
             {hostLiveChatPanel}
           </aside>
+
+          <VaultQueueDrawer
+            open={queueDrawerOpen}
+            onClose={() => setQueueDrawerOpen(false)}
+            tab={hostQueueTab}
+            onTab={setHostQueueTab}
+            rows={data.queueItems}
+            selectedId={selectedQueueItemId}
+            onSelect={setSelectedQueueItemId}
+            viewerCount={room.viewerCount}
+            busy={busy}
+            onPost={(id) => void patchItem(id, "active")}
+            onSkip={(id) => void patchItem(id, "skipped")}
+            onDelete={(id) => void deleteQueueItem(id)}
+            onAddAuction={() => {
+              setQueueDrawerOpen(false);
+              setAuctionDraftTitle("");
+              setAuctionDraftPrice("");
+              setQueueAddModal("auction");
+            }}
+          />
         </div>
 
         {/* Mobile — full-width stage + floating chat */}

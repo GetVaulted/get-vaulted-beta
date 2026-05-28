@@ -43,6 +43,7 @@ type VaultHostLiveChatPanelProps = {
   onMessagesRefresh?: () => void;
   /** `sidebar` = full-height desktop column; `overlay` = mobile/in-stage panel. */
   variant?: "sidebar" | "overlay";
+  uiDimmed?: boolean;
 };
 
 export function VaultHostLiveChatPanel({
@@ -56,6 +57,7 @@ export function VaultHostLiveChatPanel({
   viewerCount = 0,
   onMessagesRefresh,
   variant = "overlay",
+  uiDimmed = false,
 }: VaultHostLiveChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<"chat" | "watching">("chat");
@@ -86,23 +88,23 @@ export function VaultHostLiveChatPanel({
 
   const shellClass =
     variant === "sidebar"
-      ? "flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-transparent"
+      ? `flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-transparent ${uiDimmed ? "live-stage-ui-dimmed" : "live-stage-ui-awake"}`
       : "pointer-events-auto flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-white/[0.06] bg-black/45 shadow-[0_12px_40px_-20px_rgba(0,0,0,0.9)] backdrop-blur-[var(--live-blur-xl)]";
 
   const showTabs = variant === "sidebar";
-  const msgClass = variant === "sidebar" ? "text-[13px] leading-relaxed" : "text-[13px] leading-snug max-[380px]:text-[12px]";
-  const msgListClass = variant === "sidebar" ? "space-y-2 px-2 py-2" : "space-y-2 px-3 py-2";
+  const msgClass = variant === "sidebar" ? "text-[12px] leading-snug" : "text-[13px] leading-snug max-[380px]:text-[12px]";
+  const msgListClass = variant === "sidebar" ? "space-y-1 px-1.5 py-1.5" : "space-y-2 px-3 py-2";
 
   return (
     <div className={shellClass}>
       {showTabs ? (
-        <div className="shrink-0 px-2 pt-2">
-          <div className="live-stage-glass-tray flex gap-0.5 p-0.5">
+        <div className="shrink-0 px-1.5 pt-1.5">
+          <div className="live-stage-chat-tabs flex gap-0.5 p-0.5">
             <button
               type="button"
               onClick={() => setTab("chat")}
-              className={`flex-1 rounded-xl px-2 py-1 text-[9px] font-black uppercase tracking-[0.12em] transition ${
-                tab === "chat" ? "bg-white/[0.08] text-zinc-100" : "text-zinc-600 hover:text-zinc-400"
+              className={`flex-1 rounded-lg px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.14em] transition ${
+                tab === "chat" ? "bg-white/[0.07] text-zinc-100" : "text-zinc-600 hover:text-zinc-400"
               }`}
             >
               Chat
@@ -110,8 +112,8 @@ export function VaultHostLiveChatPanel({
             <button
               type="button"
               onClick={() => setTab("watching")}
-              className={`flex-1 rounded-xl px-2 py-1 text-[9px] font-black uppercase tracking-[0.12em] transition ${
-                tab === "watching" ? "bg-white/[0.08] text-zinc-100" : "text-zinc-600 hover:text-zinc-400"
+              className={`flex-1 rounded-lg px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.14em] transition ${
+                tab === "watching" ? "bg-white/[0.07] text-zinc-100" : "text-zinc-600 hover:text-zinc-400"
               }`}
             >
               Live
@@ -164,15 +166,15 @@ export function VaultHostLiveChatPanel({
             )}
           </div>
 
-          <div className={`shrink-0 ${variant === "sidebar" ? "p-2" : "border-t border-white/[0.06] bg-zinc-900/50 p-3"}`}>
-            <div className={variant === "sidebar" ? "live-stage-glass-tray p-2" : ""}>
+          <div className={`shrink-0 ${variant === "sidebar" ? "p-1.5" : "border-t border-white/[0.06] bg-zinc-900/50 p-3"}`}>
+            <div className={variant === "sidebar" ? "live-stage-chat-input-tray p-1.5" : ""}>
             <textarea
               value={systemMsg}
               onChange={(e) => onSystemMsgChange(e.target.value)}
               placeholder="Send to chat…"
-              rows={2}
-              className={`w-full resize-none rounded-lg border border-white/10 bg-black/55 text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-amber-400/35 ${
-                variant === "sidebar" ? "px-3 py-2.5 text-[13px]" : "px-2.5 py-2 text-[12px]"
+              rows={variant === "sidebar" ? 1 : 2}
+              className={`w-full resize-none rounded-lg border border-white/[0.06] bg-black/35 text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-amber-400/25 ${
+                variant === "sidebar" ? "px-2 py-1.5 text-[12px]" : "px-2.5 py-2 text-[12px]"
               }`}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
@@ -185,7 +187,9 @@ export function VaultHostLiveChatPanel({
               type="button"
               disabled={busy || !systemMsg.trim()}
               onClick={onSendSystem}
-              className="mt-2 w-full rounded-lg bg-gradient-to-r from-amber-500/90 to-yellow-400/90 py-2 text-[10px] font-black uppercase tracking-wide text-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] disabled:opacity-40"
+              className={`mt-1.5 w-full rounded-lg bg-gradient-to-r from-amber-500/85 to-yellow-400/85 font-black uppercase tracking-wide text-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.3)] disabled:opacity-40 ${
+                variant === "sidebar" ? "py-1.5 text-[9px]" : "py-2 text-[10px]"
+              }`}
             >
               Send to chat
             </button>

@@ -66,8 +66,11 @@ export type LiveSellerCommandCenterProps = {
   };
   /** Mobile: full-screen overlay with close button */
   variant?: "panel" | "overlay";
-  /** Desktop floating rail — ultra-compact, utilities collapsed */
+  /** Desktop floating rail — ultra-compact utility dock */
   compactRail?: boolean;
+  onOpenQueueDrawer?: () => void;
+  queueDrawerOpen?: boolean;
+  uiDimmed?: boolean;
   onClose?: () => void;
 };
 
@@ -180,6 +183,9 @@ export function LiveSellerCommandCenter({
   roomGovernance,
   variant = "panel",
   compactRail = false,
+  onOpenQueueDrawer,
+  queueDrawerOpen = false,
+  uiDimmed = false,
   onClose,
 }: LiveSellerCommandCenterProps) {
   const live = roomStatus === "live";
@@ -216,6 +222,124 @@ export function LiveSellerCommandCenter({
           bidsLastMinute: 0,
           auctionLive: biddingWindowOpen,
         });
+
+  const queuedCount = queueRows.filter((r) => r.item.status !== "sold" && r.item.status !== "skipped").length;
+
+  if (isCompactRail) {
+    return (
+      <div className={`flex flex-col ${uiDimmed ? "live-stage-ui-dimmed" : "live-stage-ui-awake"}`}>
+        <div className="live-stage-utility-dock space-y-2 p-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span
+              className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide ${
+                live ? "bg-emerald-500/12 text-emerald-200" : "bg-zinc-800/80 text-zinc-400"
+              }`}
+            >
+              {live ? <span className="size-1 animate-pulse rounded-full bg-emerald-400" aria-hidden /> : null}
+              {live ? "Live" : roomStatus}
+            </span>
+            <span className="text-[9px] font-semibold text-zinc-400">{viewerCount} viewers</span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className={`size-1.5 rounded-full ${connectionOk ? "bg-emerald-400" : "bg-amber-400 motion-safe:animate-pulse"}`} aria-hidden />
+            <span className={`text-[9px] font-medium ${connectionOk ? "text-emerald-300/85" : "text-amber-200/85"}`}>
+              {connectionLabel}
+            </span>
+          </div>
+
+          <div className="border-t border-white/[0.04] pt-1.5">
+            <p className="line-clamp-1 text-[10px] font-bold text-white">{item?.title ?? "Pin a lot to begin"}</p>
+            {hostAuctionCountdownLabel && biddingWindowOpen ? (
+              <p className="mt-0.5 font-mono text-[10px] font-black tabular-nums text-emerald-300/95">{hostAuctionCountdownLabel}</p>
+            ) : (
+              <p className="mt-0.5 font-mono text-[11px] font-black tabular-nums text-amber-100/90">{item ? itemMoney(item) : "—"}</p>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={onOpenQueueDrawer}
+            className={`w-full rounded-xl border px-2 py-1.5 text-[9px] font-black uppercase tracking-[0.16em] transition ${
+              queueDrawerOpen
+                ? "live-stage-queue-btn-active border-amber-400/35 bg-amber-500/15 text-amber-50"
+                : "border-white/[0.06] bg-white/[0.03] text-zinc-300 hover:border-white/12 hover:bg-white/[0.06]"
+            }`}
+          >
+            Queue · {queuedCount}
+          </button>
+
+          {!live ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onPatchRoom("start")}
+              className="w-full rounded-xl border border-emerald-400/25 bg-emerald-500/12 py-1.5 text-[9px] font-black uppercase tracking-wide text-emerald-100 disabled:opacity-40"
+            >
+              Go live
+            </button>
+          ) : null}
+        </div>
+
+        <div className="space-y-1 px-2 pb-2">
+          <CollapsibleSection title="Tools" glass defaultOpen={false}>
+            <div className="grid grid-cols-2 gap-1">
+              <PrimaryBtn compact onClick={onPinSelected} disabled={!selectedQueueItemId || busy} tone="ghost">
+                Pin
+              </PrimaryBtn>
+              <PrimaryBtn compact onClick={onNextItem} disabled={busy || !queueRows.some((r) => r.item.status === "queued")} tone="ghost">
+                Next
+              </PrimaryBtn>
+              <PrimaryBtn compact onClick={onOpenObs} disabled={busy} tone="ghost">
+                OBS
+              </PrimaryBtn>
+              <PrimaryBtn compact onClick={onCopyPublic} disabled={busy} tone="ghost">
+                Share
+              </PrimaryBtn>
+            </div>
+            <button
+              type="button"
+              disabled={busy || !live}
+              onClick={() => onPatchRoom("end")}
+              className="mt-1.5 w-full rounded-lg border border-rose-500/25 py-1 text-[9px] font-black uppercase tracking-wide text-rose-200/90 disabled:opacity-40"
+            >
+              End stream
+            </button>
+            {roomGovernance ? (
+              <div className="mt-2">
+                <LiveHostRoomGovernance {...roomGovernance} />
+              </div>
+            ) : null}
+          </CollapsibleSection>
+          {onVaultModeChange ? (
+            <CollapsibleSection title="Mood" glass defaultOpen={false}>
+              <div className="grid grid-cols-2 gap-1">
+                {(Object.keys(VAULT_MODE_META) as VaultMode[]).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => onVaultModeChange(m)}
+                    className={`rounded-lg px-1.5 py-1 text-left text-[9px] font-bold transition ${
+                      vaultMode === m ? "bg-white/[0.06] text-amber-100" : "text-zinc-500 hover:text-zinc-300"
+                    }`}
+                  >
+                    {VAULT_MODE_META[m].label}
+                  </button>
+                ))}
+              </div>
+            </CollapsibleSection>
+          ) : null}
+          <CollapsibleSection title="Analytics" glass defaultOpen={false}>
+            <div className="space-y-2">
+              <LiveRoomEnergyMeter score={panelEnergy.score} level={panelEnergy.level} compact />
+              {feeTier ? <LiveShowFeeTierTile tier={feeTier} /> : null}
+              <HostRecentSalesTile rows={recentSales} />
+            </div>
+          </CollapsibleSection>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={shellClass}>
@@ -335,25 +459,8 @@ export function LiveSellerCommandCenter({
           )}
         </section>
 
-        {/* Queue — collapsible in compact rail */}
-        {isCompactRail ? (
-          <CollapsibleSection title="Queue" glass defaultOpen>
-            <VaultQueueCarousel
-              tab={queueTab}
-              onTab={onQueueTab}
-              rows={queueRows}
-              selectedId={selectedQueueItemId}
-              onSelect={onSelectQueueItem}
-              viewerCount={viewerCount}
-              busy={busy}
-              onPost={onPostItem}
-              onSkip={onSkipItem}
-              onDelete={onDeleteItem}
-              onAddAuction={onAddAuction}
-              compact
-            />
-          </CollapsibleSection>
-        ) : (
+        {/* Queue — full panel only; compact rail uses floating drawer */}
+        {!isCompactRail ? (
         <section className="live-stage-glass-tray p-2">
           <VaultQueueCarousel
             tab={queueTab}
@@ -370,11 +477,11 @@ export function LiveSellerCommandCenter({
             compact={isDesktopPanel}
           />
         </section>
-        )}
+        ) : null}
 
-        {/* Expandable utility drawers — collapsed by default in compact rail */}
+        {/* Expandable utility drawers */}
         <div className="space-y-1.5">
-          {isDesktopPanel && onVaultModeChange && !isCompactRail ? (
+          {isDesktopPanel && onVaultModeChange ? (
             <CollapsibleSection title="Room mood" glass>
               <div className="grid grid-cols-2 gap-1.5">
                 {(Object.keys(VAULT_MODE_META) as VaultMode[]).map((m) => {
@@ -399,25 +506,8 @@ export function LiveSellerCommandCenter({
               </div>
             </CollapsibleSection>
           ) : null}
-          {isCompactRail && onVaultModeChange ? (
-            <CollapsibleSection title="Mood" glass>
-              <div className="grid grid-cols-2 gap-1">
-                {(Object.keys(VAULT_MODE_META) as VaultMode[]).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => onVaultModeChange(m)}
-                    className={`rounded-lg px-1.5 py-1.5 text-left text-[9px] font-bold ${
-                      vaultMode === m ? "text-amber-100" : "text-zinc-500"
-                    }`}
-                  >
-                    {VAULT_MODE_META[m].label}
-                  </button>
-                ))}
-              </div>
-            </CollapsibleSection>
-          ) : null}
-          <CollapsibleSection title={isCompactRail ? "Tools" : "Tools"} glass defaultOpen={false}>
+          {!isCompactRail ? (
+          <CollapsibleSection title="Tools" glass defaultOpen={false}>
             <div className="grid grid-cols-2 gap-1.5">
               <PrimaryBtn compact onClick={onOpenObs} disabled={busy} tone="ghost">
                 OBS
@@ -432,6 +522,7 @@ export function LiveSellerCommandCenter({
               </div>
             ) : null}
           </CollapsibleSection>
+          ) : null}
           <CollapsibleSection title="Analytics" glass defaultOpen={false}>
             <div className="space-y-2">
               {feeTier ? <LiveShowFeeTierTile tier={feeTier} /> : null}
