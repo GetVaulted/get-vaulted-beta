@@ -86,7 +86,7 @@ export function VaultHostLiveChatPanel({
 
   const shellClass =
     variant === "sidebar"
-      ? "flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-zinc-950"
+      ? "flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-transparent"
       : "pointer-events-auto flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-white/[0.1] bg-black/55 shadow-[0_16px_48px_-20px_rgba(0,0,0,0.9)] ring-1 ring-white/[0.05] backdrop-blur-[var(--live-blur-xl)]";
 
   const showTabs = variant === "sidebar";
@@ -96,8 +96,8 @@ export function VaultHostLiveChatPanel({
   return (
     <div className={shellClass}>
       {showTabs ? (
-        <div className="shrink-0 border-b border-white/[0.08] bg-zinc-900/40 px-3 py-2.5">
-          <div className="flex gap-1 rounded-lg bg-black/50 p-0.5 ring-1 ring-white/[0.04]">
+        <div className="shrink-0 border-b border-white/[0.06] px-2.5 py-2">
+          <div className="live-stage-glass-tray flex gap-1 p-0.5">
             <button
               type="button"
               onClick={() => setTab("chat")}
@@ -159,7 +159,7 @@ export function VaultHostLiveChatPanel({
             )}
           </div>
 
-          <div className={`shrink-0 border-t border-white/[0.08] bg-zinc-900/50 ${variant === "sidebar" ? "p-3" : "p-3"}`}>
+          <div className={`shrink-0 border-t border-white/[0.06] ${variant === "sidebar" ? "live-stage-glass-tray m-2 p-2" : "bg-zinc-900/50 p-3"}`}>
             <textarea
               value={systemMsg}
               onChange={(e) => onSystemMsgChange(e.target.value)}

@@ -11,6 +11,11 @@ import { liveAuctionDisplayBidUsd } from "@/lib/live-auction-overlay-price";
 import type { LiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
 import type { LiveRoomModeratorRow } from "@/hooks/useLiveRoomModerationState";
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
+import type { VaultMode } from "@/components/break-host/vault/vault-modes";
+import { VAULT_MODE_META } from "@/components/break-host/vault/vault-modes";
+import { LiveRoomEnergyMeter } from "@/components/live-stage/LiveRoomEnergyMeter";
+import { computeLiveRoomEnergy } from "@/lib/live-room-energy";
+import type { LiveRoomEnergyLevel } from "@/lib/live-room-energy";
 
 type QueueTab = "auction" | "bin" | "givvy" | "sold";
 
@@ -46,6 +51,10 @@ export type LiveSellerCommandCenterProps = {
   onCopyPublic: () => void;
   recentSales: HostRecentSaleRowDTO[];
   feeTier?: LiveShowFeeTierSnapshot | null;
+  vaultMode?: VaultMode;
+  onVaultModeChange?: (mode: VaultMode) => void;
+  roomEnergyScore?: number;
+  roomEnergyLevel?: LiveRoomEnergyLevel;
   roomGovernance?: {
     slowModeSeconds: number;
     moderators: LiveRoomModeratorRow[];
@@ -91,19 +100,29 @@ function PrimaryBtn({
   );
 }
 
-function CollapsibleSection({ title, children, defaultOpen = false }: { title: string; children: ReactNode; defaultOpen?: boolean }) {
+function CollapsibleSection({
+  title,
+  children,
+  defaultOpen = false,
+  glass = false,
+}: {
+  title: string;
+  children: ReactNode;
+  defaultOpen?: boolean;
+  glass?: boolean;
+}) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="rounded-xl border border-white/[0.08] bg-black/30">
+    <div className={glass ? "live-stage-glass-tray overflow-hidden" : "rounded-xl border border-white/[0.08] bg-black/30"}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-zinc-300"
+        className={`flex w-full items-center justify-between text-left text-[10px] font-bold uppercase tracking-wide text-zinc-300 ${glass ? "px-2.5 py-2" : "px-3 py-2.5"}`}
       >
         {title}
         <span className="text-zinc-500">{open ? "−" : "+"}</span>
       </button>
-      {open ? <div className="border-t border-white/[0.06] px-3 py-3">{children}</div> : null}
+      {open ? <div className={`border-t border-white/[0.06] ${glass ? "px-2.5 py-2" : "px-3 py-3"}`}>{children}</div> : null}
     </div>
   );
 }
@@ -152,6 +171,10 @@ export function LiveSellerCommandCenter({
   onCopyPublic,
   recentSales,
   feeTier,
+  vaultMode = "auction_night",
+  onVaultModeChange,
+  roomEnergyScore,
+  roomEnergyLevel,
   roomGovernance,
   variant = "panel",
   onClose,
@@ -171,7 +194,7 @@ export function LiveSellerCommandCenter({
   const shellClass =
     variant === "overlay"
       ? "flex h-full min-h-0 flex-col overflow-hidden bg-zinc-950"
-      : "flex h-full min-h-0 flex-col overflow-hidden bg-zinc-950/95";
+      : "flex h-full min-h-0 flex-col overflow-hidden bg-transparent";
 
   const isDesktopPanel = variant === "panel";
   const boardItem = activeBoardRow?.item;
@@ -180,10 +203,21 @@ export function LiveSellerCommandCenter({
   const auctionEndedPendingClose =
     Boolean(boardItem?.biddingOpen && boardItem?.status === "active" && !biddingWindowOpen);
 
+  const panelEnergy =
+    roomEnergyScore != null && roomEnergyLevel
+      ? { score: roomEnergyScore, level: roomEnergyLevel }
+      : computeLiveRoomEnergy({
+          viewerCount,
+          recentMessageCount: 0,
+          bidsLastMinute: 0,
+          auctionLive: biddingWindowOpen,
+        });
+
   return (
     <div className={shellClass}>
-      {/* Top bar */}
-      <header className="shrink-0 border-b border-white/[0.08] px-3 py-2.5">
+      {/* Top status strip */}
+      <header className={`shrink-0 ${isDesktopPanel ? "px-2.5 py-2" : "border-b border-white/[0.08] px-3 py-2.5"}`}>
+        <div className="live-stage-glass-tray px-2.5 py-2">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-bold text-white">{roomTitle}</p>
@@ -225,16 +259,21 @@ export function LiveSellerCommandCenter({
             type="button"
             disabled={busy}
             onClick={() => onPatchRoom("start")}
-            className="mt-2 w-full rounded-xl border border-emerald-400/30 bg-emerald-500/15 py-2 text-[11px] font-black uppercase tracking-wide text-emerald-100 disabled:opacity-40"
+            className="mt-2 w-full rounded-full border border-emerald-400/30 bg-emerald-500/15 py-1.5 text-[10px] font-black uppercase tracking-wide text-emerald-100 disabled:opacity-40"
           >
             Go live
           </button>
         ) : null}
+        </div>
       </header>
 
-      <div className={`min-h-0 flex-1 overflow-y-auto ${isDesktopPanel ? "px-2.5 py-2" : "px-3 py-3"}`}>
-        {/* Active lot — desktop panel is a compact summary; overlay keeps full controls */}
-        <section className={`rounded-xl border border-white/10 bg-black/45 ${isDesktopPanel ? "p-2" : "p-3"}`}>
+      <div className={`min-h-0 flex-1 overflow-y-auto ${isDesktopPanel ? "space-y-2 px-2.5 py-2" : "space-y-3 px-3 py-3"}`}>
+        {isDesktopPanel ? (
+          <LiveRoomEnergyMeter score={panelEnergy.score} level={panelEnergy.level} compact />
+        ) : null}
+
+        {/* Active lot — utility summary; live actions on stage HUD */}
+        <section className="live-stage-glass-tray p-2">
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">On the block</p>
           <p className={`line-clamp-2 font-bold text-white ${isDesktopPanel ? "mt-0.5 text-xs" : "mt-1 text-sm"}`}>
             {item?.title ?? "Pin a lot to begin"}
@@ -254,7 +293,7 @@ export function LiveSellerCommandCenter({
           ) : skipped ? (
             <p className="mt-1.5 text-[10px] font-semibold text-zinc-400">Lot skipped</p>
           ) : isDesktopPanel ? (
-            <p className="mt-1.5 text-[10px] text-zinc-500">Run auctions from the stage bar below the video.</p>
+            <p className="mt-1 text-[10px] text-zinc-500">Auction controls live on the stage HUD.</p>
           ) : null}
 
           {isDesktopPanel ? (
@@ -284,8 +323,8 @@ export function LiveSellerCommandCenter({
           )}
         </section>
 
-        {/* Queue */}
-        <section className={isDesktopPanel ? "mt-2" : "mt-3"}>
+        {/* Queue tray */}
+        <section className="live-stage-glass-tray p-2">
           <VaultQueueCarousel
             tab={queueTab}
             onTab={onQueueTab}
@@ -302,25 +341,50 @@ export function LiveSellerCommandCenter({
           />
         </section>
 
-        {/* Secondary — collapsed by default */}
-        <div className={`space-y-2 ${isDesktopPanel ? "mt-2" : "mt-3"}`}>
-          <CollapsibleSection title="More controls">
-            <div className="grid grid-cols-2 gap-2">
-              <PrimaryBtn onClick={onOpenObs} disabled={busy} tone="ghost">
-                OBS setup
+        {/* Expandable utility drawers */}
+        <div className="space-y-2">
+          {isDesktopPanel && onVaultModeChange ? (
+            <CollapsibleSection title="Room mood" glass>
+              <div className="grid grid-cols-2 gap-1.5">
+                {(Object.keys(VAULT_MODE_META) as VaultMode[]).map((m) => {
+                  const meta = VAULT_MODE_META[m];
+                  const on = vaultMode === m;
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => onVaultModeChange(m)}
+                      className={`rounded-xl px-2 py-2 text-left transition ${
+                        on
+                          ? "border border-amber-400/35 bg-amber-500/10 shadow-[0_0_20px_-12px_rgba(245,158,11,0.4)]"
+                          : "border border-white/[0.06] bg-black/30 hover:border-white/12"
+                      }`}
+                    >
+                      <p className="text-[10px] font-bold text-white">{meta.label}</p>
+                      <p className="mt-0.5 text-[9px] leading-snug text-zinc-500">{meta.description}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </CollapsibleSection>
+          ) : null}
+          <CollapsibleSection title="Tools" glass>
+            <div className="grid grid-cols-2 gap-1.5">
+              <PrimaryBtn compact onClick={onOpenObs} disabled={busy} tone="ghost">
+                OBS
               </PrimaryBtn>
-              <PrimaryBtn onClick={onCopyPublic} disabled={busy} tone="ghost">
-                Copy show link
+              <PrimaryBtn compact onClick={onCopyPublic} disabled={busy} tone="ghost">
+                Share link
               </PrimaryBtn>
             </div>
             {roomGovernance ? (
-              <div className="mt-3">
+              <div className="mt-2">
                 <LiveHostRoomGovernance {...roomGovernance} />
               </div>
             ) : null}
           </CollapsibleSection>
-          <CollapsibleSection title="Analytics">
-            <div className="space-y-3">
+          <CollapsibleSection title="Analytics" glass>
+            <div className="space-y-2">
               {feeTier ? <LiveShowFeeTierTile tier={feeTier} /> : null}
               <HostRecentSalesTile rows={recentSales} />
             </div>

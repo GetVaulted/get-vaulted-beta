@@ -44,6 +44,8 @@ type LiveVideoStageProps = {
   stageEdgeRail?: ReactNode;
   /** Narrower auction/item overlay for 9:16 host console stage. */
   compactActionOverlay?: boolean;
+  /** Floating HUD spans stage container (wider than 9:16 video). */
+  cinematicActionOverlay?: boolean;
   /** Extra controls in the top chrome row (before the Live / viewer cluster). */
   topChromeTrailing?: ReactNode;
   /** Buyer-only right-side quick actions. */
@@ -54,6 +56,8 @@ type LiveVideoStageProps = {
   onTip?: () => void;
   /** When set, loads buyer-safe stream info and renders IVS HLS playback behind overlays (never exposes keys). */
   liveRoomId?: string;
+  /** Ambient bottom glow intensity 0–100 (room energy). Desktop host stage. */
+  stageEnergyScore?: number;
   /** Bumped when room `stream_status` realtime fires so playback refetches stream info. */
   streamPlaybackRefreshNonce?: number;
   /** Room scheduled start (ISO) for pre-live buyer video messaging. */
@@ -94,12 +98,14 @@ export function LiveVideoStage({
   hostRailClassName,
   stageEdgeRail,
   compactActionOverlay = false,
+  cinematicActionOverlay = false,
   topChromeTrailing,
   showRightActions = false,
   onShare,
   onWallet,
   onTip,
   liveRoomId,
+  stageEnergyScore = 0,
   streamPlaybackRefreshNonce,
   scheduledStartAt = null,
   thumbnailUrl = null,
@@ -120,9 +126,11 @@ export function LiveVideoStage({
     ? "h-full max-h-full w-auto max-w-full"
     : "h-auto max-h-full w-full max-w-full";
 
-  const desktopActionOverlayClass = compactActionOverlay
-    ? "bottom-2 left-2 right-14"
-    : "bottom-4 left-4 right-4";
+  const desktopActionOverlayClass = cinematicActionOverlay
+    ? "bottom-4 left-1/2 w-[min(920px,calc(100%-2rem))] -translate-x-1/2"
+    : compactActionOverlay
+      ? "bottom-2 left-2 right-14"
+      : "bottom-4 left-4 right-4";
 
   const topChrome = (
     <div className="pointer-events-auto flex items-start justify-between gap-1 rounded-[var(--live-radius-chrome)] border border-[color:var(--live-border-muted)] bg-[color:var(--live-chrome-fill)] px-1 py-0.5 backdrop-blur-[var(--live-blur-sm)] md:gap-1 md:px-1 md:py-0.5">
@@ -307,6 +315,13 @@ export function LiveVideoStage({
 
       {/* Desktop overlays — full player / placecard stage, wider than the 9:16 video. */}
       <div className="pointer-events-none absolute inset-0 hidden min-[1400px]:block">
+        {stageEnergyScore > 0 ? (
+          <div
+            className="live-stage-ambient-glow absolute inset-x-0 bottom-0 h-[45%]"
+            style={{ opacity: 0.25 + (stageEnergyScore / 100) * 0.45 }}
+            aria-hidden
+          />
+        ) : null}
         <div className="pointer-events-none absolute left-3 right-3 top-3 z-10 flex flex-col items-stretch gap-2">
           {topChrome}
           {stageBelowAudience ? (

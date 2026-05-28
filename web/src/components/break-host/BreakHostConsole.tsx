@@ -16,6 +16,14 @@ import { VaultHostRightRail } from "@/components/break-host/vault/VaultHostRight
 import { VaultPinnedLot } from "@/components/break-host/vault/VaultPinnedLot";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { vaultModeRootClass } from "@/components/break-host/vault/vault-modes";
+import { LiveRoomEnergyMeter } from "@/components/live-stage/LiveRoomEnergyMeter";
+import type { LiveStageMotionBurst } from "@/components/live-stage/LiveAuctionHud";
+import {
+  computeLiveRoomEnergy,
+  countRecentBids,
+  isBidWar,
+  pushBidTimestamp,
+} from "@/lib/live-room-energy";
 import { HostStreamSetupCard } from "@/components/live-auction/HostStreamSetupCard";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
@@ -198,6 +206,10 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const [hostQueueTab, setHostQueueTab] = useState<"auction" | "bin" | "givvy" | "sold">("auction");
   const [vaultMode, setVaultMode] = useState<VaultMode>("auction_night");
   const [vaultCommandOpen, setVaultCommandOpen] = useState(false);
+  const [stageMotionBurst, setStageMotionBurst] = useState<LiveStageMotionBurst>(null);
+  const [bidsLastMinute, setBidsLastMinute] = useState(0);
+  const bidTimestampsRef = useRef<number[]>([]);
+  const stageMotionTimerRef = useRef<number | null>(null);
   const [realtimeConnectionStatus, setRealtimeConnectionStatus] = useState("Connecting…");
   const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
   const lastRefreshAtRef = useRef<number | null>(null);
@@ -451,9 +463,19 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     }, 3200);
   }, []);
 
+  const flashStageMotion = useCallback((burst: LiveStageMotionBurst, ms = 750) => {
+    setStageMotionBurst(burst);
+    if (stageMotionTimerRef.current != null) window.clearTimeout(stageMotionTimerRef.current);
+    stageMotionTimerRef.current = window.setTimeout(() => {
+      setStageMotionBurst(null);
+      stageMotionTimerRef.current = null;
+    }, ms);
+  }, []);
+
   useEffect(
     () => () => {
       if (hostNoticeTimerRef.current != null) window.clearTimeout(hostNoticeTimerRef.current);
+      if (stageMotionTimerRef.current != null) window.clearTimeout(stageMotionTimerRef.current);
     },
     [],
   );
@@ -671,6 +693,19 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       if (!shouldProcessRealtimePayload("bid_placed", payload)) return;
       const amt = typeof payload.amountUsd === "number" ? payload.amountUsd : null;
       if (amt != null) flashHostNotice(`Live bid · ${fmtHostSpotUsd(amt)}`);
+      const now = Date.now();
+      bidTimestampsRef.current = pushBidTimestamp(bidTimestampsRef.current, now);
+      setBidsLastMinute(countRecentBids(bidTimestampsRef.current, now));
+      const bidWar = isBidWar(bidTimestampsRef.current, now);
+      const activeEnds = hostDataRef.current?.queueItems.find((q) => q.item.status === "active")?.item.auctionEndsAt;
+      let lastSecond = false;
+      if (activeEnds) {
+        const ends = Date.parse(activeEnds);
+        const skew = hostClockSkewMs;
+        const remaining = ends - (now + (Number.isFinite(skew) ? skew : 0));
+        lastSecond = Number.isFinite(remaining) && remaining <= 5000 && remaining > 0;
+      }
+      flashStageMotion(bidWar ? "bid_war" : lastSecond ? "last_second" : "bid");
       setData((prev) => {
         if (!prev || typeof payload.amountUsd !== "number" || typeof payload.itemId !== "string") return prev;
         const flat = prev.queueItems.map((r) => r.item);
@@ -791,6 +826,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       if (!shouldProcessRealtimePayload("purchase_completed", payload)) return;
       const celebration = parsePurchaseCompletedCelebration(payload);
       if (celebration) setSoldCelebration(celebration);
+      flashStageMotion("sold", 1400);
       flashHostNotice("Item sold · syncing");
       scheduleFallbackRefresh("purchase_completed", 40);
     },
@@ -1136,6 +1172,22 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     activeBoardRow.item.status === "active" &&
     !activeBoardRow.item.biddingOpen;
 
+  const recentChatCount = (() => {
+    const cutoff = Date.now() - 120_000;
+    return data.messages.filter((m) => {
+      if (m.messageType !== "chat" && m.messageType !== "bid") return false;
+      const t = Date.parse(m.createdAt);
+      return Number.isFinite(t) && t >= cutoff;
+    }).length;
+  })();
+
+  const roomEnergy = computeLiveRoomEnergy({
+    viewerCount: room.viewerCount,
+    recentMessageCount: recentChatCount,
+    bidsLastMinute,
+    auctionLive: biddingWindowStillRunningHost,
+  });
+
   const handleHostEndAuction = () => {
     const item = activeBoardRow?.item;
     if (!item) return;
@@ -1216,6 +1268,10 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     onCopyPublic: () => void copyPublic(),
     recentSales: data.recentSales ?? [],
     feeTier: data.feeTier ?? null,
+    vaultMode,
+    onVaultModeChange: setVaultMode,
+    roomEnergyScore: roomEnergy.score,
+    roomEnergyLevel: roomEnergy.level,
     roomGovernance: {
       slowModeSeconds: hostModeration.slowModeSeconds,
       moderators: hostModeration.moderators,
@@ -1249,6 +1305,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       onNextItem={handleHostNextItem}
       hostBusy={busy}
       hostClockSkewMs={hostClockSkewMs}
+      energyLevel={roomEnergy.level}
+      motionBurst={stageMotionBurst}
     />
   );
 
@@ -1274,14 +1332,17 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   );
 
   const vaultControlsPill = (
-    <button
-      type="button"
-      onClick={() => setVaultCommandOpen(true)}
-      className="inline-flex max-w-[9rem] items-center gap-1 rounded-full border border-amber-400/30 bg-gradient-to-r from-amber-500/15 to-yellow-500/10 px-2 py-[3px] text-[8px] font-black uppercase tracking-[0.12em] text-amber-50 shadow-[0_0_22px_-10px_rgba(245,158,11,0.55)] backdrop-blur-md max-[360px]:max-w-[7.5rem] max-[360px]:gap-0.5 max-[360px]:px-1.5 max-[360px]:text-[7px] max-[360px]:tracking-[0.08em] min-[1400px]:hidden"
-    >
-      <span className="inline-flex size-1.5 shrink-0 rounded-full bg-amber-300 shadow-[0_0_10px_rgba(252,211,77,0.9)] motion-safe:animate-pulse" aria-hidden />
-      <span className="truncate">Vault controls</span>
-    </button>
+    <div className="flex items-center gap-1.5">
+      <LiveRoomEnergyMeter score={roomEnergy.score} level={roomEnergy.level} compact />
+      <button
+        type="button"
+        onClick={() => setVaultCommandOpen(true)}
+        className="inline-flex max-w-[9rem] items-center gap-1 rounded-full border border-amber-400/30 bg-gradient-to-r from-amber-500/15 to-yellow-500/10 px-2 py-[3px] text-[8px] font-black uppercase tracking-[0.12em] text-amber-50 shadow-[0_0_22px_-10px_rgba(245,158,11,0.55)] backdrop-blur-md max-[360px]:max-w-[7.5rem] max-[360px]:gap-0.5 max-[360px]:px-1.5 max-[360px]:text-[7px] max-[360px]:tracking-[0.08em] min-[1400px]:hidden"
+      >
+        <span className="inline-flex size-1.5 shrink-0 rounded-full bg-amber-300 shadow-[0_0_10px_rgba(252,211,77,0.9)] motion-safe:animate-pulse" aria-hidden />
+        <span className="truncate">Vault controls</span>
+      </button>
+    </div>
   );
 
   const hostLiveChatPanel = (
@@ -1346,6 +1407,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     actionOverlay: hostDesktopItemOverlay,
     mobileActionOverlay: hostMobileItemOverlay,
     compactActionOverlay: true,
+    cinematicActionOverlay: true,
+    stageEnergyScore: roomEnergy.score,
     chatOverlay: hostMobileChatOverlay,
     chatOverlayClassName: "min-[1400px]:hidden",
     stageEdgeRail: (
@@ -1414,12 +1477,12 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
       <div className="relative flex min-h-0 flex-1 flex-col p-1 sm:p-1.5 min-[1400px]:p-1">
         {/* Desktop — fixed columns: compact info | large centered 9:16 stage | chat */}
-        <div className="relative hidden min-h-0 flex-1 overflow-hidden rounded-xl border border-white/[0.06] bg-zinc-950/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[1400px]:grid min-[1400px]:grid-cols-[minmax(280px,340px)_minmax(0,1fr)_300px]">
-          <aside className="min-h-0 shrink-0 overflow-hidden border-r border-white/[0.06]">
+        <div className="relative hidden min-h-0 flex-1 overflow-hidden min-[1400px]:grid min-[1400px]:grid-cols-[minmax(260px,300px)_minmax(0,1fr)_280px]">
+          <aside className="min-h-0 shrink-0 overflow-hidden border-r border-white/[0.04] bg-black/20">
             <LiveSellerCommandCenter {...commandCenterProps} variant="panel" />
           </aside>
 
-          <main className="relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-zinc-950/85">
+          <main className="relative flex min-h-0 min-w-0 flex-col overflow-hidden">
             {room.thumbnailUrl ? (
               <div
                 className="pointer-events-none absolute inset-0 scale-105 bg-cover bg-center opacity-25 blur-2xl"
@@ -1433,7 +1496,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
             </div>
           </main>
 
-          <aside className="flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-white/[0.06] bg-zinc-950/95">
+          <aside className="flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-white/[0.04] bg-black/25">
             {hostLiveChatPanel}
           </aside>
         </div>
