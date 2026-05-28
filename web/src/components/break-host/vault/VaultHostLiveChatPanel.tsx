@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { LiveChatMessageRowActions } from "@/components/trust/LiveChatMessageRowActions";
 
-const PALETTE = ["text-sky-400", "text-emerald-400", "text-violet-400", "text-amber-400", "text-rose-400", "text-cyan-400"] as const;
+const PALETTE = ["text-sky-300", "text-emerald-300", "text-violet-300", "text-amber-300", "text-rose-300", "text-cyan-300"] as const;
 
 function colorForUser(username: string | undefined) {
   const u = username ?? "";
@@ -104,7 +104,9 @@ export function VaultHostLiveChatPanel({
               type="button"
               onClick={() => setTab("chat")}
               className={`flex-1 rounded-lg px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.14em] transition ${
-                tab === "chat" ? "bg-white/[0.07] text-zinc-100" : "text-zinc-600 hover:text-zinc-400"
+                tab === "chat"
+                  ? "border border-amber-400/15 bg-amber-400/10 text-amber-100"
+                  : "text-zinc-500 hover:text-zinc-300"
               }`}
             >
               Chat
@@ -113,7 +115,9 @@ export function VaultHostLiveChatPanel({
               type="button"
               onClick={() => setTab("watching")}
               className={`flex-1 rounded-lg px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.14em] transition ${
-                tab === "watching" ? "bg-white/[0.07] text-zinc-100" : "text-zinc-600 hover:text-zinc-400"
+                tab === "watching"
+                  ? "border border-amber-400/15 bg-amber-400/10 text-amber-100"
+                  : "text-zinc-500 hover:text-zinc-300"
               }`}
             >
               Live
@@ -147,7 +151,7 @@ export function VaultHostLiveChatPanel({
                   <div key={m.id} className={`group chat-msg-row ${msgClass} ${rowClass}`}>
                     <span className={labelClass}>{label}</span>
                     <span className="text-zinc-600">: </span>
-                    <span className={isSystem || isBid ? "font-semibold text-amber-100/90" : isPurchase ? "text-emerald-200/90" : "text-zinc-300"}>
+                    <span className={isSystem || isBid ? "font-semibold text-amber-50" : isPurchase ? "font-semibold text-emerald-100" : "text-zinc-200"}>
                       {m.body}
                     </span>
                     {m.messageType === "chat" && m.senderId !== hostUserId ? (
@@ -198,9 +202,9 @@ export function VaultHostLiveChatPanel({
         </>
       ) : showTabs ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">In the room</p>
-          <p className="mt-2 text-2xl font-black tabular-nums text-zinc-100">{viewerCount.toLocaleString()}</p>
-          <p className="text-xs text-zinc-500">viewers watching now</p>
+          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-amber-200/70">In the room</p>
+          <p className="mt-2 text-2xl font-black tabular-nums text-white">{viewerCount.toLocaleString()}</p>
+          <p className="text-xs font-medium text-zinc-400">viewers watching now</p>
           {recentChatters.length > 0 ? (
             <div className="mt-4 space-y-1.5">
               <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-600">Recent in chat</p>

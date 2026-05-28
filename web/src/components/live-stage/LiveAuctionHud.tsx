@@ -32,11 +32,11 @@ function fmtOverlayLead(
   });
 }
 
-const ENERGY_EDGE: Record<LiveRoomEnergyLevel, string> = {
-  calm: "before:opacity-30",
-  warming: "before:opacity-45",
-  hot: "before:opacity-60",
-  electric: "before:opacity-80 live-hud-electric",
+const ENERGY_WRAPPER: Record<LiveRoomEnergyLevel, string> = {
+  calm: "live-stage-hud-energy-calm before:opacity-45",
+  warming: "live-stage-hud-energy-warming before:opacity-60",
+  hot: "live-stage-hud-energy-hot before:opacity-75",
+  electric: "live-stage-hud-energy-electric before:opacity-90",
 };
 
 type LiveAuctionHudProps = {
@@ -161,7 +161,7 @@ export function LiveAuctionHud({
   if (sold && !auctionRunning) {
     return (
       <div
-        className={`live-stage-auction-hud relative w-full live-stage-hud-sold live-stage-hud-sold-sweep ${ENERGY_EDGE[energyLevel]}`}
+        className={`live-stage-auction-hud relative w-full live-stage-hud-sold live-stage-hud-sold-sweep ${ENERGY_WRAPPER[energyLevel]}`}
         data-testid="live-auction-hud"
       >
         <div className="live-stage-hud-glass flex min-h-[48px] items-center justify-between gap-3 px-4 py-2 before:pointer-events-none before:absolute before:-inset-px before:rounded-[inherit] before:bg-gradient-to-r before:from-emerald-400/20 before:via-amber-300/15 before:to-transparent before:content-['']">
@@ -188,9 +188,9 @@ export function LiveAuctionHud({
 
   return (
     <div
-      className={`live-stage-auction-hud relative w-full transition-opacity duration-500 ${ENERGY_EDGE[energyLevel]} ${burstClass} ${
+      className={`live-stage-auction-hud relative w-full transition-opacity duration-500 ${ENERGY_WRAPPER[energyLevel]} ${burstClass} ${
         hudHidden ? "pointer-events-none opacity-0" : "opacity-100"
-      } before:pointer-events-none before:absolute before:-inset-px before:rounded-[inherit] before:bg-gradient-to-r before:from-amber-400/25 before:via-transparent before:to-amber-500/10 before:content-['']`}
+      } before:pointer-events-none before:absolute before:-inset-px before:rounded-[inherit] before:bg-gradient-to-r before:from-amber-400/35 before:via-transparent before:to-amber-500/15 before:content-['']`}
       data-testid="live-auction-hud"
     >
       <div
@@ -211,12 +211,12 @@ export function LiveAuctionHud({
             )}
           </div>
           <div className="min-w-0">
-            <p className="truncate text-[10px] font-medium text-zinc-400">
+            <p className="truncate text-[10px] font-semibold text-zinc-100">
               {item ? hostQueueTitleLine(item) : "No lot pinned"}
-              {item ? <span className="text-zinc-600"> · #{item.sortOrder}</span> : null}
+              {item ? <span className="font-medium text-zinc-500"> · #{item.sortOrder}</span> : null}
             </p>
             {winnerLine ? (
-              <p className="truncate text-[9px] font-semibold text-amber-100/75">{winnerLine}</p>
+              <p className="truncate text-[9px] font-medium text-amber-200/90">{winnerLine}</p>
             ) : null}
           </div>
         </div>
@@ -224,7 +224,7 @@ export function LiveAuctionHud({
         {/* CENTER — bid hero + timer */}
         <div className="flex min-w-0 flex-1 flex-col items-center justify-center px-1">
           <p
-            className={`font-mono text-[1.35rem] font-black leading-none tabular-nums tracking-tight text-white drop-shadow-[0_0_20px_rgba(251,191,36,0.25)] ${
+            className={`live-stage-hud-bid-hero font-mono text-[1.35rem] font-black leading-none tabular-nums tracking-tight ${
               motionBurst === "bid" || motionBurst === "bid_war" ? "[animation:live-price-glow_0.6s_ease-out]" : ""
             }`}
           >
@@ -235,10 +235,10 @@ export function LiveAuctionHud({
               <span
                 className={`font-mono text-[11px] font-black tabular-nums ${
                   timerUrgent
-                    ? "text-orange-200 motion-safe:[animation:live-countdown-pulse_0.7s_ease-in-out_infinite]"
+                    ? "live-stage-hud-timer-urgent motion-safe:[animation:live-countdown-pulse_0.7s_ease-in-out_infinite]"
                     : auctionRunning
-                      ? "text-emerald-200/90"
-                      : "text-zinc-500"
+                      ? "live-stage-hud-timer-live"
+                      : "text-zinc-400"
                 }`}
               >
                 {hostAuctionCountdownLabel}

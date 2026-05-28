@@ -317,22 +317,22 @@ body {
   -webkit-backdrop-filter: blur(var(--live-blur-xl));
 }
 
-/* ── Live Stage HUD — floating broadcast layers (Phase 2: lighter, glow-first) ── */
+/* ── Live Stage HUD — gold broadcast identity (cinematic glass, readable) ── */
 .live-stage-hud-glass {
   border-radius: 9999px;
-  border: 1px solid rgba(251, 191, 36, 0.06);
+  border: 1px solid rgba(255, 215, 80, 0.22);
   background: linear-gradient(
-    135deg,
-    rgba(0, 0, 0, 0.32) 0%,
-    rgba(6, 6, 10, 0.44) 50%,
-    rgba(0, 0, 0, 0.36) 100%
+    90deg,
+    rgba(255, 190, 40, 0.12) 0%,
+    rgba(0, 0, 0, 0.72) 42%,
+    rgba(255, 190, 40, 0.08) 100%
   );
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.02) inset,
-    0 16px 48px -24px rgba(0, 0, 0, 0.88),
-    0 0 56px -28px rgba(251, 191, 36, 0.22);
-  backdrop-filter: blur(28px);
-  -webkit-backdrop-filter: blur(28px);
+    0 0 0 1px rgba(255, 215, 80, 0.14) inset,
+    0 0 40px rgba(255, 190, 40, 0.12),
+    0 16px 48px -20px rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
 }
 
 .live-stage-hud-glass-idle {
@@ -341,7 +341,103 @@ body {
 
 .live-stage-hud-pill {
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.018);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 215, 80, 0.06);
+}
+
+.live-stage-hud-bid-hero {
+  color: rgb(254 243 199);
+  text-shadow:
+    0 0 24px rgba(255, 190, 40, 0.45),
+    0 1px 0 rgba(0, 0, 0, 0.6);
+}
+
+.live-stage-hud-timer-live {
+  color: rgb(167 243 208);
+  text-shadow: 0 0 12px rgba(52, 211, 153, 0.35);
+}
+
+.live-stage-hud-timer-urgent {
+  color: rgb(254 215 170);
+  text-shadow:
+    0 0 16px rgba(251, 146, 60, 0.55),
+    0 0 28px rgba(239, 68, 68, 0.25);
+}
+
+/* Energy ramps — HUD edge glow + arena haze */
+.live-stage-hud-energy-calm .live-stage-hud-glass {
+  border-color: rgba(255, 215, 80, 0.18);
+}
+
+.live-stage-hud-energy-warming .live-stage-hud-glass {
+  border-color: rgba(255, 215, 80, 0.26);
+  box-shadow:
+    0 0 0 1px rgba(255, 215, 80, 0.16) inset,
+    0 0 48px rgba(255, 190, 40, 0.16),
+    0 16px 48px -20px rgba(0, 0, 0, 0.85);
+}
+
+.live-stage-hud-energy-hot .live-stage-hud-glass {
+  border-color: rgba(255, 200, 60, 0.32);
+  background: linear-gradient(
+    90deg,
+    rgba(255, 170, 40, 0.16) 0%,
+    rgba(0, 0, 0, 0.74) 40%,
+    rgba(255, 140, 40, 0.1) 100%
+  );
+  box-shadow:
+    0 0 0 1px rgba(255, 215, 80, 0.2) inset,
+    0 0 56px rgba(255, 160, 40, 0.22),
+    0 0 24px rgba(239, 68, 68, 0.08),
+    0 16px 48px -20px rgba(0, 0, 0, 0.85);
+}
+
+.live-stage-hud-energy-hot .live-stage-hud-bid-hero {
+  text-shadow:
+    0 0 32px rgba(255, 190, 40, 0.6),
+    0 0 12px rgba(251, 146, 60, 0.35),
+    0 1px 0 rgba(0, 0, 0, 0.6);
+}
+
+.live-stage-hud-energy-electric .live-stage-hud-glass {
+  border-color: rgba(255, 220, 90, 0.38);
+  background: linear-gradient(
+    90deg,
+    rgba(255, 180, 40, 0.2) 0%,
+    rgba(0, 0, 0, 0.76) 38%,
+    rgba(255, 120, 40, 0.14) 100%
+  );
+  box-shadow:
+    0 0 0 1px rgba(255, 215, 80, 0.24) inset,
+    0 0 64px rgba(255, 170, 40, 0.28),
+    0 0 32px rgba(239, 68, 68, 0.12),
+    0 16px 48px -20px rgba(0, 0, 0, 0.85);
+  animation: live-hud-energy-pulse 2.2s ease-in-out infinite;
+}
+
+.live-stage-hud-energy-electric .live-stage-hud-bid-hero {
+  text-shadow:
+    0 0 40px rgba(255, 200, 50, 0.75),
+    0 0 16px rgba(251, 146, 60, 0.45),
+    0 1px 0 rgba(0, 0, 0, 0.6);
+}
+
+@keyframes live-hud-energy-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(255, 215, 80, 0.22) inset,
+      0 0 56px rgba(255, 170, 40, 0.24),
+      0 0 28px rgba(239, 68, 68, 0.1),
+      0 16px 48px -20px rgba(0, 0, 0, 0.85);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(255, 215, 80, 0.3) inset,
+      0 0 72px rgba(255, 170, 40, 0.36),
+      0 0 40px rgba(239, 68, 68, 0.16),
+      0 16px 48px -20px rgba(0, 0, 0, 0.85);
+  }
 }
 
 .live-stage-hud-sold {
@@ -411,43 +507,47 @@ body {
     0 0 52px -20px rgba(251, 191, 36, 0.18);
 }
 
-/* ── Utility dock + floating drawer (refinement pass) ── */
+/* ── Utility dock + floating rails — gold rim glass ── */
 .live-stage-utility-dock {
   border-radius: 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.035);
-  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 215, 80, 0.1);
+  background: rgba(8, 8, 10, 0.72);
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.02) inset,
-    0 12px 40px -28px rgba(0, 0, 0, 0.92);
-  backdrop-filter: blur(26px);
-  -webkit-backdrop-filter: blur(26px);
+    0 0 0 1px rgba(255, 215, 80, 0.06) inset,
+    0 0 60px rgba(255, 180, 0, 0.05),
+    0 12px 40px -24px rgba(0, 0, 0, 0.88);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
 .live-stage-utility-dock-wrap {
-  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45));
+  filter: drop-shadow(0 4px 20px rgba(255, 180, 0, 0.06));
 }
 
 .live-stage-chat-dock {
   border-radius: 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.03);
-  background: rgba(0, 0, 0, 0.18);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  box-shadow: 0 16px 48px -32px rgba(0, 0, 0, 0.88);
-  mask-image: linear-gradient(to bottom, black 0%, black 88%, transparent 100%);
+  border: 1px solid rgba(255, 215, 80, 0.1);
+  background: rgba(8, 8, 10, 0.72);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow:
+    0 0 0 1px rgba(255, 215, 80, 0.05) inset,
+    0 0 60px rgba(255, 180, 0, 0.05),
+    0 16px 48px -28px rgba(0, 0, 0, 0.88);
+  mask-image: linear-gradient(to bottom, black 0%, black 90%, transparent 100%);
 }
 
 .live-stage-chat-tabs,
 .live-stage-lineup-tabs {
   border-radius: 0.75rem;
-  border: 1px solid rgba(255, 255, 255, 0.03);
-  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 215, 80, 0.08);
+  background: rgba(0, 0, 0, 0.35);
 }
 
 .live-stage-chat-input-tray {
   border-radius: 0.75rem;
-  border: 1px solid rgba(255, 255, 255, 0.03);
-  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(255, 215, 80, 0.08);
+  background: rgba(0, 0, 0, 0.4);
 }
 
 .live-stage-queue-drawer {
@@ -482,8 +582,8 @@ body {
 }
 
 .live-stage-hud-suspended {
-  mask-image: linear-gradient(to top, black 72%, transparent 100%);
-  filter: drop-shadow(0 -8px 32px rgba(0, 0, 0, 0.35));
+  mask-image: linear-gradient(to top, black 78%, transparent 100%);
+  filter: drop-shadow(0 -6px 32px rgba(255, 190, 40, 0.18));
 }
 
 .live-stage-hud-suspended::before {
@@ -492,13 +592,13 @@ body {
   inset: -12px -24px -8px;
   z-index: -1;
   border-radius: 9999px;
-  background: radial-gradient(ellipse 80% 60% at 50% 100%, rgba(0, 0, 0, 0.55), transparent 70%);
+  background: radial-gradient(ellipse 80% 60% at 50% 100%, rgba(255, 190, 40, 0.12), transparent 70%);
   pointer-events: none;
 }
 
 .live-stage-ui-dimmed {
-  opacity: 0.58;
-  filter: saturate(0.82);
+  opacity: 0.72;
+  filter: saturate(0.9);
   transition: opacity 0.85s ease, filter 0.85s ease;
 }
 
@@ -635,7 +735,7 @@ body {
 
 .live-stage-ambient-glow {
   pointer-events: none;
-  background: radial-gradient(ellipse 80% 60% at 50% 100%, var(--vault-pulse, rgba(251, 191, 36, 0.12)), transparent 70%);
+  background: radial-gradient(ellipse 80% 60% at 50% 100%, var(--vault-pulse, rgba(251, 191, 36, 0.18)), transparent 70%);
   transition: opacity 0.8s ease;
 }
 
@@ -647,15 +747,15 @@ body {
   0%,
   100% {
     box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.025) inset,
-      0 12px 40px -20px rgba(0, 0, 0, 0.85),
-      0 0 48px -30px rgba(251, 191, 36, 0.2);
+      0 0 0 1px rgba(255, 215, 80, 0.14) inset,
+      0 0 36px rgba(255, 190, 40, 0.1),
+      0 12px 40px -20px rgba(0, 0, 0, 0.85);
   }
   50% {
     box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.03) inset,
-      0 12px 40px -20px rgba(0, 0, 0, 0.85),
-      0 0 64px -24px rgba(251, 191, 36, 0.34);
+      0 0 0 1px rgba(255, 215, 80, 0.2) inset,
+      0 0 52px rgba(255, 190, 40, 0.18),
+      0 12px 40px -20px rgba(0, 0, 0, 0.85);
   }
 }
 
@@ -710,25 +810,23 @@ body {
 }
 
 .chat-msg-bid {
-  padding-left: 0.35rem;
-  background: linear-gradient(90deg, rgba(251, 191, 36, 0.06), transparent 80%);
-  border-left: none;
-  box-shadow: none;
+  padding-left: 0.5rem;
+  border-left: 2px solid rgba(255, 215, 80, 0.45);
+  background: linear-gradient(90deg, rgba(255, 190, 40, 0.1), transparent 85%);
 }
 
 .chat-msg-purchase {
-  padding-left: 0.35rem;
-  background: linear-gradient(90deg, rgba(52, 211, 153, 0.06), transparent 80%);
-  border-left: none;
-  box-shadow: none;
+  padding-left: 0.5rem;
+  border-left: 2px solid rgba(52, 211, 153, 0.45);
+  background: linear-gradient(90deg, rgba(52, 211, 153, 0.08), transparent 85%);
 }
 
 @keyframes live-hud-bid-flash-kf {
   0% {
-    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.55);
+    box-shadow: 0 0 0 0 rgba(255, 190, 40, 0.65);
   }
   100% {
-    box-shadow: 0 0 0 12px rgba(251, 191, 36, 0);
+    box-shadow: 0 0 0 14px rgba(255, 190, 40, 0);
   }
 }
 
@@ -754,10 +852,10 @@ body {
 @keyframes live-hud-bid-war-kf {
   0%,
   100% {
-    filter: drop-shadow(0 0 8px rgba(244, 63, 94, 0.35));
+    filter: drop-shadow(0 0 10px rgba(255, 190, 40, 0.4)) drop-shadow(0 0 6px rgba(244, 63, 94, 0.35));
   }
   50% {
-    filter: drop-shadow(0 0 18px rgba(244, 63, 94, 0.65));
+    filter: drop-shadow(0 0 22px rgba(255, 190, 40, 0.55)) drop-shadow(0 0 14px rgba(244, 63, 94, 0.6));
   }
 }
 
@@ -805,7 +903,8 @@ body {
   .live-hud-bid-war-tag,
   .live-hud-electric,
   .live-stage-hud-glass-idle,
-  .live-stage-float-subtle {
+  .live-stage-float-subtle,
+  .live-stage-hud-energy-electric .live-stage-hud-glass {
     animation: none !important;
   }
 }
