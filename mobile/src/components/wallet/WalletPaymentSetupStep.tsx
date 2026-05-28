@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { mapLivePaymentFailureMessage } from '../../lib/livePaymentFailureCopy';
 import {
   CardForm,
   StripeProvider,
@@ -6,7 +7,7 @@ import {
   useStripe,
 } from '@stripe/stripe-react-native';
 import * as Linking from 'expo-linking';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -32,7 +33,6 @@ import {
   WALLET_BILLING_COUNTRIES,
   billingCountryLabel,
 } from './walletPaymentSetupCountries';
-import { useKeyboardInset } from './walletSheetKeyboard';
 import { walletPaymentSetupStyles as ps } from './walletPaymentSetupStyles';
 
 type Props = {
@@ -42,7 +42,53 @@ type Props = {
   onSaved: () => void;
 };
 
-const FOOTER_HEIGHT = 88;
+/** Fixed header + scrollable body + sticky footer; single KeyboardAvoidingView (no manual keyboard inset). */
+function PaymentSetupScreenShell({
+  onClose,
+  footer,
+  children,
+  keyboardAware = true,
+}: {
+  onClose: () => void;
+  footer: ReactNode;
+  children: ReactNode;
+  keyboardAware?: boolean;
+}) {
+  const insets = useSafeAreaInsets();
+  const footerPad = Math.max(insets.bottom, spacing.sm);
+
+  const scrollAndFooter = (
+    <>
+      <ScrollView
+        style={ps.scroll}
+        contentContainerStyle={ps.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+      >
+        {children}
+      </ScrollView>
+      <View style={[ps.footer, { paddingBottom: footerPad }]}>{footer}</View>
+    </>
+  );
+
+  return (
+    <View style={ps.body}>
+      <PaymentSetupHeader onBack={onClose} />
+      {keyboardAware ? (
+        <KeyboardAvoidingView
+          style={ps.keyboardFrame}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={0}
+        >
+          {scrollAndFooter}
+        </KeyboardAvoidingView>
+      ) : (
+        <View style={ps.keyboardFrame}>{scrollAndFooter}</View>
+      )}
+    </View>
+  );
+}
 
 function PaymentSetupHeader({ onBack }: { onBack: () => void }) {
   return (
@@ -137,34 +183,11 @@ function PaymentSheetLauncher({
   onClose: () => void;
   onPresent: () => void;
 }) {
-  const insets = useSafeAreaInsets();
-  const keyboardInset = useKeyboardInset();
-  const footerPad = Math.max(insets.bottom, spacing.lg) + keyboardInset;
-
   return (
-    <View style={ps.body}>
-      <PaymentSetupHeader onBack={onClose} />
-      <ScrollView
-        style={ps.scroll}
-        contentContainerStyle={[ps.scrollContent, { paddingBottom: FOOTER_HEIGHT + footerPad }]}
-        showsVerticalScrollIndicator={false}
-        bounces={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        <LiveRoomText style={ps.subtitle}>
-          Cards are saved securely with Stripe for live bids and auction wins.
-        </LiveRoomText>
-        <View style={ps.section}>
-          <LiveRoomText style={ps.sectionTitle}>Supported methods</LiveRoomText>
-          <SupportedMethods applePayEnabled={payload.applePayEnabled !== false} />
-        </View>
-        <LiveRoomText style={ps.scanHint}>
-          Stripe checkout includes card scanning on supported devices. Everything stays in the app — no
-          browser.
-        </LiveRoomText>
-        {initError ? <LiveRoomText style={ps.errorText}>{initError}</LiveRoomText> : null}
-      </ScrollView>
-      <View style={[ps.footer, { paddingBottom: footerPad }]}>
+    <PaymentSetupScreenShell
+      onClose={onClose}
+      keyboardAware={false}
+      footer={
         <Pressable
           style={[ps.primaryBtn, (!sheetReady || busy) && ps.primaryBtnDisabled]}
           onPress={onPresent}
@@ -176,8 +199,21 @@ function PaymentSheetLauncher({
             <LiveRoomText style={ps.primaryBtnText}>Add card with Stripe</LiveRoomText>
           )}
         </Pressable>
+      }
+    >
+      <LiveRoomText style={ps.subtitle}>
+        Cards are saved securely with Stripe for live bids and auction wins.
+      </LiveRoomText>
+      <View style={ps.section}>
+        <LiveRoomText style={ps.sectionTitle}>Supported methods</LiveRoomText>
+        <SupportedMethods applePayEnabled={payload.applePayEnabled !== false} />
       </View>
-    </View>
+      <LiveRoomText style={ps.scanHint}>
+        Stripe checkout includes card scanning on supported devices. Everything stays in the app — no
+        browser.
+      </LiveRoomText>
+      {initError ? <LiveRoomText style={ps.errorText}>{initError}</LiveRoomText> : null}
+    </PaymentSetupScreenShell>
   );
 }
 
@@ -194,27 +230,27 @@ function ManualCardEntry({
   onClose: () => void;
   onSave: () => void;
 }) {
-  const insets = useSafeAreaInsets();
-  const keyboardInset = useKeyboardInset();
   const [cardComplete, setCardComplete] = useState(false);
   const [billingCountry, setBillingCountry] = useState('US');
   const [countryPickerOpen, setCountryPickerOpen] = useState(false);
-  const footerPad = Math.max(insets.bottom, spacing.lg) + keyboardInset;
 
   return (
-    <KeyboardAvoidingView
-      style={ps.body}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
-    >
-      <PaymentSetupHeader onBack={onClose} />
-      <ScrollView
-        style={ps.scroll}
-        contentContainerStyle={[ps.scrollContent, { paddingBottom: FOOTER_HEIGHT + footerPad + spacing.md }]}
-        showsVerticalScrollIndicator={false}
-        bounces={false}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
+    <>
+      <PaymentSetupScreenShell
+        onClose={onClose}
+        footer={
+          <Pressable
+            style={[ps.primaryBtn, (!cardComplete || busy) && ps.primaryBtnDisabled]}
+            onPress={onSave}
+            disabled={!cardComplete || busy}
+          >
+            {busy ? (
+              <ActivityIndicator color="#0A0A0A" />
+            ) : (
+              <LiveRoomText style={ps.primaryBtnText}>Save payment method</LiveRoomText>
+            )}
+          </Pressable>
+        }
       >
         <LiveRoomText style={ps.subtitle}>
           Cards are saved securely with Stripe for live bids and auction wins.
@@ -256,21 +292,7 @@ function ManualCardEntry({
             </View>
           </View>
         </View>
-      </ScrollView>
-
-      <View style={[ps.footer, { paddingBottom: footerPad }]}>
-        <Pressable
-          style={[ps.primaryBtn, (!cardComplete || busy) && ps.primaryBtnDisabled]}
-          onPress={onSave}
-          disabled={!cardComplete || busy}
-        >
-          {busy ? (
-            <ActivityIndicator color="#0A0A0A" />
-          ) : (
-            <LiveRoomText style={ps.primaryBtnText}>Save payment method</LiveRoomText>
-          )}
-        </Pressable>
-      </View>
+      </PaymentSetupScreenShell>
 
       <CountryPickerModal
         visible={countryPickerOpen}
@@ -278,7 +300,7 @@ function ManualCardEntry({
         onSelect={setBillingCountry}
         onClose={() => setCountryPickerOpen(false)}
       />
-    </KeyboardAvoidingView>
+    </>
   );
 }
 
@@ -335,13 +357,13 @@ function WalletPaymentSetupInner({
         },
       });
       if (stripeInitError) {
-        setInitError(stripeInitError.message ?? 'Stripe payment sheet unavailable.');
+        setInitError(mapLivePaymentFailureMessage(stripeInitError.message, stripeInitError.code));
         setUseManualCard(true);
         return;
       }
       setSheetReady(true);
     } catch (e) {
-      setInitError(e instanceof Error ? e.message : 'Stripe payment sheet unavailable.');
+      setInitError(mapLivePaymentFailureMessage(e instanceof Error ? e.message : null));
       setUseManualCard(true);
     }
   }, [initPaymentSheet, payload]);
@@ -364,7 +386,7 @@ function WalletPaymentSetupInner({
       const { error: presentError } = await presentPaymentSheet();
       if (presentError) {
         if (presentError.code === 'Canceled') return 'cancelled';
-        setInitError(presentError.message ?? 'Payment method could not be saved.');
+        setInitError(mapLivePaymentFailureMessage(presentError.message, presentError.code));
         setShowLauncher(true);
         return 'failed';
       }
@@ -392,7 +414,7 @@ function WalletPaymentSetupInner({
         paymentMethodType: 'Card',
       });
       if (stripeError) {
-        setInitError(stripeError.message ?? 'Card could not be saved.');
+        setInitError(mapLivePaymentFailureMessage(stripeError.message, stripeError.code));
         return;
       }
       onSaved();
@@ -496,7 +518,7 @@ export function WalletPaymentSetupModal({ visible, accessToken, onClose, onSaved
       statusBarTranslucent
     >
       <View style={ps.backdrop}>
-        <SafeAreaView style={ps.panelShell} edges={['top', 'bottom']}>
+        <SafeAreaView style={ps.panelShell} edges={['top']}>
           <View style={ps.panel}>
             {loading ? (
               <PaymentSetupLoader onClose={onClose} />

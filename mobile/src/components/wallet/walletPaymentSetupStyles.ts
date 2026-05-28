@@ -22,6 +22,9 @@ export const walletPaymentSetupStyles = StyleSheet.create({
   body: {
     flex: 1,
   },
+  keyboardFrame: {
+    flex: 1,
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -48,6 +51,7 @@ export const walletPaymentSetupStyles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
+    paddingBottom: spacing.lg,
     gap: spacing.lg,
   },
   subtitle: {
@@ -112,12 +116,13 @@ export const walletPaymentSetupStyles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: '#E4E4E7',
+    borderColor: '#D4D4D8',
     overflow: 'hidden',
   },
   cardForm: {
     width: '100%',
     height: WALLET_CARD_FORM_HEIGHT,
+    marginVertical: 0,
   },
   fieldLabel: {
     color: '#3F3F46',

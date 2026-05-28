@@ -29,5 +29,5 @@ export const WALLET_CARD_FIELD_PLACEHOLDERS = {
   postalCode: 'Billing ZIP',
 } as const;
 
-/** Native CardForm height — multi-row number, expiry/CVC, and ZIP. */
-export const WALLET_CARD_FORM_HEIGHT = 248;
+/** Native CardForm height — number, expiry/CVC, and billing ZIP rows. */
+export const WALLET_CARD_FORM_HEIGHT = 220;
