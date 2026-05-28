@@ -2,6 +2,12 @@ import type { LiveRoomBuyerSnapshot } from '../../api/liveRoomBuyerRepository';
 import { recomputeBuyerSnapshotPhase } from '../../lib/liveBuyerSnapshotClock';
 import { LIVE_AUCTION_BUYER_TIMER_ENDED_COPY } from '../../lib/liveAuctionLotPhase';
 import { formatAuctionLeaderLine } from '../../lib/liveAuctionWinnerDisplay';
+import {
+  availableVariantCount,
+  isActiveVariantBuyerItem,
+  lowestAvailableVariantPrice,
+  variantSelectSpotLabel,
+} from '../../lib/liveItemVariant';
 import { pickVaultWaitingMessage } from '../../lib/liveAuctionBuyerVaultCopy';
 import type { CategoryId, HybridFocus, LiveCommerceMode, LiveRoomFormat, LiveStream } from '../../types';
 
@@ -46,6 +52,42 @@ export function shouldShowBreakTeamControls(
     return false;
   }
   return phase === 'in_progress' || phase === 'randomizing';
+}
+
+function resolveBuyerVariantItemHud(
+  stream: LiveStream,
+  snap: LiveRoomBuyerSnapshot,
+  base: LiveCommerceHudModel,
+): LiveCommerceHudModel {
+  const variants = snap.activeItemVariants ?? [];
+  const available = availableVariantCount(variants);
+  const fromPrice = lowestAvailableVariantPrice(variants) ?? snap.priceUsd ?? snap.startingBidUsd ?? 0;
+  const itemTitle =
+    snap.activeItemTitle?.trim() ||
+    stream.currentItem?.trim() ||
+    stream.pinnedProductLabel?.trim() ||
+    stream.title?.trim() ||
+    'Live spot board';
+
+  return {
+    ...base,
+    format: 'shop',
+    hybridFocus: null,
+    timerMmSs: '—',
+    itemTitle,
+    currentPrefix: available > 0 ? 'From' : 'Status',
+    currentAmount: available > 0 ? formatMoney(fromPrice) : 'Sold out',
+    winningLine: '',
+    stateLine:
+      available > 0
+        ? `${available} spot${available === 1 ? '' : 's'} available — tap to choose yours.`
+        : 'All spots are sold or unavailable.',
+    bottomLeftLabel: 'Custom',
+    bottomRightLabel: variantSelectSpotLabel(snap.activeItemSalesFormat),
+    bottomRightIsSlide: false,
+    buyerPrimaryDisabled: available <= 0,
+    buyerSecondaryDisabled: true,
+  };
 }
 
 function resolveBuyerAuctionItemHud(
@@ -426,6 +468,10 @@ export function resolveLiveBuyerCommerceHud(
       stateLine: 'This show has ended.',
       rightLabel: 'Show ended',
     });
+  }
+
+  if (isActiveVariantBuyerItem(effectiveSnap)) {
+    return resolveBuyerVariantItemHud(stream, effectiveSnap, base);
   }
 
   if (kind === 'auction' || effectiveSnap.roomType === 'auction' || effectiveSnap.roomType === 'sale') {

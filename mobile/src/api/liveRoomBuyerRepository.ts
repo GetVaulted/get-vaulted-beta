@@ -6,11 +6,28 @@ import {
   type LiveAuctionLotBidPhase,
 } from '../lib/liveAuctionLotPhase';
 
+export type LiveItemSalesFormat = 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
+
+export type LiveItemVariantSnapshot = {
+  id: string;
+  label: string;
+  priceUsd: number;
+  quantityRemaining: number;
+  soldCount: number;
+  isHot: boolean;
+  status: string;
+  buyerUsername: string | null;
+};
+
 export type LiveRoomBuyerSnapshot = {
   roomId: string;
   status: 'scheduled' | 'live' | 'ended';
   roomType: 'auction' | 'sale' | 'break';
   activeItemId: string | null;
+  activeItemTitle?: string | null;
+  activeItemImageUrl?: string | null;
+  activeItemSalesFormat?: LiveItemSalesFormat | null;
+  activeItemVariants?: LiveItemVariantSnapshot[];
   biddingOpen: boolean;
   currentBidUsd: number | null;
   minNextBidUsd: number | null;
@@ -43,6 +60,38 @@ function apiErrorMessage(res: Response, body: unknown): string {
   return `Request failed (${res.status})`;
 }
 
+function parseSalesFormat(raw: unknown): LiveItemSalesFormat | null {
+  if (raw === 'auction' || raw === 'buy_now' || raw === 'variant_selection' || raw === 'team_break') {
+    return raw;
+  }
+  return null;
+}
+
+function parseVariantSnapshots(raw: unknown): LiveItemVariantSnapshot[] {
+  if (!Array.isArray(raw)) return [];
+  const out: LiveItemVariantSnapshot[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue;
+    const o = row as Record<string, unknown>;
+    const id = typeof o.id === 'string' ? o.id.trim() : '';
+    const label = typeof o.label === 'string' ? o.label.trim() : '';
+    if (!id || !label) continue;
+    const priceUsd = typeof o.priceUsd === 'number' && Number.isFinite(o.priceUsd) ? o.priceUsd : 0;
+    const quantityRemaining =
+      typeof o.quantityRemaining === 'number' && Number.isFinite(o.quantityRemaining)
+        ? Math.max(0, Math.floor(o.quantityRemaining))
+        : 0;
+    const soldCount =
+      typeof o.soldCount === 'number' && Number.isFinite(o.soldCount) ? Math.max(0, Math.floor(o.soldCount)) : 0;
+    const isHot = o.isHot === true;
+    const status = typeof o.status === 'string' ? o.status : 'available';
+    const buyerUsername =
+      typeof o.buyerUsername === 'string' && o.buyerUsername.trim() ? o.buyerUsername.trim() : null;
+    out.push({ id, label, priceUsd, quantityRemaining, soldCount, isHot, status, buyerUsername });
+  }
+  return out.sort((a, b) => a.label.localeCompare(b.label));
+}
+
 /** Buyer snapshot for placing bids from mobile (same room GET as web). */
 export async function fetchLiveRoomBuyerSnapshot(
   accessToken: string | undefined,
@@ -62,6 +111,10 @@ export async function fetchLiveRoomBuyerSnapshot(
       buyerLiveShippingReady?: boolean;
       activeItem?: {
         id?: string;
+        title?: string;
+        displayTitle?: string;
+        imageUrl?: string | null;
+        salesFormat?: string;
         status?: string;
         biddingOpen?: boolean;
         currentBidUsd?: number | null;
@@ -70,6 +123,7 @@ export async function fetchLiveRoomBuyerSnapshot(
         lastHighBidderId?: string | null;
         lastHighBidderUsername?: string | null;
         auctionEndsAt?: string | null;
+        variants?: unknown;
       } | null;
       break?: {
         phase?: string;
@@ -134,11 +188,21 @@ export async function fetchLiveRoomBuyerSnapshot(
     breakPhaseRaw === 'complete'
       ? breakPhaseRaw
       : null;
+  const activeVariants = parseVariantSnapshots(active?.variants);
+  const activeSalesFormat = parseSalesFormat(active?.salesFormat);
+  const activeTitle =
+    (typeof active?.displayTitle === 'string' && active.displayTitle.trim()) ||
+    (typeof active?.title === 'string' && active.title.trim()) ||
+    null;
   return {
     roomId,
     status: (detail?.status as LiveRoomBuyerSnapshot['status']) ?? 'ended',
     roomType: (detail?.roomType as LiveRoomBuyerSnapshot['roomType']) ?? 'auction',
     activeItemId: active?.id?.trim() || null,
+    activeItemTitle: activeTitle,
+    activeItemImageUrl: typeof active?.imageUrl === 'string' ? active.imageUrl : null,
+    activeItemSalesFormat: activeSalesFormat,
+    activeItemVariants: activeVariants.length > 0 ? activeVariants : undefined,
     biddingOpen: lotBidPhase === 'bidding_open',
     currentBidUsd: typeof current === 'number' ? current : null,
     minNextBidUsd: minNext,

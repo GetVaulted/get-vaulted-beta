@@ -203,6 +203,59 @@ describe('resolveLiveBuyerCommerceHud', () => {
     const hud = resolveLiveCommerceHud(baseStream());
     expect(hud.bottomRightLabel).not.toBe('Claim Team');
   });
+
+  it('shows Select Team for active team break variant item', () => {
+    const snap = {
+      roomType: 'sale',
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemTitle: 'PYT 1 Box Break',
+      activeItemSalesFormat: 'team_break',
+      activeItemVariants: [
+        {
+          id: 'v1',
+          label: 'AFC East',
+          priceUsd: 35,
+          quantityRemaining: 1,
+          soldCount: 0,
+          isHot: true,
+          status: 'available',
+          buyerUsername: null,
+        },
+      ],
+      fetchedAtMs: Date.now(),
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.bottomRightLabel).toBe('Select Team');
+    expect(hud.bottomRightLabel).not.toMatch(/bid/i);
+    expect(hud.currentPrefix).toBe('From');
+    expect(hud.buyerPrimaryDisabled).toBe(false);
+    expect(hud.stateLine).toMatch(/1 spot available/i);
+  });
+
+  it('shows Select Spot for variant_selection item', () => {
+    const snap = {
+      roomType: 'auction',
+      status: 'live',
+      activeItemId: 'item-2',
+      activeItemSalesFormat: 'variant_selection',
+      activeItemVariants: [
+        {
+          id: 'v2',
+          label: 'Size M',
+          priceUsd: 24.99,
+          quantityRemaining: 3,
+          soldCount: 0,
+          isHot: false,
+          status: 'available',
+          buyerUsername: null,
+        },
+      ],
+      fetchedAtMs: Date.now(),
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.bottomRightLabel).toBe('Select Spot');
+  });
 });
 
 describe('formatBidMoney', () => {

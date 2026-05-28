@@ -59,6 +59,17 @@ describe('mustUseLiveBidFlow', () => {
       false,
     );
   });
+
+  it('false when active item is variant/team break spot selection', () => {
+    const snap = {
+      roomType: 'sale',
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemSalesFormat: 'team_break',
+      activeItemVariants: [{ id: 'v1', label: 'AFC East', priceUsd: 35, quantityRemaining: 1, soldCount: 0, isHot: false, status: 'available', buyerUsername: null }],
+    } as LiveRoomBuyerSnapshot;
+    expect(mustUseLiveBidFlow(stream(), snap)).toBe(false);
+  });
 });
 
 describe('isLiveBidCommerceUi', () => {

@@ -2,6 +2,7 @@ import * as Device from 'expo-device';
 import { Dimensions, Platform } from 'react-native';
 import type { LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
 import type { LiveStream } from '../types';
+import { isActiveVariantBuyerItem } from './liveItemVariant';
 
 /** True when HUD primary action is auction bid (slide or Bid label). */
 export function isLiveBidCommerceUi(args: {
@@ -21,6 +22,10 @@ export function mustUseLiveBidFlow(
   roomSnap: LiveRoomBuyerSnapshot | null | undefined,
   hud?: { bottomRightIsSlide?: boolean; bottomRightLabel?: string },
 ): boolean {
+  if (isActiveVariantBuyerItem(roomSnap)) return false;
+
+  if (hud?.bottomRightLabel && /select (spot|team)/i.test(hud.bottomRightLabel)) return false;
+
   if (roomSnap?.activeItemId) return true;
   if (roomSnap?.roomType === 'auction' || roomSnap?.roomType === 'sale') return true;
   if (roomSnap?.lotBidPhase && roomSnap.lotBidPhase !== 'inactive') return true;
