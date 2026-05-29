@@ -22,11 +22,71 @@ import {
 /** Short grace window granted when a buyer is actively recovering an expired auction-win order. */
 export const RECOVERY_PAYMENT_WINDOW_MS = 10 * 60 * 1000;
 
+/**
+ * Beta/dev-only diagnostic snapshot of a Stripe failure during saved-card charge. Never exposed on real
+ * production (the retry route gates exposure); always safe to log server-side.
+ */
+export type StripeChargeErrorDebug = {
+  type: string | null;
+  code: string | null;
+  declineCode: string | null;
+  message: string | null;
+  paymentIntentId: string | null;
+  paymentMethodId: string | null;
+  requestId: string | null;
+  destinationAccount: string | null;
+  amountCents: number | null;
+  currency: string | null;
+  customerId: string | null;
+};
+
 export type ChargeOrderSavedPmOutcome =
   | { outcome: "paid"; paymentIntentId?: string }
   | { outcome: "requires_action"; clientSecret: string; paymentIntentId: string }
   | { outcome: "processing"; paymentIntentId?: string }
-  | { outcome: "error"; code: string };
+  | { outcome: "error"; code: string; stripeDebug?: StripeChargeErrorDebug };
+
+/** Extract beta/dev-safe Stripe error fields for recovery diagnostics. */
+function buildStripeChargeErrorDebug(
+  e: unknown,
+  ctx: {
+    amountCents: number;
+    currency: string;
+    customerId: string;
+    paymentMethodId: string;
+    destinationAccount: string | null;
+  },
+): StripeChargeErrorDebug {
+  const base: StripeChargeErrorDebug = {
+    type: null,
+    code: null,
+    declineCode: null,
+    message: null,
+    paymentIntentId: null,
+    paymentMethodId: ctx.paymentMethodId,
+    requestId: null,
+    destinationAccount: ctx.destinationAccount,
+    amountCents: ctx.amountCents,
+    currency: ctx.currency,
+    customerId: ctx.customerId,
+  };
+  if (e instanceof Stripe.errors.StripeError) {
+    return {
+      ...base,
+      type: e.type ?? null,
+      code: e.code ?? null,
+      declineCode: e.decline_code ?? null,
+      message: e.message ?? null,
+      paymentIntentId: e.payment_intent?.id ?? null,
+      paymentMethodId: e.payment_method?.id ?? ctx.paymentMethodId,
+      requestId: e.requestId ?? null,
+    };
+  }
+  if (e instanceof Error) {
+    return { ...base, message: e.message };
+  }
+  return base;
+}
 
 /**
  * Error codes that mean we actually talked to Stripe (PaymentIntent created/confirmed/retrieved),
@@ -286,10 +346,18 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
         data: { paymentStatus: PAYMENT_FAILED, status: "cancelled", stripePaymentIntentId: null },
       })
       .catch(() => {});
+    const stripeDebug = buildStripeChargeErrorDebug(e, {
+      amountCents,
+      currency: "usd",
+      customerId,
+      paymentMethodId: pmId,
+      destinationAccount: row.seller.stripeAccountId ?? null,
+    });
+    console.error("[payment recovery] stripe charge error", { orderId: row.id, ...stripeDebug });
     if (e instanceof Stripe.errors.StripeCardError) {
-      return { outcome: "error", code: "CARD_DECLINED" };
+      return { outcome: "error", code: "CARD_DECLINED", stripeDebug };
     }
-    return { outcome: "error", code: "STRIPE_ERROR" };
+    return { outcome: "error", code: "STRIPE_ERROR", stripeDebug };
   }
 }
 
@@ -607,10 +675,18 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
         data: { paymentStatus: PAYMENT_FAILED, status: "cancelled", stripePaymentIntentId: null },
       })
       .catch(() => {});
+    const stripeDebug = buildStripeChargeErrorDebug(e, {
+      amountCents,
+      currency: "usd",
+      customerId,
+      paymentMethodId: pmId,
+      destinationAccount: row.seller.stripeAccountId ?? null,
+    });
+    console.error("[payment recovery] stripe charge error", { orderId: row.id, ...stripeDebug });
     if (e instanceof Stripe.errors.StripeCardError) {
-      return { outcome: "error", code: "CARD_DECLINED" };
+      return { outcome: "error", code: "CARD_DECLINED", stripeDebug };
     }
-    return { outcome: "error", code: "STRIPE_ERROR" };
+    return { outcome: "error", code: "STRIPE_ERROR", stripeDebug };
   }
 }
 

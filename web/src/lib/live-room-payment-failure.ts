@@ -17,7 +17,10 @@ import {
   emitLiveRoomPaymentFailed,
   emitLiveRoomPaymentRecovered,
 } from "@/lib/realtime-emit-server";
-import type { ChargeOrderSavedPmOutcome } from "@/lib/stripe-charge-order-saved-pm";
+import type {
+  ChargeOrderSavedPmOutcome,
+  StripeChargeErrorDebug,
+} from "@/lib/stripe-charge-order-saved-pm";
 import {
   chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard,
   chargeLiveBuyNowOrderWithSavedCard,
@@ -367,6 +370,7 @@ export type RecoveryRetryDebug = {
   reachedStripe: boolean | null;
   reopened: boolean | null;
   reopenReason: string | null;
+  stripeError: StripeChargeErrorDebug | null;
 };
 
 /**
@@ -678,6 +682,7 @@ export async function retryLiveRoomPaymentFailure(args: {
       reachedStripe: chargeOutcomeReachedStripe(charge.outcome, chargeCode),
       reopened: reopenedForRecovery,
       reopenReason,
+      stripeError: charge.stripeDebug ?? null,
     },
   };
 }
