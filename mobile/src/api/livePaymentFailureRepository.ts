@@ -40,6 +40,7 @@ export async function retryLivePaymentFailure(args: {
     publishableKey?: string;
     processing?: boolean;
     paymentFailure?: unknown;
+    debug?: unknown;
   } = {};
   try {
     payload = (await res.json()) as typeof payload;
@@ -61,6 +62,11 @@ export async function retryLivePaymentFailure(args: {
     return { ok: true, processing: true };
   }
   const code = typeof payload.code === 'string' ? payload.code : undefined;
+  // Beta/non-prod servers attach a diagnostic `debug` object mirroring the
+  // "[payment recovery] retry charge result" log (outcome, code, paymentIntentId, reachedStripe, ...).
+  if (payload.debug && typeof payload.debug === 'object') {
+    console.log('[payment recovery] retry charge result (server debug)', payload.debug);
+  }
   return {
     ok: false,
     // Map once here (with the server code) so the modal can render it directly without re-mapping.

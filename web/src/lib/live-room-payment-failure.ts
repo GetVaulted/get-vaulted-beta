@@ -352,6 +352,24 @@ type RecoveryChargeOutcome = {
 };
 
 /**
+ * Diagnostic fields mirroring the "[payment recovery] retry charge result" log line. Surfaced in the
+ * retry response body only on beta/non-prod so a failing attempt is debuggable without dashboard access.
+ */
+export type RecoveryRetryDebug = {
+  failureId: string;
+  orderId: string | null;
+  variantPurchaseId: string | null;
+  breakSpotId: string | null;
+  paymentMethodId: string | null;
+  outcome: string | null;
+  code: string | null;
+  paymentIntentId: string | null;
+  reachedStripe: boolean | null;
+  reopened: boolean | null;
+  reopenReason: string | null;
+};
+
+/**
  * Single structured log line for a recovery retry charge. From it alone we can tell whether the retry
  * failed before Stripe, reached Stripe, created/advanced a PaymentIntent, or succeeded.
  */
@@ -388,7 +406,13 @@ export async function retryLiveRoomPaymentFailure(args: {
   | { ok: true; paid: true }
   | { ok: true; requiresAction: true; clientSecret: string; paymentIntentId: string }
   | { ok: true; processing: true }
-  | { ok: false; error: string; code: string; paymentFailure: LiveBuyerPaymentFailureDTO }
+  | {
+      ok: false;
+      error: string;
+      code: string;
+      paymentFailure: LiveBuyerPaymentFailureDTO;
+      debug?: RecoveryRetryDebug;
+    }
 > {
   console.info("[payment failure] retry payment started", {
     liveRoomId: args.liveRoomId,
@@ -456,6 +480,8 @@ export async function retryLiveRoomPaymentFailure(args: {
   });
 
   let charge: ChargeOrderSavedPmOutcome | null = null;
+  let reopenedForRecovery: boolean | null = null;
+  let reopenReason: string | null = null;
   if (failureRow.orderId) {
     const order = await prisma.order.findFirst({
       where: { id: failureRow.orderId, buyerId: args.buyerId },
@@ -473,10 +499,12 @@ export async function retryLiveRoomPaymentFailure(args: {
     // Active recovery only: an auction winner who saved a fresh card may have let the original payment
     // window lapse. Re-open the order so the retry below can charge, instead of hard-failing with
     // ORDER_PAYMENT_EXPIRED. No-ops for non-auction / already-paid / un-reservable items.
-    await reopenExpiredAuctionOrderForRecovery({
+    const reopen = await reopenExpiredAuctionOrderForRecovery({
       orderId: failureRow.orderId,
       buyerId: args.buyerId,
     });
+    reopenedForRecovery = reopen.reopened;
+    reopenReason = reopen.reason ?? null;
     charge =
       order?.listing.buyingFormat === "auction"
         ? await chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard({
@@ -630,11 +658,27 @@ export async function retryLiveRoomPaymentFailure(args: {
     buyerUsername: failureRow.buyerUsername,
   });
 
+  const chargeCode = charge.outcome === "error" ? charge.code : null;
   return {
     ok: false,
     error: updated.failureReason ?? "Payment failed. Update your payment method and try again.",
-    code: charge.outcome === "error" ? charge.code : "PAYMENT_FAILED",
+    code: chargeCode ?? "PAYMENT_FAILED",
     paymentFailure: updated,
+    debug: {
+      failureId: failureRow.id,
+      orderId: failureRow.orderId,
+      variantPurchaseId: failureRow.variantPurchaseId,
+      breakSpotId: failureRow.breakSpotId,
+      paymentMethodId: recoveryPmId,
+      outcome: charge.outcome,
+      code: chargeCode,
+      // At this point the charge has resolved to an error (paid/requires_action/processing returned
+      // earlier), so there is no PaymentIntent id to surface.
+      paymentIntentId: null,
+      reachedStripe: chargeOutcomeReachedStripe(charge.outcome, chargeCode),
+      reopened: reopenedForRecovery,
+      reopenReason,
+    },
   };
 }
 

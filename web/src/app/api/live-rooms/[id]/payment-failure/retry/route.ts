@@ -4,6 +4,12 @@ import {
   syncLiveRoomPaymentFailureAfterSca,
 } from "@/lib/live-room-payment-failure";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
+import { isBetaDeployment } from "@/lib/is-beta-deployment";
+
+/** Surface diagnostic fields in the retry response only on beta / non-prod, never on real production. */
+function recoveryDebugEnabled(): boolean {
+  return process.env.NODE_ENV !== "production" || isBetaDeployment();
+}
 
 function stripePublishableKey(): string | undefined {
   return process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() || undefined;
@@ -82,6 +88,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         code: result.code,
         paymentFailure: result.paymentFailure,
         paymentFailed: true,
+        ...(recoveryDebugEnabled() && result.debug ? { debug: result.debug } : {}),
       },
       { status: 402 },
     );
