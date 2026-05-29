@@ -358,12 +358,14 @@ export function LiveVideoStage({
 
         {actionOverlay ? (
           centeredActionOverlay ? (
-            // Overlay the bar ON the 9:16 video plate, not the surrounding stage. The wrapper
-            // mirrors the plate sizing (h-full aspect-[9/16], centered) so the bar width tracks
-            // the actual video width at any desktop height and floats over the video's lower edge.
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-end justify-center pb-3">
-              <div className="pointer-events-none flex aspect-[9/16] h-full max-w-full items-end justify-center">
-                <div className={`pointer-events-auto w-[calc(100%-1rem)] live-stage-float-subtle ${uiDimmed ? "" : "live-stage-hud-awake"}`}>
+            // Overlay the bar ON the 9:16 video plate, not the surrounding stage. The inner box
+            // mirrors the plate sizing (h-full aspect-[9/16], centered) so its width tracks the
+            // actual video width at any desktop height. The bar is absolutely positioned inside
+            // that box (inset-x-3 bottom-3) so its width comes purely from the plate-sized box —
+            // no in-flow content, so it can't collapse — and floats over the video's lower edge.
+            <div className="pointer-events-none absolute inset-0 z-10 flex justify-center">
+              <div className="pointer-events-none relative aspect-[9/16] h-full max-w-full">
+                <div className={`pointer-events-auto absolute inset-x-3 bottom-3 live-stage-float-subtle ${uiDimmed ? "" : "live-stage-hud-awake"}`}>
                   {actionOverlay}
                 </div>
               </div>
