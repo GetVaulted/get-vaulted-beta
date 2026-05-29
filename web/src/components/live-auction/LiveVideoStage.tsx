@@ -267,7 +267,7 @@ export function LiveVideoStage({
       ) : null}
 
       {/* 9:16 video plate — centered; overlays are not positioned relative to this on desktop. */}
-      <div className="absolute inset-0 z-[1] flex items-center justify-center overflow-hidden">
+      <div className="absolute inset-0 z-0 flex items-center justify-center overflow-hidden">
         {ambientBleed ? (
           <LiveStageLighting vaultMode={vaultMode} energyLevel={vaultEnergyLevel} energyScore={stageEnergyScore} />
         ) : null}
@@ -351,8 +351,12 @@ export function LiveVideoStage({
         </div>
       ) : null}
 
-      {/* Desktop overlays — full player / placecard stage, wider than the 9:16 video. */}
-      <div className={`pointer-events-none absolute inset-0 hidden min-[1400px]:block ${desktopChromeDimClass}`}>
+      {/* Desktop overlays — full player / placecard stage, wider than the 9:16 video.
+          Explicit z-10 lifts this whole layer above the z-0 video plate. The dim classes apply a
+          CSS `filter`, which creates a stacking context pinned at the container's own z-index, so
+          without this the HUD/controls would be trapped below the plate. Stays below the
+          transition banner (z-[12]) so "SOLD"/next-lot moments still cover the HUD. */}
+      <div className={`pointer-events-none absolute inset-0 z-10 hidden min-[1400px]:block ${desktopChromeDimClass}`}>
         <div className="pointer-events-none absolute left-3 right-3 top-3 z-10 flex flex-col items-stretch gap-2">
           {topChrome}
           {stageBelowAudience ? (
