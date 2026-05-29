@@ -339,9 +339,11 @@ export function LiveAuctionHud({
               ) : null}
             </>
           ) : auctionEndedPendingClose ? (
+            // Auto-close finalizes timer-zero lots server-side; this is now a manual fallback for
+            // when the auto-close hasn't landed yet (e.g. realtime/poll lag).
             onEndAuction ? (
               <HudAction tone="urgent" disabled={hostBusy} onClick={onEndAuction}>
-                Close
+                Force close
               </HudAction>
             ) : null
           ) : isVariantItem && breakReady && !breakBegan && onBeginTeamBreak ? (

@@ -16,6 +16,10 @@ import {
 import { notifyFollowersSellerWentLive } from "@/lib/seller-follow-notify";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
 import { processAuctionPaymentExpiries } from "@/services/payments";
+import {
+  finalizeOverdueLiveAuctionLotsForRoom,
+  LIVE_AUCTION_AUTO_CLOSE_GRACE_MS,
+} from "@/lib/live-auction-finalize";
 import { emitAuctionEnded, emitAuctionStarted, emitLiveDiscoveryChanged, emitTeamBoardChanged } from "@/lib/realtime-emit-server";
 import { buildLiveTipRoomData } from "@/lib/live-tip-moderator";
 import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
@@ -55,7 +59,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     }
   }
 
-  const room = await prisma.liveRoom.findUnique({
+  let room = await prisma.liveRoom.findUnique({
     where: { id },
     include: includeDetail,
   });
@@ -66,6 +70,31 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       sessionUserId: viewerId,
     });
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // Server-authoritative auto-close: if any active lot's timer has elapsed, finalize it (settle +
+  // charge winner, or close unsold) before serializing — so the auction does not depend on the
+  // host pressing Close or on any client countdown. Idempotent; only fires when a lot is overdue.
+  if (room.status === "live" && (room.roomType === "auction" || room.roomType === "break")) {
+    const nowMs = Date.now();
+    const hasOverdue = room.items.some(
+      (it) => it.status === "active" && it.biddingOpen && it.auctionEndsAt != null
+        && it.auctionEndsAt.getTime() <= nowMs - LIVE_AUCTION_AUTO_CLOSE_GRACE_MS,
+    );
+    if (hasOverdue) {
+      try {
+        await finalizeOverdueLiveAuctionLotsForRoom({
+          liveRoomId: id,
+          room: { sellerId: room.sellerId, roomType: room.roomType, roomVersion: room.roomVersion },
+          nowMs,
+          trigger: "read_sweep",
+        });
+        const reloaded = await prisma.liveRoom.findUnique({ where: { id }, include: includeDetail });
+        if (reloaded) room = reloaded;
+      } catch (e) {
+        console.error("[api/live-rooms/[id]] finalizeOverdueLiveAuctionLots", e);
+      }
+    }
   }
 
   const seller = await prisma.user.findUnique({

@@ -39,6 +39,7 @@ import { logLiveDebugEvent } from "@/lib/live-debug";
 import {
   createLiveRoomItem,
   deleteLiveRoomItem,
+  finalizeOverdueLiveAuctions,
   patchLiveRoomAction,
   patchLiveRoomItemStatus,
   sendLiveRoomSystemMessage,
@@ -229,6 +230,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const reconnectCountRef = useRef(0);
   const fallbackRefreshTimerRef = useRef<number | null>(null);
   const lastRoomVersionRef = useRef(0);
+  const autoCloseNudgedItemRef = useRef<Set<string>>(new Set());
   const lastItemVersionRef = useRef<Record<string, number>>({});
   const lastEventAtByTypeRef = useRef<Record<string, number>>({});
   const seenEventIdsRef = useRef<Set<string>>(new Set());
@@ -362,9 +364,27 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     if (!row?.item.biddingOpen || !row.item.auctionEndsAt) return undefined;
     const ends = Date.parse(row.item.auctionEndsAt);
     if (!Number.isFinite(ends)) return undefined;
-    const id = window.setInterval(() => setAuctionTickHost((n) => n + 1), 50);
+    const itemId = row.item.id;
+    const id = window.setInterval(() => {
+      setAuctionTickHost((n) => n + 1);
+      // Server-authoritative auto-close nudge: once our synced clock passes the timer, ask the
+      // server to finalize (it re-checks endsAt, so this can't close early). Fire once per lot;
+      // the GET read-sweep is the backstop if this never runs.
+      if (
+        !autoCloseNudgedItemRef.current.has(itemId) &&
+        syncedWallTimeMs(hostClockSkewMs) >= ends + 1500
+      ) {
+        autoCloseNudgedItemRef.current.add(itemId);
+        void finalizeOverdueLiveAuctions(roomId).then(() => {
+          queueMicrotask(() => {
+            void load();
+            router.refresh();
+          });
+        });
+      }
+    }, 50);
     return () => window.clearInterval(id);
-  }, [activeBoardRow]);
+  }, [activeBoardRow, hostClockSkewMs, load, roomId, router]);
 
   const handleHostStartLiveItemAuction = useCallback(async () => {
     const row =

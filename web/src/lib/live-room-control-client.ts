@@ -59,6 +59,23 @@ export async function bulkDeleteQueuedLiveRoomItems(liveRoomId: string): Promise
   return { ok: true, data: payload ?? {} };
 }
 
+/**
+ * Nudge the server to finalize any overdue auction lot (timer reached zero). The server re-checks
+ * `auctionEndsAt` against its own clock, so this can never close a lot early; it only accelerates
+ * the inevitable auto-close instead of waiting for the next room poll. Best-effort and idempotent.
+ */
+export async function finalizeOverdueLiveAuctions(liveRoomId: string): Promise<void> {
+  try {
+    await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/finalize-overdue`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+    });
+  } catch {
+    /* best-effort; the GET read-sweep is the backstop */
+  }
+}
+
 export async function patchLiveRoomItemStatus(
   liveRoomId: string,
   itemId: string,
