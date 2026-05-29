@@ -54,6 +54,8 @@ import {
 export const LIVE_COMMERCE_OVERLAY_HEIGHT = 118;
 
 const BID_THROTTLE_MS = 850;
+/** Hard safety net: clear pending bid state even if the network/realtime never confirms. */
+const BID_PENDING_SAFETY_MS = 1800;
 
 type Props = {
   stream: LiveStream;
@@ -112,6 +114,7 @@ export function LivePinnedActionBar({
   const walletOverlayOpenRef = useRef(false);
   const bidInFlightRef = useRef(false);
   const lastBidAttemptMsRef = useRef(0);
+  const bidSafetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [walletReadiness, setWalletReadiness] = useState<BuyerWalletReadiness | null>(null);
   const [variantSheetOpen, setVariantSheetOpen] = useState(false);
   const [timerTick, setTimerTick] = useState(0);
@@ -180,11 +183,20 @@ export function LivePinnedActionBar({
     return true;
   }, [onWalletOverlayChange, roomSnap, walletSheetOpen]);
 
+  const clearBidSafetyTimer = useCallback(() => {
+    if (bidSafetyTimerRef.current) {
+      clearTimeout(bidSafetyTimerRef.current);
+      bidSafetyTimerRef.current = null;
+    }
+  }, []);
+
   const resetBidControl = useCallback((reason: string) => {
+    clearBidSafetyTimer();
     logBidControl('reset', { reason, roomId: stream.id });
     bidInFlightRef.current = false;
     setBidBusy(false);
-  }, [stream.id]);
+    console.info('[bid] pending cleared', { reason, roomId: stream.id });
+  }, [clearBidSafetyTimer, stream.id]);
 
   const closeWalletSetup = useCallback(() => {
     logWalletSheet('close');
@@ -209,6 +221,22 @@ export function LivePinnedActionBar({
   useEffect(() => {
     onRegisterOpenWallet?.(openWalletFromOutside);
   }, [onRegisterOpenWallet, openWalletFromOutside]);
+
+  useEffect(() => () => clearBidSafetyTimer(), [clearBidSafetyTimer]);
+
+  const lastSnapSigRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!roomSnap) return;
+    const sig = `${roomSnap.currentBidUsd ?? ''}|${roomSnap.minNextBidUsd ?? ''}|${roomSnap.auctionEndsAt ?? ''}|${roomSnap.lotBidPhase}`;
+    if (lastSnapSigRef.current === sig) return;
+    lastSnapSigRef.current = sig;
+    console.info('[bid] realtime update received', {
+      currentBidUsd: roomSnap.currentBidUsd,
+      minNextBidUsd: roomSnap.minNextBidUsd,
+      lotBidPhase: roomSnap.lotBidPhase,
+      fetchedAtMs: roomSnap.fetchedAtMs,
+    });
+  }, [roomSnap, roomSnap?.currentBidUsd, roomSnap?.minNextBidUsd, roomSnap?.auctionEndsAt, roomSnap?.lotBidPhase]);
 
   const useLiveAuctionBidFlow = mustUseLiveBidFlow(stream, roomSnap, {
     bottomRightIsSlide: m.bottomRightIsSlide,
@@ -294,6 +322,16 @@ export function LivePinnedActionBar({
     lastBidAttemptMsRef.current = now;
     bidInFlightRef.current = true;
     setBidBusy(true);
+    console.info('[bid] submit start', { roomId: stream.id });
+    clearBidSafetyTimer();
+    bidSafetyTimerRef.current = setTimeout(() => {
+      bidSafetyTimerRef.current = null;
+      if (!bidInFlightRef.current) return;
+      logBidControl('reset', { reason: 'safety_timeout', roomId: stream.id });
+      bidInFlightRef.current = false;
+      setBidBusy(false);
+      console.info('[bid] pending cleared', { reason: 'safety_timeout', roomId: stream.id });
+    }, BID_PENDING_SAFETY_MS);
     let openedWallet = false;
     try {
       const snap = roomSnap ?? (await refreshRoomSnapshot());
@@ -358,10 +396,21 @@ export function LivePinnedActionBar({
         idempotencyKey: createLiveBidIdempotencyKey(),
       });
       mergeBidAck?.(ack);
+      console.info('[bid] submit success', { roomId: stream.id, itemId: snap.activeItemId, amountUsd: amount });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       onBidPlaced?.(amount);
-      await refreshRoomSnapshot();
+      // The HTTP ACK already merged the new high bid + next min bid into the snapshot, so the
+      // button can re-enable immediately. Refresh in the background for eventual consistency —
+      // never block the pending state on the slow snapshot poll.
+      void refreshRoomSnapshot()
+        .then((snapAfter) => console.info('[bid] fallback refresh complete', { ok: snapAfter != null }))
+        .catch(() => {});
     } catch (e) {
+      console.info('[bid] submit error', {
+        roomId: stream.id,
+        message: e instanceof Error ? e.message : 'unknown',
+        code: e instanceof Error ? (e as Error & { code?: string }).code : undefined,
+      });
       if (isWalletIncompleteError(e)) {
         logBidControl('blocked', { reason: 'wallet incomplete api 402' });
         if (!walletOverlayOpenRef.current && !walletSheetOpen) {
@@ -382,12 +431,14 @@ export function LivePinnedActionBar({
       logBidControl('blocked', { reason: 'bid failed', message: e instanceof Error ? e.message : 'unknown' });
       Alert.alert('Could not place bid', e instanceof Error ? e.message : 'Unknown error');
     } finally {
+      clearBidSafetyTimer();
       if (!openedWallet && !walletOverlayOpenRef.current) {
         resetBidControl('bid_complete');
       } else if (openedWallet) {
         bidInFlightRef.current = false;
         setBidBusy(false);
         logBidControl('reset', { reason: 'wallet_opened', roomId: stream.id });
+        console.info('[bid] pending cleared', { reason: 'wallet_opened', roomId: stream.id });
       }
     }
   }, [
@@ -403,6 +454,7 @@ export function LivePinnedActionBar({
     stream.id,
     walletSheetOpen,
     resetBidControl,
+    clearBidSafetyTimer,
     mergeBidAck,
   ]);
 
