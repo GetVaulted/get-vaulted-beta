@@ -6,7 +6,7 @@ export type LivePaymentRetryResult =
   | { ok: true; paid: true; message?: string }
   | { ok: true; requiresAction: true; clientSecret: string; publishableKey?: string }
   | { ok: true; processing: true }
-  | { ok: false; error: string; status?: number; paymentFailure?: LiveBuyerPaymentFailureSnapshot | null };
+  | { ok: false; error: string; code?: string; status?: number; paymentFailure?: LiveBuyerPaymentFailureSnapshot | null };
 
 function authHeaders(accessToken: string): Record<string, string> {
   return {
@@ -31,6 +31,7 @@ export async function retryLivePaymentFailure(args: {
   });
   let payload: {
     error?: string;
+    code?: string;
     paid?: boolean;
     ok?: boolean;
     message?: string;
@@ -59,9 +60,12 @@ export async function retryLivePaymentFailure(args: {
   if (payload.processing) {
     return { ok: true, processing: true };
   }
+  const code = typeof payload.code === 'string' ? payload.code : undefined;
   return {
     ok: false,
-    error: mapLivePaymentFailureMessage(typeof payload.error === 'string' ? payload.error : null),
+    // Map once here (with the server code) so the modal can render it directly without re-mapping.
+    error: mapLivePaymentFailureMessage(typeof payload.error === 'string' ? payload.error : null, code),
+    code,
     status: res.status,
     paymentFailure: parseFailure(payload.paymentFailure),
   };

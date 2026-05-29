@@ -22,6 +22,7 @@ import {
   chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard,
   chargeLiveBuyNowOrderWithSavedCard,
   chargeMarketplaceOrderWithSavedPaymentMethod,
+  reopenExpiredAuctionOrderForRecovery,
   syncLiveBuyNowOrderPaymentIntent,
 } from "@/lib/stripe-charge-order-saved-pm";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
@@ -432,6 +433,13 @@ export async function retryLiveRoomPaymentFailure(args: {
       });
       return { ok: true, paid: true };
     }
+    // Active recovery only: an auction winner who saved a fresh card may have let the original payment
+    // window lapse. Re-open the order so the retry below can charge, instead of hard-failing with
+    // ORDER_PAYMENT_EXPIRED. No-ops for non-auction / already-paid / un-reservable items.
+    await reopenExpiredAuctionOrderForRecovery({
+      orderId: failureRow.orderId,
+      buyerId: args.buyerId,
+    });
     charge =
       order?.listing.buyingFormat === "auction"
         ? await chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard({

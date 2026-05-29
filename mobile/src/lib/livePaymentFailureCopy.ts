@@ -13,6 +13,9 @@ const CODE_MESSAGES: Record<string, string> = {
   authentication_required: 'Your bank requires additional verification.',
   card_declined_authentication_required: 'Your bank requires additional verification.',
   CARD_DECLINED: 'Your card was declined.',
+  // Order-level payment window lapsed — NOT a card-expiry problem; must not map to "card has expired".
+  ORDER_PAYMENT_EXPIRED: "This purchase's payment window expired. Please try again or contact support.",
+  order_payment_expired: "This purchase's payment window expired. Please try again or contact support.",
 };
 
 const INTERNAL_PATTERN =
@@ -77,6 +80,9 @@ export function recoveryStatusMessage(status: number | null | undefined): string
   if (status == null) return null;
   if (status === 401 || status === 403) return 'Your session expired — sign in again to finish.';
   if (status === 400) return 'Card save did not return a payment method. Try again.';
+  // 402 = the charge attempt failed with a specific decline/order reason in the body.
+  // Defer to that reason (e.g. card declined, payment window expired) instead of a generic line.
+  if (status === 402) return null;
   if (status >= 500) return 'Payment retry failed. Please try again.';
   return null;
 }

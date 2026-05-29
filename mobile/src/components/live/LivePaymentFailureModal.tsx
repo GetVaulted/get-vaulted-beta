@@ -151,7 +151,7 @@ export function LivePaymentFailureModal({
             return true;
           }
           if (!sync.ok) {
-            const msg = recoveryStatusMessage(sync.status) ?? mapLivePaymentFailureMessage(sync.error);
+            const msg = recoveryStatusMessage(sync.status) ?? sync.error;
             setStatusLine(msg);
             console.log('[payment failure] retry payment fail', { status: sync.status ?? null, msg });
           }
@@ -164,7 +164,7 @@ export function LivePaymentFailureModal({
           return false;
         }
         if (!result.ok) {
-          const msg = recoveryStatusMessage(result.status) ?? mapLivePaymentFailureMessage(result.error);
+          const msg = recoveryStatusMessage(result.status) ?? result.error;
           setStatusLine(msg);
           console.log('[payment failure] retry payment fail', { status: result.status ?? null, msg });
         }

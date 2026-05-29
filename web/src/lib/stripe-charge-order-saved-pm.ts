@@ -15,8 +15,12 @@ import {
   PAYMENT_FAILED,
   PAYMENT_PAID,
   PAYMENT_PENDING,
+  PAYMENT_REFUNDED,
   PAYMENT_REQUIRES_ACTION,
 } from "@/services/payments";
+
+/** Short grace window granted when a buyer is actively recovering an expired auction-win order. */
+export const RECOVERY_PAYMENT_WINDOW_MS = 10 * 60 * 1000;
 
 export type ChargeOrderSavedPmOutcome =
   | { outcome: "paid" }
@@ -317,6 +321,102 @@ export async function chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard(args: {
     orderId: args.orderId,
     paymentMethodId: pmId,
   });
+}
+
+export type ReopenExpiredOrderResult = { reopened: boolean; reason?: string };
+
+/**
+ * Active-recovery only: re-open an auction-win order whose payment window lapsed so the buyer can pay
+ * with a freshly saved card. Intentionally narrow — callers must be the authenticated payment-failure
+ * recovery path, never normal checkout.
+ *
+ * Guardrails:
+ *  - only the buyer attached to the order (caller passes the failed order's buyerId)
+ *  - auction-win, non-escrow orders only
+ *  - never resurrect paid / refunded / fulfilled orders
+ *  - item must still be reservable for this winner: listing parked at `auction_ended_unpaid`
+ *    (expired, not yet relisted/sold/voided) or still `awaiting_auction_payment` (deadline just lapsed,
+ *    not yet swept). Since `Order.listingId` is unique, this order is the only claimant.
+ */
+export async function reopenExpiredAuctionOrderForRecovery(args: {
+  orderId: string;
+  buyerId: string;
+  recoveryWindowMs?: number;
+}): Promise<ReopenExpiredOrderResult> {
+  const order = await prisma.order.findFirst({
+    where: { id: args.orderId, buyerId: args.buyerId },
+    select: {
+      id: true,
+      listingId: true,
+      paymentStatus: true,
+      paymentMethod: true,
+      fulfillmentStatus: true,
+      paymentDeadlineAt: true,
+      listing: { select: { buyingFormat: true, status: true, moderationRemovedAt: true } },
+    },
+  });
+  if (!order) return { reopened: false, reason: "ORDER_NOT_FOUND" };
+  if (order.listing.buyingFormat !== "auction") return { reopened: false, reason: "NOT_AUCTION" };
+  if (order.paymentMethod === OrderPaymentMethod.escrow) return { reopened: false, reason: "ESCROW" };
+  if (order.paymentStatus === PAYMENT_PAID) return { reopened: false, reason: "ALREADY_PAID" };
+  if (order.paymentStatus === PAYMENT_REFUNDED) return { reopened: false, reason: "REFUNDED" };
+  if (order.fulfillmentStatus && order.fulfillmentStatus !== "pending") {
+    return { reopened: false, reason: "FULFILLED" };
+  }
+  if (order.listing.moderationRemovedAt) return { reopened: false, reason: "LISTING_REMOVED" };
+
+  const deadlinePast =
+    order.paymentDeadlineAt != null && order.paymentDeadlineAt.getTime() < Date.now();
+  const isExpired = order.paymentStatus === PAYMENT_EXPIRED || deadlinePast;
+  if (!isExpired) return { reopened: false, reason: "NOT_EXPIRED" };
+
+  // Reservability gate. If our order already expired, the listing must still be parked for the winner.
+  // If only the deadline lapsed (not yet swept), the listing is still awaiting our payment.
+  const reservable =
+    order.paymentStatus === PAYMENT_EXPIRED
+      ? order.listing.status === "auction_ended_unpaid"
+      : order.listing.status === "awaiting_auction_payment" ||
+        order.listing.status === "auction_ended_unpaid";
+  if (!reservable) return { reopened: false, reason: "ITEM_NOT_REOPENABLE" };
+
+  const newDeadline = new Date(Date.now() + (args.recoveryWindowMs ?? RECOVERY_PAYMENT_WINDOW_MS));
+
+  const ok = await prisma.$transaction(async (tx) => {
+    const updated = await tx.order.updateMany({
+      where: {
+        id: order.id,
+        buyerId: args.buyerId,
+        paymentStatus: {
+          in: [PAYMENT_EXPIRED, PAYMENT_PENDING, PAYMENT_FAILED, PAYMENT_REQUIRES_ACTION],
+        },
+      },
+      data: {
+        paymentStatus: PAYMENT_PENDING,
+        status: "pending",
+        paymentDeadlineAt: newDeadline,
+        stripePaymentIntentId: null,
+        stripeCheckoutSessionId: null,
+      },
+    });
+    if (updated.count === 0) return false;
+    // Re-open the listing for payment only from the parked state; never reactivate a sold/relisted one.
+    await tx.listing.updateMany({
+      where: { id: order.listingId, status: "auction_ended_unpaid", moderationRemovedAt: null },
+      data: { status: "awaiting_auction_payment" },
+    });
+    return true;
+  });
+
+  if (!ok) return { reopened: false, reason: "RACE" };
+
+  console.info("[payment recovery] reopened expired order for active recovery", {
+    orderId: order.id,
+    buyerId: args.buyerId,
+    listingId: order.listingId,
+    previousPaymentStatus: order.paymentStatus,
+    newPaymentDeadlineAt: newDeadline.toISOString(),
+  });
+  return { reopened: true };
 }
 
 export const LIVE_BUY_NOW_PI_KIND = "live_buy_now_saved_pm" as const;
