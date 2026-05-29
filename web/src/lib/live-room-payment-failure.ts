@@ -22,6 +22,7 @@ import {
   chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard,
   chargeLiveBuyNowOrderWithSavedCard,
   chargeMarketplaceOrderWithSavedPaymentMethod,
+  chargeOutcomeReachedStripe,
   reopenExpiredAuctionOrderForRecovery,
   syncLiveBuyNowOrderPaymentIntent,
 } from "@/lib/stripe-charge-order-saved-pm";
@@ -343,6 +344,42 @@ export async function recordPaymentFailureFromCharge(args: {
   });
 }
 
+/** Outcome shape shared by order / variant / break-spot saved-card charges (paymentIntentId when present). */
+type RecoveryChargeOutcome = {
+  outcome: string;
+  code?: string;
+  paymentIntentId?: string;
+};
+
+/**
+ * Single structured log line for a recovery retry charge. From it alone we can tell whether the retry
+ * failed before Stripe, reached Stripe, created/advanced a PaymentIntent, or succeeded.
+ */
+function logRecoveryChargeResult(
+  ref: {
+    failureId: string;
+    paymentMethodId: string;
+    orderId?: string | null;
+    variantPurchaseId?: string | null;
+    breakSpotId?: string | null;
+  },
+  charge: RecoveryChargeOutcome,
+): void {
+  const code = charge.outcome === "error" ? (charge.code ?? null) : null;
+  const paymentIntentId = charge.paymentIntentId ?? null;
+  console.info("[payment recovery] retry charge result", {
+    failureId: ref.failureId,
+    orderId: ref.orderId ?? null,
+    variantPurchaseId: ref.variantPurchaseId ?? null,
+    breakSpotId: ref.breakSpotId ?? null,
+    paymentMethodId: ref.paymentMethodId,
+    outcome: charge.outcome,
+    code,
+    paymentIntentId,
+    reachedStripe: chargeOutcomeReachedStripe(charge.outcome, code),
+  });
+}
+
 export async function retryLiveRoomPaymentFailure(args: {
   liveRoomId: string;
   buyerId: string;
@@ -460,26 +497,24 @@ export async function retryLiveRoomPaymentFailure(args: {
               orderId: failureRow.orderId,
               paymentMethodId: recoveryPmId,
             });
-    console.info("[payment recovery] retry charge result", {
-      failureId: failureRow.id,
-      orderId: failureRow.orderId,
-      paymentMethodId: recoveryPmId,
-      outcome: charge.outcome,
-      code: charge.outcome === "error" ? charge.code : null,
-    });
+    logRecoveryChargeResult(
+      { failureId: failureRow.id, orderId: failureRow.orderId, paymentMethodId: recoveryPmId },
+      charge,
+    );
   } else if (failureRow.variantPurchaseId) {
     const purchaseCharge = await chargeLiveItemVariantPurchaseWithSavedCard({
       buyerId: args.buyerId,
       purchaseId: failureRow.variantPurchaseId,
       paymentMethodId: recoveryPmId,
     });
-    console.info("[payment recovery] retry charge result", {
-      failureId: failureRow.id,
-      variantPurchaseId: failureRow.variantPurchaseId,
-      paymentMethodId: recoveryPmId,
-      outcome: purchaseCharge.outcome,
-      code: purchaseCharge.outcome === "error" ? purchaseCharge.code : null,
-    });
+    logRecoveryChargeResult(
+      {
+        failureId: failureRow.id,
+        variantPurchaseId: failureRow.variantPurchaseId,
+        paymentMethodId: recoveryPmId,
+      },
+      purchaseCharge,
+    );
     if (purchaseCharge.outcome === "paid") {
       await finalizeLiveItemVariantPurchasePaid(failureRow.variantPurchaseId, purchaseCharge.paymentIntentId);
       emitLiveRoomQueueItemsChanged(args.liveRoomId);
@@ -509,13 +544,10 @@ export async function retryLiveRoomPaymentFailure(args: {
       breakSpotId: failureRow.breakSpotId,
       paymentMethodId: recoveryPmId,
     });
-    console.info("[payment recovery] retry charge result", {
-      failureId: failureRow.id,
-      breakSpotId: failureRow.breakSpotId,
-      paymentMethodId: recoveryPmId,
-      outcome: spotCharge.outcome,
-      code: spotCharge.outcome === "error" ? spotCharge.code : null,
-    });
+    logRecoveryChargeResult(
+      { failureId: failureRow.id, breakSpotId: failureRow.breakSpotId, paymentMethodId: recoveryPmId },
+      spotCharge,
+    );
     if (spotCharge.outcome === "paid") {
       await finalizeBreakSpotPaid({ breakSpotId: failureRow.breakSpotId, paymentIntentId: spotCharge.paymentIntentId });
       await resolveLiveRoomPaymentFailure({

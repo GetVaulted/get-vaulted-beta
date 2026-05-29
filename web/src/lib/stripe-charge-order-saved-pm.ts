@@ -23,10 +23,29 @@ import {
 export const RECOVERY_PAYMENT_WINDOW_MS = 10 * 60 * 1000;
 
 export type ChargeOrderSavedPmOutcome =
-  | { outcome: "paid" }
+  | { outcome: "paid"; paymentIntentId?: string }
   | { outcome: "requires_action"; clientSecret: string; paymentIntentId: string }
-  | { outcome: "processing" }
+  | { outcome: "processing"; paymentIntentId?: string }
   | { outcome: "error"; code: string };
+
+/**
+ * Error codes that mean we actually talked to Stripe (PaymentIntent created/confirmed/retrieved),
+ * as opposed to a pre-flight guard that rejected before any Stripe call. Used to derive `reachedStripe`
+ * in recovery logging.
+ */
+export const STRIPE_LEVEL_CHARGE_ERROR_CODES: ReadonlySet<string> = new Set([
+  "CARD_DECLINED",
+  "STRIPE_ERROR",
+  "PAYMENT_INTENT_NOT_COMPLETED",
+  "MISSING_CLIENT_SECRET",
+]);
+
+/** True when the outcome reflects a real Stripe interaction (success, SCA, processing, or a Stripe error). */
+export function chargeOutcomeReachedStripe(outcome: string, code: string | null): boolean {
+  if (outcome === "paid" || outcome === "requires_action" || outcome === "processing") return true;
+  if (outcome === "error" && code) return STRIPE_LEVEL_CHARGE_ERROR_CODES.has(code);
+  return false;
+}
 
 const PI_KIND = "pay_order_saved_pm" as const;
 
@@ -71,7 +90,7 @@ async function handleRetrievedPaymentIntent(
 ): Promise<ChargeOrderSavedPmOutcome | null> {
   if (pi.status === "succeeded") {
     await finalizeStripeMarketplaceOrderPaid(orderId, pi.id, null);
-    return { outcome: "paid" };
+    return { outcome: "paid", paymentIntentId: pi.id };
   }
   if (pi.status === "requires_action" || pi.status === "requires_confirmation") {
     const cs = pi.client_secret;
@@ -91,7 +110,7 @@ async function handleRetrievedPaymentIntent(
         paymentStatus: PAYMENT_PENDING,
       },
     });
-    return { outcome: "processing" };
+    return { outcome: "processing", paymentIntentId: pi.id };
   }
   if (pi.status === "canceled" || pi.status === "requires_payment_method") {
     await prisma.order.updateMany({
