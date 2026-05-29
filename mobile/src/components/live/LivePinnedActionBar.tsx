@@ -42,6 +42,7 @@ import type { LiveStream } from '../../types';
 import { resolveBuyerRoomKind, resolveLiveBuyerCommerceHud } from './liveActionModule';
 import { LiveVariantSelectionSheet } from './LiveVariantSelectionSheet';
 import { isActiveVariantBuyerItem } from '../../lib/liveItemVariant';
+import { reconcileBuyerSnapshotMonotonic } from '../../lib/liveRoomBuyerSnapshotMerge';
 import { computeAuctionRemainingMs, logAuctionTimer } from '../../lib/auctionTimerSync';
 import { syncedWallTimeMs } from '../../lib/serverClockSync';
 import {
@@ -254,7 +255,17 @@ export function LivePinnedActionBar({
     setLocalSyncRefreshing(true);
     try {
       const snap = await fetchLiveRoomBuyerSnapshot(accessToken, stream.id);
-      setLocalRoomSnap(snap);
+      setLocalRoomSnap((prev) => {
+        const { snap: reconciled, staleIgnored } = reconcileBuyerSnapshotMonotonic(prev, snap);
+        if (staleIgnored) {
+          console.info('[bid] stale snapshot ignored', {
+            keptHighBidUsd: prev?.currentBidUsd ?? null,
+            incomingHighBidUsd: snap.currentBidUsd,
+            activeItemId: snap.activeItemId,
+          });
+        }
+        return reconciled;
+      });
       return snap;
     } catch {
       return null;

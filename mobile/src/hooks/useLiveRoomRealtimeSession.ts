@@ -6,7 +6,12 @@ import {
   type LiveRoomBuyerSnapshot,
   type LiveBidHttpAck,
 } from '../api/liveRoomBuyerRepository';
-import { mergeBuyerSnapshotForBidPlaced, mergeBuyerSnapshotForBidAck, mergeBuyerSnapshotForActiveItemChanged } from '../lib/liveRoomBuyerSnapshotMerge';
+import {
+  mergeBuyerSnapshotForBidPlaced,
+  mergeBuyerSnapshotForBidAck,
+  mergeBuyerSnapshotForActiveItemChanged,
+  reconcileBuyerSnapshotMonotonic,
+} from '../lib/liveRoomBuyerSnapshotMerge';
 import {
   applyBuyerSnapshotPurchaseCompleted,
   recomputeBuyerSnapshotPhase,
@@ -75,7 +80,32 @@ export function useLiveRoomRealtimeSession(args: {
     try {
       const snap = await fetchLiveRoomBuyerSnapshot(args.accessToken, args.roomId);
       refreshSkewFromServer(snap.serverNowMs, fetchStartRef.current);
-      setRoomSnap(snap);
+      setRoomSnap((prev) => {
+        const { snap: reconciled, lotChanged, staleIgnored, advanced } = reconcileBuyerSnapshotMonotonic(
+          prev,
+          snap,
+        );
+        if (staleIgnored) {
+          console.info('[bid] stale snapshot ignored', {
+            keptHighBidUsd: prev?.currentBidUsd ?? null,
+            incomingHighBidUsd: snap.currentBidUsd,
+            activeItemId: snap.activeItemId,
+          });
+        } else if (lotChanged) {
+          console.info('[bid] active lot changed, bid state reset', {
+            fromItemId: prev?.activeItemId ?? null,
+            toItemId: snap.activeItemId,
+            highBidUsd: snap.currentBidUsd,
+          });
+        } else if (advanced) {
+          console.info('[bid] high bid advanced', {
+            highBidUsd: reconciled.currentBidUsd,
+            minNextBidUsd: reconciled.minNextBidUsd,
+            activeItemId: reconciled.activeItemId,
+          });
+        }
+        return reconciled;
+      });
       return snap;
     } catch {
       return null;
@@ -146,6 +176,14 @@ export function useLiveRoomRealtimeSession(args: {
       setRoomSnap((prev) => {
         if (!prev) return prev;
         const merged = mergeBuyerSnapshotForBidPlaced(prev, payload, wallNow);
+        if (merged && (merged.currentBidUsd ?? 0) > (prev.currentBidUsd ?? 0)) {
+          console.info('[bid] high bid advanced', {
+            source: 'realtime_bid_placed',
+            highBidUsd: merged.currentBidUsd,
+            minNextBidUsd: merged.minNextBidUsd,
+            activeItemId: merged.activeItemId,
+          });
+        }
         if (merged) {
           logAuctionTimer({
             source: 'bid_placed',
@@ -338,6 +376,14 @@ export function useLiveRoomRealtimeSession(args: {
       setRoomSnap((prev) => {
         if (!prev) return prev;
         const merged = mergeBuyerSnapshotForBidAck(prev, ack, wallNow);
+        if (merged && (merged.currentBidUsd ?? 0) > (prev.currentBidUsd ?? 0)) {
+          console.info('[bid] high bid advanced', {
+            source: 'http_ack',
+            highBidUsd: merged.currentBidUsd,
+            minNextBidUsd: merged.minNextBidUsd,
+            activeItemId: merged.activeItemId,
+          });
+        }
         if (merged) {
           logAuctionTimer({
             source: 'bid_http_ack',
