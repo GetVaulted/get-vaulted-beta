@@ -18,6 +18,7 @@ import { HoldToBidButton } from './HoldToBidButton';
 import {
   createLiveBidIdempotencyKey,
   fetchLiveRoomBuyerSnapshot,
+  finalizeOverdueLiveRoomAuctions,
   placeLiveRoomBid,
   type LiveRoomBuyerSnapshot,
 } from '../../api/liveRoomBuyerRepository';
@@ -136,6 +137,8 @@ export function LivePinnedActionBar({
     const id = setInterval(() => setTimerTick((t) => t + 1), 250);
     return () => clearInterval(id);
   }, [roomSnap?.lotBidPhase, roomSnap?.auctionEndsAt]);
+
+  const autoCloseNudgedItemRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (roomSnap?.lotBidPhase !== 'bidding_open' || !roomSnap.auctionEndsAt) return;
@@ -283,6 +286,33 @@ export function LivePinnedActionBar({
     }, pollMs);
     return () => clearInterval(id);
   }, [buyerKind, refreshRoomSnapshot, usingExternalSync]);
+
+  // Buyer-side server-authoritative auto-close nudge: the instant our synced clock passes the lot
+  // timer, ask the server to finalize and pull a fast snapshot so the Winner/result popup lands in
+  // ~1-2s instead of waiting for the slow poll. The server re-checks endsAt (it can't close early),
+  // and realtime `purchase_completed` remains the primary path; this is the immediacy fallback.
+  useEffect(() => {
+    const itemId = roomSnap?.activeItemId;
+    const endsAtIso = roomSnap?.auctionEndsAt;
+    if (!itemId || !endsAtIso || roomSnap?.lotBidPhase !== 'bidding_open') return;
+    const endsMs = Date.parse(endsAtIso);
+    if (!Number.isFinite(endsMs) || syncedNowMs < endsMs + 1200) return;
+    if (autoCloseNudgedItemRef.current === itemId) return;
+    autoCloseNudgedItemRef.current = itemId;
+    console.info('[auction close ui] buyer timer ended, fast refresh', { roomId: stream.id, itemId });
+    void finalizeOverdueLiveRoomAuctions(stream.id, accessToken);
+    setTimeout(() => {
+      void refreshRoomSnapshot();
+    }, 400);
+  }, [
+    syncedNowMs,
+    roomSnap?.activeItemId,
+    roomSnap?.auctionEndsAt,
+    roomSnap?.lotBidPhase,
+    stream.id,
+    accessToken,
+    refreshRoomSnapshot,
+  ]);
 
   const syncStatusLine = useMemo(() => {
     if (!auctionLane) return null;

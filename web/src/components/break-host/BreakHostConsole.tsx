@@ -376,6 +376,10 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       ) {
         autoCloseNudgedItemRef.current.add(itemId);
         void finalizeOverdueLiveAuctions(roomId).then(() => {
+          console.info("[auction close ui] seller finalize complete, refreshing snapshot", {
+            roomId,
+            itemId,
+          });
           queueMicrotask(() => {
             void load();
             router.refresh();
@@ -605,6 +609,24 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     },
     [clearLotTransitionTimers],
   );
+
+  // Watchdog: never let the sold spotlight / transition banner stick on the seller console (e.g. if
+  // a competing realtime event cleared the scheduled transition timers, or the close fired from a
+  // buyer-triggered server sweep). Force the transient sold state back to idle after a hard max so
+  // the seller UI never requires a manual page refresh to move forward.
+  useEffect(() => {
+    if (lotTransitionPhase === "idle") return undefined;
+    const id = window.setTimeout(() => {
+      clearLotTransitionTimers();
+      setLotTransitionPhase("idle");
+      setLotTransitionWinner(null);
+      setLotTransitionAmount(null);
+      setLotTransitionNextTitle(null);
+      setSoldCelebration(null);
+      console.info("[auction close ui] seller sold popup cleared", { roomId });
+    }, 6000);
+    return () => window.clearTimeout(id);
+  }, [lotTransitionPhase, clearLotTransitionTimers, roomId]);
 
   const loadTeamBoard = useCallback(async () => {
     try {

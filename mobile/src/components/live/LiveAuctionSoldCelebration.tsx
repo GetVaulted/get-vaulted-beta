@@ -7,29 +7,50 @@ import { LiveRoomText } from './LiveRoomText';
 type Props = {
   celebration: LiveAuctionCloseCelebration | null;
   onDone: () => void;
+  /** Buyer sees Winner/Outbid framing; seller keeps the "SOLD!" framing. */
+  viewerRole?: 'buyer' | 'seller';
 };
 
 const DISPLAY_MS = 2800;
 
-export function LiveAuctionSoldCelebration({ celebration, onDone }: Props) {
+export function LiveAuctionSoldCelebration({ celebration, onDone, viewerRole = 'buyer' }: Props) {
   useEffect(() => {
     if (!celebration) return undefined;
+    if (celebration.kind === 'sold') {
+      console.info('[auction close ui] buyer result shown', {
+        itemId: celebration.itemId,
+        viewerIsWinner: celebration.viewerIsWinner,
+        viewerRole,
+      });
+    }
     const id = setTimeout(onDone, DISPLAY_MS);
     return () => clearTimeout(id);
-  }, [celebration, onDone]);
+  }, [celebration, onDone, viewerRole]);
 
   if (!celebration) return null;
 
   const sold = celebration.kind === 'sold';
+  const viewerIsWinner = sold && celebration.viewerIsWinner;
+  const title = !sold
+    ? 'Auction ended'
+    : viewerRole === 'seller'
+      ? 'SOLD!'
+      : viewerIsWinner
+        ? 'WINNER!'
+        : 'Auction ended';
 
   return (
     <Modal visible transparent animationType="fade" statusBarTranslucent>
       <View style={styles.backdrop}>
         <View style={styles.card}>
-          <LiveRoomText style={styles.title}>{sold ? 'SOLD!' : 'Auction ended'}</LiveRoomText>
+          <LiveRoomText style={styles.title}>{title}</LiveRoomText>
           {sold ? (
             <>
-              <LiveRoomText style={styles.winner}>Winner: @{celebration.winnerUsername}</LiveRoomText>
+              <LiveRoomText style={styles.winner}>
+                {viewerRole === 'buyer' && !viewerIsWinner
+                  ? `Outbid · Winner @${celebration.winnerUsername}`
+                  : `Winner: @${celebration.winnerUsername}`}
+              </LiveRoomText>
               <LiveRoomText style={styles.amount}>{formatAuctionMoneyUsd(celebration.winningAmountUsd)}</LiveRoomText>
             </>
           ) : (

@@ -264,7 +264,7 @@ export function useLiveRoomRealtimeSession(args: {
         if (!prev) return prev;
         return applyBuyerSnapshotPurchaseCompleted(prev, payload.itemId, wallNow);
       });
-      const celebration = parsePurchaseCompletedCelebration(payload);
+      const celebration = parsePurchaseCompletedCelebration(payload, args.userId);
       if (celebration) setSoldCelebration(celebration);
       logAuctionTimer({
         source: 'purchase_completed',

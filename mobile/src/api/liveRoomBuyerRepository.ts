@@ -342,3 +342,26 @@ export async function placeLiveRoomBid(args: {
     item: j.item,
   };
 }
+
+/**
+ * Server-authoritative timer-zero nudge. Asks the server to finalize any overdue auction lot once
+ * the local countdown reaches zero; the server re-checks `auctionEndsAt` against its own clock, so
+ * it can never close a lot early. Best-effort — the realtime `purchase_completed` event (and the
+ * GET read-sweep) are the backstops. Returns silently on any failure.
+ */
+export async function finalizeOverdueLiveRoomAuctions(roomId: string, accessToken?: string): Promise<void> {
+  const base = getWebApiBaseUrl();
+  if (!base) return;
+  try {
+    await fetch(`${base}/api/live-rooms/${encodeURIComponent(roomId)}/finalize-overdue`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+    });
+  } catch {
+    /* best-effort */
+  }
+}

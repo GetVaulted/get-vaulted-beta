@@ -16,4 +16,26 @@ describe('liveAuctionWinnerDisplay', () => {
     ).toBe('sold');
     expect(parsePurchaseCompletedCelebration({ itemId: 'x', noBids: true })?.kind).toBe('no_bids');
   });
+
+  it('flags the local viewer as winner when winnerId matches', () => {
+    const won = parsePurchaseCompletedCelebration(
+      { itemId: 'x', winnerUsername: 'me', winningAmountUsd: 20, winnerId: 'user_1' },
+      'user_1',
+    );
+    expect(won?.kind === 'sold' && won.viewerIsWinner).toBe(true);
+
+    const lost = parsePurchaseCompletedCelebration(
+      { itemId: 'x', winnerUsername: 'them', winningAmountUsd: 20, winnerId: 'user_2' },
+      'user_1',
+    );
+    expect(lost?.kind === 'sold' && lost.viewerIsWinner).toBe(false);
+
+    const noViewer = parsePurchaseCompletedCelebration({
+      itemId: 'x',
+      winnerUsername: 'them',
+      winningAmountUsd: 20,
+      winnerId: 'user_2',
+    });
+    expect(noViewer?.kind === 'sold' && noViewer.viewerIsWinner).toBe(false);
+  });
 });
