@@ -352,6 +352,12 @@ export async function retryLiveRoomPaymentFailure(args: {
   | { ok: true; processing: true }
   | { ok: false; error: string; code: string; paymentFailure: LiveBuyerPaymentFailureDTO }
 > {
+  console.info("[payment failure] retry payment started", {
+    liveRoomId: args.liveRoomId,
+    buyerId: args.buyerId,
+    failureId: args.failureId ?? null,
+  });
+
   const failureRow = args.failureId
     ? await prisma.liveRoomPaymentFailure.findFirst({
         where: {
@@ -431,6 +437,7 @@ export async function retryLiveRoomPaymentFailure(args: {
         ? await chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard({
             buyerId: args.buyerId,
             orderId: failureRow.orderId,
+            paymentMethodId: recoveryPmId,
           })
         : failureRow.kind === "buy_now" && failureRow.liveRoomItemId
           ? await chargeLiveBuyNowOrderWithSavedCard({
@@ -443,12 +450,27 @@ export async function retryLiveRoomPaymentFailure(args: {
           : await chargeMarketplaceOrderWithSavedPaymentMethod({
               buyerId: args.buyerId,
               orderId: failureRow.orderId,
+              paymentMethodId: recoveryPmId,
             });
+    console.info("[payment recovery] retry charge result", {
+      failureId: failureRow.id,
+      orderId: failureRow.orderId,
+      paymentMethodId: recoveryPmId,
+      outcome: charge.outcome,
+      code: charge.outcome === "error" ? charge.code : null,
+    });
   } else if (failureRow.variantPurchaseId) {
     const purchaseCharge = await chargeLiveItemVariantPurchaseWithSavedCard({
       buyerId: args.buyerId,
       purchaseId: failureRow.variantPurchaseId,
       paymentMethodId: recoveryPmId,
+    });
+    console.info("[payment recovery] retry charge result", {
+      failureId: failureRow.id,
+      variantPurchaseId: failureRow.variantPurchaseId,
+      paymentMethodId: recoveryPmId,
+      outcome: purchaseCharge.outcome,
+      code: purchaseCharge.outcome === "error" ? purchaseCharge.code : null,
     });
     if (purchaseCharge.outcome === "paid") {
       await finalizeLiveItemVariantPurchasePaid(failureRow.variantPurchaseId, purchaseCharge.paymentIntentId);
@@ -478,6 +500,13 @@ export async function retryLiveRoomPaymentFailure(args: {
       buyerId: args.buyerId,
       breakSpotId: failureRow.breakSpotId,
       paymentMethodId: recoveryPmId,
+    });
+    console.info("[payment recovery] retry charge result", {
+      failureId: failureRow.id,
+      breakSpotId: failureRow.breakSpotId,
+      paymentMethodId: recoveryPmId,
+      outcome: spotCharge.outcome,
+      code: spotCharge.outcome === "error" ? spotCharge.code : null,
     });
     if (spotCharge.outcome === "paid") {
       await finalizeBreakSpotPaid({ breakSpotId: failureRow.breakSpotId, paymentIntentId: spotCharge.paymentIntentId });

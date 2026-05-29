@@ -6,7 +6,7 @@ export type LivePaymentRetryResult =
   | { ok: true; paid: true; message?: string }
   | { ok: true; requiresAction: true; clientSecret: string; publishableKey?: string }
   | { ok: true; processing: true }
-  | { ok: false; error: string; paymentFailure?: LiveBuyerPaymentFailureSnapshot | null };
+  | { ok: false; error: string; status?: number; paymentFailure?: LiveBuyerPaymentFailureSnapshot | null };
 
 function authHeaders(accessToken: string): Record<string, string> {
   return {
@@ -62,6 +62,7 @@ export async function retryLivePaymentFailure(args: {
   return {
     ok: false,
     error: mapLivePaymentFailureMessage(typeof payload.error === 'string' ? payload.error : null),
+    status: res.status,
     paymentFailure: parseFailure(payload.paymentFailure),
   };
 }

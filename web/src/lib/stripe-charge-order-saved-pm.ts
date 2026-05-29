@@ -106,6 +106,8 @@ async function handleRetrievedPaymentIntent(
 export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
   buyerId: string;
   orderId: string;
+  /** Force this PM (recovery retry). Overrides Order.paymentLabel so a stale card is never reused. */
+  paymentMethodId?: string | null;
 }): Promise<ChargeOrderSavedPmOutcome> {
   await processAuctionPaymentExpiries();
 
@@ -160,9 +162,17 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
     return { outcome: "error", code: "SELLER_NOT_READY" };
   }
 
-  const pmId = row.paymentLabel?.trim() ?? "";
+  const explicitPm = args.paymentMethodId?.trim() ?? "";
+  const pmId = isStripePaymentMethodId(explicitPm) ? explicitPm : (row.paymentLabel?.trim() ?? "");
   if (!isStripePaymentMethodId(pmId)) {
     return { outcome: "error", code: "ORDER_SAVED_PM_MISSING" };
+  }
+  // Persist the PM we are about to charge so the order never points at a stale/expired card.
+  if (pmId !== row.paymentLabel?.trim()) {
+    await prisma.order.updateMany({
+      where: { id: row.id, buyerId: args.buyerId, paymentStatus: { not: PAYMENT_PAID } },
+      data: { paymentLabel: pmId },
+    });
   }
 
   try {
@@ -233,7 +243,9 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
         application_fee_amount: feeCents,
         transfer_data: { destination: row.seller.stripeAccountId },
       },
-      { idempotencyKey: `pay_order_saved_pm_${row.id}_${amountCents}` },
+      // PM is part of the key so a recovery retry with a NEW card creates a fresh PaymentIntent
+      // instead of replaying the original (expired-card) intent via Stripe idempotency.
+      { idempotencyKey: `pay_order_saved_pm_${row.id}_${amountCents}_${pmId}` },
     );
 
     const postCreate = await handleRetrievedPaymentIntent(row.id, intent);
@@ -266,6 +278,8 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
 export async function chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard(args: {
   buyerId: string;
   orderId: string;
+  /** Recovery retry: charge this freshly-saved PM and overwrite Order.paymentLabel with it. */
+  paymentMethodId?: string | null;
 }): Promise<ChargeOrderSavedPmOutcome> {
   const row = await prisma.order.findFirst({
     where: { id: args.orderId, buyerId: args.buyerId },
@@ -274,17 +288,23 @@ export async function chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard(args: {
   if (!row) return { outcome: "error", code: "ORDER_NOT_FOUND" };
   if (row.paymentStatus === PAYMENT_PAID) return { outcome: "paid" };
 
+  const explicitPm = args.paymentMethodId?.trim() ?? "";
   const current = row.paymentLabel?.trim() ?? "";
-  if (!isStripePaymentMethodId(current)) {
-    const pmId = await getBuyerDefaultCardPaymentMethodId(args.buyerId);
-    if (!pmId) {
-      return { outcome: "error", code: "NO_SAVED_CARD" };
-    }
+  // Prefer the explicit (recovery) PM, then any valid stored PM, then the buyer's default card.
+  const pmId = isStripePaymentMethodId(explicitPm)
+    ? explicitPm
+    : isStripePaymentMethodId(current)
+      ? current
+      : (await getBuyerDefaultCardPaymentMethodId(args.buyerId)) ?? "";
+  if (!isStripePaymentMethodId(pmId)) {
+    return { outcome: "error", code: "NO_SAVED_CARD" };
+  }
+  if (pmId !== current) {
     const updated = await prisma.order.updateMany({
       where: {
         id: args.orderId,
         buyerId: args.buyerId,
-        paymentStatus: PAYMENT_PENDING,
+        paymentStatus: { not: PAYMENT_PAID },
       },
       data: { paymentLabel: pmId },
     });
@@ -292,7 +312,11 @@ export async function chargeLiveAuctionWinOrderWithBuyerDefaultSavedCard(args: {
       return { outcome: "error", code: "ORDER_NOT_PAYABLE" };
     }
   }
-  return chargeMarketplaceOrderWithSavedPaymentMethod(args);
+  return chargeMarketplaceOrderWithSavedPaymentMethod({
+    buyerId: args.buyerId,
+    orderId: args.orderId,
+    paymentMethodId: pmId,
+  });
 }
 
 export const LIVE_BUY_NOW_PI_KIND = "live_buy_now_saved_pm" as const;
@@ -435,7 +459,8 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
         application_fee_amount: feeCents,
         transfer_data: { destination: row.seller.stripeAccountId },
       },
-      { idempotencyKey: `live_buy_now_${row.id}_${amountCents}` },
+      // Include the PM so a recovery retry with a new card does not replay the prior intent.
+      { idempotencyKey: `live_buy_now_${row.id}_${amountCents}_${pmId}` },
     );
 
     await prisma.order.updateMany({

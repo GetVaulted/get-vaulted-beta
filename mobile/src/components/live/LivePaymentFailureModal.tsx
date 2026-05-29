@@ -14,6 +14,7 @@ import type { LiveBuyerPaymentFailureSnapshot } from '../../api/liveRoomBuyerRep
 import { retryLivePaymentFailure } from '../../api/livePaymentFailureRepository';
 import {
   mapLivePaymentFailureMessage,
+  recoveryStatusMessage,
   PAYMENT_RECOVERY_SUBTITLE,
 } from '../../lib/livePaymentFailureCopy';
 import { colors, spacing } from '../../theme';
@@ -48,11 +49,14 @@ export function LivePaymentFailureModal({
   const { confirmPayment } = useStripe();
   const [busy, setBusy] = useState(false);
   const [statusLine, setStatusLine] = useState<string | null>(null);
+  // Once a new card is saved + retried, the original failure reason ("Your card has expired") is
+  // stale — suppress it and show the real finalize/retry outcome instead.
+  const [cardSaved, setCardSaved] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);
   const pulse = useRef(new Animated.Value(0)).current;
   const entrance = useRef(new Animated.Value(0)).current;
 
-  const reasonLine = mapLivePaymentFailureMessage(failure.failureReason);
+  const reasonLine = cardSaved ? null : mapLivePaymentFailureMessage(failure.failureReason);
 
   useEffect(() => {
     onBlockerActiveChange?.(visible && !walletOpen);
@@ -64,9 +68,16 @@ export function LivePaymentFailureModal({
       setWalletOpen(false);
       setStatusLine(null);
       setBusy(false);
+      setCardSaved(false);
       entrance.setValue(0);
     }
   }, [visible, entrance]);
+
+  // A brand-new failure (different id) means fresh context — drop any prior recovery state.
+  useEffect(() => {
+    setCardSaved(false);
+    setStatusLine(null);
+  }, [failure.id]);
 
   useEffect(() => {
     if (!visible || walletOpen) return;
@@ -95,72 +106,80 @@ export function LivePaymentFailureModal({
     }
   }, [walletOpen]);
 
-  const runRetry = useCallback(async (): Promise<boolean> => {
-    if (!accessToken?.trim()) {
-      console.log('[payment failure] retry payment fail (no access token)');
-      return false;
-    }
-    console.log('[payment failure] retry payment started');
-    setBusy(true);
-    setStatusLine(null);
-    try {
-      const result = await retryLivePaymentFailure({
-        accessToken,
-        roomId,
-        failureId: failure.id,
-      });
-      if (result.ok && 'paid' in result && result.paid) {
-        console.log('[payment failure] retry payment success');
-        onResolved();
-        return true;
+  const runRetry = useCallback(
+    async (paymentMethodId?: string): Promise<boolean> => {
+      if (!accessToken?.trim()) {
+        console.log('[payment failure] retry payment fail (no access token)');
+        return false;
       }
-      if (result.ok && 'requiresAction' in result && result.requiresAction) {
-        const conf = await confirmPayment(result.clientSecret, { paymentMethodType: 'Card' });
-        if (conf.error) {
-          const msg = mapLivePaymentFailureMessage(conf.error.message, conf.error.code);
-          setStatusLine(msg);
-          console.log('[payment failure] retry payment fail', msg);
-          return false;
-        }
-        const sync = await retryLivePaymentFailure({
+      console.log('[payment recovery] mobile retry starting', {
+        failureId: failure.id,
+        orderId: failure.orderId ?? null,
+        paymentMethodId: paymentMethodId ?? null,
+      });
+      console.log('[payment failure] retry payment started');
+      setBusy(true);
+      setStatusLine(null);
+      try {
+        const result = await retryLivePaymentFailure({
           accessToken,
           roomId,
           failureId: failure.id,
-          action: 'sync',
         });
-        if (sync.ok && 'paid' in sync && sync.paid) {
+        if (result.ok && 'paid' in result && result.paid) {
           console.log('[payment failure] retry payment success');
           onResolved();
           return true;
         }
-        if (!sync.ok) {
-          const msg = mapLivePaymentFailureMessage(sync.error);
+        if (result.ok && 'requiresAction' in result && result.requiresAction) {
+          const conf = await confirmPayment(result.clientSecret, { paymentMethodType: 'Card' });
+          if (conf.error) {
+            const msg = mapLivePaymentFailureMessage(conf.error.message, conf.error.code);
+            setStatusLine(msg);
+            console.log('[payment failure] retry payment fail', msg);
+            return false;
+          }
+          const sync = await retryLivePaymentFailure({
+            accessToken,
+            roomId,
+            failureId: failure.id,
+            action: 'sync',
+          });
+          if (sync.ok && 'paid' in sync && sync.paid) {
+            console.log('[payment failure] retry payment success');
+            onResolved();
+            return true;
+          }
+          if (!sync.ok) {
+            const msg = recoveryStatusMessage(sync.status) ?? mapLivePaymentFailureMessage(sync.error);
+            setStatusLine(msg);
+            console.log('[payment failure] retry payment fail', { status: sync.status ?? null, msg });
+          }
+          return false;
+        }
+        if (result.ok && 'processing' in result) {
+          const msg = 'Payment is processing — try again in a moment.';
           setStatusLine(msg);
           console.log('[payment failure] retry payment fail', msg);
+          return false;
+        }
+        if (!result.ok) {
+          const msg = recoveryStatusMessage(result.status) ?? mapLivePaymentFailureMessage(result.error);
+          setStatusLine(msg);
+          console.log('[payment failure] retry payment fail', { status: result.status ?? null, msg });
         }
         return false;
-      }
-      if (result.ok && 'processing' in result) {
-        const msg = 'Payment is processing — try again in a moment.';
+      } catch {
+        const msg = 'Network error — try again.';
         setStatusLine(msg);
         console.log('[payment failure] retry payment fail', msg);
         return false;
+      } finally {
+        setBusy(false);
       }
-      if (!result.ok) {
-        const msg = mapLivePaymentFailureMessage(result.error);
-        setStatusLine(msg);
-        console.log('[payment failure] retry payment fail', msg);
-      }
-      return false;
-    } catch {
-      const msg = 'Network error — try again.';
-      setStatusLine(msg);
-      console.log('[payment failure] retry payment fail', msg);
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  }, [accessToken, confirmPayment, failure.id, onResolved, roomId]);
+    },
+    [accessToken, confirmPayment, failure.id, failure.orderId, onResolved, roomId],
+  );
 
   const openWalletForRecovery = () => {
     console.log('[payment failure] fix payment pressed');
@@ -179,14 +198,11 @@ export function LivePaymentFailureModal({
     onWalletOverlayChange?.(false);
   };
 
-  const handlePaymentMethodSaved = () => {
+  const handlePaymentMethodSaved = (paymentMethodId?: string) => {
+    setCardSaved(true);
     void (async () => {
-      const ok = await runRetry();
-      if (ok) {
-        closeWallet();
-      } else {
-        closeWallet();
-      }
+      await runRetry(paymentMethodId);
+      closeWallet();
     })();
   };
 
@@ -230,7 +246,7 @@ export function LivePaymentFailureModal({
             ) : null}
             <LiveRoomText style={styles.amount}>{formatAmount(failure.amountUsd)}</LiveRoomText>
 
-            <LiveRoomText style={styles.reason}>{reasonLine}</LiveRoomText>
+            {reasonLine ? <LiveRoomText style={styles.reason}>{reasonLine}</LiveRoomText> : null}
             {statusLine ? <LiveRoomText style={styles.status}>{statusLine}</LiveRoomText> : null}
 
             <View style={styles.actions}>

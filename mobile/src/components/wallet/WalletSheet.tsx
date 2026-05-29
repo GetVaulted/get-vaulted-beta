@@ -51,8 +51,8 @@ type Props = {
   initialStep?: WalletStep;
   /** When true with recoveryMode, open add-card flow immediately. */
   openPaymentSetupOnMount?: boolean;
-  /** Fired after a card is saved — parent can retry authorization. */
-  onPaymentMethodSaved?: () => void;
+  /** Fired after a card is saved — parent can retry authorization with the freshly saved pm_. */
+  onPaymentMethodSaved?: (paymentMethodId?: string) => void;
 };
 
 type AddressDraft = CreateShippingAddressInput;
@@ -507,11 +507,11 @@ export function WalletSheet({
           }
           setPaymentSetupOpen(false);
         }}
-        onSaved={() => {
+        onSaved={(paymentMethodId) => {
           void loadWalletData();
           setPaymentSetupOpen(false);
           setStep('payment');
-          onPaymentMethodSaved?.();
+          onPaymentMethodSaved?.(paymentMethodId);
         }}
       />
       <WalletAddressSetupModal

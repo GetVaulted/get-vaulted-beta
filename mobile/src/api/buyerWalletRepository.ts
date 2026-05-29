@@ -135,6 +135,16 @@ export async function createBuyerSetupIntent(
   };
 }
 
+/** Carries the HTTP status so the UI can show 401/400-specific recovery copy. */
+export class FinalizePaymentMethodError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'FinalizePaymentMethodError';
+    this.status = status;
+  }
+}
+
 export async function finalizeBuyerPaymentMethodSetup(
   accessToken: string | undefined,
   args: { paymentMethodId?: string; setupIntentId?: string; clientSecret?: string },
@@ -160,15 +170,21 @@ export async function finalizeBuyerPaymentMethodSetup(
     expYear?: number;
     error?: string;
   };
+
+  console.log('[wallet] finalize payment method response', {
+    status: res.status,
+    body: j,
+  });
+
   if (!res.ok) {
-    console.log('[wallet] finalize payment method response', {
-      status: res.status,
-      error: typeof j.error === 'string' ? j.error : null,
-    });
-    throw new Error(typeof j.error === 'string' ? j.error : 'Could not finalize payment method.');
+    throw new FinalizePaymentMethodError(
+      typeof j.error === 'string' ? j.error : 'Could not finalize payment method.',
+      res.status,
+    );
   }
   if (!j.paymentMethodId?.trim()) {
-    throw new Error('Could not finalize payment method.');
+    // Card-save succeeded at Stripe but the API did not return a usable pm_ — treat as a 400.
+    throw new FinalizePaymentMethodError('Card save did not return a payment method.', 400);
   }
   return {
     paymentMethodId: j.paymentMethodId,

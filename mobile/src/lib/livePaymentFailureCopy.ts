@@ -68,6 +68,19 @@ export function mapLivePaymentFailureMessage(
   return 'Your payment method needs attention.';
 }
 
+/**
+ * After a new card is saved, surface the real finalize/retry failure by HTTP status instead of the
+ * stale "Your card has expired" reason from the original failure snapshot.
+ *   401 = session expired · 400 = card save did not return a payment method · 5xx = retry failed
+ */
+export function recoveryStatusMessage(status: number | null | undefined): string | null {
+  if (status == null) return null;
+  if (status === 401 || status === 403) return 'Your session expired — sign in again to finish.';
+  if (status === 400) return 'Card save did not return a payment method. Try again.';
+  if (status >= 500) return 'Payment retry failed. Please try again.';
+  return null;
+}
+
 export const PAYMENT_RECOVERY_SUCCESS_TOAST = "Payment successful — you're back in the room.";
 
 export const PAYMENT_RECOVERY_SUBTITLE =

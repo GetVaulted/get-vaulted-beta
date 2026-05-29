@@ -160,7 +160,11 @@ export async function resolveBuyerRecoveryPaymentMethodId(userId: string): Promi
 
   const stripe = getStripe();
   const pm = await stripe.paymentMethods.retrieve(pmId);
-  logRecoveryPaymentMethod(pm, "resolved recovery payment method");
+  console.info("[payment recovery] resolved recovery payment method", {
+    paymentMethodId: pm.id,
+    expMonth: pm.card?.exp_month ?? null,
+    expYear: pm.card?.exp_year ?? null,
+  });
   return pm.id;
 }
 
@@ -173,6 +177,14 @@ export async function refreshRecoveryPaymentReferences(args: {
   breakSpotId?: string | null;
 }): Promise<void> {
   if (!isStripePaymentMethodId(args.paymentMethodId)) return;
+
+  console.info("[payment recovery] clearing stale stripePaymentIntentId", {
+    buyerId: args.buyerId,
+    paymentMethodId: args.paymentMethodId,
+    orderId: args.orderId ?? null,
+    variantPurchaseId: args.variantPurchaseId ?? null,
+    breakSpotId: args.breakSpotId ?? null,
+  });
 
   if (args.orderId) {
     await prisma.order.updateMany({

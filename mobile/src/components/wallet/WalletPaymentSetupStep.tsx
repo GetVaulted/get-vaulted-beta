@@ -1,5 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { mapLivePaymentFailureMessage } from '../../lib/livePaymentFailureCopy';
+import {
+  mapLivePaymentFailureMessage,
+  recoveryStatusMessage,
+} from '../../lib/livePaymentFailureCopy';
 import {
   CardForm,
   StripeProvider,
@@ -22,6 +25,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
   createBuyerSetupIntent,
   finalizeBuyerPaymentMethodSetup,
+  FinalizePaymentMethodError,
   type BuyerSetupIntentPayload,
 } from '../../api/buyerWalletRepository';
 import { colors, spacing } from '../../theme';
@@ -42,7 +46,7 @@ type Props = {
   visible: boolean;
   accessToken?: string;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (paymentMethodId?: string) => void;
 };
 
 /** Fixed header + scrollable body + sticky footer; single KeyboardAvoidingView (no manual keyboard inset). */
@@ -336,7 +340,7 @@ function WalletPaymentSetupInner({
 }: {
   accessToken?: string;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (paymentMethodId?: string) => void;
   payload: BuyerSetupIntentPayload;
   stripeNativeReady: boolean;
 }) {
@@ -356,27 +360,32 @@ function WalletPaymentSetupInner({
       return;
     }
     if (!paymentMethodId?.startsWith('pm_')) {
-      const msg = 'Could not read saved card details. Try again.';
+      const msg = recoveryStatusMessage(400) ?? 'Card save did not return a payment method. Try again.';
       setInitError(msg);
       console.log('[wallet] finalize payment method fail (missing paymentMethodId)');
       return;
     }
+    let finalizedPaymentMethodId = paymentMethodId;
     try {
       const finalized = await finalizeBuyerPaymentMethodSetup(accessToken, {
         paymentMethodId,
       });
+      finalizedPaymentMethodId = finalized.paymentMethodId;
       console.log('[wallet] payment method finalized', {
-        'paymentMethod.id': finalized.paymentMethodId,
-        'paymentMethod.card.exp_month': finalized.expMonth,
-        'paymentMethod.card.exp_year': finalized.expYear,
+        paymentMethodId: finalized.paymentMethodId,
+        exp_month: finalized.expMonth,
+        exp_year: finalized.expYear,
       });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Could not finalize payment method.';
-      console.log('[wallet] finalize payment method fail', msg);
+      const status = e instanceof FinalizePaymentMethodError ? e.status : undefined;
+      const msg =
+        recoveryStatusMessage(status) ??
+        (e instanceof Error ? e.message : 'Could not finalize payment method.');
+      console.log('[wallet] finalize payment method fail', { status: status ?? null, msg });
       setInitError(msg);
       return;
     }
-    onSaved();
+    onSaved(finalizedPaymentMethodId);
   }, [accessToken, onSaved]);
 
   const initPaymentSheetFlow = useCallback(async () => {
@@ -597,7 +606,7 @@ export function WalletPaymentSetupModal({ visible, accessToken, onClose, onSaved
               <PaymentSetupLoader onClose={onClose} />
             ) : error || !payload ? (
               <View style={ps.body}>
-                <PaymentSetupHeader onClose={onClose} />
+                <PaymentSetupHeader onBack={onClose} />
                 <View style={ps.scrollContent}>
                   <LiveRoomText style={ps.errorText}>
                     {error ?? 'Could not start card setup.'}
