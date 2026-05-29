@@ -9,6 +9,8 @@ import { closeActiveLiveRoomItemUnitSale } from "@/lib/live-room-item-unit-sale"
 import type { LiveRoomItemStatus } from "@/generated/prisma/client";
 import { getLiveRoomItemSnapshotDto } from "@/lib/live-room-item-snapshot-server";
 import { prisma } from "@/lib/prisma";
+import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
+import { beginVariantTeamBreak } from "@/lib/live-item-variant-break";
 import { notifyLiveAuctionWinPaymentOutcome } from "@/lib/live-auction-win-payment-notify";
 import { recordPaymentFailureFromCharge } from "@/lib/live-room-payment-failure";
 import {
@@ -98,6 +100,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       biddingOpen: true,
       auctionEndsAt: true,
       lastHighBidderId: true,
+      salesFormat: true,
     },
   });
   if (!item) return NextResponse.json({ error: "Item not found" }, { status: 404 });
@@ -110,6 +113,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
   }
 
   const action = typeof body.action === "string" ? body.action.trim() : "";
+
+  if (action === "beginTeamBreak") {
+    const result = await beginVariantTeamBreak(liveRoomId, itemId, room.sellerId);
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: 409 });
+    }
+    const itemDto = await getLiveRoomItemSnapshotDto(itemId);
+    return NextResponse.json({ ok: true, itemVersion: result.itemVersion, item: itemDto });
+  }
 
   if (action === "startAuction") {
     const rawDur = body.auctionDurationSec;
@@ -127,6 +139,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
     }
     if (item.status !== "active") {
       return NextResponse.json({ error: "Post this lot first, then start bidding." }, { status: 409 });
+    }
+    if (isVariantSalesFormat(item.salesFormat)) {
+      return NextResponse.json(
+        { error: "Spot-sale breaks open for purchase when pinned — no timed auction start." },
+        { status: 409 },
+      );
     }
     const clutchTimeEnabled = body.clutchTimeEnabled === true;
     const now = new Date();
@@ -284,7 +302,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
         });
         const target = await tx.liveRoomItem.updateMany({
           where: { id: itemId, liveRoomId, status: { in: ["queued", "active"] } },
-          data: { status: "active", biddingOpen: false, auctionEndsAt: null, clutchTimeEnabled: false, itemVersion: { increment: 1 } },
+          data: {
+            status: "active",
+            biddingOpen: false,
+            auctionEndsAt: null,
+            clutchTimeEnabled: false,
+            variantBreakReadyAt: null,
+            variantBreakBeganAt: null,
+            itemVersion: { increment: 1 },
+          },
         });
         if (target.count === 0) throw new Error("ACTIVE_SWITCH_CONFLICT");
         const roomNext = await tx.liveRoom.update({

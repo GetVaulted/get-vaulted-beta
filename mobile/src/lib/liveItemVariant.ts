@@ -27,5 +27,5 @@ export function lowestAvailableVariantPrice(variants: LiveItemVariantSnapshot[] 
 }
 
 export function variantSelectSpotLabel(format: LiveItemSalesFormat | null | undefined): string {
-  return format === 'team_break' ? 'Select Team' : 'Select Spot';
+  return format === 'team_break' ? 'Select Division' : 'Select Spot';
 }

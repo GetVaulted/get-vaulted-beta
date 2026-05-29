@@ -45,6 +45,7 @@ import {
 import { LiveTipSheet } from './LiveTipSheet';
 import { LivePinnedActionBar } from './LivePinnedActionBar';
 import { LivePaymentFailureModal } from './LivePaymentFailureModal';
+import { PAYMENT_RECOVERY_SUCCESS_TOAST } from '../../lib/livePaymentFailureCopy';
 import { LiveEmptyBroadcastBlock } from './LiveEmptyBroadcastBlock';
 import { LiveStagePlayback } from './LiveStagePlayback';
 import { LiveRoomText } from './LiveRoomText';
@@ -131,6 +132,7 @@ function LiveSlide({
   accessToken,
   userId,
   onWalletOverlayChange,
+  onPaymentBlockerChange,
 }: {
   stream: LiveStream;
   isActive: boolean;
@@ -142,6 +144,7 @@ function LiveSlide({
   accessToken?: string;
   userId?: string;
   onWalletOverlayChange?: (active: boolean) => void;
+  onPaymentBlockerChange?: (active: boolean) => void;
 }) {
   const insets = useSafeAreaInsets();
   const stageInsets = computeLiveStageSafeInsets(stageContainer, screenHeight, insets, spacing.sm);
@@ -163,6 +166,15 @@ function LiveSlide({
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [breakDisclaimerAccepted, setBreakDisclaimerAccepted] = useState(true);
   const [breakDisclaimerReady, setBreakDisclaimerReady] = useState(false);
+  const [paymentRecoveryToast, setPaymentRecoveryToast] = useState<string | null>(null);
+
+  const leaveRoomSafely = useCallback(() => {
+    if (stackNav.canGoBack()) {
+      stackNav.goBack();
+      return;
+    }
+    onBack?.();
+  }, [stackNav, onBack]);
 
   const liveChat = useLiveRoomChat({
     roomId: stream.id,
@@ -344,6 +356,11 @@ function LiveSlide({
       {liveSession.showOutbidToast ? (
         <View style={styles.outbidToast} pointerEvents="none">
           <Text style={styles.outbidToastTxt}>Outbid — new high bid on this item</Text>
+        </View>
+      ) : null}
+      {paymentRecoveryToast ? (
+        <View style={styles.recoveryToast} pointerEvents="none">
+          <Text style={styles.recoveryToastTxt}>{paymentRecoveryToast}</Text>
         </View>
       ) : null}
       <LiveAuctionSoldCelebration
@@ -679,9 +696,14 @@ function LiveSlide({
           roomId={stream.id}
           accessToken={accessToken}
           failure={liveSession.unresolvedPaymentFailure}
-          onResolved={() => void liveSession.fetchSnapshot()}
-          onLeaveRoom={() => stackNav.goBack()}
+          onResolved={() => {
+            void liveSession.fetchSnapshot();
+            setPaymentRecoveryToast(PAYMENT_RECOVERY_SUCCESS_TOAST);
+            setTimeout(() => setPaymentRecoveryToast(null), 3600);
+          }}
+          onLeaveRoom={leaveRoomSafely}
           onWalletOverlayChange={isActive ? onWalletOverlayChange : undefined}
+          onBlockerActiveChange={isActive ? onPaymentBlockerChange : undefined}
         />
       ) : null}
           </View>
@@ -715,7 +737,7 @@ function LiveSlide({
             void writeBreakDisclaimerAccepted(key);
             setBreakDisclaimerAccepted(true);
           }}
-          onDecline={() => stackNav.goBack()}
+          onDecline={leaveRoomSafely}
         />
       ) : null}
     </>
@@ -751,6 +773,7 @@ export function VerticalLiveFeed({
 
   const [page, setPage] = useState(startIndex);
   const [walletOverlayActive, setWalletOverlayActive] = useState(false);
+  const [paymentBlockerActive, setPaymentBlockerActive] = useState(false);
 
   useEffect(() => {
     setPage(startIndex);
@@ -812,7 +835,7 @@ export function VerticalLiveFeed({
         style={styles.feedPager}
         initialPage={startIndex}
         orientation="vertical"
-        scrollEnabled={!walletOverlayActive}
+        scrollEnabled={!walletOverlayActive && !paymentBlockerActive}
         onPageSelected={(e) => setPage(e.nativeEvent.position)}
       >
         {streams.map((stream, index) => (
@@ -828,6 +851,7 @@ export function VerticalLiveFeed({
               accessToken={accessToken}
               userId={userId}
               onWalletOverlayChange={setWalletOverlayActive}
+              onPaymentBlockerChange={setPaymentBlockerActive}
             />
           </View>
         ))}
@@ -877,6 +901,20 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,59,48,0.35)',
   },
   outbidToastTxt: { color: colors.textPrimary, fontSize: 12, fontWeight: '700' },
+  recoveryToast: {
+    position: 'absolute',
+    top: 112,
+    alignSelf: 'center',
+    zIndex: 95,
+    maxWidth: '88%',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(18, 16, 10, 0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 80, 0.35)',
+  },
+  recoveryToastTxt: { color: colors.gold, fontSize: 12, fontWeight: '700', textAlign: 'center' },
   stageRoot: {
     backgroundColor: '#000',
   },

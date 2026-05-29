@@ -16,6 +16,13 @@ function formatBrand(brand: string | null | undefined): string {
   return b.slice(0, 1).toUpperCase() + b.slice(1);
 }
 
+function isCardExpired(expMonth: number, expYear: number, now = new Date()): boolean {
+  if (!expMonth || !expYear) return false;
+  const year = now.getUTCFullYear();
+  const month = now.getUTCMonth() + 1;
+  return expYear < year || (expYear === year && expMonth < month);
+}
+
 /**
  * Ensures the user has a Stripe Customer and returns its id.
  * @throws If Stripe is not configured or customer creation fails.
@@ -99,13 +106,25 @@ export async function getBuyerDefaultCardPaymentMethodId(userId: string): Promis
   });
   if (customer.deleted) return null;
   const dpm = customer.invoice_settings?.default_payment_method;
-  if (typeof dpm === "string" && dpm.startsWith("pm_")) return dpm;
+  let defaultId: string | null = null;
+  if (typeof dpm === "string" && dpm.startsWith("pm_")) defaultId = dpm;
   if (dpm && typeof dpm === "object" && "id" in dpm) {
     const id = (dpm as { id: string }).id;
-    if (typeof id === "string" && id.startsWith("pm_")) return id;
+    if (typeof id === "string" && id.startsWith("pm_")) defaultId = id;
+  }
+  if (defaultId) {
+    try {
+      const pm = await stripe.paymentMethods.retrieve(defaultId);
+      const expMonth = pm.card?.exp_month ?? 0;
+      const expYear = pm.card?.exp_year ?? 0;
+      if (!isCardExpired(expMonth, expYear)) return defaultId;
+    } catch {
+      /* fall through to saved cards */
+    }
   }
   const cards = await listBuyerCardPaymentMethods(userId);
-  return cards[0]?.id ?? null;
+  const valid = cards.find((card) => !isCardExpired(card.expMonth, card.expYear));
+  return valid?.id ?? cards[0]?.id ?? null;
 }
 
 /**

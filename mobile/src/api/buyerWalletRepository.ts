@@ -135,6 +135,48 @@ export async function createBuyerSetupIntent(
   };
 }
 
+export async function finalizeBuyerPaymentMethodSetup(
+  accessToken: string | undefined,
+  args: { paymentMethodId?: string; setupIntentId?: string; clientSecret?: string },
+): Promise<{ paymentMethodId: string; expMonth: number; expYear: number }> {
+  const base = apiBase();
+  if (!base) throw new Error('API URL not configured.');
+
+  console.log('[wallet] finalize payment method request', {
+    baseUrl: base,
+    paymentMethodId: args.paymentMethodId ?? null,
+    hasSetupIntentId: Boolean(args.setupIntentId),
+    hasClientSecret: Boolean(args.clientSecret),
+  });
+
+  const res = await fetch(`${base}/api/account/payment-methods/finalize`, {
+    method: 'POST',
+    headers: accountHeaders(accessToken),
+    body: JSON.stringify(args),
+  });
+  const j = (await res.json().catch(() => ({}))) as {
+    paymentMethodId?: string;
+    expMonth?: number;
+    expYear?: number;
+    error?: string;
+  };
+  if (!res.ok) {
+    console.log('[wallet] finalize payment method response', {
+      status: res.status,
+      error: typeof j.error === 'string' ? j.error : null,
+    });
+    throw new Error(typeof j.error === 'string' ? j.error : 'Could not finalize payment method.');
+  }
+  if (!j.paymentMethodId?.trim()) {
+    throw new Error('Could not finalize payment method.');
+  }
+  return {
+    paymentMethodId: j.paymentMethodId,
+    expMonth: typeof j.expMonth === 'number' ? j.expMonth : 0,
+    expYear: typeof j.expYear === 'number' ? j.expYear : 0,
+  };
+}
+
 export async function fetchBuyerShippingAddresses(
   accessToken: string | undefined,
 ): Promise<BuyerShippingAddressRow[]> {

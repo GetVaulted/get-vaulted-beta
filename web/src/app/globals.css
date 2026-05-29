@@ -349,6 +349,45 @@ body {
   -webkit-backdrop-filter: blur(16px);
 }
 
+/* Full-width host command bar — one continuous dark/gold surface */
+.live-stage-command-bar {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 215, 80, 0.38);
+  background: linear-gradient(
+    180deg,
+    rgba(18, 16, 10, 0.96) 0%,
+    rgba(8, 8, 8, 0.94) 48%,
+    rgba(12, 10, 6, 0.96) 100%
+  );
+  box-shadow:
+    0 0 0 1px rgba(255, 215, 80, 0.14) inset,
+    0 0 32px rgba(255, 215, 80, 0.12),
+    0 16px 40px -18px rgba(0, 0, 0, 0.95);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.live-stage-command-bar-ready {
+  border-color: rgba(52, 211, 153, 0.45);
+  box-shadow:
+    0 0 0 1px rgba(52, 211, 153, 0.18) inset,
+    0 0 36px rgba(52, 211, 153, 0.14),
+    0 16px 40px -18px rgba(0, 0, 0, 0.95);
+}
+
+.live-stage-command-section {
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.live-stage-command-bar .live-stage-command-section:first-child {
+  background: linear-gradient(90deg, rgba(255, 215, 80, 0.08), rgba(0, 0, 0, 0.28));
+}
+
+.live-stage-command-bar .live-stage-command-section:last-child {
+  background: linear-gradient(270deg, rgba(255, 215, 80, 0.07), rgba(0, 0, 0, 0.28));
+}
+
 .live-stage-hud-glass-idle {
   animation: live-hud-idle-shimmer 4.5s ease-in-out infinite;
 }

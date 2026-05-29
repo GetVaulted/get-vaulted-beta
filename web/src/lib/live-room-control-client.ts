@@ -109,6 +109,34 @@ export async function startLiveRoomItemAuction(
   }
 }
 
+/** Host begins a variant team break after all spots sell. */
+export async function beginLiveRoomTeamBreak(
+  liveRoomId: string,
+  itemId: string,
+): Promise<ApiResult<Record<string, unknown>>> {
+  try {
+    const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(itemId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ action: "beginTeamBreak" }),
+    });
+    const payload = await readJsonSafe<Record<string, unknown>>(res);
+    if (!res.ok) {
+      const { error, issues } = normalizeError(payload, "Could not begin break.");
+      return { ok: false, error, issues };
+    }
+    return { ok: true, data: payload ?? {} };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server.",
+      issues: [],
+    };
+  }
+}
+
 export async function createLiveRoomItem(
   liveRoomId: string,
   body: {

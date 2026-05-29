@@ -12,6 +12,8 @@ export function useRealtimeRoomSubscription(opts: {
   onMessagesRefreshMerge: () => void | Promise<void>;
   /** Queue rows added/removed — refetch room detail / host console. */
   onQueueItemsChange?: () => void | Promise<void>;
+  onTeamBreakReady?: () => void | Promise<void>;
+  onTeamBreakBegan?: () => void | Promise<void>;
   onBreakSpotsChange: () => void | Promise<void>;
   onListingBid: (listingId: string) => void | Promise<void>;
   onTeamBoardChange?: () => void | Promise<void>;
@@ -98,6 +100,8 @@ export function useRealtimeRoomSubscription(opts: {
     onLiveRoomMessage,
     onMessagesRefreshMerge,
     onQueueItemsChange,
+    onTeamBreakReady,
+    onTeamBreakBegan,
     onBreakSpotsChange,
     onListingBid,
     onTeamBoardChange,
@@ -118,6 +122,8 @@ export function useRealtimeRoomSubscription(opts: {
     onLiveRoomMessage,
     onMessagesRefreshMerge,
     onQueueItemsChange,
+    onTeamBreakReady,
+    onTeamBreakBegan,
     onBreakSpotsChange,
     onListingBid,
     onTeamBoardChange,
@@ -137,9 +143,11 @@ export function useRealtimeRoomSubscription(opts: {
     refs.current = {
       onLiveRoomMessage,
       onMessagesRefreshMerge,
-      onQueueItemsChange,
-      onBreakSpotsChange,
-      onListingBid,
+    onQueueItemsChange,
+    onTeamBreakReady,
+    onTeamBreakBegan,
+    onBreakSpotsChange,
+    onListingBid,
       onTeamBoardChange,
       onRoomStateEvent,
       onBidPlaced,
@@ -157,6 +165,8 @@ export function useRealtimeRoomSubscription(opts: {
     onLiveRoomMessage,
     onMessagesRefreshMerge,
     onQueueItemsChange,
+    onTeamBreakReady,
+    onTeamBreakBegan,
     onBreakSpotsChange,
     onListingBid,
     onTeamBoardChange,
@@ -225,6 +235,8 @@ export function useRealtimeRoomSubscription(opts: {
       })
       .on("broadcast", { event: RT_EVENT.queueItems }, () => void refs.current.onQueueItemsChange?.())
       .on("broadcast", { event: RT_EVENT.variantPurchased }, () => void refs.current.onQueueItemsChange?.())
+      .on("broadcast", { event: RT_EVENT.teamBreakReady }, () => void refs.current.onTeamBreakReady?.())
+      .on("broadcast", { event: RT_EVENT.teamBreakBegan }, () => void refs.current.onTeamBreakBegan?.())
       .on("broadcast", { event: RT_EVENT.breakSpots }, () => void refs.current.onBreakSpotsChange())
       .on("broadcast", { event: RT_EVENT.listingBid }, ({ payload }) => {
         const listingId = (payload as { listingId?: string } | null)?.listingId;

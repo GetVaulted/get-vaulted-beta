@@ -94,7 +94,7 @@ type VariantSpotRow = {
   soldCount?: number;
   quantityRemaining: number;
   status: string;
-  priceUsd: number;
+  priceUsd?: number;
 };
 
 export function summarizeVariantSpots(variants: VariantSpotRow[] | undefined | null): VariantSpotSummary {
@@ -109,7 +109,7 @@ export function summarizeVariantSpots(variants: VariantSpotRow[] | undefined | n
     const soldOut = v.quantityRemaining <= 0 || v.status === "sold_out";
     if (!soldOut) {
       available += v.quantityRemaining;
-      if (Number.isFinite(v.priceUsd)) prices.push(v.priceUsd);
+      if (Number.isFinite(v.priceUsd)) prices.push(v.priceUsd!);
     }
   }
   return {
@@ -124,4 +124,27 @@ export function isVariantPurchaseItem(
   item: { salesFormat?: string | null; variants?: unknown[] } | null | undefined,
 ): boolean {
   return Boolean(item && isVariantSalesFormat(item.salesFormat) && (item.variants?.length ?? 0) > 0);
+}
+
+/** True when every variant row is sold out (team break ready). */
+export function allVariantSpotsSold(variants: VariantSpotRow[] | undefined | null): boolean {
+  if (!variants?.length) return false;
+  return variants.every((v) => v.quantityRemaining <= 0 || v.status === "sold_out");
+}
+
+export function variantBuyerSelectLabel(format: string | null | undefined): string {
+  return format === "team_break" ? "Select Division" : "Select Spot";
+}
+
+export function variantHostSpotsLabel(opts: {
+  roomLive: boolean;
+  available: number;
+  breakReady: boolean;
+  breakBegan: boolean;
+}): string {
+  if (opts.breakBegan) return "Break Live";
+  if (opts.breakReady) return "Break Ready";
+  if (!opts.roomLive) return "Go Live for Spots";
+  if (opts.available > 0) return "Spots Live";
+  return "All Spots Sold";
 }

@@ -1,9 +1,22 @@
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Animated,
+  Easing,
+  Modal,
+  Pressable,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { useStripe } from '@stripe/stripe-react-native';
 import type { LiveBuyerPaymentFailureSnapshot } from '../../api/liveRoomBuyerRepository';
 import { retryLivePaymentFailure } from '../../api/livePaymentFailureRepository';
-import { colors, radii, spacing } from '../../theme';
+import {
+  mapLivePaymentFailureMessage,
+  PAYMENT_RECOVERY_SUBTITLE,
+} from '../../lib/livePaymentFailureCopy';
+import { colors, spacing } from '../../theme';
 import { LiveRoomText } from './LiveRoomText';
 import { WalletSheet } from '../wallet/WalletSheet';
 
@@ -15,7 +28,12 @@ type Props = {
   onResolved: () => void;
   onLeaveRoom: () => void;
   onWalletOverlayChange?: (active: boolean) => void;
+  onBlockerActiveChange?: (active: boolean) => void;
 };
+
+function formatAmount(amountUsd: number): string {
+  return `$${amountUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
 
 export function LivePaymentFailureModal({
   visible,
@@ -25,17 +43,66 @@ export function LivePaymentFailureModal({
   onResolved,
   onLeaveRoom,
   onWalletOverlayChange,
+  onBlockerActiveChange,
 }: Props) {
   const { confirmPayment } = useStripe();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [statusLine, setStatusLine] = useState<string | null>(null);
   const [walletOpen, setWalletOpen] = useState(false);
+  const pulse = useRef(new Animated.Value(0)).current;
+  const entrance = useRef(new Animated.Value(0)).current;
 
-  const runRetry = useCallback(async () => {
-    if (!accessToken?.trim()) return;
+  const reasonLine = mapLivePaymentFailureMessage(failure.failureReason);
+
+  useEffect(() => {
+    onBlockerActiveChange?.(visible && !walletOpen);
+    return () => onBlockerActiveChange?.(false);
+  }, [visible, walletOpen, onBlockerActiveChange]);
+
+  useEffect(() => {
+    if (!visible) {
+      setWalletOpen(false);
+      setStatusLine(null);
+      setBusy(false);
+      entrance.setValue(0);
+    }
+  }, [visible, entrance]);
+
+  useEffect(() => {
+    if (!visible || walletOpen) return;
+    Animated.timing(entrance, {
+      toValue: 1,
+      duration: 280,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [visible, walletOpen, entrance]);
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 1400, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 1400, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  useEffect(() => {
+    if (walletOpen) {
+      console.log('[payment failure] wallet sheet visible');
+    }
+  }, [walletOpen]);
+
+  const runRetry = useCallback(async (): Promise<boolean> => {
+    if (!accessToken?.trim()) {
+      console.log('[payment failure] retry payment fail (no access token)');
+      return false;
+    }
+    console.log('[payment failure] retry payment started');
     setBusy(true);
-    setError(null);
+    setStatusLine(null);
     try {
       const result = await retryLivePaymentFailure({
         accessToken,
@@ -43,15 +110,17 @@ export function LivePaymentFailureModal({
         failureId: failure.id,
       });
       if (result.ok && 'paid' in result && result.paid) {
-        setSuccess(true);
+        console.log('[payment failure] retry payment success');
         onResolved();
-        return;
+        return true;
       }
       if (result.ok && 'requiresAction' in result && result.requiresAction) {
         const conf = await confirmPayment(result.clientSecret, { paymentMethodType: 'Card' });
         if (conf.error) {
-          setError(conf.error.message ?? 'Verification failed.');
-          return;
+          const msg = mapLivePaymentFailureMessage(conf.error.message, conf.error.code);
+          setStatusLine(msg);
+          console.log('[payment failure] retry payment fail', msg);
+          return false;
         }
         const sync = await retryLivePaymentFailure({
           accessToken,
@@ -60,177 +129,275 @@ export function LivePaymentFailureModal({
           action: 'sync',
         });
         if (sync.ok && 'paid' in sync && sync.paid) {
-          setSuccess(true);
+          console.log('[payment failure] retry payment success');
           onResolved();
-          return;
+          return true;
         }
         if (!sync.ok) {
-          setError(sync.error);
+          const msg = mapLivePaymentFailureMessage(sync.error);
+          setStatusLine(msg);
+          console.log('[payment failure] retry payment fail', msg);
         }
-        return;
+        return false;
       }
       if (result.ok && 'processing' in result) {
-        setError('Payment is processing — try again in a moment.');
-        return;
+        const msg = 'Payment is processing — try again in a moment.';
+        setStatusLine(msg);
+        console.log('[payment failure] retry payment fail', msg);
+        return false;
       }
       if (!result.ok) {
-        setError(result.error);
+        const msg = mapLivePaymentFailureMessage(result.error);
+        setStatusLine(msg);
+        console.log('[payment failure] retry payment fail', msg);
       }
+      return false;
     } catch {
-      setError('Network error — try again.');
+      const msg = 'Network error — try again.';
+      setStatusLine(msg);
+      console.log('[payment failure] retry payment fail', msg);
+      return false;
     } finally {
       setBusy(false);
     }
   }, [accessToken, confirmPayment, failure.id, onResolved, roomId]);
 
-  const handleFixPayment = () => {
+  const openWalletForRecovery = () => {
+    console.log('[payment failure] fix payment pressed');
+    if (!accessToken?.trim()) {
+      setStatusLine('Sign in to update your payment method.');
+      console.log('[payment failure] opening wallet sheet blocked (no access token)');
+      return;
+    }
+    console.log('[payment failure] opening wallet sheet');
     setWalletOpen(true);
     onWalletOverlayChange?.(true);
-    void runRetry();
   };
+
+  const closeWallet = () => {
+    setWalletOpen(false);
+    onWalletOverlayChange?.(false);
+  };
+
+  const handlePaymentMethodSaved = () => {
+    void (async () => {
+      const ok = await runRetry();
+      if (ok) {
+        closeWallet();
+      } else {
+        closeWallet();
+      }
+    })();
+  };
+
+  const cardScale = entrance.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] });
+  const cardOpacity = entrance.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
+  const glowOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.85] });
+
+  if (!visible) return null;
+
+  const showBlocker = !walletOpen;
 
   return (
     <>
-      <Modal visible={visible} animationType="fade" transparent statusBarTranslucent onRequestClose={() => {}}>
-        <View style={styles.backdrop}>
-          <View style={styles.card}>
-            <LiveRoomText style={styles.kicker}>Payment required</LiveRoomText>
-            <LiveRoomText style={styles.title}>
-              {success
-                ? "Payment successful. You're all set."
-                : 'Payment failed for your winning bid. Please update your payment method to continue.'}
-            </LiveRoomText>
+      <Modal
+        visible={showBlocker}
+        animationType="none"
+        transparent
+        statusBarTranslucent
+        onRequestClose={() => {}}
+      >
+        <View style={styles.backdrop} accessibilityViewIsModal>
+          <Animated.View
+            style={[
+              styles.card,
+              {
+                opacity: cardOpacity,
+                transform: [{ scale: cardScale }],
+              },
+            ]}
+          >
+            <View style={styles.iconWrap}>
+              <Ionicons name="shield-checkmark" size={22} color={colors.gold} />
+            </View>
+            <LiveRoomText style={styles.title}>Secure payment recovery</LiveRoomText>
+            <LiveRoomText style={styles.subtitle}>{PAYMENT_RECOVERY_SUBTITLE}</LiveRoomText>
+
             {failure.itemTitle ? (
-              <LiveRoomText style={styles.meta}>
-                {failure.itemTitle} · ${failure.amountUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              <LiveRoomText style={styles.itemName} numberOfLines={2}>
+                {failure.itemTitle}
               </LiveRoomText>
             ) : null}
-            {failure.failureReason && !success ? (
-              <LiveRoomText style={styles.reason}>{failure.failureReason}</LiveRoomText>
-            ) : null}
-            {error ? <LiveRoomText style={styles.error}>{error}</LiveRoomText> : null}
-            {!success ? (
-              <View style={styles.actions}>
-                <Pressable
-                  style={[styles.primaryBtn, busy && styles.disabled]}
-                  disabled={busy}
-                  onPress={handleFixPayment}
-                  accessibilityRole="button"
-                >
-                  {busy ? (
-                    <ActivityIndicator color={colors.background} />
-                  ) : (
-                    <LiveRoomText style={styles.primaryLabel}>Fix payment</LiveRoomText>
-                  )}
-                </Pressable>
-                <Pressable
-                  style={[styles.secondaryBtn, busy && styles.disabled]}
-                  disabled={busy}
-                  onPress={onLeaveRoom}
-                  accessibilityRole="button"
-                >
-                  <LiveRoomText style={styles.secondaryLabel}>Leave room</LiveRoomText>
-                </Pressable>
-              </View>
-            ) : (
-              <Pressable style={styles.primaryBtn} onPress={onResolved} accessibilityRole="button">
-                <LiveRoomText style={styles.primaryLabel}>Continue</LiveRoomText>
+            <LiveRoomText style={styles.amount}>{formatAmount(failure.amountUsd)}</LiveRoomText>
+
+            <LiveRoomText style={styles.reason}>{reasonLine}</LiveRoomText>
+            {statusLine ? <LiveRoomText style={styles.status}>{statusLine}</LiveRoomText> : null}
+
+            <View style={styles.actions}>
+              <Animated.View
+                pointerEvents="none"
+                style={[styles.primaryGlow, { opacity: glowOpacity }]}
+              />
+              <Pressable
+                style={[styles.primaryBtn, busy && styles.disabled]}
+                disabled={busy}
+                onPress={openWalletForRecovery}
+                accessibilityRole="button"
+                accessibilityLabel="Fix payment"
+              >
+                {busy ? (
+                  <ActivityIndicator color={colors.background} />
+                ) : (
+                  <LiveRoomText style={styles.primaryLabel}>Fix payment</LiveRoomText>
+                )}
               </Pressable>
-            )}
-          </View>
+              <Pressable
+                style={[styles.secondaryBtn, busy && styles.disabled]}
+                disabled={busy}
+                onPress={onLeaveRoom}
+                accessibilityRole="button"
+                accessibilityLabel="Leave room"
+              >
+                <LiveRoomText style={styles.secondaryLabel}>Leave room</LiveRoomText>
+              </Pressable>
+            </View>
+          </Animated.View>
         </View>
       </Modal>
       {accessToken ? (
         <WalletSheet
           visible={walletOpen}
-          onClose={() => {
-            setWalletOpen(false);
-            onWalletOverlayChange?.(false);
-          }}
+          onClose={closeWallet}
           accessToken={accessToken}
           roomId={roomId}
-          onActiveChange={(active) => onWalletOverlayChange?.(active)}
+          recoveryMode
+          initialStep="payment"
+          openPaymentSetupOnMount
+          onPaymentMethodSaved={handlePaymentMethodSaved}
+          onActiveChange={(active) => {
+            if (active) onWalletOverlayChange?.(true);
+          }}
         />
       ) : null}
     </>
   );
 }
 
+const CARD_RADIUS = 24;
+
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.82)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
   },
   card: {
     width: '100%',
-    maxWidth: 400,
-    borderRadius: radii.xl,
+    maxWidth: 360,
+    borderRadius: CARD_RADIUS,
     borderWidth: 1,
-    borderColor: 'rgba(251,113,133,0.35)',
-    backgroundColor: '#0a0a0b',
-    padding: spacing.lg,
+    borderColor: 'rgba(255, 215, 80, 0.22)',
+    backgroundColor: 'rgba(10, 10, 11, 0.94)',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md + 4,
+    alignItems: 'center',
   },
-  kicker: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    color: '#fda4af',
+  iconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 80, 0.28)',
+    backgroundColor: 'rgba(255, 215, 80, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
   },
   title: {
-    marginTop: spacing.sm,
     fontSize: 17,
-    fontWeight: '700',
+    fontWeight: '800',
     color: colors.textPrimary,
-    lineHeight: 24,
+    textAlign: 'center',
   },
-  meta: {
-    marginTop: spacing.sm,
-    fontSize: 14,
+  subtitle: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 17,
     color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  itemName: {
+    marginTop: spacing.md,
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    textAlign: 'center',
+  },
+  amount: {
+    marginTop: 4,
+    fontSize: 22,
+    fontWeight: '800',
+    color: colors.gold,
+    fontVariant: ['tabular-nums'],
   },
   reason: {
     marginTop: spacing.sm,
-    fontSize: 12,
+    fontSize: 13,
+    lineHeight: 18,
     color: '#fecdd3',
+    textAlign: 'center',
   },
-  error: {
-    marginTop: spacing.md,
-    fontSize: 14,
+  status: {
+    marginTop: spacing.sm,
+    fontSize: 13,
+    lineHeight: 18,
     color: '#fda4af',
+    textAlign: 'center',
   },
   actions: {
     marginTop: spacing.lg,
+    width: '100%',
     gap: spacing.sm,
+    position: 'relative',
+  },
+  primaryGlow: {
+    ...StyleSheet.absoluteFillObject,
+    top: 0,
+    bottom: undefined,
+    height: 48,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 215, 80, 0.22)',
   },
   primaryBtn: {
-    borderRadius: radii.full,
+    borderRadius: 999,
     backgroundColor: colors.gold,
-    paddingVertical: 14,
+    paddingVertical: 13,
     alignItems: 'center',
+    zIndex: 1,
   },
   primaryLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
     color: colors.background,
     textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
   secondaryBtn: {
-    borderRadius: radii.full,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-    paddingVertical: 14,
+    borderColor: 'rgba(255,255,255,0.14)',
+    paddingVertical: 12,
     alignItems: 'center',
   },
   secondaryLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
     color: colors.textPrimary,
   },
   disabled: {
-    opacity: 0.5,
+    opacity: 0.55,
   },
 });

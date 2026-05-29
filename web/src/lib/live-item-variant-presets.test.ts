@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  allVariantSpotsSold,
   buildVariantsFromPreset,
   isVariantPurchaseItem,
   isVariantSalesFormat,
   normalizeVariantDrafts,
   NFL_DIVISIONS_PRESET,
   summarizeVariantSpots,
+  variantBuyerSelectLabel,
 } from "@/lib/live-item-variant-presets";
 
 describe("live-item-variant-presets", () => {
@@ -53,5 +55,22 @@ describe("live-item-variant-presets", () => {
     expect(isVariantPurchaseItem({ salesFormat: "team_break", variants: [{ id: "1" }] })).toBe(true);
     expect(isVariantPurchaseItem({ salesFormat: "team_break", variants: [] })).toBe(false);
     expect(isVariantPurchaseItem({ salesFormat: "auction", variants: [{ id: "1" }] })).toBe(false);
+  });
+
+  it("allVariantSpotsSold is true when every row is sold out", () => {
+    expect(
+      allVariantSpotsSold([
+        { soldCount: 1, quantityRemaining: 0, status: "sold_out", priceUsd: 35 },
+        { soldCount: 1, quantityRemaining: 0, status: "sold_out", priceUsd: 35 },
+      ]),
+    ).toBe(true);
+    expect(
+      allVariantSpotsSold([{ soldCount: 0, quantityRemaining: 1, status: "available", priceUsd: 30 }]),
+    ).toBe(false);
+  });
+
+  it("variantBuyerSelectLabel uses division wording for team breaks", () => {
+    expect(variantBuyerSelectLabel("team_break")).toBe("Select Division");
+    expect(variantBuyerSelectLabel("variant_selection")).toBe("Select Spot");
   });
 });

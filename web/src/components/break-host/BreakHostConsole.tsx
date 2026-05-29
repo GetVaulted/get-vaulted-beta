@@ -43,6 +43,7 @@ import {
   patchLiveRoomItemStatus,
   sendLiveRoomSystemMessage,
   startLiveRoomItemAuction,
+  beginLiveRoomTeamBreak,
 } from "@/lib/live-room-control-client";
 import { appendLiveRoomMessageDedupe, mergeLiveRoomMessagesById } from "@/lib/realtime-merge-messages";
 import type { LiveRoomItemDTO, LiveRoomMessageDTO, SellerPaymentFailureDTO } from "@/lib/live-room-serialize";
@@ -205,6 +206,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const [hostClutchTimeEnabled, setHostClutchTimeEnabled] = useState(false);
   const [streamPreviewMuted, setStreamPreviewMuted] = useState(true);
   const [hostLiveItemAuctionBusy, setHostLiveItemAuctionBusy] = useState(false);
+  const [teamBreakBusy, setTeamBreakBusy] = useState(false);
   const [auctionTickHost, setAuctionTickHost] = useState(0);
   const [hostClockSkewMs, setHostClockSkewMs] = useState(0);
   const [hostQueueTab, setHostQueueTab] = useState<"auction" | "bin" | "givvy" | "sold">("auction");
@@ -365,12 +367,29 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   }, [activeBoardRow]);
 
   const handleHostStartLiveItemAuction = useCallback(async () => {
-    if (!activeBoardRow) return;
+    const row =
+      hostDataRef.current?.queueItems.find((q) => q.item.status.toLowerCase() === "active") ?? null;
+    const targetItem = row?.item;
+    console.log("[stage hud] start clicked", {
+      roomId,
+      itemId: targetItem?.id ?? null,
+      salesFormat: targetItem?.salesFormat ?? null,
+      biddingOpen: targetItem?.biddingOpen ?? null,
+      status: targetItem?.status ?? null,
+    });
+    if (!row || !targetItem) {
+      setToast("Pin a lot first, then start bidding.");
+      return;
+    }
+    if (isVariantSalesFormat(targetItem.salesFormat)) {
+      setToast("Spot-sale breaks open for purchase when pinned — no auction start.");
+      return;
+    }
     setHostLiveItemAuctionBusy(true);
     setToast(null);
     let success = false;
     try {
-      const res = await startLiveRoomItemAuction(roomId, activeBoardRow.item.id, hostAuctionDurationSec, hostClutchTimeEnabled);
+      const res = await startLiveRoomItemAuction(roomId, targetItem.id, hostAuctionDurationSec, hostClutchTimeEnabled);
       if (!res.ok) {
         setToast(res.error);
         return;
@@ -395,11 +414,11 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         const t = Date.now();
         setHostClockSkewMs(estimateClockSkewMs(t, t, d.serverNowMs));
       }
-      const aid = activeBoardRow.item.id;
+      const aid = targetItem.id;
       const base =
         d.item && typeof d.item === "object" && typeof (d.item as LiveRoomItemDTO).id === "string"
           ? (d.item as LiveRoomItemDTO)
-          : activeBoardRow.item;
+          : targetItem;
       const merged: LiveRoomItemDTO = {
         ...base,
         auctionEndsAt:
@@ -431,7 +450,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         router.refresh();
       });
     }
-  }, [activeBoardRow, hostAuctionDurationSec, hostClutchTimeEnabled, load, roomId, router]);
+  }, [hostAuctionDurationSec, hostClutchTimeEnabled, load, roomId, router]);
 
   const shouldProcessRealtimePayload = useCallback(
     (type: string, payload: Record<string, unknown> | null | undefined): boolean => {
@@ -481,6 +500,27 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       hostNoticeTimerRef.current = null;
     }, 3200);
   }, []);
+
+  const handleBeginTeamBreak = useCallback(async () => {
+    const row =
+      hostDataRef.current?.queueItems.find((q) => q.item.status.toLowerCase() === "active") ?? null;
+    if (!row?.item.variantBreakReadyAt || row.item.variantBreakBeganAt) return;
+    setTeamBreakBusy(true);
+    setToast(null);
+    try {
+      const res = await beginLiveRoomTeamBreak(roomId, row.item.id);
+      if (!res.ok) {
+        setToast(res.error);
+        return;
+      }
+      setToast("Break has begun.");
+      flashHostNotice("Break has begun.");
+      await load();
+      router.refresh();
+    } finally {
+      setTeamBreakBusy(false);
+    }
+  }, [flashHostNotice, load, roomId, router]);
 
   const flashStageMotion = useCallback((burst: LiveStageMotionBurst, ms = 750) => {
     setStageMotionBurst(burst);
@@ -714,6 +754,14 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         lastRefreshAtMs: lastRefreshAtRef.current,
         extra: { type: "queue_items", surface: "host_console" },
       });
+      void load();
+    },
+    onTeamBreakReady: () => {
+      flashHostNotice("All divisions sold. Break is ready to begin.");
+      void load();
+    },
+    onTeamBreakBegan: () => {
+      flashHostNotice("Break has begun.");
       void load();
     },
     onBreakSpotsChange: () => {
@@ -1379,6 +1427,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     <VaultPinnedLot
       variant="desktop"
       embedded
+      roomId={roomId}
       vaultMode={vaultMode}
       overlayQueueRow={overlayQueueRow}
       activeBoardRow={activeBoardRow}
@@ -1393,6 +1442,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       hostStartLiveAuctionEnabled={hostStartLiveAuctionEnabled}
       hostLiveItemAuctionBusy={hostLiveItemAuctionBusy}
       onStartAuction={() => void handleHostStartLiveItemAuction()}
+      onBeginTeamBreak={() => void handleBeginTeamBreak()}
+      teamBreakBusy={teamBreakBusy}
       onEndAuction={handleHostEndAuction}
       onNextItem={handleHostNextItem}
       hostBusy={busy}
@@ -1500,8 +1551,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     centerOverlay: teamBoardStageOverlay,
     actionOverlay: hostDesktopItemOverlay,
     mobileActionOverlay: hostMobileItemOverlay,
-    compactActionOverlay: true,
-    cinematicActionOverlay: true,
+    compactActionOverlay: false,
+    cinematicActionOverlay: false,
     ambientBleed: true,
     stageEnergyScore: roomEnergy.score,
     vaultMode,

@@ -21,6 +21,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   createBuyerSetupIntent,
+  finalizeBuyerPaymentMethodSetup,
   type BuyerSetupIntentPayload,
 } from '../../api/buyerWalletRepository';
 import { colors, spacing } from '../../theme';
@@ -29,6 +30,8 @@ import {
   WALLET_CARD_FIELD_PLACEHOLDERS,
   WALLET_CARD_FORM_STYLE,
 } from './walletCardFieldStyle';
+import { usePaymentFormLightAppearance } from './usePaymentFormLightAppearance';
+import { paymentMethodIdFromSetupIntent } from '../../lib/walletPaymentMethodFinalize';
 import {
   WALLET_BILLING_COUNTRIES,
   billingCountryLabel,
@@ -194,9 +197,16 @@ function PaymentSheetLauncher({
           disabled={!sheetReady || busy}
         >
           {busy || !sheetReady ? (
-            <ActivityIndicator color="#0A0A0A" />
+            <ActivityIndicator color="#111111" />
           ) : (
-            <LiveRoomText style={ps.primaryBtnText}>Add card with Stripe</LiveRoomText>
+            <LiveRoomText
+              style={[
+                ps.primaryBtnText,
+                (!sheetReady || busy) && ps.primaryBtnTextDisabled,
+              ]}
+            >
+              Add card with Stripe
+            </LiveRoomText>
           )}
         </Pressable>
       }
@@ -218,17 +228,17 @@ function PaymentSheetLauncher({
 }
 
 function ManualCardEntry({
-  payload,
   initError,
   busy,
   onClose,
   onSave,
+  stripeNativeReady,
 }: {
-  payload: BuyerSetupIntentPayload;
   initError: string | null;
   busy: boolean;
   onClose: () => void;
   onSave: () => void;
+  stripeNativeReady: boolean;
 }) {
   const [cardComplete, setCardComplete] = useState(false);
   const [billingCountry, setBillingCountry] = useState('US');
@@ -245,9 +255,16 @@ function ManualCardEntry({
             disabled={!cardComplete || busy}
           >
             {busy ? (
-              <ActivityIndicator color="#0A0A0A" />
+              <ActivityIndicator color="#111111" />
             ) : (
-              <LiveRoomText style={ps.primaryBtnText}>Save payment method</LiveRoomText>
+              <LiveRoomText
+                style={[
+                  ps.primaryBtnText,
+                  (!cardComplete || busy) && ps.primaryBtnTextDisabled,
+                ]}
+              >
+                Save payment method
+              </LiveRoomText>
             )}
           </Pressable>
         }
@@ -255,20 +272,26 @@ function ManualCardEntry({
         <LiveRoomText style={ps.subtitle}>
           Cards are saved securely with Stripe for live bids and auction wins.
         </LiveRoomText>
-        {initError ? <LiveRoomText style={ps.hintText}>{initError}</LiveRoomText> : null}
+        {initError ? <LiveRoomText style={ps.errorText}>{initError}</LiveRoomText> : null}
 
         <View style={ps.section}>
           <LiveRoomText style={ps.sectionTitle}>Card information</LiveRoomText>
           <View style={ps.cardFormWrap}>
-            <CardForm
-              key={billingCountry}
-              autofocus={false}
-              placeholders={WALLET_CARD_FIELD_PLACEHOLDERS}
-              cardStyle={WALLET_CARD_FORM_STYLE}
-              defaultValues={{ countryCode: billingCountry }}
-              style={ps.cardForm}
-              onFormComplete={(details) => setCardComplete(details.complete)}
-            />
+            {stripeNativeReady ? (
+              <CardForm
+                key={billingCountry}
+                autofocus={false}
+                placeholders={WALLET_CARD_FIELD_PLACEHOLDERS}
+                cardStyle={WALLET_CARD_FORM_STYLE}
+                defaultValues={{ countryCode: billingCountry }}
+                style={ps.cardForm}
+                onFormComplete={(details) => setCardComplete(details.complete)}
+              />
+            ) : (
+              <View style={[ps.cardForm, ps.cardFormLoading]}>
+                <ActivityIndicator color="#71717A" />
+              </View>
+            )}
           </View>
           <LiveRoomText style={ps.hintText}>
             Enter card number on the first row, expiry and CVC on the second, billing ZIP below.
@@ -305,15 +328,19 @@ function ManualCardEntry({
 }
 
 function WalletPaymentSetupInner({
+  accessToken,
   onClose,
   onSaved,
   payload,
+  stripeNativeReady,
 }: {
+  accessToken?: string;
   onClose: () => void;
   onSaved: () => void;
   payload: BuyerSetupIntentPayload;
+  stripeNativeReady: boolean;
 }) {
-  const { initPaymentSheet, presentPaymentSheet } = useStripe();
+  const { initPaymentSheet, presentPaymentSheet, confirmSetupIntent, retrieveSetupIntent } = useStripe();
   const [useManualCard, setUseManualCard] = useState(false);
   const [sheetReady, setSheetReady] = useState(false);
   const [showLauncher, setShowLauncher] = useState(false);
@@ -321,6 +348,36 @@ function WalletPaymentSetupInner({
   const [busy, setBusy] = useState(false);
   const initStartedRef = useRef(false);
   const autoPresentedRef = useRef(false);
+
+  const completeSavedPaymentMethod = useCallback(async (paymentMethodId?: string | null) => {
+    if (!accessToken?.trim()) {
+      setInitError('Sign in to save your payment method.');
+      console.log('[wallet] finalize payment method fail (no access token)');
+      return;
+    }
+    if (!paymentMethodId?.startsWith('pm_')) {
+      const msg = 'Could not read saved card details. Try again.';
+      setInitError(msg);
+      console.log('[wallet] finalize payment method fail (missing paymentMethodId)');
+      return;
+    }
+    try {
+      const finalized = await finalizeBuyerPaymentMethodSetup(accessToken, {
+        paymentMethodId,
+      });
+      console.log('[wallet] payment method finalized', {
+        'paymentMethod.id': finalized.paymentMethodId,
+        'paymentMethod.card.exp_month': finalized.expMonth,
+        'paymentMethod.card.exp_year': finalized.expYear,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Could not finalize payment method.';
+      console.log('[wallet] finalize payment method fail', msg);
+      setInitError(msg);
+      return;
+    }
+    onSaved();
+  }, [accessToken, onSaved]);
 
   const initPaymentSheetFlow = useCallback(async () => {
     if (initStartedRef.current) return;
@@ -342,13 +399,13 @@ function WalletPaymentSetupInner({
             primary: '#D4AF37',
             background: '#FFFFFF',
             componentBackground: '#FFFFFF',
-            componentBorder: '#D4D4D8',
+            componentBorder: '#D1D5DB',
             componentDivider: '#E4E4E7',
-            primaryText: '#18181B',
-            secondaryText: '#71717A',
-            componentText: '#18181B',
-            placeholderText: '#A1A1AA',
-            icon: '#18181B',
+            primaryText: '#111111',
+            secondaryText: '#52525B',
+            componentText: '#111111',
+            placeholderText: '#9CA3AF',
+            icon: '#111111',
           },
           shapes: {
             borderRadius: 12,
@@ -379,45 +436,60 @@ function WalletPaymentSetupInner({
     void initPaymentSheetFlow();
   }, [payload.clientSecret, initPaymentSheetFlow]);
 
-  const presentSheet = useCallback(async (): Promise<'saved' | 'cancelled' | 'failed'> => {
-    if (!sheetReady || busy) return 'failed';
+  const presentSheet = useCallback(async (): Promise<
+    { outcome: 'saved'; paymentMethodId: string } | { outcome: 'cancelled' | 'failed' }
+  > => {
+    if (!sheetReady || busy) return { outcome: 'failed' };
     setBusy(true);
     try {
       const { error: presentError } = await presentPaymentSheet();
       if (presentError) {
-        if (presentError.code === 'Canceled') return 'cancelled';
+        if (presentError.code === 'Canceled') return { outcome: 'cancelled' };
         setInitError(mapLivePaymentFailureMessage(presentError.message, presentError.code));
         setShowLauncher(true);
-        return 'failed';
+        return { outcome: 'failed' };
       }
-      return 'saved';
+      const retrieved = await retrieveSetupIntent(payload.clientSecret);
+      if (retrieved.error) {
+        setInitError(mapLivePaymentFailureMessage(retrieved.error.message, retrieved.error.code));
+        setShowLauncher(true);
+        return { outcome: 'failed' };
+      }
+      const paymentMethodId = paymentMethodIdFromSetupIntent(retrieved.setupIntent);
+      if (!paymentMethodId) {
+        setInitError('Could not read saved card details. Try again.');
+        setShowLauncher(true);
+        return { outcome: 'failed' };
+      }
+      return { outcome: 'saved', paymentMethodId };
     } finally {
       setBusy(false);
     }
-  }, [busy, presentPaymentSheet, sheetReady]);
+  }, [busy, payload.clientSecret, presentPaymentSheet, retrieveSetupIntent, sheetReady]);
 
   useEffect(() => {
     if (!sheetReady || useManualCard || autoPresentedRef.current) return;
     autoPresentedRef.current = true;
     void (async () => {
       const result = await presentSheet();
-      if (result === 'saved') onSaved();
-      if (result === 'cancelled' || result === 'failed') setShowLauncher(true);
+      if (result.outcome === 'saved') await completeSavedPaymentMethod(result.paymentMethodId);
+      if (result.outcome === 'cancelled' || result.outcome === 'failed') setShowLauncher(true);
     })();
-  }, [onSaved, presentSheet, sheetReady, useManualCard]);
+  }, [completeSavedPaymentMethod, presentSheet, sheetReady, useManualCard]);
 
   const saveManualCard = async () => {
     if (busy) return;
     setBusy(true);
     try {
-      const { error: stripeError } = await confirmSetupIntent(payload.clientSecret, {
+      const { setupIntent, error: stripeError } = await confirmSetupIntent(payload.clientSecret, {
         paymentMethodType: 'Card',
       });
       if (stripeError) {
         setInitError(mapLivePaymentFailureMessage(stripeError.message, stripeError.code));
         return;
       }
-      onSaved();
+      const paymentMethodId = paymentMethodIdFromSetupIntent(setupIntent);
+      await completeSavedPaymentMethod(paymentMethodId);
     } finally {
       setBusy(false);
     }
@@ -426,11 +498,11 @@ function WalletPaymentSetupInner({
   if (useManualCard) {
     return (
       <ManualCardEntry
-        payload={payload}
         initError={initError}
         busy={busy}
         onClose={onClose}
         onSave={() => void saveManualCard()}
+        stripeNativeReady={stripeNativeReady}
       />
     );
   }
@@ -446,7 +518,7 @@ function WalletPaymentSetupInner({
         onPresent={() => {
           void (async () => {
             const result = await presentSheet();
-            if (result === 'saved') onSaved();
+            if (result.outcome === 'saved') await completeSavedPaymentMethod(result.paymentMethodId);
           })();
         }}
       />
@@ -478,6 +550,7 @@ export function WalletPaymentSetupModal({ visible, accessToken, onClose, onSaved
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<BuyerSetupIntentPayload | null>(null);
+  const stripeNativeReady = usePaymentFormLightAppearance(visible);
 
   useEffect(() => {
     if (!visible) {
@@ -533,7 +606,13 @@ export function WalletPaymentSetupModal({ visible, accessToken, onClose, onSaved
               </View>
             ) : (
               <StripeProvider publishableKey={payload.publishableKey}>
-                <WalletPaymentSetupInner onClose={onClose} onSaved={onSaved} payload={payload} />
+                <WalletPaymentSetupInner
+                  accessToken={accessToken}
+                  onClose={onClose}
+                  onSaved={onSaved}
+                  payload={payload}
+                  stripeNativeReady={stripeNativeReady}
+                />
               </StripeProvider>
             )}
           </View>

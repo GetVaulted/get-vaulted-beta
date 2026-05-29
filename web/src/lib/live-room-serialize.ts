@@ -73,6 +73,10 @@ export type LiveRoomItemDTO = {
   clutchTimeEnabled: boolean;
   salesFormat: LiveItemSalesFormat;
   variants: LiveItemVariantDTO[];
+  /** ISO when all variant spots sold (team break ready). */
+  variantBreakReadyAt: string | null;
+  /** ISO when host began the break. */
+  variantBreakBeganAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -192,6 +196,8 @@ export function serializeLiveRoomItem(
     clutchTimeEnabled?: unknown;
     salesFormat?: LiveItemSalesFormat;
     variants?: LiveRoomItemVariantRow[];
+    variantBreakReadyAt?: Date | null;
+    variantBreakBeganAt?: Date | null;
   };
   const biddingOpen = ext.biddingOpen === true;
   const auctionEndsAt =
@@ -201,6 +207,14 @@ export function serializeLiveRoomItem(
     typeof row.lastHighBidderId === "string" && row.lastHighBidderId.trim() ? row.lastHighBidderId.trim() : null;
   const salesFormat = ext.salesFormat ?? "auction";
   const variants = serializeLiveItemVariants(ext.variants);
+  const variantBreakReadyAt =
+    ext.variantBreakReadyAt instanceof Date && !Number.isNaN(ext.variantBreakReadyAt.getTime())
+      ? ext.variantBreakReadyAt.toISOString()
+      : null;
+  const variantBreakBeganAt =
+    ext.variantBreakBeganAt instanceof Date && !Number.isNaN(ext.variantBreakBeganAt.getTime())
+      ? ext.variantBreakBeganAt.toISOString()
+      : null;
   return {
     id: row.id,
     liveRoomId: row.liveRoomId,
@@ -228,6 +242,8 @@ export function serializeLiveRoomItem(
     clutchTimeEnabled,
     salesFormat,
     variants,
+    variantBreakReadyAt,
+    variantBreakBeganAt,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

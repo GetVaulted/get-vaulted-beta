@@ -30,7 +30,7 @@ import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { logAuctionTimer } from "@/lib/auction-timer-sync";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
-import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
+import { isVariantSalesFormat, summarizeVariantSpots, variantBuyerSelectLabel } from "@/lib/live-item-variant-presets";
 import { purchaseLiveBuyNowWithSca } from "@/lib/live-buy-now-client";
 
 type SaleItem = {
@@ -458,6 +458,8 @@ export function LiveSaleRoom({
   const activeHasVariants = Boolean(
     activeDb && isVariantSalesFormat(activeDb.salesFormat) && (activeDb.variants?.length ?? 0) > 0,
   );
+  const activeVariantSpots = activeHasVariants ? summarizeVariantSpots(activeDb?.variants) : null;
+  const variantSelectLabel = variantBuyerSelectLabel(activeDb?.salesFormat);
 
   const redirectSignIn = (returnPath: string) => {
     router.push(`/signin?returnTo=${encodeURIComponent(returnPath)}`);
@@ -788,11 +790,11 @@ export function LiveSaleRoom({
         {roomType === "sale" && activeHasVariants ? (
           <button
             type="button"
-            disabled={actionsDisabled || activeDb?.status !== "active"}
+            disabled={actionsDisabled || activeDb?.status !== "active" || (activeVariantSpots?.available ?? 0) <= 0}
             onClick={() => setVariantSheetOpen(true)}
             className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
           >
-            Select spot
+            {variantSelectLabel}
           </button>
         ) : null}
         {roomType === "sale" && !activeHasVariants ? (
@@ -992,11 +994,11 @@ export function LiveSaleRoom({
       {roomType === "sale" && activeHasVariants ? (
         <button
           type="button"
-          disabled={actionsDisabled || activeDb?.status !== "active"}
+          disabled={actionsDisabled || activeDb?.status !== "active" || (activeVariantSpots?.available ?? 0) <= 0}
           onClick={() => setVariantSheetOpen(true)}
           className="mt-2 min-h-10 w-full rounded-full bg-gradient-to-r from-gold to-gold-bright text-[10px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] disabled:opacity-40 motion-reduce:active:scale-100 md:min-h-11 md:text-[11px]"
         >
-          Select spot
+          {variantSelectLabel}
         </button>
       ) : null}
       {roomType === "sale" && !activeHasVariants ? (

@@ -32,6 +32,10 @@ export const RT_EVENT = {
   queueItems: "queue_items",
   /** Variant option purchased — spot board + queue cards refresh. */
   variantPurchased: "variant_purchased",
+  /** All variant spots sold — team break ready for host to begin. */
+  teamBreakReady: "team_break_ready",
+  /** Host began variant team break — all viewers update. */
+  teamBreakBegan: "team_break_began",
   /** Buyer payment failed in-room — show lockout modal / seller alert. */
   paymentFailed: "payment_failed",
   /** Buyer recovered failed payment — lift room restrictions. */
@@ -60,6 +64,8 @@ export const RT_EVENT_ALIASES = {
   purchaseCompleted: [],
   queueItems: [],
   variantPurchased: [],
+  teamBreakReady: [],
+  teamBreakBegan: [],
   paymentFailed: [],
   paymentRecovered: [],
   streamStatus: [],

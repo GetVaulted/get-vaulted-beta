@@ -1,4 +1,5 @@
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
+import { mapLivePaymentFailureMessage } from '../lib/livePaymentFailureCopy';
 import type { LiveBuyerPaymentFailureSnapshot } from './liveRoomBuyerRepository';
 
 export type LivePaymentRetryResult =
@@ -60,7 +61,7 @@ export async function retryLivePaymentFailure(args: {
   }
   return {
     ok: false,
-    error: typeof payload.error === 'string' ? payload.error : 'Payment failed. Update your card and try again.',
+    error: mapLivePaymentFailureMessage(typeof payload.error === 'string' ? payload.error : null),
     paymentFailure: parseFailure(payload.paymentFailure),
   };
 }

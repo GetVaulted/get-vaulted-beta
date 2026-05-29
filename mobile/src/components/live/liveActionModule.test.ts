@@ -204,7 +204,7 @@ describe('resolveLiveBuyerCommerceHud', () => {
     expect(hud.bottomRightLabel).not.toBe('Claim Team');
   });
 
-  it('shows Select Team for active team break variant item', () => {
+  it('shows Select Division for active team break variant item', () => {
     const snap = {
       roomType: 'sale',
       status: 'live',
@@ -226,7 +226,7 @@ describe('resolveLiveBuyerCommerceHud', () => {
       fetchedAtMs: Date.now(),
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
-    expect(hud.bottomRightLabel).toBe('Select Team');
+    expect(hud.bottomRightLabel).toBe('Select Division');
     expect(hud.bottomRightLabel).not.toMatch(/bid/i);
     expect(hud.currentPrefix).toBe('From');
     expect(hud.buyerPrimaryDisabled).toBe(false);

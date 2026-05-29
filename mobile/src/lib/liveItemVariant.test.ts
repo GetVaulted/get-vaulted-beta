@@ -49,7 +49,7 @@ describe('availableVariantCount', () => {
 
 describe('variantSelectSpotLabel', () => {
   it('uses team label for team_break', () => {
-    expect(variantSelectSpotLabel('team_break')).toBe('Select Team');
+    expect(variantSelectSpotLabel('team_break')).toBe('Select Division');
     expect(variantSelectSpotLabel('variant_selection')).toBe('Select Spot');
   });
 });

@@ -25,6 +25,10 @@ import {
   syncLiveBuyNowOrderPaymentIntent,
 } from "@/lib/stripe-charge-order-saved-pm";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
+import {
+  refreshRecoveryPaymentReferences,
+  resolveBuyerRecoveryPaymentMethodId,
+} from "@/lib/stripe-buyer-payment-method-setup";
 
 export type LiveBuyerPaymentFailureDTO = {
   id: string;
@@ -375,6 +379,38 @@ export async function retryLiveRoomPaymentFailure(args: {
     data: { status: "recovery_pending" },
   });
 
+  const recoveryPmId = await resolveBuyerRecoveryPaymentMethodId(args.buyerId);
+  if (!recoveryPmId) {
+    const updated = await recordLiveRoomPaymentFailure({
+      liveRoomId: args.liveRoomId,
+      buyerId: args.buyerId,
+      kind: failureRow.kind,
+      liveRoomItemId: failureRow.liveRoomItemId,
+      orderId: failureRow.orderId,
+      variantPurchaseId: failureRow.variantPurchaseId,
+      breakSpotId: failureRow.breakSpotId,
+      amountUsd: failureRow.amountUsd,
+      status: "payment_failed",
+      failureReason: "Add a saved payment method to your Wallet.",
+      itemTitle: failureRow.itemTitle,
+      buyerUsername: failureRow.buyerUsername,
+    });
+    return {
+      ok: false,
+      error: "Add a saved payment method to your Wallet.",
+      code: "NO_SAVED_CARD",
+      paymentFailure: updated,
+    };
+  }
+
+  await refreshRecoveryPaymentReferences({
+    buyerId: args.buyerId,
+    paymentMethodId: recoveryPmId,
+    orderId: failureRow.orderId,
+    variantPurchaseId: failureRow.variantPurchaseId,
+    breakSpotId: failureRow.breakSpotId,
+  });
+
   let charge: ChargeOrderSavedPmOutcome | null = null;
   if (failureRow.orderId) {
     const order = await prisma.order.findFirst({
@@ -402,6 +438,7 @@ export async function retryLiveRoomPaymentFailure(args: {
               orderId: failureRow.orderId,
               liveRoomId: args.liveRoomId,
               liveRoomItemId: failureRow.liveRoomItemId,
+              paymentMethodId: recoveryPmId,
             })
           : await chargeMarketplaceOrderWithSavedPaymentMethod({
               buyerId: args.buyerId,
@@ -411,6 +448,7 @@ export async function retryLiveRoomPaymentFailure(args: {
     const purchaseCharge = await chargeLiveItemVariantPurchaseWithSavedCard({
       buyerId: args.buyerId,
       purchaseId: failureRow.variantPurchaseId,
+      paymentMethodId: recoveryPmId,
     });
     if (purchaseCharge.outcome === "paid") {
       await finalizeLiveItemVariantPurchasePaid(failureRow.variantPurchaseId, purchaseCharge.paymentIntentId);
@@ -439,6 +477,7 @@ export async function retryLiveRoomPaymentFailure(args: {
     const spotCharge = await chargeBreakSpotWithSavedCard({
       buyerId: args.buyerId,
       breakSpotId: failureRow.breakSpotId,
+      paymentMethodId: recoveryPmId,
     });
     if (spotCharge.outcome === "paid") {
       await finalizeBreakSpotPaid({ breakSpotId: failureRow.breakSpotId, paymentIntentId: spotCharge.paymentIntentId });

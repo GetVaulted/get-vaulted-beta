@@ -39,6 +39,7 @@ type VaultPinnedLotProps = {
   variant: "desktop" | "mobile";
   /** In-stage bottom overlay for 9:16 host console (less card chrome). */
   embedded?: boolean;
+  roomId?: string;
   vaultMode: VaultMode;
   overlayQueueRow: QueueRowLite | null;
   activeBoardRow: QueueRowLite | null;
@@ -53,6 +54,8 @@ type VaultPinnedLotProps = {
   hostStartLiveAuctionEnabled: boolean;
   hostLiveItemAuctionBusy: boolean;
   onStartAuction: () => void;
+  onBeginTeamBreak?: () => void;
+  teamBreakBusy?: boolean;
   onEndAuction?: () => void;
   onNextItem?: () => void;
   hostBusy?: boolean;
@@ -97,6 +100,7 @@ function BidVelocityBar({
 export function VaultPinnedLot({
   variant,
   embedded = false,
+  roomId,
   vaultMode,
   overlayQueueRow,
   activeBoardRow,
@@ -111,6 +115,8 @@ export function VaultPinnedLot({
   hostStartLiveAuctionEnabled,
   hostLiveItemAuctionBusy,
   onStartAuction,
+  onBeginTeamBreak,
+  teamBreakBusy,
   onEndAuction,
   onNextItem,
   hostBusy,
@@ -139,6 +145,7 @@ export function VaultPinnedLot({
   if (compactEmbedded) {
     return (
       <LiveAuctionHud
+        roomId={roomId}
         vaultMode={vaultMode}
         overlayQueueRow={overlayQueueRow}
         activeBoardRow={activeBoardRow}
@@ -152,6 +159,8 @@ export function VaultPinnedLot({
         hostStartLiveAuctionEnabled={hostStartLiveAuctionEnabled}
         hostLiveItemAuctionBusy={hostLiveItemAuctionBusy}
         onStartAuction={onStartAuction}
+        onBeginTeamBreak={onBeginTeamBreak}
+        teamBreakBusy={teamBreakBusy}
         onEndAuction={onEndAuction}
         onNextItem={onNextItem}
         hostBusy={hostBusy}

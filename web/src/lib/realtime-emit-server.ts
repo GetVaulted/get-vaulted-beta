@@ -76,6 +76,20 @@ export function emitVariantPurchased(
   emitRoomEventWithAliases(liveRoomId, RT_EVENT.variantPurchased, payload);
 }
 
+export function emitTeamBreakReady(
+  liveRoomId: string,
+  payload: { itemId: string; itemVersion: number },
+): void {
+  emitRoomEventWithAliases(liveRoomId, RT_EVENT.teamBreakReady, payload);
+}
+
+export function emitTeamBreakBegan(
+  liveRoomId: string,
+  payload: { itemId: string; itemVersion: number },
+): void {
+  emitRoomEventWithAliases(liveRoomId, RT_EVENT.teamBreakBegan, payload);
+}
+
 export function emitTeamBoardChanged(liveRoomId: string): void {
   emitRoomEventWithAliases(liveRoomId, RT_EVENT.teamBoard, { liveRoomId });
 }

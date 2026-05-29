@@ -5,6 +5,7 @@ import { recordLiveShowCompletedSaleTx, resolveCheckoutApplicationFeeCents } fro
 
 import { emitLiveRoomMessagesRefetch, emitVariantPurchased } from "@/lib/realtime-emit-server";
 import { createNotification } from "@/lib/notifications";
+import { maybeMarkVariantBreakReady } from "@/lib/live-item-variant-break";
 
 function siteUrl(): string {
   return (process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");
@@ -61,6 +62,14 @@ export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, st
     itemVersion: item.itemVersion,
   });
   emitLiveRoomMessagesRefetch(purchase.liveRoomId);
+
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: purchase.liveRoomId },
+    select: { sellerId: true },
+  });
+  if (room?.sellerId) {
+    await maybeMarkVariantBreakReady(purchase.liveRoomItemId, purchase.liveRoomId, room.sellerId);
+  }
 
   await createNotification(prisma, {
     userId: purchase.buyerId,

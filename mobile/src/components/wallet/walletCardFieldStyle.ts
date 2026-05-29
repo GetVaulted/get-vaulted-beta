@@ -1,24 +1,24 @@
-/** High-contrast Stripe card entry styling for wallet setup. */
+/** High-contrast Stripe card entry styling for wallet setup (light surface, dark text). */
 export const WALLET_CARD_FIELD_STYLE = {
   backgroundColor: '#FFFFFF',
-  textColor: '#18181b',
-  placeholderColor: '#71717a',
-  borderColor: '#D4D4D8',
+  textColor: '#111111',
+  placeholderColor: '#9CA3AF',
+  borderColor: '#D1D5DB',
   borderWidth: 1,
   borderRadius: 12,
   fontSize: 17,
-  cursorColor: '#18181b',
+  cursorColor: '#111111',
 } as const;
 
 export const WALLET_CARD_FORM_STYLE = {
   backgroundColor: '#FFFFFF',
-  textColor: '#18181b',
-  placeholderColor: '#71717a',
-  borderColor: '#D4D4D8',
+  textColor: '#111111',
+  placeholderColor: '#9CA3AF',
+  borderColor: '#D1D5DB',
   borderWidth: 1,
   borderRadius: 12,
   fontSize: 17,
-  cursorColor: '#18181b',
+  cursorColor: '#111111',
   textErrorColor: '#DC2626',
 } as const;
 

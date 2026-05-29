@@ -46,6 +46,13 @@ type Props = {
   initialReadiness?: BuyerWalletReadiness | null;
   onReadinessChange?: (readiness: BuyerWalletReadiness) => void;
   onActiveChange?: (active: boolean) => void;
+  /** Payment recovery from live room blocker — opens payment flow. */
+  recoveryMode?: boolean;
+  initialStep?: WalletStep;
+  /** When true with recoveryMode, open add-card flow immediately. */
+  openPaymentSetupOnMount?: boolean;
+  /** Fired after a card is saved — parent can retry authorization. */
+  onPaymentMethodSaved?: () => void;
 };
 
 type AddressDraft = CreateShippingAddressInput;
@@ -126,6 +133,10 @@ export function WalletSheet({
   initialReadiness,
   onReadinessChange,
   onActiveChange,
+  recoveryMode = false,
+  initialStep = 'main',
+  openPaymentSetupOnMount = false,
+  onPaymentMethodSaved,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -134,8 +145,12 @@ export function WalletSheet({
   const safeBottom = Math.max(insets.bottom, spacing.lg);
   const openSeedAppliedRef = useRef(false);
 
-  const [step, setStep] = useState<WalletStep>('main');
-  const [paymentSetupOpen, setPaymentSetupOpen] = useState(false);
+  const [step, setStep] = useState<WalletStep>(() =>
+    recoveryMode && initialStep ? initialStep : 'main',
+  );
+  const [paymentSetupOpen, setPaymentSetupOpen] = useState(
+    () => recoveryMode && openPaymentSetupOnMount,
+  );
   const [addressSetupOpen, setAddressSetupOpen] = useState(false);
   const [addressModalDraft, setAddressModalDraft] = useState<CreateShippingAddressInput | null>(null);
   const [addressModalEditing, setAddressModalEditing] = useState(false);
@@ -188,8 +203,11 @@ export function WalletSheet({
 
   useEffect(() => {
     onActiveChange?.(visible);
+    if (visible && recoveryMode) {
+      console.log('[payment failure] wallet sheet visible');
+    }
     return () => onActiveChange?.(false);
-  }, [visible, onActiveChange]);
+  }, [visible, onActiveChange, recoveryMode]);
 
   const openPaymentSetup = () => setPaymentSetupOpen(true);
 
@@ -207,8 +225,12 @@ export function WalletSheet({
       setReadiness(initialReadiness);
       openSeedAppliedRef.current = true;
     }
+    setStep(recoveryMode ? initialStep : 'main');
+    if (recoveryMode && openPaymentSetupOnMount) {
+      setPaymentSetupOpen(true);
+    }
     void loadRef.current();
-  }, [visible]);
+  }, [visible, recoveryMode, initialStep, openPaymentSetupOnMount]);
 
   const goMain = () => setStep('main');
 
@@ -422,8 +444,13 @@ export function WalletSheet({
         </Pressable>
       </ScrollView>
       <View style={s.footer}>
-        <Pressable style={s.primaryBtn} onPress={goMain}>
-          <LiveRoomText style={s.primaryBtnText}>Done</LiveRoomText>
+        {recoveryMode ? (
+          <Pressable style={s.primaryBtn} onPress={() => onPaymentMethodSaved?.()}>
+            <LiveRoomText style={s.primaryBtnText}>Retry payment</LiveRoomText>
+          </Pressable>
+        ) : null}
+        <Pressable style={recoveryMode ? s.secondaryBtn : s.primaryBtn} onPress={goMain}>
+          <LiveRoomText style={recoveryMode ? s.secondaryBtnText : s.primaryBtnText}>Done</LiveRoomText>
         </Pressable>
       </View>
     </>
@@ -449,13 +476,13 @@ export function WalletSheet({
         visible={visible && !paymentSetupOpen && !addressSetupOpen}
         animationType="slide"
         transparent
-        onRequestClose={step === 'main' ? onClose : () => setStep('main')}
+        onRequestClose={recoveryMode ? () => {} : step === 'main' ? onClose : () => setStep('main')}
         statusBarTranslucent
       >
         <View style={s.backdrop}>
           <Pressable
             style={StyleSheet.absoluteFill}
-            onPress={step === 'main' ? onClose : undefined}
+            onPress={recoveryMode ? undefined : step === 'main' ? onClose : undefined}
             accessibilityLabel="Dismiss wallet sheet"
           />
           <KeyboardAvoidingView
@@ -473,11 +500,18 @@ export function WalletSheet({
       <WalletPaymentSetupModal
         visible={visible && paymentSetupOpen}
         accessToken={accessToken}
-        onClose={() => setPaymentSetupOpen(false)}
+        onClose={() => {
+          if (recoveryMode) {
+            onClose();
+            return;
+          }
+          setPaymentSetupOpen(false);
+        }}
         onSaved={() => {
           void loadWalletData();
           setPaymentSetupOpen(false);
           setStep('payment');
+          onPaymentMethodSaved?.();
         }}
       />
       <WalletAddressSetupModal

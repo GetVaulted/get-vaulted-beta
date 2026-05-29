@@ -906,6 +906,10 @@ model LiveRoomItem {
   clutchTimeEnabled Boolean        @default(false)
   /// Commerce format for this queue row (variant / team break = selectable options).
   salesFormat    LiveItemSalesFormat @default(auction)
+  /// All variant spots sold — host can begin the break (team_break / PYD).
+  variantBreakReadyAt DateTime?
+  /// Host clicked Begin Break — broadcast to all viewers.
+  variantBreakBeganAt DateTime?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
   breakHits      BreakHit[]

@@ -116,13 +116,18 @@ export const walletPaymentSetupStyles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: '#D4D4D8',
+    borderColor: '#D1D5DB',
     overflow: 'hidden',
   },
   cardForm: {
     width: '100%',
     height: WALLET_CARD_FORM_HEIGHT,
     marginVertical: 0,
+  },
+  cardFormLoading: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
   },
   fieldLabel: {
     color: '#3F3F46',
@@ -133,7 +138,7 @@ export const walletPaymentSetupStyles = StyleSheet.create({
     minHeight: 52,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: '#D4D4D8',
+    borderColor: '#D1D5DB',
     backgroundColor: '#FFFFFF',
     paddingHorizontal: spacing.md,
     flexDirection: 'row',
@@ -141,7 +146,7 @@ export const walletPaymentSetupStyles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   fieldValue: {
-    color: '#18181B',
+    color: '#111111',
     fontSize: 16,
     fontWeight: '600',
     flex: 1,
@@ -178,12 +183,17 @@ export const walletPaymentSetupStyles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.md,
   },
-  primaryBtnDisabled: { opacity: 0.45 },
+  primaryBtnDisabled: {
+    backgroundColor: '#D4D4D8',
+  },
   primaryBtnText: {
-    color: '#0A0A0A',
+    color: '#111111',
     fontSize: 16,
     fontWeight: '900',
     textAlign: 'center',
+  },
+  primaryBtnTextDisabled: {
+    color: '#374151',
   },
   secondaryBtn: {
     minHeight: 48,
