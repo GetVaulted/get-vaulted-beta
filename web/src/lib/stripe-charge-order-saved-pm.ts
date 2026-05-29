@@ -316,7 +316,6 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
         currency: "usd",
         customer: customerId,
         payment_method: pmId,
-        confirmation_method: "automatic",
         confirm: true,
         // In-app saved-card recovery charge: keep card-only, never trigger redirect-based methods
         // (which would otherwise require a return_url and fail PI creation).
@@ -635,7 +634,6 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
         currency: "usd",
         customer: customerId,
         payment_method: pmId,
-        confirmation_method: "automatic",
         confirm: true,
         off_session: true,
         // In-app saved-card recovery charge: keep card-only, never trigger redirect-based methods
