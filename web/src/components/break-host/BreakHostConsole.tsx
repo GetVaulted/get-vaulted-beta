@@ -1553,6 +1553,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     mobileActionOverlay: hostMobileItemOverlay,
     compactActionOverlay: false,
     cinematicActionOverlay: false,
+    // Keep the auction control bar a compact card centered under the 9:16 video instead of a
+    // full-width strip across the empty stage.
+    centeredActionOverlay: true,
     ambientBleed: true,
     stageEnergyScore: roomEnergy.score,
     vaultMode,

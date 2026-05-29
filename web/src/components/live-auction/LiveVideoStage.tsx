@@ -50,6 +50,8 @@ type LiveVideoStageProps = {
   compactActionOverlay?: boolean;
   /** Floating HUD spans stage container (wider than 9:16 video). */
   cinematicActionOverlay?: boolean;
+  /** Compact, centered auction bar capped near the 9:16 video width (PC seller console). */
+  centeredActionOverlay?: boolean;
   /** Extra controls in the top chrome row (before the Live / viewer cluster). */
   topChromeTrailing?: ReactNode;
   /** Buyer-only right-side quick actions. */
@@ -112,6 +114,7 @@ export function LiveVideoStage({
   stageEdgeRail,
   compactActionOverlay = false,
   cinematicActionOverlay = false,
+  centeredActionOverlay = false,
   topChromeTrailing,
   showRightActions = false,
   onShare,
@@ -146,9 +149,13 @@ export function LiveVideoStage({
 
   const desktopActionOverlayClass = cinematicActionOverlay
     ? "live-stage-hud-suspended bottom-4 left-1/2 w-[min(920px,calc(100%-3rem))] -translate-x-1/2"
-    : compactActionOverlay
-      ? "bottom-2 left-2 right-14"
-      : "bottom-4 left-4 right-4";
+    : centeredActionOverlay
+      ? // Compact bar centered under the 9:16 video — capped near the plate width so it never
+        // spans the full stage. ~9:16 of typical desktop stage heights ≈ 520–620px.
+        "bottom-4 left-1/2 w-[min(560px,calc(100%-2rem))] -translate-x-1/2"
+      : compactActionOverlay
+        ? "bottom-2 left-2 right-14"
+        : "bottom-4 left-4 right-4";
 
   const desktopChromeDimClass = uiDimmed ? "live-stage-ui-dimmed" : "live-stage-ui-awake";
 
