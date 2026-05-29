@@ -149,9 +149,13 @@ export function LiveVideoStage({
 
   const desktopActionOverlayClass = cinematicActionOverlay
     ? "live-stage-hud-suspended bottom-4 left-1/2 w-[min(920px,calc(100%-3rem))] -translate-x-1/2"
-    : compactActionOverlay
-      ? "bottom-2 left-2 right-14"
-      : "bottom-4 left-4 right-4";
+    : centeredActionOverlay
+      ? // Compact HUD overlaid on the bottom-center of the 9:16 video. Capped just under the
+        // plate width (~540px at 1080p) so it floats on the video and never spans the stage.
+        "bottom-4 left-1/2 w-[min(500px,calc(100%-2rem))] -translate-x-1/2"
+      : compactActionOverlay
+        ? "bottom-2 left-2 right-14"
+        : "bottom-4 left-4 right-4";
 
   const desktopChromeDimClass = uiDimmed ? "live-stage-ui-dimmed" : "live-stage-ui-awake";
 
@@ -357,24 +361,9 @@ export function LiveVideoStage({
         </div>
 
         {actionOverlay ? (
-          centeredActionOverlay ? (
-            // Overlay the bar ON the 9:16 video plate, not the surrounding stage. The inner box
-            // mirrors the plate sizing (h-full aspect-[9/16], centered) so its width tracks the
-            // actual video width at any desktop height. The bar is absolutely positioned inside
-            // that box (inset-x-3 bottom-3) so its width comes purely from the plate-sized box —
-            // no in-flow content, so it can't collapse — and floats over the video's lower edge.
-            <div className="pointer-events-none absolute inset-0 z-10 flex justify-center">
-              <div className="pointer-events-none relative aspect-[9/16] h-full max-w-full">
-                <div className={`pointer-events-auto absolute inset-x-3 bottom-3 live-stage-float-subtle ${uiDimmed ? "" : "live-stage-hud-awake"}`}>
-                  {actionOverlay}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className={`pointer-events-auto absolute z-10 live-stage-float-subtle ${desktopActionOverlayClass} ${uiDimmed ? "" : "live-stage-hud-awake"}`}>
-              {actionOverlay}
-            </div>
-          )
+          <div className={`pointer-events-auto absolute z-10 live-stage-float-subtle ${desktopActionOverlayClass} ${uiDimmed ? "" : "live-stage-hud-awake"}`}>
+            {actionOverlay}
+          </div>
         ) : null}
 
         {chatOverlay ? <div className={`pointer-events-auto ${desktopChatClass}`}>{chatOverlay}</div> : null}
