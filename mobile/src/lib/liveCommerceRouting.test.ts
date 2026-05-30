@@ -66,7 +66,7 @@ describe('mustUseLiveBidFlow', () => {
       status: 'live',
       activeItemId: 'item-1',
       activeItemSalesFormat: 'team_break',
-      activeItemVariants: [{ id: 'v1', label: 'AFC East', priceUsd: 35, quantityRemaining: 1, soldCount: 0, isHot: false, status: 'available', buyerUsername: null }],
+      activeItemVariants: [{ id: 'v1', label: 'AFC East', priceUsd: 35, quantityRemaining: 1, soldCount: 0, isHot: false, sortOrder: 0, status: 'available', buyerUsername: null }],
     } as LiveRoomBuyerSnapshot;
     expect(mustUseLiveBidFlow(stream(), snap)).toBe(false);
   });

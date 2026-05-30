@@ -3,6 +3,7 @@
 import { loadStripe } from "@stripe/stripe-js";
 import { useMemo, useState } from "react";
 import type { LiveItemVariantDTO, LiveRoomItemDTO } from "@/lib/live-room-serialize";
+import { sortVariantsForBuyerDisplay } from "@/lib/live-item-variant-display-order";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import {
   createLiveVariantPurchaseIdempotencyKey,
@@ -38,7 +39,10 @@ export function LiveVariantSelectionSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const variants = item.variants ?? [];
+  const variants = useMemo(
+    () => sortVariantsForBuyerDisplay(item.variants ?? []),
+    [item.variants],
+  );
   const selected = variants.find((v) => v.id === selectedId) ?? null;
 
   const total = useMemo(() => {

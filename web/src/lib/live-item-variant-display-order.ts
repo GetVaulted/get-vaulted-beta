@@ -1,19 +1,8 @@
-import type { LiveItemVariantSnapshot, LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
+import { NFL_DIVISIONS_PRESET } from "@/lib/live-item-variant-presets";
 
-export type LiveItemSalesFormat = 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
+const MAIN_DIVISION_LABELS = new Set(NFL_DIVISIONS_PRESET.map((d) => d.label.toLowerCase()));
 
-const MAIN_DIVISION_LABELS = new Set([
-  'AFC East',
-  'AFC North',
-  'AFC South',
-  'AFC West',
-  'NFC East',
-  'NFC North',
-  'NFC South',
-  'NFC West',
-].map((label) => label.toLowerCase()));
-
-type VariantDisplayOrderInput = {
+export type VariantDisplayOrderInput = {
   id: string;
   label: string;
   sortOrder?: number;
@@ -23,7 +12,7 @@ function normalizeLabel(label: string): string {
   return label.trim();
 }
 
-function isKnownMainDivisionLabel(label: string): boolean {
+export function isKnownMainDivisionLabel(label: string): boolean {
   return MAIN_DIVISION_LABELS.has(normalizeLabel(label).toLowerCase());
 }
 
@@ -31,14 +20,14 @@ function isSupplementalByLabel(label: string): boolean {
   const t = normalizeLabel(label);
   if (!t) return false;
   if (isKnownMainDivisionLabel(t)) return false;
-  if (t.includes(' · ')) return true;
+  if (t.includes(" · ")) return true;
   if (/\bsupp(y|l)?\b/i.test(t)) return true;
   if (/#\d+$/.test(t)) return true;
   return false;
 }
 
 function variantSortOrder(variant: VariantDisplayOrderInput): number {
-  return typeof variant.sortOrder === 'number' && Number.isFinite(variant.sortOrder)
+  return typeof variant.sortOrder === "number" && Number.isFinite(variant.sortOrder)
     ? Math.floor(variant.sortOrder)
     : 0;
 }
@@ -86,32 +75,4 @@ export function sortVariantsForBuyerDisplay<T extends VariantDisplayOrderInput>(
     return a.i - b.i;
   });
   return indexed.map(({ v }) => v);
-}
-
-export function isVariantSalesFormat(format: string | null | undefined): format is 'variant_selection' | 'team_break' {
-  return format === 'variant_selection' || format === 'team_break';
-}
-
-export function isActiveVariantBuyerItem(snap: LiveRoomBuyerSnapshot | null | undefined): boolean {
-  if (!snap?.activeItemId || snap.status !== 'live') return false;
-  if (!isVariantSalesFormat(snap.activeItemSalesFormat)) return false;
-  return (snap.activeItemVariants?.length ?? 0) > 0;
-}
-
-export function variantIsAvailable(v: LiveItemVariantSnapshot): boolean {
-  return v.quantityRemaining > 0 && v.status !== 'sold_out';
-}
-
-export function availableVariantCount(variants: LiveItemVariantSnapshot[] | undefined): number {
-  return (variants ?? []).filter(variantIsAvailable).length;
-}
-
-export function lowestAvailableVariantPrice(variants: LiveItemVariantSnapshot[] | undefined): number | null {
-  const prices = (variants ?? []).filter(variantIsAvailable).map((v) => v.priceUsd);
-  if (prices.length === 0) return null;
-  return Math.min(...prices);
-}
-
-export function variantSelectSpotLabel(format: LiveItemSalesFormat | null | undefined): string {
-  return format === 'team_break' ? 'Select Division' : 'Select Spot';
 }

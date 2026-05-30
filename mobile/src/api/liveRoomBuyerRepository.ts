@@ -1,4 +1,5 @@
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
+import { sortVariantsForBuyerDisplay } from '../lib/liveItemVariant';
 import { WalletIncompleteError } from '../lib/buyerWalletErrors';
 import { logBuyerRoomStateSnapshot } from '../lib/logRoomStateSnapshot';
 import { liveAuctionMinBidUsd } from '../lib/liveAuctionBidMath';
@@ -16,6 +17,7 @@ export type LiveItemVariantSnapshot = {
   quantityRemaining: number;
   soldCount: number;
   isHot: boolean;
+  sortOrder: number;
   status: string;
   buyerUsername: string | null;
 };
@@ -102,12 +104,14 @@ function parseVariantSnapshots(raw: unknown): LiveItemVariantSnapshot[] {
     const soldCount =
       typeof o.soldCount === 'number' && Number.isFinite(o.soldCount) ? Math.max(0, Math.floor(o.soldCount)) : 0;
     const isHot = o.isHot === true;
+    const sortOrder =
+      typeof o.sortOrder === 'number' && Number.isFinite(o.sortOrder) ? Math.floor(o.sortOrder) : out.length;
     const status = typeof o.status === 'string' ? o.status : 'available';
     const buyerUsername =
       typeof o.buyerUsername === 'string' && o.buyerUsername.trim() ? o.buyerUsername.trim() : null;
-    out.push({ id, label, priceUsd, quantityRemaining, soldCount, isHot, status, buyerUsername });
+    out.push({ id, label, priceUsd, quantityRemaining, soldCount, isHot, sortOrder, status, buyerUsername });
   }
-  return out.sort((a, b) => a.label.localeCompare(b.label));
+  return sortVariantsForBuyerDisplay(out);
 }
 
 function parsePaymentFailure(raw: unknown): LiveBuyerPaymentFailureSnapshot | null {

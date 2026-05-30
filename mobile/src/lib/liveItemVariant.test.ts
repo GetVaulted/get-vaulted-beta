@@ -4,6 +4,7 @@ import {
   availableVariantCount,
   isActiveVariantBuyerItem,
   isVariantSalesFormat,
+  sortVariantsForBuyerDisplay,
   variantSelectSpotLabel,
 } from './liveItemVariant';
 
@@ -21,7 +22,7 @@ describe('isActiveVariantBuyerItem', () => {
       status: 'live',
       activeItemId: 'item-1',
       activeItemSalesFormat: 'team_break',
-      activeItemVariants: [{ id: 'v1', label: 'AFC East', priceUsd: 35, quantityRemaining: 1, soldCount: 0, isHot: false, status: 'available', buyerUsername: null }],
+      activeItemVariants: [{ id: 'v1', label: 'AFC East', priceUsd: 35, quantityRemaining: 1, soldCount: 0, isHot: false, sortOrder: 0, status: 'available', buyerUsername: null }],
     } as LiveRoomBuyerSnapshot;
     expect(isActiveVariantBuyerItem(snap)).toBe(true);
   });
@@ -40,10 +41,22 @@ describe('availableVariantCount', () => {
   it('ignores sold out variants', () => {
     expect(
       availableVariantCount([
-        { id: '1', label: 'A', priceUsd: 1, quantityRemaining: 0, soldCount: 1, isHot: false, status: 'sold_out', buyerUsername: 'buyer' },
-        { id: '2', label: 'B', priceUsd: 1, quantityRemaining: 2, soldCount: 0, isHot: false, status: 'available', buyerUsername: null },
+        { id: '1', label: 'A', priceUsd: 1, quantityRemaining: 0, soldCount: 1, isHot: false, sortOrder: 0, status: 'sold_out', buyerUsername: 'buyer' },
+        { id: '2', label: 'B', priceUsd: 1, quantityRemaining: 2, soldCount: 0, isHot: false, sortOrder: 1, status: 'available', buyerUsername: null },
       ]),
     ).toBe(1);
+  });
+});
+
+describe('sortVariantsForBuyerDisplay', () => {
+  it('puts supplementals before NFL divisions', () => {
+    const sorted = sortVariantsForBuyerDisplay([
+      { id: 'd1', label: 'AFC East', sortOrder: 0 },
+      { id: 's2', label: 'Break #3 Suppy #2', sortOrder: 9 },
+      { id: 'd8', label: 'NFC West', sortOrder: 7 },
+      { id: 's1', label: 'Break #3 Suppy #1', sortOrder: 8 },
+    ]);
+    expect(sorted.map((v) => v.id)).toEqual(['s1', 's2', 'd1', 'd8']);
   });
 });
 
