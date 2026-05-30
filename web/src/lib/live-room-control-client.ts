@@ -154,6 +154,43 @@ export async function beginLiveRoomTeamBreak(
   }
 }
 
+/** Append supplemental spot/division variants to the active variant item (same lot — buyers see immediately). */
+export async function appendLiveItemSupplementalVariants(
+  liveRoomId: string,
+  itemId: string,
+  supplemental: {
+    name: string;
+    priceUsd: number;
+    spotCount: number;
+    feedsIntoTitle: string;
+  },
+): Promise<ApiResult<Record<string, unknown>>> {
+  try {
+    const res = await fetch(
+      `/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(itemId)}/variants`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ supplemental }),
+      },
+    );
+    const payload = await readJsonSafe<Record<string, unknown>>(res);
+    if (!res.ok) {
+      const { error, issues } = normalizeError(payload, "Could not add supplemental.");
+      return { ok: false, error, issues };
+    }
+    return { ok: true, data: payload ?? {} };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server.",
+      issues: [],
+    };
+  }
+}
+
 export async function createLiveRoomItem(
   liveRoomId: string,
   body: {

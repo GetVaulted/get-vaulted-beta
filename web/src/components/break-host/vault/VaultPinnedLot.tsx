@@ -63,6 +63,8 @@ type VaultPinnedLotProps = {
   energyLevel?: LiveRoomEnergyLevel;
   motionBurst?: LiveStageMotionBurst;
   lotTransitionPhase?: LiveLotTransitionPhase;
+  hostCommerceMinimized?: boolean;
+  onToggleHostCommerceMinimized?: () => void;
 };
 
 function BidVelocityBar({
@@ -124,6 +126,8 @@ export function VaultPinnedLot({
   energyLevel,
   motionBurst,
   lotTransitionPhase,
+  hostCommerceMinimized,
+  onToggleHostCommerceMinimized,
 }: VaultPinnedLotProps) {
   const meta = VAULT_MODE_META[vaultMode];
   const isMobile = variant === "mobile";
@@ -167,6 +171,8 @@ export function VaultPinnedLot({
         energyLevel={energyLevel}
         motionBurst={motionBurst}
         lotTransitionPhase={lotTransitionPhase}
+        hostMinimized={hostCommerceMinimized}
+        onToggleHostMinimized={onToggleHostCommerceMinimized}
       />
     );
   }

@@ -67,6 +67,9 @@ type LiveAuctionHudProps = {
   energyLevel?: LiveRoomEnergyLevel;
   motionBurst?: LiveStageMotionBurst;
   lotTransitionPhase?: LiveLotTransitionPhase;
+  /** Host embedded HUD — collapse to title pill (session state from parent). */
+  hostMinimized?: boolean;
+  onToggleHostMinimized?: () => void;
 };
 
 function HudAction({
@@ -124,6 +127,8 @@ export function LiveAuctionHud({
   energyLevel = "calm",
   motionBurst = null,
   lotTransitionPhase = "idle",
+  hostMinimized = false,
+  onToggleHostMinimized,
 }: LiveAuctionHudProps) {
   const item = activeBoardRow?.item ?? overlayQueueRow?.item ?? null;
   const boardItem = activeBoardRow?.item;
@@ -209,6 +214,37 @@ export function LiveAuctionHud({
               : "";
 
   const hudHidden = lotTransitionPhase === "sold_spotlight" || lotTransitionPhase === "next_intro";
+
+  if (hostMinimized && item) {
+    const statusBit =
+      auctionRunning && hostAuctionCountdownLabel
+        ? hostAuctionCountdownLabel
+        : isVariantItem
+          ? `${spotStats?.available ?? 0} open`
+          : sold
+            ? "Sold"
+            : "On block";
+    return (
+      <div
+        className={`live-stage-auction-hud relative w-full ${ENERGY_WRAPPER[energyLevel]}`}
+        data-testid="live-auction-hud"
+      >
+        <div className="live-stage-command-bar flex min-h-[36px] items-center justify-between gap-2 px-3 py-1.5">
+          <p className="min-w-0 truncate text-[11px] font-bold text-white">{hostQueueTitleLine(item)}</p>
+          <span className="shrink-0 font-mono text-[10px] font-black tabular-nums text-amber-100">{statusBit}</span>
+          {onToggleHostMinimized ? (
+            <button
+              type="button"
+              onClick={onToggleHostMinimized}
+              className="shrink-0 rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-zinc-200"
+            >
+              Expand
+            </button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
 
   if (sold && !auctionRunning) {
     return (
@@ -318,6 +354,16 @@ export function LiveAuctionHud({
 
         {/* RIGHT — actions */}
         <div className="live-stage-command-section flex shrink-0 items-center gap-1 border-l border-amber-400/10 px-2 py-1">
+          {onToggleHostMinimized ? (
+            <button
+              type="button"
+              onClick={onToggleHostMinimized}
+              className="rounded-full px-1.5 py-0.5 text-[7px] font-black uppercase text-zinc-500 hover:text-zinc-300"
+              aria-label="Minimize auction HUD"
+            >
+              −
+            </button>
+          ) : null}
           {skipped ? (
             <span className="text-[8px] font-bold uppercase tracking-wide text-zinc-500">Skipped</span>
           ) : auctionRunning ? (

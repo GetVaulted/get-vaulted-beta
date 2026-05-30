@@ -12,6 +12,9 @@ type Props = {
   overlayDiffersFromActive: boolean;
   busy: boolean;
   onPushSelected: () => void;
+  commerceMinimized?: boolean;
+  onToggleCommerceMinimized?: () => void;
+  onAddSupplemental?: () => void;
 };
 
 /**
@@ -24,6 +27,9 @@ export function HostVariantCommerceStage({
   overlayDiffersFromActive,
   busy,
   onPushSelected,
+  commerceMinimized = false,
+  onToggleCommerceMinimized,
+  onAddSupplemental,
 }: Props) {
   const activeVariant =
     activeBoardRow != null && isVariantSalesFormat(activeBoardRow.item.salesFormat);
@@ -33,7 +39,15 @@ export function HostVariantCommerceStage({
   if (activeVariant) {
     return (
       <div className="pointer-events-none absolute inset-x-0 bottom-28 z-[14] hidden justify-center px-4 min-[1400px]:flex">
-        <LiveVariantSpotBoard item={activeBoardRow.item} pinned />
+        <LiveVariantSpotBoard
+          item={activeBoardRow.item}
+          pinned
+          hostMode
+          minimized={commerceMinimized}
+          onToggleMinimized={onToggleCommerceMinimized}
+          onAddSupplemental={onAddSupplemental}
+          hostBusy={busy}
+        />
       </div>
     );
   }

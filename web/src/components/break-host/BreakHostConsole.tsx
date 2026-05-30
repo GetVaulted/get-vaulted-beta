@@ -17,7 +17,12 @@ import { VaultPinnedLot } from "@/components/break-host/vault/VaultPinnedLot";
 import { AddQueueItemModal, type AddQueueItemAuctionPayload, type AddQueueItemCloseReason } from "@/components/break-host/AddQueueItemModal";
 import { VaultQueueDrawer } from "@/components/break-host/vault/VaultQueueDrawer";
 import { HostVariantCommerceStage } from "@/components/break-host/HostVariantCommerceStage";
+import { HostAddSupplementalModal } from "@/components/break-host/HostAddSupplementalModal";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
+import {
+  readHostCommercePanelMinimized,
+  writeHostCommercePanelMinimized,
+} from "@/lib/host-commerce-panel-session";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { vaultModeRootClass } from "@/components/break-host/vault/vault-modes";
 import { LiveRoomEnergyMeter } from "@/components/live-stage/LiveRoomEnergyMeter";
@@ -40,6 +45,7 @@ import {
   createLiveRoomItem,
   deleteLiveRoomItem,
   finalizeOverdueLiveAuctions,
+  appendLiveItemSupplementalVariants,
   patchLiveRoomAction,
   patchLiveRoomItemStatus,
   sendLiveRoomSystemMessage,
@@ -214,6 +220,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const [vaultMode, setVaultMode] = useState<VaultMode>("auction_night");
   const [vaultCommandOpen, setVaultCommandOpen] = useState(false);
   const [queueDrawerOpen, setQueueDrawerOpen] = useState(false);
+  const [hostCommerceMinimized, setHostCommerceMinimized] = useState(false);
+  const [supplementalModalOpen, setSupplementalModalOpen] = useState(false);
   const [stageMotionBurst, setStageMotionBurst] = useState<LiveStageMotionBurst>(null);
   const [bidsLastMinute, setBidsLastMinute] = useState(0);
   const [lotTransitionPhase, setLotTransitionPhase] = useState<LiveLotTransitionPhase>("idle");
@@ -1261,6 +1269,18 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   }, [data, selectedQueueItemId]);
 
   useEffect(() => {
+    setHostCommerceMinimized(readHostCommercePanelMinimized(roomId));
+  }, [roomId]);
+
+  const toggleHostCommerceMinimized = useCallback(() => {
+    setHostCommerceMinimized((prev) => {
+      const next = !prev;
+      writeHostCommercePanelMinimized(roomId, next);
+      return next;
+    });
+  }, [roomId]);
+
+  useEffect(() => {
     if (!overlayDiffersFromActive) return;
     const selected =
       data?.queueItems.find((q) => q.item.id === selectedQueueItemId) ?? data?.queueItems[0] ?? null;
@@ -1447,6 +1467,31 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     if (selectedQueueItemId) patchItem(selectedQueueItemId, "active");
   };
 
+  const handleAppendSupplemental = async (payload: {
+    name: string;
+    priceUsd: number;
+    spotCount: number;
+    feedsIntoTitle: string;
+  }): Promise<boolean> => {
+    const itemId = activeBoardRow?.item.id;
+    if (!itemId || !isVariantSalesFormat(activeBoardRow.item.salesFormat)) return false;
+    setBusy(true);
+    setToast(null);
+    try {
+      const res = await appendLiveItemSupplementalVariants(roomId, itemId, payload);
+      if (!res.ok) {
+        setToast(res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error);
+        return false;
+      }
+      await load();
+      router.refresh();
+      setToast(`Added ${payload.spotCount} supplemental spot${payload.spotCount === 1 ? "" : "s"}.`);
+      return true;
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const commandCenterProps = {
     roomTitle: streamTitle,
     roomStatus: room.status,
@@ -1533,6 +1578,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       energyLevel={roomEnergy.level}
       motionBurst={stageMotionBurst}
       lotTransitionPhase={lotTransitionPhase}
+      hostCommerceMinimized={hostCommerceMinimized}
+      onToggleHostCommerceMinimized={toggleHostCommerceMinimized}
     />
   );
 
@@ -1554,6 +1601,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       hostLiveItemAuctionBusy={hostLiveItemAuctionBusy}
       onStartAuction={() => void handleHostStartLiveItemAuction()}
       hostClockSkewMs={hostClockSkewMs}
+      hostCommerceMinimized={hostCommerceMinimized}
+      onToggleHostCommerceMinimized={toggleHostCommerceMinimized}
     />
   );
 
@@ -1657,6 +1706,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           overlayDiffersFromActive={overlayDiffersFromActive}
           busy={busy}
           onPushSelected={handleHostPinSelected}
+          commerceMinimized={hostCommerceMinimized}
+          onToggleCommerceMinimized={toggleHostCommerceMinimized}
+          onAddSupplemental={() => setSupplementalModalOpen(true)}
         />
       </>
     ),
@@ -1824,6 +1876,17 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
             <HostStreamSetupCard roomId={roomId} compact realtimeRefreshNonce={hostStreamCardRefreshNonce} />
           </div>
         </div>
+      ) : null}
+
+      {activeBoardRow && isVariantSalesFormat(activeBoardRow.item.salesFormat) ? (
+        <HostAddSupplementalModal
+          open={supplementalModalOpen}
+          onClose={() => setSupplementalModalOpen(false)}
+          roomId={roomId}
+          parentItem={activeBoardRow.item}
+          busy={busy}
+          onSubmit={handleAppendSupplemental}
+        />
       ) : null}
 
       <AddQueueItemModal
