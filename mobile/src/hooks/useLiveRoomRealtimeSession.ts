@@ -12,6 +12,7 @@ import {
   mergeBuyerSnapshotForActiveItemChanged,
   reconcileBuyerSnapshotMonotonic,
 } from '../lib/liveRoomBuyerSnapshotMerge';
+import { logBuyerRoomStateSnapshot } from '../lib/logRoomStateSnapshot';
 import {
   applyBuyerSnapshotPurchaseCompleted,
   recomputeBuyerSnapshotPhase,
@@ -104,6 +105,15 @@ export function useLiveRoomRealtimeSession(args: {
             activeItemId: reconciled.activeItemId,
           });
         }
+        console.info('[bid] snapshot merge result', {
+          lotChanged,
+          staleIgnored,
+          advanced,
+          prevActiveItemId: prev?.activeItemId ?? null,
+          nextActiveItemId: snap.activeItemId,
+          reconciledActiveItemId: reconciled.activeItemId,
+        });
+        logBuyerRoomStateSnapshot('reconcile', reconciled, { lotChanged, staleIgnored, advanced });
         return reconciled;
       });
       return snap;

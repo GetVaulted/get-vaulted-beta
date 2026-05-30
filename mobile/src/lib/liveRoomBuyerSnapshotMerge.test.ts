@@ -83,4 +83,70 @@ describe('reconcileBuyerSnapshotMonotonic', () => {
     expect(r.staleIgnored).toBe(true);
     expect(r.snap.currentBidUsd).toBe(4);
   });
+
+  it('preserves minNextBidUsd when high is unchanged but incoming min regresses', () => {
+    const prev = snap({ currentBidUsd: 1, minNextBidUsd: 2, lastHighBidderId: 'me' });
+    const incoming = snap({ currentBidUsd: 1, minNextBidUsd: 1, fetchedAtMs: 2_000 });
+
+    const r = reconcileBuyerSnapshotMonotonic(prev, incoming);
+
+    expect(r.staleIgnored).toBe(true);
+    expect(r.snap.currentBidUsd).toBe(1);
+    expect(r.snap.minNextBidUsd).toBe(2);
+  });
+
+  it('accepts server active item when lot changes even if prev had a higher bid', () => {
+    const prev = snap({
+      activeItemId: 'item-old',
+      currentBidUsd: 50,
+      minNextBidUsd: 55,
+      activeItemSalesFormat: 'auction',
+    });
+    const incoming = snap({
+      activeItemId: 'item-new',
+      activeItemSalesFormat: 'variant_selection',
+      activeItemVariants: [
+        {
+          id: 'v1',
+          label: 'AFC East',
+          priceUsd: 25,
+          quantityRemaining: 1,
+          soldCount: 0,
+          isHot: false,
+          status: 'available',
+          buyerUsername: null,
+        },
+      ],
+      currentBidUsd: null,
+      minNextBidUsd: null,
+      fetchedAtMs: 2_000,
+    });
+
+    const r = reconcileBuyerSnapshotMonotonic(prev, incoming);
+
+    expect(r.lotChanged).toBe(true);
+    expect(r.snap.activeItemId).toBe('item-new');
+    expect(r.snap.activeItemSalesFormat).toBe('variant_selection');
+    expect(r.snap.currentBidUsd).toBeNull();
+  });
+
+  it('always applies server break phase on the same lot', () => {
+    const prev = snap({
+      breakPhase: 'filling',
+      activeItemId: null,
+      currentBidUsd: null,
+      minNextBidUsd: null,
+    });
+    const incoming = snap({
+      breakPhase: 'in_progress',
+      activeItemId: null,
+      currentBidUsd: null,
+      minNextBidUsd: null,
+      fetchedAtMs: 2_000,
+    });
+
+    const r = reconcileBuyerSnapshotMonotonic(prev, incoming);
+
+    expect(r.snap.breakPhase).toBe('in_progress');
+  });
 });

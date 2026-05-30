@@ -125,9 +125,9 @@ export function LiveAuctionHud({
   motionBurst = null,
   lotTransitionPhase = "idle",
 }: LiveAuctionHudProps) {
-  const item = overlayQueueRow?.item;
+  const item = activeBoardRow?.item ?? overlayQueueRow?.item ?? null;
   const boardItem = activeBoardRow?.item;
-  const commerceItem = boardItem ?? item;
+  const commerceItem = boardItem ?? null;
   const isVariantItem = Boolean(commerceItem && isVariantSalesFormat(commerceItem.salesFormat));
   const spotStats = isVariantItem ? summarizeVariantSpots(commerceItem?.variants) : null;
   const breakReady = Boolean(commerceItem?.variantBreakReadyAt);

@@ -30,6 +30,9 @@ export type LiveSellerCommandCenterProps = {
   busy: boolean;
   overlayQueueRow: VaultQueueRow | null;
   activeBoardRow: VaultQueueRow | null;
+  /** Queue selection for edit/preview — not live for buyers until pinned active. */
+  previewQueueRow?: VaultQueueRow | null;
+  overlayDiffersFromActive?: boolean;
   hostAuctionCountdownLabel: string | null;
   biddingWindowOpen: boolean;
   hostStartLiveAuctionEnabled: boolean;
@@ -155,6 +158,8 @@ export function LiveSellerCommandCenter({
   busy,
   overlayQueueRow,
   activeBoardRow,
+  previewQueueRow = null,
+  overlayDiffersFromActive = false,
   hostAuctionCountdownLabel,
   biddingWindowOpen,
   hostStartLiveAuctionEnabled,
@@ -190,8 +195,9 @@ export function LiveSellerCommandCenter({
   onClose,
 }: LiveSellerCommandCenterProps) {
   const live = roomStatus === "live";
-  const item = overlayQueueRow?.item ?? activeBoardRow?.item ?? null;
-  const commerceItem = activeBoardRow?.item ?? item;
+  const item = activeBoardRow?.item ?? null;
+  const previewItem = previewQueueRow?.item ?? null;
+  const commerceItem = item;
   const isVariantItem = isVariantPurchaseItem(commerceItem);
   const spotStats = isVariantItem ? summarizeVariantSpots(commerceItem?.variants) : null;
   const leaderLine = item
@@ -204,7 +210,9 @@ export function LiveSellerCommandCenter({
           startingBidUsd: item.startingBidUsd,
           priceUsd: item.priceUsd,
         })
-    : "No lot pinned";
+    : overlayDiffersFromActive && previewItem
+      ? "Push item to open spots for buyers"
+      : "No lot pinned";
 
   const shellClass =
     variant === "overlay"
@@ -259,7 +267,9 @@ export function LiveSellerCommandCenter({
           </div>
 
           <div className="border-t border-white/[0.08] pt-1.5">
-            <p className="line-clamp-2 text-[10px] font-bold text-white">{item?.title ?? "Pin a lot to begin"}</p>
+            <p className="line-clamp-2 text-[10px] font-bold text-white">
+              {item?.title ?? (overlayDiffersFromActive && previewItem ? previewItem.title : "Pin a lot to begin")}
+            </p>
             {hostAuctionCountdownLabel && biddingWindowOpen && !isVariantItem ? (
               <p className="mt-0.5 font-mono text-[11px] font-black tabular-nums text-emerald-200">{hostAuctionCountdownLabel}</p>
             ) : (
@@ -272,7 +282,11 @@ export function LiveSellerCommandCenter({
               </p>
             )}
             <p className="mt-0.5 truncate text-[9px] font-medium text-amber-200/95">
-              {isVariantItem && live ? "Spot board live on stage" : leaderLine}
+              {overlayDiffersFromActive
+                ? "Push item — buyers cannot purchase yet"
+                : isVariantItem && live
+                  ? "Spot board live on stage"
+                  : leaderLine}
             </p>
           </div>
 
@@ -436,7 +450,7 @@ export function LiveSellerCommandCenter({
             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">On the block</p>
           ) : null}
           <p className={`line-clamp-1 font-bold text-white ${isCompactRail ? "text-[11px]" : isDesktopPanel ? "mt-0.5 text-xs" : "mt-1 text-sm"}`}>
-            {item?.title ?? "Pin a lot to begin"}
+            {item?.title ?? (overlayDiffersFromActive && previewItem ? previewItem.title : "Pin a lot to begin")}
           </p>
           {!isCompactRail ? (
             <>
@@ -448,9 +462,19 @@ export function LiveSellerCommandCenter({
                 : "—"}
           </p>
           <p className={`font-semibold text-zinc-300 ${isDesktopPanel ? "mt-0.5 text-[10px]" : "mt-1 text-xs"}`}>
-            {isVariantItem ? (live ? "Spot board live — buyers pick spots on stage" : leaderLine) : leaderLine}
+            {overlayDiffersFromActive
+              ? "Selected in queue — push item to go live for buyers"
+              : isVariantItem
+                ? live
+                  ? "Spot board live — buyers pick spots on stage"
+                  : leaderLine
+                : leaderLine}
           </p>
-          {isVariantItem && live ? (
+          {overlayDiffersFromActive ? (
+            <p className="mt-1.5 inline-flex rounded-full border border-amber-400/35 bg-amber-500/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-amber-100">
+              Push item
+            </p>
+          ) : isVariantItem && live ? (
             <p className="mt-1.5 inline-flex rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-100">
               Open spots
             </p>

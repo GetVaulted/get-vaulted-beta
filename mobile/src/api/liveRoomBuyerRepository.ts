@@ -1,5 +1,6 @@
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { WalletIncompleteError } from '../lib/buyerWalletErrors';
+import { logBuyerRoomStateSnapshot } from '../lib/logRoomStateSnapshot';
 import { liveAuctionMinBidUsd } from '../lib/liveAuctionBidMath';
 import {
   resolveLiveAuctionLotBidPhase,
@@ -235,7 +236,7 @@ export async function fetchLiveRoomBuyerSnapshot(
     (typeof active?.displayTitle === 'string' && active.displayTitle.trim()) ||
     (typeof active?.title === 'string' && active.title.trim()) ||
     null;
-  return {
+  const snapshot: LiveRoomBuyerSnapshot = {
     roomId,
     status: (detail?.status as LiveRoomBuyerSnapshot['status']) ?? 'ended',
     roomType: (detail?.roomType as LiveRoomBuyerSnapshot['roomType']) ?? 'auction',
@@ -263,6 +264,8 @@ export async function fetchLiveRoomBuyerSnapshot(
     priceUsd: typeof active?.priceUsd === 'number' ? active.priceUsd : null,
     unresolvedPaymentFailure: parsePaymentFailure(detail?.buyerUnresolvedPaymentFailure),
   };
+  logBuyerRoomStateSnapshot('fetch', snapshot);
+  return snapshot;
 }
 
 export function createLiveBidIdempotencyKey(): string {

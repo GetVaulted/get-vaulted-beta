@@ -24,6 +24,8 @@ import { emitAuctionEnded, emitAuctionStarted, emitLiveDiscoveryChanged, emitTea
 import { buildLiveTipRoomData } from "@/lib/live-tip-moderator";
 import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
 import { finalizeLiveStreamReplay } from "@/lib/trust/live-replay-service";
+import { logSellerRoomStateSnapshot } from "@/lib/log-room-state-snapshot";
+import { computeBreakBuyerPhase } from "@/lib/live-room-break-public";
 
 const includeDetail = {
   seller: { select: { id: true, username: true } as const },
@@ -158,6 +160,24 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   detail.items = await attachHighBidderUsernames(detail.items);
   const activeId = detail.activeItem?.id ?? null;
   detail.activeItem = activeId ? detail.items.find((i) => i.id === activeId) ?? null : null;
+  logSellerRoomStateSnapshot({
+    source: "buyer-room-get",
+    roomId: id,
+    roomStatus: detail.status,
+    roomType: detail.roomType,
+    activeItem: detail.activeItem,
+    overlayItem: detail.activeItem,
+    breakPhase:
+      detail.roomType === "break" && detail.break
+        ? detail.break.phase
+        : room.roomType === "break"
+          ? computeBreakBuyerPhase(room, room.breakSpots?.length ?? 0)
+          : null,
+    lockPurchases: detail.break?.lockPurchases,
+    breakPaused: detail.break?.breakPaused,
+    serverNowMs,
+    extra: { viewerId: viewerId ?? null, isHost },
+  });
   return NextResponse.json({ room: detail, serverNowMs });
 }
 

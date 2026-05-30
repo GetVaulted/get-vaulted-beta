@@ -11,6 +11,8 @@ import { listUnresolvedPaymentFailuresForRoom } from "@/lib/live-room-payment-fa
 import { serializeLiveRoomItem, serializeLiveRoomMessage } from "@/lib/live-room-serialize";
 import { liveRoomItemsWithVariantsInclude } from "@/lib/live-item-variant-include";
 import { prismaLiveRoomCreateHint, serializePrismaClientError } from "@/lib/prisma-client-error-serialize";
+import { logSellerRoomStateSnapshot } from "@/lib/log-room-state-snapshot";
+import { computeBreakBuyerPhase } from "@/lib/live-room-break-public";
 
 type SpotWithUser = BreakSpot & { user: Pick<User, "id" | "username" | "email"> };
 
@@ -160,6 +162,27 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     }
 
     const serverNowMs = Date.now();
+    const activeRow = queueItems.find((q) => q.item.status.toLowerCase() === "active") ?? null;
+    const selectedForLog = queueItems[0] ?? null;
+    logSellerRoomStateSnapshot({
+      source: "host-console",
+      roomId: liveRoomId,
+      roomStatus: room.status,
+      roomType: room.roomType,
+      activeItem: activeRow?.item ?? null,
+      overlayItem: activeRow?.item ?? null,
+      breakPhase:
+        room.roomType === "break"
+          ? computeBreakBuyerPhase(room, room.breakSpots.length)
+          : null,
+      lockPurchases: room.lockPurchases,
+      breakPaused: room.breakPaused,
+      serverNowMs,
+      extra: {
+        previewItemId: selectedForLog?.item.id ?? null,
+        purchasableFromActiveOnly: true,
+      },
+    });
     return NextResponse.json({
       serverNowMs,
       room: {

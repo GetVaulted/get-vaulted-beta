@@ -16,7 +16,7 @@ import { VaultHostRightRail } from "@/components/break-host/vault/VaultHostRight
 import { VaultPinnedLot } from "@/components/break-host/vault/VaultPinnedLot";
 import { AddQueueItemModal, type AddQueueItemAuctionPayload, type AddQueueItemCloseReason } from "@/components/break-host/AddQueueItemModal";
 import { VaultQueueDrawer } from "@/components/break-host/vault/VaultQueueDrawer";
-import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotBoard";
+import { HostVariantCommerceStage } from "@/components/break-host/HostVariantCommerceStage";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { vaultModeRootClass } from "@/components/break-host/vault/vault-modes";
@@ -1140,6 +1140,17 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     })();
   };
 
+  const handleSelectQueueItem = (itemId: string) => {
+    setSelectedQueueItemId(itemId);
+    const host = hostDataRef.current;
+    const row = host?.queueItems.find((q) => q.item.id === itemId);
+    if (!row || host?.room.status !== "live") return;
+    const isActive = row.item.status.toLowerCase() === "active";
+    if (isVariantSalesFormat(row.item.salesFormat) && !isActive) {
+      patchItem(itemId, "active");
+    }
+  };
+
   const deleteQueueItem = (itemId: string) =>
     void (async () => {
       setBusy(true);
@@ -1237,6 +1248,31 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [obsSetupModalOpen]);
 
+  const overlayDiffersFromActive = useMemo(() => {
+    if (!data?.queueItems?.length) return false;
+    const selected =
+      data.queueItems.find((q) => q.item.id === selectedQueueItemId) ?? data.queueItems[0] ?? null;
+    const active = data.queueItems.find((q) => q.item.status.toLowerCase() === "active") ?? null;
+    return Boolean(
+      selected &&
+        active?.item.id !== selected.item.id &&
+        isVariantSalesFormat(selected.item.salesFormat),
+    );
+  }, [data, selectedQueueItemId]);
+
+  useEffect(() => {
+    if (!overlayDiffersFromActive) return;
+    const selected =
+      data?.queueItems.find((q) => q.item.id === selectedQueueItemId) ?? data?.queueItems[0] ?? null;
+    const active = data?.queueItems.find((q) => q.item.status.toLowerCase() === "active") ?? null;
+    console.info("[room state] seller overlay blocked — variant item not pinned active", {
+      roomId,
+      activeItemId: active?.item.id ?? null,
+      selectedItemId: selected?.item.id ?? null,
+      selectedTitle: selected?.item.title ?? null,
+    });
+  }, [overlayDiffersFromActive, roomId, data, selectedQueueItemId]);
+
   if (loadError && !data) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-[#050508] px-4 text-center text-sm text-rose-300">
@@ -1326,7 +1362,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const selectedQueueRow =
     data.queueItems.find((q) => q.item.id === selectedQueueItemId) ?? data.queueItems[0] ?? null;
 
-  const overlayQueueRow = activeBoardRow ?? selectedQueueRow;
+  /** Purchasable / on-air commerce — DB-active item only (must match buyer GET). */
+  const overlayQueueRow = activeBoardRow;
+  const previewQueueRow = selectedQueueRow;
 
   const biddingWindowStillRunningHost = Boolean(
     activeBoardRow?.item.biddingOpen &&
@@ -1419,6 +1457,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     busy,
     overlayQueueRow,
     activeBoardRow,
+    previewQueueRow,
+    overlayDiffersFromActive,
     hostAuctionCountdownLabel,
     biddingWindowOpen: biddingWindowStillRunningHost,
     hostStartLiveAuctionEnabled,
@@ -1432,7 +1472,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     onQueueTab: setHostQueueTab,
     queueRows: data.queueItems,
     selectedQueueItemId,
-    onSelectQueueItem: setSelectedQueueItemId,
+    onSelectQueueItem: handleSelectQueueItem,
     onPostItem: (id: string) => void patchItem(id, "active"),
     onSkipItem: (id: string) => void patchItem(id, "skipped"),
     onDeleteItem: (id: string) => void deleteQueueItem(id),
@@ -1611,11 +1651,13 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           soldAmount={lotTransitionAmount}
           nextItemTitle={lotTransitionNextTitle}
         />
-        {overlayQueueRow && isVariantSalesFormat(overlayQueueRow.item.salesFormat) ? (
-          <div className="pointer-events-none absolute inset-x-0 bottom-28 z-[14] hidden justify-center px-4 min-[1400px]:flex">
-            <LiveVariantSpotBoard item={overlayQueueRow.item} pinned />
-          </div>
-        ) : null}
+        <HostVariantCommerceStage
+          activeBoardRow={activeBoardRow}
+          previewQueueRow={previewQueueRow}
+          overlayDiffersFromActive={overlayDiffersFromActive}
+          busy={busy}
+          onPushSelected={handleHostPinSelected}
+        />
       </>
     ),
     chatOverlay: hostMobileChatOverlay,
@@ -1721,7 +1763,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
             onTab={setHostQueueTab}
             rows={data.queueItems}
             selectedId={selectedQueueItemId}
-            onSelect={setSelectedQueueItemId}
+            onSelect={handleSelectQueueItem}
             viewerCount={room.viewerCount}
             busy={busy}
             onPost={(id) => void patchItem(id, "active")}

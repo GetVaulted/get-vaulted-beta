@@ -14,10 +14,14 @@ export type BuyerSnapshotReconcileResult = {
 };
 
 /**
- * Reconcile a freshly fetched/polled snapshot against the locally known one, enforcing a
- * monotonic high bid while the same lot is active. A stale snapshot (server read lag, late poll,
- * or out-of-order fallback) must never drag the displayed high/next bid backward — only a genuine
- * lot/room change is allowed to reset the amount.
+ * Reconcile a freshly fetched/polled snapshot against the locally known one.
+ *
+ * **Server-authoritative:** active item, break phase, variants, and all non-bid commerce fields
+ * always come from `next` (the latest server snapshot).
+ *
+ * **Monotonic (bid-only):** while the same lot is active, a stale snapshot must never lower
+ * `currentBidUsd` / `minNextBidUsd` or drop the high bidder — but it must still apply new break /
+ * division / active-item state from the server.
  */
 export function reconcileBuyerSnapshotMonotonic(
   prev: LiveRoomBuyerSnapshot | null,
@@ -36,10 +40,21 @@ export function reconcileBuyerSnapshotMonotonic(
   const prevHasHigh = typeof prevHigh === 'number' && Number.isFinite(prevHigh);
   const nextHasHigh = typeof nextHigh === 'number' && Number.isFinite(nextHigh);
 
-  // Same lot, incoming high is lower (or missing) than what we already know → ignore its bid
-  // fields and preserve the highest known amount + a next-min derived from it.
-  if (prevHasHigh && (!nextHasHigh || (nextHigh as number) < (prevHigh as number))) {
-    const preservedHigh = prevHigh as number;
+  const highRegressed =
+    prevHasHigh && (!nextHasHigh || (nextHigh as number) < (prevHigh as number));
+
+  const prevMin = prev.minNextBidUsd;
+  const nextMin = next.minNextBidUsd;
+  const sameHigh =
+    prevHasHigh && nextHasHigh && (prevHigh as number) === (nextHigh as number);
+  const minNextRegressed =
+    sameHigh &&
+    typeof prevMin === 'number' &&
+    Number.isFinite(prevMin) &&
+    (typeof nextMin !== 'number' || !Number.isFinite(nextMin) || (nextMin as number) < (prevMin as number));
+
+  if (highRegressed || minNextRegressed) {
+    const preservedHigh = highRegressed ? (prevHigh as number) : (nextHigh as number);
     return {
       snap: {
         ...next,

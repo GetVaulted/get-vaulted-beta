@@ -128,9 +128,9 @@ export function VaultPinnedLot({
   const meta = VAULT_MODE_META[vaultMode];
   const isMobile = variant === "mobile";
   const compactEmbedded = embedded && !isMobile;
-  const item = overlayQueueRow?.item;
+  const item = activeBoardRow?.item ?? overlayQueueRow?.item ?? null;
   const boardItem = activeBoardRow?.item;
-  const commerceItem = boardItem ?? item;
+  const commerceItem = boardItem ?? null;
   const isVariantItem = isVariantPurchaseItem(commerceItem);
   const spotStats = isVariantItem ? summarizeVariantSpots(commerceItem?.variants) : null;
   const thumb = item?.imageUrl?.trim();
