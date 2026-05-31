@@ -5,6 +5,9 @@
 
 export const EXPECTED_BETA_PROJECT_REF = "xkaaicokjgmpbctfermj";
 
+/** Deployed beta Next.js API — used by reset/IVS preflight guards. */
+export const EXPECTED_BETA_API_HOST = "https://beta.shopgetvaulted.com";
+
 export const BETA_QA_SELLER_EMAIL = "sellerqa@getvaultedtest.com";
 export const BETA_QA_BUYER_EMAIL = "buyerqa@getvaultedtest.com";
 export const BETA_QA_SELLER_USERNAME = "sellerqa";

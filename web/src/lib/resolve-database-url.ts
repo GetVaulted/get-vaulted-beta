@@ -10,6 +10,35 @@ export function supabaseProjectRefFromUrl(url: string): string | null {
   return null;
 }
 
+/** Extract host, database name, and user from a Postgres URL (no secrets). */
+export function parseDatabaseConnectionInfo(url: string): {
+  host: string;
+  port: string;
+  database: string;
+  user: string;
+  projectRef: string | null;
+} {
+  try {
+    const scheme = url.startsWith("postgresql:") ? "postgresql:" : "postgres:";
+    const parsed = new URL(url.replace(/^postgresql:/, "http:").replace(/^postgres:/, "http:"));
+    return {
+      host: parsed.hostname,
+      port: parsed.port || "5432",
+      database: parsed.pathname.replace(/^\//, "") || "postgres",
+      user: parsed.username || "(unknown)",
+      projectRef: supabaseProjectRefFromUrl(url),
+    };
+  } catch {
+    return {
+      host: "(invalid url)",
+      port: "?",
+      database: "?",
+      user: "?",
+      projectRef: supabaseProjectRefFromUrl(url),
+    };
+  }
+}
+
 /** Redact password in postgres URLs for logs. */
 export function redactDatabaseUrl(url: string): string {
   try {
