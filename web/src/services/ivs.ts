@@ -55,12 +55,12 @@ function getEnv(): RequiredIvsEnv {
     process.env.AWS_REGION?.trim() ||
     "";
   const accessKeyId =
-    process.env.AWS_ACCESS_KEY_ID?.trim() || process.env.VAULTED_AWS_ACCESS_KEY_ID?.trim() || "";
+    process.env.VAULTED_AWS_ACCESS_KEY_ID?.trim() || process.env.AWS_ACCESS_KEY_ID?.trim() || "";
   const secretAccessKey =
-    process.env.AWS_SECRET_ACCESS_KEY?.trim() || process.env.VAULTED_AWS_SECRET_ACCESS_KEY?.trim() || "";
+    process.env.VAULTED_AWS_SECRET_ACCESS_KEY?.trim() || process.env.AWS_SECRET_ACCESS_KEY?.trim() || "";
   if (!region || !accessKeyId || !secretAccessKey) {
     throw new Error(
-      "AWS IVS is not configured. Set AWS_REGION (or VAULTED_AWS_REGION), AWS_ACCESS_KEY_ID (or VAULTED_AWS_ACCESS_KEY_ID), and AWS_SECRET_ACCESS_KEY (or VAULTED_AWS_SECRET_ACCESS_KEY).",
+      "AWS IVS is not configured. Set VAULTED_AWS_REGION (or AWS_REGION), VAULTED_AWS_ACCESS_KEY_ID (or AWS_ACCESS_KEY_ID), and VAULTED_AWS_SECRET_ACCESS_KEY (or AWS_SECRET_ACCESS_KEY).",
     );
   }
 

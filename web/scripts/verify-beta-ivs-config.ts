@@ -30,9 +30,9 @@ async function main() {
     process.env.AWS_REGION?.trim() ||
     "";
   const accessKeyId =
-    process.env.AWS_ACCESS_KEY_ID?.trim() || process.env.VAULTED_AWS_ACCESS_KEY_ID?.trim() || "";
+    process.env.VAULTED_AWS_ACCESS_KEY_ID?.trim() || process.env.AWS_ACCESS_KEY_ID?.trim() || "";
   const secretAccessKey =
-    process.env.AWS_SECRET_ACCESS_KEY?.trim() || process.env.VAULTED_AWS_SECRET_ACCESS_KEY?.trim() || "";
+    process.env.VAULTED_AWS_SECRET_ACCESS_KEY?.trim() || process.env.AWS_SECRET_ACCESS_KEY?.trim() || "";
   const channelType = process.env.AWS_IVS_CHANNEL_TYPE?.trim() ?? "STANDARD";
   const latencyMode = process.env.AWS_IVS_LATENCY_MODE?.trim() ?? "LOW";
   const webhookSecret = process.env.IVS_EVENTS_WEBHOOK_SECRET?.trim() ?? "";
