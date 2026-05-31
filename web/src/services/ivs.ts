@@ -18,6 +18,8 @@ type RequiredIvsEnv = {
   region: string;
   channelType: ChannelType;
   latencyMode: ChannelLatencyMode;
+  accessKeyId: string;
+  secretAccessKey: string;
 };
 
 export type IvsProvisionResult = {
@@ -68,12 +70,18 @@ function getEnv(): RequiredIvsEnv {
   const rawLatencyMode = (process.env.AWS_IVS_LATENCY_MODE?.trim() ?? "LOW").toUpperCase();
   const latencyMode: ChannelLatencyMode = rawLatencyMode === "NORMAL" ? "NORMAL" : "LOW";
 
-  return { region, channelType, latencyMode };
+  return { region, channelType, latencyMode, accessKeyId, secretAccessKey };
 }
 
 function makeClient() {
   const env = getEnv();
-  return new IvsClient({ region: env.region });
+  return new IvsClient({
+    region: env.region,
+    credentials: {
+      accessKeyId: env.accessKeyId,
+      secretAccessKey: env.secretAccessKey,
+    },
+  });
 }
 
 function createChannelName(roomId: string): string {

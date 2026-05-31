@@ -58,7 +58,10 @@ async function main() {
     process.exit(1);
   }
 
-  const client = new IvsClient({ region });
+  const client = new IvsClient({
+    region,
+    credentials: { accessKeyId, secretAccessKey },
+  });
   try {
     const out = await client.send(new ListChannelsCommand({ maxResults: 5 }));
     const count = out.channels?.length ?? 0;
@@ -75,7 +78,7 @@ async function main() {
     console.log("");
     console.log("See web/docs/aws-ivs-live-qa-checklist.md for full E2E steps.");
   } catch (e) {
-    console.error("IVS API call failed — check IAM permissions (ivs:CreateChannel, ivs:CreateStreamKey, ivs:GetStream, ivs:ListChannels).");
+    console.error("IVS API call failed — check IAM permissions (ivs:CreateChannel, ivs:CreateStreamKey, ivs:GetStream, ivs:ListChannels, ivs:TagResource).");
     console.error(e instanceof Error ? e.message : e);
     process.exit(1);
   }
