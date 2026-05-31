@@ -47,11 +47,19 @@ function toRoomHealth(state: StreamState | string | null | undefined): LiveStrea
 }
 
 function getEnv(): RequiredIvsEnv {
-  const region = process.env.AWS_REGION?.trim() ?? "";
-  const accessKeyId = process.env.AWS_ACCESS_KEY_ID?.trim() ?? "";
-  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY?.trim() ?? "";
+  const region =
+    process.env.VAULTED_AWS_REGION?.trim() ||
+    process.env.VAULTED_AWS_DEFAULT_REGION?.trim() ||
+    process.env.AWS_REGION?.trim() ||
+    "";
+  const accessKeyId =
+    process.env.AWS_ACCESS_KEY_ID?.trim() || process.env.VAULTED_AWS_ACCESS_KEY_ID?.trim() || "";
+  const secretAccessKey =
+    process.env.AWS_SECRET_ACCESS_KEY?.trim() || process.env.VAULTED_AWS_SECRET_ACCESS_KEY?.trim() || "";
   if (!region || !accessKeyId || !secretAccessKey) {
-    throw new Error("AWS IVS is not configured. Set AWS_REGION, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY.");
+    throw new Error(
+      "AWS IVS is not configured. Set AWS_REGION (or VAULTED_AWS_REGION), AWS_ACCESS_KEY_ID (or VAULTED_AWS_ACCESS_KEY_ID), and AWS_SECRET_ACCESS_KEY (or VAULTED_AWS_SECRET_ACCESS_KEY).",
+    );
   }
 
   const rawChannelType = (process.env.AWS_IVS_CHANNEL_TYPE?.trim() ?? "STANDARD").toUpperCase();
