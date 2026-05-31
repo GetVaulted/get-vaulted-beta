@@ -107,11 +107,16 @@ export async function createChannel(roomId: string) {
   if (!out.channel?.arn || !out.channel?.playbackUrl || !out.channel?.ingestEndpoint || !out.channel?.name) {
     throw new Error("IVS channel provisioning failed. Missing channel details from AWS.");
   }
+  if (!out.streamKey?.arn || !out.streamKey?.value) {
+    throw new Error("IVS channel provisioning failed. CreateChannel did not return an initial stream key.");
+  }
   return {
     arn: out.channel.arn,
     playbackUrl: out.channel.playbackUrl,
     ingestEndpoint: out.channel.ingestEndpoint,
     name: out.channel.name,
+    streamKeyArn: out.streamKey.arn,
+    streamKeyValue: out.streamKey.value,
   };
 }
 
@@ -349,7 +354,6 @@ export async function provisionRoomStream(roomId: string): Promise<IvsProvisionR
   }
 
   const channel = await createChannel(roomId);
-  const streamKey = await createStreamKey(channel.arn);
   const now = new Date();
   await prisma.liveRoom.update({
     where: { id: roomId },
@@ -360,7 +364,7 @@ export async function provisionRoomStream(roomId: string): Promise<IvsProvisionR
       ivsChannelName: channel.name,
       ivsPlaybackUrl: channel.playbackUrl,
       ivsIngestEndpoint: channel.ingestEndpoint,
-      ivsStreamKeyArn: streamKey.arn,
+      ivsStreamKeyArn: channel.streamKeyArn,
       ivsStreamKeyCreatedAt: now,
       streamEndedAt: now,
       streamStartedAt: null,
@@ -373,8 +377,8 @@ export async function provisionRoomStream(roomId: string): Promise<IvsProvisionR
     roomId,
     playbackUrl: channel.playbackUrl,
     ingestEndpoint: channel.ingestEndpoint,
-    streamKeyValue: streamKey.value,
-    streamKeyArn: streamKey.arn,
+    streamKeyValue: channel.streamKeyValue,
+    streamKeyArn: channel.streamKeyArn,
     channelArn: channel.arn,
     channelName: channel.name,
     streamHealth: "offline",
