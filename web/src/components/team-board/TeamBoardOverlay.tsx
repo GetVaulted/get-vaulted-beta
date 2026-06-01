@@ -13,6 +13,8 @@ type TeamBoardOverlayProps = {
   canSelectTiles: boolean;
   busy?: boolean;
   onPick: (teamAbbr: string) => void | Promise<void>;
+  /** Buyer stage overlay (default) vs host seller panel (embedded). */
+  presentation?: "stage" | "embedded";
 };
 
 const LEAGUE_LABEL: Record<string, string> = { nfl: "NFL", nba: "NBA", mlb: "MLB" };
@@ -34,8 +36,10 @@ export function TeamBoardOverlay({
   canSelectTiles,
   busy = false,
   onPick,
+  presentation = "stage",
 }: TeamBoardOverlayProps) {
-  if (!state.visible) return null;
+  const embedded = presentation === "embedded";
+  if (!state.visible && !embedded) return null;
 
   const teamList = teams ?? [];
   if (teamList.length === 0) {
@@ -52,8 +56,16 @@ export function TeamBoardOverlay({
   const teamRows = chunkTeams(teamList, colCount);
 
   return (
-    <div className="rounded-2xl border border-gold/30 bg-zinc-950/90 p-3 shadow-[0_0_80px_rgba(0,0,0,0.92)] ring-1 ring-white/[0.06] backdrop-blur-md sm:p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] pb-2">
+    <div
+      className={
+        embedded
+          ? "min-w-0 rounded-lg border border-white/10 bg-transparent p-0 shadow-none ring-0"
+          : "rounded-2xl border border-gold/30 bg-zinc-950/90 p-3 shadow-[0_0_80px_rgba(0,0,0,0.92)] ring-1 ring-white/[0.06] backdrop-blur-md sm:p-4"
+      }
+    >
+      <div
+        className={`flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] pb-2 ${embedded ? "hidden" : ""}`}
+      >
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gold-bright/90">Team board</p>
           <p className="text-xs font-bold text-zinc-100">
@@ -76,7 +88,9 @@ export function TeamBoardOverlay({
         </p>
       ) : null}
 
-      <div className="mt-3 max-h-[min(52vh,480px)] overflow-y-auto overflow-x-auto pr-0.5">
+      <div
+        className={`${embedded ? "mt-0" : "mt-3"} max-h-[min(52vh,480px)] overflow-y-auto overflow-x-auto pr-0.5 ${embedded ? "max-h-none" : ""}`}
+      >
         <table className="w-full min-w-0 table-fixed border-separate border-spacing-1.5">
           <tbody>
             {teamRows.map((rowAbbrs, ri) => (

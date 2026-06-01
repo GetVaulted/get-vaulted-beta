@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
-import { TeamBoardChromeButton } from "@/components/team-board/TeamBoardChromeButton";
+import { TeamBoardHostPanel } from "@/components/team-board/TeamBoardHostPanel";
 import { TeamBoardOverlay } from "@/components/team-board/TeamBoardOverlay";
 import { LiveSellerCommandCenter } from "@/components/break-host/LiveSellerCommandCenter";
 import { LiveAuctionSoldCelebration } from "@/components/live-auction/LiveAuctionSoldCelebration";
@@ -23,6 +23,10 @@ import {
   readHostCommercePanelMinimized,
   writeHostCommercePanelMinimized,
 } from "@/lib/host-commerce-panel-session";
+import {
+  readHostTeamBoardPanelCollapsed,
+  writeHostTeamBoardPanelCollapsed,
+} from "@/lib/host-team-board-panel-session";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { vaultModeRootClass } from "@/components/break-host/vault/vault-modes";
 import { LiveRoomEnergyMeter } from "@/components/live-stage/LiveRoomEnergyMeter";
@@ -209,6 +213,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
   const [teamBoardData, setTeamBoardData] = useState<TeamBoardPublicPayload | null>(null);
   const [teamBoardBusy, setTeamBoardBusy] = useState(false);
+  const [hostTeamBoardOpen, setHostTeamBoardOpen] = useState(false);
+  const [hostTeamBoardCollapsed, setHostTeamBoardCollapsed] = useState(false);
   const [selectedQueueItemId, setSelectedQueueItemId] = useState("");
   const [hostAuctionDurationSec, setHostAuctionDurationSec] = useState(5);
   const [hostClutchTimeEnabled, setHostClutchTimeEnabled] = useState(false);
@@ -1281,6 +1287,38 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     setHostCommerceMinimized(readHostCommercePanelMinimized(roomId));
   }, [roomId]);
 
+  useEffect(() => {
+    setHostTeamBoardCollapsed(readHostTeamBoardPanelCollapsed(roomId));
+  }, [roomId]);
+
+  const toggleHostTeamBoardPanel = useCallback(() => {
+    setHostTeamBoardOpen((open) => {
+      const next = !open;
+      if (next) {
+        setHostTeamBoardCollapsed(false);
+        writeHostTeamBoardPanelCollapsed(roomId, false);
+      }
+      return next;
+    });
+  }, [roomId]);
+
+  const minimizeHostTeamBoardPanel = useCallback(() => {
+    setHostTeamBoardCollapsed(true);
+    writeHostTeamBoardPanelCollapsed(roomId, true);
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 1399px)").matches) {
+      setHostTeamBoardOpen(false);
+    }
+  }, [roomId]);
+
+  const closeHostTeamBoardPanel = useCallback(() => {
+    setHostTeamBoardOpen(false);
+  }, []);
+
+  const expandHostTeamBoardPanel = useCallback(() => {
+    setHostTeamBoardCollapsed(false);
+    writeHostTeamBoardPanelCollapsed(roomId, false);
+  }, [roomId]);
+
   const toggleHostCommerceMinimized = useCallback(() => {
     setHostCommerceMinimized((prev) => {
       const next = !prev;
@@ -1374,10 +1412,11 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     }
   };
 
-  const teamBoardStageOverlay =
-    teamBoardData && teamBoardData.state.visible ? (
+  const hostTeamBoardPanelBody =
+    teamBoardData && teamBoardData.teams.length > 0 ? (
       <TeamBoardOverlay
-        state={teamBoardData.state}
+        presentation="embedded"
+        state={{ ...teamBoardData.state, visible: true }}
         picks={teamBoardData.picks}
         teams={teamBoardData.teams}
         viewerUserId={session?.user?.id ?? null}
@@ -1386,7 +1425,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         busy={teamBoardBusy}
         onPick={(abbr) => void handleHostTeamPick(abbr)}
       />
-    ) : null;
+    ) : (
+      <p className="px-1 py-2 text-center text-xs text-zinc-500">Team list is loading…</p>
+    );
 
   const selectedQueueRow =
     data.queueItems.find((q) => q.item.id === selectedQueueItemId) ?? data.queueItems[0] ?? null;
@@ -1538,6 +1579,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       setVaultCommandOpen(false);
       setStreamSetupModalOpen(true);
     },
+    onToggleTeamBoard: toggleHostTeamBoardPanel,
+    teamBoardPanelOpen: hostTeamBoardOpen,
     onOpenObs: () => {
       setVaultCommandOpen(false);
       setObsSetupModalOpen(true);
@@ -1683,16 +1726,6 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     thumbnailUrl: room.thumbnailUrl ?? null,
     hostSellerId: room.sellerId,
     onBack: () => router.push("/seller/live"),
-    stageBelowAudience: (
-      <TeamBoardChromeButton
-        league={teamBoardData?.state.league ?? "nba"}
-        tileCount={teamBoardData?.teams.length}
-        boardVisible={Boolean(teamBoardData?.state.visible)}
-        disabled={teamBoardBusy || room.status === "ended"}
-        onPress={() => void patchTeamBoard({ visible: !(teamBoardData?.state.visible ?? false) })}
-      />
-    ),
-    centerOverlay: teamBoardStageOverlay,
     actionOverlay: hostDesktopItemOverlay,
     mobileActionOverlay: hostMobileItemOverlay,
     compactActionOverlay: false,
@@ -1813,8 +1846,29 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
             <LiveVideoStage {...hostStageProps} />
           </div>
 
-          <aside className="live-stage-utility-dock-wrap pointer-events-auto absolute left-4 top-4 z-30 w-[min(196px,14vw)] live-stage-ui-awake">
-            <LiveSellerCommandCenter {...commandCenterProps} variant="panel" compactRail />
+          <aside
+            className={`live-stage-utility-dock-wrap pointer-events-auto absolute left-4 top-4 z-30 flex max-h-[calc(100%-2rem)] min-h-0 flex-col live-stage-ui-awake ${
+              hostTeamBoardOpen && !hostTeamBoardCollapsed
+                ? "w-[min(380px,32vw)]"
+                : "w-[min(196px,14vw)]"
+            }`}
+          >
+            <div className="live-stage-utility-dock flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              <LiveSellerCommandCenter {...commandCenterProps} variant="panel" compactRail />
+              {hostTeamBoardOpen ? (
+                <TeamBoardHostPanel
+                  league={teamBoardData?.state.league ?? "nba"}
+                  tileCount={teamBoardData?.teams.length}
+                  collapsed={hostTeamBoardCollapsed}
+                  disabled={teamBoardBusy || room.status === "ended"}
+                  onToggleCollapsed={minimizeHostTeamBoardPanel}
+                  onExpandCollapsed={expandHostTeamBoardPanel}
+                  onClose={closeHostTeamBoardPanel}
+                >
+                  {hostTeamBoardPanelBody}
+                </TeamBoardHostPanel>
+              ) : null}
+            </div>
           </aside>
 
           <aside className="live-stage-chat-dock pointer-events-auto absolute bottom-20 right-4 top-4 z-30 flex min-h-0 w-[min(240px,17vw)] min-w-0 flex-col overflow-hidden live-stage-ui-awake">
@@ -1849,6 +1903,39 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           </div>
         </div>
       </div>
+
+      {hostTeamBoardOpen && !hostTeamBoardCollapsed ? (
+        <div
+          role="dialog"
+          aria-label="Team board"
+          className="fixed inset-x-0 bottom-0 z-[66] flex max-h-[50dvh] flex-col border-t border-white/10 bg-zinc-950/98 shadow-[0_-12px_40px_-16px_rgba(0,0,0,0.85)] min-[1400px]:hidden"
+        >
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/[0.08] px-3 py-2">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gold-bright/90">Team board</p>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                aria-label="Minimize team board"
+                className="rounded-lg border border-white/12 px-2.5 py-1 text-[10px] font-bold text-zinc-300"
+                onClick={minimizeHostTeamBoardPanel}
+              >
+                Minimize
+              </button>
+              <button
+                type="button"
+                aria-label="Close team board"
+                className="rounded-lg border border-white/12 px-2.5 py-1 text-[10px] font-bold text-zinc-300"
+                onClick={closeHostTeamBoardPanel}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-auto px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
+            {hostTeamBoardPanelBody}
+          </div>
+        </div>
+      ) : null}
 
       {vaultCommandOpen ? (
         <div className="fixed inset-0 z-[65] min-[1400px]:hidden">

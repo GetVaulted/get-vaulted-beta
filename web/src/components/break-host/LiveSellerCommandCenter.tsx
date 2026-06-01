@@ -53,6 +53,8 @@ export type LiveSellerCommandCenterProps = {
   onAddAuction: () => void;
   onOpenObs: () => void;
   onOpenStreamSetup: () => void;
+  onToggleTeamBoard?: () => void;
+  teamBoardPanelOpen?: boolean;
   onCopyPublic: () => void;
   recentSales: HostRecentSaleRowDTO[];
   feeTier?: LiveShowFeeTierSnapshot | null;
@@ -181,6 +183,8 @@ export function LiveSellerCommandCenter({
   onAddAuction,
   onOpenObs,
   onOpenStreamSetup,
+  onToggleTeamBoard,
+  teamBoardPanelOpen = false,
   onCopyPublic,
   recentSales,
   feeTier,
@@ -338,6 +342,16 @@ export function LiveSellerCommandCenter({
             <PrimaryBtn compact onClick={onOpenStreamSetup} disabled={busy} tone="gold">
               Start Stream
             </PrimaryBtn>
+            {onToggleTeamBoard ? (
+              <PrimaryBtn
+                compact
+                onClick={onToggleTeamBoard}
+                disabled={busy}
+                tone={teamBoardPanelOpen ? "gold" : "ghost"}
+              >
+                Teams
+              </PrimaryBtn>
+            ) : null}
             <div className="mt-1.5 grid grid-cols-2 gap-1">
               <PrimaryBtn compact onClick={onOpenObs} disabled={busy} tone="ghost">
                 OBS
@@ -591,6 +605,16 @@ export function LiveSellerCommandCenter({
             <PrimaryBtn compact onClick={onOpenStreamSetup} disabled={busy} tone="gold">
               Start Stream
             </PrimaryBtn>
+            {onToggleTeamBoard ? (
+              <PrimaryBtn
+                compact
+                onClick={onToggleTeamBoard}
+                disabled={busy}
+                tone={teamBoardPanelOpen ? "gold" : "ghost"}
+              >
+                Teams
+              </PrimaryBtn>
+            ) : null}
             <div className="mt-1.5 grid grid-cols-2 gap-1.5">
               <PrimaryBtn compact onClick={onOpenObs} disabled={busy} tone="ghost">
                 OBS
