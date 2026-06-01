@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Hls from "hls.js";
 import {
+  isLiveStreamSignal,
   parseBuyerSafeStreamPayload,
   resolveLivePlaybackSurfaceState,
   shouldAttachHlsPlayback,
 } from "@/lib/live-stream-playback";
 import { isLiveDebugEnabled, logLiveDebugEvent } from "@/lib/live-debug";
 import { logIvsWeb } from "@/lib/ivs-web-broadcast-log";
+import { isStageWebrtcEnabled, isWebRtcPlaybackSupported, useStageSubscribe } from "@/hooks/useStageSubscribe";
 import {
   formatScheduledStartLong,
   getCountdownParts,
@@ -43,6 +45,116 @@ const POLL_MS = 14_000;
 const MAX_PLAYER_RETRIES = 5;
 const BACKOFF_BASE_MS = 900;
 
+/** Shared low-latency HLS.js tuning — used by both the seller center stage and buyer room. */
+const HLS_LOW_LATENCY_CONFIG = {
+  enableWorker: true,
+  lowLatencyMode: true,
+  liveSyncDurationCount: 2,
+  liveMaxLatencyDurationCount: 4,
+  backBufferLength: 30,
+  maxBufferLength: 30,
+  maxMaxBufferLength: 60,
+} as const;
+
+/** If playback drifts more than this far behind the live edge, snap forward toward live. */
+const LIVE_EDGE_DRIFT_THRESHOLD_S = 6;
+/** Land this many seconds behind the live edge after a corrective seek (small buffer). */
+const LIVE_EDGE_TARGET_OFFSET_S = 1;
+/** How often the live-edge correction loop runs while a stream is playing. */
+const LIVE_EDGE_TICK_MS = 2500;
+/** Minimum gap between corrective seeks so we never thrash the decoder. */
+const LIVE_EDGE_SEEK_COOLDOWN_MS = 2500;
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+export type LiveEdgeMetrics = {
+  currentTime: number;
+  seekableEnd: number | null;
+  liveSyncPosition: number | null;
+  /** True live edge in seconds (seekable end preferred → liveSyncPosition → duration). */
+  liveEdge: number;
+  driftSeconds: number;
+};
+
+/**
+ * Reads the true live-edge position. We intentionally prefer `seekable.end` (the actual edge of the
+ * playlist window) over HLS.js `liveSyncPosition` (which is already offset back by liveSyncDuration),
+ * so reported drift reflects how far behind real-time the viewer is.
+ */
+function readLiveEdgeMetrics(el: HTMLVideoElement, hls: Hls | null): LiveEdgeMetrics {
+  const sync = hls?.liveSyncPosition;
+  const liveSyncPosition = typeof sync === "number" && Number.isFinite(sync) ? sync : null;
+
+  let seekableEnd: number | null = null;
+  if (el.seekable && el.seekable.length > 0) {
+    const end = el.seekable.end(el.seekable.length - 1);
+    if (Number.isFinite(end)) seekableEnd = end;
+  }
+
+  const liveEdge =
+    seekableEnd ??
+    liveSyncPosition ??
+    (Number.isFinite(el.duration) ? el.duration : Number.NaN);
+  const currentTime = el.currentTime;
+  const driftSeconds = Number.isFinite(liveEdge) ? liveEdge - currentTime : Number.NaN;
+  return { currentTime, seekableEnd, liveSyncPosition, liveEdge, driftSeconds };
+}
+
+/**
+ * Pins playback to the live edge. Runs repeatedly (HLS frag/level events, a polling loop, and on
+ * native Safari/iOS via `seekable.end`) — not just once on attach — so a player that started 30-60s
+ * behind is dragged forward to within {@link LIVE_EDGE_TARGET_OFFSET_S}s of live and kept there.
+ */
+function enforceLiveEdge(opts: {
+  el: HTMLVideoElement;
+  hls: Hls | null;
+  roomId: string;
+  source: string;
+  verbose: boolean;
+  lastSeekAtRef: { current: number };
+  onMetrics?: (metrics: LiveEdgeMetrics) => void;
+}): void {
+  const { el, hls, roomId, source, verbose, lastSeekAtRef, onMetrics } = opts;
+  const metrics = readLiveEdgeMetrics(el, hls);
+  onMetrics?.(metrics);
+
+  if (verbose) {
+    logIvsWeb("live edge check", {
+      roomId,
+      source,
+      currentTime: round1(metrics.currentTime),
+      seekableEnd: metrics.seekableEnd != null ? round1(metrics.seekableEnd) : null,
+      liveSyncPosition: metrics.liveSyncPosition != null ? round1(metrics.liveSyncPosition) : null,
+      driftSeconds: Number.isFinite(metrics.driftSeconds) ? round1(metrics.driftSeconds) : null,
+    });
+  }
+
+  if (
+    Number.isFinite(metrics.driftSeconds) &&
+    metrics.driftSeconds > LIVE_EDGE_DRIFT_THRESHOLD_S &&
+    Number.isFinite(metrics.liveEdge) &&
+    !el.paused &&
+    !el.ended
+  ) {
+    const now = Date.now();
+    if (now - lastSeekAtRef.current < LIVE_EDGE_SEEK_COOLDOWN_MS) return;
+    const target = Math.max(0, metrics.liveEdge - LIVE_EDGE_TARGET_OFFSET_S);
+    try {
+      el.currentTime = target;
+      lastSeekAtRef.current = now;
+      logIvsWeb("live edge seek", {
+        roomId,
+        source,
+        from: round1(metrics.currentTime),
+        to: round1(target),
+        driftSeconds: round1(metrics.driftSeconds),
+      });
+    } catch {
+      /* seeking can throw if not yet seekable; the loop retries on the next tick */
+    }
+  }
+}
+
 /**
  * Host stream + create-show thumbnail are portrait 9:16, letterboxed inside the stage.
  * One sizing path for all breakpoints: fill width up to the stage, cap height, let aspect-ratio
@@ -68,6 +180,15 @@ export function LiveVideoStagePlayback({
   const lastAttachedKeyRef = useRef<string>("");
   /** Bumped when a new attach starts or on unmount so stale async HLS setup cannot attach twice. */
   const attachEpochRef = useRef(0);
+  /** Log channel latency mode only once per mount to avoid per-poll log spam. */
+  const loggedLatencyModeRef = useRef(false);
+  /** Live-edge correction loop timer + last corrective-seek timestamp (cooldown guard). */
+  const liveEdgeTimerRef = useRef<number | null>(null);
+  const lastLiveSeekAtRef = useRef(0);
+  /** Active delivery transport. Ref mirrors state for use inside async fetchStream. */
+  const transportRef = useRef<"none" | "webrtc" | "hls">("none");
+  /** Set once WebRTC subscribe has failed for this signal, so we don't loop and stick to HLS. */
+  const webrtcFailedRef = useRef(false);
 
   const [loading, setLoading] = useState(true);
   const [fetchFailed, setFetchFailed] = useState(false);
@@ -83,6 +204,11 @@ export function LiveVideoStagePlayback({
   const [hlsFatalRetries, setHlsFatalRetries] = useState(0);
   const [hydrated, setHydrated] = useState(false);
   const [tick, setTick] = useState(0);
+  const [latencyMode, setLatencyMode] = useState<string | null>(null);
+  const [liveDebug, setLiveDebug] = useState<{ drift: number | null; liveEdge: number | null; currentTime: number } | null>(null);
+  const [streamMode, setStreamMode] = useState<string>("channel_hls");
+  const [stageAvailable, setStageAvailable] = useState(false);
+  const [transport, setTransport] = useState<"none" | "webrtc" | "hls">("none");
   mutedRef.current = muted;
 
   const scheduledStartMs = useMemo(() => parseScheduledStartMs(scheduledStartAt), [scheduledStartAt]);
@@ -112,14 +238,31 @@ export function LiveVideoStagePlayback({
   const tryPlay = useCallback(() => {
     const el = videoRef.current;
     if (!el) return;
-    void el.play().catch((playErr) => {
-      logIvsWeb("buyer playback error", {
-        roomId: liveRoomId,
-        reason: "autoplay_blocked",
-        message: playErr instanceof Error ? playErr.message : "play_rejected",
+    void el
+      .play()
+      .then(() => {
+        logIvsWeb("playback started", {
+          roomId: liveRoomId,
+          currentTime: round1(el.currentTime),
+          duration: Number.isFinite(el.duration) ? round1(el.duration) : "live",
+        });
+        enforceLiveEdge({
+          el,
+          hls: hlsRef.current,
+          roomId: liveRoomId,
+          source: "play_start",
+          verbose: true,
+          lastSeekAtRef: lastLiveSeekAtRef,
+        });
+      })
+      .catch((playErr) => {
+        logIvsWeb("buyer playback error", {
+          roomId: liveRoomId,
+          reason: "autoplay_blocked",
+          message: playErr instanceof Error ? playErr.message : "play_rejected",
+        });
+        setAutoplayBlocked(true);
       });
-      setAutoplayBlocked(true);
-    });
   }, [liveRoomId]);
 
   const attachSource = useCallback(
@@ -151,11 +294,13 @@ export function LiveVideoStagePlayback({
         if (epoch !== attachEpochRef.current) return;
         if (HlsCtor.isSupported()) {
           setDebugEngine("hls");
-          const hls = new HlsCtor({
-            enableWorker: true,
-            lowLatencyMode: true,
-            maxBufferLength: 30,
-            maxMaxBufferLength: 60,
+          const hls = new HlsCtor({ ...HLS_LOW_LATENCY_CONFIG });
+          logIvsWeb("hls lowLatencyMode enabled", {
+            roomId: liveRoomId,
+            lowLatencyMode: HLS_LOW_LATENCY_CONFIG.lowLatencyMode,
+            liveSyncDurationCount: HLS_LOW_LATENCY_CONFIG.liveSyncDurationCount,
+            liveMaxLatencyDurationCount: HLS_LOW_LATENCY_CONFIG.liveMaxLatencyDurationCount,
+            backBufferLength: HLS_LOW_LATENCY_CONFIG.backBufferLength,
           });
           if (epoch !== attachEpochRef.current) {
             hls.destroy();
@@ -169,6 +314,29 @@ export function LiveVideoStagePlayback({
             setHlsFatalRetries(0);
             setVideoHasData(true);
             tryPlay();
+          });
+          // Re-pin to the live edge on every playlist/segment update, not just once on attach.
+          hls.on(HlsCtor.Events.LEVEL_LOADED, () => {
+            if (epoch !== attachEpochRef.current) return;
+            enforceLiveEdge({
+              el,
+              hls,
+              roomId: liveRoomId,
+              source: "level_loaded",
+              verbose: isLiveDebugEnabled(),
+              lastSeekAtRef: lastLiveSeekAtRef,
+            });
+          });
+          hls.on(HlsCtor.Events.FRAG_LOADED, () => {
+            if (epoch !== attachEpochRef.current) return;
+            enforceLiveEdge({
+              el,
+              hls,
+              roomId: liveRoomId,
+              source: "frag_loaded",
+              verbose: false,
+              lastSeekAtRef: lastLiveSeekAtRef,
+            });
           });
           hls.on(HlsCtor.Events.ERROR, (_, data) => {
             if (!data.fatal) return;
@@ -247,6 +415,16 @@ export function LiveVideoStagePlayback({
       }
       setStreamHealth(safe.streamHealth);
       setPlaybackUrl(safe.playbackUrl);
+      setLatencyMode(safe.latencyMode ?? null);
+      setStreamMode(safe.streamMode);
+      setStageAvailable(safe.stageAvailable);
+      if (!loggedLatencyModeRef.current) {
+        loggedLatencyModeRef.current = true;
+        logIvsWeb("channel latency mode", {
+          roomId: liveRoomId,
+          latencyMode: safe.latencyMode ?? "unknown",
+        });
+      }
       if (safe.playbackUrl) {
         logIvsWeb("buyer playback url loaded", {
           roomId: liveRoomId,
@@ -259,13 +437,46 @@ export function LiveVideoStagePlayback({
       retryRef.current = 0;
       setHlsFatalRetries(0);
 
+      const signalLive = isLiveStreamSignal(safe.streamHealth);
+      // A fresh live signal resets the one-shot WebRTC failover guard so a new Go Live retries WebRTC.
+      if (!signalLive) webrtcFailedRef.current = false;
+
+      const wantWebrtc =
+        isStageWebrtcEnabled() &&
+        safe.streamMode === "stage_webrtc" &&
+        safe.stageAvailable &&
+        isWebRtcPlaybackSupported() &&
+        !webrtcFailedRef.current &&
+        signalLive;
+
+      if (wantWebrtc) {
+        if (transportRef.current !== "webrtc") {
+          transportRef.current = "webrtc";
+          setTransport("webrtc");
+          lastAttachedKeyRef.current = "";
+          setDebugEngine("none");
+          detachHls();
+          setVideoHasData(false);
+          logIvsWeb("transport selected", { roomId: liveRoomId, transport: "webrtc" });
+        }
+        // The WebRTC subscribe hook drives playback (attach/teardown) from here.
+        return;
+      }
+
       const attachKey = `${safe.playbackUrl ?? ""}|${safe.streamHealth}`;
       if (shouldAttachHlsPlayback(safe.streamHealth, safe.playbackUrl) && safe.playbackUrl) {
+        if (transportRef.current !== "hls") {
+          transportRef.current = "hls";
+          setTransport("hls");
+          logIvsWeb("transport selected", { roomId: liveRoomId, transport: "hls" });
+        }
         if (lastAttachedKeyRef.current !== attachKey) {
           lastAttachedKeyRef.current = attachKey;
           await attachSource(safe.playbackUrl, safe.streamHealth);
         }
       } else {
+        transportRef.current = "none";
+        setTransport("none");
         lastAttachedKeyRef.current = "";
         setDebugEngine("none");
         detachHls();
@@ -302,6 +513,9 @@ export function LiveVideoStagePlayback({
     attachEpochRef.current += 1;
     retryRef.current = 0;
     lastAttachedKeyRef.current = "";
+    transportRef.current = "none";
+    webrtcFailedRef.current = false;
+    setTransport("none");
     setPlayerFatal(false);
     setHlsFatalRetries(0);
     logLiveDebugEvent({
@@ -311,6 +525,33 @@ export function LiveVideoStagePlayback({
     });
     void fetchStream();
   }, [streamPlaybackRefreshNonce, fetchStream, liveRoomId]);
+
+  const handleWebrtcConnected = useCallback(() => {
+    setVideoHasData(true);
+    setReconnecting(false);
+    logIvsWeb("buyer playback connected", { roomId: liveRoomId, transport: "webrtc" });
+  }, [liveRoomId]);
+
+  const handleWebrtcFailed = useCallback(
+    (reason: string) => {
+      webrtcFailedRef.current = true;
+      transportRef.current = "none";
+      lastAttachedKeyRef.current = "";
+      setVideoHasData(false);
+      logIvsWeb("buyer playback error", { roomId: liveRoomId, reason: `webrtc_${reason}`, fallback: "hls" });
+      void fetchStream();
+    },
+    [fetchStream, liveRoomId],
+  );
+
+  useStageSubscribe({
+    roomId: liveRoomId,
+    videoRef,
+    active: transport === "webrtc",
+    muted,
+    onConnected: handleWebrtcConnected,
+    onFailed: handleWebrtcFailed,
+  });
 
   useEffect(() => {
     const onVis = () => {
@@ -338,7 +579,45 @@ export function LiveVideoStagePlayback({
     if (el) el.muted = muted;
   }, [muted]);
 
-  const surface = resolveLivePlaybackSurfaceState({
+  // Continuous live-edge correction loop. Runs for BOTH HLS.js and native Safari/iOS (which ignores
+  // HLS.js config and needs `seekable.end`-based correction), repeatedly dragging playback to live.
+  useEffect(() => {
+    // Only the HLS path needs live-edge correction; WebRTC is inherently at the edge (~0 drift).
+    const active =
+      transport === "hls" && videoHasData && Boolean(playbackUrl) && shouldAttachHlsPlayback(streamHealth, playbackUrl);
+    if (!active) {
+      setLiveDebug(null);
+      return;
+    }
+    const id = window.setInterval(() => {
+      const el = videoRef.current;
+      if (!el) return;
+      const verbose = isLiveDebugEnabled();
+      enforceLiveEdge({
+        el,
+        hls: hlsRef.current,
+        roomId: liveRoomId,
+        source: "interval",
+        verbose,
+        lastSeekAtRef: lastLiveSeekAtRef,
+        onMetrics: verbose
+          ? (m) =>
+              setLiveDebug({
+                drift: Number.isFinite(m.driftSeconds) ? round1(m.driftSeconds) : null,
+                liveEdge: Number.isFinite(m.liveEdge) ? round1(m.liveEdge) : null,
+                currentTime: round1(m.currentTime),
+              })
+          : undefined,
+      });
+    }, LIVE_EDGE_TICK_MS);
+    liveEdgeTimerRef.current = id;
+    return () => {
+      window.clearInterval(id);
+      liveEdgeTimerRef.current = null;
+    };
+  }, [transport, videoHasData, streamHealth, playbackUrl, liveRoomId]);
+
+  const hlsSurface = resolveLivePlaybackSurfaceState({
     loading,
     fetchFailed,
     reconnecting,
@@ -348,8 +627,18 @@ export function LiveVideoStagePlayback({
     playerFatal,
     roomLifecycleLive,
   });
+  // WebRTC has no playbackUrl, so the HLS-oriented surface resolver can't classify it — drive it
+  // off connection state (videoHasData) instead.
+  const surface =
+    transport === "webrtc"
+      ? videoHasData
+        ? "live"
+        : roomLifecycleLive
+          ? "connecting"
+          : "offline"
+      : hlsSurface;
 
-  const showVideoLayer = Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
+  const showVideoLayer = transport === "webrtc" || Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
   const showPlaybackErrorCenter = surface === "error" && roomLifecycleLive;
   const showStandbyCenter = !showVideoLayer || showPlaybackErrorCenter;
   /**
@@ -543,6 +832,18 @@ export function LiveVideoStagePlayback({
           className="pointer-events-none absolute bottom-2 right-2 z-[30] max-w-[15rem] rounded border border-amber-500/35 bg-black/88 px-2 py-1.5 font-mono text-[9px] leading-snug text-amber-100/95 shadow-lg"
           aria-hidden
         >
+          <div className="mb-1 font-bold text-amber-300">Low Latency Debug</div>
+          <div>transport: {transport}</div>
+          <div>streamMode: {streamMode}</div>
+          <div>stageAvail: {stageAvailable ? "y" : "n"}</div>
+          <div>latencyMode: {latencyMode ?? "—"}</div>
+          <div>hls lowLatency: {debugEngine === "hls" ? (HLS_LOW_LATENCY_CONFIG.lowLatencyMode ? "y" : "n") : "n/a"}</div>
+          <div>liveEdge: {liveDebug?.liveEdge != null ? `${liveDebug.liveEdge}s` : "—"}</div>
+          <div>currentTime: {liveDebug?.currentTime != null ? `${liveDebug.currentTime}s` : "—"}</div>
+          <div className={liveDebug?.drift != null && liveDebug.drift > LIVE_EDGE_DRIFT_THRESHOLD_S ? "text-red-400" : ""}>
+            drift: {liveDebug?.drift != null ? `${liveDebug.drift}s` : "—"}
+          </div>
+          <div className="my-1 border-t border-amber-500/20" />
           <div>surface: {surface}</div>
           <div>streamHealth: {streamHealth}</div>
           <div>engine: {debugEngine}</div>

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { logIvsOpsServer } from "@/lib/ivs-ops-log";
+import { emitStreamStatusChanged } from "@/lib/realtime-emit-server";
 import { endHostWebBroadcastSession } from "@/services/ivs";
 import { errorResponse, getStreamRow, requireHostAccess, toHostStreamPayload } from "../_shared";
 
@@ -14,6 +15,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     await endHostWebBroadcastSession(id);
     const row = await getStreamRow(id);
     if (!row) return NextResponse.json({ error: "Room not found." }, { status: 404 });
+
+    // Push the offline/ended health to buyers immediately so their playback clears without
+    // waiting on the slower background poll.
+    emitStreamStatusChanged(id, {
+      streamHealth: row.streamHealth,
+      lastStatusSyncAt: (row.lastIvsStatusSyncAt ?? new Date()).toISOString(),
+    });
 
     logIvsOpsServer("ivs_web_broadcast_stop", { roomId: id });
     return NextResponse.json({

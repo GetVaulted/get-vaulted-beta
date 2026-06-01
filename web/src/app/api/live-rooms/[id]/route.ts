@@ -24,6 +24,7 @@ import { emitAuctionEnded, emitAuctionStarted, emitLiveDiscoveryChanged, emitTea
 import { buildLiveTipRoomData } from "@/lib/live-tip-moderator";
 import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
 import { finalizeLiveStreamReplay } from "@/lib/trust/live-replay-service";
+import { endHostStageSession } from "@/services/ivs";
 import { logSellerRoomStateSnapshot } from "@/lib/log-room-state-snapshot";
 import { computeBreakBuyerPhase } from "@/lib/live-room-break-public";
 
@@ -298,6 +299,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     const roomNow = await prisma.liveRoom.findUnique({ where: { id }, select: { roomVersion: true } });
     emitAuctionEnded(id, roomNow?.roomVersion);
     emitLiveDiscoveryChanged({ roomId: id, status: "ended", reason: "ended" });
+    // Tear down the WebRTC Stage HLS mirror + mark stream ended so composition cost stops with the show.
+    void endHostStageSession(id).catch((e) => console.error("[live-room end] stage teardown", e));
     void finalizeLiveStreamReplay(id).catch((e) => console.error("[live-room end] replay", e));
     return NextResponse.json({ ok: true });
   }
@@ -324,6 +327,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       emitAuctionEnded(id, roomNow?.roomVersion);
     }
     emitLiveDiscoveryChanged({ roomId: id, status: "ended", reason: "cancelled" });
+    void endHostStageSession(id).catch((e) => console.error("[live-room cancel] stage teardown", e));
     void finalizeLiveStreamReplay(id).catch((e) => console.error("[live-room cancel] replay", e));
     return NextResponse.json({ ok: true });
   }

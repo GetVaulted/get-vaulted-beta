@@ -14,6 +14,8 @@ describe("live-stream-playback", () => {
         streamStartedAt: "2026-01-01T00:00:00.000Z",
         streamEndedAt: null,
         lastStatusSyncAt: "2026-01-02T00:00:00.000Z",
+        streamMode: "stage_webrtc",
+        stageAvailable: true,
         ingestEndpoint: "rtmps://secret",
         streamKeyArn: "arn:aws:ivs:secret",
       },
@@ -25,7 +27,18 @@ describe("live-stream-playback", () => {
       streamStartedAt: "2026-01-01T00:00:00.000Z",
       streamEndedAt: null,
       lastStatusSyncAt: "2026-01-02T00:00:00.000Z",
+      latencyMode: null,
+      streamMode: "stage_webrtc",
+      stageAvailable: true,
     });
+  });
+
+  it("parseBuyerSafeStreamPayload defaults streamMode/stageAvailable when absent", () => {
+    const parsed = parseBuyerSafeStreamPayload({
+      stream: { streamHealth: "offline" },
+    });
+    expect(parsed?.streamMode).toBe("channel_hls");
+    expect(parsed?.stageAvailable).toBe(false);
   });
 
   it("parseBuyerSafeStreamPayload returns null for invalid payloads", () => {

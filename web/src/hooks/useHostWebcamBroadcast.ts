@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AmazonIVSBroadcastClient } from "amazon-ivs-web-broadcast";
 import { logIvsWeb, redactIngestEndpoint } from "@/lib/ivs-web-broadcast-log";
 
-type BroadcastPhase = "idle" | "starting" | "live" | "stopping";
+export type HostBroadcastPhase = "idle" | "starting" | "live" | "stopping";
 
 type BroadcastStartResponse = {
   error?: string;
@@ -39,28 +39,37 @@ function sleep(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 }
 
-export function HostWebcamBroadcast({
+/**
+ * Owns the in-browser IVS webcam broadcast (camera/mic → IVS) for the seller console.
+ *
+ * Lives at the console level (not inside the Start Stream modal) so that closing/collapsing
+ * the modal after a successful start does NOT tear down the running broadcast. Cleanup only
+ * happens when the host leaves the console (hook unmount).
+ */
+export function useHostWebcamBroadcast({
   roomId,
-  compact = false,
-  onStreamRefresh,
   onBroadcastStarted,
-  startButtonLabel = "Start Stream",
-  stopButtonLabel = "Stop Stream",
+  onStreamRefresh,
+  onLive,
 }: {
   roomId: string;
-  compact?: boolean;
-  onStreamRefresh?: () => void;
-  /** Called after IVS broadcast starts successfully (e.g. mark room live). */
+  /** Called once the IVS broadcast starts successfully (e.g. mark room live). */
   onBroadcastStarted?: () => void | Promise<void>;
-  startButtonLabel?: string;
-  stopButtonLabel?: string;
+  /** Bump host stage HLS + buyer playback refresh nonces. */
+  onStreamRefresh?: () => void;
+  /** Fired when the broadcast reaches the live phase (e.g. auto-close the setup modal). */
+  onLive?: () => void;
 }) {
-  const previewRef = useRef<HTMLCanvasElement>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const clientRef = useRef<AmazonIVSBroadcastClient | null>(null);
-  const [phase, setPhase] = useState<BroadcastPhase>("idle");
+  const startInFlightRef = useRef(false);
+  const [phase, setPhase] = useState<HostBroadcastPhase>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+
+  // Keep callbacks in a ref so `start`/`stop` stay stable across console re-renders while
+  // still invoking the latest handlers.
+  const callbacksRef = useRef({ onBroadcastStarted, onStreamRefresh, onLive });
+  callbacksRef.current = { onBroadcastStarted, onStreamRefresh, onLive };
 
   const cleanupLocal = useCallback(() => {
     try {
@@ -94,7 +103,12 @@ export function HostWebcamBroadcast({
         const health = body.stream?.streamHealth ?? "unknown";
         const hasPlayback = Boolean(body.stream?.playbackUrl?.trim());
         logIvsWeb("stream health poll", { attempt, health, hasPlayback, httpStatus: res.status });
-        if (health === "live") return;
+        if (health === "live") {
+          // Stage + buyer playback should attach the moment IVS reports a live signal,
+          // without waiting on the slower background poll.
+          callbacksRef.current.onStreamRefresh?.();
+          return;
+        }
       } catch (pollErr) {
         logIvsWeb("stream health poll", {
           attempt,
@@ -105,17 +119,17 @@ export function HostWebcamBroadcast({
     }
   }, [roomId]);
 
-  const startWebcam = useCallback(async () => {
-    if (phase === "starting" || phase === "live") return;
+  const start = useCallback(async () => {
+    if (startInFlightRef.current || clientRef.current || mediaStreamRef.current) return;
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("This browser does not support in-browser streaming. Use Advanced / OBS instead.");
       logIvsWeb("startBroadcast error", { reason: "getUserMedia_unavailable" });
       return;
     }
 
+    startInFlightRef.current = true;
     setPhase("starting");
     setError(null);
-    setNotice(null);
 
     try {
       logIvsWeb("permission requested", { roomId });
@@ -158,6 +172,23 @@ export function HostWebcamBroadcast({
 
       const ivs = await import("amazon-ivs-web-broadcast");
       const streamConfig = preset === "BASIC_LANDSCAPE" ? ivs.BASIC_LANDSCAPE : ivs.STANDARD_LANDSCAPE;
+
+      // Confirm the encoder settings the SDK preset will use. IVS web-broadcast presets fix the
+      // keyframe interval (GOP) at ~2s, which is the recommended low-latency setting — there is no
+      // long-GOP knob to misconfigure here. Logged so we can rule encoder settings in/out.
+      const cfg = streamConfig as unknown as {
+        maxResolution?: { width?: number; height?: number };
+        maxFramerate?: number;
+        maxBitrate?: number;
+      };
+      logIvsWeb("web broadcast preset config", {
+        preset,
+        maxWidth: cfg.maxResolution?.width ?? null,
+        maxHeight: cfg.maxResolution?.height ?? null,
+        maxFramerate: cfg.maxFramerate ?? null,
+        maxBitrate: cfg.maxBitrate ?? null,
+      });
+
       const client = ivs.create({ streamConfig, ingestEndpoint });
       clientRef.current = client;
 
@@ -178,17 +209,6 @@ export function HostWebcamBroadcast({
 
       await client.addVideoInputDevice(media, "camera", { index: 0 });
       await client.addAudioInputDevice(media, "microphone");
-
-      const canvas = previewRef.current;
-      if (canvas) {
-        const dims = client.getCanvasDimensions();
-        canvas.width = dims.width;
-        canvas.height = dims.height;
-        client.attachPreview(canvas);
-        logIvsWeb("preview started", { canvasWidth: canvas.width, canvasHeight: canvas.height });
-      } else {
-        logIvsWeb("preview started", { warning: "preview_canvas_missing" });
-      }
 
       logIvsWeb("startBroadcast called", { ingestHost: redactIngestEndpoint(ingestEndpoint) });
 
@@ -216,9 +236,9 @@ export function HostWebcamBroadcast({
       logIvsWeb("startBroadcast success", { connectionState: client.getConnectionState?.() });
 
       setPhase("live");
-      setNotice("You are live from this browser. Buyers will see video once IVS reports a live signal (usually a few seconds).");
-      await onBroadcastStarted?.();
-      onStreamRefresh?.();
+      await callbacksRef.current.onBroadcastStarted?.();
+      callbacksRef.current.onStreamRefresh?.();
+      callbacksRef.current.onLive?.();
       void pollStreamHealth();
     } catch (err) {
       logIvsWeb("startBroadcast error", {
@@ -228,14 +248,15 @@ export function HostWebcamBroadcast({
       cleanupLocal();
       setPhase("idle");
       setError(friendlyMediaError(err));
+    } finally {
+      startInFlightRef.current = false;
     }
-  }, [cleanupLocal, onBroadcastStarted, onStreamRefresh, phase, pollStreamHealth, roomId]);
+  }, [cleanupLocal, pollStreamHealth, roomId]);
 
-  const stopWebcam = useCallback(async () => {
-    if (phase !== "live" && phase !== "starting") return;
-    setPhase("stopping");
+  const stop = useCallback(async () => {
+    setPhase((prev) => (prev === "live" || prev === "starting" ? "stopping" : prev));
+    if (!clientRef.current && !mediaStreamRef.current) return;
     setError(null);
-    setNotice(null);
     cleanupLocal();
 
     try {
@@ -247,65 +268,13 @@ export function HostWebcamBroadcast({
       if (!res.ok) {
         throw new Error(typeof body.error === "string" ? body.error : "Could not stop webcam broadcast.");
       }
-      setNotice("Broadcast stopped. Stream key was rotated — start again to go live from the browser.");
-      onStreamRefresh?.();
+      callbacksRef.current.onStreamRefresh?.();
     } catch (err) {
       setError(friendlyMediaError(err));
     } finally {
       setPhase("idle");
     }
-  }, [cleanupLocal, onStreamRefresh, phase, roomId]);
+  }, [cleanupLocal, roomId]);
 
-  const previewHeight = compact ? "h-36" : "h-48";
-
-  return (
-    <div className="rounded-lg border border-gold/20 bg-gold/[0.04] p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-gold-bright/90">Webcam stream</p>
-        {phase === "live" ? (
-          <span className="rounded-full border border-rose-500/35 bg-rose-950/40 px-2 py-0.5 text-[10px] font-semibold text-rose-100">
-            Broadcasting
-          </span>
-        ) : null}
-      </div>
-
-      <p className="mt-2 text-xs leading-relaxed text-zinc-400">
-        Stream directly from this browser using your camera and microphone. No OBS required.
-      </p>
-
-      <div className={`relative mt-3 overflow-hidden rounded-lg border border-white/10 bg-black ${previewHeight}`}>
-        <canvas ref={previewRef} className="absolute inset-0 h-full w-full object-contain" />
-        {phase === "idle" ? (
-          <p className="absolute inset-0 flex items-center justify-center px-3 text-center text-[11px] text-zinc-500">
-            Camera preview appears after you start streaming.
-          </p>
-        ) : null}
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-2">
-        {phase === "live" || phase === "stopping" ? (
-          <button
-            type="button"
-            disabled={phase === "stopping"}
-            className="min-h-10 rounded-lg border border-rose-500/35 bg-rose-950/30 px-3 text-xs font-bold text-rose-100 hover:bg-rose-950/50 disabled:opacity-40"
-            onClick={() => void stopWebcam()}
-          >
-            {phase === "stopping" ? "Stopping…" : stopButtonLabel}
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled={phase === "starting"}
-            className="min-h-10 rounded-lg border border-gold/35 bg-gold/12 px-3 text-xs font-bold text-gold-bright hover:bg-gold/20 disabled:opacity-40"
-            onClick={() => void startWebcam()}
-          >
-            {phase === "starting" ? "Starting camera…" : startButtonLabel}
-          </button>
-        )}
-      </div>
-
-      {error ? <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-950/30 px-3 py-2 text-xs text-rose-100">{error}</p> : null}
-      {notice ? <p className="mt-3 rounded-lg border border-emerald-500/25 bg-emerald-950/20 px-3 py-2 text-xs text-emerald-100">{notice}</p> : null}
-    </div>
-  );
+  return { phase, error, start, stop };
 }

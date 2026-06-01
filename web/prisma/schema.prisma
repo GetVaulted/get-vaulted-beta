@@ -63,6 +63,13 @@ enum LiveStreamProvider {
   aws_ivs
 }
 
+/// How a room's video is delivered. `stage_webrtc` = IVS Real-Time (sub-second WebRTC);
+/// `channel_hls` = IVS Low-Latency/HLS channel (OBS path + overflow/replay fallback).
+enum LiveStreamMode {
+  stage_webrtc
+  channel_hls
+}
+
 enum LiveStreamHealth {
   not_provisioned
   offline
@@ -673,11 +680,16 @@ model LiveRoom {
   thumbnailUrl       String         @default("")
   viewerCount        Int            @default(0)
   streamProvider     LiveStreamProvider @default(none)
+  streamMode         LiveStreamMode     @default(stage_webrtc)
   streamHealth       LiveStreamHealth   @default(not_provisioned)
   ivsChannelArn      String?
   ivsChannelName     String?
   ivsPlaybackUrl     String?
   ivsIngestEndpoint  String?
+  /// IVS Real-Time Stage ARN (WebRTC publish/subscribe). Null until a browser/mobile Go Live provisions it.
+  ivsStageArn        String?
+  /// Active stage->channel composition ARN (HLS mirror for fallback/overflow/replay). Null when not compositing.
+  ivsCompositionArn  String?
   ivsStreamKeyArn    String?
   ivsStreamKeyCreatedAt DateTime?
   streamStartedAt    DateTime?

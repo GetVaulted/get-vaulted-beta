@@ -52,7 +52,8 @@ export type LiveSellerCommandCenterProps = {
   onDeleteItem: (id: string) => void;
   onAddAuction: () => void;
   onOpenObs: () => void;
-  onOpenStreamSetup: () => void;
+  /** Go Live: patch room live AND auto-start the default webcam broadcast (no Tools required). */
+  onGoLive: () => void;
   onToggleTeamBoard?: () => void;
   teamBoardPanelOpen?: boolean;
   onCopyPublic: () => void;
@@ -182,7 +183,7 @@ export function LiveSellerCommandCenter({
   onDeleteItem,
   onAddAuction,
   onOpenObs,
-  onOpenStreamSetup,
+  onGoLive,
   onToggleTeamBoard,
   teamBoardPanelOpen = false,
   onCopyPublic,
@@ -329,7 +330,7 @@ export function LiveSellerCommandCenter({
             <button
               type="button"
               disabled={busy}
-              onClick={() => onPatchRoom("start")}
+              onClick={onGoLive}
               className="w-full rounded-xl border border-emerald-400/25 bg-emerald-500/12 py-1.5 text-[9px] font-black uppercase tracking-wide text-emerald-100 disabled:opacity-40"
             >
               Go live
@@ -339,9 +340,6 @@ export function LiveSellerCommandCenter({
 
         <div className="space-y-1 px-2 pb-2">
           <CollapsibleSection title="Tools" glass defaultOpen={false}>
-            <PrimaryBtn compact onClick={onOpenStreamSetup} disabled={busy} tone="gold">
-              Start Stream
-            </PrimaryBtn>
             {onToggleTeamBoard ? (
               <PrimaryBtn
                 compact
@@ -449,7 +447,7 @@ export function LiveSellerCommandCenter({
           <button
             type="button"
             disabled={busy}
-            onClick={() => onPatchRoom("start")}
+            onClick={onGoLive}
             className="mt-2 w-full rounded-full border border-emerald-400/30 bg-emerald-500/15 py-1.5 text-[10px] font-black uppercase tracking-wide text-emerald-100 disabled:opacity-40"
           >
             Go live
@@ -602,9 +600,6 @@ export function LiveSellerCommandCenter({
           ) : null}
           {!isCompactRail ? (
           <CollapsibleSection title="Tools" glass defaultOpen={false}>
-            <PrimaryBtn compact onClick={onOpenStreamSetup} disabled={busy} tone="gold">
-              Start Stream
-            </PrimaryBtn>
             {onToggleTeamBoard ? (
               <PrimaryBtn
                 compact

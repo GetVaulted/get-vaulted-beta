@@ -12,6 +12,9 @@ const hoisted = vi.hoisted(() => ({
   stopStream: vi.fn(),
   syncLiveRoomStreamFromIvs: vi.fn(),
   reconcileStaleLiveStreamWithRoomStatus: vi.fn(),
+  prepareHostStageSession: vi.fn(),
+  createViewerStageToken: vi.fn(),
+  endHostStageSession: vi.fn(),
   checkRateLimit: vi.fn(() => ({ ok: true as const, remaining: 29, resetAt: Date.now() + 60_000 })),
 }));
 
@@ -52,6 +55,13 @@ vi.mock("@/services/ivs", () => ({
   stopStream: hoisted.stopStream,
   syncLiveRoomStreamFromIvs: hoisted.syncLiveRoomStreamFromIvs,
   reconcileStaleLiveStreamWithRoomStatus: hoisted.reconcileStaleLiveStreamWithRoomStatus,
+  prepareHostStageSession: hoisted.prepareHostStageSession,
+  createViewerStageToken: hoisted.createViewerStageToken,
+  endHostStageSession: hoisted.endHostStageSession,
+}));
+
+vi.mock("@/lib/realtime-emit-server", () => ({
+  emitStreamStatusChanged: vi.fn(),
 }));
 
 import { POST as broadcastStart } from "@/app/api/live-rooms/[id]/stream/broadcast-start/route";
@@ -60,11 +70,17 @@ import { GET as getStream } from "@/app/api/live-rooms/[id]/stream/route";
 import { POST as provision } from "@/app/api/live-rooms/[id]/stream/provision/route";
 import { POST as rotate } from "@/app/api/live-rooms/[id]/stream/rotate-key/route";
 import { POST as stop } from "@/app/api/live-rooms/[id]/stream/stop/route";
+import {
+  DELETE as stageTokenDelete,
+  GET as stageTokenGet,
+  POST as stageTokenPost,
+} from "@/app/api/live-rooms/[id]/stream/stage-token/route";
 
 function streamRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "room_1",
     streamProvider: "aws_ivs",
+    streamMode: "stage_webrtc",
     streamHealth: "offline",
     ivsPlaybackUrl: "https://playback.m3u8",
     ivsIngestEndpoint: "rtmps://ingest.global-contribute.live-video.net:443/app/",
@@ -72,6 +88,7 @@ function streamRow(overrides: Record<string, unknown> = {}) {
     ivsChannelName: "vaulted-live-room_1",
     ivsStreamKeyArn: "arn:aws:ivs:us-east-1:123:stream-key/abc",
     ivsStreamKeyCreatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    ivsStageArn: "arn:aws:ivs:us-east-1:123:stage/abc",
     streamStartedAt: null,
     streamEndedAt: null,
     lastIvsStatusSyncAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -105,6 +122,19 @@ describe("live room stream routes", () => {
     hoisted.stopStream.mockResolvedValue(undefined);
     hoisted.syncLiveRoomStreamFromIvs.mockResolvedValue(null);
     hoisted.reconcileStaleLiveStreamWithRoomStatus.mockResolvedValue(null);
+    hoisted.prepareHostStageSession.mockResolvedValue({
+      token: "host_stage_token",
+      participantId: "participant_host",
+      stageArn: "arn:aws:ivs:us-east-1:123:stage/abc",
+      expiresInSeconds: 3600,
+    });
+    hoisted.createViewerStageToken.mockResolvedValue({
+      token: "viewer_stage_token",
+      participantId: "participant_viewer",
+      stageArn: "arn:aws:ivs:us-east-1:123:stage/abc",
+      expiresInSeconds: 1200,
+    });
+    hoisted.endHostStageSession.mockResolvedValue(undefined);
     hoisted.checkRateLimit.mockReturnValue({ ok: true as const, remaining: 29, resetAt: Date.now() + 60_000 });
   });
 
@@ -171,7 +201,18 @@ describe("live room stream routes", () => {
     expect(serialized).not.toContain("ivsChannelArn");
     const stream = body.stream as Record<string, unknown>;
     expect(Object.keys(stream).sort()).toEqual(
-      ["lastStatusSyncAt", "playbackUrl", "roomId", "streamEndedAt", "streamHealth", "streamProvider", "streamStartedAt"].sort(),
+      [
+        "lastStatusSyncAt",
+        "latencyMode",
+        "playbackUrl",
+        "roomId",
+        "stageAvailable",
+        "streamEndedAt",
+        "streamHealth",
+        "streamMode",
+        "streamProvider",
+        "streamStartedAt",
+      ].sort(),
     );
   });
 
@@ -236,5 +277,63 @@ describe("live room stream routes", () => {
     const serialized = JSON.stringify(await res.json());
     expect(serialized).not.toContain("sk_live");
     expect(serialized).not.toContain("streamKey");
+  });
+
+  it("stage-token POST returns a host publish token", async () => {
+    const res = await stageTokenPost(new Request("http://x", { method: "POST" }), {
+      params: Promise.resolve({ id: "room_1" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { stage?: { token?: string; participantId?: string } };
+    expect(body.stage?.token).toBe("host_stage_token");
+    expect(hoisted.prepareHostStageSession).toHaveBeenCalledWith("room_1", "seller_1");
+  });
+
+  it("stage-token POST is forbidden for non-host", async () => {
+    hoisted.hostAccess.mockResolvedValueOnce({ ok: false, status: 403, error: "Forbidden" });
+    const res = await stageTokenPost(new Request("http://x", { method: "POST" }), {
+      params: Promise.resolve({ id: "room_1" }),
+    });
+    expect(res.status).toBe(403);
+    expect(hoisted.prepareHostStageSession).not.toHaveBeenCalled();
+  });
+
+  it("stage-token GET returns a subscribe-only viewer token", async () => {
+    const res = await stageTokenGet(new Request("http://x"), { params: Promise.resolve({ id: "room_1" }) });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { stage?: { token?: string } };
+    expect(body.stage?.token).toBe("viewer_stage_token");
+    expect(hoisted.createViewerStageToken).toHaveBeenCalledWith("room_1", "seller_1");
+    // Viewer token path must never mint a host/publish session.
+    expect(hoisted.prepareHostStageSession).not.toHaveBeenCalled();
+  });
+
+  it("stage-token GET is unauthorized for guests", async () => {
+    hoisted.getServerSession.mockResolvedValueOnce(null);
+    hoisted.getServerSessionSafe.mockResolvedValueOnce(null);
+    const res = await stageTokenGet(new Request("http://x"), { params: Promise.resolve({ id: "room_1" }) });
+    expect(res.status).toBe(401);
+    expect(hoisted.createViewerStageToken).not.toHaveBeenCalled();
+  });
+
+  it("stage-token GET returns 409 when the room has no stage", async () => {
+    hoisted.liveRoomFindUnique.mockResolvedValueOnce(streamRow({ ivsStageArn: null }));
+    const res = await stageTokenGet(new Request("http://x"), { params: Promise.resolve({ id: "room_1" }) });
+    expect(res.status).toBe(409);
+    expect(hoisted.createViewerStageToken).not.toHaveBeenCalled();
+  });
+
+  it("stage-token DELETE ends the host stage session (host-only)", async () => {
+    const denied = await stageTokenDelete(new Request("http://x", { method: "DELETE" }), {
+      params: Promise.resolve({ id: "room_1" }),
+    });
+    expect(denied.status).toBe(200);
+    expect(hoisted.endHostStageSession).toHaveBeenCalledWith("room_1");
+
+    hoisted.hostAccess.mockResolvedValueOnce({ ok: false, status: 403, error: "Forbidden" });
+    const forbidden = await stageTokenDelete(new Request("http://x", { method: "DELETE" }), {
+      params: Promise.resolve({ id: "room_2" }),
+    });
+    expect(forbidden.status).toBe(403);
   });
 });

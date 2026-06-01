@@ -2,9 +2,16 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireLiveRoomHostAccess } from "@/lib/resolve-live-host-access";
 
+/** Configured IVS channel latency mode ("LOW" = low-latency HLS), without pulling in the AWS SDK service. */
+function configuredLatencyMode(): "LOW" | "NORMAL" {
+  const raw = process.env.AWS_IVS_LATENCY_MODE?.trim().toUpperCase();
+  return raw === "NORMAL" ? "NORMAL" : "LOW";
+}
+
 export type StreamRow = {
   id: string;
   streamProvider: string;
+  streamMode: string;
   streamHealth: string;
   ivsPlaybackUrl: string | null;
   ivsIngestEndpoint: string | null;
@@ -12,6 +19,7 @@ export type StreamRow = {
   ivsChannelName: string | null;
   ivsStreamKeyArn: string | null;
   ivsStreamKeyCreatedAt: Date | null;
+  ivsStageArn: string | null;
   streamStartedAt: Date | null;
   streamEndedAt: Date | null;
   lastIvsStatusSyncAt: Date | null;
@@ -24,6 +32,7 @@ export async function getStreamRow(liveRoomId: string): Promise<StreamRow | null
     select: {
       id: true,
       streamProvider: true,
+      streamMode: true,
       streamHealth: true,
       ivsPlaybackUrl: true,
       ivsIngestEndpoint: true,
@@ -31,6 +40,7 @@ export async function getStreamRow(liveRoomId: string): Promise<StreamRow | null
       ivsChannelName: true,
       ivsStreamKeyArn: true,
       ivsStreamKeyCreatedAt: true,
+      ivsStageArn: true,
       streamStartedAt: true,
       streamEndedAt: true,
       lastIvsStatusSyncAt: true,
@@ -47,11 +57,18 @@ export function toBuyerSafeStreamPayload(row: StreamRow) {
   return {
     roomId: row.id,
     streamProvider: row.streamProvider,
+    // Delivery mode: `stage_webrtc` (sub-second WebRTC) vs `channel_hls` (HLS/OBS path).
+    streamMode: row.streamMode,
+    // Whether a Real-Time Stage exists for this room (gates the client's WebRTC subscribe attempt).
+    // No ARN is exposed — buyers fetch a subscribe-only token from the stage-token endpoint.
+    stageAvailable: Boolean(row.ivsStageArn),
     streamHealth: row.streamHealth,
     playbackUrl: row.ivsPlaybackUrl,
     streamStartedAt: toIso(row.streamStartedAt),
     streamEndedAt: toIso(row.streamEndedAt),
     lastStatusSyncAt: toIso(row.lastIvsStatusSyncAt),
+    // Configured channel latency mode (LOW = low-latency HLS). Surfaced for client diagnostics.
+    latencyMode: configuredLatencyMode(),
   };
 }
 

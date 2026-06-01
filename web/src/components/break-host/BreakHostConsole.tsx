@@ -13,6 +13,7 @@ import { VaultHostAnnouncements } from "@/components/break-host/vault/VaultHostA
 import { VaultHostLiveChatPanel } from "@/components/break-host/vault/VaultHostLiveChatPanel";
 import { VaultHostStageEdgeRail } from "@/components/break-host/vault/VaultHostStageEdgeRail";
 import { VaultHostRightRail } from "@/components/break-host/vault/VaultHostRightRail";
+import { VaultBroadcastControl } from "@/components/break-host/vault/VaultBroadcastControl";
 import { VaultPinnedLot } from "@/components/break-host/vault/VaultPinnedLot";
 import { AddQueueItemModal, type AddQueueItemAuctionPayload, type AddQueueItemCloseReason } from "@/components/break-host/AddQueueItemModal";
 import { VaultQueueDrawer } from "@/components/break-host/vault/VaultQueueDrawer";
@@ -42,6 +43,7 @@ import {
   pushBidTimestamp,
 } from "@/lib/live-room-energy";
 import { HostStreamSetupCard } from "@/components/live-auction/HostStreamSetupCard";
+import { useHostStagePublish } from "@/hooks/useHostStagePublish";
 import { logIvsWeb } from "@/lib/ivs-web-broadcast-log";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
@@ -210,7 +212,6 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
   const [queueAddModal, setQueueAddModal] = useState<null | "auction" | "bin" | "givvy">(null);
   const [obsSetupModalOpen, setObsSetupModalOpen] = useState(false);
-  const [streamSetupModalOpen, setStreamSetupModalOpen] = useState(false);
 
   const [teamBoardData, setTeamBoardData] = useState<TeamBoardPublicPayload | null>(null);
   const [teamBoardBusy, setTeamBoardBusy] = useState(false);
@@ -1256,16 +1257,15 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   }, [liveStreamTimerActive]);
 
   useEffect(() => {
-    if (!obsSetupModalOpen && !streamSetupModalOpen) return;
+    if (!obsSetupModalOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setObsSetupModalOpen(false);
-        setStreamSetupModalOpen(false);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [obsSetupModalOpen, streamSetupModalOpen]);
+  }, [obsSetupModalOpen]);
 
   const refreshHostStreamSurfaces = useCallback(() => {
     setHostStreamCardRefreshNonce((n) => n + 1);
@@ -1280,6 +1280,23 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     logIvsWeb("room go-live patch requested");
     void patchRoom("start");
   }, [data?.room.status, patchRoom]);
+
+  const webcamBroadcast = useHostStagePublish({
+    roomId,
+    onBroadcastStarted: handleWebcamBroadcastStarted,
+    onStreamRefresh: refreshHostStreamSurfaces,
+  });
+
+  /**
+   * Go Live: the single primary action. Starts the default WebRTC Stage broadcast on this user
+   * gesture (so the camera/mic permission prompt fires) AND patches the room live so buyers
+   * immediately see the stage. No Tools → Start Stream required for normal webcam streaming.
+   */
+  const handleGoLive = useCallback(() => {
+    setVaultCommandOpen(false);
+    void webcamBroadcast.start();
+    void patchRoom("start");
+  }, [webcamBroadcast, patchRoom]);
 
   const overlayDiffersFromActive = useMemo(() => {
     if (!data?.queueItems?.length) return false;
@@ -1585,10 +1602,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       setVaultCommandOpen(false);
       setQueueAddModal("auction");
     },
-    onOpenStreamSetup: () => {
-      setVaultCommandOpen(false);
-      setStreamSetupModalOpen(true);
-    },
+    onGoLive: handleGoLive,
     onToggleTeamBoard: toggleHostTeamBoardPanel,
     teamBoardPanelOpen: hostTeamBoardOpen,
     onOpenObs: () => {
@@ -1674,6 +1688,12 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
   const vaultControlsPill = (
     <div className="flex items-center gap-1.5">
+      <VaultBroadcastControl
+        phase={webcamBroadcast.phase}
+        roomLive={room.status === "live"}
+        onStart={handleGoLive}
+        onStop={() => void webcamBroadcast.stop()}
+      />
       <LiveRoomEnergyMeter score={roomEnergy.score} level={roomEnergy.level} compact />
       <button
         type="button"
@@ -1849,6 +1869,22 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         </div>
       ) : null}
 
+      {webcamBroadcast.error && webcamBroadcast.phase === "idle" ? (
+        <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[63] w-[min(92vw,30rem)] -translate-x-1/2 px-2">
+          <div className="pointer-events-auto rounded-2xl border border-rose-500/35 bg-rose-950/75 px-3 py-2.5 text-[12px] leading-snug text-rose-50 shadow-[0_16px_50px_-24px_rgba(0,0,0,0.9)] backdrop-blur-xl ring-1 ring-rose-400/25">
+            <p className="font-bold uppercase tracking-wide text-rose-200">Stream didn’t start</p>
+            <p className="mt-1">{webcamBroadcast.error}</p>
+            <button
+              type="button"
+              onClick={() => void webcamBroadcast.start()}
+              className="mt-2 inline-flex min-h-9 items-center rounded-lg border border-rose-300/40 bg-rose-500/15 px-3 text-xs font-bold text-rose-50 hover:bg-rose-500/25"
+            >
+              Retry Start Stream
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="relative flex min-h-0 flex-1 flex-col p-1 sm:p-1.5 min-[1400px]:p-0">
         {/* Desktop — full-bleed cinematic stage with floating glass rails */}
         <div className="relative hidden min-h-0 flex-1 overflow-hidden min-[1400px]:block">
@@ -1962,40 +1998,6 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
       <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
 
-      {streamSetupModalOpen ? (
-        <div
-          role="dialog"
-          aria-modal
-          aria-label="Start stream"
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
-          onClick={() => setStreamSetupModalOpen(false)}
-        >
-          <div
-            className="max-h-[min(92dvh,900px)] w-full max-w-lg overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-950 p-4 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <h2 className="text-sm font-bold text-white">Start stream</h2>
-              <button
-                type="button"
-                onClick={() => setStreamSetupModalOpen(false)}
-                className="rounded-lg border border-white/12 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:bg-white/[0.06]"
-              >
-                Close
-              </button>
-            </div>
-            <HostStreamSetupCard
-              roomId={roomId}
-              compact
-              variant="full"
-              realtimeRefreshNonce={hostStreamCardRefreshNonce}
-              onBroadcastStarted={handleWebcamBroadcastStarted}
-              onStreamSurfacesRefresh={refreshHostStreamSurfaces}
-            />
-          </div>
-        </div>
-      ) : null}
-
       {obsSetupModalOpen ? (
         <div
           role="dialog"
@@ -2017,7 +2019,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
                 Close
               </button>
             </div>
-            <HostStreamSetupCard roomId={roomId} compact variant="obs-only" realtimeRefreshNonce={hostStreamCardRefreshNonce} />
+            <HostStreamSetupCard roomId={roomId} compact realtimeRefreshNonce={hostStreamCardRefreshNonce} />
           </div>
         </div>
       ) : null}

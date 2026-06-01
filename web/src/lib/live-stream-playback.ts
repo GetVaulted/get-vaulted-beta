@@ -8,6 +8,12 @@ export type BuyerSafeStreamFields = {
   streamStartedAt: string | null;
   streamEndedAt: string | null;
   lastStatusSyncAt: string | null;
+  /** Configured IVS channel latency mode ("LOW" = low-latency HLS). */
+  latencyMode: string | null;
+  /** Delivery mode: "stage_webrtc" (sub-second WebRTC) or "channel_hls" (HLS/OBS path). */
+  streamMode: string;
+  /** Whether a Real-Time Stage exists (gates the WebRTC subscribe attempt). */
+  stageAvailable: boolean;
 };
 
 /** UI states surfaced on the live video stage (not IVS SDK states). */
@@ -30,7 +36,25 @@ export function parseBuyerSafeStreamPayload(data: unknown): BuyerSafeStreamField
   const streamStartedAt = typeof s.streamStartedAt === "string" ? s.streamStartedAt : null;
   const streamEndedAt = typeof s.streamEndedAt === "string" ? s.streamEndedAt : null;
   const lastStatusSyncAt = typeof s.lastStatusSyncAt === "string" ? s.lastStatusSyncAt : null;
-  return { playbackUrl, streamHealth, streamStartedAt, streamEndedAt, lastStatusSyncAt };
+  const latencyMode = typeof s.latencyMode === "string" && s.latencyMode.trim() ? s.latencyMode.trim() : null;
+  const streamMode = typeof s.streamMode === "string" && s.streamMode.trim() ? s.streamMode.trim() : "channel_hls";
+  const stageAvailable = s.stageAvailable === true;
+  return {
+    playbackUrl,
+    streamHealth,
+    streamStartedAt,
+    streamEndedAt,
+    lastStatusSyncAt,
+    latencyMode,
+    streamMode,
+    stageAvailable,
+  };
+}
+
+/** True when the stream signal is live-ish (WebRTC has no playbackUrl, so we can't use shouldAttachHlsPlayback). */
+export function isLiveStreamSignal(streamHealth: string): boolean {
+  const h = streamHealth.toLowerCase();
+  return h === "live" || h === "connecting";
 }
 
 export function shouldAttachHlsPlayback(streamHealth: string, playbackUrl: string | null): boolean {

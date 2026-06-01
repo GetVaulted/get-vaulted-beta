@@ -2,6 +2,7 @@ import {
   CreateChannelCommand,
   CreateStreamKeyCommand,
   DeleteStreamKeyCommand,
+  GetChannelCommand,
   GetStreamCommand,
   StopStreamCommand,
   IvsClient,
@@ -9,6 +10,15 @@ import {
   type ChannelType,
   type StreamState,
 } from "@aws-sdk/client-ivs";
+import {
+  CreateParticipantTokenCommand,
+  CreateStageCommand,
+  DeleteStageCommand,
+  IVSRealTimeClient,
+  ParticipantTokenCapability,
+  StartCompositionCommand,
+  StopCompositionCommand,
+} from "@aws-sdk/client-ivs-realtime";
 import type { LiveStreamHealth } from "@/generated/prisma/client";
 import { logIvsOpsServer, type IvsStreamHealthOpSource } from "@/lib/ivs-ops-log";
 import { prisma } from "@/lib/prisma";
@@ -110,6 +120,13 @@ export async function createChannel(roomId: string) {
   if (!out.streamKey?.arn || !out.streamKey?.value) {
     throw new Error("IVS channel provisioning failed. CreateChannel did not return an initial stream key.");
   }
+  logIvsOpsServer("ivs_channel_created", {
+    roomId,
+    channelType: env.channelType,
+    configuredLatencyMode: env.latencyMode,
+    // Actual mode echoed back by AWS on the freshly created channel — confirms LOW vs NORMAL.
+    actualLatencyMode: out.channel.latencyMode ?? "unknown",
+  });
   return {
     arn: out.channel.arn,
     playbackUrl: out.channel.playbackUrl,
@@ -130,6 +147,20 @@ export async function createStreamKey(channelArn: string) {
     arn: out.streamKey.arn,
     value: out.streamKey.value,
   };
+}
+
+/**
+ * Fetch the channel's **actual** latency mode from AWS (diagnostic).
+ * Confirms whether an existing/older channel is LOW vs NORMAL regardless of current env config.
+ */
+export async function getIvsChannelLatencyMode(channelArn: string): Promise<string | null> {
+  try {
+    const client = makeClient();
+    const out = await client.send(new GetChannelCommand({ arn: channelArn }));
+    return out.channel?.latencyMode ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function getStreamStatus(channelArn: string) {
@@ -267,6 +298,14 @@ export async function syncLiveRoomStreamFromIvs(liveRoomId: string): Promise<Str
   }
 
   const { health } = await getStreamStatus(room.ivsChannelArn);
+  // Diagnostic: confirm the channel's *actual* latency mode from AWS (not just env), to catch
+  // older rooms whose channel was provisioned before LOW-latency config.
+  const actualLatencyMode = await getIvsChannelLatencyMode(room.ivsChannelArn);
+  logIvsOpsServer("ivs_channel_latency_mode", {
+    roomId: liveRoomId,
+    actualLatencyMode: actualLatencyMode ?? "unknown",
+    configuredLatencyMode: getEnv().latencyMode,
+  });
   return commitLiveRoomStreamHealthFromIvs({ liveRoomId, newHealth: health, opSource: "sync_get_stream" });
 }
 
@@ -478,4 +517,231 @@ export async function endHostWebBroadcastSession(roomId: string): Promise<void> 
     /** Channel may already be offline; still rotate the key. */
   }
   await rotateStreamKey(roomId);
+}
+
+/* ───────────────────────────── IVS Real-Time (WebRTC Stages) ─────────────────────────────
+ * Sub-second WebRTC path for browser/mobile Go Live. Host publishes camera/mic into a Stage,
+ * buyers subscribe as viewers. The IVS Low-Latency/HLS channel remains the OBS path and a
+ * fallback/overflow/replay surface (optionally mirrored from the Stage via StartComposition).
+ */
+
+/** Host token TTL (minutes). Long enough for a full show; the host hook can refresh on reconnect. */
+const HOST_STAGE_TOKEN_MINUTES = 60;
+/** Viewer token TTL (minutes). Short-lived, subscribe-only; clients re-fetch on expiry/reconnect. */
+const VIEWER_STAGE_TOKEN_MINUTES = 20;
+
+export type StageProvisionResult = { stageArn: string };
+export type StageToken = {
+  token: string;
+  participantId: string;
+  stageArn: string;
+  /** TTL in seconds so the client can schedule a refresh before expiry. */
+  expiresInSeconds: number;
+};
+
+function makeRealTimeClient() {
+  const env = getEnv();
+  return new IVSRealTimeClient({
+    region: env.region,
+    credentials: {
+      accessKeyId: env.accessKeyId,
+      secretAccessKey: env.secretAccessKey,
+    },
+  });
+}
+
+function createStageName(roomId: string): string {
+  const sanitized = roomId.replace(/[^a-zA-Z0-9-_]/g, "").slice(0, 40);
+  return `vaulted-stage-${sanitized}-${Date.now()}`;
+}
+
+/** Whether the stage->channel HLS composition (overflow/replay mirror) is enabled via env. */
+function stageCompositionEnabled(): boolean {
+  return process.env.LIVE_STAGE_COMPOSITION_ENABLED?.trim().toLowerCase() === "true";
+}
+
+/** Idempotently create (and persist) the room's IVS Real-Time Stage. */
+export async function provisionRoomStage(roomId: string): Promise<StageProvisionResult> {
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: { id: true, ivsStageArn: true },
+  });
+  if (!room) throw new Error("Live room not found.");
+  if (room.ivsStageArn) return { stageArn: room.ivsStageArn };
+
+  const client = makeRealTimeClient();
+  const out = await client.send(
+    new CreateStageCommand({
+      name: createStageName(roomId),
+      tags: { app: "vaulted-live", roomId },
+    }),
+  );
+  const stageArn = out.stage?.arn;
+  if (!stageArn) {
+    throw new Error("IVS stage provisioning failed. Missing stage ARN from AWS.");
+  }
+
+  await prisma.liveRoom.update({
+    where: { id: roomId },
+    data: { streamProvider: "aws_ivs", streamMode: "stage_webrtc", ivsStageArn: stageArn },
+  });
+  logIvsOpsServer("ivs_stage_created", { roomId });
+  return { stageArn };
+}
+
+async function createStageToken(
+  roomId: string,
+  capabilities: ParticipantTokenCapability[],
+  attributes: Record<string, string>,
+  durationMinutes: number,
+): Promise<StageToken> {
+  const { stageArn } = await provisionRoomStage(roomId);
+  const client = makeRealTimeClient();
+  const out = await client.send(
+    new CreateParticipantTokenCommand({
+      stageArn,
+      capabilities,
+      duration: durationMinutes,
+      attributes,
+    }),
+  );
+  const token = out.participantToken?.token;
+  const participantId = out.participantToken?.participantId;
+  if (!token || !participantId) {
+    throw new Error("IVS participant token creation failed.");
+  }
+  return { token, participantId, stageArn, expiresInSeconds: durationMinutes * 60 };
+}
+
+/** Host publish+subscribe token. Capable of publishing camera/mic into the stage. */
+export async function createHostStageToken(roomId: string, userId: string): Promise<StageToken> {
+  return createStageToken(
+    roomId,
+    [ParticipantTokenCapability.PUBLISH, ParticipantTokenCapability.SUBSCRIBE],
+    { role: "host", userId },
+    HOST_STAGE_TOKEN_MINUTES,
+  );
+}
+
+/** Buyer subscribe-only token. Cannot publish (no camera/mic into the stage). */
+export async function createViewerStageToken(roomId: string, userId: string): Promise<StageToken> {
+  return createStageToken(
+    roomId,
+    [ParticipantTokenCapability.SUBSCRIBE],
+    { role: "viewer", userId },
+    VIEWER_STAGE_TOKEN_MINUTES,
+  );
+}
+
+/**
+ * Best-effort: mirror the Stage into the existing IVS channel for HLS fallback/overflow/replay.
+ * Gated by `LIVE_STAGE_COMPOSITION_ENABLED`; never throws (the WebRTC path must work regardless).
+ */
+export async function startStageHlsComposition(roomId: string): Promise<string | null> {
+  if (!stageCompositionEnabled()) return null;
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: { ivsStageArn: true, ivsChannelArn: true, ivsCompositionArn: true },
+  });
+  if (!room?.ivsStageArn || !room.ivsChannelArn) return null;
+  if (room.ivsCompositionArn) return room.ivsCompositionArn;
+
+  const encoderConfigurationArn = process.env.LIVE_STAGE_ENCODER_CONFIG_ARN?.trim();
+  const client = makeRealTimeClient();
+  try {
+    const out = await client.send(
+      new StartCompositionCommand({
+        stageArn: room.ivsStageArn,
+        destinations: [
+          {
+            channel: {
+              channelArn: room.ivsChannelArn,
+              ...(encoderConfigurationArn ? { encoderConfigurationArn } : {}),
+            },
+          },
+        ],
+      }),
+    );
+    const arn = out.composition?.arn ?? null;
+    if (arn) {
+      await prisma.liveRoom.update({ where: { id: roomId }, data: { ivsCompositionArn: arn } });
+    }
+    logIvsOpsServer("ivs_stage_composition_start", { roomId, started: Boolean(arn) });
+    return arn;
+  } catch (err) {
+    logIvsOpsServer("ivs_stage_composition_start_failure", {
+      roomId,
+      errorName: err instanceof Error ? err.name : "unknown",
+    });
+    return null;
+  }
+}
+
+/** Stop the stage->channel composition (if any). Never throws. */
+export async function stopStageComposition(roomId: string): Promise<void> {
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: { ivsCompositionArn: true },
+  });
+  if (!room?.ivsCompositionArn) return;
+  const client = makeRealTimeClient();
+  try {
+    await client.send(new StopCompositionCommand({ arn: room.ivsCompositionArn }));
+  } catch {
+    /** Composition may already be stopped/expired. */
+  }
+  await prisma.liveRoom.update({ where: { id: roomId }, data: { ivsCompositionArn: null } });
+  logIvsOpsServer("ivs_stage_composition_stop", { roomId });
+}
+
+/**
+ * Begin a host WebRTC Stage broadcast: provision the stage, mint a publish token, mark the room
+ * live (stage mode), and kick off the optional HLS mirror. Returns the host's publish token.
+ */
+export async function prepareHostStageSession(roomId: string, userId: string): Promise<StageToken> {
+  const token = await createHostStageToken(roomId, userId);
+  const now = new Date();
+  await prisma.liveRoom.update({
+    where: { id: roomId },
+    data: {
+      streamProvider: "aws_ivs",
+      streamMode: "stage_webrtc",
+      streamHealth: "live",
+      streamStartedAt: now,
+      streamEndedAt: null,
+      lastIvsStatusSyncAt: now,
+      lastIvsError: null,
+    },
+  });
+  void startStageHlsComposition(roomId);
+  logIvsOpsServer("ivs_stage_broadcast_start", { roomId });
+  return token;
+}
+
+/** End a host WebRTC Stage broadcast: stop the HLS mirror and mark the room stream ended. */
+export async function endHostStageSession(roomId: string): Promise<void> {
+  await stopStageComposition(roomId);
+  const now = new Date();
+  await prisma.liveRoom.update({
+    where: { id: roomId },
+    data: { streamHealth: "ended", streamEndedAt: now, lastIvsStatusSyncAt: now },
+  });
+  logIvsOpsServer("ivs_stage_broadcast_stop", { roomId });
+}
+
+/** Tear down a room's stage entirely (e.g. room deletion). Best-effort; never throws. */
+export async function deleteRoomStage(roomId: string): Promise<void> {
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: { ivsStageArn: true },
+  });
+  if (!room?.ivsStageArn) return;
+  await stopStageComposition(roomId);
+  const client = makeRealTimeClient();
+  try {
+    await client.send(new DeleteStageCommand({ arn: room.ivsStageArn }));
+  } catch {
+    /** Stage may already be deleted. */
+  }
+  await prisma.liveRoom.update({ where: { id: roomId }, data: { ivsStageArn: null } });
 }
