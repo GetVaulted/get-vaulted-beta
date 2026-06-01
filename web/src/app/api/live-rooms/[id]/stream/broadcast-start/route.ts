@@ -15,7 +15,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const row = await getStreamRow(id);
     if (!row) return NextResponse.json({ error: "Room not found." }, { status: 404 });
 
-    logIvsOpsServer("ivs_web_broadcast_start", { roomId: id });
+    logIvsOpsServer("ivs_web_broadcast_start", {
+      roomId: id,
+      streamHealth: row.streamHealth,
+      hasPlaybackUrl: Boolean(row.ivsPlaybackUrl),
+      streamConfigPreset: session.streamConfigPreset,
+    });
     return NextResponse.json({
       ok: true,
       stream: toHostStreamPayload(row),

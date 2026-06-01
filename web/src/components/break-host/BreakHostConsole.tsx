@@ -42,6 +42,7 @@ import {
   pushBidTimestamp,
 } from "@/lib/live-room-energy";
 import { HostStreamSetupCard } from "@/components/live-auction/HostStreamSetupCard";
+import { logIvsWeb } from "@/lib/ivs-web-broadcast-log";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
 import { logLiveDebugEvent } from "@/lib/live-debug";
@@ -1266,8 +1267,17 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [obsSetupModalOpen, streamSetupModalOpen]);
 
+  const refreshHostStreamSurfaces = useCallback(() => {
+    setHostStreamCardRefreshNonce((n) => n + 1);
+    setStreamPlaybackRefreshNonce((n) => n + 1);
+  }, []);
+
   const handleWebcamBroadcastStarted = useCallback(() => {
-    if (data?.room.status === "live") return;
+    if (data?.room.status === "live") {
+      logIvsWeb("room go-live skipped", { reason: "room_already_live" });
+      return;
+    }
+    logIvsWeb("room go-live patch requested");
     void patchRoom("start");
   }, [data?.room.status, patchRoom]);
 
@@ -1980,6 +1990,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
               variant="full"
               realtimeRefreshNonce={hostStreamCardRefreshNonce}
               onBroadcastStarted={handleWebcamBroadcastStarted}
+              onStreamSurfacesRefresh={refreshHostStreamSurfaces}
             />
           </div>
         </div>

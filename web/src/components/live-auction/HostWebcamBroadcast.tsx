@@ -2,11 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AmazonIVSBroadcastClient } from "amazon-ivs-web-broadcast";
+import { logIvsWeb, redactIngestEndpoint } from "@/lib/ivs-web-broadcast-log";
 
 type BroadcastPhase = "idle" | "starting" | "live" | "stopping";
 
 type BroadcastStartResponse = {
   error?: string;
+  stream?: {
+    playbackUrl?: string | null;
+    streamHealth?: string;
+  };
   broadcast?: {
     ingestEndpoint?: string;
     streamKey?: string;
@@ -28,6 +33,10 @@ function friendlyMediaError(err: unknown): string {
   }
   if (err instanceof Error && err.message) return err.message;
   return "Could not access camera or microphone.";
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 }
 
 export function HostWebcamBroadcast({
@@ -73,10 +82,34 @@ export function HostWebcamBroadcast({
 
   useEffect(() => () => cleanupLocal(), [cleanupLocal]);
 
+  const pollStreamHealth = useCallback(async () => {
+    for (let attempt = 1; attempt <= 15; attempt++) {
+      try {
+        const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/stream?sync=1`, {
+          cache: "no-store",
+        });
+        const body = (await res.json().catch(() => ({}))) as {
+          stream?: { streamHealth?: string; playbackUrl?: string | null };
+        };
+        const health = body.stream?.streamHealth ?? "unknown";
+        const hasPlayback = Boolean(body.stream?.playbackUrl?.trim());
+        logIvsWeb("stream health poll", { attempt, health, hasPlayback, httpStatus: res.status });
+        if (health === "live") return;
+      } catch (pollErr) {
+        logIvsWeb("stream health poll", {
+          attempt,
+          error: pollErr instanceof Error ? pollErr.message : "poll_failed",
+        });
+      }
+      await sleep(2000);
+    }
+  }, [roomId]);
+
   const startWebcam = useCallback(async () => {
     if (phase === "starting" || phase === "live") return;
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("This browser does not support in-browser streaming. Use Advanced / OBS instead.");
+      logIvsWeb("startBroadcast error", { reason: "getUserMedia_unavailable" });
       return;
     }
 
@@ -85,6 +118,20 @@ export function HostWebcamBroadcast({
     setNotice(null);
 
     try {
+      logIvsWeb("permission requested", { roomId });
+
+      const media = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: true,
+      });
+      mediaStreamRef.current = media;
+
+      logIvsWeb("permission granted", {
+        videoTracks: media.getVideoTracks().length,
+        audioTracks: media.getAudioTracks().length,
+        videoEnabled: media.getVideoTracks()[0]?.enabled ?? false,
+      });
+
       const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/stream/broadcast-start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -101,38 +148,88 @@ export function HostWebcamBroadcast({
         throw new Error("Stream credentials were incomplete. Try again or use Advanced / OBS.");
       }
 
-      const media = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: true,
+      logIvsWeb("provision/broadcast-start success", {
+        httpStatus: res.status,
+        preset,
+        ingestHost: redactIngestEndpoint(ingestEndpoint),
+        hasPlaybackUrl: Boolean(body.stream?.playbackUrl?.trim()),
+        streamHealth: body.stream?.streamHealth ?? "unknown",
       });
-      mediaStreamRef.current = media;
 
       const ivs = await import("amazon-ivs-web-broadcast");
       const streamConfig = preset === "BASIC_LANDSCAPE" ? ivs.BASIC_LANDSCAPE : ivs.STANDARD_LANDSCAPE;
       const client = ivs.create({ streamConfig, ingestEndpoint });
       clientRef.current = client;
 
+      client.on(ivs.BroadcastClientEvents.CONNECTION_STATE_CHANGE, () => {
+        logIvsWeb("sdk connection state", { state: client.getConnectionState() });
+      });
+      client.on(
+        ivs.BroadcastClientEvents.ERROR,
+        ((err: { name?: string; code?: number; message?: string }) => {
+          logIvsWeb("startBroadcast error", {
+            source: "sdk_clientError",
+            name: err?.name,
+            code: err?.code,
+            message: err?.message,
+          });
+        }) as () => void,
+      );
+
       await client.addVideoInputDevice(media, "camera", { index: 0 });
       await client.addAudioInputDevice(media, "microphone");
 
       const canvas = previewRef.current;
-      if (canvas) client.attachPreview(canvas);
+      if (canvas) {
+        const dims = client.getCanvasDimensions();
+        canvas.width = dims.width;
+        canvas.height = dims.height;
+        client.attachPreview(canvas);
+        logIvsWeb("preview started", { canvasWidth: canvas.width, canvasHeight: canvas.height });
+      } else {
+        logIvsWeb("preview started", { warning: "preview_canvas_missing" });
+      }
 
-      const broadcastError = await client.startBroadcast(streamKey, ingestEndpoint);
+      logIvsWeb("startBroadcast called", { ingestHost: redactIngestEndpoint(ingestEndpoint) });
+
+      let broadcastError: Awaited<ReturnType<typeof client.startBroadcast>> | undefined;
+      try {
+        broadcastError = await client.startBroadcast(streamKey, ingestEndpoint);
+      } catch (startErr) {
+        logIvsWeb("startBroadcast error", {
+          source: "startBroadcast_throw",
+          message: startErr instanceof Error ? startErr.message : String(startErr),
+        });
+        throw startErr;
+      }
+
       if (broadcastError) {
+        logIvsWeb("startBroadcast error", {
+          source: "startBroadcast_return",
+          name: broadcastError.name,
+          code: broadcastError.code,
+          message: broadcastError.message,
+        });
         throw new Error(broadcastError.message || "IVS rejected the broadcast.");
       }
+
+      logIvsWeb("startBroadcast success", { connectionState: client.getConnectionState?.() });
 
       setPhase("live");
       setNotice("You are live from this browser. Buyers will see video once IVS reports a live signal (usually a few seconds).");
       await onBroadcastStarted?.();
       onStreamRefresh?.();
+      void pollStreamHealth();
     } catch (err) {
+      logIvsWeb("startBroadcast error", {
+        source: "startWebcam_catch",
+        message: err instanceof Error ? err.message : String(err),
+      });
       cleanupLocal();
       setPhase("idle");
       setError(friendlyMediaError(err));
     }
-  }, [cleanupLocal, onBroadcastStarted, onStreamRefresh, phase, roomId]);
+  }, [cleanupLocal, onBroadcastStarted, onStreamRefresh, phase, pollStreamHealth, roomId]);
 
   const stopWebcam = useCallback(async () => {
     if (phase !== "live" && phase !== "starting") return;

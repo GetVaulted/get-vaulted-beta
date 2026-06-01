@@ -8,6 +8,7 @@ import {
   shouldAttachHlsPlayback,
 } from "@/lib/live-stream-playback";
 import { isLiveDebugEnabled, logLiveDebugEvent } from "@/lib/live-debug";
+import { logIvsWeb } from "@/lib/ivs-web-broadcast-log";
 import {
   formatScheduledStartLong,
   getCountdownParts,
@@ -111,10 +112,15 @@ export function LiveVideoStagePlayback({
   const tryPlay = useCallback(() => {
     const el = videoRef.current;
     if (!el) return;
-    void el.play().catch(() => {
+    void el.play().catch((playErr) => {
+      logIvsWeb("buyer playback error", {
+        roomId: liveRoomId,
+        reason: "autoplay_blocked",
+        message: playErr instanceof Error ? playErr.message : "play_rejected",
+      });
       setAutoplayBlocked(true);
     });
-  }, []);
+  }, [liveRoomId]);
 
   const attachSource = useCallback(
     async (url: string, health: string) => {
@@ -226,6 +232,7 @@ export function LiveVideoStagePlayback({
       });
       const raw: unknown = await res.json().catch(() => null);
       if (!res.ok) {
+        logIvsWeb("buyer playback error", { roomId: liveRoomId, reason: "stream_fetch_http", httpStatus: res.status });
         setFetchFailed(true);
         setLoading(false);
         return;
@@ -233,12 +240,20 @@ export function LiveVideoStagePlayback({
       setFetchFailed(false);
       const safe = parseBuyerSafeStreamPayload(raw);
       if (!safe) {
+        logIvsWeb("buyer playback error", { roomId: liveRoomId, reason: "stream_payload_invalid" });
         setFetchFailed(true);
         setLoading(false);
         return;
       }
       setStreamHealth(safe.streamHealth);
       setPlaybackUrl(safe.playbackUrl);
+      if (safe.playbackUrl) {
+        logIvsWeb("buyer playback url loaded", {
+          roomId: liveRoomId,
+          streamHealth: safe.streamHealth,
+          attachHls: shouldAttachHlsPlayback(safe.streamHealth, safe.playbackUrl),
+        });
+      }
       setLastSyncAt(safe.lastStatusSyncAt);
       setLoading(false);
       retryRef.current = 0;
@@ -256,7 +271,12 @@ export function LiveVideoStagePlayback({
         detachHls();
         setVideoHasData(false);
       }
-    } catch {
+    } catch (fetchErr) {
+      logIvsWeb("buyer playback error", {
+        roomId: liveRoomId,
+        reason: "stream_fetch_throw",
+        message: fetchErr instanceof Error ? fetchErr.message : "unknown",
+      });
       setFetchFailed(true);
       setLoading(false);
     }

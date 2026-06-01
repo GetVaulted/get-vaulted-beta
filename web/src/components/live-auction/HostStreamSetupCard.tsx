@@ -51,6 +51,7 @@ export function HostStreamSetupCard({
   realtimeRefreshNonce = 0,
   variant = "full",
   onBroadcastStarted,
+  onStreamSurfacesRefresh,
 }: {
   roomId: string;
   compact?: boolean;
@@ -59,6 +60,8 @@ export function HostStreamSetupCard({
   /** `full` = webcam + OBS (seller console). `obs-only` = OBS credentials only. */
   variant?: "full" | "obs-only";
   onBroadcastStarted?: () => void | Promise<void>;
+  /** Bumps host stage HLS + stream setup card (e.g. after webcam start). */
+  onStreamSurfacesRefresh?: () => void;
 }) {
   const [stream, setStream] = useState<StreamPayload | null>(null);
   const [loading, setLoading] = useState(false);
@@ -175,7 +178,10 @@ export function HostStreamSetupCard({
             startButtonLabel="Start Stream"
             stopButtonLabel="Stop Stream"
             onBroadcastStarted={onBroadcastStarted}
-            onStreamRefresh={() => void loadStream()}
+            onStreamRefresh={() => {
+              void loadStream();
+              onStreamSurfacesRefresh?.();
+            }}
           />
         </div>
       ) : null}
