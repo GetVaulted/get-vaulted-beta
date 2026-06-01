@@ -15,6 +15,7 @@ import {
 import type { UsernameRejectReason } from "@/lib/username-policy";
 import { normalizeUsernameForStorage } from "@/lib/username-policy";
 import { SocialAuthButtons } from "@/components/auth/SocialAuthButtons";
+import { PasswordInput } from "@/components/auth/PasswordInput";
 
 type UsernameUiStatus =
   | "idle"
@@ -52,57 +53,6 @@ const devSignupLog =
       }
     : () => {};
 
-function EyeIcon() {
-  return (
-    <svg className="size-5 shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path
-        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinejoin="round"
-      />
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
-    </svg>
-  );
-}
-
-function EyeOffIcon() {
-  return (
-    <svg className="size-5 shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path
-        d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19 12 19c.858 0 1.678-.097 2.458-.266M8.05 8.05A3 3 0 0 0 12 15a3 3 0 0 0 2.05-5.05M15 12a3 3 0 0 1-.224 1.133M9.9 4.24A9.12 9.12 0 0 1 12 4c4.478 0 8.268 2.943 9.542 7a18.45 18.45 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 0 1-4.24-4.24M4 4l16 16"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function PasswordVisibilityToggle({
-  passwordTextVisible,
-  onToggle,
-  labels,
-}: {
-  passwordTextVisible: boolean;
-  onToggle: () => void;
-  labels: { show: string; hide: string };
-}) {
-  const label = passwordTextVisible ? labels.hide : labels.show;
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-label={label}
-      aria-pressed={passwordTextVisible}
-      className="inline-flex h-11 min-h-[44px] w-11 min-w-[44px] shrink-0 items-center justify-center border-l border-white/10 bg-transparent text-zinc-400 outline-none transition-colors hover:bg-white/[0.06] hover:text-zinc-200 focus-visible:z-10 focus-visible:text-zinc-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gold/40"
-    >
-      {passwordTextVisible ? <EyeOffIcon /> : <EyeIcon />}
-    </button>
-  );
-}
-
 export function SignupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -115,8 +65,6 @@ export function SignupForm() {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [usernameStatus, setUsernameStatus] = useState<UsernameUiStatus>("idle");
   /** Server or network message when usernameStatus === "check_failed" */
@@ -501,49 +449,32 @@ export function SignupForm() {
         <label htmlFor="join-password" className="text-xs font-medium text-zinc-300">
           Password
         </label>
-        <div className="flex min-h-11 w-full min-w-0 overflow-hidden rounded-xl border border-white/10 bg-[#0c0c10] ring-gold/25 transition-[border-color,box-shadow] focus-within:border-gold/40 focus-within:ring-2 focus-within:ring-offset-0">
-          <input
-            id="join-password"
-            name="password"
-            type={showPassword ? "text" : "password"}
-            autoComplete="new-password"
-            required
-            minLength={8}
-            value={password ?? ""}
-            onChange={(e) => setPassword(e.target.value)}
-            className="h-11 min-h-11 min-w-0 flex-1 border-0 bg-transparent px-3.5 py-0 text-sm text-foreground outline-none placeholder:text-zinc-600"
-            placeholder="At least 8 characters"
-          />
-          <PasswordVisibilityToggle
-            passwordTextVisible={showPassword}
-            onToggle={() => setShowPassword((v) => !v)}
-            labels={{ show: "Show password", hide: "Hide password" }}
-          />
-        </div>
+        <PasswordInput
+          id="join-password"
+          name="password"
+          autoComplete="new-password"
+          required
+          minLength={8}
+          value={password ?? ""}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="At least 8 characters"
+        />
       </div>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="join-password-confirm" className="text-xs font-medium text-zinc-300">
           Confirm password
         </label>
-        <div className="flex min-h-11 w-full min-w-0 overflow-hidden rounded-xl border border-white/10 bg-[#0c0c10] ring-gold/25 transition-[border-color,box-shadow] focus-within:border-gold/40 focus-within:ring-2 focus-within:ring-offset-0">
-          <input
-            id="join-password-confirm"
-            name="confirmPassword"
-            type={showConfirmPassword ? "text" : "password"}
-            autoComplete="new-password"
-            required
-            minLength={8}
-            value={confirm ?? ""}
-            onChange={(e) => setConfirm(e.target.value)}
-            className="h-11 min-h-11 min-w-0 flex-1 border-0 bg-transparent px-3.5 py-0 text-sm text-foreground outline-none placeholder:text-zinc-600"
-            placeholder="Re-enter password"
-          />
-          <PasswordVisibilityToggle
-            passwordTextVisible={showConfirmPassword}
-            onToggle={() => setShowConfirmPassword((v) => !v)}
-            labels={{ show: "Show confirm password", hide: "Hide confirm password" }}
-          />
-        </div>
+        <PasswordInput
+          id="join-password-confirm"
+          name="confirmPassword"
+          autoComplete="new-password"
+          required
+          minLength={8}
+          value={confirm ?? ""}
+          onChange={(e) => setConfirm(e.target.value)}
+          placeholder="Re-enter password"
+          toggleLabels={{ show: "Show confirm password", hide: "Hide confirm password" }}
+        />
       </div>
 
       <label className="flex cursor-pointer items-start gap-3 pt-0.5">

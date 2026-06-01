@@ -7,6 +7,7 @@ import { Suspense, useEffect, useState } from "react";
 import { safeReturnTo } from "@/lib/safe-return-to";
 import { AUTH_USER_MESSAGES } from "@/lib/unified-auth";
 import { SocialAuthButtons } from "@/components/auth/SocialAuthButtons";
+import { PasswordInput } from "@/components/auth/PasswordInput";
 
 function SignInForm() {
   const router = useRouter();
@@ -102,17 +103,15 @@ function SignInForm() {
           <label htmlFor="signin-password" className="text-xs font-medium text-zinc-300">
             Password
           </label>
-          <input
+          <PasswordInput
             id="signin-password"
             name="password"
-            type="password"
             autoComplete="current-password"
             value={password}
             onChange={(e) => {
               setPassword(e.target.value);
               setError(null);
             }}
-            className="h-11 w-full rounded-xl border border-white/10 bg-[#0c0c10] px-3.5 text-sm text-foreground outline-none ring-gold/25 placeholder:text-zinc-600 focus:border-gold/40 focus:ring-2"
             placeholder="Your password"
             required
             minLength={8}
