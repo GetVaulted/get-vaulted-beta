@@ -6,6 +6,8 @@ const hoisted = vi.hoisted(() => ({
   hostAccess: vi.fn(),
   liveRoomFindUnique: vi.fn(),
   provisionRoomStream: vi.fn(),
+  prepareHostWebBroadcastSession: vi.fn(),
+  endHostWebBroadcastSession: vi.fn(),
   rotateStreamKey: vi.fn(),
   stopStream: vi.fn(),
   syncLiveRoomStreamFromIvs: vi.fn(),
@@ -44,12 +46,16 @@ vi.mock("@/lib/ivs-ops-log", () => ({
 
 vi.mock("@/services/ivs", () => ({
   provisionRoomStream: hoisted.provisionRoomStream,
+  prepareHostWebBroadcastSession: hoisted.prepareHostWebBroadcastSession,
+  endHostWebBroadcastSession: hoisted.endHostWebBroadcastSession,
   rotateStreamKey: hoisted.rotateStreamKey,
   stopStream: hoisted.stopStream,
   syncLiveRoomStreamFromIvs: hoisted.syncLiveRoomStreamFromIvs,
   reconcileStaleLiveStreamWithRoomStatus: hoisted.reconcileStaleLiveStreamWithRoomStatus,
 }));
 
+import { POST as broadcastStart } from "@/app/api/live-rooms/[id]/stream/broadcast-start/route";
+import { POST as broadcastStop } from "@/app/api/live-rooms/[id]/stream/broadcast-stop/route";
 import { GET as getStream } from "@/app/api/live-rooms/[id]/stream/route";
 import { POST as provision } from "@/app/api/live-rooms/[id]/stream/provision/route";
 import { POST as rotate } from "@/app/api/live-rooms/[id]/stream/rotate-key/route";
@@ -86,6 +92,13 @@ describe("live room stream routes", () => {
       ingestEndpoint: "rtmps://ingest",
       streamKeyValue: "sk_live_secret",
     });
+    hoisted.prepareHostWebBroadcastSession.mockResolvedValue({
+      roomId: "room_1",
+      ingestEndpoint: "rtmps://ingest.global-contribute.live-video.net:443/app/",
+      streamKeyValue: "sk_live_webcam",
+      streamConfigPreset: "STANDARD_LANDSCAPE",
+    });
+    hoisted.endHostWebBroadcastSession.mockResolvedValue(undefined);
     hoisted.rotateStreamKey.mockResolvedValue({
       streamKeyValue: "sk_live_rotated",
     });
@@ -183,5 +196,45 @@ describe("live room stream routes", () => {
     const res = await stop(new Request("http://x", { method: "POST" }), { params: Promise.resolve({ id: "room_1" }) });
     expect(res.status).toBe(200);
     expect(hoisted.stopStream).toHaveBeenCalledWith("room_1");
+  });
+
+  it("broadcast-start returns host-only ingest credentials", async () => {
+    const res = await broadcastStart(new Request("http://x", { method: "POST" }), {
+      params: Promise.resolve({ id: "room_1" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      broadcast?: { streamKey?: string; ingestEndpoint?: string; streamConfigPreset?: string };
+    };
+    expect(body.broadcast?.streamKey).toBe("sk_live_webcam");
+    expect(body.broadcast?.ingestEndpoint).toContain("rtmps://");
+    expect(body.broadcast?.streamConfigPreset).toBe("STANDARD_LANDSCAPE");
+    expect(hoisted.prepareHostWebBroadcastSession).toHaveBeenCalledWith("room_1");
+  });
+
+  it("broadcast-start is forbidden for non-host", async () => {
+    hoisted.hostAccess.mockResolvedValueOnce({ ok: false, status: 403, error: "Forbidden" });
+    const res = await broadcastStart(new Request("http://x", { method: "POST" }), {
+      params: Promise.resolve({ id: "room_1" }),
+    });
+    expect(res.status).toBe(403);
+    expect(hoisted.prepareHostWebBroadcastSession).not.toHaveBeenCalled();
+  });
+
+  it("broadcast-stop rotates key via service", async () => {
+    const res = await broadcastStop(new Request("http://x", { method: "POST" }), {
+      params: Promise.resolve({ id: "room_1" }),
+    });
+    expect(res.status).toBe(200);
+    expect(hoisted.endHostWebBroadcastSession).toHaveBeenCalledWith("room_1");
+  });
+
+  it("buyer GET cannot receive broadcast stream key fields", async () => {
+    hoisted.getServerSession.mockResolvedValueOnce(null);
+    hoisted.getServerSessionSafe.mockResolvedValueOnce(null);
+    const res = await getStream(new Request("http://x"), { params: Promise.resolve({ id: "room_1" }) });
+    const serialized = JSON.stringify(await res.json());
+    expect(serialized).not.toContain("sk_live");
+    expect(serialized).not.toContain("streamKey");
   });
 });

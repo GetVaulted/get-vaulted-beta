@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { HostWebcamBroadcast } from "@/components/live-auction/HostWebcamBroadcast";
 
 type StreamPayload = {
   roomId: string;
@@ -161,83 +162,102 @@ export function HostStreamSetupCard({
         </span>
       </div>
 
-      <p className="mt-2 text-xs leading-relaxed text-zinc-400">
-        In <span className="font-semibold text-zinc-300">OBS</span>: Settings → Stream → Service <span className="font-semibold">Custom</span> → paste the{" "}
-        <span className="font-semibold">server</span> and <span className="font-semibold">stream key</span> below. Then Settings → Output to set video bitrate, and start with{" "}
-        <span className="font-semibold">Start Streaming</span>.
-      </p>
-      <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
-        Buyers see the <span className="text-zinc-400">playback preview</span> only after IVS reports a live signal — it can take a few seconds after OBS starts. If status stays on
-        Connecting, confirm OBS shows &quot;Streaming&quot; and click Refresh stream status.
-      </p>
+      <div className="mt-3">
+        <HostWebcamBroadcast roomId={roomId} compact={compact} onStreamRefresh={() => void loadStream()} />
+      </div>
 
-      <div className="mt-3 grid gap-2">
-        <div className="rounded-lg border border-white/10 bg-zinc-950/70 p-2.5">
-          <p className="text-[10px] uppercase tracking-wide text-zinc-500">RTMPS server</p>
-          <p className="mt-1 break-all text-xs text-zinc-200">{stream?.ingestEndpoint || "Not set up yet"}</p>
-          {stream?.ingestEndpoint ? (
-            <button
-              type="button"
-              className="mt-2 min-h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold text-zinc-200 hover:bg-white/[0.06]"
-              onClick={() => void copy(stream.ingestEndpoint!, "Server")}
-            >
-              Copy server
-            </button>
-          ) : null}
-        </div>
+      <details className="group mt-4 rounded-lg border border-white/10 bg-zinc-950/40">
+        <summary className="cursor-pointer list-none px-3 py-2.5 text-xs font-semibold text-zinc-300 marker:content-none [&::-webkit-details-marker]:hidden">
+          <span className="inline-flex items-center gap-2">
+            <span className="text-zinc-500 transition group-open:rotate-90">▸</span>
+            Advanced / OBS
+          </span>
+        </summary>
 
-        <div className="rounded-lg border border-white/10 bg-zinc-950/70 p-2.5">
-          <p className="text-[10px] uppercase tracking-wide text-zinc-500">Stream key</p>
-          <p className="mt-1 break-all text-xs text-zinc-200">{maskedKey}</p>
-          <p className="mt-1 text-[11px] text-amber-200/85">Keep this private. Anyone with this key can stream to your room.</p>
-          <div className="mt-2 flex flex-wrap gap-2">
+        <div className="border-t border-white/10 px-3 pb-3 pt-2">
+          <p className="text-xs leading-relaxed text-zinc-400">
+            In <span className="font-semibold text-zinc-300">OBS</span>: Settings → Stream → Service{" "}
+            <span className="font-semibold">Custom</span> → paste the <span className="font-semibold">server</span> and{" "}
+            <span className="font-semibold">stream key</span> below. Then Settings → Output to set video bitrate, and start with{" "}
+            <span className="font-semibold">Start Streaming</span>.
+          </p>
+          <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+            Buyers see the <span className="text-zinc-400">playback preview</span> only after IVS reports a live signal — it can take a few seconds after OBS starts. If status stays on
+            Connecting, confirm OBS shows &quot;Streaming&quot; and click Refresh stream status.
+          </p>
+
+          <div className="mt-3 grid gap-2">
+            <div className="rounded-lg border border-white/10 bg-zinc-950/70 p-2.5">
+              <p className="text-[10px] uppercase tracking-wide text-zinc-500">RTMPS server</p>
+              <p className="mt-1 break-all text-xs text-zinc-200">{stream?.ingestEndpoint || "Not set up yet"}</p>
+              {stream?.ingestEndpoint ? (
+                <button
+                  type="button"
+                  className="mt-2 min-h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold text-zinc-200 hover:bg-white/[0.06]"
+                  onClick={() => void copy(stream.ingestEndpoint!, "Server")}
+                >
+                  Copy server
+                </button>
+              ) : null}
+            </div>
+
+            <div className="rounded-lg border border-white/10 bg-zinc-950/70 p-2.5">
+              <p className="text-[10px] uppercase tracking-wide text-zinc-500">Stream key</p>
+              <p className="mt-1 break-all text-xs text-zinc-200">{maskedKey}</p>
+              <p className="mt-1 text-[11px] text-amber-200/85">Keep this private. Anyone with this key can stream to your room.</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={!oneTimeKey}
+                  className="min-h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold text-zinc-200 hover:bg-white/[0.06] disabled:opacity-40"
+                  onClick={() => setRevealKey((v) => !v)}
+                >
+                  {revealKey ? "Hide key" : "Reveal key"}
+                </button>
+                <button
+                  type="button"
+                  disabled={!oneTimeKey}
+                  className="min-h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold text-zinc-200 hover:bg-white/[0.06] disabled:opacity-40"
+                  onClick={() => (oneTimeKey ? void copy(oneTimeKey, "Stream key") : undefined)}
+                >
+                  Copy key
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={!oneTimeKey}
-              className="min-h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold text-zinc-200 hover:bg-white/[0.06] disabled:opacity-40"
-              onClick={() => setRevealKey((v) => !v)}
+              disabled={busyAction != null || loading}
+              className="min-h-10 rounded-lg border border-gold/35 bg-gold/12 px-3 text-xs font-bold text-gold-bright hover:bg-gold/20 disabled:opacity-40"
+              onClick={() => void callAction("provision")}
             >
-              {revealKey ? "Hide key" : "Reveal key"}
+              {busyAction === "provision" ? "Setting up…" : "Set up stream (OBS)"}
             </button>
             <button
               type="button"
-              disabled={!oneTimeKey}
-              className="min-h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold text-zinc-200 hover:bg-white/[0.06] disabled:opacity-40"
-              onClick={() => (oneTimeKey ? void copy(oneTimeKey, "Stream key") : undefined)}
+              disabled={busyAction != null || loading}
+              className="min-h-10 rounded-lg border border-amber-500/25 px-3 text-xs font-semibold text-amber-100/95 hover:bg-amber-500/10 disabled:opacity-40"
+              onClick={() => void callAction("rotate")}
+              title="Creates a new key; OBS must be updated or the stream will fail."
             >
-              Copy key
+              {busyAction === "rotate" ? "Rotating…" : "Rotate stream key"}
             </button>
           </div>
         </div>
+      </details>
 
-        <div className="rounded-lg border border-white/10 bg-zinc-950/70 p-2.5 text-xs text-zinc-300">
-          <p>
-            <span className="text-zinc-500">Playback status:</span> {stream ? healthLabel(stream.streamHealth) : "—"}
-          </p>
-          <p className="mt-1">
-            <span className="text-zinc-500">Last sync:</span> {prettyDate(stream?.lastStatusSyncAt ?? null)}
-          </p>
-        </div>
+      <div className="mt-3 rounded-lg border border-white/10 bg-zinc-950/70 p-2.5 text-xs text-zinc-300">
+        <p>
+          <span className="text-zinc-500">Playback status:</span> {stream ? healthLabel(stream.streamHealth) : "—"}
+        </p>
+        <p className="mt-1">
+          <span className="text-zinc-500">Last sync:</span> {prettyDate(stream?.lastStatusSyncAt ?? null)}
+        </p>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={busyAction != null || loading}
-          className="min-h-10 rounded-lg border border-gold/35 bg-gold/12 px-3 text-xs font-bold text-gold-bright hover:bg-gold/20 disabled:opacity-40"
-          onClick={() => void callAction("provision")}
-        >
-          {busyAction === "provision" ? "Setting up…" : "Set up stream"}
-        </button>
-        <button
-          type="button"
-          disabled={busyAction != null || loading}
-          className="min-h-10 rounded-lg border border-amber-500/25 px-3 text-xs font-semibold text-amber-100/95 hover:bg-amber-500/10 disabled:opacity-40"
-          onClick={() => void callAction("rotate")}
-          title="Creates a new key; OBS must be updated or the stream will fail."
-        >
-          {busyAction === "rotate" ? "Rotating…" : "Rotate stream key"}
-        </button>
+      <div className="mt-3">
         <button
           type="button"
           disabled={busyAction != null || loading}

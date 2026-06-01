@@ -444,3 +444,38 @@ export async function stopStream(roomId: string) {
   });
   logIvsOpsServer("ivs_stop_stream_command", { roomId });
 }
+
+export type IvsWebBroadcastPreset = "STANDARD_LANDSCAPE" | "BASIC_LANDSCAPE";
+
+export type IvsWebBroadcastSession = {
+  roomId: string;
+  ingestEndpoint: string;
+  streamKeyValue: string;
+  streamConfigPreset: IvsWebBroadcastPreset;
+};
+
+function webBroadcastPresetForChannel(): IvsWebBroadcastPreset {
+  const env = getEnv();
+  return env.channelType === "BASIC" ? "BASIC_LANDSCAPE" : "STANDARD_LANDSCAPE";
+}
+
+/** Ensures the room IVS channel exists, rotates the stream key, and returns host-only ingest credentials. */
+export async function prepareHostWebBroadcastSession(roomId: string): Promise<IvsWebBroadcastSession> {
+  const provisioned = await provisionRoomStream(roomId);
+  return {
+    roomId,
+    ingestEndpoint: provisioned.ingestEndpoint,
+    streamKeyValue: provisioned.streamKeyValue,
+    streamConfigPreset: webBroadcastPresetForChannel(),
+  };
+}
+
+/** Stops the IVS broadcast and rotates the stream key so browser credentials cannot be reused. */
+export async function endHostWebBroadcastSession(roomId: string): Promise<void> {
+  try {
+    await stopStream(roomId);
+  } catch {
+    /** Channel may already be offline; still rotate the key. */
+  }
+  await rotateStreamKey(roomId);
+}
