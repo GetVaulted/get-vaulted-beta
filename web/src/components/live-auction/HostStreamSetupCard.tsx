@@ -49,11 +49,16 @@ export function HostStreamSetupCard({
   roomId,
   compact = false,
   realtimeRefreshNonce = 0,
+  variant = "full",
+  onBroadcastStarted,
 }: {
   roomId: string;
   compact?: boolean;
   /** When incremented (e.g. room `stream_status` broadcast), refetches stream row from the server. */
   realtimeRefreshNonce?: number;
+  /** `full` = webcam + OBS (seller console). `obs-only` = OBS credentials only. */
+  variant?: "full" | "obs-only";
+  onBroadcastStarted?: () => void | Promise<void>;
 }) {
   const [stream, setStream] = useState<StreamPayload | null>(null);
   const [loading, setLoading] = useState(false);
@@ -162,14 +167,23 @@ export function HostStreamSetupCard({
         </span>
       </div>
 
-      <div className="mt-3">
-        <HostWebcamBroadcast roomId={roomId} compact={compact} onStreamRefresh={() => void loadStream()} />
-      </div>
+      {variant === "full" ? (
+        <div className="mt-3">
+          <HostWebcamBroadcast
+            roomId={roomId}
+            compact={compact}
+            startButtonLabel="Start Stream"
+            stopButtonLabel="Stop Stream"
+            onBroadcastStarted={onBroadcastStarted}
+            onStreamRefresh={() => void loadStream()}
+          />
+        </div>
+      ) : null}
 
-      <details className="group mt-4 rounded-lg border border-white/10 bg-zinc-950/40">
+      <details className={`group rounded-lg border border-white/10 bg-zinc-950/40 ${variant === "full" ? "mt-4" : "mt-0"}`} open={variant === "obs-only" ? true : undefined}>
         <summary className="cursor-pointer list-none px-3 py-2.5 text-xs font-semibold text-zinc-300 marker:content-none [&::-webkit-details-marker]:hidden">
           <span className="inline-flex items-center gap-2">
-            <span className="text-zinc-500 transition group-open:rotate-90">▸</span>
+            {variant === "full" ? <span className="text-zinc-500 transition group-open:rotate-90">▸</span> : null}
             Advanced / OBS
           </span>
         </summary>

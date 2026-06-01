@@ -205,6 +205,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
   const [queueAddModal, setQueueAddModal] = useState<null | "auction" | "bin" | "givvy">(null);
   const [obsSetupModalOpen, setObsSetupModalOpen] = useState(false);
+  const [streamSetupModalOpen, setStreamSetupModalOpen] = useState(false);
 
   const [teamBoardData, setTeamBoardData] = useState<TeamBoardPublicPayload | null>(null);
   const [teamBoardBusy, setTeamBoardBusy] = useState(false);
@@ -1248,13 +1249,21 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   }, [liveStreamTimerActive]);
 
   useEffect(() => {
-    if (!obsSetupModalOpen) return;
+    if (!obsSetupModalOpen && !streamSetupModalOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setObsSetupModalOpen(false);
+      if (e.key === "Escape") {
+        setObsSetupModalOpen(false);
+        setStreamSetupModalOpen(false);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [obsSetupModalOpen]);
+  }, [obsSetupModalOpen, streamSetupModalOpen]);
+
+  const handleWebcamBroadcastStarted = useCallback(() => {
+    if (data?.room.status === "live") return;
+    void patchRoom("start");
+  }, [data?.room.status, patchRoom]);
 
   const overlayDiffersFromActive = useMemo(() => {
     if (!data?.queueItems?.length) return false;
@@ -1524,6 +1533,10 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     onAddAuction: () => {
       setVaultCommandOpen(false);
       setQueueAddModal("auction");
+    },
+    onOpenStreamSetup: () => {
+      setVaultCommandOpen(false);
+      setStreamSetupModalOpen(true);
     },
     onOpenObs: () => {
       setVaultCommandOpen(false);
@@ -1852,6 +1865,39 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
       <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
 
+      {streamSetupModalOpen ? (
+        <div
+          role="dialog"
+          aria-modal
+          aria-label="Start stream"
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+          onClick={() => setStreamSetupModalOpen(false)}
+        >
+          <div
+            className="max-h-[min(92dvh,900px)] w-full max-w-lg overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-950 p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h2 className="text-sm font-bold text-white">Start stream</h2>
+              <button
+                type="button"
+                onClick={() => setStreamSetupModalOpen(false)}
+                className="rounded-lg border border-white/12 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:bg-white/[0.06]"
+              >
+                Close
+              </button>
+            </div>
+            <HostStreamSetupCard
+              roomId={roomId}
+              compact
+              variant="full"
+              realtimeRefreshNonce={hostStreamCardRefreshNonce}
+              onBroadcastStarted={handleWebcamBroadcastStarted}
+            />
+          </div>
+        </div>
+      ) : null}
+
       {obsSetupModalOpen ? (
         <div
           role="dialog"
@@ -1873,7 +1919,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
                 Close
               </button>
             </div>
-            <HostStreamSetupCard roomId={roomId} compact realtimeRefreshNonce={hostStreamCardRefreshNonce} />
+            <HostStreamSetupCard roomId={roomId} compact variant="obs-only" realtimeRefreshNonce={hostStreamCardRefreshNonce} />
           </div>
         </div>
       ) : null}

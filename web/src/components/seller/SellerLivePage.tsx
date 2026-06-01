@@ -17,7 +17,6 @@ import {
   patchLiveRoomAction,
   patchLiveRoomItemStatus,
 } from "@/lib/live-room-control-client";
-import { HostStreamSetupCard } from "@/components/live-auction/HostStreamSetupCard";
 import { LiveShowTipModeratorSettings, patchLiveRoomTipSettings } from "@/components/seller/LiveShowTipModeratorSettings";
 import { useRequireSellerActivation } from "@/hooks/useRequireSellerActivation";
 
@@ -204,7 +203,6 @@ export function SellerLivePage() {
   const reconnectCountRef = useRef(0);
   const fallbackRefreshTimerRef = useRef<number | null>(null);
   const selectedIdRef = useRef<string | null>(null);
-  const [streamSetupCardRefreshNonce, setStreamSetupCardRefreshNonce] = useState(0);
   const thumbFileRef = useRef<HTMLInputElement>(null);
 
   const [itemTitle, setItemTitle] = useState("");
@@ -594,10 +592,10 @@ export function SellerLivePage() {
       setCreateTipModeratorUsername("");
       setCreateTipsToModerator(false);
       await loadRooms();
-      setSelectedId(j.id);
       router.refresh();
       notifyLiveDiscoveryChanged();
       if (goLater) {
+        setSelectedId(j.id);
         await loadDetail(j.id, { trustSelection: true });
       } else {
         router.push(sellerConsolePath);
@@ -788,7 +786,7 @@ export function SellerLivePage() {
     },
     onStreamStatusChange: () => {
       if (!selectedId) return;
-      setStreamSetupCardRefreshNonce((n) => n + 1);
+      scheduleFallbackRefresh("stream_status", 80);
     },
     onReconnect: () => {
       reconnectCountRef.current += 1;
@@ -1240,7 +1238,7 @@ export function SellerLivePage() {
                     </div>
                   ) : (
                     <p className="mt-3 text-sm text-zinc-500">
-                      You will jump straight into the live room after creation to set up your stream.
+                      You will open the host console after creation. Start your camera stream from there when you are ready.
                     </p>
                   )}
                 </div>
@@ -1601,9 +1599,28 @@ export function SellerLivePage() {
               </p>
             ) : null}
 
-            <div className="rounded-xl border border-white/[0.06] p-4">
-              <HostStreamSetupCard roomId={selected.id} realtimeRefreshNonce={streamSetupCardRefreshNonce} />
-            </div>
+            {selected.roomType === "break" ? (
+              <div className="rounded-xl border border-violet-500/20 bg-violet-950/15 p-4">
+                <p className="text-sm leading-relaxed text-zinc-300">
+                  Camera and OBS streaming live in the{" "}
+                  <span className="font-semibold text-violet-200">Host console</span> — open it when you are ready to go
+                  live, then use <span className="font-semibold text-gold-bright">Start Stream</span>.
+                </p>
+                <Link
+                  href={`/seller/live/${encodeURIComponent(selected.id)}/console`}
+                  className="mt-3 inline-flex min-h-10 items-center justify-center rounded-xl border border-violet-500/35 bg-violet-950/30 px-4 text-xs font-bold text-violet-100 hover:bg-violet-950/45"
+                >
+                  Open host console
+                </Link>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-white/[0.06] bg-zinc-950/40 p-4">
+                <p className="text-sm leading-relaxed text-zinc-400">
+                  Use <span className="font-semibold text-zinc-200">Start live show</span> above when you are ready for
+                  buyers. Break shows use the host console for webcam and OBS streaming.
+                </p>
+              </div>
+            )}
 
             {selected.status !== "ended" ? (
               <section className="space-y-4 rounded-xl border border-white/[0.06] p-4">

@@ -52,6 +52,7 @@ export type LiveSellerCommandCenterProps = {
   onDeleteItem: (id: string) => void;
   onAddAuction: () => void;
   onOpenObs: () => void;
+  onOpenStreamSetup: () => void;
   onCopyPublic: () => void;
   recentSales: HostRecentSaleRowDTO[];
   feeTier?: LiveShowFeeTierSnapshot | null;
@@ -179,6 +180,7 @@ export function LiveSellerCommandCenter({
   onDeleteItem,
   onAddAuction,
   onOpenObs,
+  onOpenStreamSetup,
   onCopyPublic,
   recentSales,
   feeTier,
@@ -333,7 +335,10 @@ export function LiveSellerCommandCenter({
 
         <div className="space-y-1 px-2 pb-2">
           <CollapsibleSection title="Tools" glass defaultOpen={false}>
-            <div className="grid grid-cols-2 gap-1">
+            <PrimaryBtn compact onClick={onOpenStreamSetup} disabled={busy} tone="gold">
+              Start Stream
+            </PrimaryBtn>
+            <div className="mt-1.5 grid grid-cols-2 gap-1">
               <PrimaryBtn compact onClick={onOpenObs} disabled={busy} tone="ghost">
                 OBS
               </PrimaryBtn>
@@ -347,7 +352,7 @@ export function LiveSellerCommandCenter({
               onClick={() => onPatchRoom("end")}
               className="mt-1.5 w-full rounded-lg border border-rose-500/25 py-1 text-[9px] font-black uppercase tracking-wide text-rose-200/90 disabled:opacity-40"
             >
-              End stream
+              End show
             </button>
             {roomGovernance ? (
               <div className="mt-2">
@@ -583,7 +588,10 @@ export function LiveSellerCommandCenter({
           ) : null}
           {!isCompactRail ? (
           <CollapsibleSection title="Tools" glass defaultOpen={false}>
-            <div className="grid grid-cols-2 gap-1.5">
+            <PrimaryBtn compact onClick={onOpenStreamSetup} disabled={busy} tone="gold">
+              Start Stream
+            </PrimaryBtn>
+            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
               <PrimaryBtn compact onClick={onOpenObs} disabled={busy} tone="ghost">
                 OBS
               </PrimaryBtn>

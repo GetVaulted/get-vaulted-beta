@@ -34,10 +34,17 @@ export function HostWebcamBroadcast({
   roomId,
   compact = false,
   onStreamRefresh,
+  onBroadcastStarted,
+  startButtonLabel = "Start Stream",
+  stopButtonLabel = "Stop Stream",
 }: {
   roomId: string;
   compact?: boolean;
   onStreamRefresh?: () => void;
+  /** Called after IVS broadcast starts successfully (e.g. mark room live). */
+  onBroadcastStarted?: () => void | Promise<void>;
+  startButtonLabel?: string;
+  stopButtonLabel?: string;
 }) {
   const previewRef = useRef<HTMLCanvasElement>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -118,13 +125,14 @@ export function HostWebcamBroadcast({
 
       setPhase("live");
       setNotice("You are live from this browser. Buyers will see video once IVS reports a live signal (usually a few seconds).");
+      await onBroadcastStarted?.();
       onStreamRefresh?.();
     } catch (err) {
       cleanupLocal();
       setPhase("idle");
       setError(friendlyMediaError(err));
     }
-  }, [cleanupLocal, onStreamRefresh, phase, roomId]);
+  }, [cleanupLocal, onBroadcastStarted, onStreamRefresh, phase, roomId]);
 
   const stopWebcam = useCallback(async () => {
     if (phase !== "live" && phase !== "starting") return;
@@ -156,7 +164,7 @@ export function HostWebcamBroadcast({
   return (
     <div className="rounded-lg border border-gold/20 bg-gold/[0.04] p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-gold-bright/90">Go live with webcam</p>
+        <p className="text-[10px] font-bold uppercase tracking-wider text-gold-bright/90">Webcam stream</p>
         {phase === "live" ? (
           <span className="rounded-full border border-rose-500/35 bg-rose-950/40 px-2 py-0.5 text-[10px] font-semibold text-rose-100">
             Broadcasting
@@ -172,7 +180,7 @@ export function HostWebcamBroadcast({
         <canvas ref={previewRef} className="absolute inset-0 h-full w-full object-contain" />
         {phase === "idle" ? (
           <p className="absolute inset-0 flex items-center justify-center px-3 text-center text-[11px] text-zinc-500">
-            Camera preview appears when you go live.
+            Camera preview appears after you start streaming.
           </p>
         ) : null}
       </div>
@@ -185,7 +193,7 @@ export function HostWebcamBroadcast({
             className="min-h-10 rounded-lg border border-rose-500/35 bg-rose-950/30 px-3 text-xs font-bold text-rose-100 hover:bg-rose-950/50 disabled:opacity-40"
             onClick={() => void stopWebcam()}
           >
-            {phase === "stopping" ? "Stopping…" : "Stop webcam broadcast"}
+            {phase === "stopping" ? "Stopping…" : stopButtonLabel}
           </button>
         ) : (
           <button
@@ -194,7 +202,7 @@ export function HostWebcamBroadcast({
             className="min-h-10 rounded-lg border border-gold/35 bg-gold/12 px-3 text-xs font-bold text-gold-bright hover:bg-gold/20 disabled:opacity-40"
             onClick={() => void startWebcam()}
           >
-            {phase === "starting" ? "Starting camera…" : "Go live with webcam"}
+            {phase === "starting" ? "Starting camera…" : startButtonLabel}
           </button>
         )}
       </div>
