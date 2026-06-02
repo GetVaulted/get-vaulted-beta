@@ -10,6 +10,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchMyLiveRooms, type LiveRoomApiRow } from '../../../api/liveRoomsRepository';
 import type { LiveSalesGate } from '../../../lib/sellerLiveReadiness';
@@ -96,6 +97,12 @@ export function VaultEventsHub({
   useEffect(() => {
     void load();
   }, [load, roomsRefreshKey]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

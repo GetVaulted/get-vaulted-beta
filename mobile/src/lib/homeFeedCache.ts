@@ -15,17 +15,24 @@ export type HomeFeedCache = {
 
 let memory: HomeFeedCache | null = null;
 
-const invalidateListeners = new Set<() => void>();
+export type HomeFeedInvalidationOpts = {
+  /** Bypass live-discovery throttle (after go-live / schedule). */
+  force?: boolean;
+};
 
-export function subscribeHomeFeedInvalidation(listener: () => void): () => void {
+const invalidateListeners = new Set<(opts?: HomeFeedInvalidationOpts) => void>();
+
+export function subscribeHomeFeedInvalidation(
+  listener: (opts?: HomeFeedInvalidationOpts) => void,
+): () => void {
   invalidateListeners.add(listener);
   return () => invalidateListeners.delete(listener);
 }
 
-function emitHomeFeedInvalidation(): void {
+function emitHomeFeedInvalidation(opts?: HomeFeedInvalidationOpts): void {
   for (const listener of invalidateListeners) {
     try {
-      listener();
+      listener(opts);
     } catch {
       /* ignore */
     }
@@ -80,10 +87,10 @@ export async function loadHomeFeedCache(): Promise<HomeFeedCache | null> {
   }
 }
 
-/** Drop cached Home feed so the next open refetches Supabase listings. */
-export async function clearHomeFeedCache(): Promise<void> {
+/** Drop cached Home feed so the next open refetches live discovery + listings snapshot. */
+export async function clearHomeFeedCache(opts?: HomeFeedInvalidationOpts): Promise<void> {
   memory = null;
-  emitHomeFeedInvalidation();
+  emitHomeFeedInvalidation(opts);
   try {
     if (Platform.OS === 'web') {
       globalThis.localStorage?.removeItem(WEB_LS_KEY);

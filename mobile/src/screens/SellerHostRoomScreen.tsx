@@ -17,6 +17,8 @@ import { useAuth } from '../auth/AuthContext';
 import { SellerLiveHostView } from '../components/seller/liveOverlay/SellerLiveHostView';
 import { LiveConsoleWarningBanner } from '../components/seller/liveConsole/LiveConsoleWarningBanner';
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
+import { useMobileStagePublish } from '../hooks/useMobileStagePublish';
+import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
 import { notifyLiveDiscoveryChanged } from '../lib/notifyLiveDiscoveryChanged';
 import type { RootStackParamList } from '../navigation/types';
 import { colors, spacing } from '../theme';
@@ -41,6 +43,9 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   const [roomError, setRoomError] = useState<SanitizedLiveError | null>(null);
   const [streamWarning, setStreamWarning] = useState<SanitizedLiveError | null>(null);
   const [readinessBlocked, setReadinessBlocked] = useState<string[] | null>(null);
+  const [cameraPermissionRetrying, setCameraPermissionRetrying] = useState(false);
+
+  const stageWebrtcEnabled = isStageWebrtcEnabled();
 
   const reloadRoom = useCallback(async () => {
     if (!token) return null;
@@ -84,6 +89,13 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     await reloadStream(false);
     await reloadConsoleMetrics();
   }, [reloadConsoleMetrics, reloadRoom, reloadStream, token]);
+
+  const stagePublish = useMobileStagePublish({
+    roomId,
+    accessToken: token ?? '',
+    previewEnabled: stageWebrtcEnabled && Boolean(token) && !loading && Boolean(room),
+    onStreamRefresh: () => void reloadStream(true),
+  });
 
   useEffect(() => {
     if (!token) {
@@ -155,12 +167,54 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     }
   };
 
+  const markRoomLiveOnServer = useCallback(async () => {
+    if (!token) return;
+    const current = room ?? (await reloadRoom());
+    if (current?.status !== 'scheduled') return;
+    await patchLiveRoomAction(token, roomId, 'start');
+  }, [room, roomId, token, reloadRoom]);
+
+  const onStartBroadcast = async () => {
+    if (!token) return;
+    setBusy('start');
+    setRoomError(null);
+    try {
+      // Room must be `live` in DB before discovery refetch — same ordering as web SellerLivePage.
+      await markRoomLiveOnServer();
+      if (stageWebrtcEnabled) {
+        await stagePublish.start();
+      }
+      await notifyLiveDiscoveryChanged();
+      await reload();
+    } catch (e) {
+      setRoomError(sanitizeLiveError(e, 'room'));
+      if (stagePublish.isPublishing) {
+        await stagePublish.stop().catch(() => undefined);
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const onStopBroadcast = async () => {
+    if (!token) return;
+    setBusy('refresh');
+    try {
+      await stagePublish.stop();
+      await reloadStream(true);
+    } catch (e) {
+      setStreamWarning(sanitizeLiveError(e, 'stream'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const onStartShow = async () => {
     if (!token) return;
     setBusy('start');
     setRoomError(null);
     try {
-      await patchLiveRoomAction(token, roomId, 'start');
+      await markRoomLiveOnServer();
       await notifyLiveDiscoveryChanged();
       await reload();
     } catch (e) {
@@ -174,6 +228,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     if (!token) return;
     setBusy('end');
     try {
+      await stagePublish.releaseCamera();
       await patchLiveRoomAction(token, roomId, 'end');
       await notifyLiveDiscoveryChanged();
       await reload();
@@ -184,13 +239,29 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     }
   };
 
+  const onRetryCameraPermission = async () => {
+    setCameraPermissionRetrying(true);
+    try {
+      await stagePublish.retryPreviewPermission();
+    } finally {
+      setCameraPermissionRetrying(false);
+    }
+  };
+
+  const onFlipCamera = () => {
+    void stagePublish.flipCamera();
+  };
+
   const serverUrl = ingestEndpoint ?? stream?.ingestEndpoint ?? null;
   const streamKey = oneTimeKey;
 
   const streamConnected = useMemo(() => {
+    if (stagePublish.phase === 'live') return true;
     const h = (stream?.streamHealth ?? '').toLowerCase();
     return h === 'live' || h === 'connecting';
-  }, [stream?.streamHealth]);
+  }, [stream?.streamHealth, stagePublish.phase]);
+
+  const showCameraPreview = stagePublish.localPreviewReady;
 
   if (loading) {
     return (
@@ -256,6 +327,18 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
           onToggleReveal: () => setRevealKey((v) => !v),
           onStartShow: () => void onStartShow(),
           onEndShow: () => void onEndShow(),
+          broadcastPhase: stagePublish.phase,
+          broadcastError: stagePublish.error,
+          stageWebrtcEnabled,
+          showCameraPreview,
+          cameraFacing: stagePublish.cameraFacing,
+          cameraPermissionState: stagePublish.permissionState,
+          cameraPermissionError: stagePublish.permissionError,
+          cameraPermissionRetrying,
+          onRetryCameraPermission: () => void onRetryCameraPermission(),
+          onFlipCamera,
+          onStartBroadcast: () => void onStartBroadcast(),
+          onStopBroadcast: () => void onStopBroadcast(),
         }}
       />
     </View>

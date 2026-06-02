@@ -6,6 +6,10 @@ export type BuyerSafeStreamFields = {
   streamStartedAt: string | null;
   streamEndedAt: string | null;
   lastStatusSyncAt: string | null;
+  /** Delivery mode: "stage_webrtc" (sub-second WebRTC) or "channel_hls" (HLS/OBS path). */
+  streamMode: string;
+  /** Whether a Real-Time Stage exists for this room (gates WebRTC subscribe). */
+  stageAvailable: boolean;
 };
 
 export type LivePlaybackSurfaceState =
@@ -15,6 +19,9 @@ export type LivePlaybackSurfaceState =
   | 'offline'
   | 'reconnecting'
   | 'error';
+
+/** Active delivery transport surfaced in the player (and dev debug overlay). */
+export type LivePlaybackTransport = 'none' | 'waiting' | 'webrtc' | 'hls';
 
 export function parseBuyerSafeStreamPayload(data: unknown): BuyerSafeStreamFields | null {
   if (!data || typeof data !== 'object') return null;
@@ -29,13 +36,48 @@ export function parseBuyerSafeStreamPayload(data: unknown): BuyerSafeStreamField
   const streamStartedAt = typeof s.streamStartedAt === 'string' ? s.streamStartedAt : null;
   const streamEndedAt = typeof s.streamEndedAt === 'string' ? s.streamEndedAt : null;
   const lastStatusSyncAt = typeof s.lastStatusSyncAt === 'string' ? s.lastStatusSyncAt : null;
-  return { playbackUrl, streamHealth, streamStartedAt, streamEndedAt, lastStatusSyncAt };
+  const streamMode = typeof s.streamMode === 'string' && s.streamMode.trim() ? s.streamMode.trim() : 'channel_hls';
+  const stageAvailable = s.stageAvailable === true;
+  return {
+    playbackUrl,
+    streamHealth,
+    streamStartedAt,
+    streamEndedAt,
+    lastStatusSyncAt,
+    streamMode,
+    stageAvailable,
+  };
 }
 
 export function shouldAttachHlsPlayback(streamHealth: string, playbackUrl: string | null): boolean {
   if (!playbackUrl?.trim()) return false;
   const h = streamHealth.toLowerCase();
   return h === 'live' || h === 'connecting';
+}
+
+/** True when the stream signal is live-ish (WebRTC has no playbackUrl). */
+export function isLiveStreamSignal(streamHealth: string): boolean {
+  const h = streamHealth.toLowerCase();
+  return h === 'live' || h === 'connecting';
+}
+
+/** Client kill-switch — set EXPO_PUBLIC_LIVE_STAGE_ENABLED="false" to force HLS everywhere. */
+export function isStageWebrtcEnabled(): boolean {
+  return process.env.EXPO_PUBLIC_LIVE_STAGE_ENABLED !== 'false';
+}
+
+/** Whether the buyer should attempt IVS Real-Time Stage subscribe (before one-shot HLS failover). */
+export function shouldUseStageWebrtcPlayback(
+  stream: Pick<BuyerSafeStreamFields, 'streamMode' | 'stageAvailable' | 'streamHealth'>,
+  webrtcFailed: boolean,
+): boolean {
+  return (
+    isStageWebrtcEnabled() &&
+    stream.streamMode === 'stage_webrtc' &&
+    stream.stageAvailable &&
+    !webrtcFailed &&
+    isLiveStreamSignal(stream.streamHealth)
+  );
 }
 
 export function isOfflineLikeStreamHealth(streamHealth: string): boolean {

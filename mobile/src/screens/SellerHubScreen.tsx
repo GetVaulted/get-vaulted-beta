@@ -99,7 +99,7 @@ export function SellerHubScreen() {
   const sellerWallet = cmdData.sellerWallet;
   const [tab, setTab] = useState<SellerHubTabId>('overview');
   const [scheduleTitle, setScheduleTitle] = useState('');
-  const [scheduleCategory, setScheduleCategory] = useState(streamCategories[0].label);
+  const [scheduleCategory, setScheduleCategory] = useState('Other');
   const [streamFormat, setStreamFormat] = useState<'auction' | 'break' | 'hybrid'>('hybrid');
   const [preloadInventory, setPreloadInventory] = useState(true);
   const [giveaways, setGiveaways] = useState(true);
@@ -230,6 +230,13 @@ export function SellerHubScreen() {
           <LaunchVaultEventPanel
             accessToken={session?.access_token}
             liveGate={cmdData.liveGate}
+            readiness={cmdData.liveReadiness.readiness}
+            readinessLoading={cmdData.liveReadiness.loading}
+            onRefreshReadiness={() => void cmdData.liveReadiness.refresh()}
+            onFixReadiness={(step) => {
+              if (step === 'stripe') void openStripeOnboarding();
+              else if (step === 'ship_from') setTab('overview');
+            }}
             onBlockedSchedule={onLiveSetupBlocked}
             scheduleTitle={scheduleTitle}
             setScheduleTitle={setScheduleTitle}

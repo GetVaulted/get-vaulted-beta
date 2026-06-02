@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { consumePendingVaultEventSchedule } from '../../navigation/openSellerHQ';
+import type { SellerLiveReadiness } from '../../api/liveHostRepository';
 import type { LiveSalesGate } from '../../lib/sellerLiveReadiness';
 import { ScheduleVaultEventModal } from '../../components/seller/hq/ScheduleVaultEventModal';
 import { VaultEventsHub } from '../../components/seller/hq/VaultEventsHub';
 export type LaunchVaultEventPanelProps = {
   accessToken?: string;
   liveGate: LiveSalesGate;
+  readiness: SellerLiveReadiness | null;
+  readinessLoading: boolean;
+  onRefreshReadiness?: () => void;
+  onFixReadiness?: (step: 'stripe' | 'ship_from') => void;
   onBlockedSchedule?: () => void;
   scheduleTitle: string;
   setScheduleTitle: (s: string) => void;
@@ -53,6 +58,10 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
         onClose={() => setScheduleOpen(false)}
         accessToken={props.accessToken}
         liveGate={props.liveGate}
+        readiness={props.readiness}
+        readinessLoading={props.readinessLoading}
+        onRefreshReadiness={props.onRefreshReadiness}
+        onFixReadiness={props.onFixReadiness}
         scheduleTitle={props.scheduleTitle}
         setScheduleTitle={props.setScheduleTitle}
         scheduleCategory={props.scheduleCategory}

@@ -9,15 +9,13 @@ export type StreamCategoryOption = {
   categoryId: CategoryId;
 };
 
+/** Labels match web discovery filters (`web/src/content/live-rooms.ts`) and API category strings. */
 export const STREAM_CATEGORY_OPTIONS: StreamCategoryOption[] = [
-  { label: 'Sports Cards', categoryId: 'cards' },
   { label: 'Trading Cards', categoryId: 'cards' },
-  { label: 'Sneakers', categoryId: 'sneakers' },
-  { label: 'Watches', categoryId: 'watches' },
   { label: 'Memorabilia', categoryId: 'memorabilia' },
-  { label: 'Sealed', categoryId: 'cards' },
-  { label: 'Apparel', categoryId: 'other' },
-  { label: 'Other Collectibles', categoryId: 'other' },
+  { label: 'Watches', categoryId: 'watches' },
+  { label: 'Sneakers', categoryId: 'sneakers' },
+  { label: 'Other', categoryId: 'other' },
 ];
 
 const GENERIC_ENGAGEMENT = new Set(['live now', 'live', 'on air', 'breaking now']);

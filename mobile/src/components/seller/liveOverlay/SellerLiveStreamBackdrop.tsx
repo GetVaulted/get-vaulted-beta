@@ -1,9 +1,13 @@
 import { LinearGradient } from 'expo-linear-gradient';
+import { ActivityIndicator, Animated, Image, Platform, StyleSheet, Text, View } from 'react-native';
 import { useEffect, useRef } from 'react';
-import { Animated, Image, Platform, StyleSheet, Text, View } from 'react-native';
 import { CinematicVignetteOverlay } from './CinematicVignetteOverlay';
 import { LiveStreamEnergyLayer } from './LiveStreamEnergyLayer';
 import { OnAirPill } from './OnAirPill';
+import { SellerCameraPermissionGate } from './SellerCameraPermissionGate';
+import { StageHostPreviewVideo } from './StageHostPreviewVideo';
+import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
+import type { SellerCameraPermissionState } from '../../../hooks/useMobileStagePublish';
 import { colors } from '../../../theme';
 
 const DEFAULT_GRADIENT: [string, string, string] = ['#121018', '#0a0a0c', '#050506'];
@@ -13,17 +17,32 @@ export function SellerLiveStreamBackdrop({
   roomLive,
   streamConnected,
   biddingUrgent,
+  useStageCamera,
+  showCameraPreview,
+  cameraFacing,
+  permissionState,
+  permissionError,
+  onRetryCameraPermission,
+  permissionRetrying,
 }: {
-  thumbnailUrl: string | null;
+  thumbnailUrl?: string | null;
   roomLive: boolean;
   streamConnected: boolean;
   biddingUrgent?: boolean;
+  /** When true, prefer live camera over listing thumbnail. */
+  useStageCamera: boolean;
+  showCameraPreview: boolean;
+  cameraFacing: SellerCameraFacing;
+  permissionState: SellerCameraPermissionState;
+  permissionError: string | null;
+  onRetryCameraPermission: () => void;
+  permissionRetrying?: boolean;
 }) {
   const ken = useRef(new Animated.Value(1)).current;
   const drift = useRef(new Animated.Value(0)).current;
-  const previewPulse = useRef(new Animated.Value(0.5)).current;
 
   useEffect(() => {
+    if (useStageCamera) return;
     const kenLoop = Animated.loop(
       Animated.sequence([
         Animated.timing(ken, { toValue: 1.035, duration: 9000, useNativeDriver: true }),
@@ -42,44 +61,43 @@ export function SellerLiveStreamBackdrop({
       kenLoop.stop();
       driftLoop.stop();
     };
-  }, [drift, ken]);
+  }, [drift, ken, useStageCamera]);
 
-  useEffect(() => {
-    if (roomLive) return;
-    const p = Animated.loop(
-      Animated.sequence([
-        Animated.timing(previewPulse, { toValue: 1, duration: 1100, useNativeDriver: true }),
-        Animated.timing(previewPulse, { toValue: 0.45, duration: 1100, useNativeDriver: true }),
-      ]),
-    );
-    p.start();
-    return () => p.stop();
-  }, [previewPulse, roomLive]);
-
+  const showLiveFeed = showCameraPreview && permissionState === 'granted';
+  const alive = roomLive || showLiveFeed || permissionState === 'requesting' || Boolean(thumbnailUrl?.trim());
+  const permissionBlocked =
+    useStageCamera && (permissionState === 'denied' || permissionState === 'unavailable');
   const thumb = thumbnailUrl?.trim();
-  const showLiveFeed = roomLive && streamConnected;
-  const alive = roomLive || Boolean(thumb);
   const translateX = drift.interpolate({ inputRange: [0, 1], outputRange: [-6, 6] });
 
   return (
     <View style={StyleSheet.absoluteFill}>
       <LinearGradient colors={DEFAULT_GRADIENT} style={StyleSheet.absoluteFill} />
-      {thumb ? (
+      <StageHostPreviewVideo
+        active={showLiveFeed}
+        cameraFacing={cameraFacing}
+        contentFit="cover"
+      />
+      {permissionBlocked && permissionError ? (
+        <SellerCameraPermissionGate
+          message={permissionError}
+          onRetry={onRetryCameraPermission}
+          retrying={permissionRetrying}
+        />
+      ) : null}
+      {!useStageCamera && thumb ? (
         <Animated.View
-          style={[
-            StyleSheet.absoluteFill,
-            { transform: [{ scale: ken }, { translateX }] },
-          ]}
+          style={[StyleSheet.absoluteFill, { transform: [{ scale: ken }, { translateX }] }]}
         >
           <Image
             source={{ uri: thumb }}
             style={StyleSheet.absoluteFill}
             resizeMode="cover"
-            blurRadius={showLiveFeed ? 0 : Platform.OS === 'ios' ? 2 : 1}
+            blurRadius={roomLive && streamConnected ? 0 : Platform.OS === 'ios' ? 2 : 1}
           />
         </Animated.View>
       ) : null}
-      {!thumb ? (
+      {!useStageCamera && !thumb ? (
         <LinearGradient
           colors={['rgba(212,175,55,0.08)', 'transparent', 'rgba(80,40,120,0.1)']}
           style={StyleSheet.absoluteFill}
@@ -88,13 +106,18 @@ export function SellerLiveStreamBackdrop({
       <LiveStreamEnergyLayer active={alive} />
       <CinematicVignetteOverlay urgent={biddingUrgent} />
       {roomLive ? (
-        <OnAirPill label={showLiveFeed ? 'LIVE' : 'ON AIR'} liveFeed={showLiveFeed} />
-      ) : (
-        <Animated.View style={[styles.previewLane, { opacity: previewPulse }]} pointerEvents="none">
+        <OnAirPill label={showLiveFeed && streamConnected ? 'LIVE' : 'ON AIR'} liveFeed={showLiveFeed && streamConnected} />
+      ) : useStageCamera && permissionState === 'requesting' ? (
+        <View style={styles.previewLane} pointerEvents="none">
+          <ActivityIndicator color={colors.gold} size="small" />
+          <Text style={styles.previewTxt}>Starting camera…</Text>
+        </View>
+      ) : useStageCamera && showLiveFeed ? (
+        <View style={styles.previewLane} pointerEvents="none">
           <View style={styles.previewDot} />
-          <Text style={styles.previewTxt}>Preview lane · camera warming</Text>
-        </Animated.View>
-      )}
+          <Text style={styles.previewTxt}>Rear camera preview · tap Go live when ready</Text>
+        </View>
+      ) : null}
     </View>
   );
 }

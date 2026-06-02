@@ -19,6 +19,7 @@ import {
 import { LIVE_STAGE_CONTENT_FIT } from '../../lib/liveRoomViewport';
 import { colors, radii, spacing } from '../../theme';
 import { LiveRoomText } from './LiveRoomText';
+import { StageSubscriberVideo } from './StageSubscriberVideo';
 
 type Props = {
   roomId: string;
@@ -83,6 +84,26 @@ function CountdownOverlay({ targetMs }: { targetMs: number }) {
   );
 }
 
+function PlaybackDebugOverlay({
+  transport,
+  streamMode,
+  stageAvailable,
+}: {
+  transport: string;
+  streamMode: string;
+  stageAvailable: boolean;
+}) {
+  if (!__DEV__) return null;
+  return (
+    <View style={styles.debugOverlay} pointerEvents="none">
+      <LiveRoomText style={styles.debugTitle}>Live Playback Debug</LiveRoomText>
+      <LiveRoomText style={styles.debugLine}>transport: {transport}</LiveRoomText>
+      <LiveRoomText style={styles.debugLine}>streamMode: {streamMode}</LiveRoomText>
+      <LiveRoomText style={styles.debugLine}>stageAvailable: {stageAvailable ? 'y' : 'n'}</LiveRoomText>
+    </View>
+  );
+}
+
 export function LiveStagePlayback({
   roomId,
   roomStatus,
@@ -100,33 +121,40 @@ export function LiveStagePlayback({
 
   const playbackUrl = playback.stream?.playbackUrl ?? null;
   const streamHealth = playback.stream?.streamHealth ?? 'offline';
-  const attachVideo = Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
+  const streamMode = playback.stream?.streamMode ?? 'channel_hls';
+  const stageAvailable = playback.stream?.stageAvailable ?? false;
+  const transport = playback.transport;
 
-  const player = useVideoPlayer(attachVideo ? playbackUrl : null, (p) => {
+  const useWebrtc = transport === 'webrtc' && enabled;
+  const attachHls = transport === 'hls' && Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
+
+  const player = useVideoPlayer(attachHls ? playbackUrl : null, (p) => {
     p.loop = false;
     p.muted = muted;
     p.play();
   });
 
   useEffect(() => {
+    if (!attachHls) return;
     player.muted = muted;
-  }, [muted, player]);
+  }, [attachHls, muted, player]);
 
   useEffect(() => {
-    if (!attachVideo || !playbackUrl) return;
+    if (!attachHls || !playbackUrl) return;
     player.replace(playbackUrl);
     player.play();
-  }, [attachVideo, playbackUrl, player]);
+  }, [attachHls, playbackUrl, player]);
 
   useEffect(() => {
+    if (!attachHls) return;
     const sub = player.addListener('statusChange', (evt) => {
       if (evt.status === 'readyToPlay') playback.onVideoReady();
       if (evt.status === 'error') playback.onVideoError();
     });
     return () => sub.remove();
-  }, [player, playback.onVideoReady, playback.onVideoError]);
+  }, [attachHls, player, playback.onVideoReady, playback.onVideoError]);
 
-  const surface = resolveLivePlaybackSurfaceState({
+  const hlsSurface = resolveLivePlaybackSurfaceState({
     loading: playback.loading,
     fetchFailed: playback.fetchFailed,
     reconnecting: playback.reconnecting,
@@ -136,6 +164,15 @@ export function LiveStagePlayback({
     playerFatal: playback.playerFatal,
     roomLifecycleLive,
   });
+
+  const surface =
+    useWebrtc
+      ? playback.videoHasData
+        ? 'live'
+        : roomLifecycleLive
+          ? 'connecting'
+          : 'offline'
+      : hlsSurface;
 
   const scheduledStartMs = useMemo(
     () => parseScheduledStartMs(scheduledStartAtIso),
@@ -153,7 +190,9 @@ export function LiveStagePlayback({
     return resolveScheduledPrereleasePhase(Date.now(), scheduledStartMs, roomLifecycleLive);
   }, [roomLifecycleLive, scheduledStartMs, tick]);
 
-  const showVideoLayer = attachVideo && surface !== 'error';
+  const showWebrtcLayer = useWebrtc && surface !== 'error';
+  const showHlsLayer = attachHls && surface !== 'error';
+  const showVideoLayer = showWebrtcLayer || showHlsLayer;
   const showThumbnail =
     Boolean(thumbnailUrl) && (!showVideoLayer || !playback.videoHasData || surface === 'offline');
   const showStandby =
@@ -229,7 +268,20 @@ export function LiveStagePlayback({
         />
       ) : null}
 
-      {showVideoLayer ? (
+      {showWebrtcLayer ? (
+        <StageSubscriberVideo
+          roomId={roomId}
+          accessToken={accessToken}
+          active={useWebrtc}
+          refreshNonce={refreshNonce}
+          contentFit={contentFit}
+          onConnected={playback.onVideoReady}
+          onFailed={playback.onWebrtcFailed}
+          onDisconnected={playback.onWebrtcDisconnected}
+        />
+      ) : null}
+
+      {showHlsLayer ? (
         <VideoView
           player={player}
           style={styles.video}
@@ -266,6 +318,12 @@ export function LiveStagePlayback({
           <LiveRoomText style={styles.unmuteText}>Tap for sound</LiveRoomText>
         </Pressable>
       ) : null}
+
+      <PlaybackDebugOverlay
+        transport={transport}
+        streamMode={streamMode}
+        stageAvailable={stageAvailable}
+      />
     </View>
   );
 }
@@ -365,5 +423,30 @@ const styles = StyleSheet.create({
     color: colors.gold,
     fontSize: 12,
     fontWeight: '700',
+  },
+  debugOverlay: {
+    position: 'absolute',
+    bottom: spacing.sm,
+    right: spacing.sm,
+    maxWidth: 180,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(234,179,8,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.82)',
+  },
+  debugTitle: {
+    color: colors.gold,
+    fontSize: 9,
+    fontWeight: '900',
+    marginBottom: 4,
+    letterSpacing: 0.5,
+  },
+  debugLine: {
+    color: 'rgba(254,243,199,0.95)',
+    fontSize: 9,
+    fontFamily: 'Menlo',
+    lineHeight: 14,
   },
 });

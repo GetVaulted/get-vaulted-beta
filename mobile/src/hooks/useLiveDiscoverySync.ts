@@ -38,7 +38,13 @@ export function useLiveDiscoverySync(
     }, [tick]),
   );
 
-  useEffect(() => subscribeHomeFeedInvalidation(() => tick({ hadCache: true })), [tick]);
+  useEffect(
+    () =>
+      subscribeHomeFeedInvalidation((opts) =>
+        tick({ hadCache: true, force: Boolean(opts?.force) }),
+      ),
+    [tick],
+  );
 
   useEffect(() => {
     const sb = getSupabase();

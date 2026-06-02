@@ -1,3 +1,9 @@
+import {
+  buildCreateLiveRoomPayload,
+  type BreakPricingMode,
+  type CreateScheduleMode,
+  type TeamBoardLeague,
+} from '../lib/createLiveRoomPayload';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { liveRoomCategoryTagsForRow } from '../lib/liveRoomDisplay';
 import { mapListingCategoryToCategoryId } from './listingsFeedRepository';
@@ -128,10 +134,16 @@ export function streamFormatToRoomType(format: 'auction' | 'break' | 'hybrid'): 
 export type CreateLiveRoomInput = {
   title: string;
   description?: string;
-  category: string;
+  category?: string;
   roomType: LiveRoomApiRow['roomType'];
+  scheduleMode: CreateScheduleMode;
   scheduledStartAt?: string | null;
-  teamBoardLeague?: 'nba' | 'nfl' | 'mlb';
+  thumbnailUrl?: string | null;
+  teamBoardLeague?: TeamBoardLeague;
+  breakTotalSpots?: string | number;
+  breakPricingMode?: BreakPricingMode;
+  breakSpotPrice?: string | number;
+  teamSelectionBoardEnabled?: boolean;
   tipModeratorId?: string | null;
   tipsToModerator?: boolean;
 };
@@ -140,22 +152,10 @@ export async function createLiveRoom(
   accessToken: string,
   input: CreateLiveRoomInput,
 ): Promise<{ id: string }> {
-  const body: Record<string, unknown> = {
-    title: input.title.trim(),
-    description: (input.description ?? '').trim(),
-    category: input.category.trim() || 'Sports Cards',
-    roomType: input.roomType,
-  };
-  if (input.scheduledStartAt) {
-    body.scheduledStartAt = input.scheduledStartAt;
-  }
-  if (input.roomType === 'break') {
-    body.teamBoardLeague = input.teamBoardLeague ?? 'nba';
-  }
-  if (input.tipModeratorId) {
-    body.tipModeratorId = input.tipModeratorId;
-    body.tipsToModerator = input.tipsToModerator === true;
-  }
+  const body = buildCreateLiveRoomPayload({
+    ...input,
+    category: input.category?.trim() || 'Other',
+  });
 
   const res = await fetchLiveRoomsApi('/api/live-rooms', {
     method: 'POST',

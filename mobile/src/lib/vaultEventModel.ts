@@ -31,8 +31,8 @@ export function vaultEventDisplayStatus(room: LiveRoomApiRow): VaultEventDisplay
     }
     return 'ended';
   }
-  const incomplete =
-    !room.scheduledStartAt || room.itemCount === 0 || room.title.trim().length < 3;
+  // Match web seller manager: scheduled time + title is enough; inventory can be added in command center.
+  const incomplete = !room.scheduledStartAt || room.title.trim().length < 3;
   if (incomplete) return 'draft';
   if (room.scheduledStartAt) {
     const start = Date.parse(room.scheduledStartAt);

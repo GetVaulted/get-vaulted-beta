@@ -6,7 +6,10 @@ import {
   PLAYER_BACKOFF_BASE_MS,
   STREAM_POLL_MS,
   shouldAttachHlsPlayback,
+  shouldUseStageWebrtcPlayback,
+  isLiveStreamSignal,
   type BuyerSafeStreamFields,
+  type LivePlaybackTransport,
 } from '../lib/liveStreamPlayback';
 
 export function useLiveStagePlayback(args: {
@@ -19,6 +22,7 @@ export function useLiveStagePlayback(args: {
   const [fetchFailed, setFetchFailed] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [stream, setStream] = useState<BuyerSafeStreamFields | null>(null);
+  const [transport, setTransport] = useState<LivePlaybackTransport>('none');
   const [videoHasData, setVideoHasData] = useState(false);
   const [playerFatal, setPlayerFatal] = useState(false);
   const [playerRetryCount, setPlayerRetryCount] = useState(0);
@@ -26,11 +30,22 @@ export function useLiveStagePlayback(args: {
   const retryRef = useRef(0);
   const backoffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastAttachKeyRef = useRef('');
+  const transportRef = useRef<LivePlaybackTransport>('none');
+  const webrtcFailedRef = useRef(false);
 
   const clearBackoff = useCallback(() => {
     if (backoffTimerRef.current != null) {
       clearTimeout(backoffTimerRef.current);
       backoffTimerRef.current = null;
+    }
+  }, []);
+
+  const applyTransport = useCallback((next: LivePlaybackTransport) => {
+    if (transportRef.current === next) return;
+    transportRef.current = next;
+    setTransport(next);
+    if (next !== 'webrtc' && next !== 'hls') {
+      setVideoHasData(false);
     }
   }, []);
 
@@ -41,6 +56,7 @@ export function useLiveStagePlayback(args: {
       if (!safe) {
         setFetchFailed(true);
         setLoading(false);
+        applyTransport('none');
         return;
       }
       setFetchFailed(false);
@@ -49,35 +65,58 @@ export function useLiveStagePlayback(args: {
       retryRef.current = 0;
       setPlayerRetryCount(0);
 
+      if (!isLiveStreamSignal(safe.streamHealth)) {
+        webrtcFailedRef.current = false;
+      }
+
+      const wantWebrtc = shouldUseStageWebrtcPlayback(safe, webrtcFailedRef.current);
+      if (wantWebrtc) {
+        applyTransport('webrtc');
+        lastAttachKeyRef.current = '';
+        setPlayerFatal(false);
+        return;
+      }
+
       const attachKey = `${safe.playbackUrl ?? ''}|${safe.streamHealth}`;
-      if (!shouldAttachHlsPlayback(safe.streamHealth, safe.playbackUrl)) {
+      if (shouldAttachHlsPlayback(safe.streamHealth, safe.playbackUrl)) {
+        applyTransport('hls');
+        if (lastAttachKeyRef.current !== attachKey) {
+          lastAttachKeyRef.current = attachKey;
+          setVideoHasData(false);
+          setPlayerFatal(false);
+        }
+      } else {
+        applyTransport(isLiveStreamSignal(safe.streamHealth) ? 'waiting' : 'none');
         lastAttachKeyRef.current = '';
         setVideoHasData(false);
-      } else if (lastAttachKeyRef.current !== attachKey) {
-        lastAttachKeyRef.current = attachKey;
-        setVideoHasData(false);
-        setPlayerFatal(false);
       }
     } catch {
       setFetchFailed(true);
       setLoading(false);
+      applyTransport('none');
     }
-  }, [args.accessToken, args.enabled, args.roomId]);
+  }, [applyTransport, args.accessToken, args.enabled, args.roomId]);
 
   useEffect(() => {
-    if (!args.enabled) return undefined;
+    if (!args.enabled) {
+      applyTransport('none');
+      webrtcFailedRef.current = false;
+      return undefined;
+    }
     void fetchStream();
     const id = setInterval(() => void fetchStream(), STREAM_POLL_MS);
     return () => clearInterval(id);
-  }, [args.enabled, fetchStream]);
+  }, [applyTransport, args.enabled, fetchStream]);
 
   useEffect(() => {
     if (!args.enabled || args.refreshNonce == null || args.refreshNonce < 1) return;
     clearBackoff();
     retryRef.current = 0;
     lastAttachKeyRef.current = '';
+    webrtcFailedRef.current = false;
     setPlayerFatal(false);
     setPlayerRetryCount(0);
+    setVideoHasData(false);
     void fetchStream();
   }, [args.refreshNonce, args.enabled, clearBackoff, fetchStream]);
 
@@ -122,6 +161,26 @@ export function useLiveStagePlayback(args: {
     }
   }, [clearBackoff, fetchStream]);
 
+  const onWebrtcFailed = useCallback(
+    (reason: string) => {
+      if (__DEV__) {
+        console.log('[LiveStagePlayback] WebRTC subscribe failed, falling back to HLS', { reason });
+      }
+      webrtcFailedRef.current = true;
+      applyTransport('waiting');
+      lastAttachKeyRef.current = '';
+      setVideoHasData(false);
+      void fetchStream();
+    },
+    [applyTransport, fetchStream],
+  );
+
+  const onWebrtcDisconnected = useCallback(() => {
+    setVideoHasData(false);
+    applyTransport('waiting');
+    void fetchStream();
+  }, [applyTransport, fetchStream]);
+
   useEffect(() => () => clearBackoff(), [clearBackoff]);
 
   return {
@@ -129,11 +188,14 @@ export function useLiveStagePlayback(args: {
     fetchFailed,
     reconnecting,
     stream,
+    transport,
     videoHasData,
     playerFatal,
     playerRetryCount,
     onVideoReady,
     onVideoError,
+    onWebrtcFailed,
+    onWebrtcDisconnected,
     refetch: fetchStream,
   };
 }

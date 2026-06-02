@@ -16,14 +16,18 @@ import { SellerLiveGestureLayer } from './SellerLiveGestureLayer';
 import { AddInventoryModal } from '../liveConsole/AddInventoryModal';
 import { LiveConsoleWarningBanner } from '../liveConsole/LiveConsoleWarningBanner';
 import type { SanitizedLiveError } from '../liveConsole/liveConsoleErrors';
+import { SellerLiveStreamBackdrop } from './SellerLiveStreamBackdrop';
+import { SellerCameraFlipButton } from './SellerCameraFlipButton';
+import type { MobileHostBroadcastPhase, SellerCameraPermissionState } from '../../../hooks/useMobileStagePublish';
+import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
 import { useSellerLiveConsole } from '../../../hooks/useSellerLiveConsole';
 import { colors, radii, spacing } from '../../../theme';
 import { SellerLiveBroadcastSheet } from './SellerLiveBroadcastSheet';
+import { SellerBroadcastControl } from './SellerBroadcastControl';
 import { SellerLiveOverlayHeader } from './SellerLiveOverlayHeader';
 import { SellerLiveOverlayRail } from './SellerLiveOverlayRail';
 import { SellerLivePinnedOverlay, SELLER_PINNED_OVERLAY_HEIGHT } from './SellerLivePinnedOverlay';
 import { SellerLiveQueueSheet } from './SellerLiveQueueSheet';
-import { SellerLiveStreamBackdrop } from './SellerLiveStreamBackdrop';
 
 const COMMERCE_TO_COMPOSER_GAP = 10;
 const CHAT_RIGHT_EDGE = 88;
@@ -47,6 +51,18 @@ type HostActions = {
   onToggleReveal: () => void;
   onStartShow: () => void;
   onEndShow: () => void;
+  broadcastPhase: MobileHostBroadcastPhase;
+  broadcastError: string | null;
+  stageWebrtcEnabled: boolean;
+  showCameraPreview: boolean;
+  cameraFacing: SellerCameraFacing;
+  cameraPermissionState: SellerCameraPermissionState;
+  cameraPermissionError: string | null;
+  cameraPermissionRetrying: boolean;
+  onRetryCameraPermission: () => void;
+  onFlipCamera: () => void;
+  onStartBroadcast: () => void;
+  onStopBroadcast: () => void;
 };
 
 type Props = {
@@ -108,6 +124,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
       Alert.alert('Finish setup', host.readinessBlocked.join('\n'));
       return;
     }
+    if (host.stageWebrtcEnabled) {
+      host.onStartBroadcast();
+      return;
+    }
     host.onStartShow();
   };
 
@@ -125,6 +145,13 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         roomLive={roomLive}
         streamConnected={host.streamConnected}
         biddingUrgent={biddingUrgent}
+        useStageCamera={host.stageWebrtcEnabled}
+        showCameraPreview={host.showCameraPreview}
+        cameraFacing={host.cameraFacing}
+        permissionState={host.cameraPermissionState}
+        permissionError={host.cameraPermissionError}
+        onRetryCameraPermission={host.onRetryCameraPermission}
+        permissionRetrying={host.cameraPermissionRetrying}
       />
 
       {host.roomError ? (
@@ -149,6 +176,14 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         canEnd={canEnd}
         endBusy={host.busy === 'end'}
       />
+
+      <View style={[styles.flipWrap, { top: insets.top + 56, right: spacing.md }]}>
+        <SellerCameraFlipButton
+          visible={host.stageWebrtcEnabled && host.showCameraPreview}
+          disabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
+          onPress={host.onFlipCamera}
+        />
+      </View>
 
       <SellerLiveOverlayRail
         bottom={railBottom}
@@ -205,7 +240,42 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         onExtend={console.onExtend}
       />
 
-      {canStart ? (
+      {host.broadcastError && host.broadcastPhase === 'idle' ? (
+        <View style={[styles.banner, { top: insets.top + 48 }]}>
+          <LiveConsoleWarningBanner
+            error={{
+              userMessage: host.broadcastError,
+              devDetail: null,
+              isNetwork: false,
+            }}
+            onRetry={host.onStartBroadcast}
+          />
+        </View>
+      ) : null}
+
+      {host.stageWebrtcEnabled ? (
+        <View
+          style={[
+            styles.broadcastControl,
+            { bottom: commerceBottom + SELLER_PINNED_OVERLAY_HEIGHT + 72 },
+          ]}
+        >
+          <SellerBroadcastControl
+            phase={host.broadcastPhase}
+            roomLive={roomLive}
+            canStartRoom={canStart}
+            stageEnabled={host.stageWebrtcEnabled}
+            cameraReady={host.cameraPermissionState === 'granted'}
+            busy={
+              host.busy === 'start' ||
+              host.busy === 'end' ||
+              host.cameraPermissionState === 'requesting'
+            }
+            onStart={host.onStartBroadcast}
+            onStop={host.onStopBroadcast}
+          />
+        </View>
+      ) : canStart ? (
         <Pressable
           style={[styles.goLive, { bottom: commerceBottom + SELLER_PINNED_OVERLAY_HEIGHT + 72 }]}
           onPress={onGoLive}
@@ -298,5 +368,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#0a0a0a',
     letterSpacing: 0.3,
+  },
+  broadcastControl: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 16,
+  },
+  flipWrap: {
+    position: 'absolute',
+    zIndex: 14,
   },
 });
