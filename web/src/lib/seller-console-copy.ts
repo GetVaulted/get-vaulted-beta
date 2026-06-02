@@ -1,0 +1,22 @@
+/** Shared seller console terminology — keep aligned with mobile `sellerConsoleCopy.ts`. */
+export const SELLER_CONSOLE = {
+  screenTitle: 'Command center',
+  lineup: 'Lineup',
+  addItem: 'Add item',
+  shareShow: 'Share show',
+  goLive: 'Go live',
+  stopStream: 'Stop stream',
+  startStream: 'Start stream',
+  endShow: 'End show',
+  obsSetup: 'OBS / RTMP',
+  camera: 'Camera',
+  microphone: 'Microphone',
+  previewHint: 'Check your camera and mic, then go live. You stay in the command center.',
+  copyLink: 'Copy link',
+  nativeShare: 'Share…',
+  inviteFollowers: 'Invite followers',
+  stats: 'Show stats',
+  chat: 'Chat',
+  viewers: 'Viewers',
+  scheduled: 'Scheduled',
+} as const;

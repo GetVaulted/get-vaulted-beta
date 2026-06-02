@@ -1,0 +1,24 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "VaultedBetaIvsRealTime",
+      "Effect": "Allow",
+      "Action": [
+        "ivs:CreateStage",
+        "ivs:GetStage",
+        "ivs:DeleteStage",
+        "ivs:CreateParticipantToken",
+        "ivs:StartComposition",
+        "ivs:StopComposition",
+        "ivs:GetComposition",
+        "ivs:ListCompositions"
+      ],
+      "Resource": [
+        "arn:aws:ivs:us-east-1:758530011537:stage/*",
+        "arn:aws:ivs:us-east-1:758530011537:participant-token/*",
+        "arn:aws:ivs:us-east-1:758530011537:composition/*"
+      ]
+    }
+  ]
+}

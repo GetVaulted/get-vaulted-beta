@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { StripeOnboardingEmbed } from "@/components/seller/StripeOnboardingEmbed";
+import { SellerHubNav } from "@/components/seller/obs/SellerHubNav";
 import { useSellerSetupState } from "@/hooks/useSellerSetupState";
 import { SELLER_SETUP_PATH } from "@/lib/seller-setup-state";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
@@ -427,27 +428,7 @@ export function SellerHubPage() {
           </div>
         </header>
 
-        <nav className="mt-5 flex flex-wrap gap-2 border-b border-white/[0.07] pb-3" aria-label="Seller navigation">
-          {[
-            { href: "/account/seller", label: "HQ" },
-            { href: "/seller/listings", label: "Listings" },
-            { href: "/account/sales", label: "Sales" },
-            { href: "/account/messages", label: "Messages" },
-            { href: "/seller/live", label: "Live" },
-          ].map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide transition sm:px-3.5 ${
-                item.href === "/account/seller"
-                  ? "border-gold/45 bg-gold/12 text-gold-bright"
-                  : "border-white/10 bg-white/[0.02] text-zinc-500 hover:border-white/18 hover:text-zinc-300"
-              }`}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
+        <SellerHubNav activeHref="/account/seller" />
 
         {loadError ? <p className="mt-4 text-sm font-medium text-amber-200">{loadError}</p> : null}
         {loadWarnings.length && !loadError ? (
@@ -474,6 +455,9 @@ export function SellerHubPage() {
             <div className="mt-4 flex flex-wrap gap-2">
               <Link href="/seller/live" className="inline-flex min-h-9 items-center rounded-full bg-gold px-4 py-2 text-xs font-bold text-zinc-950">
                 Go Live
+              </Link>
+              <Link href="/account/seller/obs" className="inline-flex min-h-9 items-center rounded-full border border-gold/35 bg-gold/10 px-4 py-2 text-xs font-bold text-gold-bright">
+                OBS Studio
               </Link>
               <Link href="/seller/live" className="inline-flex min-h-9 items-center rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200">
                 My Live Events

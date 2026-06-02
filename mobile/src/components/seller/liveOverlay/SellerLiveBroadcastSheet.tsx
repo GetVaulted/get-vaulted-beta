@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StreamAdvancedPanel } from '../liveConsole/StreamAdvancedPanel';
+import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { colors, radii, spacing } from '../../../theme';
 
 export function SellerLiveBroadcastSheet({
@@ -40,14 +41,12 @@ export function SellerLiveBroadcastSheet({
         <View style={[styles.drawer, { paddingBottom: insets.bottom + spacing.lg }]}>
           <View style={styles.handle} />
           <View style={styles.head}>
-            <Text style={styles.title}>Broadcast settings</Text>
+            <Text style={styles.title}>{SELLER_CONSOLE.obsSetup}</Text>
             <Pressable onPress={onClose} hitSlop={12}>
               <Ionicons name="close" size={22} color={colors.textSecondary} />
             </Pressable>
           </View>
-          <Text style={styles.sub}>
-            RTMP / IVS ingest is for OBS or Larix. Your buyers always see the live feed — not this panel.
-          </Text>
+          <Text style={styles.sub}>{SELLER_CONSOLE.previewHint}</Text>
           <ScrollView showsVerticalScrollIndicator={false}>
             <StreamAdvancedPanel
               streamConnected={streamConnected}

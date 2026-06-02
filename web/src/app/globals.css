@@ -1019,3 +1019,22 @@ body {
 body.seller-onboarding footer {
   display: none;
 }
+
+/* OBS browser-source widgets — hide site chrome, transparent canvas */
+body:has([data-obs-widget-root]) {
+  background: transparent !important;
+}
+
+body:has([data-obs-widget-root]) header,
+body:has([data-obs-widget-root]) nav,
+body:has([data-obs-widget-root]) footer {
+  display: none !important;
+}
+
+body:has([data-obs-widget-root]) .flex.min-h-full.flex-col.bg-background {
+  background: transparent !important;
+}
+
+body:has([data-obs-widget-root]) .flex.min-h-0.flex-1.flex-col {
+  min-height: auto !important;
+}

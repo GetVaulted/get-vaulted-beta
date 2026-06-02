@@ -1,7 +1,6 @@
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { HostStreamPayload, LiveRoomHostDetail } from '../../../api/liveHostRepository';
 import { fetchProfileById } from '../../../api/profilesRepository';
@@ -21,13 +20,16 @@ import { SellerCameraFlipButton } from './SellerCameraFlipButton';
 import type { MobileHostBroadcastPhase, SellerCameraPermissionState } from '../../../hooks/useMobileStagePublish';
 import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
 import { useSellerLiveConsole } from '../../../hooks/useSellerLiveConsole';
-import { colors, radii, spacing } from '../../../theme';
+import { webLiveRoomUrl } from '../../../lib/openWebCommerce';
+import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { SellerLiveBroadcastSheet } from './SellerLiveBroadcastSheet';
-import { SellerBroadcastControl } from './SellerBroadcastControl';
 import { SellerLiveOverlayHeader } from './SellerLiveOverlayHeader';
 import { SellerLiveOverlayRail } from './SellerLiveOverlayRail';
 import { SellerLivePinnedOverlay, SELLER_PINNED_OVERLAY_HEIGHT } from './SellerLivePinnedOverlay';
 import { SellerLiveQueueSheet } from './SellerLiveQueueSheet';
+import { SellerConsoleActionBar } from './SellerConsoleActionBar';
+import { SellerShareSheet } from './SellerShareSheet';
+import { colors, radii, spacing } from '../../../theme';
 
 const COMMERCE_TO_COMPOSER_GAP = 10;
 const CHAT_RIGHT_EDGE = 88;
@@ -82,6 +84,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   const [sellerUsername, setSellerUsername] = useState<string | null>(null);
   const [queueOpen, setQueueOpen] = useState(false);
   const [broadcastOpen, setBroadcastOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareToast, setShareToast] = useState<string | null>(null);
   const [chatDraft, setChatDraft] = useState('');
   const [biddingUrgent, setBiddingUrgent] = useState(false);
 
@@ -110,6 +114,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   const canStart = host.room?.status === 'scheduled';
   const canEnd = host.room?.status === 'live';
   const streamTitle = host.room?.title ?? 'Live show';
+  const publicUrl = webLiveRoomUrl(roomId) ?? '';
+  const actionBarTop = insets.top + 52;
 
   const dockBottom = Math.max(insets.bottom + 12, spacing.md);
   const commerceBottom = dockBottom;
@@ -177,6 +183,26 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         endBusy={host.busy === 'end'}
       />
 
+      <SellerConsoleActionBar
+        top={actionBarTop}
+        onShare={() => setShareOpen(true)}
+        onAddItem={() => console.setInventoryOpen(true)}
+        onObs={() => setBroadcastOpen(true)}
+        broadcastPhase={host.broadcastPhase}
+        roomLive={roomLive}
+        canStartRoom={canStart}
+        stageEnabled={host.stageWebrtcEnabled}
+        cameraReady={host.cameraPermissionState === 'granted'}
+        broadcastBusy={
+          host.busy === 'start' ||
+          host.busy === 'end' ||
+          host.cameraPermissionState === 'requesting'
+        }
+        onGoLive={onGoLive}
+        onStopStream={host.onStopBroadcast}
+        viewerCount={console.viewerCount}
+      />
+
       <View style={[styles.flipWrap, { top: insets.top + 56, right: spacing.md }]}>
         <SellerCameraFlipButton
           visible={host.stageWebrtcEnabled && host.showCameraPreview}
@@ -187,14 +213,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
 
       <SellerLiveOverlayRail
         bottom={railBottom}
-        streamTitle={streamTitle}
-        showPromote={false}
-        onShare={() => undefined}
-        onClip={() => undefined}
-        onPromote={() => undefined}
-        onQueue={() => setQueueOpen(true)}
-        onInventory={() => console.setInventoryOpen(true)}
-        onCamera={() => setBroadcastOpen(true)}
+        onLineup={() => setQueueOpen(true)}
+        onObs={() => setBroadcastOpen(true)}
       />
 
       <FloatingLiveChat
@@ -253,46 +273,16 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         </View>
       ) : null}
 
-      {host.stageWebrtcEnabled ? (
-        <View
-          style={[
-            styles.broadcastControl,
-            { bottom: commerceBottom + SELLER_PINNED_OVERLAY_HEIGHT + 72 },
-          ]}
-        >
-          <SellerBroadcastControl
-            phase={host.broadcastPhase}
-            roomLive={roomLive}
-            canStartRoom={canStart}
-            stageEnabled={host.stageWebrtcEnabled}
-            cameraReady={host.cameraPermissionState === 'granted'}
-            busy={
-              host.busy === 'start' ||
-              host.busy === 'end' ||
-              host.cameraPermissionState === 'requesting'
-            }
-            onStart={host.onStartBroadcast}
-            onStop={host.onStopBroadcast}
-          />
+      {host.stageWebrtcEnabled && !roomLive && host.showCameraPreview ? (
+        <View style={[styles.previewHint, { top: actionBarTop + 44 }]}>
+          <Text style={styles.previewHintTxt}>{SELLER_CONSOLE.previewHint}</Text>
         </View>
-      ) : canStart ? (
-        <Pressable
-          style={[styles.goLive, { bottom: commerceBottom + SELLER_PINNED_OVERLAY_HEIGHT + 72 }]}
-          onPress={onGoLive}
-          disabled={host.busy === 'start'}
-        >
-          <LinearGradient
-            colors={['#E8C872', colors.gold, '#9A7B2E']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-          {host.busy === 'start' ? (
-            <ActivityIndicator color="#0a0a0a" />
-          ) : (
-            <Text style={styles.goLiveTxt}>Go live</Text>
-          )}
-        </Pressable>
+      ) : null}
+
+      {shareToast ? (
+        <View style={[styles.toast, { top: insets.top + 8 }]}>
+          <Text style={styles.toastTxt}>{shareToast}</Text>
+        </View>
       ) : null}
 
       <SellerLiveQueueSheet
@@ -328,6 +318,17 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         hasIngest={Boolean(host.serverUrl)}
       />
 
+      <SellerShareSheet
+        visible={shareOpen}
+        onClose={() => setShareOpen(false)}
+        publicUrl={publicUrl}
+        showTitle={streamTitle}
+        onToast={(msg) => {
+          setShareToast(msg);
+          setTimeout(() => setShareToast(null), 2200);
+        }}
+      />
+
       <AddInventoryModal
         visible={console.inventoryOpen}
         quickTitle={console.quickTitle}
@@ -348,36 +349,42 @@ const styles = StyleSheet.create({
     right: spacing.sm,
     zIndex: 20,
   },
-  goLive: {
-    position: 'absolute',
-    alignSelf: 'center',
-    paddingHorizontal: 28,
-    paddingVertical: 14,
-    borderRadius: radii.pill,
-    overflow: 'hidden',
-    minWidth: 160,
-    alignItems: 'center',
-    zIndex: 16,
-    shadowColor: colors.gold,
-    shadowOpacity: 0.45,
-    shadowRadius: 12,
-    elevation: 10,
-  },
-  goLiveTxt: {
-    fontWeight: '900',
-    fontSize: 16,
-    color: '#0a0a0a',
-    letterSpacing: 0.3,
-  },
-  broadcastControl: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    zIndex: 16,
-  },
   flipWrap: {
     position: 'absolute',
     zIndex: 14,
+  },
+  previewHint: {
+    position: 'absolute',
+    left: spacing.md,
+    right: spacing.md + 56,
+    zIndex: 12,
+  },
+  previewHintTxt: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 11,
+    fontWeight: '600',
+    lineHeight: 15,
+    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  toast: {
+    position: 'absolute',
+    alignSelf: 'center',
+    left: spacing.lg,
+    right: spacing.lg,
+    zIndex: 30,
+    borderRadius: radii.md,
+    backgroundColor: 'rgba(24,24,27,0.95)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.12)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  toastTxt: {
+    textAlign: 'center',
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

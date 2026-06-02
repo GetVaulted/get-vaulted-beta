@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { useRef } from 'react';
-import { Animated, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { colors, radii, spacing } from '../../../theme';
 
 type RailAction = {
@@ -68,50 +69,16 @@ function RailButton({
 
 export function SellerLiveOverlayRail({
   bottom,
-  streamTitle,
-  onShare,
-  onClip,
-  onPromote,
-  showPromote = false,
-  onQueue,
-  onInventory,
-  onCamera,
+  onLineup,
+  onObs,
 }: {
   bottom: number;
-  streamTitle: string;
-  onShare: () => void;
-  onClip: () => void;
-  onPromote: () => void;
-  showPromote?: boolean;
-  onQueue: () => void;
-  onInventory: () => void;
-  onCamera: () => void;
+  onLineup: () => void;
+  onObs: () => void;
 }) {
-  const shareRoom = async () => {
-    try {
-      await Share.share({ message: `Watch “${streamTitle}” live on Get Vaulted` });
-    } catch {
-      /* dismissed */
-    }
-    onShare();
-  };
-
-  const shareClip = async () => {
-    try {
-      await Share.share({ message: `Clip from “${streamTitle}” on Get Vaulted` });
-    } catch {
-      /* dismissed */
-    }
-    onClip();
-  };
-
   const actions: RailAction[] = [
-    { key: 'share', icon: 'share-outline', label: 'Share', onPress: () => void shareRoom() },
-    { key: 'clip', icon: 'cut-outline', label: 'Clip', onPress: () => void shareClip() },
-    ...(showPromote ? [{ key: 'promote', icon: 'megaphone-outline' as const, label: 'Promote', onPress: onPromote }] : []),
-    { key: 'queue', icon: 'layers-outline', label: 'Queue', onPress: onQueue },
-    { key: 'inventory', icon: 'bag-handle-outline', label: 'Inventory', onPress: onInventory },
-    { key: 'camera', icon: 'camera-reverse-outline', label: 'Camera', onPress: onCamera, accent: true },
+    { key: 'lineup', icon: 'layers-outline', label: SELLER_CONSOLE.lineup, onPress: onLineup },
+    { key: 'obs', icon: 'radio-outline', label: SELLER_CONSOLE.obsSetup, onPress: onObs, accent: true },
   ];
 
   return (
@@ -179,6 +146,8 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: '700',
     letterSpacing: 0.2,
+    textAlign: 'center',
+    maxWidth: 52,
   },
   labelAccent: { color: colors.gold },
 });

@@ -13,6 +13,7 @@ import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { LiveConsoleWarningBanner } from '../liveConsole/LiveConsoleWarningBanner';
 import type { SanitizedLiveError } from '../liveConsole/liveConsoleErrors';
 import { VaultQueueList } from '../liveConsole/VaultQueueList';
+import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { colors, radii, spacing } from '../../../theme';
 
 export function SellerLiveQueueSheet({
@@ -53,7 +54,7 @@ export function SellerLiveQueueSheet({
         <View style={[styles.drawer, { paddingBottom: insets.bottom + spacing.lg }]}>
           <View style={styles.handle} />
           <View style={styles.head}>
-            <Text style={styles.title}>Vault queue</Text>
+            <Text style={styles.title}>{SELLER_CONSOLE.lineup}</Text>
             <Text style={styles.count}>{queuedCount} waiting</Text>
             <Pressable onPress={onClose} hitSlop={12} accessibilityLabel="Close">
               <Ionicons name="close" size={22} color={colors.textSecondary} />

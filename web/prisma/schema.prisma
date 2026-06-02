@@ -696,6 +696,9 @@ model LiveRoom {
   streamEndedAt      DateTime?
   lastIvsStatusSyncAt DateTime?
   lastIvsError       String?
+  /// SHA-256 hash of OBS browser-source widget token (plain token shown once on rotate).
+  obsWidgetTokenHash String?
+  obsWidgetTokenRotatedAt DateTime?
   scheduledStartAt   DateTime?
   startedAt          DateTime?
   endedAt            DateTime?

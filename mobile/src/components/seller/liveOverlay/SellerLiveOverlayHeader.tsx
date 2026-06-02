@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef } from 'react';
 import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LiveBadge } from '../../ui/LiveBadge';
+import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { colors, spacing } from '../../../theme';
 
 function formatViewers(n: number) {
@@ -106,7 +107,7 @@ export function SellerLiveOverlayHeader({
               </Animated.Text>
             </View>
           ) : (
-            <Text style={styles.scheduled}>Scheduled</Text>
+            <Text style={styles.scheduled}>{SELLER_CONSOLE.scheduled}</Text>
           )}
           <Pressable style={styles.iconBtn} onPress={onBroadcastSettings} accessibilityLabel="Broadcast settings">
             <Ionicons name="settings-outline" size={19} color="rgba(255,255,255,0.88)" />

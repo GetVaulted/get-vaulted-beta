@@ -7,8 +7,14 @@
  */
 import { config } from "dotenv";
 import { IvsClient, ListChannelsCommand } from "@aws-sdk/client-ivs";
+import { GetStageCommand, IVSRealTimeClient } from "@aws-sdk/client-ivs-realtime";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+const BETA_ACCOUNT_ID = "758530011537";
+const BETA_IVS_REGION = "us-east-1";
+/** Dummy stage ARN — GetStage returns NotFound when Real-Time IAM is OK; AccessDenied when it is not. */
+const REALTIME_PROBE_STAGE_ARN = `arn:aws:ivs:${BETA_IVS_REGION}:${BETA_ACCOUNT_ID}:stage/00000000-0000-0000-0000-000000000000`;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = path.join(__dirname, "..");
@@ -58,10 +64,10 @@ async function main() {
     process.exit(1);
   }
 
-  const client = new IvsClient({
-    region,
-    credentials: { accessKeyId, secretAccessKey },
-  });
+  const credentials = { accessKeyId, secretAccessKey };
+  const client = new IvsClient({ region, credentials });
+  const realtimeClient = new IVSRealTimeClient({ region, credentials });
+
   try {
     const out = await client.send(new ListChannelsCommand({ maxResults: 5 }));
     const count = out.channels?.length ?? 0;
@@ -69,19 +75,46 @@ async function main() {
     for (const ch of out.channels ?? []) {
       console.log(`  - ${ch.name ?? "?"} (${ch.arn ?? "?"})`);
     }
-    console.log("");
-    console.log("IVS test flow:");
-    console.log("  1. Seller: POST /api/live-rooms/{id}/stream/provision (host only)");
-    console.log("  2. Seller: OBS/Larix → RTMPS ingest + stream key (never shown to buyers)");
-    console.log("  3. Seller: PATCH /api/live-rooms/{id} { action: start }");
-    console.log("  4. Buyer: GET /api/live-rooms/{id}/stream → playbackUrl + streamHealth only");
-    console.log("");
-    console.log("See web/docs/aws-ivs-live-qa-checklist.md for full E2E steps.");
   } catch (e) {
-    console.error("IVS API call failed — check IAM permissions (ivs:CreateChannel, ivs:CreateStreamKey, ivs:GetStream, ivs:ListChannels, ivs:TagResource).");
+    console.error(
+      "IVS channel API failed — check IAM permissions (ivs:CreateChannel, ivs:CreateStreamKey, ivs:GetStream, ivs:ListChannels, ivs:TagResource).",
+    );
     console.error(e instanceof Error ? e.message : e);
     process.exit(1);
   }
+
+  try {
+    await realtimeClient.send(new GetStageCommand({ arn: REALTIME_PROBE_STAGE_ARN }));
+    console.log("IVS Real-Time API reachable (GetStage probe returned without AccessDenied).");
+  } catch (e) {
+    const name = e instanceof Error ? e.name : "";
+    if (name === "ResourceNotFoundException" || name === "StageNotFoundException") {
+      console.log("IVS Real-Time IAM OK (GetStage probe: stage not found, authorization passed).");
+    } else if (name === "AccessDeniedException" || /not authorized/i.test(String(e))) {
+      console.error("");
+      console.error("IVS Real-Time IAM missing — Go Live (WebRTC Stage) will fail.");
+      console.error(
+        "Add ivs:CreateStage, ivs:GetStage, ivs:DeleteStage, ivs:CreateParticipantToken, ivs:StartComposition, ivs:StopComposition, ivs:GetComposition, ivs:ListCompositions",
+      );
+      console.error("on arn:aws:ivs:us-east-1:758530011537:stage/*, participant-token/*, composition/*");
+      console.error("See web/infra/iam/vaulted-beta-ivs-realtime-policy.json");
+      console.error(e instanceof Error ? e.message : e);
+      process.exit(1);
+    } else {
+      console.error("IVS Real-Time API probe failed unexpectedly:");
+      console.error(e instanceof Error ? e.message : e);
+      process.exit(1);
+    }
+  }
+
+  console.log("");
+  console.log("IVS test flow:");
+  console.log("  1. Seller: POST /api/live-rooms/{id}/stream/stage-token (host WebRTC Go Live)");
+  console.log("  2. Buyer: GET /api/live-rooms/{id}/stream/stage-token (subscribe-only token)");
+  console.log("  3. Legacy OBS path: POST /api/live-rooms/{id}/stream/provision → RTMPS + stream key");
+  console.log("  4. Buyer: GET /api/live-rooms/{id}/stream → playbackUrl + streamHealth only");
+  console.log("");
+  console.log("See web/docs/aws-ivs-live-qa-checklist.md for full E2E steps.");
 }
 
 main().catch((e) => {

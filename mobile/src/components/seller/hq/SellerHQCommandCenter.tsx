@@ -8,6 +8,8 @@ import type { SellerHQEntryPhase } from '../../../lib/sellerHubEntry';
 import { openCreateListing } from '../../../navigation/openCreateListing';
 import { openVaultComms } from '../../../navigation/openPlatform';
 import { setPendingVaultEventSchedule } from '../../../navigation/openSellerHQ';
+import { openWebCommerceUrl } from '../../../lib/openWebCommerce';
+import { getWebApiBaseUrl } from '../../../lib/webApiBaseUrl';
 import {
   isSellerPayoutSetupComplete,
   sellerConnectBadge,
@@ -80,6 +82,15 @@ export function SellerHQCommandCenter({
       case 'inventory':
         onOpenTab('listings');
         break;
+      case 'obs_studio': {
+        const base = getWebApiBaseUrl();
+        if (!base) {
+          Alert.alert('OBS Studio', 'Set EXPO_PUBLIC_SITE_URL to open OBS Studio on web.');
+          return;
+        }
+        void openWebCommerceUrl(`${base}/account/seller/obs`);
+        break;
+      }
     }
   };
 

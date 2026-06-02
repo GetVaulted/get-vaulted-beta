@@ -10,7 +10,7 @@ import type {
 } from "amazon-ivs-web-broadcast";
 import { logIvsWeb } from "@/lib/ivs-web-broadcast-log";
 
-export type HostBroadcastPhase = "idle" | "starting" | "live" | "stopping";
+export type HostBroadcastPhase = "idle" | "preview" | "starting" | "live" | "stopping";
 
 type StageTokenResponse = {
   error?: string;
@@ -20,6 +20,11 @@ type StageTokenResponse = {
     stageArn?: string;
     expiresInSeconds?: number;
   };
+};
+
+export type HostMediaDevices = {
+  video: MediaDeviceInfo[];
+  audio: MediaDeviceInfo[];
 };
 
 function friendlyMediaError(err: unknown): string {
@@ -38,43 +43,59 @@ function friendlyMediaError(err: unknown): string {
   return "Could not access camera or microphone.";
 }
 
+function mediaConstraints(videoDeviceId?: string, audioDeviceId?: string): MediaStreamConstraints {
+  return {
+    video: videoDeviceId
+      ? { deviceId: { exact: videoDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+      : { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: audioDeviceId ? { deviceId: { exact: audioDeviceId } } : true,
+  };
+}
+
 /**
- * Owns the in-browser IVS Real-Time (WebRTC Stage) publish session for the seller console.
- *
- * Replaces the legacy IVS channel/HLS webcam broadcast for browser/mobile Go Live: the host
- * publishes camera/mic into a Stage so buyers get sub-second WebRTC playback. Lives at the console
- * level (not inside a modal) so closing/collapsing UI does not tear down the running broadcast;
- * cleanup happens on host-console unmount or explicit stop.
- *
- * Keeps the same external surface (`phase`/`error`/`start`/`stop`) as the previous webcam hook so
- * the console wiring is unchanged.
+ * In-browser IVS Real-Time Stage publish for the seller command center.
+ * Supports pre-live camera preview + device selection before Go live.
  */
 export function useHostStagePublish({
   roomId,
   onBroadcastStarted,
   onStreamRefresh,
   onLive,
+  autoPreview = true,
 }: {
   roomId: string;
-  /** Called once the stage publish connects (e.g. mark room live). */
   onBroadcastStarted?: () => void | Promise<void>;
-  /** Bump host stage + buyer playback refresh nonces. */
   onStreamRefresh?: () => void;
-  /** Fired when the broadcast reaches the live phase. */
   onLive?: () => void;
+  /** Start camera preview on mount when room is not yet broadcasting. */
+  autoPreview?: boolean;
 }) {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const stageRef = useRef<Stage | null>(null);
   const localStreamsRef = useRef<LocalStageStream[]>([]);
   const startInFlightRef = useRef(false);
   const wentLiveRef = useRef(false);
+  const previewOnlyRef = useRef(false);
   const [phase, setPhase] = useState<HostBroadcastPhase>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
+  const [devices, setDevices] = useState<HostMediaDevices>({ video: [], audio: [] });
+  const [selectedVideoDeviceId, setSelectedVideoDeviceId] = useState("");
+  const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState("");
 
   const callbacksRef = useRef({ onBroadcastStarted, onStreamRefresh, onLive });
   callbacksRef.current = { onBroadcastStarted, onStreamRefresh, onLive };
 
-  const cleanupLocal = useCallback(() => {
+  const stopMediaTracks = useCallback(() => {
+    for (const track of mediaStreamRef.current?.getTracks() ?? []) {
+      track.stop();
+    }
+    mediaStreamRef.current = null;
+    previewOnlyRef.current = false;
+    setPreviewStream(null);
+  }, []);
+
+  const cleanupStage = useCallback(() => {
     try {
       stageRef.current?.leave();
     } catch {
@@ -82,13 +103,82 @@ export function useHostStagePublish({
     }
     stageRef.current = null;
     localStreamsRef.current = [];
-    for (const track of mediaStreamRef.current?.getTracks() ?? []) {
-      track.stop();
-    }
-    mediaStreamRef.current = null;
   }, []);
 
+  const cleanupLocal = useCallback(() => {
+    cleanupStage();
+    stopMediaTracks();
+  }, [cleanupStage, stopMediaTracks]);
+
   useEffect(() => () => cleanupLocal(), [cleanupLocal]);
+
+  const refreshDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    const all = await navigator.mediaDevices.enumerateDevices();
+    setDevices({
+      video: all.filter((d) => d.kind === "videoinput"),
+      audio: all.filter((d) => d.kind === "audioinput"),
+    });
+  }, []);
+
+  const acquireMedia = useCallback(
+    async (opts?: { videoDeviceId?: string; audioDeviceId?: string; previewOnly?: boolean }) => {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("This browser does not support in-browser streaming. Use OBS / RTMP instead.");
+      }
+      stopMediaTracks();
+      const videoId = opts?.videoDeviceId ?? selectedVideoDeviceId;
+      const audioId = opts?.audioDeviceId ?? selectedAudioDeviceId;
+      logIvsWeb("permission requested", { roomId, transport: "webrtc", preview: opts?.previewOnly ?? false });
+      const media = await navigator.mediaDevices.getUserMedia(mediaConstraints(videoId || undefined, audioId || undefined));
+      mediaStreamRef.current = media;
+      previewOnlyRef.current = opts?.previewOnly ?? false;
+      setPreviewStream(media);
+      if (videoId) setSelectedVideoDeviceId(videoId);
+      if (audioId) setSelectedAudioDeviceId(audioId);
+      await refreshDevices();
+      logIvsWeb("permission granted", {
+        transport: "webrtc",
+        videoTracks: media.getVideoTracks().length,
+        audioTracks: media.getAudioTracks().length,
+      });
+      return media;
+    },
+    [refreshDevices, roomId, selectedAudioDeviceId, selectedVideoDeviceId, stopMediaTracks],
+  );
+
+  const startPreview = useCallback(async () => {
+    if (stageRef.current) return;
+    setError(null);
+    try {
+      await acquireMedia({ previewOnly: true });
+      setPhase("preview");
+    } catch (err) {
+      setPhase("idle");
+      setError(friendlyMediaError(err));
+    }
+  }, [acquireMedia]);
+
+  const restartPreviewWithDevices = useCallback(
+    async (videoDeviceId: string, audioDeviceId: string) => {
+      if (stageRef.current) return;
+      setSelectedVideoDeviceId(videoDeviceId);
+      setSelectedAudioDeviceId(audioDeviceId);
+      setError(null);
+      try {
+        await acquireMedia({ videoDeviceId, audioDeviceId, previewOnly: true });
+        setPhase("preview");
+      } catch (err) {
+        setError(friendlyMediaError(err));
+      }
+    },
+    [acquireMedia],
+  );
+
+  useEffect(() => {
+    if (!autoPreview) return;
+    void startPreview();
+  }, [autoPreview, roomId, startPreview]);
 
   const endServerSession = useCallback(async () => {
     try {
@@ -105,10 +195,9 @@ export function useHostStagePublish({
   }, [roomId]);
 
   const start = useCallback(async () => {
-    if (startInFlightRef.current || stageRef.current || mediaStreamRef.current) return;
+    if (startInFlightRef.current || stageRef.current) return;
     if (!navigator.mediaDevices?.getUserMedia) {
-      setError("This browser does not support in-browser streaming. Use Advanced / OBS instead.");
-      logIvsWeb("stage publish error", { reason: "getUserMedia_unavailable" });
+      setError("This browser does not support in-browser streaming. Use OBS / RTMP instead.");
       return;
     }
 
@@ -118,17 +207,11 @@ export function useHostStagePublish({
     setError(null);
 
     try {
-      logIvsWeb("permission requested", { roomId, transport: "webrtc" });
-      const media = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: true,
-      });
-      mediaStreamRef.current = media;
-      logIvsWeb("permission granted", {
-        transport: "webrtc",
-        videoTracks: media.getVideoTracks().length,
-        audioTracks: media.getAudioTracks().length,
-      });
+      let media = mediaStreamRef.current;
+      if (!media || !previewOnlyRef.current) {
+        media = await acquireMedia({ previewOnly: false });
+      }
+      previewOnlyRef.current = false;
 
       const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/stream/stage-token`, {
         method: "POST",
@@ -140,13 +223,8 @@ export function useHostStagePublish({
       }
       const token = body.stage?.token?.trim();
       if (!token) {
-        throw new Error("Stage credentials were incomplete. Try again or use Advanced / OBS.");
+        throw new Error("Stage credentials were incomplete. Try again or use OBS / RTMP.");
       }
-      logIvsWeb("stage token acquired", {
-        roomId,
-        httpStatus: res.status,
-        participantId: body.stage?.participantId ?? "unknown",
-      });
 
       const ivs = await import("amazon-ivs-web-broadcast");
       const videoTrack = media.getVideoTracks()[0];
@@ -156,7 +234,6 @@ export function useHostStagePublish({
       if (audioTrack) localStreams.push(new ivs.LocalStageStream(audioTrack));
       localStreamsRef.current = localStreams;
 
-      // Single-host publish strategy: publish camera/mic, don't subscribe to anyone from the host.
       const strategy: StageStrategy = {
         stageStreamsToPublish: () => localStreamsRef.current,
         shouldPublishParticipant: () => true,
@@ -167,7 +244,6 @@ export function useHostStagePublish({
       stageRef.current = stage;
 
       stage.on(ivs.StageEvents.STAGE_CONNECTION_STATE_CHANGED, (state: StageConnectionStateType) => {
-        logIvsWeb("stage connection state", { roomId, state });
         if (state === ivs.StageConnectionState.CONNECTED && !wentLiveRef.current) {
           wentLiveRef.current = true;
           setPhase("live");
@@ -177,48 +253,49 @@ export function useHostStagePublish({
         }
       });
       stage.on(ivs.StageEvents.ERROR, (err: StageError) => {
-        logIvsWeb("stage publish error", {
-          roomId,
-          source: "stage_error",
-          name: err?.name,
-          code: err?.code,
-          category: err?.category,
-          message: err?.message,
-        });
+        logIvsWeb("stage publish error", { roomId, message: err?.message });
       });
 
       await stage.join();
-      logIvsWeb("stage join success", { roomId });
     } catch (err) {
-      logIvsWeb("stage publish error", {
-        roomId,
-        source: "start_catch",
-        message: err instanceof Error ? err.message : String(err),
-      });
-      cleanupLocal();
+      cleanupStage();
       void endServerSession();
-      setPhase("idle");
+      setPhase(previewStream ? "preview" : "idle");
       setError(friendlyMediaError(err));
     } finally {
       startInFlightRef.current = false;
     }
-  }, [cleanupLocal, endServerSession, roomId]);
+  }, [acquireMedia, cleanupStage, endServerSession, previewStream, roomId]);
 
   const stop = useCallback(async () => {
     setPhase((prev) => (prev === "live" || prev === "starting" ? "stopping" : prev));
-    if (!stageRef.current && !mediaStreamRef.current) return;
+    if (!stageRef.current && phase !== "live" && phase !== "starting") return;
     setError(null);
-    cleanupLocal();
-
+    cleanupStage();
     try {
       await endServerSession();
       callbacksRef.current.onStreamRefresh?.();
     } catch (err) {
       setError(friendlyMediaError(err));
     } finally {
-      setPhase("idle");
+      previewOnlyRef.current = true;
+      setPhase(mediaStreamRef.current ? "preview" : "idle");
     }
-  }, [cleanupLocal, endServerSession]);
+  }, [cleanupStage, endServerSession, phase]);
 
-  return { phase, error, start, stop };
+  return {
+    phase,
+    error,
+    previewStream,
+    devices,
+    selectedVideoDeviceId,
+    selectedAudioDeviceId,
+    setSelectedVideoDeviceId,
+    setSelectedAudioDeviceId,
+    refreshDevices,
+    startPreview,
+    restartPreviewWithDevices,
+    start,
+    stop,
+  };
 }

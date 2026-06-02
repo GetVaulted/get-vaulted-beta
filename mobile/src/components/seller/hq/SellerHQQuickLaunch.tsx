@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../../../theme';
 import { hq } from './hqStyles';
 
-export type QuickLaunchId = 'schedule' | 'listing' | 'inventory' | 'vault_events';
+export type QuickLaunchId = 'schedule' | 'listing' | 'inventory' | 'vault_events' | 'obs_studio';
 
 const CARDS: {
   id: QuickLaunchId;
@@ -16,6 +16,7 @@ const CARDS: {
   { id: 'listing', title: 'Create Listing', sub: 'List in the Marketplace', icon: 'storefront-outline' },
   { id: 'inventory', title: 'Go to Inventory', sub: 'Listings · drafts · live lots', icon: 'layers-outline' },
   { id: 'vault_events', title: 'Open Vault Events', sub: 'Live · upcoming · past', icon: 'albums-outline' },
+  { id: 'obs_studio', title: 'OBS Studio', sub: 'RTMP · widgets · stream settings', icon: 'desktop-outline' },
 ];
 
 export function SellerHQQuickLaunch({ onAction }: { onAction: (id: QuickLaunchId) => void }) {

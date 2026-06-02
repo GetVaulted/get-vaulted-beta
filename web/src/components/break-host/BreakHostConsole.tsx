@@ -43,6 +43,11 @@ import {
   pushBidTimestamp,
 } from "@/lib/live-room-energy";
 import { HostStreamSetupCard } from "@/components/live-auction/HostStreamSetupCard";
+import { SellerConsoleActionBar } from "@/components/seller/SellerConsoleActionBar";
+import { SellerConsoleInventoryRail } from "@/components/seller/SellerConsoleInventoryRail";
+import { SellerConsoleStatsPanel } from "@/components/seller/SellerConsoleStatsPanel";
+import { SellerGoLiveSetupPanel } from "@/components/seller/SellerGoLiveSetupPanel";
+import { SellerShareSheet } from "@/components/seller/SellerShareSheet";
 import { useHostStagePublish } from "@/hooks/useHostStagePublish";
 import { logIvsWeb } from "@/lib/ivs-web-broadcast-log";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
@@ -212,6 +217,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
   const [queueAddModal, setQueueAddModal] = useState<null | "auction" | "bin" | "givvy">(null);
   const [obsSetupModalOpen, setObsSetupModalOpen] = useState(false);
+  const [shareSheetOpen, setShareSheetOpen] = useState(false);
 
   const [teamBoardData, setTeamBoardData] = useState<TeamBoardPublicPayload | null>(null);
   const [teamBoardBusy, setTeamBoardBusy] = useState(false);
@@ -1294,9 +1300,24 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
    */
   const handleGoLive = useCallback(() => {
     setVaultCommandOpen(false);
+    setShareSheetOpen(false);
     void webcamBroadcast.start();
     void patchRoom("start");
-  }, [webcamBroadcast, patchRoom]);
+  }, [patchRoom, webcamBroadcast]);
+
+  const handlePreviewVideoDevice = useCallback(
+    (deviceId: string) => {
+      void webcamBroadcast.restartPreviewWithDevices(deviceId, webcamBroadcast.selectedAudioDeviceId);
+    },
+    [webcamBroadcast],
+  );
+
+  const handlePreviewAudioDevice = useCallback(
+    (deviceId: string) => {
+      void webcamBroadcast.restartPreviewWithDevices(webcamBroadcast.selectedVideoDeviceId, deviceId);
+    },
+    [webcamBroadcast],
+  );
 
   const overlayDiffersFromActive = useMemo(() => {
     if (!data?.queueItems?.length) return false;
@@ -1886,66 +1907,118 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       ) : null}
 
       <div className="relative flex min-h-0 flex-1 flex-col p-1 sm:p-1.5 min-[1400px]:p-0">
-        {/* Desktop — full-bleed cinematic stage with floating glass rails */}
-        <div className="relative hidden min-h-0 flex-1 overflow-hidden min-[1400px]:block">
-          <div className="absolute inset-0 min-h-0">
-            <LiveVideoStage {...hostStageProps} />
-          </div>
-
-          <aside
-            className={`live-stage-utility-dock-wrap pointer-events-auto absolute left-4 top-4 z-30 flex max-h-[calc(100%-2rem)] min-h-0 flex-col live-stage-ui-awake ${
-              hostTeamBoardOpen && !hostTeamBoardCollapsed
-                ? "w-[min(380px,32vw)]"
-                : "w-[min(196px,14vw)]"
-            }`}
-          >
-            <div className="live-stage-utility-dock flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-              <LiveSellerCommandCenter {...commandCenterProps} variant="panel" compactRail />
-              {hostTeamBoardOpen ? (
-                <TeamBoardHostPanel
-                  league={teamBoardData?.state.league ?? "nba"}
-                  tileCount={teamBoardData?.teams.length}
-                  collapsed={hostTeamBoardCollapsed}
-                  disabled={teamBoardBusy || room.status === "ended"}
-                  onToggleCollapsed={minimizeHostTeamBoardPanel}
-                  onExpandCollapsed={expandHostTeamBoardPanel}
-                  onClose={closeHostTeamBoardPanel}
-                >
-                  {hostTeamBoardPanelBody}
-                </TeamBoardHostPanel>
-              ) : null}
-            </div>
-          </aside>
-
-          <aside className="live-stage-chat-dock pointer-events-auto absolute bottom-20 right-4 top-4 z-30 flex min-h-0 w-[min(240px,17vw)] min-w-0 flex-col overflow-hidden live-stage-ui-awake">
-            {hostLiveChatPanel}
-          </aside>
-
-          <VaultQueueDrawer
-            open={queueDrawerOpen}
-            onClose={() => setQueueDrawerOpen(false)}
-            tab={hostQueueTab}
-            onTab={setHostQueueTab}
-            rows={data.queueItems}
-            selectedId={selectedQueueItemId}
-            onSelect={handleSelectQueueItem}
+        {/* Desktop — 3-column command center (lineup | 9:16 stage | stats + chat) */}
+        <div className="relative hidden min-h-0 flex-1 flex-col overflow-hidden min-[1400px]:flex">
+          <SellerConsoleActionBar
+            onShare={() => setShareSheetOpen(true)}
+            onAddItem={() => setQueueAddModal("auction")}
+            onObs={() => setObsSetupModalOpen(true)}
+            broadcastPhase={webcamBroadcast.phase}
+            roomLive={room.status === "live"}
+            onGoLive={handleGoLive}
+            onStopStream={() => void webcamBroadcast.stop()}
+            streamTimerDisplay={streamTimerDisplay}
             viewerCount={room.viewerCount}
-            busy={busy}
-            onPost={(id) => void patchItem(id, "active")}
-            onSkip={(id) => void patchItem(id, "skipped")}
-            onDelete={(id) => void deleteQueueItem(id)}
-            onAddAuction={() => {
-              setQueueDrawerOpen(false);
-              setQueueAddModal("auction");
-            }}
           />
+          <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,22vw)_minmax(0,1fr)_minmax(280px,20vw)]">
+            <aside className="flex min-h-0 flex-col border-r border-white/[0.08] bg-zinc-950/95">
+              <SellerConsoleInventoryRail
+                tab={hostQueueTab}
+                onTab={setHostQueueTab}
+                rows={data.queueItems}
+                selectedId={selectedQueueItemId}
+                onSelect={handleSelectQueueItem}
+                viewerCount={room.viewerCount}
+                busy={busy}
+                onPost={(id) => void patchItem(id, "active")}
+                onSkip={(id) => void patchItem(id, "skipped")}
+                onDelete={(id) => void deleteQueueItem(id)}
+                onAddItem={() => setQueueAddModal("auction")}
+                onPinSelected={handleHostPinSelected}
+                onNextItem={handleHostNextItem}
+                pinDisabled={busy || !selectedQueueItemId}
+              />
+              {hostTeamBoardOpen ? (
+                <div className="shrink-0 border-t border-white/[0.08] p-2">
+                  <TeamBoardHostPanel
+                    league={teamBoardData?.state.league ?? "nba"}
+                    tileCount={teamBoardData?.teams.length}
+                    collapsed={hostTeamBoardCollapsed}
+                    disabled={teamBoardBusy || room.status === "ended"}
+                    onToggleCollapsed={minimizeHostTeamBoardPanel}
+                    onExpandCollapsed={expandHostTeamBoardPanel}
+                    onClose={closeHostTeamBoardPanel}
+                  >
+                    {hostTeamBoardPanelBody}
+                  </TeamBoardHostPanel>
+                </div>
+              ) : null}
+            </aside>
+
+            <div className="relative flex min-h-0 min-w-0 flex-col bg-black">
+              <LiveVideoStage {...hostStageProps} />
+              <SellerGoLiveSetupPanel
+                visible={room.status !== "live" && webcamBroadcast.phase !== "live" && webcamBroadcast.phase !== "starting"}
+                phase={webcamBroadcast.phase}
+                error={webcamBroadcast.error}
+                previewStream={webcamBroadcast.previewStream}
+                devices={webcamBroadcast.devices}
+                selectedVideoDeviceId={webcamBroadcast.selectedVideoDeviceId}
+                selectedAudioDeviceId={webcamBroadcast.selectedAudioDeviceId}
+                onVideoDevice={handlePreviewVideoDevice}
+                onAudioDevice={handlePreviewAudioDevice}
+                onObs={() => setObsSetupModalOpen(true)}
+                onGoLive={handleGoLive}
+                busy={busy}
+              />
+            </div>
+
+            <aside className="flex min-h-0 flex-col border-l border-white/[0.08] bg-zinc-950/95">
+              <SellerConsoleStatsPanel
+                viewerCount={room.viewerCount}
+                streamTimerDisplay={streamTimerDisplay}
+                connectionLabel={realtimeConnectionStatus}
+                connectionOk={realtimeConnectionStatus === "Connected"}
+                roomEnergyScore={roomEnergy.score}
+                roomEnergyLevel={roomEnergy.level}
+                recentSales={data.recentSales ?? []}
+                feeTier={data.feeTier ?? null}
+              />
+              <div className="min-h-0 flex-1 overflow-hidden">{hostLiveChatPanel}</div>
+            </aside>
+          </div>
         </div>
 
-        {/* Mobile — full-width stage + floating chat */}
+        {/* Mobile / tablet — stage + floating controls */}
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-950/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[1400px]:hidden">
+          <SellerConsoleActionBar
+            onShare={() => setShareSheetOpen(true)}
+            onAddItem={() => setQueueAddModal("auction")}
+            onObs={() => setObsSetupModalOpen(true)}
+            broadcastPhase={webcamBroadcast.phase}
+            roomLive={room.status === "live"}
+            onGoLive={handleGoLive}
+            onStopStream={() => void webcamBroadcast.stop()}
+            streamTimerDisplay={streamTimerDisplay}
+            viewerCount={room.viewerCount}
+          />
           <VaultHostAnnouncements variant="mobileOverlay" />
           <div className="relative min-h-0 flex-1">
             <LiveVideoStage {...hostStagePropsMobile} />
+            <SellerGoLiveSetupPanel
+              visible={room.status !== "live" && webcamBroadcast.phase !== "live" && webcamBroadcast.phase !== "starting"}
+              phase={webcamBroadcast.phase}
+              error={webcamBroadcast.error}
+              previewStream={webcamBroadcast.previewStream}
+              devices={webcamBroadcast.devices}
+              selectedVideoDeviceId={webcamBroadcast.selectedVideoDeviceId}
+              selectedAudioDeviceId={webcamBroadcast.selectedAudioDeviceId}
+              onVideoDevice={handlePreviewVideoDevice}
+              onAudioDevice={handlePreviewAudioDevice}
+              onObs={() => setObsSetupModalOpen(true)}
+              onGoLive={handleGoLive}
+              busy={busy}
+            />
           </div>
         </div>
       </div>
@@ -1997,6 +2070,14 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       ) : null}
 
       <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
+
+      <SellerShareSheet
+        open={shareSheetOpen}
+        onClose={() => setShareSheetOpen(false)}
+        publicUrl={publicUrl}
+        showTitle={streamTitle}
+        onToast={(msg) => setToast(msg)}
+      />
 
       {obsSetupModalOpen ? (
         <div
