@@ -37,15 +37,17 @@ export type ReconcilePayoutResult = {
  */
 export async function reconcileSellerPayoutAfterStripe(
   accessToken: string,
-  opts?: { maxAttempts?: number; delayMs?: number },
+  opts?: { maxAttempts?: number; delayMs?: number; shouldAbort?: () => boolean },
 ): Promise<ReconcilePayoutResult> {
   const maxAttempts = opts?.maxAttempts ?? 10;
   const delayMs = opts?.delayMs ?? 1200;
+  const shouldAbort = opts?.shouldAbort;
 
   let checks: SellerReadinessChecks | null = null;
   let connect: SellerConnectStatusResponse | null = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (shouldAbort?.()) break;
     const [connectResult, accountResult] = await Promise.all([
       fetchSellerConnectStatus(accessToken),
       fetchSellerAccount(accessToken).catch(() => null),

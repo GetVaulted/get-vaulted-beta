@@ -1,31 +1,20 @@
 import { readAsStringAsync } from 'expo-file-system/legacy';
+import {
+  evaluateUsernamePolicy,
+  normalizeUsernameForStorage,
+  USERNAME_UNAVAILABLE_MESSAGE,
+  usernamePolicyUserMessage,
+} from '../lib/username-policy';
 import { getSupabase } from '../lib/supabase';
 import type { ProfileLite } from '../types/tradeOffers';
 
-const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
-const RESERVED_USERNAMES = new Set([
-  'admin',
-  'administrator',
-  'getvaulted',
-  'get_vaulted',
-  'support',
-  'help',
-  'system',
-  'official',
-  'staff',
-  'moderator',
-  'mod',
-  'null',
-  'undefined',
-]);
-
 /** Client-side rules; returns a user-facing message or null if OK. */
 export function validateUsernameFormat(raw: string): string | null {
-  const t = raw.trim();
-  if (t.length < 3) return 'Use at least 3 characters.';
-  if (t.length > 20) return 'Use at most 20 characters.';
-  if (!USERNAME_RE.test(t)) return 'Use letters, numbers, and underscores only.';
-  if (RESERVED_USERNAMES.has(t.toLowerCase())) return 'That username is reserved.';
+  const normalized = normalizeUsernameForStorage(raw);
+  if (normalized.length < 3) return 'Use at least 3 characters.';
+  if (normalized.length > 20) return 'Use at most 20 characters.';
+  const policy = evaluateUsernamePolicy(normalized);
+  if (!policy.ok) return usernamePolicyUserMessage(policy.reason);
   return null;
 }
 
@@ -75,7 +64,7 @@ async function checkUsernameViaNetlify(
     }
     if (typeof j.available === 'boolean') {
       if (!j.available) {
-        return { available: false, message: j.message ?? 'That username is taken.' };
+        return { available: false, message: j.message ?? USERNAME_UNAVAILABLE_MESSAGE };
       }
       return { available: true };
     }
@@ -102,7 +91,7 @@ export async function checkUsernameAvailable(raw: string): Promise<{ available: 
 
   const { data: rpcData, error: rpcError } = await sb.rpc('is_username_available', { p_candidate: handle });
   if (!rpcError && typeof rpcData === 'boolean') {
-    if (!rpcData) return { available: false, message: 'That username is taken.' };
+    if (!rpcData) return { available: false, message: USERNAME_UNAVAILABLE_MESSAGE };
     return { available: true };
   }
 
@@ -135,7 +124,7 @@ export async function checkUsernameAvailable(raw: string): Promise<{ available: 
     };
   }
   if (rows && rows.length > 0) {
-    return { available: false, message: 'That username is taken.' };
+    return { available: false, message: USERNAME_UNAVAILABLE_MESSAGE };
   }
 
   return { available: true };
@@ -184,6 +173,15 @@ export async function updateMyProfile(
 ): Promise<void> {
   const sb = getSupabase();
   if (!sb) throw new Error('Supabase is not configured');
+  if (patch.username !== undefined) {
+    const formatErr = validateUsernameFormat(patch.username);
+    if (formatErr) throw new Error(formatErr);
+    const availability = await checkUsernameAvailable(patch.username);
+    if (!availability.available) {
+      throw new Error(availability.message ?? USERNAME_UNAVAILABLE_MESSAGE);
+    }
+    patch = { ...patch, username: normalizeUsernameForStorage(patch.username) };
+  }
   const { error } = await sb.from('profiles').update(patch).eq('id', userId);
   if (error) throw new Error(error.message);
 }

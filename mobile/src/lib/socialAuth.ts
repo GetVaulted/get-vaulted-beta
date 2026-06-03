@@ -1,6 +1,12 @@
 import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
 import { Platform } from 'react-native';
+import {
+  googleOAuthNotConfiguredMessage,
+  isAppleOAuthProviderEnabled,
+  isAppleProviderDisabledError,
+  isGoogleOAuthConfigured,
+} from './authProviderAvailability';
 import { getSupabase, isSupabaseConfigured } from './supabase';
 import { getWebApiBaseUrl } from './webApiBaseUrl';
 
@@ -15,7 +21,16 @@ export function getMobileOAuthRedirectUrl(): string {
   return makeRedirectUri({ scheme: 'getvaulted', path: 'auth/callback' });
 }
 
+const devAuthLog = __DEV__
+  ? (...args: unknown[]) => {
+      console.log('[auth:google]', ...args);
+    }
+  : () => {};
+
 export async function signInWithGoogleOAuth(): Promise<SocialAuthResult> {
+  if (!isGoogleOAuthConfigured()) {
+    throw new Error(googleOAuthNotConfiguredMessage());
+  }
   if (!isSupabaseConfigured()) {
     throw new Error('Supabase is not configured (EXPO_PUBLIC_SUPABASE_URL / ANON_KEY).');
   }
@@ -23,6 +38,7 @@ export async function signInWithGoogleOAuth(): Promise<SocialAuthResult> {
   if (!sb) throw new Error('Supabase client unavailable.');
 
   const redirectTo = getMobileOAuthRedirectUrl();
+  devAuthLog('start', { redirectTo });
   const { data, error } = await sb.auth.signInWithOAuth({
     provider: 'google',
     options: {
@@ -31,23 +47,36 @@ export async function signInWithGoogleOAuth(): Promise<SocialAuthResult> {
       queryParams: { prompt: 'select_account' },
     },
   });
-  if (error) throw error;
-  if (!data.url) throw new Error('Google sign-in could not start.');
+  if (error) {
+    devAuthLog('oauth error', error.message);
+    throw error;
+  }
+  if (!data.url) throw new Error('Google sign-in could not start. Check Supabase Google provider settings.');
 
   const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo, {
     showInRecents: false,
     preferEphemeralSession: false,
   });
 
+  devAuthLog('browser result', result.type);
   if (result.type === 'cancel') return 'cancel';
-  if (result.type !== 'success' || !result.url) return 'error';
+  if (result.type !== 'success' || !result.url) {
+    throw new Error('Google sign-in did not complete. Check redirect URLs in Supabase Auth settings.');
+  }
 
   const { error: exchangeError } = await sb.auth.exchangeCodeForSession(result.url);
-  if (exchangeError) throw exchangeError;
+  if (exchangeError) {
+    devAuthLog('exchange error', exchangeError.message);
+    throw exchangeError;
+  }
+  devAuthLog('success');
   return 'success';
 }
 
 export async function signInWithAppleOAuth(): Promise<SocialAuthResult> {
+  if (!isAppleOAuthProviderEnabled()) {
+    throw new Error('Apple Sign In is not available on this build.');
+  }
   if (Platform.OS !== 'ios') {
     throw new Error('Apple Sign In is only available on iOS.');
   }
@@ -78,7 +107,12 @@ export async function signInWithAppleOAuth(): Promise<SocialAuthResult> {
       provider: 'apple',
       token: credential.identityToken,
     });
-    if (error) throw error;
+    if (error) {
+      if (isAppleProviderDisabledError(error.message)) {
+        throw new Error('Apple Sign In is not configured yet. Use email or Google, or try again later.');
+      }
+      throw error;
+    }
     return 'success';
   } catch (e) {
     if (
@@ -94,6 +128,7 @@ export async function signInWithAppleOAuth(): Promise<SocialAuthResult> {
 }
 
 export async function isAppleSignInAvailable(): Promise<boolean> {
+  if (!isAppleOAuthProviderEnabled()) return false;
   if (Platform.OS !== 'ios') return false;
   try {
     const AppleAuthentication = await import('expo-apple-authentication');

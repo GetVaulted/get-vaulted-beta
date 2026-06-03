@@ -4,6 +4,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PrismaClient } from "@/generated/prisma/client";
 import {
+  BETA_QA_ADMIN_EMAIL,
+  BETA_QA_ADMIN_USERNAME,
   BETA_QA_BUYER_EMAIL,
   BETA_QA_BUYER_USERNAME,
   BETA_QA_SELLER_EMAIL,
@@ -20,6 +22,10 @@ export function qaPassword(): string {
   );
 }
 
+export function adminQaPassword(): string {
+  return process.env.BETA_QA_ADMIN_PASSWORD?.trim() || "AdminBeta123!";
+}
+
 async function findAuthUserIdByEmail(admin: SupabaseClient, email: string): Promise<string | null> {
   let page = 1;
   while (true) {
@@ -33,14 +39,22 @@ async function findAuthUserIdByEmail(admin: SupabaseClient, email: string): Prom
   }
 }
 
-async function ensureAuthUser(
+async function ensureAuthUserWithPassword(
   admin: SupabaseClient,
   spec: { email: string; username: string; displayName: string },
+  password: string,
 ): Promise<string> {
   const existing = await findAuthUserIdByEmail(admin, spec.email);
-  if (existing) return existing;
+  if (existing) {
+    const { error } = await admin.auth.admin.updateUserById(existing, {
+      password,
+      email_confirm: true,
+      user_metadata: { username: spec.username, display_name: spec.displayName },
+    });
+    if (error) throw new Error(`updateUserById ${spec.email}: ${error.message}`);
+    return existing;
+  }
 
-  const password = qaPassword();
   const { data, error } = await admin.auth.admin.createUser({
     email: spec.email,
     password,
@@ -51,6 +65,63 @@ async function ensureAuthUser(
   const authId = data.user?.id;
   if (!authId) throw new Error(`No auth id for ${spec.email}`);
   return authId;
+}
+
+async function ensureAuthUser(
+  admin: SupabaseClient,
+  spec: { email: string; username: string; displayName: string },
+): Promise<string> {
+  return ensureAuthUserWithPassword(admin, spec, qaPassword());
+}
+
+export async function seedAdminQaAccount(
+  p: PrismaClient,
+  admin: SupabaseClient,
+  log: (msg: string) => void,
+) {
+  const spec = {
+    email: BETA_QA_ADMIN_EMAIL,
+    username: BETA_QA_ADMIN_USERNAME,
+    displayName: "Admin QA",
+  };
+  const authId = await ensureAuthUserWithPassword(admin, spec, adminQaPassword());
+  const existing = await p.user.findUnique({ where: { id: authId } });
+  if (existing) {
+    await p.user.update({
+      where: { id: authId },
+      data: {
+        email: spec.email.toLowerCase(),
+        username: spec.username,
+        name: spec.displayName,
+        role: "admin",
+        emailVerified: new Date(),
+        suspendedAt: null,
+      },
+    });
+    log(`  adminqa: updated Prisma admin (${spec.email})`);
+    return;
+  }
+
+  await p.user.create({
+    data: {
+      id: authId,
+      email: spec.email.toLowerCase(),
+      username: spec.username,
+      name: spec.displayName,
+      role: "admin",
+      emailVerified: new Date(),
+    },
+  });
+  log(`  adminqa: created Prisma admin (${spec.email})`);
+}
+
+export async function seedBetaQaSlateAccounts(
+  p: PrismaClient,
+  admin: SupabaseClient,
+  log: (msg: string) => void,
+) {
+  await seedAdminQaAccount(p, admin, log);
+  await seedFreshBetaQaAccounts(p, admin, log);
 }
 
 export async function seedFreshBetaQaAccounts(

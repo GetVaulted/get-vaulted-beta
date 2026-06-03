@@ -10,10 +10,16 @@ export const EXPECTED_BETA_API_HOST = "https://beta.shopgetvaulted.com";
 
 export const BETA_QA_SELLER_EMAIL = "sellerqa@getvaultedtest.com";
 export const BETA_QA_BUYER_EMAIL = "buyerqa@getvaultedtest.com";
+export const BETA_QA_ADMIN_EMAIL = "adminqa@getvaultedtest.com";
 export const BETA_QA_SELLER_USERNAME = "sellerqa";
 export const BETA_QA_BUYER_USERNAME = "buyerqa";
+export const BETA_QA_ADMIN_USERNAME = "adminqa";
 
-export const BETA_QA_CANONICAL_EMAILS = [BETA_QA_SELLER_EMAIL, BETA_QA_BUYER_EMAIL] as const;
+export const BETA_QA_CANONICAL_EMAILS = [
+  BETA_QA_SELLER_EMAIL,
+  BETA_QA_BUYER_EMAIL,
+  BETA_QA_ADMIN_EMAIL,
+] as const;
 
 /** Legacy beta accounts to archive (hide commerce) but not delete. */
 export const LEGACY_QA_USERNAMES = ["brysmith31"] as const;

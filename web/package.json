@@ -35,6 +35,8 @@
     "qa:wipe-beta-empty": "tsx scripts/wipe-beta-empty-environment.ts",
     "qa:reset-beta-data": "tsx scripts/reset-beta-data.ts",
     "qa:reset-beta-data:preflight": "tsx scripts/reset-beta-data.ts --preflight",
+    "qa:reset-beta-slate": "tsx scripts/reset-beta-qa-slate.ts",
+    "qa:reset-beta-slate:dry-run": "tsx scripts/reset-beta-qa-slate.ts --dry-run",
     "verify:beta-ivs": "tsx scripts/verify-beta-ivs-config.ts",
     "configure:beta-signup-email": "tsx scripts/configure-beta-signup-email.ts",
     "configure:beta-auth-urls": "tsx scripts/configure-beta-auth-urls.ts",

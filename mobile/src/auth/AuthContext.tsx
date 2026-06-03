@@ -114,11 +114,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (error) throw error;
       const uid = data.user?.id;
       if (data.session?.user && uid && username) {
-        try {
-          await updateMyProfile(uid, { username, display_name: displayName });
-        } catch {
-          /* non-fatal */
-        }
+        void updateMyProfile(uid, { username, display_name: displayName }).catch((e) => {
+          if (__DEV__) console.warn('[auth:signup] profile sync', e);
+        });
       }
       const needsEmailConfirmation = !data.session;
       return { needsEmailConfirmation };

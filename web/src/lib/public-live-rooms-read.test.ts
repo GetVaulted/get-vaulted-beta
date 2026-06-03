@@ -1,11 +1,9 @@
+import { NextRequest } from "next/server";
 import { describe, expect, it } from "vitest";
 import { isPublicLiveRoomsBuyerRead } from "./public-live-rooms-read";
 
-function req(method: string, pathname: string, search = ""): Parameters<typeof isPublicLiveRoomsBuyerRead>[0] {
-  return {
-    method,
-    nextUrl: new URL(`https://beta.shopgetvaulted.com${pathname}${search}`),
-  };
+function req(method: string, pathname: string, search = ""): NextRequest {
+  return new NextRequest(`https://beta.shopgetvaulted.com${pathname}${search}`, { method });
 }
 
 describe("isPublicLiveRoomsBuyerRead", () => {

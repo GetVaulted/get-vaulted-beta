@@ -3,28 +3,42 @@ import { mergeLiveRoomDetailFromFetch } from "@/lib/live-room-fetch-merge";
 import type { LiveRoomDetailDTO, LiveRoomItemDTO } from "@/lib/live-room-serialize";
 
 function item(id: string, itemVersion: number, patch: Partial<LiveRoomItemDTO> = {}): LiveRoomItemDTO {
+  const quantity = patch.quantity ?? 1;
+  const quantityInitial = patch.quantityInitial ?? quantity;
+  const soldQuantity = patch.soldQuantity ?? 0;
+  const remainingQuantity = patch.remainingQuantity ?? quantity;
+
   return {
     id,
-    liveRoomId: "room1",
-    listingId: null,
-    title: "Lot",
-    quantity: 1,
-    imageUrl: "",
-    priceUsd: 1,
-    startingBidUsd: 1,
-    currentBidUsd: null,
-    lastHighBidderId: null,
-    lastHighBidderUsername: null,
-    status: "active",
-    sortOrder: 0,
-    teamBoardMisc: false,
+    liveRoomId: patch.liveRoomId ?? "room1",
+    listingId: patch.listingId ?? null,
+    title: patch.title ?? "Lot",
+    quantity,
+    quantityInitial,
+    soldQuantity,
+    remainingQuantity,
+    currentUnitNumber: patch.currentUnitNumber ?? 1,
+    displayTitle: patch.displayTitle ?? "Lot",
+    progressLabel: patch.progressLabel ?? null,
+    imageUrl: patch.imageUrl ?? "",
+    priceUsd: patch.priceUsd ?? 1,
+    startingBidUsd: patch.startingBidUsd ?? 1,
+    currentBidUsd: patch.currentBidUsd ?? null,
+    lastHighBidderId: patch.lastHighBidderId ?? null,
+    lastHighBidderUsername: patch.lastHighBidderUsername ?? null,
+    status: patch.status ?? "active",
+    sortOrder: patch.sortOrder ?? 0,
+    teamBoardMisc: patch.teamBoardMisc ?? false,
     itemVersion,
-    biddingOpen: false,
-    auctionEndsAt: null,
-    clutchTimeEnabled: false,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-    ...patch,
+    biddingOpen: patch.biddingOpen ?? false,
+    auctionEndsAt: patch.auctionEndsAt ?? null,
+    clutchTimeEnabled: patch.clutchTimeEnabled ?? false,
+    salesFormat: patch.salesFormat ?? "auction",
+    variants: patch.variants ?? [],
+    variantBreakReadyAt: patch.variantBreakReadyAt ?? null,
+    variantBreakBeganAt: patch.variantBreakBeganAt ?? null,
+    createdAt: patch.createdAt ?? "2026-01-01T00:00:00.000Z",
+    updatedAt: patch.updatedAt ?? "2026-01-01T00:00:00.000Z",
   };
 }
 
@@ -53,12 +67,24 @@ function room(partial: Partial<LiveRoomDetailDTO> & Pick<LiveRoomDetailDTO, "ite
     activeItem: items.find((i) => i.status === "active") ?? null,
     break: null,
     teamBoardLeague: "nfl",
+    tipRecipientMode: "host",
+    tipModeratorId: null,
+    tipModeratorUsername: null,
+    tipsToModerator: false,
   };
-  const merged = { ...base, ...partial, items };
-  return {
-    ...merged,
-    activeItem: merged.items.find((i) => i.status === "active") ?? null,
+
+  const merged: LiveRoomDetailDTO = {
+    ...base,
+    ...partial,
+    items,
+    tipRecipientMode: partial.tipRecipientMode ?? base.tipRecipientMode,
+    tipModeratorId: partial.tipModeratorId ?? base.tipModeratorId,
+    tipModeratorUsername: partial.tipModeratorUsername ?? base.tipModeratorUsername,
+    tipsToModerator: partial.tipsToModerator ?? base.tipsToModerator,
+    activeItem: items.find((i) => i.status === "active") ?? null,
   };
+
+  return merged;
 }
 
 describe("mergeLiveRoomDetailFromFetch", () => {

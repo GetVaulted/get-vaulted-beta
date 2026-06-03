@@ -77,24 +77,39 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
 
   const [payoutBusy, setPayoutBusy] = useState(false);
   const [payoutReconciling, setPayoutReconciling] = useState(false);
+  const [payoutError, setPayoutError] = useState<string | null>(null);
+  const [startSetupBusy, setStartSetupBusy] = useState(false);
   const stripeReturnRef = useRef(false);
   const reconcileInFlightRef = useRef(false);
+  const reconcileAbortRef = useRef(false);
 
   const reconcilePayoutState = useCallback(
     async (opts?: { autoAdvance?: boolean }) => {
       if (!token || reconcileInFlightRef.current) return false;
       reconcileInFlightRef.current = true;
+      reconcileAbortRef.current = false;
       setPayoutReconciling(true);
+      setPayoutError(null);
+      if (__DEV__) console.log('[seller-setup] reconcile payout start');
       try {
-        const result = await reconcileSellerPayoutAfterStripe(token);
+        const result = await reconcileSellerPayoutAfterStripe(token, {
+          shouldAbort: () => reconcileAbortRef.current,
+        });
         await Promise.all([setup.refetchSilent(), stripeConnect.refresh()]);
         if (result.complete && opts?.autoAdvance !== false) {
           setStep((current) => (current === 2 ? 3 : current));
+          return true;
+        }
+        if (!reconcileAbortRef.current) {
+          setPayoutError(
+            'We could not confirm payout setup yet. Tap Retry to check again, or Back to return to the previous step.',
+          );
         }
         return result.complete;
       } finally {
         reconcileInFlightRef.current = false;
         setPayoutReconciling(false);
+        if (__DEV__) console.log('[seller-setup] reconcile payout end');
       }
     },
     [token, setup, stripeConnect],
@@ -161,16 +176,33 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   const openPayouts = async () => {
     if (!token) return;
     setPayoutBusy(true);
-    stripeReturnRef.current = true;
+    setPayoutError(null);
     try {
-      await openStripeConnectOnboarding(token);
+      const result = await openStripeConnectOnboarding(token);
+      if (result === 'cancel') {
+        setPayoutError('Stripe setup was cancelled. Tap Connect payouts to try again.');
+        return;
+      }
+      if (result === 'dismiss') {
+        setPayoutError('Stripe setup did not finish. Tap Connect payouts to try again.');
+        return;
+      }
+      stripeReturnRef.current = true;
       await reconcilePayoutState({ autoAdvance: true });
     } catch (e) {
-      Alert.alert('Payout setup', e instanceof Error ? e.message : 'Could not open Stripe.');
+      const msg = e instanceof Error ? e.message : 'Could not open Stripe.';
+      setPayoutError(msg);
+      if (__DEV__) console.warn('[seller-setup] open payouts', msg);
     } finally {
       stripeReturnRef.current = false;
       setPayoutBusy(false);
     }
+  };
+
+  const cancelPayoutReconcile = () => {
+    reconcileAbortRef.current = true;
+    setPayoutReconciling(false);
+    setPayoutError('Payout confirmation cancelled. Tap Connect payouts or Retry when ready.');
   };
 
   const saveShipping = async () => {
@@ -274,13 +306,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
     );
   }
 
-  if (setup.phase === 'loading' || !stepReady) {
-    return (
-      <View style={[styles.screen, styles.centered, { paddingTop: insets.top }]}>
-        <ActivityIndicator color={colors.gold} />
-      </View>
-    );
-  }
+  const wizardDataLoading = setup.phase === 'loading' || !stepReady;
 
   const checks = setup.checks;
   const payoutsDone = isWizardPayoutStepComplete(checks, stripeConnect.status);
@@ -309,24 +335,46 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
         <View style={styles.card}>
           {step === 1 ? (
             <>
-              <Text style={styles.title}>Become a Seller</Text>
+              <Text style={styles.eyebrowInline}>Sell on Get Vaulted</Text>
+              <Text style={styles.title}>Why sell here</Text>
               <Text style={styles.body}>
-                Set up your seller account to start listing products and hosting live shows on Get Vaulted.
+                The premium live collectible marketplace — lower fees, real-time auctions, and tools built for breakers
+                and shops.
               </Text>
-              <Text style={styles.hint}>Estimated setup time: ~2 minutes</Text>
-              <Text style={styles.sectionLabel}>What you unlock</Text>
               {[
-                ['Listings', 'Create and manage buy-now and auction inventory'],
-                ['Live selling', 'Host live shows and run breaks'],
-                ['Payouts', 'Get paid when your items sell'],
-                ['Seller HQ', 'Your command center for sales and live events'],
+                ['Lower seller fees', 'Keep more on marketplace and live sales'],
+                ['Live auctions & breaks', 'Sell in the room with real-time bidding'],
+                ['Marketplace + vault', 'List buy-now inventory beside your shows'],
+                ['OBS & mobile streaming', 'Broadcast from phone or pipe in OBS'],
+                ['Seller growth', 'Seller HQ tracks revenue, fulfillment, and shows'],
               ].map(([label, desc]) => (
                 <View key={label} style={styles.unlockRow}>
                   <Text style={styles.unlockTitle}>{label}</Text>
                   <Text style={styles.unlockDesc}>{desc}</Text>
                 </View>
               ))}
-              <PrimaryButton label="Start setup" onPress={() => setStep(2)} />
+              <Text style={styles.sectionLabel}>What you unlock next</Text>
+              {[
+                ['Listings', 'Buy-now and auction inventory'],
+                ['Live selling', 'Host shows and run breaks'],
+                ['Payouts', 'Stripe-powered seller payouts'],
+                ['Seller HQ', 'Command center for sales'],
+              ].map(([label, desc]) => (
+                <View key={label} style={styles.unlockRow}>
+                  <Text style={styles.unlockTitle}>{label}</Text>
+                  <Text style={styles.unlockDesc}>{desc}</Text>
+                </View>
+              ))}
+              <Text style={styles.hint}>Setup takes about 2 minutes — payout, ship-from, profile.</Text>
+              <PrimaryButton
+                label={startSetupBusy ? 'Starting…' : 'Start seller setup'}
+                disabled={startSetupBusy}
+                onPress={() => {
+                  setStartSetupBusy(true);
+                  setStep(2);
+                  setStartSetupBusy(false);
+                }}
+              />
             </>
           ) : null}
 
@@ -334,12 +382,27 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
             <>
               <Text style={styles.title}>Payout setup</Text>
               <Text style={styles.body}>
-                Connect Stripe so you can receive payouts when items sell. Required before you can list or go live.
+                Connect Stripe once to receive marketplace and live-sale payouts. Listing and going live unlock after
+                payout setup is complete.
               </Text>
+              {[
+                ['Why Stripe', 'Verifies identity and links your payout destination securely.'],
+                ['How payouts work', 'Earnings appear in Seller HQ and pay out on Stripe’s schedule after sales clear.'],
+                ['Instant payouts', 'May be available after delivery confirmation and good standing.'],
+                ['Limits', 'Disputes, chargebacks, fraud, or policy issues can delay instant payouts.'],
+              ].map(([label, desc]) => (
+                <View key={label} style={styles.infoRow}>
+                  <Text style={styles.unlockTitle}>{label}</Text>
+                  <Text style={styles.unlockDesc}>{desc}</Text>
+                </View>
+              ))}
               {payoutStepLoading ? (
                 <View style={styles.reconcileBox}>
                   <ActivityIndicator color={colors.gold} />
                   <Text style={styles.reconcileText}>Confirming payout setup…</Text>
+                  <Pressable onPress={cancelPayoutReconcile} hitSlop={8}>
+                    <Text style={styles.link}>Cancel</Text>
+                  </Pressable>
                 </View>
               ) : payoutsDone ? (
                 <View style={styles.successBox}>
@@ -349,9 +412,20 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
                 </View>
               ) : (
                 <View style={styles.dashedBox}>
-                  <Text style={styles.body}>Stripe securely handles identity verification and payout details.</Text>
+                  <Text style={styles.body}>
+                    Stripe collects tax, identity, and bank details. Get Vaulted never stores your full banking
+                    credentials.
+                  </Text>
                 </View>
               )}
+              {payoutError ? (
+                <View style={styles.errorBox}>
+                  <Text style={styles.errorText}>{payoutError}</Text>
+                  <Pressable onPress={() => void reconcilePayoutState({ autoAdvance: true })} hitSlop={8}>
+                    <Text style={styles.link}>Retry</Text>
+                  </Pressable>
+                </View>
+              ) : null}
               <StepActions
                 showBack
                 onBack={goBack}
@@ -368,6 +442,13 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
                 primaryDisabled={payoutStepLoading || (!setup.stripePlatformConfigured && !payoutsDone)}
               />
             </>
+          ) : null}
+
+          {wizardDataLoading && step === 1 ? (
+            <View style={styles.inlineLoader}>
+              <ActivityIndicator color={colors.gold} size="small" />
+              <Text style={styles.hint}>Loading your seller status…</Text>
+            </View>
           ) : null}
 
           {step === 3 ? (
@@ -549,7 +630,11 @@ function Field({
 
 function PrimaryButton({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
   return (
-    <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [pressed && { opacity: 0.92 }]}>
+    <Pressable
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [pressed && { opacity: 0.92 }, disabled && { opacity: 0.55 }]}
+    >
       <LinearGradient colors={[colors.gold, '#E8D48B']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.primaryBtn}>
         <Text style={styles.primaryBtnText}>{label}</Text>
       </LinearGradient>
@@ -630,6 +715,14 @@ const styles = StyleSheet.create({
   title: { ...typography.title, color: colors.textPrimary },
   body: { fontSize: 14, lineHeight: 20, color: colors.textMuted },
   hint: { fontSize: 12, color: colors.textMuted, textAlign: 'center' },
+  eyebrowInline: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    color: colors.gold,
+    textAlign: 'center',
+  },
   sectionLabel: {
     fontSize: 10,
     fontWeight: '800',
@@ -638,6 +731,23 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     marginTop: spacing.sm,
   },
+  infoRow: {
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(0,0,0,0.15)',
+  },
+  errorBox: {
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(240,120,120,0.35)',
+    backgroundColor: 'rgba(80,20,20,0.25)',
+    gap: spacing.xs,
+  },
+  errorText: { fontSize: 13, lineHeight: 18, color: '#f0a8a8' },
+  inlineLoader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
   unlockRow: {
     padding: spacing.md,
     borderRadius: radii.md,

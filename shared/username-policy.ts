@@ -1,6 +1,7 @@
 /**
- * Username rules for signup and GET /api/users/check-username.
- * Keep in sync with `shared/username-policy.ts` (mobile + Netlify).
+ * Shared username rules for mobile and Netlify check-username.
+ * Web uses `web/src/lib/username-policy.ts` (same logic; Turbopack root is `web/`).
+ * Keep both files in sync when changing policy.
  * Usernames are stored normalized (trimmed, ASCII lowercase).
  */
 

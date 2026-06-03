@@ -217,6 +217,8 @@ export type SeedListingOpts = {
   shippingPriceCapCents?: number | null;
   shipAlone?: boolean;
   vaultPick?: boolean;
+  allowOffers?: boolean;
+  acceptTradeOffers?: boolean;
 };
 
 export async function seedListing(p: PrismaClient, opts: SeedListingOpts) {
@@ -248,6 +250,8 @@ export async function seedListing(p: PrismaClient, opts: SeedListingOpts) {
     shippingPriceCapCents: opts.shippingPriceCapCents ?? undefined,
     shipAlone: opts.shipAlone,
     vaultPick: opts.vaultPick,
+    allowOffers: opts.allowOffers,
+    acceptTradeOffers: opts.acceptTradeOffers,
   };
   const extra = Object.fromEntries(
     Object.entries(optional).filter(([, v]) => v !== undefined),

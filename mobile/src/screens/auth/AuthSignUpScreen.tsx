@@ -1,4 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -43,6 +45,7 @@ export function AuthSignUpScreen({ navigation }: Props) {
   const [busy, setBusy] = useState(false);
   const [socialBusy, setSocialBusy] = useState<'google' | 'apple' | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [socialErr, setSocialErr] = useState<string | null>(null);
 
   useEffect(() => {
     const trimmed = username.trim();
@@ -84,22 +87,23 @@ export function AuthSignUpScreen({ navigation }: Props) {
     else navigation.replace('LaunchIntro', { instantAuth: true });
   };
 
-  const finishAuth = () => {
-    navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'HQ' } }] });
+  const finishBuyerHome = () => {
+    navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
   };
 
   const onSocial = async (provider: 'google' | 'apple') => {
     setErr(null);
+    setSocialErr(null);
     setSocialBusy(provider);
     try {
       const result =
         provider === 'google'
           ? await signInWithGoogle({ persistSession: true })
           : await signInWithApple({ persistSession: true });
-      if (result === 'success') finishAuth();
-      else if (result === 'error') setErr(AUTH_USER_MESSAGES.socialSignInFailed);
+      if (result === 'success') finishBuyerHome();
+      else if (result === 'error') setSocialErr(AUTH_USER_MESSAGES.socialSignInFailed);
     } catch (e) {
-      setErr(socialAuthErrorMessage(e));
+      setSocialErr(socialAuthErrorMessage(e));
     } finally {
       setSocialBusy(null);
     }
@@ -136,6 +140,7 @@ export function AuthSignUpScreen({ navigation }: Props) {
       setUsernameHint(again.message ?? 'Taken.');
       return;
     }
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
     setBusy(true);
     try {
       const { needsEmailConfirmation } = await signUpWithPassword({
@@ -151,7 +156,8 @@ export function AuthSignUpScreen({ navigation }: Props) {
         );
         return;
       }
-      navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'HQ' } }] });
+      if (__DEV__) console.log('[auth:signup] success → Home');
+      finishBuyerHome();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Sign-up failed');
     } finally {
@@ -173,8 +179,31 @@ export function AuthSignUpScreen({ navigation }: Props) {
           <GetVaultedBrandMark size="compact" />
         </View>
 
-        <Text style={styles.title}>Create Account</Text>
-        <Text style={styles.sub}>Join the premium live collectible network.</Text>
+        <LinearGradient
+          colors={['rgba(212,175,55,0.14)', 'rgba(10,10,12,0.95)']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.heroCard}
+        >
+          <Text style={styles.heroEyebrow}>GET VAULTED</Text>
+          <Text style={styles.title}>Create your account</Text>
+          <Text style={styles.sub}>
+            Own the moment — live breaks, real-time auctions, and vault-ready listings from verified sellers.
+          </Text>
+          {[
+            'Bid and buy without seller setup',
+            'Join live shows and breaks instantly',
+            'Secure checkout · verified sellers',
+          ].map((line) => (
+            <View key={line} style={styles.valueRow}>
+              <Ionicons name="checkmark-circle" size={16} color={colors.gold} />
+              <Text style={styles.valueTxt}>{line}</Text>
+            </View>
+          ))}
+        </LinearGradient>
+
+        <View style={styles.formCard}>
+        <Text style={styles.formLabel}>Account details</Text>
 
         <TextInput
           style={styles.input}
@@ -242,23 +271,31 @@ export function AuthSignUpScreen({ navigation }: Props) {
         <LegalConsentNote />
 
         <Pressable
-          style={[styles.primary, (busy || authLoading) && { opacity: 0.7 }]}
+          style={[styles.primary, (busy || authLoading) && styles.primaryBusy]}
           disabled={busy || authLoading}
           onPress={() => void onSubmit()}
         >
-          {busy ? (
-            <ActivityIndicator color={colors.background} />
-          ) : (
-            <Text style={styles.primaryTxt}>Create Account</Text>
-          )}
+          <LinearGradient
+            colors={busy || authLoading ? ['#8a7340', '#6d5c32'] : [colors.gold, '#E8D48B']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.primaryGrad}
+          >
+            {busy ? (
+              <ActivityIndicator color={colors.background} />
+            ) : (
+              <Text style={styles.primaryTxt}>Create Account</Text>
+            )}
+          </LinearGradient>
         </Pressable>
+        </View>
 
         <SocialAuthButtons
           onGoogle={() => void onSocial('google')}
           onApple={() => void onSocial('apple')}
           busy={socialBusy}
           disabled={busy || authLoading}
-          error={null}
+          error={socialErr}
         />
 
         <Pressable style={styles.link} onPress={() => navigation.navigate('AuthLogin')}>
@@ -280,9 +317,41 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#050505', paddingHorizontal: spacing.lg },
   scroll: { paddingBottom: spacing.xxxl, gap: spacing.md },
   backRow: { alignSelf: 'flex-start', paddingVertical: spacing.sm, marginBottom: spacing.xs },
-  brandBlock: { alignItems: 'center', marginBottom: spacing.md },
-  title: { ...typography.title, color: colors.textPrimary, fontSize: 24, marginTop: spacing.sm },
-  sub: { color: colors.textSecondary, fontSize: 14, lineHeight: 20, marginBottom: spacing.sm },
+  brandBlock: { alignItems: 'center', marginBottom: spacing.sm },
+  heroCard: {
+    borderRadius: radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(212,175,55,0.22)',
+    padding: spacing.lg,
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  heroEyebrow: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 2,
+    color: colors.gold,
+    textAlign: 'center',
+  },
+  title: { ...typography.title, color: colors.textPrimary, fontSize: 24, textAlign: 'center' },
+  sub: { color: colors.textSecondary, fontSize: 14, lineHeight: 20, textAlign: 'center', marginBottom: spacing.xs },
+  valueRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: 2 },
+  valueTxt: { flex: 1, color: colors.textSecondary, fontSize: 13, lineHeight: 18 },
+  formCard: {
+    borderRadius: radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: colors.surfaceElevated,
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  formLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    color: colors.textMuted,
+  },
   input: {
     borderRadius: radii.md,
     borderWidth: 1,
@@ -307,12 +376,13 @@ const styles = StyleSheet.create({
   usernameHintBad: { color: '#f0a8a8' },
   usernameHintMuted: { flex: 1, fontSize: 13, color: colors.textMuted, lineHeight: 18 },
   err: { color: '#f0a8a8', fontSize: 13 },
-  primary: {
-    backgroundColor: colors.gold,
+  primary: { marginTop: spacing.sm, borderRadius: radii.md, overflow: 'hidden' },
+  primaryBusy: { opacity: 0.85 },
+  primaryGrad: {
     paddingVertical: spacing.lg,
-    borderRadius: radii.md,
     alignItems: 'center',
-    marginTop: spacing.sm,
+    justifyContent: 'center',
+    minHeight: 52,
   },
   primaryTxt: { color: colors.background, fontWeight: '800', fontSize: 16 },
   link: { paddingVertical: spacing.lg, alignItems: 'center' },

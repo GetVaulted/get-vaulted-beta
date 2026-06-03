@@ -113,7 +113,7 @@ export function ReportSheet({
                 value={description}
                 onChangeText={(t) => setDescription(t.slice(0, 4000))}
                 placeholder="What happened?"
-                placeholderTextColor={colors.muted}
+                placeholderTextColor={colors.textMuted}
                 multiline
                 style={styles.input}
               />
@@ -151,7 +151,7 @@ export function ReportButton({
   return (
     <>
       <Pressable style={styles.reportLink} onPress={() => setOpen(true)}>
-        <Ionicons name="flag-outline" size={16} color={colors.muted} />
+        <Ionicons name="flag-outline" size={16} color={colors.textMuted} />
         <Text style={styles.reportLinkText}>{label}</Text>
       </Pressable>
       <ReportSheet
@@ -170,8 +170,8 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.65)' },
   sheet: {
     backgroundColor: colors.surface,
-    borderTopLeftRadius: radii.xl,
-    borderTopRightRadius: radii.xl,
+    borderTopLeftRadius: radii.lg,
+    borderTopRightRadius: radii.lg,
     padding: spacing.lg,
     maxHeight: '85%',
   },
@@ -183,26 +183,26 @@ const styles = StyleSheet.create({
     backgroundColor: colors.border,
     marginBottom: spacing.md,
   },
-  title: { fontSize: 18, fontWeight: '700', color: colors.text },
-  sub: { marginTop: spacing.sm, fontSize: 13, color: colors.muted, lineHeight: 18 },
+  title: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
+  sub: { marginTop: spacing.sm, fontSize: 13, color: colors.textMuted, lineHeight: 18 },
   label: {
     marginTop: spacing.md,
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
-    color: colors.muted,
+    color: colors.textMuted,
   },
   reasonList: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: spacing.sm },
   reasonChip: {
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: radii.full,
+    borderRadius: radii.pill,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
   reasonChipActive: { borderColor: colors.gold, backgroundColor: 'rgba(201,162,39,0.12)' },
-  reasonChipText: { fontSize: 12, color: colors.muted },
+  reasonChipText: { fontSize: 12, color: colors.textMuted },
   reasonChipTextActive: { color: colors.gold },
   input: {
     marginTop: spacing.sm,
@@ -211,7 +211,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radii.md,
     padding: spacing.md,
-    color: colors.text,
+    color: colors.textPrimary,
     fontSize: 14,
     textAlignVertical: 'top',
   },
@@ -222,17 +222,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
-    borderRadius: radii.full,
+    borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  secondaryBtnText: { color: colors.text, fontWeight: '600' },
+  secondaryBtnText: { color: colors.textPrimary, fontWeight: '600' },
   dangerBtn: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
-    borderRadius: radii.full,
+    borderRadius: radii.pill,
     backgroundColor: '#b91c1c',
   },
   dangerBtnText: { color: '#fff', fontWeight: '700' },
@@ -240,10 +240,10 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     alignItems: 'center',
     paddingVertical: 14,
-    borderRadius: radii.full,
+    borderRadius: radii.pill,
     backgroundColor: colors.gold,
   },
   primaryBtnText: { color: '#0a0a0a', fontWeight: '700' },
   reportLink: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8 },
-  reportLinkText: { fontSize: 13, color: colors.muted, fontWeight: '600' },
+  reportLinkText: { fontSize: 13, color: colors.textMuted, fontWeight: '600' },
 });

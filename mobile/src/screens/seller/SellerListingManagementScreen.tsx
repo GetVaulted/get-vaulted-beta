@@ -28,6 +28,7 @@ import { openCreateListing } from '../../navigation/openCreateListing';
 import { openSellerHostRoom } from '../../navigation/openSellerHostRoom';
 import { openSellerHQ } from '../../navigation/openSellerHQ';
 import { getWebApiBaseUrl } from '../../lib/webApiBaseUrl';
+import { notifyListingCatalogChanged } from '../../lib/notifyListingCatalogChanged';
 import { publicListingPath } from '../../lib/sellerListingRoutes';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';

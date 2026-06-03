@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { isGoogleOAuthProviderEnabled } from "@/lib/auth-provider-availability";
 import { getSupabaseBrowserAuthClient } from "@/lib/supabase-browser-auth-client";
 import { buildWebOAuthCallbackUrl } from "@/lib/supabase-oauth-redirect";
 import { AUTH_USER_MESSAGES } from "@/lib/unified-auth";
@@ -36,6 +37,9 @@ function GoogleIcon() {
 export function SocialAuthButtons({ returnTo, disabled }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const googleEnabled = isGoogleOAuthProviderEnabled();
+
+  if (!googleEnabled) return null;
 
   const onGoogle = async () => {
     setError(null);
@@ -45,6 +49,9 @@ export function SocialAuthButtons({ returnTo, disabled }: Props) {
       return;
     }
     setBusy(true);
+    if (process.env.NODE_ENV === "development") {
+      console.log("[auth:google] start", { returnTo });
+    }
     try {
       const redirectTo =
         typeof window !== "undefined"
@@ -60,10 +67,16 @@ export function SocialAuthButtons({ returnTo, disabled }: Props) {
       if (oauthError) {
         setError(oauthError.message || AUTH_USER_MESSAGES.socialSignInFailed);
         setBusy(false);
+        if (process.env.NODE_ENV === "development") {
+          console.log("[auth:google] oauth error", oauthError.message);
+        }
       }
-    } catch {
+    } catch (e) {
       setError(AUTH_USER_MESSAGES.socialSignInFailed);
       setBusy(false);
+      if (process.env.NODE_ENV === "development") {
+        console.log("[auth:google] threw", e);
+      }
     }
   };
 
@@ -81,7 +94,14 @@ export function SocialAuthButtons({ returnTo, disabled }: Props) {
         className="flex h-11 w-full items-center justify-center gap-2.5 rounded-full border border-white/12 bg-white/[0.04] text-sm font-semibold text-foreground transition hover:border-white/20 hover:bg-white/[0.07] disabled:opacity-60"
       >
         <GoogleIcon />
-        {busy ? "Redirecting…" : "Continue with Google"}
+        {busy ? (
+          <span className="inline-flex items-center gap-2">
+            <span className="size-4 animate-spin rounded-full border-2 border-zinc-950/30 border-t-zinc-950" aria-hidden />
+            Redirecting…
+          </span>
+        ) : (
+          "Continue with Google"
+        )}
       </button>
       {error ? <p className="text-center text-xs font-medium text-rose-300">{error}</p> : null}
     </div>

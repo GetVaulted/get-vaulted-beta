@@ -108,17 +108,17 @@ export function LiveVariantSelectionSheet({
         setError(res.paymentFailed ? `${res.error} Spot was not sold.` : res.error);
         return;
       }
-      if (res.paid) {
+      if ('paid' in res) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         onPurchased();
         onClose();
         return;
       }
-      if (res.requiresAction) {
+      if ('requiresAction' in res) {
         setError('Complete payment verification in your Wallet, then try again.');
         return;
       }
-      if (res.processing) {
+      if ('processing' in res) {
         setError('Payment processing — pull to refresh the room.');
         return;
       }

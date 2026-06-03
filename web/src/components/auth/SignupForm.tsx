@@ -13,7 +13,7 @@ import {
   type RegisterSuccessPayload,
 } from "@/lib/signup-register-routing";
 import type { UsernameRejectReason } from "@/lib/username-policy";
-import { normalizeUsernameForStorage } from "@/lib/username-policy";
+import { normalizeUsernameForStorage, USERNAME_UNAVAILABLE_MESSAGE, usernamePolicyUserMessage } from "@/lib/username-policy";
 import { SocialAuthButtons } from "@/components/auth/SocialAuthButtons";
 import { PasswordInput } from "@/components/auth/PasswordInput";
 
@@ -183,13 +183,11 @@ export function SignupForm() {
   const usernameSubmitBlockMessage = (status: UsernameUiStatus): string => {
     switch (status) {
       case "taken":
-        return "Username is already taken.";
-      case "invalid":
-        return "Username must be 3–20 characters: letters, numbers, and underscores only.";
       case "reserved":
-        return "That username is reserved.";
       case "profanity":
-        return "That username is not allowed.";
+        return USERNAME_UNAVAILABLE_MESSAGE;
+      case "invalid":
+        return usernamePolicyUserMessage("invalid");
       case "checking":
         return "Still checking username. Try again in a moment.";
       case "idle":
@@ -286,6 +284,7 @@ export function SignupForm() {
     }
 
     setLoading(true);
+    devSignupLog("Create Account submit", { normalizedUsername });
     try {
       const res = await fetch("/api/register", {
         method: "POST",
@@ -317,16 +316,20 @@ export function SignupForm() {
           data.verificationMethod === "immediate" || data.needsEmailConfirmation === false;
 
         if (isImmediate) {
-          const signInRes = await signIn("credentials", {
+          router.replace(dest);
+          void signIn("credentials", {
             email: normalizedEmail,
             password,
             redirect: false,
-          });
-          if (signInRes?.ok) {
-            router.replace(dest);
+          }).then((signInRes) => {
+            if (!signInRes?.ok) {
+              router.push(
+                `/signin?email=${encodeURIComponent(normalizedEmail)}&registered=1${returnTo !== "/marketplace" ? `&returnTo=${encodeURIComponent(returnTo)}` : ""}`,
+              );
+            }
             router.refresh();
-            return;
-          }
+          });
+          return;
           router.push(
             `/signin?email=${encodeURIComponent(normalizedEmail)}&registered=1${returnTo !== "/marketplace" ? `&returnTo=${encodeURIComponent(returnTo)}` : ""}`,
           );
@@ -373,7 +376,7 @@ export function SignupForm() {
       case "available":
         return <p className="text-[11px] font-medium text-emerald-400">Username is available</p>;
       case "taken":
-        return <p className="text-[11px] font-medium text-rose-300">Username is already taken</p>;
+        return <p className="text-[11px] font-medium text-rose-300">{USERNAME_UNAVAILABLE_MESSAGE}</p>;
       case "check_failed":
         return (
           <p className="text-[11px] font-medium text-amber-300">
@@ -387,9 +390,8 @@ export function SignupForm() {
           </p>
         );
       case "reserved":
-        return <p className="text-[11px] font-medium text-rose-300">That username is reserved.</p>;
       case "profanity":
-        return <p className="text-[11px] font-medium text-rose-300">That username is not allowed.</p>;
+        return <p className="text-[11px] font-medium text-rose-300">{USERNAME_UNAVAILABLE_MESSAGE}</p>;
       default:
         return (
           <p className="text-[11px] text-zinc-600">

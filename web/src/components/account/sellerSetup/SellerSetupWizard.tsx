@@ -60,6 +60,10 @@ export function SellerSetupWizard() {
   const [stepReady, setStepReady] = useState(false);
 
   const [busy, setBusy] = useState(false);
+  const [startBusy, setStartBusy] = useState(false);
+  const [payoutReconciling, setPayoutReconciling] = useState(false);
+  const [payoutReconcileError, setPayoutReconcileError] = useState<string | null>(null);
+  const payoutReconcileAbortRef = useRef(false);
   const [stripePlatformConfigured, setStripePlatformConfigured] = useState(false);
   const [stripeEmbedOnboardingAvailable, setStripeEmbedOnboardingAvailable] = useState(false);
   const [stripeEmbedOpen, setStripeEmbedOpen] = useState(false);
@@ -176,31 +180,48 @@ export function SellerSetupWizard() {
     }
   }, []);
 
-  const syncStripeAfterReturn = useCallback(async () => {
-    setBusy(true);
-    setLoadError(null);
+  const pollStripePayoutStatus = useCallback(async (): Promise<boolean> => {
+    payoutReconcileAbortRef.current = false;
+    setPayoutReconciling(true);
+    setPayoutReconcileError(null);
+    const deadline = Date.now() + 45_000;
     try {
-      const res = await fetch("/api/account/seller/stripe-status", { cache: "no-store", credentials: "same-origin" });
-      const j = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        stripeOnboardingComplete?: boolean;
-        stripeChargesEnabled?: boolean | null;
-      };
-      if (!res.ok) {
-        setLoadError(j.error ?? "Could not refresh payout status after Stripe.");
-        return;
+      while (Date.now() < deadline) {
+        if (payoutReconcileAbortRef.current) return false;
+        const res = await fetch("/api/account/seller/stripe-status", { cache: "no-store", credentials: "same-origin" });
+        const j = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          stripeOnboardingComplete?: boolean;
+          stripeChargesEnabled?: boolean | null;
+        };
+        if (!res.ok) {
+          setPayoutReconcileError(j.error ?? "Could not refresh payout status after Stripe.");
+          return false;
+        }
+        await load();
+        if (j.stripeOnboardingComplete || j.stripeChargesEnabled === true) {
+          toast("Payout setup updated.");
+          return true;
+        }
+        await new Promise((r) => setTimeout(r, 1500));
       }
-      await load();
-      if (j.stripeOnboardingComplete || j.stripeChargesEnabled === true) {
-        toast("Payout setup updated.");
-      } else {
-        toast("Thanks — Stripe received your details. Refresh if status does not update yet.");
-      }
-      router.replace("/account/seller/setup", { scroll: false });
+      setPayoutReconcileError(
+        "We could not confirm payout setup yet. Tap Retry to check again, or Back to return to the previous step.",
+      );
+      return false;
     } finally {
-      setBusy(false);
+      setPayoutReconciling(false);
+      router.replace("/account/seller/setup", { scroll: false });
     }
   }, [load, router, toast]);
+
+  const syncStripeAfterReturn = useCallback(async () => {
+    setLoadError(null);
+    const ok = await pollStripePayoutStatus();
+    if (!ok) {
+      console.warn("[seller-setup] stripe return reconcile incomplete");
+    }
+  }, [pollStripePayoutStatus]);
 
   useEffect(() => {
     const isReturn = searchParams.get("stripe_return") === "1";
@@ -217,6 +238,7 @@ export function SellerSetupWizard() {
   }, [searchParams, status, connectPayoutsExternal, syncStripeAfterReturn, toast]);
 
   const openPayoutConnect = () => {
+    setPayoutReconcileError(null);
     if (isPayoutSetupComplete(readiness?.checks)) {
       void connectPayoutsExternal();
       return;
@@ -355,11 +377,28 @@ export function SellerSetupWizard() {
 
   const checks = readiness.checks;
   const payoutsDone = isPayoutSetupComplete(checks);
-  const payoutPhase = payoutsDone ? "connected" : stripeEmbedOpen || busy ? "connecting" : "not_connected";
+  const payoutPhase = payoutsDone
+    ? "connected"
+    : payoutReconciling
+      ? "confirming"
+      : stripeEmbedOpen || busy
+        ? "connecting"
+        : payoutReconcileError
+          ? "error"
+          : "not_connected";
 
   return (
     <WizardShell step={step}>
-      {step === 1 ? <WelcomeStep onStart={() => goToStep(2)} /> : null}
+      {step === 1 ? (
+        <WelcomeStep
+          starting={startBusy}
+          onStart={() => {
+            setStartBusy(true);
+            goToStep(2);
+            setStartBusy(false);
+          }}
+        />
+      ) : null}
 
       {step === 2 ? (
         <PayoutStep
@@ -368,16 +407,23 @@ export function SellerSetupWizard() {
           busy={busy}
           embedOpen={stripeEmbedOpen}
           loadError={loadError}
+          reconcileError={payoutReconcileError}
           onBack={goBack}
           onConnect={openPayoutConnect}
           onContinue={() => goToStep(3)}
+          onRetry={() => void pollStripePayoutStatus()}
+          onCancelConfirm={() => {
+            payoutReconcileAbortRef.current = true;
+            setPayoutReconciling(false);
+            setPayoutReconcileError("Payout confirmation cancelled. Tap Connect payouts to try again.");
+          }}
           onEmbedClose={() => {
             setStripeEmbedOpen(false);
             void load();
           }}
           onEmbedSessionEnd={() => {
             setStripeEmbedOpen(false);
-            void load();
+            void pollStripePayoutStatus();
           }}
           onEmbedFallback={() => {
             setStripeEmbedOpen(false);

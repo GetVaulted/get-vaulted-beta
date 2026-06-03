@@ -43,6 +43,12 @@ function profileToHost(id: string, p?: ProfileRow): Host {
   };
 }
 
+function mapRoomStatus(status: string): LiveStream['roomStatus'] {
+  if (status === 'live') return 'live';
+  if (status === 'ended') return 'ended';
+  return 'scheduled';
+}
+
 function showToLiveStream(row: ShowRow, host?: ProfileRow): LiveStream {
   const cat = mapListingCategoryToCategoryId(row.category);
   const tags = liveRoomCategoryTagsForRow(row.category, cat);
@@ -54,6 +60,8 @@ function showToLiveStream(row: ShowRow, host?: ProfileRow): LiveStream {
     title: row.title,
     category: cat,
     viewers: Math.max(0, row.viewer_count ?? 0),
+    roomStatus: mapRoomStatus(row.status),
+    scheduledStartAtIso: row.scheduled_start,
     previewImageUrl: row.thumbnail_url?.trim() || FALLBACK_PREVIEW,
     thumbnailGradient: ['#05070a', '#0c1018'] as [string, string],
     host: hostVm,

@@ -113,6 +113,7 @@ describe('reconcileBuyerSnapshotMonotonic', () => {
           quantityRemaining: 1,
           soldCount: 0,
           isHot: false,
+          sortOrder: 0,
           status: 'available',
           buyerUsername: null,
         },

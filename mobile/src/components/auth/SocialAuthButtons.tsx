@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { isGoogleOAuthConfigured } from '../../lib/authProviderAvailability';
 import { AUTH_USER_MESSAGES } from '../../lib/authUserMessages';
 import { isAppleSignInAvailable } from '../../lib/socialAuth';
 import { colors, radii, spacing } from '../../theme';
@@ -19,10 +20,14 @@ function GoogleMark() {
 
 export function SocialAuthButtons({ onGoogle, onApple, busy, disabled, error }: Props) {
   const [appleAvailable, setAppleAvailable] = useState(false);
+  const googleConfigured = isGoogleOAuthConfigured();
 
   useEffect(() => {
     void isAppleSignInAvailable().then(setAppleAvailable);
   }, []);
+
+  const showSocial = googleConfigured || (Platform.OS === 'ios' && appleAvailable);
+  if (!showSocial) return null;
 
   return (
     <View style={styles.wrap}>
@@ -32,25 +37,31 @@ export function SocialAuthButtons({ onGoogle, onApple, busy, disabled, error }: 
         <View style={styles.dividerLine} />
       </View>
 
-      <Pressable
-        style={[styles.btn, (disabled || busy) && styles.btnDisabled]}
-        onPress={onGoogle}
-        disabled={disabled || Boolean(busy)}
-        accessibilityRole="button"
-        accessibilityLabel="Continue with Google"
-      >
-        {busy === 'google' ? (
-          <ActivityIndicator color={colors.textPrimary} size="small" />
-        ) : (
-          <GoogleMark />
-        )}
-        <Text style={styles.btnTxt}>{busy === 'google' ? 'Opening Google…' : 'Continue with Google'}</Text>
-      </Pressable>
+      {googleConfigured ? (
+        <Pressable
+          style={[styles.btn, (disabled || busy) && styles.btnDisabled]}
+          onPress={() => {
+            if (!busy && !disabled) onGoogle();
+          }}
+          disabled={disabled || Boolean(busy)}
+          accessibilityRole="button"
+          accessibilityLabel="Continue with Google"
+        >
+          {busy === 'google' ? (
+            <ActivityIndicator color={colors.textPrimary} size="small" />
+          ) : (
+            <GoogleMark />
+          )}
+          <Text style={styles.btnTxt}>{busy === 'google' ? 'Opening Google…' : 'Continue with Google'}</Text>
+        </Pressable>
+      ) : null}
 
       {Platform.OS === 'ios' && appleAvailable ? (
         <Pressable
           style={[styles.btn, styles.appleBtn, (disabled || busy) && styles.btnDisabled]}
-          onPress={onApple}
+          onPress={() => {
+            if (!busy && !disabled) onApple();
+          }}
           disabled={disabled || Boolean(busy)}
           accessibilityRole="button"
           accessibilityLabel="Continue with Apple"

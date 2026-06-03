@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isAppleOAuthProviderEnabled, isGoogleOAuthProviderEnabled } from "@/lib/auth-provider-availability";
 import { supabaseProjectRefFromUrl } from "@/lib/resolve-database-url";
 import { webSignupVerificationMethod } from "@/lib/is-beta-deployment";
 
@@ -28,5 +29,9 @@ export async function GET() {
     nextAuthUrl,
     expectedBetaProjectRef: "xkaaicokjgmpbctfermj",
     alignedWithBeta: projectRef === "xkaaicokjgmpbctfermj",
+    oauthProviders: {
+      google: isGoogleOAuthProviderEnabled(),
+      apple: isAppleOAuthProviderEnabled(),
+    },
   });
 }

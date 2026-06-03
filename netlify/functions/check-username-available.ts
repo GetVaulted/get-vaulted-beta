@@ -1,31 +1,19 @@
 import type { Handler } from '@netlify/functions';
+import {
+  evaluateUsernamePolicy,
+  normalizeUsernameForStorage,
+  USERNAME_UNAVAILABLE_MESSAGE,
+  usernamePolicyUserMessage,
+} from '../../shared/username-policy';
 import { requireSupabaseService } from './_lib/env';
 import { createSupabaseService } from './_lib/supabase';
 
-/** Keep in sync with mobile `validateUsernameFormat` / `profilesRepository.ts`. */
-const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
-const RESERVED = new Set([
-  'admin',
-  'administrator',
-  'getvaulted',
-  'get_vaulted',
-  'support',
-  'help',
-  'system',
-  'official',
-  'staff',
-  'moderator',
-  'mod',
-  'null',
-  'undefined',
-]);
-
 function validateUsername(raw: string): string | null {
-  const t = raw.trim();
-  if (t.length < 3) return 'Use at least 3 characters.';
-  if (t.length > 20) return 'Use at most 20 characters.';
-  if (!USERNAME_RE.test(t)) return 'Use letters, numbers, and underscores only.';
-  if (RESERVED.has(t.toLowerCase())) return 'That username is reserved.';
+  const normalized = normalizeUsernameForStorage(raw);
+  if (normalized.length < 3) return 'Use at least 3 characters.';
+  if (normalized.length > 20) return 'Use at most 20 characters.';
+  const policy = evaluateUsernamePolicy(normalized);
+  if (!policy.ok) return usernamePolicyUserMessage(policy.reason);
   return null;
 }
 
@@ -74,7 +62,10 @@ export const handler: Handler = async (event) => {
     return {
       statusCode: 200,
       headers: { ...cors, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ available: viaRpc }),
+      body: JSON.stringify({
+        available: viaRpc,
+        ...(viaRpc ? {} : { message: USERNAME_UNAVAILABLE_MESSAGE }),
+      }),
     };
   }
 
@@ -92,6 +83,9 @@ export const handler: Handler = async (event) => {
   return {
     statusCode: 200,
     headers: { ...cors, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ available: !taken }),
+    body: JSON.stringify({
+      available: !taken,
+      ...(taken ? { message: USERNAME_UNAVAILABLE_MESSAGE } : {}),
+    }),
   };
 };

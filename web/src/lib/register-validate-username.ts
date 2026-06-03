@@ -1,5 +1,10 @@
 import type { PrismaClient } from "@/generated/prisma/client";
-import { evaluateUsernamePolicy, normalizeUsernameForStorage, type UsernameRejectReason } from "@/lib/username-policy";
+import {
+  evaluateUsernamePolicy,
+  normalizeUsernameForStorage,
+  usernamePolicyUserMessage,
+  type UsernameRejectReason,
+} from "@/lib/username-policy";
 import { isUsernameTakenCaseInsensitive } from "@/lib/username-db";
 
 export type RegisterUsernameResult =
@@ -7,10 +12,10 @@ export type RegisterUsernameResult =
   | { ok: false; reason: UsernameRejectReason; message: string };
 
 const MESSAGES: Record<UsernameRejectReason, string> = {
-  invalid: "Username must be 3–20 characters: letters, numbers, and underscores only.",
-  reserved: "That username is reserved.",
-  profanity: "That username is not allowed.",
-  taken: "That username is already taken.",
+  invalid: usernamePolicyUserMessage("invalid"),
+  reserved: usernamePolicyUserMessage("reserved"),
+  profanity: usernamePolicyUserMessage("profanity"),
+  taken: usernamePolicyUserMessage("taken"),
 };
 
 export async function validateUsernameForRegistration(
