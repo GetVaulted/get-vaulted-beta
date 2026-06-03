@@ -217,6 +217,39 @@ export async function fetchSellerConnectStatus(
   return { status: (await res.json()) as SellerConnectStatusResponse, error: null };
 }
 
+export type SellerStripeRefreshResponse = {
+  stripeOnboardingComplete?: boolean;
+  stripeAccountId?: string | null;
+  stripeChargesEnabled?: boolean | null;
+  stripePayoutsEnabled?: boolean | null;
+  dbSynced?: boolean;
+};
+
+/** Forces Stripe Account retrieve + DB snapshot (same as web post-onboarding poll). */
+export async function refreshSellerStripeFromApi(
+  accessToken?: string | null,
+): Promise<SellerStripeRefreshResponse | null> {
+  const base = getWebApiBaseUrl();
+  if (!base) return null;
+  const token = accessToken ?? (await getAccessToken());
+  if (!token) return null;
+  let res: Response;
+  try {
+    res = await fetchConnect(
+      '/api/account/seller/stripe-status',
+      {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+      },
+      base,
+    );
+  } catch {
+    return null;
+  }
+  if (!res.ok) return null;
+  return (await res.json()) as SellerStripeRefreshResponse;
+}
+
 export async function createSellerOnboardingLink(accessToken?: string | null): Promise<{ url: string }> {
   const base = getWebApiBaseUrl();
   if (!base) {
@@ -231,7 +264,7 @@ export async function createSellerOnboardingLink(accessToken?: string | null): P
     {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: '{}',
+      body: JSON.stringify({ app_base_url: base }),
     },
     base,
   );

@@ -21,10 +21,12 @@ import { patchSellerProfile, patchSellerShipFrom } from '../../api/sellerAccount
 import { uploadMyAvatar } from '../../api/profilesRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { useSellerSetupState } from '../../hooks/useSellerSetupState';
+import { reconcileSellerPayoutAfterStripe } from '../../lib/reconcileSellerPayoutAfterStripe';
 import {
   isWizardPayoutStepComplete,
-  reconcileSellerPayoutAfterStripe,
-} from '../../lib/reconcileSellerPayoutAfterStripe';
+  payoutReconcileMessage,
+  sellerShouldContinueStripeOnboarding,
+} from '../../lib/seller-stripe-connect-status';
 import {
   resolveSellerWizardStep,
   SELLER_WIZARD_TOTAL_STEPS,
@@ -78,10 +80,28 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   const [payoutBusy, setPayoutBusy] = useState(false);
   const [payoutReconciling, setPayoutReconciling] = useState(false);
   const [payoutError, setPayoutError] = useState<string | null>(null);
+  const [payoutContinueStripe, setPayoutContinueStripe] = useState(false);
   const [startSetupBusy, setStartSetupBusy] = useState(false);
   const stripeReturnRef = useRef(false);
+  const stripeReturnClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconcileInFlightRef = useRef(false);
   const reconcileAbortRef = useRef(false);
+
+  const markStripeReturnPending = useCallback(() => {
+    stripeReturnRef.current = true;
+    if (stripeReturnClearTimerRef.current) clearTimeout(stripeReturnClearTimerRef.current);
+    stripeReturnClearTimerRef.current = setTimeout(() => {
+      stripeReturnRef.current = false;
+    }, 120_000);
+  }, []);
+
+  const clearStripeReturnPending = useCallback(() => {
+    stripeReturnRef.current = false;
+    if (stripeReturnClearTimerRef.current) {
+      clearTimeout(stripeReturnClearTimerRef.current);
+      stripeReturnClearTimerRef.current = null;
+    }
+  }, []);
 
   const reconcilePayoutState = useCallback(
     async (opts?: { autoAdvance?: boolean }) => {
@@ -90,6 +110,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
       reconcileAbortRef.current = false;
       setPayoutReconciling(true);
       setPayoutError(null);
+      setPayoutContinueStripe(false);
       if (__DEV__) console.log('[seller-setup] reconcile payout start');
       try {
         const result = await reconcileSellerPayoutAfterStripe(token, {
@@ -97,12 +118,16 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
         });
         await Promise.all([setup.refetchSilent(), stripeConnect.refresh()]);
         if (result.complete && opts?.autoAdvance !== false) {
+          setPayoutContinueStripe(false);
+          clearStripeReturnPending();
           setStep((current) => (current === 2 ? 3 : current));
           return true;
         }
         if (!reconcileAbortRef.current) {
+          const needsStripe = sellerShouldContinueStripeOnboarding(result.connect, result.checks);
+          setPayoutContinueStripe(needsStripe);
           setPayoutError(
-            'We could not confirm payout setup yet. Tap Retry to check again, or Back to return to the previous step.',
+            payoutReconcileMessage(result.uiState, result.connect, result.connectError),
           );
         }
         return result.complete;
@@ -112,8 +137,14 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
         if (__DEV__) console.log('[seller-setup] reconcile payout end');
       }
     },
-    [token, setup, stripeConnect],
+    [token, setup, stripeConnect, clearStripeReturnPending],
   );
+
+  useEffect(() => {
+    return () => {
+      if (stripeReturnClearTimerRef.current) clearTimeout(stripeReturnClearTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!token) return;
@@ -177,24 +208,28 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
     if (!token) return;
     setPayoutBusy(true);
     setPayoutError(null);
+    setPayoutContinueStripe(false);
+    markStripeReturnPending();
     try {
       const result = await openStripeConnectOnboarding(token);
       if (result === 'cancel') {
+        clearStripeReturnPending();
         setPayoutError('Stripe setup was cancelled. Tap Connect payouts to try again.');
         return;
       }
-      if (result === 'dismiss') {
-        setPayoutError('Stripe setup did not finish. Tap Connect payouts to try again.');
+      if (result === 'success') {
+        await reconcilePayoutState({ autoAdvance: true });
         return;
       }
-      stripeReturnRef.current = true;
-      await reconcilePayoutState({ autoAdvance: true });
+      setPayoutError(
+        'Finish Stripe in the browser, then return to Get Vaulted — we will check your status when the app is active again.',
+      );
     } catch (e) {
+      clearStripeReturnPending();
       const msg = e instanceof Error ? e.message : 'Could not open Stripe.';
       setPayoutError(msg);
       if (__DEV__) console.warn('[seller-setup] open payouts', msg);
     } finally {
-      stripeReturnRef.current = false;
       setPayoutBusy(false);
     }
   };
@@ -421,9 +456,20 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
               {payoutError ? (
                 <View style={styles.errorBox}>
                   <Text style={styles.errorText}>{payoutError}</Text>
-                  <Pressable onPress={() => void reconcilePayoutState({ autoAdvance: true })} hitSlop={8}>
-                    <Text style={styles.link}>Retry</Text>
-                  </Pressable>
+                  <View style={styles.errorActions}>
+                    {payoutContinueStripe ? (
+                      <Pressable onPress={() => void openPayouts()} hitSlop={8} disabled={payoutStepLoading}>
+                        <Text style={styles.link}>Continue Stripe setup</Text>
+                      </Pressable>
+                    ) : null}
+                    <Pressable
+                      onPress={() => void reconcilePayoutState({ autoAdvance: true })}
+                      hitSlop={8}
+                      disabled={payoutStepLoading}
+                    >
+                      <Text style={styles.link}>Retry status check</Text>
+                    </Pressable>
+                  </View>
                 </View>
               ) : null}
               <StepActions
@@ -436,9 +482,21 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
                       ? 'Continue'
                       : payoutBusy
                         ? 'Opening…'
-                        : 'Connect payouts'
+                        : payoutContinueStripe && payoutError
+                          ? 'Continue Stripe setup'
+                          : 'Connect payouts'
                 }
-                onPrimary={() => (payoutsDone ? setStep(3) : void openPayouts())}
+                onPrimary={() => {
+                  if (payoutsDone) {
+                    setStep(3);
+                    return;
+                  }
+                  if (payoutContinueStripe && payoutError) {
+                    void openPayouts();
+                    return;
+                  }
+                  void openPayouts();
+                }}
                 primaryDisabled={payoutStepLoading || (!setup.stripePlatformConfigured && !payoutsDone)}
               />
             </>
@@ -747,6 +805,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   errorText: { fontSize: 13, lineHeight: 18, color: '#f0a8a8' },
+  errorActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: spacing.xs },
   inlineLoader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
   unlockRow: {
     padding: spacing.md,

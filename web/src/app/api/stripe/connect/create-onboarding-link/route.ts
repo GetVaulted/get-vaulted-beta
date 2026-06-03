@@ -45,7 +45,17 @@ export async function POST(request: Request) {
       return NextResponse.json(body, { status });
     }
 
-    const { returnUrl, refreshUrl } = stripeConnectMobileReturnUrls(request);
+    let clientAppBase: string | undefined;
+    try {
+      const body = (await request.json().catch(() => ({}))) as { app_base_url?: string };
+      if (typeof body.app_base_url === "string" && body.app_base_url.trim()) {
+        clientAppBase = body.app_base_url.trim();
+      }
+    } catch {
+      /* empty body */
+    }
+
+    const { returnUrl, refreshUrl } = stripeConnectMobileReturnUrls(request, clientAppBase);
 
     logStripeOnboarding("mobile_creating_account_link", {
       userId: auth.userId,

@@ -1,34 +1,30 @@
 import type { SellerConnectStatusResponse } from '../api/stripeConnectRepository';
-import { fetchSellerConnectStatus, isSellerPayoutSetupComplete } from '../api/stripeConnectRepository';
+import {
+  fetchSellerConnectStatus,
+  refreshSellerStripeFromApi,
+} from '../api/stripeConnectRepository';
 import { fetchSellerAccount } from '../api/sellerAccountRepository';
 import {
-  isPayoutSetupComplete,
+  isWizardPayoutStepComplete,
+  logSellerStripeConnectStatus,
+  resolvePayoutReconcileUiState,
+  type PayoutReconcileUiState,
+} from './seller-stripe-connect-status';
+import {
   normalizeSellerReadinessChecks,
   type SellerReadinessChecks,
 } from './seller-setup-state';
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+export { isWizardPayoutStepComplete } from './seller-stripe-connect-status';
 
-/** Payout step complete — seller account readiness and/or live Connect status. */
-export function isWizardPayoutStepComplete(
-  checks: SellerReadinessChecks | null | undefined,
-  connect: SellerConnectStatusResponse | null | undefined,
-): boolean {
-  if (isPayoutSetupComplete(checks)) return true;
-  if (isSellerPayoutSetupComplete(connect)) return true;
-  if (!connect?.stripe_account_id?.trim()) return false;
-  return Boolean(
-    connect.payout_setup_complete ||
-      connect.payout_setup_submitted ||
-      connect.stripe_onboarding_complete ||
-      connect.can_publish_active_listings,
-  );
-}
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export type ReconcilePayoutResult = {
   complete: boolean;
   checks: SellerReadinessChecks | null;
   connect: SellerConnectStatusResponse | null;
+  connectError: string | null;
+  uiState: PayoutReconcileUiState;
 };
 
 /**
@@ -45,29 +41,51 @@ export async function reconcileSellerPayoutAfterStripe(
 
   let checks: SellerReadinessChecks | null = null;
   let connect: SellerConnectStatusResponse | null = null;
+  let connectError: string | null = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (shouldAbort?.()) break;
+
+    if (attempt === 0) {
+      await refreshSellerStripeFromApi(accessToken).catch((e) => {
+        if (__DEV__) {
+          console.warn(
+            '[seller-setup] stripe-status refresh failed',
+            e instanceof Error ? e.message : String(e),
+          );
+        }
+      });
+    }
+
     const [connectResult, accountResult] = await Promise.all([
       fetchSellerConnectStatus(accessToken),
       fetchSellerAccount(accessToken).catch(() => null),
     ]);
 
     connect = connectResult.status;
+    connectError = connectResult.error;
     checks = accountResult
       ? normalizeSellerReadinessChecks(accountResult.readiness?.checks as Record<string, boolean> | undefined)
       : null;
 
+    logSellerStripeConnectStatus(connect, 'reconcile_attempt', {
+      attempt: attempt + 1,
+      maxAttempts,
+      connectError,
+      wizardComplete: isWizardPayoutStepComplete(checks, connect),
+    });
+
     if (isWizardPayoutStepComplete(checks, connect)) {
-      return { complete: true, checks, connect };
+      const uiState = resolvePayoutReconcileUiState(connect, checks, connectError);
+      return { complete: true, checks, connect, connectError, uiState };
     }
 
     if (attempt < maxAttempts - 1) await sleep(delayMs);
   }
 
-  return {
-    complete: isWizardPayoutStepComplete(checks, connect),
-    checks,
-    connect,
-  };
+  const complete = isWizardPayoutStepComplete(checks, connect);
+  const uiState = resolvePayoutReconcileUiState(connect, checks, connectError);
+  logSellerStripeConnectStatus(connect, 'reconcile_final', { complete, uiState, connectError });
+
+  return { complete, checks, connect, connectError, uiState };
 }

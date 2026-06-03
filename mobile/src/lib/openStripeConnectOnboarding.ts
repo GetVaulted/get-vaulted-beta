@@ -18,7 +18,11 @@ export function getStripeConnectReturnUrlPrefix(): string | null {
  * Opens Stripe Connect hosted onboarding in an in-app auth session (Safari VC / Chrome Custom Tab).
  * Completes when Stripe redirects to `/mobile/stripe-connect-return` on your API host.
  */
-export async function openStripeConnectOnboarding(accessToken: string): Promise<StripeConnectOnboardingResult> {
+export async function openStripeConnectOnboarding(
+  accessToken: string,
+  opts?: { refreshDepth?: number },
+): Promise<StripeConnectOnboardingResult> {
+  const refreshDepth = opts?.refreshDepth ?? 0;
   const returnUrl = getStripeConnectReturnUrlPrefix();
   if (!returnUrl) {
     throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
@@ -31,7 +35,15 @@ export async function openStripeConnectOnboarding(accessToken: string): Promise<
     preferEphemeralSession: true,
   });
 
-  if (result.type === 'success') return 'success';
+  if (result.type === 'success') {
+    const redirectUrl = 'url' in result && typeof result.url === 'string' ? result.url : '';
+    if (redirectUrl.includes('refresh=1')) {
+      if (__DEV__) console.log('[stripe-connect] refresh redirect — opening new onboarding link');
+      if (refreshDepth >= 1) return 'dismiss';
+      return openStripeConnectOnboarding(accessToken, { refreshDepth: refreshDepth + 1 });
+    }
+    return 'success';
+  }
   if (result.type === 'cancel') return 'cancel';
   return 'dismiss';
 }

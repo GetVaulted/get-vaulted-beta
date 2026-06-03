@@ -69,6 +69,15 @@ export async function GET(request: Request) {
         const currentlyDue = account.requirements?.currently_due ?? [];
         payoutSetupSubmitted =
           Boolean(account.details_submitted) && currentlyDue.length === 0;
+        console.info("[stripe connect status] account retrieved", {
+          userId: auth.userId,
+          stripeAccountId: user.stripeAccountId,
+          charges_enabled: account.charges_enabled,
+          payouts_enabled: account.payouts_enabled,
+          details_submitted: account.details_submitted,
+          currently_due: currentlyDue,
+          pending_verification: account.requirements?.pending_verification ?? [],
+        });
         const { data, onboardingUiStatus: liveUi } = connectFieldsFromStripeAccount(account);
         if (
           user.stripeOnboardingComplete &&

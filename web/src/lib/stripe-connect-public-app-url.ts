@@ -55,10 +55,29 @@ export function stripeConnectPublicAppBase(request?: Request): string {
   return normalizeHttpsBase(nextPublic || authUrl || "http://localhost:3000");
 }
 
-export function stripeConnectMobileReturnUrls(request: Request): { returnUrl: string; refreshUrl: string } {
-  const base = stripeConnectPublicAppBase(request);
+export function stripeConnectMobileReturnUrlsForBase(base: string): { returnUrl: string; refreshUrl: string } {
+  const normalized = normalizeHttpsBase(base);
   return {
-    returnUrl: `${base}/mobile/stripe-connect-return`,
-    refreshUrl: `${base}/mobile/stripe-connect-return?refresh=1`,
+    returnUrl: `${normalized}/mobile/stripe-connect-return`,
+    refreshUrl: `${normalized}/mobile/stripe-connect-return?refresh=1`,
   };
+}
+
+/**
+ * Mobile sends EXPO_PUBLIC_SITE_URL so Stripe return URLs match expo-web-browser redirectUrl.
+ */
+export function stripeConnectMobileReturnUrls(
+  request: Request,
+  clientAppBaseUrl?: string | null,
+): { returnUrl: string; refreshUrl: string } {
+  const serverBase = stripeConnectPublicAppBase(request);
+  const clientBase = clientAppBaseUrl?.trim() ? normalizeHttpsBase(clientAppBaseUrl) : "";
+  const base = clientBase || serverBase;
+  if (clientBase && clientBase !== serverBase) {
+    console.info("[stripe connect] mobile return URL base from client", {
+      clientBase,
+      serverBase,
+    });
+  }
+  return stripeConnectMobileReturnUrlsForBase(base);
 }
