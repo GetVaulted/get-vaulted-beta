@@ -83,6 +83,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   const [payoutContinueStripe, setPayoutContinueStripe] = useState(false);
   const [startSetupBusy, setStartSetupBusy] = useState(false);
   const stripeReturnRef = useRef(false);
+  const stripeBrowserOpenedRef = useRef(false);
   const stripeReturnClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconcileInFlightRef = useRef(false);
   const reconcileAbortRef = useRef(false);
@@ -147,9 +148,22 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   }, []);
 
   useEffect(() => {
+    if (step === 2) {
+      stripeReturnRef.current = false;
+      stripeBrowserOpenedRef.current = false;
+    }
+  }, [step]);
+
+  useEffect(() => {
     if (!token) return;
     const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'active' && step === 2 && stripeReturnRef.current) {
+      if (
+        next === 'active' &&
+        step === 2 &&
+        stripeReturnRef.current &&
+        stripeBrowserOpenedRef.current &&
+        !reconcileInFlightRef.current
+      ) {
         void reconcilePayoutState({ autoAdvance: true });
       }
     });
@@ -205,30 +219,32 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   }, [step, setup]);
 
   const openPayouts = async () => {
-    if (!token) return;
+    if (!token || payoutBusy || payoutReconciling) return;
     setPayoutBusy(true);
     setPayoutError(null);
     setPayoutContinueStripe(false);
-    markStripeReturnPending();
+    clearStripeReturnPending();
     try {
       const result = await openStripeConnectOnboarding(token);
       if (result === 'cancel') {
-        clearStripeReturnPending();
         setPayoutError('Stripe setup was cancelled. Tap Connect payouts to try again.');
         return;
       }
+      stripeBrowserOpenedRef.current = true;
+      markStripeReturnPending();
       if (result === 'success') {
         await reconcilePayoutState({ autoAdvance: true });
         return;
       }
       setPayoutError(
-        'Finish Stripe in the browser, then return to Get Vaulted — we will check your status when the app is active again.',
+        'Complete the remaining steps in Stripe, then return to Get Vaulted — we will refresh your payout status automatically.',
       );
     } catch (e) {
       clearStripeReturnPending();
+      stripeBrowserOpenedRef.current = false;
       const msg = e instanceof Error ? e.message : 'Could not open Stripe.';
       setPayoutError(msg);
-      if (__DEV__) console.warn('[seller-setup] open payouts', msg);
+      console.warn('[seller-setup] open payouts failed', msg);
     } finally {
       setPayoutBusy(false);
     }

@@ -153,6 +153,14 @@ export function SellerHubScreen() {
     setStripeSetupBusy(true);
     try {
       const result = await openStripeConnectOnboarding(session.access_token);
+      if (result === 'opened_external') {
+        Alert.alert(
+          'Stripe payout setup',
+          'Finish the remaining steps in Stripe, then return to Get Vaulted and refresh your payout status.',
+        );
+        return;
+      }
+      if (result === 'cancel') return;
       const latest = await refreshSellerConnectAfterOnboarding(sellerConnect.refresh);
       await cmdData.liveReadiness.refresh();
       if (result === 'success') {

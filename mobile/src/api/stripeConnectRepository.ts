@@ -278,11 +278,25 @@ export async function createSellerOnboardingLink(accessToken?: string | null): P
     }
     throw new Error(message);
   }
-  const j = (await res.json()) as { url?: string };
-  if (!j.url) {
+  const j = (await res.json()) as { url?: string; stripe_account_id?: string };
+  if (!j.url?.trim()) {
     throw new Error('Server did not return an onboarding URL.');
   }
-  return { url: j.url };
+  const url = j.url.trim();
+  console.info(
+    '[stripe-connect] create_onboarding_link_ok',
+    JSON.stringify({
+      urlHost: (() => {
+        try {
+          return new URL(url).host;
+        } catch {
+          return 'invalid';
+        }
+      })(),
+      stripe_account_id: j.stripe_account_id ?? null,
+    }),
+  );
+  return { url };
 }
 
 export type SellerWalletSummary = {
