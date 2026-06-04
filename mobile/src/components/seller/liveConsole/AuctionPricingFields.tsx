@@ -1,10 +1,5 @@
 import { StyleSheet, Text, TextInput, View } from 'react-native';
-import {
-  defaultBidIncrementUsd,
-  formatUsdInput,
-  parseUsdInput,
-  type AuctionPricingInput,
-} from '../../../lib/liveAuctionPricing';
+import type { AuctionPricingInput } from '../../../lib/liveAuctionPricing';
 import { colors, radii, spacing } from '../../../theme';
 
 export function AuctionPricingFields({
@@ -16,34 +11,29 @@ export function AuctionPricingFields({
   onChange: (next: AuctionPricingInput) => void;
   disabled?: boolean;
 }) {
-  const startNum = parseUsdInput(value.startingBid) ?? 1;
-
   const set = (patch: Partial<AuctionPricingInput>) => onChange({ ...value, ...patch });
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.sectionTitle}>Auction pricing</Text>
-      <Text style={styles.sectionSub}>Set before queueing. Editable until bidding starts.</Text>
+      <Text style={styles.sectionTitle}>Lot setup</Text>
+      <Text style={styles.sectionSub}>
+        Set quantity and pricing before queueing. Bid increments are automatic. Editable until bidding starts.
+      </Text>
       <View style={styles.grid}>
         <Field
-          label="Starting bid"
-          value={value.startingBid}
-          onChangeText={(startingBid) => {
-            const next = { ...value, startingBid };
-            if (!value.bidIncrement.trim()) {
-              const n = parseUsdInput(startingBid);
-              next.bidIncrement = formatUsdInput(defaultBidIncrementUsd(n ?? 1));
-            }
-            set(next);
-          }}
+          label="Quantity"
+          value={value.quantity}
+          onChangeText={(quantity) => set({ quantity })}
           placeholder="1"
+          keyboardType="number-pad"
           disabled={disabled}
         />
         <Field
-          label="Bid increment"
-          value={value.bidIncrement}
-          onChangeText={(bidIncrement) => set({ bidIncrement })}
-          placeholder={String(defaultBidIncrementUsd(startNum))}
+          label="Starting bid"
+          value={value.startingBid}
+          onChangeText={(startingBid) => set({ startingBid })}
+          placeholder="1"
+          keyboardType="decimal-pad"
           disabled={disabled}
         />
         <Field
@@ -51,6 +41,7 @@ export function AuctionPricingFields({
           value={value.reservePrice}
           onChangeText={(reservePrice) => set({ reservePrice })}
           placeholder="Hidden minimum"
+          keyboardType="decimal-pad"
           disabled={disabled}
         />
         <Field
@@ -58,6 +49,7 @@ export function AuctionPricingFields({
           value={value.buyNowPrice}
           onChangeText={(buyNowPrice) => set({ buyNowPrice })}
           placeholder="Instant purchase"
+          keyboardType="decimal-pad"
           disabled={disabled}
         />
       </View>
@@ -70,12 +62,14 @@ function Field({
   value,
   onChangeText,
   placeholder,
+  keyboardType,
   disabled,
 }: {
   label: string;
   value: string;
   onChangeText: (s: string) => void;
   placeholder: string;
+  keyboardType: 'decimal-pad' | 'number-pad';
   disabled?: boolean;
 }) {
   return (
@@ -86,7 +80,7 @@ function Field({
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={colors.textMuted}
-        keyboardType="decimal-pad"
+        keyboardType={keyboardType}
         editable={!disabled}
         style={[styles.input, disabled && styles.inputOff]}
       />

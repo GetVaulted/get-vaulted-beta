@@ -3,7 +3,6 @@ import type { NavigationProp, ParamListBase } from '@react-navigation/native';
 import {
   ActivityIndicator,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -44,6 +43,29 @@ export function SellerLiveConsolePanel({
     onBiddingUrgentChange,
   });
 
+  const queueHeader = (
+    <View style={styles.queueHeader}>
+      {c.consoleError ? (
+        <LiveConsoleWarningBanner error={c.consoleError} onRetry={() => void c.loadOnce()} retrying={c.loading} />
+      ) : null}
+      {c.loading ? (
+        <ActivityIndicator color={colors.gold} style={{ marginVertical: spacing.md }} />
+      ) : (
+        <VaultPinnedLotCard
+          item={c.activeItem}
+          serverNowMs={c.serverNowMs}
+          roomLive={c.roomLive}
+          busy={c.busy}
+          startingAuction={c.startingAuction}
+          onStartBidding={c.onStartBidding}
+          onSold={c.onSold}
+          onSkip={c.onSkip}
+          onExtend={c.onExtend}
+        />
+      )}
+    </View>
+  );
+
   return (
     <View style={liveConsoleStyles.dockShell}>
       <View style={liveConsoleStyles.dockHandle} />
@@ -53,38 +75,25 @@ export function SellerLiveConsolePanel({
           <Text style={styles.sync}>{c.loading ? '…' : 'Sync'}</Text>
         </Pressable>
       </View>
-      {c.consoleError ? (
-        <LiveConsoleWarningBanner error={c.consoleError} onRetry={() => void c.loadOnce()} retrying={c.loading} />
-      ) : null}
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-        {c.loading ? (
-          <ActivityIndicator color={colors.gold} style={{ marginVertical: spacing.md }} />
+      <View style={styles.body}>
+        {!c.loading ? (
+          <VaultQueueList
+            scrollContainer
+            items={c.items}
+            roomType={roomType}
+            roomEnded={c.roomEnded}
+            busy={c.busy}
+            onLaunch={c.onLaunch}
+            onRemove={c.onRemove}
+            onReorder={c.onReorder}
+            onEditPricing={(item) => c.setPricingEditItem(item)}
+            listHeaderComponent={queueHeader}
+            contentContainerStyle={styles.queueListContent}
+          />
         ) : (
-          <>
-            <VaultPinnedLotCard
-              item={c.activeItem}
-              serverNowMs={c.serverNowMs}
-              roomLive={c.roomLive}
-              busy={c.busy}
-              startingAuction={c.startingAuction}
-              onStartBidding={c.onStartBidding}
-              onSold={c.onSold}
-              onSkip={c.onSkip}
-              onExtend={c.onExtend}
-            />
-            <VaultQueueList
-              items={c.items}
-              roomType={roomType}
-              roomEnded={c.roomEnded}
-              busy={c.busy}
-              onLaunch={c.onLaunch}
-              onRemove={c.onRemove}
-              onReorder={c.onReorder}
-              onEditPricing={(item) => c.setPricingEditItem(item)}
-            />
-          </>
+          queueHeader
         )}
-      </ScrollView>
+      </View>
       {!c.roomEnded ? (
         <Pressable style={styles.addFab} onPress={() => c.setInventoryOpen(true)}>
           <Ionicons name="add" size={22} color="#0a0a0a" />
@@ -123,7 +132,9 @@ const styles = StyleSheet.create({
   },
   dockTitle: { fontSize: 14, fontWeight: '800', color: colors.textPrimary },
   sync: { fontSize: 12, fontWeight: '700', color: colors.gold },
-  body: { paddingHorizontal: spacing.md, paddingBottom: 56, gap: spacing.sm },
+  body: { flex: 1, minHeight: 0, paddingHorizontal: spacing.md },
+  queueHeader: { gap: spacing.sm, paddingBottom: spacing.sm },
+  queueListContent: { paddingBottom: 56, gap: spacing.sm },
   addFab: {
     position: 'absolute',
     right: spacing.md,

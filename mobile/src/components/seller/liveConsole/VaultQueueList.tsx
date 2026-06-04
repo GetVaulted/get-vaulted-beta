@@ -1,20 +1,95 @@
 import { Ionicons } from '@expo/vector-icons';
+import type { ReactElement } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import DraggableFlatList, { ScaleDecorator, type RenderItemParams } from 'react-native-draggable-flatlist';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
-import { formatUsdDisplay } from '../../../lib/liveAuctionPricing';
+import { formatUsdDisplay, queueItemQuantity } from '../../../lib/liveAuctionPricing';
 import { colors, radii, spacing } from '../../../theme';
 
 function pricingSummary(item: LiveRoomItemRow): string {
+  const qty = queueItemQuantity(item);
   const start = formatUsdDisplay(item.startingBidUsd ?? 1);
-  const inc =
-    item.bidIncrementUsd != null ? formatUsdDisplay(item.bidIncrementUsd) : 'auto';
   const reserve = item.reservePriceUsd != null ? formatUsdDisplay(item.reservePriceUsd) : null;
   const bin = item.priceUsd != null ? formatUsdDisplay(item.priceUsd) : null;
-  const parts = [`Start ${start}`, `+${inc}`];
+  const parts = [`Qty ${qty}`, `Start ${start}`];
   if (reserve) parts.push(`Res ${reserve}`);
   if (bin) parts.push(`BIN ${bin}`);
   return parts.join(' · ');
+}
+
+function VaultQueueRow({
+  item,
+  roomType,
+  roomEnded,
+  busy,
+  drag,
+  isActive,
+  onLaunch,
+  onRemove,
+  onEditPricing,
+}: {
+  item: LiveRoomItemRow;
+  roomType: 'auction' | 'sale' | 'break';
+  roomEnded: boolean;
+  busy: boolean;
+  drag?: () => void;
+  isActive?: boolean;
+  onLaunch: (item: LiveRoomItemRow) => void;
+  onRemove: (item: LiveRoomItemRow) => void;
+  onEditPricing?: (item: LiveRoomItemRow) => void;
+}) {
+  const auctionLabel = roomType === 'sale' ? 'Buy now' : roomType === 'break' ? 'Break spot' : 'Auction';
+  const canEditPricing =
+    !item.biddingOpen && item.status !== 'sold' && item.status !== 'skipped' && !roomEnded;
+
+  return (
+    <View style={[styles.card, isActive && styles.cardActive]}>
+      {drag ? (
+        <Pressable onLongPress={drag} delayLongPress={120} style={styles.dragHandle}>
+          <Ionicons name="reorder-three" size={22} color={colors.textMuted} />
+        </Pressable>
+      ) : null}
+      {item.imageUrl?.trim() ? (
+        <Image source={{ uri: item.imageUrl.trim() }} style={styles.thumb} />
+      ) : (
+        <View style={[styles.thumb, styles.thumbPh]}>
+          <Ionicons name="diamond-outline" size={20} color={colors.gold} />
+        </View>
+      )}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={styles.title} numberOfLines={2}>
+          {item.displayTitle ?? item.title}
+        </Text>
+        <Text style={styles.bid} numberOfLines={2}>
+          {pricingSummary(item)}
+        </Text>
+        <View style={styles.tagRow}>
+          <Text style={styles.tag}>{auctionLabel}</Text>
+          {item.reservePriceUsd != null ? (
+            <Text style={styles.tag}>Reserve</Text>
+          ) : (
+            <Text style={styles.tag}>No reserve</Text>
+          )}
+          {item.priceUsd != null ? <Text style={styles.tag}>Buy now</Text> : null}
+        </View>
+      </View>
+      {!roomEnded ? (
+        <View style={styles.actions}>
+          {canEditPricing && onEditPricing ? (
+            <Pressable style={styles.editBtn} disabled={busy} onPress={() => onEditPricing(item)}>
+              <Text style={styles.editBtnTxt}>Edit</Text>
+            </Pressable>
+          ) : null}
+          <Pressable style={styles.launch} disabled={busy} onPress={() => onLaunch(item)}>
+            <Text style={styles.launchTxt}>Launch</Text>
+          </Pressable>
+          <Pressable disabled={busy} onPress={() => onRemove(item)} hitSlop={8}>
+            <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 export function VaultQueueList({
@@ -26,6 +101,9 @@ export function VaultQueueList({
   onRemove,
   onReorder,
   onEditPricing,
+  scrollContainer = false,
+  listHeaderComponent,
+  contentContainerStyle,
 }: {
   items: LiveRoomItemRow[];
   roomType: 'auction' | 'sale' | 'break';
@@ -35,82 +113,83 @@ export function VaultQueueList({
   onRemove: (item: LiveRoomItemRow) => void;
   onReorder: (ordered: LiveRoomItemRow[]) => void;
   onEditPricing?: (item: LiveRoomItemRow) => void;
+  /** When true, this list is the vertical scroll container (not nested in a ScrollView). */
+  scrollContainer?: boolean;
+  listHeaderComponent?: ReactElement | null;
+  contentContainerStyle?: object;
 }) {
   const queued = items.filter((i) => i.status === 'queued');
-  const auctionLabel = roomType === 'sale' ? 'Buy now' : roomType === 'break' ? 'Break spot' : 'Auction';
+
+  const emptyCopy = (
+    <Text style={styles.empty}>Vault queue is empty — tap Add inventory to fill the lane.</Text>
+  );
+
+  const renderDraggableItem = ({ item, drag, isActive }: RenderItemParams<LiveRoomItemRow>) => (
+    <ScaleDecorator>
+      <VaultQueueRow
+        item={item}
+        roomType={roomType}
+        roomEnded={roomEnded}
+        busy={busy}
+        drag={drag}
+        isActive={isActive}
+        onLaunch={onLaunch}
+        onRemove={onRemove}
+        onEditPricing={onEditPricing}
+      />
+    </ScaleDecorator>
+  );
+
+  if (scrollContainer) {
+    return (
+      <DraggableFlatList
+        data={queued}
+        keyExtractor={(item) => item.id}
+        onDragEnd={({ data }) => onReorder(data)}
+        renderItem={renderDraggableItem}
+        ListHeaderComponent={listHeaderComponent ?? undefined}
+        ListEmptyComponent={() => emptyCopy}
+        style={styles.scrollList}
+        contentContainerStyle={[styles.scrollListContent, contentContainerStyle]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      />
+    );
+  }
 
   if (queued.length === 0) {
     return (
-      <Text style={styles.empty}>Vault queue is empty — tap Add inventory to fill the lane.</Text>
+      <View>
+        {listHeaderComponent}
+        {emptyCopy}
+      </View>
     );
   }
 
   return (
-    <DraggableFlatList
-      data={queued}
-      keyExtractor={(item) => item.id}
-      onDragEnd={({ data }) => onReorder(data)}
-      containerStyle={styles.list}
-      scrollEnabled={queued.length > 2}
-      renderItem={({ item, drag, isActive }: RenderItemParams<LiveRoomItemRow>) => {
-        const canEditPricing =
-          !item.biddingOpen && item.status !== 'sold' && item.status !== 'skipped' && !roomEnded;
-        return (
-          <ScaleDecorator>
-            <View style={[styles.card, isActive && styles.cardActive]}>
-              <Pressable onLongPress={drag} delayLongPress={120} style={styles.dragHandle}>
-                <Ionicons name="reorder-three" size={22} color={colors.textMuted} />
-              </Pressable>
-              {item.imageUrl?.trim() ? (
-                <Image source={{ uri: item.imageUrl.trim() }} style={styles.thumb} />
-              ) : (
-                <View style={[styles.thumb, styles.thumbPh]}>
-                  <Ionicons name="diamond-outline" size={20} color={colors.gold} />
-                </View>
-              )}
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.title} numberOfLines={2}>
-                  {item.displayTitle ?? item.title}
-                </Text>
-                <Text style={styles.bid} numberOfLines={2}>
-                  {pricingSummary(item)}
-                </Text>
-                <View style={styles.tagRow}>
-                  <Text style={styles.tag}>{auctionLabel}</Text>
-                  {item.reservePriceUsd != null ? (
-                    <Text style={styles.tag}>Reserve</Text>
-                  ) : (
-                    <Text style={styles.tag}>No reserve</Text>
-                  )}
-                  {item.priceUsd != null ? <Text style={styles.tag}>Buy now</Text> : null}
-                </View>
-              </View>
-              {!roomEnded ? (
-                <View style={styles.actions}>
-                  {canEditPricing && onEditPricing ? (
-                    <Pressable style={styles.editBtn} disabled={busy} onPress={() => onEditPricing(item)}>
-                      <Text style={styles.editBtnTxt}>Pricing</Text>
-                    </Pressable>
-                  ) : null}
-                  <Pressable style={styles.launch} disabled={busy} onPress={() => onLaunch(item)}>
-                    <Text style={styles.launchTxt}>Launch</Text>
-                  </Pressable>
-                  <Pressable disabled={busy} onPress={() => onRemove(item)} hitSlop={8}>
-                    <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
-                  </Pressable>
-                </View>
-              ) : null}
-            </View>
-          </ScaleDecorator>
-        );
-      }}
-    />
+    <View style={styles.embeddedList}>
+      {listHeaderComponent}
+      {queued.map((item) => (
+        <VaultQueueRow
+          key={item.id}
+          item={item}
+          roomType={roomType}
+          roomEnded={roomEnded}
+          busy={busy}
+          onLaunch={onLaunch}
+          onRemove={onRemove}
+          onEditPricing={onEditPricing}
+        />
+      ))}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  list: { maxHeight: 220 },
-  empty: { fontSize: 12, color: colors.textMuted, lineHeight: 17 },
+  scrollList: { flex: 1 },
+  scrollListContent: { paddingBottom: spacing.md, gap: 0 },
+  embeddedList: { gap: 0 },
+  empty: { fontSize: 12, color: colors.textMuted, lineHeight: 17, marginTop: spacing.xs },
   card: {
     flexDirection: 'row',
     alignItems: 'center',

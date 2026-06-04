@@ -20,13 +20,27 @@ import {
 
 const STATUSES: LiveRoomItemStatus[] = ["queued", "active", "sold", "skipped"];
 
+function clampItemQuantity(n: number): number {
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(512, Math.max(1, Math.floor(n)));
+}
+
+function parseQuantity(raw: unknown): number {
+  if (typeof raw === "number" && Number.isFinite(raw)) return clampItemQuantity(raw);
+  if (typeof raw === "string" && raw.trim()) {
+    const n = Number(raw.trim());
+    if (Number.isFinite(n)) return clampItemQuantity(n);
+  }
+  return 1;
+}
+
 type PatchBody = {
   status?: string;
   currentBidUsd?: number | null;
   startingBidUsd?: number | null;
   priceUsd?: number | null;
-  bidIncrementUsd?: number | null;
   reservePriceUsd?: number | null;
+  quantity?: number | string;
   sortOrder?: number;
   /** When `startAuction`, set with `auctionDurationSec` to open timed bidding on the active lot. */
   action?: string;
@@ -343,8 +357,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
     currentBidUsd?: number | null;
     startingBidUsd?: number | null;
     priceUsd?: number | null;
-    bidIncrementUsd?: number | null;
     reservePriceUsd?: number | null;
+    quantity?: number;
+    quantityInitial?: number;
     sortOrder?: number;
     biddingOpen?: boolean;
     auctionEndsAt?: Date | null;
@@ -352,6 +367,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
   } = {};
 
   const pricingLocked = item.biddingOpen || item.status === "sold";
+  const quantityEditable = !pricingLocked && (item.status === "queued" || item.status === "active");
 
   if (status) data.status = status as LiveRoomItemStatus;
   if ("currentBidUsd" in body) {
@@ -370,16 +386,16 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       data.priceUsd =
         px == null ? null : typeof px === "number" && Number.isFinite(px) && px > 0 ? px : null;
     }
-    if ("bidIncrementUsd" in body) {
-      const inc = body.bidIncrementUsd;
-      data.bidIncrementUsd =
-        inc == null ? null : typeof inc === "number" && Number.isFinite(inc) && inc > 0 ? inc : null;
-    }
     if ("reservePriceUsd" in body) {
       const rv = body.reservePriceUsd;
       data.reservePriceUsd =
         rv == null ? null : typeof rv === "number" && Number.isFinite(rv) && rv > 0 ? rv : null;
     }
+  }
+  if (quantityEditable && "quantity" in body) {
+    const qty = parseQuantity(body.quantity);
+    data.quantity = qty;
+    data.quantityInitial = qty;
   }
   if (typeof body.sortOrder === "number" && Number.isFinite(body.sortOrder)) {
     data.sortOrder = Math.floor(body.sortOrder);

@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -49,6 +48,15 @@ export function SellerLiveQueueSheet({
 }) {
   const insets = useSafeAreaInsets();
 
+  const listHeader = (
+    <View style={styles.listHeader}>
+      {consoleError ? (
+        <LiveConsoleWarningBanner error={consoleError} onRetry={onRetry} retrying={loading} />
+      ) : null}
+      {loading ? <ActivityIndicator color={colors.gold} style={{ marginVertical: spacing.lg }} /> : null}
+    </View>
+  );
+
   return (
     <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
       <View style={styles.root}>
@@ -62,14 +70,10 @@ export function SellerLiveQueueSheet({
               <Ionicons name="close" size={22} color={colors.textSecondary} />
             </Pressable>
           </View>
-          {consoleError ? (
-            <LiveConsoleWarningBanner error={consoleError} onRetry={onRetry} retrying={loading} />
-          ) : null}
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-            {loading ? (
-              <ActivityIndicator color={colors.gold} style={{ marginVertical: spacing.lg }} />
-            ) : (
+          <View style={styles.listHost}>
+            {!loading ? (
               <VaultQueueList
+                scrollContainer
                 items={items}
                 roomType={roomType}
                 roomEnded={roomEnded}
@@ -78,9 +82,13 @@ export function SellerLiveQueueSheet({
                 onRemove={onRemove}
                 onReorder={onReorder}
                 onEditPricing={onEditPricing}
+                listHeaderComponent={listHeader}
+                contentContainerStyle={styles.listContent}
               />
+            ) : (
+              listHeader
             )}
-          </ScrollView>
+          </View>
         </View>
       </View>
     </Modal>
@@ -92,6 +100,7 @@ const styles = StyleSheet.create({
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
   drawer: {
     maxHeight: '78%',
+    minHeight: '40%',
     borderTopLeftRadius: radii.lg,
     borderTopRightRadius: radii.lg,
     backgroundColor: colors.surface,
@@ -101,7 +110,7 @@ const styles = StyleSheet.create({
   },
   handle: {
     alignSelf: 'center',
-    width: 36,
+    width: 40,
     height: 4,
     borderRadius: 2,
     backgroundColor: 'rgba(255,255,255,0.2)',
@@ -110,11 +119,13 @@ const styles = StyleSheet.create({
   head: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.sm,
     gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
   },
-  title: { flex: 1, fontSize: 17, fontWeight: '800', color: colors.textPrimary },
-  count: { fontSize: 12, fontWeight: '700', color: colors.gold },
-  scroll: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
+  title: { flex: 1, fontSize: 16, fontWeight: '900', color: colors.textPrimary },
+  count: { fontSize: 12, fontWeight: '700', color: colors.textMuted },
+  listHost: { flex: 1, minHeight: 0, paddingHorizontal: spacing.md },
+  listHeader: { gap: spacing.sm },
+  listContent: { paddingBottom: spacing.md },
 });

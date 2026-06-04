@@ -92,8 +92,8 @@ export async function createLiveRoomQueueItem(
   input: {
     title: string;
     listingId?: string | null;
+    quantity?: number | null;
     startingBidUsd?: number | null;
-    bidIncrementUsd?: number | null;
     reservePriceUsd?: number | null;
     priceUsd?: number | null;
   },
@@ -103,8 +103,8 @@ export async function createLiveRoomQueueItem(
     body: JSON.stringify({
       title: input.title.trim(),
       listingId: input.listingId ?? null,
+      quantity: input.quantity ?? 1,
       startingBidUsd: input.startingBidUsd ?? null,
-      bidIncrementUsd: input.bidIncrementUsd ?? null,
       reservePriceUsd: input.reservePriceUsd ?? null,
       priceUsd: input.priceUsd ?? null,
     }),

@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -19,6 +20,7 @@ import type { LiveSalesGate } from '../../../lib/sellerLiveReadiness';
 import {
   bucketRooms,
   primaryCta,
+  type VaultEventBucket,
   type VaultEventDisplayStatus,
   type VaultEventSection,
   vaultEventDisplayStatus,
@@ -220,6 +222,47 @@ export function VaultEventsHub({
   const showEmpty = !loading && list.length === 0;
   const showList = list.length > 0;
 
+  const renderEventCard = useCallback(
+    ({ item: { room, displayStatus } }: { item: VaultEventBucket }) => (
+      <VaultEventCard
+        room={room}
+        displayStatus={displayStatus}
+        sellerAvatarUrl={sellerAvatarUrl}
+        onPress={() => onCardAction(room, displayStatus)}
+        onPrimaryAction={() => onCardAction(room, displayStatus)}
+      />
+    ),
+    [onCardAction, sellerAvatarUrl],
+  );
+
+  const listEmpty = useMemo(() => {
+    if (showLoader) {
+      return (
+        <View style={styles.loaderWrap}>
+          <ActivityIndicator color={colors.gold} size="large" />
+        </View>
+      );
+    }
+    if (showEmpty) {
+      return (
+        <View style={styles.empty}>
+          <Ionicons name="calendar-outline" size={36} color={colors.textMuted} />
+          <Text style={styles.emptyTitle}>{EMPTY_COPY[segment].title}</Text>
+          <Text style={styles.emptyBody}>{EMPTY_COPY[segment].body}</Text>
+          {rooms.length > 0 ? (
+            <Text style={styles.emptyHint}>
+              {counts.upcoming + counts.live_now + counts.drafts + counts.past} show
+              {rooms.length === 1 ? '' : 's'} in other tabs — try Upcoming or Drafts.
+            </Text>
+          ) : segment !== 'past' ? (
+            <Text style={styles.emptyHint}>Use Schedule Vault Event below to create your first show.</Text>
+          ) : null}
+        </View>
+      );
+    }
+    return null;
+  }, [showLoader, showEmpty, segment, rooms.length, counts]);
+
   const onContentAreaLayout = useCallback(
     (height: number) => {
       setContentAreaHeight(height);
@@ -301,10 +344,14 @@ export function VaultEventsHub({
         style={styles.contentArea}
         onLayout={(e) => onContentAreaLayout(e.nativeEvent.layout.height)}
       >
-        <ScrollView
+        <FlatList
           style={styles.listScroll}
+          data={showList ? list : []}
+          keyExtractor={(entry) => entry.room.id}
+          renderItem={renderEventCard}
+          ItemSeparatorComponent={() => <View style={styles.listSeparator} />}
+          ListEmptyComponent={() => listEmpty}
           showsVerticalScrollIndicator={false}
-          nestedScrollEnabled
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={colors.gold} />
           }
@@ -316,44 +363,7 @@ export function VaultEventsHub({
               minHeight: contentAreaHeight > 0 ? contentAreaHeight : undefined,
             },
           ]}
-        >
-          {showLoader ? (
-            <View style={styles.loaderWrap}>
-              <ActivityIndicator color={colors.gold} size="large" />
-            </View>
-          ) : null}
-
-          {showEmpty ? (
-            <View style={styles.empty}>
-              <Ionicons name="calendar-outline" size={36} color={colors.textMuted} />
-              <Text style={styles.emptyTitle}>{EMPTY_COPY[segment].title}</Text>
-              <Text style={styles.emptyBody}>{EMPTY_COPY[segment].body}</Text>
-              {rooms.length > 0 ? (
-                <Text style={styles.emptyHint}>
-                  {counts.upcoming + counts.live_now + counts.drafts + counts.past} show
-                  {rooms.length === 1 ? '' : 's'} in other tabs — try Upcoming or Drafts.
-                </Text>
-              ) : segment !== 'past' ? (
-                <Text style={styles.emptyHint}>Use Schedule Vault Event below to create your first show.</Text>
-              ) : null}
-            </View>
-          ) : null}
-
-          {showList ? (
-            <View style={styles.list}>
-              {list.map(({ room, displayStatus }) => (
-                <VaultEventCard
-                  key={room.id}
-                  room={room}
-                  displayStatus={displayStatus}
-                  sellerAvatarUrl={sellerAvatarUrl}
-                  onPress={() => onCardAction(room, displayStatus)}
-                  onPrimaryAction={() => onCardAction(room, displayStatus)}
-                />
-              ))}
-            </View>
-          ) : null}
-        </ScrollView>
+        />
       </View>
 
       <View style={[styles.fabHost, { bottom: fabBottom }]} pointerEvents="box-none">
@@ -479,10 +489,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xxl,
     alignItems: 'center',
   },
-  list: {
-    gap: spacing.sm,
-    paddingTop: spacing.xs,
-  },
+  listSeparator: { height: spacing.sm },
   empty: {
     flex: 1,
     alignItems: 'center',

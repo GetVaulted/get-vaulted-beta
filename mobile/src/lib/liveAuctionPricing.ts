@@ -1,24 +1,22 @@
 import { liveAuctionMinBidUsd } from './liveAuctionBidMath';
 
 export type AuctionPricingInput = {
+  quantity: string;
   startingBid: string;
-  bidIncrement: string;
   reservePrice: string;
   buyNowPrice: string;
 };
 
 export type AuctionPricingValues = {
+  quantity: number;
   startingBidUsd: number;
-  bidIncrementUsd: number | null;
   reservePriceUsd: number | null;
   buyNowPriceUsd: number | null;
 };
 
 export const DEFAULT_STARTING_BID_USD = 1;
-
-export function defaultBidIncrementUsd(startingBidUsd: number): number {
-  return Math.max(1, Math.ceil(Math.max(startingBidUsd, 1) / 25));
-}
+export const DEFAULT_QUEUE_QUANTITY = 1;
+export const MAX_QUEUE_QUANTITY = 512;
 
 export function parseUsdInput(raw: string): number | null {
   const cleaned = raw.replace(/[^0-9.]/g, '').trim();
@@ -26,6 +24,14 @@ export function parseUsdInput(raw: string): number | null {
   const n = Number(cleaned);
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.round(n * 100) / 100;
+}
+
+export function parseQuantityInput(raw: string): number | null {
+  const cleaned = raw.replace(/[^0-9]/g, '').trim();
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  if (!Number.isFinite(n) || n < 1) return null;
+  return Math.min(MAX_QUEUE_QUANTITY, Math.floor(n));
 }
 
 export function formatUsdInput(n: number | null | undefined): string {
@@ -39,16 +45,27 @@ export function formatUsdDisplay(n: number | null | undefined): string {
   return `$${formatUsdInput(n)}`;
 }
 
+export function queueItemQuantity(item: {
+  quantity?: number | null;
+  remainingQuantity?: number | null;
+  quantityInitial?: number | null;
+}): number {
+  const q = item.quantity ?? item.remainingQuantity ?? item.quantityInitial;
+  if (typeof q === 'number' && Number.isFinite(q) && q >= 1) return Math.floor(q);
+  return DEFAULT_QUEUE_QUANTITY;
+}
+
 export function auctionPricingFromItem(item: {
+  quantity?: number | null;
+  remainingQuantity?: number | null;
+  quantityInitial?: number | null;
   startingBidUsd?: number | null;
-  bidIncrementUsd?: number | null;
   reservePriceUsd?: number | null;
   priceUsd?: number | null;
 }): AuctionPricingInput {
-  const start = item.startingBidUsd ?? DEFAULT_STARTING_BID_USD;
   return {
-    startingBid: formatUsdInput(start),
-    bidIncrement: formatUsdInput(item.bidIncrementUsd ?? defaultBidIncrementUsd(start)),
+    quantity: String(queueItemQuantity(item)),
+    startingBid: formatUsdInput(item.startingBidUsd ?? DEFAULT_STARTING_BID_USD),
     reservePrice: formatUsdInput(item.reservePriceUsd),
     buyNowPrice: formatUsdInput(item.priceUsd),
   };
@@ -57,20 +74,15 @@ export function auctionPricingFromItem(item: {
 export function validateAuctionPricing(
   input: AuctionPricingInput,
 ): { ok: true; values: AuctionPricingValues } | { ok: false; message: string } {
+  const quantityParsed = parseQuantityInput(input.quantity);
+  if (input.quantity.trim() && quantityParsed == null) {
+    return { ok: false, message: 'Quantity must be at least 1.' };
+  }
+  const quantity = quantityParsed ?? DEFAULT_QUEUE_QUANTITY;
+
   const startingBidUsd = parseUsdInput(input.startingBid) ?? DEFAULT_STARTING_BID_USD;
   if (startingBidUsd < 1) {
     return { ok: false, message: 'Starting bid must be at least $1.' };
-  }
-
-  let bidIncrementUsd: number | null = null;
-  if (input.bidIncrement.trim()) {
-    bidIncrementUsd = parseUsdInput(input.bidIncrement);
-    if (bidIncrementUsd == null || bidIncrementUsd < 1) {
-      return { ok: false, message: 'Bid increment must be at least $1.' };
-    }
-    if (bidIncrementUsd > startingBidUsd) {
-      return { ok: false, message: 'Bid increment should not exceed the starting bid.' };
-    }
   }
 
   let reservePriceUsd: number | null = null;
@@ -98,8 +110,8 @@ export function validateAuctionPricing(
   return {
     ok: true,
     values: {
+      quantity,
       startingBidUsd,
-      bidIncrementUsd,
       reservePriceUsd,
       buyNowPriceUsd,
     },
@@ -111,12 +123,6 @@ export function minNextBidForItem(item: {
   startingBidUsd?: number | null;
   bidIncrementUsd?: number | null;
 }): number {
-  const start = item.startingBidUsd ?? DEFAULT_STARTING_BID_USD;
-  const high = item.currentBidUsd ?? start;
-  const custom = item.bidIncrementUsd;
-  if (typeof custom === 'number' && Number.isFinite(custom) && custom > 0) {
-    return high + Math.max(1, Math.floor(custom));
-  }
   return liveAuctionMinBidUsd({
     currentBidUsd: item.currentBidUsd ?? null,
     startingBidUsd: item.startingBidUsd,

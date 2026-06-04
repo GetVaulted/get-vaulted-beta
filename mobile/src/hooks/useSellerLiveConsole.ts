@@ -159,8 +159,8 @@ export function useSellerLiveConsole({
     void run(async () => {
       await createLiveRoomQueueItem(accessToken, roomId, {
         title: t,
+        quantity: pricing?.quantity ?? 1,
         startingBidUsd: pricing?.startingBidUsd ?? null,
-        bidIncrementUsd: pricing?.bidIncrementUsd ?? null,
         reservePriceUsd: pricing?.reservePriceUsd ?? null,
         priceUsd: pricing?.buyNowPriceUsd ?? null,
       });
@@ -172,8 +172,8 @@ export function useSellerLiveConsole({
   const onSaveQueuePricing = (itemId: string, pricing: AuctionPricingValues) => {
     void run(async () => {
       await patchLiveRoomItem(accessToken, roomId, itemId, {
+        quantity: pricing.quantity,
         startingBidUsd: pricing.startingBidUsd,
-        bidIncrementUsd: pricing.bidIncrementUsd,
         reservePriceUsd: pricing.reservePriceUsd,
         priceUsd: pricing.buyNowPriceUsd,
       });

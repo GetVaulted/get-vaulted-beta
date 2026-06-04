@@ -66,7 +66,7 @@ export function EditQueueItemPricingModal({
             </Pressable>
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scrollContent}>
-            <Text style={styles.title}>Edit auction pricing</Text>
+            <Text style={styles.title}>Edit queued lot</Text>
             <Text style={styles.sub} numberOfLines={2}>
               {item?.displayTitle ?? item?.title ?? 'Queue lot'}
             </Text>

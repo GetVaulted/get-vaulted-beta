@@ -78,10 +78,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const priceUsd = typeof body.priceUsd === "number" && Number.isFinite(body.priceUsd) ? body.priceUsd : null;
   const startingBidUsd =
     typeof body.startingBidUsd === "number" && Number.isFinite(body.startingBidUsd) ? body.startingBidUsd : null;
-  const bidIncrementUsd =
-    typeof body.bidIncrementUsd === "number" && Number.isFinite(body.bidIncrementUsd) && body.bidIncrementUsd > 0
-      ? body.bidIncrementUsd
-      : null;
+  /** Bid increments are system-controlled; hosts cannot set them on create. */
+  const bidIncrementUsd = null;
   const reservePriceUsd =
     typeof body.reservePriceUsd === "number" && Number.isFinite(body.reservePriceUsd) && body.reservePriceUsd > 0
       ? body.reservePriceUsd
