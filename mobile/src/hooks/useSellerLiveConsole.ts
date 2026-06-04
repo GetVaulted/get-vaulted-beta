@@ -10,6 +10,7 @@ import {
 } from '../api/liveRoomControlRepository';
 import type { AddInventoryChoice } from '../components/seller/liveConsole/AddInventoryModal';
 import type { AuctionPricingValues } from '../lib/liveAuctionPricing';
+import { logSellerQueue } from '../lib/logSellerQueue';
 import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
 import { DEFAULT_AUCTION_SEC } from '../components/seller/liveConsole/VaultPinnedLotCard';
@@ -51,6 +52,14 @@ export function useSellerLiveConsole({
     (data: Awaited<ReturnType<typeof fetchHostConsole>>) => {
       setItems(data.items);
       setActiveItem(data.activeItem);
+      logSellerQueue('queue_length', {
+        total: data.items.length,
+        queued: data.items.filter((i) => i.status === 'queued').length,
+      });
+      logSellerQueue('active_item', {
+        id: data.activeItem?.id ?? null,
+        status: data.activeItem?.status ?? null,
+      });
       setViewerCount(data.room.viewerCount);
       setServerNowMs(data.serverNowMs);
       const hostUser = sellerUsername?.trim().toLowerCase() ?? '';
@@ -166,6 +175,11 @@ export function useSellerLiveConsole({
       });
       setQuickTitle('');
       setInventoryOpen(false);
+      logSellerQueue('add_item_success', {
+        title: t.slice(0, 80),
+        quantity: pricing?.quantity ?? 1,
+        startingBidUsd: pricing?.startingBidUsd ?? null,
+      });
     });
   };
 

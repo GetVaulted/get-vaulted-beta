@@ -5,8 +5,10 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
+import { logSellerQueue } from '../../../lib/logSellerQueue';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { LiveConsoleWarningBanner } from '../liveConsole/LiveConsoleWarningBanner';
@@ -47,6 +49,9 @@ export function SellerLiveQueueSheet({
   onEditPricing?: (item: LiveRoomItemRow) => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const drawerHeight = Math.round(windowHeight * 0.62);
+  const queued = items.filter((i) => i.status === 'queued');
 
   const listHeader = (
     <View style={styles.listHeader}>
@@ -57,15 +62,29 @@ export function SellerLiveQueueSheet({
     </View>
   );
 
+  if (visible) {
+    logSellerQueue('render_mode', {
+      renderMode: loading ? 'sheet_loading' : queued.length > 0 ? 'sheet_list' : 'sheet_empty',
+      queued: queued.length,
+      total: items.length,
+    });
+    logSellerQueue('queue_length', { total: items.length, queued: queued.length, queuedCount });
+  }
+
   return (
     <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
       <View style={styles.root}>
         <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Dismiss queue" />
-        <View style={[styles.drawer, { paddingBottom: insets.bottom + spacing.lg }]}>
+        <View
+          style={[
+            styles.drawer,
+            { height: drawerHeight, paddingBottom: insets.bottom + spacing.lg },
+          ]}
+        >
           <View style={styles.handle} />
           <View style={styles.head}>
             <Text style={styles.title}>{SELLER_CONSOLE.lineup}</Text>
-            <Text style={styles.count}>{queuedCount} waiting</Text>
+            <Text style={styles.count}>{queuedCount} waiting · long-press to reorder</Text>
             <Pressable onPress={onClose} hitSlop={12} accessibilityLabel="Close">
               <Ionicons name="close" size={22} color={colors.textSecondary} />
             </Pressable>
@@ -99,8 +118,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, justifyContent: 'flex-end' },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
   drawer: {
-    maxHeight: '78%',
-    minHeight: '40%',
     borderTopLeftRadius: radii.lg,
     borderTopRightRadius: radii.lg,
     backgroundColor: colors.surface,

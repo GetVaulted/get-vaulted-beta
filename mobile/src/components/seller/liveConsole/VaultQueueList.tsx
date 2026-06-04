@@ -4,6 +4,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import DraggableFlatList, { ScaleDecorator, type RenderItemParams } from 'react-native-draggable-flatlist';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { formatUsdDisplay, queueItemQuantity } from '../../../lib/liveAuctionPricing';
+import { queueStatusLabel } from '../liveOverlay/SellerQueueStrip';
 import { colors, radii, spacing } from '../../../theme';
 
 function pricingSummary(item: LiveRoomItemRow): string {
@@ -19,7 +20,6 @@ function pricingSummary(item: LiveRoomItemRow): string {
 
 function VaultQueueRow({
   item,
-  roomType,
   roomEnded,
   busy,
   drag,
@@ -29,7 +29,6 @@ function VaultQueueRow({
   onEditPricing,
 }: {
   item: LiveRoomItemRow;
-  roomType: 'auction' | 'sale' | 'break';
   roomEnded: boolean;
   busy: boolean;
   drag?: () => void;
@@ -38,9 +37,10 @@ function VaultQueueRow({
   onRemove: (item: LiveRoomItemRow) => void;
   onEditPricing?: (item: LiveRoomItemRow) => void;
 }) {
-  const auctionLabel = roomType === 'sale' ? 'Buy now' : roomType === 'break' ? 'Break spot' : 'Auction';
   const canEditPricing =
     !item.biddingOpen && item.status !== 'sold' && item.status !== 'skipped' && !roomEnded;
+  const reserve = item.reservePriceUsd != null ? formatUsdDisplay(item.reservePriceUsd) : null;
+  const bin = item.priceUsd != null ? formatUsdDisplay(item.priceUsd) : null;
 
   return (
     <View style={[styles.card, isActive && styles.cardActive]}>
@@ -63,14 +63,10 @@ function VaultQueueRow({
         <Text style={styles.bid} numberOfLines={2}>
           {pricingSummary(item)}
         </Text>
+        {reserve ? <Text style={styles.metaLine}>Reserve {reserve}</Text> : null}
+        {bin ? <Text style={styles.metaLine}>Buy now {bin}</Text> : null}
         <View style={styles.tagRow}>
-          <Text style={styles.tag}>{auctionLabel}</Text>
-          {item.reservePriceUsd != null ? (
-            <Text style={styles.tag}>Reserve</Text>
-          ) : (
-            <Text style={styles.tag}>No reserve</Text>
-          )}
-          {item.priceUsd != null ? <Text style={styles.tag}>Buy now</Text> : null}
+          <Text style={styles.tag}>{queueStatusLabel(item.status)}</Text>
         </View>
       </View>
       {!roomEnded ? (
@@ -81,7 +77,7 @@ function VaultQueueRow({
             </Pressable>
           ) : null}
           <Pressable style={styles.launch} disabled={busy} onPress={() => onLaunch(item)}>
-            <Text style={styles.launchTxt}>Launch</Text>
+            <Text style={styles.launchTxt}>Start</Text>
           </Pressable>
           <Pressable disabled={busy} onPress={() => onRemove(item)} hitSlop={8}>
             <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
@@ -128,7 +124,6 @@ export function VaultQueueList({
     <ScaleDecorator>
       <VaultQueueRow
         item={item}
-        roomType={roomType}
         roomEnded={roomEnded}
         busy={busy}
         drag={drag}
@@ -173,7 +168,6 @@ export function VaultQueueList({
         <VaultQueueRow
           key={item.id}
           item={item}
-          roomType={roomType}
           roomEnded={roomEnded}
           busy={busy}
           onLaunch={onLaunch}
@@ -211,6 +205,7 @@ const styles = StyleSheet.create({
   thumbPh: { alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 13, fontWeight: '800', color: colors.textPrimary },
   bid: { fontSize: 11, fontWeight: '600', color: colors.gold, marginTop: 2, lineHeight: 15 },
+  metaLine: { fontSize: 10, fontWeight: '600', color: colors.textSecondary },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
   tag: { fontSize: 9, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase' },
   actions: { alignItems: 'flex-end', gap: 6 },

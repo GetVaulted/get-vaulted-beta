@@ -26,6 +26,7 @@ import { SellerLiveBroadcastSheet } from './SellerLiveBroadcastSheet';
 import { SellerLiveOverlayHeader } from './SellerLiveOverlayHeader';
 import { SellerLiveOverlayRail } from './SellerLiveOverlayRail';
 import { SellerLivePinnedOverlay, SELLER_PINNED_OVERLAY_HEIGHT } from './SellerLivePinnedOverlay';
+import { SellerHostQueueDock, SELLER_QUEUE_DOCK_HEIGHT } from './SellerHostQueueDock';
 import { SellerLiveQueueSheet } from './SellerLiveQueueSheet';
 import { SellerConsoleActionBar } from './SellerConsoleActionBar';
 import { SellerShareSheet } from './SellerShareSheet';
@@ -118,11 +119,11 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   const actionBarTop = insets.top + 56;
   const actionBarHeight = 56;
 
-  const dockBottom = Math.max(insets.bottom + 12, spacing.md);
-  const commerceBottom = dockBottom;
-  const composerBottom = commerceBottom + SELLER_PINNED_OVERLAY_HEIGHT + COMMERCE_TO_COMPOSER_GAP;
+  const queueDockBottom = Math.max(insets.bottom, spacing.sm);
+  const pinnedBottom = queueDockBottom + SELLER_QUEUE_DOCK_HEIGHT + spacing.sm;
+  const composerBottom = pinnedBottom + SELLER_PINNED_OVERLAY_HEIGHT + COMMERCE_TO_COMPOSER_GAP;
   const chatBottom = composerBottom + COMPOSER_BAR_H + CHAT_ZONE_GAP;
-  const railBottom = commerceBottom + SELLER_PINNED_OVERLAY_HEIGHT + spacing.sm;
+  const railBottom = pinnedBottom + SELLER_PINNED_OVERLAY_HEIGHT * 0.35;
 
   const chatPool = console.chatMessages;
 
@@ -241,10 +242,27 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         sendDisabled
       />
 
-      <SellerLivePinnedOverlay
-        bottom={commerceBottom}
+      <SellerHostQueueDock
+        bottom={queueDockBottom}
         left={spacing.md}
         right={spacing.md}
+        items={console.items}
+        activeItem={console.activeItem}
+        queuedCount={console.queuedCount}
+        loading={console.loading}
+        busy={console.busy}
+        roomEnded={console.roomEnded}
+        onAddItem={() => console.setInventoryOpen(true)}
+        onExpandLineup={() => setQueueOpen(true)}
+        onStart={console.onLaunch}
+        onEdit={(item) => console.setPricingEditItem(item)}
+        onRemove={console.onRemove}
+      />
+
+      <SellerLivePinnedOverlay
+        bottom={pinnedBottom}
+        left={spacing.md}
+        right={CHAT_RIGHT_EDGE + spacing.sm}
         item={console.activeItem}
         serverNowMs={console.serverNowMs}
         roomLive={console.roomLive}
