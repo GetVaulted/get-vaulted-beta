@@ -320,10 +320,12 @@ export async function fetchLiveRoomPublicById(roomId: string): Promise<LiveRoomA
 }
 
 export async function fetchMyLiveRooms(accessToken: string): Promise<LiveRoomApiRow[]> {
-  const res = await fetchLiveRoomsApi('/api/live-rooms?mine=1&includeEnded=1&limit=40', {
+  const path = '/api/live-rooms?mine=1&includeEnded=1&limit=40';
+  const res = await fetchLiveRoomsApi(path, {
     method: 'GET',
     headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
   });
+  const logFetch = __DEV__ || process.env.EXPO_PUBLIC_VAULT_EVENTS_DEBUG === '1';
   if (!res.ok) {
     let j: unknown;
     try {
@@ -331,10 +333,25 @@ export async function fetchMyLiveRooms(accessToken: string): Promise<LiveRoomApi
     } catch {
       /* ignore */
     }
+    if (logFetch) {
+      console.warn('[vault-events-filter] GET mine failed', { status: res.status, path });
+    }
     throw new Error(apiErrorMessage(res, j));
   }
   const j = (await res.json()) as { rooms?: LiveRoomApiRow[] };
-  return Array.isArray(j.rooms) ? j.rooms : [];
+  const rooms = Array.isArray(j.rooms) ? j.rooms : [];
+  if (logFetch) {
+    console.info(
+      '[vault-events-filter]',
+      JSON.stringify({
+        http: 'ok',
+        status: res.status,
+        roomCount: rooms.length,
+        statuses: rooms.map((r) => r.status),
+      }),
+    );
+  }
+  return rooms;
 }
 
 function hostFromRow(row: LiveRoomApiRow): Host {

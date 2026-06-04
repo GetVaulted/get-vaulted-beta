@@ -400,7 +400,7 @@ export function SellerHubScreen() {
       ) : null}
       <SellerHubTabBar activeTab={tab} onChangeTab={setTab} />
       {tab === 'live' ? (
-        <View style={styles.liveTabPane}>
+        <View style={[styles.liveTabPane, { paddingBottom: 0 }]}>
           <LaunchVaultEventPanel {...vaultEventsPanelProps} />
         </View>
       ) : (
@@ -1022,10 +1022,9 @@ const styles = StyleSheet.create({
   },
   liveTabPane: {
     flex: 1,
-    marginHorizontal: -spacing.lg,
-    paddingHorizontal: spacing.lg,
     marginTop: spacing.sm,
     minHeight: 0,
+    overflow: 'hidden',
   },
   tabBody: {
     marginTop: spacing.lg,

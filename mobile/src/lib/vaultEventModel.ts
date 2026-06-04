@@ -31,16 +31,21 @@ export function vaultEventDisplayStatus(room: LiveRoomApiRow): VaultEventDisplay
     }
     return 'ended';
   }
-  // Match web seller manager: scheduled time + title is enough; inventory can be added in command center.
-  const incomplete = !room.scheduledStartAt || room.title.trim().length < 3;
-  if (incomplete) return 'draft';
-  if (room.scheduledStartAt) {
-    const start = Date.parse(room.scheduledStartAt);
-    if (Number.isFinite(start) && start - Date.now() <= PREPARING_WINDOW_MS && start > Date.now()) {
-      return 'preparing';
+  const titleOk = room.title.trim().length >= 3;
+  if (!titleOk) return 'draft';
+
+  // Start-now vault events are `scheduled` in the API without `scheduledStartAt` — still upcoming, not drafts.
+  if (room.status === 'scheduled') {
+    if (room.scheduledStartAt) {
+      const start = Date.parse(room.scheduledStartAt);
+      if (Number.isFinite(start) && start - Date.now() <= PREPARING_WINDOW_MS && start > Date.now()) {
+        return 'preparing';
+      }
     }
+    return 'scheduled';
   }
-  return 'scheduled';
+
+  return 'draft';
 }
 
 export function vaultEventSection(room: LiveRoomApiRow): VaultEventSection {

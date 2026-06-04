@@ -43,7 +43,7 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
   }, []);
 
   return (
-    <View style={{ flex: 1, minHeight: 0 }}>
+    <View style={{ flex: 1, minHeight: 0, width: '100%' }}>
       <VaultEventsHub
         accessToken={props.accessToken}
         liveGate={props.liveGate}

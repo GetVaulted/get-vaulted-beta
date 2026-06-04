@@ -29,8 +29,14 @@ describe('vaultEventModel', () => {
     expect(vaultEventSection(r)).toBe('upcoming');
   });
 
-  it('still buckets incomplete shows without schedule as drafts', () => {
-    const r = room({ scheduledStartAt: null, itemCount: 0 });
+  it('buckets start-now scheduled rooms (no scheduledStartAt) as upcoming', () => {
+    const r = room({ scheduledStartAt: null, itemCount: 0, status: 'scheduled', title: 'Tonight break' });
+    expect(vaultEventDisplayStatus(r)).toBe('scheduled');
+    expect(vaultEventSection(r)).toBe('upcoming');
+  });
+
+  it('buckets incomplete title as drafts', () => {
+    const r = room({ scheduledStartAt: null, title: 'ab', status: 'scheduled' });
     expect(vaultEventDisplayStatus(r)).toBe('draft');
     expect(vaultEventSection(r)).toBe('drafts');
   });

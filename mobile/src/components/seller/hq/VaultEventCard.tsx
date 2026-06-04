@@ -2,15 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef } from 'react';
-import {
-  Animated,
-  Dimensions,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LiveRoomApiRow } from '../../../api/liveRoomsRepository';
 import { mapListingCategoryToCategoryId } from '../../../api/listingsFeedRepository';
 import { formatLiveRoomCategoryLabel } from '../../../lib/liveRoomDisplay';
@@ -23,7 +15,6 @@ import {
 import { VaultImage } from '../../ui/VaultImage';
 import { colors, radii, spacing } from '../../../theme';
 
-const CARD_W = Dimensions.get('window').width - spacing.lg * 2;
 const CARD_H = 200;
 
 const FALLBACK_COVER =
@@ -74,11 +65,11 @@ export function VaultEventCard({
     >
       <VaultImage
         uri={cover}
-        width={CARD_W}
+        width={400}
         height={CARD_H}
         priority="normal"
         contentFit="cover"
-        style={StyleSheet.absoluteFillObject}
+        style={styles.coverImage}
       />
       <LinearGradient
         colors={['rgba(0,0,0,0.15)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.92)']}
@@ -136,12 +127,18 @@ export function VaultEventCard({
 
 const styles = StyleSheet.create({
   shell: {
+    width: '100%',
+    alignSelf: 'stretch',
     height: CARD_H,
     borderRadius: radii.lg,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(212,175,55,0.28)',
-    marginBottom: spacing.sm,
+  },
+  coverImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
   },
   pressed: { opacity: 0.94, transform: [{ scale: 0.995 }] },
   livePulse: {

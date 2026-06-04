@@ -14,8 +14,17 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchMyLiveRooms, type LiveRoomApiRow } from '../../../api/liveRoomsRepository';
+import { mainTabBarClearance } from '../../../lib/mainTabBarMetrics';
 import type { LiveSalesGate } from '../../../lib/sellerLiveReadiness';
-import { bucketRooms, primaryCta, type VaultEventDisplayStatus, type VaultEventSection } from '../../../lib/vaultEventModel';
+import {
+  bucketRooms,
+  primaryCta,
+  type VaultEventDisplayStatus,
+  type VaultEventSection,
+  vaultEventDisplayStatus,
+  vaultEventSection,
+} from '../../../lib/vaultEventModel';
+import { logVaultEvents, vaultEventsFabMetrics } from '../../../lib/vaultEventsLayout';
 import { colors, radii, spacing } from '../../../theme';
 import { VaultEventCard } from './VaultEventCard';
 
@@ -54,7 +63,7 @@ export function VaultEventsHub({
   onScheduleNew,
   onBlockedSchedule,
   roomsRefreshKey = 0,
-  mainTabBarClearance,
+  mainTabBarClearance: mainTabBarClearanceProp,
 }: {
   accessToken?: string;
   liveGate: LiveSalesGate;
@@ -64,21 +73,21 @@ export function VaultEventsHub({
   onScheduleNew: () => void;
   onBlockedSchedule?: () => void;
   roomsRefreshKey?: number;
-  /** Main app tab bar + safe area — keeps FAB and empty state clear of the Live orb. */
   mainTabBarClearance?: number;
 }) {
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [segment, setSegment] = useState<VaultEventSection>('live_now');
   const [rooms, setRooms] = useState<LiveRoomApiRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [contentAreaHeight, setContentAreaHeight] = useState(0);
+
+  const tabBarClearance = mainTabBarClearanceProp ?? mainTabBarClearance(insets.bottom);
+  const { fabBottom, contentPaddingBottom } = vaultEventsFabMetrics(tabBarClearance);
 
   const liveBlocked = liveGate.blocked;
-  const tabBarClearance = mainTabBarClearance ?? Math.max(insets.bottom, 12) + 72;
-  const fabBottom = tabBarClearance + 12;
-  const fabClearance = fabBottom + 56;
-  const emptyMinHeight = Math.max(280, windowHeight * 0.42 - fabClearance - 120);
 
   const trySchedule = useCallback(() => {
     if (liveBlocked) {
@@ -91,13 +100,26 @@ export function VaultEventsHub({
   const load = useCallback(async () => {
     if (!accessToken) {
       setRooms([]);
+      setFetchError(null);
+      logVaultEvents('filter', { reason: 'no_access_token', roomCount: 0 });
       return;
     }
     setLoading(true);
+    setFetchError(null);
     try {
-      setRooms(await fetchMyLiveRooms(accessToken));
-    } catch {
+      const rows = await fetchMyLiveRooms(accessToken);
+      setRooms(rows);
+      logVaultEvents('filter', {
+        http: 'ok',
+        roomCount: rows.length,
+        statuses: rows.map((r) => r.status),
+        titles: rows.map((r) => r.title?.slice(0, 40)),
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
       setRooms([]);
+      setFetchError(msg);
+      logVaultEvents('filter', { http: 'error', error: msg.slice(0, 200), roomCount: 0 });
     } finally {
       setLoading(false);
     }
@@ -131,6 +153,60 @@ export function VaultEventsHub({
     [buckets],
   );
 
+  useEffect(() => {
+    logVaultEvents('filter', {
+      segment,
+      segmentCount: list.length,
+      counts,
+      totalRooms: rooms.length,
+    });
+    if (rooms.length > 0 && list.length === 0) {
+      const elsewhere = rooms.map((room) => ({
+        id: room.id,
+        apiStatus: room.status,
+        displayStatus: vaultEventDisplayStatus(room),
+        section: vaultEventSection(room),
+        hasSchedule: Boolean(room.scheduledStartAt),
+        titleLen: room.title?.trim().length ?? 0,
+      }));
+      logVaultEvents('filter', {
+        reason: 'rooms_exist_segment_empty',
+        segment,
+        rooms: elsewhere,
+      });
+    }
+  }, [segment, list.length, counts, rooms]);
+
+  useEffect(() => {
+    logVaultEvents('render', {
+      segment,
+      loading,
+      refreshing,
+      showEmpty: !loading && list.length === 0,
+      showList: list.length > 0,
+      listCount: list.length,
+      fetchError: fetchError?.slice(0, 120) ?? null,
+      contentAreaHeight,
+      contentPaddingBottom,
+      fabBottom,
+      windowWidth,
+      windowHeight,
+      bottomInset: insets.bottom,
+    });
+  }, [
+    segment,
+    loading,
+    refreshing,
+    list.length,
+    fetchError,
+    contentAreaHeight,
+    contentPaddingBottom,
+    fabBottom,
+    windowWidth,
+    windowHeight,
+    insets.bottom,
+  ]);
+
   const onCardAction = useCallback(
     (room: LiveRoomApiRow, displayStatus: VaultEventDisplayStatus) => {
       const cta = primaryCta(displayStatus);
@@ -140,16 +216,36 @@ export function VaultEventsHub({
     [onHostRoom, onViewRecap],
   );
 
+  const showLoader = loading && rooms.length === 0;
+  const showEmpty = !loading && list.length === 0;
+  const showList = list.length > 0;
+
+  const onContentAreaLayout = useCallback(
+    (height: number) => {
+      setContentAreaHeight(height);
+      logVaultEvents('layout', {
+        contentAreaHeight: height,
+        windowWidth,
+        windowHeight,
+        tabBarClearance,
+        fabBottom,
+        contentPaddingBottom,
+        bottomInset: insets.bottom,
+      });
+    },
+    [
+      windowWidth,
+      windowHeight,
+      tabBarClearance,
+      fabBottom,
+      contentPaddingBottom,
+      insets.bottom,
+    ],
+  );
+
   return (
     <View style={styles.root}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={colors.gold} />}
-        contentContainerStyle={[
-          styles.scroll,
-          { paddingBottom: fabClearance, flexGrow: list.length === 0 && !loading ? 1 : 0 },
-        ]}
-      >
+      <View style={styles.header}>
         <Text style={styles.eyebrow}>Event management</Text>
         <Text style={styles.title}>Vault Events</Text>
         <Text style={styles.sub}>
@@ -164,7 +260,22 @@ export function VaultEventsHub({
           </View>
         ) : null}
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.segmentRow}>
+        {fetchError ? (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorTxt}>{fetchError}</Text>
+            <Pressable onPress={() => void load()} hitSlop={8}>
+              <Text style={styles.errorRetry}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          bounces
+          contentContainerStyle={styles.segmentRow}
+          style={styles.segmentScroll}
+        >
           {SEGMENTS.map((seg) => {
             const on = segment === seg.id;
             const n = counts[seg.id];
@@ -184,52 +295,94 @@ export function VaultEventsHub({
             );
           })}
         </ScrollView>
+      </View>
 
-        {loading && list.length === 0 ? (
-          <ActivityIndicator color={colors.gold} style={{ marginTop: spacing.xl }} />
-        ) : list.length === 0 ? (
-          <View style={[styles.empty, { minHeight: emptyMinHeight }]}>
-            <Ionicons name="calendar-outline" size={36} color={colors.textMuted} />
-            <Text style={styles.emptyTitle}>{EMPTY_COPY[segment].title}</Text>
-            <Text style={styles.emptyBody}>{EMPTY_COPY[segment].body}</Text>
-            {segment !== 'past' ? (
-              <Text style={styles.emptyHint}>Use Schedule Vault Event below to create your first show.</Text>
-            ) : null}
-          </View>
-        ) : (
-          <View style={styles.list}>
-            {list.map(({ room, displayStatus }) => (
-              <VaultEventCard
-                key={room.id}
-                room={room}
-                displayStatus={displayStatus}
-                sellerAvatarUrl={sellerAvatarUrl}
-                onPress={() => onCardAction(room, displayStatus)}
-                onPrimaryAction={() => onCardAction(room, displayStatus)}
-              />
-            ))}
-          </View>
-        )}
-      </ScrollView>
-
-      <Pressable
-        style={[styles.fab, { bottom: fabBottom }]}
-        onPress={trySchedule}
-        disabled={liveBlocked}
-        accessibilityRole="button"
-        accessibilityLabel="Schedule vault event"
+      <View
+        style={styles.contentArea}
+        onLayout={(e) => onContentAreaLayout(e.nativeEvent.layout.height)}
       >
-        <LinearGradient colors={['#F0D56A', colors.gold, '#9A7B2C']} style={StyleSheet.absoluteFill} />
-        <Ionicons name="add" size={22} color="#0a0a0a" />
-        <Text style={styles.fabTxt}>Schedule Vault Event</Text>
-      </Pressable>
+        <ScrollView
+          style={styles.listScroll}
+          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={colors.gold} />
+          }
+          contentContainerStyle={[
+            styles.listScrollContent,
+            {
+              paddingBottom: contentPaddingBottom,
+              flexGrow: 1,
+              minHeight: showEmpty && contentAreaHeight > 0 ? contentAreaHeight : undefined,
+            },
+          ]}
+        >
+          {showLoader ? (
+            <View style={styles.loaderWrap}>
+              <ActivityIndicator color={colors.gold} size="large" />
+            </View>
+          ) : null}
+
+          {showEmpty ? (
+            <View style={styles.empty}>
+              <Ionicons name="calendar-outline" size={36} color={colors.textMuted} />
+              <Text style={styles.emptyTitle}>{EMPTY_COPY[segment].title}</Text>
+              <Text style={styles.emptyBody}>{EMPTY_COPY[segment].body}</Text>
+              {rooms.length > 0 ? (
+                <Text style={styles.emptyHint}>
+                  {counts.upcoming + counts.live_now + counts.drafts + counts.past} show
+                  {rooms.length === 1 ? '' : 's'} in other tabs — try Upcoming or Drafts.
+                </Text>
+              ) : segment !== 'past' ? (
+                <Text style={styles.emptyHint}>Use Schedule Vault Event below to create your first show.</Text>
+              ) : null}
+            </View>
+          ) : null}
+
+          {showList ? (
+            <View style={styles.list}>
+              {list.map(({ room, displayStatus }) => (
+                <VaultEventCard
+                  key={room.id}
+                  room={room}
+                  displayStatus={displayStatus}
+                  sellerAvatarUrl={sellerAvatarUrl}
+                  onPress={() => onCardAction(room, displayStatus)}
+                  onPrimaryAction={() => onCardAction(room, displayStatus)}
+                />
+              ))}
+            </View>
+          ) : null}
+        </ScrollView>
+      </View>
+
+      <View style={[styles.fabHost, { bottom: fabBottom }]} pointerEvents="box-none">
+        <Pressable
+          style={styles.fab}
+          onPress={trySchedule}
+          disabled={liveBlocked}
+          accessibilityRole="button"
+          accessibilityLabel="Schedule vault event"
+        >
+          <LinearGradient colors={['#F0D56A', colors.gold, '#9A7B2C']} style={StyleSheet.absoluteFill} />
+          <Ionicons name="add" size={22} color="#0a0a0a" />
+          <Text style={styles.fabTxt}>Schedule Vault Event</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, minHeight: 360 },
-  scroll: {},
+  root: {
+    flex: 1,
+    minHeight: 0,
+    paddingHorizontal: spacing.lg,
+  },
+  header: {
+    flexShrink: 0,
+    paddingBottom: spacing.xs,
+  },
   eyebrow: {
     fontSize: 11,
     fontWeight: '800',
@@ -238,7 +391,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   title: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: '900',
     color: colors.textPrimary,
     letterSpacing: -0.4,
@@ -249,7 +402,7 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: colors.textSecondary,
     marginTop: spacing.sm,
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   blockBanner: {
     flexDirection: 'row',
@@ -263,12 +416,35 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(212,175,55,0.08)',
   },
   blockTxt: { flex: 1, fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
-  segmentRow: { gap: spacing.sm, paddingBottom: spacing.md },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,59,48,0.35)',
+    backgroundColor: 'rgba(255,59,48,0.08)',
+  },
+  errorTxt: { flex: 1, fontSize: 12, color: '#fca5a5', lineHeight: 17 },
+  errorRetry: { fontSize: 12, fontWeight: '800', color: colors.gold },
+  segmentScroll: {
+    flexGrow: 0,
+    marginHorizontal: -spacing.xs,
+  },
+  segmentRow: {
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.xs,
+  },
   segment: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 8,
+    minHeight: 44,
+    paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: radii.pill,
     borderWidth: 1,
@@ -289,16 +465,33 @@ const styles = StyleSheet.create({
   segmentBadgeOn: { backgroundColor: 'rgba(0,0,0,0.35)' },
   segmentBadgeTxt: { fontSize: 10, fontWeight: '900', color: colors.textMuted },
   segmentBadgeTxtOn: { color: colors.gold },
-  list: { gap: 0 },
+  contentArea: {
+    flex: 1,
+    minHeight: 0,
+  },
+  listScroll: {
+    flex: 1,
+  },
+  listScrollContent: {
+    flexGrow: 1,
+  },
+  loaderWrap: {
+    paddingVertical: spacing.xxl,
+    alignItems: 'center',
+  },
+  list: {
+    gap: spacing.sm,
+    paddingTop: spacing.xs,
+  },
   empty: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.lg,
+    paddingVertical: spacing.xl,
     paddingHorizontal: spacing.lg,
     gap: spacing.sm,
   },
-  emptyTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary },
+  emptyTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary, textAlign: 'center' },
   emptyBody: { fontSize: 13, color: colors.textSecondary, textAlign: 'center', lineHeight: 19 },
   emptyHint: {
     marginTop: spacing.sm,
@@ -307,10 +500,17 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: 'center',
     lineHeight: 17,
+    maxWidth: 300,
+  },
+  fabHost: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'flex-end',
+    paddingHorizontal: spacing.md,
+    zIndex: 8,
   },
   fab: {
-    position: 'absolute',
-    right: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -318,6 +518,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     borderRadius: radii.pill,
     overflow: 'hidden',
+    maxWidth: '100%',
     shadowColor: '#D4AF37',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.35,
