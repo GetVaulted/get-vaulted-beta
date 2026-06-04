@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-/** Return target after Stripe Connect hosted onboarding (in-app auth session on mobile). */
+/** Shown inside the in-app browser when Stripe redirects after hosted Connect onboarding. */
 export default function MobileStripeConnectReturnPage({
   searchParams,
 }: {
@@ -35,17 +35,18 @@ export default function MobileStripeConnectReturnPage({
         Get Vaulted
       </p>
       <h1 style={{ fontSize: "1.5rem", fontWeight: 800, marginTop: "0.75rem", lineHeight: 1.25 }}>
-        {isRefresh ? "Payout setup link expired" : "Thank you for completing your payout setup"}
+        {isRefresh ? "Payout setup link expired" : "Payout setup submitted"}
       </h1>
       <p style={{ marginTop: "1.25rem", lineHeight: 1.6, color: "#e4e4e7", fontSize: 16 }}>
         {isRefresh
-          ? "Stripe refresh links are one-time. Close this browser, return to Get Vaulted, and tap Finish Seller Setup to open a new onboarding session."
-          : "You can close this browser to be redirected back to the app. Your payout status in Seller HQ will update automatically."}
+          ? "This Stripe link was already used. Close this window, return to Get Vaulted, and tap Connect payouts or Continue Stripe setup to open a new session."
+          : "Payout setup submitted. You can close this window and return to Get Vaulted."}
       </p>
-      <p style={{ marginTop: "1rem", lineHeight: 1.55, color: "#71717a", fontSize: 14 }}>
-        If the app does not open on its own, switch back to Get Vaulted manually — we refresh your status when Seller HQ
-        becomes active again.
-      </p>
+      {!isRefresh ? (
+        <p style={{ marginTop: "1rem", lineHeight: 1.55, color: "#71717a", fontSize: 14 }}>
+          Tap Done at the top of this screen when you are finished. Get Vaulted will check your payout status automatically.
+        </p>
+      ) : null}
       <p style={{ marginTop: "2rem" }}>
         <Link href="/" style={{ color: "#d4af37", fontWeight: 600, textDecoration: "none" }}>
           Continue on web →

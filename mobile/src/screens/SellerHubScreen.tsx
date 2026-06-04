@@ -55,7 +55,10 @@ import { useSellerInventory } from '../hooks/useSellerInventory';
 import { sellerHasShipFromAddress } from '../lib/seller-shipping-readiness';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { openStripeConnectDashboard } from '../lib/openStripeConnectDashboard';
-import { openStripeConnectOnboarding } from '../lib/openStripeConnectOnboarding';
+import {
+  openStripeConnectOnboarding,
+  refreshSellerConnectAfterOnboarding,
+} from '../lib/openStripeConnectOnboarding';
 import { areDevToolsEnabled } from '../lib/devTools';
 
 function statusStyle(status: ListingPreview['status']) {
@@ -153,10 +156,21 @@ export function SellerHubScreen() {
     setStripeSetupBusy(true);
     try {
       await openStripeConnectOnboarding(session.access_token);
-      Alert.alert(
-        'Stripe payout setup',
-        'Complete the steps in Safari, then return to Get Vaulted and tap Refresh status in Seller HQ.',
-      );
+      const latest = await refreshSellerConnectAfterOnboarding(sellerConnect.refresh);
+      await cmdData.liveReadiness.refresh();
+      if (isSellerPayoutSetupComplete(latest)) {
+        Alert.alert('Payout setup complete', 'Your payout status is Complete. You are ready to sell and go live.');
+      } else if (latest && sellerConnectBadge(latest, { fetchError: sellerConnect.statusError }) === 'Ready') {
+        Alert.alert(
+          'Payout setup received',
+          'Stripe has your details. Status is Ready — tap Refresh status if it does not update to Complete yet.',
+        );
+      } else {
+        Alert.alert(
+          'Stripe payout setup',
+          'If Stripe asked for more information, tap Connect payouts again. Otherwise refresh status in a minute.',
+        );
+      }
     } catch (e) {
       Alert.alert('Could not start payout setup', e instanceof Error ? e.message : 'Unknown error');
     } finally {

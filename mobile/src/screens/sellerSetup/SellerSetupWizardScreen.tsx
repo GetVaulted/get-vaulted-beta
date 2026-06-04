@@ -3,10 +3,10 @@ import * as ImagePicker from 'expo-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState } from 'react-native';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Image,
   Linking,
   Pressable,
@@ -80,11 +80,10 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   const [payoutBusy, setPayoutBusy] = useState(false);
   const [payoutReconciling, setPayoutReconciling] = useState(false);
   const [payoutError, setPayoutError] = useState<string | null>(null);
+  const [payoutNotice, setPayoutNotice] = useState<string | null>(null);
   const [payoutContinueStripe, setPayoutContinueStripe] = useState(false);
   const [startSetupBusy, setStartSetupBusy] = useState(false);
   const stripeReturnRef = useRef(false);
-  const stripeBrowserOpenedRef = useRef(false);
-  const stripeLeftAppRef = useRef(false);
   const stripeReturnClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconcileInFlightRef = useRef(false);
   const reconcileAbortRef = useRef(false);
@@ -112,6 +111,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
       reconcileAbortRef.current = false;
       setPayoutReconciling(true);
       setPayoutError(null);
+      setPayoutNotice(null);
       setPayoutContinueStripe(false);
       if (__DEV__) console.log('[seller-setup] reconcile payout start');
       try {
@@ -128,9 +128,14 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
         if (!reconcileAbortRef.current) {
           const needsStripe = sellerShouldContinueStripeOnboarding(result.connect, result.checks);
           setPayoutContinueStripe(needsStripe);
-          setPayoutError(
-            payoutReconcileMessage(result.uiState, result.connect, result.connectError),
-          );
+          const message = payoutReconcileMessage(result.uiState, result.connect, result.connectError);
+          if (result.uiState === 'status_unavailable') {
+            setPayoutNotice(null);
+            setPayoutError(message);
+          } else {
+            setPayoutError(null);
+            setPayoutNotice(message || null);
+          }
         }
         return result.complete;
       } finally {
@@ -149,34 +154,24 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   }, []);
 
   useEffect(() => {
-    if (step === 2) {
-      stripeReturnRef.current = false;
-      stripeBrowserOpenedRef.current = false;
-      stripeLeftAppRef.current = false;
-    }
+    if (step === 2) stripeReturnRef.current = false;
   }, [step]);
 
   useEffect(() => {
     if (!token) return;
     const sub = AppState.addEventListener('change', (next) => {
-      if (step !== 2) return;
-      if (next === 'inactive' || next === 'background') {
-        if (stripeBrowserOpenedRef.current) stripeLeftAppRef.current = true;
-        return;
-      }
       if (
         next === 'active' &&
+        step === 2 &&
         stripeReturnRef.current &&
-        stripeBrowserOpenedRef.current &&
-        stripeLeftAppRef.current &&
+        !payoutBusy &&
         !reconcileInFlightRef.current
       ) {
-        stripeLeftAppRef.current = false;
         void reconcilePayoutState({ autoAdvance: true });
       }
     });
     return () => sub.remove();
-  }, [token, step, reconcilePayoutState]);
+  }, [token, step, payoutBusy, reconcilePayoutState]);
 
   useEffect(() => {
     if (!setup.seller) return;
@@ -230,19 +225,18 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
     if (!token || payoutBusy || payoutReconciling) return;
     setPayoutBusy(true);
     setPayoutError(null);
+    setPayoutNotice(null);
     setPayoutContinueStripe(false);
     clearStripeReturnPending();
     try {
-      await openStripeConnectOnboarding(token);
-      stripeBrowserOpenedRef.current = true;
-      stripeLeftAppRef.current = false;
       markStripeReturnPending();
-      setPayoutError(null);
+      await openStripeConnectOnboarding(token);
+      await reconcilePayoutState({ autoAdvance: true });
     } catch (e) {
       clearStripeReturnPending();
-      stripeBrowserOpenedRef.current = false;
-      const msg = e instanceof Error ? e.message : 'Could not open Stripe.';
+      const msg = e instanceof Error ? e.message : 'Could not open Stripe setup.';
       setPayoutError(msg);
+      setPayoutNotice(null);
       console.warn('[seller-setup] open payouts failed', msg);
     } finally {
       setPayoutBusy(false);
@@ -252,7 +246,8 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   const cancelPayoutReconcile = () => {
     reconcileAbortRef.current = true;
     setPayoutReconciling(false);
-    setPayoutError('Payout confirmation cancelled. Tap Connect payouts or Retry when ready.');
+    setPayoutNotice('Payout confirmation cancelled. Tap Connect payouts or Retry status check when ready.');
+    setPayoutError(null);
   };
 
   const saveShipping = async () => {
@@ -468,9 +463,9 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
                   </Text>
                 </View>
               )}
-              {payoutError ? (
-                <View style={styles.errorBox}>
-                  <Text style={styles.errorText}>{payoutError}</Text>
+              {payoutNotice ? (
+                <View style={styles.noticeBox}>
+                  <Text style={styles.noticeText}>{payoutNotice}</Text>
                   <View style={styles.errorActions}>
                     {payoutContinueStripe ? (
                       <Pressable onPress={() => void openPayouts()} hitSlop={8} disabled={payoutStepLoading}>
@@ -487,6 +482,11 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
                   </View>
                 </View>
               ) : null}
+              {payoutError ? (
+                <View style={styles.errorBox}>
+                  <Text style={styles.errorText}>{payoutError}</Text>
+                </View>
+              ) : null}
               <StepActions
                 showBack
                 onBack={goBack}
@@ -497,17 +497,13 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
                       ? 'Continue'
                       : payoutBusy
                         ? 'Opening…'
-                        : payoutContinueStripe && payoutError
+                        : payoutContinueStripe
                           ? 'Continue Stripe setup'
                           : 'Connect payouts'
                 }
                 onPrimary={() => {
                   if (payoutsDone) {
                     setStep(3);
-                    return;
-                  }
-                  if (payoutContinueStripe && payoutError) {
-                    void openPayouts();
                     return;
                   }
                   void openPayouts();
@@ -820,6 +816,15 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   errorText: { fontSize: 13, lineHeight: 18, color: '#f0a8a8' },
+  noticeBox: {
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.35)',
+    backgroundColor: 'rgba(212,175,55,0.08)',
+    gap: spacing.xs,
+  },
+  noticeText: { fontSize: 13, lineHeight: 18, color: colors.textSecondary },
   errorActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: spacing.xs },
   inlineLoader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
   unlockRow: {

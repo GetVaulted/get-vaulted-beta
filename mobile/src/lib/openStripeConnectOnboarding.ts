@@ -1,12 +1,12 @@
-import { Linking } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
 import {
   createSellerOnboardingLink,
   type SellerConnectStatusResponse,
 } from '../api/stripeConnectRepository';
 import { getWebApiBaseUrl } from './webApiBaseUrl';
 
-/** Hosted Stripe Connect onboarding opened in the system browser (Safari / Chrome). */
-export type StripeConnectOnboardingResult = 'opened';
+/** In-app browser modal was shown and closed (any dismiss/cancel is OK). */
+export type StripeConnectOnboardingResult = 'closed';
 
 function stripeUrlMeta(stripeUrl: string): { stripeHost: string; stripeUrlPrefix: string } {
   try {
@@ -18,8 +18,8 @@ function stripeUrlMeta(stripeUrl: string): { stripeHost: string; stripeUrlPrefix
 }
 
 /**
- * Opens Stripe Connect hosted onboarding in the system browser via Linking.openURL.
- * Not OAuth — do not use openAuthSessionAsync. Reconcile after the user returns to the app.
+ * Stripe Connect hosted onboarding in an in-app browser modal (not OAuth / not auth session).
+ * Resolves when the user closes the modal; caller should reconcile payout status afterward.
  */
 export async function openStripeConnectOnboarding(
   accessToken: string,
@@ -33,24 +33,26 @@ export async function openStripeConnectOnboarding(
     throw new Error('Server did not return a valid Stripe onboarding URL.');
   }
 
-  const meta = stripeUrlMeta(stripeUrl);
-  console.info('[stripe-connect] onboarding_url_ready', JSON.stringify(meta));
+  console.info('[stripe-connect] onboarding_url_ready', JSON.stringify(stripeUrlMeta(stripeUrl)));
+  console.info('[stripe-connect] opening_in_app_browser');
 
-  console.info('[stripe-connect] opening_external_browser');
   try {
-    const canOpen = await Linking.canOpenURL(stripeUrl);
-    if (!canOpen) {
-      throw new Error('This device cannot open the Stripe onboarding link.');
-    }
-    await Linking.openURL(stripeUrl);
+    const result = await WebBrowser.openBrowserAsync(stripeUrl, {
+      presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+      showInRecents: false,
+      enableBarCollapsing: false,
+    });
+    console.info(
+      '[stripe-connect] in_app_browser_closed',
+      JSON.stringify({ type: result.type }),
+    );
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
-    console.info('[stripe-connect] external_browser_failed', JSON.stringify({ error }));
+    console.info('[stripe-connect] in_app_browser_failed', JSON.stringify({ error }));
     throw new Error(`Could not open Stripe setup: ${error}`);
   }
 
-  console.info('[stripe-connect] external_browser_opened');
-  return 'opened';
+  return 'closed';
 }
 
 /** Stripe may take a moment to enable payouts after redirect — poll until ready or timeout. */
