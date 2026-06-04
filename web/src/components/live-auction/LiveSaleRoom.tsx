@@ -11,6 +11,11 @@ import { LiveVariantSelectionSheet } from "@/components/live-auction/LiveVariant
 import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotBoard";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
 import { LiveTipSheet } from "@/components/live-auction/LiveTipSheet";
+import { BuyerLiveNextUpRail } from "@/components/live-auction/buyer/BuyerLiveNextUpRail";
+import { BuyerLiveQueueList } from "@/components/live-auction/buyer/BuyerLiveQueueList";
+import { BuyerLiveQueueSheet } from "@/components/live-auction/buyer/BuyerLiveQueueSheet";
+import { BUYER_LIVE_MAIN_SECTION, BUYER_LIVE_PAGE_GRID } from "@/components/live-auction/buyer/buyerLiveLayout";
+import { HostLiveRoomConsoleBanner } from "@/components/live-auction/buyer/HostLiveRoomConsoleBanner";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
@@ -239,6 +244,7 @@ export function LiveSaleRoom({
   const [hostMarkSoldBusy, setHostMarkSoldBusy] = useState(false);
 
   const [buyerWideRail, setBuyerWideRail] = useState(false);
+  const [buyerLineupOpen, setBuyerLineupOpen] = useState(false);
   const [tipOpen, setTipOpen] = useState(false);
   useLayoutEffect(() => {
     const mq = window.matchMedia("(min-width: 1400px)");
@@ -405,6 +411,10 @@ export function LiveSaleRoom({
 
   const queue = items.filter((i) => i.status !== "sold" && i.status !== "skipped");
   const sold = items.filter((i) => i.status === "sold" || i.status === "skipped");
+  const buyerNextUpItem = useMemo(() => {
+    const active = queue.find((i) => i.status === "live" || i.id === selectedId);
+    return queue.find((i) => i.id !== active?.id) ?? queue[0] ?? null;
+  }, [queue, selectedId]);
 
   const isHost = Boolean(session?.user?.id && session.user.id === sellerId);
   const payReady = buyerLiveBidPaymentReady !== false;
@@ -1052,51 +1062,6 @@ export function LiveSaleRoom({
     </div>
   );
 
-  const queuePanel = (
-    <div className="min-h-[300px] rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Item Queue</p>
-        {shopHref ? (
-          <Link href={shopHref} className="text-[10px] font-semibold uppercase tracking-wide text-gold-bright transition hover:brightness-110">
-            Host Shop →
-          </Link>
-        ) : null}
-      </div>
-      <div className="space-y-1.5 overflow-y-auto pr-1">
-        {queue.length === 0 ? (
-          <p className="text-xs text-zinc-500">No items in queue yet.</p>
-        ) : (
-          queue.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setSelectedId(item.id)}
-              className={`w-full rounded-lg border px-2.5 py-2 text-left text-xs transition ${
-                item.id === selectedId
-                  ? "border-gold/45 bg-zinc-900 text-zinc-100"
-                  : "border-zinc-800 bg-black/50 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
-              }`}
-            >
-              <p className="font-semibold">{item.displayTitle}</p>
-              <p className="mt-0.5 font-mono text-[11px]">
-                {roomType === "auction" ? `${fmt(item.topBid)} bid` : `${fmt(item.buyNow)}`}
-              </p>
-            </button>
-          ))
-        )}
-      </div>
-      {!isHost && (roomType === "auction" || roomType === "sale") ? (
-        <LiveShippingIndicator
-          liveShowId={liveRoomId}
-          refreshNonce={shipUxNonce}
-          pollMs={isLive ? 8000 : 0}
-          compact
-          className="mt-3"
-        />
-      ) : null}
-    </div>
-  );
-
   const infoPanel = (
     <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3">
       <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500">Sold activity</p>
@@ -1146,8 +1111,8 @@ export function LiveSaleRoom({
         </div>
       ) : null}
       <div className="mx-auto flex min-h-0 w-full max-w-[1920px] flex-1 flex-col overflow-y-auto p-1.5 md:p-4 min-[1400px]:min-h-0 min-[1400px]:overflow-hidden">
-        <div className="grid min-h-0 flex-1 gap-2.5 min-[1400px]:h-full min-[1400px]:min-h-0 min-[1400px]:grid-cols-[minmax(0,1fr)_360px] min-[1400px]:items-stretch">
-          <section className="min-w-0 space-y-2.5 min-[1400px]:grid min-[1400px]:h-full min-[1400px]:min-h-0 min-[1400px]:grid-rows-[minmax(0,1fr)_auto] min-[1400px]:gap-4 min-[1400px]:space-y-0">
+        <div className={BUYER_LIVE_PAGE_GRID}>
+          <section className={BUYER_LIVE_MAIN_SECTION}>
             <div className="w-full min-h-0 min-[1400px]:min-h-0 min-[1400px]:h-full min-[1400px]:max-h-full">
               <LiveVideoStage
                 layout={buyerWideRail ? "fillHeight" : "aspect"}
@@ -1185,60 +1150,71 @@ export function LiveSaleRoom({
               />
             </div>
 
-            <div className="shrink-0 min-[1400px]:hidden">{queuePanel}</div>
+            {isHost ? (
+              <HostLiveRoomConsoleBanner
+                liveRoomId={liveRoomId}
+                roomType={roomType === "break" ? "break" : roomType === "sale" ? "sale" : "auction"}
+              />
+            ) : queue.length > 0 ? (
+              <BuyerLiveNextUpRail
+                nextTitle={buyerNextUpItem?.displayTitle ?? "More coming soon"}
+                nextMeta={
+                  buyerNextUpItem
+                    ? roomType === "auction"
+                      ? `${fmt(buyerNextUpItem.topBid)} bid · ${queue.length} in lineup`
+                      : `${fmt(buyerNextUpItem.buyNow)} · ${queue.length} in lineup`
+                    : `${queue.length} in lineup`
+                }
+                queueCount={queue.length}
+                shopHref={shopHref}
+                onOpenQueue={() => setBuyerLineupOpen(true)}
+              />
+            ) : null}
 
-            <div className="min-[1400px]:hidden pb-[max(1rem,env(safe-area-inset-bottom))]" />
+            {!isHost && (roomType === "auction" || roomType === "sale") ? (
+              <LiveShippingIndicator
+                liveShowId={liveRoomId}
+                refreshNonce={shipUxNonce}
+                pollMs={isLive ? 8000 : 0}
+                compact
+              />
+            ) : null}
+
+            <div className="pb-[max(1rem,env(safe-area-inset-bottom))]" />
           </section>
-
-          <aside className="hidden min-h-0 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/70 p-3 min-[1400px]:flex min-[1400px]:h-full min-[1400px]:min-h-0 min-[1400px]:flex-col">
-            <div className="queue-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Item Queue</p>
-                {shopHref ? (
-                  <Link href={shopHref} className="text-[10px] font-semibold uppercase tracking-wide text-gold-bright transition hover:brightness-110">
-                    Host Shop →
-                  </Link>
-                ) : null}
-              </div>
-              <div className="queue-list flex min-h-0 flex-1 flex-col space-y-1.5 overflow-y-auto pr-1">
-                {queue.length === 0 ? (
-                  <div className="flex min-h-0 flex-1 flex-col items-center justify-center py-2">
-                    <p className="text-center text-xs text-zinc-500">No items in queue yet.</p>
-                  </div>
-                ) : (
-                  queue.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setSelectedId(item.id)}
-                      className={`w-full rounded-lg border px-2.5 py-2 text-left text-xs transition ${
-                        item.id === selectedId
-                          ? "border-gold/45 bg-zinc-900 text-zinc-100"
-                          : "border-zinc-800 bg-black/50 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
-                      }`}
-                    >
-                      <p className="font-semibold">{item.displayTitle}</p>
-                      <p className="mt-0.5 font-mono text-[11px]">
-                        {roomType === "auction" ? `${fmt(item.topBid)} bid` : `${fmt(item.buyNow)}`}
-                      </p>
-                    </button>
-                  ))
-                )}
-              </div>
-              {!isHost && (roomType === "auction" || roomType === "sale") ? (
-                <LiveShippingIndicator
-                  liveShowId={liveRoomId}
-                  refreshNonce={shipUxNonce}
-                  pollMs={isLive ? 8000 : 0}
-                  compact
-                  className="mt-3 shrink-0"
-                />
-              ) : null}
-            </div>
-
-          </aside>
         </div>
       </div>
+      <BuyerLiveQueueSheet
+        open={buyerLineupOpen && !isHost}
+        onClose={() => setBuyerLineupOpen(false)}
+        title="Lineup"
+        subtitle={`${queue.length} item${queue.length === 1 ? "" : "s"} in queue`}
+        shopHref={shopHref}
+        footer={
+          !isHost && (roomType === "auction" || roomType === "sale") ? (
+            <LiveShippingIndicator
+              liveShowId={liveRoomId}
+              refreshNonce={shipUxNonce}
+              pollMs={isLive ? 8000 : 0}
+              compact
+            />
+          ) : undefined
+        }
+      >
+        <BuyerLiveQueueList
+          items={queue.map((item) => ({
+            id: item.id,
+            displayTitle: item.displayTitle,
+            metaLine: roomType === "auction" ? `${fmt(item.topBid)} bid` : fmt(item.buyNow),
+          }))}
+          selectedId={selectedId}
+          onSelect={(id) => {
+            setSelectedId(id);
+            setBuyerLineupOpen(false);
+          }}
+          emptyHint="Items added by the host will appear here."
+        />
+      </BuyerLiveQueueSheet>
       {activeDb && activeHasVariants ? (
         <LiveVariantSelectionSheet
           open={variantSheetOpen}
