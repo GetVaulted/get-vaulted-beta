@@ -67,6 +67,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
           orderBy: { createdAt: "asc" },
         },
         messages: {
+          where: { deletedAt: null },
           orderBy: { createdAt: "desc" },
           take: 200,
           include: { sender: { select: { username: true, image: true } } },

@@ -19,6 +19,7 @@ import { LiveConsoleWarningBanner } from '../components/seller/liveConsole/LiveC
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
 import { useMobileStagePublish } from '../hooks/useMobileStagePublish';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
+import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
 import { notifyLiveDiscoveryChanged } from '../lib/notifyLiveDiscoveryChanged';
 import type { RootStackParamList } from '../navigation/types';
 import { colors, spacing } from '../theme';
@@ -30,6 +31,10 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   const { session } = useAuth();
   const token = session?.access_token;
   const roomId = route.params.roomId;
+
+  useEffect(() => {
+    logVaultCommandCenter('host_screen_mount', { roomId, hasToken: Boolean(token) });
+  }, [roomId, token]);
 
   const [room, setRoom] = useState<LiveRoomHostDetail | null>(null);
   const [stream, setStream] = useState<HostStreamPayload | null>(null);
@@ -49,18 +54,32 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
 
   const reloadRoom = useCallback(async () => {
     if (!token) return null;
-    const r = await fetchLiveRoomForHost(token, roomId);
-    setRoom(r);
-    return r;
+    logVaultCommandCenter('room_fetch_start', { roomId, endpoint: 'GET /api/live-rooms/:id' });
+    try {
+      const r = await fetchLiveRoomForHost(token, roomId);
+      setRoom(r);
+      logVaultCommandCenter('room_fetch_ok', { roomId: r.id, status: r.status, roomType: r.roomType });
+      return r;
+    } catch (e) {
+      logVaultCommandCenter('room_fetch_failed', {
+        roomId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      throw e;
+    }
   }, [roomId, token]);
 
   const reloadConsoleMetrics = useCallback(async () => {
     if (!token) return;
+    logVaultCommandCenter('host_console_fetch_start', { roomId, endpoint: 'GET /api/live-rooms/:id/host-console' });
     try {
       const c = await fetchHostConsole(token, roomId);
       setThumbnailUrl(c.room.thumbnailUrl ?? null);
-    } catch {
-      /* optional */
+    } catch (e) {
+      logVaultCommandCenter('host_console_fetch_failed', {
+        roomId,
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
   }, [roomId, token]);
 
@@ -85,9 +104,15 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
 
   const reload = useCallback(async () => {
     if (!token) return;
-    await reloadRoom();
-    await reloadStream(false);
-    await reloadConsoleMetrics();
+    setRoomError(null);
+    try {
+      await reloadRoom();
+      await reloadStream(false);
+      await reloadConsoleMetrics();
+    } catch (e) {
+      setRoomError(sanitizeLiveError(e, 'room'));
+      throw e;
+    }
   }, [reloadConsoleMetrics, reloadRoom, reloadStream, token]);
 
   const stagePublish = useMobileStagePublish({
@@ -286,7 +311,9 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
             }}
           />
         ) : (
-          <Text style={styles.loadingLbl}>Room unavailable.</Text>
+          <Text style={styles.loadingLbl}>
+            Could not load vault event{roomId ? ` (${roomId.slice(0, 8)}…)` : ''}. Pull back and try again.
+          </Text>
         )}
       </View>
     );

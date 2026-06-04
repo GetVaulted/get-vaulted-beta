@@ -1,10 +1,15 @@
 import { Alert } from 'react-native';
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
+import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
 import { navigateToSellerHostRoom, rootNavigationRef } from './rootNavigationRef';
 
 /** From HQ (nested in tabs): open root SellerHostRoom stack screen. */
 export function openSellerHostRoom(navigation: NavigationProp<ParamListBase>, roomId: string) {
   const trimmed = roomId.trim();
+  logVaultCommandCenter('navigate_host_room', {
+    destination: 'SellerHostRoom',
+    roomId: trimmed || null,
+  });
   if (!trimmed) {
     Alert.alert('Host room', 'This room has no id yet. Refresh your rooms and try again.');
     return;

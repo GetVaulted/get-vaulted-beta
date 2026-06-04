@@ -54,6 +54,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const id = safeDecodeRouteSegment(raw ?? "");
   const viewerId = await resolveOptionalLiveRoomsUserId(req);
 
+  try {
   if (viewerId) {
     try {
       await processAuctionPaymentExpiries();
@@ -180,6 +181,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     extra: { viewerId: viewerId ?? null, isHost },
   });
   return NextResponse.json({ room: detail, serverNowMs });
+  } catch (e) {
+    console.error("[api GET /api/live-rooms/[id]] failed", { liveRoomId: id, viewerId, e });
+    return NextResponse.json(
+      { error: "Could not load live room.", code: "LIVE_ROOM_GET_FAILED" },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
+    );
+  }
 }
 
 type PatchBody = {

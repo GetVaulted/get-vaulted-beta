@@ -9,6 +9,7 @@ import {
   type LiveRoomItemRow,
 } from '../api/liveRoomControlRepository';
 import type { AddInventoryChoice } from '../components/seller/liveConsole/AddInventoryModal';
+import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
 import { DEFAULT_AUCTION_SEC } from '../components/seller/liveConsole/VaultPinnedLotCard';
 import { openCreateListing } from '../navigation/openCreateListing';
@@ -77,6 +78,12 @@ export function useSellerLiveConsole({
         return data;
       } catch (e) {
         const sanitized = sanitizeLiveError(e, 'console');
+        logVaultCommandCenter('vault_sync_failed', {
+          roomId,
+          endpoint: 'GET /api/live-rooms/:id/host-console',
+          userMessage: sanitized.userMessage,
+          error: e instanceof Error ? e.message : String(e),
+        });
         if (hydratedRef.current || opts?.soft) {
           setConsoleError(sanitized);
           return null;

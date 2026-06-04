@@ -1,3 +1,4 @@
+import { LiveHostApiError } from '../../../api/liveHostRepository';
 import { areDevToolsEnabled } from '../../../lib/devTools';
 
 const NETWORK_PATTERNS = [
@@ -27,7 +28,11 @@ export type SanitizedLiveError = {
 export function sanitizeLiveError(raw: unknown, context?: 'stream' | 'room' | 'console'): SanitizedLiveError {
   const text =
     raw instanceof Error ? raw.message : typeof raw === 'string' ? raw : 'Something went wrong.';
-  const devDetail = areDevToolsEnabled() ? text : null;
+  const apiMeta =
+    raw instanceof LiveHostApiError
+      ? `${raw.endpoint} → HTTP ${raw.status}${raw.code ? ` (${raw.code})` : ''}`
+      : null;
+  const devDetail = areDevToolsEnabled() ? [text, apiMeta].filter(Boolean).join(' · ') : null;
 
   if (STATUS_UNAVAILABLE.test(text)) {
     return {
@@ -61,9 +66,20 @@ export function sanitizeLiveError(raw: unknown, context?: 'stream' | 'room' | 'c
     return { userMessage: 'This vault event could not be found.', devDetail, isNetwork: false };
   }
 
-  if (/host console|500|HOST_CONSOLE_FAILED/i.test(text)) {
+  if (
+    context === 'console' &&
+    (/host console|HOST_CONSOLE_FAILED|Could not load host console/i.test(text))
+  ) {
     return {
       userMessage: 'Vault sync hit a server error. Showing your last synced queue.',
+      devDetail,
+      isNetwork: false,
+    };
+  }
+
+  if (context === 'room' && /\b500\b/.test(text)) {
+    return {
+      userMessage: 'Could not load this vault event from the server. Try again in a moment.',
       devDetail,
       isNetwork: false,
     };

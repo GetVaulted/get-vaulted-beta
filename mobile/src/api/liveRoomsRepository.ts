@@ -4,6 +4,7 @@ import {
   type CreateScheduleMode,
   type TeamBoardLeague,
 } from '../lib/createLiveRoomPayload';
+import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { liveRoomCategoryTagsForRow } from '../lib/liveRoomDisplay';
 import { mapListingCategoryToCategoryId } from './listingsFeedRepository';
@@ -175,6 +176,7 @@ export async function createLiveRoom(
   }
   if (!res.ok) throw new Error(apiErrorMessage(res, j));
   if (!j.id) throw new Error('Server did not return a room id.');
+  logVaultCommandCenter('room_create_ok', { roomId: j.id, status: res.status });
   return { id: j.id };
 }
 

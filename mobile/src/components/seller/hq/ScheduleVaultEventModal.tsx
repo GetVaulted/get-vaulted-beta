@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createLiveRoom, streamFormatToRoomType } from '../../../api/liveRoomsRepository';
+import { logVaultCommandCenter } from '../../../lib/logVaultCommandCenterFlow';
 import type { SellerLiveReadiness } from '../../../api/liveHostRepository';
 import { uploadListingImageViaWeb } from '../../../api/webListingsRepository';
 import {
@@ -221,6 +222,7 @@ export function ScheduleVaultEventModal({
       onScheduled?.();
       onClose();
       if (scheduleMode === 'now') {
+        logVaultCommandCenter('create_enter_command_center', { roomId: id, scheduleMode: 'now' });
         onCreated(id);
         return;
       }
