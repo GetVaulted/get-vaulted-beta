@@ -24,9 +24,12 @@ import { webLiveRoomUrl } from '../../../lib/openWebCommerce';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { SellerLiveBroadcastSheet } from './SellerLiveBroadcastSheet';
 import { SellerLiveOverlayHeader } from './SellerLiveOverlayHeader';
-import { SellerLiveOverlayRail } from './SellerLiveOverlayRail';
-import { SellerLivePinnedOverlay, SELLER_PINNED_OVERLAY_HEIGHT } from './SellerLivePinnedOverlay';
-import { SellerHostQueueDock, SELLER_QUEUE_DOCK_HEIGHT } from './SellerHostQueueDock';
+import {
+  SellerLivePinnedOverlay,
+  SELLER_PINNED_EMPTY_HEIGHT,
+  SELLER_PINNED_OVERLAY_HEIGHT,
+} from './SellerLivePinnedOverlay';
+import { SellerNextUpRail, SELLER_NEXT_UP_RAIL_HEIGHT } from './SellerNextUpRail';
 import { SellerLiveQueueSheet } from './SellerLiveQueueSheet';
 import { SellerConsoleActionBar } from './SellerConsoleActionBar';
 import { SellerShareSheet } from './SellerShareSheet';
@@ -119,11 +122,11 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   const actionBarTop = insets.top + 56;
   const actionBarHeight = 56;
 
-  const queueDockBottom = Math.max(insets.bottom, spacing.sm);
-  const pinnedBottom = queueDockBottom + SELLER_QUEUE_DOCK_HEIGHT + spacing.sm;
-  const composerBottom = pinnedBottom + SELLER_PINNED_OVERLAY_HEIGHT + COMMERCE_TO_COMPOSER_GAP;
+  const nextUpBottom = Math.max(insets.bottom, spacing.xs);
+  const pinnedOverlayHeight = console.activeItem ? SELLER_PINNED_OVERLAY_HEIGHT : SELLER_PINNED_EMPTY_HEIGHT;
+  const pinnedBottom = nextUpBottom + SELLER_NEXT_UP_RAIL_HEIGHT + spacing.xs;
+  const composerBottom = pinnedBottom + pinnedOverlayHeight + COMMERCE_TO_COMPOSER_GAP;
   const chatBottom = composerBottom + COMPOSER_BAR_H + CHAT_ZONE_GAP;
-  const railBottom = pinnedBottom + SELLER_PINNED_OVERLAY_HEIGHT * 0.35;
 
   const chatPool = console.chatMessages;
 
@@ -208,12 +211,6 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         onFlipCamera={host.onFlipCamera}
       />
 
-      <SellerLiveOverlayRail
-        bottom={railBottom}
-        onLineup={() => setQueueOpen(true)}
-        onObs={() => setBroadcastOpen(true)}
-      />
-
       <FloatingLiveChat
         pool={chatPool}
         hostAvatarUrl={hostAvatarUrl}
@@ -242,21 +239,17 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         sendDisabled
       />
 
-      <SellerHostQueueDock
-        bottom={queueDockBottom}
+      <SellerNextUpRail
+        bottom={nextUpBottom}
         left={spacing.md}
         right={spacing.md}
         items={console.items}
-        activeItem={console.activeItem}
         queuedCount={console.queuedCount}
         loading={console.loading}
         busy={console.busy}
         roomEnded={console.roomEnded}
+        onOpenQueue={() => setQueueOpen(true)}
         onAddItem={() => console.setInventoryOpen(true)}
-        onExpandLineup={() => setQueueOpen(true)}
-        onStart={console.onLaunch}
-        onEdit={(item) => console.setPricingEditItem(item)}
-        onRemove={console.onRemove}
       />
 
       <SellerLivePinnedOverlay

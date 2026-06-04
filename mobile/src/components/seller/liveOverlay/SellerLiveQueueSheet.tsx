@@ -14,7 +14,6 @@ import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { LiveConsoleWarningBanner } from '../liveConsole/LiveConsoleWarningBanner';
 import type { SanitizedLiveError } from '../liveConsole/liveConsoleErrors';
 import { VaultQueueList } from '../liveConsole/VaultQueueList';
-import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { colors, radii, spacing } from '../../../theme';
 
 export function SellerLiveQueueSheet({
@@ -83,7 +82,7 @@ export function SellerLiveQueueSheet({
         >
           <View style={styles.handle} />
           <View style={styles.head}>
-            <Text style={styles.title}>{SELLER_CONSOLE.lineup}</Text>
+            <Text style={styles.title}>Queue</Text>
             <Text style={styles.count}>{queuedCount} waiting · long-press to reorder</Text>
             <Pressable onPress={onClose} hitSlop={12} accessibilityLabel="Close">
               <Ionicons name="close" size={22} color={colors.textSecondary} />

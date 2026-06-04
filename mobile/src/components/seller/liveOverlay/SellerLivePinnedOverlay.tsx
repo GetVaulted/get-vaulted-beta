@@ -4,8 +4,9 @@ import { Platform, StyleSheet, View } from 'react-native';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { VaultPinnedLotCard } from '../liveConsole/VaultPinnedLotCard';
 
-/** Compact broadcast overlay — room for primary Start Auction CTA. */
-export const SELLER_PINNED_OVERLAY_HEIGHT = 184;
+/** Active lot HUD above the next-up rail. */
+export const SELLER_PINNED_OVERLAY_HEIGHT = 152;
+export const SELLER_PINNED_EMPTY_HEIGHT = 56;
 
 export function SellerLivePinnedOverlay({
   bottom,

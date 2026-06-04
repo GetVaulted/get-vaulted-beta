@@ -194,11 +194,17 @@ export function VaultPinnedLotCard({
   });
 
   if (!item) {
+    if (compact) {
+      return (
+        <View style={[styles.empty, styles.emptyCompact]}>
+          <Text style={styles.emptyInline}>No active item · Add or queue a lot</Text>
+        </View>
+      );
+    }
     return (
-      <View style={[styles.empty, compact && styles.emptyCompact]}>
-        <Ionicons name="layers-outline" size={compact ? 20 : 24} color={colors.textMuted} />
-        <Text style={[styles.emptyTitle, compact && styles.emptyTitleCompact]}>Nothing on screen</Text>
-        <Text style={styles.emptySub}>Swipe up · queue a lot</Text>
+      <View style={styles.empty}>
+        <Text style={styles.emptyTitle}>No active item</Text>
+        <Text style={styles.emptySub}>Add or queue a lot from Queue below</Text>
       </View>
     );
   }
@@ -594,8 +600,8 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderStyle: 'dashed',
   },
-  emptyCompact: { padding: spacing.sm },
+  emptyCompact: { paddingVertical: 8, paddingHorizontal: spacing.sm },
+  emptyInline: { fontSize: 12, fontWeight: '700', color: colors.textSecondary, textAlign: 'center' },
   emptyTitle: { fontSize: 14, fontWeight: '800', color: colors.textPrimary },
-  emptyTitleCompact: { fontSize: 12 },
   emptySub: { fontSize: 11, color: colors.textMuted, textAlign: 'center' },
 });
