@@ -17,12 +17,13 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  SELLER_HUB_TABS,
   streamCategories,
   type SellerHubTabId,
   vaultWins,
   walletSnapshot,
 } from '../data/sellerHubMock';
+import { SellerHubTabBar } from '../components/seller/hq/SellerHubTabBar';
+import { mainTabBarClearance } from '../lib/mainTabBarMetrics';
 import { LaunchVaultEventPanel } from './sellerHub/LaunchVaultEventPanel';
 import { SellerShipFromSetupCard } from '../components/seller/hq/SellerShipFromSetupCard';
 import { SellerSetupGatePanel } from '../components/seller/hq/SellerSetupGatePanel';
@@ -225,56 +226,56 @@ export function SellerHubScreen() {
     }
   }, []);
 
+  const vaultEventsPanelProps = {
+    accessToken: session?.access_token,
+    liveGate: cmdData.liveGate,
+    readiness:
+      cmdData.liveReadiness.readinessLoaded && !cmdData.liveReadiness.loading
+        ? cmdData.liveReadiness.readiness
+        : null,
+    readinessLoading: cmdData.liveReadiness.loading,
+    onRefreshReadiness: () => void cmdData.liveReadiness.refresh(),
+    onFixReadiness: (step: 'stripe' | 'ship_from') => {
+      if (step === 'stripe') void openStripeOnboarding();
+      else if (step === 'ship_from') setTab('overview');
+    },
+    onBlockedSchedule: onLiveSetupBlocked,
+    scheduleTitle,
+    setScheduleTitle,
+    scheduleCategory,
+    setScheduleCategory,
+    streamFormat,
+    setStreamFormat,
+    preloadInventory,
+    setPreloadInventory,
+    giveaways,
+    setGiveaways,
+    sellerDisplayName: sellerLaunchMeta.displayName,
+    sellerHandle: sellerLaunchMeta.handle,
+    sellerAvatarUrl: sellerLaunchMeta.avatar,
+    vaultListingCount: userListings.length,
+    mainTabBarClearance: mainTabBarClearance(insets.bottom),
+    onBrowseLive: () => navigation.navigate('Live', { screen: 'LiveDiscovery' }),
+    onHostRoom: (roomId: string) => openSellerHostRoom(navigation, roomId),
+    onViewRecap: (roomId: string) => {
+      const tabNav = navigation.getParent();
+      const root = tabNav?.getParent?.() ?? tabNav;
+      if (root && 'navigate' in root) {
+        (root as { navigate: (n: string, p: { roomId: string }) => void }).navigate('VaultEventRecap', {
+          roomId,
+        });
+      } else if (rootNavigationRef.isReady()) {
+        rootNavigationRef.navigate('VaultEventRecap', { roomId });
+      }
+    },
+  };
+
   const renderTab = () => {
     switch (tab) {
       case 'listings':
         return <ListingsPanel navigation={navigation} inventory={sellerInventory} />;
       case 'live':
-        return (
-          <LaunchVaultEventPanel
-            accessToken={session?.access_token}
-            liveGate={cmdData.liveGate}
-            readiness={
-              cmdData.liveReadiness.readinessLoaded && !cmdData.liveReadiness.loading
-                ? cmdData.liveReadiness.readiness
-                : null
-            }
-            readinessLoading={cmdData.liveReadiness.loading}
-            onRefreshReadiness={() => void cmdData.liveReadiness.refresh()}
-            onFixReadiness={(step) => {
-              if (step === 'stripe') void openStripeOnboarding();
-              else if (step === 'ship_from') setTab('overview');
-            }}
-            onBlockedSchedule={onLiveSetupBlocked}
-            scheduleTitle={scheduleTitle}
-            setScheduleTitle={setScheduleTitle}
-            scheduleCategory={scheduleCategory}
-            setScheduleCategory={setScheduleCategory}
-            streamFormat={streamFormat}
-            setStreamFormat={setStreamFormat}
-            preloadInventory={preloadInventory}
-            setPreloadInventory={setPreloadInventory}
-            giveaways={giveaways}
-            setGiveaways={setGiveaways}
-            sellerDisplayName={sellerLaunchMeta.displayName}
-            sellerHandle={sellerLaunchMeta.handle}
-            sellerAvatarUrl={sellerLaunchMeta.avatar}
-            vaultListingCount={userListings.length}
-            onBrowseLive={() => navigation.navigate('Live', { screen: 'LiveDiscovery' })}
-            onHostRoom={(roomId) => openSellerHostRoom(navigation, roomId)}
-            onViewRecap={(roomId) => {
-              const tabNav = navigation.getParent();
-              const root = tabNav?.getParent?.() ?? tabNav;
-              if (root && 'navigate' in root) {
-                (root as { navigate: (n: string, p: { roomId: string }) => void }).navigate('VaultEventRecap', {
-                  roomId,
-                });
-              } else if (rootNavigationRef.isReady()) {
-                rootNavigationRef.navigate('VaultEventRecap', { roomId });
-              }
-            }}
-          />
-        );
+        return null;
       case 'orders':
         return <OrdersPanel />;
       case 'wallet':
@@ -397,45 +398,30 @@ export function SellerHubScreen() {
       {sellerActivated && tab !== 'live' && tab !== 'listings' ? (
         <SellerHQFab onAction={onFabAction} />
       ) : null}
-      <ScrollView
-        stickyHeaderIndices={[0]}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          tab === 'listings' ? (
-            <RefreshControl
-              refreshing={sellerInventory.refreshing}
-              onRefresh={() => void sellerInventory.refresh()}
-              tintColor={colors.gold}
-            />
-          ) : undefined
-        }
-      >
-        <View style={[styles.tabBarWrap, { backgroundColor: colors.background }]}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.tabRow}
-          >
-            {SELLER_HUB_TABS.map((t) => {
-              const on = tab === t.id;
-              return (
-                <Pressable
-                  key={t.id}
-                  onPress={() => setTab(t.id)}
-                  style={[styles.tabChip, on && styles.tabChipOn]}
-                >
-                  <Text style={[styles.tabChipText, on && styles.tabChipTextOn]}>{t.label}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+      <SellerHubTabBar activeTab={tab} onChangeTab={setTab} />
+      {tab === 'live' ? (
+        <View style={styles.liveTabPane}>
+          <LaunchVaultEventPanel {...vaultEventsPanelProps} />
         </View>
-
-        <View style={styles.tabBody}>{renderTab()}</View>
-        <AccountAccessBar variant="footer" />
-        <View style={{ height: spacing.xxxl + 24 }} />
-      </ScrollView>
+      ) : (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            tab === 'listings' ? (
+              <RefreshControl
+                refreshing={sellerInventory.refreshing}
+                onRefresh={() => void sellerInventory.refresh()}
+                tintColor={colors.gold}
+              />
+            ) : undefined
+          }
+        >
+          <View style={styles.tabBody}>{renderTab()}</View>
+          <AccountAccessBar variant="footer" />
+          <View style={{ height: spacing.lg }} />
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -1034,36 +1020,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 1,
   },
-  tabBarWrap: {
-    paddingVertical: spacing.sm,
+  liveTabPane: {
+    flex: 1,
     marginHorizontal: -spacing.lg,
     paddingHorizontal: spacing.lg,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  tabRow: {
-    gap: spacing.sm,
-    paddingRight: spacing.lg,
-  },
-  tabChip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  tabChipOn: {
-    borderColor: colors.gold,
-    backgroundColor: 'rgba(212,175,55,0.12)',
-  },
-  tabChipText: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  tabChipTextOn: {
-    color: colors.gold,
+    marginTop: spacing.sm,
+    minHeight: 0,
   },
   tabBody: {
     marginTop: spacing.lg,

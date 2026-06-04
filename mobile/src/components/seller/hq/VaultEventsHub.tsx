@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
@@ -53,6 +54,7 @@ export function VaultEventsHub({
   onScheduleNew,
   onBlockedSchedule,
   roomsRefreshKey = 0,
+  mainTabBarClearance,
 }: {
   accessToken?: string;
   liveGate: LiveSalesGate;
@@ -62,14 +64,21 @@ export function VaultEventsHub({
   onScheduleNew: () => void;
   onBlockedSchedule?: () => void;
   roomsRefreshKey?: number;
+  /** Main app tab bar + safe area — keeps FAB and empty state clear of the Live orb. */
+  mainTabBarClearance?: number;
 }) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const [segment, setSegment] = useState<VaultEventSection>('live_now');
   const [rooms, setRooms] = useState<LiveRoomApiRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const liveBlocked = liveGate.blocked;
+  const tabBarClearance = mainTabBarClearance ?? Math.max(insets.bottom, 12) + 72;
+  const fabBottom = tabBarClearance + 12;
+  const fabClearance = fabBottom + 56;
+  const emptyMinHeight = Math.max(280, windowHeight * 0.42 - fabClearance - 120);
 
   const trySchedule = useCallback(() => {
     if (liveBlocked) {
@@ -136,7 +145,10 @@ export function VaultEventsHub({
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={colors.gold} />}
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingBottom: fabClearance, flexGrow: list.length === 0 && !loading ? 1 : 0 },
+        ]}
       >
         <Text style={styles.eyebrow}>Event management</Text>
         <Text style={styles.title}>Vault Events</Text>
@@ -176,14 +188,12 @@ export function VaultEventsHub({
         {loading && list.length === 0 ? (
           <ActivityIndicator color={colors.gold} style={{ marginTop: spacing.xl }} />
         ) : list.length === 0 ? (
-          <View style={styles.empty}>
+          <View style={[styles.empty, { minHeight: emptyMinHeight }]}>
             <Ionicons name="calendar-outline" size={36} color={colors.textMuted} />
             <Text style={styles.emptyTitle}>{EMPTY_COPY[segment].title}</Text>
             <Text style={styles.emptyBody}>{EMPTY_COPY[segment].body}</Text>
             {segment !== 'past' ? (
-              <Pressable style={styles.emptyCta} onPress={trySchedule} disabled={liveBlocked}>
-                <Text style={styles.emptyCtaTxt}>Schedule vault event</Text>
-              </Pressable>
+              <Text style={styles.emptyHint}>Use Schedule Vault Event below to create your first show.</Text>
             ) : null}
           </View>
         ) : (
@@ -200,11 +210,10 @@ export function VaultEventsHub({
             ))}
           </View>
         )}
-        <View style={{ height: 88 }} />
       </ScrollView>
 
       <Pressable
-        style={[styles.fab, { bottom: Math.max(insets.bottom, 12) + 8 }]}
+        style={[styles.fab, { bottom: fabBottom }]}
         onPress={trySchedule}
         disabled={liveBlocked}
         accessibilityRole="button"
@@ -219,8 +228,8 @@ export function VaultEventsHub({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, minHeight: 320 },
-  scroll: { paddingBottom: spacing.md },
+  root: { flex: 1, minHeight: 360 },
+  scroll: {},
   eyebrow: {
     fontSize: 11,
     fontWeight: '800',
@@ -282,22 +291,23 @@ const styles = StyleSheet.create({
   segmentBadgeTxtOn: { color: colors.gold },
   list: { gap: 0 },
   empty: {
+    flex: 1,
     alignItems: 'center',
-    paddingVertical: spacing.xl,
+    justifyContent: 'center',
+    paddingVertical: spacing.lg,
     paddingHorizontal: spacing.lg,
     gap: spacing.sm,
   },
   emptyTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary },
   emptyBody: { fontSize: 13, color: colors.textSecondary, textAlign: 'center', lineHeight: 19 },
-  emptyCta: {
+  emptyHint: {
     marginTop: spacing.sm,
-    paddingVertical: 12,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.gold,
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 17,
   },
-  emptyCtaTxt: { fontSize: 14, fontWeight: '800', color: colors.gold },
   fab: {
     position: 'absolute',
     right: spacing.md,

@@ -113,8 +113,10 @@ const styles = StyleSheet.create({
   startCompact: {
     borderRadius: radii.pill,
     backgroundColor: colors.gold,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    minHeight: 44,
+    justifyContent: 'center',
     alignItems: 'center',
   },
   startCompactTxt: {
@@ -127,8 +129,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(244,63,94,0.55)',
     backgroundColor: 'rgba(76,5,25,0.72)',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 44,
+    justifyContent: 'center',
     alignItems: 'center',
   },
   stopCompactTxt: {

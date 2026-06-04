@@ -16,7 +16,6 @@ import { AddInventoryModal } from '../liveConsole/AddInventoryModal';
 import { LiveConsoleWarningBanner } from '../liveConsole/LiveConsoleWarningBanner';
 import type { SanitizedLiveError } from '../liveConsole/liveConsoleErrors';
 import { SellerLiveStreamBackdrop } from './SellerLiveStreamBackdrop';
-import { SellerCameraFlipButton } from './SellerCameraFlipButton';
 import type { MobileHostBroadcastPhase, SellerCameraPermissionState } from '../../../hooks/useMobileStagePublish';
 import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
 import { useSellerLiveConsole } from '../../../hooks/useSellerLiveConsole';
@@ -115,7 +114,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   const canEnd = host.room?.status === 'live';
   const streamTitle = host.room?.title ?? 'Live show';
   const publicUrl = webLiveRoomUrl(roomId) ?? '';
-  const actionBarTop = insets.top + 52;
+  const actionBarTop = insets.top + 56;
+  const actionBarHeight = 56;
 
   const dockBottom = Math.max(insets.bottom + 12, spacing.md);
   const commerceBottom = dockBottom;
@@ -201,15 +201,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         onGoLive={onGoLive}
         onStopStream={host.onStopBroadcast}
         viewerCount={console.viewerCount}
+        showCameraFlip={host.stageWebrtcEnabled && host.showCameraPreview}
+        cameraFlipDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
+        onFlipCamera={host.onFlipCamera}
       />
-
-      <View style={[styles.flipWrap, { top: insets.top + 56, right: spacing.md }]}>
-        <SellerCameraFlipButton
-          visible={host.stageWebrtcEnabled && host.showCameraPreview}
-          disabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
-          onPress={host.onFlipCamera}
-        />
-      </View>
 
       <SellerLiveOverlayRail
         bottom={railBottom}
@@ -274,7 +269,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
       ) : null}
 
       {host.stageWebrtcEnabled && !roomLive && host.showCameraPreview ? (
-        <View style={[styles.previewHint, { top: actionBarTop + 44 }]}>
+        <View style={[styles.previewHint, { top: actionBarTop + actionBarHeight + 6 }]}>
           <Text style={styles.previewHintTxt}>{SELLER_CONSOLE.previewHint}</Text>
         </View>
       ) : null}
@@ -349,14 +344,10 @@ const styles = StyleSheet.create({
     right: spacing.sm,
     zIndex: 20,
   },
-  flipWrap: {
-    position: 'absolute',
-    zIndex: 14,
-  },
   previewHint: {
     position: 'absolute',
     left: spacing.md,
-    right: spacing.md + 56,
+    right: spacing.md,
     zIndex: 12,
   },
   previewHintTxt: {

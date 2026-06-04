@@ -25,7 +25,8 @@ export function CreateVaultEventReadinessChecklist({
   onFixShipFrom: () => void;
 }) {
   const checks = readiness?.checks ?? {};
-  const canGoLive = readiness?.canGoLive === true;
+  const verified = readiness !== null && !loading;
+  const canGoLive = verified && readiness.canGoLive === true;
   const stripeOk =
     canGoLive ||
     (checks.hasStripeAccount === true && checks.stripeChargesEnabled === true);
@@ -38,7 +39,7 @@ export function CreateVaultEventReadinessChecklist({
         <Text style={styles.title}>Go live readiness</Text>
         {loading ? (
           <Text style={styles.badgeMuted}>Checking…</Text>
-        ) : !readiness ? (
+        ) : !verified ? (
           <Text style={styles.badgeMuted}>Not verified</Text>
         ) : canGoLive ? (
           <Text style={styles.badgeReady}>Ready</Text>
