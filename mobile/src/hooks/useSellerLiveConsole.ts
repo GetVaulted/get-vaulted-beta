@@ -9,6 +9,7 @@ import {
   type LiveRoomItemRow,
 } from '../api/liveRoomControlRepository';
 import type { AddInventoryChoice } from '../components/seller/liveConsole/AddInventoryModal';
+import type { AuctionPricingValues } from '../lib/liveAuctionPricing';
 import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
 import { DEFAULT_AUCTION_SEC } from '../components/seller/liveConsole/VaultPinnedLotCard';
@@ -40,6 +41,7 @@ export function useSellerLiveConsole({
   const [busy, setBusy] = useState(false);
   const [startingAuction, setStartingAuction] = useState(false);
   const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [pricingEditItem, setPricingEditItem] = useState<LiveRoomItemRow | null>(null);
   const [quickTitle, setQuickTitle] = useState('');
   const [consoleError, setConsoleError] = useState<SanitizedLiveError | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -148,20 +150,38 @@ export function useSellerLiveConsole({
     }
   };
 
-  const onAddLot = (title: string) => {
+  const onAddLot = (title: string, pricing?: AuctionPricingValues) => {
     const t = title.trim();
     if (!t) {
       Alert.alert('Title required', 'Name your lot for the vault queue.');
       return;
     }
     void run(async () => {
-      await createLiveRoomQueueItem(accessToken, roomId, { title: t });
+      await createLiveRoomQueueItem(accessToken, roomId, {
+        title: t,
+        startingBidUsd: pricing?.startingBidUsd ?? null,
+        bidIncrementUsd: pricing?.bidIncrementUsd ?? null,
+        reservePriceUsd: pricing?.reservePriceUsd ?? null,
+        priceUsd: pricing?.buyNowPriceUsd ?? null,
+      });
       setQuickTitle('');
       setInventoryOpen(false);
     });
   };
 
-  const onInventorySelect = (id: AddInventoryChoice) => {
+  const onSaveQueuePricing = (itemId: string, pricing: AuctionPricingValues) => {
+    void run(async () => {
+      await patchLiveRoomItem(accessToken, roomId, itemId, {
+        startingBidUsd: pricing.startingBidUsd,
+        bidIncrementUsd: pricing.bidIncrementUsd,
+        reservePriceUsd: pricing.reservePriceUsd,
+        priceUsd: pricing.buyNowPriceUsd,
+      });
+      setPricingEditItem(null);
+    });
+  };
+
+  const onInventorySelect = (id: AddInventoryChoice, pricing?: AuctionPricingValues) => {
     if (id === 'scan') {
       Alert.alert('Scan card', 'Card scanning is coming to your vault lane.');
       return;
@@ -176,7 +196,7 @@ export function useSellerLiveConsole({
       void openCreateListing(navigation, { channel: 'live_show' });
       return;
     }
-    onAddLot(quickTitle || 'Vault lot');
+    onAddLot(quickTitle || 'Vault lot', pricing);
   };
 
   const onReorder = (ordered: LiveRoomItemRow[]) => {
@@ -257,6 +277,9 @@ export function useSellerLiveConsole({
     startingAuction,
     inventoryOpen,
     setInventoryOpen,
+    pricingEditItem,
+    setPricingEditItem,
+    onSaveQueuePricing,
     quickTitle,
     setQuickTitle,
     consoleError,

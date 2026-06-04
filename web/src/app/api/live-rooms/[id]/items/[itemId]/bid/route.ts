@@ -78,6 +78,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
         currentBidUsd: true,
         startingBidUsd: true,
         priceUsd: true,
+        bidIncrementUsd: true,
         biddingOpen: true,
         auctionEndsAt: true,
         clutchTimeEnabled: true,

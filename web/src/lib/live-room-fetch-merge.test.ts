@@ -23,6 +23,8 @@ function item(id: string, itemVersion: number, patch: Partial<LiveRoomItemDTO> =
     imageUrl: patch.imageUrl ?? "",
     priceUsd: patch.priceUsd ?? 1,
     startingBidUsd: patch.startingBidUsd ?? 1,
+    bidIncrementUsd: patch.bidIncrementUsd ?? null,
+    reservePriceUsd: patch.reservePriceUsd ?? null,
     currentBidUsd: patch.currentBidUsd ?? null,
     lastHighBidderId: patch.lastHighBidderId ?? null,
     lastHighBidderUsername: patch.lastHighBidderUsername ?? null,

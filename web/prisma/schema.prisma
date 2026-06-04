@@ -906,6 +906,10 @@ model LiveRoomItem {
   imageUrl       String             @default("")
   priceUsd       Float?
   startingBidUsd Float?
+  /// Minimum raise per bid when set; otherwise server default increment curve applies.
+  bidIncrementUsd Float?
+  /// Optional reserve (hidden minimum to sell).
+  reservePriceUsd Float?
   currentBidUsd  Float?
   status         LiveRoomItemStatus @default(queued)
   sortOrder      Int                @default(0)

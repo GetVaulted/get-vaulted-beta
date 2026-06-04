@@ -12,6 +12,8 @@ type PostBody = {
   imageUrl?: string;
   priceUsd?: number | null;
   startingBidUsd?: number | null;
+  bidIncrementUsd?: number | null;
+  reservePriceUsd?: number | null;
   sortOrder?: number;
   teamBoardMisc?: boolean;
   /** Units on this single queue row (one tile). Max 512. */
@@ -76,6 +78,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const priceUsd = typeof body.priceUsd === "number" && Number.isFinite(body.priceUsd) ? body.priceUsd : null;
   const startingBidUsd =
     typeof body.startingBidUsd === "number" && Number.isFinite(body.startingBidUsd) ? body.startingBidUsd : null;
+  const bidIncrementUsd =
+    typeof body.bidIncrementUsd === "number" && Number.isFinite(body.bidIncrementUsd) && body.bidIncrementUsd > 0
+      ? body.bidIncrementUsd
+      : null;
+  const reservePriceUsd =
+    typeof body.reservePriceUsd === "number" && Number.isFinite(body.reservePriceUsd) && body.reservePriceUsd > 0
+      ? body.reservePriceUsd
+      : null;
 
   const maxSort = await prisma.liveRoomItem.aggregate({
     where: { liveRoomId },
@@ -108,6 +118,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     imageUrl,
     priceUsd: isVariantSalesFormat(salesFormat) ? (variantDrafts[0]?.priceUsd ?? priceUsd) : priceUsd,
     startingBidUsd: startingBidFinal,
+    bidIncrementUsd,
+    reservePriceUsd,
     currentBidUsd,
     status: "queued" as const,
     sortOrder,

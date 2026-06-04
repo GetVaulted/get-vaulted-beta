@@ -13,6 +13,7 @@ import {
 import { SellerLiveComposer } from './SellerLiveComposer';
 import { SellerLiveGestureLayer } from './SellerLiveGestureLayer';
 import { AddInventoryModal } from '../liveConsole/AddInventoryModal';
+import { EditQueueItemPricingModal } from '../liveConsole/EditQueueItemPricingModal';
 import { LiveConsoleWarningBanner } from '../liveConsole/LiveConsoleWarningBanner';
 import type { SanitizedLiveError } from '../liveConsole/liveConsoleErrors';
 import { SellerLiveStreamBackdrop } from './SellerLiveStreamBackdrop';
@@ -294,6 +295,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         onLaunch={console.onLaunch}
         onRemove={console.onRemove}
         onReorder={console.onReorder}
+        onEditPricing={(item) => console.setPricingEditItem(item)}
       />
 
       <SellerLiveBroadcastSheet
@@ -330,6 +332,14 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         onChangeQuickTitle={console.setQuickTitle}
         onClose={() => console.setInventoryOpen(false)}
         onSelect={console.onInventorySelect}
+        showAuctionPricing={console.auctionRoom}
+        pricingBusy={console.busy}
+      />
+      <EditQueueItemPricingModal
+        item={console.pricingEditItem}
+        busy={console.busy}
+        onClose={() => console.setPricingEditItem(null)}
+        onSave={console.onSaveQueuePricing}
       />
     </View>
     </SellerLiveGestureLayer>

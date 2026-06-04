@@ -30,6 +30,7 @@ export function SellerLiveQueueSheet({
   onLaunch,
   onRemove,
   onReorder,
+  onEditPricing,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -44,6 +45,7 @@ export function SellerLiveQueueSheet({
   onLaunch: (item: LiveRoomItemRow) => void;
   onRemove: (item: LiveRoomItemRow) => void;
   onReorder: (ordered: LiveRoomItemRow[]) => void;
+  onEditPricing?: (item: LiveRoomItemRow) => void;
 }) {
   const insets = useSafeAreaInsets();
 
@@ -75,6 +77,7 @@ export function SellerLiveQueueSheet({
                 onLaunch={onLaunch}
                 onRemove={onRemove}
                 onReorder={onReorder}
+                onEditPricing={onEditPricing}
               />
             )}
           </ScrollView>

@@ -56,6 +56,8 @@ export type LiveRoomItemDTO = {
   imageUrl: string;
   priceUsd: number | null;
   startingBidUsd: number | null;
+  bidIncrementUsd: number | null;
+  reservePriceUsd: number | null;
   currentBidUsd: number | null;
   /** Current auction leader for live-room bids (persisted on `LiveRoomItem`). */
   lastHighBidderId: string | null;
@@ -230,6 +232,8 @@ export function serializeLiveRoomItem(
     imageUrl: row.imageUrl,
     priceUsd: row.priceUsd,
     startingBidUsd: row.startingBidUsd,
+    bidIncrementUsd: row.bidIncrementUsd,
+    reservePriceUsd: row.reservePriceUsd,
     currentBidUsd: row.currentBidUsd,
     lastHighBidderId,
     lastHighBidderUsername: null,

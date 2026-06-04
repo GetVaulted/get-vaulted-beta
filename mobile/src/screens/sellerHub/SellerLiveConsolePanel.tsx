@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useSellerLiveConsole } from '../../hooks/useSellerLiveConsole';
 import { AddInventoryModal } from '../../components/seller/liveConsole/AddInventoryModal';
+import { EditQueueItemPricingModal } from '../../components/seller/liveConsole/EditQueueItemPricingModal';
 import { liveConsoleStyles } from '../../components/seller/liveConsole/liveConsoleTheme';
 import { LiveConsoleWarningBanner } from '../../components/seller/liveConsole/LiveConsoleWarningBanner';
 import { VaultPinnedLotCard } from '../../components/seller/liveConsole/VaultPinnedLotCard';
@@ -79,6 +80,7 @@ export function SellerLiveConsolePanel({
               onLaunch={c.onLaunch}
               onRemove={c.onRemove}
               onReorder={c.onReorder}
+              onEditPricing={(item) => c.setPricingEditItem(item)}
             />
           </>
         )}
@@ -98,6 +100,14 @@ export function SellerLiveConsolePanel({
         onChangeQuickTitle={c.setQuickTitle}
         onClose={() => c.setInventoryOpen(false)}
         onSelect={c.onInventorySelect}
+        showAuctionPricing={c.auctionRoom}
+        pricingBusy={c.busy}
+      />
+      <EditQueueItemPricingModal
+        item={c.pricingEditItem}
+        busy={c.busy}
+        onClose={() => c.setPricingEditItem(null)}
+        onSave={c.onSaveQueuePricing}
       />
     </View>
   );

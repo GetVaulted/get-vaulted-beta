@@ -9,12 +9,21 @@ export type LiveAuctionBidContext = {
   currentBidUsd: number | null;
   startingBidUsd?: number | null;
   priceUsd?: number | null;
+  bidIncrementUsd?: number | null;
   lastHighBidderId?: string | null;
 };
 
 function minNextBidUsd(currentHighUsd: number): number {
   const inc = Math.max(1, Math.ceil(currentHighUsd / 25));
   return currentHighUsd + inc;
+}
+
+function incrementForItem(item: LiveAuctionBidContext, currentHighUsd: number): number {
+  const custom = item.bidIncrementUsd;
+  if (typeof custom === 'number' && Number.isFinite(custom) && custom > 0) {
+    return Math.max(1, Math.floor(custom));
+  }
+  return minNextBidUsd(currentHighUsd) - currentHighUsd;
 }
 
 export function liveAuctionOpeningUsd(item: LiveAuctionBidContext): number {
@@ -29,5 +38,5 @@ export function liveAuctionMinBidUsd(item: LiveAuctionBidContext): number {
     return open > 0 ? open : minNextBidUsd(0);
   }
   const high = item.currentBidUsd ?? liveAuctionOpeningUsd(item);
-  return minNextBidUsd(high);
+  return high + incrementForItem(item, high);
 }

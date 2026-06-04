@@ -16,6 +16,8 @@ export type LiveRoomItemRow = {
   quantity?: number;
   currentBidUsd: number | null;
   startingBidUsd: number | null;
+  bidIncrementUsd?: number | null;
+  reservePriceUsd?: number | null;
   priceUsd: number | null;
   biddingOpen: boolean;
   auctionEndsAt: string | null;
@@ -87,7 +89,14 @@ export async function fetchLiveRoomDetailWithItems(
 export async function createLiveRoomQueueItem(
   accessToken: string,
   roomId: string,
-  input: { title: string; listingId?: string | null; startingBidUsd?: number | null; priceUsd?: number | null },
+  input: {
+    title: string;
+    listingId?: string | null;
+    startingBidUsd?: number | null;
+    bidIncrementUsd?: number | null;
+    reservePriceUsd?: number | null;
+    priceUsd?: number | null;
+  },
 ): Promise<void> {
   const res = await controlFetch(`/api/live-rooms/${encodeURIComponent(roomId)}/items`, accessToken, {
     method: 'POST',
@@ -95,6 +104,8 @@ export async function createLiveRoomQueueItem(
       title: input.title.trim(),
       listingId: input.listingId ?? null,
       startingBidUsd: input.startingBidUsd ?? null,
+      bidIncrementUsd: input.bidIncrementUsd ?? null,
+      reservePriceUsd: input.reservePriceUsd ?? null,
       priceUsd: input.priceUsd ?? null,
     }),
   });

@@ -23,6 +23,10 @@ const STATUSES: LiveRoomItemStatus[] = ["queued", "active", "sold", "skipped"];
 type PatchBody = {
   status?: string;
   currentBidUsd?: number | null;
+  startingBidUsd?: number | null;
+  priceUsd?: number | null;
+  bidIncrementUsd?: number | null;
+  reservePriceUsd?: number | null;
   sortOrder?: number;
   /** When `startAuction`, set with `auctionDurationSec` to open timed bidding on the active lot. */
   action?: string;
@@ -337,16 +341,44 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
   const data: {
     status?: LiveRoomItemStatus;
     currentBidUsd?: number | null;
+    startingBidUsd?: number | null;
+    priceUsd?: number | null;
+    bidIncrementUsd?: number | null;
+    reservePriceUsd?: number | null;
     sortOrder?: number;
     biddingOpen?: boolean;
     auctionEndsAt?: Date | null;
     clutchTimeEnabled?: boolean;
   } = {};
 
+  const pricingLocked = item.biddingOpen || item.status === "sold";
+
   if (status) data.status = status as LiveRoomItemStatus;
   if ("currentBidUsd" in body) {
     if (body.currentBidUsd == null || (typeof body.currentBidUsd === "number" && Number.isFinite(body.currentBidUsd))) {
       data.currentBidUsd = typeof body.currentBidUsd === "number" ? body.currentBidUsd : null;
+    }
+  }
+  if (!pricingLocked) {
+    if ("startingBidUsd" in body) {
+      const sb = body.startingBidUsd;
+      if (sb == null) data.startingBidUsd = 1;
+      else if (typeof sb === "number" && Number.isFinite(sb) && sb > 0) data.startingBidUsd = sb;
+    }
+    if ("priceUsd" in body) {
+      const px = body.priceUsd;
+      data.priceUsd =
+        px == null ? null : typeof px === "number" && Number.isFinite(px) && px > 0 ? px : null;
+    }
+    if ("bidIncrementUsd" in body) {
+      const inc = body.bidIncrementUsd;
+      data.bidIncrementUsd =
+        inc == null ? null : typeof inc === "number" && Number.isFinite(inc) && inc > 0 ? inc : null;
+    }
+    if ("reservePriceUsd" in body) {
+      const rv = body.reservePriceUsd;
+      data.reservePriceUsd =
+        rv == null ? null : typeof rv === "number" && Number.isFinite(rv) && rv > 0 ? rv : null;
     }
   }
   if (typeof body.sortOrder === "number" && Number.isFinite(body.sortOrder)) {

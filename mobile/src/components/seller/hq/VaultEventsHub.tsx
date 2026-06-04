@@ -313,7 +313,7 @@ export function VaultEventsHub({
             {
               paddingBottom: contentPaddingBottom,
               flexGrow: 1,
-              minHeight: showEmpty && contentAreaHeight > 0 ? contentAreaHeight : undefined,
+              minHeight: contentAreaHeight > 0 ? contentAreaHeight : undefined,
             },
           ]}
         >
