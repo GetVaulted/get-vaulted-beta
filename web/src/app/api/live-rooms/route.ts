@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { parseTeamBoardLeague } from "@/lib/team-board-sets";
 import { emitLiveDiscoveryChanged } from "@/lib/realtime-emit-server";
 import { buildLiveTipRoomData } from "@/lib/live-tip-moderator";
+import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
 
 const ROOM_TYPES: LiveRoomType[] = ["auction", "sale", "break"];
 
@@ -153,10 +154,71 @@ type PostBody = {
   tipsToModerator?: boolean;
 };
 
+function peekBearerJwtSub(req: Request): string | null {
+  const auth = req.headers.get("authorization");
+  if (!auth?.startsWith("Bearer ")) return null;
+  const jwt = auth.slice("Bearer ".length).trim();
+  const part = jwt.split(".")[1];
+  if (!part) return null;
+  try {
+    const json = JSON.parse(Buffer.from(part.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")) as {
+      sub?: string;
+    };
+    return typeof json.sub === "string" ? json.sub : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(req: Request) {
+  const jwtSub = peekBearerJwtSub(req);
   const auth = await resolveLiveRoomsUserId(req);
-  if (auth instanceof NextResponse) return auth;
+  if (auth instanceof NextResponse) {
+    let body: { error?: string; code?: string } = {};
+    try {
+      body = (await auth.clone().json()) as typeof body;
+    } catch {
+      /* ignore */
+    }
+    console.warn("[api POST /api/live-rooms] auth rejected", {
+      status: auth.status,
+      jwtSub,
+      code: body.code ?? null,
+      error: body.error ?? null,
+    });
+    return auth;
+  }
   const sellerId = auth.userId;
+
+  const readiness = await getSellerLiveReadiness(sellerId);
+  if (!readiness.canGoLive) {
+    const issues = readiness.issues.filter((i) => i.trim().length > 0);
+    console.warn("[api POST /api/live-rooms] live not ready", {
+      sellerId,
+      userId: sellerId,
+      jwtSub,
+      jwtSellerMismatch: Boolean(jwtSub && jwtSub !== sellerId),
+      issues,
+      checks: readiness.checks,
+    });
+    return NextResponse.json(
+      {
+        error: issues[0] ?? "Complete seller setup before creating a live room.",
+        code: "LIVE_NOT_READY",
+        issues,
+        sellerUserId: sellerId,
+      },
+      { status: 403 },
+    );
+  }
+
+  console.info("[api POST /api/live-rooms] authorized", {
+    sellerId,
+    userId: sellerId,
+    jwtSub,
+    jwtSellerMismatch: Boolean(jwtSub && jwtSub !== sellerId),
+    canGoLive: true,
+  });
 
   let body: PostBody;
   try {

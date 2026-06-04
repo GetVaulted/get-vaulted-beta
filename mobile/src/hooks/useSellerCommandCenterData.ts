@@ -78,7 +78,7 @@ export function useSellerCommandCenterData(accessToken: string | undefined, vaul
     () =>
       resolveLiveSalesGate(
         sellerConnect.status,
-        liveReadiness.readinessLoaded ? liveReadiness.readiness : null,
+        liveReadiness.readinessLoaded && !liveReadiness.loading ? liveReadiness.readiness : null,
         { connectLoading: sellerConnect.loading, readinessLoading: liveReadiness.loading },
       ),
     [

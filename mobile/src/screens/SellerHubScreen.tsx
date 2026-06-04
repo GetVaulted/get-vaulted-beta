@@ -234,7 +234,11 @@ export function SellerHubScreen() {
           <LaunchVaultEventPanel
             accessToken={session?.access_token}
             liveGate={cmdData.liveGate}
-            readiness={cmdData.liveReadiness.readiness}
+            readiness={
+              cmdData.liveReadiness.readinessLoaded && !cmdData.liveReadiness.loading
+                ? cmdData.liveReadiness.readiness
+                : null
+            }
             readinessLoading={cmdData.liveReadiness.loading}
             onRefreshReadiness={() => void cmdData.liveReadiness.refresh()}
             onFixReadiness={(step) => {

@@ -20,8 +20,8 @@ export function getNextLiveReadinessStep(
 }
 
 /**
- * Single gate for schedule / host entry on mobile — prefers `/api/seller/live-readiness`
- * (Stripe + ship-from) and falls back to Connect status when readiness is unavailable.
+ * Single gate for schedule / host entry on mobile — requires `/api/seller/live-readiness`
+ * (same source as POST /api/live-rooms). Does not infer "Ready" from Stripe connect alone.
  */
 export function resolveLiveSalesGate(
   connect: SellerConnectStatusResponse | null | undefined,
@@ -30,10 +30,10 @@ export function resolveLiveSalesGate(
 ): LiveSalesGate {
   if (opts?.connectLoading || opts?.readinessLoading) {
     return {
-      blocked: false,
+      blocked: true,
       bannerMessage: null,
       alertTitle: 'Checking setup',
-      alertBody: 'One moment while we verify your seller setup.',
+      alertBody: 'One moment while we verify your seller setup from the server.',
       nextStep: null,
     };
   }
@@ -65,27 +65,13 @@ export function resolveLiveSalesGate(
     };
   }
 
-  const stripeConfigured = connect?.stripeConfigured === true;
-  const stripeBlocked = stripeConfigured && connect?.can_host_live_sales === false;
-  if (stripeBlocked) {
-    const body =
-      connect?.message_onboarding?.trim() ||
-      connect?.message_payouts?.trim() ||
-      'Finish Stripe payout setup before scheduling or hosting live events.';
-    return {
-      blocked: true,
-      bannerMessage: body,
-      alertTitle: 'Payout setup required',
-      alertBody: body,
-      nextStep: 'stripe',
-    };
-  }
-
+  // Readiness API failed or never loaded — do not infer "Ready" from Stripe connect alone.
   return {
-    blocked: false,
-    bannerMessage: null,
-    alertTitle: 'Ready to go live',
-    alertBody: '',
+    blocked: true,
+    bannerMessage: 'Could not verify go-live readiness. Pull to refresh or try again.',
+    alertTitle: 'Setup check unavailable',
+    alertBody:
+      'We could not confirm payout and shipping setup from the server. Check your connection, then open Create Vault Event again.',
     nextStep: null,
   };
 }

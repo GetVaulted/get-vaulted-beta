@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSessionSafe } from "@/lib/auth";
 import { requireUserIdFromSupabaseBearer } from "@/lib/require-supabase-bearer";
+import { resolveAccountSellerUserId } from "@/lib/resolve-account-seller-user";
 
 /** Signed-in viewer id when present; null for guests or invalid Bearer (public room GET). */
 export async function resolveOptionalLiveRoomsUserId(request: Request): Promise<string | null> {
@@ -13,18 +14,14 @@ export async function resolveOptionalLiveRoomsUserId(request: Request): Promise<
   return session?.user?.id ?? null;
 }
 
-/** Web session (cookies) or mobile `Authorization: Bearer` (Supabase JWT). */
+/**
+ * Authenticated seller/user id for live-room mutations and `mine=1` lists.
+ * Uses the same resolution as `/api/seller/live-readiness` (email rebind, account seller row).
+ */
 export async function resolveLiveRoomsUserId(
   request: Request,
 ): Promise<{ userId: string } | NextResponse> {
-  const authHeader = request.headers.get("authorization");
-  if (authHeader?.startsWith("Bearer ")) {
-    return requireUserIdFromSupabaseBearer(request);
-  }
-
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Sign in to create a live room." }, { status: 401 });
-  }
-  return { userId: session.user.id };
+  const auth = await resolveAccountSellerUserId(request);
+  if (auth instanceof NextResponse) return auth;
+  return { userId: auth.userId };
 }

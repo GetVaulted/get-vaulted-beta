@@ -18,8 +18,9 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createLiveRoom, streamFormatToRoomType } from '../../../api/liveRoomsRepository';
-import { logVaultCommandCenter } from '../../../lib/logVaultCommandCenterFlow';
-import type { SellerLiveReadiness } from '../../../api/liveHostRepository';
+import { fetchSellerLiveReadiness, type SellerLiveReadiness } from '../../../api/liveHostRepository';
+import { logVaultCommandCenter, supabaseJwtSub } from '../../../lib/logVaultCommandCenterFlow';
+import { resolveSellerAccessToken } from '../../../lib/resolveSellerAccessToken';
 import { uploadListingImageViaWeb } from '../../../api/webListingsRepository';
 import {
   alignScheduleToQuarterHour,
@@ -111,17 +112,25 @@ export function ScheduleVaultEventModal({
   const [tipModeratorId, setTipModeratorId] = useState<string | null>(null);
   const [tipModeratorUsername, setTipModeratorUsername] = useState('');
   const [tipsToModerator, setTipsToModerator] = useState(false);
+  const [modalReadinessBusy, setModalReadinessBusy] = useState(false);
 
   const titleComplete = scheduleTitle.trim().length > 0;
   const readinessOk = readiness?.canGoLive === true;
-  const liveBlocked = liveGate.blocked || !readinessOk;
+  const readinessKnown = readiness !== null && !modalReadinessBusy;
+  const liveBlocked = liveGate.blocked || !readinessKnown || !readinessOk;
   const isBreak = streamFormat === 'break';
 
   useEffect(() => {
-    if (visible) {
-      onRefreshReadiness?.();
-      setSubmitError(null);
-    }
+    if (!visible) return;
+    setSubmitError(null);
+    setModalReadinessBusy(true);
+    void (async () => {
+      try {
+        await onRefreshReadiness?.();
+      } finally {
+        setModalReadinessBusy(false);
+      }
+    })();
   }, [visible, onRefreshReadiness]);
 
   const resetThumb = useCallback(() => {
@@ -168,15 +177,40 @@ export function ScheduleVaultEventModal({
       Alert.alert(liveGate.alertTitle, liveGate.alertBody);
       return;
     }
-    if (!readinessOk) {
-      Alert.alert(
-        'Complete setup first',
-        readiness?.issues.join('\n\n') || 'Finish payout and shipping setup before creating a show.',
-      );
+    let token: string;
+    try {
+      token = await resolveSellerAccessToken(accessToken);
+    } catch {
+      Alert.alert('Sign in required', 'Sign in to create a vault event.');
       return;
     }
-    if (!accessToken) {
-      Alert.alert('Sign in required', 'Sign in to create a vault event.');
+
+    let freshReadiness: SellerLiveReadiness | null = null;
+    try {
+      freshReadiness = await fetchSellerLiveReadiness(token);
+      const sessionSub = supabaseJwtSub(token);
+      logVaultCommandCenter('create_preflight_readiness', {
+        canGoLive: freshReadiness.canGoLive,
+        issueCount: freshReadiness.issues.length,
+        sessionSub,
+        sellerId: freshReadiness.sellerUserId ?? null,
+        userId: freshReadiness.sellerUserId ?? sessionSub,
+        sessionSellerMismatch: Boolean(
+          sessionSub && freshReadiness.sellerUserId && sessionSub !== freshReadiness.sellerUserId,
+        ),
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Could not verify go-live readiness.';
+      setSubmitError(msg);
+      Alert.alert('Setup check failed', msg);
+      return;
+    }
+    if (!freshReadiness.canGoLive) {
+      const body =
+        freshReadiness.issues.filter((i) => i.trim().length > 0).join('\n\n') ||
+        'Finish payout and shipping setup before creating a show.';
+      setSubmitError(body);
+      Alert.alert('Complete setup first', body);
       return;
     }
     const title = scheduleTitle.trim();
@@ -202,22 +236,26 @@ export function ScheduleVaultEventModal({
     setBusy(true);
     setSubmitError(null);
     try {
-      const { id } = await createLiveRoom(accessToken, {
-        title,
-        description: tagline.trim() || undefined,
-        category: scheduleCategory.trim() || 'Other',
-        roomType: streamFormatToRoomType(streamFormat),
-        scheduleMode,
-        scheduledStartAt,
-        thumbnailUrl: thumbUrl.trim() || undefined,
-        teamBoardLeague: isBreak ? teamBoardLeague : undefined,
-        breakTotalSpots: isBreak ? breakSpotsCount : undefined,
-        breakPricingMode: isBreak ? breakPricingMode : undefined,
-        breakSpotPrice: isBreak ? breakSpotPrice : undefined,
-        teamSelectionBoardEnabled: isBreak ? teamBoardEnabled : undefined,
-        tipModeratorId,
-        tipsToModerator,
-      });
+      const { id } = await createLiveRoom(
+        token,
+        {
+          title,
+          description: tagline.trim() || undefined,
+          category: scheduleCategory.trim() || 'Other',
+          roomType: streamFormatToRoomType(streamFormat),
+          scheduleMode,
+          scheduledStartAt,
+          thumbnailUrl: thumbUrl.trim() || undefined,
+          teamBoardLeague: isBreak ? teamBoardLeague : undefined,
+          breakTotalSpots: isBreak ? breakSpotsCount : undefined,
+          breakPricingMode: isBreak ? breakPricingMode : undefined,
+          breakSpotPrice: isBreak ? breakSpotPrice : undefined,
+          teamSelectionBoardEnabled: isBreak ? teamBoardEnabled : undefined,
+          tipModeratorId,
+          tipsToModerator,
+        },
+        { sellerUserId: freshReadiness.sellerUserId ?? null },
+      );
       await notifyLiveDiscoveryChanged();
       onScheduled?.();
       onClose();
@@ -237,7 +275,24 @@ export function ScheduleVaultEventModal({
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       setSubmitError(msg);
-      Alert.alert('Could not create event', msg);
+      const sessionSub = supabaseJwtSub(token);
+      logVaultCommandCenter('create_submit_failed', {
+        message: msg.slice(0, 500),
+        sessionSub,
+        sellerId: freshReadiness.sellerUserId ?? sessionSub,
+        userId: freshReadiness.sellerUserId ?? sessionSub,
+      });
+      const title =
+        msg.includes('suspended') || msg.includes('ACCOUNT_SUSPENDED')
+          ? 'Account suspended'
+          : msg.includes('deleted') || msg.includes('ACCOUNT_DELETED')
+            ? 'Account unavailable'
+            : msg.includes('LIVE_NOT_READY') || msg.includes('Complete seller setup')
+              ? 'Setup required'
+              : msg.includes('Invalid or expired session') || msg.includes('Unauthorized')
+                ? 'Session expired'
+                : 'Could not create event';
+      Alert.alert(title, msg);
     } finally {
       setBusy(false);
     }
@@ -247,15 +302,13 @@ export function ScheduleVaultEventModal({
     breakSpotPrice,
     breakSpotsCount,
     isBreak,
-    liveBlocked,
     liveGate.alertBody,
     liveGate.alertTitle,
     liveGate.blocked,
     onClose,
     onCreated,
+    onRefreshReadiness,
     onScheduled,
-    readiness?.issues,
-    readinessOk,
     scheduleCategory,
     scheduleMode,
     scheduleTitle,
@@ -510,7 +563,7 @@ export function ScheduleVaultEventModal({
 
           <CreateVaultEventReadinessChecklist
             readiness={readiness}
-            loading={readinessLoading}
+            loading={readinessLoading || modalReadinessBusy}
             titleComplete={titleComplete}
             onFixStripe={() => onFixReadiness?.('stripe')}
             onFixShipFrom={() => onFixReadiness?.('ship_from')}

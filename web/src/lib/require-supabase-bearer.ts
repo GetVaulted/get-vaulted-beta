@@ -58,10 +58,18 @@ export async function requireUserIdFromSupabaseBearer(
     select: { accountDeletedAt: true, suspendedAt: true },
   });
   if (accountRow && isAccountDeleted(accountRow)) {
-    return NextResponse.json({ error: "This account has been deleted." }, { status: 403 });
+    console.warn("[requireUserIdFromSupabaseBearer] account deleted", { prismaUserId });
+    return NextResponse.json(
+      { error: "This account has been deleted.", code: "ACCOUNT_DELETED" },
+      { status: 403 },
+    );
   }
   if (accountRow?.suspendedAt) {
-    return NextResponse.json({ error: "This account is suspended." }, { status: 403 });
+    console.warn("[requireUserIdFromSupabaseBearer] account suspended", { prismaUserId });
+    return NextResponse.json(
+      { error: "This account is suspended.", code: "ACCOUNT_SUSPENDED" },
+      { status: 403 },
+    );
   }
 
   try {

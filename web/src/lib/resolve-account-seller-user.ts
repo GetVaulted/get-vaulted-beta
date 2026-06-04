@@ -4,6 +4,26 @@ import { resolveAuthUserForToken } from "@/lib/auth-resolve-user";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
 
+function peekBearerJwtClaims(req: Request): { sub: string | null; email: string | null } {
+  const auth = req.headers.get("authorization");
+  if (!auth?.startsWith("Bearer ")) return { sub: null, email: null };
+  const jwt = auth.slice("Bearer ".length).trim();
+  const part = jwt.split(".")[1];
+  if (!part) return { sub: null, email: null };
+  try {
+    const json = JSON.parse(Buffer.from(part.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")) as {
+      sub?: string;
+      email?: string;
+    };
+    return {
+      sub: typeof json.sub === "string" ? json.sub : null,
+      email: typeof json.email === "string" ? json.email.trim().toLowerCase() : null,
+    };
+  } catch {
+    return { sub: null, email: null };
+  }
+}
+
 function usernameFromEmail(email: string): string {
   const local = email.split("@")[0]?.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase() ?? "seller";
   const cleaned = local.replace(/_+/g, "_").replace(/^_|_$/g, "");
@@ -37,16 +57,17 @@ export async function resolveAccountSellerUserId(
   });
   if (byId) return { userId: byId.id };
 
+  const bearerClaims = peekBearerJwtClaims(req);
   const session = await getServerSessionSafe();
   const resolved = await resolveAuthUserForToken({
     tokenSub: auth.userId,
-    tokenEmail: session?.user?.email ?? undefined,
+    tokenEmail: bearerClaims.email ?? session?.user?.email ?? undefined,
   });
   if (resolved.ok) {
     return { userId: resolved.user.id };
   }
 
-  const email = session?.user?.email?.trim().toLowerCase();
+  const email = bearerClaims.email ?? session?.user?.email?.trim().toLowerCase();
   if (!email) {
     return NextResponse.json(
       {

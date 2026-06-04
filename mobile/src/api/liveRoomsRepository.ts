@@ -4,7 +4,8 @@ import {
   type CreateScheduleMode,
   type TeamBoardLeague,
 } from '../lib/createLiveRoomPayload';
-import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
+import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
+import { logVaultCommandCenter, supabaseJwtSub } from '../lib/logVaultCommandCenterFlow';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { liveRoomCategoryTagsForRow } from '../lib/liveRoomDisplay';
 import { mapListingCategoryToCategoryId } from './listingsFeedRepository';
@@ -79,11 +80,17 @@ function apiErrorMessage(res: Response, body: unknown, apiBase?: string): string
       `Live rooms API error (500)${detail ? `: ${detail}` : ''}. Check Netlify function logs for Prisma/DB issues.`
     );
   }
+  if (code === 'LIVE_NOT_READY') {
+    return errText ?? 'Complete seller setup before creating a live room.';
+  }
   if (status === 403) {
+    if (errText) return errText;
     const host = apiBase ?? 'API host';
-    if (errText) return `${errText} (403 from ${host})${htmlHint}`;
+    if (rawText && !o) {
+      return `Forbidden (403) from ${host}.${htmlHint} The server did not return JSON — check edge/WAF or sign in again.`;
+    }
     return (
-      `Forbidden (403) from ${host}.${htmlHint} Not from live-room auth (public GET). If this persists, check Netlify visitor/WAF rules or rate limits from rapid retries.`
+      `Forbidden (403) from ${host}.${htmlHint} If this persists, sign out and back in, or check Netlify visitor/WAF rules.`
     );
   }
   if (status === 404) {
@@ -96,34 +103,8 @@ function apiErrorMessage(res: Response, body: unknown, apiBase?: string): string
   return `Request failed (${status})`;
 }
 
-function applyBetaAccessHeaders(headers: Headers): void {
-  const basic = process.env.EXPO_PUBLIC_BETA_HTTP_BASIC?.trim();
-  if (!basic || headers.has('Authorization')) return;
-  headers.set('Authorization', basic.startsWith('Basic ') ? basic : `Basic ${basic}`);
-}
-
-async function fetchLiveRoomsApi(
-  path: string,
-  init: RequestInit,
-): Promise<Response> {
-  const base = getWebApiBaseUrl();
-  if (!base) throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
-  const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
-  const headers = new Headers(init.headers);
-  if (!headers.has('Accept')) headers.set('Accept', 'application/json');
-  headers.set('X-GV-Client', 'getvaulted-mobile');
-  if (!headers.has('User-Agent')) headers.set('User-Agent', 'GetVaultedMobile/1.0 (Expo)');
-  applyBetaAccessHeaders(headers);
-  try {
-    return await fetch(url, { ...init, headers, cache: 'no-store' });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(
-      msg.includes('Network request failed') || e instanceof TypeError
-        ? `Could not reach the Vaulted API at ${base}. Check your connection and env.`
-        : msg,
-    );
-  }
+async function fetchLiveRoomsApi(path: string, init: RequestInit): Promise<Response> {
+  return fetchWebApiMobile(path, init);
 }
 
 export function streamFormatToRoomType(format: 'auction' | 'break' | 'hybrid'): LiveRoomApiRow['roomType'] {
@@ -152,10 +133,26 @@ export type CreateLiveRoomInput = {
 export async function createLiveRoom(
   accessToken: string,
   input: CreateLiveRoomInput,
+  logContext?: { sellerUserId?: string | null },
 ): Promise<{ id: string }> {
   const body = buildCreateLiveRoomPayload({
     ...input,
     category: input.category?.trim() || 'Other',
+  });
+  const sessionSub = supabaseJwtSub(accessToken);
+  const sellerId = logContext?.sellerUserId ?? sessionSub;
+  const apiBase = getWebApiBaseUrl();
+  logVaultCommandCenter('room_create_request', {
+    status: 'pending',
+    sessionSub,
+    sellerId,
+    userId: sellerId,
+    sessionSellerMismatch: Boolean(
+      sessionSub && logContext?.sellerUserId && sessionSub !== logContext.sellerUserId,
+    ),
+    roomType: input.roomType,
+    scheduleMode: input.scheduleMode,
+    apiBase,
   });
 
   const res = await fetchLiveRoomsApi('/api/live-rooms', {
@@ -168,15 +165,68 @@ export async function createLiveRoom(
     body: JSON.stringify(body),
   });
 
-  let j: { id?: string; error?: string } = {};
-  try {
-    j = (await res.json()) as typeof j;
-  } catch {
-    /* ignore */
+  const rawText = await res.text();
+  let j: { id?: string; error?: string; code?: string; issues?: string[]; detail?: string } = {};
+  if (rawText) {
+    try {
+      j = JSON.parse(rawText) as typeof j;
+    } catch {
+      j = {};
+    }
   }
-  if (!res.ok) throw new Error(apiErrorMessage(res, j));
-  if (!j.id) throw new Error('Server did not return a room id.');
-  logVaultCommandCenter('room_create_ok', { roomId: j.id, status: res.status });
+
+  if (!res.ok) {
+    const msg = apiErrorMessage(res, rawText || j, apiBase ?? undefined);
+    const issues =
+      Array.isArray(j.issues) && j.issues.length > 0 ? j.issues.join(' · ') : undefined;
+    const fullMsg = issues && !msg.includes(issues) ? `${msg}\n\n${issues}` : msg;
+    const serverSellerId =
+      typeof (j as { sellerUserId?: string }).sellerUserId === 'string'
+        ? (j as { sellerUserId: string }).sellerUserId
+        : null;
+    const resolvedSellerId = serverSellerId ?? sellerId;
+    logVaultCommandCenter('room_create_failed', {
+      status: res.status,
+      code: j.code ?? null,
+      error: j.error ?? null,
+      detail: j.detail?.slice(0, 200) ?? null,
+      bodyPreview: rawText.slice(0, 400),
+      sessionSub,
+      sellerId: resolvedSellerId,
+      userId: resolvedSellerId,
+      sessionSellerMismatch: Boolean(
+        sessionSub && resolvedSellerId && sessionSub !== resolvedSellerId,
+      ),
+    });
+    if (__DEV__ || process.env.EXPO_PUBLIC_LIVE_FETCH_DEBUG === '1') {
+      console.warn('[live-rooms] POST failed', {
+        status: res.status,
+        code: j.code ?? null,
+        error: j.error ?? null,
+        sessionSub,
+        sellerId: resolvedSellerId,
+        body: rawText.slice(0, 500),
+      });
+    }
+    throw new Error(fullMsg);
+  }
+  if (!j.id) {
+    logVaultCommandCenter('room_create_failed', {
+      status: res.status,
+      code: 'NO_ROOM_ID',
+      bodyPreview: rawText.slice(0, 400),
+      sessionSub,
+      sellerIdHint: sessionSub,
+    });
+    throw new Error('Server did not return a room id.');
+  }
+  logVaultCommandCenter('room_create_ok', {
+    roomId: j.id,
+    status: res.status,
+    sessionSub,
+    sellerId,
+    userId: sellerId,
+  });
   return { id: j.id };
 }
 

@@ -1,6 +1,6 @@
 import type { LiveRoomItemRow } from './liveRoomControlRepository';
-import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
-import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
+import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
+import { logVaultCommandCenter, supabaseJwtSub } from '../lib/logVaultCommandCenterFlow';
 
 export type LiveHostApiErrorBody = {
   error?: string;
@@ -55,6 +55,8 @@ export type SellerLiveReadiness = {
   canGoLive: boolean;
   issues: string[];
   checks?: Record<string, boolean>;
+  /** Prisma seller id from `/api/seller/live-readiness` (same auth as POST /api/live-rooms). */
+  sellerUserId?: string;
 };
 
 function parseApiBody(body: unknown): LiveHostApiErrorBody {
@@ -106,15 +108,9 @@ async function hostFetchJson<T>(
 }
 
 async function hostFetch(path: string, accessToken: string, init?: RequestInit): Promise<Response> {
-  const base = getWebApiBaseUrl();
-  if (!base) {
-    throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
-  }
-  const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
-  return fetch(url, {
+  return fetchWebApiMobile(path, {
     ...init,
     headers: {
-      Accept: 'application/json',
       ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
       Authorization: `Bearer ${accessToken}`,
       ...init?.headers,
@@ -147,15 +143,53 @@ export async function fetchLiveRoomForHost(
 }
 
 export async function fetchSellerLiveReadiness(accessToken: string): Promise<SellerLiveReadiness> {
+  const sessionSub = supabaseJwtSub(accessToken);
   const res = await hostFetch('/api/seller/live-readiness', accessToken);
-  let j: SellerLiveReadiness & { error?: string } = { canGoLive: false, issues: [] };
-  try {
-    j = (await res.json()) as typeof j;
-  } catch {
-    /* ignore */
+  const rawText = await res.text();
+  let j: SellerLiveReadiness & { error?: string; code?: string } = { canGoLive: false, issues: [] };
+  if (rawText) {
+    try {
+      j = JSON.parse(rawText) as typeof j;
+    } catch {
+      /* ignore */
+    }
   }
-  if (!res.ok) throw new Error(apiErrorMessage(res, j));
-  return { canGoLive: Boolean(j.canGoLive), issues: Array.isArray(j.issues) ? j.issues : [], checks: j.checks };
+  if (!res.ok) {
+    logVaultCommandCenter('live_readiness_failed', {
+      status: res.status,
+      code: j.code ?? null,
+      error: j.error ?? null,
+      bodyPreview: rawText.slice(0, 400),
+      sessionSub,
+    });
+    throw new Error(apiErrorMessage(res, j.error ? j : rawText));
+  }
+  const sellerUserId =
+    typeof (j as { sellerUserId?: string }).sellerUserId === 'string'
+      ? (j as { sellerUserId: string }).sellerUserId
+      : undefined;
+  logVaultCommandCenter('live_readiness_ok', {
+    status: res.status,
+    canGoLive: j.canGoLive,
+    sessionSub,
+    sellerId: sellerUserId ?? null,
+    userId: sellerUserId ?? null,
+    sessionSellerMismatch: Boolean(sessionSub && sellerUserId && sessionSub !== sellerUserId),
+  });
+  if (__DEV__ || process.env.EXPO_PUBLIC_LIVE_FETCH_DEBUG === '1') {
+    console.log('[live-readiness] ok', {
+      canGoLive: j.canGoLive,
+      sellerUserId: sellerUserId ?? null,
+      sessionSub,
+      mismatch: Boolean(sessionSub && sellerUserId && sessionSub !== sellerUserId),
+    });
+  }
+  return {
+    canGoLive: Boolean(j.canGoLive),
+    issues: Array.isArray(j.issues) ? j.issues : [],
+    checks: j.checks,
+    sellerUserId,
+  };
 }
 
 export async function patchLiveRoomAction(

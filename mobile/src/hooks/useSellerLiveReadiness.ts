@@ -3,8 +3,6 @@ import { AppState } from 'react-native';
 import { fetchSellerLiveReadiness, type SellerLiveReadiness } from '../api/liveHostRepository';
 import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
 
-const EMPTY: SellerLiveReadiness = { canGoLive: false, issues: [] };
-
 export function useSellerLiveReadiness(accessToken: string | undefined) {
   const [readiness, setReadiness] = useState<SellerLiveReadiness | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -17,6 +15,7 @@ export function useSellerLiveReadiness(accessToken: string | undefined) {
       return null;
     }
     setLoading(true);
+    setReadiness(null);
     try {
       const r = await fetchSellerLiveReadiness(accessToken);
       setReadiness(r);
@@ -46,7 +45,7 @@ export function useSellerLiveReadiness(accessToken: string | undefined) {
   }, [refresh]);
 
   return {
-    readiness: readiness ?? EMPTY,
+    readiness,
     readinessLoaded: readiness !== null,
     error,
     loading,

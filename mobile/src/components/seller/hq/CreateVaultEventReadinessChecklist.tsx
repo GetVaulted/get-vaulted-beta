@@ -25,11 +25,12 @@ export function CreateVaultEventReadinessChecklist({
   onFixShipFrom: () => void;
 }) {
   const checks = readiness?.checks ?? {};
-  const stripeOk =
-    checks.hasStripeAccount !== false && checks.stripeChargesEnabled !== false;
-  const shipFromOk = checks.hasShipFromAddress === true;
-  const altCheckoutOk = checks.alternateCheckoutSellerReady !== false;
   const canGoLive = readiness?.canGoLive === true;
+  const stripeOk =
+    canGoLive ||
+    (checks.hasStripeAccount === true && checks.stripeChargesEnabled === true);
+  const shipFromOk = canGoLive || checks.hasShipFromAddress === true;
+  const altCheckoutOk = canGoLive || checks.alternateCheckoutSellerReady === true;
 
   return (
     <View style={styles.card}>
@@ -37,6 +38,8 @@ export function CreateVaultEventReadinessChecklist({
         <Text style={styles.title}>Go live readiness</Text>
         {loading ? (
           <Text style={styles.badgeMuted}>Checking…</Text>
+        ) : !readiness ? (
+          <Text style={styles.badgeMuted}>Not verified</Text>
         ) : canGoLive ? (
           <Text style={styles.badgeReady}>Ready</Text>
         ) : (
