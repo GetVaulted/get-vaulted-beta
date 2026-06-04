@@ -84,6 +84,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   const [startSetupBusy, setStartSetupBusy] = useState(false);
   const stripeReturnRef = useRef(false);
   const stripeBrowserOpenedRef = useRef(false);
+  const stripeLeftAppRef = useRef(false);
   const stripeReturnClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconcileInFlightRef = useRef(false);
   const reconcileAbortRef = useRef(false);
@@ -151,19 +152,26 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
     if (step === 2) {
       stripeReturnRef.current = false;
       stripeBrowserOpenedRef.current = false;
+      stripeLeftAppRef.current = false;
     }
   }, [step]);
 
   useEffect(() => {
     if (!token) return;
     const sub = AppState.addEventListener('change', (next) => {
+      if (step !== 2) return;
+      if (next === 'inactive' || next === 'background') {
+        if (stripeBrowserOpenedRef.current) stripeLeftAppRef.current = true;
+        return;
+      }
       if (
         next === 'active' &&
-        step === 2 &&
         stripeReturnRef.current &&
         stripeBrowserOpenedRef.current &&
+        stripeLeftAppRef.current &&
         !reconcileInFlightRef.current
       ) {
+        stripeLeftAppRef.current = false;
         void reconcilePayoutState({ autoAdvance: true });
       }
     });
@@ -225,20 +233,11 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
     setPayoutContinueStripe(false);
     clearStripeReturnPending();
     try {
-      const result = await openStripeConnectOnboarding(token);
-      if (result === 'cancel') {
-        setPayoutError('Stripe setup was cancelled. Tap Connect payouts to try again.');
-        return;
-      }
+      await openStripeConnectOnboarding(token);
       stripeBrowserOpenedRef.current = true;
+      stripeLeftAppRef.current = false;
       markStripeReturnPending();
-      if (result === 'success') {
-        await reconcilePayoutState({ autoAdvance: true });
-        return;
-      }
-      setPayoutError(
-        'Complete the remaining steps in Stripe, then return to Get Vaulted — we will refresh your payout status automatically.',
-      );
+      setPayoutError(null);
     } catch (e) {
       clearStripeReturnPending();
       stripeBrowserOpenedRef.current = false;

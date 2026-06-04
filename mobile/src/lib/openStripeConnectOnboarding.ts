@@ -1,4 +1,3 @@
-import * as WebBrowser from 'expo-web-browser';
 import { Linking } from 'react-native';
 import {
   createSellerOnboardingLink,
@@ -6,74 +5,26 @@ import {
 } from '../api/stripeConnectRepository';
 import { getWebApiBaseUrl } from './webApiBaseUrl';
 
-export type StripeConnectOnboardingResult =
-  | 'success'
-  | 'cancel'
-  | 'opened_external'
-  | 'dismiss';
+/** Hosted Stripe Connect onboarding opened in the system browser (Safari / Chrome). */
+export type StripeConnectOnboardingResult = 'opened';
 
-const AUTH_SESSION_MIN_MS = 1200;
-
-function logStripeOpen(message: string, data?: Record<string, unknown>): void {
-  console.info('[stripe-connect]', message, data ? JSON.stringify(data) : '');
-}
-
-/** Must match Next.js `return_url` / `refresh_url` in create-onboarding-link (path prefix). */
-export function getStripeConnectReturnUrlPrefix(): string | null {
-  const base = getWebApiBaseUrl();
-  if (!base) return null;
-  return `${base}/mobile/stripe-connect-return`;
-}
-
-async function openStripeUrlWithLinking(stripeUrl: string): Promise<boolean> {
+function stripeUrlMeta(stripeUrl: string): { stripeHost: string; stripeUrlPrefix: string } {
   try {
-    const canOpen = await Linking.canOpenURL(stripeUrl);
-    if (!canOpen) {
-      logStripeOpen('Linking.canOpenURL returned false', { stripeUrl: stripeUrl.slice(0, 96) });
-      return false;
-    }
-    await Linking.openURL(stripeUrl);
-    return true;
-  } catch (e) {
-    logStripeOpen('Linking.openURL failed', {
-      error: e instanceof Error ? e.message : String(e),
-    });
-    return false;
+    const u = new URL(stripeUrl);
+    return { stripeHost: u.host, stripeUrlPrefix: stripeUrl.slice(0, 72) };
+  } catch {
+    return { stripeHost: 'invalid', stripeUrlPrefix: stripeUrl.slice(0, 72) };
   }
-}
-
-async function openStripeUrlWithBrowser(stripeUrl: string): Promise<boolean> {
-  try {
-    await WebBrowser.openBrowserAsync(stripeUrl, {
-      showInRecents: false,
-      presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
-    });
-    return true;
-  } catch (e) {
-    logStripeOpen('openBrowserAsync failed', {
-      error: e instanceof Error ? e.message : String(e),
-    });
-    return false;
-  }
-}
-
-async function openStripeUrlExternal(stripeUrl: string): Promise<void> {
-  if (await openStripeUrlWithLinking(stripeUrl)) return;
-  if (await openStripeUrlWithBrowser(stripeUrl)) return;
-  throw new Error('Could not open Stripe on this device. Check your browser or try again.');
 }
 
 /**
- * Opens Stripe Connect hosted onboarding in an in-app auth session (Safari VC / Chrome Custom Tab).
- * Falls back to Linking / in-app browser when the auth session cannot start.
+ * Opens Stripe Connect hosted onboarding in the system browser via Linking.openURL.
+ * Not OAuth — do not use openAuthSessionAsync. Reconcile after the user returns to the app.
  */
 export async function openStripeConnectOnboarding(
   accessToken: string,
-  opts?: { refreshDepth?: number },
 ): Promise<StripeConnectOnboardingResult> {
-  const refreshDepth = opts?.refreshDepth ?? 0;
-  const returnUrl = getStripeConnectReturnUrlPrefix();
-  if (!returnUrl) {
+  if (!getWebApiBaseUrl()) {
     throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
   }
 
@@ -82,64 +33,24 @@ export async function openStripeConnectOnboarding(
     throw new Error('Server did not return a valid Stripe onboarding URL.');
   }
 
-  logStripeOpen('onboarding_url_ready', {
-    returnUrl,
-    stripeUrlPrefix: stripeUrl.slice(0, 72),
-    stripeHost: (() => {
-      try {
-        return new URL(stripeUrl).host;
-      } catch {
-        return 'invalid';
-      }
-    })(),
-  });
+  const meta = stripeUrlMeta(stripeUrl);
+  console.info('[stripe-connect] onboarding_url_ready', JSON.stringify(meta));
 
+  console.info('[stripe-connect] opening_external_browser');
   try {
-    WebBrowser.dismissAuthSession();
-  } catch {
-    /* no active session */
-  }
-
-  const startedAt = Date.now();
-  let authResult: WebBrowser.WebBrowserAuthSessionResult;
-  try {
-    authResult = await WebBrowser.openAuthSessionAsync(stripeUrl, returnUrl, {
-      showInRecents: false,
-      preferEphemeralSession: false,
-    });
+    const canOpen = await Linking.canOpenURL(stripeUrl);
+    if (!canOpen) {
+      throw new Error('This device cannot open the Stripe onboarding link.');
+    }
+    await Linking.openURL(stripeUrl);
   } catch (e) {
-    logStripeOpen('openAuthSessionAsync threw', {
-      error: e instanceof Error ? e.message : String(e),
-    });
-    await openStripeUrlExternal(stripeUrl);
-    return 'opened_external';
+    const error = e instanceof Error ? e.message : String(e);
+    console.info('[stripe-connect] external_browser_failed', JSON.stringify({ error }));
+    throw new Error(`Could not open Stripe setup: ${error}`);
   }
 
-  const elapsedMs = Date.now() - startedAt;
-  logStripeOpen('auth_session_finished', { type: authResult.type, elapsedMs });
-
-  if (authResult.type === 'success') {
-    const redirectUrl = 'url' in authResult && typeof authResult.url === 'string' ? authResult.url : '';
-    if (elapsedMs < AUTH_SESSION_MIN_MS) {
-      logStripeOpen('auth_session_success_too_fast_retry_external', { elapsedMs, redirectUrl });
-      await openStripeUrlExternal(stripeUrl);
-      return 'opened_external';
-    }
-    if (redirectUrl.includes('refresh=1')) {
-      if (refreshDepth >= 1) return 'dismiss';
-      logStripeOpen('refresh_redirect_reopening');
-      return openStripeConnectOnboarding(accessToken, { refreshDepth: refreshDepth + 1 });
-    }
-    return 'success';
-  }
-
-  if (authResult.type === 'cancel') {
-    return 'cancel';
-  }
-
-  logStripeOpen('auth_session_dismiss_fallback', { elapsedMs });
-  await openStripeUrlExternal(stripeUrl);
-  return 'opened_external';
+  console.info('[stripe-connect] external_browser_opened');
+  return 'opened';
 }
 
 /** Stripe may take a moment to enable payouts after redirect — poll until ready or timeout. */
