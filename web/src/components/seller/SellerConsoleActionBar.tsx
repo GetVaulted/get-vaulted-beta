@@ -7,6 +7,9 @@ import type { HostBroadcastPhase } from "@/hooks/useHostStagePublish";
 type SellerConsoleActionBarProps = {
   onShare: () => void;
   onAddItem: () => void;
+  onOpenLineup?: () => void;
+  lineupCount?: number;
+  lineupActive?: boolean;
   onObs: () => void;
   broadcastPhase: HostBroadcastPhase;
   roomLive: boolean;
@@ -19,6 +22,9 @@ type SellerConsoleActionBarProps = {
 export function SellerConsoleActionBar({
   onShare,
   onAddItem,
+  onOpenLineup,
+  lineupCount = 0,
+  lineupActive = false,
   onObs,
   broadcastPhase,
   roomLive,
@@ -48,6 +54,20 @@ export function SellerConsoleActionBar({
         <span aria-hidden>+</span>
         {SELLER_CONSOLE.addItem}
       </button>
+      {onOpenLineup ? (
+        <button
+          type="button"
+          onClick={onOpenLineup}
+          className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3.5 text-xs font-bold ${
+            lineupActive
+              ? "border-amber-300/45 bg-amber-500/22 text-amber-50"
+              : "border-violet-400/30 bg-violet-500/15 text-violet-100 hover:bg-violet-500/22"
+          }`}
+        >
+          {SELLER_CONSOLE.lineup}
+          {lineupCount > 0 ? <span className="tabular-nums">({lineupCount})</span> : null}
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={onObs}

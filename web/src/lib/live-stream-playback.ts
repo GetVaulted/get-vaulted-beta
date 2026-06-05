@@ -51,15 +51,26 @@ export function parseBuyerSafeStreamPayload(data: unknown): BuyerSafeStreamField
   };
 }
 
+/** True on iOS Safari / iPadOS — used for transport and `<video>` HLS attach decisions. */
+export function isIosLikePlaybackClient(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  return (
+    /iPad|iPhone|iPod/i.test(ua) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
 /** Mobile browsers have flaky IVS Stage WebRTC subscribe — prefer low-latency HLS for reliability. */
 export function preferHlsOverWebrtcOnClient(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent;
-  const ios =
-    /iPad|iPhone|iPod/i.test(ua) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  const android = /Android/i.test(ua);
-  return ios || android;
+  return isIosLikePlaybackClient() || /Android/i.test(ua);
+}
+
+/** iOS must use native `<video src="*.m3u8">` — hls.js MSE path stalls or shows a blank frame. */
+export function preferNativeHlsElementPlayback(): boolean {
+  return isIosLikePlaybackClient();
 }
 
 export function isLiveStreamSignal(streamHealth: string): boolean {

@@ -6,6 +6,7 @@ import {
   isLiveStreamSignal,
   parseBuyerSafeStreamPayload,
   preferHlsOverWebrtcOnClient,
+  preferNativeHlsElementPlayback,
   resolveLivePlaybackSurfaceState,
   shouldAttachHlsPlayback,
 } from "@/lib/live-stream-playback";
@@ -289,6 +290,54 @@ export function LiveVideoStagePlayback({
       el.setAttribute("webkit-playsinline", "");
 
       const canNativeHls = el.canPlayType("application/vnd.apple.mpegurl") !== "";
+      const useNativeHlsFirst = preferNativeHlsElementPlayback() && canNativeHls;
+
+      const attachNativeHls = () => {
+        setDebugEngine("native");
+        el.removeAttribute("src");
+        el.load();
+        el.src = url;
+        el.load();
+        let ready = false;
+        const onNativeReady = () => {
+          if (epoch !== attachEpochRef.current || ready) return;
+          if (el.readyState < 2) return;
+          ready = true;
+          setVideoHasData(true);
+          tryPlay();
+        };
+        const onNativeError = () => {
+          if (epoch !== attachEpochRef.current || ready) return;
+          logIvsWeb("buyer playback error", {
+            roomId: liveRoomId,
+            reason: "native_hls_error",
+            message: el.error?.message ?? "native_element_error",
+          });
+          const n = retryRef.current + 1;
+          if (n <= MAX_PLAYER_RETRIES) {
+            retryRef.current = n;
+            setHlsFatalRetries(n);
+            const delay = Math.min(30_000, BACKOFF_BASE_MS * 2 ** (n - 1));
+            if (backoffTimerRef.current != null) window.clearTimeout(backoffTimerRef.current);
+            backoffTimerRef.current = window.setTimeout(() => {
+              backoffTimerRef.current = null;
+              void attachSource(url, health);
+            }, delay);
+          } else {
+            setPlayerFatal(true);
+          }
+        };
+        el.addEventListener("loadeddata", onNativeReady);
+        el.addEventListener("canplay", onNativeReady);
+        el.addEventListener("playing", onNativeReady);
+        el.addEventListener("error", onNativeError, { once: true });
+      };
+
+      if (useNativeHlsFirst) {
+        if (epoch !== attachEpochRef.current) return;
+        attachNativeHls();
+        return;
+      }
 
       try {
         const { default: HlsCtor } = await import("hls.js");
@@ -353,17 +402,7 @@ export function LiveVideoStagePlayback({
 
       if (epoch !== attachEpochRef.current) return;
       if (canNativeHls) {
-        setDebugEngine("native");
-        el.src = url;
-        const onNativeReady = () => {
-          if (epoch !== attachEpochRef.current) return;
-          if (el.readyState < 2) return;
-          setVideoHasData(true);
-          tryPlay();
-        };
-        el.addEventListener("loadeddata", onNativeReady, { once: true });
-        el.addEventListener("canplay", onNativeReady, { once: true });
-        el.addEventListener("playing", onNativeReady, { once: true });
+        attachNativeHls();
         return;
       }
 

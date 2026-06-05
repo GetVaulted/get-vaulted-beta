@@ -234,6 +234,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const [hostQueueTab, setHostQueueTab] = useState<"auction" | "bin" | "givvy" | "sold">("auction");
   const [vaultMode, setVaultMode] = useState<VaultMode>("auction_night");
   const [vaultCommandOpen, setVaultCommandOpen] = useState(false);
+  const [hostLineupOpen, setHostLineupOpen] = useState(false);
   const [queueDrawerOpen, setQueueDrawerOpen] = useState(false);
   const [hostCommerceMinimized, setHostCommerceMinimized] = useState(false);
   const [supplementalModalOpen, setSupplementalModalOpen] = useState(false);
@@ -1220,7 +1221,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         }
         await load();
         router.refresh();
-        setToast("Added to queue.");
+        setHostLineupOpen(true);
+        setToast("Added to lineup — tap Pin lot when ready.");
         return true;
       } catch (err) {
         const msg = err instanceof Error ? err.message.trim() : "";
@@ -1509,6 +1511,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     !activeBoardRow.item.biddingOpen &&
     !isVariantSalesFormat(activeBoardRow.item.salesFormat);
 
+  const lineupCount = data.queueItems.filter((q) => q.item.status !== "sold" && q.item.status !== "skipped").length;
+
   const recentChatCount = (() => {
     const cutoff = Date.now() - 120_000;
     return data.messages.filter((m) => {
@@ -1564,6 +1568,30 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const handleHostPinSelected = () => {
     if (selectedQueueItemId) patchItem(selectedQueueItemId, "active");
   };
+
+  const hostInventoryRail = (
+    <SellerConsoleInventoryRail
+      tab={hostQueueTab}
+      onTab={setHostQueueTab}
+      rows={data.queueItems}
+      selectedId={selectedQueueItemId}
+      onSelect={handleSelectQueueItem}
+      viewerCount={room.viewerCount}
+      busy={busy}
+      onPost={(id) => void patchItem(id, "active")}
+      onSkip={(id) => void patchItem(id, "skipped")}
+      onDelete={(id) => void deleteQueueItem(id)}
+      onAddItem={() => setQueueAddModal("auction")}
+      onPinSelected={handleHostPinSelected}
+      onNextItem={handleHostNextItem}
+      onStartAuction={() => void handleHostStartLiveItemAuction()}
+      pinDisabled={busy || !selectedQueueItemId}
+      startAuctionEnabled={hostStartLiveAuctionEnabled}
+      startAuctionBusy={hostLiveItemAuctionBusy}
+      roomLive={room.status === "live"}
+      hasActiveLot={activeBoardRow != null}
+    />
+  );
 
   const handleAppendSupplemental = async (payload: {
     name: string;
@@ -1830,6 +1858,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       <VaultHostRightRail
         roomId={roomId}
         onOpenCommandCenter={() => setVaultCommandOpen(true)}
+        onOpenLineup={() => setHostLineupOpen((open) => !open)}
+        lineupCount={lineupCount}
         onOpenObs={() => setObsSetupModalOpen(true)}
         disabled={busy}
       />
@@ -1926,27 +1956,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           />
           <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,22vw)_minmax(0,1fr)_minmax(280px,20vw)]">
             <aside className="flex min-h-0 flex-col border-r border-white/[0.08] bg-zinc-950/95">
-              <SellerConsoleInventoryRail
-                tab={hostQueueTab}
-                onTab={setHostQueueTab}
-                rows={data.queueItems}
-                selectedId={selectedQueueItemId}
-                onSelect={handleSelectQueueItem}
-                viewerCount={room.viewerCount}
-                busy={busy}
-                onPost={(id) => void patchItem(id, "active")}
-                onSkip={(id) => void patchItem(id, "skipped")}
-                onDelete={(id) => void deleteQueueItem(id)}
-                onAddItem={() => setQueueAddModal("auction")}
-                onPinSelected={handleHostPinSelected}
-                onNextItem={handleHostNextItem}
-                onStartAuction={() => void handleHostStartLiveItemAuction()}
-                pinDisabled={busy || !selectedQueueItemId}
-                startAuctionEnabled={hostStartLiveAuctionEnabled}
-                startAuctionBusy={hostLiveItemAuctionBusy}
-                roomLive={room.status === "live"}
-                hasActiveLot={activeBoardRow != null}
-              />
+              {hostInventoryRail}
               {hostTeamBoardOpen ? (
                 <div className="shrink-0 border-t border-white/[0.08] p-2">
                   <TeamBoardHostPanel
@@ -2003,6 +2013,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           <SellerConsoleActionBar
             onShare={() => setShareSheetOpen(true)}
             onAddItem={() => setQueueAddModal("auction")}
+            onOpenLineup={() => setHostLineupOpen((open) => !open)}
+            lineupCount={lineupCount}
+            lineupActive={hostLineupOpen}
             onObs={() => setObsSetupModalOpen(true)}
             broadcastPhase={webcamBroadcast.phase}
             roomLive={room.status === "live"}
@@ -2031,6 +2044,32 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           </div>
         </div>
       </div>
+
+      {hostLineupOpen ? (
+        <div
+          role="dialog"
+          aria-label="Lineup"
+          className="fixed inset-x-0 bottom-0 z-[67] flex max-h-[min(78dvh,42rem)] flex-col border-t border-violet-400/20 bg-zinc-950/98 shadow-[0_-16px_48px_-16px_rgba(0,0,0,0.9)] min-[1400px]:hidden"
+        >
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/[0.08] px-3 py-2.5">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-violet-200/90">Lineup</p>
+              <p className="text-[11px] text-zinc-400">{lineupCount} lot{lineupCount === 1 ? "" : "s"} · tap Pin to go on block</p>
+            </div>
+            <button
+              type="button"
+              aria-label="Close lineup"
+              className="rounded-lg border border-white/12 px-3 py-1.5 text-[10px] font-bold text-zinc-300 hover:bg-white/[0.06]"
+              onClick={() => setHostLineupOpen(false)}
+            >
+              Close
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            {hostInventoryRail}
+          </div>
+        </div>
+      ) : null}
 
       {hostTeamBoardOpen && !hostTeamBoardCollapsed ? (
         <div

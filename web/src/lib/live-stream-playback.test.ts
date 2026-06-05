@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseBuyerSafeStreamPayload,
   preferHlsOverWebrtcOnClient,
+  preferNativeHlsElementPlayback,
   resolveLivePlaybackSurfaceState,
   shouldAttachHlsPlayback,
 } from "@/lib/live-stream-playback";
@@ -46,6 +47,21 @@ describe("live-stream-playback", () => {
     expect(parseBuyerSafeStreamPayload(null)).toBeNull();
     expect(parseBuyerSafeStreamPayload({})).toBeNull();
     expect(parseBuyerSafeStreamPayload({ stream: "x" })).toBeNull();
+  });
+
+  it("preferNativeHlsElementPlayback is true on iOS only", () => {
+    const original = navigator.userAgent;
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+    });
+    expect(preferNativeHlsElementPlayback()).toBe(true);
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile",
+    });
+    expect(preferNativeHlsElementPlayback()).toBe(false);
+    Object.defineProperty(navigator, "userAgent", { configurable: true, value: original });
   });
 
   it("preferHlsOverWebrtcOnClient is true on iOS and Android user agents", () => {

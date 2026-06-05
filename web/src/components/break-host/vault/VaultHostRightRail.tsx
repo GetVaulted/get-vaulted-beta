@@ -6,6 +6,8 @@ import type { ReactNode } from "react";
 type VaultHostRightRailProps = {
   roomId: string;
   onOpenCommandCenter: () => void;
+  onOpenLineup?: () => void;
+  lineupCount?: number;
   onOpenObs: () => void;
   disabled?: boolean;
 };
@@ -37,10 +39,17 @@ function RailBtn({
   );
 }
 
-export function VaultHostRightRail({ roomId, onOpenCommandCenter, onOpenObs, disabled }: VaultHostRightRailProps) {
+export function VaultHostRightRail({
+  roomId,
+  onOpenCommandCenter,
+  onOpenLineup,
+  lineupCount = 0,
+  onOpenObs,
+  disabled,
+}: VaultHostRightRailProps) {
   return (
     <div className="motion-reduce:animate-none flex flex-col items-center gap-1 max-[380px]:gap-0.5 rounded-2xl border border-[color:var(--live-border)] bg-black/22 px-1 py-1.5 shadow-[var(--live-shadow-rail)] backdrop-blur-[var(--live-blur-xl)] [animation:live-rail-in_var(--live-duration-enter)_var(--live-ease)_both] motion-reduce:[animation:none] md:gap-1.5 md:px-1.5 md:py-2">
-      <RailBtn label="Vault" disabled={disabled} onClick={onOpenCommandCenter}>
+      <RailBtn label={onOpenLineup ? `Lineup${lineupCount > 0 ? ` (${lineupCount})` : ""}` : "Vault"} disabled={disabled} onClick={onOpenLineup ?? onOpenCommandCenter}>
         <svg viewBox="0 0 24 24" fill="none" className="size-[18px] md:size-5" aria-hidden>
           <path
             d="M12 3l7 4v6c0 4-3 7-7 9-4-2-7-5-7-9V7l7-4z"
