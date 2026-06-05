@@ -11,11 +11,16 @@ import { LiveVariantSelectionSheet } from "@/components/live-auction/LiveVariant
 import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotBoard";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
 import { LiveTipSheet } from "@/components/live-auction/LiveTipSheet";
+import { BuyerLiveDesktopCommerce } from "@/components/live-auction/buyer/BuyerLiveDesktopCommerce";
+import { BuyerLiveDesktopShell } from "@/components/live-auction/buyer/BuyerLiveDesktopShell";
+import { BuyerLiveHostStrip } from "@/components/live-auction/buyer/BuyerLiveHostStrip";
+import { BuyerLiveLineupPanel } from "@/components/live-auction/buyer/BuyerLiveLineupPanel";
 import { BuyerLiveNextUpRail } from "@/components/live-auction/buyer/BuyerLiveNextUpRail";
 import { BuyerLiveQueueList } from "@/components/live-auction/buyer/BuyerLiveQueueList";
 import { BuyerLiveQueueSheet } from "@/components/live-auction/buyer/BuyerLiveQueueSheet";
 import { BUYER_LIVE_MAIN_SECTION, BUYER_LIVE_PAGE_GRID } from "@/components/live-auction/buyer/buyerLiveLayout";
 import { HostLiveRoomConsoleBanner } from "@/components/live-auction/buyer/HostLiveRoomConsoleBanner";
+import { useBuyerLiveDesktop } from "@/components/live-auction/buyer/useBuyerLiveDesktop";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
@@ -245,9 +250,10 @@ export function LiveSaleRoom({
 
   const [buyerWideRail, setBuyerWideRail] = useState(false);
   const [buyerLineupOpen, setBuyerLineupOpen] = useState(false);
+  const isBuyerDesktop = useBuyerLiveDesktop();
   const [tipOpen, setTipOpen] = useState(false);
   useLayoutEffect(() => {
-    const mq = window.matchMedia("(min-width: 1400px)");
+    const mq = window.matchMedia("(min-width: 1280px)");
     const apply = () => setBuyerWideRail(mq.matches);
     apply();
     mq.addEventListener("change", apply);
@@ -1097,6 +1103,47 @@ export function LiveSaleRoom({
       </div>
     </div>
   );
+  const embeddedDesktopChat = (
+    <LiveAuctionChat
+      liveRoomId={liveRoomId}
+      messages={messages}
+      onMessagesChange={onMessagesChange}
+      embedded
+      compact
+      scrollMessages
+      hostUserId={sellerId}
+      onMessagesRefresh={() => void onRefetch?.()}
+    />
+  );
+
+  const hostConsoleRoomType = roomType === "break" ? "break" : roomType === "sale" ? "sale" : "auction";
+
+  const videoStageProps = {
+    overlayMessage: `Live · ${actionUi ? actionUi.displayTitle : "Current item"} · ${
+      roomType === "auction" && activeOverlayPrice
+        ? `${activeOverlayPrice.label} ${activeOverlayPrice.amountFormatted}`
+        : fmt(currentTopBid)
+    }`,
+    viewers: viewerCount,
+    hostName: hostDisplayName,
+    streamTitle,
+    isLive,
+    roomStatus,
+    liveRoomId,
+    hostSellerId: sellerId,
+    onBack: () => router.back(),
+    centerOverlay: activeHasVariants && activeDb ? <LiveVariantSpotBoard item={activeDb} /> : undefined,
+    onNotifyMe: () => redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`),
+    streamPlaybackRefreshNonce,
+    scheduledStartAt,
+    thumbnailUrl,
+    buyerShellMode: isBuyerDesktop,
+    showRightActions: !isHost && !isBuyerDesktop,
+    onShare: handleShare,
+    onWallet: handleWallet,
+    onTip: isLive && !isHost ? handleTip : undefined,
+  };
+
   return (
     <div className="fixed inset-x-0 bottom-0 top-0 z-40 flex min-h-0 flex-col overflow-hidden overscroll-y-contain bg-black text-zinc-100 md:top-[var(--site-header-offset)]">
       {showOutbidToast ? (
@@ -1110,80 +1157,102 @@ export function LiveSaleRoom({
           </div>
         </div>
       ) : null}
-      <div className="mx-auto flex min-h-0 w-full max-w-[1920px] flex-1 flex-col overflow-y-auto p-1.5 md:p-4 min-[1400px]:min-h-0 min-[1400px]:overflow-hidden">
-        <div className={BUYER_LIVE_PAGE_GRID}>
-          <section className={BUYER_LIVE_MAIN_SECTION}>
-            <div className="w-full min-h-0 min-[1400px]:min-h-0 min-[1400px]:h-full min-[1400px]:max-h-full">
-              <LiveVideoStage
-                layout={buyerWideRail ? "fillHeight" : "aspect"}
-                overlayMessage={`Live · ${actionUi ? actionUi.displayTitle : "Current item"} · ${
-                  roomType === "auction" && activeOverlayPrice
-                    ? `${activeOverlayPrice.label} ${activeOverlayPrice.amountFormatted}`
-                    : fmt(currentTopBid)
-                }`}
-                viewers={viewerCount}
+      {isBuyerDesktop ? (
+        <div className="mx-auto flex h-full min-h-0 w-full max-w-[1920px] flex-1 flex-col overflow-hidden">
+          <BuyerLiveDesktopShell
+            hostStrip={
+              <BuyerLiveHostStrip
                 hostName={hostDisplayName}
                 streamTitle={streamTitle}
+                hostSellerId={sellerId}
+                viewers={viewerCount}
                 isLive={isLive}
                 roomStatus={roomStatus}
                 liveRoomId={liveRoomId}
-                hostSellerId={sellerId}
+                shopHref={shopHref}
                 onBack={() => router.back()}
-                centerOverlay={
-                  activeHasVariants && activeDb ? (
-                    <div className="hidden min-[1400px]:flex w-full max-w-md justify-center px-4">
-                      <LiveVariantSpotBoard item={activeDb} />
-                    </div>
-                  ) : undefined
-                }
-                actionOverlay={desktopVideoOverlay}
-                mobileActionOverlay={mobileVideoOverlay}
-                chatOverlay={floatingChatOverlay}
-                showRightActions={!isHost}
                 onShare={handleShare}
                 onWallet={handleWallet}
                 onTip={isLive && !isHost ? handleTip : undefined}
-                onNotifyMe={() => redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`)}
-                streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
-                scheduledStartAt={scheduledStartAt}
-                thumbnailUrl={thumbnailUrl}
               />
-            </div>
-
-            {isHost ? (
-              <HostLiveRoomConsoleBanner
-                liveRoomId={liveRoomId}
-                roomType={roomType === "break" ? "break" : roomType === "sale" ? "sale" : "auction"}
+            }
+            chat={embeddedDesktopChat}
+            video={
+              <LiveVideoStage
+                {...videoStageProps}
+                layout="buyerShellPlate"
+                actionOverlay={null}
+                mobileActionOverlay={null}
+                chatOverlay={null}
               />
-            ) : queue.length > 0 ? (
-              <BuyerLiveNextUpRail
-                nextTitle={buyerNextUpItem?.displayTitle ?? "More coming soon"}
-                nextMeta={
-                  buyerNextUpItem
-                    ? roomType === "auction"
-                      ? `${fmt(buyerNextUpItem.topBid)} bid · ${queue.length} in lineup`
-                      : `${fmt(buyerNextUpItem.buyNow)} · ${queue.length} in lineup`
-                    : `${queue.length} in lineup`
-                }
-                queueCount={queue.length}
-                shopHref={shopHref}
-                onOpenQueue={() => setBuyerLineupOpen(true)}
-              />
-            ) : null}
-
-            {!isHost && (roomType === "auction" || roomType === "sale") ? (
-              <LiveShippingIndicator
-                liveShowId={liveRoomId}
-                refreshNonce={shipUxNonce}
-                pollMs={isLive ? 8000 : 0}
-                compact
-              />
-            ) : null}
-
-            <div className="pb-[max(1rem,env(safe-area-inset-bottom))]" />
-          </section>
+            }
+            hostBanner={
+              isHost ? <HostLiveRoomConsoleBanner liveRoomId={liveRoomId} roomType={hostConsoleRoomType} /> : undefined
+            }
+            commerce={<BuyerLiveDesktopCommerce>{desktopVideoOverlay}</BuyerLiveDesktopCommerce>}
+            lineup={
+              !isHost && queue.length > 0 ? (
+                <BuyerLiveLineupPanel
+                  items={queue.map((item) => ({
+                    id: item.id,
+                    displayTitle: item.displayTitle,
+                    metaLine: roomType === "auction" ? `${fmt(item.topBid)} bid` : fmt(item.buyNow),
+                  }))}
+                  selectedId={selectedId}
+                  shopHref={shopHref}
+                  onSelect={setSelectedId}
+                  onViewAll={() => setBuyerLineupOpen(true)}
+                />
+              ) : undefined
+            }
+          />
         </div>
-      </div>
+      ) : (
+        <div className="mx-auto flex min-h-0 w-full max-w-[1920px] flex-1 flex-col overflow-y-auto p-1.5 md:p-4">
+          <div className={BUYER_LIVE_PAGE_GRID}>
+            <section className={BUYER_LIVE_MAIN_SECTION}>
+              <div className="w-full min-h-0">
+                <LiveVideoStage
+                  {...videoStageProps}
+                  layout={buyerWideRail ? "fillHeight" : "aspect"}
+                  actionOverlay={desktopVideoOverlay}
+                  mobileActionOverlay={mobileVideoOverlay}
+                  chatOverlay={floatingChatOverlay}
+                />
+              </div>
+
+              {isHost ? (
+                <HostLiveRoomConsoleBanner liveRoomId={liveRoomId} roomType={hostConsoleRoomType} />
+              ) : queue.length > 0 ? (
+                <BuyerLiveNextUpRail
+                  nextTitle={buyerNextUpItem?.displayTitle ?? "More coming soon"}
+                  nextMeta={
+                    buyerNextUpItem
+                      ? roomType === "auction"
+                        ? `${fmt(buyerNextUpItem.topBid)} bid · ${queue.length} in lineup`
+                        : `${fmt(buyerNextUpItem.buyNow)} · ${queue.length} in lineup`
+                      : `${queue.length} in lineup`
+                  }
+                  queueCount={queue.length}
+                  shopHref={shopHref}
+                  onOpenQueue={() => setBuyerLineupOpen(true)}
+                />
+              ) : null}
+
+              {!isHost && (roomType === "auction" || roomType === "sale") ? (
+                <LiveShippingIndicator
+                  liveShowId={liveRoomId}
+                  refreshNonce={shipUxNonce}
+                  pollMs={isLive ? 8000 : 0}
+                  compact
+                />
+              ) : null}
+
+              <div className="pb-[max(1rem,env(safe-area-inset-bottom))]" />
+            </section>
+          </div>
+        </div>
+      )}
       <BuyerLiveQueueSheet
         open={buyerLineupOpen && !isHost}
         onClose={() => setBuyerLineupOpen(false)}

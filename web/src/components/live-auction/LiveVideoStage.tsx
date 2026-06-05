@@ -30,8 +30,10 @@ type LiveVideoStageProps = {
   centerOverlayOnTop?: boolean;
   actionOverlay?: ReactNode;
   mobileActionOverlay?: ReactNode;
-  /** `fillHeight`: grow with parent. `host916`: legacy alias — video stays 9:16, overlays use full stage on desktop. */
-  layout?: "aspect" | "fillHeight" | "host916";
+  /** `fillHeight`: grow with parent. `host916`: legacy alias — video stays 9:16, overlays use full stage on desktop. `buyerShellPlate`: 9:16 plate centered in parent (buyer desktop shell). */
+  layout?: "aspect" | "fillHeight" | "host916" | "buyerShellPlate";
+  /** Buyer /live desktop shell (≥1280px): video only on desktop; overlays stay on mobile. */
+  buyerShellMode?: boolean;
   /** Shown below the Live / audience row, right-aligned (e.g. host team board control). */
   stageBelowAudience?: ReactNode;
   /** Optional mobile CTA for upcoming streams. */
@@ -88,6 +90,8 @@ type LiveVideoStageProps = {
 /** Centered 9:16 plate — video only; overlays attach to outer stage on desktop. */
 const PORTRAIT_VIDEO_FRAME =
   "relative aspect-[9/16] min-h-0 shrink-0 overflow-hidden min-[1400px]:rounded-xl min-[1400px]:border min-[1400px]:border-white/[0.14] min-[1400px]:shadow-[0_24px_80px_-28px_rgba(0,0,0,0.92)]";
+const PORTRAIT_VIDEO_FRAME_BUYER_SHELL =
+  "relative aspect-[9/16] min-h-0 shrink-0 overflow-hidden min-[1280px]:rounded-xl min-[1280px]:border min-[1280px]:border-white/[0.14] min-[1280px]:shadow-[0_24px_80px_-28px_rgba(0,0,0,0.92)]";
 
 export function LiveVideoStage({
   overlayMessage,
@@ -105,6 +109,7 @@ export function LiveVideoStage({
   actionOverlay,
   mobileActionOverlay,
   layout = "aspect",
+  buyerShellMode = false,
   stageBelowAudience,
   onNotifyMe,
   chatOverlay,
@@ -138,14 +143,25 @@ export function LiveVideoStage({
     roomStatus === "ended" ? "Ended" : isLive ? "Live" : startsIn ? `Starts in ${startsIn}` : "Upcoming";
   /** Anchored bottom item sheet (auction/buy bar) — lifts chat + right rail so they clear the panel. */
   const hasMobileItemSheet = Boolean(mobileActionOverlay);
-  const fillsParentHeight = layout === "fillHeight" || layout === "host916";
-  const rootClass = fillsParentHeight
-    ? "relative h-full min-h-0 w-full overflow-hidden bg-gradient-to-br from-zinc-900 via-zinc-950 to-black"
-    : "relative h-[100dvh] min-h-[100dvh] w-full overflow-hidden rounded-none bg-gradient-to-br from-zinc-900 via-zinc-950 to-black shadow-[0_24px_80px_-32px_rgba(0,0,0,0.9)] md:aspect-video md:h-auto md:min-h-[calc(56.25vw*1.4)] md:rounded-2xl md:border md:border-zinc-800";
+  const fillsParentHeight = layout === "fillHeight" || layout === "host916" || layout === "buyerShellPlate";
+  const rootClass =
+    layout === "buyerShellPlate"
+      ? "relative flex h-full min-h-0 w-full items-center justify-center overflow-hidden bg-black"
+      : fillsParentHeight
+        ? "relative h-full min-h-0 w-full overflow-hidden bg-gradient-to-br from-zinc-900 via-zinc-950 to-black"
+        : "relative h-[100dvh] min-h-[100dvh] w-full overflow-hidden rounded-none bg-gradient-to-br from-zinc-900 via-zinc-950 to-black shadow-[0_24px_80px_-32px_rgba(0,0,0,0.9)] md:aspect-video md:h-auto md:min-h-[calc(56.25vw*1.4)] md:rounded-2xl md:border md:border-zinc-800";
 
-  const portraitSizingClass = fillsParentHeight
-    ? "h-full max-h-full w-auto max-w-full"
-    : "h-auto max-h-full w-full max-w-full";
+  const portraitSizingClass =
+    layout === "buyerShellPlate"
+      ? "h-full max-h-full w-auto max-w-full"
+      : fillsParentHeight
+        ? "h-full max-h-full w-auto max-w-full"
+        : "h-auto max-h-full w-full max-w-full";
+
+  const portraitFrameClass = buyerShellMode ? PORTRAIT_VIDEO_FRAME_BUYER_SHELL : PORTRAIT_VIDEO_FRAME;
+
+  const mobileChromeHiddenClass = buyerShellMode ? "min-[1280px]:hidden" : "min-[1400px]:hidden";
+  const desktopChromeHiddenClass = buyerShellMode ? "hidden" : "hidden min-[1400px]:block";
 
   const desktopActionOverlayClass = cinematicActionOverlay
     ? "live-stage-hud-suspended bottom-4 left-1/2 w-[min(920px,calc(100%-3rem))] -translate-x-1/2"
@@ -263,7 +279,7 @@ export function LiveVideoStage({
       )}
 
       {stageOverlay ? (
-        <div className="pointer-events-none absolute inset-0 z-[12] hidden min-[1400px]:block">{stageOverlay}</div>
+        <div className={buyerShellMode ? "pointer-events-none absolute inset-0 z-[12] hidden min-[1280px]:block" : "pointer-events-none absolute inset-0 z-[12] hidden min-[1400px]:block"}>{stageOverlay}</div>
       ) : null}
 
       {/* 9:16 video plate — centered; overlays are not positioned relative to this on desktop. */}
@@ -271,7 +287,7 @@ export function LiveVideoStage({
         {ambientBleed ? (
           <LiveStageLighting vaultMode={vaultMode} energyLevel={vaultEnergyLevel} energyScore={stageEnergyScore} />
         ) : null}
-        <div className={`${PORTRAIT_VIDEO_FRAME} ${portraitSizingClass}`}>
+        <div className={`${portraitFrameClass} ${portraitSizingClass}`}>
           <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/34 via-black/10 to-transparent" aria-hidden />
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/68 via-black/26 to-transparent" aria-hidden />
           {liveRoomId ? (
@@ -310,7 +326,7 @@ export function LiveVideoStage({
           ) : null}
 
           {/* Mobile / tablet overlays — constrained to the 9:16 video frame. */}
-          <div className="absolute inset-0 min-[1400px]:hidden">
+          <div className={`absolute inset-0 ${mobileChromeHiddenClass}`}>
             <div className="pointer-events-none absolute left-1.5 right-1.5 top-[max(0.35rem,env(safe-area-inset-top))] z-10 flex flex-col items-stretch gap-1 md:left-2 md:right-2 md:top-2 md:gap-2">
               {topChrome}
               {stageBelowAudience ? (
@@ -343,11 +359,19 @@ export function LiveVideoStage({
         </div>
       </div>
 
-      {centerOverlay ? (
+      {centerOverlay && !buyerShellMode ? (
         <div
           className={`pointer-events-none absolute inset-0 hidden min-[1400px]:flex ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} items-center justify-center p-4`}
         >
           <div className="pointer-events-auto max-h-full min-h-0 w-full max-w-[1920px] overflow-y-auto">{centerOverlay}</div>
+        </div>
+      ) : null}
+
+      {centerOverlay && buyerShellMode ? (
+        <div
+          className={`pointer-events-none absolute inset-0 hidden min-[1280px]:flex ${centerOverlayOnTop ? "z-[40]" : "z-[8]"} items-center justify-center p-2`}
+        >
+          <div className="pointer-events-auto max-h-full min-h-0 w-full max-w-md overflow-y-auto">{centerOverlay}</div>
         </div>
       ) : null}
 
@@ -356,7 +380,7 @@ export function LiveVideoStage({
           CSS `filter`, which creates a stacking context pinned at the container's own z-index, so
           without this the HUD/controls would be trapped below the plate. Stays below the
           transition banner (z-[12]) so "SOLD"/next-lot moments still cover the HUD. */}
-      <div className={`pointer-events-none absolute inset-0 z-10 hidden min-[1400px]:block ${desktopChromeDimClass}`}>
+      <div className={`pointer-events-none absolute inset-0 z-10 ${desktopChromeHiddenClass} ${desktopChromeDimClass}`}>
         <div className="pointer-events-none absolute left-3 right-3 top-3 z-10 flex flex-col items-stretch gap-2">
           {topChrome}
           {stageBelowAudience ? (

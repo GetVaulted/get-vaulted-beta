@@ -13,11 +13,16 @@ import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotB
 import { LiveAuctionChat } from "@/components/live-auction/LiveAuctionChat";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
 import { LiveTipSheet } from "@/components/live-auction/LiveTipSheet";
+import { BuyerLiveDesktopCommerce } from "@/components/live-auction/buyer/BuyerLiveDesktopCommerce";
+import { BuyerLiveDesktopShell } from "@/components/live-auction/buyer/BuyerLiveDesktopShell";
+import { BuyerLiveHostStrip } from "@/components/live-auction/buyer/BuyerLiveHostStrip";
+import { BuyerLiveLineupPanel } from "@/components/live-auction/buyer/BuyerLiveLineupPanel";
 import { BuyerLiveNextUpRail } from "@/components/live-auction/buyer/BuyerLiveNextUpRail";
 import { BuyerLiveQueueList } from "@/components/live-auction/buyer/BuyerLiveQueueList";
 import { BuyerLiveQueueSheet } from "@/components/live-auction/buyer/BuyerLiveQueueSheet";
 import { BUYER_LIVE_MAIN_SECTION, BUYER_LIVE_PAGE_GRID } from "@/components/live-auction/buyer/buyerLiveLayout";
 import { HostLiveRoomConsoleBanner } from "@/components/live-auction/buyer/HostLiveRoomConsoleBanner";
+import { useBuyerLiveDesktop } from "@/components/live-auction/buyer/useBuyerLiveDesktop";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
 import { TeamBoardChromeButton } from "@/components/team-board/TeamBoardChromeButton";
 import { TeamBoardOverlay } from "@/components/team-board/TeamBoardOverlay";
@@ -211,6 +216,7 @@ export function LiveAuctionRoom({
   /** Two-column rail only on wide desktop (1400px+). Tablets/iPads stay stacked: queue below video like phone. */
   const [buyerWideRail, setBuyerWideRail] = useState(false);
   const [buyerLineupOpen, setBuyerLineupOpen] = useState(false);
+  const isBuyerDesktop = useBuyerLiveDesktop();
   const [tipOpen, setTipOpen] = useState(false);
   useLayoutEffect(() => {
     const mq = window.matchMedia("(min-width: 1400px)");
@@ -1126,6 +1132,48 @@ export function LiveAuctionRoom({
     />
   ) : null;
   const stageBelowAudience = <div className="flex items-center gap-2">{teamBoardStageChrome}</div>;
+
+  const embeddedDesktopChat = (
+    <LiveAuctionChat
+      liveRoomId={liveRoomId}
+      messages={messages}
+      onMessagesChange={onMessagesChange}
+      embedded
+      compact
+      scrollMessages
+      hostUserId={sellerId}
+      onMessagesRefresh={() => void onRefetch?.()}
+    />
+  );
+
+  const videoStageCenterOverlay =
+    teamBoardOverlay ??
+    (activeHasVariants && activeDbItem ? <LiveVariantSpotBoard item={activeDbItem} /> : null);
+
+  const videoStageProps = {
+    overlayMessage,
+    viewers: viewerCount,
+    hostName: hostDisplayName,
+    streamTitle,
+    isLive,
+    roomStatus,
+    liveRoomId,
+    hostSellerId: sellerId,
+    onBack: () => router.back(),
+    centerOverlay: videoStageCenterOverlay,
+    centerOverlayOnTop: Boolean(teamBoardOverlay),
+    stageBelowAudience: isBuyerDesktop ? undefined : stageBelowAudience,
+    onNotifyMe: () => redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`),
+    streamPlaybackRefreshNonce,
+    scheduledStartAt,
+    thumbnailUrl,
+    buyerShellMode: isBuyerDesktop,
+    showRightActions: !isHost && !isBuyerDesktop,
+    onShare: handleShare,
+    onWallet: handleWallet,
+    onTip: isLive && !isHost ? handleTip : undefined,
+  };
+
   return (
     <div className="fixed inset-x-0 bottom-0 top-0 z-40 flex min-h-0 flex-col overflow-hidden overscroll-y-contain bg-black text-zinc-100 md:top-[var(--site-header-offset)]">
       <BreakDisclaimerModal
@@ -1152,76 +1200,121 @@ export function LiveAuctionRoom({
           isLive={isLive}
         />
       ) : null}
-      <div className="mx-auto flex min-h-0 w-full max-w-[1920px] flex-1 flex-col overflow-y-auto p-1.5 md:p-4 min-[1400px]:min-h-0 min-[1400px]:overflow-hidden">
-        <div className={BUYER_LIVE_PAGE_GRID}>
-          <section className={BUYER_LIVE_MAIN_SECTION}>
-            <div className="w-full min-h-0 min-[1400px]:min-h-0 min-[1400px]:h-full min-[1400px]:max-h-full">
-              <LiveVideoStage
-                layout={buyerWideRail ? "fillHeight" : "aspect"}
-                overlayMessage={overlayMessage}
-                viewers={viewerCount}
+      {isBuyerDesktop ? (
+        <div className="mx-auto flex h-full min-h-0 w-full max-w-[1920px] flex-1 flex-col overflow-hidden">
+          <BuyerLiveDesktopShell
+            hostStrip={
+              <BuyerLiveHostStrip
                 hostName={hostDisplayName}
                 streamTitle={streamTitle}
+                hostSellerId={sellerId}
+                viewers={viewerCount}
                 isLive={isLive}
                 roomStatus={roomStatus}
                 liveRoomId={liveRoomId}
-                hostSellerId={sellerId}
+                shopHref={shopHref}
                 onBack={() => router.back()}
-                centerOverlay={
-                  teamBoardOverlay ??
-                  (activeHasVariants && activeDbItem ? (
-                    <div className="hidden min-[1400px]:flex w-full max-w-md justify-center px-4">
-                      <LiveVariantSpotBoard item={activeDbItem} />
-                    </div>
-                  ) : null)
-                }
-                centerOverlayOnTop={Boolean(teamBoardOverlay)}
-                stageBelowAudience={stageBelowAudience}
-                actionOverlay={showFeaturedAuctionOverlay ? desktopVideoOverlay : null}
-                mobileActionOverlay={showFeaturedAuctionOverlay ? mobileVideoOverlay : null}
-                chatOverlay={floatingChatOverlay}
-                showRightActions={!isHost}
                 onShare={handleShare}
                 onWallet={handleWallet}
                 onTip={isLive && !isHost ? handleTip : undefined}
-                onNotifyMe={() => redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`)}
-                streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
-                scheduledStartAt={scheduledStartAt}
-                thumbnailUrl={thumbnailUrl}
               />
-            </div>
-
-            {isHost ? (
-              <HostLiveRoomConsoleBanner liveRoomId={liveRoomId} roomType="break" />
-            ) : buyerLineupItems.length > 0 ? (
-              <BuyerLiveNextUpRail
-                nextTitle={buyerNextUpItem?.displayTitle ?? "More coming soon"}
-                nextMeta={
-                  buyerNextUpItem
-                    ? `${fmt(buyerNextUpItem.topBid || buyerNextUpItem.buyNow)} · ${buyerLineupItems.length} in lineup`
-                    : `${buyerLineupItems.length} in lineup`
-                }
-                queueCount={buyerLineupItems.length}
-                shopHref={shopHref}
-                onOpenQueue={() => setBuyerLineupOpen(true)}
-              />
-            ) : null}
-
-            {breakSnapshot ? (
-              <div className="shrink-0 rounded-2xl bg-zinc-950/45 p-2.5 md:border md:border-zinc-800 md:bg-zinc-950/65 md:p-3">
+            }
+            chat={embeddedDesktopChat}
+            video={
+              <div className="relative flex h-full w-full items-center justify-center">
+                {showTeamsChrome ? (
+                  <div className="pointer-events-auto absolute right-2 top-2 z-20">{teamBoardStageChrome}</div>
+                ) : null}
+                <LiveVideoStage
+                  {...videoStageProps}
+                  layout="buyerShellPlate"
+                  actionOverlay={null}
+                  mobileActionOverlay={null}
+                  chatOverlay={null}
+                />
+              </div>
+            }
+            hostBanner={isHost ? <HostLiveRoomConsoleBanner liveRoomId={liveRoomId} roomType="break" /> : undefined}
+            commerce={
+              showFeaturedAuctionOverlay ? (
+                <BuyerLiveDesktopCommerce>{desktopVideoOverlay}</BuyerLiveDesktopCommerce>
+              ) : (
+                <p className="rounded-xl border border-zinc-800 bg-zinc-950/90 px-3 py-4 text-center text-xs text-zinc-500">Waiting for the next lot…</p>
+              )
+            }
+            breakExtras={
+              breakSnapshot && !isHost ? (
                 <BreakBuyerOverview
                   break={breakSnapshot}
                   isLive={isLive}
                   liveRoomId={liveRoomId}
                   currentUserId={session?.user?.id ?? null}
                 />
-              </div>
-            ) : null}
-
-            <div className="pb-[max(1rem,env(safe-area-inset-bottom))]" />
-          </section>
+              ) : undefined
+            }
+            lineup={
+              !isHost && buyerLineupItems.length > 0 ? (
+                <BuyerLiveLineupPanel
+                  items={buyerLineupItems.map((item) => ({
+                    id: item.id,
+                    displayTitle: item.displayTitle,
+                    metaLine: `${fmt(item.topBid || item.buyNow)} · ${item.bids} bids`,
+                  }))}
+                  selectedId={selectedId}
+                  shopHref={shopHref}
+                  onSelect={setSelectedId}
+                  onViewAll={() => setBuyerLineupOpen(true)}
+                />
+              ) : undefined
+            }
+          />
         </div>
-      </div>
+      ) : (
+        <div className="mx-auto flex min-h-0 w-full max-w-[1920px] flex-1 flex-col overflow-y-auto p-1.5 md:p-4">
+          <div className={BUYER_LIVE_PAGE_GRID}>
+            <section className={BUYER_LIVE_MAIN_SECTION}>
+              <div className="w-full min-h-0">
+                <LiveVideoStage
+                  {...videoStageProps}
+                  layout={buyerWideRail ? "fillHeight" : "aspect"}
+                  actionOverlay={showFeaturedAuctionOverlay ? desktopVideoOverlay : null}
+                  mobileActionOverlay={showFeaturedAuctionOverlay ? mobileVideoOverlay : null}
+                  chatOverlay={floatingChatOverlay}
+                />
+              </div>
+
+              {isHost ? (
+                <HostLiveRoomConsoleBanner liveRoomId={liveRoomId} roomType="break" />
+              ) : buyerLineupItems.length > 0 ? (
+                <BuyerLiveNextUpRail
+                  nextTitle={buyerNextUpItem?.displayTitle ?? "More coming soon"}
+                  nextMeta={
+                    buyerNextUpItem
+                      ? `${fmt(buyerNextUpItem.topBid || buyerNextUpItem.buyNow)} · ${buyerLineupItems.length} in lineup`
+                      : `${buyerLineupItems.length} in lineup`
+                  }
+                  queueCount={buyerLineupItems.length}
+                  shopHref={shopHref}
+                  onOpenQueue={() => setBuyerLineupOpen(true)}
+                />
+              ) : null}
+
+              {breakSnapshot ? (
+                <div className="shrink-0 rounded-2xl bg-zinc-950/45 p-2.5 md:border md:border-zinc-800 md:bg-zinc-950/65 md:p-3">
+                  <BreakBuyerOverview
+                    break={breakSnapshot}
+                    isLive={isLive}
+                    liveRoomId={liveRoomId}
+                    currentUserId={session?.user?.id ?? null}
+                  />
+                </div>
+              ) : null}
+
+              <div className="pb-[max(1rem,env(safe-area-inset-bottom))]" />
+            </section>
+          </div>
+        </div>
+      )}
       <BuyerLiveQueueSheet
         open={buyerLineupOpen && !isHost}
         onClose={() => setBuyerLineupOpen(false)}
