@@ -116,7 +116,6 @@ export function LiveStagePlayback({
   onMutedChange,
   contentFit = 'cover',
 }: Props) {
-  const roomLifecycleLive = roomStatus === 'live';
   const playback = useLiveStagePlayback({ roomId, enabled, accessToken, refreshNonce });
 
   const playbackUrl = playback.stream?.playbackUrl ?? null;
@@ -124,6 +123,8 @@ export function LiveStagePlayback({
   const streamMode = playback.stream?.streamMode ?? 'channel_hls';
   const stageAvailable = playback.stream?.stageAvailable ?? false;
   const transport = playback.transport;
+  const streamSignalLive = streamHealth.toLowerCase() === 'live' || streamHealth.toLowerCase() === 'connecting';
+  const roomLifecycleLive = roomStatus === 'live' || streamSignalLive;
 
   const useWebrtc = transport === 'webrtc' && enabled;
   const attachHls = transport === 'hls' && Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
@@ -147,10 +148,12 @@ export function LiveStagePlayback({
 
   useEffect(() => {
     if (!attachHls) return;
+    const markReady = () => playback.onVideoReady();
     const sub = player.addListener('statusChange', (evt) => {
-      if (evt.status === 'readyToPlay') playback.onVideoReady();
+      if (evt.status === 'readyToPlay' || evt.status === 'loading') markReady();
       if (evt.status === 'error') playback.onVideoError();
     });
+    if (player.status === 'readyToPlay') markReady();
     return () => sub.remove();
   }, [attachHls, player, playback.onVideoReady, playback.onVideoError]);
 
@@ -193,16 +196,18 @@ export function LiveStagePlayback({
   const showWebrtcLayer = useWebrtc && surface !== 'error';
   const showHlsLayer = attachHls && surface !== 'error';
   const showVideoLayer = showWebrtcLayer || showHlsLayer;
+  const streamAttaching =
+    roomLifecycleLive && showVideoLayer && (transport === 'hls' || transport === 'webrtc');
   const showThumbnail =
-    Boolean(thumbnailUrl) && (!showVideoLayer || !playback.videoHasData || surface === 'offline');
+    Boolean(thumbnailUrl) &&
+    (!showVideoLayer || (!playback.videoHasData && !streamAttaching) || surface === 'offline');
   const showStandby =
-    !playback.videoHasData ||
     surface === 'offline' ||
     surface === 'loading' ||
-    surface === 'connecting' ||
     surface === 'reconnecting' ||
     surface === 'error' ||
-    !roomLifecycleLive;
+    (!roomLifecycleLive && roomStatus !== 'ended') ||
+    (roomLifecycleLive && !playback.videoHasData && !streamAttaching);
 
   const standbyContent = (() => {
     if (surface === 'reconnecting') {

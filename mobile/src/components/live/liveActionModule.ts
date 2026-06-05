@@ -210,7 +210,7 @@ function buildBuyerBidHud(
     winningLine: opts.winningLine,
     stateLine: opts.stateLine,
     bottomLeftLabel: 'Custom',
-    bottomRightLabel: `Hold to Bid ${formatBidMoney(opts.nextBidUsd)}`,
+    bottomRightLabel: `Place bid ${formatBidMoney(opts.nextBidUsd)}`,
     bottomRightIsSlide: false,
     buyerPrimaryDisabled: !opts.biddingOpen,
     buyerSecondaryDisabled: false,
@@ -386,7 +386,7 @@ export function resolveLiveCommerceHud(stream: LiveStream): LiveCommerceHudModel
   let bottomRightDefault: string;
   if (auctionLane) {
     bottomLeftDefault = 'Chase It';
-    bottomRightDefault = `Hold to Bid ${formatMoney(next)}`;
+    bottomRightDefault = `Place bid ${formatMoney(next)}`;
   } else if (format === 'shop') {
     bottomLeftDefault = 'Buy Now';
     bottomRightDefault =

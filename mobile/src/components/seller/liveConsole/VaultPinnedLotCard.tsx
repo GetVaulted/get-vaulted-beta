@@ -23,9 +23,13 @@ function resolveHostLotHudPhase(args: {
   item: LiveRoomItemRow | null;
   roomLive: boolean;
   lotBidPhase: ReturnType<typeof resolveLiveAuctionLotBidPhase>;
+  queuePreview?: boolean;
 }): HostLotHudPhase {
-  const { item, roomLive, lotBidPhase } = args;
+  const { item, roomLive, lotBidPhase, queuePreview } = args;
   if (!item) return 'empty';
+  if (queuePreview && item.status === 'queued') {
+    return roomLive ? 'ready' : 'prelive';
+  }
   if (item.status === 'sold') return 'sold';
   if (item.status === 'skipped') return 'skipped';
   if (!roomLive) return 'prelive';
@@ -66,6 +70,8 @@ export function VaultPinnedLotCard({
   onExtend,
   onPinNext,
   pinNextLabel,
+  hostOverlayMinimal = false,
+  queuePreview = false,
 }: {
   item: LiveRoomItemRow | null;
   serverNowMs: number;
@@ -81,6 +87,10 @@ export function VaultPinnedLotCard({
   /** Pin the next queued lot when no item is active on the block. */
   onPinNext?: () => void;
   pinNextLabel?: string;
+  /** Seller broadcast overlay — one action row (Start auction only). */
+  hostOverlayMinimal?: boolean;
+  /** Show the next queued lot before it is pinned. */
+  queuePreview?: boolean;
 }) {
   const compact = density === 'broadcast';
 
@@ -207,7 +217,7 @@ export function VaultPinnedLotCard({
               ? roomLive
                 ? 'Pin next lot to put it on the block'
                 : 'Go live, then pin the next lot'
-              : 'No active item · Add or queue a lot'}
+              : 'No lots queued · tap + Add item'}
           </Text>
           {onPinNext ? (
             <Pressable
@@ -254,11 +264,12 @@ export function VaultPinnedLotCard({
   const reserve =
     item.priceUsd != null && item.currentBidUsd != null && item.currentBidUsd >= item.priceUsd;
   const closingSoon = countdown != null && countdown.progress <= 0.28;
-  const hudPhase = resolveHostLotHudPhase({ item, roomLive, lotBidPhase });
+  const hudPhase = resolveHostLotHudPhase({ item, roomLive, lotBidPhase, queuePreview });
   const showStartAuction = hudPhase === 'ready';
-  const showRunningStrip = hudPhase === 'running';
+  const showRunningStrip = !hostOverlayMinimal && hudPhase === 'running';
   const showEndedActions = hudPhase === 'ended';
-  const showSecondaryActions = roomLive && hudPhase !== 'sold' && hudPhase !== 'skipped';
+  const showSecondaryActions =
+    !hostOverlayMinimal && roomLive && hudPhase !== 'sold' && hudPhase !== 'skipped';
 
   return (
     <Animated.View
@@ -289,7 +300,9 @@ export function VaultPinnedLotCard({
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <View style={styles.headRow}>
-            <Text style={[lc.eyebrow, compact && styles.eyebrowCompact]}>On screen</Text>
+            <Text style={[lc.eyebrow, compact && styles.eyebrowCompact]}>
+              {queuePreview ? 'Next up' : 'On screen'}
+            </Text>
             {countdown ? (
               <View style={[styles.timerChip, closingSoon && styles.timerChipUrgent]}>
                 <Text style={[styles.timerChipTxt, closingSoon && styles.timerChipTxtUrgent]}>

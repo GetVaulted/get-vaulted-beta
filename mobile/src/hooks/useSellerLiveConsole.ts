@@ -264,6 +264,22 @@ export function useSellerLiveConsole({
     });
   };
 
+  const onLaunchAndStart = (item: LiveRoomItemRow) => {
+    void run(async () => {
+      await patchLiveRoomItem(accessToken, roomId, item.id, { status: 'active' });
+      setStartingAuction(true);
+      try {
+        await patchLiveRoomItem(accessToken, roomId, item.id, {
+          action: 'startAuction',
+          auctionDurationSec: DEFAULT_AUCTION_SEC,
+          clutchTimeEnabled: false,
+        });
+      } finally {
+        setStartingAuction(false);
+      }
+    });
+  };
+
   const onRemove = (item: LiveRoomItemRow) => {
     Alert.alert('Remove lot?', item.title, [
       { text: 'Cancel', style: 'cancel' },
@@ -309,6 +325,7 @@ export function useSellerLiveConsole({
     onSkip,
     onExtend,
     onLaunch,
+    onLaunchAndStart,
     onRemove,
     auctionRoom,
     roomLive,

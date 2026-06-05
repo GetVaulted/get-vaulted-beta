@@ -699,6 +699,13 @@ export async function stopStageComposition(roomId: string): Promise<void> {
  * live (stage mode), and kick off the optional HLS mirror. Returns the host's publish token.
  */
 export async function prepareHostStageSession(roomId: string, userId: string): Promise<StageToken> {
+  const existing = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: { ivsChannelArn: true, ivsPlaybackUrl: true },
+  });
+  if (!existing?.ivsChannelArn || !existing?.ivsPlaybackUrl) {
+    await provisionRoomStream(roomId);
+  }
   const token = await createHostStageToken(roomId, userId);
   const now = new Date();
   await prisma.liveRoom.update({

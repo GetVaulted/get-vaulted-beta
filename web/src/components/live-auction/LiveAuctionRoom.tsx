@@ -1028,18 +1028,18 @@ export function LiveAuctionRoom({
                   : `Claim spot ${primaryOverlayMoneyLabel}`
             }
             onClick={() => void handlePlaceBid()}
-            className={`flex min-h-10 min-w-0 flex-1 items-center justify-center rounded-full px-2 text-[11px] font-black text-zinc-950 transition-[transform,box-shadow,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] disabled:opacity-50 motion-reduce:transition-none motion-reduce:active:scale-100 md:min-h-11 md:px-4 md:text-[12px] ${
+            className={`flex min-h-10 min-w-0 flex-1 items-center justify-center rounded-full px-2 text-[11px] font-black uppercase tracking-wide text-white transition-[transform,box-shadow,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] disabled:opacity-50 motion-reduce:transition-none motion-reduce:active:scale-100 md:min-h-11 md:px-4 md:text-[12px] ${
               !overlayIsLive && busy
-                ? "bg-gradient-to-r from-[#b8922a] to-[#fde047] shadow-[0_0_0_1px_rgba(253,224,71,0.25),0_12px_28px_-14px_rgba(250,204,21,0.78)]"
-                : "border border-[#fde047]/35 bg-gradient-to-r from-[#facc15] to-[#fde047] shadow-[0_12px_28px_-14px_rgba(250,204,21,0.82)]"
+                ? "bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)]"
+                : "bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)]"
             }`}
           >
             {!overlayIsLive && busy ? (
               "Claiming…"
             ) : (
               <span className="min-w-0 truncate tabular-nums">
-                <span className="max-[380px]:hidden">{`${overlayIsLive ? "Bid" : "Claim"}: ${primaryOverlayMoneyLabel} >>`}</span>
-                <span className="hidden max-[380px]:inline">{primaryOverlayMoneyLabel}</span>
+                <span className="max-[380px]:hidden">{`${overlayIsLive ? "Place bid" : "Claim spot"} ${primaryOverlayMoneyLabel}`}</span>
+                <span className="hidden max-[380px]:inline">{`${overlayIsLive ? "Bid" : "Claim"} ${primaryOverlayMoneyLabel}`}</span>
               </span>
             )}
           </button>

@@ -796,9 +796,9 @@ export function LiveSaleRoom({
               (Boolean(activeListingId) && Boolean(bidMeta?.auctionEnded))
             }
             onClick={() => void handlePlaceBid()}
-            className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] border border-emerald-300/50 bg-emerald-600/40 px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-emerald-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] hover:bg-emerald-600/55 active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
+            className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-white shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
           >
-            {`Place Bid $${nextBidAmount}`}
+            {`Place bid $${nextBidAmount}`}
           </button>
         ) : null}
         {roomType === "sale" && activeHasVariants ? (
@@ -1032,10 +1032,10 @@ export function LiveSaleRoom({
             }
             onClick={() => void handlePlaceBid()}
             aria-label={`Place bid ${nextBidAmount} dollars`}
-            className="flex min-h-10 min-w-0 flex-1 items-center justify-center rounded-full border border-gold/40 bg-gradient-to-r from-[#c9a227] via-[#e8d48b] to-[#fde68a] px-2 text-[10px] font-black uppercase tracking-wide text-zinc-950 shadow-[0_12px_30px_-14px_rgba(201,162,39,0.55)] transition-[transform,box-shadow,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] disabled:opacity-40 motion-reduce:transition-none motion-reduce:active:scale-100 md:min-h-11 md:px-3 md:text-[11px]"
+            className="flex min-h-10 min-w-0 flex-1 items-center justify-center rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-2 text-[10px] font-black uppercase tracking-wide text-white shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)] transition-[transform,box-shadow,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] disabled:opacity-40 motion-reduce:transition-none motion-reduce:active:scale-100 md:min-h-11 md:px-3 md:text-[11px]"
           >
             <span className="min-w-0 truncate">
-              <span className="max-[380px]:hidden">Bid · </span>
+              <span className="max-[380px]:hidden">Place bid </span>
               <span className="hidden max-[380px]:inline">Bid </span>
               <span className="tabular-nums">${nextBidAmount}</span>
             </span>

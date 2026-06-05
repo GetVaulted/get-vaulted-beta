@@ -7,6 +7,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Platform,
   Pressable,
@@ -14,7 +15,6 @@ import {
   View,
 } from 'react-native';
 import { LiveRoomText } from './LiveRoomText';
-import { HoldToBidButton } from './HoldToBidButton';
 import {
   createLiveBidIdempotencyKey,
   fetchLiveRoomBuyerSnapshot,
@@ -552,40 +552,6 @@ export function LivePinnedActionBar({
       // Stay in room — live commerce secondary never routes to Trade.
     });
   };
-  const onHoldStart = useCallback((): boolean => {
-    if (primaryDisabled || bidBusy) {
-      logBidControl('blocked', {
-        reason: primaryDisabled ? 'primary disabled' : 'bid busy',
-        lotBidPhase: roomSnap?.lotBidPhase ?? null,
-      });
-      return false;
-    }
-    if (!signedIn) {
-      logBidControl('blocked', { reason: 'auth required' });
-      onRequireAuth?.();
-      return false;
-    }
-    logBidControl('press', {
-      roomId: stream.id,
-      label: m.bottomRightLabel,
-      useLiveAuctionBidFlow,
-    });
-    return true;
-  }, [
-    bidBusy,
-    m.bottomRightLabel,
-    onRequireAuth,
-    primaryDisabled,
-    roomSnap?.lotBidPhase,
-    signedIn,
-    stream.id,
-    useLiveAuctionBidFlow,
-  ]);
-
-  const onHoldCommit = useCallback(() => {
-    guard(() => runPrimaryLiveCommerceAction());
-  }, [guard, runPrimaryLiveCommerceAction]);
-
   const onPrimary = () => {
     if (primaryDisabled || bidBusy) {
       logBidControl('blocked', {
@@ -673,30 +639,31 @@ export function LivePinnedActionBar({
           ) : null}
 
           <View style={styles.ctaPrimaryWrap}>
-            {useLiveAuctionBidFlow ? (
-              <HoldToBidButton
-                label={m.bottomRightLabel}
-                disabled={primaryDisabled}
-                busy={bidBusy}
-                onHoldStart={onHoldStart}
-                onCommit={onHoldCommit}
-              />
-            ) : (
-              <Pressable
-                style={[styles.ctaGold, (primaryDisabled || bidBusy) && styles.ctaDisabled]}
-                onPress={onPrimary}
-                disabled={primaryDisabled || bidBusy}
-                accessibilityRole="button"
-                accessibilityLabel={m.bottomRightLabel}
+            <Pressable
+              style={[styles.ctaBidPressable, (primaryDisabled || bidBusy) && styles.ctaDisabled]}
+              onPress={onPrimary}
+              disabled={primaryDisabled || bidBusy}
+              accessibilityRole="button"
+              accessibilityLabel={m.bottomRightLabel}
+            >
+              <LinearGradient
+                colors={['#D946EF', '#8B5CF6', '#6366F1']}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={[styles.ctaBidGradient, compact && styles.ctaBidGradientCompact]}
               >
-                <LiveRoomText
-                  style={[styles.ctaGoldText, (primaryDisabled || bidBusy) && styles.ctaDisabledText]}
-                  numberOfLines={1}
-                >
-                  {m.bottomRightLabel}
-                </LiveRoomText>
-              </Pressable>
-            )}
+                {bidBusy ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <LiveRoomText
+                    style={[styles.ctaBidText, (primaryDisabled || bidBusy) && styles.ctaDisabledText]}
+                    numberOfLines={1}
+                  >
+                    {m.bottomRightLabel}
+                  </LiveRoomText>
+                )}
+              </LinearGradient>
+            </Pressable>
           </View>
         </View>
       </View>
@@ -873,6 +840,32 @@ const styles = StyleSheet.create({
     minWidth: 0,
     minHeight: 44,
     justifyContent: 'center',
+  },
+  ctaBidPressable: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: radii.pill,
+    overflow: 'hidden',
+  },
+  ctaBidGradient: {
+    flex: 1,
+    minHeight: 44,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  ctaBidGradientCompact: {
+    minHeight: 40,
+    paddingVertical: 8,
+  },
+  ctaBidText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '900',
+    textAlign: 'center',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
   ctaGold: {
     flex: 1,

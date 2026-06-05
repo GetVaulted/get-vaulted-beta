@@ -4,10 +4,9 @@ import { Platform, StyleSheet, View } from 'react-native';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { VaultPinnedLotCard } from '../liveConsole/VaultPinnedLotCard';
 
-/** Active lot HUD above the next-up rail. */
-export const SELLER_PINNED_OVERLAY_HEIGHT = 152;
-export const SELLER_PINNED_EMPTY_HEIGHT = 56;
-export const SELLER_PINNED_EMPTY_WITH_PIN_HEIGHT = 92;
+/** Active lot HUD — single seller commerce box. */
+export const SELLER_PINNED_OVERLAY_HEIGHT = 128;
+export const SELLER_PINNED_EMPTY_HEIGHT = 72;
 
 export function SellerLivePinnedOverlay({
   bottom,
@@ -22,8 +21,8 @@ export function SellerLivePinnedOverlay({
   onSold,
   onSkip,
   onExtend,
-  onPinNext,
-  pinNextLabel,
+  hostOverlayMinimal = true,
+  queuePreview = false,
 }: {
   bottom: number;
   left: number;
@@ -37,8 +36,8 @@ export function SellerLivePinnedOverlay({
   onSold: () => void;
   onSkip: () => void;
   onExtend: () => void;
-  onPinNext?: () => void;
-  pinNextLabel?: string;
+  hostOverlayMinimal?: boolean;
+  queuePreview?: boolean;
 }) {
   return (
     <View style={[styles.host, { bottom, left, right }]} pointerEvents="box-none">
@@ -64,8 +63,8 @@ export function SellerLivePinnedOverlay({
             onSold={onSold}
             onSkip={onSkip}
             onExtend={onExtend}
-            onPinNext={onPinNext}
-            pinNextLabel={pinNextLabel}
+            hostOverlayMinimal={hostOverlayMinimal}
+            queuePreview={queuePreview}
           />
         </View>
       </View>

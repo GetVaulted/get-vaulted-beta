@@ -61,11 +61,9 @@ export function isIosLikePlaybackClient(): boolean {
   );
 }
 
-/** Mobile browsers have flaky IVS Stage WebRTC subscribe — prefer low-latency HLS for reliability. */
+/** Prefer IVS Real-Time Stage WebRTC when available; HLS is the failover path. */
 export function preferHlsOverWebrtcOnClient(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const ua = navigator.userAgent;
-  return isIosLikePlaybackClient() || /Android/i.test(ua);
+  return false;
 }
 
 /** iOS must use native `<video src="*.m3u8">` — hls.js MSE path stalls or shows a blank frame. */

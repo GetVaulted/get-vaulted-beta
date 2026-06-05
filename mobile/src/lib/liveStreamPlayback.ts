@@ -66,9 +66,9 @@ export function isStageWebrtcEnabled(): boolean {
   return process.env.EXPO_PUBLIC_LIVE_STAGE_ENABLED !== 'false';
 }
 
-/** Native mobile apps use IVS low-latency HLS — Stage WebRTC subscribe is unreliable on phones. */
+/** Prefer IVS Real-Time Stage WebRTC when available; HLS is the failover path. */
 export function preferHlsOverWebrtcOnClient(): boolean {
-  return true;
+  return false;
 }
 
 /** Whether the buyer should attempt IVS Real-Time Stage subscribe (before one-shot HLS failover). */

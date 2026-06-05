@@ -197,7 +197,10 @@ function LiveSlide({
       }
       liveChat.appendBroadcast(message);
     },
-    onStreamRefresh: () => setStreamRefreshNonce((n) => n + 1),
+    onStreamRefresh: () => {
+      setStreamRefreshNonce((n) => n + 1);
+      setRoomStatus((prev) => (prev === 'ended' ? prev : 'live'));
+    },
   });
 
   useEffect(() => {

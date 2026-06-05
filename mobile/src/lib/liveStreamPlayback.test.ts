@@ -37,8 +37,8 @@ describe('liveStreamPlayback', () => {
     expect(parsed?.stageAvailable).toBe(false);
   });
 
-  it('preferHlsOverWebrtcOnClient is true on native mobile', () => {
-    expect(preferHlsOverWebrtcOnClient()).toBe(true);
+  it('preferHlsOverWebrtcOnClient is false on native mobile (WebRTC primary)', () => {
+    expect(preferHlsOverWebrtcOnClient()).toBe(false);
   });
 
   it('shouldUseStageWebrtcPlayback requires stage_webrtc + stageAvailable + live signal', () => {
@@ -47,7 +47,7 @@ describe('liveStreamPlayback', () => {
         { streamMode: 'stage_webrtc', stageAvailable: true, streamHealth: 'live' },
         false,
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldUseStageWebrtcPlayback(
         { streamMode: 'channel_hls', stageAvailable: true, streamHealth: 'live' },

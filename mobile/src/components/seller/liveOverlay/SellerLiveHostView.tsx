@@ -27,10 +27,8 @@ import { SellerLiveOverlayHeader } from './SellerLiveOverlayHeader';
 import {
   SellerLivePinnedOverlay,
   SELLER_PINNED_EMPTY_HEIGHT,
-  SELLER_PINNED_EMPTY_WITH_PIN_HEIGHT,
   SELLER_PINNED_OVERLAY_HEIGHT,
 } from './SellerLivePinnedOverlay';
-import { SellerNextUpRail, SELLER_NEXT_UP_RAIL_HEIGHT } from './SellerNextUpRail';
 import { SellerLiveQueueSheet } from './SellerLiveQueueSheet';
 import { SellerConsoleActionBar } from './SellerConsoleActionBar';
 import { SellerShareSheet } from './SellerShareSheet';
@@ -124,22 +122,25 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   const actionBarTop = insets.top + 56;
   const actionBarHeight = 56;
 
-  const nextUpBottom = Math.max(insets.bottom, spacing.xs);
+  const commerceBottom = Math.max(insets.bottom, spacing.xs);
   const nextQueued = console.items.find((i) => i.status === 'queued') ?? null;
-  const showPinCta = !console.activeItem && Boolean(nextQueued) && !console.roomEnded;
-  const pinnedOverlayHeight = console.activeItem
-    ? SELLER_PINNED_OVERLAY_HEIGHT
-    : showPinCta
-      ? SELLER_PINNED_EMPTY_WITH_PIN_HEIGHT
-      : SELLER_PINNED_EMPTY_HEIGHT;
-
-  const onPinNext = () => {
-    if (!nextQueued) return;
-    console.onLaunch(nextQueued);
-  };
-  const pinnedBottom = nextUpBottom + SELLER_NEXT_UP_RAIL_HEIGHT + spacing.xs;
+  const queuePreview = !console.activeItem && Boolean(nextQueued) && !console.roomEnded;
+  const displayItem = console.activeItem ?? (queuePreview ? nextQueued : null);
+  const pinnedOverlayHeight =
+    displayItem || queuePreview ? SELLER_PINNED_OVERLAY_HEIGHT : SELLER_PINNED_EMPTY_HEIGHT;
+  const pinnedBottom = commerceBottom;
   const composerBottom = pinnedBottom + pinnedOverlayHeight + COMMERCE_TO_COMPOSER_GAP;
   const chatBottom = composerBottom + COMPOSER_BAR_H + CHAT_ZONE_GAP;
+
+  const onStartAuction = () => {
+    if (console.activeItem) {
+      console.onStartBidding();
+      return;
+    }
+    if (nextQueued) {
+      console.onLaunchAndStart(nextQueued);
+    }
+  };
 
   const chatPool = console.chatMessages;
 
@@ -252,36 +253,21 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         sendDisabled
       />
 
-      <SellerNextUpRail
-        bottom={nextUpBottom}
-        left={spacing.md}
-        right={spacing.md}
-        items={console.items}
-        queuedCount={console.queuedCount}
-        loading={console.loading}
-        busy={console.busy}
-        roomEnded={console.roomEnded}
-        roomLive={console.roomLive}
-        onOpenQueue={() => setQueueOpen(true)}
-        onAddItem={() => console.setInventoryOpen(true)}
-        onPinNext={showPinCta ? onPinNext : undefined}
-      />
-
       <SellerLivePinnedOverlay
         bottom={pinnedBottom}
         left={spacing.md}
         right={CHAT_RIGHT_EDGE + spacing.sm}
-        item={console.activeItem}
+        item={displayItem}
         serverNowMs={console.serverNowMs}
         roomLive={console.roomLive}
         busy={console.busy}
         startingAuction={console.startingAuction}
-        onStartBidding={console.onStartBidding}
+        onStartBidding={onStartAuction}
         onSold={console.onSold}
         onSkip={console.onSkip}
         onExtend={console.onExtend}
-        onPinNext={showPinCta ? onPinNext : undefined}
-        pinNextLabel={nextQueued ? `Pin ${(nextQueued.displayTitle ?? nextQueued.title).trim()}` : undefined}
+        hostOverlayMinimal
+        queuePreview={queuePreview}
       />
 
       {host.broadcastError && host.broadcastPhase === 'idle' ? (
