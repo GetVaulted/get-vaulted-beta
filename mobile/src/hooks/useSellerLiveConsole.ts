@@ -25,6 +25,7 @@ export function useSellerLiveConsole({
   sellerUsername,
   navigation,
   onBiddingUrgentChange,
+  onAfterAddLot,
 }: {
   accessToken: string;
   roomId: string;
@@ -33,6 +34,7 @@ export function useSellerLiveConsole({
   sellerUsername?: string | null;
   navigation: NavigationProp<ParamListBase>;
   onBiddingUrgentChange?: (urgent: boolean) => void;
+  onAfterAddLot?: () => void;
 }) {
   const [items, setItems] = useState<LiveRoomItemRow[]>([]);
   const [activeItem, setActiveItem] = useState<LiveRoomItemRow | null>(null);
@@ -180,6 +182,7 @@ export function useSellerLiveConsole({
         quantity: pricing?.quantity ?? 1,
         startingBidUsd: pricing?.startingBidUsd ?? null,
       });
+      onAfterAddLot?.();
     });
   };
 

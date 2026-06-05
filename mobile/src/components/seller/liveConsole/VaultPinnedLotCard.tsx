@@ -64,6 +64,8 @@ export function VaultPinnedLotCard({
   onSold,
   onSkip,
   onExtend,
+  onPinNext,
+  pinNextLabel,
 }: {
   item: LiveRoomItemRow | null;
   serverNowMs: number;
@@ -76,6 +78,9 @@ export function VaultPinnedLotCard({
   onSold: () => void;
   onSkip: () => void;
   onExtend: () => void;
+  /** Pin the next queued lot when no item is active on the block. */
+  onPinNext?: () => void;
+  pinNextLabel?: string;
 }) {
   const compact = density === 'broadcast';
 
@@ -196,8 +201,25 @@ export function VaultPinnedLotCard({
   if (!item) {
     if (compact) {
       return (
-        <View style={[styles.empty, styles.emptyCompact]}>
-          <Text style={styles.emptyInline}>No active item · Add or queue a lot</Text>
+        <View style={[styles.empty, styles.emptyCompact, onPinNext ? styles.emptyCompactAction : null]}>
+          <Text style={styles.emptyInline} numberOfLines={1}>
+            {onPinNext
+              ? roomLive
+                ? 'Pin next lot to put it on the block'
+                : 'Go live, then pin the next lot'
+              : 'No active item · Add or queue a lot'}
+          </Text>
+          {onPinNext ? (
+            <Pressable
+              style={[styles.pinBtn, (!roomLive || busy) && styles.pinBtnDisabled]}
+              onPress={onPinNext}
+              disabled={!roomLive || busy}
+              accessibilityRole="button"
+              accessibilityLabel="Pin lot"
+            >
+              <Text style={styles.pinBtnTxt}>{pinNextLabel ?? 'Pin lot'}</Text>
+            </Pressable>
+          ) : null}
         </View>
       );
     }
@@ -205,6 +227,17 @@ export function VaultPinnedLotCard({
       <View style={styles.empty}>
         <Text style={styles.emptyTitle}>No active item</Text>
         <Text style={styles.emptySub}>Add or queue a lot from Queue below</Text>
+        {onPinNext ? (
+          <Pressable
+            style={[styles.pinBtn, styles.pinBtnDefault, (!roomLive || busy) && styles.pinBtnDisabled]}
+            onPress={onPinNext}
+            disabled={!roomLive || busy}
+            accessibilityRole="button"
+            accessibilityLabel="Pin lot"
+          >
+            <Text style={styles.pinBtnTxt}>{pinNextLabel ?? 'Pin lot'}</Text>
+          </Pressable>
+        ) : null}
       </View>
     );
   }
@@ -601,7 +634,22 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
   },
   emptyCompact: { paddingVertical: 8, paddingHorizontal: spacing.sm },
+  emptyCompactAction: { gap: 6, paddingVertical: 6 },
   emptyInline: { fontSize: 12, fontWeight: '700', color: colors.textSecondary, textAlign: 'center' },
   emptyTitle: { fontSize: 14, fontWeight: '800', color: colors.textPrimary },
   emptySub: { fontSize: 11, color: colors.textMuted, textAlign: 'center' },
+  pinBtn: {
+    alignSelf: 'stretch',
+    marginTop: 4,
+    paddingVertical: 8,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.45)',
+    backgroundColor: 'rgba(212,175,55,0.22)',
+    alignItems: 'center',
+  },
+  pinBtnDefault: { marginTop: spacing.sm },
+  pinBtnDisabled: { opacity: 0.45 },
+  pinBtnTxt: { fontSize: 11, fontWeight: '900', color: colors.gold, textTransform: 'uppercase', letterSpacing: 0.6 },
 });

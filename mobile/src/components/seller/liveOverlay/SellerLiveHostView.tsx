@@ -27,6 +27,7 @@ import { SellerLiveOverlayHeader } from './SellerLiveOverlayHeader';
 import {
   SellerLivePinnedOverlay,
   SELLER_PINNED_EMPTY_HEIGHT,
+  SELLER_PINNED_EMPTY_WITH_PIN_HEIGHT,
   SELLER_PINNED_OVERLAY_HEIGHT,
 } from './SellerLivePinnedOverlay';
 import { SellerNextUpRail, SELLER_NEXT_UP_RAIL_HEIGHT } from './SellerNextUpRail';
@@ -101,6 +102,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
     sellerUsername,
     navigation,
     onBiddingUrgentChange: setBiddingUrgent,
+    onAfterAddLot: () => setQueueOpen(true),
   });
 
   useEffect(() => {
@@ -123,7 +125,18 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   const actionBarHeight = 56;
 
   const nextUpBottom = Math.max(insets.bottom, spacing.xs);
-  const pinnedOverlayHeight = console.activeItem ? SELLER_PINNED_OVERLAY_HEIGHT : SELLER_PINNED_EMPTY_HEIGHT;
+  const nextQueued = console.items.find((i) => i.status === 'queued') ?? null;
+  const showPinCta = !console.activeItem && Boolean(nextQueued) && !console.roomEnded;
+  const pinnedOverlayHeight = console.activeItem
+    ? SELLER_PINNED_OVERLAY_HEIGHT
+    : showPinCta
+      ? SELLER_PINNED_EMPTY_WITH_PIN_HEIGHT
+      : SELLER_PINNED_EMPTY_HEIGHT;
+
+  const onPinNext = () => {
+    if (!nextQueued) return;
+    console.onLaunch(nextQueued);
+  };
   const pinnedBottom = nextUpBottom + SELLER_NEXT_UP_RAIL_HEIGHT + spacing.xs;
   const composerBottom = pinnedBottom + pinnedOverlayHeight + COMMERCE_TO_COMPOSER_GAP;
   const chatBottom = composerBottom + COMPOSER_BAR_H + CHAT_ZONE_GAP;
@@ -248,8 +261,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         loading={console.loading}
         busy={console.busy}
         roomEnded={console.roomEnded}
+        roomLive={console.roomLive}
         onOpenQueue={() => setQueueOpen(true)}
         onAddItem={() => console.setInventoryOpen(true)}
+        onPinNext={showPinCta ? onPinNext : undefined}
       />
 
       <SellerLivePinnedOverlay
@@ -265,6 +280,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         onSold={console.onSold}
         onSkip={console.onSkip}
         onExtend={console.onExtend}
+        onPinNext={showPinCta ? onPinNext : undefined}
+        pinNextLabel={nextQueued ? `Pin ${(nextQueued.displayTitle ?? nextQueued.title).trim()}` : undefined}
       />
 
       {host.broadcastError && host.broadcastPhase === 'idle' ? (
@@ -303,7 +320,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         queuedCount={console.queuedCount}
         consoleError={console.consoleError}
         onRetry={() => void console.loadOnce()}
-        onLaunch={console.onLaunch}
+        onLaunch={(item) => {
+          console.onLaunch(item);
+          setQueueOpen(false);
+        }}
         onRemove={console.onRemove}
         onReorder={console.onReorder}
         onEditPricing={(item) => console.setPricingEditItem(item)}

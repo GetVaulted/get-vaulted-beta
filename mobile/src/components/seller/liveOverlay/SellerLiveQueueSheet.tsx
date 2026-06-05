@@ -83,7 +83,7 @@ export function SellerLiveQueueSheet({
           <View style={styles.handle} />
           <View style={styles.head}>
             <Text style={styles.title}>Queue</Text>
-            <Text style={styles.count}>{queuedCount} waiting · long-press to reorder</Text>
+            <Text style={styles.count}>{queuedCount} waiting · tap Start to pin</Text>
             <Pressable onPress={onClose} hitSlop={12} accessibilityLabel="Close">
               <Ionicons name="close" size={22} color={colors.textSecondary} />
             </Pressable>
@@ -117,6 +117,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, justifyContent: 'flex-end' },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
   drawer: {
+    flexDirection: 'column',
     borderTopLeftRadius: radii.lg,
     borderTopRightRadius: radii.lg,
     backgroundColor: colors.surface,

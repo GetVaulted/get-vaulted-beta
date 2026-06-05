@@ -20,8 +20,10 @@ export function SellerNextUpRail({
   loading,
   busy,
   roomEnded,
+  roomLive,
   onOpenQueue,
   onAddItem,
+  onPinNext,
 }: {
   bottom: number;
   left: number;
@@ -31,8 +33,10 @@ export function SellerNextUpRail({
   loading: boolean;
   busy: boolean;
   roomEnded: boolean;
+  roomLive: boolean;
   onOpenQueue: () => void;
   onAddItem: () => void;
+  onPinNext?: () => void;
 }) {
   const nextQueued = items.find((i) => i.status === 'queued') ?? null;
 
@@ -84,6 +88,17 @@ export function SellerNextUpRail({
             </Text>
           </Pressable>
           <View style={styles.actions}>
+            {nextQueued && onPinNext && !roomEnded ? (
+              <Pressable
+                style={[styles.pinBtn, (!roomLive || busy) && styles.pinBtnDisabled]}
+                onPress={onPinNext}
+                disabled={!roomLive || busy}
+                hitSlop={6}
+                accessibilityLabel="Pin next lot"
+              >
+                <Text style={styles.pinBtnTxt}>Pin</Text>
+              </Pressable>
+            ) : null}
             <Pressable
               style={styles.queueBtn}
               onPress={onOpenQueue}
@@ -159,6 +174,16 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  pinBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: radii.pill,
+    backgroundColor: colors.gold,
+    minHeight: 36,
+    justifyContent: 'center',
+  },
+  pinBtnDisabled: { opacity: 0.45 },
+  pinBtnTxt: { fontSize: 12, fontWeight: '900', color: '#0a0a0a' },
   queueBtn: {
     flexDirection: 'row',
     alignItems: 'center',

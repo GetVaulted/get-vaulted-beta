@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { ReactElement } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import DraggableFlatList, { ScaleDecorator, type RenderItemParams } from 'react-native-draggable-flatlist';
+import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { formatUsdDisplay, queueItemQuantity } from '../../../lib/liveAuctionPricing';
 import { queueStatusLabel } from '../liveOverlay/SellerQueueStrip';
@@ -120,33 +119,30 @@ export function VaultQueueList({
     <Text style={styles.empty}>Vault queue is empty — tap Add inventory to fill the lane.</Text>
   );
 
-  const renderDraggableItem = ({ item, drag, isActive }: RenderItemParams<LiveRoomItemRow>) => (
-    <ScaleDecorator>
-      <VaultQueueRow
-        item={item}
-        roomEnded={roomEnded}
-        busy={busy}
-        drag={drag}
-        isActive={isActive}
-        onLaunch={onLaunch}
-        onRemove={onRemove}
-        onEditPricing={onEditPricing}
-      />
-    </ScaleDecorator>
-  );
-
   if (scrollContainer) {
     return (
-      <DraggableFlatList
+      <FlatList
         data={queued}
         keyExtractor={(item) => item.id}
-        onDragEnd={({ data }) => onReorder(data)}
-        renderItem={renderDraggableItem}
+        renderItem={({ item }) => (
+          <VaultQueueRow
+            item={item}
+            roomEnded={roomEnded}
+            busy={busy}
+            onLaunch={onLaunch}
+            onRemove={onRemove}
+            onEditPricing={onEditPricing}
+          />
+        )}
         ListHeaderComponent={listHeaderComponent ?? undefined}
         ListEmptyComponent={() => emptyCopy}
         style={styles.scrollList}
-        contentContainerStyle={[styles.scrollListContent, contentContainerStyle]}
-        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.scrollListContent,
+          contentContainerStyle,
+          queued.length === 0 ? styles.scrollListEmpty : undefined,
+        ]}
+        showsVerticalScrollIndicator
         keyboardShouldPersistTaps="handled"
       />
     );
@@ -181,7 +177,8 @@ export function VaultQueueList({
 
 const styles = StyleSheet.create({
   scrollList: { flex: 1 },
-  scrollListContent: { paddingBottom: spacing.md, gap: 0 },
+  scrollListContent: { paddingBottom: spacing.md },
+  scrollListEmpty: { flexGrow: 1 },
   embeddedList: { gap: 0 },
   empty: { fontSize: 12, color: colors.textMuted, lineHeight: 17, marginTop: spacing.xs },
   card: {
