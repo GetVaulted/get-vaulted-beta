@@ -850,6 +850,38 @@ export function LiveSaleRoom({
     </div>
   );
 
+  const showSaleActiveOverlay = roomStatus !== "ended" && activeDb?.status === "active";
+
+  const desktopWaitingOverlay = (
+    <div className="live-desktop-action-hud p-4">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Up next</p>
+      <p className="mt-1 line-clamp-2 text-sm font-bold text-zinc-50">
+        {buyerNextUpItem?.displayTitle ?? queue[0]?.displayTitle ?? "Lineup"}
+      </p>
+      <p className="mt-1 text-[11px] text-zinc-300">
+        {buyerNextUpItem
+          ? roomType === "auction"
+            ? `${fmt(buyerNextUpItem.topBid)} bid`
+            : fmt(buyerNextUpItem.buyNow)
+          : `${queue.length} item${queue.length === 1 ? "" : "s"} in queue`}
+        {buyerNextUpItem ? ` · ${queue.length} in queue` : ""}
+      </p>
+      <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-amber-200/90">
+        {!isLive ? "Waiting for the host to go live" : "Waiting for the next lot"}
+      </p>
+      <p className="mt-1 text-[10px] text-zinc-400">
+        {!isLive ? "Purchases open when the show starts." : "The host will bring the next item on stage shortly."}
+      </p>
+    </div>
+  );
+
+  const desktopStageOverlay =
+    showSaleActiveOverlay
+      ? desktopVideoOverlay
+      : queue.length > 0 && roomStatus !== "ended"
+        ? desktopWaitingOverlay
+        : null;
+
   const mobileVideoOverlay = (
     <div className="live-glass-sheet relative min-h-0 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 max-[380px]:px-1.5 max-[380px]:pt-1.5">
       <p className="line-clamp-1 text-[11px] font-semibold leading-tight text-zinc-100">
@@ -1101,7 +1133,8 @@ export function LiveSaleRoom({
     scheduledStartAt,
     thumbnailUrl,
     buyerShellMode: isBuyerDesktop,
-    showRightActions: !isHost && !isBuyerDesktop,
+    showRightActions: !isHost,
+    shopHref,
     onShare: handleShare,
     onWallet: handleWallet,
     onTip: isLive && !isHost ? handleTip : undefined,
@@ -1128,15 +1161,9 @@ export function LiveSaleRoom({
                 hostName={hostDisplayName}
                 streamTitle={streamTitle}
                 hostSellerId={sellerId}
-                viewers={viewerCount}
                 isLive={isLive}
                 roomStatus={roomStatus}
-                liveRoomId={liveRoomId}
-                shopHref={shopHref}
                 onBack={() => router.back()}
-                onShare={handleShare}
-                onWallet={handleWallet}
-                onTip={isLive && !isHost ? handleTip : undefined}
               />
             }
             chat={embeddedDesktopChat}
@@ -1144,7 +1171,7 @@ export function LiveSaleRoom({
               <LiveVideoStage
                 {...videoStageProps}
                 layout="buyerShellPlate"
-                actionOverlay={desktopVideoOverlay}
+                actionOverlay={desktopStageOverlay}
                 mobileActionOverlay={null}
                 chatOverlay={null}
               />

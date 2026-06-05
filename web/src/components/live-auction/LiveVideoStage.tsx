@@ -58,6 +58,8 @@ type LiveVideoStageProps = {
   topChromeTrailing?: ReactNode;
   /** Buyer-only right-side quick actions. */
   showRightActions?: boolean;
+  /** Seller shop link for the video-stage Shop action. */
+  shopHref?: string | null;
   onShare?: () => void;
   onWallet?: () => void;
   /** Opens buyer tip sheet — shown on the right rail when the show is live. */
@@ -122,6 +124,7 @@ export function LiveVideoStage({
   centeredActionOverlay = false,
   topChromeTrailing,
   showRightActions = false,
+  shopHref = null,
   onShare,
   onWallet,
   onTip,
@@ -236,7 +239,7 @@ export function LiveVideoStage({
       {onTip ? <ActionPill label="Tip" icon={<TipIcon />} onClick={onTip} /> : null}
       <ActionPill label="Share" icon={<ShareIcon />} onClick={onShare} />
       <ActionPill label="Wallet" icon={<WalletIcon />} onClick={onWallet} />
-      <ActionPill label="Shop" icon={<ShopIcon />} href="/marketplace" />
+      <ActionPill label="Shop" icon={<ShopIcon />} href={shopHref ?? "/marketplace"} />
       {liveRoomId ? (
         <ReportTrigger
           targetType="live_room"
@@ -394,7 +397,22 @@ export function LiveVideoStage({
               <div className="pointer-events-auto flex justify-end">{stageBelowAudience}</div>
             ) : null}
           </div>
-        ) : null}
+        ) : (
+          <div className="pointer-events-none absolute left-3 right-14 top-3 z-10 flex justify-end">
+            <div className="pointer-events-auto flex items-center gap-1.5 rounded-[var(--live-radius-chrome)] border border-[color:var(--live-border-muted)] bg-[color:var(--live-chrome-fill)] px-2 py-1 backdrop-blur-[var(--live-blur-sm)]">
+              <span
+                data-testid="live-status-pill"
+                className={`inline-flex items-center gap-1 rounded-full px-1.5 py-[2px] text-[8px] font-black uppercase tracking-wide text-white ${
+                  isLive ? "bg-red-600 shadow-[0_0_20px_rgba(220,38,38,0.45)] ring-1 ring-red-400/50" : "bg-zinc-700/80"
+                }`}
+              >
+                {isLive ? <span className="size-1.5 animate-pulse rounded-full bg-white" aria-hidden /> : null}
+                {statusLabel}
+              </span>
+              <LiveViewerCount viewers={viewers} isLive={isLive} />
+            </div>
+          </div>
+        )}
 
         {actionOverlay ? (
           <div className={`pointer-events-auto absolute z-10 live-stage-float-subtle ${desktopActionOverlayClass} ${uiDimmed ? "" : "live-stage-hud-awake"}`}>
