@@ -1059,45 +1059,6 @@ export function LiveAuctionRoom({
     </div>
   );
 
-  const infoPanel = (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-      <article className="rounded-xl border border-zinc-800 bg-zinc-950/80 p-3">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Break info</p>
-        <p className="mt-1 text-sm font-semibold text-zinc-100">{breakSnapshot?.displayTitle ?? roomTitle ?? "Live break"}</p>
-        <p className="mt-1 text-xs text-zinc-500">
-          {breakSnapshot
-            ? `Status: ${(breakSnapshot.phase ?? "filling").replace(/_/g, " ")} · Spots update automatically as the host runs the break.`
-            : "Pick teams, follow bids, and watch hits in real time."}
-        </p>
-      </article>
-      <article className="rounded-xl border border-zinc-800 bg-zinc-950/80 p-3">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Hit feed</p>
-        {breakSnapshot && breakSnapshot.hits.length > 0 ? (
-          <ul className="mt-1 space-y-1.5 text-xs text-zinc-400">
-            {breakSnapshot.hits.slice(0, 6).map((h) => (
-              <li key={h.id} className="leading-snug">
-                <span className="font-medium text-zinc-200">{h.title}</span>
-                {h.spotLabel ? <span className="text-zinc-500"> · {h.spotLabel}</span> : null}
-                {h.buyerUsername ? <span className="text-zinc-500"> · @{h.buyerUsername}</span> : null}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <ul className="mt-1 space-y-1 text-xs text-zinc-500">
-            <li>Hits from the host will show here and in chat as system messages.</li>
-          </ul>
-        )}
-      </article>
-    </div>
-  );
-
-  const salesPanel = (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3">
-      <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500">Recent sales</p>
-      <p className="text-xs text-zinc-500">Sales from this room will appear here.</p>
-    </div>
-  );
-
   /** Team list from API while the break is live (same for host/buyer on the public /live page). */
   const teamBoardPayloadReady = Boolean(teamBoardData?.teams.length && isLive);
 
@@ -1242,16 +1203,6 @@ export function LiveAuctionRoom({
                 <p className="rounded-xl border border-zinc-800 bg-zinc-950/90 px-3 py-4 text-center text-xs text-zinc-500">Waiting for the next lot…</p>
               )
             }
-            breakExtras={
-              breakSnapshot && !isHost ? (
-                <BreakBuyerOverview
-                  break={breakSnapshot}
-                  isLive={isLive}
-                  liveRoomId={liveRoomId}
-                  currentUserId={session?.user?.id ?? null}
-                />
-              ) : undefined
-            }
             lineup={
               !isHost && buyerLineupItems.length > 0 ? (
                 <BuyerLiveLineupPanel
@@ -1263,7 +1214,6 @@ export function LiveAuctionRoom({
                   selectedId={selectedId}
                   shopHref={shopHref}
                   onSelect={setSelectedId}
-                  onViewAll={() => setBuyerLineupOpen(true)}
                 />
               ) : undefined
             }

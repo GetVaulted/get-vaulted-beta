@@ -416,7 +416,6 @@ export function LiveSaleRoom({
     Math.abs(bidMeta.currentBidUsd - userHighBidUsd) < 0.02;
 
   const queue = items.filter((i) => i.status !== "sold" && i.status !== "skipped");
-  const sold = items.filter((i) => i.status === "sold" || i.status === "skipped");
   const buyerNextUpItem = useMemo(() => {
     const active = queue.find((i) => i.status === "live" || i.id === selectedId);
     return queue.find((i) => i.id !== active?.id) ?? queue[0] ?? null;
@@ -1068,41 +1067,6 @@ export function LiveSaleRoom({
     </div>
   );
 
-  const infoPanel = (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3">
-      <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500">Sold activity</p>
-      <div className="space-y-1 text-xs text-zinc-400">
-        {sold.length === 0 ? (
-          <p>No items sold yet.</p>
-        ) : (
-          sold.map((item) => (
-            <p key={item.id}>
-              • {item.displayTitle}
-              {item.status === "skipped" ? " skipped" : ` sold at ${fmt(item.topBid)}`}
-            </p>
-          ))
-        )}
-      </div>
-    </div>
-  );
-
-  const salesPanel = (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3">
-      <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500">Recent sales</p>
-      <div className="space-y-1 text-xs text-zinc-400">
-        {sold.length === 0 ? (
-          <p>No items sold yet.</p>
-        ) : (
-          sold.map((item) => (
-            <p key={item.id}>
-              • {item.displayTitle}
-              {item.status === "skipped" ? " skipped" : ` sold at ${fmt(item.topBid)}`}
-            </p>
-          ))
-        )}
-      </div>
-    </div>
-  );
   const embeddedDesktopChat = (
     <LiveAuctionChat
       liveRoomId={liveRoomId}
@@ -1201,7 +1165,6 @@ export function LiveSaleRoom({
                   selectedId={selectedId}
                   shopHref={shopHref}
                   onSelect={setSelectedId}
-                  onViewAll={() => setBuyerLineupOpen(true)}
                 />
               ) : undefined
             }

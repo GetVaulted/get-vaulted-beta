@@ -11,22 +11,17 @@ export type BuyerLiveLineupRow = {
 export type BuyerLiveLineupPanelProps = {
   items: BuyerLiveLineupRow[];
   selectedId: string;
-  previewCount?: number;
   shopHref?: string | null;
   onSelect: (id: string) => void;
-  onViewAll: () => void;
 };
 
-/** Right-rail lineup — next 3–5 items only (desktop buyer). */
+/** Right-rail item queue — compact, fully scrollable (desktop buyer). */
 export function BuyerLiveLineupPanel({
   items,
   selectedId,
-  previewCount = 5,
   shopHref,
   onSelect,
-  onViewAll,
 }: BuyerLiveLineupPanelProps) {
-  const preview = items.slice(0, previewCount);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -42,10 +37,10 @@ export function BuyerLiveLineupPanel({
         ) : null}
       </div>
       <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-2">
-        {preview.length === 0 ? (
+        {items.length === 0 ? (
           <p className="px-1 py-4 text-center text-xs text-zinc-500">Nothing queued yet.</p>
         ) : (
-          preview.map((item) => (
+          items.map((item) => (
             <button
               key={item.id}
               type="button"
@@ -62,17 +57,6 @@ export function BuyerLiveLineupPanel({
           ))
         )}
       </div>
-      {items.length > 0 ? (
-        <div className="shrink-0 border-t border-zinc-800/80 p-2">
-          <button
-            type="button"
-            onClick={onViewAll}
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 py-2 text-[11px] font-bold text-zinc-100 transition hover:border-gold/40 hover:bg-zinc-800"
-          >
-            View full lineup ({items.length})
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 }
