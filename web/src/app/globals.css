@@ -314,6 +314,17 @@ body {
   -webkit-backdrop-filter: blur(20px);
 }
 
+/** Compact waiting HUD — full plate width, minimal height. */
+.live-desktop-action-hud--compact {
+  width: 100%;
+  border-radius: 0 0 0.75rem 0.75rem;
+  border-top-color: rgba(255, 215, 80, 0.22);
+  border-bottom: none;
+  box-shadow:
+    0 0 0 1px rgba(255, 215, 80, 0.1) inset,
+    0 -8px 28px -12px rgba(0, 0, 0, 0.85);
+}
+
 /**
  * Full-width mobile modal sheet (queue, controls, etc.).
  */

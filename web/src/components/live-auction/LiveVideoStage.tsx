@@ -168,8 +168,8 @@ export function LiveVideoStage({
   const desktopChromeHiddenClass = buyerShellMode ? "hidden min-[1280px]:block" : "hidden min-[1400px]:block";
 
   const desktopActionOverlayClass = buyerShellPlateLayout
-    ? // Buyer desktop shell: float over the 9:16 plate, capped to plate width.
-      "bottom-3 left-1/2 w-[min(100%,calc(100cqh*9/16))] max-w-[min(540px,100%)] -translate-x-1/2"
+    ? // Buyer desktop shell: full plate width, flush to bottom edge.
+      "bottom-0 left-1/2 w-[min(100cqw,100cqh*9/16)] -translate-x-1/2"
     : cinematicActionOverlay
       ? "live-stage-hud-suspended bottom-4 left-1/2 w-[min(920px,calc(100%-3rem))] -translate-x-1/2"
       : centeredActionOverlay

@@ -844,22 +844,25 @@ export function LiveAuctionRoom({
   );
 
   const desktopWaitingOverlay = (
-    <div className="live-desktop-action-hud p-4">
-      <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Up next</p>
-      <p data-testid="live-active-item-title" className="mt-1 line-clamp-2 text-sm font-bold text-zinc-50">
-        {buyerNextUpItem?.displayTitle ?? buyerLineupItems[0]?.displayTitle ?? "Lineup"}
-      </p>
-      <p className="mt-1 text-[11px] text-zinc-300">
-        {fmt(buyerNextUpItem?.topBid || buyerNextUpItem?.buyNow || buyerLineupItems[0]?.topBid || buyerLineupItems[0]?.buyNow || 0)} ·{" "}
-        {buyerLineupItems.length} item{buyerLineupItems.length === 1 ? "" : "s"} in queue
-      </p>
-      <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-amber-200/90">
-        {!isLive ? "Waiting for the host to go live" : "Waiting for the next lot"}
-      </p>
-      <p className="mt-1 text-[10px] text-zinc-400">
-        {!isLive
-          ? "Bidding opens when the show starts."
-          : "The host will post the next item on stage shortly."}
+    <div className="live-desktop-action-hud live-desktop-action-hud--compact px-3 py-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[9px] font-bold uppercase tracking-wider text-zinc-500">Up next</p>
+          <p data-testid="live-active-item-title" className="line-clamp-1 text-xs font-bold leading-tight text-zinc-50">
+            {buyerNextUpItem?.displayTitle ?? buyerLineupItems[0]?.displayTitle ?? "Lineup"}
+          </p>
+        </div>
+        <p className="shrink-0 text-[10px] font-medium tabular-nums text-zinc-300">
+          {fmt(buyerNextUpItem?.topBid || buyerNextUpItem?.buyNow || buyerLineupItems[0]?.topBid || buyerLineupItems[0]?.buyNow || 0)} ·{" "}
+          {buyerLineupItems.length} in queue
+        </p>
+      </div>
+      <p className="mt-1 line-clamp-1 text-[9px] font-semibold uppercase tracking-wide text-amber-200/90">
+        {!isLive ? "Waiting for host to go live" : "Waiting for next lot"}
+        <span className="font-normal normal-case tracking-normal text-zinc-500">
+          {" · "}
+          {!isLive ? "Bidding opens when the show starts" : "Host will post the next item shortly"}
+        </span>
       </p>
     </div>
   );
