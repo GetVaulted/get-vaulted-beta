@@ -162,17 +162,20 @@ export function LiveVideoStage({
   const portraitFrameClass = buyerShellMode ? PORTRAIT_VIDEO_FRAME_BUYER_SHELL : PORTRAIT_VIDEO_FRAME;
 
   const mobileChromeHiddenClass = buyerShellMode ? "min-[1280px]:hidden" : "min-[1400px]:hidden";
-  const desktopChromeHiddenClass = buyerShellMode ? "hidden" : "hidden min-[1400px]:block";
+  const desktopChromeHiddenClass = buyerShellMode ? "hidden min-[1280px]:block" : "hidden min-[1400px]:block";
 
-  const desktopActionOverlayClass = cinematicActionOverlay
-    ? "live-stage-hud-suspended bottom-4 left-1/2 w-[min(920px,calc(100%-3rem))] -translate-x-1/2"
-    : centeredActionOverlay
-      ? // Compact HUD overlaid on the bottom-center of the 9:16 video. Capped just under the
-        // plate width (~540px at 1080p) so it floats on the video and never spans the stage.
-        "bottom-4 left-1/2 w-[min(500px,calc(100%-2rem))] -translate-x-1/2"
-      : compactActionOverlay
-        ? "bottom-2 left-2 right-14"
-        : "bottom-4 left-4 right-4";
+  const desktopActionOverlayClass = buyerShellPlateLayout
+    ? // Buyer desktop shell: float over the 9:16 plate, capped to plate width.
+      "bottom-3 left-1/2 w-[min(100%,calc(100cqh*9/16))] max-w-[min(540px,100%)] -translate-x-1/2"
+    : cinematicActionOverlay
+      ? "live-stage-hud-suspended bottom-4 left-1/2 w-[min(920px,calc(100%-3rem))] -translate-x-1/2"
+      : centeredActionOverlay
+        ? // Compact HUD overlaid on the bottom-center of the 9:16 video. Capped just under the
+          // plate width (~540px at 1080p) so it floats on the video and never spans the stage.
+          "bottom-4 left-1/2 w-[min(500px,calc(100%-2rem))] -translate-x-1/2"
+        : compactActionOverlay
+          ? "bottom-2 left-2 right-14"
+          : "bottom-4 left-4 right-4";
 
   const desktopChromeDimClass = uiDimmed ? "live-stage-ui-dimmed" : "live-stage-ui-awake";
 
@@ -384,12 +387,14 @@ export function LiveVideoStage({
           without this the HUD/controls would be trapped below the plate. Stays below the
           transition banner (z-[12]) so "SOLD"/next-lot moments still cover the HUD. */}
       <div className={`pointer-events-none absolute inset-0 z-10 ${desktopChromeHiddenClass} ${desktopChromeDimClass}`}>
-        <div className="pointer-events-none absolute left-3 right-3 top-3 z-10 flex flex-col items-stretch gap-2">
-          {topChrome}
-          {stageBelowAudience ? (
-            <div className="pointer-events-auto flex justify-end">{stageBelowAudience}</div>
-          ) : null}
-        </div>
+        {!buyerShellMode ? (
+          <div className="pointer-events-none absolute left-3 right-3 top-3 z-10 flex flex-col items-stretch gap-2">
+            {topChrome}
+            {stageBelowAudience ? (
+              <div className="pointer-events-auto flex justify-end">{stageBelowAudience}</div>
+            ) : null}
+          </div>
+        ) : null}
 
         {actionOverlay ? (
           <div className={`pointer-events-auto absolute z-10 live-stage-float-subtle ${desktopActionOverlayClass} ${uiDimmed ? "" : "live-stage-hud-awake"}`}>

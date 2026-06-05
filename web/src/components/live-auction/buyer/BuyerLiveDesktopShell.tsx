@@ -7,8 +7,6 @@ export type BuyerLiveDesktopShellProps = {
   hostStrip: ReactNode;
   chat: ReactNode;
   video: ReactNode;
-  /** Active item + primary CTAs + footnotes (commerce block). */
-  commerce: ReactNode;
   lineup?: ReactNode;
   hostBanner?: ReactNode;
 };
@@ -21,7 +19,6 @@ export function BuyerLiveDesktopShell({
   hostStrip,
   chat,
   video,
-  commerce,
   lineup,
   hostBanner,
 }: BuyerLiveDesktopShellProps) {
@@ -41,7 +38,6 @@ export function BuyerLiveDesktopShell({
         <div className="relative min-h-0 flex-1 overflow-hidden bg-black [container-type:size]">
           {video}
         </div>
-        <div className="shrink-0 border-t border-zinc-800/80 px-2 py-1.5">{commerce}</div>
       </main>
 
       {lineup ? <aside className={BUYER_LIVE_DESKTOP_COL}>{lineup}</aside> : null}

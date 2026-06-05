@@ -11,7 +11,6 @@ import { LiveVariantSelectionSheet } from "@/components/live-auction/LiveVariant
 import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotBoard";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
 import { LiveTipSheet } from "@/components/live-auction/LiveTipSheet";
-import { BuyerLiveDesktopCommerce } from "@/components/live-auction/buyer/BuyerLiveDesktopCommerce";
 import { BuyerLiveDesktopShell } from "@/components/live-auction/buyer/BuyerLiveDesktopShell";
 import { BuyerLiveHostStrip } from "@/components/live-auction/buyer/BuyerLiveHostStrip";
 import { BuyerLiveLineupPanel } from "@/components/live-auction/buyer/BuyerLiveLineupPanel";
@@ -1145,7 +1144,7 @@ export function LiveSaleRoom({
               <LiveVideoStage
                 {...videoStageProps}
                 layout="buyerShellPlate"
-                actionOverlay={null}
+                actionOverlay={desktopVideoOverlay}
                 mobileActionOverlay={null}
                 chatOverlay={null}
               />
@@ -1153,7 +1152,6 @@ export function LiveSaleRoom({
             hostBanner={
               isHost ? <HostLiveRoomConsoleBanner liveRoomId={liveRoomId} roomType={hostConsoleRoomType} /> : undefined
             }
-            commerce={<BuyerLiveDesktopCommerce>{desktopVideoOverlay}</BuyerLiveDesktopCommerce>}
             lineup={
               !isHost && queue.length > 0 ? (
                 <BuyerLiveLineupPanel

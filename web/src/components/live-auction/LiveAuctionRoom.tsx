@@ -13,7 +13,6 @@ import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotB
 import { LiveAuctionChat } from "@/components/live-auction/LiveAuctionChat";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
 import { LiveTipSheet } from "@/components/live-auction/LiveTipSheet";
-import { BuyerLiveDesktopCommerce } from "@/components/live-auction/buyer/BuyerLiveDesktopCommerce";
 import { BuyerLiveDesktopShell } from "@/components/live-auction/buyer/BuyerLiveDesktopShell";
 import { BuyerLiveHostStrip } from "@/components/live-auction/buyer/BuyerLiveHostStrip";
 import { BuyerLiveLineupPanel } from "@/components/live-auction/buyer/BuyerLiveLineupPanel";
@@ -1189,20 +1188,13 @@ export function LiveAuctionRoom({
                 <LiveVideoStage
                   {...videoStageProps}
                   layout="buyerShellPlate"
-                  actionOverlay={null}
+                  actionOverlay={showFeaturedAuctionOverlay ? desktopVideoOverlay : null}
                   mobileActionOverlay={null}
                   chatOverlay={null}
                 />
               </>
             }
             hostBanner={isHost ? <HostLiveRoomConsoleBanner liveRoomId={liveRoomId} roomType="break" /> : undefined}
-            commerce={
-              showFeaturedAuctionOverlay ? (
-                <BuyerLiveDesktopCommerce>{desktopVideoOverlay}</BuyerLiveDesktopCommerce>
-              ) : (
-                <p className="rounded-xl border border-zinc-800 bg-zinc-950/90 px-3 py-4 text-center text-xs text-zinc-500">Waiting for the next lot…</p>
-              )
-            }
             lineup={
               !isHost && buyerLineupItems.length > 0 ? (
                 <BuyerLiveLineupPanel
