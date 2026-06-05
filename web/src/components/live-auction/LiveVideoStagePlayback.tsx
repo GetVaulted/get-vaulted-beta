@@ -5,6 +5,7 @@ import type Hls from "hls.js";
 import {
   isLiveStreamSignal,
   parseBuyerSafeStreamPayload,
+  preferHlsOverWebrtcOnClient,
   resolveLivePlaybackSurfaceState,
   shouldAttachHlsPlayback,
 } from "@/lib/live-stream-playback";
@@ -57,13 +58,13 @@ const HLS_LOW_LATENCY_CONFIG = {
 } as const;
 
 /** If playback drifts more than this far behind the live edge, snap forward toward live. */
-const LIVE_EDGE_DRIFT_THRESHOLD_S = 6;
+const LIVE_EDGE_DRIFT_THRESHOLD_S = 12;
 /** Land this many seconds behind the live edge after a corrective seek (small buffer). */
-const LIVE_EDGE_TARGET_OFFSET_S = 1;
+const LIVE_EDGE_TARGET_OFFSET_S = 2;
 /** How often the live-edge correction loop runs while a stream is playing. */
-const LIVE_EDGE_TICK_MS = 2500;
+const LIVE_EDGE_TICK_MS = 5000;
 /** Minimum gap between corrective seeks so we never thrash the decoder. */
-const LIVE_EDGE_SEEK_COOLDOWN_MS = 2500;
+const LIVE_EDGE_SEEK_COOLDOWN_MS = 8000;
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -316,28 +317,6 @@ export function LiveVideoStagePlayback({
             tryPlay();
           });
           // Re-pin to the live edge on every playlist/segment update, not just once on attach.
-          hls.on(HlsCtor.Events.LEVEL_LOADED, () => {
-            if (epoch !== attachEpochRef.current) return;
-            enforceLiveEdge({
-              el,
-              hls,
-              roomId: liveRoomId,
-              source: "level_loaded",
-              verbose: isLiveDebugEnabled(),
-              lastSeekAtRef: lastLiveSeekAtRef,
-            });
-          });
-          hls.on(HlsCtor.Events.FRAG_LOADED, () => {
-            if (epoch !== attachEpochRef.current) return;
-            enforceLiveEdge({
-              el,
-              hls,
-              roomId: liveRoomId,
-              source: "frag_loaded",
-              verbose: false,
-              lastSeekAtRef: lastLiveSeekAtRef,
-            });
-          });
           hls.on(HlsCtor.Events.ERROR, (_, data) => {
             if (!data.fatal) return;
             if (epoch !== attachEpochRef.current) return;
@@ -376,13 +355,15 @@ export function LiveVideoStagePlayback({
       if (canNativeHls) {
         setDebugEngine("native");
         el.src = url;
-        const onLoaded = () => {
+        const onNativeReady = () => {
           if (epoch !== attachEpochRef.current) return;
+          if (el.readyState < 2) return;
           setVideoHasData(true);
           tryPlay();
-          el.removeEventListener("loadeddata", onLoaded);
         };
-        el.addEventListener("loadeddata", onLoaded);
+        el.addEventListener("loadeddata", onNativeReady, { once: true });
+        el.addEventListener("canplay", onNativeReady, { once: true });
+        el.addEventListener("playing", onNativeReady, { once: true });
         return;
       }
 
@@ -443,6 +424,7 @@ export function LiveVideoStagePlayback({
 
       const wantWebrtc =
         isStageWebrtcEnabled() &&
+        !preferHlsOverWebrtcOnClient() &&
         safe.streamMode === "stage_webrtc" &&
         safe.stageAvailable &&
         isWebRtcPlaybackSupported() &&
@@ -647,7 +629,9 @@ export function LiveVideoStagePlayback({
    * waiting on host signal, fetch error, etc.). Hide it as soon as the player has
    * decoded data so we never paint over the real stream.
    */
-  const showThumbnailLayer = isUsableThumbnail(thumbnailUrl) && (!showVideoLayer || !videoHasData);
+  const streamAttaching =
+    roomLifecycleLive && showVideoLayer && (transport === "hls" || transport === "webrtc");
+  const showThumbnailLayer = isUsableThumbnail(thumbnailUrl) && !videoHasData && !streamAttaching;
 
   const scheduledPhase = useMemo(() => {
     if (roomLifecycleLive || !hydrated) return null;
@@ -699,7 +683,7 @@ export function LiveVideoStagePlayback({
               playsInline
               controls={false}
               autoPlay
-              preload="metadata"
+              preload="auto"
               aria-label="Live stream"
             />
           ) : (
@@ -713,7 +697,7 @@ export function LiveVideoStagePlayback({
                   playsInline
                   controls={false}
                   autoPlay
-                  preload="metadata"
+                  preload="auto"
                   aria-label="Live stream"
                 />
               </div>

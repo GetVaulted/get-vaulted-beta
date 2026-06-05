@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   isLiveStreamSignal,
   parseBuyerSafeStreamPayload,
+  preferHlsOverWebrtcOnClient,
   shouldAttachHlsPlayback,
   shouldUseStageWebrtcPlayback,
 } from './liveStreamPlayback';
@@ -36,13 +37,17 @@ describe('liveStreamPlayback', () => {
     expect(parsed?.stageAvailable).toBe(false);
   });
 
+  it('preferHlsOverWebrtcOnClient is true on native mobile', () => {
+    expect(preferHlsOverWebrtcOnClient()).toBe(true);
+  });
+
   it('shouldUseStageWebrtcPlayback requires stage_webrtc + stageAvailable + live signal', () => {
     expect(
       shouldUseStageWebrtcPlayback(
         { streamMode: 'stage_webrtc', stageAvailable: true, streamHealth: 'live' },
         false,
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldUseStageWebrtcPlayback(
         { streamMode: 'channel_hls', stageAvailable: true, streamHealth: 'live' },

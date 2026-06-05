@@ -51,10 +51,12 @@ export function LiveStageAmbientBleed({
 
     const draw = (now: number) => {
       raf = requestAnimationFrame(draw);
+      if (document.visibilityState === "hidden") return;
       if (now - lastDraw < intervalMs) return;
       lastDraw = now;
 
-      const video = document.querySelector<HTMLVideoElement>('video[data-live-stage-video="true"]');
+      const stageRoot = canvas.closest("[data-live-stage-root]");
+      const video = stageRoot?.querySelector<HTMLVideoElement>('video[data-live-stage-video="true"]');
       if (!video || video.readyState < 2 || video.videoWidth === 0) return;
 
       canvas.classList.add("live-stage-ambient-canvas-visible");

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseBuyerSafeStreamPayload,
+  preferHlsOverWebrtcOnClient,
   resolveLivePlaybackSurfaceState,
   shouldAttachHlsPlayback,
 } from "@/lib/live-stream-playback";
@@ -45,6 +46,26 @@ describe("live-stream-playback", () => {
     expect(parseBuyerSafeStreamPayload(null)).toBeNull();
     expect(parseBuyerSafeStreamPayload({})).toBeNull();
     expect(parseBuyerSafeStreamPayload({ stream: "x" })).toBeNull();
+  });
+
+  it("preferHlsOverWebrtcOnClient is true on iOS and Android user agents", () => {
+    const original = navigator.userAgent;
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+    });
+    expect(preferHlsOverWebrtcOnClient()).toBe(true);
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile",
+    });
+    expect(preferHlsOverWebrtcOnClient()).toBe(true);
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0",
+    });
+    expect(preferHlsOverWebrtcOnClient()).toBe(false);
+    Object.defineProperty(navigator, "userAgent", { configurable: true, value: original });
   });
 
   it("shouldAttachHlsPlayback is true only for live/connecting with URL", () => {

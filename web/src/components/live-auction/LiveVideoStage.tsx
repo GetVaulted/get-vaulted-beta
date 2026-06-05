@@ -272,7 +272,7 @@ export function LiveVideoStage({
 
   return (
     <div className={rootClass} data-live-stage-root>
-      {ambientBleed || buyerShellPlateLayout ? (
+      {ambientBleed ? (
         <LiveStageAmbientBleed thumbnailUrl={thumbnailUrl} energyScore={stageEnergyScore} />
       ) : (
         <div

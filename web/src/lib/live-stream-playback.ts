@@ -51,7 +51,17 @@ export function parseBuyerSafeStreamPayload(data: unknown): BuyerSafeStreamField
   };
 }
 
-/** True when the stream signal is live-ish (WebRTC has no playbackUrl, so we can't use shouldAttachHlsPlayback). */
+/** Mobile browsers have flaky IVS Stage WebRTC subscribe — prefer low-latency HLS for reliability. */
+export function preferHlsOverWebrtcOnClient(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const ios =
+    /iPad|iPhone|iPod/i.test(ua) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const android = /Android/i.test(ua);
+  return ios || android;
+}
+
 export function isLiveStreamSignal(streamHealth: string): boolean {
   const h = streamHealth.toLowerCase();
   return h === "live" || h === "connecting";
