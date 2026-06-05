@@ -1185,7 +1185,7 @@ export function LiveSaleRoom({
               isHost ? <HostLiveRoomConsoleBanner liveRoomId={liveRoomId} roomType={hostConsoleRoomType} /> : undefined
             }
             lineup={
-              !isHost && queue.length > 0 ? (
+              !isHost ? (
                 <BuyerLiveLineupPanel
                   items={queue.map((item) => ({
                     id: item.id,

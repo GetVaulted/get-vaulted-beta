@@ -22,6 +22,7 @@ export function BuyerLiveDesktopShell({
   lineup,
   hostBanner,
 }: BuyerLiveDesktopShellProps) {
+  /** Buyers always pass `lineup` (empty queue uses the same 20-60-20 grid). Hosts omit it → 20-80. */
   const gridClass = lineup
     ? BUYER_LIVE_DESKTOP_GRID
     : "grid h-full min-h-0 w-full max-w-[1920px] grid-cols-[minmax(0,20%)_minmax(0,80%)] gap-2 px-2 py-2 md:gap-2 md:px-3 md:py-2";

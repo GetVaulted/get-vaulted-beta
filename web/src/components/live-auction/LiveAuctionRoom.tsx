@@ -1222,7 +1222,7 @@ export function LiveAuctionRoom({
             }
             hostBanner={isHost ? <HostLiveRoomConsoleBanner liveRoomId={liveRoomId} roomType="break" /> : undefined}
             lineup={
-              !isHost && buyerLineupItems.length > 0 ? (
+              !isHost ? (
                 <BuyerLiveLineupPanel
                   items={buyerLineupItems.map((item) => ({
                     id: item.id,
