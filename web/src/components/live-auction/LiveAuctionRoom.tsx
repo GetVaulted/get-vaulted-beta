@@ -1182,7 +1182,7 @@ export function LiveAuctionRoom({
             }
             chat={embeddedDesktopChat}
             video={
-              <div className="relative flex h-full w-full items-center justify-center">
+              <>
                 {showTeamsChrome ? (
                   <div className="pointer-events-auto absolute right-2 top-2 z-20">{teamBoardStageChrome}</div>
                 ) : null}
@@ -1193,7 +1193,7 @@ export function LiveAuctionRoom({
                   mobileActionOverlay={null}
                   chatOverlay={null}
                 />
-              </div>
+              </>
             }
             hostBanner={isHost ? <HostLiveRoomConsoleBanner liveRoomId={liveRoomId} roomType="break" /> : undefined}
             commerce={

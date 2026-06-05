@@ -27,7 +27,7 @@ export function BuyerLiveDesktopShell({
 }: BuyerLiveDesktopShellProps) {
   const gridClass = lineup
     ? BUYER_LIVE_DESKTOP_GRID
-    : "grid h-full min-h-0 w-full max-w-[1920px] grid-cols-[minmax(0,20%)_minmax(0,80%)] gap-3 px-3 py-3 md:gap-3 md:px-4 md:py-3";
+    : "grid h-full min-h-0 w-full max-w-[1920px] grid-cols-[minmax(0,20%)_minmax(0,80%)] gap-2 px-2 py-2 md:gap-2 md:px-3 md:py-2";
 
   return (
     <div className={gridClass}>
@@ -36,12 +36,12 @@ export function BuyerLiveDesktopShell({
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{chat}</div>
       </aside>
 
-      <main className={`${BUYER_LIVE_DESKTOP_COL} gap-2 p-2`}>
-        {hostBanner ? <div className="shrink-0">{hostBanner}</div> : null}
-        <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-lg bg-black/40">
+      <main className={`${BUYER_LIVE_DESKTOP_COL} min-h-0 gap-0 overflow-hidden`}>
+        {hostBanner ? <div className="shrink-0 border-b border-zinc-800/80 px-2 py-1.5">{hostBanner}</div> : null}
+        <div className="relative min-h-0 flex-1 overflow-hidden bg-black [container-type:size]">
           {video}
         </div>
-        <div className="shrink-0">{commerce}</div>
+        <div className="shrink-0 border-t border-zinc-800/80 px-2 py-1.5">{commerce}</div>
       </main>
 
       {lineup ? <aside className={BUYER_LIVE_DESKTOP_COL}>{lineup}</aside> : null}

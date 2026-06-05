@@ -144,16 +144,17 @@ export function LiveVideoStage({
   /** Anchored bottom item sheet (auction/buy bar) — lifts chat + right rail so they clear the panel. */
   const hasMobileItemSheet = Boolean(mobileActionOverlay);
   const fillsParentHeight = layout === "fillHeight" || layout === "host916" || layout === "buyerShellPlate";
+  const buyerShellPlateLayout = layout === "buyerShellPlate";
   const rootClass =
-    layout === "buyerShellPlate"
-      ? "relative flex h-full min-h-0 w-full items-center justify-center overflow-hidden bg-black"
+    buyerShellPlateLayout
+      ? "relative h-full min-h-0 w-full overflow-hidden bg-black"
       : fillsParentHeight
         ? "relative h-full min-h-0 w-full overflow-hidden bg-gradient-to-br from-zinc-900 via-zinc-950 to-black"
         : "relative h-[100dvh] min-h-[100dvh] w-full overflow-hidden rounded-none bg-gradient-to-br from-zinc-900 via-zinc-950 to-black shadow-[0_24px_80px_-32px_rgba(0,0,0,0.9)] md:aspect-video md:h-auto md:min-h-[calc(56.25vw*1.4)] md:rounded-2xl md:border md:border-zinc-800";
 
   const portraitSizingClass =
-    layout === "buyerShellPlate"
-      ? "h-full max-h-full w-auto max-w-full"
+    buyerShellPlateLayout
+      ? "h-[min(100cqh,100cqw*16/9)] w-[min(100cqw,100cqh*9/16)] max-h-full max-w-full"
       : fillsParentHeight
         ? "h-full max-h-full w-auto max-w-full"
         : "h-auto max-h-full w-full max-w-full";
@@ -265,7 +266,7 @@ export function LiveVideoStage({
 
   return (
     <div className={rootClass} data-live-stage-root>
-      {ambientBleed ? (
+      {ambientBleed || buyerShellPlateLayout ? (
         <LiveStageAmbientBleed thumbnailUrl={thumbnailUrl} energyScore={stageEnergyScore} />
       ) : (
         <div
@@ -282,8 +283,10 @@ export function LiveVideoStage({
         <div className={buyerShellMode ? "pointer-events-none absolute inset-0 z-[12] hidden min-[1280px]:block" : "pointer-events-none absolute inset-0 z-[12] hidden min-[1400px]:block"}>{stageOverlay}</div>
       ) : null}
 
-      {/* 9:16 video plate — centered; overlays are not positioned relative to this on desktop. */}
-      <div className="absolute inset-0 z-0 flex items-center justify-center overflow-hidden">
+      {/* 9:16 video plate — max area inside parent while preserving aspect ratio. */}
+      <div
+        className={`absolute inset-0 z-0 overflow-hidden ${buyerShellPlateLayout ? "grid place-items-center [container-type:size]" : "flex items-center justify-center"}`}
+      >
         {ambientBleed ? (
           <LiveStageLighting vaultMode={vaultMode} energyLevel={vaultEnergyLevel} energyScore={stageEnergyScore} />
         ) : null}
