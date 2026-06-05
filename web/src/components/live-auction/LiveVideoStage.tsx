@@ -155,21 +155,24 @@ export function LiveVideoStage({
         ? "relative h-full min-h-0 w-full overflow-hidden bg-gradient-to-br from-zinc-900 via-zinc-950 to-black"
         : "relative h-[100dvh] min-h-[100dvh] w-full overflow-hidden rounded-none bg-gradient-to-br from-zinc-900 via-zinc-950 to-black shadow-[0_24px_80px_-32px_rgba(0,0,0,0.9)] md:aspect-video md:h-auto md:min-h-[calc(56.25vw*1.4)] md:rounded-2xl md:border md:border-zinc-800";
 
-  const portraitSizingClass =
-    buyerShellPlateLayout
-      ? "h-[min(100cqh,100cqw*16/9)] w-[min(100cqw,100cqh*9/16)] max-h-full max-w-full"
-      : fillsParentHeight
-        ? "h-full max-h-full w-auto max-w-full"
-        : "h-auto max-h-full w-full max-w-full";
+  const portraitFrameClass = buyerShellPlateLayout
+    ? "relative h-full w-full min-h-0 overflow-hidden min-[1280px]:rounded-xl min-[1280px]:border min-[1280px]:border-white/[0.14] min-[1280px]:shadow-[0_24px_80px_-28px_rgba(0,0,0,0.92)]"
+    : buyerShellMode
+      ? PORTRAIT_VIDEO_FRAME_BUYER_SHELL
+      : PORTRAIT_VIDEO_FRAME;
 
-  const portraitFrameClass = buyerShellMode ? PORTRAIT_VIDEO_FRAME_BUYER_SHELL : PORTRAIT_VIDEO_FRAME;
+  const portraitSizingClass = buyerShellPlateLayout
+    ? "h-full w-full"
+    : fillsParentHeight
+      ? "h-full max-h-full w-auto max-w-full"
+      : "h-auto max-h-full w-full max-w-full";
 
   const mobileChromeHiddenClass = buyerShellMode ? "min-[1280px]:hidden" : "min-[1400px]:hidden";
   const desktopChromeHiddenClass = buyerShellMode ? "hidden min-[1280px]:block" : "hidden min-[1400px]:block";
 
   const desktopActionOverlayClass = buyerShellPlateLayout
     ? // Buyer desktop shell: full plate width, flush to bottom edge.
-      "bottom-0 left-1/2 w-[min(100cqw,100cqh*9/16)] -translate-x-1/2"
+      "bottom-0 left-1/2 w-full max-w-full -translate-x-1/2"
     : cinematicActionOverlay
       ? "live-stage-hud-suspended bottom-4 left-1/2 w-[min(920px,calc(100%-3rem))] -translate-x-1/2"
       : centeredActionOverlay
@@ -291,7 +294,7 @@ export function LiveVideoStage({
 
       {/* 9:16 video plate — max area inside parent while preserving aspect ratio. */}
       <div
-        className={`absolute inset-0 z-0 overflow-hidden ${buyerShellPlateLayout ? "grid place-items-center [container-type:size]" : "flex items-center justify-center"}`}
+        className={`absolute inset-0 z-0 overflow-hidden ${buyerShellPlateLayout ? "[container-type:size]" : "flex items-center justify-center"}`}
       >
         {ambientBleed ? (
           <LiveStageLighting vaultMode={vaultMode} energyLevel={vaultEnergyLevel} energyScore={stageEnergyScore} />
@@ -414,7 +417,7 @@ export function LiveVideoStage({
           </div>
         )}
 
-        {actionOverlay ? (
+        {actionOverlay && !buyerShellPlateLayout ? (
           <div className={`pointer-events-auto absolute z-10 live-stage-float-subtle ${desktopActionOverlayClass} ${uiDimmed ? "" : "live-stage-hud-awake"}`}>
             {actionOverlay}
           </div>
@@ -432,7 +435,7 @@ export function LiveVideoStage({
           <div className={`pointer-events-auto absolute right-3 top-1/2 z-10 -translate-y-1/2 ${hostRailClassName ?? ""}`}>
             {sellerHostRail}
           </div>
-        ) : buyerRightRail ? (
+        ) : buyerRightRail && !buyerShellPlateLayout ? (
           <div className="pointer-events-auto absolute right-3 top-1/2 z-10 -translate-y-1/2">{buyerRightRail}</div>
         ) : null}
       </div>

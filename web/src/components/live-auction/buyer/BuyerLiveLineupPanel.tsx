@@ -13,6 +13,7 @@ export type BuyerLiveLineupPanelProps = {
   selectedId: string;
   shopHref?: string | null;
   onSelect: (id: string) => void;
+  hideHeader?: boolean;
 };
 
 /** Right-rail item queue — compact, fully scrollable (desktop buyer). */
@@ -21,21 +22,28 @@ export function BuyerLiveLineupPanel({
   selectedId,
   shopHref,
   onSelect,
+  hideHeader = false,
 }: BuyerLiveLineupPanelProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-800/80 px-3 py-2">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Lineup</p>
-          <p className="text-[11px] font-semibold text-zinc-300">{items.length} items</p>
+      {hideHeader ? (
+        <div className="shrink-0 border-b border-zinc-800/80 px-3 py-1.5">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Queue</p>
         </div>
-        {shopHref ? (
-          <Link href={shopHref} className="text-[10px] font-semibold text-gold-bright hover:underline">
-            Shop →
-          </Link>
-        ) : null}
-      </div>
+      ) : (
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-800/80 px-3 py-2">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Lineup</p>
+            <p className="text-[11px] font-semibold text-zinc-300">{items.length} items</p>
+          </div>
+          {shopHref ? (
+            <Link href={shopHref} className="text-[10px] font-semibold text-gold-bright hover:underline">
+              Shop →
+            </Link>
+          ) : null}
+        </div>
+      )}
       <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-2">
         {items.length === 0 ? (
           <p className="px-1 py-4 text-center text-xs text-zinc-500">Nothing queued yet.</p>

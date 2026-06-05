@@ -11,9 +11,10 @@ import { LiveVariantSelectionSheet } from "@/components/live-auction/LiveVariant
 import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotBoard";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
 import { LiveTipSheet } from "@/components/live-auction/LiveTipSheet";
+import { BuyerLiveActionRail } from "@/components/live-auction/buyer/BuyerLiveActionRail";
 import { BuyerLiveDesktopShell } from "@/components/live-auction/buyer/BuyerLiveDesktopShell";
 import { BuyerLiveHostStrip } from "@/components/live-auction/buyer/BuyerLiveHostStrip";
-import { BuyerLiveLineupPanel } from "@/components/live-auction/buyer/BuyerLiveLineupPanel";
+import { BuyerLiveItemBoard } from "@/components/live-auction/buyer/BuyerLiveItemBoard";
 import { BuyerLiveNextUpRail } from "@/components/live-auction/buyer/BuyerLiveNextUpRail";
 import { BuyerLiveQueueList } from "@/components/live-auction/buyer/BuyerLiveQueueList";
 import { BuyerLiveQueueSheet } from "@/components/live-auction/buyer/BuyerLiveQueueSheet";
@@ -887,6 +888,13 @@ export function LiveSaleRoom({
         ? desktopWaitingOverlay
         : null;
 
+  const desktopItemBoardCommerce =
+    showSaleActiveOverlay
+      ? desktopVideoOverlay
+      : roomStatus !== "ended"
+        ? desktopWaitingOverlay
+        : null;
+
   const mobileVideoOverlay = (
     <div className="live-glass-sheet relative min-h-0 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 max-[380px]:px-1.5 max-[380px]:pt-1.5">
       <p className="line-clamp-1 text-[11px] font-semibold leading-tight text-zinc-100">
@@ -1138,7 +1146,7 @@ export function LiveSaleRoom({
     scheduledStartAt,
     thumbnailUrl,
     buyerShellMode: isBuyerDesktop,
-    showRightActions: !isHost,
+    showRightActions: !isHost && !isBuyerDesktop,
     shopHref,
     onShare: handleShare,
     onWallet: handleWallet,
@@ -1176,7 +1184,7 @@ export function LiveSaleRoom({
               <LiveVideoStage
                 {...videoStageProps}
                 layout="buyerShellPlate"
-                actionOverlay={desktopStageOverlay}
+                actionOverlay={null}
                 mobileActionOverlay={null}
                 chatOverlay={null}
               />
@@ -1184,9 +1192,10 @@ export function LiveSaleRoom({
             hostBanner={
               isHost ? <HostLiveRoomConsoleBanner liveRoomId={liveRoomId} roomType={hostConsoleRoomType} /> : undefined
             }
-            lineup={
+            itemBoard={
               !isHost ? (
-                <BuyerLiveLineupPanel
+                <BuyerLiveItemBoard
+                  commerce={desktopItemBoardCommerce}
                   items={queue.map((item) => ({
                     id: item.id,
                     displayTitle: item.displayTitle,
@@ -1195,6 +1204,16 @@ export function LiveSaleRoom({
                   selectedId={selectedId}
                   shopHref={shopHref}
                   onSelect={setSelectedId}
+                  actions={
+                    <BuyerLiveActionRail
+                      layout="row"
+                      liveRoomId={liveRoomId}
+                      shopHref={shopHref}
+                      onShare={handleShare}
+                      onWallet={handleWallet}
+                      onTip={isLive ? handleTip : undefined}
+                    />
+                  }
                 />
               ) : undefined
             }

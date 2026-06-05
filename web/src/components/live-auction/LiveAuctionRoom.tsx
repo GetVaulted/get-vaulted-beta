@@ -13,9 +13,10 @@ import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotB
 import { LiveAuctionChat } from "@/components/live-auction/LiveAuctionChat";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
 import { LiveTipSheet } from "@/components/live-auction/LiveTipSheet";
+import { BuyerLiveActionRail } from "@/components/live-auction/buyer/BuyerLiveActionRail";
 import { BuyerLiveDesktopShell } from "@/components/live-auction/buyer/BuyerLiveDesktopShell";
 import { BuyerLiveHostStrip } from "@/components/live-auction/buyer/BuyerLiveHostStrip";
-import { BuyerLiveLineupPanel } from "@/components/live-auction/buyer/BuyerLiveLineupPanel";
+import { BuyerLiveItemBoard } from "@/components/live-auction/buyer/BuyerLiveItemBoard";
 import { BuyerLiveNextUpRail } from "@/components/live-auction/buyer/BuyerLiveNextUpRail";
 import { BuyerLiveQueueList } from "@/components/live-auction/buyer/BuyerLiveQueueList";
 import { BuyerLiveQueueSheet } from "@/components/live-auction/buyer/BuyerLiveQueueSheet";
@@ -874,6 +875,14 @@ export function LiveAuctionRoom({
         ? desktopWaitingOverlay
         : null;
 
+  /** Active lot + bids live in the item board on desktop (not on the video). */
+  const desktopItemBoardCommerce =
+    showFeaturedAuctionOverlay
+      ? desktopVideoOverlay
+      : roomStatus !== "ended"
+        ? desktopWaitingOverlay
+        : null;
+
   const overlayRemainingSec =
     overlayIsLive && auctionRemainingMs != null ? auctionRemainingMs / 1000 : 0;
   const breakTimerUrgent = overlayIsLive && overlayRemainingSec <= 60 && overlayRemainingSec > 0;
@@ -1159,7 +1168,7 @@ export function LiveAuctionRoom({
     scheduledStartAt,
     thumbnailUrl,
     buyerShellMode: isBuyerDesktop,
-    showRightActions: !isHost,
+    showRightActions: !isHost && !isBuyerDesktop,
     shopHref,
     onShare: handleShare,
     onWallet: handleWallet,
@@ -1214,16 +1223,17 @@ export function LiveAuctionRoom({
                 <LiveVideoStage
                   {...videoStageProps}
                   layout="buyerShellPlate"
-                  actionOverlay={desktopStageOverlay}
+                  actionOverlay={null}
                   mobileActionOverlay={null}
                   chatOverlay={null}
                 />
               </>
             }
             hostBanner={isHost ? <HostLiveRoomConsoleBanner liveRoomId={liveRoomId} roomType="break" /> : undefined}
-            lineup={
+            itemBoard={
               !isHost ? (
-                <BuyerLiveLineupPanel
+                <BuyerLiveItemBoard
+                  commerce={desktopItemBoardCommerce}
                   items={buyerLineupItems.map((item) => ({
                     id: item.id,
                     displayTitle: item.displayTitle,
@@ -1232,6 +1242,16 @@ export function LiveAuctionRoom({
                   selectedId={selectedId}
                   shopHref={shopHref}
                   onSelect={setSelectedId}
+                  actions={
+                    <BuyerLiveActionRail
+                      layout="row"
+                      liveRoomId={liveRoomId}
+                      shopHref={shopHref}
+                      onShare={handleShare}
+                      onWallet={handleWallet}
+                      onTip={isLive ? handleTip : undefined}
+                    />
+                  }
                 />
               ) : undefined
             }
