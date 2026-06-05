@@ -49,6 +49,8 @@ type LiveAuctionHudProps = {
   roomId?: string;
   overlayQueueRow: QueueRowLite | null;
   activeBoardRow: QueueRowLite | null;
+  /** Selected lineup row when nothing is pinned active yet — drives Pin CTA on the stage HUD. */
+  previewQueueRow?: QueueRowLite | null;
   roomStatusLive: boolean;
   hostAuctionCountdownLabel: string | null;
   biddingWindowOpen: boolean;
@@ -63,6 +65,7 @@ type LiveAuctionHudProps = {
   teamBreakBusy?: boolean;
   onEndAuction?: () => void;
   onNextItem?: () => void;
+  onPinSelected?: () => void;
   hostBusy?: boolean;
   energyLevel?: LiveRoomEnergyLevel;
   motionBurst?: LiveStageMotionBurst;
@@ -109,6 +112,7 @@ export function LiveAuctionHud({
   roomId,
   overlayQueueRow,
   activeBoardRow,
+  previewQueueRow = null,
   roomStatusLive,
   hostAuctionCountdownLabel,
   biddingWindowOpen,
@@ -123,6 +127,7 @@ export function LiveAuctionHud({
   teamBreakBusy,
   onEndAuction,
   onNextItem,
+  onPinSelected,
   hostBusy,
   energyLevel = "calm",
   motionBurst = null,
@@ -130,8 +135,16 @@ export function LiveAuctionHud({
   hostMinimized = false,
   onToggleHostMinimized,
 }: LiveAuctionHudProps) {
-  const item = activeBoardRow?.item ?? overlayQueueRow?.item ?? null;
+  const previewItem =
+    previewQueueRow?.item &&
+    previewQueueRow.item.status !== "active" &&
+    previewQueueRow.item.status !== "sold" &&
+    previewQueueRow.item.status !== "skipped"
+      ? previewQueueRow.item
+      : null;
+  const item = activeBoardRow?.item ?? previewItem ?? overlayQueueRow?.item ?? null;
   const boardItem = activeBoardRow?.item;
+  const awaitingPin = !activeBoardRow && previewItem != null;
   const commerceItem = boardItem ?? null;
   const isVariantItem = Boolean(commerceItem && isVariantSalesFormat(commerceItem.salesFormat));
   const spotStats = isVariantItem ? summarizeVariantSpots(commerceItem?.variants) : null;
@@ -215,7 +228,9 @@ export function LiveAuctionHud({
 
   const hudHidden = lotTransitionPhase === "sold_spotlight" || lotTransitionPhase === "next_intro";
 
-  if (hostMinimized && item) {
+  const showStartOnStage = preAuction && hostStartLiveAuctionEnabled;
+
+  if (hostMinimized && item && !showStartOnStage && !awaitingPin) {
     const statusBit =
       auctionRunning && hostAuctionCountdownLabel
         ? hostAuctionCountdownLabel
@@ -305,6 +320,9 @@ export function LiveAuctionHud({
               {item ? hostQueueTitleLine(item) : "No lot pinned"}
               {item ? <span className="font-medium text-zinc-500"> · #{item.sortOrder}</span> : null}
             </p>
+            {awaitingPin ? (
+              <p className="truncate text-[8px] font-bold uppercase tracking-[0.14em] text-amber-200/90">Pin to go on block</p>
+            ) : null}
             {winnerLine ? (
               <p className="truncate text-[9px] font-medium text-amber-200/90">{winnerLine}</p>
             ) : null}
@@ -410,6 +428,10 @@ export function LiveAuctionHud({
             >
               {variantBadgeLabel}
             </span>
+          ) : awaitingPin && onPinSelected ? (
+            <HudAction tone="gold" disabled={hostBusy} onClick={onPinSelected}>
+              Pin lot
+            </HudAction>
           ) : preAuction && hostStartLiveAuctionEnabled ? (
             <>
               <select
@@ -433,7 +455,9 @@ export function LiveAuctionHud({
               End
             </HudAction>
           ) : !roomStatusLive ? (
-            <span className="text-[8px] text-zinc-600">Offline</span>
+            <span className="text-[8px] text-zinc-600">Go live to auction</span>
+          ) : !activeBoardRow ? (
+            <span className="text-[8px] text-zinc-500">Select + pin a lot</span>
           ) : null}
           {!sold && !skipped && onNextItem ? (
             <HudAction tone="ghost" disabled={hostBusy} onClick={onNextItem}>

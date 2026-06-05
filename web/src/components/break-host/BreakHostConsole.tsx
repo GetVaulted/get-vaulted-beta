@@ -1659,6 +1659,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       vaultMode={vaultMode}
       overlayQueueRow={overlayQueueRow}
       activeBoardRow={activeBoardRow}
+      previewQueueRow={previewQueueRow}
       roomStatusLive={room.status === "live"}
       viewerCount={room.viewerCount}
       hostAuctionCountdownLabel={hostAuctionCountdownLabel}
@@ -1674,6 +1675,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       teamBreakBusy={teamBreakBusy}
       onEndAuction={handleHostEndAuction}
       onNextItem={handleHostNextItem}
+      onPinSelected={handleHostPinSelected}
       hostBusy={busy}
       hostClockSkewMs={hostClockSkewMs}
       energyLevel={roomEnergy.level}
@@ -1690,6 +1692,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       vaultMode={vaultMode}
       overlayQueueRow={overlayQueueRow}
       activeBoardRow={activeBoardRow}
+      previewQueueRow={previewQueueRow}
       roomStatusLive={room.status === "live"}
       viewerCount={room.viewerCount}
       hostAuctionCountdownLabel={hostAuctionCountdownLabel}
@@ -1701,6 +1704,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       hostStartLiveAuctionEnabled={hostStartLiveAuctionEnabled}
       hostLiveItemAuctionBusy={hostLiveItemAuctionBusy}
       onStartAuction={() => void handleHostStartLiveItemAuction()}
+      onPinSelected={handleHostPinSelected}
       hostClockSkewMs={hostClockSkewMs}
       hostCommerceMinimized={hostCommerceMinimized}
       onToggleHostCommerceMinimized={toggleHostCommerceMinimized}
@@ -1936,7 +1940,12 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
                 onAddItem={() => setQueueAddModal("auction")}
                 onPinSelected={handleHostPinSelected}
                 onNextItem={handleHostNextItem}
+                onStartAuction={() => void handleHostStartLiveItemAuction()}
                 pinDisabled={busy || !selectedQueueItemId}
+                startAuctionEnabled={hostStartLiveAuctionEnabled}
+                startAuctionBusy={hostLiveItemAuctionBusy}
+                roomLive={room.status === "live"}
+                hasActiveLot={activeBoardRow != null}
               />
               {hostTeamBoardOpen ? (
                 <div className="shrink-0 border-t border-white/[0.08] p-2">

@@ -19,7 +19,12 @@ type SellerConsoleInventoryRailProps = {
   onAddItem: () => void;
   onPinSelected: () => void;
   onNextItem: () => void;
+  onStartAuction?: () => void;
   pinDisabled?: boolean;
+  startAuctionEnabled?: boolean;
+  startAuctionBusy?: boolean;
+  roomLive?: boolean;
+  hasActiveLot?: boolean;
 };
 
 export function SellerConsoleInventoryRail({
@@ -36,7 +41,12 @@ export function SellerConsoleInventoryRail({
   onAddItem,
   onPinSelected,
   onNextItem,
+  onStartAuction,
   pinDisabled,
+  startAuctionEnabled = false,
+  startAuctionBusy = false,
+  roomLive = false,
+  hasActiveLot = false,
 }: SellerConsoleInventoryRailProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -50,23 +60,42 @@ export function SellerConsoleInventoryRail({
           + {SELLER_CONSOLE.addItem}
         </button>
       </div>
-      <div className="flex shrink-0 gap-2 px-3 py-2">
-        <button
-          type="button"
-          disabled={busy || pinDisabled}
-          onClick={onPinSelected}
-          className="flex-1 rounded-lg border border-white/12 py-2 text-[10px] font-bold uppercase tracking-wide text-zinc-200 hover:bg-white/[0.06] disabled:opacity-40"
-        >
-          Pin lot
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onNextItem}
-          className="flex-1 rounded-lg border border-white/12 py-2 text-[10px] font-bold uppercase tracking-wide text-zinc-200 hover:bg-white/[0.06] disabled:opacity-40"
-        >
-          Next
-        </button>
+      <div className="shrink-0 space-y-2 px-3 py-2">
+        {!hasActiveLot ? (
+          <p className="rounded-lg border border-amber-400/20 bg-amber-500/10 px-2.5 py-1.5 text-[10px] leading-snug text-amber-100/90">
+            {roomLive
+              ? "Select a lot in the lineup, then Pin lot to put it on the block."
+              : "Add lots to the lineup, go live, then pin one to start auctioning."}
+          </p>
+        ) : null}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={busy || pinDisabled}
+            onClick={onPinSelected}
+            className="flex-1 rounded-lg border border-violet-400/30 bg-violet-500/15 py-2 text-[10px] font-bold uppercase tracking-wide text-violet-100 hover:bg-violet-500/22 disabled:opacity-40"
+          >
+            Pin lot
+          </button>
+          {onStartAuction ? (
+            <button
+              type="button"
+              disabled={busy || !startAuctionEnabled || startAuctionBusy}
+              onClick={onStartAuction}
+              className="flex-1 rounded-lg border border-amber-300/35 bg-amber-500/20 py-2 text-[10px] font-bold uppercase tracking-wide text-amber-50 hover:bg-amber-500/28 disabled:opacity-40"
+            >
+              {startAuctionBusy ? "Starting…" : "Start auction"}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onNextItem}
+            className="flex-1 rounded-lg border border-white/12 py-2 text-[10px] font-bold uppercase tracking-wide text-zinc-200 hover:bg-white/[0.06] disabled:opacity-40"
+          >
+            Next
+          </button>
+        </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         <VaultQueueCarousel

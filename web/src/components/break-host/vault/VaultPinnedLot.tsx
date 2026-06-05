@@ -43,6 +43,7 @@ type VaultPinnedLotProps = {
   vaultMode: VaultMode;
   overlayQueueRow: QueueRowLite | null;
   activeBoardRow: QueueRowLite | null;
+  previewQueueRow?: QueueRowLite | null;
   roomStatusLive: boolean;
   viewerCount: number;
   hostAuctionCountdownLabel: string | null;
@@ -58,6 +59,7 @@ type VaultPinnedLotProps = {
   teamBreakBusy?: boolean;
   onEndAuction?: () => void;
   onNextItem?: () => void;
+  onPinSelected?: () => void;
   hostBusy?: boolean;
   hostClockSkewMs: number;
   energyLevel?: LiveRoomEnergyLevel;
@@ -106,6 +108,7 @@ export function VaultPinnedLot({
   vaultMode,
   overlayQueueRow,
   activeBoardRow,
+  previewQueueRow = null,
   roomStatusLive,
   viewerCount,
   hostAuctionCountdownLabel,
@@ -121,6 +124,7 @@ export function VaultPinnedLot({
   teamBreakBusy,
   onEndAuction,
   onNextItem,
+  onPinSelected,
   hostBusy,
   hostClockSkewMs,
   energyLevel,
@@ -132,7 +136,14 @@ export function VaultPinnedLot({
   const meta = VAULT_MODE_META[vaultMode];
   const isMobile = variant === "mobile";
   const compactEmbedded = embedded && !isMobile;
-  const item = activeBoardRow?.item ?? overlayQueueRow?.item ?? null;
+  const previewItem =
+    previewQueueRow?.item &&
+    previewQueueRow.item.status !== "active" &&
+    previewQueueRow.item.status !== "sold" &&
+    previewQueueRow.item.status !== "skipped"
+      ? previewQueueRow.item
+      : null;
+  const item = activeBoardRow?.item ?? previewItem ?? overlayQueueRow?.item ?? null;
   const boardItem = activeBoardRow?.item;
   const commerceItem = boardItem ?? null;
   const isVariantItem = isVariantPurchaseItem(commerceItem);
@@ -153,6 +164,7 @@ export function VaultPinnedLot({
         vaultMode={vaultMode}
         overlayQueueRow={overlayQueueRow}
         activeBoardRow={activeBoardRow}
+        previewQueueRow={previewQueueRow}
         roomStatusLive={roomStatusLive}
         hostAuctionCountdownLabel={hostAuctionCountdownLabel}
         biddingWindowOpen={biddingWindowOpen}
@@ -167,6 +179,7 @@ export function VaultPinnedLot({
         teamBreakBusy={teamBreakBusy}
         onEndAuction={onEndAuction}
         onNextItem={onNextItem}
+        onPinSelected={onPinSelected}
         hostBusy={hostBusy}
         energyLevel={energyLevel}
         motionBurst={motionBurst}
@@ -411,6 +424,20 @@ export function VaultPinnedLot({
             ) : (
               <p className="text-center text-[10px] text-amber-200/90">Go live to start the auction.</p>
             )}
+          </div>
+        ) : previewItem && onPinSelected ? (
+          <div className={`relative border-t border-white/[0.07] bg-black/40 px-2.5 ${compactEmbedded ? "py-1.5" : "px-3 py-2 max-[380px]:px-2.5"}`}>
+            <p className="text-center text-[10px] font-semibold text-amber-100/90">
+              {roomStatusLive ? "Pin this lot to put it on the block" : "Go live, then pin this lot"}
+            </p>
+            <button
+              type="button"
+              disabled={hostBusy || !roomStatusLive}
+              onClick={onPinSelected}
+              className={`mt-2 w-full rounded-full border border-amber-300/40 bg-gradient-to-r from-amber-500/30 to-yellow-300/20 px-4 py-2.5 text-[11px] font-black uppercase tracking-wide text-amber-50 disabled:opacity-40 ${isMobile ? "py-2" : ""}`}
+            >
+              Pin lot
+            </button>
           </div>
         ) : null}
       </div>
