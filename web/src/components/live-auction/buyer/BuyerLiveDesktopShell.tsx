@@ -14,7 +14,7 @@ export type BuyerLiveDesktopShellProps = {
 };
 
 /**
- * Desktop buyer live layout (≥1280px): 30% chat · 50% stage · 20% lineup.
+ * Desktop buyer live layout (≥1280px): 20% chat · 60% stage · 20% lineup.
  * Seller console does not use this shell.
  */
 export function BuyerLiveDesktopShell({
@@ -27,7 +27,7 @@ export function BuyerLiveDesktopShell({
 }: BuyerLiveDesktopShellProps) {
   const gridClass = lineup
     ? BUYER_LIVE_DESKTOP_GRID
-    : "grid h-full min-h-0 w-full max-w-[1920px] grid-cols-[minmax(0,30%)_minmax(0,70%)] gap-3 px-3 py-3 md:gap-3 md:px-4 md:py-3";
+    : "grid h-full min-h-0 w-full max-w-[1920px] grid-cols-[minmax(0,20%)_minmax(0,80%)] gap-3 px-3 py-3 md:gap-3 md:px-4 md:py-3";
 
   return (
     <div className={gridClass}>

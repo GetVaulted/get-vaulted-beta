@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useState } from "react";
 
-/** Desktop buyer 30/50/20 grid — active at 1280px and up. */
+/** Desktop buyer 20/60/20 grid — active at 1280px and up. */
 export const BUYER_LIVE_DESKTOP_MIN_WIDTH_PX = 1280;
 
 export function useBuyerLiveDesktop(): boolean {
