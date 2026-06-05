@@ -417,7 +417,7 @@ export function LiveVideoStage({
           </div>
         )}
 
-        {actionOverlay && !buyerShellPlateLayout ? (
+        {actionOverlay ? (
           <div className={`pointer-events-auto absolute z-10 live-stage-float-subtle ${desktopActionOverlayClass} ${uiDimmed ? "" : "live-stage-hud-awake"}`}>
             {actionOverlay}
           </div>

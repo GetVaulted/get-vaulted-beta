@@ -15,6 +15,7 @@ import { BuyerLiveActionRail } from "@/components/live-auction/buyer/BuyerLiveAc
 import { BuyerLiveDesktopShell } from "@/components/live-auction/buyer/BuyerLiveDesktopShell";
 import { BuyerLiveHostStrip } from "@/components/live-auction/buyer/BuyerLiveHostStrip";
 import { BuyerLiveItemBoard } from "@/components/live-auction/buyer/BuyerLiveItemBoard";
+import { BuyerLiveItemBoardOverlay } from "@/components/live-auction/buyer/BuyerLiveItemBoardOverlay";
 import { BuyerLiveNextUpRail } from "@/components/live-auction/buyer/BuyerLiveNextUpRail";
 import { BuyerLiveQueueList } from "@/components/live-auction/buyer/BuyerLiveQueueList";
 import { BuyerLiveQueueSheet } from "@/components/live-auction/buyer/BuyerLiveQueueSheet";
@@ -895,6 +896,21 @@ export function LiveSaleRoom({
         ? desktopWaitingOverlay
         : null;
 
+  const buyerDesktopActionRail = (
+    <BuyerLiveActionRail
+      layout="column"
+      liveRoomId={liveRoomId}
+      shopHref={shopHref}
+      onShare={handleShare}
+      onWallet={handleWallet}
+      onTip={isLive ? handleTip : undefined}
+    />
+  );
+
+  const desktopItemBoardOverlay = (
+    <BuyerLiveItemBoardOverlay commerce={desktopItemBoardCommerce} actions={buyerDesktopActionRail} />
+  );
+
   const mobileVideoOverlay = (
     <div className="live-glass-sheet relative min-h-0 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 max-[380px]:px-1.5 max-[380px]:pt-1.5">
       <p className="line-clamp-1 text-[11px] font-semibold leading-tight text-zinc-100">
@@ -1184,7 +1200,7 @@ export function LiveSaleRoom({
               <LiveVideoStage
                 {...videoStageProps}
                 layout="buyerShellPlate"
-                actionOverlay={null}
+                actionOverlay={!isHost ? desktopItemBoardOverlay : null}
                 mobileActionOverlay={null}
                 chatOverlay={null}
               />
@@ -1195,7 +1211,7 @@ export function LiveSaleRoom({
             itemBoard={
               !isHost ? (
                 <BuyerLiveItemBoard
-                  commerce={desktopItemBoardCommerce}
+                  commerce={null}
                   items={queue.map((item) => ({
                     id: item.id,
                     displayTitle: item.displayTitle,
@@ -1204,16 +1220,6 @@ export function LiveSaleRoom({
                   selectedId={selectedId}
                   shopHref={shopHref}
                   onSelect={setSelectedId}
-                  actions={
-                    <BuyerLiveActionRail
-                      layout="row"
-                      liveRoomId={liveRoomId}
-                      shopHref={shopHref}
-                      onShare={handleShare}
-                      onWallet={handleWallet}
-                      onTip={isLive ? handleTip : undefined}
-                    />
-                  }
                 />
               ) : undefined
             }
