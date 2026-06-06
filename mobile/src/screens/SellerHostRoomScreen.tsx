@@ -119,6 +119,16 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     roomId,
     accessToken: token ?? '',
     previewEnabled: stageWebrtcEnabled && Boolean(token) && !loading && Boolean(room),
+    onBroadcastStarted: async () => {
+      try {
+        const current = room ?? (await reloadRoom());
+        if (current?.status !== 'scheduled') return;
+        await markRoomLiveOnServer();
+        await notifyLiveDiscoveryChanged();
+      } catch {
+        /* onStartBroadcast surfaces errors to the host UI */
+      }
+    },
     onStreamRefresh: () => void reloadStream(true),
   });
 
@@ -204,10 +214,13 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     setBusy('start');
     setRoomError(null);
     try {
-      // Room must be `live` in DB before discovery refetch — same ordering as web SellerLivePage.
-      await markRoomLiveOnServer();
+      // Publish to IVS Stage first so streamHealth is live before buyers attach playback.
       if (stageWebrtcEnabled) {
         await stagePublish.start();
+      }
+      const current = room ?? (await reloadRoom());
+      if (current?.status === 'scheduled') {
+        await markRoomLiveOnServer();
       }
       await notifyLiveDiscoveryChanged();
       await reload();

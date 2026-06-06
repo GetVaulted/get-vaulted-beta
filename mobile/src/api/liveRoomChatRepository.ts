@@ -1,4 +1,4 @@
-import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
+import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 
 export type LiveRoomChatMessageType = 'chat' | 'bid' | 'purchase' | 'system';
 
@@ -21,11 +21,7 @@ function apiErrorMessage(res: Response, body: unknown): string {
 }
 
 export async function fetchLiveRoomChatMessages(roomId: string): Promise<LiveRoomChatMessageRow[]> {
-  const base = getWebApiBaseUrl();
-  if (!base) throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
-  const res = await fetch(`${base}/api/live-rooms/${encodeURIComponent(roomId)}/messages`, {
-    headers: { Accept: 'application/json' },
-  });
+  const res = await fetchWebApiMobile(`/api/live-rooms/${encodeURIComponent(roomId)}/messages`);
   let j: { messages?: LiveRoomChatMessageRow[]; error?: string } = {};
   try {
     j = (await res.json()) as typeof j;
@@ -42,14 +38,11 @@ export async function sendLiveRoomChatMessage(args: {
   body: string;
   clientMessageId?: string;
 }): Promise<LiveRoomChatMessageRow> {
-  const base = getWebApiBaseUrl();
-  if (!base) throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
   const payload: { body: string; clientMessageId?: string } = { body: args.body.trim() };
   if (args.clientMessageId?.trim()) payload.clientMessageId = args.clientMessageId.trim();
-  const res = await fetch(`${base}/api/live-rooms/${encodeURIComponent(args.roomId)}/messages`, {
+  const res = await fetchWebApiMobile(`/api/live-rooms/${encodeURIComponent(args.roomId)}/messages`, {
     method: 'POST',
     headers: {
-      Accept: 'application/json',
       'Content-Type': 'application/json',
       Authorization: `Bearer ${args.accessToken}`,
     },
@@ -73,12 +66,9 @@ export async function announceLiveRoomViewerEvent(args: {
   roomId: string;
   kind: ViewerEventKind;
 }): Promise<LiveRoomChatMessageRow> {
-  const base = getWebApiBaseUrl();
-  if (!base) throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
-  const res = await fetch(`${base}/api/live-rooms/${encodeURIComponent(args.roomId)}/viewer-event`, {
+  const res = await fetchWebApiMobile(`/api/live-rooms/${encodeURIComponent(args.roomId)}/viewer-event`, {
     method: 'POST',
     headers: {
-      Accept: 'application/json',
       'Content-Type': 'application/json',
       Authorization: `Bearer ${args.accessToken}`,
     },

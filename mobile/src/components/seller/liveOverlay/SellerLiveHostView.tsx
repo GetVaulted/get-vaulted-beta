@@ -1,5 +1,5 @@
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { HostStreamPayload, LiveRoomHostDetail } from '../../../api/liveHostRepository';
@@ -16,6 +16,8 @@ import type { SanitizedLiveError } from '../liveConsole/liveConsoleErrors';
 import { SellerLiveStreamBackdrop } from './SellerLiveStreamBackdrop';
 import type { MobileHostBroadcastPhase, SellerCameraPermissionState } from '../../../hooks/useMobileStagePublish';
 import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
+import { useLiveRoomChat } from '../../../hooks/useLiveRoomChat';
+import { useRealtimeRoomSubscription } from '../../../hooks/useRealtimeRoomSubscription';
 import { useSellerLiveConsole } from '../../../hooks/useSellerLiveConsole';
 import { webLiveRoomUrl } from '../../../lib/openWebCommerce';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
@@ -150,7 +152,43 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
     }
   };
 
-  const chatPool = console.chatMessages;
+  const hostChatUsername = sellerUsername?.trim() || hostName;
+  const liveChat = useLiveRoomChat({
+    roomId,
+    hostUsername: hostChatUsername,
+    accessToken,
+    enabled: true,
+    realtimePrimary: true,
+  });
+
+  useRealtimeRoomSubscription({
+    liveRoomId: roomId,
+    enabled: true,
+    onLiveRoomMessage: (message) => {
+      liveChat.appendBroadcast(message);
+    },
+    onMessagesRefreshMerge: () => {
+      void liveChat.reload();
+    },
+  });
+
+  const chatPool = liveChat.messages;
+
+  const sendHostChat = useCallback(async () => {
+    const text = chatDraft.trim();
+    if (!text || liveChat.sending) return;
+    if (!roomLive) {
+      Alert.alert('Not live yet', 'Go live to chat with viewers.');
+      return;
+    }
+    try {
+      const ok = await liveChat.send(text);
+      if (ok) setChatDraft('');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      Alert.alert('Chat', msg);
+    }
+  }, [chatDraft, liveChat, roomLive]);
 
   const onGoLive = () => {
     if (host.readinessBlocked?.length) {
@@ -245,7 +283,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         hostUserId={user?.id}
         accessToken={accessToken}
         canModerate
-        onModerationComplete={() => void console.loadOnce()}
+        onModerationComplete={() => {
+          void liveChat.reload();
+          void console.loadOnce();
+        }}
       />
 
       <SellerLiveComposer
@@ -254,11 +295,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         rightEdge={CHAT_RIGHT_EDGE}
         value={chatDraft}
         onChangeText={setChatDraft}
-        onSend={() => {
-          if (!chatDraft.trim()) return;
-          setChatDraft('');
-        }}
-        sendDisabled
+        onSend={sendHostChat}
+        sendDisabled={liveChat.sending || !roomLive}
       />
 
       <SellerLivePinnedOverlay

@@ -11,6 +11,8 @@ import { ensureStageSdkInitialized } from '../lib/stageSdk';
 
 /** If no remote media arrives within this window, fail over to HLS. */
 const CONNECT_TIMEOUT_MS = 12_000;
+/** When signed out, do not block on WebRTC forever — fail over to HLS for guests. */
+const AUTH_WAIT_MS = 2_500;
 
 export type MobileStageRemoteTarget = {
   participantId: string;
@@ -71,17 +73,9 @@ export function useMobileStageSubscribe(args: {
       return;
     }
 
-    if (!args.accessToken?.trim()) {
-      // Auth may still be hydrating — wait without failing over to HLS.
-      setPhase('idle');
-      return;
-    }
-
     let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     connectedRef.current = false;
-    setPhase('connecting');
-    setConnectionState('connecting');
 
     const fail = (reason: string) => {
       if (cancelled || connectedRef.current) return;
@@ -92,6 +86,18 @@ export function useMobileStageSubscribe(args: {
       });
       cbRef.current.onFailed(reason);
     };
+
+    if (!args.accessToken?.trim()) {
+      setPhase('idle');
+      timeoutId = setTimeout(() => fail('auth_required'), AUTH_WAIT_MS);
+      return () => {
+        cancelled = true;
+        if (timeoutId != null) clearTimeout(timeoutId);
+      };
+    }
+
+    setPhase('connecting');
+    setConnectionState('connecting');
 
     const connSub = addOnStageConnectionStateChangedListener((evt) => {
       if (cancelled) return;

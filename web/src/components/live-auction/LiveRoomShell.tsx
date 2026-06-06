@@ -571,6 +571,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           : prev,
       );
       refreshSkewFromRealtimePayload(payload.serverNowMs);
+      setStreamPlaybackRefreshNonce((n) => n + 1);
       scheduleFallbackRefresh("auction_started", 80);
     },
     onAuctionEnded: (payload) => {

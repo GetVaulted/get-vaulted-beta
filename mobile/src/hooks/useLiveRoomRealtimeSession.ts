@@ -257,6 +257,7 @@ export function useLiveRoomRealtimeSession(args: {
     onAuctionStarted: (payload) => {
       if (!shouldProcessRealtimeEvent(guardRef.current, 'auction_started', payload)) return;
       refreshSkewFromRealtime(payload.serverNowMs);
+      args.onStreamRefresh?.();
       scheduleReconcile(80);
     },
     onAuctionEnded: (payload) => {
