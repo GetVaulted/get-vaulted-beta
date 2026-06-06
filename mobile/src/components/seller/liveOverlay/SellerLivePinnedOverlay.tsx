@@ -4,9 +4,9 @@ import { Platform, StyleSheet, View } from 'react-native';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { VaultPinnedLotCard } from '../liveConsole/VaultPinnedLotCard';
 
-/** Active lot HUD — single seller commerce box. */
-export const SELLER_PINNED_OVERLAY_HEIGHT = 128;
-export const SELLER_PINNED_EMPTY_HEIGHT = 72;
+/** Active lot HUD — single seller commerce box (initial estimate before onLayout). */
+export const SELLER_PINNED_OVERLAY_HEIGHT = 96;
+export const SELLER_PINNED_EMPTY_HEIGHT = 64;
 
 export function SellerLivePinnedOverlay({
   bottom,
@@ -23,6 +23,7 @@ export function SellerLivePinnedOverlay({
   onExtend,
   hostOverlayMinimal = true,
   queuePreview = false,
+  onLayoutHeight,
 }: {
   bottom: number;
   left: number;
@@ -38,9 +39,17 @@ export function SellerLivePinnedOverlay({
   onExtend: () => void;
   hostOverlayMinimal?: boolean;
   queuePreview?: boolean;
+  onLayoutHeight?: (height: number) => void;
 }) {
   return (
-    <View style={[styles.host, { bottom, left, right }]} pointerEvents="box-none">
+    <View
+      style={[styles.host, { bottom, left, right }]}
+      pointerEvents="box-none"
+      onLayout={(e) => {
+        const h = e.nativeEvent.layout.height;
+        if (h > 0) onLayoutHeight?.(h);
+      }}
+    >
       <View style={styles.glass} pointerEvents="auto">
         {Platform.OS === 'ios' ? (
           <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} />
@@ -93,6 +102,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(12,11,9,0.9)',
   },
   inner: {
-    padding: 6,
+    padding: 4,
   },
 });

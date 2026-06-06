@@ -1,15 +1,12 @@
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { HostStreamPayload, LiveRoomHostDetail } from '../../../api/liveHostRepository';
 import { fetchProfileById } from '../../../api/profilesRepository';
 import { useAuth } from '../../../auth/AuthContext';
-import {
-  CHAT_ZONE_GAP,
-  COMPOSER_BAR_H,
-  FloatingLiveChat,
-} from '../../live/floatingLiveChat';
+import { FloatingLiveChat } from '../../live/floatingLiveChat';
+import { computeLiveRoomBottomStack } from '../../../lib/liveRoomBottomLayout';
 import { SellerLiveComposer } from './SellerLiveComposer';
 import { SellerLiveGestureLayer } from './SellerLiveGestureLayer';
 import { AddInventoryModal } from '../liveConsole/AddInventoryModal';
@@ -34,7 +31,6 @@ import { SellerConsoleActionBar } from './SellerConsoleActionBar';
 import { SellerShareSheet } from './SellerShareSheet';
 import { colors, radii, spacing } from '../../../theme';
 
-const COMMERCE_TO_COMPOSER_GAP = 10;
 const CHAT_RIGHT_EDGE = 88;
 
 type HostActions = {
@@ -126,11 +122,23 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   const nextQueued = console.items.find((i) => i.status === 'queued') ?? null;
   const queuePreview = !console.activeItem && Boolean(nextQueued) && !console.roomEnded;
   const displayItem = console.activeItem ?? (queuePreview ? nextQueued : null);
-  const pinnedOverlayHeight =
+  const pinnedOverlayEstimate =
     displayItem || queuePreview ? SELLER_PINNED_OVERLAY_HEIGHT : SELLER_PINNED_EMPTY_HEIGHT;
-  const pinnedBottom = commerceBottom;
-  const composerBottom = pinnedBottom + pinnedOverlayHeight + COMMERCE_TO_COMPOSER_GAP;
-  const chatBottom = composerBottom + COMPOSER_BAR_H + CHAT_ZONE_GAP;
+  const [commerceHeight, setCommerceHeight] = useState(pinnedOverlayEstimate);
+
+  useEffect(() => {
+    setCommerceHeight(pinnedOverlayEstimate);
+  }, [pinnedOverlayEstimate]);
+
+  const bottomStack = useMemo(
+    () =>
+      computeLiveRoomBottomStack({
+        dockPaddingBottom: commerceBottom,
+        commerceHeight,
+        compact: true,
+      }),
+    [commerceBottom, commerceHeight],
+  );
 
   const onStartAuction = () => {
     if (console.activeItem) {
@@ -228,7 +236,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
       <FloatingLiveChat
         pool={chatPool}
         hostAvatarUrl={hostAvatarUrl}
-        bottom={chatBottom}
+        bottom={bottomStack.chatBottom}
         left={spacing.lg}
         rightEdge={CHAT_RIGHT_EDGE}
         isActive
@@ -241,7 +249,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
       />
 
       <SellerLiveComposer
-        bottom={composerBottom}
+        bottom={bottomStack.composerBottom}
         left={spacing.lg}
         rightEdge={CHAT_RIGHT_EDGE}
         value={chatDraft}
@@ -254,9 +262,9 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
       />
 
       <SellerLivePinnedOverlay
-        bottom={pinnedBottom}
+        bottom={bottomStack.commerceBottom}
         left={spacing.md}
-        right={CHAT_RIGHT_EDGE + spacing.sm}
+        right={spacing.md}
         item={displayItem}
         serverNowMs={console.serverNowMs}
         roomLive={console.roomLive}
@@ -268,6 +276,9 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         onExtend={console.onExtend}
         hostOverlayMinimal
         queuePreview={queuePreview}
+        onLayoutHeight={(h) => {
+          if (h > 0 && Math.abs(h - commerceHeight) > 2) setCommerceHeight(h);
+        }}
       />
 
       {host.broadcastError && host.broadcastPhase === 'idle' ? (

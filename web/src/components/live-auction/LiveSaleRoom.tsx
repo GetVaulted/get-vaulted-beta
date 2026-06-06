@@ -1193,7 +1193,7 @@ export function LiveSaleRoom({
               <LiveVideoStage
                 {...videoStageProps}
                 layout="buyerShellPlate"
-                actionOverlay={!isHost ? desktopItemBoardOverlay : null}
+                actionOverlay={desktopItemBoardOverlay}
                 mobileActionOverlay={null}
                 chatOverlay={null}
               />

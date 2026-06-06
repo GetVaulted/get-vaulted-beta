@@ -313,7 +313,9 @@ export function LiveAuctionRoom({
   const hasQueuedItems = queueItems.some((i) => i.status !== "sold" && i.status !== "skipped");
   /** Prefer the timed “live” row; a stale `posted` row earlier in the list must not steal focus from the open lot. */
   const activeQueueItem =
-    queueItems.find((i) => i.status === "live") ?? queueItems.find((i) => i.status === "posted") ?? null;
+    queueItems.find((i) => i.status === "live") ??
+    queueItems.find((i) => i.status === "posted") ??
+    (roomStatus === "live" ? buyerLineupItems[0] ?? null : null);
   const showFeaturedAuctionOverlay =
     roomStatus !== "ended" && Boolean(activeQueueItem) && (roomStatus === "scheduled" || roomStatus === "live");
   const overlayItem = selectedQueue ?? activeQueueItem;
@@ -1232,7 +1234,7 @@ export function LiveAuctionRoom({
                 <LiveVideoStage
                   {...videoStageProps}
                   layout="buyerShellPlate"
-                  actionOverlay={!isHost ? desktopItemBoardOverlay : null}
+                  actionOverlay={desktopItemBoardOverlay}
                   mobileActionOverlay={null}
                   chatOverlay={null}
                 />
@@ -1264,8 +1266,8 @@ export function LiveAuctionRoom({
                 <LiveVideoStage
                   {...videoStageProps}
                   layout={buyerWideRail ? "fillHeight" : "aspect"}
-                  actionOverlay={showFeaturedAuctionOverlay ? desktopVideoOverlay : null}
-                  mobileActionOverlay={showFeaturedAuctionOverlay ? mobileVideoOverlay : null}
+                  actionOverlay={desktopStageOverlay}
+                  mobileActionOverlay={showFeaturedAuctionOverlay ? mobileVideoOverlay : desktopStageOverlay}
                   chatOverlay={floatingChatOverlay}
                 />
               </div>

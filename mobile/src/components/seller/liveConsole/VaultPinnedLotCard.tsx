@@ -336,32 +336,36 @@ export function VaultPinnedLotCard({
                 @{item.lastHighBidderUsername}
               </Text>
             </View>
-          ) : (
+          ) : hostOverlayMinimal ? null : (
             <Text style={[styles.meta, compact && styles.metaCompact]}>Waiting for first bid</Text>
           )}
           {hudPhase === 'ended' ? (
             <Text style={styles.hostEndedCopy}>{LIVE_AUCTION_HOST_TIMER_ENDED_COPY}</Text>
           ) : null}
-          <View style={styles.metaRow}>
-            <Text style={[styles.meta, compact && styles.metaCompact]}>
-              {showRunningStrip
-                ? 'Auction running'
-                : hudPhase === 'ended'
-                  ? 'Awaiting mark sold'
-                  : hudPhase === 'sold'
-                    ? 'Sold'
-                    : hudPhase === 'skipped'
-                      ? 'Skipped'
-                      : hudPhase === 'ready'
-                        ? 'Ready to start'
-                        : 'Ready'}
-            </Text>
-            {item.priceUsd != null ? (
-              <Text style={[styles.meta, compact && styles.metaCompact, reserve && styles.metaOk]}>
-                {reserve ? 'Reserve met' : 'Reserve'}
-              </Text>
-            ) : null}
-          </View>
+          {!hostOverlayMinimal || (hudPhase !== 'ready' && item.priceUsd != null) ? (
+            <View style={styles.metaRow}>
+              {!hostOverlayMinimal ? (
+                <Text style={[styles.meta, compact && styles.metaCompact]}>
+                  {showRunningStrip
+                    ? 'Auction running'
+                    : hudPhase === 'ended'
+                      ? 'Awaiting mark sold'
+                      : hudPhase === 'sold'
+                        ? 'Sold'
+                        : hudPhase === 'skipped'
+                          ? 'Skipped'
+                          : hudPhase === 'ready'
+                            ? 'Ready to start'
+                            : 'Ready'}
+                </Text>
+              ) : null}
+              {item.priceUsd != null ? (
+                <Text style={[styles.meta, compact && styles.metaCompact, reserve && styles.metaOk]}>
+                  {reserve ? 'Reserve met' : 'Reserve'}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
         </View>
       </View>
 
@@ -440,9 +444,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   shellCompact: {
-    padding: 8,
-    gap: 4,
-    borderRadius: 14,
+    padding: 6,
+    gap: 3,
+    borderRadius: 12,
   },
   gradientDrift: {
     ...StyleSheet.absoluteFillObject,
@@ -465,7 +469,7 @@ const styles = StyleSheet.create({
   rowCompact: { gap: 8 },
   thumbWrap: { position: 'relative' },
   thumb: { width: 80, height: 96, borderRadius: radii.md, backgroundColor: 'rgba(0,0,0,0.4)' },
-  thumbCompact: { width: 66, height: 78, borderRadius: 12 },
+  thumbCompact: { width: 52, height: 60, borderRadius: 10 },
   thumbPh: { alignItems: 'center', justifyContent: 'center' },
   headRow: {
     flexDirection: 'row',
@@ -509,9 +513,9 @@ const styles = StyleSheet.create({
   timerFillUrgent: { backgroundColor: colors.live },
   eyebrowCompact: { fontSize: 9 },
   title: { fontSize: 15, fontWeight: '800', color: colors.textPrimary },
-  titleCompact: { fontSize: 13, lineHeight: 16 },
+  titleCompact: { fontSize: 12, lineHeight: 15 },
   bidVal: { fontSize: 24, fontWeight: '900', color: colors.gold, marginTop: 1 },
-  bidValCompact: { fontSize: 20, marginTop: 0 },
+  bidValCompact: { fontSize: 18, marginTop: 0 },
   bidderRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
   bidderDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.live },
   leader: { fontSize: 11, fontWeight: '700', color: colors.textSecondary, flex: 1 },
@@ -601,7 +605,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   startAuctionPrimaryCompact: {
-    minHeight: 36,
+    minHeight: 32,
   },
   startAuctionPrimaryTxt: {
     fontWeight: '900',
