@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { getServerSessionSafe } from "@/lib/auth";
+import { requestHasSupabaseBearer } from "@/lib/mobile-supabase-bearer";
 import { requireUserIdFromSupabaseBearer } from "@/lib/require-supabase-bearer";
 import { resolveAccountSellerUserId } from "@/lib/resolve-account-seller-user";
 
 /** Signed-in viewer id when present; null for guests or invalid Bearer (public room GET). */
 export async function resolveOptionalLiveRoomsUserId(request: Request): Promise<string | null> {
-  const authHeader = request.headers.get("authorization");
-  if (authHeader?.startsWith("Bearer ")) {
+  if (requestHasSupabaseBearer(request)) {
     const auth = await requireUserIdFromSupabaseBearer(request);
     return auth instanceof NextResponse ? null : auth.userId;
   }

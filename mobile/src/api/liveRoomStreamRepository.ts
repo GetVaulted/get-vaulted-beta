@@ -1,4 +1,4 @@
-import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
+import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 import { parseBuyerSafeStreamPayload, type BuyerSafeStreamFields } from '../lib/liveStreamPlayback';
 
 export type StageTokenPayload = {
@@ -28,41 +28,31 @@ async function stageTokenFetch(
   accessToken: string,
   method: 'GET' | 'POST' | 'DELETE',
 ): Promise<Response | null> {
-  const base = getWebApiBaseUrl();
-  if (!base || !accessToken.trim()) return null;
-  return fetch(
-    `${base.replace(/\/$/, '')}/api/live-rooms/${encodeURIComponent(roomId)}/stream/stage-token`,
-    {
-      method,
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-        ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
-      },
-      cache: 'no-store',
-      ...(method === 'POST' ? { body: '{}' } : {}),
+  if (!accessToken.trim()) return null;
+  return fetchWebApiMobile(`/api/live-rooms/${encodeURIComponent(roomId)}/stream/stage-token`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
     },
-  );
+    ...(method === 'POST' ? { body: '{}' } : {}),
+  });
 }
 
 export async function fetchBuyerLiveStream(
   roomId: string,
   accessToken?: string,
 ): Promise<BuyerSafeStreamFields | null> {
-  const base = getWebApiBaseUrl();
-  if (!base) return null;
-
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
-
-  const res = await fetch(`${base.replace(/\/$/, '')}/api/live-rooms/${encodeURIComponent(roomId)}/stream`, {
-    headers,
-    cache: 'no-store',
-  });
-
-  if (!res.ok) return null;
-  const raw = (await res.json().catch(() => null)) as unknown;
-  return parseBuyerSafeStreamPayload(raw);
+  try {
+    const headers: Record<string, string> = {};
+    if (accessToken?.trim()) headers.Authorization = `Bearer ${accessToken}`;
+    const res = await fetchWebApiMobile(`/api/live-rooms/${encodeURIComponent(roomId)}/stream`, { headers });
+    if (!res.ok) return null;
+    const raw = (await res.json().catch(() => null)) as unknown;
+    return parseBuyerSafeStreamPayload(raw);
+  } catch {
+    return null;
+  }
 }
 
 /** Subscribe-only IVS Real-Time Stage token for authenticated buyers. Requires Bearer auth. */
@@ -70,21 +60,10 @@ export async function fetchViewerStageToken(
   roomId: string,
   accessToken: string,
 ): Promise<ViewerStageToken | null> {
-  const base = getWebApiBaseUrl();
-  if (!base || !accessToken.trim()) return null;
+  if (!accessToken.trim()) return null;
 
-  const res = await fetch(
-    `${base.replace(/\/$/, '')}/api/live-rooms/${encodeURIComponent(roomId)}/stream/stage-token`,
-    {
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      cache: 'no-store',
-    },
-  );
-
-  if (!res.ok) return null;
+  const res = await stageTokenFetch(roomId, accessToken, 'GET');
+  if (!res?.ok) return null;
   const raw = (await res.json().catch(() => null)) as unknown;
   return parseStageTokenPayload(raw);
 }

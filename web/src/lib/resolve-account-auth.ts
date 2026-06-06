@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAccountDeleted } from "@/lib/account-deletion";
 import { getServerSessionSafe } from "@/lib/auth";
+import { requestHasSupabaseBearer } from "@/lib/mobile-supabase-bearer";
 import { requireUserIdFromSupabaseBearer } from "@/lib/require-supabase-bearer";
 import { prisma } from "@/lib/prisma";
 
@@ -8,8 +9,7 @@ import { prisma } from "@/lib/prisma";
 export async function resolveAccountUserId(
   request: Request,
 ): Promise<{ userId: string } | NextResponse> {
-  const authHeader = request.headers.get("authorization");
-  if (authHeader?.startsWith("Bearer ")) {
+  if (requestHasSupabaseBearer(request)) {
     return requireUserIdFromSupabaseBearer(request);
   }
 

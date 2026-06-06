@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { isAccountDeleted } from "@/lib/account-deletion";
 import { ensurePrismaUserForSupabaseAuth } from "@/lib/ensure-prisma-user-from-supabase-auth";
 import { syncStripeConnectFromEmailSibling } from "@/lib/link-stripe-account-from-email-sibling";
+import { getSupabaseBearerJwt } from "@/lib/mobile-supabase-bearer";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -13,11 +14,7 @@ import { prisma } from "@/lib/prisma";
 export async function requireUserIdFromSupabaseBearer(
   request: Request,
 ): Promise<{ userId: string } | NextResponse> {
-  const auth = request.headers.get("authorization");
-  if (!auth?.startsWith("Bearer ")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const jwt = auth.slice("Bearer ".length).trim();
+  const jwt = getSupabaseBearerJwt(request);
   if (!jwt) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

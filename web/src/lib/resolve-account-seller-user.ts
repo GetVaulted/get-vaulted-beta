@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { getServerSessionSafe } from "@/lib/auth";
 import { resolveAuthUserForToken } from "@/lib/auth-resolve-user";
+import { getSupabaseBearerJwt } from "@/lib/mobile-supabase-bearer";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
 
 function peekBearerJwtClaims(req: Request): { sub: string | null; email: string | null } {
-  const auth = req.headers.get("authorization");
-  if (!auth?.startsWith("Bearer ")) return { sub: null, email: null };
-  const jwt = auth.slice("Bearer ".length).trim();
+  const jwt = getSupabaseBearerJwt(req);
+  if (!jwt) return { sub: null, email: null };
   const part = jwt.split(".")[1];
   if (!part) return { sub: null, email: null };
   try {

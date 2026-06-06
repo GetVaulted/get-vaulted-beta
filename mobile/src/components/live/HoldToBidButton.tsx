@@ -15,9 +15,20 @@ type Props = {
   onCommit: () => void;
   /** Return false to abort the hold (e.g. auth required). */
   onHoldStart?: () => boolean | void;
+  /** Purple live-feed bid styling vs default gold. */
+  variant?: 'gold' | 'auction';
+  compact?: boolean;
 };
 
-export function HoldToBidButton({ label, disabled = false, busy = false, onCommit, onHoldStart }: Props) {
+export function HoldToBidButton({
+  label,
+  disabled = false,
+  busy = false,
+  onCommit,
+  onHoldStart,
+  variant = 'gold',
+  compact = false,
+}: Props) {
   const progress = useRef(new Animated.Value(0)).current;
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animRef = useRef<Animated.CompositeAnimation | null>(null);
@@ -127,9 +138,17 @@ export function HoldToBidButton({ label, disabled = false, busy = false, onCommi
     outputRange: ['0%', '100%'],
   });
 
+  const auction = variant === 'auction';
+
   return (
     <Pressable
-      style={[styles.shell, (disabled || busy) && styles.shellDisabled]}
+      style={[
+        styles.shell,
+        auction && styles.shellAuction,
+        compact && styles.shellCompact,
+        (disabled || busy) && styles.shellDisabled,
+        (disabled || busy) && auction && styles.shellAuctionDisabled,
+      ]}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       disabled={disabled || busy}
@@ -138,9 +157,16 @@ export function HoldToBidButton({ label, disabled = false, busy = false, onCommi
       accessibilityHint="Press and hold to place your bid"
     >
       {busy ? (
-        <ActivityIndicator color="#0a0a0a" size="small" />
+        <ActivityIndicator color={auction ? '#fff' : '#0a0a0a'} size="small" />
       ) : (
-        <LiveRoomText style={[styles.label, disabled && styles.labelDisabled]} numberOfLines={1}>
+        <LiveRoomText
+          style={[
+            styles.label,
+            auction && styles.labelAuction,
+            disabled && (auction ? styles.labelAuctionDisabled : styles.labelDisabled),
+          ]}
+          numberOfLines={1}
+        >
           {label}
         </LiveRoomText>
       )}
@@ -172,12 +198,25 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 3,
   },
+  shellAuction: {
+    backgroundColor: '#8B5CF6',
+    borderColor: 'rgba(255,255,255,0.14)',
+    shadowColor: '#D946EF',
+    shadowOpacity: 0.35,
+  },
+  shellCompact: {
+    minHeight: 40,
+    paddingVertical: 8,
+  },
   shellDisabled: {
     opacity: 0.45,
     backgroundColor: 'rgba(255,255,255,0.08)',
     borderColor: 'rgba(255,255,255,0.12)',
     shadowOpacity: 0,
     elevation: 0,
+  },
+  shellAuctionDisabled: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
   },
   label: {
     color: '#0a0a0a',
@@ -189,6 +228,17 @@ const styles = StyleSheet.create({
   },
   labelDisabled: {
     color: 'rgba(255,255,255,0.55)',
+  },
+  labelAuction: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.35,
+    textTransform: 'uppercase',
+  },
+  labelAuctionDisabled: {
+    color: 'rgba(255,255,255,0.55)',
+    textTransform: 'none',
   },
   progressTrack: {
     ...StyleSheet.absoluteFillObject,

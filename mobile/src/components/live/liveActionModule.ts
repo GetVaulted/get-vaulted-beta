@@ -210,7 +210,7 @@ function buildBuyerBidHud(
     winningLine: opts.winningLine,
     stateLine: opts.stateLine,
     bottomLeftLabel: 'Custom',
-    bottomRightLabel: `Place bid ${formatBidMoney(opts.nextBidUsd)}`,
+    bottomRightLabel: `Hold to Bid ${formatBidMoney(opts.nextBidUsd)}`,
     bottomRightIsSlide: false,
     buyerPrimaryDisabled: !opts.biddingOpen,
     buyerSecondaryDisabled: false,

@@ -1,4 +1,4 @@
-import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
+import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 import { sortVariantsForBuyerDisplay } from '../lib/liveItemVariant';
 import { WalletIncompleteError } from '../lib/buyerWalletErrors';
 import { logBuyerRoomStateSnapshot } from '../lib/logRoomStateSnapshot';
@@ -142,12 +142,10 @@ export async function fetchLiveRoomBuyerSnapshot(
   accessToken: string | undefined,
   roomId: string,
 ): Promise<LiveRoomBuyerSnapshot> {
-  const base = getWebApiBaseUrl();
-  if (!base) throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  const headers: Record<string, string> = {};
   if (accessToken?.trim()) headers.Authorization = `Bearer ${accessToken}`;
   const clientStart = Date.now();
-  const res = await fetch(`${base}/api/live-rooms/${encodeURIComponent(roomId)}`, { headers });
+  const res = await fetchWebApiMobile(`/api/live-rooms/${encodeURIComponent(roomId)}`, { headers });
   let j: {
     room?: {
       status?: string;
@@ -299,15 +297,12 @@ export async function placeLiveRoomBid(args: {
   amountUsd: number;
   idempotencyKey: string;
 }): Promise<LiveBidHttpAck> {
-  const base = getWebApiBaseUrl();
-  if (!base) throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
   const clientStart = Date.now();
-  const res = await fetch(
-    `${base}/api/live-rooms/${encodeURIComponent(args.roomId)}/items/${encodeURIComponent(args.itemId)}/bid`,
+  const res = await fetchWebApiMobile(
+    `/api/live-rooms/${encodeURIComponent(args.roomId)}/items/${encodeURIComponent(args.itemId)}/bid`,
     {
       method: 'POST',
       headers: {
-        Accept: 'application/json',
         'Content-Type': 'application/json',
         Authorization: `Bearer ${args.accessToken}`,
         'Idempotency-Key': args.idempotencyKey,
@@ -357,13 +352,10 @@ export async function placeLiveRoomBid(args: {
  * GET read-sweep) are the backstops. Returns silently on any failure.
  */
 export async function finalizeOverdueLiveRoomAuctions(roomId: string, accessToken?: string): Promise<void> {
-  const base = getWebApiBaseUrl();
-  if (!base) return;
   try {
-    await fetch(`${base}/api/live-rooms/${encodeURIComponent(roomId)}/finalize-overdue`, {
+    await fetchWebApiMobile(`/api/live-rooms/${encodeURIComponent(roomId)}/finalize-overdue`, {
       method: 'POST',
       headers: {
-        Accept: 'application/json',
         'Content-Type': 'application/json',
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       },

@@ -13,8 +13,16 @@ export async function fetchWebApiMobile(path: string, init: RequestInit = {}): P
   if (!headers.has('User-Agent')) headers.set('User-Agent', 'GetVaultedMobile/1.0 (Expo)');
 
   const basic = process.env.EXPO_PUBLIC_BETA_HTTP_BASIC?.trim();
-  if (basic && !headers.has('Authorization')) {
-    headers.set('Authorization', basic.startsWith('Basic ') ? basic : `Basic ${basic}`);
+  const normalizedBasic = basic ? (basic.startsWith('Basic ') ? basic : `Basic ${basic}`) : null;
+  const authHeader = headers.get('Authorization')?.trim() ?? '';
+
+  // Password-protected beta deploys need Basic on `Authorization`. Signed-in calls also need
+  // Supabase Bearer — move it to X-GV-Supabase-Auth so both gates succeed.
+  if (normalizedBasic && authHeader.startsWith('Bearer ')) {
+    headers.set('X-GV-Supabase-Auth', authHeader);
+    headers.set('Authorization', normalizedBasic);
+  } else if (normalizedBasic && !authHeader) {
+    headers.set('Authorization', normalizedBasic);
   }
 
   try {

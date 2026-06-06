@@ -40,6 +40,7 @@ import { WalletSheet } from '../wallet/WalletSheet';
 import type { LiveStackParamList, MainTabParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
 import type { LiveStream } from '../../types';
+import { HoldToBidButton } from './HoldToBidButton';
 import { resolveBuyerRoomKind, resolveLiveBuyerCommerceHud } from './liveActionModule';
 import { LiveVariantSelectionSheet } from './LiveVariantSelectionSheet';
 import { isActiveVariantBuyerItem } from '../../lib/liveItemVariant';
@@ -552,6 +553,21 @@ export function LivePinnedActionBar({
       // Stay in room — live commerce secondary never routes to Trade.
     });
   };
+  const onHoldStart = () => {
+    if (!signedIn) {
+      onRequireAuth?.();
+      return false;
+    }
+    if (primaryDisabled || bidBusy) {
+      logBidControl('blocked', {
+        reason: primaryDisabled ? 'primary disabled' : 'bid busy',
+        lotBidPhase: roomSnap?.lotBidPhase ?? null,
+      });
+      return false;
+    }
+    return true;
+  };
+
   const onPrimary = () => {
     if (primaryDisabled || bidBusy) {
       logBidControl('blocked', {
@@ -639,31 +655,43 @@ export function LivePinnedActionBar({
           ) : null}
 
           <View style={styles.ctaPrimaryWrap}>
-            <Pressable
-              style={[styles.ctaBidPressable, (primaryDisabled || bidBusy) && styles.ctaDisabled]}
-              onPress={onPrimary}
-              disabled={primaryDisabled || bidBusy}
-              accessibilityRole="button"
-              accessibilityLabel={m.bottomRightLabel}
-            >
-              <LinearGradient
-                colors={['#D946EF', '#8B5CF6', '#6366F1']}
-                start={{ x: 0, y: 0.5 }}
-                end={{ x: 1, y: 0.5 }}
-                style={[styles.ctaBidGradient, compact && styles.ctaBidGradientCompact]}
+            {useLiveAuctionBidFlow && !variantItemActive ? (
+              <HoldToBidButton
+                label={m.bottomRightLabel}
+                disabled={primaryDisabled}
+                busy={bidBusy}
+                variant="auction"
+                compact={compact}
+                onHoldStart={onHoldStart}
+                onCommit={() => guard(() => runPrimaryLiveCommerceAction())}
+              />
+            ) : (
+              <Pressable
+                style={[styles.ctaBidPressable, (primaryDisabled || bidBusy) && styles.ctaDisabled]}
+                onPress={onPrimary}
+                disabled={primaryDisabled || bidBusy}
+                accessibilityRole="button"
+                accessibilityLabel={m.bottomRightLabel}
               >
-                {bidBusy ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <LiveRoomText
-                    style={[styles.ctaBidText, (primaryDisabled || bidBusy) && styles.ctaDisabledText]}
-                    numberOfLines={1}
-                  >
-                    {m.bottomRightLabel}
-                  </LiveRoomText>
-                )}
-              </LinearGradient>
-            </Pressable>
+                <LinearGradient
+                  colors={['#D946EF', '#8B5CF6', '#6366F1']}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
+                  style={[styles.ctaBidGradient, compact && styles.ctaBidGradientCompact]}
+                >
+                  {bidBusy ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <LiveRoomText
+                      style={[styles.ctaBidText, (primaryDisabled || bidBusy) && styles.ctaDisabledText]}
+                      numberOfLines={1}
+                    >
+                      {m.bottomRightLabel}
+                    </LiveRoomText>
+                  )}
+                </LinearGradient>
+              </Pressable>
+            )}
           </View>
         </View>
       </View>

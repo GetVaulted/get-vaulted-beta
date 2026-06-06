@@ -1,4 +1,4 @@
-import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
+import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 import type { LiveRoomHostDetail } from './liveHostRepository';
 
 export type LiveRoomItemRow = {
@@ -51,12 +51,9 @@ async function controlFetch(
   accessToken: string,
   init?: RequestInit,
 ): Promise<Response> {
-  const base = getWebApiBaseUrl();
-  if (!base) throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL.');
-  return fetch(`${base}${path.startsWith('/') ? path : `/${path}`}`, {
+  return fetchWebApiMobile(path, {
     ...init,
     headers: {
-      Accept: 'application/json',
       ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
       Authorization: `Bearer ${accessToken}`,
       ...init?.headers,
