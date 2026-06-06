@@ -368,6 +368,16 @@ export function SellerListingStudio({ listingId }: { listingId: string }) {
               />
               Accept offers
             </label>
+            <label className={`flex items-center gap-3 text-sm text-zinc-300 ${listing.price < 500 ? "opacity-50" : ""}`}>
+              <input
+                type="checkbox"
+                checked={listing.allowLayaway === true}
+                onChange={(e) => void patchListing({ allowLayaway: e.target.checked })}
+                disabled={busy || listing.buyingFormat !== "buy_now" || listing.price < 500}
+                className="size-4 rounded border-white/20 accent-gold"
+              />
+              Allow layaway ($500+)
+            </label>
             <label className="flex items-center gap-3 text-sm text-zinc-300">
               <input
                 type="checkbox"

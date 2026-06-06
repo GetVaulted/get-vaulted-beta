@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BuyNowCheckoutForm, type CheckoutListingSnapshot } from "@/components/checkout/BuyNowCheckoutForm";
+import { LayawayCheckoutForm } from "@/components/checkout/LayawayCheckoutForm";
+import { listingSupportsLayawayCheckout } from "@/lib/layaway/eligibility";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
 import { prisma } from "@/lib/prisma";
@@ -28,6 +30,11 @@ export default async function CheckoutPage({
     typeof returnLiveRaw === "string" ? returnLiveRaw : Array.isArray(returnLiveRaw) ? returnLiveRaw[0] : "";
   const liveRoomItemId = safeCuidParam(liveRoomItemIdRaw);
   const returnLiveRoomId = safeCuidParam(returnLiveRoomIdRaw);
+  const modeRaw = sp.mode;
+  const checkoutMode =
+    (typeof modeRaw === "string" ? modeRaw : Array.isArray(modeRaw) ? modeRaw[0] : "") === "layaway"
+      ? "layaway"
+      : "buy_now";
   const qs = new URLSearchParams();
   if (liveRoomItemId) qs.set("liveItem", liveRoomItemId);
   if (returnLiveRoomId) qs.set("returnLive", returnLiveRoomId);
@@ -44,6 +51,16 @@ export default async function CheckoutPage({
       seller: { select: { email: true } },
     },
   });
+
+  const layawayEligible =
+    row != null &&
+    listingSupportsLayawayCheckout({
+      buyingFormat: row.buyingFormat,
+      status: row.status,
+      allowLayaway: row.allowLayaway,
+      priceUsd: row.priceUsd,
+      moderationRemovedAt: row.moderationRemovedAt,
+    });
 
   const sellerShip = row
     ? await prisma.user.findUnique({
@@ -135,16 +152,46 @@ export default async function CheckoutPage({
         </Link>
         <header className="mt-4 border-b border-white/[0.07] pb-6">
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Checkout</p>
-          <h1 className="font-display mt-2 text-2xl font-black tracking-tight text-foreground sm:text-3xl">Buy now</h1>
-          <p className="mt-1.5 text-sm text-zinc-500">Review your order and enter shipping details.</p>
+          <h1 className="font-display mt-2 text-2xl font-black tracking-tight text-foreground sm:text-3xl">
+            {checkoutMode === "layaway" ? "Layaway checkout" : "Buy now"}
+          </h1>
+          <p className="mt-1.5 text-sm text-zinc-500">
+            {checkoutMode === "layaway"
+              ? "Choose your plan, acknowledge terms, and pay your 25% deposit."
+              : "Review your order and enter shipping details."}
+          </p>
         </header>
         <div className="mt-8">
-          <BuyNowCheckoutForm
-            listing={snapshot}
-            liveRoomItemId={liveRoomItemId || null}
-            returnLiveRoomId={returnLiveRoomId || null}
-          />
+          {checkoutMode === "layaway" ? (
+            layawayEligible ? (
+              <LayawayCheckoutForm listing={snapshot} />
+            ) : (
+              <p className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-6 text-sm text-zinc-400">
+                Layaway is not available for this listing.{" "}
+                <Link href={`/checkout/${encodeURIComponent(listingId)}`} className="font-semibold text-gold-bright hover:underline">
+                  Buy now instead
+                </Link>
+              </p>
+            )
+          ) : (
+            <BuyNowCheckoutForm
+              listing={snapshot}
+              liveRoomItemId={liveRoomItemId || null}
+              returnLiveRoomId={returnLiveRoomId || null}
+            />
+          )}
         </div>
+        {checkoutMode === "buy_now" && layawayEligible ? (
+          <p className="mt-6 text-center text-sm text-zinc-500">
+            Prefer to pay over time?{" "}
+            <Link
+              href={`/checkout/${encodeURIComponent(listingId)}?mode=layaway`}
+              className="font-semibold text-gold-bright hover:underline"
+            >
+              Start layaway
+            </Link>
+          </p>
+        ) : null}
       </div>
     </main>
   );

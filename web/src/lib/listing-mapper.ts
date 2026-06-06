@@ -44,6 +44,7 @@ function toSellerStatus(s: ListingStatus): SellerListingStatus {
     s === "auction_live" ||
     s === "awaiting_auction_payment" ||
     s === "auction_ended_unpaid" ||
+    s === "layaway_reserved" ||
     s === "ended"
   )
     return s;
@@ -92,6 +93,7 @@ export function dbListingToStored(
     imageDataUrls: [...row.images].sort((a, b) => a.sortOrder - b.sortOrder).map((i) => i.url),
     listedAt: row.createdAt.toISOString(),
     allowOffers: row.allowOffers ? true : undefined,
+    allowLayaway: row.allowLayaway ? true : undefined,
     acceptTradeOffers: row.acceptTradeOffers ? true : undefined,
     minimumOfferUsd: row.minimumOfferUsd ?? undefined,
     status: toSellerStatus(row.status),
@@ -159,6 +161,7 @@ export function dbListingToMarketplace(
     reservePrice: row.reservePriceUsd ?? undefined,
     auctionDurationDays: row.auctionDurationDays ?? undefined,
     allowOffers: row.allowOffers ? true : undefined,
+    allowLayaway: row.allowLayaway ? true : undefined,
     acceptTradeOffers: row.acceptTradeOffers ? true : undefined,
     minimumOfferUsd: row.minimumOfferUsd ?? undefined,
     vaultPick: row.vaultPick ? true : undefined,

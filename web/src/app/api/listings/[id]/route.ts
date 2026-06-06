@@ -15,6 +15,8 @@ import {
   isMarketplaceTimedAuctionPublishAttempt,
   MARKETPLACE_AUCTION_DISABLED_MESSAGE,
 } from "@/lib/marketplace-commerce-policy";
+import { resolveAllowLayawayForListing } from "@/lib/layaway/eligibility";
+import { LAYAWAY_MIN_LISTING_PRICE_USD } from "@/lib/layaway/constants";
 import type { BuyingFormat, ListingStatus } from "@/generated/prisma/client";
 
 const listingInclude = listingWithSellerFulfillmentInclude;
@@ -95,6 +97,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  if (existing.status === "layaway_reserved") {
+    return NextResponse.json(
+      { error: "This listing is on layaway and cannot be edited until the plan ends." },
+      { status: 409 },
+    );
+  }
+
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
@@ -117,6 +126,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     handlingTime?: string;
     signatureRequired?: boolean;
     allowOffers?: boolean;
+    allowLayaway?: boolean;
     acceptTradeOffers?: boolean;
     minimumOfferUsd?: number | null;
     status?: ListingStatus;
@@ -389,6 +399,19 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         { status: 500 },
       );
     }
+  }
+
+  const mergedPrice = data.priceUsd ?? existing.priceUsd;
+  const mergedFormat = data.buyingFormat ?? existing.buyingFormat;
+  if (typeof body.allowLayaway === "boolean") {
+    data.allowLayaway =
+      mergedFormat === "buy_now"
+        ? resolveAllowLayawayForListing({ allowLayaway: body.allowLayaway, priceUsd: mergedPrice })
+        : false;
+  } else if (mergedPrice < LAYAWAY_MIN_LISTING_PRICE_USD) {
+    data.allowLayaway = false;
+  } else if (mergedFormat !== "buy_now") {
+    data.allowLayaway = false;
   }
 
   await prisma.listing.update({

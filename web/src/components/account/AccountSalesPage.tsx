@@ -284,6 +284,11 @@ export function AccountSalesPage() {
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Account</p>
           <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">Your sales</h1>
           <p className="mt-1.5 text-sm text-zinc-500">Orders where you are the seller — payment and fulfillment status.</p>
+          <p className="mt-2 text-sm">
+            <Link href="/account/sales/layaways" className="font-semibold text-gold-bright hover:underline">
+              View layaways →
+            </Link>
+          </p>
           <div className="mt-4">
             <AccountOrdersNav active="sales" />
           </div>

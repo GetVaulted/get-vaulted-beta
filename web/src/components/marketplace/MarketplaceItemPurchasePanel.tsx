@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { LAYAWAY_MIN_LISTING_PRICE_USD } from "@/lib/layaway/constants";
 import type { MarketplaceListing } from "@/content/marketplace-listings";
 import type { ItemPageExtras } from "@/lib/marketplace-item-extras";
 import { isLegacyMarketplaceTimedAuction } from "@/lib/marketplace-commerce-policy";
@@ -84,7 +85,12 @@ export function MarketplaceItemPurchasePanel({ listing, extras }: MarketplaceIte
   const router = useRouter();
   const pathname = usePathname();
   const [offerOpen, setOfferOpen] = useState(false);
+  const [buyerLayawayBlocked, setBuyerLayawayBlocked] = useState<string | null>(null);
   const allowOffers = listing.allowOffers === true;
+  const allowLayaway =
+    listing.allowLayaway === true &&
+    listing.buyingFormat === "buy_now" &&
+    listing.price >= LAYAWAY_MIN_LISTING_PRICE_USD;
   const allowTrades = listing.acceptTradeOffers === true;
   const isOwnListing = Boolean(session?.user?.id && listing.sellerId && session.user.id === listing.sellerId);
   const legacyAuction =
@@ -101,8 +107,26 @@ export function MarketplaceItemPurchasePanel({ listing, extras }: MarketplaceIte
     listing.listingStatus === "awaiting_auction_payment" ||
     listing.listingStatus === "auction_ended_unpaid" ||
     listing.listingStatus === "ended" ||
-    listing.listingStatus === "auction_live";
+    listing.listingStatus === "auction_live" ||
+    listing.listingStatus === "layaway_reserved";
   const checkoutHref = `/checkout/${encodeURIComponent(listing.id)}`;
+  const layawayHref = `/checkout/${encodeURIComponent(listing.id)}?mode=layaway`;
+
+  useEffect(() => {
+    if (!session?.user?.id || !allowLayaway) return;
+    let cancelled = false;
+    (async () => {
+      const res = await fetch("/api/account/layaway-status", { cache: "no-store" });
+      if (!res.ok || cancelled) return;
+      const j = (await res.json()) as { hasActiveLayaway?: boolean };
+      if (j.hasActiveLayaway) {
+        setBuyerLayawayBlocked("You already have an active layaway. Complete or default it before starting another.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.id, allowLayaway]);
 
   const askingLines = useMemo(
     () => [{ label: "Asking price", value: formatMoney(listing.price) }],
@@ -176,13 +200,29 @@ export function MarketplaceItemPurchasePanel({ listing, extras }: MarketplaceIte
             This is your listing — buyers will use Buy now here.
           </p>
         ) : (
-          <Link
-            id="checkout"
-            href={checkoutHref}
-            className="inline-flex h-12 w-full items-center justify-center rounded-lg bg-gradient-to-r from-gold to-gold-bright px-6 text-sm font-bold text-zinc-950 shadow-[0_0_28px_-8px_rgba(201,162,39,0.5)] transition hover:brightness-110 active:scale-[0.99]"
-          >
-            Buy now
-          </Link>
+          <>
+            <Link
+              id="checkout"
+              href={checkoutHref}
+              className="inline-flex h-12 w-full items-center justify-center rounded-lg bg-gradient-to-r from-gold to-gold-bright px-6 text-sm font-bold text-zinc-950 shadow-[0_0_28px_-8px_rgba(201,162,39,0.5)] transition hover:brightness-110 active:scale-[0.99]"
+            >
+              Buy now
+            </Link>
+            {allowLayaway ? (
+              buyerLayawayBlocked ? (
+                <p className="mt-2.5 rounded-lg border border-amber-500/25 bg-amber-950/15 px-3 py-2.5 text-center text-xs leading-snug text-amber-100/90">
+                  {buyerLayawayBlocked}
+                </p>
+              ) : (
+                <Link
+                  href={layawayHref}
+                  className="mt-2.5 inline-flex h-11 w-full items-center justify-center rounded-lg border border-gold/35 bg-gold/10 text-sm font-semibold text-gold-bright transition hover:border-gold/55 hover:bg-gold/15 active:scale-[0.99]"
+                >
+                  Layaway available
+                </Link>
+              )
+            ) : null}
+          </>
         )}
         {makeOfferControl ? <div className="mt-2.5">{makeOfferControl}</div> : null}
         {tradeControl ? <div className="mt-2.5">{tradeControl}</div> : null}

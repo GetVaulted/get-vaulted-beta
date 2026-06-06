@@ -17,6 +17,11 @@ const BUYING_TYPES = new Set<string>([
   "offer_declined",
   "break_spot_paid",
   "message_received",
+  "layaway_started",
+  "layaway_reminder",
+  "layaway_final_warning",
+  "layaway_completed",
+  "layaway_defaulted",
 ]);
 
 const SELLING_TYPES = new Set<string>([
@@ -27,6 +32,9 @@ const SELLING_TYPES = new Set<string>([
   "seller_label_created",
   "seller_order_delivered",
   "stripe_dispute",
+  "layaway_started_seller",
+  "layaway_completed_seller",
+  "layaway_defaulted_seller",
 ]);
 
 export function notificationLane(type: string): NotificationLane {
@@ -66,6 +74,14 @@ export function notificationTypeChip(type: string): string {
     break_spot_paid: "Break",
     message_received: "Message",
     stripe_dispute: "Dispute",
+    layaway_started: "Layaway",
+    layaway_reminder: "Layaway",
+    layaway_final_warning: "Layaway due",
+    layaway_completed: "Layaway paid",
+    layaway_defaulted: "Layaway expired",
+    layaway_started_seller: "On layaway",
+    layaway_completed_seller: "Layaway done",
+    layaway_defaulted_seller: "Layaway expired",
   };
   return map[type] ?? type.replace(/_/g, " ");
 }

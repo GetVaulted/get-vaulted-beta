@@ -38,6 +38,8 @@ export type MarketplaceListing = {
   minimumOfferUsd?: number;
   /** When strictly `true`, buyers can start structured trade offers. */
   acceptTradeOffers?: boolean;
+  /** When strictly `true`, eligible buyers may start a layaway plan ($500+ buy-now only). */
+  allowLayaway?: boolean;
   /** DB-backed listing lifecycle. */
   listingStatus?:
     | "draft"
@@ -46,6 +48,7 @@ export type MarketplaceListing = {
     | "auction_live"
     | "awaiting_auction_payment"
     | "auction_ended_unpaid"
+    | "layaway_reserved"
     | "ended";
   /** Auction: server ISO end time for countdown. */
   auctionEndsAtIso?: string | null;

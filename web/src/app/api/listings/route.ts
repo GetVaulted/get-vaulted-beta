@@ -10,6 +10,7 @@ import { assertSellerCanPublishListing } from "@/lib/seller-publish-readiness";
 import { dbListingToMarketplace, dbListingToStored, type ListingWithSellerImages } from "@/lib/listing-mapper";
 import { listingWithSellerFulfillmentInclude } from "@/lib/listing-with-seller-include";
 import { LISTING_WORKSPACE_KEY } from "@/lib/listing-workspace";
+import { resolveAllowLayawayForListing } from "@/lib/layaway/eligibility";
 import { prismaSellerVisibleOnPublicMarketplace } from "@/lib/demo-seed-sellers";
 import type { BuyingFormat, ListingStatus } from "@/generated/prisma/client";
 import type { ShippingCategory } from "@/generated/prisma/enums";
@@ -92,6 +93,7 @@ type ListingBody = {
   handlingTime?: string;
   signatureRequired?: unknown;
   allowOffers?: unknown;
+  allowLayaway?: unknown;
   acceptTradeOffers?: unknown;
   minimumOfferUsd?: unknown;
   status?: unknown;
@@ -403,6 +405,7 @@ export async function POST(req: Request) {
   const description = typeof body.description === "string" ? body.description : "";
   const handlingTime = typeof body.handlingTime === "string" ? body.handlingTime : "";
   const allowOffers = Boolean(body.allowOffers);
+  const allowLayawayRequested = Boolean(body.allowLayaway);
   const acceptTradeOffers = Boolean(body.acceptTradeOffers);
   const signatureRequired = Boolean(body.signatureRequired);
   const vaultPick = Boolean(body.vaultPick);
@@ -556,6 +559,11 @@ export async function POST(req: Request) {
   const effectiveStatus: ListingStatus =
     buyingFormat === "auction" && auctionPublished ? "auction_live" : status;
 
+  const allowLayaway =
+    buyingFormat === "buy_now"
+      ? resolveAllowLayawayForListing({ allowLayaway: allowLayawayRequested, priceUsd: resolvedPrice })
+      : false;
+
   const baseData = {
     title: title || "Untitled draft",
     description,
@@ -566,6 +574,7 @@ export async function POST(req: Request) {
     startingBidUsd: buyingFormat === "auction" ? resolvedStart : null,
     currentBidUsd: buyingFormat === "auction" ? resolvedCurrent : null,
     allowOffers,
+    allowLayaway,
     acceptTradeOffers,
     minimumOfferUsd: minimumOfferUsd ?? null,
     status: effectiveStatus,

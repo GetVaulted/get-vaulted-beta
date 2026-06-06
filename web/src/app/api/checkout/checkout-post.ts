@@ -8,6 +8,9 @@ import {
 } from "@/services/payments";
 import { prisma } from "@/lib/prisma";
 import { processAuctionPaymentExpiries } from "@/services/payments";
+import { createLayawayDepositCheckout } from "@/services/layaway";
+import { isValidLayawayPlan } from "@/lib/layaway/eligibility";
+import type { LayawayPlanType } from "@/generated/prisma/client";
 
 type Body = {
   kind?: string;
@@ -15,6 +18,8 @@ type Body = {
   liveRoomItemId?: string;
   orderId?: string;
   breakSpotId?: string;
+  planType?: string;
+  termsAcknowledged?: boolean;
   successPath?: string;
   cancelPath?: string;
   shipping?: {
@@ -106,6 +111,65 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
       return NextResponse.json({ url });
     }
 
+    if (kind === "layaway_deposit") {
+      const listingId = trim(body.listingId, 120);
+      const planRaw = trim(body.planType, 20);
+      if (!listingId) return NextResponse.json({ error: "listingId required." }, { status: 400 });
+      if (!isValidLayawayPlan(planRaw)) {
+        return NextResponse.json({ error: "Select a 30-day or 60-day layaway plan." }, { status: 400 });
+      }
+      if (!body.termsAcknowledged) {
+        return NextResponse.json({ error: "Acknowledge layaway terms to continue." }, { status: 400 });
+      }
+      const sh = body.shipping ?? {};
+      const buyerAddressId =
+        typeof sh.buyerAddressId === "string" && sh.buyerAddressId.trim().length > 0
+          ? sh.buyerAddressId.trim()
+          : null;
+      let resolvedShipping = {
+        shipRecipientName: trim(sh.shipRecipientName, 200),
+        shipAddress: trim(sh.shipAddress, 500),
+        shipCity: trim(sh.shipCity, 120),
+        shipState: trim(sh.shipState, 120),
+        shipZip: trim(sh.shipZip, 32),
+        shipCountry: trim(sh.shipCountry, 120),
+      };
+      if (buyerAddressId) {
+        const addr = await prisma.address.findFirst({
+          where: { id: buyerAddressId, userId: buyerId, type: "shipping" },
+        });
+        if (!addr) return NextResponse.json({ error: "Select a valid shipping address." }, { status: 400 });
+        resolvedShipping = {
+          shipRecipientName: addr.fullName || resolvedShipping.shipRecipientName,
+          shipAddress: [addr.line1, addr.line2].filter(Boolean).join(" "),
+          shipCity: addr.city,
+          shipState: addr.state,
+          shipZip: addr.postalCode,
+          shipCountry: addr.country,
+        };
+      }
+      if (
+        !resolvedShipping.shipRecipientName ||
+        !resolvedShipping.shipAddress ||
+        !resolvedShipping.shipCity ||
+        !resolvedShipping.shipState ||
+        !resolvedShipping.shipZip ||
+        !resolvedShipping.shipCountry
+      ) {
+        return NextResponse.json({ error: "Complete all shipping fields." }, { status: 400 });
+      }
+      const { url, layawayId } = await createLayawayDepositCheckout({
+        buyerId,
+        listingId,
+        planType: planRaw as LayawayPlanType,
+        termsAcknowledged: true,
+        shipping: { ...resolvedShipping, buyerAddressId },
+        successPath: body.successPath,
+        cancelPath: body.cancelPath,
+      });
+      return NextResponse.json({ url, layawayId });
+    }
+
     if (kind === "pay_order") {
       const orderId = trim(body.orderId, 120);
       if (!orderId) return NextResponse.json({ error: "orderId required." }, { status: 400 });
@@ -130,7 +194,7 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
       return NextResponse.json({ url });
     }
 
-    return NextResponse.json({ error: "Invalid kind. Use buy_now, pay_order, or break_spot." }, { status: 400 });
+    return NextResponse.json({ error: "Invalid kind. Use buy_now, layaway_deposit, pay_order, or break_spot." }, { status: 400 });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
     const map: Record<string, { status: number; msg: string }> = {
@@ -165,6 +229,14 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
         msg: "This live lot is reserved by another buyer. Try again shortly.",
       },
       INVALID_ORDER_TOTAL: { status: 400, msg: "Invalid order total for this checkout path." },
+      LAYAWAY_NOT_AVAILABLE: { status: 409, msg: "Layaway is not available for this listing." },
+      BUYER_ACTIVE_LAYAWAY: {
+        status: 409,
+        msg: "You already have an active layaway. Complete or default it before starting another.",
+      },
+      TERMS_REQUIRED: { status: 400, msg: "Acknowledge layaway terms to continue." },
+      INVALID_PLAN: { status: 400, msg: "Select a valid layaway plan." },
+      LISTING_UNAVAILABLE: { status: 409, msg: "This listing is not available for layaway." },
     };
     const hit = map[msg];
     if (hit) return NextResponse.json({ error: hit.msg }, { status: hit.status });

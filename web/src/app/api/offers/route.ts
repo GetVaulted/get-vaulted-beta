@@ -67,6 +67,9 @@ export async function POST(req: Request) {
   if (!listing.allowOffers) {
     return NextResponse.json({ error: "This listing does not accept offers." }, { status: 400 });
   }
+  if (listing.status === "layaway_reserved") {
+    return NextResponse.json({ error: "This listing is on layaway and not accepting offers." }, { status: 409 });
+  }
   if (listing.status !== "active" && listing.status !== "auction_live") {
     return NextResponse.json({ error: "This listing is not accepting offers." }, { status: 409 });
   }

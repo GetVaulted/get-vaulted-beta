@@ -71,6 +71,7 @@ type DraftPayload = {
   handlingTime: string;
   signatureRequired: boolean;
   allowOffers: boolean;
+  allowLayaway: boolean;
   acceptTradeOffers: boolean;
   minimumOfferUsd: string;
   parcelWeightOz: string;
@@ -141,6 +142,7 @@ export function CreateListingPage() {
   const [handlingTime, setHandlingTime] = useState("1–2 business days");
   const [signatureRequired, setSignatureRequired] = useState(false);
   const [allowOffers, setAllowOffers] = useState(false);
+  const [allowLayaway, setAllowLayaway] = useState(false);
   const [acceptTradeOffers, setAcceptTradeOffers] = useState(false);
   const [minimumOfferUsd, setMinimumOfferUsd] = useState("");
   const [parcelWeightOz, setParcelWeightOz] = useState("");
@@ -195,6 +197,7 @@ export function CreateListingPage() {
     setHandlingTime(l.handlingTime);
     setSignatureRequired(l.signatureRequired);
     setAllowOffers(l.allowOffers === true);
+    setAllowLayaway(l.allowLayaway === true);
     setAcceptTradeOffers(l.acceptTradeOffers === true);
     setMinimumOfferUsd(l.minimumOfferUsd != null && Number.isFinite(l.minimumOfferUsd) ? String(l.minimumOfferUsd) : "");
     setParcelWeightOz(l.parcelWeightOz != null && Number.isFinite(l.parcelWeightOz) ? String(l.parcelWeightOz) : "");
@@ -304,6 +307,7 @@ export function CreateListingPage() {
         if (d.handlingTime != null) setHandlingTime(d.handlingTime);
         if (typeof d.signatureRequired === "boolean") setSignatureRequired(d.signatureRequired);
         if (typeof d.allowOffers === "boolean") setAllowOffers(d.allowOffers);
+        if (typeof (d as DraftPayload).allowLayaway === "boolean") setAllowLayaway((d as DraftPayload).allowLayaway);
         if (typeof (d as DraftPayload).acceptTradeOffers === "boolean") setAcceptTradeOffers((d as DraftPayload).acceptTradeOffers);
         if (d.minimumOfferUsd != null) setMinimumOfferUsd(d.minimumOfferUsd);
         if (typeof (d as DraftPayload).parcelWeightOz === "string") setParcelWeightOz((d as DraftPayload).parcelWeightOz);
@@ -431,6 +435,7 @@ export function CreateListingPage() {
       handlingTime,
       signatureRequired,
       allowOffers,
+      allowLayaway,
       acceptTradeOffers,
       minimumOfferUsd,
       parcelWeightOz,
@@ -446,6 +451,7 @@ export function CreateListingPage() {
     window.localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
   }, [
     allowOffers,
+    allowLayaway,
     acceptTradeOffers,
     minimumOfferUsd,
     parcelWeightOz,
@@ -501,6 +507,7 @@ export function CreateListingPage() {
       handlingTime: handlingTime.trim() || "—",
       signatureRequired,
       allowOffers,
+      allowLayaway,
       acceptTradeOffers,
       minimumOfferUsd: allowOffers ? minOffer : null,
       images,
@@ -651,11 +658,13 @@ export function CreateListingPage() {
       listedAt: new Date().toISOString(),
       href: "/marketplace",
       allowOffers: allowOffers ? true : undefined,
+      allowLayaway: allowLayaway ? true : undefined,
       acceptTradeOffers: acceptTradeOffers ? true : undefined,
       minimumOfferUsd: allowOffers && minimumOfferUsd.trim() ? parseNonNegativeMoney(minimumOfferUsd) ?? undefined : undefined,
     };
   }, [
     allowOffers,
+    allowLayaway,
     acceptTradeOffers,
     minimumOfferUsd,
     category,
@@ -731,6 +740,7 @@ export function CreateListingPage() {
       handlingTime: handlingTime.trim() || "Ships soon",
       signatureRequired,
       allowOffers,
+      allowLayaway,
       acceptTradeOffers,
       minimumOfferUsd: allowOffers ? minOfferPublish : null,
       status,
@@ -1250,6 +1260,19 @@ export function CreateListingPage() {
                       />
                     </div>
                   ) : null}
+                  <label className={`flex items-start gap-3 ${parseMoney(price) != null && parseMoney(price)! >= 500 ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
+                    <input
+                      type="checkbox"
+                      checked={allowLayaway}
+                      disabled={parseMoney(price) == null || parseMoney(price)! < 500}
+                      onChange={(e) => setAllowLayaway(e.target.checked)}
+                      className="mt-0.5 size-4 rounded border-white/20 bg-[#0c0c10] accent-gold"
+                    />
+                    <span className="text-sm text-zinc-400">
+                      Allow layaway
+                      <span className="mt-0.5 block text-xs text-zinc-500">Buyers can reserve with a 25% deposit on listings $500+. Default off.</span>
+                    </span>
+                  </label>
                   <label className="flex cursor-pointer items-start gap-3">
                     <input
                       type="checkbox"

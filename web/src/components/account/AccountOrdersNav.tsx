@@ -6,6 +6,7 @@ import { useSellerSetupState } from "@/hooks/useSellerSetupState";
 
 const links = [
   { href: "/account/orders", label: "Orders", key: "orders" as const, sellerOnly: false },
+  { href: "/account/layaways", label: "Layaways", key: "layaways" as const, sellerOnly: false },
   { href: "/account/payment-methods", label: "Wallet", key: "payments" as const, sellerOnly: false },
   { href: "/account/sales", label: "Sales", key: "sales" as const, sellerOnly: true },
   { href: "/account/seller", label: "Seller HQ", key: "seller" as const, sellerOnly: true },
@@ -21,6 +22,7 @@ export function AccountOrdersNav({
 }: {
   active:
     | "orders"
+    | "layaways"
     | "payments"
     | "sales"
     | "seller"

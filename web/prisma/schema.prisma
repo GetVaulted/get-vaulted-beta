@@ -21,6 +21,8 @@ enum ListingStatus {
   awaiting_auction_payment
   /// Winner did not pay within the payment window; listing is not sold.
   auction_ended_unpaid
+  /// Reserved by an active marketplace layaway plan (deposit collected).
+  layaway_reserved
   /// Seller-ended (or admin-approved early end); hidden from marketplace discovery.
   ended
 }
@@ -162,6 +164,29 @@ enum TeamBoardLeague {
 enum OrderPaymentMethod {
   stripe
   escrow
+  layaway
+}
+
+/// Marketplace layaway plan length (buyer-selected at checkout).
+enum LayawayPlanType {
+  thirty_day
+  sixty_day
+}
+
+/// Marketplace layaway lifecycle.
+enum LayawayStatus {
+  active
+  paid_off
+  defaulted
+  refunded
+  completed
+}
+
+/// Layaway payment kind for audit and Stripe reconciliation.
+enum LayawayPaymentKind {
+  deposit
+  installment
+  balance_payoff
 }
 
 /// High-value escrow lifecycle (provider-agnostic names).
@@ -410,6 +435,8 @@ model User {
   liveStreamReplaysAsSeller          LiveStreamReplay[]          @relation("LiveStreamReplaySeller")
   disputeEvidenceGenerated           DisputeEvidenceBundle[]     @relation("DisputeEvidenceAdmin")
   liveRoomMessagesDeleted            LiveRoomMessage[]           @relation("LiveRoomMessageDeletedBy")
+  layawaysAsBuyer                    Layaway[]                   @relation("LayawayBuyer")
+  layawaysAsSeller                   Layaway[]                   @relation("LayawaySeller")
 }
 
 /// Single-use email verification OTP for signup (hashed at rest; expires).
@@ -511,6 +538,8 @@ model Listing {
   startingBidUsd      Float?
   currentBidUsd       Float?
   allowOffers         Boolean        @default(false)
+  /// Marketplace layaway (V1): seller opt-in for listings priced at $500+.
+  allowLayaway        Boolean        @default(false)
   acceptTradeOffers   Boolean        @default(false)
   minimumOfferUsd     Float?
   status              ListingStatus  @default(draft)
@@ -560,6 +589,7 @@ model Listing {
   inventoryHolds      LiveAuctionInventoryHold[]
   endRequests         ListingEndRequest[]
   endAuditLogs        ListingEndAuditLog[]
+  layaway             Layaway?
 
   @@unique([sellerId, workspaceKey])
 }
@@ -1225,6 +1255,7 @@ model Order {
   sellerShipFromAddress   Address?    @relation("OrderSellerShipFromAddress", fields: [sellerShipFromAddressId], references: [id], onDelete: SetNull)
   liveShippingSessionItem LiveShippingSessionItem?
   inventoryHolds          LiveAuctionInventoryHold[]
+  layaway                 Layaway?
   shippoShipmentId        String?
   shippoTransactionId     String?
   carrier           String?
@@ -1253,6 +1284,71 @@ model Order {
   @@index([escrowTransactionId])
   @@index([liveShippingSessionId])
   @@index([sellerId, payoutStatus])
+}
+
+/// Marketplace layaway agreement (one active plan per listing; one active plan per buyer platform-wide).
+model Layaway {
+  id                  String           @id @default(cuid())
+  listingId           String           @unique
+  listing             Listing          @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  buyerId             String
+  buyer               User             @relation("LayawayBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  sellerId            String
+  seller              User             @relation("LayawaySeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  orderId             String           @unique
+  order               Order            @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  planType            LayawayPlanType
+  status              LayawayStatus    @default(active)
+  originalPriceUsd    Float
+  shippingPriceUsd    Float            @default(0)
+  depositAmountUsd    Float
+  amountPaidUsd       Float            @default(0)
+  remainingBalanceUsd Float
+  startedAt           DateTime         @default(now())
+  dueAt               DateTime
+  completedAt         DateTime?
+  defaultedAt         DateTime?
+  termsAcknowledgedAt DateTime
+  /// Last reminder milestone day sent (7, 14, 21, etc.) to avoid duplicate nudges.
+  lastReminderDay     Int?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  payments  LayawayPayment[]
+  auditLogs LayawayAuditLog[]
+
+  @@index([buyerId, status])
+  @@index([sellerId, status])
+  @@index([status, dueAt])
+}
+
+model LayawayPayment {
+  id                      String             @id @default(cuid())
+  layawayId               String
+  layaway                 Layaway            @relation(fields: [layawayId], references: [id], onDelete: Cascade)
+  amountUsd               Float
+  kind                    LayawayPaymentKind
+  status                  String             @default("pending")
+  stripeCheckoutSessionId String?
+  stripePaymentIntentId   String?
+  paidAt                  DateTime?
+  createdAt               DateTime           @default(now())
+
+  @@index([layawayId, createdAt])
+  @@index([stripeCheckoutSessionId])
+  @@index([stripePaymentIntentId])
+}
+
+model LayawayAuditLog {
+  id          String   @id @default(cuid())
+  layawayId   String
+  layaway     Layaway  @relation(fields: [layawayId], references: [id], onDelete: Cascade)
+  action      String
+  actorUserId String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([layawayId, createdAt])
 }
 
 /// Admin-tracked sales tax nexus — gates Stripe Tax collection per US state.

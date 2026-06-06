@@ -10,6 +10,7 @@ export type SellerListingStatus =
   | "auction_live"
   | "awaiting_auction_payment"
   | "auction_ended_unpaid"
+  | "layaway_reserved"
   | "ended";
 
 export type StoredUserListing = {
@@ -32,6 +33,7 @@ export type StoredUserListing = {
   imageDataUrls: string[];
   listedAt: string;
   allowOffers?: boolean;
+  allowLayaway?: boolean;
   acceptTradeOffers?: boolean;
   minimumOfferUsd?: number;
   status?: SellerListingStatus;
@@ -109,6 +111,7 @@ export function storedToMarketplaceListing(s: StoredUserListing): MarketplaceLis
     reservePrice: s.reservePrice ?? undefined,
     auctionDurationDays: s.auctionDurationDays,
     allowOffers: s.allowOffers === true ? true : undefined,
+    allowLayaway: s.allowLayaway === true ? true : undefined,
     acceptTradeOffers: s.acceptTradeOffers === true ? true : undefined,
     minimumOfferUsd: s.minimumOfferUsd,
     listingStatus: s.status,

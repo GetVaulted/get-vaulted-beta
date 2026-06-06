@@ -1126,6 +1126,36 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
         return;
       }
 
+      if (kind === "layaway_deposit") {
+        const layawayId = session.metadata?.layawayId;
+        const orderId = session.metadata?.orderId;
+        if (!layawayId || !orderId) return;
+        const { finalizeLayawayDepositPaid } = await import("@/services/layaway");
+        await finalizeLayawayDepositPaid({
+          layawayId,
+          orderId,
+          paymentIntentId: pi,
+          checkoutSessionId: session.id,
+        });
+        return;
+      }
+
+      if (kind === "layaway_payment") {
+        const layawayId = session.metadata?.layawayId;
+        const layawayPaymentId = session.metadata?.layawayPaymentId;
+        const orderId = session.metadata?.orderId;
+        if (!layawayId || !layawayPaymentId || !orderId) return;
+        const { finalizeLayawayInstallmentPaid } = await import("@/services/layaway");
+        await finalizeLayawayInstallmentPaid({
+          layawayId,
+          layawayPaymentId,
+          orderId,
+          paymentIntentId: pi,
+          checkoutSessionId: session.id,
+        });
+        return;
+      }
+
       if (kind === "buy_now" || kind === "pay_order") {
         const orderId = session.metadata?.orderId;
         if (!orderId) return;
