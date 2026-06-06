@@ -13,7 +13,6 @@ import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotB
 import { LiveAuctionChat } from "@/components/live-auction/LiveAuctionChat";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
 import { LiveTipSheet } from "@/components/live-auction/LiveTipSheet";
-import { BuyerLiveActionRail } from "@/components/live-auction/buyer/BuyerLiveActionRail";
 import { BuyerLiveDesktopShell } from "@/components/live-auction/buyer/BuyerLiveDesktopShell";
 import { BuyerLiveHostStrip } from "@/components/live-auction/buyer/BuyerLiveHostStrip";
 import { BuyerLiveItemBoard } from "@/components/live-auction/buyer/BuyerLiveItemBoard";
@@ -876,29 +875,6 @@ export function LiveAuctionRoom({
         ? desktopWaitingOverlay
         : null;
 
-  /** Active lot + bids — rendered on the video item-board overlay (desktop buyer). */
-  const desktopItemBoardCommerce =
-    showFeaturedAuctionOverlay
-      ? desktopVideoOverlay
-      : roomStatus !== "ended"
-        ? desktopWaitingOverlay
-        : null;
-
-  const buyerDesktopActionRail = (
-    <BuyerLiveActionRail
-      layout="column"
-      liveRoomId={liveRoomId}
-      shopHref={shopHref}
-      onShare={handleShare}
-      onWallet={handleWallet}
-      onTip={isLive ? handleTip : undefined}
-    />
-  );
-
-  const desktopItemBoardOverlay = (
-    <BuyerLiveItemBoardOverlay commerce={desktopItemBoardCommerce} actions={buyerDesktopActionRail} />
-  );
-
   const overlayRemainingSec =
     overlayIsLive && auctionRemainingMs != null ? auctionRemainingMs / 1000 : 0;
   const breakTimerUrgent = overlayIsLive && overlayRemainingSec <= 60 && overlayRemainingSec > 0;
@@ -1099,6 +1075,23 @@ export function LiveAuctionRoom({
       {actionError ? <p className="mt-1 text-[10px] text-rose-300">{actionError}</p> : null}
     </div>
   );
+
+  /** Desktop video overlay — same mobile glass sheet + bid buttons; actions on the stage rail. */
+  const desktopItemBoardCommerce =
+    showFeaturedAuctionOverlay
+      ? mobileVideoOverlay
+      : roomStatus !== "ended"
+        ? (
+            <div className="live-glass-sheet relative min-h-0 px-2 pb-2 pt-2">
+              {desktopWaitingOverlay}
+            </div>
+          )
+        : null;
+
+  const desktopItemBoardOverlay = desktopItemBoardCommerce ? (
+    <BuyerLiveItemBoardOverlay commerce={desktopItemBoardCommerce} />
+  ) : null;
+
   const floatingChatOverlay = (
     <div className="flex h-[min(42vh,19rem)] max-h-[min(50dvh,22rem)] max-[380px]:h-[min(32vh,14rem)] min-[768px]:h-[min(48vh,24rem)] min-h-0 w-full min-w-0 flex-col">
       <LiveAuctionChat
@@ -1184,7 +1177,7 @@ export function LiveAuctionRoom({
     scheduledStartAt,
     thumbnailUrl,
     buyerShellMode: isBuyerDesktop,
-    showRightActions: !isHost && !isBuyerDesktop,
+    showRightActions: !isHost,
     shopHref,
     onShare: handleShare,
     onWallet: handleWallet,

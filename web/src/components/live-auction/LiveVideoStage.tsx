@@ -183,6 +183,7 @@ export function LiveVideoStage({
           ? "bottom-2 left-2 right-14"
           : "bottom-4 left-4 right-4";
 
+  const hasDesktopItemSheet = buyerShellPlateLayout && Boolean(actionOverlay);
   const desktopChromeDimClass = uiDimmed ? "live-stage-ui-dimmed" : "live-stage-ui-awake";
 
   const topChrome = (
@@ -435,8 +436,18 @@ export function LiveVideoStage({
           <div className={`pointer-events-auto absolute right-3 top-1/2 z-10 -translate-y-1/2 ${hostRailClassName ?? ""}`}>
             {sellerHostRail}
           </div>
-        ) : buyerRightRail && !buyerShellPlateLayout ? (
-          <div className="pointer-events-auto absolute right-3 top-1/2 z-10 -translate-y-1/2">{buyerRightRail}</div>
+        ) : buyerRightRail ? (
+          <div
+            className={`pointer-events-auto absolute right-3 z-10 ${
+              hasDesktopItemSheet
+                ? "bottom-[max(10.5rem,22%)]"
+                : buyerShellPlateLayout
+                  ? "top-1/2 -translate-y-1/2"
+                  : "top-1/2 -translate-y-1/2"
+            }`}
+          >
+            {buyerRightRail}
+          </div>
         ) : null}
       </div>
     </div>
