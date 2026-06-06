@@ -201,6 +201,35 @@ type StreamHealthCommitResult =
  * Persists IVS-derived stream health, bumps `roomVersion` when health changes, emits buyer-safe realtime.
  * Does **not** change `LiveRoom.status` (auction / go-live remain app-driven).
  */
+/** Stage WebRTC rides the Real-Time Stage — IVS channel polls must not downgrade live buyers to offline. */
+async function ignoreChannelHealthDowngradeForActiveStage(args: {
+  liveRoomId: string;
+  newHealth: LiveStreamHealth;
+}): Promise<boolean> {
+  const downgrading =
+    args.newHealth === "offline" || args.newHealth === "ended" || args.newHealth === "error";
+  if (!downgrading) return false;
+
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: args.liveRoomId },
+    select: {
+      status: true,
+      streamMode: true,
+      streamHealth: true,
+      ivsStageArn: true,
+    },
+  });
+  if (!room || room.streamMode !== "stage_webrtc" || !room.ivsStageArn || room.status !== "live") {
+    return false;
+  }
+
+  const wasLiveish =
+    room.streamHealth === "live" ||
+    room.streamHealth === "connecting" ||
+    room.streamHealth === "error";
+  return wasLiveish;
+}
+
 export async function commitLiveRoomStreamHealthFromIvs(args: {
   liveRoomId: string;
   newHealth: LiveStreamHealth;
@@ -217,6 +246,15 @@ export async function commitLiveRoomStreamHealthFromIvs(args: {
   });
   if (!room) {
     throw new Error("Live room not found.");
+  }
+
+  if (await ignoreChannelHealthDowngradeForActiveStage({ liveRoomId, newHealth })) {
+    logIvsOpsServer("ivs_stream_health_ignored_stage_webrtc", {
+      roomId: liveRoomId,
+      attemptedHealth: newHealth,
+      opSource: typeof opSource === "string" ? opSource : "unknown",
+    });
+    return { kind: "unchanged_health", newHealth: room.streamHealth, roomVersion: room.roomVersion };
   }
 
   const now = new Date();
@@ -557,7 +595,11 @@ function createStageName(roomId: string): string {
 
 /** Whether the stage->channel HLS composition (overflow/replay mirror) is enabled via env. */
 function stageCompositionEnabled(): boolean {
-  return process.env.LIVE_STAGE_COMPOSITION_ENABLED?.trim().toLowerCase() === "true";
+  const raw = process.env.LIVE_STAGE_COMPOSITION_ENABLED?.trim().toLowerCase();
+  if (raw === "false") return false;
+  if (raw === "true") return true;
+  // Default on when encoder ARN is configured so guest HLS fallback can attach.
+  return Boolean(process.env.LIVE_STAGE_ENCODER_CONFIG_ARN?.trim());
 }
 
 /** Idempotently create (and persist) the room's IVS Real-Time Stage. */

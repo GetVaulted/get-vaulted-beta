@@ -75,8 +75,10 @@ export function preferHlsOverWebrtcOnClient(): boolean {
 export function shouldUseStageWebrtcPlayback(
   stream: Pick<BuyerSafeStreamFields, 'streamMode' | 'stageAvailable' | 'streamHealth'>,
   webrtcFailed: boolean,
+  accessToken?: string,
 ): boolean {
   return (
+    Boolean(accessToken?.trim()) &&
     isStageWebrtcEnabled() &&
     !preferHlsOverWebrtcOnClient() &&
     stream.streamMode === 'stage_webrtc' &&

@@ -1092,7 +1092,9 @@ export function LiveSaleRoom({
 
   const desktopItemBoardCommerce =
     showSaleActiveOverlay
-      ? mobileVideoOverlay
+      ? isBuyerDesktop
+        ? desktopVideoOverlay
+        : mobileVideoOverlay
       : roomStatus !== "ended"
         ? (
             <div className="live-glass-sheet relative min-h-0 px-2 pb-2 pt-2">
@@ -1152,6 +1154,7 @@ export function LiveSaleRoom({
     centerOverlay: activeHasVariants && activeDb ? <LiveVariantSpotBoard item={activeDb} /> : undefined,
     onNotifyMe: () => redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`),
     streamPlaybackRefreshNonce,
+    viewerAuthenticated: status === "authenticated",
     scheduledStartAt,
     thumbnailUrl,
     buyerShellMode: isBuyerDesktop,
@@ -1204,7 +1207,7 @@ export function LiveSaleRoom({
             itemBoard={
               !isHost ? (
                 <BuyerLiveItemBoard
-                  commerce={null}
+                  commerce={showSaleActiveOverlay ? desktopVideoOverlay : null}
                   items={queue.map((item) => ({
                     id: item.id,
                     displayTitle: item.displayTitle,

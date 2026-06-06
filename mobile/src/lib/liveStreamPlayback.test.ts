@@ -41,13 +41,20 @@ describe('liveStreamPlayback', () => {
     expect(preferHlsOverWebrtcOnClient()).toBe(false);
   });
 
-  it('shouldUseStageWebrtcPlayback requires stage_webrtc + stageAvailable + live signal', () => {
+  it('shouldUseStageWebrtcPlayback requires token + stage_webrtc + stageAvailable + live signal', () => {
+    expect(
+      shouldUseStageWebrtcPlayback(
+        { streamMode: 'stage_webrtc', stageAvailable: true, streamHealth: 'live' },
+        false,
+        'supabase-jwt',
+      ),
+    ).toBe(true);
     expect(
       shouldUseStageWebrtcPlayback(
         { streamMode: 'stage_webrtc', stageAvailable: true, streamHealth: 'live' },
         false,
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldUseStageWebrtcPlayback(
         { streamMode: 'channel_hls', stageAvailable: true, streamHealth: 'live' },

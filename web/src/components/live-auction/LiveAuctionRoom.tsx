@@ -1081,7 +1081,9 @@ export function LiveAuctionRoom({
   /** Desktop video overlay — same mobile glass sheet + bid buttons; actions on the stage rail. */
   const desktopItemBoardCommerce =
     showFeaturedAuctionOverlay
-      ? mobileVideoOverlay
+      ? isBuyerDesktop
+        ? desktopVideoOverlay
+        : mobileVideoOverlay
       : roomStatus !== "ended"
         ? (
             <div className="live-glass-sheet relative min-h-0 px-2 pb-2 pt-2">
@@ -1176,6 +1178,7 @@ export function LiveAuctionRoom({
     stageBelowAudience: isBuyerDesktop ? undefined : stageBelowAudience,
     onNotifyMe: () => redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`),
     streamPlaybackRefreshNonce,
+    viewerAuthenticated: status === "authenticated",
     scheduledStartAt,
     thumbnailUrl,
     buyerShellMode: isBuyerDesktop,
@@ -1244,7 +1247,7 @@ export function LiveAuctionRoom({
             itemBoard={
               !isHost ? (
                 <BuyerLiveItemBoard
-                  commerce={null}
+                  commerce={showFeaturedAuctionOverlay ? desktopVideoOverlay : null}
                   items={buyerLineupItems.map((item) => ({
                     id: item.id,
                     displayTitle: item.displayTitle,

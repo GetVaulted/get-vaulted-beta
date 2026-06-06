@@ -69,7 +69,7 @@ export function useLiveStagePlayback(args: {
         webrtcFailedRef.current = false;
       }
 
-      const wantWebrtc = shouldUseStageWebrtcPlayback(safe, webrtcFailedRef.current);
+      const wantWebrtc = shouldUseStageWebrtcPlayback(safe, webrtcFailedRef.current, args.accessToken);
       if (wantWebrtc) {
         applyTransport('webrtc');
         lastAttachKeyRef.current = '';
@@ -113,7 +113,6 @@ export function useLiveStagePlayback(args: {
     clearBackoff();
     retryRef.current = 0;
     lastAttachKeyRef.current = '';
-    webrtcFailedRef.current = false;
     setPlayerFatal(false);
     setPlayerRetryCount(0);
     setVideoHasData(false);
@@ -176,6 +175,7 @@ export function useLiveStagePlayback(args: {
   );
 
   const onWebrtcDisconnected = useCallback(() => {
+    webrtcFailedRef.current = true;
     setVideoHasData(false);
     applyTransport('waiting');
     void fetchStream();

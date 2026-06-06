@@ -150,7 +150,7 @@ export function LiveStagePlayback({
     if (!attachHls) return;
     const markReady = () => playback.onVideoReady();
     const sub = player.addListener('statusChange', (evt) => {
-      if (evt.status === 'readyToPlay' || evt.status === 'loading') markReady();
+      if (evt.status === 'readyToPlay') markReady();
       if (evt.status === 'error') playback.onVideoError();
     });
     if (player.status === 'readyToPlay') markReady();

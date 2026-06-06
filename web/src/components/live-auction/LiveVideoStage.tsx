@@ -74,6 +74,8 @@ type LiveVideoStageProps = {
   stageOverlay?: ReactNode;
   /** Bumped when room `stream_status` realtime fires so playback refetches stream info. */
   streamPlaybackRefreshNonce?: number;
+  /** Signed-in buyer — enables WebRTC stage subscribe; guests use HLS fallback. */
+  viewerAuthenticated?: boolean;
   /** Room scheduled start (ISO) for pre-live buyer video messaging. */
   scheduledStartAt?: string | null;
   /** Host-uploaded room thumbnail; rendered behind standby/countdown UI until the live video paints. */
@@ -133,6 +135,7 @@ export function LiveVideoStage({
   ambientBleed = false,
   stageOverlay,
   streamPlaybackRefreshNonce,
+  viewerAuthenticated = false,
   scheduledStartAt = null,
   thumbnailUrl = null,
   fillPortraitFrame: _fillPortraitFrameProp,
@@ -307,6 +310,7 @@ export function LiveVideoStage({
             <LiveVideoStagePlayback
               liveRoomId={liveRoomId}
               roomLifecycleLive={isLive}
+              viewerAuthenticated={viewerAuthenticated}
               streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
               scheduledStartAt={scheduledStartAt}
               thumbnailUrl={thumbnailUrl}

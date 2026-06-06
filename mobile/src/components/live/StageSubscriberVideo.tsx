@@ -34,14 +34,14 @@ export function StageSubscriberVideo({
     onDisconnected,
   });
 
-  if (!active) return null;
+  if (!active || !remoteVideo) return null;
 
   return (
     <View style={styles.root} pointerEvents="none">
       <ExpoIVSRemoteStreamView
         style={styles.video}
-        participantId={remoteVideo?.participantId}
-        deviceUrn={remoteVideo?.deviceUrn}
+        participantId={remoteVideo.participantId}
+        deviceUrn={remoteVideo.deviceUrn}
         scaleMode={contentFit === 'cover' ? 'fill' : 'fit'}
       />
     </View>

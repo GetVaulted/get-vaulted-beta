@@ -20,6 +20,7 @@ import { parsePurchaseCompletedCelebration, type LiveAuctionCloseCelebration } f
 import { LiveAuctionSoldCelebration } from "@/components/live-auction/LiveAuctionSoldCelebration";
 import { LivePaymentFailureBlocker } from "@/components/live-auction/LivePaymentFailureBlocker";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
+import type { LiveRoomStatus } from "@/generated/prisma/client";
 
 type LiveRoomShellProps = {
   roomId: string;
@@ -47,6 +48,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const lastItemVersionRef = useRef<Record<string, number>>({});
   /** Monotonic `auctionSeq` from bid HTTP ACK + `bid_placed` realtime (canonical ordering). */
   const lastAuctionSeqRef = useRef(0);
+  const prevRoomLifecycleRef = useRef<LiveRoomStatus | null>(null);
   const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
   const appendSystemMessage = useCallback((body: string, chatLabel = "System") => {
     setMessages((prev) => {
@@ -396,6 +398,16 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     if (refreshNonce === 0) return;
     void load();
   }, [refreshNonce, load]);
+
+  /** Poll can mark the room live without a realtime `auction_started` — refresh playback immediately. */
+  useEffect(() => {
+    if (!detail) return;
+    const prev = prevRoomLifecycleRef.current;
+    prevRoomLifecycleRef.current = detail.status;
+    if (prev && prev !== "live" && detail.status === "live") {
+      setStreamPlaybackRefreshNonce((n) => n + 1);
+    }
+  }, [detail]);
 
   useEffect(() => {
     const onVisible = () => {

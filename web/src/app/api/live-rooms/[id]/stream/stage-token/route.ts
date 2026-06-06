@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { logIvsOpsServer } from "@/lib/ivs-ops-log";
 import { emitStreamStatusChanged } from "@/lib/realtime-emit-server";
-import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import {
   createViewerStageToken,
   endHostStageSession,
@@ -71,7 +71,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     return NextResponse.json({ error: "Real-Time streaming is disabled." }, { status: 503 });
   }
 
-  const auth = await resolveLiveRoomsUserId(req);
+  const auth = await resolveAccountUserId(req);
   if (auth instanceof NextResponse) return auth;
 
   const row = await getStreamRow(id);

@@ -25,6 +25,8 @@ type LiveVideoStagePlaybackProps = {
   liveRoomId: string;
   /** Room lifecycle from app (scheduled vs live) — copy only; stream health drives video. */
   roomLifecycleLive: boolean;
+  /** Signed-in viewer — guests skip WebRTC and use HLS fallback immediately. */
+  viewerAuthenticated?: boolean;
   /** Incremented on `stream_status` / reconnect so the player refetches buyer-safe stream info. */
   streamPlaybackRefreshNonce?: number;
   /** Room `scheduledStartAt` (ISO) for premium pre-live messaging. */
@@ -43,7 +45,7 @@ function isUsableThumbnail(value: string | null | undefined): value is string {
   return v.startsWith("https://") || v.startsWith("http://") || v.startsWith("/") || v.startsWith("data:image");
 }
 
-const POLL_MS = 14_000;
+const POLL_MS = 5_000;
 const MAX_PLAYER_RETRIES = 5;
 const BACKOFF_BASE_MS = 900;
 
@@ -168,6 +170,7 @@ const PORTRAIT_LIVE_PLATE =
 export function LiveVideoStagePlayback({
   liveRoomId,
   roomLifecycleLive,
+  viewerAuthenticated = false,
   streamPlaybackRefreshNonce,
   scheduledStartAt = null,
   thumbnailUrl = null,
@@ -462,6 +465,7 @@ export function LiveVideoStagePlayback({
       if (!signalLive) webrtcFailedRef.current = false;
 
       const wantWebrtc =
+        viewerAuthenticated &&
         isStageWebrtcEnabled() &&
         !preferHlsOverWebrtcOnClient() &&
         safe.streamMode === "stage_webrtc" &&
@@ -512,7 +516,7 @@ export function LiveVideoStagePlayback({
       setFetchFailed(true);
       setLoading(false);
     }
-  }, [attachSource, detachHls, liveRoomId]);
+  }, [attachSource, detachHls, liveRoomId, viewerAuthenticated]);
 
   useEffect(() => {
     void fetchStream();
@@ -535,7 +539,6 @@ export function LiveVideoStagePlayback({
     retryRef.current = 0;
     lastAttachedKeyRef.current = "";
     transportRef.current = "none";
-    webrtcFailedRef.current = false;
     setTransport("none");
     setPlayerFatal(false);
     setHlsFatalRetries(0);
