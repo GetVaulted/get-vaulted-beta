@@ -25,6 +25,12 @@ export function webListingCheckoutUrl(listingId: string): string | null {
   return `${base.replace(/\/$/, '')}/checkout/${encodeURIComponent(listingId.trim())}`;
 }
 
+export function webListingLayawayCheckoutUrl(listingId: string): string | null {
+  const base = getWebApiBaseUrl();
+  if (!base || !listingId.trim()) return null;
+  return `${base.replace(/\/$/, '')}/checkout/${encodeURIComponent(listingId.trim())}?mode=layaway`;
+}
+
 /** Opens web checkout / live room in system browser when mobile native pay is not wired. */
 export async function openWebCommerceUrl(url: string): Promise<void> {
   await WebBrowser.openBrowserAsync(url, {

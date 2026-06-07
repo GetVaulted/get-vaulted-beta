@@ -159,6 +159,8 @@ export type CreateListingFormState = {
   acceptTrades: boolean;
   /** Marketplace buy-now listings — buyers can submit offers on the PDP. */
   allowOffers: boolean;
+  /** Marketplace buy-now $500+ — buyers can start layaway with 25% deposit. */
+  allowLayaway: boolean;
   vaultedVerification: boolean;
   whiteGlove: boolean;
   escrowProtection: boolean;
@@ -272,6 +274,7 @@ export const emptyCreateListingForm = (): CreateListingFormState => ({
   queueNotes: '',
   acceptTrades: true,
   allowOffers: false,
+  allowLayaway: false,
   vaultedVerification: false,
   whiteGlove: false,
   escrowProtection: true,

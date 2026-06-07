@@ -89,4 +89,5 @@ export type RootStackParamList = {
   VaultComms: undefined;
   BuyerOrders: undefined;
   BuyerOrderDetail: { orderId: string };
+  BuyerLayaways: undefined;
 };

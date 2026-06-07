@@ -186,6 +186,8 @@ export type Product = {
   featuredInLive?: string;
   /** Marketplace PDP — buyer can make an offer when true. */
   allowOffers?: boolean;
+  /** Marketplace PDP — buyer can start layaway when true ($500+ buy-now). */
+  allowLayaway?: boolean;
   /** Marketplace PDP — buyer can start a structured trade when true. */
   acceptTradeOffers?: boolean;
 };

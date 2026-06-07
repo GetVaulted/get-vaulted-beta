@@ -78,6 +78,10 @@ const BuyerOrderDetailScreen = lazyScreen(
   () => import('../screens/orders/BuyerOrderDetailScreen'),
   (m) => m.BuyerOrderDetailScreen,
 );
+const BuyerLayawaysScreen = lazyScreen(
+  () => import('../screens/account/BuyerLayawaysScreen'),
+  (m) => m.BuyerLayawaysScreen,
+);
 const SellerListingManagementScreen = lazyScreen(
   () => import('../screens/seller/SellerListingManagementScreen'),
   (m) => m.SellerListingManagementScreen,
@@ -204,6 +208,7 @@ export function RootNavigator() {
           <Stack.Screen name="VaultComms" component={VaultCommsScreen} />
           <Stack.Screen name="BuyerOrders" component={BuyerOrdersScreen} />
           <Stack.Screen name="BuyerOrderDetail" component={BuyerOrderDetailScreen} />
+          <Stack.Screen name="BuyerLayaways" component={BuyerLayawaysScreen} />
         </Stack.Navigator>
       </CreateListingDraftProvider>
     </NavigationContainer>

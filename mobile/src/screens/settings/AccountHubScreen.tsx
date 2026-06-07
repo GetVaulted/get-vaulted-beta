@@ -116,6 +116,12 @@ export function AccountHubScreen({ navigation }: Props) {
           onPress={() => openMyOrders(navigation)}
         />
         <SettingsRow
+          label="Layaways"
+          sub="Reserve items with a deposit"
+          icon="calendar-outline"
+          onPress={() => navigation.navigate('BuyerLayaways')}
+        />
+        <SettingsRow
           label="Watchlist"
           sub="Saved listings and auctions"
           icon="heart-outline"

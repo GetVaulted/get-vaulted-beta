@@ -39,7 +39,7 @@ import type { RootStackParamList } from '../navigation/types';
 import { alertGuestBuyRestricted } from '../navigation/guestExploreGuards';
 import { openMessageSellerForListing } from '../navigation/openMessages';
 import { openContactSupport, openDispute, openUserProfile } from '../navigation/openPlatform';
-import { openWebCommerceUrl, webListingCheckoutUrl, webListingUrl } from '../lib/openWebCommerce';
+import { openWebCommerceUrl, webListingCheckoutUrl, webListingLayawayCheckoutUrl, webListingUrl } from '../lib/openWebCommerce';
 import { isFollowing, toggleFollow } from '../platform/platformStore';
 import { useAuth } from '../auth/AuthContext';
 import type { Product } from '../types';
@@ -196,6 +196,22 @@ export function ProductDetailScreen({ navigation, route }: Props) {
     }
     void openWebCommerceUrl(url);
   };
+
+  const goLayaway = () => {
+    if (guestExploreMode) {
+      alertGuestBuyRestricted();
+      return;
+    }
+    if (!product) return;
+    const url = webListingLayawayCheckoutUrl(product.id);
+    if (!url) {
+      Alert.alert('Layaway', 'Set EXPO_PUBLIC_SITE_URL to complete layaway checkout on the web.');
+      return;
+    }
+    void openWebCommerceUrl(url);
+  };
+
+  const layawayAvailable = product?.allowLayaway === true;
 
   const shareListing = async () => {
     if (!product) return;
@@ -448,6 +464,11 @@ export function ProductDetailScreen({ navigation, route }: Props) {
             </View>
             <Text style={styles.payNote}>{vm.pricing.paymentNote}</Text>
             <Text style={styles.feeNote}>{vm.pricing.feeTransparency}</Text>
+            {layawayAvailable ? (
+              <Pressable style={styles.layawayCta} onPress={goLayaway}>
+                <Text style={styles.layawayCtaTxt}>Layaway available — 25% deposit</Text>
+              </Pressable>
+            ) : null}
           </LinearGradient>
 
           {isOwner && ownerStored ? (
@@ -975,6 +996,17 @@ const styles = StyleSheet.create({
   protectedTxt: { color: colors.textPrimary, fontWeight: '700', fontSize: 14 },
   payNote: { color: colors.textMuted, fontSize: 12 },
   feeNote: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
+  layawayCta: {
+    marginTop: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.45)',
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+  },
+  layawayCtaTxt: { color: colors.gold, fontWeight: '700', fontSize: 13 },
   signal: { color: colors.textSecondary, fontSize: 14, lineHeight: 21 },
   specCard: {
     borderRadius: radii.lg,

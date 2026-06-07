@@ -18,5 +18,6 @@ export type WebMarketplaceListing = {
   vaultPick?: boolean;
   listingStatus?: string;
   allowOffers?: boolean;
+  allowLayaway?: boolean;
   acceptTradeOffers?: boolean;
 };

@@ -216,6 +216,7 @@ function buildWebListingBody(
     status,
     images: imageUrls,
     allowOffers: channel === 'marketplace' ? Boolean(form.allowOffers) : false,
+    allowLayaway: channel === 'marketplace' ? Boolean(form.allowLayaway) : false,
     acceptTradeOffers: form.acceptTrades || listingType === 'trade_only',
     signatureRequired: Boolean(form.signature),
     vaultPick: Boolean(form.vaultedVerification),

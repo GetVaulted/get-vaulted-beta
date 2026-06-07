@@ -54,6 +54,7 @@ export function mapWebMarketplaceListingToProduct(listing: WebMarketplaceListing
     seller: sellerToHost(listing),
     buyNow: priceLabel,
     allowOffers: listing.allowOffers === true,
+    allowLayaway: listing.allowLayaway === true,
     acceptTradeOffers: listing.acceptTradeOffers === true,
   };
 }

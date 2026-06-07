@@ -306,15 +306,23 @@ function Toggle({
   label,
   value,
   onValueChange,
+  disabled,
 }: {
   label: string;
   value: boolean;
   onValueChange: (v: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
-    <View style={styles.toggleRow}>
+    <View style={[styles.toggleRow, disabled ? { opacity: 0.45 } : null]}>
       <Text style={styles.toggleLbl}>{label}</Text>
-      <Switch value={value} onValueChange={onValueChange} trackColor={{ false: '#333', true: 'rgba(212,175,55,0.45)' }} thumbColor={value ? colors.gold : '#888'} />
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        disabled={disabled}
+        trackColor={{ false: '#333', true: 'rgba(212,175,55,0.45)' }}
+        thumbColor={value ? colors.gold : '#888'}
+      />
     </View>
   );
 }
@@ -655,6 +663,14 @@ export function CreateListingReviewScreen({
             label="Accept offers"
             value={form.allowOffers}
             onValueChange={(v) => setForm({ allowOffers: v })}
+          />
+        ) : null}
+        {!isLiveShow ? (
+          <Toggle
+            label="Allow layaway ($500+)"
+            value={form.allowLayaway}
+            onValueChange={(v) => setForm({ allowLayaway: v })}
+            disabled={Number(form.price.replace(/[^0-9.]/g, '')) < 500}
           />
         ) : null}
         <Toggle label="Accept trade offers" value={form.acceptTrades} onValueChange={(v) => setForm({ acceptTrades: v })} />

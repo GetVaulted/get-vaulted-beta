@@ -41,6 +41,7 @@ export function mapStoredListingToProduct(row: WebStoredListing, seller?: Host):
     seller: host,
     buyNow: formatMoney(price),
     allowOffers: row.allowOffers === true,
+    allowLayaway: row.allowLayaway === true,
     acceptTradeOffers: row.acceptTradeOffers === true,
   };
 }
