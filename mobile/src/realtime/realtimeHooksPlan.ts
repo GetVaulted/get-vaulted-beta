@@ -5,6 +5,7 @@
  */
 
 export type VaultRealtimeChannel =
+  | 'vault_ecosystem'
   | 'order_state'
   | 'trade_offer'
   | 'trade_counter'
@@ -13,7 +14,9 @@ export type VaultRealtimeChannel =
   | 'live_auction'
   | 'seller_inventory'
   | 'follow'
-  | 'review';
+  | 'review'
+  | 'layaway_seller'
+  | 'seller_order';
 
 export type VaultRealtimeEvent<T = unknown> = {
   channel: VaultRealtimeChannel;
@@ -27,6 +30,10 @@ export const REALTIME_WIRING: Record<
   VaultRealtimeChannel,
   { tables: string[]; consumers: string[] }
 > = {
+  vault_ecosystem: {
+    tables: ['broadcast:gv-ecosystem-*'],
+    consumers: ['seller_hq', 'buyer_layaways', 'orders', 'marketplace', 'badges'],
+  },
   order_state: { tables: ['orders'], consumers: ['buyer_orders', 'badges', 'push'] },
   trade_offer: { tables: ['trade_offers'], consumers: ['trade_center', 'badges', 'push'] },
   trade_counter: { tables: ['trade_offers'], consumers: ['trade_detail', 'badges', 'push'] },
@@ -36,4 +43,12 @@ export const REALTIME_WIRING: Record<
   seller_inventory: { tables: ['listings'], consumers: ['seller_hq', 'marketplace'] },
   follow: { tables: ['follows'], consumers: ['profiles', 'badges', 'push'] },
   review: { tables: ['reviews'], consumers: ['profiles', 'badges', 'push'] },
+  layaway_seller: {
+    tables: ['broadcast:gv-ecosystem-*'],
+    consumers: ['seller_hq_layaways', 'seller_layaway_detail', 'badges', 'push'],
+  },
+  seller_order: {
+    tables: ['broadcast:gv-ecosystem-*'],
+    consumers: ['seller_fulfillment', 'badges', 'push'],
+  },
 };

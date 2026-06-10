@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { AccountLiveShipmentsSection } from "@/components/account/AccountLiveShipmentsSection";
+import { SellerPayoutTierCard } from "@/components/account/SellerPayoutTierCard";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
 import { useRequireSellerActivation } from "@/hooks/useRequireSellerActivation";
 import { ExpiredAuctionRecoveryPanel } from "@/components/listings/ExpiredAuctionRecoveryPanel";
@@ -212,6 +213,16 @@ export function AccountSalesPage() {
     if (status === "authenticated") void load();
   }, [load, status]);
 
+  useEffect(() => {
+    const on = () => void load();
+    window.addEventListener("gv-orders-updated", on);
+    window.addEventListener("gv-layaways-updated", on);
+    return () => {
+      window.removeEventListener("gv-orders-updated", on);
+      window.removeEventListener("gv-layaways-updated", on);
+    };
+  }, [load]);
+
   const createLabel = async (orderId: string) => {
     setLabelError(null);
     setLabelBusyId(orderId);
@@ -298,12 +309,9 @@ export function AccountSalesPage() {
           <p className="mt-6 rounded-lg border border-rose-500/30 bg-rose-950/30 px-4 py-2 text-sm text-rose-100">{labelError}</p>
         ) : null}
 
-        {sellerPayout ? (
-          <p className="mt-4 rounded-lg border border-white/[0.08] bg-[#0a0a0d]/60 px-4 py-2 text-xs text-zinc-400">
-            {sellerPayout.eligibilityMessage ??
-              `Instant payout: ${sellerPayout.instantPayoutEligible ? "Eligible" : "Not eligible"} (${sellerPayout.instantPayoutStatus.replace(/_/g, " ")}). Payouts release after carrier delivery confirmation.`}
-          </p>
-        ) : null}
+        <div className="mt-4">
+          <SellerPayoutTierCard />
+        </div>
 
         {loadError ? (
           <div className="mt-8 rounded-2xl border border-rose-500/25 bg-rose-950/25 px-6 py-10 text-center">

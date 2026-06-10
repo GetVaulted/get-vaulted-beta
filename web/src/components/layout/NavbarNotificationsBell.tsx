@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRealtimeUserNotificationsSubscription } from "@/hooks/useRealtimeUserNotificationsSubscription";
 
 type NotifRow = {
   id: string;
@@ -59,11 +58,6 @@ export function NavbarNotificationsBell({ triggerClassName = "" }: NavbarNotific
   useEffect(() => {
     void load();
   }, [load]);
-
-  useRealtimeUserNotificationsSubscription(
-    status === "authenticated" && session?.user?.id ? session.user.id : null,
-    status === "authenticated",
-  );
 
   useEffect(() => {
     const on = () => void load();

@@ -33,6 +33,7 @@ import { openContactSupport } from '../navigation/openPlatform';
 import { openSellerSetup } from '../navigation/openSellerSetup';
 import { AccountAccessBar } from '../components/account/AccountAccessBar';
 import { SellerHQCommandCenter } from '../components/seller/hq/SellerHQCommandCenter';
+import { SellerPayoutTierCard } from '../components/seller/hq/SellerPayoutTierCard';
 import { SellerHQFab, type FabActionId } from '../components/seller/hq/SellerHQFab';
 import type { SellerHQEntryPhase } from '../lib/sellerHubEntry';
 import { useSellerSetupState } from '../hooks/useSellerSetupState';
@@ -44,7 +45,8 @@ import { useAuth } from '../auth/AuthContext';
 import { LISTING_CHANNEL_CONFIG } from '../createListing/listingChannel';
 import type { ListingChannel } from '../createListing/listingChannel';
 import type { ListingPreview } from '../createListing/types';
-import type { MainTabParamList } from '../navigation/types';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { MainTabParamList, RootStackParamList } from '../navigation/types';
 import { colors, radii, spacing, typography } from '../theme';
 import {
   isSellerPayoutSetupComplete,
@@ -53,6 +55,9 @@ import {
 } from '../api/stripeConnectRepository';
 import { useSellerCommandCenterData } from '../hooks/useSellerCommandCenterData';
 import { useSellerInventory } from '../hooks/useSellerInventory';
+import { useSellerLayawaySummary } from '../hooks/useSellerLayawaySummary';
+import { openSellerLayaways } from '../navigation/openSellerLayaways';
+import { SellerHQLayawaysCard } from '../components/seller/hq/SellerHQLayawaysCard';
 import { sellerHasShipFromAddress } from '../lib/seller-shipping-readiness';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { openStripeConnectDashboard } from '../lib/openStripeConnectDashboard';
@@ -90,9 +95,11 @@ export function SellerHubScreen() {
   const { userListings } = useCreateListingDraft();
   const sellerInventory = useSellerInventory(session?.access_token, Boolean(user?.id));
   const inventoryListingCount = sellerInventory.marketplace.length + sellerInventory.liveShow.length;
+  const layawaySummary = useSellerLayawaySummary(session?.access_token);
   const cmdData = useSellerCommandCenterData(
     session?.access_token,
     inventoryListingCount || userListings.length,
+    layawaySummary.counts,
   );
   const sellerSetup = useSellerSetupState(session?.access_token, Boolean(user?.id));
 
@@ -118,7 +125,9 @@ export function SellerHubScreen() {
     useCallback(() => {
       void sellerSetup.refetchSilent();
       void cmdData.liveReadiness.refresh();
-    }, [sellerSetup.refetchSilent, cmdData.liveReadiness.refresh]),
+      void layawaySummary.reload();
+      if (user?.id) void cmdData.reloadAnalytics(user.id);
+    }, [cmdData.reloadAnalytics, sellerSetup.refetchSilent, cmdData.liveReadiness.refresh, layawaySummary.reload, user?.id]),
   );
 
   const shipFromComplete = sellerHasShipFromAddress(sellerSetup.checks, sellerSetup.seller);
@@ -277,7 +286,19 @@ export function SellerHubScreen() {
       case 'live':
         return null;
       case 'orders':
-        return <OrdersPanel />;
+        return (
+          <OrdersPanel
+            accessToken={session?.access_token}
+            layawayCounts={layawaySummary.counts}
+            layawaysLoading={layawaySummary.loading}
+            hasLayaways={layawaySummary.hasLayaways}
+            onOpenLayaways={(filter) =>
+              openSellerLayaways(navigation as unknown as NativeStackNavigationProp<RootStackParamList>, {
+                filter,
+              })
+            }
+          />
+        );
       case 'wallet':
         return (
           <WalletPanel
@@ -305,6 +326,9 @@ export function SellerHubScreen() {
               onStripeSetup={openStripeOnboarding}
               stripeSetupBusy={stripeSetupBusy}
               onProfileSettings={openProfileSettings}
+              layawayCounts={layawaySummary.counts}
+              layawaysLoading={layawaySummary.loading}
+              hasLayaways={layawaySummary.hasLayaways}
             />
             {(cmdData.liveReadiness.readinessLoaded || sellerSetup.seller) && !shipFromComplete ? (
               <SellerShipFromSetupCard
@@ -558,26 +582,41 @@ function ListingsPanel({
   );
 }
 
-function OrdersPanel() {
-  const { user } = useAuth();
-  const [orders, setOrders] = useState<import('../api/ordersRepository').VaultOrderRow[]>([]);
+function OrdersPanel({
+  accessToken,
+  layawayCounts,
+  layawaysLoading,
+  hasLayaways,
+  onOpenLayaways,
+}: {
+  accessToken?: string;
+  layawayCounts: import('../api/layawayRepository').SellerLayawayCounts | null;
+  layawaysLoading: boolean;
+  hasLayaways: boolean;
+  onOpenLayaways: (filter?: 'active' | 'ready' | 'overdue') => void;
+}) {
+  const [orders, setOrders] = useState<import('../api/sellerSalesRepository').SellerSalesOrderRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!accessToken) {
+      setOrders([]);
+      setLoading(false);
+      return;
+    }
     void (async () => {
       setLoading(true);
-      const { fetchSellerOrders } = await import('../api/ordersRepository');
-      setOrders(await fetchSellerOrders(user.id));
+      const { fetchSellerSalesOrders } = await import('../api/sellerSalesRepository');
+      setOrders(await fetchSellerSalesOrders(accessToken));
       setLoading(false);
     })();
-  }, [user?.id]);
+  }, [accessToken]);
 
-  if (loading) {
+  if (loading && layawaysLoading) {
     return <ActivityIndicator color={colors.gold} style={{ marginTop: spacing.lg }} />;
   }
 
-  if (!orders.length) {
+  if (!orders.length && !hasLayaways) {
     return (
       <Text style={styles.orderEmpty}>
         No marketplace orders yet. When collectors buy from your vault, fulfillment appears here.
@@ -586,7 +625,15 @@ function OrdersPanel() {
   }
 
   return (
-    <View style={{ gap: spacing.sm }}>
+    <View style={{ gap: spacing.md }}>
+      <SellerHQLayawaysCard
+        counts={layawayCounts}
+        loading={layawaysLoading}
+        hasLayaways={hasLayaways}
+        onPress={() => onOpenLayaways()}
+        onPressFilter={(filter) => onOpenLayaways(filter)}
+      />
+      {loading ? <ActivityIndicator color={colors.gold} /> : null}
       {orders.map((o) => {
         const amt = `$${(o.totalCents / 100).toFixed(2)}`;
         return (
@@ -653,6 +700,7 @@ function WalletPanel({
   };
 
   return (
+    <View style={{ gap: spacing.md }}>
     <View style={styles.walletHero}>
       <View style={styles.walletHeaderRow}>
         <Text style={styles.walletLabel}>Revenue vault · available</Text>
@@ -693,6 +741,8 @@ function WalletPanel({
           )}
         </Pressable>
       )}
+    </View>
+    <SellerPayoutTierCard accessToken={accessToken} />
     </View>
   );
 }

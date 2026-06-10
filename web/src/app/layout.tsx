@@ -5,6 +5,7 @@ import { SiteFooter } from "@/components/layout/SiteFooter";
 import { WatchlistToastHost } from "@/components/marketplace/WatchlistToastHost";
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import { LiveMarketplaceGateProvider } from "@/components/providers/LiveMarketplaceGateProvider";
+import { VaultEcosystemRealtimeProvider } from "@/components/providers/VaultEcosystemRealtimeProvider";
 import { isLiveMarketplacePubliclyAvailable } from "@/lib/live-coming-soon";
 import "./globals.css";
 
@@ -48,12 +49,14 @@ export default function RootLayout({
     >
       <body className="flex min-h-full flex-col bg-background text-foreground">
         <AuthProvider>
+          <VaultEcosystemRealtimeProvider>
           <LiveMarketplaceGateProvider enabled={liveMarketplaceEnabled}>
             <Navbar />
             <WatchlistToastHost />
             <div className="flex min-h-0 flex-1 flex-col">{children}</div>
           </LiveMarketplaceGateProvider>
           <SiteFooter liveMarketplaceEnabled={liveMarketplaceEnabled} />
+          </VaultEcosystemRealtimeProvider>
         </AuthProvider>
       </body>
     </html>

@@ -12,6 +12,11 @@ export function userNotificationsChannel(userId: string): string {
   return `gv-user-${userId}`;
 }
 
+/** Per-user vault ecosystem bus (layaways, orders, listings, offers, trades). */
+export function vaultEcosystemChannel(userId: string): string {
+  return `gv-ecosystem-${userId}`;
+}
+
 export const RT_EVENT = {
   chatMessage: "chat_message",
   viewerJoined: "viewer_joined",
@@ -43,6 +48,8 @@ export const RT_EVENT = {
   breakSpots: "break_spots",
   listingBid: "listing_bid",
   notification: "notification",
+  /** Layaways, orders, listings, offers — one envelope per user channel. */
+  vaultEcosystem: "vault_ecosystem",
   teamBoard: "team_board",
   /** IVS / server stream health changed — clients refetch GET /api/live-rooms/[id]/stream (buyer-safe). */
   streamStatus: "stream_status",

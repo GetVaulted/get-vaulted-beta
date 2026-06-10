@@ -56,6 +56,12 @@ export function AccountSalesLayawaysPage() {
     if (status === "authenticated" && sellerReady) void load();
   }, [load, sellerReady, status]);
 
+  useEffect(() => {
+    const on = () => void load();
+    window.addEventListener("gv-layaways-updated", on);
+    return () => window.removeEventListener("gv-layaways-updated", on);
+  }, [load]);
+
   if (status === "loading" || sellerGateLoading || rows === null) {
     return (
       <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">

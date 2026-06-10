@@ -62,6 +62,15 @@ export function AccountLayawayDetailPage({ layawayId }: { layawayId: string }) {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    const on = (e: Event) => {
+      const detail = (e as CustomEvent<{ entityId?: string }>).detail;
+      if (!detail?.entityId || detail.entityId === layawayId) void load();
+    };
+    window.addEventListener("gv-layaways-updated", on);
+    return () => window.removeEventListener("gv-layaways-updated", on);
+  }, [layawayId, load]);
+
   const startPayment = async (payRemaining: boolean) => {
     if (!row?.canMakePayment) return;
     setError(null);

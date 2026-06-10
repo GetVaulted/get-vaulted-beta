@@ -9,3 +9,38 @@ export function getWebApiBaseUrl(): string | null {
   if (site) return site.replace(/\/+$/, '');
   return null;
 }
+
+export function buildWebApiUrl(path: string): {
+  base: string | null;
+  path: string;
+  url: string | null;
+} {
+  const base = getWebApiBaseUrl();
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return {
+    base,
+    path: normalizedPath,
+    url: base ? `${base}${normalizedPath}` : null,
+  };
+}
+
+/** Warn when env points at a host that cannot serve Next.js /api routes. */
+export function misconfiguredWebApiHostWarning(base: string | null): string | null {
+  if (!base) return 'EXPO_PUBLIC_SITE_URL (or EXPO_PUBLIC_WEB_API_URL) is not set.';
+  try {
+    const parsed = new URL(base);
+    const host = parsed.hostname.toLowerCase();
+    if (host === 'shopgetvaulted.com' || host === 'www.shopgetvaulted.com') {
+      return 'EXPO_PUBLIC_SITE_URL points at the static marketing site. Use https://beta.shopgetvaulted.com for mobile APIs.';
+    }
+    if (parsed.pathname && parsed.pathname !== '/' && parsed.pathname.length > 1) {
+      return 'EXPO_PUBLIC_SITE_URL must be the site origin only (no /api or other path suffix).';
+    }
+    if (base.includes('/.netlify/functions')) {
+      return 'EXPO_PUBLIC_WEB_API_URL must be the Next.js site origin, not the Netlify Functions base URL.';
+    }
+  } catch {
+    return 'EXPO_PUBLIC_SITE_URL is not a valid URL.';
+  }
+  return null;
+}

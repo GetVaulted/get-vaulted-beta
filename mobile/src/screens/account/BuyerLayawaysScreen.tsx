@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchBuyerLayaways, startLayawayPayment, type LayawayRow } from '../../api/layawayRepository';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { useAuth } from '../../auth/AuthContext';
+import { useVaultEcosystemEvents } from '../../hooks/useVaultEcosystemEvents';
 import { openWebCommerceUrl } from '../../lib/openWebCommerce';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
@@ -18,7 +19,7 @@ function formatMoney(n: number) {
 
 export function BuyerLayawaysScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { session } = useAuth();
+  const { session, user } = useAuth();
   const [rows, setRows] = useState<LayawayRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [payingId, setPayingId] = useState<string | null>(null);
@@ -40,6 +41,15 @@ export function BuyerLayawaysScreen({ navigation }: Props) {
       void load();
     }, [load]),
   );
+
+  const onLayawayEvent = useCallback(() => {
+    void load();
+  }, [load]);
+
+  useVaultEcosystemEvents(user?.id, {
+    enabled: Boolean(session?.access_token && user?.id),
+    onLayaway: onLayawayEvent,
+  });
 
   const payRemaining = async (row: LayawayRow) => {
     if (!session?.access_token) return;
@@ -68,7 +78,7 @@ export function BuyerLayawaysScreen({ navigation }: Props) {
                 Paid {formatMoney(r.amountPaidUsd)} · {formatMoney(r.remainingBalanceUsd)} remaining
               </Text>
               <Text style={styles.meta}>Due {new Date(r.dueAt).toLocaleDateString()}</Text>
-              {r.status === 'active' && r.remainingBalanceUsd > 0 ? (
+              {(r.canMakePayment ?? (r.status === 'active' && r.remainingBalanceUsd > 0)) ? (
                 <Pressable
                   style={[styles.payBtn, payingId === r.id && styles.payBtnOff]}
                   onPress={() => void payRemaining(r)}
