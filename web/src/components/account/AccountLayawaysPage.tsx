@@ -12,6 +12,8 @@ type LayawayRow = {
   listingImageUrl: string | null;
   planType: string;
   status: string;
+  displayStatus?: string;
+  canMakePayment?: boolean;
   amountPaidUsd: number;
   remainingBalanceUsd: number;
   dueAt: string;
@@ -98,7 +100,7 @@ export function AccountLayawaysPage() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium text-zinc-100">{r.listingTitle}</p>
                     <p className="mt-1 text-xs text-zinc-500">
-                      {statusLabel(r.status)} · Due {formatDate(r.dueAt)}
+                      {r.displayStatus ?? statusLabel(r.status)} · Due {formatDate(r.dueAt)}
                     </p>
                     <p className="mt-2 font-mono text-sm text-zinc-300">
                       Paid {formatMoney(r.amountPaidUsd)} · {formatMoney(r.remainingBalanceUsd)} remaining

@@ -10,6 +10,10 @@ type LayawayRow = {
   listingImageUrl: string | null;
   planType: string;
   status: string;
+  orderPaymentStatus: string;
+  displayStatus: string;
+  canMakePayment: boolean;
+  statusMessage: string | null;
   depositAmountUsd: number;
   amountPaidUsd: number;
   remainingBalanceUsd: number;
@@ -36,10 +40,21 @@ export function AccountLayawayDetailPage({ layawayId }: { layawayId: string }) {
   const [partialAmount, setPartialAmount] = useState("");
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/account/layaways", { cache: "no-store" });
+    const res = await fetch(`/api/account/layaways/${encodeURIComponent(layawayId)}`, { cache: "no-store" });
     if (!res.ok) return;
-    const data = (await res.json()) as { layaways?: LayawayRow[] };
-    const found = (data.layaways ?? []).find((r) => r.id === layawayId) ?? null;
+    const data = (await res.json()) as { layaway?: LayawayRow };
+    const found = data.layaway ?? null;
+    if (found) {
+      console.info("[AccountLayawayDetail] loaded", {
+        layawayId,
+        status: found.status,
+        orderPaymentStatus: found.orderPaymentStatus,
+        displayStatus: found.displayStatus,
+        canMakePayment: found.canMakePayment,
+        amountPaidUsd: found.amountPaidUsd,
+        remainingBalanceUsd: found.remainingBalanceUsd,
+      });
+    }
     setRow(found);
   }, [layawayId]);
 
@@ -48,6 +63,7 @@ export function AccountLayawayDetailPage({ layawayId }: { layawayId: string }) {
   }, [load]);
 
   const startPayment = async (payRemaining: boolean) => {
+    if (!row?.canMakePayment) return;
     setError(null);
     setPaying(true);
     try {
@@ -86,7 +102,7 @@ export function AccountLayawayDetailPage({ layawayId }: { layawayId: string }) {
     );
   }
 
-  const isActive = row.status === "active" && row.remainingBalanceUsd > 0;
+  const showCompleted = row.status === "completed" || row.status === "paid_off" || row.remainingBalanceUsd <= 0;
 
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
@@ -96,7 +112,12 @@ export function AccountLayawayDetailPage({ layawayId }: { layawayId: string }) {
           ← All layaways
         </Link>
         <header className="mt-4 border-b border-white/[0.07] pb-6">
-          <h1 className="font-display text-2xl font-black tracking-tight text-foreground">{row.listingTitle}</h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="font-display text-2xl font-black tracking-tight text-foreground">{row.listingTitle}</h1>
+            <span className="rounded-full border border-gold/35 bg-gold/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-gold-bright">
+              {row.displayStatus}
+            </span>
+          </div>
           <p className="mt-1.5 text-sm text-zinc-500">
             {row.planType === "sixty_day" ? "60-day" : "30-day"} plan · Due {formatDate(row.dueAt)}
           </p>
@@ -117,7 +138,11 @@ export function AccountLayawayDetailPage({ layawayId }: { layawayId: string }) {
           </div>
         </dl>
 
-        {isActive ? (
+        {row.statusMessage ? (
+          <p className="mt-6 rounded-xl border border-white/[0.08] bg-[#08080a]/90 p-4 text-sm text-zinc-400">{row.statusMessage}</p>
+        ) : null}
+
+        {row.canMakePayment ? (
           <div className="mt-6 space-y-4 rounded-xl border border-white/[0.08] bg-[#08080a]/90 p-5">
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Make a payment</p>
             <label className="block">
@@ -149,7 +174,7 @@ export function AccountLayawayDetailPage({ layawayId }: { layawayId: string }) {
               </button>
             </div>
           </div>
-        ) : row.status === "completed" ? (
+        ) : showCompleted ? (
           <Link href={`/orders/${encodeURIComponent(row.orderId)}`} className="mt-6 inline-flex text-sm font-semibold text-gold-bright hover:underline">
             View order →
           </Link>

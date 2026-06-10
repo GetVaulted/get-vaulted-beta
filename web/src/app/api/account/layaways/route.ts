@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSessionSafe } from "@/lib/auth";
+import { serializeBuyerLayawayRow } from "@/lib/layaway/serialize-buyer-layaway";
 import { prisma } from "@/lib/prisma";
 import { processLayawayMaintenance } from "@/services/layaway";
 
@@ -18,25 +19,11 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
     include: {
       listing: { select: { id: true, title: true, images: { orderBy: { sortOrder: "asc" }, take: 1 } } },
+      order: { select: { paymentStatus: true } },
     },
   });
 
   return NextResponse.json({
-    layaways: rows.map((r) => ({
-      id: r.id,
-      listingId: r.listingId,
-      listingTitle: r.listing.title,
-      listingImageUrl: r.listing.images[0]?.url ?? null,
-      planType: r.planType,
-      status: r.status,
-      originalPriceUsd: r.originalPriceUsd,
-      depositAmountUsd: r.depositAmountUsd,
-      amountPaidUsd: r.amountPaidUsd,
-      remainingBalanceUsd: r.remainingBalanceUsd,
-      startedAt: r.startedAt.toISOString(),
-      dueAt: r.dueAt.toISOString(),
-      completedAt: r.completedAt?.toISOString() ?? null,
-      orderId: r.orderId,
-    })),
+    layaways: rows.map((r) => serializeBuyerLayawayRow(r)),
   });
 }

@@ -331,7 +331,11 @@ export async function createLayawayBalanceCheckout(args: {
       order: { select: { id: true, paymentStatus: true } },
     },
   });
-  if (!lay || lay.order.paymentStatus !== PAYMENT_LAYAWAY_ACTIVE) throw new Error("LAYAWAY_NOT_ACTIVE");
+  if (!lay) throw new Error("LAYAWAY_NOT_FOUND");
+  if (lay.order.paymentStatus !== PAYMENT_LAYAWAY_ACTIVE) {
+    if (lay.amountPaidUsd + 0.001 < lay.depositAmountUsd) throw new Error("LAYAWAY_DEPOSIT_PENDING");
+    throw new Error("LAYAWAY_NOT_ACTIVE");
+  }
 
   const payUsd = roundUsd(
     args.amountUsd != null && Number.isFinite(args.amountUsd) && args.amountUsd > 0
@@ -451,7 +455,38 @@ export async function finalizeLayawayInstallmentPaid(args: {
 
   if (completed) {
     await completeLayawayPlan(args.layawayId);
+    return;
   }
+
+  const lay = await prisma.layaway.findUnique({
+    where: { id: args.layawayId },
+    include: {
+      listing: { select: { title: true } },
+      payments: {
+        where: { id: args.layawayPaymentId, status: "paid" },
+        take: 1,
+        select: { amountUsd: true },
+      },
+    },
+  });
+  if (!lay?.payments[0]) return;
+
+  const title = lay.listing.title.length > 80 ? `${lay.listing.title.slice(0, 77)}…` : lay.listing.title;
+  const paidUsd = lay.payments[0].amountUsd;
+  await createNotification(prisma, {
+    userId: lay.buyerId,
+    type: "layaway_payment",
+    title: "Layaway payment received",
+    body: `Your $${paidUsd.toFixed(2)} payment for “${title}” was applied. $${lay.remainingBalanceUsd.toFixed(2)} remains.`,
+    href: `/account/layaways/${encodeURIComponent(lay.id)}`,
+  });
+  await createNotification(prisma, {
+    userId: lay.sellerId,
+    type: "layaway_payment_seller",
+    title: "Layaway payment received",
+    body: `Buyer paid $${paidUsd.toFixed(2)} toward “${title}”. $${lay.remainingBalanceUsd.toFixed(2)} remaining — do not ship yet.`,
+    href: `/account/sales/layaways`,
+  });
 }
 
 /** Convert layaway to a normal paid marketplace order and unlock shipping/payout workflow. */

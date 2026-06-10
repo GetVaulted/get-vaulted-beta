@@ -30,7 +30,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
     const map: Record<string, { status: number; msg: string }> = {
-      LAYAWAY_NOT_ACTIVE: { status: 409, msg: "This layaway is not active." },
+      LAYAWAY_DEPOSIT_PENDING: {
+        status: 409,
+        msg: "Complete your deposit checkout before making balance payments.",
+      },
+      LAYAWAY_NOT_ACTIVE: { status: 409, msg: "This layaway is not active for payments." },
       NOTHING_DUE: { status: 400, msg: "No balance is due on this layaway." },
     };
     const hit = map[msg];
