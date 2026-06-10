@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { isQaSessionDebugAllowed } from "@/lib/qa-session-debug-allowed";
 import { requireAdmin } from "@/lib/require-admin";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
-import { repairStaleActiveLayaways } from "@/services/layaway";
+import { repairListingCommerceConflicts } from "@/services/layaway";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,9 +24,9 @@ export async function GET(req: Request, ctx: RouteCtx) {
   if (auth instanceof NextResponse && !isAdmin) return auth;
 
   try {
-    await repairStaleActiveLayaways();
+    await repairListingCommerceConflicts();
   } catch (e) {
-    console.error("[commerce-state] repairStaleActiveLayaways", e);
+    console.error("[commerce-state] repairListingCommerceConflicts", e);
   }
 
   const listing = await prisma.listing.findUnique({

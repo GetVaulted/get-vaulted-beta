@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
 import { createNotification } from "@/lib/notifications";
+import {
+  assertMakeOfferAllowed,
+  CommerceGuardError,
+  commerceGuardErrorToHttp,
+  loadListingCommerceContext,
+} from "@/lib/marketplace/commerce-guards";
 import { prisma } from "@/lib/prisma";
 
 type Body = {
@@ -41,37 +47,33 @@ export async function POST(req: Request) {
   const buyerId = auth.userId;
   const message = trimMessage(body.message);
 
+  const commerceCtx = await loadListingCommerceContext(prisma, listingId);
+  if (!commerceCtx) {
+    return NextResponse.json({ error: "Listing not found." }, { status: 404 });
+  }
+
+  try {
+    assertMakeOfferAllowed(commerceCtx, buyerId);
+  } catch (e) {
+    if (e instanceof CommerceGuardError) {
+      const hit = commerceGuardErrorToHttp(e.code);
+      return NextResponse.json({ error: hit.error, code: e.code }, { status: hit.status });
+    }
+    throw e;
+  }
+
   const listing = await prisma.listing.findUnique({
     where: { id: listingId },
     select: {
       id: true,
       title: true,
       sellerId: true,
-      status: true,
-      allowOffers: true,
       minimumOfferUsd: true,
-      buyingFormat: true,
-      moderationRemovedAt: true,
     },
   });
 
   if (!listing) {
     return NextResponse.json({ error: "Listing not found." }, { status: 404 });
-  }
-  if (listing.moderationRemovedAt) {
-    return NextResponse.json({ error: "This listing is not available." }, { status: 410 });
-  }
-  if (listing.sellerId === buyerId) {
-    return NextResponse.json({ error: "You cannot offer on your own listing." }, { status: 400 });
-  }
-  if (!listing.allowOffers) {
-    return NextResponse.json({ error: "This listing does not accept offers." }, { status: 400 });
-  }
-  if (listing.status === "layaway_reserved") {
-    return NextResponse.json({ error: "This listing is on layaway and not accepting offers." }, { status: 409 });
-  }
-  if (listing.status !== "active" && listing.status !== "auction_live") {
-    return NextResponse.json({ error: "This listing is not accepting offers." }, { status: 409 });
   }
 
   const min = listing.minimumOfferUsd;
@@ -86,7 +88,10 @@ export async function POST(req: Request) {
 
   const existingOrder = await prisma.order.findUnique({ where: { listingId }, select: { id: true } });
   if (existingOrder) {
-    return NextResponse.json({ error: "This item is no longer available for offers." }, { status: 409 });
+    return NextResponse.json(
+      { error: "This item is no longer available for offers.", code: "ITEM_NOT_AVAILABLE" },
+      { status: 409 },
+    );
   }
 
   const openFromBuyer = await prisma.offer.findFirst({

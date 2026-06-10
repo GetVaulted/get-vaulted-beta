@@ -13,3 +13,17 @@ export function isListingPubliclyVisible(row: {
   const live = row.status === "active" || row.status === "auction_live";
   return live && row.moderationRemovedAt == null;
 }
+
+/** Item detail pages may show reserved/sold states with purchase actions disabled. */
+export function isListingMarketplaceDetailVisible(row: {
+  status: string;
+  moderationRemovedAt: Date | null;
+}): boolean {
+  if (row.moderationRemovedAt != null) return false;
+  return (
+    row.status === "active" ||
+    row.status === "auction_live" ||
+    row.status === "layaway_reserved" ||
+    row.status === "sold"
+  );
+}

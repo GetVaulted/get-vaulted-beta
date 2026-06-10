@@ -3,6 +3,12 @@ import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { expireOfferIfNeeded } from "@/lib/trade-offers";
 import { checkRateLimit } from "@/lib/request-rate-limit";
+import {
+  assertTradeOfferListingAllowed,
+  CommerceGuardError,
+  commerceGuardErrorToHttp,
+  loadListingCommerceContext,
+} from "@/lib/marketplace/commerce-guards";
 
 type CreateTradeOfferBody = {
   requestedListingIds?: unknown;
@@ -120,6 +126,23 @@ export async function POST(req: Request) {
   if (requestedRows.some((l) => l.sellerId === proposerId)) {
     return NextResponse.json({ error: "Requested items cannot be your own listings." }, { status: 400 });
   }
+
+  for (const listing of [...requestedRows, ...offeredRows]) {
+    const ctx = await loadListingCommerceContext(prisma, listing.id);
+    if (!ctx) {
+      return NextResponse.json({ error: "One or more selected items were not found." }, { status: 400 });
+    }
+    try {
+      assertTradeOfferListingAllowed(ctx, proposerId);
+    } catch (e) {
+      if (e instanceof CommerceGuardError) {
+        const hit = commerceGuardErrorToHttp(e.code);
+        return NextResponse.json({ error: hit.error, code: e.code }, { status: hit.status });
+      }
+      throw e;
+    }
+  }
+
   if (requestedRows.some((l) => !l.acceptTradeOffers || !isAvailableStatus(l.status))) {
     return NextResponse.json({ error: "Requested items must be trade-enabled and available." }, { status: 400 });
   }

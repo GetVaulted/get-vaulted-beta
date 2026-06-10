@@ -221,6 +221,18 @@ export function ProductDetailScreen({ navigation, route }: Props) {
   }, [commerceOpts, guestExploreMode, navigation, product, rootNav, session?.access_token]);
 
   const layawayAvailable = product?.allowLayaway === true;
+  const listingStatus = product?.listingStatus ?? 'active';
+  const commerceBlocked =
+    listingStatus === 'sold' ||
+    listingStatus === 'layaway_reserved' ||
+    listingStatus === 'ended' ||
+    listingStatus === 'awaiting_auction_payment';
+  const commerceStatusLabel =
+    listingStatus === 'sold'
+      ? 'This item has sold.'
+      : listingStatus === 'layaway_reserved'
+        ? 'Reserved on layaway — not available for purchase.'
+        : null;
 
   const shareListing = async () => {
     if (!product) return;
@@ -391,48 +403,60 @@ export function ProductDetailScreen({ navigation, route }: Props) {
             </Text>
           ) : null}
 
-          <View style={styles.inlineCtas}>
-            <PremiumVaultButton
-              variant="primary"
-              label={`Buy now · ${vm.pricing.buyNow}`}
-              icon="bag-outline"
-              onPress={goBuyNow}
-              flex
-              compact={compact}
-            />
-          </View>
-
-          {(vm.trade.allowOffers || vm.trade.acceptsTrades) && (
-            <View style={styles.secondaryCtaRow}>
-              {vm.trade.allowOffers ? (
-                <PremiumVaultButton
-                  variant="secondary"
-                  label="Make offer"
-                  icon="pricetag-outline"
-                  onPress={goMakeOffer}
-                  flex
-                  compact={compact}
-                />
-              ) : null}
-              {vm.trade.acceptsTrades ? (
-                <PremiumVaultButton
-                  variant="secondary"
-                  label="Trade offer"
-                  icon="swap-horizontal-outline"
-                  onPress={goTradeOffer}
-                  flex
-                  compact={compact}
-                />
-              ) : null}
-            </View>
-          )}
-
-          {layawayAvailable ? (
-            <Pressable style={styles.layawayCta} onPress={goLayaway}>
-              <Text style={styles.layawayCtaTxt} {...MARKETPLACE_TEXT_PROPS}>
-                Layaway available — 25% deposit
+          {commerceStatusLabel ? (
+            <View style={styles.reservedBanner}>
+              <Text style={styles.reservedBannerTxt} {...MARKETPLACE_TEXT_PROPS}>
+                {commerceStatusLabel}
               </Text>
-            </Pressable>
+            </View>
+          ) : null}
+
+          {!commerceBlocked ? (
+            <>
+              <View style={styles.inlineCtas}>
+                <PremiumVaultButton
+                  variant="primary"
+                  label={`Buy now · ${vm.pricing.buyNow}`}
+                  icon="bag-outline"
+                  onPress={goBuyNow}
+                  flex
+                  compact={compact}
+                />
+              </View>
+
+              {(vm.trade.allowOffers || vm.trade.acceptsTrades) && (
+                <View style={styles.secondaryCtaRow}>
+                  {vm.trade.allowOffers ? (
+                    <PremiumVaultButton
+                      variant="secondary"
+                      label="Make offer"
+                      icon="pricetag-outline"
+                      onPress={goMakeOffer}
+                      flex
+                      compact={compact}
+                    />
+                  ) : null}
+                  {vm.trade.acceptsTrades ? (
+                    <PremiumVaultButton
+                      variant="secondary"
+                      label="Trade offer"
+                      icon="swap-horizontal-outline"
+                      onPress={goTradeOffer}
+                      flex
+                      compact={compact}
+                    />
+                  ) : null}
+                </View>
+              )}
+
+              {layawayAvailable ? (
+                <Pressable style={styles.layawayCta} onPress={goLayaway}>
+                  <Text style={styles.layawayCtaTxt} {...MARKETPLACE_TEXT_PROPS}>
+                    Layaway available — 25% deposit
+                  </Text>
+                </Pressable>
+              ) : null}
+            </>
           ) : null}
 
           <LinearGradient colors={['rgba(212,175,55,0.06)', 'rgba(10,10,10,0.98)']} style={styles.priceCard}>
@@ -908,6 +932,15 @@ const styles = StyleSheet.create({
   protectedRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   protectedTxt: { color: colors.textPrimary, fontWeight: '700', fontSize: 14 },
   payNote: { color: colors.textMuted, fontSize: 12 },
+  reservedBanner: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  reservedBannerTxt: { color: colors.textSecondary, fontSize: 14, lineHeight: 20, textAlign: 'center' },
   layawayCta: {
     borderRadius: radii.md,
     borderWidth: 1,

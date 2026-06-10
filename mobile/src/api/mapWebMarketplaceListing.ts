@@ -66,6 +66,7 @@ export function mapWebMarketplaceListingToProduct(listing: WebMarketplaceListing
     allowOffers: listing.allowOffers === true,
     allowLayaway: listing.allowLayaway === true,
     acceptTradeOffers: listing.acceptTradeOffers === true,
+    listingStatus: listing.listingStatus,
     sellerLevel: listing.sellerLevel,
     sellerLevelLabel: listing.sellerLevelLabel,
     shippingPriceUsd: listing.shippingPriceUsd,

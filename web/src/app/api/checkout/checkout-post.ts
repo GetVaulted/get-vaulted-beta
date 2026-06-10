@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 import { processAuctionPaymentExpiries } from "@/services/payments";
 import { createLayawayDepositCheckout } from "@/services/layaway";
 import { isValidLayawayPlan } from "@/lib/layaway/eligibility";
+import { CommerceGuardError, commerceGuardErrorToHttp } from "@/lib/marketplace/commerce-guards";
 import type { LayawayPlanType } from "@/generated/prisma/client";
 
 type Body = {
@@ -194,15 +195,29 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
 
     return NextResponse.json({ error: "Invalid kind. Use buy_now, layaway_deposit, pay_order, or break_spot." }, { status: 400 });
   } catch (e) {
+    if (e instanceof CommerceGuardError) {
+      const hit = commerceGuardErrorToHttp(e.code);
+      return NextResponse.json({ error: hit.error, code: e.code }, { status: hit.status });
+    }
     const msg = e instanceof Error ? e.message : "";
-    const map: Record<string, { status: number; msg: string }> = {
+    const map: Record<string, { status: number; msg: string; code?: string }> = {
       NOT_BUY_NOW: { status: 400, msg: "This listing is not buy now." },
-      NOT_AVAILABLE: { status: 409, msg: "This listing is not available." },
+      NOT_AVAILABLE: { status: 409, msg: "This listing is not available.", code: "ITEM_NOT_AVAILABLE" },
       OWN_LISTING: { status: 400, msg: "You cannot buy your own listing." },
       SELLER_NOT_READY: { status: 409, msg: "Seller has not finished Stripe Connect onboarding." },
       LIVE_ITEM_INVALID: { status: 400, msg: "That live item is not available for checkout." },
-      ALREADY_SOLD: { status: 409, msg: "This item is already sold." },
+      ALREADY_SOLD: { status: 409, msg: "This item is already sold.", code: "ITEM_NOT_AVAILABLE" },
       CHECKOUT_IN_PROGRESS: { status: 409, msg: "Checkout already in progress for this listing." },
+      LISTING_LAYAWAY_LOCKED: {
+        status: 409,
+        msg: "This item is reserved on layaway and cannot be purchased.",
+        code: "ITEM_RESERVED_ON_LAYAWAY",
+      },
+      USE_LAYAWAY_PAYOFF: {
+        status: 409,
+        msg: "You have an active layaway on this item. Pay your remaining balance instead of Buy Now.",
+        code: "USE_LAYAWAY_PAYOFF",
+      },
       ORDER_NOT_FOUND: { status: 404, msg: "Order not found." },
       ORDER_PAYMENT_EXPIRED: { status: 409, msg: "Payment window expired." },
       SPOT_INVALID: { status: 400, msg: "Break spot not found." },
@@ -234,10 +249,21 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
       },
       TERMS_REQUIRED: { status: 400, msg: "Acknowledge layaway terms to continue." },
       INVALID_PLAN: { status: 400, msg: "Select a valid layaway plan." },
-      LISTING_UNAVAILABLE: { status: 409, msg: "This listing is not available for layaway." },
+      LISTING_UNAVAILABLE: { status: 409, msg: "This listing is not available for layaway.", code: "ITEM_NOT_AVAILABLE" },
+      LISTING_LAYAWAY_LOCKED: {
+        status: 409,
+        msg: "This item is reserved on layaway and cannot be purchased.",
+        code: "ITEM_RESERVED_ON_LAYAWAY",
+      },
+      ALREADY_SOLD: { status: 409, msg: "This item is already sold.", code: "ITEM_NOT_AVAILABLE" },
     };
     const hit = map[msg];
-    if (hit) return NextResponse.json({ error: hit.msg }, { status: hit.status });
+    if (hit) {
+      return NextResponse.json(
+        { error: hit.msg, ...(hit.code ? { code: hit.code } : {}) },
+        { status: hit.status },
+      );
+    }
     console.error("[checkout]", e);
     return NextResponse.json({ error: "Could not start checkout." }, { status: 500 });
   }

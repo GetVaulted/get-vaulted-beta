@@ -10,7 +10,7 @@ import {
 } from "@/lib/seller-payout-estimate";
 import { prisma } from "@/lib/prisma";
 import { processAuctionPaymentExpiries } from "@/services/payments";
-import { repairStaleActiveLayaways } from "@/services/layaway";
+import { repairListingCommerceConflicts } from "@/services/layaway";
 
 export async function GET(req: Request) {
   const auth = await resolveAccountSellerUserId(req);
@@ -19,9 +19,9 @@ export async function GET(req: Request) {
   await processAuctionPaymentExpiries();
 
   try {
-    await repairStaleActiveLayaways();
+    await repairListingCommerceConflicts();
   } catch (e) {
-    console.error("[sales] repairStaleActiveLayaways", e);
+    console.error("[sales] repairListingCommerceConflicts", e);
   }
 
   const user = await prisma.user.findUnique({

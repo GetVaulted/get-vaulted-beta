@@ -7,7 +7,7 @@ import {
 } from "@/lib/marketplace/layaway-commerce-state";
 import { prisma } from "@/lib/prisma";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
-import { processLayawayMaintenance, repairStaleActiveLayaways } from "@/services/layaway";
+import { processLayawayMaintenance, repairListingCommerceConflicts } from "@/services/layaway";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ export async function GET(req: Request) {
 
   try {
     await processLayawayMaintenance();
-    await repairStaleActiveLayaways();
+    await repairListingCommerceConflicts();
   } catch (e) {
     console.error("[sales/layaways] maintenance", e);
   }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { buildListingCommerceDiagnostics } from "@/lib/marketplace/commerce-state";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
-import { repairStaleActiveLayaways } from "@/services/layaway";
+import { repairListingCommerceConflicts } from "@/services/layaway";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,9 +19,9 @@ export async function GET(_req: Request, ctx: RouteCtx) {
   if (!listingId) return NextResponse.json({ error: "listingId required" }, { status: 400 });
 
   try {
-    await repairStaleActiveLayaways();
+    await repairListingCommerceConflicts();
   } catch (e) {
-    console.error("[admin/commerce-debug] repairStaleActiveLayaways", e);
+    console.error("[admin/commerce-debug] repairListingCommerceConflicts", e);
   }
 
   const listing = await prisma.listing.findUnique({
@@ -99,4 +99,17 @@ export async function GET(_req: Request, ctx: RouteCtx) {
   });
 
   return NextResponse.json({ listingTitle: listing.title, diagnostics });
+}
+
+/** Admin repair for impossible listing/order/layaway states on one listing. */
+export async function POST(_req: Request, ctx: RouteCtx) {
+  const gate = await requireAdmin();
+  if (!gate.ok) return gate.response;
+
+  const { listingId: rawId } = await ctx.params;
+  const listingId = rawId?.trim();
+  if (!listingId) return NextResponse.json({ error: "listingId required" }, { status: 400 });
+
+  const repair = await repairListingCommerceConflicts(200);
+  return NextResponse.json({ ok: true, listingId, repair });
 }

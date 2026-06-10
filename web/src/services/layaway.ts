@@ -14,6 +14,11 @@ import {
   listingSupportsLayawayCheckout,
 } from "@/lib/layaway/eligibility";
 import {
+  assertLayawayStartAllowed,
+  CommerceGuardError,
+  loadListingCommerceContext,
+} from "@/lib/marketplace/commerce-guards";
+import {
   layawayDepositUsd,
   layawayRefundableAboveDepositUsd,
   layawayRemainingBalanceUsd,
@@ -116,7 +121,11 @@ export async function repairStaleActiveLayaways(limit = 50): Promise<number> {
   const stale = await prisma.layaway.findMany({
     where: {
       status: LayawayStatus.active,
-      OR: [{ listing: { status: "sold" } }, { order: { paymentStatus: PAYMENT_PAID } }],
+      OR: [
+        { listing: { status: "sold" } },
+        { order: { paymentStatus: PAYMENT_PAID } },
+        { listing: { orders: { some: { paymentStatus: PAYMENT_PAID } } } },
+      ],
     },
     select: {
       id: true,
@@ -125,18 +134,25 @@ export async function repairStaleActiveLayaways(limit = 50): Promise<number> {
       listingId: true,
       orderId: true,
       order: { select: { paymentStatus: true } },
-      listing: { select: { status: true } },
+      listing: { select: { status: true, orders: { select: { paymentStatus: true } } } },
     },
     take: limit,
   });
 
   let repaired = 0;
   for (const lay of stale) {
-    const orderPaid = lay.order.paymentStatus === PAYMENT_PAID;
+    const listingPaidOrder = lay.listing.orders.some((o) => o.paymentStatus === PAYMENT_PAID);
+    const orderPaid = lay.order.paymentStatus === PAYMENT_PAID || listingPaidOrder;
     const listingSold = lay.listing.status === "sold";
     if (!orderPaid && !listingSold) continue;
 
     await prisma.$transaction(async (tx) => {
+      if (listingPaidOrder && lay.listing.status !== "sold") {
+        await tx.listing.updateMany({
+          where: { id: lay.listingId, status: { in: ["active", "layaway_reserved"] } },
+          data: { status: "sold" },
+        });
+      }
       if (orderPaid) {
         await tx.layaway.update({
           where: { id: lay.id, status: LayawayStatus.active },
@@ -202,6 +218,110 @@ export async function repairStaleActiveLayaways(limit = 50): Promise<number> {
   return repaired;
 }
 
+/** Repair listings with paid orders that were not marked sold, then close conflicting layaways. */
+export async function repairListingCommerceConflicts(limit = 50): Promise<{ listingsFixed: number; layawaysFixed: number }> {
+  const unsoldPaid = await prisma.listing.findMany({
+    where: {
+      status: { in: ["active", "layaway_reserved"] },
+      orders: { some: { paymentStatus: PAYMENT_PAID } },
+    },
+    select: { id: true },
+    take: limit,
+  });
+
+  let listingsFixed = 0;
+  for (const listing of unsoldPaid) {
+    const updated = await prisma.listing.updateMany({
+      where: { id: listing.id, status: { in: ["active", "layaway_reserved"] } },
+      data: { status: "sold" },
+    });
+    listingsFixed += updated.count;
+  }
+
+  const layawaysFixed = await repairStaleActiveLayaways(limit);
+  return { listingsFixed, layawaysFixed };
+}
+
+/** Cancel layaway checkout abandoned before deposit payment; restore listing availability. */
+export async function cancelAbandonedLayawayCheckout(args: {
+  layawayId?: string | null;
+  orderId?: string | null;
+  listingId?: string | null;
+}): Promise<boolean> {
+  const lay = args.layawayId
+    ? await prisma.layaway.findUnique({
+        where: { id: args.layawayId },
+        include: {
+          listing: {
+            select: {
+              id: true,
+              status: true,
+              allowOffers: true,
+              acceptTradeOffers: true,
+            },
+          },
+          order: { select: { id: true, paymentStatus: true, paymentMethod: true } },
+        },
+      })
+    : args.orderId
+      ? await prisma.layaway.findFirst({
+          where: { orderId: args.orderId },
+          include: {
+            listing: {
+              select: {
+                id: true,
+                status: true,
+                allowOffers: true,
+                acceptTradeOffers: true,
+              },
+            },
+            order: { select: { id: true, paymentStatus: true, paymentMethod: true } },
+          },
+        })
+      : null;
+
+  if (!lay || lay.status !== LayawayStatus.active) return false;
+  if (lay.order.paymentStatus === PAYMENT_PAID || lay.order.paymentStatus === PAYMENT_LAYAWAY_ACTIVE) {
+    return false;
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.layaway.update({
+      where: { id: lay.id, status: LayawayStatus.active },
+      data: { status: LayawayStatus.refunded, remainingBalanceUsd: 0 },
+    });
+    await tx.order.updateMany({
+      where: { id: lay.orderId, paymentStatus: { in: [PAYMENT_PENDING, "failed", "cancelled"] } },
+      data: { paymentStatus: "cancelled", status: "cancelled" },
+    });
+    if (lay.listing.status === "layaway_reserved") {
+      await tx.listing.update({
+        where: { id: lay.listingId },
+        data: { status: "active" },
+      });
+    }
+    await logLayawayAudit(tx, {
+      layawayId: lay.id,
+      action: "deposit_checkout_abandoned",
+      metadata: { orderId: lay.orderId, listingId: lay.listingId },
+    });
+  });
+
+  emitLayawayEcosystem(
+    "layaway_canceled",
+    {
+      id: lay.id,
+      sellerId: lay.sellerId,
+      buyerId: lay.buyerId,
+      listingId: lay.listingId,
+      orderId: lay.orderId,
+    },
+    { status: "canceled", listingStatus: "active", abandonedDeposit: true },
+  );
+
+  return true;
+}
+
 function dueDateForPlan(plan: LayawayPlanType, startedAt: Date): Date {
   const days = LAYAWAY_PLAN_DAYS[plan as LayawayPlanKey];
   return new Date(startedAt.getTime() + days * 24 * 60 * 60 * 1000);
@@ -220,6 +340,20 @@ export async function createLayawayDepositCheckout(args: {
   if (!args.termsAcknowledged) throw new Error("TERMS_REQUIRED");
   if (!isValidLayawayPlan(args.planType)) throw new Error("INVALID_PLAN");
   if (await buyerHasActiveLayaway(args.buyerId)) throw new Error("BUYER_ACTIVE_LAYAWAY");
+
+  const commercePreflight = await loadListingCommerceContext(prisma, args.listingId);
+  if (!commercePreflight) throw new Error("LAYAWAY_NOT_AVAILABLE");
+  try {
+    assertLayawayStartAllowed(commercePreflight, args.buyerId);
+  } catch (e) {
+    if (e instanceof CommerceGuardError) {
+      if (e.code === "ALREADY_SOLD") throw new Error("ALREADY_SOLD");
+      if (e.code === "ITEM_RESERVED_ON_LAYAWAY") throw new Error("LISTING_LAYAWAY_LOCKED");
+      if (e.code === "CHECKOUT_IN_PROGRESS") throw new Error("CHECKOUT_IN_PROGRESS");
+      throw new Error("LAYAWAY_NOT_AVAILABLE");
+    }
+    throw e;
+  }
 
   const base = siteUrl();
   const successUrl = `${base}${args.successPath ?? "/account/layaways"}?session_id={CHECKOUT_SESSION_ID}`;
@@ -248,6 +382,12 @@ export async function createLayawayDepositCheckout(args: {
     if (!listingRow.seller.stripeAccountId || !listingRow.seller.stripeOnboardingComplete) {
       throw new Error("SELLER_NOT_READY");
     }
+
+    const activeLayaway = await tx.layaway.findFirst({
+      where: { listingId: listingRow.id, status: LayawayStatus.active },
+      select: { id: true, buyerId: true },
+    });
+    if (activeLayaway) throw new Error("LISTING_LAYAWAY_LOCKED");
 
     const existingOrder = await tx.order.findUnique({ where: { listingId: listingRow.id } });
     if (existingOrder?.paymentStatus === PAYMENT_PAID) throw new Error("ALREADY_SOLD");
@@ -329,8 +469,31 @@ export async function createLayawayDepositCheckout(args: {
       },
     });
 
+    await tx.listing.update({
+      where: { id: listingRow.id },
+      data: { status: "layaway_reserved" },
+    });
+
     return { order: orderRow, layaway: layawayRow, listing: listingRow, depositUsd };
   });
+
+  emitLayawayEcosystem(
+    "layaway_started",
+    {
+      id: layaway.id,
+      sellerId: listing.sellerId,
+      buyerId: args.buyerId,
+      listingId: listing.id,
+      orderId: order.id,
+    },
+    {
+      status: "active",
+      listingStatus: "layaway_reserved",
+      orderStatus: "pending",
+      paymentStatus: PAYMENT_PENDING,
+      pendingDeposit: true,
+    },
+  );
 
   const stripe = getStripe();
   const feeCents = await resolveCheckoutApplicationFeeCents({

@@ -42,8 +42,13 @@ import { logEscrowStatusTransition } from "@/lib/escrow-audit-log";
 import { getEscrowProvider } from "@/services/escrow/factory";
 import { assertValidEscrowTransition } from "@/services/escrow/state-machine";
 import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
-import { listingLockedByLayaway } from "@/lib/layaway/eligibility";
 import { PAYMENT_LAYAWAY_ACTIVE } from "@/lib/layaway/constants";
+import {
+  assertBuyNowAllowed,
+  CommerceGuardError,
+  loadListingCommerceContext,
+} from "@/lib/marketplace/commerce-guards";
+import { LayawayStatus } from "@/generated/prisma/enums";
 import { initializeOrderPayoutOnPayment } from "@/services/payout/process-delivery-payout";
 import {
   addOrderToLiveShippingSessionTx,
@@ -136,6 +141,28 @@ export async function processAuctionPaymentExpiries(): Promise<void> {
 function siteUrl(): string {
   const u = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
   return u.replace(/\/$/, "");
+}
+
+function throwFromCommerceGuard(e: unknown): never {
+  if (e instanceof CommerceGuardError) {
+    switch (e.code) {
+      case "ITEM_RESERVED_ON_LAYAWAY":
+        throw new Error("LISTING_LAYAWAY_LOCKED");
+      case "ITEM_NOT_AVAILABLE":
+        throw new Error("NOT_AVAILABLE");
+      case "USE_LAYAWAY_PAYOFF":
+        throw new Error("USE_LAYAWAY_PAYOFF");
+      case "ALREADY_SOLD":
+        throw new Error("ALREADY_SOLD");
+      case "CHECKOUT_IN_PROGRESS":
+        throw new Error("CHECKOUT_IN_PROGRESS");
+      case "OWN_LISTING":
+        throw new Error("OWN_LISTING");
+      default:
+        throw new Error("NOT_AVAILABLE");
+    }
+  }
+  throw e;
 }
 
 /**
@@ -341,6 +368,14 @@ export async function createBuyNowCheckoutSession(args: {
   });
   if (!listingPeek) throw new Error("NOT_BUY_NOW");
 
+  const buyNowPreflight = await loadListingCommerceContext(prisma, args.listingId);
+  if (!buyNowPreflight) throw new Error("NOT_BUY_NOW");
+  try {
+    assertBuyNowAllowed(buyNowPreflight, args.buyerId);
+  } catch (e) {
+    throwFromCommerceGuard(e);
+  }
+
   let liveShipUpperCents = 0;
   if (args.liveRoomItemId?.trim()) {
     const liPeek = await prisma.liveRoomItem.findFirst({
@@ -448,18 +483,13 @@ export async function createBuyNowCheckoutSession(args: {
     if (listingRow.moderationRemovedAt) throw new Error("NOT_AVAILABLE");
     if (listingRow.sellerId === args.buyerId) throw new Error("OWN_LISTING");
 
-    const activeLayaway = await tx.layaway.findFirst({
-      where: { listingId: listingRow.id, status: "active" },
-      select: { buyerId: true },
-    });
-    if (activeLayaway && activeLayaway.buyerId !== args.buyerId) {
-      throw new Error("LISTING_LAYAWAY_LOCKED");
+    const commerceCtx = await loadListingCommerceContext(tx, listingRow.id);
+    if (!commerceCtx) throw new Error("NOT_BUY_NOW");
+    try {
+      assertBuyNowAllowed(commerceCtx, args.buyerId);
+    } catch (e) {
+      throwFromCommerceGuard(e);
     }
-    if (activeLayaway && activeLayaway.buyerId === args.buyerId) {
-      throw new Error("USE_LAYAWAY_PAYOFF");
-    }
-    if (listingLockedByLayaway(listingRow.status)) throw new Error("NOT_AVAILABLE");
-    if (listingRow.status !== "active") throw new Error("NOT_AVAILABLE");
 
     const itemPriceUsd = listingRow.priceUsd;
     const taxUsd = 0;
@@ -531,6 +561,20 @@ export async function createBuyNowCheckoutSession(args: {
       }
     }
     if (existing && existing.paymentStatus === PAYMENT_FAILED) {
+      const linkedLayaway = await tx.layaway.findFirst({
+        where: { orderId: existing.id, status: LayawayStatus.active },
+        select: { id: true },
+      });
+      if (linkedLayaway) {
+        await tx.layaway.update({
+          where: { id: linkedLayaway.id },
+          data: { status: LayawayStatus.refunded, remainingBalanceUsd: 0 },
+        });
+        await tx.listing.updateMany({
+          where: { id: listingRow.id, status: "layaway_reserved" },
+          data: { status: "active" },
+        });
+      }
       await releaseActiveInventoryHoldsForListingAndBuyerTx(tx, {
         listingId: listingRow.id,
         userId: existing.buyerId,
@@ -1340,6 +1384,15 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
       const session = event.data.object as Stripe.Checkout.Session;
       const orderId = session.metadata?.orderId;
       const kind = session.metadata?.kind;
+      if (kind === "layaway_deposit") {
+        const layawayId = session.metadata?.layawayId?.trim() || null;
+        const layawayOrderId = session.metadata?.orderId?.trim() || null;
+        const { cancelAbandonedLayawayCheckout } = await import("@/services/layaway");
+        await cancelAbandonedLayawayCheckout({ layawayId, orderId: layawayOrderId }).catch((e) => {
+          console.error("[stripe webhook] cancelAbandonedLayawayCheckout", e);
+        });
+        break;
+      }
       if (orderId && kind !== "break_spot") {
         if (kind === "buy_now") {
           const liveRoomItemId = session.metadata?.liveRoomItemId?.trim() || null;

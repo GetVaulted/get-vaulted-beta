@@ -13,6 +13,15 @@ function isPublishedOnMarketplace(status: string | undefined): boolean {
   return status === 'active' || status === 'auction_live';
 }
 
+function isMarketplaceDetailVisible(status: string | undefined): boolean {
+  return (
+    status === 'active' ||
+    status === 'auction_live' ||
+    status === 'layaway_reserved' ||
+    status === 'sold'
+  );
+}
+
 export async function fetchMarketplaceListings(opts?: {
   category?: CategoryId;
   limit?: number;
@@ -28,7 +37,7 @@ export async function fetchMarketplaceListings(opts?: {
 
 export async function fetchMarketplaceListingById(listingId: string): Promise<Product | null> {
   const listing = await fetchMarketplaceListingFromWeb(listingId);
-  if (!listing || !isPublishedOnMarketplace(listing.listingStatus)) return null;
+  if (!listing || !isMarketplaceDetailVisible(listing.listingStatus)) return null;
   return mapWebMarketplaceListingToProduct(listing);
 }
 

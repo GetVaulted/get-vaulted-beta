@@ -159,12 +159,18 @@ export function MarketplaceItemPurchasePanel({ listing, extras }: MarketplaceIte
   const showTradeButton = allowTrades && listingIsActive && !listingUnavailable && !isOwnListing;
 
   if (listingUnavailable) {
+    const statusMessage =
+      listing.listingStatus === "sold"
+        ? "This item has sold."
+        : listing.listingStatus === "layaway_reserved"
+          ? "Reserved on layaway — not available for purchase."
+          : legacyAuction
+            ? "This listing is no longer available in the marketplace. Auctions now run only during Live Shows."
+            : "This listing is not available for purchase right now.";
     return (
       <div className="space-y-3">
         <p className="rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-zinc-400">
-          {legacyAuction
-            ? "This listing is no longer available in the marketplace. Auctions now run only during Live Shows."
-            : "This listing is not available for purchase right now."}
+          {statusMessage}
         </p>
         <Link href="/marketplace" className="text-sm font-semibold text-gold-bright hover:underline">
           Browse marketplace

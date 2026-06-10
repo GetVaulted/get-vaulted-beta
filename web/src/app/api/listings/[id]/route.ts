@@ -4,7 +4,7 @@ import { resolveListingsUserId, resolveOptionalListingsUserId } from "@/lib/reso
 import { computeAuctionEndsAt } from "@/lib/auction";
 import { hasCompleteParcel } from "@/lib/listing-publish";
 import { closeAuctionIfDuePrisma } from "@/lib/auction-close";
-import { isListingPubliclyVisible } from "@/lib/listing-moderation";
+import { isListingMarketplaceDetailVisible, isListingPubliclyVisible } from "@/lib/listing-moderation";
 import { getLatestEndRequestForListing } from "@/lib/listing-end-service";
 import { prisma } from "@/lib/prisma";
 import { assertSellerCanPublishListing } from "@/lib/seller-publish-readiness";
@@ -49,8 +49,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const isOwner = viewerUserId === row.sellerId;
   const isAdmin = session?.user?.role === "admin";
   const isPublic = isListingPubliclyVisible(row);
-  const ownerCanView = isOwner && (isPublic || row.status === "ended" || row.status === "draft");
-  if (!isPublic && !ownerCanView && !isAdmin) {
+  const isDetailVisible = isListingMarketplaceDetailVisible(row);
+  const ownerCanView = isOwner && (isDetailVisible || row.status === "ended" || row.status === "draft");
+  if (!isDetailVisible && !ownerCanView && !isAdmin) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   if (isPublic && isHiddenFixtureSellerEmail(row.seller.email) && !isOwner && !isAdmin) {
@@ -76,7 +77,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       : null;
 
   return NextResponse.json({
-    marketplace: isPublic ? dbListingToMarketplace(row, bc != null ? { bidCount: bc } : undefined) : null,
+    marketplace: isDetailVisible ? dbListingToMarketplace(row, bc != null ? { bidCount: bc } : undefined) : null,
     stored: isOwner ? dbListingToStored(row, pending, bc, { auctionPaymentDeadlineIso }) : null,
     bidCount: isOwner && row.buyingFormat === "auction" ? bc ?? 0 : undefined,
     endRequest: isOwner ? endRequest : null,
