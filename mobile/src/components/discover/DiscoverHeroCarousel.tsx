@@ -1,7 +1,6 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRef, useState } from 'react';
 import {
-  Dimensions,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Pressable,
@@ -11,10 +10,11 @@ import {
   View,
 } from 'react-native';
 import { VaultImage } from '../ui/VaultImage';
+import { useMarketplaceLayout } from '../../hooks/useMarketplaceLayout';
+import { marketplaceFontSize, MARKETPLACE_TEXT_PROPS } from '../../lib/marketplaceUiScale';
 import type { MarketplaceHeroSlide } from '../../types/marketplaceUi';
 import { colors, radii, spacing } from '../../theme';
 
-const HERO_H = 132;
 const GAP = spacing.sm;
 
 export function MarketplaceHeroCarousel({
@@ -24,10 +24,12 @@ export function MarketplaceHeroCarousel({
   slides: MarketplaceHeroSlide[];
   onSlidePress?: (slide: MarketplaceHeroSlide) => void;
 }) {
+  const layout = useMarketplaceLayout();
+  const cardW = layout.contentWidth;
+  const heroH = layout.heroHeight;
+
   if (!slides.length) return null;
 
-  const screenW = Dimensions.get('window').width;
-  const cardW = screenW - spacing.lg * 2;
   const [index, setIndex] = useState(0);
   const ref = useRef<ScrollView>(null);
 
@@ -53,12 +55,12 @@ export function MarketplaceHeroCarousel({
           <Pressable
             key={slide.id}
             onPress={() => onSlidePress?.(slide)}
-            style={[styles.card, { width: cardW }]}
+            style={[styles.card, { width: cardW, height: heroH }]}
           >
             <VaultImage
               uri={slide.imageUrl}
               width={cardW}
-              height={HERO_H}
+              height={heroH}
               priority={slideIndex === 0 ? 'high' : 'normal'}
               contentFit="cover"
               style={StyleSheet.absoluteFillObject}
@@ -69,12 +71,21 @@ export function MarketplaceHeroCarousel({
               style={StyleSheet.absoluteFill}
             />
             <View style={styles.inner}>
-              <Text style={styles.kicker}>{slide.kicker}</Text>
-              <Text style={styles.title} numberOfLines={2}>
+              <Text style={[styles.kicker, { fontSize: marketplaceFontSize(9, layout.scale) }]} {...MARKETPLACE_TEXT_PROPS}>
+                {slide.kicker}
+              </Text>
+              <Text
+                style={[styles.title, { fontSize: marketplaceFontSize(layout.compact ? 15 : 17, layout.scale) }]}
+                numberOfLines={2}
+                ellipsizeMode="tail"
+                {...MARKETPLACE_TEXT_PROPS}
+              >
                 {slide.title}
               </Text>
               <View style={styles.cta}>
-                <Text style={styles.ctaTxt}>{slide.cta}</Text>
+                <Text style={[styles.ctaTxt, { fontSize: marketplaceFontSize(11, layout.scale) }]} {...MARKETPLACE_TEXT_PROPS}>
+                  {slide.cta}
+                </Text>
               </View>
             </View>
           </Pressable>
@@ -90,25 +101,23 @@ export function MarketplaceHeroCarousel({
 }
 
 const styles = StyleSheet.create({
-  wrap: { marginBottom: spacing.md },
-  rail: { gap: GAP, paddingRight: spacing.lg },
+  wrap: { marginBottom: spacing.md, maxWidth: '100%' },
+  rail: { gap: GAP },
   card: {
-    height: HERO_H,
     borderRadius: radii.lg,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(212,175,55,0.35)',
+    flexShrink: 0,
   },
   inner: { flex: 1, justifyContent: 'flex-end', padding: spacing.md },
   kicker: {
-    fontSize: 9,
     fontWeight: '900',
     letterSpacing: 1.2,
     color: colors.gold,
     textTransform: 'uppercase',
   },
   title: {
-    fontSize: 17,
     fontWeight: '900',
     color: '#fff',
     letterSpacing: -0.3,
@@ -124,7 +133,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(212,175,55,0.45)',
   },
-  ctaTxt: { fontSize: 11, fontWeight: '800', color: colors.gold },
+  ctaTxt: { fontWeight: '800', color: colors.gold },
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: spacing.sm },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.15)' },
   dotOn: { backgroundColor: colors.gold, width: 18 },

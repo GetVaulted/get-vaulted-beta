@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StyleSheet, Text, View } from 'react-native';
+import { useMarketplaceLayout } from '../../hooks/useMarketplaceLayout';
+import { marketplaceFontSize, MARKETPLACE_TEXT_PROPS } from '../../lib/marketplaceUiScale';
 import { colors, radii, spacing } from '../../theme';
 
 const SUBTITLE = 'Buy verified grails across the vault.';
 
-/** Restrained ambient layers — typography stays primary. */
 function HeaderAmbience() {
   return (
     <>
@@ -44,6 +45,11 @@ function HeaderAmbience() {
 }
 
 export function MarketplaceVaultHeader() {
+  const layout = useMarketplaceLayout();
+  const titleSize = marketplaceFontSize(layout.compact ? 28 : 34, layout.scale);
+  const titleLine = marketplaceFontSize(layout.compact ? 32 : 38, layout.scale);
+  const subtitleSize = marketplaceFontSize(layout.compact ? 13 : 14, layout.scale);
+
   return (
     <View style={styles.shell} accessibilityRole="header">
       <HeaderAmbience />
@@ -51,17 +57,30 @@ export function MarketplaceVaultHeader() {
       <View style={styles.content}>
         <View style={styles.topRow}>
           <View style={styles.eyebrow}>
-            <Ionicons name="diamond-outline" size={11} color={colors.gold} />
-            <Text style={styles.eyebrowTxt}>Get Vaulted</Text>
+            <Ionicons name="diamond-outline" size={layout.compact ? 10 : 11} color={colors.gold} />
+            <Text style={[styles.eyebrowTxt, { fontSize: marketplaceFontSize(10, layout.scale) }]} {...MARKETPLACE_TEXT_PROPS}>
+              Get Vaulted
+            </Text>
           </View>
-          <View style={styles.verifiedPill}>
-            <Ionicons name="shield-checkmark" size={12} color={colors.gold} />
-            <Text style={styles.verifiedTxt}>Verified inventory</Text>
+          <View style={[styles.verifiedPill, layout.compact && styles.verifiedPillCompact]}>
+            <Ionicons name="shield-checkmark" size={layout.compact ? 11 : 12} color={colors.gold} />
+            <Text
+              style={[styles.verifiedTxt, { fontSize: marketplaceFontSize(10, layout.scale) }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              {...MARKETPLACE_TEXT_PROPS}
+            >
+              Verified inventory
+            </Text>
           </View>
         </View>
 
         <View style={styles.titleBlock}>
-          <Text style={styles.titleLead} accessibilityRole="text">
+          <Text
+            style={[styles.titleLead, { fontSize: titleSize, lineHeight: titleLine }]}
+            accessibilityRole="text"
+            {...MARKETPLACE_TEXT_PROPS}
+          >
             The{' '}
             <Text style={styles.titleVault}>Vault</Text>
           </Text>
@@ -73,7 +92,14 @@ export function MarketplaceVaultHeader() {
           />
         </View>
 
-        <Text style={styles.subtitle}>{SUBTITLE}</Text>
+        <Text
+          style={[styles.subtitle, { fontSize: subtitleSize, maxWidth: layout.contentWidth * 0.92 }]}
+          numberOfLines={2}
+          ellipsizeMode="tail"
+          {...MARKETPLACE_TEXT_PROPS}
+        >
+          {SUBTITLE}
+        </Text>
       </View>
     </View>
   );
@@ -81,11 +107,12 @@ export function MarketplaceVaultHeader() {
 
 const styles = StyleSheet.create({
   shell: {
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
     borderRadius: radii.lg,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.06)',
+    maxWidth: '100%',
   },
   matteBase: {
     ...StyleSheet.absoluteFillObject,
@@ -140,6 +167,7 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sm,
     paddingHorizontal: spacing.xs,
     zIndex: 1,
+    maxWidth: '100%',
   },
   topRow: {
     flexDirection: 'row',
@@ -152,9 +180,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flexShrink: 1,
   },
   eyebrowTxt: {
-    fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.4,
     color: 'rgba(212,175,55,0.85)',
@@ -170,21 +198,27 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(212,175,55,0.22)',
     backgroundColor: 'rgba(255,255,255,0.03)',
+    flexShrink: 1,
+    maxWidth: '52%',
+  },
+  verifiedPillCompact: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    maxWidth: '48%',
   },
   verifiedTxt: {
-    fontSize: 10,
     fontWeight: '700',
     color: colors.textMuted,
+    flexShrink: 1,
   },
   titleBlock: {
     alignSelf: 'flex-start',
+    maxWidth: '100%',
   },
   titleLead: {
-    fontSize: 34,
     fontWeight: '300',
     color: colors.textPrimary,
     letterSpacing: -0.8,
-    lineHeight: 38,
   },
   titleVault: {
     fontWeight: '900',
@@ -200,11 +234,9 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     marginTop: spacing.sm,
-    fontSize: 14,
     fontWeight: '600',
     color: colors.textMuted,
     lineHeight: 20,
     letterSpacing: -0.1,
-    maxWidth: 320,
   },
 });

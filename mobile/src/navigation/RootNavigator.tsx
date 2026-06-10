@@ -82,6 +82,18 @@ const BuyerLayawaysScreen = lazyScreen(
   () => import('../screens/account/BuyerLayawaysScreen'),
   (m) => m.BuyerLayawaysScreen,
 );
+const MarketplaceCheckoutScreen = lazyScreen(
+  () => import('../screens/marketplace/MarketplaceCheckoutScreen'),
+  (m) => m.MarketplaceCheckoutScreen,
+);
+const SellerLayawaysScreen = lazyScreen(
+  () => import('../screens/seller/SellerLayawaysScreen'),
+  (m) => m.SellerLayawaysScreen,
+);
+const SellerLayawayDetailScreen = lazyScreen(
+  () => import('../screens/seller/SellerLayawayDetailScreen'),
+  (m) => m.SellerLayawayDetailScreen,
+);
 const SellerListingManagementScreen = lazyScreen(
   () => import('../screens/seller/SellerListingManagementScreen'),
   (m) => m.SellerListingManagementScreen,
@@ -155,6 +167,14 @@ export function RootNavigator() {
             }}
           />
           <Stack.Screen
+            name="MarketplaceCheckout"
+            component={MarketplaceCheckoutScreen}
+            options={{
+              presentation: 'card',
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen
             name="SellerListingManagement"
             component={SellerListingManagementScreen}
             options={{ animation: 'slide_from_right', presentation: 'card' }}
@@ -209,6 +229,8 @@ export function RootNavigator() {
           <Stack.Screen name="BuyerOrders" component={BuyerOrdersScreen} />
           <Stack.Screen name="BuyerOrderDetail" component={BuyerOrderDetailScreen} />
           <Stack.Screen name="BuyerLayaways" component={BuyerLayawaysScreen} />
+          <Stack.Screen name="SellerLayaways" component={SellerLayawaysScreen} />
+          <Stack.Screen name="SellerLayawayDetail" component={SellerLayawayDetailScreen} />
         </Stack.Navigator>
       </CreateListingDraftProvider>
     </NavigationContainer>

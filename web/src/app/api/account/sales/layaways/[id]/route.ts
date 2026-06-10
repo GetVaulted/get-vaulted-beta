@@ -1,14 +1,11 @@
 import { NextResponse } from "next/server";
 import { accountApiAuthDiagnostics } from "@/lib/account-api-auth-log";
+import { deriveSellerLayawayUi } from "@/lib/layaway/seller-ui-status";
 import { prisma } from "@/lib/prisma";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function isOverdueActive(dueAt: Date, status: string): boolean {
-  return status === "active" && dueAt.getTime() < Date.now();
-}
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const auth = await resolveLiveRoomsUserId(req);
@@ -76,6 +73,12 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     ...accountApiAuthDiagnostics(req),
   });
 
+  const sellerUi = deriveSellerLayawayUi({
+    status: row.status,
+    dueAt: row.dueAt,
+    remainingBalanceUsd: row.remainingBalanceUsd,
+  });
+
   return NextResponse.json({
     layaway: {
       id: row.id,
@@ -88,7 +91,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       buyerUsername: row.buyer.username,
       planType: row.planType,
       status: row.status,
-      displayStatus: isOverdueActive(row.dueAt, row.status) ? "overdue" : row.status,
+      displayStatus: sellerUi.displayStatus,
       originalPriceUsd: row.originalPriceUsd,
       shippingPriceUsd: row.shippingPriceUsd,
       depositAmountUsd: row.depositAmountUsd,

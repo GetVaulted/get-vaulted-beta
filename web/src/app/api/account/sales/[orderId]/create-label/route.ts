@@ -3,6 +3,7 @@ import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { canSellerCreateShippingLabel } from "@/lib/order-shipping-guards";
 import { prisma } from "@/lib/prisma";
 import { fulfillOrderShippingAfterPayment } from "@/services/shipping";
+import { processLabelCreatedPayoutEvaluation } from "@/services/payout/process-payout-tier-events";
 
 export const runtime = "nodejs";
 
@@ -62,6 +63,10 @@ export async function POST(_req: Request, ctx: { params: Promise<{ orderId: stri
       shippingStatus: true,
     },
   });
+
+  if (next?.shippoTransactionId || next?.labelUrl) {
+    void processLabelCreatedPayoutEvaluation(order.id);
+  }
 
   if (next?.fulfillmentStatus === "exception") {
     return NextResponse.json({

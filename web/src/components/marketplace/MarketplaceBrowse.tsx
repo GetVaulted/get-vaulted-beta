@@ -9,8 +9,15 @@ const sortOptions = [
   { value: "recent", label: "Recently listed" },
   { value: "price-asc", label: "Price: Low to high" },
   { value: "price-desc", label: "Price: High to low" },
-  { value: "rating", label: "Seller rating" },
+  { value: "seller-level", label: "Seller level" },
 ] as const;
+
+const SELLER_LEVEL_RANK: Record<string, number> = {
+  elite_vault_verified: 4,
+  vault_verified: 3,
+  trusted_seller: 2,
+  vault_seller: 1,
+};
 
 const conditionOptions = ["Any", "PSA 10", "PSA 9", "BGS 9.5", "Raw", "DS", "Excellent", "Authenticated", "LOA", "Unworn"] as const;
 
@@ -78,8 +85,12 @@ export function MarketplaceBrowse() {
     if (sort === "recent") sorted.sort((a, b) => parseListedAt(b.listedAt) - parseListedAt(a.listedAt));
     if (sort === "price-asc") sorted.sort((a, b) => a.price - b.price);
     if (sort === "price-desc") sorted.sort((a, b) => b.price - a.price);
-    if (sort === "rating")
-      sorted.sort((a, b) => (b.sellerRating ?? 0) - (a.sellerRating ?? 0));
+    if (sort === "seller-level") {
+      sorted.sort(
+        (a, b) =>
+          (SELLER_LEVEL_RANK[b.sellerLevel ?? ""] ?? 0) - (SELLER_LEVEL_RANK[a.sellerLevel ?? ""] ?? 0),
+      );
+    }
 
     return sorted;
   }, [allListings, category, condition, priceMax, priceMin, query, sort]);

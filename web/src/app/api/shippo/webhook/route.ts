@@ -5,6 +5,7 @@ import { verifyShippoWebhookSignature } from "@/lib/shippo";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import { mapShippoTrackingToFulfillment } from "@/services/shipping";
 import { processDeliveryPayoutEvaluation } from "@/services/payout/process-delivery-payout";
+import { processCarrierAcceptancePayoutEvaluation } from "@/services/payout/process-payout-tier-events";
 import {
   createWebhookLogEntry,
   markWebhookLogFailure,
@@ -136,6 +137,7 @@ export async function POST(req: Request) {
         });
         void processDeliveryPayoutEvaluation(o.id);
       } else if (mapped === "in_transit" && prev !== "in_transit" && prev !== "delivered") {
+        void processCarrierAcceptancePayoutEvaluation(o.id);
         await logSellerCommerceEvent({
           sellerId: o.sellerId,
           listingId: o.listingId,

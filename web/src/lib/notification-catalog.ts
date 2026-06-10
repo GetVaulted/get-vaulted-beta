@@ -22,6 +22,7 @@ const BUYING_TYPES = new Set<string>([
   "layaway_final_warning",
   "layaway_completed",
   "layaway_defaulted",
+  "layaway_payment",
 ]);
 
 const SELLING_TYPES = new Set<string>([
@@ -35,6 +36,7 @@ const SELLING_TYPES = new Set<string>([
   "layaway_started_seller",
   "layaway_completed_seller",
   "layaway_defaulted_seller",
+  "layaway_payment_seller",
 ]);
 
 export function notificationLane(type: string): NotificationLane {
@@ -79,9 +81,11 @@ export function notificationTypeChip(type: string): string {
     layaway_final_warning: "Layaway due",
     layaway_completed: "Layaway paid",
     layaway_defaulted: "Layaway expired",
+    layaway_payment: "Layaway payment",
     layaway_started_seller: "On layaway",
     layaway_completed_seller: "Layaway done",
     layaway_defaulted_seller: "Layaway expired",
+    layaway_payment_seller: "Layaway payment",
   };
   return map[type] ?? type.replace(/_/g, " ");
 }

@@ -36,7 +36,6 @@ import {
 import {
   clearSellerWizardComplete,
   markSellerWizardCompleteLocal,
-  readSellerWizardComplete,
 } from '../../lib/sellerWizardStorage';
 import { markSellerSetupWizardCompleteOnServer } from '../../api/sellerAccountRepository';
 import {
@@ -75,6 +74,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   const [displayName, setDisplayName] = useState('');
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [profileBusy, setProfileBusy] = useState(false);
+  const [finishBusy, setFinishBusy] = useState(false);
   const [sellerAgreementAccepted, setSellerAgreementAccepted] = useState(false);
 
   const [payoutBusy, setPayoutBusy] = useState(false);
@@ -188,16 +188,25 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   useEffect(() => {
     if (setup.phase === 'loading' || !setup.checks || stepInitRef.current) return;
     stepInitRef.current = true;
-    void readSellerWizardComplete().then((wizardComplete) => {
-      setStep(
-        resolveSellerWizardStep({
-          checks: setup.checks,
-          wizardComplete,
-        }),
-      );
-      setStepReady(true);
-    });
-  }, [setup.phase, setup.checks]);
+    const agreementAccepted = Boolean(setup.sellerAgreementAcceptedAt);
+    const wizardComplete =
+      Boolean(setup.sellerSetupWizardCompletedAt) && agreementAccepted && setup.wizardComplete;
+    if (agreementAccepted) setSellerAgreementAccepted(true);
+    setStep(
+      resolveSellerWizardStep({
+        checks: setup.checks,
+        wizardComplete,
+        sellerAgreementAccepted: agreementAccepted,
+      }),
+    );
+    setStepReady(true);
+  }, [
+    setup.phase,
+    setup.checks,
+    setup.sellerSetupWizardCompletedAt,
+    setup.sellerAgreementAcceptedAt,
+    setup.wizardComplete,
+  ]);
 
   const goBack = useCallback(() => {
     if (step === 2) {
@@ -309,16 +318,22 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
       Alert.alert('Seller agreement', 'Accept the seller agreement before finishing setup.');
       return;
     }
-    await markSellerWizardCompleteLocal();
-    if (token) {
-      try {
-        await markSellerSetupWizardCompleteOnServer(token, true);
-      } catch {
-        /* local flag still unlocks this device */
-      }
+    if (!token) {
+      Alert.alert('Sign in required', 'Sign in again to finish seller setup.');
+      return;
     }
-    setup.setWizardCompleteLocal(true);
-    setStep(5);
+    setFinishBusy(true);
+    try {
+      await markSellerSetupWizardCompleteOnServer(token, true);
+      await markSellerWizardCompleteLocal();
+      setup.setWizardCompleteLocal(true);
+      await setup.refetchSilent();
+      setStep(5);
+    } catch (e) {
+      Alert.alert('Could not finish setup', e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setFinishBusy(false);
+    }
   };
 
   const saveProfile = async () => {
@@ -634,12 +649,12 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
                 onBack={goBack}
                 primaryLabel={profileBusy ? 'Saving…' : 'Save & continue'}
                 onPrimary={() => void saveProfile()}
-                primaryDisabled={profileBusy || !sellerAgreementAccepted}
+                primaryDisabled={profileBusy || finishBusy || !sellerAgreementAccepted}
               />
               <SecondaryButton
-                label="Skip for now"
+                label="Continue without photo"
                 onPress={() => void finishWizard()}
-                disabled={profileBusy || !sellerAgreementAccepted}
+                disabled={profileBusy || finishBusy || !sellerAgreementAccepted}
               />
             </>
           ) : null}

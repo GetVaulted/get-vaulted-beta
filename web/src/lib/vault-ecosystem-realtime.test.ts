@@ -29,7 +29,9 @@ describe("vault-ecosystem-realtime", () => {
 
   it("classifies layaway, order, and listing events", () => {
     expect(isLayawayEcosystemEventType("layaway_started")).toBe(true);
+    expect(isLayawayEcosystemEventType("layaway_status_changed")).toBe(true);
     expect(isOrderEcosystemEventType("order_created_from_layaway")).toBe(true);
+    expect(isOrderEcosystemEventType("order_status_changed")).toBe(true);
     expect(isListingEcosystemEventType("listing_reserved_on_layaway")).toBe(true);
   });
 

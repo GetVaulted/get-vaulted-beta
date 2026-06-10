@@ -32,6 +32,7 @@ async function safe<T>(label: string, fn: () => Promise<T>, fallback: T): Promis
 export type AccountSellerPayload = {
   setupWizardComplete: boolean;
   sellerSetupWizardCompletedAt: string | null;
+  sellerAgreementAcceptedAt: string | null;
   seller: {
     username: string;
     stripeAccountId: string | null;
@@ -105,6 +106,7 @@ export async function loadAccountSellerPayload(userId: string, opts?: { provisio
           shipFromZip: true,
           shipFromCountry: true,
           sellerSetupWizardCompletedAt: true,
+          sellerAgreementAcceptedAt: true,
           defaultShipFromAddressId: true,
         },
       }),
@@ -344,6 +346,7 @@ export async function loadAccountSellerPayload(userId: string, opts?: { provisio
   return {
     setupWizardComplete: Boolean(user.sellerSetupWizardCompletedAt),
     sellerSetupWizardCompletedAt: user.sellerSetupWizardCompletedAt?.toISOString() ?? null,
+    sellerAgreementAcceptedAt: user.sellerAgreementAcceptedAt?.toISOString() ?? null,
     seller: user,
     stripePlatformConfigured: isStripeConfigured(),
     stripeEmbedOnboardingAvailable:

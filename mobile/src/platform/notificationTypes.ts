@@ -7,7 +7,8 @@ export type NotificationKind =
   | 'support'
   | 'dispute'
   | 'trade'
-  | 'order';
+  | 'order'
+  | 'layaway';
 
 export type AppNotification = {
   id: string;

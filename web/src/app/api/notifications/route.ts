@@ -1,13 +1,11 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { isDevTempNoDatabaseMode } from "@/lib/dev-temp-no-db";
 import { prisma } from "@/lib/prisma";
+import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
 
 export async function GET(req: Request) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await resolveListingsUserId(req);
+  if (auth instanceof NextResponse) return auth;
 
   if (isDevTempNoDatabaseMode()) {
     return NextResponse.json({ notifications: [], unreadCount: 0 });
@@ -19,7 +17,7 @@ export async function GET(req: Request) {
 
   const [notifications, unreadCount] = await Promise.all([
     prisma.notification.findMany({
-      where: { userId: session.user.id },
+      where: { userId: auth.userId },
       orderBy: { createdAt: "desc" },
       take: limit,
       select: {
@@ -33,7 +31,7 @@ export async function GET(req: Request) {
       },
     }),
     prisma.notification.count({
-      where: { userId: session.user.id, readAt: null },
+      where: { userId: auth.userId, readAt: null },
     }),
   ]);
 

@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { marketplaceFontSize, MARKETPLACE_TEXT_PROPS } from '../lib/marketplaceUiScale';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -11,9 +12,6 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { typography } from '../theme';
-
-const ORB = 54;
-const RING = 48;
 
 /** Deep control-room glass + amber broadcast edge — reads “on air” without flat app red. */
 const GRADIENT_ON = ['#03060c', '#0a1420', '#122438', '#8a5a12', '#e8b84a', '#fff2c4'] as const;
@@ -26,6 +24,11 @@ type Props = {
 };
 
 export function LiveTabOrb({ isFocused, onPress, accessibilityLabel }: Props) {
+  const { width } = useWindowDimensions();
+  const scale = Math.min(1, Math.max(0.88, width / 430));
+  const orbSize = Math.round(54 * scale);
+  const ringSize = Math.round(48 * scale);
+  const stackSize = Math.round(92 * scale);
   const wave1 = useSharedValue(0);
   const wave2 = useSharedValue(0);
   const breathe = useSharedValue(1);
@@ -83,31 +86,37 @@ export function LiveTabOrb({ isFocused, onPress, accessibilityLabel }: Props) {
         onPress={onPress}
         style={({ pressed }) => [styles.press, pressed && styles.pressed]}
       >
-        <View style={styles.orbStack}>
-          <Animated.View style={[styles.halo, haloStyle]} />
-          <Animated.View style={[styles.ring, ring1Style]} />
-          <Animated.View style={[styles.ring, ring2Style]} />
+        <View style={[styles.orbStack, { width: stackSize, height: stackSize }]}>
+          <Animated.View style={[styles.halo, { width: orbSize + 32, height: orbSize + 32, borderRadius: (orbSize + 32) / 2 }, haloStyle]} />
+          <Animated.View style={[styles.ring, { width: ringSize, height: ringSize, borderRadius: ringSize / 2 }, ring1Style]} />
+          <Animated.View style={[styles.ring, { width: ringSize, height: ringSize, borderRadius: ringSize / 2 }, ring2Style]} />
 
           <Animated.View style={[styles.orbScale, orbScaleStyle, isFocused ? styles.orbGlowOn : styles.orbGlowOff]}>
             <LinearGradient
               colors={isFocused ? [...GRADIENT_ON] : [...GRADIENT_OFF]}
               start={{ x: 0.12, y: 0 }}
               end={{ x: 0.92, y: 1 }}
-              style={styles.orbOuter}
+              style={[styles.orbOuter, { width: orbSize, height: orbSize, borderRadius: orbSize / 2 }]}
             >
               <LinearGradient
                 colors={['#070606', '#121010', '#080707']}
                 start={{ x: 0.5, y: 0 }}
                 end={{ x: 0.5, y: 1 }}
-                style={styles.orbInner}
+                style={[styles.orbInner, { width: orbSize - 6, height: orbSize - 6, borderRadius: (orbSize - 6) / 2 }]}
               >
-                <Ionicons name="radio" size={24} color={isFocused ? '#FFF9EC' : 'rgba(255, 236, 200, 0.72)'} />
+                <Ionicons name="radio" size={Math.round(24 * scale)} color={isFocused ? '#FFF9EC' : 'rgba(255, 236, 200, 0.72)'} />
               </LinearGradient>
             </LinearGradient>
           </Animated.View>
         </View>
 
-        <Text style={[styles.liveLbl, isFocused && styles.liveLblOn]}>Live</Text>
+        <Text
+          style={[styles.liveLbl, { fontSize: marketplaceFontSize(10, scale) }, isFocused && styles.liveLblOn]}
+          numberOfLines={1}
+          {...MARKETPLACE_TEXT_PROPS}
+        >
+          Live
+        </Text>
       </Pressable>
     </View>
   );
@@ -128,25 +137,17 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   orbStack: {
-    width: 92,
-    height: 92,
     alignItems: 'center',
     justifyContent: 'center',
   },
   ring: {
     position: 'absolute',
-    width: RING,
-    height: RING,
-    borderRadius: RING / 2,
     borderWidth: 2,
     borderColor: 'rgba(255, 210, 140, 0.42)',
     backgroundColor: 'transparent',
   },
   halo: {
     position: 'absolute',
-    width: ORB + 32,
-    height: ORB + 32,
-    borderRadius: (ORB + 32) / 2,
     backgroundColor: 'rgba(255, 190, 110, 0.16)',
     shadowColor: '#ffc86a',
     shadowOpacity: 0.75,
@@ -173,17 +174,11 @@ const styles = StyleSheet.create({
   },
   pressed: { opacity: 0.9 },
   orbOuter: {
-    width: ORB,
-    height: ORB,
-    borderRadius: ORB / 2,
     padding: 3,
     alignItems: 'center',
     justifyContent: 'center',
   },
   orbInner: {
-    width: ORB - 6,
-    height: ORB - 6,
-    borderRadius: (ORB - 6) / 2,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,
@@ -192,7 +187,6 @@ const styles = StyleSheet.create({
   liveLbl: {
     marginTop: 4,
     ...typography.micro,
-    fontSize: 10,
     letterSpacing: 0.6,
     color: 'rgba(255, 214, 160, 0.78)',
     fontWeight: '800',

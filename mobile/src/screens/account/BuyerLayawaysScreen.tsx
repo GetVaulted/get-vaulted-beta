@@ -1,12 +1,12 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchBuyerLayaways, startLayawayPayment, type LayawayRow } from '../../api/layawayRepository';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { useAuth } from '../../auth/AuthContext';
-import { useVaultEcosystemEvents } from '../../hooks/useVaultEcosystemEvents';
+import { useCanonicalUserId } from '../../hooks/useCanonicalUserId';
+import { useMoneyStateSync } from '../../hooks/useMoneyStateSync';
 import { openWebCommerceUrl } from '../../lib/openWebCommerce';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
@@ -20,6 +20,7 @@ function formatMoney(n: number) {
 export function BuyerLayawaysScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { session, user } = useAuth();
+  const canonicalUserId = useCanonicalUserId(session?.access_token);
   const [rows, setRows] = useState<LayawayRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [payingId, setPayingId] = useState<string | null>(null);
@@ -36,19 +37,11 @@ export function BuyerLayawaysScreen({ navigation }: Props) {
     setLoading(false);
   }, [session?.access_token]);
 
-  useFocusEffect(
-    useCallback(() => {
-      void load();
-    }, [load]),
-  );
-
-  const onLayawayEvent = useCallback(() => {
-    void load();
-  }, [load]);
-
-  useVaultEcosystemEvents(user?.id, {
+  useMoneyStateSync({
     enabled: Boolean(session?.access_token && user?.id),
-    onLayaway: onLayawayEvent,
+    canonicalUserId,
+    supabaseUserId: user?.id,
+    refetch: load,
   });
 
   const payRemaining = async (row: LayawayRow) => {

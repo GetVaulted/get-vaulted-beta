@@ -31,8 +31,18 @@ describe('resolveWizardCompleteFromSources', () => {
       stickyServerConfirmed: false,
       serverResponded: true,
     });
-    expect(r.wizardComplete).toBe(true);
+    expect(r.wizardComplete).toBe(false);
     expect(r.serverExplicitIncomplete).toBe(true);
+  });
+
+  it('does not unlock from AsyncStorage alone when server has not confirmed', () => {
+    const r = resolveWizardCompleteFromSources({
+      localWizardComplete: true,
+      stickyServerConfirmed: false,
+      serverResponded: true,
+    });
+    expect(r.wizardComplete).toBe(false);
+    expect(r.serverWizardConfirmed).toBe(false);
   });
 
   it('uses setupWizardComplete boolean when timestamp omitted', () => {

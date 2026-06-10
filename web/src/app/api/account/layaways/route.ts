@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSessionSafe } from "@/lib/auth";
 import { serializeBuyerLayawayRow } from "@/lib/layaway/serialize-buyer-layaway";
 import { prisma } from "@/lib/prisma";
-import { processLayawayMaintenance } from "@/services/layaway";
+import { processLayawayMaintenance, repairStaleActiveLayaways } from "@/services/layaway";
 
 export async function GET() {
   const session = await getServerSessionSafe();
@@ -10,6 +10,7 @@ export async function GET() {
 
   try {
     await processLayawayMaintenance();
+    await repairStaleActiveLayaways();
   } catch (e) {
     console.error("[layaways] maintenance", e);
   }

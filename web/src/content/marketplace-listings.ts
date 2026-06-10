@@ -11,8 +11,9 @@ export type MarketplaceListing = {
   /** When set (e.g. seller-uploaded photos), cards and gallery use these URLs instead of the image seed. */
   imageUrls?: string[];
   sellerUsername: string;
-  /** Omitted until a real seller reputation aggregate exists. */
-  sellerRating?: number;
+  /** Public trust badge — separate from internal payout mechanics. */
+  sellerLevel?: "vault_seller" | "trusted_seller" | "vault_verified" | "elite_vault_verified";
+  sellerLevelLabel?: string;
   sellerVerified: boolean;
   category: MarketplaceCategory;
   buyingFormat: MarketplaceBuyingFormat;

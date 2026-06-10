@@ -118,6 +118,7 @@ export async function fulfillOrderShippingAfterPayment(orderId: string): Promise
       status?: string;
     };
 
+    const labelNow = new Date();
     await prisma.order.update({
       where: { id: orderId },
       data: {
@@ -130,9 +131,14 @@ export async function fulfillOrderShippingAfterPayment(orderId: string): Promise
         labelUrl: tx.label_url ?? null,
         shippingStatus: tx.status ?? "UNKNOWN",
         fulfillmentStatus: "label_created",
+        labelCreatedAt: labelNow,
         shippingLabelCostCents,
       },
     });
+    const { processLabelCreatedPayoutEvaluation } = await import(
+      "@/services/payout/process-payout-tier-events"
+    );
+    void processLabelCreatedPayoutEvaluation(orderId);
     const chargedCents =
       order.shippingChargedCents ?? Math.round(Math.max(0, order.shippingPriceUsd) * 100);
     console.info("[shipping economics]", {

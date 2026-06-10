@@ -131,13 +131,13 @@ export function resolveWizardCompleteFromSources(input: {
   }
   if (input.serverResponded && input.setupWizardComplete === false && !serverAt) {
     return {
-      wizardComplete: input.localWizardComplete,
+      wizardComplete: false,
       serverWizardConfirmed: false,
       serverExplicitIncomplete: true,
     };
   }
   return {
-    wizardComplete: input.localWizardComplete,
+    wizardComplete: false,
     serverWizardConfirmed: false,
     serverExplicitIncomplete: false,
   };

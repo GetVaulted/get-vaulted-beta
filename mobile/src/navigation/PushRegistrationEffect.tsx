@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useAuth } from '../auth/AuthContext';
+import { useCanonicalUserId, resolveRealtimeUserId } from '../hooks/useCanonicalUserId';
 import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
 import {
   addNotificationReceivedListener,
@@ -15,20 +16,22 @@ import { startVaultRealtimeHub, stopVaultRealtimeHub, subscribeVaultRealtime } f
 /** Registers push token + starts Supabase realtime hub when user is signed in. */
 export function PushRegistrationEffect() {
   const { user, session } = useAuth();
+  const canonicalUserId = useCanonicalUserId(session?.access_token);
+  const realtimeUserId = resolveRealtimeUserId(canonicalUserId, user?.id);
   const registered = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!user?.id) {
+    if (!realtimeUserId) {
       stopVaultRealtimeHub();
       registered.current = null;
       return;
     }
 
-    startVaultRealtimeHub(user.id);
+    startVaultRealtimeHub(realtimeUserId);
 
     const syncNotifications = () => {
       const token = session?.access_token;
-      if (token) void syncServerNotifications(user.id, token);
+      if (token && user?.id) void syncServerNotifications(user.id, token);
     };
 
     const unsubRealtime = subscribeVaultRealtime((channel) => {
@@ -47,11 +50,11 @@ export function PushRegistrationEffect() {
     const deferPush = deferAfterFirstPaint(() => {
       if (!isPushNotificationsAvailable()) return;
       void (async () => {
-        if (registered.current === user.id) return;
+        if (registered.current === realtimeUserId) return;
         const res = await registerForPushNotifications();
         if (res.ok) {
-          await persistPushToken(user.id, res.token);
-          registered.current = user.id;
+          await persistPushToken(user!.id, res.token);
+          registered.current = realtimeUserId;
         }
       })();
     }, 800);
@@ -67,7 +70,7 @@ export function PushRegistrationEffect() {
       sub.remove();
       stopVaultRealtimeHub();
     };
-  }, [session?.access_token, user?.id]);
+  }, [session?.access_token, user?.id, realtimeUserId]);
 
   return null;
 }

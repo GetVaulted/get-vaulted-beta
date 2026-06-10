@@ -1,5 +1,5 @@
 import type { SellerLiveReadiness } from './liveHostRepository';
-import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
+import { fetchWebApiAuthed } from '../lib/fetchWebApiAuthed';
 
 export type SellerAccountPayload = {
   username: string;
@@ -18,26 +18,14 @@ export type SellerAccountPayload = {
 export type SellerAccountResponse = {
   setupWizardComplete?: boolean;
   sellerSetupWizardCompletedAt?: string | null;
+  sellerAgreementAcceptedAt?: string | null;
   seller: SellerAccountPayload;
   stripePlatformConfigured?: boolean;
   readiness?: SellerLiveReadiness;
 };
 
 async function accountFetch(path: string, accessToken: string, init?: RequestInit): Promise<Response> {
-  const base = getWebApiBaseUrl();
-  if (!base) {
-    throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
-  }
-  const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
-  return fetch(url, {
-    ...init,
-    headers: {
-      Accept: 'application/json',
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-      Authorization: `Bearer ${accessToken}`,
-      ...init?.headers,
-    },
-  });
+  return fetchWebApiAuthed(path, accessToken, init);
 }
 
 export async function fetchSellerAccount(accessToken: string): Promise<SellerAccountResponse> {

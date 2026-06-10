@@ -58,8 +58,8 @@ function apiErrorMessage(res: Response, body: unknown, apiBase?: string): string
   const detail = o?.detail?.trim();
   const errText = o?.error?.trim();
   const htmlHint =
-    rawText && /password|visitor|forbidden|access denied|netlify/i.test(rawText)
-      ? ' Edge/WAF or Netlify visitor gate returned HTML — open beta in Safari once, or set EXPO_PUBLIC_BETA_HTTP_BASIC if deploy password is enabled.'
+    rawText && /<!doctype html|<html/i.test(rawText)
+      ? ' Edge/WAF returned HTML instead of JSON — verify EXPO_PUBLIC_SITE_URL or retry. (Only set EXPO_PUBLIC_BETA_HTTP_BASIC on password-protected preview deploys.)'
       : '';
 
   if (code === "LIVE_COMING_SOON" || status === 503) {

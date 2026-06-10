@@ -14,6 +14,7 @@ import { MarketplaceListingRail } from '../components/discover/DiscoverListingRa
 import { MarketplaceMomentumBar } from '../components/discover/DiscoverMomentumBar';
 import { MarketplaceVaultHeader } from '../components/marketplace/MarketplaceVaultHeader';
 import { SearchBar } from '../components/ui/SearchBar';
+import { useMarketplaceLayout } from '../hooks/useMarketplaceLayout';
 import {
   filterByMarketplaceLane,
   pickEndingSoon,
@@ -40,6 +41,7 @@ type Nav = CompositeNavigationProp<
 
 export function MarketplaceScreen() {
   const insets = useSafeAreaInsets();
+  const layout = useMarketplaceLayout();
   const navigation = useNavigation<Nav>();
   const [lane, setLane] = useState<MarketplaceLaneId>('all');
   const [loading, setLoading] = useState(true);
@@ -123,22 +125,35 @@ export function MarketplaceScreen() {
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.sm }]}>
-      <MarketplaceVaultHeader />
-      <SearchBar
-        placeholder="Search the vault — cards, sneakers, watches…"
-        onPress={() => openHelpCenter(navigation, true)}
-      />
-
-      <MarketplaceCategoryRail active={lane} onChange={setLane} />
-
       <ScrollView
-        contentContainerStyle={styles.body}
+        contentContainerStyle={[
+          styles.body,
+          {
+            paddingHorizontal: layout.horizontalPadding,
+            paddingBottom: layout.tabBarClearance,
+          },
+        ]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={colors.gold} />
         }
       >
-        {loading ? <MarketplaceFeedSkeleton /> : null}
+        <MarketplaceVaultHeader />
+        <SearchBar
+          placeholder="Search the vault — cards, sneakers, watches…"
+          onPress={() => openHelpCenter(navigation, true)}
+          compact={layout.compact}
+        />
+
+        <MarketplaceCategoryRail active={lane} onChange={setLane} bleedPadding={layout.horizontalPadding} />
+
+        {loading ? (
+          <MarketplaceFeedSkeleton
+            heroHeight={layout.heroHeight}
+            cardHeight={layout.listingCardHeight}
+            cardWidth={layout.listingCardWidth}
+          />
+        ) : null}
 
         {!loading && showEmpty ? (
           <PremiumEmptyPanel
@@ -158,7 +173,7 @@ export function MarketplaceScreen() {
         {!loading && hasListings ? (
           <>
             <MarketplaceHeroCarousel slides={heroSlides} onSlidePress={openHeroSlide} />
-            <MarketplaceMomentumBar />
+            <MarketplaceMomentumBar compact={layout.compact} />
 
             <MarketplaceListingRail
               title="Featured listings"
@@ -237,8 +252,6 @@ export function MarketplaceScreen() {
             />
           </>
         ) : null}
-
-        <View style={{ height: spacing.xxxl + 24 }} />
       </ScrollView>
     </View>
   );
@@ -248,10 +261,10 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
-    paddingHorizontal: spacing.lg,
   },
   body: {
     paddingTop: spacing.sm,
-    paddingBottom: 120,
+    gap: spacing.sm,
+    flexGrow: 1,
   },
 });

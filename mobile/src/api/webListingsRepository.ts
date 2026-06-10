@@ -1,4 +1,4 @@
-import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
+import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 import { getSupabase } from '../lib/supabase';
 import type { WebMarketplaceListing } from './webListingsTypes';
 
@@ -41,28 +41,9 @@ function fetchApiErrorMessage(res: Response, body: unknown): string {
   return formatApiErrorMessage(res, body, 'fetch failed');
 }
 
+/** All mobile web API calls — includes beta Basic auth + X-GV-Supabase-Auth swap. */
 export async function fetchWebApi(path: string, init: RequestInit = {}): Promise<Response> {
-  const base = getWebApiBaseUrl();
-  if (!base) {
-    throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
-  }
-  const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
-  try {
-    return await fetch(url, {
-      ...init,
-      headers: {
-        Accept: 'application/json',
-        ...(init.headers ?? {}),
-      },
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(
-      msg.includes('Network request failed') || e instanceof TypeError
-        ? `Could not reach the Vaulted API at ${base}. Check your connection and env.`
-        : msg,
-    );
-  }
+  return fetchWebApiMobile(path, init);
 }
 
 export async function getListingsAccessToken(): Promise<string> {
@@ -171,6 +152,7 @@ export type WebStoredListing = {
   allowOffers?: boolean;
   acceptTradeOffers?: boolean;
   imageDataUrls?: string[];
+  description?: string;
   price?: number;
   startingBid?: number;
   displayBid?: number;

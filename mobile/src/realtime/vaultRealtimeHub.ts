@@ -58,7 +58,7 @@ function routeVaultEcosystemEvent(userId: string, event: VaultEcosystemEvent): v
     emitLocal('layaway_seller', event);
     void onLayawayEcosystemEvent(userId, event);
   }
-  if (event.type === 'order_created_from_layaway' || event.type === 'order_updated') {
+  if (event.type === 'order_created_from_layaway' || event.type === 'order_updated' || event.type === 'order_status_changed') {
     emitLocal('seller_order', event);
     void onOrderEcosystemEvent(userId, event);
   }

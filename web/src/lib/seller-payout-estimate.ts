@@ -45,16 +45,25 @@ export function resolvePlatformFeePercentForSellerOrder(args: {
 export function sellerInstantPayoutBannerMessage(args: {
   instantPayoutEligible: boolean;
   instantPayoutStatus: string;
+  payoutTier?: string;
 }): string {
+  const tier = args.payoutTier ?? "standard";
+  if (tier === "instant") {
+    return "Instant Payout — funds become available immediately after you create a valid shipping label.";
+  }
+  if (tier === "fast") {
+    return "Fast Payout — funds release when tracking shows the first carrier acceptance scan.";
+  }
   const statusLabel = args.instantPayoutStatus.replace(/_/g, " ");
-  if (args.instantPayoutEligible) {
-    return `You are eligible for instant payout after carrier delivery confirmation (${statusLabel}).`;
-  }
   if (args.instantPayoutStatus === "suspended") {
-    return `Instant payout is suspended on your account. Standard payout holds apply after delivery (${statusLabel}).`;
+    return `Payout tier suspended. Standard release after delivery confirmation applies (${statusLabel}).`;
   }
-  if (args.instantPayoutStatus === "admin_override") {
-    return `Instant payout was enabled by admin review. Funds release after delivery confirmation.`;
-  }
-  return `Instant payout is not enabled yet (${statusLabel}). Complete seller setup, verify Stripe payouts, and maintain tracking compliance. Standard payout holds apply after delivery.`;
+  return "Standard Payout — funds release after delivery confirmation. Build your reputation to unlock Fast and Instant Payout tiers.";
+}
+
+export function sellerPayoutTierEducationCopy(): { title: string; body: string } {
+  return {
+    title: "Instant Payouts",
+    body: "Build your reputation on Get Vaulted to unlock faster access to your earnings. Fast Payout sellers receive funds after the first carrier acceptance scan. Instant Payout sellers receive funds immediately after shipping label creation. Eligibility is based on account age, sales volume, account standing, fulfillment performance, and risk review.",
+  };
 }

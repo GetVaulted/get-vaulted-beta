@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
 import { estimateSalesTaxCents, isStripeTaxFeatureEnabled } from "@/lib/stripe-tax";
 
 export const runtime = "nodejs";
@@ -23,10 +23,8 @@ function trim(s: unknown, max = 500): string {
 
 /** Estimate buyer sales tax for checkout UI (Stripe Tax Calculation API). */
 export async function POST(req: Request) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await resolveListingsUserId(req);
+  if (auth instanceof NextResponse) return auth;
 
   if (!isStripeTaxFeatureEnabled()) {
     return NextResponse.json({

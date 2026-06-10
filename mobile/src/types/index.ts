@@ -165,6 +165,13 @@ export type ScheduledStream = {
   eventTag: string;
 };
 
+export type ListingLiveAppearance = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  occurredAtLabel?: string;
+};
+
 export type Product = {
   id: string;
   title: string;
@@ -172,9 +179,22 @@ export type Product = {
   imageGradient: [string, string];
   /** Editorial / product photography (Browse, rails). */
   imageUrl?: string;
+  /** Full listing gallery — first entry is featured image. */
+  imageUrls?: string[];
+  /** Seller-authored listing description. */
+  description?: string;
   /** Short curated line for discovery cards. */
   storyline?: string;
   vaultVerified: boolean;
+  /** Public seller trust badge (buyer-facing only). */
+  sellerLevel?: string;
+  sellerLevelLabel?: string;
+  shippingPriceUsd?: number;
+  handlingTimeLabel?: string;
+  signatureRequired?: boolean;
+  shipsFromRegion?: string;
+  /** Real live show appearances — empty hides the section. */
+  liveAppearances?: ListingLiveAppearance[];
   /** Single ask / buy-now price shown on marketplace cards. */
   listingPrice: string;
   /** Grade, condition, or completeness (e.g. PSA 10, unworn · papers). */

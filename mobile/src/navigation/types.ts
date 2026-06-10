@@ -44,6 +44,7 @@ export type RootStackParamList = {
   AuthSignUp: undefined;
   ProfileEdit: undefined;
   ProductDetail: { productId: string };
+  MarketplaceCheckout: { listingId: string; mode: 'buy_now' | 'layaway' };
   SellerListingManagement: { listingId: string };
   SellerHostRoom: { roomId: string };
   MessagesInbox: undefined;
@@ -90,4 +91,6 @@ export type RootStackParamList = {
   BuyerOrders: undefined;
   BuyerOrderDetail: { orderId: string };
   BuyerLayaways: undefined;
+  SellerLayaways: { filter?: 'active' | 'ready' | 'overdue' } | undefined;
+  SellerLayawayDetail: { layawayId: string };
 };

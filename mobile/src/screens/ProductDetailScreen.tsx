@@ -7,7 +7,6 @@ import { useNavigation } from '@react-navigation/native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Modal,
   NativeScrollEvent,
@@ -32,14 +31,23 @@ import type { WebListingEndRequest } from '../api/listingEndRepository';
 import { fetchListingDetailFromWeb, type WebStoredListing } from '../api/webListingsRepository';
 import { SellerListingEndControls } from '../components/seller/SellerListingEndControls';
 import { PremiumEmptyPanel } from '../components/empty/PremiumEmptyPanel';
+import { PremiumVaultButton } from '../components/product/PremiumVaultButton';
 import { HostRow } from '../components/ui/HostRow';
 import { ReportButton } from '../components/trust/ReportSheet';
 import { enrichListing } from '../data/productListingEnrichment';
+import { MARKETPLACE_TEXT_PROPS, marketplaceFontSize } from '../lib/marketplaceUiScale';
 import type { RootStackParamList } from '../navigation/types';
+import { MarketplaceMakeOfferSheet } from '../components/marketplace/MarketplaceMakeOfferSheet';
+import {
+  consumePendingMarketplaceListingAction,
+  openMarketplaceBuyNow,
+  openMarketplaceLayaway,
+  openMarketplaceMakeOffer,
+  openMarketplaceTrade,
+} from '../navigation/openMarketplaceCommerce';
 import { alertGuestBuyRestricted } from '../navigation/guestExploreGuards';
 import { openMessageSellerForListing } from '../navigation/openMessages';
 import { openContactSupport, openDispute, openUserProfile } from '../navigation/openPlatform';
-import { openWebCommerceUrl, webListingCheckoutUrl, webListingLayawayCheckoutUrl, webListingUrl } from '../lib/openWebCommerce';
 import { isFollowing, toggleFollow } from '../platform/platformStore';
 import { useAuth } from '../auth/AuthContext';
 import type { Product } from '../types';
@@ -47,31 +55,48 @@ import { colors, radii, spacing, typography } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ProductDetail'>;
 
-const GALLERY_HEIGHT = 460;
+function galleryHeight(windowWidth: number, windowHeight: number): number {
+  const compact = windowWidth < 410 || windowHeight < 860;
+  return Math.round(Math.min(compact ? 360 : 420, windowWidth * (compact ? 0.82 : 0.88)));
+}
 
-function ActivityChip({ icon, label }: { icon: keyof typeof Ionicons.glyphMap; label: string }) {
+function SectionTitle({ children }: { children: string }) {
   return (
-    <View style={styles.chip}>
-      <Ionicons name={icon} size={14} color={colors.gold} />
-      <Text style={styles.chipTxt} numberOfLines={1}>
-        {label}
-      </Text>
-    </View>
+    <Text style={styles.sectionKicker} {...MARKETPLACE_TEXT_PROPS}>
+      {children}
+    </Text>
   );
 }
 
 function SpecRow({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.specRow}>
-      <Text style={styles.specLbl}>{label}</Text>
-      <Text style={styles.specVal}>{value}</Text>
+      <Text style={styles.specLbl} {...MARKETPLACE_TEXT_PROPS}>
+        {label}
+      </Text>
+      <Text style={styles.specVal} {...MARKETPLACE_TEXT_PROPS}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function SellerLevelBadge({ label }: { label: string }) {
+  return (
+    <View style={styles.levelBadge}>
+      <Ionicons name="shield-outline" size={11} color={colors.gold} />
+      <Text style={styles.levelBadgeTxt} numberOfLines={1} ellipsizeMode="tail" {...MARKETPLACE_TEXT_PROPS}>
+        {label}
+      </Text>
     </View>
   );
 }
 
 export function ProductDetailScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const { width: winW } = useWindowDimensions();
+  const { width: winW, height: winH } = useWindowDimensions();
+  const heroH = galleryHeight(winW, winH);
+  const compact = winW < 410;
   const rootNav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { guestExploreMode, user, session } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -141,75 +166,59 @@ export function ProductDetailScreen({ navigation, route }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [route.params.productId, session?.access_token, user?.id, detailReloadNonce]);
+  }, [route.params.productId, session?.access_token, user?.id, detailReloadNonce, navigation]);
 
   const vm = useMemo(() => (product ? enrichListing(product) : null), [product]);
   const [slide, setSlide] = useState(0);
   const [saved, setSaved] = useState(false);
   const [sellerFollow, setSellerFollow] = useState(false);
+
   useEffect(() => {
     if (!user?.id || !product?.seller.id) return;
     void isFollowing(user.id, product.seller.id).then(setSellerFollow);
   }, [user?.id, product?.seller.id]);
+
   const [zoomUri, setZoomUri] = useState<string | null>(null);
+  const [offerSheetOpen, setOfferSheetOpen] = useState(false);
   const galleryRef = useRef<ScrollView>(null);
 
+  const commerceOpts = useMemo(
+    () => ({
+      accessToken: session?.access_token,
+      guestExploreMode,
+    }),
+    [guestExploreMode, session?.access_token],
+  );
+
   const goTradeOffer = () => {
-    if (guestExploreMode) {
-      alertGuestBuyRestricted();
-      return;
-    }
     if (!product) return;
-    rootNav.navigate('MainTabs', {
-      screen: 'TradeCenter',
-      params: {
-        screen: 'InitiateTrade',
-        params: { requestedListingId: product.id },
-      },
-    });
+    openMarketplaceTrade(rootNav, product, commerceOpts);
   };
 
   const goMakeOffer = () => {
-    if (guestExploreMode) {
-      alertGuestBuyRestricted();
-      return;
-    }
     if (!product) return;
-    const url = webListingUrl(product.id);
-    if (!url) {
-      Alert.alert('Make offer', 'Set EXPO_PUBLIC_SITE_URL to open offers on the web listing page.');
-      return;
-    }
-    void openWebCommerceUrl(url);
+    openMarketplaceMakeOffer(() => setOfferSheetOpen(true), product, commerceOpts);
   };
 
   const goBuyNow = () => {
-    if (guestExploreMode) {
-      alertGuestBuyRestricted();
-      return;
-    }
     if (!product) return;
-    const url = webListingCheckoutUrl(product.id) ?? webListingUrl(product.id);
-    if (!url) {
-      Alert.alert('Buy now', 'Set EXPO_PUBLIC_SITE_URL to complete checkout on the web.');
-      return;
-    }
-    void openWebCommerceUrl(url);
+    openMarketplaceBuyNow(navigation, product, commerceOpts);
   };
 
   const goLayaway = () => {
-    if (guestExploreMode) {
-      alertGuestBuyRestricted();
-      return;
-    }
     if (!product) return;
-    const url = webListingLayawayCheckoutUrl(product.id);
-    if (!url) {
-      Alert.alert('Layaway', 'Set EXPO_PUBLIC_SITE_URL to complete layaway checkout on the web.');
-      return;
-    }
-    void openWebCommerceUrl(url);
+    openMarketplaceLayaway(navigation, product, commerceOpts);
   };
+
+  useEffect(() => {
+    if (!product || !session?.access_token || guestExploreMode) return;
+    const pending = consumePendingMarketplaceListingAction(product.id);
+    if (!pending) return;
+    if (pending === 'buy_now') openMarketplaceBuyNow(navigation, product, commerceOpts);
+    else if (pending === 'layaway') openMarketplaceLayaway(navigation, product, commerceOpts);
+    else if (pending === 'make_offer') openMarketplaceMakeOffer(() => setOfferSheetOpen(true), product, commerceOpts);
+    else if (pending === 'trade') openMarketplaceTrade(rootNav, product, commerceOpts);
+  }, [commerceOpts, guestExploreMode, navigation, product, rootNav, session?.access_token]);
 
   const layawayAvailable = product?.allowLayaway === true;
 
@@ -269,11 +278,14 @@ export function ProductDetailScreen({ navigation, route }: Props) {
     );
   }
 
+  const titleSize = marketplaceFontSize(compact ? 24 : 28, Math.min(1, winW / 430));
+  const priceSize = marketplaceFontSize(compact ? 30 : 34, Math.min(1, winW / 430));
+
   return (
     <View style={styles.screen}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 120 }]}
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 112 }]}
       >
         <View style={styles.heroShell}>
           <ScrollView
@@ -290,15 +302,13 @@ export function ProductDetailScreen({ navigation, route }: Props) {
             {vm.gallery.map((g) => (
               <Pressable
                 key={g.id}
-                style={{ width: winW, height: GALLERY_HEIGHT }}
-                onPress={() => {
-                  setZoomUri(g.uri);
-                }}
+                style={{ width: winW, height: heroH }}
+                onPress={() => setZoomUri(g.uri)}
               >
                 <Image source={{ uri: g.uri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
                 <LinearGradient
-                  colors={['rgba(0,0,0,0.15)', 'transparent', 'rgba(0,0,0,0.75)']}
-                  locations={[0, 0.45, 1]}
+                  colors={['rgba(0,0,0,0.2)', 'transparent', 'rgba(0,0,0,0.65)']}
+                  locations={[0, 0.5, 1]}
                   style={StyleSheet.absoluteFillObject}
                 />
                 {g.kind === 'video' ? (
@@ -308,12 +318,11 @@ export function ProductDetailScreen({ navigation, route }: Props) {
                 ) : (
                   <View style={styles.zoomHint}>
                     <Ionicons name="expand-outline" size={14} color={colors.textPrimary} />
-                    <Text style={styles.zoomHintTxt}>Tap to zoom</Text>
+                    <Text style={styles.zoomHintTxt} {...MARKETPLACE_TEXT_PROPS}>
+                      Tap to zoom
+                    </Text>
                   </View>
                 )}
-                <View style={styles.captionBand}>
-                  <Text style={styles.captionBandTxt}>{g.caption}</Text>
-                </View>
               </Pressable>
             ))}
           </ScrollView>
@@ -322,180 +331,165 @@ export function ProductDetailScreen({ navigation, route }: Props) {
             <Pressable style={styles.floatingIcon} onPress={() => navigation.goBack()}>
               <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
             </Pressable>
-            <Text style={styles.topTitle}>Acquisition</Text>
+            <Text style={styles.topTitle} {...MARKETPLACE_TEXT_PROPS}>
+              Listing
+            </Text>
             <Pressable style={styles.floatingIcon} onPress={() => void shareListing()} accessibilityLabel="Share listing">
               <Ionicons name="share-outline" size={20} color={colors.textPrimary} />
             </Pressable>
           </View>
 
-          <View style={styles.dots}>
-            {vm.gallery.map((g, i) => (
-              <View key={g.id} style={[styles.dot, i === slide && styles.dotOn]} />
-            ))}
-          </View>
+          {vm.gallery.length > 1 ? (
+            <View style={styles.dots}>
+              {vm.gallery.map((g, i) => (
+                <View key={g.id} style={[styles.dot, i === slide && styles.dotOn]} />
+              ))}
+            </View>
+          ) : null}
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.thumbRow}
-          >
-            {vm.gallery.map((g, i) => (
-              <Pressable key={`t-${g.id}`} onPress={() => scrollToSlide(i)} style={styles.thumbWrap}>
-                <Image
-                  source={{ uri: g.uri }}
-                  style={[styles.thumb, i === slide && styles.thumbOn]}
-                  resizeMode="cover"
-                />
-                {g.kind === 'video' ? (
-                  <View style={styles.thumbPlay}>
-                    <Ionicons name="videocam" size={12} color={colors.gold} />
-                  </View>
-                ) : null}
-              </Pressable>
-            ))}
-          </ScrollView>
+          {vm.gallery.length > 1 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.thumbRow}>
+              {vm.gallery.map((g, i) => (
+                <Pressable key={`t-${g.id}`} onPress={() => scrollToSlide(i)} style={styles.thumbWrap}>
+                  <Image
+                    source={{ uri: g.uri }}
+                    style={[styles.thumb, i === slide && styles.thumbOn]}
+                    resizeMode="cover"
+                  />
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : null}
         </View>
 
         <View style={styles.pad}>
-          <Text style={styles.acqTag}>{vm.content.acquisitionTag}</Text>
-          <Text style={styles.title}>{product.title}</Text>
-          {product.conditionGrade ? (
-            <Text style={styles.conditionLead}>{product.conditionGrade}</Text>
-          ) : null}
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipScroll}>
-            <ActivityChip icon="eye-outline" label={`${vm.activity.watching} watching`} />
-            <ActivityChip icon="pricetags-outline" label={`${vm.activity.offersPending} offers pending`} />
-            <ActivityChip icon="bookmark-outline" label={`${vm.activity.vaultSaves} vault saves`} />
-            <ActivityChip icon="flame-outline" label={vm.activity.recentlyViewedLabel} />
-            {vm.activity.priceUpdatedLabel ? (
-              <ActivityChip icon="trending-up-outline" label={vm.activity.priceUpdatedLabel} />
-            ) : null}
-            {vm.activity.featuredInLive ? (
-              <ActivityChip icon="radio-outline" label={vm.activity.featuredInLive} />
-            ) : null}
-            {vm.activity.sellerLive ? (
-              <ActivityChip icon="pulse" label="Seller live now" />
-            ) : null}
-          </ScrollView>
-
-          <View style={styles.trustCard}>
-            {product.vaultVerified ? (
-              <View style={styles.vvRow}>
-                <Ionicons name="shield-checkmark" size={20} color={colors.gold} />
-                <Text style={styles.vvStrong}>Vaulted Verified</Text>
-              </View>
-            ) : null}
-            <Text style={styles.trustLine}>{vm.inspectionLine}</Text>
-            <Text style={styles.trustSub}>{vm.authProvider}</Text>
-            <View style={styles.trustGrid}>
-              <Text style={styles.trustStat}>{vm.sellerShowroom.ratingLabel}</Text>
-              <Text style={styles.trustStat}>{vm.sellerShowroom.salesCount}</Text>
-              <Text style={styles.trustStat}>{vm.sellerShowroom.tradesCount}</Text>
-              <Text style={styles.trustStat}>{vm.sellerShowroom.completionRate}</Text>
-              <Text style={styles.trustStat}>{vm.sellerShowroom.shippingSpeed}</Text>
-              <Text style={styles.trustStat}>{vm.sellerShowroom.responseTime}</Text>
-            </View>
-            {vm.sellerShowroom.provenance ? (
-              <Text style={styles.prov}>{vm.sellerShowroom.provenance}</Text>
-            ) : null}
-          </View>
-
-          <View style={styles.tradeCard}>
-            <Text style={styles.sectionKicker}>Trade intelligence</Text>
-            <View style={styles.tradeRow}>
-              {vm.trade.allowOffers ? (
-                <View style={styles.tradePill}>
-                  <Text style={styles.tradePillTxt}>Offers welcome</Text>
-                </View>
-              ) : null}
-              {vm.trade.acceptsTrades ? (
-                <View style={styles.tradePill}>
-                  <Text style={styles.tradePillTxt}>Accepts trades</Text>
-                </View>
-              ) : (
-                <View style={styles.tradePill}>
-                  <Text style={styles.tradePillTxt}>Trades off</Text>
-                </View>
-              )}
-              <View style={styles.tradePill}>
-                <Text style={styles.tradePillTxt}>{vm.trade.tradeEligible ? 'Trade eligible' : 'Buy only'}</Text>
-              </View>
-            </View>
-            <Text style={styles.lookingLbl}>Looking for</Text>
-            {vm.trade.lookingFor.map((t) => (
-              <Text key={t} style={styles.lookingItem}>
-                · {t}
-              </Text>
-            ))}
-            <View style={styles.tradeCtas}>
-              <Pressable style={styles.outlineCta} onPress={() => setSaved(true)}>
-                <Ionicons name="eye-outline" size={18} color={colors.gold} />
-                <Text style={styles.outlineCtaTxt}>Watch</Text>
-              </Pressable>
-              {vm.trade.allowOffers ? (
-                <Pressable style={styles.outlineCta} onPress={goMakeOffer}>
-                  <Ionicons name="pricetag-outline" size={18} color={colors.gold} />
-                  <Text style={styles.outlineCtaTxt}>Make offer</Text>
-                </Pressable>
-              ) : null}
-              {vm.trade.acceptsTrades ? (
-                <Pressable style={styles.outlineCta} onPress={goTradeOffer}>
-                  <Ionicons name="swap-horizontal-outline" size={18} color={colors.gold} />
-                  <Text style={styles.outlineCtaTxt}>Trade offer</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-
-          <LinearGradient
-            colors={['rgba(212,175,55,0.08)', 'rgba(10,10,10,0.95)']}
-            style={styles.priceCard}
-          >
-            <Text style={styles.buyLabel}>Buy now</Text>
-            <Text style={styles.buyPrice}>{vm.pricing.buyNow}</Text>
-            {vm.pricing.marketReference ? (
-              <Text style={styles.marketRef}>{vm.pricing.marketReference}</Text>
-            ) : null}
-            <Text style={styles.delivery}>{vm.pricing.deliveryEstimate}</Text>
-            <View style={styles.protectedRow}>
-              <Ionicons name="lock-closed-outline" size={16} color={colors.gold} />
-              <Text style={styles.protectedTxt}>Vaulted Protected Checkout</Text>
-            </View>
-            <Text style={styles.payNote}>{vm.pricing.paymentNote}</Text>
-            <Text style={styles.feeNote}>{vm.pricing.feeTransparency}</Text>
-            {layawayAvailable ? (
-              <Pressable style={styles.layawayCta} onPress={goLayaway}>
-                <Text style={styles.layawayCtaTxt}>Layaway available — 25% deposit</Text>
-              </Pressable>
-            ) : null}
-          </LinearGradient>
-
-          {isOwner && ownerStored ? (
-            <SellerListingEndControls
-              listingId={ownerStored.id}
-              title={ownerStored.title}
-              buyingFormat={ownerStored.buyingFormat ?? 'buy_now'}
-              listingStatus={ownerStored.status ?? 'active'}
-              bidCount={ownerBidCount}
-              endRequest={endRequest}
-              onChanged={() => setDetailReloadNonce((n) => n + 1)}
-            />
-          ) : null}
-
-          <Text style={styles.sectionKicker}>Collector signals</Text>
-          <Text style={styles.signal}>
-            Momentum updates as collectors watch, save, and message — category heat appears once live data is available.
+          <Text style={styles.acqTag} {...MARKETPLACE_TEXT_PROPS}>
+            {vm.content.acquisitionTag}
           </Text>
 
-          <Text style={styles.sectionKicker}>Specifications</Text>
+          <Text style={[styles.title, { fontSize: titleSize, lineHeight: titleSize + 6 }]} {...MARKETPLACE_TEXT_PROPS}>
+            {product.title}
+          </Text>
+
+          <View style={styles.priceRow}>
+            <Text style={[styles.buyPrice, { fontSize: priceSize }]} {...MARKETPLACE_TEXT_PROPS}>
+              {vm.pricing.buyNow}
+            </Text>
+            {vm.showVaultVerifiedBadge ? (
+              <View style={styles.vvPill}>
+                <Ionicons name="shield-checkmark" size={14} color={colors.gold} />
+                <Text style={styles.vvPillTxt} {...MARKETPLACE_TEXT_PROPS}>
+                  Vault verified
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          {product.conditionGrade ? (
+            <Text style={styles.conditionLead} {...MARKETPLACE_TEXT_PROPS}>
+              {product.conditionGrade}
+            </Text>
+          ) : null}
+
+          <View style={styles.inlineCtas}>
+            <PremiumVaultButton
+              variant="primary"
+              label={`Buy now · ${vm.pricing.buyNow}`}
+              icon="bag-outline"
+              onPress={goBuyNow}
+              flex
+              compact={compact}
+            />
+          </View>
+
+          {(vm.trade.allowOffers || vm.trade.acceptsTrades) && (
+            <View style={styles.secondaryCtaRow}>
+              {vm.trade.allowOffers ? (
+                <PremiumVaultButton
+                  variant="secondary"
+                  label="Make offer"
+                  icon="pricetag-outline"
+                  onPress={goMakeOffer}
+                  flex
+                  compact={compact}
+                />
+              ) : null}
+              {vm.trade.acceptsTrades ? (
+                <PremiumVaultButton
+                  variant="secondary"
+                  label="Trade offer"
+                  icon="swap-horizontal-outline"
+                  onPress={goTradeOffer}
+                  flex
+                  compact={compact}
+                />
+              ) : null}
+            </View>
+          )}
+
+          {layawayAvailable ? (
+            <Pressable style={styles.layawayCta} onPress={goLayaway}>
+              <Text style={styles.layawayCtaTxt} {...MARKETPLACE_TEXT_PROPS}>
+                Layaway available — 25% deposit
+              </Text>
+            </Pressable>
+          ) : null}
+
+          <LinearGradient colors={['rgba(212,175,55,0.06)', 'rgba(10,10,10,0.98)']} style={styles.priceCard}>
+            <View style={styles.protectedRow}>
+              <Ionicons name="lock-closed-outline" size={16} color={colors.gold} />
+              <Text style={styles.protectedTxt} {...MARKETPLACE_TEXT_PROPS}>
+                Vaulted Protected Checkout
+              </Text>
+            </View>
+            <Text style={styles.delivery} {...MARKETPLACE_TEXT_PROPS}>
+              {vm.pricing.deliveryEstimate}
+            </Text>
+            {vm.pricing.marketReference ? (
+              <Text style={styles.marketRef} {...MARKETPLACE_TEXT_PROPS}>
+                {vm.pricing.marketReference}
+              </Text>
+            ) : null}
+            <Text style={styles.payNote} {...MARKETPLACE_TEXT_PROPS}>
+              {vm.pricing.paymentNote}
+            </Text>
+          </LinearGradient>
+
+          {vm.content.description ? (
+            <>
+              <SectionTitle>Description</SectionTitle>
+              <View style={styles.proseCard}>
+                <Text style={styles.prose} {...MARKETPLACE_TEXT_PROPS}>
+                  {vm.content.description}
+                </Text>
+              </View>
+            </>
+          ) : null}
+
+          <SectionTitle>Details</SectionTitle>
           <View style={styles.specCard}>
             {vm.specs.map((s) => (
               <SpecRow key={s.label} label={s.label} value={s.value} />
             ))}
           </View>
 
-          <Text style={styles.sectionKicker}>Seller showroom</Text>
+          {vm.content.shippingProtection ? (
+            <>
+              <SectionTitle>Shipping & returns</SectionTitle>
+              <View style={styles.proseCard}>
+                <Text style={styles.prose} {...MARKETPLACE_TEXT_PROPS}>
+                  {vm.content.shippingProtection}
+                </Text>
+                {vm.content.authDetails ? (
+                  <Text style={[styles.prose, styles.proseMuted]} {...MARKETPLACE_TEXT_PROPS}>
+                    {vm.content.authDetails}
+                  </Text>
+                ) : null}
+              </View>
+            </>
+          ) : null}
+
+          <SectionTitle>Seller</SectionTitle>
           <View style={styles.showroomCard}>
             <Pressable onPress={() => openUserProfile(product.seller.id, rootNav)}>
               <HostRow
@@ -510,31 +504,12 @@ export function ProductDetailScreen({ navigation, route }: Props) {
                 }}
               />
             </Pressable>
-            {vm.activity.sellerLive ? (
-              <View style={styles.liveNow}>
-                <View style={styles.liveDot} />
-                <Text style={styles.liveNowTxt}>Seller is live — vault lane open</Text>
-              </View>
-            ) : null}
-            <Text style={styles.showLine}>
-              <Text style={styles.showEm}>Specialties: </Text>
-              {vm.sellerShowroom.specialties.join(' · ')}
-            </Text>
-            <Text style={styles.showLine}>
-              <Text style={styles.showEm}>Top categories: </Text>
-              {vm.sellerShowroom.topCategories.join(' · ')}
-            </Text>
-            <Text style={styles.showLine}>
-              <Text style={styles.showEm}>Live schedule: </Text>
-              {vm.sellerShowroom.liveSchedule}
-            </Text>
-            <Text style={styles.showLine}>
-              <Text style={styles.showEm}>Vault score: </Text>
-              {vm.sellerShowroom.vaultScore}
-            </Text>
+            {vm.sellerLevelBadge ? <SellerLevelBadge label={vm.sellerLevelBadge} /> : null}
             <View style={styles.sellerActions}>
-              <Pressable
-                style={styles.messageCta}
+              <PremiumVaultButton
+                variant="secondary"
+                label="Message seller"
+                icon="chatbubble-ellipses-outline"
                 onPress={() => {
                   if (guestExploreMode) {
                     alertGuestBuyRestricted();
@@ -542,33 +517,9 @@ export function ProductDetailScreen({ navigation, route }: Props) {
                   }
                   openMessageSellerForListing(rootNav, { listingId: product.id });
                 }}
-              >
-                <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.gold} />
-                <Text style={styles.messageCtaTxt}>Message seller</Text>
-              </Pressable>
-              <Pressable
-                style={styles.liveCta}
-                onPress={() =>
-                  navigation.navigate('MainTabs', { screen: 'Live', params: { screen: 'LiveDiscovery' } })
-                }
-              >
-                <Ionicons name="radio-outline" size={18} color={colors.gold} />
-                <Text style={styles.liveCtaTxt}>Join show</Text>
-              </Pressable>
-            </View>
-            <View style={styles.sellerActions}>
-              <Pressable
-                style={styles.messageCta}
-                onPress={() => openContactSupport({ category: 'order', referenceId: product.id }, rootNav)}
-              >
-                <Text style={styles.messageCtaTxt}>Contact support</Text>
-              </Pressable>
-              <Pressable
-                style={styles.liveCta}
-                onPress={() => openDispute({ contextType: 'marketplace', referenceId: product.id }, rootNav)}
-              >
-                <Text style={[styles.liveCtaTxt, { color: colors.live }]}>Open dispute</Text>
-              </Pressable>
+                flex
+                compact={compact}
+              />
             </View>
             {!isOwner ? (
               <View style={styles.reportRow}>
@@ -588,9 +539,49 @@ export function ProductDetailScreen({ navigation, route }: Props) {
             ) : null}
           </View>
 
+          {vm.liveAppearances.length > 0 ? (
+            <>
+              <SectionTitle>Live appearances</SectionTitle>
+              <View style={styles.liveAppearancesCard}>
+                {vm.liveAppearances.map((appearance) => (
+                  <View key={appearance.id} style={styles.liveAppearanceRow}>
+                    <Ionicons name="radio-outline" size={16} color={colors.gold} />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.liveAppearanceTitle} numberOfLines={1} ellipsizeMode="tail" {...MARKETPLACE_TEXT_PROPS}>
+                        {appearance.title}
+                      </Text>
+                      {appearance.subtitle ? (
+                        <Text style={styles.liveAppearanceSub} numberOfLines={2} ellipsizeMode="tail" {...MARKETPLACE_TEXT_PROPS}>
+                          {appearance.subtitle}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {appearance.occurredAtLabel ? (
+                      <Text style={styles.liveAppearanceWhen} {...MARKETPLACE_TEXT_PROPS}>
+                        {appearance.occurredAtLabel}
+                      </Text>
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+            </>
+          ) : null}
+
+          {isOwner && ownerStored ? (
+            <SellerListingEndControls
+              listingId={ownerStored.id}
+              title={ownerStored.title}
+              buyingFormat={ownerStored.buyingFormat ?? 'buy_now'}
+              listingStatus={ownerStored.status ?? 'active'}
+              bidCount={ownerBidCount}
+              endRequest={endRequest}
+              onChanged={() => setDetailReloadNonce((n) => n + 1)}
+            />
+          ) : null}
+
           {recents.length ? (
             <>
-              <Text style={styles.sectionKicker}>Recent listings · same seller</Text>
+              <SectionTitle>More from this seller</SectionTitle>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.miniRail}>
                 {recents.map((p) => (
                   <Pressable
@@ -603,48 +594,21 @@ export function ProductDetailScreen({ navigation, route }: Props) {
                     ) : (
                       <View style={[styles.miniImg, { backgroundColor: colors.surfaceElevated }]} />
                     )}
-                    <Text style={styles.miniTitle} numberOfLines={2}>
+                    <Text style={styles.miniTitle} numberOfLines={2} {...MARKETPLACE_TEXT_PROPS}>
                       {p.title}
                     </Text>
-                    <Text style={styles.miniPrice}>{p.listingPrice}</Text>
+                    <Text style={styles.miniPrice} {...MARKETPLACE_TEXT_PROPS}>
+                      {p.listingPrice}
+                    </Text>
                   </Pressable>
                 ))}
               </ScrollView>
             </>
           ) : null}
 
-          <Text style={styles.sectionKicker}>Seller notes</Text>
-          <Text style={styles.prose}>{vm.content.sellerNotes}</Text>
-
-          <Text style={styles.sectionKicker}>Condition notes</Text>
-          <Text style={styles.prose}>{vm.content.conditionNotes}</Text>
-
-          <Text style={styles.sectionKicker}>Authentication details</Text>
-          <Text style={styles.prose}>{vm.content.authDetails}</Text>
-
-          <Text style={styles.sectionKicker}>Shipping & protection</Text>
-          <Text style={styles.prose}>{vm.content.shippingProtection}</Text>
-
-          <Text style={styles.sectionKicker}>Collector interest</Text>
-          <Text style={styles.prose}>{vm.content.collectorInterest}</Text>
-
-          <View style={styles.featuredLive}>
-            <LinearGradient colors={['#1a1408', '#080806']} style={StyleSheet.absoluteFillObject} />
-            <Text style={styles.flTitle}>{vm.content.featuredLiveTitle}</Text>
-            <Text style={styles.flSub}>{vm.content.featuredLiveSubtitle}</Text>
-            <Pressable
-              style={styles.flBtn}
-              onPress={() =>
-                navigation.navigate('MainTabs', { screen: 'Live', params: { screen: 'LiveDiscovery' } })
-              }
-            >
-              <Text style={styles.flBtnTxt}>Open live hub</Text>
-            </Pressable>
-          </View>
-
           {similar.length ? (
             <>
-              <Text style={styles.sectionKicker}>Similar listings</Text>
+              <SectionTitle>Similar listings</SectionTitle>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.miniRail}>
                 {similar.map((p) => (
                   <Pressable
@@ -655,68 +619,75 @@ export function ProductDetailScreen({ navigation, route }: Props) {
                     {p.imageUrl ? (
                       <Image source={{ uri: p.imageUrl }} style={styles.miniImg} resizeMode="cover" />
                     ) : null}
-                    <Text style={styles.miniTitle} numberOfLines={2}>
+                    <Text style={styles.miniTitle} numberOfLines={2} {...MARKETPLACE_TEXT_PROPS}>
                       {p.title}
                     </Text>
-                    <Text style={styles.miniPrice}>{p.listingPrice}</Text>
+                    <Text style={styles.miniPrice} {...MARKETPLACE_TEXT_PROPS}>
+                      {p.listingPrice}
+                    </Text>
                   </Pressable>
                 ))}
               </ScrollView>
             </>
-          ) : (
-            <>
-              <Text style={styles.sectionKicker}>Similar listings</Text>
-              <Text style={styles.prose}>More inventory in this category will appear as sellers publish new listings.</Text>
-            </>
-          )}
-
-          {vm.recentlySold.length ? (
-            <>
-              <Text style={styles.sectionKicker}>Recently sold</Text>
-              <View style={styles.soldCard}>
-                {vm.recentlySold.map((s) => (
-                  <View key={s.title} style={styles.soldRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.soldTitle}>{s.title}</Text>
-                      <Text style={styles.soldWhen}>{s.when}</Text>
-                    </View>
-                    <Text style={styles.soldPrice}>{s.price}</Text>
-                  </View>
-                ))}
-              </View>
-            </>
           ) : null}
 
-          <Text style={styles.closingLine}>You are not buying inventory — you are acquiring something important.</Text>
+          <View style={styles.supportRow}>
+            <Pressable onPress={() => openContactSupport({ category: 'order', referenceId: product.id }, rootNav)}>
+              <Text style={styles.supportLink} {...MARKETPLACE_TEXT_PROPS}>
+                Contact support
+              </Text>
+            </Pressable>
+            <Text style={styles.supportDot}>·</Text>
+            <Pressable onPress={() => openDispute({ contextType: 'marketplace', referenceId: product.id }, rootNav)}>
+              <Text style={styles.supportLink} {...MARKETPLACE_TEXT_PROPS}>
+                Open dispute
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </ScrollView>
 
-      <View style={[styles.sticky, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
-        <BlurView intensity={55} tint="dark" style={StyleSheet.absoluteFillObject} />
-        <View style={styles.stickyInner}>
-          <Pressable style={styles.saveBtn} onPress={() => setSaved((s) => !s)}>
-            <Ionicons name={saved ? 'heart' : 'heart-outline'} size={22} color={saved ? colors.live : colors.textPrimary} />
-          </Pressable>
+      <View style={[styles.sticky, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
+        <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFillObject} />
+        <LinearGradient
+          colors={['transparent', 'rgba(5,5,5,0.92)']}
+          style={StyleSheet.absoluteFillObject}
+          pointerEvents="none"
+        />
+        <View style={[styles.stickyInner, compact && styles.stickyInnerCompact]}>
+          <PremiumVaultButton
+            variant="ghost"
+            label={saved ? 'Watching' : 'Watch'}
+            icon={saved ? 'eye' : 'eye-outline'}
+            onPress={() => setSaved((s) => !s)}
+            compact={compact}
+          />
           {vm.trade.allowOffers ? (
-            <Pressable
-              style={styles.stickyOffer}
-              onPress={() => (guestExploreMode ? alertGuestBuyRestricted() : goMakeOffer())}
-            >
-              <Text style={styles.stickyOfferTxt}>Make offer</Text>
-            </Pressable>
+            <PremiumVaultButton
+              variant="secondary"
+              label="Offer"
+              icon="pricetag-outline"
+              onPress={goMakeOffer}
+              compact={compact}
+            />
           ) : null}
           {vm.trade.acceptsTrades ? (
-            <Pressable style={styles.stickyTrade} onPress={goTradeOffer}>
-              <Text style={styles.stickyTradeTxt}>Trade</Text>
-            </Pressable>
+            <PremiumVaultButton
+              variant="secondary"
+              label="Trade"
+              icon="swap-horizontal-outline"
+              onPress={goTradeOffer}
+              compact={compact}
+            />
           ) : null}
-          <Pressable
-            style={styles.stickyBuy}
-            onPress={() => (guestExploreMode ? alertGuestBuyRestricted() : goBuyNow())}
-          >
-            <Text style={styles.stickyBuyTop}>Buy now</Text>
-            <Text style={styles.stickyBuyPrice}>{vm.pricing.buyNow}</Text>
-          </Pressable>
+          <PremiumVaultButton
+            variant="primary"
+            label={`Buy · ${vm.pricing.buyNow}`}
+            icon="bag-outline"
+            onPress={goBuyNow}
+            flex
+            compact={compact}
+          />
         </View>
       </View>
 
@@ -730,6 +701,18 @@ export function ProductDetailScreen({ navigation, route }: Props) {
           ) : null}
         </View>
       </Modal>
+
+      {product && session?.access_token ? (
+        <MarketplaceMakeOfferSheet
+          visible={offerSheetOpen}
+          onClose={() => setOfferSheetOpen(false)}
+          listingId={product.id}
+          listingTitle={product.title}
+          askingPrice={product.listingPrice}
+          accessToken={session.access_token}
+          onSuccess={() => setOfferSheetOpen(false)}
+        />
+      ) : null}
     </View>
   );
 }
@@ -754,7 +737,7 @@ const styles = StyleSheet.create({
   },
   heroShell: {
     position: 'relative',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   topBar: {
     position: 'absolute',
@@ -789,7 +772,7 @@ const styles = StyleSheet.create({
   },
   dots: {
     position: 'absolute',
-    bottom: 72,
+    bottom: 64,
     left: 0,
     right: 0,
     flexDirection: 'row',
@@ -811,14 +794,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     gap: spacing.sm,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
   },
   thumbWrap: {
     position: 'relative',
   },
   thumb: {
-    width: 56,
-    height: 56,
+    width: 52,
+    height: 52,
     borderRadius: radii.sm,
     borderWidth: 2,
     borderColor: 'transparent',
@@ -827,14 +810,6 @@ const styles = StyleSheet.create({
   thumbOn: {
     borderColor: colors.gold,
     opacity: 1,
-  },
-  thumbPlay: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 4,
-    padding: 2,
   },
   playFab: {
     position: 'absolute',
@@ -850,7 +825,7 @@ const styles = StyleSheet.create({
   },
   zoomHint: {
     position: 'absolute',
-    top: 100,
+    top: 88,
     right: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
@@ -861,24 +836,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
   zoomHintTxt: { color: colors.textPrimary, fontSize: 11, fontWeight: '700' },
-  captionBand: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 56,
-    paddingHorizontal: spacing.lg,
-  },
-  captionBandTxt: {
-    color: 'rgba(244,241,234,0.9)',
-    fontSize: 12,
-    fontWeight: '700',
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 6,
-  },
   pad: {
     paddingHorizontal: spacing.lg,
-    gap: spacing.lg,
+    gap: spacing.md,
   },
   acqTag: {
     ...typography.micro,
@@ -888,116 +848,67 @@ const styles = StyleSheet.create({
   title: {
     ...typography.hero,
     color: colors.textPrimary,
-    fontSize: 30,
-    lineHeight: 36,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: -spacing.xs,
+  },
+  buyPrice: {
+    color: colors.gold,
+    fontWeight: '900',
+    letterSpacing: -1,
+  },
+  vvPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radii.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(212,175,55,0.35)',
+    backgroundColor: 'rgba(212,175,55,0.1)',
+  },
+  vvPillTxt: {
+    color: colors.gold,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
   conditionLead: {
     color: colors.textSecondary,
     fontSize: 15,
     fontWeight: '600',
-    marginTop: -spacing.sm,
+    marginTop: -spacing.xs,
   },
-  chipScroll: { gap: spacing.sm, paddingVertical: spacing.xs },
-  chip: {
+  inlineCtas: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceElevated,
-    maxWidth: 220,
+    gap: spacing.sm,
+    marginTop: spacing.xs,
   },
-  chipTxt: { color: colors.textSecondary, fontSize: 12, fontWeight: '700', flexShrink: 1 },
-  trustCard: {
-    padding: spacing.lg,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.surface,
+  secondaryCtaRow: {
+    flexDirection: 'row',
     gap: spacing.sm,
   },
-  vvRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  vvStrong: { color: colors.gold, fontSize: 16, fontWeight: '800' },
-  trustLine: { color: colors.textPrimary, fontSize: 15, fontWeight: '700' },
-  trustSub: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
-  trustGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  trustStat: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    fontWeight: '600',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: radii.pill,
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  prov: { color: colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: spacing.xs },
-  tradeCard: {
-    padding: spacing.lg,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: 'rgba(212,175,55,0.04)',
-    gap: spacing.sm,
-  },
-  sectionKicker: {
-    ...typography.micro,
-    color: colors.textMuted,
-    letterSpacing: 1,
-    marginBottom: -spacing.sm,
-  },
-  tradeRow: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
-  tradePill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.35)',
-    backgroundColor: 'rgba(212,175,55,0.08)',
-  },
-  tradePillTxt: { color: colors.gold, fontSize: 12, fontWeight: '800' },
-  lookingLbl: { color: colors.textMuted, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: spacing.sm },
-  lookingItem: { color: colors.textSecondary, fontSize: 14, lineHeight: 22 },
-  tradeCtas: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.md },
-  outlineCta: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.surface,
-  },
-  outlineCtaTxt: { color: colors.textPrimary, fontWeight: '800', fontSize: 14 },
   priceCard: {
-    padding: spacing.xl,
+    padding: spacing.lg,
     borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: colors.borderStrong,
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
-  buyLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' },
-  buyPrice: { color: colors.gold, fontSize: 36, fontWeight: '800', letterSpacing: -1 },
   marketRef: { color: colors.textSecondary, fontSize: 13, lineHeight: 18 },
-  delivery: { color: colors.textPrimary, fontSize: 15, fontWeight: '700', marginTop: spacing.sm },
-  protectedRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.sm },
+  delivery: { color: colors.textPrimary, fontSize: 14, fontWeight: '700' },
+  protectedRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   protectedTxt: { color: colors.textPrimary, fontWeight: '700', fontSize: 14 },
   payNote: { color: colors.textMuted, fontSize: 12 },
-  feeNote: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
   layawayCta: {
-    marginTop: spacing.md,
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: 'rgba(212,175,55,0.45)',
@@ -1007,7 +918,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   layawayCtaTxt: { color: colors.gold, fontWeight: '700', fontSize: 13 },
-  signal: { color: colors.textSecondary, fontSize: 14, lineHeight: 21 },
+  sectionKicker: {
+    ...typography.micro,
+    color: colors.textMuted,
+    letterSpacing: 1,
+    marginTop: spacing.sm,
+    marginBottom: -spacing.xs,
+  },
+  proseCard: {
+    padding: spacing.lg,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    gap: spacing.sm,
+  },
+  prose: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 24,
+  },
+  proseMuted: {
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 20,
+  },
   specCard: {
     borderRadius: radii.lg,
     borderWidth: 1,
@@ -1033,97 +968,88 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     gap: spacing.sm,
   },
-  liveNow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.xs },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.live },
-  liveNowTxt: { color: colors.textPrimary, fontWeight: '700', fontSize: 13 },
-  showLine: { color: colors.textSecondary, fontSize: 13, lineHeight: 20 },
-  showEm: { color: colors.textPrimary, fontWeight: '800' },
+  levelBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.35)',
+    backgroundColor: 'rgba(212,175,55,0.08)',
+    maxWidth: '100%',
+  },
+  levelBadgeTxt: {
+    color: colors.gold,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
   sellerActions: {
     flexDirection: 'row',
     gap: spacing.sm,
-    marginTop: spacing.md,
+    marginTop: spacing.xs,
   },
   reportRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.md,
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
   },
-  messageCta: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.45)',
-    backgroundColor: 'rgba(212,175,55,0.1)',
-  },
-  messageCtaTxt: { color: colors.gold, fontWeight: '800', fontSize: 14 },
-  liveCta: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.goldSoft,
-  },
-  liveCtaTxt: { color: colors.textPrimary, fontWeight: '800', fontSize: 14 },
-  miniRail: { gap: spacing.md, paddingVertical: spacing.xs },
-  miniCard: { width: 148 },
-  miniImg: { width: 148, height: 110, borderRadius: radii.md, backgroundColor: colors.surfaceElevated },
-  miniTitle: { color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginTop: spacing.sm },
-  miniPrice: { color: colors.gold, fontSize: 14, fontWeight: '800', marginTop: 4 },
-  prose: {
-    color: colors.textSecondary,
-    fontSize: 15,
-    lineHeight: 24,
-  },
-  featuredLive: {
-    padding: spacing.xl,
+  liveAppearancesCard: {
     borderRadius: radii.lg,
-    overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.borderStrong,
+    backgroundColor: 'rgba(212,175,55,0.04)',
+    padding: spacing.md,
     gap: spacing.sm,
   },
-  flTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '800' },
-  flSub: { color: colors.textSecondary, fontSize: 14, lineHeight: 20 },
-  flBtn: {
-    alignSelf: 'flex-start',
-    marginTop: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderRadius: radii.md,
-    backgroundColor: colors.gold,
+  liveAppearanceRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
   },
-  flBtnTxt: { color: colors.background, fontWeight: '800', fontSize: 14 },
-  soldCard: {
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceElevated,
-    padding: spacing.md,
-    gap: spacing.md,
-  },
-  soldRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  soldTitle: { color: colors.textPrimary, fontWeight: '700', fontSize: 14 },
-  soldWhen: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
-  soldPrice: { color: colors.gold, fontWeight: '800', fontSize: 16 },
-  closingLine: {
-    color: colors.textMuted,
+  liveAppearanceTitle: {
+    color: colors.textPrimary,
     fontSize: 14,
-    fontStyle: 'italic',
-    lineHeight: 22,
-    textAlign: 'center',
-    marginTop: spacing.md,
+    fontWeight: '800',
+  },
+  liveAppearanceSub: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 2,
+  },
+  liveAppearanceWhen: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  miniRail: { gap: spacing.md, paddingVertical: spacing.xs },
+  miniCard: { width: 140 },
+  miniImg: { width: 140, height: 104, borderRadius: radii.md, backgroundColor: colors.surfaceElevated },
+  miniTitle: { color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginTop: spacing.sm },
+  miniPrice: { color: colors.gold, fontSize: 14, fontWeight: '800', marginTop: 4 },
+  supportRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.lg,
     marginBottom: spacing.xl,
+  },
+  supportLink: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  supportDot: {
+    color: colors.textMuted,
+    fontSize: 12,
   },
   sticky: {
     position: 'absolute',
@@ -1141,49 +1067,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
   },
-  saveBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-    backgroundColor: 'rgba(255,255,255,0.06)',
+  stickyInnerCompact: {
+    gap: 6,
+    paddingHorizontal: spacing.md,
   },
-  stickyOffer: {
-    paddingHorizontal: 14,
-    height: 48,
-    borderRadius: radii.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-  },
-  stickyOfferTxt: { color: colors.textPrimary, fontWeight: '800', fontSize: 13 },
-  stickyTrade: {
-    paddingHorizontal: 14,
-    height: 48,
-    borderRadius: radii.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: 'rgba(212,175,55,0.12)',
-  },
-  stickyTradeTxt: { color: colors.gold, fontWeight: '800', fontSize: 13 },
-  stickyBuy: {
-    flex: 1,
-    height: 52,
-    borderRadius: radii.md,
-    backgroundColor: colors.gold,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.sm,
-  },
-  stickyBuyTop: { color: colors.background, fontSize: 11, fontWeight: '800', letterSpacing: 0.8 },
-  stickyBuyPrice: { color: colors.background, fontSize: 16, fontWeight: '900' },
   zoomModal: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.94)',

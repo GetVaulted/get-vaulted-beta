@@ -41,7 +41,9 @@ import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-comme
 import { logEscrowStatusTransition } from "@/lib/escrow-audit-log";
 import { getEscrowProvider } from "@/services/escrow/factory";
 import { assertValidEscrowTransition } from "@/services/escrow/state-machine";
-import { fulfillOrderShippingAfterPayment } from "@/services/shipping";
+import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
+import { listingLockedByLayaway } from "@/lib/layaway/eligibility";
+import { PAYMENT_LAYAWAY_ACTIVE } from "@/lib/layaway/constants";
 import { initializeOrderPayoutOnPayment } from "@/services/payout/process-delivery-payout";
 import {
   addOrderToLiveShippingSessionTx,
@@ -172,7 +174,7 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
 
   const shippingChargedCents = Math.round(Math.max(0, order.shippingPriceUsd) * 100);
 
-  await prisma.$transaction(async (tx) => {
+  const { closedLayaways } = await prisma.$transaction(async (tx) => {
     await tx.order.update({
       where: { id: orderId },
       data: {
@@ -186,10 +188,17 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
     await tx.listing.updateMany({
       where: {
         id: order.listingId,
-        status: { in: ["active", "auction_live", "awaiting_auction_payment"] },
+        status: { in: ["active", "auction_live", "awaiting_auction_payment", "layaway_reserved"] },
         moderationRemovedAt: null,
       },
       data: { status: "sold" },
+    });
+
+    const { closeActiveLayawaysSupersededByMarketplacePurchaseTx } = await import("@/services/layaway");
+    const closedLayaways = await closeActiveLayawaysSupersededByMarketplacePurchaseTx(tx, {
+      listingId: order.listingId,
+      winningOrderId: orderId,
+      winningBuyerId: order.buyerId,
     });
 
     await consumeListingInventoryHoldTx(tx, {
@@ -202,6 +211,8 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
     if (liveRoomId) {
       await recordLiveShowCompletedSaleTx(tx, liveRoomId, order.itemPriceUsd);
     }
+
+    return { closedLayaways };
   });
 
   if (prevEscrow !== EscrowStatus.buyer_paid) {
@@ -235,6 +246,31 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
     body: `Your order for “${lt}” payment is confirmed.`,
     href: `/orders/${encodeURIComponent(orderId)}`,
   });
+
+  emitOrderLifecycleSync({
+    orderId,
+    parties: { sellerId: order.sellerId, buyerId: order.buyerId },
+    listingId: order.listingId,
+    orderStatus: "paid",
+    paymentStatus: PAYMENT_PAID,
+    listingStatus: "sold",
+  });
+
+  for (const lay of closedLayaways) {
+    const { emitLayawayLifecycleSync } = await import("@/lib/marketplace/ecosystem-sync");
+    emitLayawayLifecycleSync({
+      typedEvent: lay.orderId === orderId ? "layaway_paid_in_full" : "layaway_canceled",
+      layawayId: lay.id,
+      parties: { sellerId: lay.sellerId, buyerId: lay.buyerId },
+      listingId: lay.listingId,
+      orderId: lay.orderId,
+      layawayStatus: lay.orderId === orderId ? "completed" : "canceled",
+      listingStatus: "sold",
+      orderStatus: "paid",
+      paymentStatus: PAYMENT_PAID,
+      extraPayload: { supersededByOrderId: orderId },
+    });
+  }
 }
 
 export type BuyNowShippingInput = {
@@ -409,8 +445,21 @@ export async function createBuyNowCheckoutSession(args: {
       },
     });
     if (!listingRow || listingRow.buyingFormat !== "buy_now") throw new Error("NOT_BUY_NOW");
-    if (listingRow.status !== "active" || listingRow.moderationRemovedAt) throw new Error("NOT_AVAILABLE");
+    if (listingRow.moderationRemovedAt) throw new Error("NOT_AVAILABLE");
     if (listingRow.sellerId === args.buyerId) throw new Error("OWN_LISTING");
+
+    const activeLayaway = await tx.layaway.findFirst({
+      where: { listingId: listingRow.id, status: "active" },
+      select: { buyerId: true },
+    });
+    if (activeLayaway && activeLayaway.buyerId !== args.buyerId) {
+      throw new Error("LISTING_LAYAWAY_LOCKED");
+    }
+    if (activeLayaway && activeLayaway.buyerId === args.buyerId) {
+      throw new Error("USE_LAYAWAY_PAYOFF");
+    }
+    if (listingLockedByLayaway(listingRow.status)) throw new Error("NOT_AVAILABLE");
+    if (listingRow.status !== "active") throw new Error("NOT_AVAILABLE");
 
     const itemPriceUsd = listingRow.priceUsd;
     const taxUsd = 0;
@@ -453,6 +502,14 @@ export async function createBuyNowCheckoutSession(args: {
 
     const existing = await tx.order.findUnique({ where: { listingId: listingRow.id } });
     if (existing && existing.paymentStatus === PAYMENT_PAID) throw new Error("ALREADY_SOLD");
+    if (
+      existing &&
+      (existing.paymentMethod === OrderPaymentMethod.layaway ||
+        existing.paymentStatus === PAYMENT_LAYAWAY_ACTIVE)
+    ) {
+      if (existing.buyerId !== args.buyerId) throw new Error("LISTING_LAYAWAY_LOCKED");
+      throw new Error("USE_LAYAWAY_PAYOFF");
+    }
     if (existing && existing.paymentStatus === PAYMENT_PENDING) {
       if (existing.buyerId !== args.buyerId) throw new Error("CHECKOUT_IN_PROGRESS");
       if (
@@ -1032,7 +1089,7 @@ export async function finalizeStripeMarketplaceOrderPaid(
 
   const shippingChargedCents = Math.round(Math.max(0, order.shippingPriceUsd) * 100);
 
-  await prisma.$transaction(async (tx) => {
+  const { closedLayaways } = await prisma.$transaction(async (tx) => {
     await tx.order.update({
       where: { id: orderId },
       data: {
@@ -1052,10 +1109,17 @@ export async function finalizeStripeMarketplaceOrderPaid(
     await tx.listing.updateMany({
       where: {
         id: order.listingId,
-        status: { in: ["active", "auction_live", "awaiting_auction_payment"] },
+        status: { in: ["active", "auction_live", "awaiting_auction_payment", "layaway_reserved"] },
         moderationRemovedAt: null,
       },
       data: { status: "sold" },
+    });
+
+    const { closeActiveLayawaysSupersededByMarketplacePurchaseTx } = await import("@/services/layaway");
+    const closedLayaways = await closeActiveLayawaysSupersededByMarketplacePurchaseTx(tx, {
+      listingId: order.listingId,
+      winningOrderId: orderId,
+      winningBuyerId: order.buyerId,
     });
 
     await consumeListingInventoryHoldTx(tx, {
@@ -1068,6 +1132,8 @@ export async function finalizeStripeMarketplaceOrderPaid(
     if (liveRoomId) {
       await recordLiveShowCompletedSaleTx(tx, liveRoomId, order.itemPriceUsd);
     }
+
+    return { closedLayaways };
   });
 
   void fulfillOrderShippingAfterPayment(orderId);
@@ -1088,6 +1154,32 @@ export async function finalizeStripeMarketplaceOrderPaid(
     body: `Your order for “${lt}” is paid.`,
     href: `/orders/${encodeURIComponent(orderId)}`,
   });
+
+  emitOrderLifecycleSync({
+    orderId,
+    parties: { sellerId: order.sellerId, buyerId: order.buyerId },
+    listingId: order.listingId,
+    orderStatus: "paid",
+    paymentStatus: PAYMENT_PAID,
+    listingStatus: "sold",
+  });
+
+  for (const lay of closedLayaways) {
+    const { emitLayawayLifecycleSync } = await import("@/lib/marketplace/ecosystem-sync");
+    const sameOrder = lay.orderId === orderId;
+    emitLayawayLifecycleSync({
+      typedEvent: sameOrder ? "layaway_paid_in_full" : "layaway_canceled",
+      layawayId: lay.id,
+      parties: { sellerId: lay.sellerId, buyerId: lay.buyerId },
+      listingId: lay.listingId,
+      orderId: lay.orderId,
+      layawayStatus: sameOrder ? "completed" : "canceled",
+      listingStatus: "sold",
+      orderStatus: "paid",
+      paymentStatus: PAYMENT_PAID,
+      extraPayload: { supersededByOrderId: orderId },
+    });
+  }
 }
 
 export async function processStripeWebhookEvent(event: Stripe.Event): Promise<void> {

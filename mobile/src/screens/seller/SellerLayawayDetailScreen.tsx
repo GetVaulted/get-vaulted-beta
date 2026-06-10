@@ -15,7 +15,8 @@ import { fetchSellerLayawayDetail, type SellerLayawayDetail } from '../../api/la
 import { PremiumVaultButton } from '../../components/product/PremiumVaultButton';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { useAuth } from '../../auth/AuthContext';
-import { useVaultEcosystemEvents } from '../../hooks/useVaultEcosystemEvents';
+import { useCanonicalUserId } from '../../hooks/useCanonicalUserId';
+import { useMoneyStateSync } from '../../hooks/useMoneyStateSync';
 import {
   sellerLayawayPaymentKindLabel,
   sellerLayawayStatusLabel,
@@ -48,6 +49,7 @@ function formatDate(iso: string) {
 export function SellerLayawayDetailScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { session, user } = useAuth();
+  const canonicalUserId = useCanonicalUserId(session?.access_token);
   const [detail, setDetail] = useState<SellerLayawayDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -70,14 +72,12 @@ export function SellerLayawayDetailScreen({ navigation, route }: Props) {
     void load();
   }, [load]);
 
-  const onLayawayEvent = useCallback(() => {
-    void load();
-  }, [load]);
-
-  useVaultEcosystemEvents(user?.id, {
+  useMoneyStateSync({
     enabled: Boolean(session?.access_token && user?.id),
-    entityId: route.params.layawayId,
-    onLayaway: onLayawayEvent,
+    canonicalUserId,
+    supabaseUserId: user?.id,
+    refetch: load,
+    refetchOnFocus: false,
   });
 
   const canShip = detail?.status === 'completed';

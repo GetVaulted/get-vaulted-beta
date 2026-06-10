@@ -232,6 +232,7 @@ async function enrichOrders(rows: OrderDbRow[]): Promise<VaultOrderRow[]> {
   return enrichBuyerOrders(rows);
 }
 
+/** @deprecated Seller commerce uses `/api/account/sales` via sellerSalesRepository. */
 export async function fetchSellerOrders(userId: string): Promise<VaultOrderRow[]> {
   const sb = getSupabase();
   if (!sb) return [];

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { sellerNextActionForOrder } from "@/lib/seller-fulfillment-next-action";
+import { sellerFulfillmentOrdersWhere } from "@/lib/seller-fulfillment-orders";
+import { resolveOrderCommerceSnapshot } from "@/lib/marketplace/commerce-state";
+import { resolveAccountSellerUserId } from "@/lib/resolve-account-seller-user";
 import {
   estimateSellerOrderPayoutUsd,
   resolvePlatformFeePercentForSellerOrder,
@@ -8,17 +10,22 @@ import {
 } from "@/lib/seller-payout-estimate";
 import { prisma } from "@/lib/prisma";
 import { processAuctionPaymentExpiries } from "@/services/payments";
+import { repairStaleActiveLayaways } from "@/services/layaway";
 
-export async function GET() {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export async function GET(req: Request) {
+  const auth = await resolveAccountSellerUserId(req);
+  if (auth instanceof NextResponse) return auth;
 
   await processAuctionPaymentExpiries();
 
+  try {
+    await repairStaleActiveLayaways();
+  } catch (e) {
+    console.error("[sales] repairStaleActiveLayaways", e);
+  }
+
   const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
+    where: { id: auth.userId },
     select: {
       stripeAccountId: true,
       stripeOnboardingComplete: true,
@@ -30,6 +37,7 @@ export async function GET() {
       shipFromCountry: true,
       instantPayoutEligible: true,
       instantPayoutStatus: true,
+      payoutTier: true,
       payoutHoldDays: true,
       payoutReservePercent: true,
     },
@@ -37,10 +45,12 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const orders = await prisma.order.findMany({
-    where: { sellerId: session.user.id },
+    where: sellerFulfillmentOrdersWhere(auth.userId),
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
+      buyerId: true,
+      sellerId: true,
       totalUsd: true,
       itemPriceUsd: true,
       shippingPriceUsd: true,
@@ -77,6 +87,7 @@ export async function GET() {
         },
       },
       buyer: { select: { username: true } },
+      layaway: { select: { status: true, remainingBalanceUsd: true } },
     },
   });
 
@@ -86,9 +97,11 @@ export async function GET() {
       instantPayoutStatus: user.instantPayoutStatus,
       payoutHoldDays: user.payoutHoldDays,
       payoutReservePercent: user.payoutReservePercent,
+      payoutTier: user.payoutTier,
       eligibilityMessage: sellerInstantPayoutBannerMessage({
         instantPayoutEligible: user.instantPayoutEligible,
         instantPayoutStatus: user.instantPayoutStatus,
+        payoutTier: user.payoutTier,
       }),
     },
     orders: orders.map((o) => {
@@ -101,12 +114,26 @@ export async function GET() {
         orderItemPriceUsd: o.itemPriceUsd,
         orderPaymentStatus: o.paymentStatus,
       });
+      const commerce = resolveOrderCommerceSnapshot({
+        id: o.id,
+        listingId: o.listing.id,
+        buyerId: o.buyerId,
+        sellerId: o.sellerId,
+        status: o.status,
+        paymentStatus: o.paymentStatus,
+        fulfillmentStatus: o.fulfillmentStatus,
+        trackingNumber: o.trackingNumber,
+        listingStatus: o.listing.status,
+        layawayStatus: o.layaway?.status ?? null,
+        remainingBalanceUsd: o.layaway?.remainingBalanceUsd ?? null,
+      });
       return {
       id: o.id,
       totalUsd: o.totalUsd,
       status: o.status,
       paymentStatus: o.paymentStatus,
       fulfillmentStatus: o.fulfillmentStatus,
+      commerceBucket: commerce.sellerBucket,
       createdAt: o.createdAt.toISOString(),
       shipCity: o.shipCity,
       shipState: o.shipState,

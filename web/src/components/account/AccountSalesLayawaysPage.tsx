@@ -57,9 +57,14 @@ export function AccountSalesLayawaysPage() {
   }, [load, sellerReady, status]);
 
   useEffect(() => {
-    const on = () => void load();
-    window.addEventListener("gv-layaways-updated", on);
-    return () => window.removeEventListener("gv-layaways-updated", on);
+    const onLayaways = () => void load();
+    const onOrders = () => void load();
+    window.addEventListener("gv-layaways-updated", onLayaways);
+    window.addEventListener("gv-orders-updated", onOrders);
+    return () => {
+      window.removeEventListener("gv-layaways-updated", onLayaways);
+      window.removeEventListener("gv-orders-updated", onOrders);
+    };
   }, [load]);
 
   if (status === "loading" || sellerGateLoading || rows === null) {

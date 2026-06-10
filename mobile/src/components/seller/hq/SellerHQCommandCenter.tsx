@@ -15,7 +15,10 @@ import {
   sellerConnectBadge,
   sellerConnectDetailMessage,
 } from '../../../api/stripeConnectRepository';
-import type { MainTabParamList } from '../../../navigation/types';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { MainTabParamList, RootStackParamList } from '../../../navigation/types';
+
+type RootNav = NativeStackNavigationProp<RootStackParamList>;
 import { colors, radii, spacing } from '../../../theme';
 import { SellerHQAnalyticsPreview } from './SellerHQAnalyticsPreview';
 import { SellerHQCommandHeader } from './SellerHQCommandHeader';
@@ -23,6 +26,9 @@ import { SellerHQPremiumBanner } from './SellerHQPremiumBanner';
 import { SellerHQQuickLaunch, type QuickLaunchId } from './SellerHQQuickLaunch';
 import { SellerHQTodayInVault } from './SellerHQTodayInVault';
 import { SellerHQVaultEventsStrip } from './SellerHQVaultEventsStrip';
+import { SellerHQLayawaysCard } from './SellerHQLayawaysCard';
+import type { SellerLayawayCounts } from '../../../api/layawayRepository';
+import { openSellerLayaways } from '../../../navigation/openSellerLayaways';
 import { hq } from './hqStyles';
 
 type CommandCenterData = ReturnType<typeof useSellerCommandCenterData>;
@@ -38,6 +44,9 @@ export function SellerHQCommandCenter({
   onStripeSetup,
   stripeSetupBusy,
   onProfileSettings,
+  layawayCounts,
+  layawaysLoading,
+  hasLayaways,
 }: {
   data: CommandCenterData;
   displayName: string;
@@ -49,6 +58,9 @@ export function SellerHQCommandCenter({
   onStripeSetup: () => void;
   stripeSetupBusy: boolean;
   onProfileSettings: () => void;
+  layawayCounts: SellerLayawayCounts | null;
+  layawaysLoading: boolean;
+  hasLayaways: boolean;
 }) {
   const rootNav = navigation as unknown as NavigationProp<ParamListBase>;
   const status = data.sellerConnect.status;
@@ -100,6 +112,11 @@ export function SellerHQCommandCenter({
     else if (id === 'drafts') onOpenTab('listings');
     else if (id === 'payout') onOpenTab('wallet');
     else if (id === 'followers') openVaultComms(rootNav);
+    else if (id === 'layaways' || id === 'layaways_ready') {
+      openSellerLayaways(rootNav as unknown as RootNav, {
+        filter: id === 'layaways_ready' ? 'ready' : 'active',
+      });
+    }
     else onOpenTab('analytics');
   };
 
@@ -129,6 +146,14 @@ export function SellerHQCommandCenter({
         pendingOrders={data.metrics.pendingOrders}
         performanceInsight={data.metrics.performanceInsight}
         onSettings={onProfileSettings}
+      />
+
+      <SellerHQLayawaysCard
+        counts={layawayCounts}
+        loading={layawaysLoading}
+        hasLayaways={hasLayaways}
+        onPress={() => openSellerLayaways(rootNav as unknown as RootNav)}
+        onPressFilter={(filter) => openSellerLayaways(rootNav as unknown as RootNav, { filter })}
       />
 
       {data.approved ? (
@@ -178,14 +203,25 @@ export function SellerHQCommandCenter({
         <View style={styles.laneChips}>
           {(
             [
-              { tab: 'listings' as const, label: 'Inventory', icon: 'layers-outline' },
-              { tab: 'orders' as const, label: 'Fulfillment', icon: 'cube-outline' },
-              { tab: 'wallet' as const, label: 'Revenue vault', icon: 'wallet-outline' },
-              { tab: 'analytics' as const, label: 'Insights', icon: 'stats-chart-outline' },
-              { tab: 'live' as const, label: 'Vault Events', icon: 'calendar-outline' },
+              { key: 'listings', tab: 'listings' as const, label: 'Inventory', icon: 'layers-outline' as const },
+              { key: 'orders', tab: 'orders' as const, label: 'Fulfillment', icon: 'cube-outline' as const },
+              ...(hasLayaways
+                ? [{ key: 'layaways', label: 'Layaways', icon: 'time-outline' as const, layaways: true as const }]
+                : []),
+              { key: 'wallet', tab: 'wallet' as const, label: 'Revenue vault', icon: 'wallet-outline' as const },
+              { key: 'analytics', tab: 'analytics' as const, label: 'Insights', icon: 'stats-chart-outline' as const },
+              { key: 'live', tab: 'live' as const, label: 'Vault Events', icon: 'calendar-outline' as const },
             ] as const
           ).map((lane) => (
-            <Pressable key={lane.tab} style={styles.laneChip} onPress={() => onOpenTab(lane.tab)}>
+            <Pressable
+              key={lane.key}
+              style={styles.laneChip}
+              onPress={() =>
+                'layaways' in lane && lane.layaways
+                  ? openSellerLayaways(rootNav as unknown as RootNav)
+                  : onOpenTab(lane.tab)
+              }
+            >
               <Ionicons name={lane.icon} size={16} color={colors.gold} />
               <Text style={styles.laneChipTxt}>{lane.label}</Text>
             </Pressable>

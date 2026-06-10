@@ -19,7 +19,11 @@ import {
   type SellerSetupDataSource,
   type SellerSetupPhase,
 } from '../lib/seller-setup-state';
-import { markSellerWizardCompleteLocal, readSellerWizardComplete } from '../lib/sellerWizardStorage';
+import {
+  clearSellerWizardComplete,
+  markSellerWizardCompleteLocal,
+  readSellerWizardComplete,
+} from '../lib/sellerWizardStorage';
 
 const DEFAULT_CHECKS: SellerReadinessChecks = {
   hasStripeAccount: false,
@@ -36,6 +40,7 @@ type SellerSetupStore = {
   wizardComplete: boolean;
   serverWizardConfirmed: boolean;
   sellerSetupWizardCompletedAt: string | null;
+  sellerAgreementAcceptedAt: string | null;
   canGoLive: boolean;
   seller: SellerAccountPayload | null;
   stripePlatformConfigured: boolean;
@@ -53,6 +58,7 @@ const EMPTY_STORE: SellerSetupStore = {
   wizardComplete: false,
   serverWizardConfirmed: false,
   sellerSetupWizardCompletedAt: null,
+  sellerAgreementAcceptedAt: null,
   canGoLive: false,
   seller: null,
   stripePlatformConfigured: false,
@@ -145,6 +151,7 @@ function assembleStore(input: {
   wizardComplete: boolean;
   serverWizardConfirmed: boolean;
   sellerSetupWizardCompletedAt: string | null;
+  sellerAgreementAcceptedAt: string | null;
   canGoLive: boolean;
   seller: SellerAccountPayload | null;
   stripePlatformConfigured: boolean;
@@ -170,6 +177,7 @@ function assembleStore(input: {
     wizardComplete: input.wizardComplete,
     serverWizardConfirmed: input.serverWizardConfirmed,
     sellerSetupWizardCompletedAt: input.sellerSetupWizardCompletedAt,
+    sellerAgreementAcceptedAt: input.sellerAgreementAcceptedAt,
     canGoLive: input.canGoLive,
     seller: input.seller,
     stripePlatformConfigured: input.stripePlatformConfigured,
@@ -198,12 +206,17 @@ function applyServerPayload(payload: SellerAccountResponse, localWizard: boolean
   if (wizardResolved.serverWizardConfirmed && !localWizard) {
     void markSellerWizardCompleteLocal();
   }
+  if (wizardResolved.serverExplicitIncomplete && localWizard) {
+    void clearSellerWizardComplete();
+  }
 
+  const agreementAt = payload.sellerAgreementAcceptedAt ?? null;
   const next = assembleStore({
     checks: nextChecks,
     wizardComplete: wizardResolved.wizardComplete,
     serverWizardConfirmed: wizardResolved.serverWizardConfirmed,
     sellerSetupWizardCompletedAt: wizardAt,
+    sellerAgreementAcceptedAt: agreementAt,
     canGoLive: Boolean(readiness?.canGoLive),
     seller: payload.seller,
     stripePlatformConfigured: payload.stripePlatformConfigured === true,
@@ -238,6 +251,7 @@ async function runLoad(
         wizardComplete: store.wizardComplete,
         serverWizardConfirmed: store.serverWizardConfirmed,
         sellerSetupWizardCompletedAt: store.sellerSetupWizardCompletedAt,
+        sellerAgreementAcceptedAt: store.sellerAgreementAcceptedAt,
         canGoLive: store.canGoLive,
         seller: store.seller,
         stripePlatformConfigured: store.stripePlatformConfigured,
@@ -269,6 +283,7 @@ async function runLoad(
       wizardComplete: wizardResolved.wizardComplete,
       serverWizardConfirmed: wizardResolved.serverWizardConfirmed,
       sellerSetupWizardCompletedAt: store.sellerSetupWizardCompletedAt,
+      sellerAgreementAcceptedAt: store.sellerAgreementAcceptedAt,
       canGoLive: store.canGoLive,
       seller: store.seller,
       stripePlatformConfigured: store.stripePlatformConfigured,
@@ -336,6 +351,7 @@ export function useSellerSetupState(accessToken: string | undefined, enabled: bo
         wizardComplete: store.wizardComplete,
         serverWizardConfirmed: store.serverWizardConfirmed,
         sellerSetupWizardCompletedAt: store.sellerSetupWizardCompletedAt,
+        sellerAgreementAcceptedAt: store.sellerAgreementAcceptedAt,
         canGoLive: Boolean(readiness.canGoLive),
         seller: nextSeller !== undefined ? nextSeller : store.seller,
         stripePlatformConfigured: store.stripePlatformConfigured,
@@ -355,8 +371,11 @@ export function useSellerSetupState(accessToken: string | undefined, enabled: bo
     const next = assembleStore({
       checks: store.checks,
       wizardComplete: done,
-      serverWizardConfirmed: store.serverWizardConfirmed,
-      sellerSetupWizardCompletedAt: store.sellerSetupWizardCompletedAt,
+      serverWizardConfirmed: done ? true : store.serverWizardConfirmed,
+      sellerSetupWizardCompletedAt: done ? new Date().toISOString() : store.sellerSetupWizardCompletedAt,
+      sellerAgreementAcceptedAt: done
+        ? store.sellerAgreementAcceptedAt ?? new Date().toISOString()
+        : store.sellerAgreementAcceptedAt,
       canGoLive: store.canGoLive,
       seller: store.seller,
       stripePlatformConfigured: store.stripePlatformConfigured,
@@ -374,6 +393,8 @@ export function useSellerSetupState(accessToken: string | undefined, enabled: bo
     lifecycle: snapshot.lifecycle,
     checks: snapshot.checks,
     wizardComplete: snapshot.wizardComplete,
+    sellerSetupWizardCompletedAt: snapshot.sellerSetupWizardCompletedAt,
+    sellerAgreementAcceptedAt: snapshot.sellerAgreementAcceptedAt,
     canGoLive: snapshot.canGoLive,
     seller: snapshot.seller,
     stripePlatformConfigured: snapshot.stripePlatformConfigured,

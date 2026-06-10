@@ -1,13 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { getFocusedRouteNameFromRoute } from '@react-navigation/native';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { isCompactMarketplaceLayout, marketplaceFontSize, MARKETPLACE_TEXT_PROPS } from '../lib/marketplaceUiScale';
 import { colors, spacing, typography } from '../theme';
 import type { MainTabParamList } from './types';
 import { LiveTabOrb } from './LiveTabOrb';
 
 const ORDER: (keyof MainTabParamList)[] = ['Home', 'Marketplace', 'Live', 'TradeCenter', 'HQ'];
+const TAB_SLOT_TIGHT_WIDTH = 88;
 
 function iconFor(
   name: keyof MainTabParamList,
@@ -29,8 +31,20 @@ function iconFor(
   }
 }
 
+function tabLabelFor(name: keyof MainTabParamList, compact: boolean): string {
+  if (name === 'Marketplace') return compact ? 'Vault' : 'Marketplace';
+  if (name === 'HQ') return compact ? 'HQ' : 'Seller HQ';
+  if (name === 'TradeCenter') return 'Trade';
+  return name;
+}
+
 export function VaultTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const compact = isCompactMarketplaceLayout(width, height);
+  const tightTabs = width / ORDER.length < TAB_SLOT_TIGHT_WIDTH;
+  const shortLabels = compact || tightTabs;
+  const labelSize = marketplaceFontSize(shortLabels ? 9 : 10, Math.min(1, width / 430));
   const bottomPad = Math.max(insets.bottom, spacing.sm);
   const currentRoute = state.routes[state.index];
   const nestedLiveName =
@@ -50,7 +64,7 @@ export function VaultTabBar({ state, descriptors, navigation }: BottomTabBarProp
   }
 
   return (
-    <View style={[styles.bar, { paddingBottom: bottomPad, paddingTop: 18 }]}>
+    <View style={[styles.bar, { paddingBottom: bottomPad, paddingTop: compact ? 12 : 18 }]}>
       {ORDER.map((name) => {
         const route = state.routes.find((r) => r.name === name);
         if (!route) return null;
@@ -99,14 +113,23 @@ export function VaultTabBar({ state, descriptors, navigation }: BottomTabBarProp
 
         const lblColor = isFocused ? colors.gold : colors.textMuted;
         const labelNode =
-          name === 'TradeCenter' ? (
+          name === 'TradeCenter' && !shortLabels ? (
             <View style={styles.tabLabelStack}>
-              <Text style={[styles.label, styles.labelStackLine, { color: lblColor }]}>Trade</Text>
-              <Text style={[styles.label, styles.labelStackLine, { color: lblColor }]}>Center</Text>
+              <Text style={[styles.label, styles.labelStackLine, { color: lblColor, fontSize: labelSize - 1.5 }]} {...MARKETPLACE_TEXT_PROPS}>
+                Trade
+              </Text>
+              <Text style={[styles.label, styles.labelStackLine, { color: lblColor, fontSize: labelSize - 1.5 }]} {...MARKETPLACE_TEXT_PROPS}>
+                Center
+              </Text>
             </View>
           ) : (
-            <Text style={[styles.label, { color: lblColor }]}>
-              {name === 'Marketplace' ? 'Marketplace' : name === 'HQ' ? 'Seller HQ' : name}
+            <Text
+              style={[styles.label, { color: lblColor, fontSize: labelSize }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              {...MARKETPLACE_TEXT_PROPS}
+            >
+              {tabLabelFor(name, shortLabels)}
             </Text>
           );
 
@@ -121,7 +144,7 @@ export function VaultTabBar({ state, descriptors, navigation }: BottomTabBarProp
           >
             <Ionicons
               name={iconFor(name, isFocused)}
-              size={22}
+              size={compact ? 20 : 22}
               color={isFocused ? colors.gold : colors.textMuted}
             />
             {labelNode}
@@ -152,11 +175,14 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     gap: 2,
     minHeight: 48,
+    minWidth: 0,
+    paddingHorizontal: 1,
   },
   label: {
     ...typography.micro,
-    fontSize: 10,
     letterSpacing: 0.35,
+    textAlign: 'center',
+    maxWidth: '100%',
   },
   tabLabelStack: {
     alignItems: 'center',

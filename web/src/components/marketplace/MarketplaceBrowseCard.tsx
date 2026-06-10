@@ -121,8 +121,10 @@ export function MarketplaceBrowseCard({
           >
             @{listing.sellerUsername}
           </Link>
-          {listing.sellerRating != null ? (
-            <span className="tabular-nums text-zinc-500">★ {listing.sellerRating.toFixed(1)}</span>
+          {listing.sellerLevelLabel ? (
+            <span className="text-[8px] font-bold uppercase tracking-wide text-gold-bright/80 sm:text-[9px]">
+              {listing.sellerLevelLabel}
+            </span>
           ) : null}
           {listing.sellerVerified ? (
             <span className="inline-flex items-center gap-0.5 rounded border border-sky-400/30 bg-sky-500/10 px-1 py-0.5 text-[8px] font-bold uppercase leading-none tracking-wide text-sky-200 sm:text-[9px]">

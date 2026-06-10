@@ -61,9 +61,11 @@ export function MarketplaceItemSellerSection({ listing, extras }: MarketplaceIte
         >
           @{listing.sellerUsername}
         </Link>
-        {listing.sellerRating != null ? (
+        {listing.sellerLevelLabel ? (
           <>
-            <span className="tabular-nums text-zinc-400">★ {listing.sellerRating.toFixed(1)}</span>
+            <span className="inline-flex items-center rounded border border-gold/30 bg-gold/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-gold-bright/90">
+              {listing.sellerLevelLabel}
+            </span>
             <span className="text-zinc-500">·</span>
           </>
         ) : null}

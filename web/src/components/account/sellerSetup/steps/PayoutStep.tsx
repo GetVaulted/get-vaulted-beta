@@ -18,12 +18,12 @@ const PAYOUT_INFO = [
     body: "When an order is paid, your share is tracked in Seller HQ. Funds move to your connected bank or debit card on Stripe’s payout schedule after the sale clears.",
   },
   {
-    title: "Instant payout eligibility",
-    body: "Eligible sellers can request faster transfers once delivery is confirmed and the account is in good standing — subject to Stripe and platform rules.",
+    title: "Payout tiers",
+    body: "Standard sellers receive funds after delivery confirmation. Fast Payout unlocks release at the first carrier acceptance scan. Instant Payout releases funds when you create a valid shipping label.",
   },
   {
-    title: "Good standing & instant payout limits",
-    body: "Disputes, fraud signals, chargebacks, Stripe restrictions, or policy violations can delay or suspend instant payouts until resolved.",
+    title: "Building toward faster payouts",
+    body: "Eligibility is based on account age, lifetime GMV, completed orders, seller rating, cancellation and chargeback rates, fulfillment performance, and risk review. Instant Payout requires Get Vaulted approval.",
   },
 ] as const;
 

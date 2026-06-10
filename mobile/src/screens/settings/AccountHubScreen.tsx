@@ -77,6 +77,12 @@ export function AccountHubScreen({ navigation }: Props) {
               }}
             />
             <SettingsRow
+              label="Sales layaways"
+              sub="Reserved items — ship when paid in full"
+              icon="time-outline"
+              onPress={() => navigation.navigate('SellerLayaways')}
+            />
+            <SettingsRow
               label="Go Live"
               sub="Schedule or host a live show"
               icon="radio-outline"

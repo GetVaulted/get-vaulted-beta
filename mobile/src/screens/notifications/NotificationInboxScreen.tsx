@@ -11,7 +11,9 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
   registerPushNotificationHooks,
+  syncServerNotifications,
 } from '../../platform/notificationStore';
+import { openSellerLayaways } from '../../navigation/openSellerLayaways';
 import type { AppNotification } from '../../platform/notificationTypes';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
@@ -20,7 +22,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'NotificationInbox'>;
 
 export function NotificationInboxScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const [rows, setRows] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -28,12 +30,13 @@ export function NotificationInboxScreen({ navigation }: Props) {
     if (!user?.id) return;
     setLoading(true);
     try {
+      if (session?.access_token) await syncServerNotifications(user.id, session.access_token);
       setRows(await listNotifications(user.id));
       registerPushNotificationHooks(user.id);
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [session?.access_token, user?.id]);
 
   useEffect(() => {
     void load();
@@ -63,6 +66,18 @@ export function NotificationInboxScreen({ navigation }: Props) {
         screen: 'TradeCenter',
         params: { screen: 'TradeDetail', params: { tradeId: n.referenceId } },
       });
+      return;
+    }
+    if (n.kind === 'layaway') {
+      if (n.referenceId) {
+        openSellerLayaways(navigation, { layawayId: n.referenceId });
+      } else {
+        openSellerLayaways(navigation);
+      }
+      return;
+    }
+    if (n.kind === 'order') {
+      navigation.navigate('MainTabs', { screen: 'HQ' });
     }
   };
 

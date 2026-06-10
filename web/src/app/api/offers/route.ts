@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
 import { createNotification } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 
@@ -16,8 +16,8 @@ function trimMessage(s: unknown, max = 2000): string | null {
 }
 
 export async function POST(req: Request) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
+  const auth = await resolveListingsUserId(req);
+  if (auth instanceof NextResponse) {
     return NextResponse.json({ error: "Sign in to make an offer." }, { status: 401 });
   }
 
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Enter a valid offer amount." }, { status: 400 });
   }
 
-  const buyerId = session.user.id;
+  const buyerId = auth.userId;
   const message = trimMessage(body.message);
 
   const listing = await prisma.listing.findUnique({

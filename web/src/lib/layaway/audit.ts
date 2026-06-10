@@ -5,7 +5,8 @@ export type LayawayAuditAction =
   | "payment_received"
   | "refund_issued"
   | "default"
-  | "completion";
+  | "completion"
+  | "superseded_by_purchase";
 
 export async function logLayawayAudit(
   tx: Prisma.TransactionClient,

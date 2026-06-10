@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
 import { checkoutInfrastructureGate } from "@/lib/checkout-infrastructure";
 import {
   createBreakSpotCheckoutSession,
@@ -39,10 +39,8 @@ function trim(s: unknown, max = 500): string {
 }
 
 export async function postMarketplaceCheckout(req: Request): Promise<Response> {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await resolveListingsUserId(req);
+  if (auth instanceof NextResponse) return auth;
 
   try {
     await processAuctionPaymentExpiries();
@@ -58,7 +56,7 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
   }
 
   const kind = trim(body.kind, 40);
-  const buyerId = session.user.id;
+  const buyerId = auth.userId;
 
   const gate = await checkoutInfrastructureGate(kind, {
     listingId: trim(body.listingId, 120) || undefined,

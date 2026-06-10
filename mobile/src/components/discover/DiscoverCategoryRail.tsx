@@ -17,6 +17,8 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import { MARKETPLACE_LANES, type MarketplaceLaneChip, type MarketplaceLaneId } from '../../data/marketplaceCategories';
+import { useMarketplaceLayout } from '../../hooks/useMarketplaceLayout';
+import { marketplaceFontSize, MARKETPLACE_TEXT_PROPS } from '../../lib/marketplaceUiScale';
 import { colors, radii, spacing } from '../../theme';
 
 export type { MarketplaceLaneId, MarketplaceLaneChip };
@@ -24,8 +26,6 @@ export type MarketplaceCategoryFilter = MarketplaceLaneId;
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-const PILL_MIN_W = 88;
-const PILL_H = 56;
 const GAP = spacing.md;
 const EDGE_FADE_W = 28;
 
@@ -33,10 +33,16 @@ function LanePill({
   chip,
   selected,
   onPress,
+  pillMinW,
+  pillH,
+  compact,
 }: {
   chip: MarketplaceLaneChip;
   selected: boolean;
   onPress: () => void;
+  pillMinW: number;
+  pillH: number;
+  compact: boolean;
 }) {
   const scale = useSharedValue(selected ? 1 : 0.98);
 
@@ -60,7 +66,12 @@ function LanePill({
       onPress={onPress}
       onPressIn={onPressIn}
       onPressOut={onPressOut}
-      style={[styles.pillOuter, animStyle, selected && styles.pillOuterOn]}
+      style={[
+        styles.pillOuter,
+        { minWidth: pillMinW, minHeight: pillH },
+        animStyle,
+        selected && styles.pillOuterOn,
+      ]}
       accessibilityRole="button"
       accessibilityState={{ selected }}
       accessibilityLabel={chip.label}
@@ -74,11 +85,16 @@ function LanePill({
         />
       ) : null}
       {selected ? <View style={styles.innerGlow} pointerEvents="none" /> : null}
-      <View style={styles.pillContent}>
-        <View style={[styles.iconWrap, selected && styles.iconWrapOn]}>
-          <Ionicons name={chip.icon} size={20} color={selected ? colors.gold : colors.textMuted} />
+      <View style={[styles.pillContent, { minHeight: pillH }]}>
+        <View style={[styles.iconWrap, compact && styles.iconWrapCompact, selected && styles.iconWrapOn]}>
+          <Ionicons name={chip.icon} size={compact ? 18 : 20} color={selected ? colors.gold : colors.textMuted} />
         </View>
-        <Text style={[styles.label, selected && styles.labelOn]} numberOfLines={1}>
+        <Text
+          style={[styles.label, compact && styles.labelCompact, selected && styles.labelOn]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          {...MARKETPLACE_TEXT_PROPS}
+        >
           {chip.label}
         </Text>
         {chip.badge ? (
@@ -114,11 +130,17 @@ export function MarketplaceCategoryRail({
   active,
   onChange,
   lanes = MARKETPLACE_LANES,
+  bleedPadding,
 }: {
   active: MarketplaceLaneId;
   onChange: (lane: MarketplaceLaneId) => void;
   lanes?: MarketplaceLaneChip[];
+  bleedPadding?: number;
 }) {
+  const layout = useMarketplaceLayout();
+  const edgePad = bleedPadding ?? layout.horizontalPadding;
+  const pillMinW = layout.chipMinWidth;
+  const pillH = layout.chipHeight;
   const scrollRef = useRef<ScrollView>(null);
   const showLeftFade = useSharedValue(0);
   const showRightFade = useSharedValue(1);
@@ -133,10 +155,10 @@ export function MarketplaceCategoryRail({
   const onLayoutScroll = useCallback(
     (e: LayoutChangeEvent) => {
       const w = e.nativeEvent.layout.width;
-      const contentW = lanes.length * (PILL_MIN_W + GAP) + spacing.lg * 2;
+      const contentW = lanes.length * (pillMinW + GAP) + edgePad * 2;
       showRightFade.value = contentW > w ? 1 : 0;
     },
-    [lanes.length, showRightFade],
+    [lanes.length, pillMinW, edgePad, showRightFade],
   );
 
   const leftFadeStyle = useAnimatedStyle(() => ({
@@ -147,9 +169,14 @@ export function MarketplaceCategoryRail({
   }));
 
   return (
-    <View style={styles.shell}>
-      <Text style={styles.eyebrow}>Browse by category</Text>
-      <View style={styles.railWrap} onLayout={onLayoutScroll}>
+    <View style={[styles.shell, { marginHorizontal: -edgePad }]}>
+      <Text
+        style={[styles.eyebrow, { fontSize: marketplaceFontSize(11, layout.scale), paddingHorizontal: edgePad }]}
+        {...MARKETPLACE_TEXT_PROPS}
+      >
+        Browse by category
+      </Text>
+      <View style={[styles.railWrap, { minHeight: pillH + spacing.sm }]} onLayout={onLayoutScroll}>
         <ScrollView
           ref={scrollRef}
           horizontal
@@ -157,7 +184,7 @@ export function MarketplaceCategoryRail({
           decelerationRate="fast"
           onScroll={onScroll}
           scrollEventThrottle={16}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { paddingHorizontal: edgePad }]}
           style={styles.scroll}
         >
           {lanes.map((chip) => (
@@ -166,6 +193,9 @@ export function MarketplaceCategoryRail({
               chip={chip}
               selected={chip.id === active}
               onPress={() => onChange(chip.id)}
+              pillMinW={pillMinW}
+              pillH={pillH}
+              compact={layout.compact}
             />
           ))}
         </ScrollView>
@@ -184,20 +214,17 @@ const styles = StyleSheet.create({
   shell: {
     marginTop: spacing.sm,
     marginBottom: spacing.md,
-    marginHorizontal: -spacing.lg,
+    maxWidth: '100%',
   },
   eyebrow: {
-    fontSize: 11,
     fontWeight: '800',
     letterSpacing: 1,
     color: colors.textMuted,
     textTransform: 'uppercase',
     marginBottom: spacing.sm,
-    paddingHorizontal: spacing.lg,
   },
   railWrap: {
     position: 'relative',
-    minHeight: PILL_H + spacing.sm,
   },
   scroll: {
     overflow: 'visible',
@@ -206,9 +233,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: GAP,
-    paddingHorizontal: spacing.lg,
     paddingVertical: spacing.xs,
-    paddingRight: spacing.lg + EDGE_FADE_W,
+    paddingRight: EDGE_FADE_W,
   },
   fadeHost: {
     ...StyleSheet.absoluteFillObject,
@@ -224,8 +250,6 @@ const styles = StyleSheet.create({
   edgeRight: { right: 0 },
   pillOuter: {
     flexShrink: 0,
-    minWidth: PILL_MIN_W,
-    minHeight: PILL_H,
     borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
@@ -254,7 +278,6 @@ const styles = StyleSheet.create({
   },
   pillContent: {
     flex: 1,
-    minHeight: PILL_H,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     alignItems: 'center',
@@ -269,6 +292,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.06)',
   },
+  iconWrapCompact: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
   iconWrapOn: {
     backgroundColor: 'rgba(212,175,55,0.2)',
   },
@@ -277,6 +305,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.textMuted,
     textAlign: 'center',
+  },
+  labelCompact: {
+    fontSize: 11,
   },
   labelOn: {
     color: colors.textPrimary,

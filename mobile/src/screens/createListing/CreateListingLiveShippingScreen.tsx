@@ -11,6 +11,7 @@ import {
   liveShippingStepComplete,
 } from '../../createListing/liveShowShipping';
 import { useCreateListingDraft } from '../../createListing/CreateListingDraftContext';
+import { useSellerShipFromZipPrefill } from '../../createListing/useSellerShipFromZipPrefill';
 import type { CreateListingStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
 import { CreateListingChrome } from './CreateListingChrome';
@@ -83,6 +84,7 @@ export function CreateListingLiveShippingScreen({
   navigation,
 }: NativeStackScreenProps<CreateListingStackParamList, 'CreateListingLiveShipping'>) {
   const { form, setForm } = useCreateListingDraft();
+  const sellerShipFromZip = useSellerShipFromZipPrefill();
   const { channel, accent, totalSteps } = useCreateListingFlow();
   const { exitFlow, goBackStep } = useCreateListingNavigation();
   const profile = getLiveProfile(form.liveShippingProfileId);
@@ -93,10 +95,11 @@ export function CreateListingLiveShippingScreen({
     }
   }, [profile?.id, form.liveShipInternational, setForm, profile]);
 
+  const effectiveLiveShipFromZip = form.liveShipFromZip.trim() || sellerShipFromZip || '';
   const stepDone = liveShippingStepComplete({
     liveShippingPreset: form.liveShippingPreset,
     liveShippingProfileId: form.liveShippingProfileId,
-    liveShipFromZip: form.liveShipFromZip,
+    liveShipFromZip: effectiveLiveShipFromZip,
     liveBundleEligible: form.liveBundleEligible,
     liveAdvancedWeightLb: form.liveAdvancedWeightLb,
     liveAdvancedLengthIn: form.liveAdvancedLengthIn,
@@ -187,13 +190,21 @@ export function CreateListingLiveShippingScreen({
           );
         })}
 
-        <Field
-          label="Ship from ZIP"
-          value={form.liveShipFromZip}
-          onChange={(t) => setForm({ liveShipFromZip: t })}
-          placeholder="94103"
-          keyboardType="number-pad"
-        />
+        {sellerShipFromZip ? (
+          <View style={styles.fieldBlock}>
+            <Text style={styles.fieldLbl}>Ship from ZIP</Text>
+            <Text style={styles.sellerZipValue}>{sellerShipFromZip}</Text>
+            <Text style={styles.sellerZipHint}>From your seller shipping address — update it in Seller HQ if needed.</Text>
+          </View>
+        ) : (
+          <Field
+            label="Ship from ZIP"
+            value={form.liveShipFromZip}
+            onChange={(t) => setForm({ liveShipFromZip: t })}
+            placeholder="94103"
+            keyboardType="number-pad"
+          />
+        )}
 
         <View style={styles.toggleRow}>
           <View style={{ flex: 1, paddingRight: spacing.md }}>
@@ -348,6 +359,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
+  },
+  sellerZipValue: {
+    color: colors.textPrimary,
+    fontSize: 18,
+    fontWeight: '700',
+    marginTop: spacing.xs,
+  },
+  sellerZipHint: {
+    color: colors.textMuted,
+    fontSize: 12,
+    marginTop: spacing.xs,
+    lineHeight: 17,
   },
   input: {
     borderRadius: radii.md,

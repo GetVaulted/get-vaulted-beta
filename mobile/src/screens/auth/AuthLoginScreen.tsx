@@ -51,6 +51,10 @@ export function AuthLoginScreen({ navigation }: Props) {
   };
 
   const finishAuth = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
     navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
   };
 

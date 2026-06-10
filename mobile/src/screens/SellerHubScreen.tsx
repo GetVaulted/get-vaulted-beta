@@ -56,6 +56,9 @@ import {
 import { useSellerCommandCenterData } from '../hooks/useSellerCommandCenterData';
 import { useSellerInventory } from '../hooks/useSellerInventory';
 import { useSellerLayawaySummary } from '../hooks/useSellerLayawaySummary';
+import { useSellerOrdersSummary } from '../hooks/useSellerOrdersSummary';
+import { useSellerCommerceSync } from '../hooks/useSellerCommerceSync';
+import { useCanonicalUserId } from '../hooks/useCanonicalUserId';
 import { openSellerLayaways } from '../navigation/openSellerLayaways';
 import { SellerHQLayawaysCard } from '../components/seller/hq/SellerHQLayawaysCard';
 import { sellerHasShipFromAddress } from '../lib/seller-shipping-readiness';
@@ -96,12 +99,23 @@ export function SellerHubScreen() {
   const sellerInventory = useSellerInventory(session?.access_token, Boolean(user?.id));
   const inventoryListingCount = sellerInventory.marketplace.length + sellerInventory.liveShow.length;
   const layawaySummary = useSellerLayawaySummary(session?.access_token);
+  const ordersSummary = useSellerOrdersSummary(session?.access_token);
+  const canonicalUserId = useCanonicalUserId(session?.access_token);
   const cmdData = useSellerCommandCenterData(
     session?.access_token,
     inventoryListingCount || userListings.length,
     layawaySummary.counts,
   );
   const sellerSetup = useSellerSetupState(session?.access_token, Boolean(user?.id));
+
+  useSellerCommerceSync({
+    enabled: Boolean(session?.access_token && user?.id),
+    canonicalUserId,
+    supabaseUserId: user?.id,
+    reloadOrders: ordersSummary.reload,
+    reloadLayaways: layawaySummary.reload,
+    reloadAnalytics: user?.id ? () => cmdData.reloadAnalytics(user.id) : undefined,
+  });
 
   useEffect(() => {
     if (user?.id) void cmdData.reloadAnalytics(user.id);
@@ -126,8 +140,16 @@ export function SellerHubScreen() {
       void sellerSetup.refetchSilent();
       void cmdData.liveReadiness.refresh();
       void layawaySummary.reload();
+      void ordersSummary.reload();
       if (user?.id) void cmdData.reloadAnalytics(user.id);
-    }, [cmdData.reloadAnalytics, sellerSetup.refetchSilent, cmdData.liveReadiness.refresh, layawaySummary.reload, user?.id]),
+    }, [
+      cmdData.reloadAnalytics,
+      sellerSetup.refetchSilent,
+      cmdData.liveReadiness.refresh,
+      layawaySummary.reload,
+      ordersSummary.reload,
+      user?.id,
+    ]),
   );
 
   const shipFromComplete = sellerHasShipFromAddress(sellerSetup.checks, sellerSetup.seller);
@@ -288,6 +310,8 @@ export function SellerHubScreen() {
       case 'orders':
         return (
           <OrdersPanel
+            orders={ordersSummary.orders}
+            ordersLoading={ordersSummary.loading}
             accessToken={session?.access_token}
             layawayCounts={layawaySummary.counts}
             layawaysLoading={layawaySummary.loading}
@@ -583,36 +607,22 @@ function ListingsPanel({
 }
 
 function OrdersPanel({
-  accessToken,
+  orders,
+  ordersLoading,
   layawayCounts,
   layawaysLoading,
   hasLayaways,
   onOpenLayaways,
 }: {
+  orders: import('../api/sellerSalesRepository').SellerSalesOrderRow[];
+  ordersLoading: boolean;
   accessToken?: string;
   layawayCounts: import('../api/layawayRepository').SellerLayawayCounts | null;
   layawaysLoading: boolean;
   hasLayaways: boolean;
   onOpenLayaways: (filter?: 'active' | 'ready' | 'overdue') => void;
 }) {
-  const [orders, setOrders] = useState<import('../api/sellerSalesRepository').SellerSalesOrderRow[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!accessToken) {
-      setOrders([]);
-      setLoading(false);
-      return;
-    }
-    void (async () => {
-      setLoading(true);
-      const { fetchSellerSalesOrders } = await import('../api/sellerSalesRepository');
-      setOrders(await fetchSellerSalesOrders(accessToken));
-      setLoading(false);
-    })();
-  }, [accessToken]);
-
-  if (loading && layawaysLoading) {
+  if (ordersLoading && layawaysLoading) {
     return <ActivityIndicator color={colors.gold} style={{ marginTop: spacing.lg }} />;
   }
 
@@ -633,7 +643,7 @@ function OrdersPanel({
         onPress={() => onOpenLayaways()}
         onPressFilter={(filter) => onOpenLayaways(filter)}
       />
-      {loading ? <ActivityIndicator color={colors.gold} /> : null}
+      {ordersLoading ? <ActivityIndicator color={colors.gold} /> : null}
       {orders.map((o) => {
         const amt = `$${(o.totalCents / 100).toFixed(2)}`;
         return (

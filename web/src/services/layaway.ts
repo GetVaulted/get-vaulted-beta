@@ -1,11 +1,7 @@
 import type { LayawayPlanType } from "@/generated/prisma/client";
 import { LayawayPaymentKind, LayawayStatus, OrderPaymentMethod } from "@/generated/prisma/enums";
 import { createNotification } from "@/lib/notifications";
-import {
-  buildVaultEcosystemEvent,
-  emitVaultEcosystemEventToParties,
-  type VaultEcosystemEventType,
-} from "@/lib/vault-ecosystem-realtime";
+import { emitLayawayLifecycleSync, emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
 import { logLayawayAudit } from "@/lib/layaway/audit";
 import {
   LAYAWAY_PLAN_DAYS,
@@ -54,24 +50,156 @@ function siteUrl(): string {
 }
 
 function emitLayawayEcosystem(
-  type: VaultEcosystemEventType,
+  type: Parameters<typeof emitLayawayLifecycleSync>[0]["typedEvent"],
   lay: { id: string; sellerId: string; buyerId: string; listingId?: string; orderId?: string },
   payload?: Record<string, unknown>,
 ): void {
-  emitVaultEcosystemEventToParties(
-    buildVaultEcosystemEvent({
-      type,
-      entityId: lay.id,
+  if (!lay.listingId || !lay.orderId) return;
+  emitLayawayLifecycleSync({
+    typedEvent: type,
+    layawayId: lay.id,
+    parties: { sellerId: lay.sellerId, buyerId: lay.buyerId },
+    listingId: lay.listingId,
+    orderId: lay.orderId,
+    layawayStatus: typeof payload?.status === "string" ? payload.status : "active",
+    listingStatus: typeof payload?.listingStatus === "string" ? payload.listingStatus : undefined,
+    orderStatus: typeof payload?.orderStatus === "string" ? payload.orderStatus : undefined,
+    paymentStatus: typeof payload?.paymentStatus === "string" ? payload.paymentStatus : undefined,
+    extraPayload: payload,
+  });
+}
+
+/** Close in-progress layaways on a listing when a marketplace purchase finalizes. */
+export async function closeActiveLayawaysSupersededByMarketplacePurchaseTx(
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+  args: { listingId: string; winningOrderId: string; winningBuyerId: string },
+): Promise<Array<{ id: string; sellerId: string; buyerId: string; listingId: string; orderId: string }>> {
+  const active = await tx.layaway.findMany({
+    where: { listingId: args.listingId, status: LayawayStatus.active },
+    select: { id: true, sellerId: true, buyerId: true, listingId: true, orderId: true },
+  });
+  const closed: Array<{ id: string; sellerId: string; buyerId: string; listingId: string; orderId: string }> = [];
+  for (const lay of active) {
+    const sameWinningOrder = lay.orderId === args.winningOrderId;
+    await tx.layaway.update({
+      where: { id: lay.id },
+      data: sameWinningOrder
+        ? {
+            status: LayawayStatus.completed,
+            completedAt: new Date(),
+            remainingBalanceUsd: 0,
+          }
+        : {
+            status: LayawayStatus.refunded,
+            remainingBalanceUsd: 0,
+          },
+    });
+    if (!sameWinningOrder) {
+      await tx.order.update({
+        where: { id: lay.orderId },
+        data: { paymentStatus: "cancelled", status: "cancelled" },
+      });
+    }
+    await logLayawayAudit(tx, {
+      layawayId: lay.id,
+      action: "superseded_by_purchase",
+      actorUserId: args.winningBuyerId,
+      metadata: { winningOrderId: args.winningOrderId },
+    });
+    closed.push(lay);
+  }
+  return closed;
+}
+
+/** Repair layaway rows left active after listing sold or order paid (e.g. legacy buy-now paths). */
+export async function repairStaleActiveLayaways(limit = 50): Promise<number> {
+  const stale = await prisma.layaway.findMany({
+    where: {
+      status: LayawayStatus.active,
+      OR: [{ listing: { status: "sold" } }, { order: { paymentStatus: PAYMENT_PAID } }],
+    },
+    select: {
+      id: true,
+      sellerId: true,
+      buyerId: true,
+      listingId: true,
+      orderId: true,
+      order: { select: { paymentStatus: true } },
+      listing: { select: { status: true } },
+    },
+    take: limit,
+  });
+
+  let repaired = 0;
+  for (const lay of stale) {
+    const orderPaid = lay.order.paymentStatus === PAYMENT_PAID;
+    const listingSold = lay.listing.status === "sold";
+    if (!orderPaid && !listingSold) continue;
+
+    await prisma.$transaction(async (tx) => {
+      if (orderPaid) {
+        await tx.layaway.update({
+          where: { id: lay.id, status: LayawayStatus.active },
+          data: {
+            status: LayawayStatus.completed,
+            completedAt: new Date(),
+            remainingBalanceUsd: 0,
+          },
+        });
+        await logLayawayAudit(tx, {
+          layawayId: lay.id,
+          action: "completion",
+          metadata: { source: "repair_stale_active_layaway", orderPaid: true },
+        });
+      } else {
+        await tx.layaway.update({
+          where: { id: lay.id, status: LayawayStatus.active },
+          data: { status: LayawayStatus.refunded, remainingBalanceUsd: 0 },
+        });
+        await logLayawayAudit(tx, {
+          layawayId: lay.id,
+          action: "superseded_by_purchase",
+          metadata: { source: "repair_stale_active_layaway", listingSold: true },
+        });
+      }
+    });
+
+    const layParties = {
+      id: lay.id,
       sellerId: lay.sellerId,
       buyerId: lay.buyerId,
-      payload: {
-        ...(lay.listingId ? { listingId: lay.listingId } : {}),
-        ...(lay.orderId ? { orderId: lay.orderId } : {}),
-        ...payload,
-      },
-    }),
-    { sellerId: lay.sellerId, buyerId: lay.buyerId },
-  );
+      listingId: lay.listingId,
+      orderId: lay.orderId,
+    };
+    if (orderPaid) {
+      emitLayawayEcosystem("layaway_paid_in_full", layParties, {
+        status: "completed",
+        listingStatus: "sold",
+        orderStatus: "paid",
+        paymentStatus: PAYMENT_PAID,
+        repaired: true,
+      });
+      emitOrderLifecycleSync({
+        orderId: lay.orderId,
+        parties: { sellerId: lay.sellerId, buyerId: lay.buyerId },
+        listingId: lay.listingId,
+        layawayId: lay.id,
+        orderStatus: "paid",
+        paymentStatus: PAYMENT_PAID,
+        listingStatus: "sold",
+        extraPayload: { repaired: true },
+      });
+    } else {
+      emitLayawayEcosystem("layaway_canceled", layParties, {
+        status: "canceled",
+        listingStatus: "sold",
+        superseded: true,
+        repaired: true,
+      });
+    }
+    repaired += 1;
+  }
+  return repaired;
 }
 
 function dueDateForPlan(plan: LayawayPlanType, startedAt: Date): Date {
@@ -327,17 +455,12 @@ export async function finalizeLayawayDepositPaid(args: {
   });
   if (!lay) return;
 
-  emitLayawayEcosystem("layaway_started", lay, { status: "active" });
-  emitVaultEcosystemEventToParties(
-    buildVaultEcosystemEvent({
-      type: "listing_reserved_on_layaway",
-      entityId: lay.listingId,
-      sellerId: lay.sellerId,
-      buyerId: lay.buyerId,
-      payload: { layawayId: lay.id, listingStatus: "layaway_reserved" },
-    }),
-    { sellerId: lay.sellerId, buyerId: lay.buyerId },
-  );
+  emitLayawayEcosystem("layaway_started", lay, {
+    status: "active",
+    listingStatus: "layaway_reserved",
+    orderStatus: "pending",
+    paymentStatus: PAYMENT_LAYAWAY_ACTIVE,
+  });
 
   const title = lay.listing.title.length > 80 ? `${lay.listing.title.slice(0, 77)}…` : lay.listing.title;
   await createNotification(prisma, {
@@ -589,27 +712,21 @@ export async function completeLayawayPlan(layawayId: string): Promise<void> {
     listingId: lay.listingId,
     orderId: lay.orderId,
   };
-  emitLayawayEcosystem("layaway_paid_in_full", layParties, { status: "completed" });
-  emitVaultEcosystemEventToParties(
-    buildVaultEcosystemEvent({
-      type: "order_created_from_layaway",
-      entityId: lay.orderId,
-      sellerId: lay.sellerId,
-      buyerId: lay.buyerId,
-      payload: { layawayId: lay.id, listingId: lay.listingId, paymentStatus: PAYMENT_PAID, status: "paid" },
-    }),
-    { sellerId: lay.sellerId, buyerId: lay.buyerId },
-  );
-  emitVaultEcosystemEventToParties(
-    buildVaultEcosystemEvent({
-      type: "listing_status_changed",
-      entityId: lay.listingId,
-      sellerId: lay.sellerId,
-      buyerId: lay.buyerId,
-      payload: { layawayId: lay.id, listingStatus: "sold" },
-    }),
-    { sellerId: lay.sellerId, buyerId: lay.buyerId },
-  );
+  emitLayawayEcosystem("layaway_paid_in_full", layParties, {
+    status: "completed",
+    listingStatus: "sold",
+    orderStatus: "paid",
+    paymentStatus: PAYMENT_PAID,
+  });
+  emitOrderLifecycleSync({
+    orderId: lay.orderId,
+    parties: { sellerId: lay.sellerId, buyerId: lay.buyerId },
+    listingId: lay.listingId,
+    layawayId: lay.id,
+    orderStatus: "paid",
+    paymentStatus: PAYMENT_PAID,
+    listingStatus: "sold",
+  });
 
   const title = lay.listing.title.length > 80 ? `${lay.listing.title.slice(0, 77)}…` : lay.listing.title;
   await createNotification(prisma, {
@@ -705,17 +822,12 @@ export async function defaultLayawayPlan(layawayId: string): Promise<void> {
     listingId: lay.listingId,
     orderId: lay.orderId,
   };
-  emitLayawayEcosystem("layaway_defaulted", layParties, { status: "defaulted" });
-  emitVaultEcosystemEventToParties(
-    buildVaultEcosystemEvent({
-      type: "listing_status_changed",
-      entityId: lay.listingId,
-      sellerId: lay.sellerId,
-      buyerId: lay.buyerId,
-      payload: { layawayId: lay.id, listingStatus: "active" },
-    }),
-    { sellerId: lay.sellerId, buyerId: lay.buyerId },
-  );
+  emitLayawayEcosystem("layaway_defaulted", layParties, {
+    status: "defaulted",
+    listingStatus: "active",
+    orderStatus: "cancelled",
+    paymentStatus: "cancelled",
+  });
 
   const title = lay.listing.title.length > 80 ? `${lay.listing.title.slice(0, 77)}…` : lay.listing.title;
   await createNotification(prisma, {

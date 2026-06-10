@@ -37,8 +37,16 @@ function sellerToHost(listing: WebMarketplaceListing): Host {
   };
 }
 
+function resolveListingImageUrls(urls: string[] | undefined): string[] {
+  if (!urls?.length) return [];
+  return urls
+    .map((u) => resolveListingImageUrl(u))
+    .filter((u): u is string => Boolean(u?.trim()));
+}
+
 export function mapWebMarketplaceListingToProduct(listing: WebMarketplaceListing): Product {
-  const imageUrl = resolveListingImageUrl(listing.imageUrls?.[0]);
+  const imageUrls = resolveListingImageUrls(listing.imageUrls);
+  const imageUrl = imageUrls[0];
   const cat: CategoryId = mapListingCategoryToCategoryId(listing.category);
   const priceLabel = formatMoney(listing.price);
   return {
@@ -47,6 +55,8 @@ export function mapWebMarketplaceListingToProduct(listing: WebMarketplaceListing
     category: cat,
     imageGradient: ['#06080c', '#10141c'] as [string, string],
     imageUrl,
+    imageUrls: imageUrls.length ? imageUrls : undefined,
+    description: listing.longDescription?.trim() || undefined,
     storyline: listing.longDescription?.slice(0, 120) || undefined,
     vaultVerified: Boolean(listing.vaultPick),
     listingPrice: priceLabel,
@@ -56,6 +66,12 @@ export function mapWebMarketplaceListingToProduct(listing: WebMarketplaceListing
     allowOffers: listing.allowOffers === true,
     allowLayaway: listing.allowLayaway === true,
     acceptTradeOffers: listing.acceptTradeOffers === true,
+    sellerLevel: listing.sellerLevel,
+    sellerLevelLabel: listing.sellerLevelLabel,
+    shippingPriceUsd: listing.shippingPriceUsd,
+    handlingTimeLabel: listing.handlingTimeLabel,
+    signatureRequired: listing.signatureRequired,
+    shipsFromRegion: listing.shipsFromRegion,
   };
 }
 

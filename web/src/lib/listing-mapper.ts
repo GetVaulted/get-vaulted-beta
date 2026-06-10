@@ -1,4 +1,6 @@
 import type { BuyingFormat, Listing, ListingImage, ListingStatus } from "@/generated/prisma/client";
+import type { SellerLevel } from "@/generated/prisma/enums";
+import { sellerLevelLabel } from "@/services/payout/seller-level";
 import type { MarketplaceBuyingFormat, MarketplaceCategory, MarketplaceListing } from "@/content/marketplace-listings";
 import { formatAuctionTimeRemaining } from "@/lib/auction-display";
 import {
@@ -13,6 +15,7 @@ export type ListingSellerFulfillmentSubset = {
   email?: string | null;
   emailVerified?: Date | null;
   username: string;
+  sellerLevel?: SellerLevel;
   stripeAccountId: string | null;
   stripeOnboardingComplete: boolean;
   shipFromStreet: string | null;
@@ -146,6 +149,8 @@ export function dbListingToMarketplace(
     imageSeed: `db-${row.id}`,
     imageUrls: row.images.length > 0 ? [...row.images].sort((a, b) => a.sortOrder - b.sortOrder).map((i) => i.url) : undefined,
     sellerUsername: row.seller.username,
+    sellerLevel: row.seller.sellerLevel ?? undefined,
+    sellerLevelLabel: row.seller.sellerLevel ? sellerLevelLabel(row.seller.sellerLevel) : undefined,
     sellerVerified: Boolean(row.seller.emailVerified),
     category: toCategory(row.category),
     buyingFormat,

@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { fetchListingShippoRates } from '../../api/shippoListingRatesRepository';
 import { useCreateListingDraft } from '../../createListing/CreateListingDraftContext';
+import { useSellerShipFromZipPrefill } from '../../createListing/useSellerShipFromZipPrefill';
 import { LISTING_FLOW_STEP } from '../../createListing/listingChannel';
 import {
   formatListingRatePrice,
@@ -155,10 +156,12 @@ export function CreateListingShippingScreen({
   navigation,
 }: NativeStackScreenProps<CreateListingStackParamList, 'CreateListingShipping'>) {
   const { form, setForm } = useCreateListingDraft();
+  const sellerShipFromZip = useSellerShipFromZipPrefill();
   const { channel, totalSteps } = useCreateListingFlow();
   const { exitFlow, goBackStep } = useCreateListingNavigation();
   const formRef = useRef(form);
   formRef.current = form;
+  const effectiveShipFromZip = form.shipFromZip.trim() || sellerShipFromZip || '';
 
   const [rates, setRates] = useState<ListingShippoRate[]>([]);
   const [loading, setLoading] = useState(false);
@@ -172,7 +175,7 @@ export function CreateListingShippingScreen({
     return Number.isFinite(n) && n > 0 ? n : 0;
   }, [form.shippingHandlingFee]);
 
-  const packageReady = isPackageDetailsComplete(form);
+  const packageReady = isPackageDetailsComplete({ ...form, shipFromZip: effectiveShipFromZip });
 
   const offerablePreview = useMemo(
     () => marketplaceOfferableRates(rates, form.marketplaceShippingOfferScope, form.marketplaceAllowedRateKeys),
@@ -210,7 +213,9 @@ export function CreateListingShippingScreen({
     const length = parsePackageNumber(formRef.current.packageLengthIn)!;
     const width = parsePackageNumber(formRef.current.packageWidthIn)!;
     const height = parsePackageNumber(formRef.current.packageHeightIn)!;
-    const zip = formRef.current.shipFromZip.replace(/\D/g, '').slice(0, 5);
+    const zip = (formRef.current.shipFromZip.trim() || sellerShipFromZip || '')
+      .replace(/\D/g, '')
+      .slice(0, 5);
     const shipTo = formRef.current.shipToZip.replace(/\D/g, '').slice(0, 5);
 
     const reqId = ++requestIdRef.current;
@@ -270,6 +275,7 @@ export function CreateListingShippingScreen({
     form.shipFromZip,
     form.shipToZip,
     form.international,
+    sellerShipFromZip,
   ]);
 
   useEffect(() => {
@@ -392,13 +398,21 @@ export function CreateListingShippingScreen({
             />
           </View>
         </View>
-        <ShippingField
-          label="Ship-from ZIP"
-          value={form.shipFromZip}
-          onChange={(t) => patchPackage({ shipFromZip: t })}
-          placeholder="94103"
-          keyboardType="number-pad"
-        />
+        {sellerShipFromZip ? (
+          <View style={styles.fieldBlock}>
+            <Text style={styles.fieldLbl}>Ship-from ZIP</Text>
+            <Text style={styles.sellerZipValue}>{sellerShipFromZip}</Text>
+            <Text style={styles.sellerZipHint}>From your seller shipping address — update it in Seller HQ if needed.</Text>
+          </View>
+        ) : (
+          <ShippingField
+            label="Ship-from ZIP"
+            value={form.shipFromZip}
+            onChange={(t) => patchPackage({ shipFromZip: t })}
+            placeholder="94103"
+            keyboardType="number-pad"
+          />
+        )}
         {!form.international ? (
           <ShippingField
             label="Ship-to ZIP (optional)"
@@ -633,6 +647,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
+  },
+  sellerZipValue: {
+    color: colors.textPrimary,
+    fontSize: 18,
+    fontWeight: '700',
+    marginTop: spacing.xs,
+  },
+  sellerZipHint: {
+    color: colors.textMuted,
+    fontSize: 12,
+    marginTop: spacing.xs,
+    lineHeight: 17,
   },
   input: {
     borderRadius: radii.md,

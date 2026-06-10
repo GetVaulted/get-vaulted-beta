@@ -3,6 +3,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { VaultImage } from '../ui/VaultImage';
+import { useMarketplaceLayout } from '../../hooks/useMarketplaceLayout';
+import { marketplaceFontSize, MARKETPLACE_TEXT_PROPS } from '../../lib/marketplaceUiScale';
 import { colors, radii, spacing } from '../../theme';
 import type { Product } from '../../types';
 
@@ -48,6 +50,9 @@ export function MarketplaceListingCard({
   pulseBid?: boolean;
   imagePriority?: 'low' | 'normal' | 'high';
 }) {
+  const layout = useMarketplaceLayout();
+  const cardW = layout.listingCardWidth;
+  const cardH = layout.listingCardHeight;
   const pulse = useRef(new Animated.Value(1)).current;
   const badge = badgeFor(product);
 
@@ -64,14 +69,14 @@ export function MarketplaceListingCard({
   }, [pulse, pulseBid]);
 
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.shell, pressed && styles.pressed]}>
-      <Animated.View style={[styles.card, pulseBid && { transform: [{ scale: pulse }] }]}>
-        <View style={styles.mediaSlot} pointerEvents="none">
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.shell, { width: cardW }, pressed && styles.pressed]}>
+      <Animated.View style={[styles.card, { width: cardW, height: cardH }, pulseBid && { transform: [{ scale: pulse }] }]}>
+        <View style={[styles.mediaSlot, { width: cardW, height: cardH }]} pointerEvents="none">
           {product.imageUrl ? (
             <VaultImage
               uri={product.imageUrl}
-              width={CARD_W}
-              height={CARD_H}
+              width={cardW}
+              height={cardH}
               priority={imagePriority}
               contentFit="cover"
             />
@@ -89,7 +94,9 @@ export function MarketplaceListingCard({
         <View style={styles.top}>
           {badge ? (
             <View style={[styles.badge, { borderColor: `${BADGE_COPY[badge].color}66` }]}>
-              <Text style={[styles.badgeTxt, { color: BADGE_COPY[badge].color }]}>{BADGE_COPY[badge].label}</Text>
+              <Text style={[styles.badgeTxt, { color: BADGE_COPY[badge].color }]} {...MARKETPLACE_TEXT_PROPS}>
+                {BADGE_COPY[badge].label}
+              </Text>
             </View>
           ) : null}
           {product.vaultVerified ? (
@@ -97,12 +104,14 @@ export function MarketplaceListingCard({
           ) : null}
         </View>
         <View style={styles.bottom}>
-          <Text style={styles.price}>{product.listingPrice}</Text>
-          <Text style={styles.title} numberOfLines={2}>
+          <Text style={[styles.price, { fontSize: marketplaceFontSize(layout.compact ? 14 : 15, layout.scale) }]} {...MARKETPLACE_TEXT_PROPS}>
+            {product.listingPrice}
+          </Text>
+          <Text style={[styles.title, { fontSize: marketplaceFontSize(layout.compact ? 11 : 12, layout.scale) }]} numberOfLines={2} ellipsizeMode="tail" {...MARKETPLACE_TEXT_PROPS}>
             {product.title}
           </Text>
           {product.conditionGrade ? (
-            <Text style={styles.grade} numberOfLines={1}>
+            <Text style={styles.grade} numberOfLines={1} ellipsizeMode="tail" {...MARKETPLACE_TEXT_PROPS}>
               {product.conditionGrade}
             </Text>
           ) : null}
@@ -114,7 +123,7 @@ export function MarketplaceListingCard({
               borderRadius={9}
               priority="low"
             />
-            <Text style={styles.seller} numberOfLines={1}>
+            <Text style={styles.seller} numberOfLines={1} ellipsizeMode="tail" {...MARKETPLACE_TEXT_PROPS}>
               {product.seller.handle}
             </Text>
           </View>
@@ -124,15 +133,10 @@ export function MarketplaceListingCard({
   );
 }
 
-const CARD_W = 152;
-const CARD_H = 208;
-
 const styles = StyleSheet.create({
-  shell: { width: CARD_W, marginRight: spacing.sm },
+  shell: { marginRight: spacing.sm, flexShrink: 0 },
   pressed: { opacity: 0.94 },
   card: {
-    width: CARD_W,
-    height: CARD_H,
     borderRadius: radii.md,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
@@ -140,8 +144,6 @@ const styles = StyleSheet.create({
   },
   mediaSlot: {
     ...StyleSheet.absoluteFillObject,
-    width: CARD_W,
-    height: CARD_H,
   },
   glowEdge: {
     ...StyleSheet.absoluteFillObject,
@@ -165,11 +167,13 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     backgroundColor: 'rgba(0,0,0,0.55)',
     borderWidth: 1,
+    flexShrink: 1,
+    maxWidth: '78%',
   },
   badgeTxt: { fontSize: 8, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' },
   bottom: { flex: 1, justifyContent: 'flex-end', padding: spacing.sm, gap: 2, zIndex: 1 },
-  price: { fontSize: 15, fontWeight: '900', color: colors.gold, letterSpacing: -0.3 },
-  title: { fontSize: 12, fontWeight: '800', color: '#fff', lineHeight: 15 },
+  price: { fontWeight: '900', color: colors.gold, letterSpacing: -0.3 },
+  title: { fontWeight: '800', color: '#fff', lineHeight: 15 },
   grade: { fontSize: 10, color: 'rgba(255,255,255,0.65)', fontWeight: '600' },
   sellerRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
   seller: { flex: 1, fontSize: 9, fontWeight: '600', color: 'rgba(255,255,255,0.55)' },

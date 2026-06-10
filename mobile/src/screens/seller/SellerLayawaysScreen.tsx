@@ -1,5 +1,4 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -20,7 +19,8 @@ import {
 } from '../../api/layawayRepository';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { useAuth } from '../../auth/AuthContext';
-import { useVaultEcosystemEvents } from '../../hooks/useVaultEcosystemEvents';
+import { useCanonicalUserId } from '../../hooks/useCanonicalUserId';
+import { useMoneyStateSync } from '../../hooks/useMoneyStateSync';
 import { sellerLayawayStatusLabel } from '../../lib/sellerLayawayDisplay';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
@@ -50,7 +50,9 @@ function formatDate(iso: string) {
 
 function matchesFilter(row: SellerLayawayRow, filter: FilterKey): boolean {
   if (filter === 'all') return true;
-  if (filter === 'active') return row.displayStatus === 'active' || row.status === 'active';
+  if (filter === 'active') {
+    return row.status === 'active' && row.displayStatus !== 'completed';
+  }
   if (filter === 'ready') return row.status === 'completed' || row.displayStatus === 'completed';
   return row.displayStatus === 'overdue' || row.status === 'defaulted';
 }
@@ -65,6 +67,7 @@ function countForFilter(counts: SellerLayawayCounts, filter: FilterKey): number 
 export function SellerLayawaysScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { session, user } = useAuth();
+  const canonicalUserId = useCanonicalUserId(session?.access_token);
   const [filter, setFilter] = useState<FilterKey>(route.params?.filter ?? 'all');
   const [rows, setRows] = useState<SellerLayawayRow[]>([]);
   const [counts, setCounts] = useState<SellerLayawayCounts | null>(null);
@@ -136,19 +139,12 @@ export function SellerLayawaysScreen({ navigation, route }: Props) {
     setMismatch(false);
   }, [counts, filter, rows]);
 
-  useFocusEffect(
-    useCallback(() => {
-      void load();
-    }, [load]),
-  );
-
-  const onLayawayEvent = useCallback(() => {
-    void load();
-  }, [load]);
-
-  useVaultEcosystemEvents(user?.id, {
+  useMoneyStateSync({
     enabled: Boolean(session?.access_token && user?.id),
-    onLayaway: onLayawayEvent,
+    canonicalUserId,
+    supabaseUserId: user?.id,
+    refetch: load,
+    refetchOnFocus: false,
   });
 
   const filtered = useMemo(() => rows.filter((r) => matchesFilter(r, filter)), [filter, rows]);

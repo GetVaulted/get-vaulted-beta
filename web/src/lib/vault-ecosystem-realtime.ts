@@ -8,10 +8,12 @@ export const VAULT_ECOSYSTEM_EVENT_TYPES = [
   "layaway_paid_in_full",
   "layaway_canceled",
   "layaway_defaulted",
+  "layaway_status_changed",
   "listing_reserved_on_layaway",
   "order_created_from_layaway",
   "listing_status_changed",
   "order_updated",
+  "order_status_changed",
   "offer_updated",
   "trade_offer_updated",
   "notification_created",
@@ -71,7 +73,11 @@ export function isLayawayEcosystemEventType(type: VaultEcosystemEventType): bool
 }
 
 export function isOrderEcosystemEventType(type: VaultEcosystemEventType): boolean {
-  return type === "order_created_from_layaway" || type === "order_updated";
+  return (
+    type === "order_created_from_layaway" ||
+    type === "order_updated" ||
+    type === "order_status_changed"
+  );
 }
 
 export function isListingEcosystemEventType(type: VaultEcosystemEventType): boolean {

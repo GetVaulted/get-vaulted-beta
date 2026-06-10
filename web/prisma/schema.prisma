@@ -227,6 +227,8 @@ enum OrderPayoutStatus {
   pending
   held
   delivery_confirmed
+  fast_payout_ready
+  label_payout_ready
   instant_payout_ready
   paid_out
   blocked
@@ -235,7 +237,54 @@ enum OrderPayoutStatus {
 
 enum OrderPayoutMethod {
   standard
+  fast_after_acceptance
+  instant_after_label
   instant_after_delivery
+}
+
+enum SellerPayoutTier {
+  standard
+  fast
+  instant
+}
+
+enum PayoutTierApprovalStatus {
+  not_eligible
+  eligible
+  pending_approval
+  approved
+  denied
+  suspended
+}
+
+/// Instant payout admin review workflow (separate from fast-tier approval).
+enum InstantPayoutApprovalStatus {
+  not_eligible
+  eligible
+  under_review
+  approved
+  suspended
+}
+
+enum AccountStanding {
+  excellent
+  good
+  needs_attention
+  restricted
+}
+
+/// Public-facing seller trust level (branding only — not payout mechanics).
+enum SellerLevel {
+  vault_seller
+  trusted_seller
+  vault_verified
+  elite_vault_verified
+}
+
+enum SellerFraudStatus {
+  none
+  flagged
+  investigation
 }
 
 enum ReportTargetType {
@@ -377,6 +426,30 @@ model User {
   payoutHoldDays               Int                 @default(7)
   /// Percent of order GMV held in reserve (0–100).
   payoutReservePercent         Float               @default(0)
+  /// Cached seller payout program tier (standard / fast / instant).
+  payoutTier                   SellerPayoutTier           @default(standard)
+  fastPayoutStatus             PayoutTierApprovalStatus   @default(not_eligible)
+  fastPayoutOverrideByAdmin    Boolean                    @default(false)
+  fastPayoutOverrideReason     String?
+  fastPayoutOverrideAdminId    String?
+  fastPayoutOverrideAt         DateTime?
+  instantPayoutApprovalStatus  InstantPayoutApprovalStatus @default(not_eligible)
+  instantPayoutReviewDate      DateTime?
+  instantPayoutReviewedById    String?
+  instantPayoutReviewNotes     String?
+  instantPayoutRejectionReason String?
+  /// Public seller level badge (Vault Seller → Elite Vault Verified).
+  sellerLevel                  SellerLevel                @default(vault_seller)
+  sellerLevelOverrideByAdmin   Boolean                    @default(false)
+  sellerLevelOverrideAdminId   String?
+  sellerLevelOverrideAt        DateTime?
+  /// Per-seller instant payout limit overrides (USD); null = platform default.
+  instantPayoutPerOrderLimitUsd  Float?
+  instantPayoutDailyLimitUsd   Float?
+  instantPayoutExposureLimitUsd Float?
+  payoutTierSuspensionReason   String?
+  payoutTierSuspendedAt        DateTime?
+  payoutMetrics                SellerPayoutMetrics?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -1278,12 +1351,44 @@ model Order {
   payoutMethod             OrderPayoutMethod @default(standard)
   payoutReserveAmountCents Int               @default(0)
   payoutHoldUntil          DateTime?
+  /// When a valid Shippo label was created (instant payout trigger).
+  labelCreatedAt           DateTime?
+  /// First carrier acceptance scan (fast payout trigger).
+  carrierAcceptedAt        DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([escrowTransactionId])
   @@index([liveShippingSessionId])
   @@index([sellerId, payoutStatus])
+}
+
+/// Persistent seller metrics for payout tier eligibility and risk review.
+model SellerPayoutMetrics {
+  id                        String            @id @default(cuid())
+  sellerId                  String            @unique
+  seller                    User              @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  lifetimeGmvUsd            Float             @default(0)
+  completedOrders           Int               @default(0)
+  cancelledOrders           Int               @default(0)
+  accountStanding           AccountStanding   @default(good)
+  trackingComplianceRate    Float             @default(1)
+  cancellationRate          Float             @default(0)
+  chargebackRate            Float             @default(0)
+  disputeRate               Float             @default(0)
+  accountAgeDays            Int               @default(0)
+  fraudStatus               SellerFraudStatus @default(none)
+  unresolvedDisputeCount    Int               @default(0)
+  excessiveShippingDelayCount Int             @default(0)
+  dailyInstantPayoutUsd       Float             @default(0)
+  dailyInstantPayoutResetAt   DateTime?
+  outstandingInstantPayoutUsd Float             @default(0)
+  lifetimeInstantPayoutUsd    Float             @default(0)
+  lastRecalculatedAt        DateTime          @default(now())
+  createdAt                 DateTime          @default(now())
+  updatedAt                 DateTime          @updatedAt
+
+  @@index([lastRecalculatedAt])
 }
 
 /// Marketplace layaway agreement (one active plan per listing; one active plan per buyer platform-wide).

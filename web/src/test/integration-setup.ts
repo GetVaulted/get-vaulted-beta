@@ -79,6 +79,7 @@ export async function resetIntegrationDatabase(p: PrismaClient): Promise<void> {
     await tx.webhookEventLog.deleteMany();
     await tx.sellerCommerceEvent.deleteMany();
     await tx.payoutEligibilityAuditLog.deleteMany();
+    await tx.sellerPayoutMetrics.deleteMany();
     await tx.taxNexusState.deleteMany();
     await tx.notification.deleteMany();
     await tx.liveAuctionInventoryHold.deleteMany();

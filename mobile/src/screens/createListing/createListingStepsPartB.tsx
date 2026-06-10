@@ -43,10 +43,19 @@ import {
   isPackageDetailsComplete,
   marketplaceShippingListingReady,
 } from '../../createListing/shippoRates';
+import { useSellerShipFromZipPrefill } from '../../createListing/useSellerShipFromZipPrefill';
 import type { CreateListingStackParamList } from '../../navigation/types';
 import { CreateListingChrome } from './CreateListingChrome';
 import { useCreateListingFlow } from './createListingFlowHelpers';
 import { useCreateListingNavigation } from './useCreateListingNavigation';
+import {
+  asListingString,
+  getCreateListingReviewIssues,
+  isLayawayPriceEligible,
+  listingPhotoUri,
+  listingSubcategories,
+  resolveSellerDisplayPrice,
+} from '../../createListing/createListingReviewDisplay';
 import { colors, radii, spacing, typography } from '../../theme';
 
 function Footer({
@@ -331,7 +340,13 @@ export function CreateListingReviewScreen({
   navigation,
 }: NativeStackScreenProps<CreateListingStackParamList, 'CreateListingReview'>) {
   const { form, setForm, saveDraft, completeAfterPublish } = useCreateListingDraft();
+  const sellerShipFromZip = useSellerShipFromZipPrefill();
   const { session, user } = useAuth();
+  const formForShipping = {
+    ...form,
+    shipFromZip: asListingString(form.shipFromZip).trim() || sellerShipFromZip || '',
+    liveShipFromZip: asListingString(form.liveShipFromZip).trim() || sellerShipFromZip || '',
+  };
   const [publishing, setPublishing] = useState(false);
   const publishLockRef = useRef(false);
   const publishRequestIdRef = useRef<string | null>(null);
@@ -343,27 +358,32 @@ export function CreateListingReviewScreen({
   const { channel, accent, totalSteps, isLiveShow, step } = useCreateListingFlow();
   const channelCfg = LISTING_CHANNEL_CONFIG[channel];
   const { exitFlow, goBackStep } = useCreateListingNavigation();
-  const thumb = form.media[0]?.uri;
+  const thumb = listingPhotoUri(form);
+  const subcategories = listingSubcategories(form);
   const liveProfile = getLiveProfile(form.liveShippingProfileId);
-  const typeLabel = LISTING_COMMERCE_OPTIONS.find((x) => x.id === form.listingType)?.label ?? '—';
-  const catLabel = form.category ? LISTING_CATEGORY_OPTIONS.find((c) => c.id === form.category)?.label : '—';
+  const typeLabel = LISTING_COMMERCE_OPTIONS.find((x) => x.id === form.listingType)?.label ?? 'Not provided';
+  const catLabel = form.category
+    ? (LISTING_CATEGORY_OPTIONS.find((c) => c.id === form.category)?.label ?? 'Not provided')
+    : 'Not provided';
   const reviewStep = step.review;
-
-  const photoCount = countListingPhotos(form.media);
+  const photoCount = countListingPhotos(form.media ?? []);
+  const reviewIssues = getCreateListingReviewIssues(form, { photoCount, isLiveShow });
+  const requiredIssues = reviewIssues.filter((i) => i.severity === 'error');
   const photosValid = photoCount >= LISTING_MIN_PHOTOS && photoCount <= LISTING_MAX_PHOTOS;
 
+  const aiReviewReasons = Array.isArray(form.aiReviewReasons) ? form.aiReviewReasons : [];
   const needsAck =
-    form.aiNeedsSellerConfirmation && form.aiReviewReasons.length > 0 && !form.aiAcknowledgedReviews;
+    form.aiNeedsSellerConfirmation && aiReviewReasons.length > 0 && !form.aiAcknowledgedReviews;
   const needsMarketplaceShipping =
     !isLiveShow &&
-    !marketplaceShippingListingReady(form) &&
-    !(form.selectedShippoRate != null && isPackageDetailsComplete(form));
+    !marketplaceShippingListingReady(formForShipping) &&
+    !(form.selectedShippoRate != null && isPackageDetailsComplete(formForShipping));
   const needsLiveShipping =
     isLiveShow &&
     !liveShippingStepComplete({
       liveShippingPreset: form.liveShippingPreset,
       liveShippingProfileId: form.liveShippingProfileId,
-      liveShipFromZip: form.liveShipFromZip,
+      liveShipFromZip: formForShipping.liveShipFromZip,
       liveBundleEligible: form.liveBundleEligible,
       liveAdvancedWeightLb: form.liveAdvancedWeightLb,
       liveAdvancedLengthIn: form.liveAdvancedLengthIn,
@@ -465,10 +485,7 @@ export function CreateListingReviewScreen({
     navigation.getParent()?.goBack();
   };
 
-  const sellerPrice =
-    form.listingType === 'trade_only'
-      ? 'Trade lane'
-      : form.buyNowPrice.trim() || form.startingBid.trim() || form.spotPrice.trim() || '—';
+  const sellerPrice = resolveSellerDisplayPrice(form);
 
   const dismissPublishSuccess = () => {
     setPublishSuccess(null);
@@ -510,20 +527,37 @@ export function CreateListingReviewScreen({
       onExit={exitFlow}
     >
       <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scroll}>
+        {requiredIssues.length > 0 ? (
+          <View style={styles.reviewIssuesCard}>
+            <Text style={styles.reviewIssuesTitle}>Complete these before publishing</Text>
+            {requiredIssues.map((issue) => (
+              <Pressable
+                key={`${issue.screen}-${issue.message}`}
+                style={styles.reviewIssueRow}
+                onPress={() => navigation.navigate(issue.screen)}
+              >
+                <Text style={styles.reviewIssueTxt}>· {issue.message}</Text>
+                <Text style={styles.reviewIssueLink}>Fix</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         <LinearGradient colors={[accent.fill, '#0f0f0f']} style={styles.previewCard}>
           {thumb ? <Image source={{ uri: thumb }} style={styles.previewImg} resizeMode="cover" /> : null}
           <Text style={[styles.previewEyebrow, { color: accent.primary }]}>{channelCfg.shortLabel} preview</Text>
-          <Text style={styles.previewTitle}>{form.title.trim() || 'Untitled listing'}</Text>
+          <Text style={styles.previewTitle}>{asListingString(form.title).trim() || 'Untitled listing'}</Text>
           <Text style={styles.previewMeta}>
             {typeLabel} · {catLabel}
           </Text>
-          {form.subcategories.length > 0 ? (
-            <Text style={styles.previewTags}>Sub-categories: {form.subcategories.join(' · ')}</Text>
+          {subcategories.length > 0 ? (
+            <Text style={styles.previewTags}>Sub-categories: {subcategories.join(' · ')}</Text>
           ) : null}
-          {isLiveShow && form.liveShowTitle.trim() ? (
-            <Text style={styles.previewTags}>Show: {form.liveShowTitle}</Text>
+          {isLiveShow && asListingString(form.liveShowTitle).trim() ? (
+            <Text style={styles.previewTags}>Show: {asListingString(form.liveShowTitle).trim()}</Text>
           ) : null}
-          {form.tags.trim() ? <Text style={styles.previewTags}>Tags: {form.tags}</Text> : null}
+          {asListingString(form.tags).trim() ? (
+            <Text style={styles.previewTags}>Tags: {asListingString(form.tags).trim()}</Text>
+          ) : null}
           <Text style={styles.previewFee}>{feePreview(form.listingType)}</Text>
         </LinearGradient>
 
@@ -540,7 +574,7 @@ export function CreateListingReviewScreen({
               Live profile: {liveProfile?.label ?? '—'} · {form.liveShippingPreset === 'advanced' ? 'Advanced' : 'Simplified'}
             </Text>
             <Text style={styles.blockBody}>
-              Ship from: {form.liveShipFromZip.trim() || '—'}
+              Ship from: {asListingString(formForShipping.liveShipFromZip).trim() || '—'}
               {form.liveBundleEligible ? ' · Eligible for in-show bundling' : ' · Single-line shipping (not bundled)'}
             </Text>
             <Text style={styles.blockBody}>
@@ -552,18 +586,20 @@ export function CreateListingReviewScreen({
               {' '}
               · Shippo runs under the hood — buyers see tier-based bundles in the show, not marketplace rates.
             </Text>
-            {form.liveHandlingSurcharge.trim() ? (
-              <Text style={styles.blockMuted}>Handling surcharge: {form.liveHandlingSurcharge}</Text>
+            {asListingString(form.liveHandlingSurcharge).trim() ? (
+              <Text style={styles.blockMuted}>Handling surcharge: {asListingString(form.liveHandlingSurcharge).trim()}</Text>
             ) : null}
             {form.liveShippingPreset === 'advanced' ? (
               <Text style={styles.blockMuted}>
-                Adv. package: {form.liveAdvancedWeightLb.trim() || '—'} lb · {form.liveAdvancedLengthIn.trim() || '—'}×
-                {form.liveAdvancedWidthIn.trim() || '—'}×{form.liveAdvancedHeightIn.trim() || '—'} in
+                Adv. package: {asListingString(form.liveAdvancedWeightLb).trim() || '—'} lb ·{' '}
+                {asListingString(form.liveAdvancedLengthIn).trim() || '—'}×
+                {asListingString(form.liveAdvancedWidthIn).trim() || '—'}×
+                {asListingString(form.liveAdvancedHeightIn).trim() || '—'} in
               </Text>
             ) : null}
           </>
-        ) : marketplaceShippingListingReady(form) ||
-          (form.selectedShippoRate != null && isPackageDetailsComplete(form)) ? (
+        ) : marketplaceShippingListingReady(formForShipping) ||
+          (form.selectedShippoRate != null && isPackageDetailsComplete(formForShipping)) ? (
           <>
             <Text style={styles.blockBody}>
               Buyer-chosen delivery — checkout loads live Shippo quotes; the default is the best-value option. Faster
@@ -577,8 +613,10 @@ export function CreateListingReviewScreen({
                   : `You allow: ${form.marketplaceOfferableRateCount} specific service(s).`}
             </Text>
             <Text style={styles.blockBody}>
-              Package lane · ship from {form.shipFromZip.trim() || '—'}
-              {form.shippingHandlingFee.trim() ? ` · Handling add-on ${form.shippingHandlingFee}` : ''}
+              Package lane · ship from {asListingString(formForShipping.shipFromZip).trim() || '—'}
+              {asListingString(form.shippingHandlingFee).trim()
+                ? ` · Handling add-on ${asListingString(form.shippingHandlingFee).trim()}`
+                : ''}
             </Text>
             <Text style={styles.blockMuted}>
               {form.insurance ? 'Insurance available at label purchase · ' : ''}
@@ -603,9 +641,9 @@ export function CreateListingReviewScreen({
         {form.aiNeedsSellerConfirmation ? (
           <>
             <Text style={styles.blockK}>Needs seller confirmation</Text>
-            {form.aiReviewReasons.map((r) => (
+            {aiReviewReasons.map((r) => (
               <Text key={r} style={styles.blockBody}>
-                · {r}
+                · {asListingString(r)}
               </Text>
             ))}
             <View style={styles.toggleRow}>
@@ -633,14 +671,10 @@ export function CreateListingReviewScreen({
           <View style={styles.mobileInner}>
             {thumb ? <Image source={{ uri: thumb }} style={styles.mobileThumb} resizeMode="cover" /> : null}
             <Text style={styles.mobileTitle} numberOfLines={2}>
-              {form.title.trim() || 'Untitled listing'}
+              {asListingString(form.title).trim() || 'Untitled listing'}
             </Text>
             <Text style={styles.mobileMeta}>{typeLabel}</Text>
-            <Text style={styles.mobilePrice}>
-              {form.listingType === 'trade_only'
-                ? 'Trade lane'
-                : form.buyNowPrice.trim() || form.startingBid.trim() || form.spotPrice.trim() || '—'}
-            </Text>
+            <Text style={styles.mobilePrice}>{sellerPrice}</Text>
           </View>
         </View>
 
@@ -670,7 +704,7 @@ export function CreateListingReviewScreen({
             label="Allow layaway ($500+)"
             value={form.allowLayaway}
             onValueChange={(v) => setForm({ allowLayaway: v })}
-            disabled={Number(form.price.replace(/[^0-9.]/g, '')) < 500}
+            disabled={!isLayawayPriceEligible(form)}
           />
         ) : null}
         <Toggle label="Accept trade offers" value={form.acceptTrades} onValueChange={(v) => setForm({ acceptTrades: v })} />
@@ -811,6 +845,23 @@ const styles = StyleSheet.create({
   aiShipK: { ...typography.micro, color: colors.gold, letterSpacing: 0.8 },
   aiShipTier: { color: colors.textPrimary, fontSize: 16, fontWeight: '800' },
   aiShipBody: { color: colors.textSecondary, fontSize: 13, lineHeight: 18 },
+  reviewIssuesCard: {
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.35)',
+    backgroundColor: 'rgba(127,29,29,0.2)',
+    gap: spacing.sm,
+  },
+  reviewIssuesTitle: { color: '#fecaca', fontSize: 13, fontWeight: '800' },
+  reviewIssueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  reviewIssueTxt: { flex: 1, color: colors.textSecondary, fontSize: 13, lineHeight: 18 },
+  reviewIssueLink: { color: colors.gold, fontWeight: '800', fontSize: 12 },
   blockK: { ...typography.micro, color: colors.gold, letterSpacing: 0.8, marginTop: spacing.md },
   blockBody: { color: colors.textSecondary, fontSize: 14, lineHeight: 20 },
   mobileShell: {

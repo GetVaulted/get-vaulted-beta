@@ -24,8 +24,16 @@ describe("isBetaDeployment", () => {
     expect(webSignupVerificationMethod()).toBe("supabase_link");
   });
 
-  it("prefers resend_code when Resend is configured", () => {
+  it("prefers supabase_link on beta even when Resend is configured", () => {
     vi.stubEnv("SUPABASE_URL", "https://xkaaicokjgmpbctfermj.supabase.co");
+    vi.stubEnv("RESEND_API_KEY", "re_test");
+    expect(webSignupVerificationMethod()).toBe("supabase_link");
+  });
+
+  it("prefers resend_code when Resend is configured on non-beta", () => {
+    vi.stubEnv("SUPABASE_URL", "https://quhjaiwdktdsgioacpeu.supabase.co");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv("RESEND_API_KEY", "re_test");
     expect(webSignupVerificationMethod()).toBe("resend_code");
   });

@@ -6,6 +6,8 @@ export type WebMarketplaceListing = {
   imageSeed: string;
   imageUrls?: string[];
   sellerUsername: string;
+  sellerLevel?: 'vault_seller' | 'trusted_seller' | 'vault_verified' | 'elite_vault_verified';
+  sellerLevelLabel?: string;
   sellerVerified: boolean;
   category: string;
   buyingFormat: 'buy_now' | 'auction';
@@ -20,4 +22,8 @@ export type WebMarketplaceListing = {
   allowOffers?: boolean;
   allowLayaway?: boolean;
   acceptTradeOffers?: boolean;
+  shippingPriceUsd?: number;
+  handlingTimeLabel?: string;
+  signatureRequired?: boolean;
+  shipsFromRegion?: string;
 };

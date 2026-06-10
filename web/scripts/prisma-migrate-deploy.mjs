@@ -11,6 +11,12 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { config } from "dotenv";
+
+const webRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+config({ path: path.join(webRoot, ".env"), quiet: true });
+config({ path: path.join(webRoot, ".env.local"), override: true, quiet: true });
 
 const direct = process.env.DIRECT_URL?.trim();
 const pooled = process.env.DATABASE_URL?.trim();

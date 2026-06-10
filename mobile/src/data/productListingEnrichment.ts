@@ -1,16 +1,13 @@
+import { buildListingGallerySlides, type GallerySlide } from '../lib/productListingGallery';
+import { resolvePublicSellerLevelLabel } from '../lib/sellerLevelBadge';
 import type { CategoryId, Product } from '../types';
 
-export type GallerySlide = {
-  id: string;
-  uri: string;
-  caption: string;
-  kind: 'hero' | 'macro' | 'detail' | 'video';
-};
+export type { GallerySlide };
 
 export type ListingViewModel = {
   gallery: GallerySlide[];
-  authProvider: string;
-  inspectionLine: string;
+  sellerLevelBadge: string | null;
+  showVaultVerifiedBadge: boolean;
   activity: {
     watching: number;
     offersPending: number;
@@ -50,65 +47,43 @@ export type ListingViewModel = {
   };
   content: {
     acquisitionTag: string;
-    sellerNotes: string;
-    conditionNotes: string;
-    authDetails: string;
-    shippingProtection: string;
-    collectorInterest: string;
-    featuredLiveTitle: string;
-    featuredLiveSubtitle: string;
+    description: string | null;
+    conditionNotes: string | null;
+    authDetails: string | null;
+    shippingProtection: string | null;
+    collectorInterest: string | null;
   };
+  liveAppearances: { id: string; title: string; subtitle?: string; occurredAtLabel?: string }[];
   similarProductIds: string[];
   recentlySold: { title: string; price: string; when: string }[];
 };
 
-function galleryForProduct(p: Product): GallerySlide[] {
-  const base = p.imageUrl ?? 'https://images.unsplash.com/photo-1523170335258-f5ed11844a49?w=1200';
-  const sep = base.includes('?') ? '&' : '?';
-  const slides: GallerySlide[] = [
-    { id: 'g0', uri: base, caption: 'Gallery hero', kind: 'hero' },
-    {
-      id: 'g1',
-      uri: `${base}${sep}auto=format&fit=crop&w=1400&h=1400`,
-      caption:
-        p.category === 'watches'
-          ? 'Macro · clasp & crown'
-          : p.category === 'cards'
-            ? 'Macro · slab corners & surface'
-            : 'Macro · materials & stitching',
-      kind: 'macro',
-    },
-    {
-      id: 'g2',
-      uri: `${base}${sep}auto=format&fit=crop&w=1400&h=900`,
-      caption:
-        p.category === 'watches'
-          ? 'Movement / caseback detail'
-          : p.category === 'sneakers'
-            ? 'Outsole & factory stitch'
-            : 'Autograph / print detail',
-      kind: 'detail',
-    },
-    {
-      id: 'g3',
-      uri: base,
-      caption: 'Video tour · vault capture',
-      kind: 'video',
-    },
+function specsNeutral(p: Product): { label: string; value: string }[] {
+  const rows: { label: string; value: string }[] = [
+    { label: 'Category', value: p.category.charAt(0).toUpperCase() + p.category.slice(1) },
+    { label: 'Condition', value: p.conditionGrade ?? 'See listing photos' },
   ];
-  return slides;
+  if (p.shipsFromRegion) {
+    rows.push({ label: 'Ships from', value: p.shipsFromRegion });
+  }
+  if (p.vaultVerified) {
+    rows.push({ label: 'Vault lane', value: 'Vault verified inventory' });
+  }
+  return rows;
 }
 
-function specsNeutral(p: Product): { label: string; value: string }[] {
-  return [
-    { label: 'Category', value: p.category },
-    { label: 'Condition', value: p.conditionGrade ?? 'See listing photos and seller notes' },
-    { label: 'Verification', value: p.vaultVerified ? 'Vault verified lane' : 'Seller-provided documentation' },
-    {
-      label: 'Description',
-      value: (p.storyline ?? p.title).slice(0, 140) || 'Details available in the listing.',
-    },
-  ];
+function formatShippingLine(p: Product): string | null {
+  const parts: string[] = [];
+  if (p.handlingTimeLabel && p.handlingTimeLabel !== '—') {
+    parts.push(`Handling ${p.handlingTimeLabel}`);
+  }
+  if (p.shippingPriceUsd != null && p.shippingPriceUsd >= 0) {
+    parts.push(p.shippingPriceUsd === 0 ? 'Shipping calculated at checkout' : `Shipping from $${p.shippingPriceUsd}`);
+  }
+  if (p.signatureRequired) {
+    parts.push('Signature required');
+  }
+  return parts.length ? parts.join(' · ') : null;
 }
 
 function neutralLookingFor(category: CategoryId): string[] {
@@ -157,10 +132,13 @@ export function enrichListing(product: Product): ListingViewModel {
           ? ['watches', 'cards', 'luxury']
           : ['memorabilia', 'cards', 'sneakers'];
 
+  const shippingLine = formatShippingLine(product);
+  const description = product.description?.trim() || null;
+
   return {
-    gallery: galleryForProduct(product),
-    authProvider: product.vaultVerified ? 'Vaulted Inspection + partner lab' : 'Seller-submitted documentation',
-    inspectionLine: product.vaultVerified ? 'Verified by Vaulted Inspection' : 'Standard seller verification',
+    gallery: buildListingGallerySlides(product),
+    sellerLevelBadge: resolvePublicSellerLevelLabel(product.sellerLevel, product.sellerLevelLabel),
+    showVaultVerifiedBadge: product.vaultVerified,
     activity: {
       watching,
       offersPending: offers,
@@ -168,12 +146,12 @@ export function enrichListing(product: Product): ListingViewModel {
       recentlyViewedLabel: 'Quiet until the first collectors land on this page',
       priceUpdatedLabel: undefined,
       sellerLive: false,
-      featuredInLive: undefined,
+      featuredInLive: product.featuredInLive,
     },
     trade: {
       allowOffers: product.allowOffers === true,
       acceptsTrades: product.acceptTradeOffers === true,
-      tradeEligible: product.acceptTradeOffers === true && product.vaultVerified,
+      tradeEligible: product.acceptTradeOffers === true,
       lookingFor: neutralLookingFor(product.category),
     },
     pricing: {
@@ -190,7 +168,7 @@ export function enrichListing(product: Product): ListingViewModel {
     sellerShowroom: {
       specialties,
       topCategories: topCategories.map((c) => c.charAt(0).toUpperCase() + c.slice(1)),
-      liveSchedule: 'Follow the seller — live schedule publishes here when they go on air.',
+      liveSchedule: 'Follow the seller — live schedule publishes when they go on air.',
       vaultScore: 'Building as sales complete on-platform',
       completionRate: 'Tracked after checkout milestones',
       salesCount: 'Seller history unlocks with completed orders',
@@ -202,21 +180,16 @@ export function enrichListing(product: Product): ListingViewModel {
       recentListingIds: [],
     },
     content: {
-      acquisitionTag: 'Private acquisition listing',
-      sellerNotes:
-        'Seller notes appear here from the listing description. Message the seller for additional photos or documentation.',
-      conditionNotes:
-        'Review listing imagery and stated condition. Request macro shots through secure messaging before you offer.',
-      authDetails:
-        product.vaultVerified
-          ? 'Dual-line verification: in-hand Vaulted Inspection with photographic chain of custody, plus serial / slab registry checks where applicable.'
-          : 'Documentation package available after offer acceptance — see messaging for NDA-sensitive serial imagery.',
-      shippingProtection:
-        'Insured outbound with signature thresholds, optional concierge hold at Vaulted hub, and dispute-first support if anything deviates from listing.',
-      collectorInterest: 'Interest signals appear as collectors watch, save, and message on this listing.',
-      featuredLiveTitle: 'Live appearances',
-      featuredLiveSubtitle: 'When this seller goes live, pinned lots and break lanes will surface here.',
+      acquisitionTag: 'Vault marketplace listing',
+      description,
+      conditionNotes: product.conditionGrade ? `Listed as ${product.conditionGrade}.` : null,
+      authDetails: product.vaultVerified
+        ? 'Vault verified inventory with photographic chain of custody where applicable.'
+        : null,
+      shippingProtection: shippingLine,
+      collectorInterest: null,
     },
+    liveAppearances: product.liveAppearances ?? [],
     similarProductIds: [],
     recentlySold: [],
   };

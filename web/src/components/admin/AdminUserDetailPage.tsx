@@ -4,37 +4,64 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
+type ChecklistItem = {
+  key: string;
+  label: string;
+  met: boolean;
+  pending?: boolean;
+  current?: string;
+};
+
 type Summary = {
   seller: {
     id: string;
     username: string;
     email: string;
-    instantPayoutEligible: boolean;
-    instantPayoutStatus: string;
-    instantPayoutOverrideByAdmin: boolean;
-    instantPayoutOverrideReason: string | null;
-    instantPayoutOverrideAt: string | null;
-    payoutRiskLevel: string;
-    payoutHoldDays: number;
-    payoutReservePercent: number;
-    stripePayoutsEnabled: boolean | null;
-    hasStripeAccount: boolean;
+    payoutTier: string;
+    sellerLevel: string;
+    sellerLevelLabel: string;
+    fastPayoutStatus: string;
+    instantPayoutApprovalStatus: string;
+    instantPayoutApprovalLabel: string;
+    instantPayoutReviewDate: string | null;
+    instantPayoutReviewNotes: string | null;
+    instantPayoutRejectionReason: string | null;
+    suspensionReason: string | null;
+    limitOverrides: { perOrderUsd: number | null; dailyUsd: number | null; exposureUsd: number | null } | null;
+    platformLimits: { perOrderUsd: number; dailyUsd: number; maxOutstandingUsd: number };
+    payoutRiskLevel?: string;
+    payoutHoldDays?: number;
+    payoutReservePercent?: number;
+    stripePayoutsEnabled?: boolean | null;
+    hasStripeAccount?: boolean;
   };
-  evaluation: {
-    eligible: boolean;
-    status: string;
-    requirementsMet: string[];
-    requirementsFailed: string[];
-    trackingComplianceRate: number | null;
-    disputeRefundRate: number | null;
-  };
-  stats: {
-    recentPaidOrders: number;
-    ordersWithTracking: number;
-    disputedOrRefundedCount: number;
-    trackingComplianceRate: number | null;
-    disputeRefundRate: number | null;
-  };
+  metrics: {
+    lifetimeGmvUsd: number;
+    completedOrders: number;
+    accountStanding: string;
+    cancellationRate: number;
+    chargebackRate: number;
+    disputeRate: number;
+    accountAgeDays: number;
+    fraudStatus: string;
+    unresolvedDisputeCount: number;
+    excessiveShippingDelayCount: number;
+    dailyInstantPayoutUsd: number;
+    outstandingInstantPayoutUsd: number;
+    lifetimeInstantPayoutUsd: number;
+  } | null;
+  tierEvaluation: {
+    effectiveTier: string;
+    naturalTier: string;
+    suspensionReasons: string[];
+    checklist: ChecklistItem[];
+  } | null;
+  suspensionHistory: Array<{
+    id: string;
+    action: string;
+    reason: string | null;
+    createdAt: string;
+  }>;
   auditLogs: Array<{
     id: string;
     action: string;
@@ -45,12 +72,26 @@ type Summary = {
   }>;
 };
 
+function pct(n: number) {
+  return `${(n * 100).toFixed(2)}%`;
+}
+
+function formatUsd(n: number) {
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+}
+
 export function AdminUserDetailPage() {
   const params = useParams();
   const userId = typeof params?.userId === "string" ? params.userId : "";
   const [data, setData] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [reason, setReason] = useState("");
+  const [reviewNotes, setReviewNotes] = useState("");
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [overrideRequirements, setOverrideRequirements] = useState(false);
+  const [perOrderLimit, setPerOrderLimit] = useState("");
+  const [dailyLimit, setDailyLimit] = useState("");
+  const [exposureLimit, setExposureLimit] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,7 +99,7 @@ export function AdminUserDetailPage() {
     if (!userId) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/instant-payout`, { cache: "no-store" });
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/payout-tier`, { cache: "no-store" });
       if (!res.ok) {
         setData(null);
         return;
@@ -73,18 +114,28 @@ export function AdminUserDetailPage() {
     void load();
   }, [load]);
 
-  const act = async (action: string) => {
-    if (!reason.trim()) {
+  const act = async (action: string, extra?: Record<string, unknown>) => {
+    if (action !== "recalculate" && !reason.trim()) {
       setError("Reason is required.");
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/instant-payout`, {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/payout-tier`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, reason: reason.trim() }),
+        body: JSON.stringify({
+          action,
+          reason: reason.trim() || "recalculate",
+          reviewNotes: reviewNotes.trim() || undefined,
+          rejectionReason: rejectionReason.trim() || undefined,
+          overrideRequirements,
+          perOrderLimitUsd: perOrderLimit ? Number(perOrderLimit) : undefined,
+          dailyLimitUsd: dailyLimit ? Number(dailyLimit) : undefined,
+          exposureLimitUsd: exposureLimit ? Number(exposureLimit) : undefined,
+          ...extra,
+        }),
       });
       const j = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
@@ -117,14 +168,16 @@ export function AdminUserDetailPage() {
     );
   }
 
-  const pct = (n: number | null) => (n == null ? "—" : `${Math.round(n * 100)}%`);
+  const m = data.metrics;
+  const limits = data.seller.platformLimits;
+  const overrides = data.seller.limitOverrides;
 
   return (
     <main className="mx-auto w-full max-w-[1920px] px-3 py-8 sm:px-4 lg:px-10">
       <Link href="/admin/users" className="text-xs font-semibold text-zinc-500 hover:text-gold-bright">
         ← Users
       </Link>
-      <h1 className="font-display mt-4 text-xl font-black tracking-tight">Seller payout controls</h1>
+      <h1 className="font-display mt-4 text-xl font-black tracking-tight">Seller risk & payout program</h1>
       <p className="mt-1 text-xs text-zinc-500">
         @{data.seller.username} · {data.seller.email}
       </p>
@@ -133,68 +186,106 @@ export function AdminUserDetailPage() {
         <p className="mt-4 rounded-lg border border-rose-400/25 bg-rose-950/30 px-3 py-2 text-xs text-rose-100">{error}</p>
       ) : null}
 
-      <section className="mt-6 grid gap-4 lg:grid-cols-2">
-        <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Instant payout status</h2>
-          <p className="mt-2 capitalize text-zinc-100">{data.seller.instantPayoutStatus.replace(/_/g, " ")}</p>
+      <section className="mt-6 grid gap-4 lg:grid-cols-3">
+        <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs lg:col-span-1">
+          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Seller level</h2>
+          <p className="mt-2 text-lg font-black text-gold-bright">{data.seller.sellerLevelLabel}</p>
           <p className="mt-1 text-zinc-400">
-            Eligible: <span className="text-zinc-200">{data.seller.instantPayoutEligible ? "Yes" : "No"}</span>
+            Payout tier: <span className="capitalize text-zinc-200">{data.seller.payoutTier}</span>
           </p>
           <p className="mt-1 text-zinc-400">
-            Risk level: <span className="capitalize text-zinc-200">{data.seller.payoutRiskLevel}</span>
+            Natural: <span className="capitalize text-zinc-200">{data.tierEvaluation?.naturalTier ?? "—"}</span>
           </p>
           <p className="mt-1 text-zinc-400">
-            Stripe payouts:{" "}
-            <span className="text-zinc-200">
-              {data.seller.hasStripeAccount ? (data.seller.stripePayoutsEnabled === false ? "Disabled" : "Ready") : "Not connected"}
-            </span>
+            Fast status: <span className="text-zinc-200">{data.seller.fastPayoutStatus.replace(/_/g, " ")}</span>
           </p>
-          {data.seller.instantPayoutOverrideReason ? (
-            <p className="mt-2 text-[10px] text-zinc-500">
-              Override: {data.seller.instantPayoutOverrideReason}
-              {data.seller.instantPayoutOverrideAt
-                ? ` · ${new Date(data.seller.instantPayoutOverrideAt).toLocaleString()}`
-                : ""}
-            </p>
+        </div>
+
+        <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs lg:col-span-1">
+          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Instant payout workflow</h2>
+          <p className="mt-2 text-base font-bold text-zinc-100">{data.seller.instantPayoutApprovalLabel}</p>
+          {data.seller.instantPayoutReviewDate ? (
+            <p className="mt-1 text-zinc-500">Reviewed {new Date(data.seller.instantPayoutReviewDate).toLocaleString()}</p>
+          ) : null}
+          {data.seller.instantPayoutReviewNotes ? (
+            <p className="mt-2 text-zinc-400">Notes: {data.seller.instantPayoutReviewNotes}</p>
+          ) : null}
+          {data.seller.instantPayoutRejectionReason ? (
+            <p className="mt-2 text-amber-200/90">Rejection: {data.seller.instantPayoutRejectionReason}</p>
+          ) : null}
+          {data.seller.suspensionReason ? (
+            <p className="mt-2 text-[10px] text-rose-300">Suspended: {data.seller.suspensionReason}</p>
           ) : null}
         </div>
 
-        <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Compliance summary (90d)</h2>
+        <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs lg:col-span-1">
+          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Instant exposure</h2>
           <p className="mt-2 text-zinc-300">
-            Paid orders: <span className="tabular-nums text-zinc-100">{data.stats.recentPaidOrders}</span>
+            Today: <span className="tabular-nums text-zinc-100">{formatUsd(m?.dailyInstantPayoutUsd ?? 0)}</span>
+            <span className="text-zinc-500"> / {formatUsd(overrides?.dailyUsd ?? limits.dailyUsd)}</span>
           </p>
           <p className="mt-1 text-zinc-300">
-            Tracking compliance: <span className="text-zinc-100">{pct(data.stats.trackingComplianceRate)}</span>
+            Outstanding:{" "}
+            <span className="tabular-nums text-zinc-100">{formatUsd(m?.outstandingInstantPayoutUsd ?? 0)}</span>
+            <span className="text-zinc-500"> / {formatUsd(overrides?.exposureUsd ?? limits.maxOutstandingUsd)}</span>
           </p>
           <p className="mt-1 text-zinc-300">
-            Dispute/refund rate: <span className="text-zinc-100">{pct(data.stats.disputeRefundRate)}</span>
+            Lifetime: <span className="tabular-nums text-zinc-100">{formatUsd(m?.lifetimeInstantPayoutUsd ?? 0)}</span>
           </p>
-          <p className="mt-1 text-zinc-300">
-            Disputes/refunds: <span className="tabular-nums text-zinc-100">{data.stats.disputedOrRefundedCount}</span>
-          </p>
-          <p className="mt-1 text-zinc-300">
-            Hold days / reserve:{" "}
-            <span className="text-zinc-100">
-              {data.seller.payoutHoldDays}d / {data.seller.payoutReservePercent}%
-            </span>
+          <p className="mt-2 text-zinc-500">
+            Per-order limit: {formatUsd(overrides?.perOrderUsd ?? limits.perOrderUsd)}
           </p>
         </div>
       </section>
 
-      {data.evaluation.requirementsFailed.length > 0 ? (
-        <section className="mt-4 rounded-xl border border-amber-400/20 bg-amber-950/20 p-4 text-xs">
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-amber-300">Failed requirements</h2>
-          <ul className="mt-2 list-inside list-disc text-amber-100/90">
-            {data.evaluation.requirementsFailed.map((r) => (
-              <li key={r}>{r.replace(/_/g, " ")}</li>
+      {m ? (
+        <section className="mt-4 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
+          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Risk metrics</h2>
+          <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4">
+            <p className="text-zinc-300">
+              Lifetime GMV: <span className="tabular-nums text-zinc-100">${m.lifetimeGmvUsd.toLocaleString()}</span>
+            </p>
+            <p className="text-zinc-300">
+              Completed orders: <span className="tabular-nums text-zinc-100">{m.completedOrders}</span>
+            </p>
+            <p className="text-zinc-300">
+              Account standing: <span className="capitalize text-zinc-100">{m.accountStanding.replace(/_/g, " ")}</span>
+            </p>
+            <p className="text-zinc-300">
+              Account age: <span className="text-zinc-100">{m.accountAgeDays}d</span>
+            </p>
+            <p className="text-zinc-300">
+              Cancellation: <span className="text-zinc-100">{pct(m.cancellationRate)}</span>
+            </p>
+            <p className="text-zinc-300">
+              Chargeback: <span className="text-zinc-100">{pct(m.chargebackRate)}</span>
+            </p>
+            <p className="text-zinc-300">
+              Dispute: <span className="text-zinc-100">{pct(m.disputeRate)}</span>
+            </p>
+            <p className="text-zinc-300">
+              Fraud: <span className="capitalize text-zinc-100">{m.fraudStatus}</span>
+            </p>
+          </div>
+        </section>
+      ) : null}
+
+      {data.tierEvaluation?.checklist?.length ? (
+        <section className="mt-4 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
+          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Eligibility checklist</h2>
+          <ul className="mt-2 space-y-1">
+            {data.tierEvaluation.checklist.map((item) => (
+              <li key={item.key} className="text-zinc-300">
+                {item.met ? "✓" : item.pending ? "◷" : "○"} {item.label}
+                {item.current ? ` · ${item.current}` : ""}
+              </li>
             ))}
           </ul>
         </section>
       ) : null}
 
       <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
-        <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Override actions</h2>
+        <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Admin controls</h2>
         <label className="mt-3 flex flex-col gap-1">
           <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Reason (required)</span>
           <textarea
@@ -202,48 +293,160 @@ export function AdminUserDetailPage() {
             onChange={(e) => setReason(e.target.value)}
             rows={2}
             className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
-            placeholder="Document why this override is applied…"
+            placeholder="Document why this action is taken…"
           />
         </label>
+        <label className="mt-2 flex flex-col gap-1">
+          <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Review / approval notes</span>
+          <textarea
+            value={reviewNotes}
+            onChange={(e) => setReviewNotes(e.target.value)}
+            rows={2}
+            className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
+          />
+        </label>
+        <label className="mt-2 flex flex-col gap-1">
+          <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Rejection reason</span>
+          <textarea
+            value={rejectionReason}
+            onChange={(e) => setRejectionReason(e.target.value)}
+            rows={2}
+            className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
+          />
+        </label>
+        <label className="mt-2 flex items-center gap-2 text-zinc-400">
+          <input
+            type="checkbox"
+            checked={overrideRequirements}
+            onChange={(e) => setOverrideRequirements(e.target.checked)}
+          />
+          Override eligibility requirements on approval
+        </label>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <input
+            type="number"
+            placeholder={`Per-order ($${limits.perOrderUsd})`}
+            value={perOrderLimit}
+            onChange={(e) => setPerOrderLimit(e.target.value)}
+            className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
+          />
+          <input
+            type="number"
+            placeholder={`Daily ($${limits.dailyUsd})`}
+            value={dailyLimit}
+            onChange={(e) => setDailyLimit(e.target.value)}
+            className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
+          />
+          <input
+            type="number"
+            placeholder={`Exposure ($${limits.maxOutstandingUsd})`}
+            value={exposureLimit}
+            onChange={(e) => setExposureLimit(e.target.value)}
+            className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
+          />
+        </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
             disabled={busy}
-            onClick={() => void act("enable_instant_payout")}
-            className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-semibold text-emerald-200 hover:bg-emerald-500/15 disabled:opacity-50"
+            onClick={() => void act("start_instant_review")}
+            className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-[10px] font-semibold text-sky-200 disabled:opacity-50"
           >
-            Enable instant payout
+            Start Review
           </button>
           <button
             type="button"
             disabled={busy}
-            onClick={() => void act("disable_instant_payout")}
-            className="rounded-lg border border-white/15 px-3 py-1.5 text-[10px] font-semibold text-zinc-200 hover:border-gold/30 disabled:opacity-50"
+            onClick={() => void act("approve_instant_payout")}
+            className="rounded-lg border border-gold/40 bg-gold/10 px-3 py-1.5 text-[10px] font-semibold text-gold-bright disabled:opacity-50"
           >
-            Disable instant payout
+            Approve Instant Payout
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void act("reject_instant_payout")}
+            className="rounded-lg border border-amber-500/40 px-3 py-1.5 text-[10px] font-semibold text-amber-200 disabled:opacity-50"
+          >
+            Reject Application
           </button>
           <button
             type="button"
             disabled={busy}
             onClick={() => void act("suspend_instant_payout")}
-            className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-[10px] font-semibold text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
+            className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-[10px] font-semibold text-rose-300 disabled:opacity-50"
           >
-            Suspend instant payout
+            Suspend Instant Payout
           </button>
           <button
             type="button"
             disabled={busy}
-            onClick={() => void act("require_manual_review")}
-            className="rounded-lg border border-amber-500/40 px-3 py-1.5 text-[10px] font-semibold text-amber-200 hover:bg-amber-500/10 disabled:opacity-50"
+            onClick={() => void act("restore_instant_payout")}
+            className="rounded-lg border border-emerald-500/40 px-3 py-1.5 text-[10px] font-semibold text-emerald-200 disabled:opacity-50"
           >
-            Require manual review
+            Restore Seller Status
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void act("override_instant_limits")}
+            className="rounded-lg border border-white/15 px-3 py-1.5 text-[10px] font-semibold text-zinc-200 disabled:opacity-50"
+          >
+            Override Limits
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void act("assign_elite_vault_verified")}
+            className="rounded-lg border border-violet-500/40 bg-violet-500/10 px-3 py-1.5 text-[10px] font-semibold text-violet-200 disabled:opacity-50"
+          >
+            Assign Elite Vault Verified
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void act("remove_elite_vault_verified")}
+            className="rounded-lg border border-white/15 px-3 py-1.5 text-[10px] font-semibold text-zinc-200 disabled:opacity-50"
+          >
+            Remove Elite
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void act("grant_fast_payout")}
+            className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-semibold text-emerald-200 disabled:opacity-50"
+          >
+            Grant Fast Payout
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void act("recalculate")}
+            className="rounded-lg border border-white/15 px-3 py-1.5 text-[10px] font-semibold text-zinc-200 disabled:opacity-50"
+          >
+            Recalculate tier
           </button>
         </div>
       </section>
 
+      {data.suspensionHistory.length > 0 ? (
+        <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
+          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Suspension history</h2>
+          <ul className="mt-3 space-y-2">
+            {data.suspensionHistory.map((l) => (
+              <li key={l.id} className="border-b border-white/[0.05] pb-2 text-[10px] text-zinc-400">
+                <span className="font-mono text-zinc-300">{l.action}</span>
+                {l.reason ? <span className="block text-zinc-500">{l.reason}</span> : null}
+                <span className="block text-zinc-600">{new Date(l.createdAt).toLocaleString()}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {data.auditLogs.length > 0 ? (
         <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
-          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Recent audit log</h2>
+          <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Audit log</h2>
           <ul className="mt-3 space-y-2">
             {data.auditLogs.map((l) => (
               <li key={l.id} className="border-b border-white/[0.05] pb-2 text-[10px] text-zinc-400">

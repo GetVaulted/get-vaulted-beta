@@ -6,6 +6,7 @@ export const listingWithSellerFulfillmentInclude = {
       email: true,
       emailVerified: true,
       username: true,
+      sellerLevel: true,
       stripeAccountId: true,
       stripeOnboardingComplete: true,
       shipFromStreet: true,

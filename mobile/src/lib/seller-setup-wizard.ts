@@ -7,6 +7,7 @@ export type SellerWizardStep = 1 | 2 | 3 | 4 | 5;
 export function resolveSellerWizardStep(input: {
   checks: SellerReadinessChecks | null | undefined;
   wizardComplete: boolean;
+  sellerAgreementAccepted: boolean;
 }): SellerWizardStep {
   const checks = input.checks;
   const payoutsDone = isPayoutSetupComplete(checks);
@@ -16,7 +17,7 @@ export function resolveSellerWizardStep(input: {
   if (!started && !payoutsDone) return 1;
   if (!payoutsDone) return 2;
   if (!shippingDone) return 3;
-  if (!input.wizardComplete) return 4;
+  if (!input.sellerAgreementAccepted || !input.wizardComplete) return 4;
   return 5;
 }
 

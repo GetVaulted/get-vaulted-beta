@@ -14,6 +14,8 @@ import {
   type SellerOrderStats,
   type SellerPayoutEligibilitySlice,
 } from "@/services/payout/instant-payout-eligibility";
+import { processStandardDeliveryPayoutEvaluation } from "@/services/payout/process-payout-tier-events";
+import { loadSellerPayoutTierDashboard } from "@/services/payout/recalculate-seller-payout-tier";
 
 const SELLER_STATS_LOOKBACK_DAYS = 90;
 
@@ -236,116 +238,14 @@ export async function initializeOrderPayoutOnPayment(orderId: string): Promise<v
     newStatus: OrderPayoutStatus.held,
     reason: "payment_confirmed_awaiting_delivery",
   });
+
+  const { recalculateSellerPayoutTier } = await import("@/services/payout/recalculate-seller-payout-tier");
+  void recalculateSellerPayoutTier(order.sellerId);
 }
 
-/**
- * Runs when carrier confirms delivery. Evaluates instant payout eligibility and
- * initiates release for eligible orders (escrow) or marks Stripe orders ready.
- */
+/** Runs when carrier confirms delivery — tier-aware standard / legacy instant release. */
 export async function processDeliveryPayoutEvaluation(orderId: string): Promise<void> {
-  const order = await prisma.order.findUnique({ where: { id: orderId }, select: orderSelect });
-  if (!order || order.paymentStatus !== "paid") return;
-  if (order.payoutStatus === OrderPayoutStatus.paid_out) return;
-
-  const seller = await prisma.user.findUnique({ where: { id: order.sellerId }, select: sellerSelect });
-  if (!seller) return;
-
-  const stats = await loadSellerOrderStats(order.sellerId);
-  const sellerEval = await syncSellerInstantPayoutCache(seller, stats);
-  const evaluation = evaluateOrderInstantPayoutEligibility({ order, seller, sellerEval });
-
-  const now = new Date();
-  const prevPayoutStatus = order.payoutStatus;
-
-  await prisma.order.update({
-    where: { id: orderId },
-    data: {
-      deliveryConfirmedAt: order.deliveryConfirmedAt ?? now,
-      payoutEligibleAt: evaluation.instantPayoutAllowed ? now : null,
-      payoutStatus: evaluation.recommendedStatus,
-      payoutMethod: evaluation.recommendedMethod,
-      payoutHoldUntil: evaluation.payoutHoldUntil,
-      payoutReserveAmountCents: evaluation.payoutReserveAmountCents,
-      payoutBlockedReason: evaluation.blockedReason,
-    },
-  });
-
-  await logPayoutEligibilityDecision({
-    sellerId: order.sellerId,
-    orderId,
-    action: "order_delivery_confirmed",
-    previousStatus: prevPayoutStatus,
-    newStatus: OrderPayoutStatus.delivery_confirmed,
-    reason: "carrier_delivery_confirmed",
-  });
-
-  await logPayoutEligibilityDecision({
-    sellerId: order.sellerId,
-    orderId,
-    action: "order_payout_evaluated",
-    previousStatus: prevPayoutStatus,
-    newStatus: evaluation.recommendedStatus,
-    reason: evaluation.instantPayoutAllowed
-      ? "instant_payout_eligible"
-      : evaluation.disqualifiers.join(", ") || evaluation.blockedReason || "standard_payout",
-  });
-
-  if (!evaluation.instantPayoutAllowed) {
-    if (evaluation.recommendedStatus === OrderPayoutStatus.held) {
-      await logPayoutEligibilityDecision({
-        sellerId: order.sellerId,
-        orderId,
-        action: "order_payout_held",
-        previousStatus: prevPayoutStatus,
-        newStatus: OrderPayoutStatus.held,
-        reason: evaluation.blockedReason,
-      });
-    }
-    return;
-  }
-
-  await logPayoutEligibilityDecision({
-    sellerId: order.sellerId,
-    orderId,
-    action: "order_instant_payout_ready",
-    previousStatus: prevPayoutStatus,
-    newStatus: OrderPayoutStatus.instant_payout_ready,
-  });
-
-  let released = false;
-  if (order.paymentMethod === OrderPaymentMethod.escrow) {
-    released = await tryReleaseEscrowInstantPayout({
-      id: order.id,
-      sellerId: order.sellerId,
-      listingId: order.listingId,
-      escrowTransactionId: order.escrowTransactionId,
-      escrowProvider: order.escrowProvider,
-      escrowStatus: order.escrowStatus,
-      escrowReleasePaused: order.escrowReleasePaused,
-    });
-  } else {
-    // Stripe destination charges transfer at checkout; record delivery-gated payout release for seller visibility.
-    released = true;
-  }
-
-  if (released) {
-    await prisma.order.update({
-      where: { id: orderId },
-      data: {
-        payoutStatus: OrderPayoutStatus.paid_out,
-        payoutReleasedAt: now,
-        ...(order.fundsReleasedAt ? {} : { fundsReleasedAt: now }),
-      },
-    });
-    await logPayoutEligibilityDecision({
-      sellerId: order.sellerId,
-      orderId,
-      action: "order_payout_released",
-      previousStatus: OrderPayoutStatus.instant_payout_ready,
-      newStatus: OrderPayoutStatus.paid_out,
-      reason: order.paymentMethod === OrderPaymentMethod.escrow ? "escrow_released" : "stripe_delivery_confirmed",
-    });
-  }
+  await processStandardDeliveryPayoutEvaluation(orderId);
 }
 
 export async function loadSellerPayoutSummaryForAdmin(sellerId: string) {
@@ -364,6 +264,7 @@ export async function loadSellerPayoutSummaryForAdmin(sellerId: string) {
 
   const stats = await loadSellerOrderStats(sellerId);
   const evaluation = evaluateSellerInstantPayoutEligibility(seller, stats);
+  const tierDashboard = await loadSellerPayoutTierDashboard(sellerId);
 
   const since = new Date();
   since.setDate(since.getDate() - SELLER_STATS_LOOKBACK_DAYS);
@@ -394,8 +295,14 @@ export async function loadSellerPayoutSummaryForAdmin(sellerId: string) {
       payoutReservePercent: seller.payoutReservePercent,
       stripePayoutsEnabled: seller.stripePayoutsEnabled,
       hasStripeAccount: Boolean(seller.stripeAccountId && seller.stripeOnboardingComplete),
+      payoutTier: tierDashboard?.seller.payoutTier ?? "standard",
+      fastPayoutStatus: tierDashboard?.seller.fastPayoutStatus ?? "not_eligible",
+      instantPayoutApprovalStatus: tierDashboard?.seller.instantPayoutApprovalStatus ?? "not_eligible",
+      suspensionReason: tierDashboard?.seller.suspensionReason ?? null,
     },
     evaluation,
+    tierEvaluation: tierDashboard?.evaluation ?? null,
+    metrics: tierDashboard?.metrics ?? null,
     stats: {
       ...stats,
       disputedOrRefundedCount: disputedOrRefunded,

@@ -1,3 +1,5 @@
+import { PAYMENT_LAYAWAY_ACTIVE } from "@/lib/layaway/constants";
+
 /** Keep in sync with `services/payments` order paymentStatus values. */
 const PAYMENT_PENDING = "pending_payment";
 const PAYMENT_PAID = "paid";
@@ -73,6 +75,9 @@ function labelFor(kind: SellerNextActionKind): string {
 
 /** Primary next step for one order row (seller view). */
 export function sellerNextActionForOrder(user: SellerNextActionUser, o: SellerNextActionOrder): SellerNextAction {
+  if (o.paymentStatus === PAYMENT_LAYAWAY_ACTIVE) {
+    return { kind: "none", label: "—" };
+  }
   if (!user.stripeAccountId || !user.stripeOnboardingComplete) {
     return { kind: "connect_payouts", label: labelFor("connect_payouts") };
   }

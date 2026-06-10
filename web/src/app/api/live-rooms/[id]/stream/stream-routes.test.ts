@@ -16,6 +16,7 @@ const hoisted = vi.hoisted(() => ({
   createViewerStageToken: vi.fn(),
   endHostStageSession: vi.fn(),
   checkRateLimit: vi.fn(() => ({ ok: true as const, remaining: 29, resetAt: Date.now() + 60_000 })),
+  userFindUnique: vi.fn(),
 }));
 
 vi.mock("next-auth", () => ({
@@ -35,6 +36,9 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     liveRoom: {
       findUnique: hoisted.liveRoomFindUnique,
+    },
+    user: {
+      findUnique: hoisted.userFindUnique,
     },
   },
 }));
@@ -136,6 +140,11 @@ describe("live room stream routes", () => {
     });
     hoisted.endHostStageSession.mockResolvedValue(undefined);
     hoisted.checkRateLimit.mockReturnValue({ ok: true as const, remaining: 29, resetAt: Date.now() + 60_000 });
+    hoisted.userFindUnique.mockResolvedValue({
+      id: "seller_1",
+      accountDeletedAt: null,
+      suspendedAt: null,
+    });
   });
 
   it("host can provision stream", async () => {

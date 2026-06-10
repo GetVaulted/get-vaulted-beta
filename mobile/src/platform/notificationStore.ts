@@ -173,7 +173,66 @@ const KIND_LABELS: Record<import('./notificationTypes').NotificationKind, string
   dispute: 'Disputes',
   trade: 'Trades',
   order: 'Orders',
+  layaway: 'Layaways',
 };
+
+const LAYAWAY_SERVER_TYPES = new Set([
+  'layaway_started',
+  'layaway_started_seller',
+  'layaway_payment',
+  'layaway_payment_seller',
+  'layaway_completed',
+  'layaway_completed_seller',
+  'layaway_defaulted',
+  'layaway_defaulted_seller',
+]);
+
+function serverTypeToKind(type: string): NotificationKind {
+  if (LAYAWAY_SERVER_TYPES.has(type)) return 'layaway';
+  if (type.startsWith('order_') || type === 'item_sold' || type === 'seller_ready_to_ship') return 'order';
+  if (type.includes('offer') || type.includes('counter')) return 'offer';
+  return 'order';
+}
+
+function parseLayawayIdFromHref(href: string): string | undefined {
+  const m = href.match(/\/layaways\/([^/?#]+)/);
+  return m?.[1];
+}
+
+/** Merge server notifications into the local inbox (deduped by server id). */
+export async function syncServerNotifications(
+  userId: string,
+  accessToken: string,
+): Promise<void> {
+  const { fetchVaultNotifications } = await import('../api/notificationsRepository');
+  const { notifications } = await fetchVaultNotifications(accessToken, 60);
+  if (!notifications.length) return;
+
+  const store = await load();
+  const existingIds = new Set(store.notifications.map((n) => n.id));
+
+  for (const n of notifications) {
+    if (existingIds.has(n.id)) continue;
+    const layawayId = parseLayawayIdFromHref(n.href);
+    store.notifications.unshift({
+      id: n.id,
+      userId,
+      kind: serverTypeToKind(n.type),
+      title: n.title,
+      body: n.body,
+      referenceType: layawayId ? 'layaway' : undefined,
+      referenceId: layawayId,
+      read: Boolean(n.readAt),
+      createdAt: n.createdAt,
+    });
+    existingIds.add(n.id);
+  }
+
+  store.notifications.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  await save(store);
+  const { emitNotificationBadgeChanged } = await import('./notificationEvents');
+  emitNotificationBadgeChanged();
+}
 
 export function groupNotifications(rows: AppNotification[]): NotificationGroup[] {
   const map = new Map<string, NotificationGroup>();

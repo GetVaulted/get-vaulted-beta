@@ -7,6 +7,7 @@ import { useSellerLiveReadiness } from './useSellerLiveReadiness';
 import { useSellerWallet } from './useSellerWallet';
 import { isSellerHQApproved } from '../lib/sellerHubEntry';
 import { resolveLiveSalesGate } from '../lib/sellerLiveReadiness';
+import type { SellerLayawayCounts } from '../api/layawayRepository';
 
 const EMPTY_ANALYTICS: SellerAnalyticsSnapshot = {
   activeListings: 0,
@@ -21,7 +22,11 @@ const EMPTY_ANALYTICS: SellerAnalyticsSnapshot = {
   revenueAvailable: null,
 };
 
-export function useSellerCommandCenterData(accessToken: string | undefined, vaultListingCount: number) {
+export function useSellerCommandCenterData(
+  accessToken: string | undefined,
+  vaultListingCount: number,
+  layawayCounts?: SellerLayawayCounts | null,
+) {
   const sellerConnect = useSellerStripeConnect(accessToken);
   const liveReadiness = useSellerLiveReadiness(accessToken);
   const sellerWallet = useSellerWallet(accessToken);
@@ -129,6 +134,16 @@ export function useSellerCommandCenterData(accessToken: string | undefined, vaul
         tone: 'warn',
       });
     }
+    const layawayActive = layawayCounts?.active ?? 0;
+    if (layawayActive > 0) {
+      items.push({
+        id: 'layaways',
+        icon: 'time-outline',
+        label: 'Active layaways',
+        value: `${layawayActive} reserved sale${layawayActive === 1 ? '' : 's'}`,
+        tone: 'gold',
+      });
+    }
     if (analytics.followers > 0) {
       items.push({
         id: 'followers',
@@ -174,6 +189,7 @@ export function useSellerCommandCenterData(accessToken: string | undefined, vaul
     sellerWallet.wallet?.pendingFormatted,
     analytics.activeListings,
     vaultListingCount,
+    layawayCounts?.active,
   ]);
 
   const fmt = (n: number | null) => (n == null ? '—' : String(n));

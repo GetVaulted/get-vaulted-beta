@@ -32,6 +32,11 @@ export function sellerHasShipFromAddress(
   return Boolean(checks?.hasShipFromAddress) || hasCompleteSellerShipFrom(seller);
 }
 
+export function normalizeSellerShipFromZip(zip: string | null | undefined): string | null {
+  const digits = (zip ?? '').replace(/\D/g, '').slice(0, 5);
+  return digits.length === 5 ? digits : null;
+}
+
 export function formatSellerShipFromSummary(s: SellerShipFromFields | null | undefined): string {
   if (!s) return '';
   const parts = [
