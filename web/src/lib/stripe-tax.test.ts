@@ -22,6 +22,11 @@ describe("stripe-tax helpers", () => {
   });
 
   it("is disabled when STRIPE_TAX_ENABLED is not set", () => {
+    expect(isStripeTaxFeatureEnabled()).toBe(true);
+  });
+
+  it("can be disabled with STRIPE_TAX_ENABLED=0", () => {
+    vi.stubEnv("STRIPE_TAX_ENABLED", "0");
     expect(isStripeTaxFeatureEnabled()).toBe(false);
   });
 
@@ -31,6 +36,7 @@ describe("stripe-tax helpers", () => {
   });
 
   it("orderRequiresCheckoutForTax is false when Stripe Tax feature is disabled", async () => {
+    vi.stubEnv("STRIPE_TAX_ENABLED", "0");
     expect(await orderRequiresCheckoutForTax("TX", "US")).toBe(false);
   });
 

@@ -53,11 +53,32 @@ export function marketplaceOfferableRates(
         return marketplaceListingRateKey({ carrier, serviceLevel: service });
       })
       .filter(Boolean);
-    if (normalizedAllowed.length === 0) return list;
+    if (normalizedAllowed.length === 0) return cheapestRatePerCarrier(list);
     const set = new Set(normalizedAllowed);
     list = list.filter((r) => set.has(marketplaceListingRateKey(r)));
+    if (list.length === 0) {
+      const allowedCarriers = new Set(
+        normalizedAllowed.map((key) => key.split("|")[0]?.trim()).filter(Boolean),
+      );
+      if (allowedCarriers.size > 0) {
+        list = rates.filter((r) => allowedCarriers.has(normalizeMarketplaceRateKeyPart(r.carrier)));
+      }
+    }
   }
-  return list;
+  return cheapestRatePerCarrier(list);
+}
+
+/** One buyer-facing option per carrier — cheapest service in each lane. */
+export function cheapestRatePerCarrier(rates: MarketplaceCheckoutRateQuote[]): MarketplaceCheckoutRateQuote[] {
+  const byCarrier = new Map<string, MarketplaceCheckoutRateQuote>();
+  for (const rate of rates) {
+    const carrierKey = normalizeMarketplaceRateKeyPart(rate.carrier);
+    const prev = byCarrier.get(carrierKey);
+    if (!prev || Number(rate.amount) < Number(prev.amount)) {
+      byCarrier.set(carrierKey, rate);
+    }
+  }
+  return [...byCarrier.values()].sort((a, b) => Number(a.amount) - Number(b.amount));
 }
 
 export function parseMarketplaceShippingOfferScope(v: unknown): MarketplaceShippingOfferScope {

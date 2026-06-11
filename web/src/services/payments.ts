@@ -827,7 +827,7 @@ export async function createBuyNowCheckoutSession(args: {
           },
         ],
       },
-      { idempotencyKey: `buy_now_${order.id}_${Math.round(order.shippingPriceUsd * 100)}` },
+      { idempotencyKey: `buy_now_${order.id}_${Math.round(order.shippingPriceUsd * 100)}_${taxEnabled ? "tax" : "notax"}` },
     );
 
     if (!session.url) throw new Error("NO_CHECKOUT_URL");

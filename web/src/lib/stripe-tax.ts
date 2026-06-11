@@ -22,8 +22,10 @@ export type ShipToAddress = {
 /** True when Stripe Tax is enabled via env and Stripe is configured. */
 export function isStripeTaxFeatureEnabled(): boolean {
   if (!isStripeConfigured()) return false;
-  const flag = process.env.STRIPE_TAX_ENABLED?.trim();
-  return flag === "1" || flag?.toLowerCase() === "true";
+  const flag = process.env.STRIPE_TAX_ENABLED?.trim().toLowerCase();
+  if (flag === "0" || flag === "false" || flag === "off") return false;
+  // Default on when Stripe is configured — nexus per state still gates collection at checkout.
+  return true;
 }
 
 export function normalizeCountryCode(country: string | null | undefined): string {
@@ -69,27 +71,33 @@ export async function syncStripeCustomerShippingAddress(
 ): Promise<string> {
   const customerId = await ensureStripeCustomerIdForUser(userId);
   const stripe = getStripe();
+  const address = {
+    line1: ship.shipAddress.slice(0, 500),
+    city: ship.shipCity.slice(0, 120),
+    state: normalizeUsStateCode(ship.shipState) ?? ship.shipState.slice(0, 120),
+    postal_code: ship.shipZip.slice(0, 32),
+    country: normalizeCountryCode(ship.shipCountry),
+  };
   await stripe.customers.update(customerId, {
+    address,
     shipping: {
       name: ship.shipRecipientName.slice(0, 200),
-      address: {
-        line1: ship.shipAddress.slice(0, 500),
-        city: ship.shipCity.slice(0, 120),
-        state: normalizeUsStateCode(ship.shipState) ?? ship.shipState.slice(0, 120),
-        postal_code: ship.shipZip.slice(0, 32),
-        country: normalizeCountryCode(ship.shipCountry),
-      },
+      address,
     },
   });
   return customerId;
 }
 
 export type CheckoutTaxSessionFields = {
-  automatic_tax?: { enabled: boolean };
+  automatic_tax?: { enabled: boolean; liability?: { type: "self" } };
   customer?: string;
   customer_update?: { shipping: "auto"; address: "auto" };
   shipping_address_collection?: Stripe.Checkout.SessionCreateParams.ShippingAddressCollection;
 };
+
+function checkoutAutomaticTaxFields(): CheckoutTaxSessionFields["automatic_tax"] {
+  return { enabled: true, liability: { type: "self" } };
+}
 
 /** Stripe Checkout tax params when nexus allows collection for the buyer ship-to address. */
 export async function buildCheckoutTaxSessionFields(args: {
@@ -105,7 +113,7 @@ export async function buildCheckoutTaxSessionFields(args: {
     if (!enabled) return {};
     const customerId = await syncStripeCustomerShippingAddress(args.buyerId, args.shipTo);
     return {
-      automatic_tax: { enabled: true },
+      automatic_tax: checkoutAutomaticTaxFields(),
       customer: customerId,
       customer_update: { shipping: "auto", address: "auto" },
     };
@@ -116,7 +124,7 @@ export async function buildCheckoutTaxSessionFields(args: {
     if (anyEnabled === 0) return {};
     const customerId = await ensureStripeCustomerIdForUser(args.buyerId);
     return {
-      automatic_tax: { enabled: true },
+      automatic_tax: checkoutAutomaticTaxFields(),
       customer: customerId,
       customer_update: { shipping: "auto", address: "auto" },
       shipping_address_collection: { allowed_countries: ["US"] },

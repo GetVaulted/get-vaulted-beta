@@ -51,6 +51,26 @@ describe("marketplaceOfferableRates", () => {
     const out = marketplaceOfferableRates(rates, "custom", []);
     expect(out).toHaveLength(2);
   });
+
+  it("returns cheapest rate per carrier", () => {
+    const multi = [
+      ...rates,
+      {
+        id: "3",
+        carrier: "USPS",
+        serviceLevel: "Priority",
+        estimatedDelivery: "2 days",
+        estimatedDays: 2,
+        amount: "15.00",
+        currency: "USD",
+        trackingIncluded: true,
+        insuranceAvailable: false,
+      },
+    ];
+    const out = marketplaceOfferableRates(multi, "all", []);
+    expect(out.map((r) => r.carrier)).toEqual(["USPS", "FedEx"]);
+    expect(out[0]?.amount).toBe("8.00");
+  });
 });
 
 describe("pickMarketplaceCheckoutRate", () => {

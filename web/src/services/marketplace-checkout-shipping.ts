@@ -249,12 +249,16 @@ async function fetchRawShippoQuotes(
     address_to: shipToAddress(shipTo),
     parcels: [parcel],
     async: false,
-  })) as { object_id?: string };
+  })) as { object_id?: string; rates?: ShippoRateRow[] };
 
   const sid = shipment.object_id;
   if (!sid) throw new Error("SHIPPO_SHIPMENT_FAILED");
 
-  const ratesRes = (await shippoListRates(sid)) as { results?: ShippoRateRow[] };
+  const inlineRates = Array.isArray(shipment.rates) ? shipment.rates : [];
+  const ratesRes =
+    inlineRates.length > 0
+      ? { results: inlineRates }
+      : ((await shippoListRates(sid)) as { results?: ShippoRateRow[] });
   const quotes = (ratesRes.results ?? [])
     .map(mapShippoRateToQuote)
     .filter((q): q is MarketplaceCheckoutRateQuote => q != null)
