@@ -2,6 +2,9 @@ import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { ensureStripeCustomerIdForUser } from "@/lib/stripe-customer";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { normalizeUsStateCode } from "@/lib/us-state-code";
+
+export { normalizeUsStateCode } from "@/lib/us-state-code";
 
 /** Tangible personal property (general merchandise). */
 export const STRIPE_TAX_CODE_TANGIBLE = "txcd_99999999";
@@ -35,10 +38,13 @@ export function normalizeCountryCode(country: string | null | undefined): string
   return c.slice(0, 2);
 }
 
-export function normalizeUsStateCode(state: string | null | undefined): string | null {
-  const s = (state ?? "").trim().toUpperCase();
-  if (!s) return null;
-  return s.length === 2 ? s : s.slice(0, 2);
+export function normalizeShipToAddress(ship: ShipToAddress): ShipToAddress {
+  const state = normalizeUsStateCode(ship.shipState) ?? ship.shipState.trim();
+  return {
+    ...ship,
+    shipState: state,
+    shipCountry: normalizeCountryCode(ship.shipCountry),
+  };
 }
 
 /** Whether Get Vaulted should collect sales tax for this ship-to (nexus gate). */
@@ -95,6 +101,17 @@ export type CheckoutTaxSessionFields = {
   shipping_address_collection?: Stripe.Checkout.SessionCreateParams.ShippingAddressCollection;
 };
 
+export type MarketplaceCheckoutTaxBundle = {
+  sessionFields: CheckoutTaxSessionFields;
+  taxLineItem: Stripe.Checkout.SessionCreateParams.LineItem | null;
+  /** Destination transfer amount when tax is collected as an explicit line item. */
+  sellerTransferCents: number | null;
+  taxAmountCents: number;
+  stripeTaxCalculationId: string | null;
+  collectTax: boolean;
+  metadata: Record<string, string>;
+};
+
 function checkoutAutomaticTaxFields(): CheckoutTaxSessionFields["automatic_tax"] {
   return { enabled: true, liability: { type: "self" } };
 }
@@ -109,9 +126,10 @@ export async function buildCheckoutTaxSessionFields(args: {
   if (!isStripeTaxFeatureEnabled()) return {};
 
   if (args.shipTo) {
-    const enabled = await isTaxCollectionEnabledForShipTo(args.shipTo.shipState, args.shipTo.shipCountry);
+    const shipTo = normalizeShipToAddress(args.shipTo);
+    const enabled = await isTaxCollectionEnabledForShipTo(shipTo.shipState, shipTo.shipCountry);
     if (!enabled) return {};
-    const customerId = await syncStripeCustomerShippingAddress(args.buyerId, args.shipTo);
+    const customerId = await syncStripeCustomerShippingAddress(args.buyerId, shipTo);
     return {
       automatic_tax: checkoutAutomaticTaxFields(),
       customer: customerId,
@@ -134,6 +152,92 @@ export async function buildCheckoutTaxSessionFields(args: {
   return {};
 }
 
+/**
+ * Pre-calculate sales tax for Connect destination charges and add an explicit Checkout line item.
+ * Tax stays on the platform; seller transfer excludes the tax line.
+ */
+export async function buildMarketplaceCheckoutTaxBundle(args: {
+  buyerId: string;
+  shipTo: ShipToAddress;
+  itemPriceUsd: number;
+  shippingPriceUsd: number;
+  applicationFeeCents: number;
+}): Promise<MarketplaceCheckoutTaxBundle> {
+  const shipTo = normalizeShipToAddress(args.shipTo);
+  const itemCents = Math.round(Math.max(0, args.itemPriceUsd) * 100);
+  const shippingCents = Math.round(Math.max(0, args.shippingPriceUsd) * 100);
+  const feeCents = Math.max(0, Math.round(args.applicationFeeCents));
+
+  const collectTax = await isTaxCollectionEnabledForShipTo(shipTo.shipState, shipTo.shipCountry);
+  if (!collectTax) {
+    return {
+      sessionFields: {},
+      taxLineItem: null,
+      sellerTransferCents: null,
+      taxAmountCents: 0,
+      stripeTaxCalculationId: null,
+      collectTax: false,
+      metadata: {},
+    };
+  }
+
+  const customerId = await syncStripeCustomerShippingAddress(args.buyerId, shipTo);
+  const baseSessionFields: CheckoutTaxSessionFields = {
+    customer: customerId,
+    customer_update: { shipping: "auto", address: "auto" },
+  };
+
+  try {
+    const est = await estimateSalesTaxCents({
+      itemPriceUsd: args.itemPriceUsd,
+      shippingPriceUsd: args.shippingPriceUsd,
+      shipTo,
+    });
+
+    if (est.taxAmountCents > 0) {
+      const sellerTransferCents = Math.max(0, itemCents + shippingCents - feeCents);
+      return {
+        sessionFields: baseSessionFields,
+        taxLineItem: {
+          quantity: 1,
+          price_data: {
+            currency: "usd",
+            unit_amount: est.taxAmountCents,
+            tax_behavior: "inclusive",
+            product_data: {
+              name: "Sales tax",
+              tax_code: STRIPE_TAX_CODE_TANGIBLE,
+            },
+          },
+        },
+        sellerTransferCents,
+        taxAmountCents: est.taxAmountCents,
+        stripeTaxCalculationId: est.taxCalculationId,
+        collectTax: true,
+        metadata: {
+          salesTaxCents: String(est.taxAmountCents),
+          ...(est.taxCalculationId ? { stripeTaxCalculationId: est.taxCalculationId } : {}),
+        },
+      };
+    }
+  } catch (e) {
+    console.warn("[stripe-tax] tax calculation failed; falling back to automatic_tax", e);
+  }
+
+  return {
+    sessionFields: {
+      ...baseSessionFields,
+      automatic_tax: checkoutAutomaticTaxFields(),
+    },
+    taxLineItem: null,
+    sellerTransferCents: null,
+    taxAmountCents: 0,
+    stripeTaxCalculationId: null,
+    collectTax: true,
+    metadata: {},
+  };
+}
+
 export function stripeLineItemProductData(
   name: string,
   taxCode: string,
@@ -153,12 +257,18 @@ export type ExtractedCheckoutTax = {
 
 /** Read buyer-paid tax from a completed Checkout Session (platform fee / payout exclude this). */
 export function extractTaxFromCheckoutSession(session: Stripe.Checkout.Session): ExtractedCheckoutTax {
-  const taxAmountCents = session.total_details?.amount_tax ?? 0;
+  let taxAmountCents = session.total_details?.amount_tax ?? 0;
+  if (taxAmountCents <= 0 && session.metadata?.salesTaxCents) {
+    const parsed = Number.parseInt(session.metadata.salesTaxCents, 10);
+    if (Number.isFinite(parsed) && parsed > 0) taxAmountCents = parsed;
+  }
   const totalAmountCents = session.amount_total ?? null;
   const stripeTaxCalculationId =
-    typeof (session as { tax_calculation?: string | null }).tax_calculation === "string"
-      ? (session as { tax_calculation?: string }).tax_calculation ?? null
-      : null;
+    typeof session.metadata?.stripeTaxCalculationId === "string"
+      ? session.metadata.stripeTaxCalculationId
+      : typeof (session as { tax_calculation?: string | null }).tax_calculation === "string"
+        ? (session as { tax_calculation?: string }).tax_calculation ?? null
+        : null;
   return {
     taxAmountCents,
     taxUsd: taxAmountCents / 100,
@@ -173,7 +283,8 @@ export async function estimateSalesTaxCents(args: {
   shippingPriceUsd: number;
   shipTo: ShipToAddress;
 }): Promise<{ taxAmountCents: number; taxCalculationId: string | null; collectTax: boolean }> {
-  const enabled = await isTaxCollectionEnabledForShipTo(args.shipTo.shipState, args.shipTo.shipCountry);
+  const shipTo = normalizeShipToAddress(args.shipTo);
+  const enabled = await isTaxCollectionEnabledForShipTo(shipTo.shipState, shipTo.shipCountry);
   if (!enabled) {
     return { taxAmountCents: 0, taxCalculationId: null, collectTax: false };
   }
@@ -206,11 +317,11 @@ export async function estimateSalesTaxCents(args: {
     line_items: lineItems,
     customer_details: {
       address: {
-        line1: args.shipTo.shipAddress.slice(0, 500),
-        city: args.shipTo.shipCity.slice(0, 120),
-        state: normalizeUsStateCode(args.shipTo.shipState) ?? args.shipTo.shipState,
-        postal_code: args.shipTo.shipZip.slice(0, 32),
-        country: normalizeCountryCode(args.shipTo.shipCountry),
+        line1: shipTo.shipAddress.slice(0, 500),
+        city: shipTo.shipCity.slice(0, 120),
+        state: shipTo.shipState,
+        postal_code: shipTo.shipZip.slice(0, 32),
+        country: shipTo.shipCountry,
       },
       address_source: "shipping",
     },

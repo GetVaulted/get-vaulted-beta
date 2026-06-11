@@ -19,6 +19,7 @@ import {
 import { getStripe } from "@/lib/stripe";
 import {
   buildCheckoutTaxSessionFields,
+  buildMarketplaceCheckoutTaxBundle,
   fetchCheckoutSessionTax,
   STRIPE_TAX_CODE_SHIPPING,
   STRIPE_TAX_CODE_TANGIBLE,
@@ -762,7 +763,7 @@ export async function createBuyNowCheckoutSession(args: {
 
   const stripe = getStripe();
 
-  const taxFields = await buildCheckoutTaxSessionFields({
+  const taxBundle = await buildMarketplaceCheckoutTaxBundle({
     buyerId: args.buyerId,
     shipTo: {
       shipRecipientName: order.shipRecipientName,
@@ -772,14 +773,18 @@ export async function createBuyNowCheckoutSession(args: {
       shipZip: order.shipZip,
       shipCountry: order.shipCountry,
     },
+    itemPriceUsd: order.itemPriceUsd,
+    shippingPriceUsd: order.shippingPriceUsd,
+    applicationFeeCents: feeCents,
   });
 
-  const expectedSubtotalCents = buyNowCheckoutSubtotalCents(order);
-  const taxEnabled = taxFields.automatic_tax?.enabled === true;
+  const expectedSubtotalCents =
+    buyNowCheckoutSubtotalCents(order) + taxBundle.taxAmountCents;
   const reusedUrl = await reuseOpenCheckoutSessionIfMatching({
     sessionId: order.stripeCheckoutSessionId,
     expectedSubtotalCents,
-    taxEnabled,
+    expectedTaxCents: taxBundle.taxAmountCents,
+    collectTax: taxBundle.collectTax,
   });
   if (reusedUrl) return { url: reusedUrl };
 
@@ -790,17 +795,21 @@ export async function createBuyNowCheckoutSession(args: {
         success_url: successUrl,
         cancel_url: cancelUrl,
         client_reference_id: order.id,
-        ...taxFields,
+        ...taxBundle.sessionFields,
         metadata: {
           kind: "buy_now",
           orderId: order.id,
           listingId: listing.id,
           buyerId: args.buyerId,
           liveRoomItemId: liveRoomItemId ?? "",
+          ...taxBundle.metadata,
         },
         payment_intent_data: {
           application_fee_amount: feeCents,
-          transfer_data: { destination: listing.seller.stripeAccountId! },
+          transfer_data: {
+            destination: listing.seller.stripeAccountId!,
+            ...(taxBundle.sellerTransferCents != null ? { amount: taxBundle.sellerTransferCents } : {}),
+          },
           metadata: { orderId: order.id, kind: "buy_now" },
         },
         line_items: [
@@ -825,9 +834,12 @@ export async function createBuyNowCheckoutSession(args: {
               ),
             },
           },
+          ...(taxBundle.taxLineItem ? [taxBundle.taxLineItem] : []),
         ],
       },
-      { idempotencyKey: `buy_now_${order.id}_${Math.round(order.shippingPriceUsd * 100)}_${taxEnabled ? "tax" : "notax"}` },
+      {
+        idempotencyKey: `buy_now_${order.id}_${Math.round(order.shippingPriceUsd * 100)}_${taxBundle.taxAmountCents}c`,
+      },
     );
 
     if (!session.url) throw new Error("NO_CHECKOUT_URL");
@@ -1010,7 +1022,7 @@ export async function createPayOrderCheckoutSession(args: {
     liveRoomId: order.liveShippingSession?.liveShowId ?? null,
   });
 
-  const taxFields = await buildCheckoutTaxSessionFields({
+  const taxBundle = await buildMarketplaceCheckoutTaxBundle({
     buyerId: args.buyerId,
     shipTo: {
       shipRecipientName: order.shipRecipientName,
@@ -1020,14 +1032,18 @@ export async function createPayOrderCheckoutSession(args: {
       shipZip: order.shipZip,
       shipCountry: order.shipCountry,
     },
+    itemPriceUsd: order.itemPriceUsd,
+    shippingPriceUsd,
+    applicationFeeCents: feeCents,
   });
 
   const expectedSubtotalCents =
-    Math.round(order.itemPriceUsd * 100) + Math.round(shippingPriceUsd * 100);
+    Math.round(order.itemPriceUsd * 100) + Math.round(shippingPriceUsd * 100) + taxBundle.taxAmountCents;
   const reusedUrl = await reuseOpenCheckoutSessionIfMatching({
     sessionId: order.stripeCheckoutSessionId,
     expectedSubtotalCents,
-    taxEnabled: taxFields.automatic_tax?.enabled === true,
+    expectedTaxCents: taxBundle.taxAmountCents,
+    collectTax: taxBundle.collectTax,
   });
   if (reusedUrl) return { url: reusedUrl };
 
@@ -1037,16 +1053,20 @@ export async function createPayOrderCheckoutSession(args: {
       success_url: `${base}${args.successPath ?? `/orders/${encodeURIComponent(order.id)}`}?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}${args.cancelPath ?? `/orders/${encodeURIComponent(order.id)}`}`,
       client_reference_id: order.id,
-      ...taxFields,
+      ...taxBundle.sessionFields,
       metadata: {
         kind: "pay_order",
         orderId: order.id,
         listingId: order.listingId,
         buyerId: args.buyerId,
+        ...taxBundle.metadata,
       },
       payment_intent_data: {
         application_fee_amount: feeCents,
-        transfer_data: { destination: order.seller.stripeAccountId },
+        transfer_data: {
+          destination: order.seller.stripeAccountId,
+          ...(taxBundle.sellerTransferCents != null ? { amount: taxBundle.sellerTransferCents } : {}),
+        },
         metadata: { orderId: order.id, kind: "pay_order" },
       },
       line_items: [
@@ -1071,9 +1091,12 @@ export async function createPayOrderCheckoutSession(args: {
             ),
           },
         },
+        ...(taxBundle.taxLineItem ? [taxBundle.taxLineItem] : []),
       ],
     },
-    { idempotencyKey: `pay_order_${order.id}_${Math.round(shippingPriceUsd * 100)}` },
+    {
+      idempotencyKey: `pay_order_${order.id}_${Math.round(shippingPriceUsd * 100)}_${taxBundle.taxAmountCents}c`,
+    },
   );
 
   if (!session.url) throw new Error("NO_CHECKOUT_URL");

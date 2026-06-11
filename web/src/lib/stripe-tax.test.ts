@@ -2,10 +2,10 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import {
   extractTaxFromCheckoutSession,
   normalizeCountryCode,
-  normalizeUsStateCode,
   isStripeTaxFeatureEnabled,
   orderRequiresCheckoutForTax,
 } from "@/lib/stripe-tax";
+import { normalizeUsStateCode } from "@/lib/us-state-code";
 
 describe("stripe-tax helpers", () => {
   beforeEach(() => {
@@ -47,6 +47,15 @@ describe("stripe-tax helpers", () => {
     } as Parameters<typeof extractTaxFromCheckoutSession>[0]);
     expect(extracted.taxAmountCents).toBe(825);
     expect(extracted.taxUsd).toBe(8.25);
+  });
+
+  it("extracts tax from checkout session metadata when automatic tax is absent", () => {
+    const extracted = extractTaxFromCheckoutSession({
+      total_details: { amount_tax: 0 },
+      metadata: { salesTaxCents: "825", stripeTaxCalculationId: "taxcalc_123" },
+    } as Parameters<typeof extractTaxFromCheckoutSession>[0]);
+    expect(extracted.taxAmountCents).toBe(825);
+    expect(extracted.stripeTaxCalculationId).toBe("taxcalc_123");
   });
 });
 

@@ -1,4 +1,5 @@
 import type { AddressType } from "@/generated/prisma/enums";
+import { normalizeUsStateCode } from "@/lib/us-state-code";
 
 export type AddressInput = {
   type?: unknown;
@@ -18,6 +19,13 @@ export type AddressInput = {
 };
 
 const ADDRESS_TYPES: AddressType[] = ["shipping", "return", "billing", "ship_from"];
+
+function normalizeCountryCode(country: string): string {
+  const c = country.trim().toUpperCase();
+  if (!c || c === "USA" || c === "UNITED STATES") return "US";
+  if (c.length === 2) return c;
+  return c.slice(0, 2);
+}
 
 function asTrimmedString(v: unknown, max = 255): string | null {
   if (typeof v !== "string") return null;
@@ -64,6 +72,9 @@ export function validateAddressCreateInput(body: AddressInput):
   const state = asTrimmedString(body.state, 120);
   const postalCode = asTrimmedString(body.postalCode, 32);
   const country = asTrimmedString(body.country, 2) ?? "US";
+  const normalizedCountry = normalizeCountryCode(country);
+  const normalizedState =
+    normalizedCountry === "US" ? normalizeUsStateCode(state) ?? state : state;
   if (!type) return { ok: false, error: "Invalid address type." };
   if (!name || !fullName || !line1 || !city || !state || !postalCode) {
     return { ok: false, error: "Missing required address fields." };
@@ -78,9 +89,9 @@ export function validateAddressCreateInput(body: AddressInput):
       line1,
       line2: asOptionalString(body.line2, 200) ?? null,
       city,
-      state,
+      state: normalizedState,
       postalCode,
-      country,
+      country: normalizedCountry,
       phone: asOptionalString(body.phone, 40) ?? null,
       email: asOptionalString(body.email, 200) ?? null,
       isDefault: Boolean(body.isDefault),

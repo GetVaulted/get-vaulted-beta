@@ -1,10 +1,21 @@
 import { getStripe } from "@/lib/stripe";
 
-/** Reuse an open Checkout Session only when subtotal + tax mode match the order we are about to charge. */
+function sessionTaxCents(session: {
+  total_details?: { amount_tax?: number | null } | null;
+  metadata?: Record<string, string> | null;
+}): number {
+  const automaticTax = session.total_details?.amount_tax ?? 0;
+  if (automaticTax > 0) return automaticTax;
+  const fromMetadata = Number.parseInt(session.metadata?.salesTaxCents ?? "", 10);
+  return Number.isFinite(fromMetadata) && fromMetadata > 0 ? fromMetadata : 0;
+}
+
+/** Reuse an open Checkout Session only when subtotal + tax match the order we are about to charge. */
 export async function reuseOpenCheckoutSessionIfMatching(args: {
   sessionId: string | null | undefined;
   expectedSubtotalCents: number;
-  taxEnabled: boolean;
+  expectedTaxCents: number;
+  collectTax: boolean;
 }): Promise<string | null> {
   const sessionId = args.sessionId?.trim();
   if (!sessionId) return null;
@@ -15,8 +26,14 @@ export async function reuseOpenCheckoutSessionIfMatching(args: {
     if (session.status !== "open" || !session.url) return null;
 
     const subtotal = session.amount_subtotal ?? 0;
-    const sessionTax = session.automatic_tax?.enabled === true;
-    if (subtotal === args.expectedSubtotalCents && sessionTax === args.taxEnabled) {
+    const actualTaxCents = sessionTaxCents(session);
+    const sessionCollectTax =
+      session.automatic_tax?.enabled === true || Boolean(session.metadata?.salesTaxCents);
+    if (
+      subtotal === args.expectedSubtotalCents &&
+      sessionCollectTax === args.collectTax &&
+      actualTaxCents === args.expectedTaxCents
+    ) {
       return session.url;
     }
 
