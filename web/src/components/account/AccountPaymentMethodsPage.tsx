@@ -11,6 +11,40 @@ import { BuyerWalletReadinessBanner } from "@/components/account/BuyerWalletRead
 
 type PmRow = { id: string; brand: string; last4: string; expMonth: number; expYear: number };
 
+function paymentMethodIdFromSetupIntent(
+  setupIntent: { payment_method?: string | { id?: string } | null } | null | undefined,
+): string | null {
+  if (!setupIntent) return null;
+  const pm = setupIntent.payment_method;
+  if (typeof pm === "string" && pm.startsWith("pm_")) return pm;
+  if (pm && typeof pm === "object" && typeof pm.id === "string" && pm.id.startsWith("pm_")) return pm.id;
+  return null;
+}
+
+async function finalizeSavedPaymentMethod(args: {
+  paymentMethodId?: string | null;
+  setupIntentId?: string | null;
+  clientSecret?: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const body: Record<string, string> = {};
+  if (args.paymentMethodId?.startsWith("pm_")) body.paymentMethodId = args.paymentMethodId;
+  if (args.setupIntentId?.startsWith("seti_")) body.setupIntentId = args.setupIntentId;
+  if (args.clientSecret?.includes("_secret_")) body.clientSecret = args.clientSecret;
+  if (!body.paymentMethodId && !body.setupIntentId && !body.clientSecret) {
+    return { ok: false, error: "Card save did not return a payment method. Try again." };
+  }
+  const res = await fetch("/api/account/payment-methods/finalize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const j = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) {
+    return { ok: false, error: typeof j.error === "string" ? j.error : "Could not save payment method." };
+  }
+  return { ok: true };
+}
+
 function formatExp(m: number, y: number) {
   if (!m || !y) return "—";
   return `${String(m).padStart(2, "0")}/${String(y).slice(-2)}`;
@@ -23,7 +57,7 @@ export function AccountPaymentMethodsPage() {
   const [rows, setRows] = useState<PmRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [stripeConfigured, setStripeConfigured] = useState(true);
-  const [banner, setBanner] = useState<string | null>(null);
+  const [banner, setBanner] = useState<{ text: string; tone: "success" | "error" | "warning" } | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [formBusy, setFormBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -31,6 +65,7 @@ export function AccountPaymentMethodsPage() {
   const stripeRef = useRef<Stripe | null>(null);
   const elementsRef = useRef<StripeElements | null>(null);
   const paymentElementRef = useRef<StripePaymentElement | null>(null);
+  const clientSecretRef = useRef<string | null>(null);
 
   const teardown = useCallback(() => {
     try {
@@ -41,6 +76,7 @@ export function AccountPaymentMethodsPage() {
     paymentElementRef.current = null;
     elementsRef.current = null;
     stripeRef.current = null;
+    clientSecretRef.current = null;
     if (payRef.current) payRef.current.innerHTML = "";
   }, []);
 
@@ -56,9 +92,9 @@ export function AccountPaymentMethodsPage() {
       };
       setStripeConfigured(j.stripeConfigured !== false);
       if (!res.ok && typeof j.message !== "string") {
-        setBanner("Could not load saved cards. Try again.");
+        setBanner({ text: "Could not load saved cards. Try again.", tone: "error" });
       } else if (typeof j.message === "string") {
-        setBanner(j.message);
+        setBanner({ text: j.message, tone: "warning" });
       }
       setRows(Array.isArray(j.paymentMethods) ? j.paymentMethods : []);
     } finally {
@@ -78,10 +114,42 @@ export function AccountPaymentMethodsPage() {
   }, [loadList, status]);
 
   useEffect(() => {
-    if (searchParams?.get("setup_intent")) {
-      void loadList();
-    }
-  }, [loadList, searchParams]);
+    if (status !== "authenticated") return;
+    const setupIntentId = searchParams?.get("setup_intent")?.trim();
+    if (!setupIntentId) return;
+
+    let cancelled = false;
+    void (async () => {
+      setLoading(true);
+      setBanner(null);
+      try {
+        if (searchParams?.get("redirect_status") === "succeeded") {
+          const finalized = await finalizeSavedPaymentMethod({ setupIntentId });
+          router.replace("/account/payment-methods");
+          await loadList();
+          if (!cancelled) {
+            setBanner(
+              finalized.ok
+                ? { text: "Payment method saved.", tone: "success" }
+                : { text: finalized.error, tone: "error" },
+            );
+          }
+        } else {
+          router.replace("/account/payment-methods");
+          await loadList();
+          if (!cancelled) {
+            setBanner({ text: "Card setup did not complete. Try again.", tone: "error" });
+          }
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadList, router, searchParams, status]);
 
   useEffect(() => {
     return () => teardown();
@@ -114,6 +182,7 @@ export function AccountPaymentMethodsPage() {
           setFormBusy(false);
           return;
         }
+        clientSecretRef.current = j.clientSecret;
         const { loadStripe } = await import("@stripe/stripe-js");
         const stripe = await loadStripe(j.publishableKey);
         if (!stripe || cancelled) {
@@ -148,11 +217,22 @@ export function AccountPaymentMethodsPage() {
   const submitCard = async () => {
     const stripe = stripeRef.current;
     const elements = elementsRef.current;
-    if (!stripe || !elements) return;
+    if (!stripe || !elements) {
+      setFormError("Payment form is still loading. Wait a moment and try again.");
+      return;
+    }
     setFormBusy(true);
     setFormError(null);
+
+    const { error: submitError } = await elements.submit();
+    if (submitError) {
+      setFormError(submitError.message ?? "Check your card details and try again.");
+      setFormBusy(false);
+      return;
+    }
+
     const base = typeof window !== "undefined" ? window.location.origin : "";
-    const { error } = await stripe.confirmSetup({
+    const { error, setupIntent } = await stripe.confirmSetup({
       elements,
       confirmParams: {
         return_url: `${base}/account/payment-methods`,
@@ -164,9 +244,21 @@ export function AccountPaymentMethodsPage() {
       setFormBusy(false);
       return;
     }
+
+    const finalized = await finalizeSavedPaymentMethod({
+      paymentMethodId: paymentMethodIdFromSetupIntent(setupIntent),
+      clientSecret: clientSecretRef.current,
+    });
+    if (!finalized.ok) {
+      setFormError(finalized.error);
+      setFormBusy(false);
+      return;
+    }
+
     setFormOpen(false);
     teardown();
     await loadList();
+    setBanner({ text: "Payment method saved.", tone: "success" });
     router.refresh();
     setFormBusy(false);
   };
@@ -208,9 +300,17 @@ export function AccountPaymentMethodsPage() {
           <BuyerWalletReadinessBanner />
         </div>
 
-        {banner && stripeConfigured === false ? (
-          <p className="mt-6 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/95">
-            {banner}
+        {banner ? (
+          <p
+            className={`mt-6 rounded-xl border px-4 py-3 text-sm ${
+              banner.tone === "warning"
+                ? "border-amber-500/25 bg-amber-500/10 text-amber-100/95"
+                : banner.tone === "error"
+                  ? "border-rose-500/25 bg-rose-500/10 text-rose-100/95"
+                  : "border-emerald-500/25 bg-emerald-500/10 text-emerald-100/95"
+            }`}
+          >
+            {banner.text}
           </p>
         ) : null}
 
