@@ -29,6 +29,12 @@ function publishApiErrorMessage(res: Response, body: unknown): string {
   if (o.code === 'PARCEL_REQUIRED') {
     return 'Publish failed: Add package weight and dimensions before publishing.';
   }
+  if (o.code === 'P2022' || o.code === 'P2021') {
+    return (
+      o.error?.trim() ||
+      'Publish failed: Server database is updating. Wait for deploy to finish, then try again.'
+    );
+  }
   if (o.code === 'SELLER_REQUIREMENTS_INCOMPLETE' || o.error === 'SELLER_REQUIREMENTS_INCOMPLETE') {
     const issues = o.issues?.length ? ` ${o.issues.join(' ')}` : '';
     return `Publish failed: Complete seller setup before publishing.${issues}`;

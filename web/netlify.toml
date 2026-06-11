@@ -7,5 +7,5 @@
 
 [build]
   publish = "web/.next"
-  # Netlify may use this or default to `npm run build`; both exist on root package.json.
-  command = "npm run build"
+  # Must run migrations before next build (marketplace shipping columns on Listing, etc.).
+  command = "npm run netlify:build"

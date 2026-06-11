@@ -38,14 +38,17 @@ function listingCreateFailureResponse(
   const prismaDto = serializePrismaClientError(e);
   const hint = prismaListingCreateHint(prismaDto);
   console.error("[POST /api/listings] create failed", { ...log, prisma: prismaDto });
+  const needsMigration = prismaDto.code === "P2022" || prismaDto.code === "P2021";
   return NextResponse.json(
     {
-      error: "Could not create listing.",
+      error: needsMigration
+        ? "Listing publish is temporarily unavailable while the server database updates. Retry in a few minutes after deploy finishes."
+        : "Could not create listing.",
       detail: prismaDto.message,
       code: prismaDto.code,
       hint,
     },
-    { status: 500 },
+    { status: needsMigration ? 503 : 500 },
   );
 }
 
