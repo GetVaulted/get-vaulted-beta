@@ -139,17 +139,7 @@ export function SellerHubScreen() {
     useCallback(() => {
       void sellerSetup.refetchSilent();
       void cmdData.liveReadiness.refresh();
-      void layawaySummary.reload();
-      void ordersSummary.reload();
-      if (user?.id) void cmdData.reloadAnalytics(user.id);
-    }, [
-      cmdData.reloadAnalytics,
-      sellerSetup.refetchSilent,
-      cmdData.liveReadiness.refresh,
-      layawaySummary.reload,
-      ordersSummary.reload,
-      user?.id,
-    ]),
+    }, [sellerSetup.refetchSilent, cmdData.liveReadiness.refresh]),
   );
 
   const shipFromComplete = sellerHasShipFromAddress(sellerSetup.checks, sellerSetup.seller);
@@ -312,9 +302,11 @@ export function SellerHubScreen() {
           <OrdersPanel
             orders={ordersSummary.orders}
             ordersLoading={ordersSummary.loading}
+            ordersLoadedOnce={ordersSummary.loadedOnce}
             accessToken={session?.access_token}
             layawayCounts={layawaySummary.counts}
             layawaysLoading={layawaySummary.loading}
+            layawaysLoadedOnce={layawaySummary.loadedOnce}
             hasLayaways={layawaySummary.hasLayaways}
             onOpenLayaways={(filter) =>
               openSellerLayaways(navigation as unknown as NativeStackNavigationProp<RootStackParamList>, {
@@ -351,7 +343,7 @@ export function SellerHubScreen() {
               stripeSetupBusy={stripeSetupBusy}
               onProfileSettings={openProfileSettings}
               layawayCounts={layawaySummary.counts}
-              layawaysLoading={layawaySummary.loading}
+              layawaysLoading={layawaySummary.loading && !layawaySummary.loadedOnce}
               hasLayaways={layawaySummary.hasLayaways}
             />
             {(cmdData.liveReadiness.readinessLoaded || sellerSetup.seller) && !shipFromComplete ? (
@@ -460,6 +452,15 @@ export function SellerHubScreen() {
               <RefreshControl
                 refreshing={sellerInventory.refreshing}
                 onRefresh={() => void sellerInventory.refresh()}
+                tintColor={colors.gold}
+              />
+            ) : tab === 'orders' ? (
+              <RefreshControl
+                refreshing={ordersSummary.refreshing || layawaySummary.refreshing}
+                onRefresh={() => {
+                  void ordersSummary.reload({ silent: true });
+                  void layawaySummary.reload({ silent: true });
+                }}
                 tintColor={colors.gold}
               />
             ) : undefined
@@ -609,24 +610,31 @@ function ListingsPanel({
 function OrdersPanel({
   orders,
   ordersLoading,
+  ordersLoadedOnce,
   layawayCounts,
   layawaysLoading,
+  layawaysLoadedOnce,
   hasLayaways,
   onOpenLayaways,
 }: {
   orders: import('../api/sellerSalesRepository').SellerSalesOrderRow[];
   ordersLoading: boolean;
+  ordersLoadedOnce: boolean;
   accessToken?: string;
   layawayCounts: import('../api/layawayRepository').SellerLayawayCounts | null;
   layawaysLoading: boolean;
+  layawaysLoadedOnce: boolean;
   hasLayaways: boolean;
   onOpenLayaways: (filter?: 'active' | 'ready' | 'overdue') => void;
 }) {
-  if (ordersLoading && layawaysLoading) {
+  const initialLoading =
+    (!ordersLoadedOnce && ordersLoading) || (!layawaysLoadedOnce && layawaysLoading);
+
+  if (initialLoading) {
     return <ActivityIndicator color={colors.gold} style={{ marginTop: spacing.lg }} />;
   }
 
-  if (!orders.length && !hasLayaways) {
+  if (ordersLoadedOnce && layawaysLoadedOnce && !orders.length && !hasLayaways) {
     return (
       <Text style={styles.orderEmpty}>
         No marketplace orders yet. When collectors buy from your vault, fulfillment appears here.
@@ -638,12 +646,11 @@ function OrdersPanel({
     <View style={{ gap: spacing.md }}>
       <SellerHQLayawaysCard
         counts={layawayCounts}
-        loading={layawaysLoading}
+        loading={layawaysLoading && !layawaysLoadedOnce}
         hasLayaways={hasLayaways}
         onPress={() => onOpenLayaways()}
         onPressFilter={(filter) => onOpenLayaways(filter)}
       />
-      {ordersLoading ? <ActivityIndicator color={colors.gold} /> : null}
       {orders.map((o) => {
         const amt = `$${(o.totalCents / 100).toFixed(2)}`;
         return (

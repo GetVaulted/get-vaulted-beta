@@ -1,33 +1,55 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchSellerSalesOrders, type SellerSalesOrderRow } from '../api/sellerSalesRepository';
+
+export type SellerReloadOptions = {
+  /** Keep existing rows visible while refetching (focus, poll, realtime). */
+  silent?: boolean;
+};
 
 /** Seller orders from the same `/api/account/sales` endpoint used by web Seller Studio. */
 export function useSellerOrdersSummary(accessToken: string | undefined) {
   const [orders, setOrders] = useState<SellerSalesOrderRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [loadedOnce, setLoadedOnce] = useState(false);
+  const requestRef = useRef(0);
+  const loadedOnceRef = useRef(false);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (opts?: SellerReloadOptions) => {
     if (!accessToken) {
+      requestRef.current += 1;
       setOrders([]);
+      setLoading(false);
+      setRefreshing(false);
       setLoadedOnce(false);
+      loadedOnceRef.current = false;
       return;
     }
-    setLoading(true);
+
+    const requestId = ++requestRef.current;
+    const silent = opts?.silent ?? loadedOnceRef.current;
+    if (silent) setRefreshing(true);
+    else setLoading(true);
+
     try {
       const rows = await fetchSellerSalesOrders(accessToken);
+      if (requestId !== requestRef.current) return;
       setOrders(rows);
       setLoadedOnce(true);
+      loadedOnceRef.current = true;
     } catch {
-      if (!loadedOnce) setOrders([]);
+      if (requestId !== requestRef.current) return;
+      if (!loadedOnceRef.current) setOrders([]);
     } finally {
-      setLoading(false);
+      if (requestId !== requestRef.current) return;
+      if (silent) setRefreshing(false);
+      else setLoading(false);
     }
-  }, [accessToken, loadedOnce]);
+  }, [accessToken]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  return { orders, loading, loadedOnce, reload };
+  return { orders, loading, refreshing, loadedOnce, reload };
 }
