@@ -258,12 +258,6 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
       SHIPPING_RATE_REQUIRED: { status: 400, msg: "Select a shipping option to continue." },
       SHIPPING_RATE_INVALID: { status: 409, msg: "That shipping option is no longer available. Pick another rate." },
       LISTING_UNAVAILABLE: { status: 409, msg: "This listing is not available for layaway.", code: "ITEM_NOT_AVAILABLE" },
-      LISTING_LAYAWAY_LOCKED: {
-        status: 409,
-        msg: "This item is reserved on layaway and cannot be purchased.",
-        code: "ITEM_RESERVED_ON_LAYAWAY",
-      },
-      ALREADY_SOLD: { status: 409, msg: "This item is already sold.", code: "ITEM_NOT_AVAILABLE" },
     };
     const hit = map[msg];
     if (hit) {
