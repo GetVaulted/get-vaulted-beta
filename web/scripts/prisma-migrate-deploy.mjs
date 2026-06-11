@@ -1,8 +1,6 @@
 /**
  * Netlify / CI: run `prisma migrate deploy` against a URL suitable for DDL.
- * When using Supabase's transaction pooler for `DATABASE_URL`, set `DIRECT_URL`
- * to the non-pooled Postgres URI (port 5432) so migrations can run; this script
- * prefers DIRECT_URL for the migrate/resolve subprocess only.
+ * Tries DIRECT_URL first (non-pooled Supabase URI), then DATABASE_URL if auth fails.
  *
  * P3005 (non-empty DB + first migration): records the lexicographically first
  * migration as already applied, then retries deploy. Use only when the live
@@ -20,18 +18,16 @@ config({ path: path.join(webRoot, ".env.local"), override: true, quiet: true });
 
 const direct = process.env.DIRECT_URL?.trim();
 const pooled = process.env.DATABASE_URL?.trim();
-const migrateUrl = direct || pooled;
 
-if (!migrateUrl) {
+/** @type {{ label: string; url: string }[]} */
+const candidates = [];
+if (direct) candidates.push({ label: "DIRECT_URL", url: direct });
+if (pooled && pooled !== direct) candidates.push({ label: "DATABASE_URL", url: pooled });
+
+if (candidates.length === 0) {
   console.error("[prisma-migrate-deploy] Missing DATABASE_URL (and optional DIRECT_URL).");
   process.exit(1);
 }
-
-console.log(
-  `[prisma-migrate-deploy] Using ${direct ? "DIRECT_URL" : "DATABASE_URL"} for Prisma CLI (migrate / resolve).`,
-);
-
-const env = { ...process.env, DATABASE_URL: migrateUrl };
 
 function firstMigrationName() {
   const migrationsDir = path.join(process.cwd(), "prisma", "migrations");
@@ -44,7 +40,11 @@ function firstMigrationName() {
   return names[0] ?? null;
 }
 
-function migrateDeploy(capture) {
+function isAuthFailure(combined) {
+  return /P1000/i.test(combined) || /Authentication failed/i.test(combined);
+}
+
+function migrateDeploy(env, capture) {
   const opts = {
     env,
     shell: true,
@@ -54,47 +54,83 @@ function migrateDeploy(capture) {
   return spawnSync("npx", ["prisma", "migrate", "deploy"], opts);
 }
 
-let result = migrateDeploy(true);
+function runMigrateForUrl(label, url) {
+  const env = { ...process.env, DATABASE_URL: url };
+  console.log(`[prisma-migrate-deploy] Trying ${label} for Prisma migrate deploy.`);
 
-if (result.status === 0) {
+  let result = migrateDeploy(env, true);
+  let combined = `${result.stderr ?? ""}${result.stdout ?? ""}`;
+
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
-  process.exit(0);
+
+  if (result.status === 0) {
+    return { ok: true, authFailed: false, status: 0, combined };
+  }
+
+  const isP3005 =
+    /P3005/i.test(combined) || /database schema is not empty/i.test(combined);
+
+  if (!isP3005) {
+    return { ok: false, authFailed: isAuthFailure(combined), status: result.status ?? 1, combined };
+  }
+
+  const baseline = firstMigrationName();
+  if (!baseline) {
+    console.error("[prisma-migrate-deploy] P3005 but no migration folder found under prisma/migrations.");
+    return { ok: false, authFailed: false, status: 1, combined };
+  }
+
+  console.warn(
+    `[prisma-migrate-deploy] P3005 (non-empty database). Marking "${baseline}" as applied, then retrying migrate deploy.`,
+  );
+  console.warn(
+    "[prisma-migrate-deploy] If the DB schema does not match that migration, fix the database manually instead.",
+  );
+
+  const resolveResult = spawnSync(
+    "npx",
+    ["prisma", "migrate", "resolve", "--applied", baseline],
+    { stdio: "inherit", env, shell: true },
+  );
+
+  if (resolveResult.status !== 0) {
+    return { ok: false, authFailed: false, status: resolveResult.status ?? 1, combined };
+  }
+
+  result = migrateDeploy(env, false);
+  combined = `${result.stderr ?? ""}${result.stdout ?? ""}`;
+  return {
+    ok: result.status === 0,
+    authFailed: isAuthFailure(combined),
+    status: result.status === 0 ? 0 : result.status ?? 1,
+    combined,
+  };
 }
 
-const combined = `${result.stderr ?? ""}${result.stdout ?? ""}`;
-if (result.stdout) process.stdout.write(result.stdout);
-if (result.stderr) process.stderr.write(result.stderr);
+for (let i = 0; i < candidates.length; i++) {
+  const { label, url } = candidates[i];
+  const outcome = runMigrateForUrl(label, url);
+  if (outcome.ok) {
+    console.log(`[prisma-migrate-deploy] Migrations applied successfully via ${label}.`);
+    process.exit(0);
+  }
 
-const isP3005 =
-  /P3005/i.test(combined) || /database schema is not empty/i.test(combined);
+  const hasFallback = i < candidates.length - 1;
+  if (outcome.authFailed && hasFallback) {
+    console.warn(
+      `[prisma-migrate-deploy] ${label} authentication failed (P1000). Falling back to next connection string.`,
+    );
+    console.warn(
+      "[prisma-migrate-deploy] Update DIRECT_URL in Netlify to Supabase Session mode URI (port 5432) with the current database password.",
+    );
+    continue;
+  }
 
-if (!isP3005) {
-  process.exit(result.status ?? 1);
+  if (outcome.combined) {
+    console.error(`[prisma-migrate-deploy] migrate deploy failed using ${label}.`);
+  }
+  process.exit(outcome.status);
 }
 
-const baseline = firstMigrationName();
-if (!baseline) {
-  console.error("[prisma-migrate-deploy] P3005 but no migration folder found under prisma/migrations.");
-  process.exit(1);
-}
-
-console.warn(
-  `[prisma-migrate-deploy] P3005 (non-empty database). Marking "${baseline}" as applied, then retrying migrate deploy.`,
-);
-console.warn(
-  "[prisma-migrate-deploy] If the DB schema does not match that migration, fix the database manually instead.",
-);
-
-const resolveResult = spawnSync(
-  "npx",
-  ["prisma", "migrate", "resolve", "--applied", baseline],
-  { stdio: "inherit", env, shell: true },
-);
-
-if (resolveResult.status !== 0) {
-  process.exit(resolveResult.status ?? 1);
-}
-
-result = migrateDeploy(false);
-process.exit(result.status === 0 ? 0 : result.status ?? 1);
+process.exit(1);
