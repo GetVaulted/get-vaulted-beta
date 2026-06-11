@@ -35,7 +35,14 @@ export async function GET(req: Request, ctx: RouteCtx) {
   });
   if (!listing) return NextResponse.json({ error: "Listing not found" }, { status: 404 });
 
-  const viewerId = auth instanceof NextResponse ? adminGate.userId : auth.userId;
+  let viewerId: string;
+  if (auth instanceof NextResponse) {
+    if (!adminGate.ok) return adminGate.response;
+    viewerId = adminGate.userId;
+  } else {
+    viewerId = auth.userId;
+  }
+
   const order = await prisma.order.findUnique({
     where: { listingId },
     select: {

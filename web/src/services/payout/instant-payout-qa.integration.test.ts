@@ -69,7 +69,7 @@ async function seedPaidOrderForSeller(sellerId: string, buyerId: string, opts?: 
 describe("Instant payout QA pass (integration)", () => {
   let adminInstantPayoutPATCH: (req: Request, ctx: { params: Promise<{ id: string }> }) => Promise<Response>;
   let adminOrderPayoutPOST: (req: Request, ctx: { params: Promise<{ id: string }> }) => Promise<Response>;
-  let salesGET: () => Promise<Response>;
+  let salesGET: (req: Request) => Promise<Response>;
 
   beforeAll(async () => {
     await bootstrapIntegrationPrisma();
@@ -386,7 +386,7 @@ describe("Instant payout QA pass (integration)", () => {
       });
 
       sessionHoisted.getServerSession.mockResolvedValue({ user: { id: seller.id } });
-      const res = await salesGET();
+      const res = await salesGET(new Request("http://localhost/api/account/sales"));
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         sellerPayout?: { eligibilityMessage?: string };

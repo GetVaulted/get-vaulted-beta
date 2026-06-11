@@ -2,6 +2,7 @@ import type { Prisma } from "@/generated/prisma/client";
 
 export type LayawayAuditAction =
   | "deposit_received"
+  | "deposit_checkout_abandoned"
   | "payment_received"
   | "refund_issued"
   | "default"

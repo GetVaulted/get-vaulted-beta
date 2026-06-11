@@ -43,6 +43,7 @@ import { getEscrowProvider } from "@/services/escrow/factory";
 import { assertValidEscrowTransition } from "@/services/escrow/state-machine";
 import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
 import { PAYMENT_LAYAWAY_ACTIVE } from "@/lib/layaway/constants";
+import { fulfillOrderShippingAfterPayment } from "@/services/shipping";
 import {
   assertBuyNowAllowed,
   CommerceGuardError,
