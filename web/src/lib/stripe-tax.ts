@@ -108,7 +108,6 @@ export async function buildCheckoutTaxSessionFields(args: {
       automatic_tax: { enabled: true },
       customer: customerId,
       customer_update: { shipping: "auto", address: "auto" },
-      shipping_address_collection: { allowed_countries: ["US"] },
     };
   }
 

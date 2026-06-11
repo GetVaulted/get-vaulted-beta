@@ -26,6 +26,10 @@ import {
   TAX_PROVIDER_STRIPE,
 } from "@/lib/stripe-tax";
 import {
+  buyNowCheckoutSubtotalCents,
+  reuseOpenCheckoutSessionIfMatching,
+} from "@/lib/stripe-checkout-session";
+import {
   getLiveRoomCompletedSalesGmvUsd,
   recordLiveShowCompletedSaleTx,
   resolveCheckoutApplicationFeeCents,
@@ -456,14 +460,6 @@ export async function createBuyNowCheckoutSession(args: {
     return { url: r.checkoutUrl };
   }
 
-  if (!useEscrow) {
-    const stripe = getStripe();
-    if (existingPre?.paymentStatus === PAYMENT_PENDING && existingPre.stripeCheckoutSessionId) {
-      const s = await stripe.checkout.sessions.retrieve(existingPre.stripeCheckoutSessionId);
-      if (s.status === "open" && s.url) return { url: s.url };
-    }
-  }
-
   let resolvedMarketplaceShipping: Awaited<ReturnType<typeof resolveMarketplaceCheckoutShipping>> | null = null;
   if (!args.liveRoomItemId?.trim()) {
     resolvedMarketplaceShipping = await resolveMarketplaceCheckoutShipping({
@@ -576,6 +572,46 @@ export async function createBuyNowCheckoutSession(args: {
           liveRoomItemId: liveRoomItemIdOut,
         });
         return { order: existing, listing: listingRow, liveRoomItemId: liveRoomItemIdOut };
+      }
+      if (existing.paymentMethod === OrderPaymentMethod.stripe && existing.buyerId === args.buyerId) {
+        await reserveListingInventoryHoldTx(tx, {
+          listingId: listingRow.id,
+          userId: args.buyerId,
+          source: "buy_now_checkout",
+          liveRoomItemId: liveRoomItemIdOut,
+        });
+        const pendingShippingUsd = liveRoomItemIdOut ? 0 : marketplaceShippingUsd;
+        const pendingTotalUsd = itemPriceUsd + pendingShippingUsd + taxUsd;
+        let orderOut = await tx.order.update({
+          where: { id: existing.id },
+          data: {
+            itemPriceUsd,
+            shippingPriceUsd: pendingShippingUsd,
+            taxUsd,
+            totalUsd: pendingTotalUsd,
+            carrier: liveRoomItemIdOut ? null : resolvedMarketplaceShipping?.carrier ?? null,
+            service: liveRoomItemIdOut ? null : resolvedMarketplaceShipping?.service ?? null,
+            shipRecipientName: args.shipping.shipRecipientName,
+            shipAddress: args.shipping.shipAddress,
+            shipCity: args.shipping.shipCity,
+            shipState: args.shipping.shipState,
+            shipZip: args.shipping.shipZip,
+            shipCountry: args.shipping.shipCountry,
+            buyerAddressId: args.shipping.buyerAddressId ?? null,
+            sellerShipFromAddressId: listingRow.shipFromAddressId ?? null,
+          },
+        });
+        if (liveRoomItemIdOut) {
+          const liRoom = await tx.liveRoomItem.findUnique({
+            where: { id: liveRoomItemIdOut },
+            select: { liveRoomId: true },
+          });
+          await addOrderToLiveShippingSessionTx(tx, orderOut.id, {
+            liveShowId: liRoom?.liveRoomId ?? null,
+          });
+          orderOut = await syncOrderShippingFromLiveSessionTx(tx, orderOut.id);
+        }
+        return { order: orderOut, listing: listingRow, liveRoomItemId: liveRoomItemIdOut };
       }
       if (existing.paymentMethod === OrderPaymentMethod.stripe) throw new Error("CHECKOUT_IN_PROGRESS");
       if (existing.paymentMethod === OrderPaymentMethod.escrow && existing.escrowCheckoutUrl) {
@@ -737,6 +773,15 @@ export async function createBuyNowCheckoutSession(args: {
       shipCountry: order.shipCountry,
     },
   });
+
+  const expectedSubtotalCents = buyNowCheckoutSubtotalCents(order);
+  const taxEnabled = taxFields.automatic_tax?.enabled === true;
+  const reusedUrl = await reuseOpenCheckoutSessionIfMatching({
+    sessionId: order.stripeCheckoutSessionId,
+    expectedSubtotalCents,
+    taxEnabled,
+  });
+  if (reusedUrl) return { url: reusedUrl };
 
   try {
     const session = await stripe.checkout.sessions.create(
@@ -965,11 +1010,6 @@ export async function createPayOrderCheckoutSession(args: {
     liveRoomId: order.liveShippingSession?.liveShowId ?? null,
   });
 
-  if (order.stripeCheckoutSessionId && !order.liveShippingSessionId) {
-    const existing = await stripe.checkout.sessions.retrieve(order.stripeCheckoutSessionId);
-    if (existing.status === "open" && existing.url) return { url: existing.url };
-  }
-
   const taxFields = await buildCheckoutTaxSessionFields({
     buyerId: args.buyerId,
     shipTo: {
@@ -981,6 +1021,15 @@ export async function createPayOrderCheckoutSession(args: {
       shipCountry: order.shipCountry,
     },
   });
+
+  const expectedSubtotalCents =
+    Math.round(order.itemPriceUsd * 100) + Math.round(shippingPriceUsd * 100);
+  const reusedUrl = await reuseOpenCheckoutSessionIfMatching({
+    sessionId: order.stripeCheckoutSessionId,
+    expectedSubtotalCents,
+    taxEnabled: taxFields.automatic_tax?.enabled === true,
+  });
+  if (reusedUrl) return { url: reusedUrl };
 
   const session = await stripe.checkout.sessions.create(
     {
