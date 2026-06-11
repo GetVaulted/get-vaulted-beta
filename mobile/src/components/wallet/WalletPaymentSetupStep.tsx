@@ -359,16 +359,11 @@ function WalletPaymentSetupInner({
       console.log('[wallet] finalize payment method fail (no access token)');
       return;
     }
-    if (!paymentMethodId?.startsWith('pm_')) {
-      const msg = recoveryStatusMessage(400) ?? 'Card save did not return a payment method. Try again.';
-      setInitError(msg);
-      console.log('[wallet] finalize payment method fail (missing paymentMethodId)');
-      return;
-    }
-    let finalizedPaymentMethodId = paymentMethodId;
+    let finalizedPaymentMethodId = paymentMethodId ?? null;
     try {
       const finalized = await finalizeBuyerPaymentMethodSetup(accessToken, {
-        paymentMethodId,
+        ...(paymentMethodId?.startsWith('pm_') ? { paymentMethodId } : {}),
+        clientSecret: payload.clientSecret,
       });
       finalizedPaymentMethodId = finalized.paymentMethodId;
       console.log('[wallet] payment method finalized', {
@@ -385,8 +380,14 @@ function WalletPaymentSetupInner({
       setInitError(msg);
       return;
     }
+    if (!finalizedPaymentMethodId?.startsWith('pm_')) {
+      const msg = recoveryStatusMessage(400) ?? 'Card save did not return a payment method. Try again.';
+      setInitError(msg);
+      console.log('[wallet] finalize payment method fail (missing paymentMethodId)');
+      return;
+    }
     onSaved(finalizedPaymentMethodId);
-  }, [accessToken, onSaved]);
+  }, [accessToken, onSaved, payload.clientSecret]);
 
   const initPaymentSheetFlow = useCallback(async () => {
     if (initStartedRef.current) return;
@@ -490,14 +491,19 @@ function WalletPaymentSetupInner({
     if (busy) return;
     setBusy(true);
     try {
-      const { setupIntent, error: stripeError } = await confirmSetupIntent(payload.clientSecret, {
+      const { error: stripeError } = await confirmSetupIntent(payload.clientSecret, {
         paymentMethodType: 'Card',
       });
       if (stripeError) {
         setInitError(mapLivePaymentFailureMessage(stripeError.message, stripeError.code));
         return;
       }
-      const paymentMethodId = paymentMethodIdFromSetupIntent(setupIntent);
+      const retrieved = await retrieveSetupIntent(payload.clientSecret);
+      if (retrieved.error) {
+        setInitError(mapLivePaymentFailureMessage(retrieved.error.message, retrieved.error.code));
+        return;
+      }
+      const paymentMethodId = paymentMethodIdFromSetupIntent(retrieved.setupIntent);
       await completeSavedPaymentMethod(paymentMethodId);
     } finally {
       setBusy(false);

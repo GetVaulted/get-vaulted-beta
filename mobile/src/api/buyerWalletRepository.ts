@@ -1,4 +1,5 @@
 import type { BuyerWalletReadiness } from '../lib/buyerWalletErrors';
+import { fetchWebApiAuthed } from '../lib/fetchWebApiAuthed';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 
 export type BuyerPaymentMethodRow = {
@@ -43,17 +44,10 @@ export type CreateShippingAddressInput = {
   isDefault?: boolean;
 };
 
-function accountHeaders(accessToken: string | undefined): Record<string, string> {
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-    'Content-Type': 'application/json',
-  };
-  if (accessToken?.trim()) headers.Authorization = `Bearer ${accessToken}`;
-  return headers;
-}
-
-function apiBase(): string | null {
-  return getWebApiBaseUrl();
+function requireApiBase(): string {
+  const base = getWebApiBaseUrl();
+  if (!base) throw new Error('API URL not configured.');
+  return base;
 }
 
 /** Wallet readiness from GET /api/live-rooms/:id (same source as bid 402 gate). */
@@ -61,11 +55,9 @@ export async function fetchBuyerWalletReadiness(
   accessToken: string | undefined,
   roomId: string,
 ): Promise<BuyerWalletReadiness | null> {
-  const base = apiBase();
-  if (!base || !roomId.trim()) return null;
-  const res = await fetch(`${base}/api/live-rooms/${encodeURIComponent(roomId)}`, {
-    headers: accountHeaders(accessToken),
-  });
+  if (!roomId.trim() || !accessToken?.trim()) return null;
+  requireApiBase();
+  const res = await fetchWebApiAuthed(`/api/live-rooms/${encodeURIComponent(roomId)}`, accessToken);
   if (!res.ok) return null;
   const j = (await res.json()) as {
     room?: {
@@ -84,9 +76,13 @@ export async function fetchBuyerWalletReadiness(
 export async function fetchBuyerPaymentMethods(
   accessToken: string | undefined,
 ): Promise<{ paymentMethods: BuyerPaymentMethodRow[]; stripeConfigured: boolean; message?: string }> {
-  const base = apiBase();
-  if (!base) return { paymentMethods: [], stripeConfigured: false, message: 'API URL not configured.' };
-  const res = await fetch(`${base}/api/account/payment-methods`, { headers: accountHeaders(accessToken) });
+  if (!getWebApiBaseUrl()) {
+    return { paymentMethods: [], stripeConfigured: false, message: 'API URL not configured.' };
+  }
+  if (!accessToken?.trim()) {
+    return { paymentMethods: [], stripeConfigured: true, message: 'Sign in to load payment methods.' };
+  }
+  const res = await fetchWebApiAuthed('/api/account/payment-methods', accessToken);
   const j = (await res.json().catch(() => ({}))) as {
     paymentMethods?: BuyerPaymentMethodRow[];
     stripeConfigured?: boolean;
@@ -106,11 +102,10 @@ export async function fetchBuyerPaymentMethods(
 export async function createBuyerSetupIntent(
   accessToken: string | undefined,
 ): Promise<BuyerSetupIntentPayload> {
-  const base = apiBase();
-  if (!base) throw new Error('API URL not configured.');
-  const res = await fetch(`${base}/api/account/payment-methods/setup-intent`, {
+  requireApiBase();
+  if (!accessToken?.trim()) throw new Error('Sign in to add a payment method.');
+  const res = await fetchWebApiAuthed('/api/account/payment-methods/setup-intent', accessToken, {
     method: 'POST',
-    headers: accountHeaders(accessToken),
   });
   const j = (await res.json().catch(() => ({}))) as {
     clientSecret?: string;
@@ -149,8 +144,8 @@ export async function finalizeBuyerPaymentMethodSetup(
   accessToken: string | undefined,
   args: { paymentMethodId?: string; setupIntentId?: string; clientSecret?: string },
 ): Promise<{ paymentMethodId: string; expMonth: number; expYear: number }> {
-  const base = apiBase();
-  if (!base) throw new Error('API URL not configured.');
+  const base = requireApiBase();
+  if (!accessToken?.trim()) throw new Error('Sign in to save your payment method.');
 
   console.log('[wallet] finalize payment method request', {
     baseUrl: base,
@@ -159,9 +154,8 @@ export async function finalizeBuyerPaymentMethodSetup(
     hasClientSecret: Boolean(args.clientSecret),
   });
 
-  const res = await fetch(`${base}/api/account/payment-methods/finalize`, {
+  const res = await fetchWebApiAuthed('/api/account/payment-methods/finalize', accessToken, {
     method: 'POST',
-    headers: accountHeaders(accessToken),
     body: JSON.stringify(args),
   });
   const j = (await res.json().catch(() => ({}))) as {
@@ -183,7 +177,6 @@ export async function finalizeBuyerPaymentMethodSetup(
     );
   }
   if (!j.paymentMethodId?.trim()) {
-    // Card-save succeeded at Stripe but the API did not return a usable pm_ — treat as a 400.
     throw new FinalizePaymentMethodError('Card save did not return a payment method.', 400);
   }
   return {
@@ -196,9 +189,8 @@ export async function finalizeBuyerPaymentMethodSetup(
 export async function fetchBuyerShippingAddresses(
   accessToken: string | undefined,
 ): Promise<BuyerShippingAddressRow[]> {
-  const base = apiBase();
-  if (!base) return [];
-  const res = await fetch(`${base}/api/account/addresses`, { headers: accountHeaders(accessToken) });
+  if (!getWebApiBaseUrl() || !accessToken?.trim()) return [];
+  const res = await fetchWebApiAuthed('/api/account/addresses', accessToken);
   const j = (await res.json().catch(() => ({}))) as { addresses?: BuyerShippingAddressRow[]; error?: string };
   if (!res.ok) {
     throw new Error(typeof j.error === 'string' ? j.error : 'Could not load addresses.');
@@ -211,11 +203,10 @@ export async function createBuyerShippingAddress(
   accessToken: string | undefined,
   input: CreateShippingAddressInput,
 ): Promise<void> {
-  const base = apiBase();
-  if (!base) throw new Error('API URL not configured.');
-  const res = await fetch(`${base}/api/account/addresses`, {
+  requireApiBase();
+  if (!accessToken?.trim()) throw new Error('Sign in to save your address.');
+  const res = await fetchWebApiAuthed('/api/account/addresses', accessToken, {
     method: 'POST',
-    headers: accountHeaders(accessToken),
     body: JSON.stringify({
       type: 'shipping',
       name: input.name.trim(),

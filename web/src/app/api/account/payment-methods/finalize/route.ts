@@ -65,6 +65,8 @@ export async function POST(req: Request) {
       paymentMethodId: result.paymentMethodId,
       expMonth: result.expMonth,
       expYear: result.expYear,
+      brand: result.brand,
+      last4: result.last4,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not finalize payment method.";

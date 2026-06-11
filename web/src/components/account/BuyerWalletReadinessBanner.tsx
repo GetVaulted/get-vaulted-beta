@@ -8,7 +8,7 @@ import {
   type BuyerWalletReadinessSnapshot,
 } from "@/lib/buyer-wallet-readiness-display";
 
-export function BuyerWalletReadinessBanner() {
+export function BuyerWalletReadinessBanner({ refreshKey = 0 }: { refreshKey?: number }) {
   const [snapshot, setSnapshot] = useState<BuyerWalletReadinessSnapshot | null>(null);
 
   useEffect(() => {
@@ -27,7 +27,7 @@ export function BuyerWalletReadinessBanner() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshKey]);
 
   if (!snapshot) return null;
 

@@ -25,7 +25,10 @@ async function finalizeSavedPaymentMethod(args: {
   paymentMethodId?: string | null;
   setupIntentId?: string | null;
   clientSecret?: string | null;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+}): Promise<
+  | { ok: true; paymentMethodId: string; expMonth: number; expYear: number; brand: string; last4: string }
+  | { ok: false; error: string }
+> {
   const body: Record<string, string> = {};
   if (args.paymentMethodId?.startsWith("pm_")) body.paymentMethodId = args.paymentMethodId;
   if (args.setupIntentId?.startsWith("seti_")) body.setupIntentId = args.setupIntentId;
@@ -36,13 +39,31 @@ async function finalizeSavedPaymentMethod(args: {
   const res = await fetch("/api/account/payment-methods/finalize", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
     body: JSON.stringify(body),
   });
-  const j = (await res.json().catch(() => ({}))) as { error?: string };
+  const j = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    paymentMethodId?: string;
+    expMonth?: number;
+    expYear?: number;
+    brand?: string;
+    last4?: string;
+  };
   if (!res.ok) {
     return { ok: false, error: typeof j.error === "string" ? j.error : "Could not save payment method." };
   }
-  return { ok: true };
+  if (!j.paymentMethodId?.startsWith("pm_")) {
+    return { ok: false, error: "Card save did not return a payment method. Try again." };
+  }
+  return {
+    ok: true,
+    paymentMethodId: j.paymentMethodId,
+    expMonth: typeof j.expMonth === "number" ? j.expMonth : 0,
+    expYear: typeof j.expYear === "number" ? j.expYear : 0,
+    brand: typeof j.brand === "string" && j.brand.trim() ? j.brand : "Card",
+    last4: typeof j.last4 === "string" && j.last4.trim() ? j.last4 : "0000",
+  };
 }
 
 function formatExp(m: number, y: number) {
@@ -61,6 +82,7 @@ export function AccountPaymentMethodsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [formBusy, setFormBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [walletRefreshKey, setWalletRefreshKey] = useState(0);
   const payRef = useRef<HTMLDivElement>(null);
   const stripeRef = useRef<Stripe | null>(null);
   const elementsRef = useRef<StripeElements | null>(null);
@@ -84,7 +106,7 @@ export function AccountPaymentMethodsPage() {
     setLoading(true);
     setBanner(null);
     try {
-      const res = await fetch("/api/account/payment-methods", { cache: "no-store" });
+      const res = await fetch("/api/account/payment-methods", { cache: "no-store", credentials: "same-origin" });
       const j = (await res.json().catch(() => ({}))) as {
         paymentMethods?: PmRow[];
         stripeConfigured?: boolean;
@@ -128,6 +150,9 @@ export function AccountPaymentMethodsPage() {
           router.replace("/account/payment-methods");
           await loadList();
           if (!cancelled) {
+            if (finalized.ok) {
+              setWalletRefreshKey((k) => k + 1);
+            }
             setBanner(
               finalized.ok
                 ? { text: "Payment method saved.", tone: "success" }
@@ -166,7 +191,10 @@ export function AccountPaymentMethodsPage() {
       setFormError(null);
       teardown();
       try {
-        const res = await fetch("/api/account/payment-methods/setup-intent", { method: "POST" });
+        const res = await fetch("/api/account/payment-methods/setup-intent", {
+          method: "POST",
+          credentials: "same-origin",
+        });
         const j = (await res.json().catch(() => ({}))) as {
           clientSecret?: string;
           publishableKey?: string;
@@ -201,7 +229,12 @@ export function AccountPaymentMethodsPage() {
         elementsRef.current = elements;
         const paymentElement = elements.create("payment");
         paymentElementRef.current = paymentElement;
-        if (!payRef.current || cancelled) return;
+        if (cancelled) return;
+        if (!payRef.current) {
+          setFormError("Could not load payment form. Close and try again.");
+          setFormBusy(false);
+          return;
+        }
         paymentElement.mount(payRef.current);
         setFormBusy(false);
       } catch {
@@ -232,6 +265,7 @@ export function AccountPaymentMethodsPage() {
     }
 
     const base = typeof window !== "undefined" ? window.location.origin : "";
+    const clientSecret = clientSecretRef.current;
     const { error, setupIntent } = await stripe.confirmSetup({
       elements,
       confirmParams: {
@@ -245,9 +279,26 @@ export function AccountPaymentMethodsPage() {
       return;
     }
 
+    let resolvedSetupIntent = setupIntent ?? null;
+    if (clientSecret) {
+      const retrieved = await stripe.retrieveSetupIntent(clientSecret);
+      if (retrieved.error) {
+        setFormError(retrieved.error.message ?? "Could not verify saved card. Try again.");
+        setFormBusy(false);
+        return;
+      }
+      resolvedSetupIntent = retrieved.setupIntent ?? resolvedSetupIntent;
+    }
+    if (resolvedSetupIntent?.status && resolvedSetupIntent.status !== "succeeded") {
+      setFormError("Card setup did not complete. Check your details and try again.");
+      setFormBusy(false);
+      return;
+    }
+
     const finalized = await finalizeSavedPaymentMethod({
-      paymentMethodId: paymentMethodIdFromSetupIntent(setupIntent),
-      clientSecret: clientSecretRef.current,
+      paymentMethodId: paymentMethodIdFromSetupIntent(resolvedSetupIntent),
+      setupIntentId: typeof resolvedSetupIntent?.id === "string" ? resolvedSetupIntent.id : null,
+      clientSecret,
     });
     if (!finalized.ok) {
       setFormError(finalized.error);
@@ -258,7 +309,21 @@ export function AccountPaymentMethodsPage() {
     setFormOpen(false);
     teardown();
     await loadList();
+    setRows((prev) => {
+      if (prev.some((row) => row.id === finalized.paymentMethodId)) return prev;
+      return [
+        ...prev,
+        {
+          id: finalized.paymentMethodId,
+          brand: finalized.brand,
+          last4: finalized.last4,
+          expMonth: finalized.expMonth,
+          expYear: finalized.expYear,
+        },
+      ];
+    });
     setBanner({ text: "Payment method saved.", tone: "success" });
+    setWalletRefreshKey((k) => k + 1);
     router.refresh();
     setFormBusy(false);
   };
@@ -297,7 +362,7 @@ export function AccountPaymentMethodsPage() {
         </header>
 
         <div className="mt-6">
-          <BuyerWalletReadinessBanner />
+          <BuyerWalletReadinessBanner refreshKey={walletRefreshKey} />
         </div>
 
         {banner ? (

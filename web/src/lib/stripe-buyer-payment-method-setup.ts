@@ -80,7 +80,7 @@ export async function promoteBuyerPaymentMethodAsDefault(args: {
 export async function finalizeBuyerPaymentMethod(args: {
   userId: string;
   paymentMethodId: string;
-}): Promise<{ paymentMethodId: string; expMonth: number; expYear: number }> {
+}): Promise<{ paymentMethodId: string; expMonth: number; expYear: number; brand: string; last4: string }> {
   if (!isStripeConfigured()) throw new Error("STRIPE_NOT_CONFIGURED");
   if (!isStripePaymentMethodId(args.paymentMethodId)) throw new Error("INVALID_PAYMENT_METHOD");
 
@@ -90,10 +90,15 @@ export async function finalizeBuyerPaymentMethod(args: {
     detachExpiredCards: true,
   });
 
+  const brandRaw = pm.card?.brand ?? pm.type ?? "card";
+  const brand = brandRaw.slice(0, 1).toUpperCase() + brandRaw.slice(1);
+
   return {
     paymentMethodId: pm.id,
     expMonth: pm.card?.exp_month ?? 0,
     expYear: pm.card?.exp_year ?? 0,
+    brand,
+    last4: pm.card?.last4 ?? "0000",
   };
 }
 
@@ -102,7 +107,7 @@ export async function finalizeBuyerPaymentMethodSetup(args: {
   paymentMethodId?: string | null;
   setupIntentId?: string | null;
   clientSecret?: string | null;
-}): Promise<{ paymentMethodId: string; expMonth: number; expYear: number }> {
+}): Promise<{ paymentMethodId: string; expMonth: number; expYear: number; brand: string; last4: string }> {
   const paymentMethodId = args.paymentMethodId?.trim() ?? "";
   if (isStripePaymentMethodId(paymentMethodId)) {
     return finalizeBuyerPaymentMethod({ userId: args.userId, paymentMethodId });
@@ -118,7 +123,7 @@ export async function finalizeBuyerSetupIntent(args: {
   userId: string;
   setupIntentId?: string | null;
   clientSecret?: string | null;
-}): Promise<{ paymentMethodId: string; expMonth: number; expYear: number }> {
+}): Promise<{ paymentMethodId: string; expMonth: number; expYear: number; brand: string; last4: string }> {
   if (!isStripeConfigured()) throw new Error("STRIPE_NOT_CONFIGURED");
 
   const setupIntentId =
