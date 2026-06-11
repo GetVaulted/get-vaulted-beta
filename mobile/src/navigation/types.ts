@@ -44,7 +44,7 @@ export type RootStackParamList = {
   AuthSignUp: undefined;
   ProfileEdit: undefined;
   ProductDetail: { productId: string };
-  MarketplaceCheckout: { listingId: string; mode: 'buy_now' | 'layaway' };
+  MarketplaceCheckout: { listingId: string; mode: 'buy_now' | 'layaway'; walletSetupFirst?: boolean };
   SellerListingManagement: { listingId: string };
   SellerHostRoom: { roomId: string };
   MessagesInbox: undefined;
@@ -57,6 +57,7 @@ export type RootStackParamList = {
   CreateListingFlow: NavigatorScreenParams<CreateListingStackParamList> | undefined;
   Settings: undefined;
   AccountHub: undefined;
+  BuyerWallet: undefined;
   SellerSetupWizard: undefined;
   QaEnvironmentDiagnostics: undefined;
   SettingsAccount: undefined;

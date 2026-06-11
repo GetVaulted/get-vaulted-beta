@@ -20,6 +20,10 @@ import {
   PUBLIC_MARKETPLACE_LISTING_WHERE,
 } from "@/lib/marketplace-commerce-policy";
 import {
+  parseMarketplaceAllowedRateKeys,
+  parseMarketplaceShippingOfferScope,
+} from "@/lib/marketplace-shipping-offer";
+import {
   prismaListingCreateHint,
   serializePrismaClientError,
 } from "@/lib/prisma-client-error-serialize";
@@ -111,6 +115,8 @@ type ListingBody = {
   shippingCategory?: unknown;
   shipAlone?: unknown;
   shipFromAddressId?: unknown;
+  marketplaceShippingOfferScope?: unknown;
+  marketplaceAllowedRateKeys?: unknown;
   publishRequestId?: unknown;
 };
 
@@ -494,6 +500,8 @@ export async function POST(req: Request) {
     typeof body.shipFromAddressId === "string" && body.shipFromAddressId.trim().length > 0
       ? body.shipFromAddressId.trim()
       : null;
+  const marketplaceShippingOfferScope = parseMarketplaceShippingOfferScope(body.marketplaceShippingOfferScope);
+  const marketplaceAllowedRateKeys = parseMarketplaceAllowedRateKeys(body.marketplaceAllowedRateKeys);
   const parcelRow = { parcelWeightOz, parcelLengthIn, parcelWidthIn, parcelHeightIn };
 
   if (publishedLive && !hasCompleteParcel(parcelRow)) {
@@ -594,6 +602,8 @@ export async function POST(req: Request) {
     shippingCategory,
     shipAlone,
     shipFromAddressId,
+    marketplaceShippingOfferScope,
+    marketplaceAllowedRateKeys,
     ...(auctionPublished ? { auctionEndsAt: computeAuctionEndsAt(new Date(), auctionDurationDays) } : {}),
   };
 

@@ -18,16 +18,26 @@ import {
 } from '../../api/buyerWalletRepository';
 import { fetchBuyerLayawayStatus } from '../../api/layawayRepository';
 import {
+  fetchMarketplaceCheckoutShippingRates,
   fetchMarketplaceCheckoutTaxEstimate,
   startMarketplaceBuyNowCheckout,
   startMarketplaceLayawayCheckout,
   type MarketplaceCheckoutShipping,
+  type MarketplaceCheckoutShippingRate,
 } from '../../api/marketplaceCommerceRepository';
 import { fetchMarketplaceListingFromWeb } from '../../api/webListingsRepository';
 import { PremiumVaultButton } from '../../components/product/PremiumVaultButton';
 import { WalletAddressSetupModal } from '../../components/wallet/WalletAddressSetupModal';
 import { WalletPaymentSetupModal } from '../../components/wallet/WalletPaymentSetupStep';
+import { formatAddressOneLine } from '../../components/wallet/walletSheetUtils';
 import { useAuth } from '../../auth/AuthContext';
+import {
+  checkoutRatePreferenceKey,
+  getBuyerPreferredShippingRateKey,
+  pickCheckoutShippingRate,
+  setBuyerPreferredShippingRateKey,
+} from '../../lib/buyerShippingPreference';
+import { formatListingRatePrice, listingRateLabel } from '../../createListing/shippoRates';
 import { openStripeCheckoutSession } from '../../lib/openStripeCheckoutSession';
 import { MARKETPLACE_TEXT_PROPS } from '../../lib/marketplaceUiScale';
 import { pickDefaultShippingAddress } from '../../components/wallet/walletSheetUtils';
@@ -58,7 +68,7 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const token = session?.access_token;
-  const { listingId, mode } = route.params;
+  const { listingId, mode, walletSetupFirst = false } = route.params;
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -66,7 +76,12 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
   const [title, setTitle] = useState('');
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [itemPriceUsd, setItemPriceUsd] = useState(0);
+  const [flatShippingUsd, setFlatShippingUsd] = useState(0);
   const [shippingPriceUsd, setShippingPriceUsd] = useState(0);
+  const [shippingRates, setShippingRates] = useState<MarketplaceCheckoutShippingRate[]>([]);
+  const [ratesLoading, setRatesLoading] = useState(false);
+  const [ratesError, setRatesError] = useState<string | null>(null);
+  const [selectedRateId, setSelectedRateId] = useState<string | null>(null);
   const [addresses, setAddresses] = useState<BuyerShippingAddressRow[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
   const [paymentReady, setPaymentReady] = useState(false);
@@ -76,9 +91,20 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
   const [layawayBlocked, setLayawayBlocked] = useState<string | null>(null);
   const [addressModalOpen, setAddressModalOpen] = useState(false);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [addressPickerExpanded, setAddressPickerExpanded] = useState(false);
+  const [ratesPickerExpanded, setRatesPickerExpanded] = useState(false);
+  const [walletSetupPrompted, setWalletSetupPrompted] = useState(false);
 
   const selectedAddress = addresses.find((a) => a.id === selectedAddressId) ?? null;
+  const walletReady = paymentReady && Boolean(selectedAddress);
   const shippingPayload = selectedAddress ? shippingFromAddress(selectedAddress) : null;
+  const usesFlatShipping = flatShippingUsd > 0;
+  const checkoutShippingPayload = useMemo((): MarketplaceCheckoutShipping | null => {
+    if (!shippingPayload) return null;
+    if (usesFlatShipping) return shippingPayload;
+    if (!selectedRateId) return shippingPayload;
+    return { ...shippingPayload, selectedShippingRateId: selectedRateId };
+  }, [selectedRateId, shippingPayload, usesFlatShipping]);
 
   const reloadWallet = useCallback(async () => {
     if (!token) return;
@@ -109,7 +135,9 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
         setTitle(listing.title);
         setImageUrl(listing.imageUrls?.[0] ?? null);
         setItemPriceUsd(listing.price);
-        setShippingPriceUsd(listing.shippingPriceUsd ?? 0);
+        const flat = listing.shippingPriceUsd ?? 0;
+        setFlatShippingUsd(flat);
+        setShippingPriceUsd(flat);
         await reloadWallet();
         if (mode === 'layaway') {
           const blocked = await fetchBuyerLayawayStatus(token);
@@ -131,7 +159,87 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
   }, [listingId, mode, navigation, reloadWallet, token]);
 
   useEffect(() => {
-    if (!token || !shippingPayload || mode !== 'buy_now') return;
+    if (loading || walletSetupPrompted || walletReady) return;
+    if (!walletSetupFirst) return;
+    if (!selectedAddress) {
+      setAddressModalOpen(true);
+      setWalletSetupPrompted(true);
+      return;
+    }
+    if (!paymentReady) {
+      setPaymentModalOpen(true);
+      setWalletSetupPrompted(true);
+    }
+  }, [loading, paymentReady, selectedAddress, walletReady, walletSetupFirst, walletSetupPrompted]);
+
+  useEffect(() => {
+    if (!walletSetupPrompted || !selectedAddress || paymentReady) return;
+    if (!addressModalOpen && !paymentModalOpen) {
+      setPaymentModalOpen(true);
+    }
+  }, [addressModalOpen, paymentModalOpen, paymentReady, selectedAddress, walletSetupPrompted]);
+
+  const selectShippingRate = useCallback((rate: MarketplaceCheckoutShippingRate) => {
+    setSelectedRateId(rate.id);
+    void setBuyerPreferredShippingRateKey(checkoutRatePreferenceKey(rate));
+    setRatesPickerExpanded(false);
+  }, []);
+
+  useEffect(() => {
+    if (!token || !shippingPayload || usesFlatShipping) {
+      setShippingRates([]);
+      setSelectedRateId(null);
+      setRatesError(null);
+      if (usesFlatShipping) setShippingPriceUsd(flatShippingUsd);
+      return;
+    }
+
+    let cancelled = false;
+    const t = setTimeout(() => {
+      void (async () => {
+        setRatesLoading(true);
+        setRatesError(null);
+        try {
+          const { rates, error: rateErr } = await fetchMarketplaceCheckoutShippingRates(token, {
+            listingId,
+            shipping: shippingPayload,
+          });
+          if (cancelled) return;
+          setShippingRates(rates);
+          setRatesError(rateErr);
+          const preferredKey = await getBuyerPreferredShippingRateKey();
+          const picked = pickCheckoutShippingRate(rates, preferredKey);
+          setSelectedRateId((prev) => {
+            if (prev && rates.some((r) => r.id === prev)) return prev;
+            return picked?.id ?? null;
+          });
+        } catch (e) {
+          if (!cancelled) {
+            setShippingRates([]);
+            setSelectedRateId(null);
+            setShippingPriceUsd(0);
+            setRatesError(e instanceof Error ? e.message : 'Shipping rates could not be loaded.');
+          }
+        } finally {
+          if (!cancelled) setRatesLoading(false);
+        }
+      })();
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [flatShippingUsd, listingId, shippingPayload, token, usesFlatShipping]);
+
+  useEffect(() => {
+    if (!usesFlatShipping && selectedRateId) {
+      const picked = shippingRates.find((r) => r.id === selectedRateId);
+      if (picked) setShippingPriceUsd(Number(picked.amount) || 0);
+    }
+  }, [selectedRateId, shippingRates, usesFlatShipping]);
+
+  useEffect(() => {
+    if (!token || !shippingPayload) return;
     const t = setTimeout(() => {
       void fetchMarketplaceCheckoutTaxEstimate(token, {
         itemPriceUsd,
@@ -140,7 +248,7 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
       }).then((est) => setTaxUsd(est.taxUsd));
     }, 400);
     return () => clearTimeout(t);
-  }, [itemPriceUsd, mode, shippingPayload, shippingPriceUsd, token]);
+  }, [itemPriceUsd, shippingPayload, shippingPriceUsd, token]);
 
   const subtotal = useMemo(() => itemPriceUsd + shippingPriceUsd, [itemPriceUsd, shippingPriceUsd]);
   const total = useMemo(() => subtotal + taxUsd, [subtotal, taxUsd]);
@@ -148,6 +256,8 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
     () => Math.round(itemPriceUsd * LAYAWAY_DEPOSIT_FRACTION * 100) / 100,
     [itemPriceUsd],
   );
+
+  const selectedRate = shippingRates.find((r) => r.id === selectedRateId) ?? null;
 
   const completeCheckout = async () => {
     if (!token) {
@@ -157,6 +267,10 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
     if (!shippingPayload) {
       setError('Add a shipping address to continue.');
       setAddressModalOpen(true);
+      return;
+    }
+    if (!usesFlatShipping && !selectedRateId) {
+      setError(ratesError ?? 'Select a shipping option to continue.');
       return;
     }
     if (!paymentReady) {
@@ -178,18 +292,19 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
     setSubmitting(true);
     setError(null);
     try {
+      const payload = checkoutShippingPayload ?? shippingPayload;
       const stripeUrl =
         mode === 'layaway'
           ? (
               await startMarketplaceLayawayCheckout(token, {
                 listingId,
                 planType,
-                shipping: shippingPayload,
+                shipping: payload,
               })
             ).url
           : await startMarketplaceBuyNowCheckout(token, {
               listingId,
-              shipping: shippingPayload,
+              shipping: payload,
             });
 
       await openStripeCheckoutSession(stripeUrl);
@@ -248,10 +363,13 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
           </View>
         </View>
 
-        {!paymentReady || !selectedAddress ? (
+        {!walletReady ? (
           <View style={styles.walletCard}>
             <Text style={styles.walletTitle} {...MARKETPLACE_TEXT_PROPS}>
               Wallet setup
+            </Text>
+            <Text style={styles.walletHint} {...MARKETPLACE_TEXT_PROPS}>
+              Save your address and card once — reused for live shows and every purchase.
             </Text>
             {!selectedAddress ? (
               <PremiumVaultButton
@@ -272,30 +390,126 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
           </View>
         ) : null}
 
-        {addresses.length ? (
+        {walletReady && selectedAddress ? (
           <View style={styles.section}>
-            <Text style={styles.sectionKicker} {...MARKETPLACE_TEXT_PROPS}>
-              Ship to
-            </Text>
-            {addresses.map((addr) => (
-              <Pressable
-                key={addr.id}
-                onPress={() => setSelectedAddressId(addr.id)}
-                style={[styles.addrRow, selectedAddressId === addr.id && styles.addrRowOn]}
-              >
-                <Text style={styles.addrName} {...MARKETPLACE_TEXT_PROPS}>
-                  {addr.fullName || addr.name}
-                </Text>
-                <Text style={styles.addrLine} numberOfLines={2} {...MARKETPLACE_TEXT_PROPS}>
-                  {[addr.line1, addr.city, addr.state, addr.postalCode].filter(Boolean).join(', ')}
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionKicker} {...MARKETPLACE_TEXT_PROPS}>
+                Ship to
+              </Text>
+              <Pressable onPress={() => setAddressPickerExpanded((v) => !v)} hitSlop={8}>
+                <Text style={styles.changeLink} {...MARKETPLACE_TEXT_PROPS}>
+                  {addressPickerExpanded ? 'Done' : 'Change'}
                 </Text>
               </Pressable>
-            ))}
-            <PremiumVaultButton
-              label="Add another address"
-              onPress={() => setAddressModalOpen(true)}
-              variant="secondary"
-            />
+            </View>
+            {!addressPickerExpanded ? (
+              <View style={styles.compactCard}>
+                <Text style={styles.addrName} {...MARKETPLACE_TEXT_PROPS}>
+                  {selectedAddress.fullName || selectedAddress.name}
+                </Text>
+                <Text style={styles.addrLine} numberOfLines={2} {...MARKETPLACE_TEXT_PROPS}>
+                  {formatAddressOneLine(selectedAddress)}
+                </Text>
+              </View>
+            ) : (
+              <>
+                {addresses.map((addr) => (
+                  <Pressable
+                    key={addr.id}
+                    onPress={() => {
+                      setSelectedAddressId(addr.id);
+                      setAddressPickerExpanded(false);
+                    }}
+                    style={[styles.addrRow, selectedAddressId === addr.id && styles.addrRowOn]}
+                  >
+                    <Text style={styles.addrName} {...MARKETPLACE_TEXT_PROPS}>
+                      {addr.fullName || addr.name}
+                    </Text>
+                    <Text style={styles.addrLine} numberOfLines={2} {...MARKETPLACE_TEXT_PROPS}>
+                      {[addr.line1, addr.city, addr.state, addr.postalCode].filter(Boolean).join(', ')}
+                    </Text>
+                  </Pressable>
+                ))}
+                <PremiumVaultButton
+                  label="Add another address"
+                  onPress={() => setAddressModalOpen(true)}
+                  variant="secondary"
+                />
+              </>
+            )}
+          </View>
+        ) : null}
+
+        {shippingPayload && !usesFlatShipping ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionKicker} {...MARKETPLACE_TEXT_PROPS}>
+                Shipping
+              </Text>
+              {selectedRate && !ratesPickerExpanded ? (
+                <Pressable onPress={() => setRatesPickerExpanded(true)} hitSlop={8}>
+                  <Text style={styles.changeLink} {...MARKETPLACE_TEXT_PROPS}>
+                    Change speed
+                  </Text>
+                </Pressable>
+              ) : ratesPickerExpanded ? (
+                <Pressable onPress={() => setRatesPickerExpanded(false)} hitSlop={8}>
+                  <Text style={styles.changeLink} {...MARKETPLACE_TEXT_PROPS}>
+                    Done
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+            {ratesLoading ? (
+              <View style={styles.ratesLoading}>
+                <ActivityIndicator color={colors.gold} size="small" />
+                <Text style={styles.ratesLoadingTxt} {...MARKETPLACE_TEXT_PROPS}>
+                  Loading carrier rates for your address…
+                </Text>
+              </View>
+            ) : null}
+            {!ratesLoading && ratesError && shippingRates.length === 0 ? (
+              <Text style={styles.error} {...MARKETPLACE_TEXT_PROPS}>
+                {ratesError}
+              </Text>
+            ) : null}
+            {!ratesPickerExpanded && selectedRate ? (
+              <View style={styles.compactCard}>
+                <Text style={styles.rateTitle} {...MARKETPLACE_TEXT_PROPS}>
+                  {listingRateLabel(selectedRate)}
+                </Text>
+                <Text style={styles.rateMeta} numberOfLines={2} {...MARKETPLACE_TEXT_PROPS}>
+                  {selectedRate.estimatedDelivery}
+                </Text>
+                <Text style={[styles.ratePrice, { marginTop: spacing.xs }]} {...MARKETPLACE_TEXT_PROPS}>
+                  {formatListingRatePrice(selectedRate.amount, selectedRate.currency)}
+                </Text>
+              </View>
+            ) : null}
+            {ratesPickerExpanded
+              ? shippingRates.map((rate) => {
+                  const on = selectedRateId === rate.id;
+                  return (
+                    <Pressable
+                      key={rate.id}
+                      onPress={() => selectShippingRate(rate)}
+                      style={[styles.rateRow, on && styles.rateRowOn]}
+                    >
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.rateTitle} {...MARKETPLACE_TEXT_PROPS}>
+                          {listingRateLabel(rate)}
+                        </Text>
+                        <Text style={styles.rateMeta} numberOfLines={2} {...MARKETPLACE_TEXT_PROPS}>
+                          {rate.estimatedDelivery}
+                        </Text>
+                      </View>
+                      <Text style={styles.ratePrice} {...MARKETPLACE_TEXT_PROPS}>
+                        {formatListingRatePrice(rate.amount, rate.currency)}
+                      </Text>
+                    </Pressable>
+                  );
+                })
+              : null}
           </View>
         ) : null}
 
@@ -324,6 +538,9 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
             </View>
             <Text style={styles.summaryLine} {...MARKETPLACE_TEXT_PROPS}>
               Deposit today: {fmtMoney(depositUsd)}
+            </Text>
+            <Text style={styles.summaryLine} {...MARKETPLACE_TEXT_PROPS}>
+              Shipping {fmtMoney(shippingPriceUsd)}
             </Text>
             <Pressable onPress={() => setTermsAcknowledged((v) => !v)} style={styles.termsRow}>
               <Ionicons
@@ -433,8 +650,18 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   walletTitle: { fontSize: 12, fontWeight: '800', color: colors.gold, letterSpacing: 0.8, textTransform: 'uppercase' },
+  walletHint: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
   section: { gap: spacing.sm },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionKicker: { fontSize: 11, fontWeight: '800', color: colors.textMuted, letterSpacing: 1, textTransform: 'uppercase' },
+  changeLink: { fontSize: 12, fontWeight: '800', color: colors.gold },
+  compactCard: {
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceElevated,
+  },
   addrRow: {
     padding: spacing.md,
     borderRadius: radii.md,
@@ -445,6 +672,22 @@ const styles = StyleSheet.create({
   addrRowOn: { borderColor: colors.gold },
   addrName: { fontWeight: '800', color: colors.textPrimary, fontSize: 14 },
   addrLine: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  ratesLoading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm },
+  ratesLoadingTxt: { color: colors.textMuted, fontSize: 12, flex: 1 },
+  rateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceElevated,
+  },
+  rateRowOn: { borderColor: colors.gold, backgroundColor: 'rgba(212,175,55,0.08)' },
+  rateTitle: { fontWeight: '800', color: colors.textPrimary, fontSize: 14 },
+  rateMeta: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
+  ratePrice: { fontWeight: '900', color: colors.gold, fontSize: 14 },
   planRow: { flexDirection: 'row', gap: spacing.sm },
   planPill: {
     flex: 1,

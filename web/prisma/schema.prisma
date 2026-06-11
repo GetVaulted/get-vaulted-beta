@@ -342,6 +342,13 @@ enum ShippingCategory {
   custom
 }
 
+/// Which Shippo quotes buyers may choose at marketplace checkout.
+enum MarketplaceShippingOfferScope {
+  all
+  no_overnight
+  custom
+}
+
 enum AddressType {
   shipping
   return
@@ -645,6 +652,9 @@ model Listing {
   shipAlone                   Boolean          @default(false)
   shipFromAddressId      String?
   shipFromAddress        Address?       @relation("ListingShipFromAddress", fields: [shipFromAddressId], references: [id], onDelete: SetNull)
+  /// Seller rules for buyer-facing Shippo rate options at checkout.
+  marketplaceShippingOfferScope MarketplaceShippingOfferScope @default(all)
+  marketplaceAllowedRateKeys      String[]                      @default([])
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
 

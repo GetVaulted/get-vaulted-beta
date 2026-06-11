@@ -1,12 +1,16 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthContext';
 import { SettingsSectionHeader } from '../../components/settings/SettingsSectionHeader';
 import { SettingsRow } from '../../components/platform/SettingsRow';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
+import { useBuyerWalletReadiness } from '../../hooks/useBuyerWalletReadiness';
 import { useNotificationBadge } from '../../hooks/useNotificationBadge';
 import { useSellerSetupState } from '../../hooks/useSellerSetupState';
+import { buyerWalletStatusLabel } from '../../lib/buyerWalletReadinessDisplay';
 import { sellerSetupMenuLabel } from '../../lib/seller-setup-state';
 import {
   openContactSupport,
@@ -29,6 +33,17 @@ export function AccountHubScreen({ navigation }: Props) {
   const setup = useSellerSetupState(session?.access_token, Boolean(user?.id));
   const activated = setup.activated;
   const setupLabel = sellerSetupMenuLabel(setup.phase === 'loading' ? 'not_started' : setup.phase);
+  const wallet = useBuyerWalletReadiness(session?.access_token, Boolean(session?.access_token));
+
+  useFocusEffect(
+    useCallback(() => {
+      if (session?.access_token) void wallet.refresh();
+    }, [session?.access_token, wallet.refresh]),
+  );
+
+  const walletSub = wallet.loading
+    ? 'Checking wallet…'
+    : buyerWalletStatusLabel(wallet);
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
@@ -44,6 +59,12 @@ export function AccountHubScreen({ navigation }: Props) {
           sub="Your public storefront"
           icon="person-outline"
           onPress={() => user?.id && openUserProfile(user.id, navigation)}
+        />
+        <SettingsRow
+          label="Wallet"
+          sub={walletSub}
+          icon="wallet-outline"
+          onPress={() => navigation.navigate('BuyerWallet')}
         />
 
         <SettingsSectionHeader title="Selling" />

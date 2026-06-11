@@ -29,10 +29,11 @@ export function buildBuyerOrderTimeline(a: BuyerArgs): OrderTimelineStep[] {
 
   const hasLabel = Boolean(a.labelUrl || a.shippoTransactionId);
   const delivered = a.fulfillmentStatus === "delivered";
+  const outForDelivery = a.fulfillmentStatus === "out_for_delivery";
   const inTransit =
     a.fulfillmentStatus === "in_transit" ||
     a.orderStatus === "shipped" ||
-    (Boolean(a.trackingNumber) && paid && !delivered);
+    (Boolean(a.trackingNumber) && paid && !delivered && !outForDelivery);
 
   const steps: OrderTimelineStep[] = [];
 
@@ -82,6 +83,15 @@ export function buildBuyerOrderTimeline(a: BuyerArgs): OrderTimelineStep[] {
   });
 
   steps.push({
+    key: "out_for_delivery",
+    title: "Out for delivery",
+    detail: outForDelivery
+      ? "Your package is on the delivery truck today."
+      : "You'll see an update when the carrier is close.",
+    state: "upcoming",
+  });
+
+  steps.push({
     key: "delivered",
     title: "Delivered",
     detail: delivered ? "Carrier reported delivery." : "You'll see an update when the package arrives.",
@@ -92,7 +102,8 @@ export function buildBuyerOrderTimeline(a: BuyerArgs): OrderTimelineStep[] {
   const paidIdx = payIdx + 1;
   const labelIdx = paidIdx + 1;
   const transitIdx = labelIdx + 1;
-  const deliveredIdx = transitIdx + 1;
+  const outForDeliveryIdx = transitIdx + 1;
+  const deliveredIdx = outForDeliveryIdx + 1;
 
   const setComplete = (from: number, to: number) => {
     if (to < from) return;
@@ -110,9 +121,12 @@ export function buildBuyerOrderTimeline(a: BuyerArgs): OrderTimelineStep[] {
   } else {
     if (delivered) {
       setComplete(0, deliveredIdx);
-    } else if (inTransit) {
+    } else if (outForDelivery) {
       setComplete(0, transitIdx);
-      steps[deliveredIdx]!.state = "current";
+      steps[outForDeliveryIdx]!.state = "current";
+    } else if (inTransit) {
+      setComplete(0, labelIdx);
+      steps[transitIdx]!.state = "current";
     } else if (hasLabel) {
       setComplete(0, labelIdx);
       steps[transitIdx]!.state = "current";
@@ -150,10 +164,11 @@ export function buildSellerOrderMilestones(a: SellerArgs): SellerMilestone[] {
   const expired = a.paymentStatus === "expired";
   const hasLabel = Boolean(a.labelUrl || a.shippoTransactionId);
   const delivered = a.fulfillmentStatus === "delivered";
+  const outForDelivery = a.fulfillmentStatus === "out_for_delivery";
   const inTransit =
     a.fulfillmentStatus === "in_transit" ||
     a.orderStatus === "shipped" ||
-    (Boolean(a.trackingNumber) && paid && !delivered);
+    (Boolean(a.trackingNumber) && paid && !delivered && !outForDelivery);
 
   const milestones: SellerMilestone[] = [
     {
@@ -183,7 +198,13 @@ export function buildSellerOrderMilestones(a: SellerArgs): SellerMilestone[] {
     {
       key: "transit",
       title: "In transit",
-      detail: inTransit && !delivered ? "Package is moving to the buyer." : "Carrier movement.",
+      detail: inTransit && !delivered && !outForDelivery ? "Package is moving to the buyer." : "Carrier movement.",
+      state: "upcoming",
+    },
+    {
+      key: "out_for_delivery",
+      title: "Out for delivery",
+      detail: outForDelivery ? "Carrier reports delivery today." : "Final mile delivery.",
       state: "upcoming",
     },
     {
@@ -200,6 +221,7 @@ export function buildSellerOrderMilestones(a: SellerArgs): SellerMilestone[] {
   const i3 = 3;
   const i4 = 4;
   const i5 = 5;
+  const i6 = 6;
 
   if (expired) {
     milestones[i0]!.state = "complete";
@@ -214,6 +236,12 @@ export function buildSellerOrderMilestones(a: SellerArgs): SellerMilestone[] {
       milestones[i3]!.state = "complete";
       milestones[i4]!.state = "complete";
       milestones[i5]!.state = "complete";
+      milestones[i6]!.state = "complete";
+    } else if (outForDelivery) {
+      milestones[i2]!.state = "complete";
+      milestones[i3]!.state = "complete";
+      milestones[i4]!.state = "complete";
+      milestones[i5]!.state = "current";
     } else if (inTransit) {
       milestones[i2]!.state = "complete";
       milestones[i3]!.state = "complete";

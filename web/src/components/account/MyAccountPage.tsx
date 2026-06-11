@@ -3,8 +3,13 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { BuyerWalletReadinessBanner } from "@/components/account/BuyerWalletReadinessBanner";
 import { useSellerSetupState } from "@/hooks/useSellerSetupState";
+import {
+  buyerWalletStatusLabel,
+  type BuyerWalletReadinessSnapshot,
+} from "@/lib/buyer-wallet-readiness-display";
 import {
   SELLER_HQ_PATH,
   SELLER_SETUP_PATH,
@@ -38,12 +43,32 @@ export function MyAccountPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const { phase: setupPhase } = useSellerSetupState(status === "authenticated");
+  const [walletSnapshot, setWalletSnapshot] = useState<BuyerWalletReadinessSnapshot | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") {
       router.replace("/signin?returnTo=/account");
     }
   }, [router, status]);
+
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    let cancelled = false;
+    void (async () => {
+      const res = await fetch("/api/account/wallet-readiness", { cache: "no-store" });
+      if (!res.ok || cancelled) return;
+      const j = (await res.json()) as BuyerWalletReadinessSnapshot;
+      if (!cancelled) {
+        setWalletSnapshot({
+          paymentReady: j.paymentReady === true,
+          shippingReady: j.shippingReady === true,
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [status]);
 
   if (status === "unauthenticated") {
     return null;
@@ -132,7 +157,10 @@ export function MyAccountPage() {
     {
       href: "/account/payment-methods",
       title: "Wallet",
-      description: "Saved cards and checkout payment methods.",
+      description: walletSnapshot
+        ? buyerWalletStatusLabel(walletSnapshot)
+        : "Saved cards and shipping for live + checkout.",
+      accent: walletSnapshot ? !walletSnapshot.paymentReady || !walletSnapshot.shippingReady : false,
     },
     {
       href: profileHref,
@@ -165,6 +193,10 @@ export function MyAccountPage() {
             Your control center for purchases, wallet, messages, and seller tools — separate from your public profile.
           </p>
         </header>
+
+        <div className="mt-6">
+          <BuyerWalletReadinessBanner />
+        </div>
 
         <section className="mt-8">
           <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Activity</h2>

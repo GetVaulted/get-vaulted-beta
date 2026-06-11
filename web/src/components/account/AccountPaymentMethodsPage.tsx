@@ -7,6 +7,7 @@ import type { Stripe, StripeElements, StripePaymentElement } from "@stripe/strip
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
 import { AccountWalletShippingSection } from "@/components/account/AccountWalletShippingSection";
+import { BuyerWalletReadinessBanner } from "@/components/account/BuyerWalletReadinessBanner";
 
 type PmRow = { id: string; brand: string; last4: string; expMonth: number; expYear: number };
 
@@ -202,6 +203,10 @@ export function AccountPaymentMethodsPage() {
             <AccountOrdersNav active="payments" />
           </div>
         </header>
+
+        <div className="mt-6">
+          <BuyerWalletReadinessBanner />
+        </div>
 
         {banner && stripeConfigured === false ? (
           <p className="mt-6 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/95">

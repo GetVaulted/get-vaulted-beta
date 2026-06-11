@@ -8,6 +8,19 @@ export type MarketplaceCheckoutShipping = {
   shipState: string;
   shipZip: string;
   shipCountry: string;
+  selectedShippingRateId?: string;
+};
+
+export type MarketplaceCheckoutShippingRate = {
+  id: string;
+  carrier: string;
+  serviceLevel: string;
+  estimatedDelivery: string;
+  estimatedDays?: number | null;
+  amount: string;
+  currency: string;
+  trackingIncluded: boolean;
+  insuranceAvailable: boolean;
 };
 
 export type MarketplaceTaxEstimate = {
@@ -64,6 +77,7 @@ export async function startMarketplaceBuyNowCheckout(
       kind: 'buy_now',
       listingId: args.listingId,
       shipping: args.shipping,
+      selectedShippingRateId: args.shipping.selectedShippingRateId,
       successPath: args.successPath ?? '/account/orders',
       cancelPath: args.cancelPath ?? `/checkout/${args.listingId}`,
     }),
@@ -96,6 +110,7 @@ export async function startMarketplaceLayawayCheckout(
       planType: args.planType,
       termsAcknowledged: true,
       shipping: args.shipping,
+      selectedShippingRateId: args.shipping.selectedShippingRateId,
       successPath: args.successPath ?? '/account/layaways',
       cancelPath: args.cancelPath ?? `/checkout/${args.listingId}?mode=layaway`,
     }),
@@ -147,4 +162,37 @@ export async function fetchMarketplaceCheckoutTaxEstimate(
     collectTax: body?.collectTax === true,
     note: typeof body?.note === 'string' ? body.note : null,
   };
+}
+
+export async function fetchMarketplaceCheckoutShippingRates(
+  accessToken: string,
+  args: {
+    listingId: string;
+    shipping: MarketplaceCheckoutShipping;
+  },
+): Promise<{ rates: MarketplaceCheckoutShippingRate[]; error: string | null }> {
+  const res = await fetchWebApi('/api/checkout/shipping-rates', {
+    method: 'POST',
+    headers: authHeaders(accessToken),
+    body: JSON.stringify({
+      listingId: args.listingId,
+      buyerAddressId: args.shipping.buyerAddressId,
+      shipping: {
+        shipRecipientName: args.shipping.shipRecipientName,
+        shipAddress: args.shipping.shipAddress,
+        shipCity: args.shipping.shipCity,
+        shipState: args.shipping.shipState,
+        shipZip: args.shipping.shipZip,
+        shipCountry: args.shipping.shipCountry,
+      },
+    }),
+  });
+  const body = (await res.json().catch(() => null)) as {
+    rates?: MarketplaceCheckoutShippingRate[];
+    error?: string;
+  };
+  if (!res.ok) {
+    return { rates: body?.rates ?? [], error: body?.error ?? 'Shipping rates could not be loaded.' };
+  }
+  return { rates: body?.rates ?? [], error: null };
 }

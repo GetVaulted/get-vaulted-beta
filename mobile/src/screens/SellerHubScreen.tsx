@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -59,6 +60,7 @@ import { useSellerHQSync } from '../hooks/useSellerCommerceSync';
 import { useCanonicalUserId } from '../hooks/useCanonicalUserId';
 import { openSellerLayaways } from '../navigation/openSellerLayaways';
 import { SellerHQLayawaysCard } from '../components/seller/hq/SellerHQLayawaysCard';
+import { createSellerShippingLabel } from '../api/sellerSalesRepository';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { openStripeConnectDashboard } from '../lib/openStripeConnectDashboard';
 import {
@@ -290,6 +292,7 @@ export function SellerHubScreen() {
             ordersLoading={ordersSummary.loading}
             ordersLoadedOnce={ordersSummary.loadedOnce}
             accessToken={session?.access_token}
+            onRefreshOrders={() => void ordersSummary.reload({ silent: true })}
             layawayCounts={layawaySummary.counts}
             layawaysLoading={layawaySummary.loading}
             layawaysLoadedOnce={layawaySummary.loadedOnce}
@@ -616,6 +619,8 @@ function OrdersPanel({
   orders,
   ordersLoading,
   ordersLoadedOnce,
+  accessToken,
+  onRefreshOrders,
   layawayCounts,
   layawaysLoading,
   layawaysLoadedOnce,
@@ -626,12 +631,52 @@ function OrdersPanel({
   ordersLoading: boolean;
   ordersLoadedOnce: boolean;
   accessToken?: string;
+  onRefreshOrders?: () => void;
   layawayCounts: import('../api/layawayRepository').SellerLayawayCounts | null;
   layawaysLoading: boolean;
   layawaysLoadedOnce: boolean;
   hasLayaways: boolean;
   onOpenLayaways: (filter?: 'active' | 'ready' | 'overdue') => void;
 }) {
+  const [labelBusyId, setLabelBusyId] = useState<string | null>(null);
+
+  const fulfillmentLabel = (o: import('../api/sellerSalesRepository').SellerSalesOrderRow) => {
+    const fs = o.fulfillmentStatus ?? '';
+    if (fs === 'label_created') return 'Label ready';
+    if (fs === 'in_transit') return 'In transit';
+    if (fs === 'out_for_delivery') return 'Out for delivery';
+    if (fs === 'delivered') return 'Delivered';
+    if (o.status === 'shipped') return 'Shipped';
+    if (o.paymentStatus === 'paid') return 'Ready to ship';
+    return o.status;
+  };
+
+  const canCreateLabel = (o: import('../api/sellerSalesRepository').SellerSalesOrderRow) =>
+    o.paymentStatus === 'paid' && !o.shippoTransactionId && !o.labelUrl;
+
+  const onCreateLabel = async (orderId: string) => {
+    if (!accessToken || labelBusyId) return;
+    setLabelBusyId(orderId);
+    try {
+      const result = await createSellerShippingLabel(accessToken, orderId);
+      if (!result.ok) {
+        Alert.alert('Label not created', result.error);
+        return;
+      }
+      onRefreshOrders?.();
+      if (result.labelUrl) {
+        Alert.alert('Label ready', 'Your shipping label is ready.', [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Open label', onPress: () => void Linking.openURL(result.labelUrl!) },
+        ]);
+      } else {
+        Alert.alert('Label ready', 'Carrier label purchased. Tracking updates will notify the buyer.');
+      }
+    } finally {
+      setLabelBusyId(null);
+    }
+  };
+
   const initialLoading =
     (!ordersLoadedOnce && ordersLoading) || (!layawaysLoadedOnce && layawaysLoading);
 
@@ -658,20 +703,42 @@ function OrdersPanel({
       />
       {orders.map((o) => {
         const amt = `$${(o.totalCents / 100).toFixed(2)}`;
+        const showCreateLabel = canCreateLabel(o);
         return (
-          <Pressable
-            key={o.id}
-            style={styles.orderRow}
-            onPress={() => openContactSupport({ category: 'order', referenceId: o.id })}
-          >
-            <View style={{ flex: 1 }}>
+          <View key={o.id} style={styles.orderRow}>
+            <Pressable
+              style={{ flex: 1 }}
+              onPress={() => openContactSupport({ category: 'order', referenceId: o.id })}
+            >
               <Text style={styles.orderItem}>{o.listingTitle}</Text>
               <Text style={styles.orderBuyer}>
-                {o.buyerUsername ? `@${o.buyerUsername}` : 'Buyer'} · {o.status}
+                {o.buyerUsername ? `@${o.buyerUsername}` : 'Buyer'} · {fulfillmentLabel(o)}
               </Text>
+            </Pressable>
+            <View style={styles.orderRowActions}>
+              {showCreateLabel ? (
+                <Pressable
+                  style={styles.orderLabelBtn}
+                  disabled={labelBusyId === o.id}
+                  onPress={() => void onCreateLabel(o.id)}
+                >
+                  <Text style={styles.orderLabelBtnText}>
+                    {labelBusyId === o.id ? '…' : 'Label'}
+                  </Text>
+                </Pressable>
+              ) : null}
+              {o.labelUrl ? (
+                <Pressable onPress={() => void Linking.openURL(o.labelUrl!)}>
+                  <Text style={styles.orderTrackLink}>PDF</Text>
+                </Pressable>
+              ) : o.trackingUrl ? (
+                <Pressable onPress={() => void Linking.openURL(o.trackingUrl!)}>
+                  <Text style={styles.orderTrackLink}>Track</Text>
+                </Pressable>
+              ) : null}
+              <Text style={styles.orderAmt}>{amt}</Text>
             </View>
-            <Text style={styles.orderAmt}>{amt}</Text>
-          </Pressable>
+          </View>
         );
       })}
     </View>
@@ -1491,6 +1558,30 @@ const styles = StyleSheet.create({
     color: colors.gold,
     fontWeight: '800',
     fontSize: 14,
+  },
+  orderRowActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  orderLabelBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radii.sm,
+    backgroundColor: 'rgba(212,175,55,0.15)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(212,175,55,0.35)',
+  },
+  orderLabelBtnText: {
+    color: colors.gold,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  orderTrackLink: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
   orderEmpty: {
     color: colors.textMuted,

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { EscrowStatus, OrderPaymentMethod } from "@/generated/prisma/enums";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { createNotification } from "@/lib/notifications";
+import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
 import { prisma } from "@/lib/prisma";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import {
@@ -74,6 +75,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       id: true,
       buyerId: true,
       sellerId: true,
+      listingId: true,
       status: true,
       paymentStatus: true,
       paymentMethod: true,
@@ -128,6 +130,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       data: {
         status: "shipped",
         shippedAt: new Date(),
+        fulfillmentStatus: "in_transit",
         ...(tn !== undefined ? { trackingNumber: tn } : {}),
         ...escrowShipData,
       },
@@ -159,6 +162,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       title: "Order shipped",
       body: tn ? `“${lt}” is on the way. Tracking: ${tn}.` : `“${lt}” has been marked shipped.`,
       href: `/orders/${encodeURIComponent(id)}`,
+    });
+    emitOrderLifecycleSync({
+      orderId: id,
+      parties: { sellerId: order.sellerId, buyerId: order.buyerId },
+      listingId: order.listingId,
+      orderStatus: "shipped",
+      paymentStatus: order.paymentStatus,
+      extraPayload: { fulfillmentStatus: "in_transit" },
     });
     return NextResponse.json({ ok: true });
   }

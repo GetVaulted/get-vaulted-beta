@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { createNotification } from "@/lib/notifications";
+import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
 import { prisma } from "@/lib/prisma";
 import { verifyShippoWebhookSignature } from "@/lib/shippo";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
-import { mapShippoTrackingToFulfillment } from "@/services/shipping";
+import { buildOrderUpdateForShippoFulfillment, mapShippoTrackingToFulfillment } from "@/services/shipping";
 import { processDeliveryPayoutEvaluation } from "@/services/payout/process-delivery-payout";
 import { processCarrierAcceptancePayoutEvaluation } from "@/services/payout/process-payout-tier-events";
 import {
@@ -24,6 +25,8 @@ type TrackPayload = {
     transaction?: string;
   };
 };
+
+const TERMINAL_FULFILLMENT = new Set(["delivered", "out_for_delivery", "in_transit"]);
 
 /**
  * Shippo tracking / transaction webhooks.
@@ -94,7 +97,11 @@ export async function POST(req: Request) {
         buyerId: true,
         sellerId: true,
         listingId: true,
+        status: true,
+        paymentStatus: true,
         fulfillmentStatus: true,
+        shippedAt: true,
+        carrierAcceptedAt: true,
         listing: { select: { title: true } },
       },
     });
@@ -103,15 +110,31 @@ export async function POST(req: Request) {
       if (seen.has(o.id)) continue;
       seen.add(o.id);
       const prev = o.fulfillmentStatus;
+      if (prev === "delivered" && mapped !== "delivered") continue;
+
+      const updateData = buildOrderUpdateForShippoFulfillment({
+        mapped,
+        carrierStatus: carrierStatus ?? undefined,
+        order: o,
+      });
       await prisma.order.update({
         where: { id: o.id },
-        data: {
-          fulfillmentStatus: mapped,
-          shippingStatus: carrierStatus ?? undefined,
-        },
+        data: updateData,
       });
+
+      const nextStatus = updateData.status ?? o.status;
+      emitOrderLifecycleSync({
+        orderId: o.id,
+        parties: { sellerId: o.sellerId, buyerId: o.buyerId },
+        listingId: o.listingId,
+        orderStatus: nextStatus,
+        paymentStatus: o.paymentStatus,
+        extraPayload: { fulfillmentStatus: mapped },
+      });
+
       const lt =
         o.listing.title.length > 70 ? `${o.listing.title.slice(0, 67)}…` : o.listing.title;
+
       if (mapped === "delivered" && prev !== "delivered") {
         await logSellerCommerceEvent({
           sellerId: o.sellerId,
@@ -136,7 +159,45 @@ export async function POST(req: Request) {
           href: `/orders/${encodeURIComponent(o.id)}`,
         });
         void processDeliveryPayoutEvaluation(o.id);
-      } else if (mapped === "in_transit" && prev !== "in_transit" && prev !== "delivered") {
+      } else if (mapped === "out_for_delivery" && prev !== "out_for_delivery" && prev !== "delivered") {
+        await logSellerCommerceEvent({
+          sellerId: o.sellerId,
+          listingId: o.listingId,
+          orderId: o.id,
+          kind: SELLER_COMMERCE_KIND.fulfillmentInTransit,
+          title: "Out for delivery",
+          body: `Carrier reports “${lt}” is out for delivery.`,
+        });
+        await createNotification(prisma, {
+          userId: o.buyerId,
+          type: "order_out_for_delivery",
+          title: "Out for delivery",
+          body: `“${lt}” is out for delivery today.`,
+          href: `/orders/${encodeURIComponent(o.id)}`,
+        });
+      } else if (
+        mapped === "in_transit" &&
+        !TERMINAL_FULFILLMENT.has(prev) &&
+        o.status !== "shipped" &&
+        nextStatus === "shipped"
+      ) {
+        void processCarrierAcceptancePayoutEvaluation(o.id);
+        await logSellerCommerceEvent({
+          sellerId: o.sellerId,
+          listingId: o.listingId,
+          orderId: o.id,
+          kind: SELLER_COMMERCE_KIND.fulfillmentInTransit,
+          title: "Shipment in transit",
+          body: `Carrier status update for “${lt}”: shipped.`,
+        });
+        await createNotification(prisma, {
+          userId: o.buyerId,
+          type: "order_shipped",
+          title: "Order shipped",
+          body: `“${lt}” is on the way.`,
+          href: `/orders/${encodeURIComponent(o.id)}`,
+        });
+      } else if (mapped === "in_transit" && prev !== "in_transit" && prev !== "out_for_delivery" && prev !== "delivered") {
         void processCarrierAcceptancePayoutEvaluation(o.id);
         await logSellerCommerceEvent({
           sellerId: o.sellerId,

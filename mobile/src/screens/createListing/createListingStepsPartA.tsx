@@ -171,7 +171,7 @@ export function CreateListingMediaScreen({
   }, [route.params?.draftId, route.params?.channel, route.params?.reset, loadDraft, startFresh, beginListingChannel]);
 
   useEffect(() => {
-    if (!route.params?.draftId && !form.listingChannel) {
+    if (!route.params?.draftId && !form.listingChannel && navigation.isFocused()) {
       navigation.replace('CreateListingChooseChannel');
     }
   }, [form.listingChannel, navigation, route.params?.draftId]);

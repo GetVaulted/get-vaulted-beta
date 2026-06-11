@@ -173,11 +173,39 @@ describe("fulfillment: label API + Shippo webhook (integration)", () => {
 
     const mid = await prisma.order.findUnique({ where: { id: order.id } });
     expect(mid?.fulfillmentStatus).toBe("in_transit");
+    expect(mid?.status).toBe("shipped");
+    expect(mid?.shippedAt).toBeTruthy();
+
+    const buyerTransitNotifications = await prisma.notification.findMany({
+      where: { userId: buyer.id, type: { in: ["order_shipped", "order_in_transit"] } },
+    });
+    expect(buyerTransitNotifications.length).toBeGreaterThan(0);
 
     const eventsAfterTransit = await prisma.sellerCommerceEvent.findMany({
       where: { sellerId: seller.id, orderId: order.id },
     });
     expect(eventsAfterTransit.some((e) => e.kind === SELLER_COMMERCE_KIND.fulfillmentInTransit)).toBe(true);
+
+    const ofdBody = JSON.stringify({
+      event: "track_updated",
+      data: {
+        transaction: "txn_ship_webhook",
+        tracking_number: "1Z999",
+        tracking_status: { status: "OUT_FOR_DELIVERY" },
+      },
+    });
+    const rOfd = await postShippoWebhook(
+      new Request("http://localhost/api/shippo/webhook", { method: "POST", body: ofdBody }),
+    );
+    expect(rOfd.status).toBe(200);
+
+    const ofd = await prisma.order.findUnique({ where: { id: order.id } });
+    expect(ofd?.fulfillmentStatus).toBe("out_for_delivery");
+
+    const ofdNotifications = await prisma.notification.findMany({
+      where: { userId: buyer.id, type: "order_out_for_delivery" },
+    });
+    expect(ofdNotifications.length).toBe(1);
 
     const deliveredBody = JSON.stringify({
       event: "track_updated",
@@ -194,6 +222,8 @@ describe("fulfillment: label API + Shippo webhook (integration)", () => {
 
     const end = await prisma.order.findUnique({ where: { id: order.id } });
     expect(end?.fulfillmentStatus).toBe("delivered");
+    expect(end?.status).toBe("delivered");
+    expect(end?.deliveryConfirmedAt).toBeTruthy();
 
     const eventsFinal = await prisma.sellerCommerceEvent.findMany({
       where: { sellerId: seller.id, orderId: order.id },

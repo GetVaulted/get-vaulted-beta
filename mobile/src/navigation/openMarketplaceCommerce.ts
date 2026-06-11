@@ -41,7 +41,29 @@ export async function ensureBuyerWalletReady(accessToken: string): Promise<{
   };
 }
 
-export function openMarketplaceBuyNow(
+async function openMarketplaceCheckout(
+  navigation: RootNav,
+  product: Product,
+  mode: 'buy_now' | 'layaway',
+  accessToken: string,
+) {
+  const ready = await ensureBuyerWalletReady(accessToken);
+  const walletSetupFirst = !ready.paymentReady || !ready.shippingReady;
+  if (walletSetupFirst) {
+    Alert.alert(
+      'Wallet setup',
+      'Add a saved shipping address and payment method once — they apply to live shows and marketplace checkout.',
+      [{ text: 'Continue', style: 'default' }],
+    );
+  }
+  navigation.navigate('MarketplaceCheckout', {
+    listingId: product.id,
+    mode,
+    walletSetupFirst,
+  });
+}
+
+export async function openMarketplaceBuyNow(
   navigation: RootNav,
   product: Product,
   opts: { accessToken?: string; guestExploreMode: boolean },
@@ -50,10 +72,10 @@ export function openMarketplaceBuyNow(
     promptMarketplaceSignIn(product.id, 'buy_now');
     return;
   }
-  navigation.navigate('MarketplaceCheckout', { listingId: product.id, mode: 'buy_now' });
+  await openMarketplaceCheckout(navigation, product, 'buy_now', opts.accessToken);
 }
 
-export function openMarketplaceLayaway(
+export async function openMarketplaceLayaway(
   navigation: RootNav,
   product: Product,
   opts: { accessToken?: string; guestExploreMode: boolean },
@@ -62,7 +84,7 @@ export function openMarketplaceLayaway(
     promptMarketplaceSignIn(product.id, 'layaway');
     return;
   }
-  navigation.navigate('MarketplaceCheckout', { listingId: product.id, mode: 'layaway' });
+  await openMarketplaceCheckout(navigation, product, 'layaway', opts.accessToken);
 }
 
 export function openMarketplaceMakeOffer(

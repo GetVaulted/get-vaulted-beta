@@ -202,20 +202,20 @@ export function ProductDetailScreen({ navigation, route }: Props) {
 
   const goBuyNow = () => {
     if (!product) return;
-    openMarketplaceBuyNow(navigation, product, commerceOpts);
+    void openMarketplaceBuyNow(navigation, product, commerceOpts);
   };
 
   const goLayaway = () => {
     if (!product) return;
-    openMarketplaceLayaway(navigation, product, commerceOpts);
+    void openMarketplaceLayaway(navigation, product, commerceOpts);
   };
 
   useEffect(() => {
     if (!product || !session?.access_token || guestExploreMode) return;
     const pending = consumePendingMarketplaceListingAction(product.id);
     if (!pending) return;
-    if (pending === 'buy_now') openMarketplaceBuyNow(navigation, product, commerceOpts);
-    else if (pending === 'layaway') openMarketplaceLayaway(navigation, product, commerceOpts);
+    if (pending === 'buy_now') void openMarketplaceBuyNow(navigation, product, commerceOpts);
+    else if (pending === 'layaway') void openMarketplaceLayaway(navigation, product, commerceOpts);
     else if (pending === 'make_offer') openMarketplaceMakeOffer(() => setOfferSheetOpen(true), product, commerceOpts);
     else if (pending === 'trade') openMarketplaceTrade(rootNav, product, commerceOpts);
   }, [commerceOpts, guestExploreMode, navigation, product, rootNav, session?.access_token]);

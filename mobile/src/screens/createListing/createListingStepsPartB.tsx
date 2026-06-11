@@ -12,7 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useRef, useState } from 'react';
+import { useRef, useState, useCallback } from 'react';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   PublishListingError,
@@ -23,10 +23,7 @@ import { fetchSellerConnectStatus } from '../../api/stripeConnectRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { clearHomeFeedCache } from '../../lib/homeFeedCache';
 import { isSupabaseConfigured } from '../../lib/supabase';
-import { PublishListingSuccessModal } from '../../components/createListing/PublishListingSuccessModal';
-import { openSellerHQ } from '../../navigation/openSellerHQ';
 import { openSellerListingManagement } from '../../navigation/openSellerListingManagement';
-import { rootNavigationRef } from '../../navigation/rootNavigationRef';
 import type { ListingPreview } from '../../createListing/types';
 import { useCreateListingDraft } from '../../createListing/CreateListingDraftContext';
 import {
@@ -350,11 +347,6 @@ export function CreateListingReviewScreen({
   const [publishing, setPublishing] = useState(false);
   const publishLockRef = useRef(false);
   const publishRequestIdRef = useRef<string | null>(null);
-  const [publishSuccess, setPublishSuccess] = useState<{
-    listingId: string;
-    preview: ListingPreview;
-    variant: 'marketplace' | 'live';
-  } | null>(null);
   const { channel, accent, totalSteps, isLiveShow, step } = useCreateListingFlow();
   const channelCfg = LISTING_CHANNEL_CONFIG[channel];
   const { exitFlow, goBackStep } = useCreateListingNavigation();
@@ -398,6 +390,19 @@ export function CreateListingReviewScreen({
       : form.verificationSource === 'seller_provided'
         ? 'Seller-provided credentials — AI does not guarantee authenticity.'
         : 'No authentication evidence highlighted — consider Vaulted Verification before going live.';
+
+  const exitToActiveListing = useCallback(
+    (listingId: string, preview: ListingPreview) => {
+      void clearHomeFeedCache();
+      publishRequestIdRef.current = null;
+      navigation.getParent()?.goBack();
+      requestAnimationFrame(() => {
+        completeAfterPublish(preview);
+        openSellerListingManagement(listingId);
+      });
+    },
+    [completeAfterPublish, navigation],
+  );
 
   const onPublish = async () => {
     if (publishLockRef.current || publishing) return;
@@ -451,16 +456,7 @@ export function CreateListingReviewScreen({
     const publishRequestId = publishRequestIdRef.current;
     try {
       const { listingId, preview } = await publishCreateListingForm(user.id, form, { publishRequestId });
-
-      completeAfterPublish(preview);
-      void clearHomeFeedCache();
-
-      setPublishSuccess({
-        listingId,
-        preview,
-        variant: isLiveShow ? 'live' : 'marketplace',
-      });
-      publishRequestIdRef.current = null;
+      exitToActiveListing(listingId, preview);
     } catch (e) {
       publishRequestIdRef.current = null;
       const message =
@@ -487,32 +483,7 @@ export function CreateListingReviewScreen({
 
   const sellerPrice = resolveSellerDisplayPrice(form);
 
-  const dismissPublishSuccess = () => {
-    setPublishSuccess(null);
-    navigation.getParent()?.goBack();
-  };
-
   return (
-    <>
-    <PublishListingSuccessModal
-      visible={publishSuccess != null}
-      variant={publishSuccess?.variant ?? 'marketplace'}
-      preview={publishSuccess?.preview ?? null}
-      onViewListing={() => {
-        const id = publishSuccess?.listingId;
-        setPublishSuccess(null);
-        navigation.getParent()?.goBack();
-        if (id) {
-          openSellerListingManagement(id);
-        }
-      }}
-      onSellerHQ={() => {
-        setPublishSuccess(null);
-        navigation.getParent()?.goBack();
-        openSellerHQ(navigation, { tab: 'listings' });
-      }}
-      onDismiss={dismissPublishSuccess}
-    />
     <CreateListingChrome
       step={reviewStep}
       total={totalSteps}
@@ -735,7 +706,6 @@ export function CreateListingReviewScreen({
         </View>
       </ScrollView>
     </CreateListingChrome>
-    </>
   );
 }
 

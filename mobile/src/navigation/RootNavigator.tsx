@@ -106,6 +106,10 @@ const AccountHubScreen = lazyScreen(
   () => import('../screens/settings/AccountHubScreen'),
   (m) => m.AccountHubScreen,
 );
+const BuyerWalletScreen = lazyScreen(
+  () => import('../screens/account/BuyerWalletScreen'),
+  (m) => m.BuyerWalletScreen,
+);
 
 const theme = {
   ...DarkTheme,
@@ -199,6 +203,7 @@ export function RootNavigator() {
           />
           <Stack.Screen name="Settings" component={SettingsScreen} />
           <Stack.Screen name="AccountHub" component={AccountHubScreen} />
+          <Stack.Screen name="BuyerWallet" component={BuyerWalletScreen} />
           <Stack.Screen
             name="SellerSetupWizard"
             component={SellerSetupWizardScreen}

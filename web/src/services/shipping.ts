@@ -1,4 +1,5 @@
 import { createNotification } from "@/lib/notifications";
+import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import { prisma } from "@/lib/prisma";
 import { isShippoConfigured, shippoCreateShipment, shippoListRates, shippoPurchaseRate, type ShippoAddress, type ShippoParcel } from "@/lib/shippo";
@@ -106,11 +107,20 @@ export async function fulfillOrderShippingAfterPayment(orderId: string): Promise
     const ratesRes = (await shippoListRates(sid)) as { results?: { object_id?: string; amount?: string; provider?: string; servicelevel?: { name?: string } }[] };
     const rates = ratesRes.results ?? [];
     const cheapest = [...rates].sort((a, b) => Number(a.amount ?? 0) - Number(b.amount ?? 0))[0];
-    if (!cheapest?.object_id) throw new Error("No Shippo rates");
+    const preferred =
+      order.carrier && order.service
+        ? rates.find(
+            (r) =>
+              (r.provider ?? "").trim() === order.carrier &&
+              (r.servicelevel?.name ?? "").trim() === order.service,
+          )
+        : undefined;
+    const picked = preferred ?? cheapest;
+    if (!picked?.object_id) throw new Error("No Shippo rates");
 
-    const shippingLabelCostCents = Math.round(Number(cheapest.amount ?? 0) * 100);
+    const shippingLabelCostCents = Math.round(Number(picked.amount ?? 0) * 100);
 
-    const tx = (await shippoPurchaseRate(cheapest.object_id)) as {
+    const tx = (await shippoPurchaseRate(picked.object_id)) as {
       object_id?: string;
       tracking_number?: string;
       tracking_url_provider?: string;
@@ -123,9 +133,9 @@ export async function fulfillOrderShippingAfterPayment(orderId: string): Promise
       where: { id: orderId },
       data: {
         shippoShipmentId: sid,
-        shippoTransactionId: tx.object_id ?? cheapest.object_id,
-        carrier: cheapest.provider ?? null,
-        service: cheapest.servicelevel?.name ?? null,
+        shippoTransactionId: tx.object_id ?? picked.object_id,
+        carrier: picked.provider ?? null,
+        service: picked.servicelevel?.name ?? null,
         trackingNumber: tx.tracking_number ?? null,
         trackingUrl: tx.tracking_url_provider ?? null,
         labelUrl: tx.label_url ?? null,
@@ -171,6 +181,14 @@ export async function fulfillOrderShippingAfterPayment(orderId: string): Promise
       body: `Your label for “${lt}” is ready to print.${tn}`,
       href: `/orders/${encodeURIComponent(orderId)}`,
     });
+    emitOrderLifecycleSync({
+      orderId,
+      parties: { sellerId: order.sellerId, buyerId: order.buyerId },
+      listingId: order.listingId,
+      orderStatus: order.status,
+      paymentStatus: order.paymentStatus,
+      extraPayload: { fulfillmentStatus: "label_created" },
+    });
   } catch (e) {
     console.error(`[shippo] fulfill failed order ${orderId}`, e);
     await prisma.order.update({
@@ -199,8 +217,57 @@ export function mapShippoTrackingToFulfillment(status: string | undefined): stri
   if (!status) return null;
   const s = status.toUpperCase();
   if (s.includes("DELIVERED")) return "delivered";
-  if (s.includes("TRANSIT") || s.includes("IN_TRANSIT")) return "in_transit";
+  if (s.includes("OUT_FOR_DELIVERY") || s.includes("OUT FOR DELIVERY")) return "out_for_delivery";
+  if (s.includes("PRE_TRANSIT") || s.includes("PRE TRANSIT")) return null;
+  if (s.includes("TRANSIT") || s.includes("IN_TRANSIT") || s.includes("SHIPPED") || s.includes("PICKUP")) {
+    return "in_transit";
+  }
   if (s.includes("FAIL") || s.includes("EXCEPTION") || s.includes("ERROR")) return "exception";
   if (s.includes("UNKNOWN")) return null;
   return "in_transit";
+}
+
+export function buildOrderUpdateForShippoFulfillment(args: {
+  mapped: string;
+  carrierStatus: string | undefined;
+  order: {
+    status: string;
+    shippedAt: Date | null;
+    carrierAcceptedAt: Date | null;
+  };
+}): {
+  fulfillmentStatus: string;
+  shippingStatus?: string;
+  status?: string;
+  shippedAt?: Date;
+  carrierAcceptedAt?: Date;
+  deliveryConfirmedAt?: Date;
+} {
+  const now = new Date();
+  const data: {
+    fulfillmentStatus: string;
+    shippingStatus?: string;
+    status?: string;
+    shippedAt?: Date;
+    carrierAcceptedAt?: Date;
+    deliveryConfirmedAt?: Date;
+  } = {
+    fulfillmentStatus: args.mapped,
+  };
+  if (args.carrierStatus) data.shippingStatus = args.carrierStatus;
+
+  if (args.mapped === "in_transit" || args.mapped === "out_for_delivery") {
+    if (args.order.status !== "delivered" && args.order.status !== "shipped") {
+      data.status = "shipped";
+      data.shippedAt = now;
+    }
+    if (args.mapped === "in_transit" && !args.order.carrierAcceptedAt) {
+      data.carrierAcceptedAt = now;
+    }
+  } else if (args.mapped === "delivered") {
+    data.status = "delivered";
+    data.deliveryConfirmedAt = now;
+  }
+
+  return data;
 }

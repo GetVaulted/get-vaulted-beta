@@ -1,14 +1,40 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
 import { VaultedSecureCheckoutPanel } from "@/components/checkout/VaultedSecureCheckoutPanel";
 import { ESCROW_THRESHOLD_USD, estimateEscrowFeeCents, orderTotalQualifiesForEscrow } from "@/lib/escrow-config";
+import {
+  checkoutRatePreferenceKey,
+  getBuyerPreferredShippingRateKey,
+  pickCheckoutShippingRate,
+  setBuyerPreferredShippingRateKey,
+} from "@/lib/buyer-shipping-preference";
 import { VAULTED_SECURE_CHECKOUT } from "@/lib/vaulted-secure-checkout-copy";
 
 function formatMoney(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 }
+
+function formatRatePrice(amount: string, currency: string) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return amount;
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(n);
+  } catch {
+    return `$${n.toFixed(2)}`;
+  }
+}
+
+type CheckoutShippingRate = {
+  id: string;
+  carrier: string;
+  serviceLevel: string;
+  estimatedDelivery: string;
+  amount: string;
+  currency: string;
+};
 
 export type CheckoutListingSnapshot = {
   id: string;
@@ -47,6 +73,28 @@ export function BuyNowCheckoutForm({
   const [taxCollect, setTaxCollect] = useState(false);
   const [taxLoading, setTaxLoading] = useState(false);
   const [taxNote, setTaxNote] = useState<string | null>(null);
+  const usesFlatShipping = listing.shippingPriceUsd > 0;
+  const [shippingPriceUsd, setShippingPriceUsd] = useState(listing.shippingPriceUsd);
+  const [shippingRates, setShippingRates] = useState<CheckoutShippingRate[]>([]);
+  const [ratesLoading, setRatesLoading] = useState(false);
+  const [ratesError, setRatesError] = useState<string | null>(null);
+  const [selectedRateId, setSelectedRateId] = useState<string | null>(null);
+  const [addressExpanded, setAddressExpanded] = useState(false);
+  const [ratesExpanded, setRatesExpanded] = useState(false);
+  const [hasSavedAddress, setHasSavedAddress] = useState(false);
+
+  const selectShippingRate = (rate: CheckoutShippingRate) => {
+    setSelectedRateId(rate.id);
+    setBuyerPreferredShippingRateKey(checkoutRatePreferenceKey(rate));
+    setRatesExpanded(false);
+  };
+
+  const preferredAddress = savedAddresses.find((a) => a.id === buyerAddressId) ?? savedAddresses[0] ?? null;
+  const addressSummary = preferredAddress
+    ? [preferredAddress.fullName, preferredAddress.line1, `${preferredAddress.city}, ${preferredAddress.state} ${preferredAddress.postalCode}`]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
 
   useEffect(() => {
     let cancelled = false;
@@ -57,6 +105,7 @@ export function BuyNowCheckoutForm({
       const rows = Array.isArray(j.addresses) ? j.addresses.filter((a) => a.type === "shipping") : [];
       if (cancelled) return;
       setSavedAddresses(rows);
+      setHasSavedAddress(rows.length > 0);
       const preferred = rows.find((a) => a.isDefault) ?? rows[0];
       if (preferred) {
         setBuyerAddressId(preferred.id);
@@ -74,6 +123,78 @@ export function BuyNowCheckoutForm({
   }, []);
 
   useEffect(() => {
+    if (usesFlatShipping || liveRoomItemId) {
+      setShippingPriceUsd(listing.shippingPriceUsd);
+      setShippingRates([]);
+      setSelectedRateId(null);
+      setRatesError(null);
+      return;
+    }
+    if (!address.trim() || !city.trim() || !state.trim() || !zip.trim()) {
+      setShippingRates([]);
+      setSelectedRateId(null);
+      setShippingPriceUsd(0);
+      setRatesError(null);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      void (async () => {
+        setRatesLoading(true);
+        setRatesError(null);
+        try {
+          const res = await fetch("/api/checkout/shipping-rates", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              listingId: listing.id,
+              buyerAddressId: buyerAddressId || undefined,
+              shipping: {
+                shipRecipientName: name,
+                shipAddress: address,
+                shipCity: city,
+                shipState: state,
+                shipZip: zip,
+                shipCountry: country || "US",
+              },
+            }),
+          });
+          const j = (await res.json().catch(() => ({}))) as {
+            rates?: CheckoutShippingRate[];
+            error?: string;
+          };
+          const rates = Array.isArray(j.rates) ? j.rates : [];
+          setShippingRates(rates);
+          setRatesError(res.ok ? null : j.error ?? "Shipping rates could not be loaded.");
+          const preferredKey = getBuyerPreferredShippingRateKey();
+          const picked = pickCheckoutShippingRate(rates, preferredKey);
+          setSelectedRateId((prev) => (prev && rates.some((r) => r.id === prev) ? prev : picked?.id ?? null));
+        } finally {
+          setRatesLoading(false);
+        }
+      })();
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [
+    address,
+    buyerAddressId,
+    city,
+    country,
+    listing.id,
+    listing.shippingPriceUsd,
+    liveRoomItemId,
+    name,
+    state,
+    usesFlatShipping,
+    zip,
+  ]);
+
+  useEffect(() => {
+    if (usesFlatShipping || liveRoomItemId) return;
+    const picked = shippingRates.find((r) => r.id === selectedRateId);
+    setShippingPriceUsd(picked ? Number(picked.amount) || 0 : 0);
+  }, [liveRoomItemId, selectedRateId, shippingRates, usesFlatShipping]);
+
+  useEffect(() => {
     if (!address.trim() || !city.trim() || !state.trim() || !zip.trim()) {
       setTaxUsd(0);
       setTaxCollect(false);
@@ -89,7 +210,7 @@ export function BuyNowCheckoutForm({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               itemPriceUsd: listing.itemPriceUsd,
-              shippingPriceUsd: listing.shippingPriceUsd,
+              shippingPriceUsd,
               shipping: {
                 shipRecipientName: name,
                 shipAddress: address,
@@ -121,14 +242,15 @@ export function BuyNowCheckoutForm({
       })();
     }, 400);
     return () => window.clearTimeout(t);
-  }, [address, city, state, zip, country, name, listing.itemPriceUsd, listing.shippingPriceUsd]);
+  }, [address, city, state, zip, country, name, listing.itemPriceUsd, shippingPriceUsd]);
 
   const subtotal = useMemo(
-    () => listing.itemPriceUsd + listing.shippingPriceUsd,
-    [listing.itemPriceUsd, listing.shippingPriceUsd],
+    () => listing.itemPriceUsd + shippingPriceUsd,
+    [listing.itemPriceUsd, shippingPriceUsd],
   );
 
   const total = useMemo(() => subtotal + taxUsd, [subtotal, taxUsd]);
+  const selectedRate = shippingRates.find((r) => r.id === selectedRateId) ?? null;
 
   const useVaultedSecureCheckout = orderTotalQualifiesForEscrow(subtotal);
   const secureFeeCents = useMemo(() => estimateEscrowFeeCents(subtotal), [subtotal]);
@@ -136,6 +258,10 @@ export function BuyNowCheckoutForm({
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (!usesFlatShipping && !liveRoomItemId && !selectedRateId) {
+      setError(ratesError ?? "Select a shipping option to continue.");
+      return;
+    }
     setSubmitting(true);
     try {
       const successPath =
@@ -162,7 +288,9 @@ export function BuyNowCheckoutForm({
             shipState: state,
             shipZip: zip,
             shipCountry: country,
+            selectedShippingRateId: selectedRateId || undefined,
           },
+          selectedShippingRateId: selectedRateId || undefined,
           successPath,
           cancelPath,
         }),
@@ -221,7 +349,9 @@ export function BuyNowCheckoutForm({
             </div>
             <div className="flex justify-between gap-4">
               <dt className="text-zinc-500">Shipping</dt>
-              <dd className="font-mono font-semibold text-zinc-200">{formatMoney(listing.shippingPriceUsd)}</dd>
+              <dd className="font-mono font-semibold text-zinc-200">
+                {ratesLoading && !usesFlatShipping ? "Calculating…" : formatMoney(shippingPriceUsd)}
+              </dd>
             </div>
             <div className="flex justify-between gap-4">
               <dt className="text-zinc-500">Sales tax</dt>
@@ -246,7 +376,7 @@ export function BuyNowCheckoutForm({
           <dl className="mt-3 space-y-2.5 text-xs leading-snug text-zinc-400">
             <div>
               <dt className="font-semibold text-zinc-200">Estimated shipping</dt>
-              <dd className="mt-0.5">{formatMoney(listing.shippingPriceUsd)} (included in total above)</dd>
+              <dd className="mt-0.5">{formatMoney(shippingPriceUsd)} (included in total above)</dd>
             </div>
             <div>
               <dt className="font-semibold text-zinc-200">Ships from</dt>
@@ -265,8 +395,117 @@ export function BuyNowCheckoutForm({
 
         {useVaultedSecureCheckout ? <VaultedSecureCheckoutPanel feeCents={secureFeeCents} /> : null}
 
+        {!hasSavedAddress ? (
+          <div className="rounded-2xl border border-amber-500/25 bg-amber-950/10 p-5 sm:p-6">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-200/85">Wallet setup</p>
+            <p className="mt-2 text-sm leading-snug text-zinc-400">
+              Save a shipping address once in your Wallet — it applies to live shows and every purchase.
+            </p>
+            <Link
+              href="/account/payment-methods#wallet-shipping"
+              className="mt-4 inline-flex text-sm font-semibold text-gold-bright hover:underline"
+            >
+              Add shipping address in Wallet →
+            </Link>
+          </div>
+        ) : null}
+
+        {!usesFlatShipping && !liveRoomItemId ? (
+          <div className="rounded-2xl border border-white/[0.08] bg-[#08080a]/90 p-5 sm:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Shipping</p>
+              {selectedRate && !ratesExpanded ? (
+                <button
+                  type="button"
+                  onClick={() => setRatesExpanded(true)}
+                  className="text-xs font-semibold text-gold-bright hover:underline"
+                >
+                  Change speed
+                </button>
+              ) : ratesExpanded ? (
+                <button
+                  type="button"
+                  onClick={() => setRatesExpanded(false)}
+                  className="text-xs font-semibold text-gold-bright hover:underline"
+                >
+                  Done
+                </button>
+              ) : null}
+            </div>
+            {ratesLoading ? (
+              <p className="mt-3 text-sm text-zinc-500">Loading carrier rates for your address…</p>
+            ) : null}
+            {!ratesLoading && ratesError && shippingRates.length === 0 ? (
+              <p className="mt-3 text-xs font-medium text-rose-300">{ratesError}</p>
+            ) : null}
+            {!ratesExpanded && selectedRate ? (
+              <div className="mt-3 rounded-xl border border-white/10 bg-[#0c0c10] px-4 py-3">
+                <p className="text-sm font-semibold text-zinc-100">
+                  {selectedRate.carrier} {selectedRate.serviceLevel}
+                </p>
+                <p className="mt-0.5 text-xs text-zinc-500">{selectedRate.estimatedDelivery}</p>
+                <p className="mt-2 font-mono text-sm font-bold text-gold-bright">
+                  {formatRatePrice(selectedRate.amount, selectedRate.currency)}
+                </p>
+              </div>
+            ) : null}
+            {ratesExpanded ? (
+              <div className="mt-3 space-y-2">
+                {shippingRates.map((rate) => {
+                  const on = selectedRateId === rate.id;
+                  return (
+                    <button
+                      key={rate.id}
+                      type="button"
+                      onClick={() => selectShippingRate(rate)}
+                      className={`flex w-full items-center justify-between gap-4 rounded-xl border px-4 py-3 text-left transition ${
+                        on ? "border-gold/50 bg-gold/10" : "border-white/10 bg-[#0c0c10] hover:border-white/20"
+                      }`}
+                    >
+                      <span>
+                        <span className="block text-sm font-semibold text-zinc-100">
+                          {rate.carrier} {rate.serviceLevel}
+                        </span>
+                        <span className="mt-0.5 block text-xs text-zinc-500">{rate.estimatedDelivery}</span>
+                      </span>
+                      <span className="font-mono text-sm font-bold text-gold-bright">
+                        {formatRatePrice(rate.amount, rate.currency)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="rounded-2xl border border-white/[0.08] bg-[#08080a]/90 p-5 sm:p-6">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Shipping address</p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Shipping address</p>
+            {hasSavedAddress && !addressExpanded ? (
+              <button
+                type="button"
+                onClick={() => setAddressExpanded(true)}
+                className="text-xs font-semibold text-gold-bright hover:underline"
+              >
+                Change
+              </button>
+            ) : addressExpanded ? (
+              <button
+                type="button"
+                onClick={() => setAddressExpanded(false)}
+                className="text-xs font-semibold text-gold-bright hover:underline"
+              >
+                Done
+              </button>
+            ) : null}
+          </div>
+          {hasSavedAddress && !addressExpanded && preferredAddress ? (
+            <p className="mt-3 rounded-xl border border-white/10 bg-[#0c0c10] px-4 py-3 text-sm leading-snug text-zinc-300">
+              {addressSummary}
+            </p>
+          ) : (
+            <>
           {savedAddresses.length > 0 ? (
             <label className="mt-4 block">
               <span className="mb-1 block text-xs font-medium text-zinc-400">Saved address</span>
@@ -283,6 +522,7 @@ export function BuyNowCheckoutForm({
                   setState(selected.state ?? "");
                   setZip(selected.postalCode ?? "");
                   setCountry(selected.country ?? "");
+                  setAddressExpanded(false);
                 }}
                 className="h-11 w-full rounded-xl border border-white/10 bg-[#0c0c10] px-3 text-sm text-foreground outline-none focus:border-gold/40 focus:ring-2 focus:ring-gold/20"
               >
@@ -351,6 +591,8 @@ export function BuyNowCheckoutForm({
               />
             </label>
           </div>
+            </>
+          )}
         </div>
 
         <div className="rounded-2xl border border-white/[0.08] bg-[#08080a]/90 p-5 sm:p-6">

@@ -31,7 +31,9 @@ type Body = {
     shipState?: string;
     shipZip?: string;
     shipCountry?: string;
+    selectedShippingRateId?: string;
   };
+  selectedShippingRateId?: string;
 };
 
 function trim(s: unknown, max = 500): string {
@@ -99,11 +101,13 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
       if (!resolvedShipping.shipRecipientName || !resolvedShipping.shipAddress || !resolvedShipping.shipCity || !resolvedShipping.shipState || !resolvedShipping.shipZip || !resolvedShipping.shipCountry) {
         return NextResponse.json({ error: "Complete all shipping fields." }, { status: 400 });
       }
+      const selectedShippingRateId =
+        trim(body.selectedShippingRateId ?? sh.selectedShippingRateId, 120) || null;
       const { url } = await createBuyNowCheckoutSession({
         buyerId,
         listingId,
         liveRoomItemId,
-        shipping: { ...resolvedShipping, buyerAddressId },
+        shipping: { ...resolvedShipping, buyerAddressId, selectedShippingRateId },
         successPath: body.successPath,
         cancelPath: body.cancelPath,
       });
@@ -157,12 +161,14 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
       ) {
         return NextResponse.json({ error: "Complete all shipping fields." }, { status: 400 });
       }
+      const selectedShippingRateId =
+        trim(body.selectedShippingRateId ?? sh.selectedShippingRateId, 120) || null;
       const { url, layawayId } = await createLayawayDepositCheckout({
         buyerId,
         listingId,
         planType: planRaw as LayawayPlanType,
         termsAcknowledged: true,
-        shipping: { ...resolvedShipping, buyerAddressId },
+        shipping: { ...resolvedShipping, buyerAddressId, selectedShippingRateId },
         successPath: body.successPath,
         cancelPath: body.cancelPath,
       });
@@ -249,6 +255,8 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
       },
       TERMS_REQUIRED: { status: 400, msg: "Acknowledge layaway terms to continue." },
       INVALID_PLAN: { status: 400, msg: "Select a valid layaway plan." },
+      SHIPPING_RATE_REQUIRED: { status: 400, msg: "Select a shipping option to continue." },
+      SHIPPING_RATE_INVALID: { status: 409, msg: "That shipping option is no longer available. Pick another rate." },
       LISTING_UNAVAILABLE: { status: 409, msg: "This listing is not available for layaway.", code: "ITEM_NOT_AVAILABLE" },
       LISTING_LAYAWAY_LOCKED: {
         status: 409,

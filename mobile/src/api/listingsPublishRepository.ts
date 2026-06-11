@@ -221,6 +221,8 @@ function buildWebListingBody(
     signatureRequired: Boolean(form.signature),
     vaultPick: Boolean(form.vaultedVerification),
     shippingPriceUsd: 0,
+    marketplaceShippingOfferScope: form.marketplaceShippingOfferScope,
+    marketplaceAllowedRateKeys: form.marketplaceAllowedRateKeys,
     handlingTime: form.shippingNotes.trim() || '—',
     shippingCategory,
     shippingBaseWeightOz: shippingWeights.base,

@@ -50,6 +50,12 @@ export function SettingsScreen({ navigation }: Props) {
           icon="grid-outline"
           onPress={() => navigation.navigate('AccountHub')}
         />
+        <SettingsRow
+          label="Wallet"
+          sub="Shipping + payment for live and checkout"
+          icon="wallet-outline"
+          onPress={() => navigation.navigate('BuyerWallet')}
+        />
 
         <SettingsSectionHeader title="Selling" />
         {activated ? (

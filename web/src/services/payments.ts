@@ -48,6 +48,7 @@ import {
   CommerceGuardError,
   loadListingCommerceContext,
 } from "@/lib/marketplace/commerce-guards";
+import { resolveMarketplaceCheckoutShipping } from "@/services/marketplace-checkout-shipping";
 import { LayawayStatus } from "@/generated/prisma/enums";
 import { initializeOrderPayoutOnPayment } from "@/services/payout/process-delivery-payout";
 import {
@@ -308,6 +309,8 @@ export type BuyNowShippingInput = {
   shipZip: string;
   shipCountry: string;
   buyerAddressId?: string | null;
+  /** Shippo rate object id chosen by buyer (required when listing shippingPriceUsd is 0). */
+  selectedShippingRateId?: string | null;
 };
 
 async function syncOrderShippingFromLiveSessionTx(tx: TransactionClient, orderId: string) {
@@ -460,6 +463,22 @@ export async function createBuyNowCheckoutSession(args: {
     }
   }
 
+  let resolvedMarketplaceShipping: Awaited<ReturnType<typeof resolveMarketplaceCheckoutShipping>> | null = null;
+  if (!args.liveRoomItemId?.trim()) {
+    resolvedMarketplaceShipping = await resolveMarketplaceCheckoutShipping({
+      listingId: args.listingId,
+      shipTo: {
+        shipRecipientName: args.shipping.shipRecipientName,
+        shipAddress: args.shipping.shipAddress,
+        shipCity: args.shipping.shipCity,
+        shipState: args.shipping.shipState,
+        shipZip: args.shipping.shipZip,
+        shipCountry: args.shipping.shipCountry,
+      },
+      selectedShippingRateId: args.shipping.selectedShippingRateId,
+    });
+  }
+
   const { order, listing, liveRoomItemId } = await prisma.$transaction(async (tx) => {
     const listingRow = await tx.listing.findUnique({
       where: { id: args.listingId },
@@ -512,8 +531,10 @@ export async function createBuyNowCheckoutSession(args: {
     const liveShipEstimateCents = liveRoomItemIdOut
       ? await estimateFirstItemLiveShippingCentsForListingTx(tx, listingRow.id)
       : 0;
+    const marketplaceShippingUsd =
+      resolvedMarketplaceShipping?.shippingPriceUsd ?? listingRow.shippingPriceUsd;
     const escrowSubtotalUsd =
-      itemPriceUsd + (liveRoomItemIdOut ? liveShipEstimateCents / 100 : listingRow.shippingPriceUsd) + taxUsd;
+      itemPriceUsd + (liveRoomItemIdOut ? liveShipEstimateCents / 100 : marketplaceShippingUsd) + taxUsd;
     const rowUseEscrow = orderTotalQualifiesForEscrow(escrowSubtotalUsd) && isEscrowConfigured();
 
     if (
@@ -582,7 +603,7 @@ export async function createBuyNowCheckoutSession(args: {
       await tx.order.delete({ where: { id: existing.id } });
     }
 
-    const initialShippingUsd = liveRoomItemIdOut ? 0 : listingRow.shippingPriceUsd;
+    const initialShippingUsd = liveRoomItemIdOut ? 0 : marketplaceShippingUsd;
     const initialTotalUsd = itemPriceUsd + initialShippingUsd + taxUsd;
     const escrowFeeCents = rowUseEscrow ? estimateEscrowFeeCents(escrowSubtotalUsd) : 0;
 
@@ -605,6 +626,8 @@ export async function createBuyNowCheckoutSession(args: {
         status: "pending",
         paymentStatus: PAYMENT_PENDING,
         fulfillmentStatus: "pending",
+        carrier: liveRoomItemIdOut ? null : resolvedMarketplaceShipping?.carrier ?? null,
+        service: liveRoomItemIdOut ? null : resolvedMarketplaceShipping?.service ?? null,
         shipRecipientName: args.shipping.shipRecipientName,
         shipAddress: args.shipping.shipAddress,
         shipCity: args.shipping.shipCity,

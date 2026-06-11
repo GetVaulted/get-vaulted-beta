@@ -37,6 +37,7 @@ import { prisma } from "@/lib/prisma";
 import { PAYMENT_PAID, PAYMENT_PENDING } from "@/services/payments";
 import { initializeOrderPayoutOnPayment } from "@/services/payout/process-delivery-payout";
 import { fulfillOrderShippingAfterPayment } from "@/services/shipping";
+import { resolveMarketplaceCheckoutShipping } from "@/services/marketplace-checkout-shipping";
 
 export type LayawayShippingInput = {
   buyerAddressId?: string | null;
@@ -46,6 +47,7 @@ export type LayawayShippingInput = {
   shipState: string;
   shipZip: string;
   shipCountry: string;
+  selectedShippingRateId?: string | null;
 };
 
 function siteUrl(): string {
@@ -359,6 +361,20 @@ export async function createLayawayDepositCheckout(args: {
   const successUrl = `${base}${args.successPath ?? "/account/layaways"}?session_id={CHECKOUT_SESSION_ID}`;
   const cancelUrl = `${base}${args.cancelPath ?? `/marketplace/${encodeURIComponent(args.listingId)}`}`;
 
+  const resolvedMarketplaceShipping = await resolveMarketplaceCheckoutShipping({
+    listingId: args.listingId,
+    shipTo: {
+      shipRecipientName: args.shipping.shipRecipientName,
+      shipAddress: args.shipping.shipAddress,
+      shipCity: args.shipping.shipCity,
+      shipState: args.shipping.shipState,
+      shipZip: args.shipping.shipZip,
+      shipCountry: args.shipping.shipCountry,
+    },
+    selectedShippingRateId: args.shipping.selectedShippingRateId,
+  });
+  const shippingPriceUsd = resolvedMarketplaceShipping.shippingPriceUsd;
+
   const { order, layaway, listing, depositUsd } = await prisma.$transaction(async (tx) => {
     const listingRow = await tx.listing.findUnique({
       where: { id: args.listingId },
@@ -404,9 +420,9 @@ export async function createLayawayDepositCheckout(args: {
     const depositUsd = layawayDepositUsd(listingRow.priceUsd);
     const remaining = layawayRemainingBalanceUsd({
       itemPriceUsd: listingRow.priceUsd,
-      shippingPriceUsd: listingRow.shippingPriceUsd,
+      shippingPriceUsd,
     });
-    const totalUsd = roundUsd(listingRow.priceUsd + listingRow.shippingPriceUsd);
+    const totalUsd = roundUsd(listingRow.priceUsd + shippingPriceUsd);
 
     await reserveListingInventoryHoldTx(tx, {
       listingId: listingRow.id,
@@ -420,7 +436,7 @@ export async function createLayawayDepositCheckout(args: {
         buyerId: args.buyerId,
         sellerId: listingRow.sellerId,
         itemPriceUsd: listingRow.priceUsd,
-        shippingPriceUsd: listingRow.shippingPriceUsd,
+        shippingPriceUsd,
         taxUsd: 0,
         totalUsd,
         status: "pending",
@@ -428,6 +444,8 @@ export async function createLayawayDepositCheckout(args: {
         fulfillmentStatus: "pending",
         paymentMethod: OrderPaymentMethod.layaway,
         paymentLabel: "layaway_deposit",
+        carrier: resolvedMarketplaceShipping.carrier,
+        service: resolvedMarketplaceShipping.service,
         shipRecipientName: args.shipping.shipRecipientName,
         shipAddress: args.shipping.shipAddress,
         shipCity: args.shipping.shipCity,
@@ -450,7 +468,7 @@ export async function createLayawayDepositCheckout(args: {
         planType: args.planType,
         status: LayawayStatus.active,
         originalPriceUsd: listingRow.priceUsd,
-        shippingPriceUsd: listingRow.shippingPriceUsd,
+        shippingPriceUsd,
         depositAmountUsd: depositUsd,
         amountPaidUsd: 0,
         remainingBalanceUsd: remaining,
