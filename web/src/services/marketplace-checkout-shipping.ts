@@ -1,6 +1,8 @@
 import { hasCompleteParcel } from "@/lib/listing-publish";
 import {
+  marketplaceListingRateKey,
   marketplaceOfferableRates,
+  pickMarketplaceCheckoutRate,
   type MarketplaceCheckoutRateQuote,
 } from "@/lib/marketplace-shipping-offer";
 import { prisma } from "@/lib/prisma";
@@ -81,10 +83,12 @@ function mapShippoRateToQuote(rate: ShippoRateRow): MarketplaceCheckoutRateQuote
     !rateHasAttribute(rate, "NO_TRACKING");
   const insuranceAvailable = rateHasAttribute(rate, "INSURANCE") || rateHasAttribute(rate, "INSURANCE_INCLUDED");
   const { label, estimatedDays } = deliveryLabelAndDays(rate);
+  const carrier = rate.provider?.trim() || "Carrier";
+  const serviceLevel = rate.servicelevel?.name?.trim() || "Standard";
   return {
-    id: rate.object_id,
-    carrier: rate.provider?.trim() || "Carrier",
-    serviceLevel: rate.servicelevel?.name?.trim() || "Standard",
+    id: marketplaceListingRateKey({ carrier, serviceLevel }),
+    carrier,
+    serviceLevel,
     estimatedDelivery: label,
     estimatedDays,
     amount: rate.amount ?? "0",
@@ -105,9 +109,8 @@ function compareQuotes(a: MarketplaceCheckoutRateQuote, b: MarketplaceCheckoutRa
 }
 
 function mockCheckoutRateQuotes(): MarketplaceCheckoutRateQuote[] {
-  return [
+  const rows: Omit<MarketplaceCheckoutRateQuote, "id">[] = [
     {
-      id: "mock-usps-ground",
       carrier: "USPS",
       serviceLevel: "Ground Advantage",
       estimatedDelivery: "Estimated 3–5 business days",
@@ -118,7 +121,6 @@ function mockCheckoutRateQuotes(): MarketplaceCheckoutRateQuote[] {
       insuranceAvailable: true,
     },
     {
-      id: "mock-ups-ground",
       carrier: "UPS",
       serviceLevel: "Ground",
       estimatedDelivery: "Estimated 2–4 business days",
@@ -129,7 +131,6 @@ function mockCheckoutRateQuotes(): MarketplaceCheckoutRateQuote[] {
       insuranceAvailable: true,
     },
     {
-      id: "mock-fedex-home",
       carrier: "FedEx",
       serviceLevel: "Home Delivery",
       estimatedDelivery: "Estimated 2–5 business days",
@@ -139,7 +140,13 @@ function mockCheckoutRateQuotes(): MarketplaceCheckoutRateQuote[] {
       trackingIncluded: true,
       insuranceAvailable: true,
     },
-  ].sort(compareQuotes);
+  ];
+  return rows
+    .map((row) => ({
+      ...row,
+      id: marketplaceListingRateKey(row),
+    }))
+    .sort(compareQuotes);
 }
 
 async function loadListingShippingContext(listingId: string) {
@@ -309,7 +316,7 @@ export async function resolveMarketplaceCheckoutShipping(args: {
     listingId: args.listingId,
     shipTo: args.shipTo,
   });
-  const picked = rates.find((r) => r.id === rateId);
+  const picked = pickMarketplaceCheckoutRate(rates, rateId);
   if (!picked) throw new Error("SHIPPING_RATE_INVALID");
 
   const amount = Number(picked.amount);

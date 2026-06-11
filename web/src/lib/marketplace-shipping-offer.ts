@@ -73,3 +73,26 @@ export function parseMarketplaceAllowedRateKeys(v: unknown): string[] {
     .filter(Boolean)
     .slice(0, 40);
 }
+
+/** Match a buyer-selected rate across fresh Shippo quotes (ids are stable carrier|service keys). */
+export function pickMarketplaceCheckoutRate(
+  rates: MarketplaceCheckoutRateQuote[],
+  selectedRateId: string,
+): MarketplaceCheckoutRateQuote | null {
+  const id = selectedRateId.trim();
+  if (!id || rates.length === 0) return null;
+
+  const exact = rates.find((r) => r.id === id);
+  if (exact) return exact;
+
+  const byLane = rates.filter((r) => marketplaceListingRateKey(r) === id);
+  if (byLane.length === 1) return byLane[0]!;
+  if (byLane.length > 1) {
+    return [...byLane].sort((a, b) => Number(a.amount) - Number(b.amount))[0] ?? null;
+  }
+
+  // Legacy ephemeral Shippo rate ids from an earlier quote in the same session.
+  if (!id.includes("|") && rates.length === 1) return rates[0]!;
+
+  return null;
+}
