@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -27,6 +27,7 @@ import {
   vaultEventSection,
 } from '../../../lib/vaultEventModel';
 import { logVaultEvents, vaultEventsFabMetrics } from '../../../lib/vaultEventsLayout';
+import type { SellerReloadOptions } from '../../../hooks/sellerReloadOptions';
 import { colors, radii, spacing } from '../../../theme';
 import { VaultEventCard } from './VaultEventCard';
 
@@ -83,8 +84,11 @@ export function VaultEventsHub({
   const [rooms, setRooms] = useState<LiveRoomApiRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadedOnce, setLoadedOnce] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [contentAreaHeight, setContentAreaHeight] = useState(0);
+  const requestRef = useRef(0);
+  const loadedOnceRef = useRef(false);
 
   const tabBarClearance = mainTabBarClearanceProp ?? mainTabBarClearance(insets.bottom);
   const { fabBottom, contentPaddingBottom } = vaultEventsFabMetrics(tabBarClearance);
@@ -99,18 +103,31 @@ export function VaultEventsHub({
     onScheduleNew();
   }, [liveBlocked, onBlockedSchedule, onScheduleNew]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: SellerReloadOptions) => {
     if (!accessToken) {
+      requestRef.current += 1;
       setRooms([]);
       setFetchError(null);
+      setLoading(false);
+      setRefreshing(false);
+      setLoadedOnce(false);
+      loadedOnceRef.current = false;
       logVaultEvents('filter', { reason: 'no_access_token', roomCount: 0 });
       return;
     }
-    setLoading(true);
+
+    const requestId = ++requestRef.current;
+    const silent = opts?.silent ?? loadedOnceRef.current;
+    if (silent) setRefreshing(true);
+    else setLoading(true);
     setFetchError(null);
+
     try {
       const rows = await fetchMyLiveRooms(accessToken);
+      if (requestId !== requestRef.current) return;
       setRooms(rows);
+      setLoadedOnce(true);
+      loadedOnceRef.current = true;
       logVaultEvents('filter', {
         http: 'ok',
         roomCount: rows.length,
@@ -118,12 +135,15 @@ export function VaultEventsHub({
         titles: rows.map((r) => r.title?.slice(0, 40)),
       });
     } catch (e) {
+      if (requestId !== requestRef.current) return;
       const msg = e instanceof Error ? e.message : String(e);
-      setRooms([]);
+      if (!loadedOnceRef.current) setRooms([]);
       setFetchError(msg);
       logVaultEvents('filter', { http: 'error', error: msg.slice(0, 200), roomCount: 0 });
     } finally {
-      setLoading(false);
+      if (requestId !== requestRef.current) return;
+      if (silent) setRefreshing(false);
+      else setLoading(false);
     }
   }, [accessToken]);
 
@@ -133,14 +153,12 @@ export function VaultEventsHub({
 
   useFocusEffect(
     useCallback(() => {
-      void load();
+      void load({ silent: true });
     }, [load]),
   );
 
   const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
+    await load({ silent: true });
   }, [load]);
 
   const buckets = useMemo(() => bucketRooms(rooms), [rooms]);
@@ -218,8 +236,8 @@ export function VaultEventsHub({
     [onHostRoom, onViewRecap],
   );
 
-  const showLoader = loading && rooms.length === 0;
-  const showEmpty = !loading && list.length === 0;
+  const showLoader = loading && !loadedOnce && rooms.length === 0;
+  const showEmpty = loadedOnce && !loading && list.length === 0;
   const showList = list.length > 0;
 
   const renderEventCard = useCallback(

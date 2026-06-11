@@ -4,7 +4,7 @@ import {
   type SellerLayawayCounts,
   type SellerLayawayRow,
 } from '../api/layawayRepository';
-import type { SellerReloadOptions } from './useSellerOrdersSummary';
+import type { SellerReloadOptions } from './sellerReloadOptions';
 
 export function useSellerLayawaySummary(accessToken: string | undefined) {
   const [counts, setCounts] = useState<SellerLayawayCounts | null>(null);

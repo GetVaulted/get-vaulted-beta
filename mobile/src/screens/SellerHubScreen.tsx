@@ -57,7 +57,7 @@ import { useSellerCommandCenterData } from '../hooks/useSellerCommandCenterData'
 import { useSellerInventory } from '../hooks/useSellerInventory';
 import { useSellerLayawaySummary } from '../hooks/useSellerLayawaySummary';
 import { useSellerOrdersSummary } from '../hooks/useSellerOrdersSummary';
-import { useSellerCommerceSync } from '../hooks/useSellerCommerceSync';
+import { useSellerHQSync } from '../hooks/useSellerCommerceSync';
 import { useCanonicalUserId } from '../hooks/useCanonicalUserId';
 import { openSellerLayaways } from '../navigation/openSellerLayaways';
 import { SellerHQLayawaysCard } from '../components/seller/hq/SellerHQLayawaysCard';
@@ -108,13 +108,19 @@ export function SellerHubScreen() {
   );
   const sellerSetup = useSellerSetupState(session?.access_token, Boolean(user?.id));
 
-  useSellerCommerceSync({
+  useSellerHQSync({
     enabled: Boolean(session?.access_token && user?.id),
     canonicalUserId,
     supabaseUserId: user?.id,
+    userId: user?.id,
     reloadOrders: ordersSummary.reload,
     reloadLayaways: layawaySummary.reload,
-    reloadAnalytics: user?.id ? () => cmdData.reloadAnalytics(user.id) : undefined,
+    reloadAnalytics: user?.id ? cmdData.reloadAnalytics : undefined,
+    reloadRooms: cmdData.reloadRooms,
+    reloadInventory: sellerInventory.reload,
+    reloadWallet: sellerWallet.refresh,
+    reloadConnect: sellerConnect.refresh,
+    reloadLiveReadiness: cmdData.liveReadiness.refresh,
   });
 
   useEffect(() => {
@@ -138,8 +144,7 @@ export function SellerHubScreen() {
   useFocusEffect(
     useCallback(() => {
       void sellerSetup.refetchSilent();
-      void cmdData.liveReadiness.refresh();
-    }, [sellerSetup.refetchSilent, cmdData.liveReadiness.refresh]),
+    }, [sellerSetup.refetchSilent]),
   );
 
   const shipFromComplete = sellerHasShipFromAddress(sellerSetup.checks, sellerSetup.seller);
@@ -250,12 +255,9 @@ export function SellerHubScreen() {
   const vaultEventsPanelProps = {
     accessToken: session?.access_token,
     liveGate: cmdData.liveGate,
-    readiness:
-      cmdData.liveReadiness.readinessLoaded && !cmdData.liveReadiness.loading
-        ? cmdData.liveReadiness.readiness
-        : null,
-    readinessLoading: cmdData.liveReadiness.loading,
-    onRefreshReadiness: () => void cmdData.liveReadiness.refresh(),
+    readiness: cmdData.liveReadiness.readiness,
+    readinessLoading: cmdData.liveReadiness.loading && !cmdData.liveReadiness.loadedOnce,
+    onRefreshReadiness: () => void cmdData.liveReadiness.refresh({ silent: true }),
     onFixReadiness: (step: 'stripe' | 'ship_from') => {
       if (step === 'stripe') void openStripeOnboarding();
       else if (step === 'ship_from') setTab('overview');
@@ -351,7 +353,7 @@ export function SellerHubScreen() {
                 accessToken={session?.access_token}
                 onSaved={() => {
                   void sellerSetup.refetchSilent();
-                  void cmdData.liveReadiness.refresh();
+                  void cmdData.liveReadiness.refresh({ silent: true });
                 }}
               />
             ) : null}
@@ -460,6 +462,33 @@ export function SellerHubScreen() {
                 onRefresh={() => {
                   void ordersSummary.reload({ silent: true });
                   void layawaySummary.reload({ silent: true });
+                }}
+                tintColor={colors.gold}
+              />
+            ) : tab === 'wallet' ? (
+              <RefreshControl
+                refreshing={sellerWallet.refreshing}
+                onRefresh={() => void sellerWallet.refresh({ silent: true })}
+                tintColor={colors.gold}
+              />
+            ) : tab === 'overview' ? (
+              <RefreshControl
+                refreshing={
+                  ordersSummary.refreshing ||
+                  layawaySummary.refreshing ||
+                  sellerInventory.refreshing ||
+                  sellerWallet.refreshing ||
+                  cmdData.roomsRefreshing
+                }
+                onRefresh={() => {
+                  void ordersSummary.reload({ silent: true });
+                  void layawaySummary.reload({ silent: true });
+                  void sellerInventory.reload({ silent: true });
+                  void sellerWallet.refresh({ silent: true });
+                  void cmdData.reloadRooms({ silent: true });
+                  if (user?.id) void cmdData.reloadAnalytics(user.id);
+                  void sellerConnect.refresh({ silent: true });
+                  void cmdData.liveReadiness.refresh({ silent: true });
                 }}
                 tintColor={colors.gold}
               />
@@ -594,14 +623,14 @@ function ListingsPanel({
         navigation={navigation}
         listings={inventory.marketplace}
         drafts={drafts}
-        loading={inventory.loading}
+        loading={inventory.loading && !inventory.loadedOnce}
       />
       <ListingInventorySection
         channel="live_show"
         navigation={navigation}
         listings={inventory.liveShow}
         drafts={drafts}
-        loading={inventory.loading}
+        loading={inventory.loading && !inventory.loadedOnce}
       />
     </View>
   );
@@ -683,7 +712,9 @@ function WalletPanel({
   sellerWallet: {
     wallet: import('../api/stripeConnectRepository').SellerWalletSummary | null;
     loading: boolean;
-    refresh: () => Promise<import('../api/stripeConnectRepository').SellerWalletSummary | null>;
+    loadedOnce: boolean;
+    refreshing: boolean;
+    refresh: (opts?: import('../hooks/sellerReloadOptions').SellerReloadOptions) => Promise<import('../api/stripeConnectRepository').SellerWalletSummary | null>;
   };
   hasStripeAccount: boolean;
   onSetupPayouts: () => void;
@@ -691,10 +722,12 @@ function WalletPanel({
   const [stripeLinkBusy, setStripeLinkBusy] = useState(false);
   const w = sellerWallet.wallet;
 
-  const available = sellerWallet.loading ? '…' : (w?.availableFormatted ?? walletSnapshot.available);
-  const pending = sellerWallet.loading ? '…' : (w?.pendingFormatted ?? walletSnapshot.pending);
+  const showWalletPlaceholder = sellerWallet.loading && !sellerWallet.loadedOnce;
+
+  const available = showWalletPlaceholder ? '…' : (w?.availableFormatted ?? walletSnapshot.available);
+  const pending = showWalletPlaceholder ? '…' : (w?.pendingFormatted ?? walletSnapshot.pending);
   const nextPayout =
-    sellerWallet.loading ? '…' : (w?.nextPayoutLabel ?? (hasStripeAccount ? '—' : 'Set up payouts first'));
+    showWalletPlaceholder ? '…' : (w?.nextPayoutLabel ?? (hasStripeAccount ? '—' : 'Set up payouts first'));
   const scheduleLine = w?.payoutScheduleSummary ?? w?.message ?? null;
 
   const openStripeSettings = async () => {
@@ -721,8 +754,14 @@ function WalletPanel({
     <View style={styles.walletHero}>
       <View style={styles.walletHeaderRow}>
         <Text style={styles.walletLabel}>Revenue vault · available</Text>
-        <Pressable onPress={() => void sellerWallet.refresh()} disabled={sellerWallet.loading} hitSlop={8}>
-          <Text style={styles.walletRefresh}>{sellerWallet.loading ? 'Refreshing…' : 'Refresh'}</Text>
+        <Pressable
+          onPress={() => void sellerWallet.refresh({ silent: true })}
+          disabled={sellerWallet.refreshing}
+          hitSlop={8}
+        >
+          <Text style={styles.walletRefresh}>
+            {sellerWallet.refreshing ? 'Refreshing…' : 'Refresh'}
+          </Text>
         </Pressable>
       </View>
       <Text style={styles.walletBig}>{available}</Text>

@@ -1,5 +1,5 @@
 import type { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchMyLiveRooms, type LiveRoomApiRow } from '../api/liveRoomsRepository';
 import { fetchSellerAnalytics, type SellerAnalyticsSnapshot } from '../api/sellerAnalyticsRepository';
 import { useSellerStripeConnect } from './useSellerStripeConnect';
@@ -8,6 +8,7 @@ import { useSellerWallet } from './useSellerWallet';
 import { isSellerHQApproved } from '../lib/sellerHubEntry';
 import { resolveLiveSalesGate } from '../lib/sellerLiveReadiness';
 import type { SellerLayawayCounts } from '../api/layawayRepository';
+import type { SellerReloadOptions } from './sellerReloadOptions';
 
 const EMPTY_ANALYTICS: SellerAnalyticsSnapshot = {
   activeListings: 0,
@@ -32,21 +33,41 @@ export function useSellerCommandCenterData(
   const sellerWallet = useSellerWallet(accessToken);
   const [rooms, setRooms] = useState<LiveRoomApiRow[]>([]);
   const [roomsLoading, setRoomsLoading] = useState(false);
+  const [roomsRefreshing, setRoomsRefreshing] = useState(false);
+  const [roomsLoadedOnce, setRoomsLoadedOnce] = useState(false);
   const [analytics, setAnalytics] = useState<SellerAnalyticsSnapshot>(EMPTY_ANALYTICS);
+  const roomsRequestRef = useRef(0);
+  const roomsLoadedOnceRef = useRef(false);
 
-  const reloadRooms = useCallback(async () => {
+  const reloadRooms = useCallback(async (opts?: SellerReloadOptions) => {
     if (!accessToken) {
+      roomsRequestRef.current += 1;
       setRooms([]);
+      setRoomsLoading(false);
+      setRoomsRefreshing(false);
+      setRoomsLoadedOnce(false);
+      roomsLoadedOnceRef.current = false;
       return;
     }
-    setRoomsLoading(true);
+
+    const requestId = ++roomsRequestRef.current;
+    const silent = opts?.silent ?? roomsLoadedOnceRef.current;
+    if (silent) setRoomsRefreshing(true);
+    else setRoomsLoading(true);
+
     try {
       const rows = await fetchMyLiveRooms(accessToken);
+      if (requestId !== roomsRequestRef.current) return;
       setRooms(rows);
+      setRoomsLoadedOnce(true);
+      roomsLoadedOnceRef.current = true;
     } catch {
-      setRooms([]);
+      if (requestId !== roomsRequestRef.current) return;
+      if (!roomsLoadedOnceRef.current) setRooms([]);
     } finally {
-      setRoomsLoading(false);
+      if (requestId !== roomsRequestRef.current) return;
+      if (silent) setRoomsRefreshing(false);
+      else setRoomsLoading(false);
     }
   }, [accessToken]);
 
@@ -83,8 +104,11 @@ export function useSellerCommandCenterData(
     () =>
       resolveLiveSalesGate(
         sellerConnect.status,
-        liveReadiness.readinessLoaded && !liveReadiness.loading ? liveReadiness.readiness : null,
-        { connectLoading: sellerConnect.loading, readinessLoading: liveReadiness.loading },
+        liveReadiness.readinessLoaded ? liveReadiness.readiness : null,
+        {
+          connectLoading: sellerConnect.loading && !sellerConnect.loadedOnce,
+          readinessLoading: liveReadiness.loading && !liveReadiness.loadedOnce,
+        },
       ),
     [
       sellerConnect.loading,
@@ -203,6 +227,8 @@ export function useSellerCommandCenterData(
     sellerWallet,
     rooms,
     roomsLoading,
+    roomsRefreshing,
+    roomsLoadedOnce,
     reloadRooms,
     reloadAnalytics,
     liveRoom,

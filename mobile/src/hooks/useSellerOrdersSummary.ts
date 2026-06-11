@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchSellerSalesOrders, type SellerSalesOrderRow } from '../api/sellerSalesRepository';
+import type { SellerReloadOptions } from './sellerReloadOptions';
 
-export type SellerReloadOptions = {
-  /** Keep existing rows visible while refetching (focus, poll, realtime). */
-  silent?: boolean;
-};
+export type { SellerReloadOptions };
 
 /** Seller orders from the same `/api/account/sales` endpoint used by web Seller Studio. */
 export function useSellerOrdersSummary(accessToken: string | undefined) {

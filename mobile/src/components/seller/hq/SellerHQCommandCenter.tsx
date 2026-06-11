@@ -131,7 +131,7 @@ export function SellerHQCommandCenter({
       <SellerHQPremiumBanner
         hasUser
         connect={status}
-        connectLoading={data.sellerConnect.loading}
+        connectLoading={data.sellerConnect.loading && !data.sellerConnect.loadedOnce}
         setupProgress={data.setupProgress}
         onPress={onSellerHQEntryPress}
       />
