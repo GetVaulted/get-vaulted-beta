@@ -8,13 +8,15 @@ import { colors, radii, spacing } from '../../theme';
 type Props = {
   /** Footer bar pinned on Seller HQ; inline row on other surfaces. */
   variant?: 'inline' | 'footer';
+  /** Hide Settings when Seller HQ already covers seller setup in-tab. */
+  hideSettings?: boolean;
 };
 
 /**
  * Always-visible account actions for signed-in users (Settings + Sign out).
  * Independent of seller payout / HQ approval state.
  */
-export function AccountAccessBar({ variant = 'inline' }: Props) {
+export function AccountAccessBar({ variant = 'inline', hideSettings = false }: Props) {
   const { user, signOut } = useAuth();
   if (!user) return null;
 
@@ -22,16 +24,20 @@ export function AccountAccessBar({ variant = 'inline' }: Props) {
 
   return (
     <View style={[styles.shell, isFooter && styles.shellFooter]} accessibilityRole="toolbar" accessibilityLabel="Account">
-      <Pressable
-        style={({ pressed }) => [styles.btn, pressed && styles.btnPressed]}
-        onPress={() => openSettings()}
-        accessibilityRole="button"
-        accessibilityLabel="Open settings"
-      >
-        <Ionicons name="settings-outline" size={18} color={colors.gold} />
-        <Text style={styles.btnLabel}>Settings</Text>
-      </Pressable>
-      <View style={styles.divider} />
+      {!hideSettings ? (
+        <>
+          <Pressable
+            style={({ pressed }) => [styles.btn, pressed && styles.btnPressed]}
+            onPress={() => openSettings()}
+            accessibilityRole="button"
+            accessibilityLabel="Open settings"
+          >
+            <Ionicons name="settings-outline" size={18} color={colors.gold} />
+            <Text style={styles.btnLabel}>Settings</Text>
+          </Pressable>
+          <View style={styles.divider} />
+        </>
+      ) : null}
       <Pressable
         style={({ pressed }) => [styles.btn, styles.btnSignOut, pressed && styles.btnPressed]}
         onPress={() => (isFooter ? confirmAndSignOut(signOut) : void performSignOut(signOut))}

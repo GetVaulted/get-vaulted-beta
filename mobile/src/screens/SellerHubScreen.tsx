@@ -3,7 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -25,7 +25,6 @@ import {
 import { SellerHubTabBar } from '../components/seller/hq/SellerHubTabBar';
 import { mainTabBarClearance } from '../lib/mainTabBarMetrics';
 import { LaunchVaultEventPanel } from './sellerHub/LaunchVaultEventPanel';
-import { SellerShipFromSetupCard } from '../components/seller/hq/SellerShipFromSetupCard';
 import { SellerSetupGatePanel } from '../components/seller/hq/SellerSetupGatePanel';
 import { useCreateListingDraft } from '../createListing/CreateListingDraftContext';
 import { openCreateListing } from '../navigation/openCreateListing';
@@ -34,7 +33,6 @@ import { openSellerSetup } from '../navigation/openSellerSetup';
 import { AccountAccessBar } from '../components/account/AccountAccessBar';
 import { SellerHQCommandCenter } from '../components/seller/hq/SellerHQCommandCenter';
 import { SellerPayoutTierCard } from '../components/seller/hq/SellerPayoutTierCard';
-import { SellerHQFab, type FabActionId } from '../components/seller/hq/SellerHQFab';
 import type { SellerHQEntryPhase } from '../lib/sellerHubEntry';
 import { useSellerSetupState } from '../hooks/useSellerSetupState';
 import { openSellerHostRoom } from '../navigation/openSellerHostRoom';
@@ -61,7 +59,6 @@ import { useSellerHQSync } from '../hooks/useSellerCommerceSync';
 import { useCanonicalUserId } from '../hooks/useCanonicalUserId';
 import { openSellerLayaways } from '../navigation/openSellerLayaways';
 import { SellerHQLayawaysCard } from '../components/seller/hq/SellerHQLayawaysCard';
-import { sellerHasShipFromAddress } from '../lib/seller-shipping-readiness';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { openStripeConnectDashboard } from '../lib/openStripeConnectDashboard';
 import {
@@ -135,6 +132,10 @@ export function SellerHubScreen() {
   const [preloadInventory, setPreloadInventory] = useState(true);
   const [giveaways, setGiveaways] = useState(true);
   const [stripeSetupBusy, setStripeSetupBusy] = useState(false);
+  const [shipFromEditKey, setShipFromEditKey] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
+  const studioSectionY = useRef(0);
+  const setupInnerY = useRef(0);
 
   useEffect(() => {
     const pending = consumePendingSellerHQTab();
@@ -147,8 +148,18 @@ export function SellerHubScreen() {
     }, [sellerSetup.refetchSilent]),
   );
 
-  const shipFromComplete = sellerHasShipFromAddress(sellerSetup.checks, sellerSetup.seller);
   const sellerActivated = sellerSetup.displayActivated;
+
+  const focusShipFromSetup = useCallback(() => {
+    setTab('overview');
+    setShipFromEditKey((k) => k + 1);
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({
+        y: Math.max(0, studioSectionY.current + setupInnerY.current - 12),
+        animated: true,
+      });
+    });
+  }, []);
 
   const sellerLaunchMeta = useMemo(() => {
     const meta = user?.user_metadata as Record<string, unknown> | undefined;
@@ -209,9 +220,9 @@ export function SellerHubScreen() {
     const gate = cmdData.liveGate;
     Alert.alert(gate.alertTitle, gate.alertBody);
     if (gate.nextStep === 'stripe') void openStripeOnboarding();
-    else if (gate.nextStep === 'ship_from') setTab('overview');
+    else if (gate.nextStep === 'ship_from') focusShipFromSetup();
     else setTab('live');
-  }, [cmdData.liveGate, openStripeOnboarding]);
+  }, [cmdData.liveGate, focusShipFromSetup, openStripeOnboarding]);
 
   const onSellerHQEntryPress = useCallback(
     (phase: SellerHQEntryPhase) => {
@@ -219,38 +230,11 @@ export function SellerHubScreen() {
         navigateAuthSignUp();
         return;
       }
+      if (phase === 'ready') return;
       openSellerSetup();
     },
     [],
   );
-
-  const onFabAction = useCallback(
-    (id: FabActionId) => {
-      const rootNav = navigation as unknown as NavigationProp<ParamListBase>;
-      switch (id) {
-        case 'vault_events':
-          setTab('live');
-          break;
-        case 'listing':
-          void openCreateListing(rootNav, { channel: 'marketplace' });
-          break;
-        case 'schedule':
-          setPendingVaultEventSchedule(true);
-          setTab('live');
-          break;
-        case 'inventory':
-          setTab('listings');
-          break;
-      }
-    },
-    [cmdData.liveRoom, navigation],
-  );
-
-  const openProfileSettings = useCallback(() => {
-    if (rootNavigationRef.isReady()) {
-      rootNavigationRef.navigate('Settings');
-    }
-  }, []);
 
   const vaultEventsPanelProps = {
     accessToken: session?.access_token,
@@ -260,7 +244,7 @@ export function SellerHubScreen() {
     onRefreshReadiness: () => void cmdData.liveReadiness.refresh({ silent: true }),
     onFixReadiness: (step: 'stripe' | 'ship_from') => {
       if (step === 'stripe') void openStripeOnboarding();
-      else if (step === 'ship_from') setTab('overview');
+      else if (step === 'ship_from') focusShipFromSetup();
     },
     onBlockedSchedule: onLiveSetupBlocked,
     scheduleTitle,
@@ -332,7 +316,12 @@ export function SellerHubScreen() {
         return <VaultIdentityPanel />;
       default:
         return (
-          <View style={{ gap: spacing.lg }}>
+          <View
+            style={{ gap: spacing.lg }}
+            onLayout={(e) => {
+              studioSectionY.current = e.nativeEvent.layout.y;
+            }}
+          >
             <SellerHQCommandCenter
               data={cmdData}
               displayName={sellerLaunchMeta.displayName}
@@ -343,27 +332,17 @@ export function SellerHubScreen() {
               onSellerHQEntryPress={onSellerHQEntryPress}
               onStripeSetup={openStripeOnboarding}
               stripeSetupBusy={stripeSetupBusy}
-              onProfileSettings={openProfileSettings}
-              layawayCounts={layawaySummary.counts}
-              layawaysLoading={layawaySummary.loading && !layawaySummary.loadedOnce}
-              hasLayaways={layawaySummary.hasLayaways}
+              sellerActivated={sellerActivated}
+              accessToken={session?.access_token}
+              shipFromEditKey={shipFromEditKey}
+              onShipFromSaved={() => {
+                void sellerSetup.refetchSilent();
+                void cmdData.liveReadiness.refresh({ silent: true });
+              }}
+              onSetupSectionLayout={(y) => {
+                setupInnerY.current = y;
+              }}
             />
-            {(cmdData.liveReadiness.readinessLoaded || sellerSetup.seller) && !shipFromComplete ? (
-              <SellerShipFromSetupCard
-                accessToken={session?.access_token}
-                onSaved={() => {
-                  void sellerSetup.refetchSilent();
-                  void cmdData.liveReadiness.refresh({ silent: true });
-                }}
-              />
-            ) : null}
-            <View style={styles.futureLane}>
-              <Text style={styles.futureLaneEyebrow}>Coming to your lane</Text>
-              <Text style={styles.futureLaneTitle}>AI assistant · moderation · live analytics</Text>
-              <Text style={styles.futureLaneBody}>
-                Creator subscriptions, vault verification, and collector reputation — reserved for your command center.
-              </Text>
-            </View>
             {areDevToolsEnabled() ? (
               <Pressable
                 style={styles.devToolsCard}
@@ -382,7 +361,6 @@ export function SellerHubScreen() {
                 <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
               </Pressable>
             ) : null}
-            <VaultIdentityPanel compact />
           </View>
         );
     }
@@ -437,9 +415,6 @@ export function SellerHubScreen() {
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.sm }]}>
-      {sellerActivated && tab !== 'live' && tab !== 'listings' ? (
-        <SellerHQFab onAction={onFabAction} />
-      ) : null}
       <SellerHubTabBar activeTab={tab} onChangeTab={setTab} />
       {tab === 'live' ? (
         <View style={[styles.liveTabPane, { paddingBottom: 0 }]}>
@@ -447,6 +422,7 @@ export function SellerHubScreen() {
         </View>
       ) : (
         <ScrollView
+          ref={scrollRef}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
           refreshControl={
@@ -496,7 +472,7 @@ export function SellerHubScreen() {
           }
         >
           <View style={styles.tabBody}>{renderTab()}</View>
-          <AccountAccessBar variant="footer" />
+          <AccountAccessBar variant="footer" hideSettings />
           <View style={{ height: spacing.lg }} />
         </ScrollView>
       )}

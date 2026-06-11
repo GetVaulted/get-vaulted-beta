@@ -18,9 +18,15 @@ import { colors, radii, spacing } from '../../../theme';
 
 export function SellerShipFromSetupCard({
   accessToken,
+  embedded = false,
+  forceEditKey = 0,
   onSaved,
 }: {
   accessToken?: string;
+  /** Renders inside Seller essentials panel without outer card chrome. */
+  embedded?: boolean;
+  /** Increment to open the editor (e.g. from Vault Events readiness). */
+  forceEditKey?: number;
   onSaved?: () => void;
 }) {
   const [loading, setLoading] = useState(true);
@@ -58,6 +64,10 @@ export function SellerShipFromSetupCard({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (forceEditKey > 0) setEditing(true);
+  }, [forceEditKey]);
 
   const save = async () => {
     if (!accessToken) {
@@ -100,13 +110,108 @@ export function SellerShipFromSetupCard({
     shipFromZip: zip,
     shipFromCountry: country,
   });
-  const showSaved = !editing && hasCompleteSellerShipFrom({
+  const addressComplete = hasCompleteSellerShipFrom({
     shipFromStreet: street,
     shipFromCity: city,
     shipFromState: state,
     shipFromZip: zip,
     shipFromCountry: country,
   });
+  const showSaved = !editing && addressComplete;
+
+  const content = loading ? (
+    <ActivityIndicator color={colors.gold} style={{ marginVertical: spacing.sm }} />
+  ) : showSaved ? (
+    <View style={styles.savedBlock}>
+      <View style={styles.savedTop}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.savedTitle}>Ship-from address</Text>
+          <Text style={styles.savedSummary}>{savedSummary}</Text>
+        </View>
+        <Pressable style={styles.editBtn} onPress={() => setEditing(true)} hitSlop={8}>
+          <Text style={styles.editBtnTxt}>Edit</Text>
+        </Pressable>
+      </View>
+    </View>
+  ) : (
+    <View style={styles.form}>
+      <Text style={styles.formTitle}>{addressComplete ? 'Update ship-from address' : 'Ship-from address'}</Text>
+      <Text style={styles.formSub}>Used for Shippo labels on marketplace and live orders.</Text>
+      <TextInput
+        value={name}
+        onChangeText={setName}
+        placeholder="Name on label (optional)"
+        placeholderTextColor={colors.textMuted}
+        style={styles.input}
+      />
+      <TextInput
+        value={street}
+        onChangeText={setStreet}
+        placeholder="Street address"
+        placeholderTextColor={colors.textMuted}
+        style={styles.input}
+      />
+      <View style={styles.row}>
+        <TextInput
+          value={city}
+          onChangeText={setCity}
+          placeholder="City"
+          placeholderTextColor={colors.textMuted}
+          style={[styles.input, styles.flex]}
+        />
+        <TextInput
+          value={state}
+          onChangeText={setState}
+          placeholder="State"
+          placeholderTextColor={colors.textMuted}
+          style={[styles.input, styles.state]}
+        />
+      </View>
+      <View style={styles.row}>
+        <TextInput
+          value={zip}
+          onChangeText={setZip}
+          placeholder="ZIP"
+          placeholderTextColor={colors.textMuted}
+          keyboardType="number-pad"
+          style={[styles.input, styles.flex]}
+        />
+        <TextInput
+          value={country}
+          onChangeText={setCountry}
+          placeholder="Country"
+          placeholderTextColor={colors.textMuted}
+          autoCapitalize="characters"
+          style={[styles.input, styles.state]}
+        />
+      </View>
+      <View style={styles.formActions}>
+        {addressComplete ? (
+          <Pressable style={styles.cancelBtn} onPress={() => setEditing(false)} disabled={busy}>
+            <Text style={styles.cancelBtnTxt}>Cancel</Text>
+          </Pressable>
+        ) : null}
+        <Pressable style={[styles.save, busy && styles.saveOff, addressComplete && styles.saveInline]} onPress={() => void save()} disabled={busy}>
+          {busy ? (
+            <ActivityIndicator color={colors.background} />
+          ) : (
+            <Text style={styles.saveTxt}>Save address</Text>
+          )}
+        </Pressable>
+      </View>
+    </View>
+  );
+
+  if (embedded) {
+    return (
+      <View style={styles.embeddedRow}>
+        <View style={styles.rowIcon}>
+          <Ionicons name="location-outline" size={20} color={colors.gold} />
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>{content}</View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.card}>
@@ -117,78 +222,7 @@ export function SellerShipFromSetupCard({
           <Text style={styles.sub}>Required before hosting — used for Shippo labels on live orders.</Text>
         </View>
       </View>
-      {loading ? (
-        <ActivityIndicator color={colors.gold} style={{ marginVertical: spacing.md }} />
-      ) : showSaved ? (
-        <View style={styles.savedBox}>
-          <View style={styles.savedRow}>
-            <Ionicons name="checkmark-circle" size={20} color={colors.success} />
-            <Text style={styles.savedTitle}>Shipping address connected</Text>
-          </View>
-          <Text style={styles.savedSummary}>{savedSummary}</Text>
-          <Pressable style={styles.editBtn} onPress={() => setEditing(true)}>
-            <Text style={styles.editBtnTxt}>Edit address</Text>
-          </Pressable>
-        </View>
-      ) : (
-        <View style={styles.form}>
-          <TextInput
-            value={name}
-            onChangeText={setName}
-            placeholder="Name on label (optional)"
-            placeholderTextColor={colors.textMuted}
-            style={styles.input}
-          />
-          <TextInput
-            value={street}
-            onChangeText={setStreet}
-            placeholder="Street address"
-            placeholderTextColor={colors.textMuted}
-            style={styles.input}
-          />
-          <View style={styles.row}>
-            <TextInput
-              value={city}
-              onChangeText={setCity}
-              placeholder="City"
-              placeholderTextColor={colors.textMuted}
-              style={[styles.input, styles.flex]}
-            />
-            <TextInput
-              value={state}
-              onChangeText={setState}
-              placeholder="State"
-              placeholderTextColor={colors.textMuted}
-              style={[styles.input, styles.state]}
-            />
-          </View>
-          <View style={styles.row}>
-            <TextInput
-              value={zip}
-              onChangeText={setZip}
-              placeholder="ZIP"
-              placeholderTextColor={colors.textMuted}
-              keyboardType="number-pad"
-              style={[styles.input, styles.flex]}
-            />
-            <TextInput
-              value={country}
-              onChangeText={setCountry}
-              placeholder="Country"
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="characters"
-              style={[styles.input, styles.state]}
-            />
-          </View>
-          <Pressable style={[styles.save, busy && styles.saveOff]} onPress={() => void save()} disabled={busy}>
-            {busy ? (
-              <ActivityIndicator color={colors.background} />
-            ) : (
-              <Text style={styles.saveTxt}>Save shipping address</Text>
-            )}
-          </Pressable>
-        </View>
-      )}
+      {content}
     </View>
   );
 }
@@ -205,7 +239,19 @@ const styles = StyleSheet.create({
   head: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
   title: { fontSize: 15, fontWeight: '800', color: colors.textPrimary },
   sub: { fontSize: 12, lineHeight: 17, color: colors.textSecondary, marginTop: 2 },
+  embeddedRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+  rowIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    marginTop: 2,
+  },
   form: { gap: spacing.sm },
+  formTitle: { fontSize: 13, fontWeight: '800', color: colors.textPrimary },
+  formSub: { fontSize: 12, lineHeight: 17, color: colors.textMuted, marginBottom: 2 },
   row: { flexDirection: 'row', gap: spacing.sm },
   flex: { flex: 1 },
   state: { width: 88 },
@@ -218,32 +264,37 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     backgroundColor: 'rgba(0,0,0,0.25)',
   },
+  formActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
   save: {
-    marginTop: spacing.xs,
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
+    paddingVertical: 12,
     borderRadius: radii.md,
     backgroundColor: colors.gold,
   },
+  saveInline: { flex: 1 },
   saveOff: { opacity: 0.6 },
   saveTxt: { fontSize: 14, fontWeight: '900', color: colors.background },
-  savedBox: {
-    gap: spacing.sm,
+  cancelBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: spacing.md,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: 'rgba(52,199,89,0.28)',
-    backgroundColor: 'rgba(52,199,89,0.08)',
-    padding: spacing.md,
+    borderColor: 'rgba(255,255,255,0.12)',
   },
-  savedRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  savedTitle: { fontSize: 14, fontWeight: '800', color: colors.success },
-  savedSummary: { fontSize: 13, lineHeight: 18, color: colors.textSecondary },
+  cancelBtnTxt: { fontSize: 13, fontWeight: '700', color: colors.textSecondary },
+  savedBlock: { gap: spacing.xs },
+  savedTop: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+  savedTitle: { fontSize: 13, fontWeight: '800', color: colors.textPrimary },
+  savedSummary: { fontSize: 13, lineHeight: 18, color: colors.textSecondary, marginTop: 4 },
   editBtn: {
-    alignSelf: 'flex-start',
-    marginTop: spacing.xs,
     paddingVertical: 6,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: 10,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.35)',
+    backgroundColor: 'rgba(212,175,55,0.08)',
   },
-  editBtnTxt: { fontSize: 13, fontWeight: '700', color: colors.gold },
+  editBtnTxt: { fontSize: 12, fontWeight: '800', color: colors.gold },
 });

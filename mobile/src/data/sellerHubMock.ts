@@ -15,11 +15,10 @@ export type SellerHubTabId =
 export const SELLER_HUB_TABS: { id: SellerHubTabId; label: string }[] = [
   { id: 'overview', label: 'Studio' },
   { id: 'listings', label: 'Inventory' },
-  { id: 'live', label: 'Vault Events' },
+  { id: 'live', label: 'Events' },
   { id: 'orders', label: 'Fulfillment' },
   { id: 'wallet', label: 'Revenue' },
   { id: 'analytics', label: 'Insights' },
-  { id: 'vault', label: 'Identity' },
 ];
 
 export type SellerProfileMock = {

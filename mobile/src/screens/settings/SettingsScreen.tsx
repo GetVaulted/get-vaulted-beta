@@ -18,7 +18,6 @@ import {
   openNotificationInbox,
   openUserProfile,
 } from '../../navigation/openPlatform';
-import { openSellerHQ } from '../../navigation/openSellerHQ';
 import { openSellerSetup } from '../../navigation/openSellerSetup';
 import type { RootStackParamList } from '../../navigation/types';
 import { spacing } from '../../theme';
@@ -54,44 +53,12 @@ export function SettingsScreen({ navigation }: Props) {
 
         <SettingsSectionHeader title="Selling" />
         {activated ? (
-          <>
-            <SettingsRow
-              label="Seller HQ"
-              sub="Listings, live events, revenue, fulfillment"
-              icon="briefcase-outline"
-              onPress={() => {
-                navigation.goBack();
-                openSellerHQ();
-              }}
-            />
-            <SettingsRow
-              label="My Listings"
-              sub="Inventory and drafts"
-              icon="pricetags-outline"
-              onPress={() => {
-                navigation.goBack();
-                openSellerHQ(undefined, { tab: 'listings' });
-              }}
-            />
-            <SettingsRow
-              label="Sales"
-              sub="Orders to fulfill"
-              icon="receipt-outline"
-              onPress={() => {
-                navigation.goBack();
-                openSellerHQ(undefined, { tab: 'orders' });
-              }}
-            />
-            <SettingsRow
-              label="Go Live"
-              sub="Schedule or host a live show"
-              icon="radio-outline"
-              onPress={() => {
-                navigation.goBack();
-                openSellerHQ(undefined, { tab: 'live' });
-              }}
-            />
-          </>
+          <SettingsRow
+            label="Seller HQ"
+            sub="You are already in Seller HQ on mobile — use the tab bar for Inventory, Events, and Fulfillment"
+            icon="briefcase-outline"
+            onPress={() => navigation.goBack()}
+          />
         ) : (
           <SettingsRow
             label={setupLabel}

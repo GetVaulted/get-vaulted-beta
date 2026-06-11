@@ -51,7 +51,7 @@ export function AccountHubScreen({ navigation }: Props) {
           <>
             <SettingsRow
               label="Seller HQ"
-              sub="Listings, live events, revenue, fulfillment"
+              sub="Return to Studio — seller tools live in the HQ tab bar"
               icon="briefcase-outline"
               onPress={() => {
                 navigation.goBack();
@@ -59,37 +59,10 @@ export function AccountHubScreen({ navigation }: Props) {
               }}
             />
             <SettingsRow
-              label="My Listings"
-              sub="Inventory and drafts"
-              icon="pricetags-outline"
-              onPress={() => {
-                navigation.goBack();
-                openSellerHQ(undefined, { tab: 'listings' });
-              }}
-            />
-            <SettingsRow
-              label="Sales"
-              sub="Orders to fulfill"
-              icon="receipt-outline"
-              onPress={() => {
-                navigation.goBack();
-                openSellerHQ(undefined, { tab: 'orders' });
-              }}
-            />
-            <SettingsRow
               label="Sales layaways"
               sub="Reserved items — ship when paid in full"
               icon="time-outline"
               onPress={() => navigation.navigate('SellerLayaways')}
-            />
-            <SettingsRow
-              label="Go Live"
-              sub="Schedule or host a live show"
-              icon="radio-outline"
-              onPress={() => {
-                navigation.goBack();
-                openSellerHQ(undefined, { tab: 'live' });
-              }}
             />
           </>
         ) : (

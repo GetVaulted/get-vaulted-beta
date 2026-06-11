@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../../../theme';
 import { hq } from './hqStyles';
 
@@ -13,7 +13,6 @@ type Props = {
   activeCollectors: string;
   pendingOrders: string;
   performanceInsight: string;
-  onSettings?: () => void;
 };
 
 function MetricCell({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
@@ -38,7 +37,6 @@ export function SellerHQCommandHeader({
   activeCollectors,
   pendingOrders,
   performanceInsight,
-  onSettings,
 }: Props) {
   return (
     <View style={[styles.shell, hq.goldCard]}>
@@ -71,27 +69,12 @@ export function SellerHQCommandHeader({
           </Text>
           <Text style={styles.studioTag}>Seller operating system</Text>
         </View>
-        {onSettings ? (
-          <Pressable
-            onPress={onSettings}
-            hitSlop={12}
-            style={styles.settingsBtn}
-            accessibilityRole="button"
-            accessibilityLabel="Account settings"
-          >
-            <Ionicons name="settings-outline" size={22} color={colors.textMuted} />
-          </Pressable>
-        ) : null}
       </View>
       <View style={styles.metricsRow}>
         <MetricCell label="Revenue vault" value={revenueSnapshot} accent />
         <MetricCell label="Collector network" value={activeCollectors} />
         <MetricCell label="Fulfillment" value={pendingOrders} />
         <MetricCell label="Performance" value={performanceInsight} />
-      </View>
-      <View style={styles.futureSlot}>
-        <Ionicons name="sparkles-outline" size={14} color={colors.textMuted} />
-        <Text style={styles.futureTxt}>AI growth tools · reputation · insights — coming to Studio</Text>
       </View>
     </View>
   );
@@ -129,11 +112,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: 8,
   },
-  settingsBtn: {
-    padding: 8,
-    borderRadius: radii.md,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-  },
   metricsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -151,13 +129,4 @@ const styles = StyleSheet.create({
   metricVal: { fontSize: 16, fontWeight: '800', color: colors.textPrimary },
   metricValAccent: { color: colors.gold },
   metricLbl: { fontSize: 10, color: colors.textMuted, marginTop: 4, fontWeight: '600' },
-  futureSlot: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingTop: spacing.xs,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.06)',
-  },
-  futureTxt: { flex: 1, fontSize: 11, color: colors.textMuted, lineHeight: 15 },
 });
