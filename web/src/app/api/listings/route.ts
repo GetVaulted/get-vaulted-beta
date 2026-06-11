@@ -20,6 +20,7 @@ import {
   PUBLIC_MARKETPLACE_LISTING_WHERE,
 } from "@/lib/marketplace-commerce-policy";
 import {
+  marketplaceListingRateKey,
   parseMarketplaceAllowedRateKeys,
   parseMarketplaceShippingOfferScope,
 } from "@/lib/marketplace-shipping-offer";
@@ -501,7 +502,10 @@ export async function POST(req: Request) {
       ? body.shipFromAddressId.trim()
       : null;
   const marketplaceShippingOfferScope = parseMarketplaceShippingOfferScope(body.marketplaceShippingOfferScope);
-  const marketplaceAllowedRateKeys = parseMarketplaceAllowedRateKeys(body.marketplaceAllowedRateKeys);
+  const marketplaceAllowedRateKeys = parseMarketplaceAllowedRateKeys(body.marketplaceAllowedRateKeys).map((key) => {
+    const [carrier = "", service = ""] = key.split("|");
+    return marketplaceListingRateKey({ carrier, serviceLevel: service });
+  });
   const parcelRow = { parcelWeightOz, parcelLengthIn, parcelWidthIn, parcelHeightIn };
 
   if (publishedLive && !hasCompleteParcel(parcelRow)) {

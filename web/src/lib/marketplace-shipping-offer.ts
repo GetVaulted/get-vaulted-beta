@@ -12,9 +12,13 @@ export type MarketplaceCheckoutRateQuote = {
   insuranceAvailable: boolean;
 };
 
+function normalizeMarketplaceRateKeyPart(value: string): string {
+  return value.trim().toLowerCase();
+}
+
 /** Stable key for allowlists across listing save + checkout matching (same package lanes). */
 export function marketplaceListingRateKey(rate: Pick<MarketplaceCheckoutRateQuote, "carrier" | "serviceLevel">): string {
-  return `${rate.carrier.trim()}|${rate.serviceLevel.trim()}`;
+  return `${normalizeMarketplaceRateKeyPart(rate.carrier)}|${normalizeMarketplaceRateKeyPart(rate.serviceLevel)}`;
 }
 
 /** Heuristic: hide next-flight / overnight-class services when seller excludes them. */
@@ -43,7 +47,14 @@ export function marketplaceOfferableRates(
     list = list.filter((r) => !isLikelyOvernightOrExpressAirRate(r));
   }
   if (scope === "custom") {
-    const set = new Set(allowedKeys);
+    const normalizedAllowed = allowedKeys
+      .map((key) => {
+        const [carrier = "", service = ""] = key.split("|");
+        return marketplaceListingRateKey({ carrier, serviceLevel: service });
+      })
+      .filter(Boolean);
+    if (normalizedAllowed.length === 0) return list;
+    const set = new Set(normalizedAllowed);
     list = list.filter((r) => set.has(marketplaceListingRateKey(r)));
   }
   return list;

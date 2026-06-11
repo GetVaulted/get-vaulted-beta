@@ -267,16 +267,21 @@ export async function fetchMarketplaceCheckoutShippingRates(args: {
     return { rates: [], mock: false };
   }
 
-  if (!hasCompleteParcel(listing)) {
-    throw new Error("LISTING_PARCEL_INCOMPLETE");
-  }
-
   const { rates: raw, mock } = await fetchRawShippoQuotes(listing, args.shipTo);
-  const offerable = marketplaceOfferableRates(
+  let offerable = marketplaceOfferableRates(
     raw,
     listing.marketplaceShippingOfferScope,
     listing.marketplaceAllowedRateKeys,
   );
+  if (offerable.length === 0 && raw.length > 0) {
+    console.warn("[checkout-shipping] seller offer filter returned no rates; using live Shippo quotes", {
+      listingId: args.listingId,
+      scope: listing.marketplaceShippingOfferScope,
+      rawCount: raw.length,
+      parcelComplete: hasCompleteParcel(listing),
+    });
+    offerable = raw;
+  }
   return { rates: offerable, mock };
 }
 

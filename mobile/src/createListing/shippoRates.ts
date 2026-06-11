@@ -32,7 +32,7 @@ export function listingRateLabel(rate: ListingShippoRate): string {
 
 /** Stable key for allowlists across listing save + checkout matching (same package lanes). */
 export function marketplaceListingRateKey(rate: ListingShippoRate): string {
-  return `${rate.carrier.trim()}|${rate.serviceLevel.trim()}`;
+  return `${rate.carrier.trim().toLowerCase()}|${rate.serviceLevel.trim().toLowerCase()}`;
 }
 
 /** Heuristic: hide next-flight / overnight-class services when seller excludes them. */

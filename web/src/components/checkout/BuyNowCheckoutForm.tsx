@@ -164,10 +164,15 @@ export function BuyNowCheckoutForm({
           };
           const rates = Array.isArray(j.rates) ? j.rates : [];
           setShippingRates(rates);
-          setRatesError(res.ok ? null : j.error ?? "Shipping rates could not be loaded.");
+          if (res.ok && rates.length === 0) {
+            setRatesError(j.error ?? "No shipping options are available for this address yet.");
+          } else {
+            setRatesError(res.ok ? null : j.error ?? "Shipping rates could not be loaded.");
+          }
           const preferredKey = getBuyerPreferredShippingRateKey();
           const picked = pickCheckoutShippingRate(rates, preferredKey);
           setSelectedRateId((prev) => (prev && rates.some((r) => r.id === prev) ? prev : picked?.id ?? null));
+          if (rates.length > 1) setRatesExpanded(true);
         } finally {
           setRatesLoading(false);
         }
@@ -251,6 +256,9 @@ export function BuyNowCheckoutForm({
 
   const total = useMemo(() => subtotal + taxUsd, [subtotal, taxUsd]);
   const selectedRate = shippingRates.find((r) => r.id === selectedRateId) ?? null;
+  const addressReady = Boolean(address.trim() && city.trim() && state.trim() && zip.trim());
+  const showRatePicker =
+    ratesExpanded || shippingRates.length > 1 || (shippingRates.length > 0 && !selectedRate);
 
   const useVaultedSecureCheckout = orderTotalQualifiesForEscrow(subtotal);
   const secureFeeCents = useMemo(() => estimateEscrowFeeCents(subtotal), [subtotal]);
@@ -422,6 +430,14 @@ export function BuyNowCheckoutForm({
                 >
                   Change speed
                 </button>
+              ) : shippingRates.length > 0 && !selectedRate ? (
+                <button
+                  type="button"
+                  onClick={() => setRatesExpanded(true)}
+                  className="text-xs font-semibold text-gold-bright hover:underline"
+                >
+                  Choose shipping
+                </button>
               ) : ratesExpanded ? (
                 <button
                   type="button"
@@ -435,10 +451,13 @@ export function BuyNowCheckoutForm({
             {ratesLoading ? (
               <p className="mt-3 text-sm text-zinc-500">Loading carrier rates for your address…</p>
             ) : null}
+            {!addressReady && !ratesLoading ? (
+              <p className="mt-3 text-sm text-zinc-500">Enter your shipping address below to load carrier options.</p>
+            ) : null}
             {!ratesLoading && ratesError && shippingRates.length === 0 ? (
               <p className="mt-3 text-xs font-medium text-rose-300">{ratesError}</p>
             ) : null}
-            {!ratesExpanded && selectedRate ? (
+            {!showRatePicker && selectedRate ? (
               <div className="mt-3 rounded-xl border border-white/10 bg-[#0c0c10] px-4 py-3">
                 <p className="text-sm font-semibold text-zinc-100">
                   {selectedRate.carrier} {selectedRate.serviceLevel}
@@ -449,7 +468,7 @@ export function BuyNowCheckoutForm({
                 </p>
               </div>
             ) : null}
-            {ratesExpanded ? (
+            {showRatePicker && shippingRates.length > 0 ? (
               <div className="mt-3 space-y-2">
                 {shippingRates.map((rate) => {
                   const on = selectedRateId === rate.id;

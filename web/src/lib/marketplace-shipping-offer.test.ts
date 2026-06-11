@@ -37,4 +37,14 @@ describe("marketplaceOfferableRates", () => {
     const out = marketplaceOfferableRates(rates, "custom", [key]);
     expect(out.map((r) => r.id)).toEqual(["2"]);
   });
+
+  it("matches custom allowlist keys case-insensitively", () => {
+    const out = marketplaceOfferableRates(rates, "custom", ["fedex|standard overnight"]);
+    expect(out.map((r) => r.id)).toEqual(["2"]);
+  });
+
+  it("returns all rates when custom allowlist is empty", () => {
+    const out = marketplaceOfferableRates(rates, "custom", []);
+    expect(out).toHaveLength(2);
+  });
 });

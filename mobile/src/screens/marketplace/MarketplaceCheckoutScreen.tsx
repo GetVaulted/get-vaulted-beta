@@ -206,13 +206,18 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
           });
           if (cancelled) return;
           setShippingRates(rates);
-          setRatesError(rateErr);
+          if (rates.length === 0) {
+            setRatesError(rateErr ?? 'No shipping options are available for this address yet.');
+          } else {
+            setRatesError(rateErr);
+          }
           const preferredKey = await getBuyerPreferredShippingRateKey();
           const picked = pickCheckoutShippingRate(rates, preferredKey);
           setSelectedRateId((prev) => {
             if (prev && rates.some((r) => r.id === prev)) return prev;
             return picked?.id ?? null;
           });
+          if (rates.length > 1) setRatesPickerExpanded(true);
         } catch (e) {
           if (!cancelled) {
             setShippingRates([]);
@@ -258,6 +263,8 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
   );
 
   const selectedRate = shippingRates.find((r) => r.id === selectedRateId) ?? null;
+  const showRatePicker =
+    ratesPickerExpanded || shippingRates.length > 1 || (shippingRates.length > 0 && !selectedRate);
 
   const completeCheckout = async () => {
     if (!token) {
@@ -452,6 +459,12 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
                     Change speed
                   </Text>
                 </Pressable>
+              ) : shippingRates.length > 0 && !selectedRate ? (
+                <Pressable onPress={() => setRatesPickerExpanded(true)} hitSlop={8}>
+                  <Text style={styles.changeLink} {...MARKETPLACE_TEXT_PROPS}>
+                    Choose shipping
+                  </Text>
+                </Pressable>
               ) : ratesPickerExpanded ? (
                 <Pressable onPress={() => setRatesPickerExpanded(false)} hitSlop={8}>
                   <Text style={styles.changeLink} {...MARKETPLACE_TEXT_PROPS}>
@@ -486,7 +499,7 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
                 </Text>
               </View>
             ) : null}
-            {ratesPickerExpanded
+            {showRatePicker
               ? shippingRates.map((rate) => {
                   const on = selectedRateId === rate.id;
                   return (
