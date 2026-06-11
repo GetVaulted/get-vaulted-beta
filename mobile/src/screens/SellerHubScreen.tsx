@@ -107,6 +107,8 @@ export function SellerHubScreen() {
     layawaySummary.counts,
   );
   const sellerSetup = useSellerSetupState(session?.access_token, Boolean(user?.id));
+  const sellerConnect = cmdData.sellerConnect;
+  const sellerWallet = cmdData.sellerWallet;
 
   useSellerHQSync({
     enabled: Boolean(session?.access_token && user?.id),
@@ -126,8 +128,6 @@ export function SellerHubScreen() {
   useEffect(() => {
     if (user?.id) void cmdData.reloadAnalytics(user.id);
   }, [user?.id, cmdData.reloadAnalytics]);
-  const sellerConnect = cmdData.sellerConnect;
-  const sellerWallet = cmdData.sellerWallet;
   const [tab, setTab] = useState<SellerHubTabId>('overview');
   const [scheduleTitle, setScheduleTitle] = useState('');
   const [scheduleCategory, setScheduleCategory] = useState('Other');
