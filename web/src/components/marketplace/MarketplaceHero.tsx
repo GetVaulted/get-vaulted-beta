@@ -37,7 +37,7 @@ export function MarketplaceHero({
         <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/40 to-transparent" />
       </div>
 
-      <div className="relative mx-auto w-full max-w-[1920px] px-3 pb-8 pt-4 sm:px-4 sm:pb-10 sm:pt-5 lg:px-10 lg:pb-12 lg:pt-6">
+      <div className="relative mx-auto w-full max-w-[1920px] px-3 pb-5 pt-3 sm:px-4 sm:pb-6 sm:pt-4 lg:px-10 lg:pb-7 lg:pt-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Link
             href="/"
@@ -53,7 +53,7 @@ export function MarketplaceHero({
           </Link>
         </div>
 
-        <div className="mt-6 grid gap-8 lg:mt-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:items-end lg:gap-10">
+        <div className="mt-4 grid gap-5 lg:mt-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:items-end lg:gap-8">
           <div className="min-w-0">
             <p className="mb-3 inline-flex w-fit items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-gold-bright shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
               <span className="size-1.5 rounded-full bg-gold-bright shadow-[0_0_8px_rgba(201,162,39,0.55)]" aria-hidden />

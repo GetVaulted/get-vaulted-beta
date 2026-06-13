@@ -30,15 +30,15 @@ export function MarketplaceBrowseCard({
         ? "duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-1.5 hover:scale-[1.015] hover:border-gold/45 hover:shadow-[0_28px_64px_-32px_rgba(0,0,0,0.95),0_0_40px_-12px_rgba(201,162,39,0.32)]"
         : "duration-300 ease-out hover:-translate-y-1 hover:border-gold/30 hover:shadow-[0_22px_56px_-30px_rgba(0,0,0,0.92),0_0_28px_-14px_rgba(201,162,39,0.18)]";
 
-  const shellClass = `group relative flex min-w-0 flex-col overflow-hidden rounded-2xl border bg-[linear-gradient(180deg,#101014_0%,#08080b_100%)] transition-all ${hoverMotion} ${borderClass}`;
+  const shellClass = `group relative flex min-w-0 w-full max-w-[min(100%,380px)] flex-col justify-self-start overflow-hidden rounded-2xl border bg-[linear-gradient(180deg,#101014_0%,#08080b_100%)] transition-all ${hoverMotion} ${borderClass}`;
   const listingOverlayClass =
     "absolute inset-0 z-20 block rounded-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold/50";
 
-  const imageAspect = compact ? "aspect-[4/5]" : "aspect-[4/5]";
-  const bodyPadding = compact ? "p-2.5" : "p-3.5 sm:p-4";
+  const imageAspect = compact ? "aspect-[4/5]" : "aspect-square";
+  const bodyPadding = compact ? "p-2.5" : "p-3 sm:p-3.5";
   const titleClass = compact
     ? "min-h-[2rem] text-[10px] sm:text-[11px]"
-    : "min-h-[2.5rem] text-xs sm:text-sm";
+    : "min-h-[2.25rem] text-xs sm:text-sm";
   const priceClass = compact ? "text-sm sm:text-base" : "text-base sm:text-lg";
 
   const inner = (
@@ -85,7 +85,7 @@ export function MarketplaceBrowseCard({
         </span>
       </div>
 
-      <div className={`pointer-events-none flex flex-1 flex-col gap-2 border-t border-white/[0.07] ${bodyPadding}`}>
+      <div className={`pointer-events-none flex flex-1 flex-col gap-1.5 border-t border-white/[0.07] ${bodyPadding}`}>
         <p className="text-[9px] font-black uppercase tracking-[0.16em] text-zinc-600">{listing.category}</p>
         <h3
           className={`line-clamp-2 font-display font-bold leading-snug tracking-tight text-foreground transition-colors group-hover:text-gold-bright ${titleClass}`}

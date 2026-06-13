@@ -17,7 +17,7 @@ export function MarketplaceTrustStrip({ variant = "inline" }: MarketplaceTrustSt
         role="list"
         aria-label="Marketplace confidence"
       >
-        <div className="mx-auto flex max-w-[1920px] flex-wrap items-center justify-center gap-x-6 gap-y-2 px-3 py-3 sm:px-4 lg:px-10">
+        <div className="mx-auto flex max-w-[1920px] flex-wrap items-center justify-center gap-x-5 gap-y-1.5 px-3 py-2 sm:px-4 lg:px-10">
           {TRUST_ITEMS.map(({ label, icon: Icon }) => (
             <span
               key={label}

@@ -140,9 +140,9 @@ export function MarketplaceBrowse() {
 
       <MarketplaceTrustStrip variant="band" />
 
-      <div className="mx-auto w-full max-w-[1920px] px-3 pb-12 pt-6 sm:px-4 sm:pb-14 sm:pt-8 lg:px-10 lg:pb-16">
-        {/* Browse toolbar — sort + optional refine, not the page opener */}
-        <div className="rounded-2xl border border-white/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,0.03)_0%,rgba(255,255,255,0.01)_100%)] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-4">
+      <div className="mx-auto w-full max-w-[1920px] px-3 pb-8 pt-3 sm:px-4 sm:pb-10 sm:pt-4 lg:px-10">
+        {/* Browse toolbar — sort + optional refine */}
+        <div className="rounded-xl border border-white/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,0.03)_0%,rgba(255,255,255,0.01)_100%)] p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">Browse</p>
@@ -258,12 +258,11 @@ export function MarketplaceBrowse() {
         </div>
 
         {!empty && vaultPicks.length > 0 ? (
-          <section className="mt-10 sm:mt-12" aria-labelledby="vault-picks-title">
+          <section className="mt-5 sm:mt-6" aria-labelledby="vault-picks-title">
             <MarketplaceSectionHeader
               id="vault-picks-title"
-              eyebrow="Curated selection"
+              eyebrow="Curated"
               title="Vault picks"
-              description="Hand-selected listings that meet Get Vaulted standards for presentation, condition, and seller trust."
               meta={`${vaultPicks.length} featured`}
               accent="gold"
             />
@@ -275,13 +274,13 @@ export function MarketplaceBrowse() {
           </section>
         ) : null}
 
-        <section className="mt-10 sm:mt-12" aria-labelledby="all-listings-title">
+        <section className="mt-4 sm:mt-5" aria-labelledby="all-listings-title">
           <MarketplaceSectionHeader
             id="all-listings-title"
             eyebrow="The collection"
             title={vaultPicks.length > 0 ? "More from the vault" : "Browse the vault"}
-            description="Every listing is sold by a verified seller with protected checkout and shipment tracking."
             meta={gridListings.length > 0 ? `${gridListings.length} listing${gridListings.length === 1 ? "" : "s"}` : undefined}
+            compact
           />
 
           {empty ? (
