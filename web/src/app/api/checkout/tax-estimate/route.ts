@@ -96,7 +96,7 @@ export async function POST(req: Request) {
         taxCalculationId: null,
         subtotalUsd: itemPriceUsd + shippingPriceUsd,
         totalUsd: itemPriceUsd + shippingPriceUsd,
-        note: "Sales tax is added on secure checkout.",
+        note: "Sales tax is calculated securely at checkout when required.",
       });
     }
     return NextResponse.json(

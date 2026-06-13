@@ -138,30 +138,30 @@ export default async function CheckoutPage({
   };
 
   return (
-    <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
+    <main className="relative flex min-h-[calc(100dvh-4rem)] flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
       <div
-        className="pointer-events-none absolute inset-x-0 top-0 h-[min(380px,50vh)] bg-[radial-gradient(ellipse_80%_50%_at_50%_-10%,rgba(201,162,39,0.08),transparent_55%)]"
+        className="pointer-events-none absolute inset-x-0 top-0 h-[min(280px,40vh)] bg-[radial-gradient(ellipse_80%_50%_at_50%_-10%,rgba(201,162,39,0.08),transparent_55%)]"
         aria-hidden
       />
-      <div className="relative mx-auto w-full max-w-[1920px] px-3 pb-20 pt-6 sm:px-4 lg:px-10">
+      <div className="relative mx-auto w-full max-w-6xl flex-1 px-4 pb-32 pt-5 sm:px-6 sm:pt-6">
         <Link
           href={`/marketplace/${encodeURIComponent(listingId)}`}
           className="inline-flex text-[11px] font-semibold uppercase tracking-wider text-gold-bright/90 hover:text-gold-bright"
         >
           ← Back to item
         </Link>
-        <header className="mt-4 border-b border-white/[0.07] pb-6">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Checkout</p>
-          <h1 className="font-display mt-2 text-2xl font-black tracking-tight text-foreground sm:text-3xl">
-            {checkoutMode === "layaway" ? "Layaway checkout" : "Buy now"}
+        <header className="mt-3 border-b border-white/[0.07] pb-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Secure checkout</p>
+          <h1 className="font-display mt-1.5 text-xl font-black tracking-tight text-foreground sm:text-2xl">
+            {checkoutMode === "layaway" ? "Layaway checkout" : "Complete your purchase"}
           </h1>
-          <p className="mt-1.5 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-zinc-500">
             {checkoutMode === "layaway"
-              ? "Choose your plan, acknowledge terms, and pay your 25% deposit."
-              : "Confirm ship-to, pick shipping, then review your total before paying."}
+              ? "Choose your plan and pay your 25% deposit."
+              : "Review your order, confirm shipping, and pay securely."}
           </p>
         </header>
-        <div className="mt-8">
+        <div className="mt-6">
           {checkoutMode === "layaway" ? (
             layawayEligible ? (
               <LayawayCheckoutForm listing={snapshot} />
