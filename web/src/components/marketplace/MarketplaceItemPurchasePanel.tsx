@@ -9,69 +9,30 @@ import type { MarketplaceListing } from "@/content/marketplace-listings";
 import type { ItemPageExtras } from "@/lib/marketplace-item-extras";
 import { isLegacyMarketplaceTimedAuction } from "@/lib/marketplace-commerce-policy";
 import { MarketplaceMakeOfferModal } from "@/components/marketplace/MarketplaceMakeOfferModal";
-import { MarketplaceWatchlistToggle } from "@/components/marketplace/MarketplaceWatchlistToggle";
 
 function formatMoney(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
-function ShippingTransparencyBlock({ extras }: { extras: ItemPageExtras }) {
-  const ships =
-    extras.shipsFromDisplay ??
-    "Exact origin is confirmed on the order after checkout (US sellers ship from their verified address).";
+function OfferIcon() {
   return (
-    <div className="rounded-xl border border-white/[0.08] bg-[#08080a]/90 p-4">
-      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Shipping and delivery</p>
-      <dl className="mt-3 space-y-2.5 text-xs leading-snug text-zinc-400">
-        <div>
-          <dt className="font-semibold text-zinc-300">Estimated shipping</dt>
-          <dd className="mt-0.5 text-zinc-400">{extras.estimatedShippingDisplay} (charged at checkout)</dd>
-        </div>
-        <div>
-          <dt className="font-semibold text-zinc-300">Ships from</dt>
-          <dd className="mt-0.5 text-zinc-400">{ships}</dd>
-        </div>
-        <div>
-          <dt className="font-semibold text-zinc-300">Handling</dt>
-          <dd className="mt-0.5 text-zinc-400">{extras.handlingEstimateDisplay}</dd>
-        </div>
-        <div>
-          <dt className="font-semibold text-zinc-300">Tracking</dt>
-          <dd className="mt-0.5 text-zinc-400">{extras.trackingAfterPurchaseLine}</dd>
-        </div>
-      </dl>
-    </div>
+    <svg className="size-4 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d="M2 8h8M8 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 
-function ItemBuyAssuranceList({ shipLine }: { shipLine: string }) {
+function TradeIcon() {
   return (
-    <ul className="space-y-2 text-xs leading-snug text-zinc-400">
-      <li className="flex gap-2">
-        <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-emerald-400/90" aria-hidden />
-        <span>
-          <span className="font-medium text-zinc-200">{shipLine}</span>
-          <span className="text-zinc-500"> · </span>
-          Insured delivery
-        </span>
-      </li>
-      <li className="flex gap-2">
-        <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-sky-400/90" aria-hidden />
-        <span>
-          <span className="font-medium text-zinc-200">Secure checkout</span>
-          <span className="text-zinc-500"> · </span>
-          Purchase protection
-        </span>
-      </li>
-      <li className="flex gap-2">
-        <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-gold-bright/90" aria-hidden />
-        <span>
-          <span className="font-medium text-zinc-200">Verified seller</span>
-          <span className="text-zinc-500"> · </span>
-          Vetted on Get Vaulted
-        </span>
-      </li>
-    </ul>
+    <svg className="size-4 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path
+        d="M12 4H4l2-2M4 12h8l-2 2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -169,9 +130,7 @@ export function MarketplaceItemPurchasePanel({ listing, extras }: MarketplaceIte
             : "This listing is not available for purchase right now.";
     return (
       <div className="space-y-3">
-        <p className="rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-zinc-400">
-          {statusMessage}
-        </p>
+        <p className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-zinc-400">{statusMessage}</p>
         <Link href="/marketplace" className="text-sm font-semibold text-gold-bright hover:underline">
           Browse marketplace
         </Link>
@@ -179,30 +138,23 @@ export function MarketplaceItemPurchasePanel({ listing, extras }: MarketplaceIte
     );
   }
 
-  const makeOfferControl = showMakeOffer ? (
-    <button
-      type="button"
-      onClick={() => openOfferModal()}
-      className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-white/[0.12] bg-white/[0.03] text-sm font-medium text-zinc-200 transition hover:border-white/18 hover:bg-white/[0.06] hover:text-zinc-50 active:scale-[0.99]"
-    >
-      Make offer
-    </button>
-  ) : null;
-  const tradeControl = showTradeButton ? (
-    <Link
-      href={`/trade/new?listingId=${encodeURIComponent(listing.id)}`}
-      className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-gold/35 bg-gold/10 text-sm font-semibold text-gold-bright transition hover:border-gold/55 hover:bg-gold/15 active:scale-[0.99]"
-    >
-      Start trade offer
-    </Link>
-  ) : null;
-
   return (
     <>
-      <p className="font-mono text-3xl font-black tracking-tight text-gold-bright sm:text-4xl">{formatMoney(listing.price)}</p>
-      <div className="pt-1">
+      <div className="space-y-1">
+        <p className="font-mono text-4xl font-black tracking-tight text-gold-bright sm:text-[2.75rem]">
+          {formatMoney(listing.price)}
+        </p>
+        <p className="text-sm text-zinc-400">
+          {extras.estimatedShippingDisplay} shipping · {extras.handlingEstimateDisplay}
+        </p>
+        {allowLayaway ? (
+          <p className="text-xs font-medium text-gold-bright/80">Layaway available — 25% deposit to reserve</p>
+        ) : null}
+      </div>
+
+      <div className="pt-4">
         {isOwnListing ? (
-          <p className="rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 text-center text-sm text-zinc-400">
+          <p className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-center text-sm text-zinc-400">
             This is your listing — buyers will use Buy now here.
           </p>
         ) : (
@@ -210,40 +162,61 @@ export function MarketplaceItemPurchasePanel({ listing, extras }: MarketplaceIte
             <Link
               id="checkout"
               href={checkoutHref}
-              className="inline-flex h-12 w-full items-center justify-center rounded-lg bg-gradient-to-r from-gold to-gold-bright px-6 text-sm font-bold text-zinc-950 shadow-[0_0_28px_-8px_rgba(201,162,39,0.5)] transition hover:brightness-110 active:scale-[0.99]"
+              className="inline-flex h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-gold to-gold-bright px-6 text-base font-bold text-zinc-950 shadow-[0_0_32px_-8px_rgba(201,162,39,0.55)] transition hover:brightness-110 active:scale-[0.995]"
             >
-              Buy now
+              <svg className="size-5" viewBox="0 0 16 16" fill="none" aria-hidden>
+                <path
+                  d="M2 3h2l1.2 6.4a1 1 0 001 .8h5.6a1 1 0 00.98-.8L13 5H5"
+                  stroke="currentColor"
+                  strokeWidth="1.35"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              Buy now — {formatMoney(listing.price)}
             </Link>
             {allowLayaway ? (
               buyerLayawayBlocked ? (
-                <p className="mt-2.5 rounded-lg border border-amber-500/25 bg-amber-950/15 px-3 py-2.5 text-center text-xs leading-snug text-amber-100/90">
+                <p className="mt-2.5 rounded-xl border border-amber-500/25 bg-amber-950/15 px-3 py-2.5 text-center text-xs leading-snug text-amber-100/90">
                   {buyerLayawayBlocked}
                 </p>
               ) : (
                 <Link
                   href={layawayHref}
-                  className="mt-2.5 inline-flex h-11 w-full items-center justify-center rounded-lg border border-gold/35 bg-gold/10 text-sm font-semibold text-gold-bright transition hover:border-gold/55 hover:bg-gold/15 active:scale-[0.99]"
+                  className="mt-2.5 inline-flex h-11 w-full items-center justify-center rounded-xl border border-gold/35 bg-gold/10 text-sm font-semibold text-gold-bright transition hover:border-gold/55 hover:bg-gold/15 active:scale-[0.995]"
                 >
-                  Layaway available
+                  Start layaway
                 </Link>
               )
             ) : null}
           </>
         )}
-        {makeOfferControl ? <div className="mt-2.5">{makeOfferControl}</div> : null}
-        {tradeControl ? <div className="mt-2.5">{tradeControl}</div> : null}
-        <p className="mt-2 text-center text-xs leading-snug text-zinc-400">
-          Free protected checkout <span className="text-zinc-500">·</span> {extras.handlingEstimateDisplay}
-        </p>
-      </div>
-      <div className="mt-4">
-        <ShippingTransparencyBlock extras={extras} />
-      </div>
-      <div className="mt-4">
-        <ItemBuyAssuranceList shipLine={extras.shipSpeedLine} />
-      </div>
-      <div className="mt-4">
-        <MarketplaceWatchlistToggle listingId={listing.id} sellerId={listing.sellerId} variant="row" />
+
+        {(showMakeOffer || showTradeButton) && !isOwnListing ? (
+          <div className="mt-3 grid grid-cols-2 gap-2.5">
+            {showMakeOffer ? (
+              <button
+                type="button"
+                onClick={() => openOfferModal()}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-white/[0.14] bg-[#0c0c10] text-sm font-semibold text-zinc-100 transition hover:border-white/25 hover:bg-[#121216] active:scale-[0.995]"
+              >
+                <OfferIcon />
+                Make offer
+              </button>
+            ) : (
+              <span />
+            )}
+            {showTradeButton ? (
+              <Link
+                href={`/trade/new?listingId=${encodeURIComponent(listing.id)}`}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-gold/30 bg-gold/[0.06] text-sm font-semibold text-gold-bright transition hover:border-gold/45 hover:bg-gold/10 active:scale-[0.995]"
+              >
+                <TradeIcon />
+                Trade offer
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <MarketplaceMakeOfferModal

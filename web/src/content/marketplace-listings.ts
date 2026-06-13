@@ -89,6 +89,14 @@ export function getRelatedMarketplaceListings(
   limit = 4,
   pool?: MarketplaceListing[],
 ): MarketplaceListing[] {
+  return scoreMarketplaceListings(listing, pool, limit);
+}
+
+function scoreMarketplaceListings(
+  listing: MarketplaceListing,
+  pool: MarketplaceListing[] | undefined,
+  limit: number,
+): MarketplaceListing[] {
   const base = pool ?? marketplaceListings;
   const seen = new Set<string>();
   const merged: MarketplaceListing[] = [];
@@ -102,8 +110,48 @@ export function getRelatedMarketplaceListings(
     let score = 0;
     if (l.sellerUsername === listing.sellerUsername) score += 2;
     if (l.category === listing.category) score += 1;
+    if (l.vaultPick) score += 1;
     return { l, score };
   });
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, limit).map((x) => x.l);
+}
+
+export function getSameSellerListings(
+  listing: MarketplaceListing,
+  limit = 4,
+  pool?: MarketplaceListing[],
+): MarketplaceListing[] {
+  const base = pool ?? marketplaceListings;
+  return base.filter((l) => l.id !== listing.id && l.sellerUsername === listing.sellerUsername).slice(0, limit);
+}
+
+export function getSimilarListings(
+  listing: MarketplaceListing,
+  limit = 4,
+  pool?: MarketplaceListing[],
+): MarketplaceListing[] {
+  const base = pool ?? marketplaceListings;
+  return base
+    .filter((l) => l.id !== listing.id && l.category === listing.category)
+    .slice(0, limit);
+}
+
+export function getRelatedCollectibleListings(
+  listing: MarketplaceListing,
+  limit = 4,
+  pool?: MarketplaceListing[],
+): MarketplaceListing[] {
+  const base = pool ?? marketplaceListings;
+  const sameSellerIds = new Set(getSameSellerListings(listing, 99, pool).map((l) => l.id));
+  const similarIds = new Set(getSimilarListings(listing, 99, pool).map((l) => l.id));
+  return base
+    .filter(
+      (l) =>
+        l.id !== listing.id &&
+        !sameSellerIds.has(l.id) &&
+        !similarIds.has(l.id) &&
+        (l.vaultPick || l.category === listing.category),
+    )
+    .slice(0, limit);
 }

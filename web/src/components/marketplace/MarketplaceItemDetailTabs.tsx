@@ -44,12 +44,30 @@ export function MarketplaceItemDetailTabs({ listing, extras }: MarketplaceItemDe
         })}
       </div>
 
-      <div className="max-w-prose py-6">
+      <div className="max-w-prose py-6 sm:max-w-2xl">
         {active === "Description" ? (
-          <p className="text-[15px] leading-relaxed text-zinc-300 sm:text-base">{extras.description}</p>
+          <div className="space-y-4">
+            <p className="text-base leading-[1.75] text-zinc-200 sm:text-[17px]">{extras.description}</p>
+          </div>
         ) : null}
         {active === "Shipping" ? (
-          <p className="text-[15px] leading-relaxed text-zinc-300 sm:text-base">{extras.shippingSummary}</p>
+          <div className="space-y-4 rounded-xl border border-white/[0.06] bg-[#0a0a0c]/50 p-5">
+            <p className="text-base leading-[1.75] text-zinc-200 sm:text-[17px]">{extras.shippingSummary}</p>
+            <dl className="grid gap-3 border-t border-white/[0.06] pt-4 text-sm text-zinc-400 sm:grid-cols-2">
+              <div>
+                <dt className="font-semibold text-zinc-300">Estimated shipping</dt>
+                <dd className="mt-0.5">{extras.estimatedShippingDisplay}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-zinc-300">Handling</dt>
+                <dd className="mt-0.5">{extras.handlingEstimateDisplay}</dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="font-semibold text-zinc-300">Tracking</dt>
+                <dd className="mt-0.5">{extras.trackingAfterPurchaseLine}</dd>
+              </div>
+            </dl>
+          </div>
         ) : null}
         {active === "Authentication" ? (
           <div className="space-y-3 text-[15px] leading-relaxed text-zinc-300 sm:text-base">

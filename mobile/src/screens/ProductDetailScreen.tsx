@@ -39,6 +39,11 @@ import { MARKETPLACE_TEXT_PROPS, marketplaceFontSize } from '../lib/marketplaceU
 import type { RootStackParamList } from '../navigation/types';
 import { MarketplaceMakeOfferSheet } from '../components/marketplace/MarketplaceMakeOfferSheet';
 import {
+  ProductDetailConfidenceStrip,
+  ProductDetailTrustVault,
+} from '../components/marketplace/ProductDetailTrustVault';
+import { buildProductTrustMetrics } from '../lib/marketplaceItemTrust';
+import {
   consumePendingMarketplaceListingAction,
   openMarketplaceBuyNow,
   openMarketplaceLayaway,
@@ -169,8 +174,8 @@ export function ProductDetailScreen({ navigation, route }: Props) {
   }, [route.params.productId, session?.access_token, user?.id, detailReloadNonce, navigation]);
 
   const vm = useMemo(() => (product ? enrichListing(product) : null), [product]);
+  const trustMetrics = useMemo(() => (product ? buildProductTrustMetrics(product) : null), [product]);
   const [slide, setSlide] = useState(0);
-  const [saved, setSaved] = useState(false);
   const [sellerFollow, setSellerFollow] = useState(false);
 
   useEffect(() => {
@@ -403,6 +408,8 @@ export function ProductDetailScreen({ navigation, route }: Props) {
             </Text>
           ) : null}
 
+          {trustMetrics ? <ProductDetailTrustVault metrics={trustMetrics} /> : null}
+
           {commerceStatusLabel ? (
             <View style={styles.reservedBanner}>
               <Text style={styles.reservedBannerTxt} {...MARKETPLACE_TEXT_PROPS}>
@@ -456,28 +463,10 @@ export function ProductDetailScreen({ navigation, route }: Props) {
                   </Text>
                 </Pressable>
               ) : null}
+
+              <ProductDetailConfidenceStrip />
             </>
           ) : null}
-
-          <LinearGradient colors={['rgba(212,175,55,0.06)', 'rgba(10,10,10,0.98)']} style={styles.priceCard}>
-            <View style={styles.protectedRow}>
-              <Ionicons name="lock-closed-outline" size={16} color={colors.gold} />
-              <Text style={styles.protectedTxt} {...MARKETPLACE_TEXT_PROPS}>
-                Vaulted Protected Checkout
-              </Text>
-            </View>
-            <Text style={styles.delivery} {...MARKETPLACE_TEXT_PROPS}>
-              {vm.pricing.deliveryEstimate}
-            </Text>
-            {vm.pricing.marketReference ? (
-              <Text style={styles.marketRef} {...MARKETPLACE_TEXT_PROPS}>
-                {vm.pricing.marketReference}
-              </Text>
-            ) : null}
-            <Text style={styles.payNote} {...MARKETPLACE_TEXT_PROPS}>
-              {vm.pricing.paymentNote}
-            </Text>
-          </LinearGradient>
 
           {vm.content.description ? (
             <>
@@ -513,7 +502,7 @@ export function ProductDetailScreen({ navigation, route }: Props) {
             </>
           ) : null}
 
-          <SectionTitle>Seller</SectionTitle>
+          <SectionTitle>Seller spotlight</SectionTitle>
           <View style={styles.showroomCard}>
             <Pressable onPress={() => openUserProfile(product.seller.id, rootNav)}>
               <HostRow
@@ -551,13 +540,7 @@ export function ProductDetailScreen({ navigation, route }: Props) {
                   targetType="listing"
                   targetId={product.id}
                   accessToken={session?.access_token}
-                  label="Report listing"
-                />
-                <ReportButton
-                  targetType="user"
-                  targetId={product.seller.id}
-                  accessToken={session?.access_token}
-                  label="Report seller"
+                  label="Report"
                 />
               </View>
             ) : null}
@@ -679,39 +662,23 @@ export function ProductDetailScreen({ navigation, route }: Props) {
           pointerEvents="none"
         />
         <View style={[styles.stickyInner, compact && styles.stickyInnerCompact]}>
-          <PremiumVaultButton
-            variant="ghost"
-            label={saved ? 'Watching' : 'Watch'}
-            icon={saved ? 'eye' : 'eye-outline'}
-            onPress={() => setSaved((s) => !s)}
-            compact={compact}
-          />
-          {vm.trade.allowOffers ? (
+          <View style={styles.stickyCopy}>
+            <Text style={styles.stickyTitle} numberOfLines={1} {...MARKETPLACE_TEXT_PROPS}>
+              {product.title}
+            </Text>
+            <Text style={styles.stickyPrice} {...MARKETPLACE_TEXT_PROPS}>
+              {vm.pricing.buyNow}
+            </Text>
+          </View>
+          {!commerceBlocked ? (
             <PremiumVaultButton
-              variant="secondary"
-              label="Offer"
-              icon="pricetag-outline"
-              onPress={goMakeOffer}
+              variant="primary"
+              label="Buy now"
+              icon="bag-outline"
+              onPress={goBuyNow}
               compact={compact}
             />
           ) : null}
-          {vm.trade.acceptsTrades ? (
-            <PremiumVaultButton
-              variant="secondary"
-              label="Trade"
-              icon="swap-horizontal-outline"
-              onPress={goTradeOffer}
-              compact={compact}
-            />
-          ) : null}
-          <PremiumVaultButton
-            variant="primary"
-            label={`Buy · ${vm.pricing.buyNow}`}
-            icon="bag-outline"
-            onPress={goBuyNow}
-            flex
-            compact={compact}
-          />
         </View>
       </View>
 
@@ -1096,13 +1063,28 @@ const styles = StyleSheet.create({
   stickyInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.md,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
   },
   stickyInnerCompact: {
-    gap: 6,
+    gap: spacing.sm,
     paddingHorizontal: spacing.md,
+  },
+  stickyCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  stickyTitle: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  stickyPrice: {
+    color: colors.gold,
+    fontSize: 20,
+    fontWeight: '800',
+    marginTop: 2,
   },
   zoomModal: {
     flex: 1,
