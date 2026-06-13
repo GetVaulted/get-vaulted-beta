@@ -10,10 +10,7 @@ import type { ItemPageExtras } from "@/lib/marketplace-item-extras";
 import { isLegacyMarketplaceTimedAuction } from "@/lib/marketplace-commerce-policy";
 import { MarketplaceMakeOfferModal } from "@/components/marketplace/MarketplaceMakeOfferModal";
 
-function formatMoney(n: number) {
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-}
-
+import { formatMarketplaceUsd } from "@/lib/format-marketplace-usd";
 function OfferIcon() {
   return (
     <svg className="size-4 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -95,7 +92,7 @@ export function MarketplaceItemPurchasePanel({
   }, [session?.user?.id, allowLayaway]);
 
   const askingLines = useMemo(
-    () => [{ label: "Asking price", value: formatMoney(listing.price) }],
+    () => [{ label: "Asking price", value: formatMarketplaceUsd(listing.price) }],
     [listing.price],
   );
 
@@ -147,7 +144,7 @@ export function MarketplaceItemPurchasePanel({
   const priceBlock = (
     <div className="space-y-1">
       <p className="font-mono text-4xl font-black tracking-tight text-gold-bright sm:text-[2.75rem]">
-        {formatMoney(listing.price)}
+        {formatMarketplaceUsd(listing.price)}
       </p>
       <p className="text-sm text-zinc-400">
         {extras.estimatedShippingDisplay} shipping · {extras.handlingEstimateDisplay}
@@ -181,7 +178,7 @@ export function MarketplaceItemPurchasePanel({
                   strokeLinejoin="round"
                 />
               </svg>
-              Buy now — {formatMoney(listing.price)}
+              Buy now — {formatMarketplaceUsd(listing.price)}
             </Link>
             {allowLayaway ? (
               buyerLayawayBlocked ? (

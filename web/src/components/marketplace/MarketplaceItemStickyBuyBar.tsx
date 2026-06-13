@@ -7,10 +7,7 @@ import { useEffect, useState } from "react";
 
 const SENTINEL_ID = "item-primary-cta-sentinel";
 
-function formatMoney(n: number) {
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-}
-
+import { formatMarketplaceUsd } from "@/lib/format-marketplace-usd";
 type MarketplaceItemStickyBuyBarProps = {
   mode: "buy_now" | "auction";
   buyNowPrice: number;
@@ -68,7 +65,7 @@ export function MarketplaceItemStickyBuyBar({
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-zinc-300">{listingTitle}</p>
           <p className="font-mono text-xl font-black tabular-nums tracking-tight text-gold-bright sm:text-2xl">
-            {formatMoney(price)}
+            {formatMarketplaceUsd(price)}
           </p>
         </div>
         {isOwnListing ? (

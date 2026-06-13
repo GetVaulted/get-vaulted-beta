@@ -3,10 +3,7 @@ import { CardImagePlaceholder } from "@/components/ui/CardImagePlaceholder";
 import type { MarketplaceCategory, MarketplaceListing } from "@/content/marketplace-listings";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 
-function formatPrice(n: number) {
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-}
-
+import { formatMarketplaceUsd } from "@/lib/format-marketplace-usd";
 const categoryTone: Record<MarketplaceCategory, string> = {
   "Trading Cards": "border-sky-300/25 bg-sky-950/25 text-sky-100/90",
   Memorabilia: "border-amber-300/20 bg-amber-950/20 text-amber-100/85",
@@ -110,7 +107,7 @@ export function MarketplaceBrowseCard({
         <p
           className={`font-mono font-black leading-none tracking-tight text-gold-bright ${compact ? "text-sm sm:text-base" : "text-base sm:text-lg"}`}
         >
-          {formatPrice(listing.price)}
+          {formatMarketplaceUsd(listing.price)}
         </p>
         <div
           className={`pointer-events-auto flex flex-wrap items-center gap-x-1.5 gap-y-1 leading-tight text-zinc-500 ${compact ? "text-[9px]" : "text-[10px]"}`}

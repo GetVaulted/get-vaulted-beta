@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { formatMarketplaceUsd } from "@/lib/format-marketplace-usd";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
 import { useRequireSellerActivation } from "@/hooks/useRequireSellerActivation";
 import { sellerListingHref } from "@/lib/listing-routes";
@@ -42,10 +43,6 @@ function FulfillmentWarningsNotice({ warnings }: { warnings?: StoredUserListing[
       ))}
     </ul>
   );
-}
-
-function formatMoney(n: number) {
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
 function formatShortDate(iso: string) {
@@ -87,9 +84,9 @@ function displayPriceRow(l: StoredUserListing): string {
   if (l.buyingFormat === "auction") {
     const bid = l.displayBid ?? l.startingBid ?? l.price;
     const n = l.auctionBidCount ?? 0;
-    return `${formatMoney(bid)} · ${n} ${n === 1 ? "bid" : "bids"}`;
+    return `${formatMarketplaceUsd(bid)} · ${n} ${n === 1 ? "bid" : "bids"}`;
   }
-  return formatMoney(l.price);
+  return formatMarketplaceUsd(l.price);
 }
 
 function notifyListingsUpdated() {
@@ -407,7 +404,7 @@ export function MyListingsPage() {
                                     </span>
                                   ) : null}
                                   {l.minimumOfferUsd != null ? (
-                                    <span className="text-[9px] text-zinc-600">Min offer {formatMoney(l.minimumOfferUsd)}</span>
+                                    <span className="text-[9px] text-zinc-600">Min offer {formatMarketplaceUsd(l.minimumOfferUsd)}</span>
                                   ) : null}
                                   {offers > 0 ? (
                                     <button

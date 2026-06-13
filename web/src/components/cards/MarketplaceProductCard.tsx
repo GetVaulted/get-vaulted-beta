@@ -11,10 +11,7 @@ type MarketplaceProductCardProps = {
   compact?: boolean;
 };
 
-function formatPrice(n: number) {
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-}
-
+import { formatMarketplaceUsd } from "@/lib/format-marketplace-usd";
 export function MarketplaceProductCard({
   title,
   condition,
@@ -54,7 +51,7 @@ export function MarketplaceProductCard({
           <p
             className={`font-mono font-black tracking-tight text-gold-bright ${compact ? "text-base sm:text-lg" : "text-lg sm:text-xl"}`}
           >
-            {formatPrice(price)}
+            {formatMarketplaceUsd(price)}
           </p>
           <Link
             href={href}

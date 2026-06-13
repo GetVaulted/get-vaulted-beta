@@ -3,16 +3,7 @@ import { resolveListingImageUrl } from './mapWebMarketplaceListing';
 import type { WebStoredListing } from './webListingsRepository';
 import type { Host, Product } from '../types';
 
-function formatMoney(amount: number): string {
-  try {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(
-      amount,
-    );
-  } catch {
-    return `$${Math.round(amount).toLocaleString('en-US')}`;
-  }
-}
-
+import { formatMarketplaceUsd } from '../lib/formatMarketplaceUsd';
 function resolveStoredImageUrls(urls: string[] | undefined): string[] {
   if (!urls?.length) return [];
   return urls
@@ -46,10 +37,10 @@ export function mapStoredListingToProduct(row: WebStoredListing, seller?: Host):
     imageUrls: imageUrls.length ? imageUrls : undefined,
     description: row.description?.trim() || undefined,
     vaultVerified: false,
-    listingPrice: formatMoney(price),
+    listingPrice: formatMarketplaceUsd(price),
     conditionGrade: row.condition || undefined,
     seller: host,
-    buyNow: formatMoney(price),
+    buyNow: formatMarketplaceUsd(price),
     allowOffers: row.allowOffers === true,
     allowLayaway: row.allowLayaway === true,
     acceptTradeOffers: row.acceptTradeOffers === true,

@@ -6,16 +6,7 @@ import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 const FALLBACK_AVATAR =
   'https://images.unsplash.com/photo-1517649763962-0c62306601b7?w=200&q=80&auto=format&fit=crop';
 
-function formatMoney(amount: number): string {
-  try {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(
-      amount,
-    );
-  } catch {
-    return `$${Math.round(amount).toLocaleString('en-US')}`;
-  }
-}
-
+import { formatMarketplaceUsd } from '../lib/formatMarketplaceUsd';
 export function resolveListingImageUrl(url: string | undefined): string | undefined {
   if (!url?.trim()) return undefined;
   const trimmed = url.trim();
@@ -48,7 +39,7 @@ export function mapWebMarketplaceListingToProduct(listing: WebMarketplaceListing
   const imageUrls = resolveListingImageUrls(listing.imageUrls);
   const imageUrl = imageUrls[0];
   const cat: CategoryId = mapListingCategoryToCategoryId(listing.category);
-  const priceLabel = formatMoney(listing.price);
+  const priceLabel = formatMarketplaceUsd(listing.price);
   return {
     id: listing.id,
     title: listing.title || 'Listing',
