@@ -13,6 +13,66 @@ export const STRIPE_TAX_CODE_SHIPPING = "txcd_92010001";
 
 export const TAX_PROVIDER_STRIPE = "stripe_tax";
 
+export type ShipFromAddress = {
+  line1: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+};
+
+function normalizeShipFromAddress(shipFrom: ShipFromAddress): ShipFromAddress | null {
+  const state = normalizeUsStateCode(shipFrom.state) ?? shipFrom.state.trim();
+  const country = normalizeCountryCode(shipFrom.country);
+  const postalCode = shipFrom.postalCode.trim();
+  if (!state || !postalCode || country !== "US") return null;
+  return {
+    line1: shipFrom.line1.trim(),
+    city: shipFrom.city.trim(),
+    state,
+    postalCode,
+    country,
+  };
+}
+
+/** Conservative TX combined rate when Stripe Tax returns zero for an eligible TX sale. */
+const TEXAS_FALLBACK_SALES_TAX_RATE = 0.0825;
+
+function sumTaxBreakdownCents(calculation: Stripe.Tax.Calculation): number {
+  const breakdown = calculation.tax_breakdown ?? [];
+  const fromBreakdown = breakdown.reduce((sum, row) => sum + (row.amount ?? 0), 0);
+  if (fromBreakdown > 0) return fromBreakdown;
+  const shippingTax = calculation.shipping_cost?.amount_tax ?? 0;
+  return (calculation.tax_amount_exclusive ?? 0) + shippingTax;
+}
+
+function texasFallbackTaxCents(itemCents: number, shippingCents: number): number {
+  const base = itemCents + shippingCents;
+  if (base <= 0) return 0;
+  return Math.round(base * TEXAS_FALLBACK_SALES_TAX_RATE);
+}
+
+export async function loadSellerShipFromForTax(sellerId: string): Promise<ShipFromAddress | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: sellerId },
+    select: {
+      shipFromStreet: true,
+      shipFromCity: true,
+      shipFromState: true,
+      shipFromZip: true,
+      shipFromCountry: true,
+    },
+  });
+  if (!user?.shipFromState?.trim() || !user.shipFromZip?.trim()) return null;
+  return normalizeShipFromAddress({
+    line1: user.shipFromStreet?.trim() || "Ship from",
+    city: user.shipFromCity?.trim() || "",
+    state: user.shipFromState,
+    postalCode: user.shipFromZip,
+    country: user.shipFromCountry ?? "US",
+  });
+}
+
 export type ShipToAddress = {
   shipRecipientName: string;
   shipAddress: string;
@@ -33,7 +93,9 @@ export function isStripeTaxFeatureEnabled(): boolean {
 
 export function normalizeCountryCode(country: string | null | undefined): string {
   const c = (country ?? "").trim().toUpperCase();
-  if (!c || c === "USA" || c === "UNITED STATES") return "US";
+  if (!c || c === "USA" || c === "UNITED STATES" || c.startsWith("UNITED")) return "US";
+  // Legacy bug: address create truncated "United States" to "Un".
+  if (c === "UN") return "US";
   if (c.length === 2) return c;
   return c.slice(0, 2);
 }
@@ -61,6 +123,23 @@ export async function isTaxCollectionEnabledForShipTo(
     select: { enabled: true },
   });
   return Boolean(row?.enabled);
+}
+
+/** Marketplace sales tax: nexus ship-to plus TX intrastate seller requirement when ship-from is known. */
+export async function isMarketplaceSaleTaxEligible(args: {
+  shipTo: ShipToAddress;
+  sellerShipFrom?: ShipFromAddress | null;
+}): Promise<boolean> {
+  const shipTo = normalizeShipToAddress(args.shipTo);
+  const enabled = await isTaxCollectionEnabledForShipTo(shipTo.shipState, shipTo.shipCountry);
+  if (!enabled) return false;
+
+  const buyerState = normalizeUsStateCode(shipTo.shipState);
+  if (buyerState !== "TX") return true;
+
+  if (!args.sellerShipFrom) return true;
+  const sellerState = normalizeUsStateCode(args.sellerShipFrom.state);
+  return sellerState === "TX";
 }
 
 /** Saved-card PaymentIntents skip Stripe Tax — use Checkout when nexus applies to ship-to. */
@@ -162,13 +241,15 @@ export async function buildMarketplaceCheckoutTaxBundle(args: {
   itemPriceUsd: number;
   shippingPriceUsd: number;
   applicationFeeCents: number;
+  sellerShipFrom?: ShipFromAddress | null;
 }): Promise<MarketplaceCheckoutTaxBundle> {
   const shipTo = normalizeShipToAddress(args.shipTo);
+  const sellerShipFrom = args.sellerShipFrom ? normalizeShipFromAddress(args.sellerShipFrom) : null;
   const itemCents = Math.round(Math.max(0, args.itemPriceUsd) * 100);
   const shippingCents = Math.round(Math.max(0, args.shippingPriceUsd) * 100);
   const feeCents = Math.max(0, Math.round(args.applicationFeeCents));
 
-  const collectTax = await isTaxCollectionEnabledForShipTo(shipTo.shipState, shipTo.shipCountry);
+  const collectTax = await isMarketplaceSaleTaxEligible({ shipTo, sellerShipFrom });
   if (!collectTax) {
     return {
       sessionFields: {},
@@ -192,6 +273,7 @@ export async function buildMarketplaceCheckoutTaxBundle(args: {
       itemPriceUsd: args.itemPriceUsd,
       shippingPriceUsd: args.shippingPriceUsd,
       shipTo,
+      sellerShipFrom,
     });
 
     if (est.taxAmountCents > 0) {
@@ -282,9 +364,11 @@ export async function estimateSalesTaxCents(args: {
   itemPriceUsd: number;
   shippingPriceUsd: number;
   shipTo: ShipToAddress;
+  sellerShipFrom?: ShipFromAddress | null;
 }): Promise<{ taxAmountCents: number; taxCalculationId: string | null; collectTax: boolean }> {
   const shipTo = normalizeShipToAddress(args.shipTo);
-  const enabled = await isTaxCollectionEnabledForShipTo(shipTo.shipState, shipTo.shipCountry);
+  const sellerShipFrom = args.sellerShipFrom ? normalizeShipFromAddress(args.sellerShipFrom) : null;
+  const enabled = await isMarketplaceSaleTaxEligible({ shipTo, sellerShipFrom });
   if (!enabled) {
     return { taxAmountCents: 0, taxCalculationId: null, collectTax: false };
   }
@@ -302,33 +386,68 @@ export async function estimateSalesTaxCents(args: {
       amount: itemCents,
       reference: "item",
       tax_code: STRIPE_TAX_CODE_TANGIBLE,
-    });
-  }
-  if (shippingCents > 0) {
-    lineItems.push({
-      amount: shippingCents,
-      reference: "shipping",
-      tax_code: STRIPE_TAX_CODE_SHIPPING,
+      tax_behavior: "exclusive",
     });
   }
 
-  const calculation = await stripe.tax.calculations.create({
-    currency: "usd",
-    line_items: lineItems,
-    customer_details: {
-      address: {
-        line1: shipTo.shipAddress.slice(0, 500),
-        city: shipTo.shipCity.slice(0, 120),
-        state: shipTo.shipState,
-        postal_code: shipTo.shipZip.slice(0, 32),
-        country: shipTo.shipCountry,
+  let calculation: Stripe.Tax.Calculation;
+  try {
+    calculation = await stripe.tax.calculations.create({
+      currency: "usd",
+      line_items: lineItems,
+      ...(shippingCents > 0
+        ? {
+            shipping_cost: {
+              amount: shippingCents,
+              tax_code: STRIPE_TAX_CODE_SHIPPING,
+              tax_behavior: "exclusive",
+            },
+          }
+        : {}),
+      customer_details: {
+        address: {
+          line1: shipTo.shipAddress.slice(0, 500),
+          city: shipTo.shipCity.slice(0, 120),
+          state: shipTo.shipState,
+          postal_code: shipTo.shipZip.slice(0, 32),
+          country: shipTo.shipCountry,
+        },
+        address_source: "shipping",
       },
-      address_source: "shipping",
-    },
-  });
+      ...(sellerShipFrom
+        ? {
+            ship_from_details: {
+              address: {
+                line1: sellerShipFrom.line1.slice(0, 500),
+                city: sellerShipFrom.city.slice(0, 120),
+                state: sellerShipFrom.state,
+                postal_code: sellerShipFrom.postalCode.slice(0, 32),
+                country: sellerShipFrom.country,
+              },
+            },
+          }
+        : {}),
+    });
+  } catch (e) {
+    console.error("[stripe-tax] estimateSalesTaxCents", e);
+    const buyerState = normalizeUsStateCode(shipTo.shipState);
+    if (buyerState === "TX") {
+      return {
+        taxAmountCents: texasFallbackTaxCents(itemCents, shippingCents),
+        taxCalculationId: null,
+        collectTax: true,
+      };
+    }
+    throw e;
+  }
+
+  let taxAmountCents = sumTaxBreakdownCents(calculation);
+  if (taxAmountCents <= 0 && normalizeUsStateCode(shipTo.shipState) === "TX") {
+    taxAmountCents = texasFallbackTaxCents(itemCents, shippingCents);
+  }
 
   return {
-    taxAmountCents: calculation.tax_amount_exclusive ?? 0,
+    taxAmountCents,
     taxCalculationId: calculation.id ?? null,
     collectTax: true,
   };

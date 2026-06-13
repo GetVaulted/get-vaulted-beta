@@ -325,6 +325,7 @@ export function BuyNowCheckoutForm({
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              listingId: listing.id,
               itemPriceUsd: listing.itemPriceUsd,
               shippingPriceUsd,
               shipping: {

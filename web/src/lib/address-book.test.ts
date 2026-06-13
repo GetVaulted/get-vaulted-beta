@@ -20,10 +20,15 @@ describe("address-book helpers", () => {
       fullName: "Test User",
       line1: "1 Main",
       city: "Austin",
-      state: "TX",
+      state: "Texas",
       postalCode: "78701",
+      country: "United States",
     });
     expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.data.state).toBe("TX");
+      expect(res.data.country).toBe("US");
+    }
   });
 
   it("validates patch payload presence", () => {

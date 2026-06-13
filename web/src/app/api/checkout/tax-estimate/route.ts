@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server";
 import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
+import { prisma } from "@/lib/prisma";
 import {
   estimateSalesTaxCents,
   isStripeTaxFeatureEnabled,
-  isTaxCollectionEnabledForShipTo,
+  isMarketplaceSaleTaxEligible,
+  loadSellerShipFromForTax,
+  normalizeShipToAddress,
 } from "@/lib/stripe-tax";
 
 export const runtime = "nodejs";
 
 type Body = {
+  listingId?: string;
   itemPriceUsd?: number;
   shippingPriceUsd?: number;
   shipping?: {
@@ -49,14 +53,14 @@ export async function POST(req: Request) {
   const itemPriceUsd = Number(body.itemPriceUsd);
   const shippingPriceUsd = Number(body.shippingPriceUsd ?? 0);
   const sh = body.shipping ?? {};
-  const shipTo = {
+  const shipTo = normalizeShipToAddress({
     shipRecipientName: trim(sh.shipRecipientName, 200),
     shipAddress: trim(sh.shipAddress, 500),
     shipCity: trim(sh.shipCity, 120),
     shipState: trim(sh.shipState, 120),
     shipZip: trim(sh.shipZip, 32),
     shipCountry: trim(sh.shipCountry, 120) || "US",
-  };
+  });
 
   if (!Number.isFinite(itemPriceUsd) || itemPriceUsd < 0) {
     return NextResponse.json({ error: "itemPriceUsd required." }, { status: 400 });
@@ -71,11 +75,24 @@ export async function POST(req: Request) {
     });
   }
 
+  const listingId = trim(body.listingId, 120);
+  let sellerShipFrom = null;
+  if (listingId) {
+    const listing = await prisma.listing.findUnique({
+      where: { id: listingId },
+      select: { sellerId: true },
+    });
+    if (listing) {
+      sellerShipFrom = await loadSellerShipFromForTax(listing.sellerId);
+    }
+  }
+
   try {
     const est = await estimateSalesTaxCents({
       itemPriceUsd,
       shippingPriceUsd,
       shipTo,
+      sellerShipFrom,
     });
     return NextResponse.json({
       collectTax: est.collectTax,
@@ -87,7 +104,7 @@ export async function POST(req: Request) {
     });
   } catch (e) {
     console.error("[checkout/tax-estimate]", e);
-    const collectTax = await isTaxCollectionEnabledForShipTo(shipTo.shipState, shipTo.shipCountry);
+    const collectTax = await isMarketplaceSaleTaxEligible({ shipTo, sellerShipFrom });
     if (collectTax) {
       return NextResponse.json({
         collectTax: true,

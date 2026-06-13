@@ -5,7 +5,6 @@ import {
   isStripeTaxFeatureEnabled,
   orderRequiresCheckoutForTax,
 } from "@/lib/stripe-tax";
-import { normalizeUsStateCode } from "@/lib/us-state-code";
 
 describe("stripe-tax helpers", () => {
   beforeEach(() => {
@@ -17,8 +16,9 @@ describe("stripe-tax helpers", () => {
   });
 
   it("normalizes US state and country codes", () => {
-    expect(normalizeUsStateCode("tx")).toBe("TX");
     expect(normalizeCountryCode("United States")).toBe("US");
+    expect(normalizeCountryCode("Un")).toBe("US");
+    expect(normalizeCountryCode("UN")).toBe("US");
   });
 
   it("is disabled when STRIPE_TAX_ENABLED is not set", () => {

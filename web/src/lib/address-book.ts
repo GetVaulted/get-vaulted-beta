@@ -22,7 +22,8 @@ const ADDRESS_TYPES: AddressType[] = ["shipping", "return", "billing", "ship_fro
 
 function normalizeCountryCode(country: string): string {
   const c = country.trim().toUpperCase();
-  if (!c || c === "USA" || c === "UNITED STATES") return "US";
+  if (!c || c === "USA" || c === "UNITED STATES" || c.startsWith("UNITED")) return "US";
+  if (c === "UN") return "US";
   if (c.length === 2) return c;
   return c.slice(0, 2);
 }
@@ -71,8 +72,8 @@ export function validateAddressCreateInput(body: AddressInput):
   const city = asTrimmedString(body.city, 120);
   const state = asTrimmedString(body.state, 120);
   const postalCode = asTrimmedString(body.postalCode, 32);
-  const country = asTrimmedString(body.country, 2) ?? "US";
-  const normalizedCountry = normalizeCountryCode(country);
+  const countryRaw = asTrimmedString(body.country, 120) ?? "US";
+  const normalizedCountry = normalizeCountryCode(countryRaw);
   if (!type) return { ok: false, error: "Invalid address type." };
   if (!name || !fullName || !line1 || !city || !state || !postalCode) {
     return { ok: false, error: "Missing required address fields." };
@@ -115,9 +116,24 @@ export function validateAddressPatchInput(body: AddressInput):
   if (body.line1 !== undefined) data.line1 = asOptionalString(body.line1, 200) ?? null;
   if (body.line2 !== undefined) data.line2 = asOptionalString(body.line2, 200) ?? null;
   if (body.city !== undefined) data.city = asOptionalString(body.city, 120) ?? null;
-  if (body.state !== undefined) data.state = asOptionalString(body.state, 120) ?? null;
+  if (body.state !== undefined) {
+    const stateRaw = asOptionalString(body.state, 120);
+    if (stateRaw != null) {
+      const countryForState =
+        body.country !== undefined
+          ? normalizeCountryCode(asOptionalString(body.country, 120) ?? "US")
+          : "US";
+      data.state =
+        countryForState === "US" ? normalizeUsStateCode(stateRaw) ?? stateRaw : stateRaw;
+    } else {
+      data.state = null;
+    }
+  }
   if (body.postalCode !== undefined) data.postalCode = asOptionalString(body.postalCode, 32) ?? null;
-  if (body.country !== undefined) data.country = asOptionalString(body.country, 2) ?? null;
+  if (body.country !== undefined) {
+    const countryRaw = asOptionalString(body.country, 120);
+    data.country = countryRaw ? normalizeCountryCode(countryRaw) : null;
+  }
   if (body.phone !== undefined) data.phone = asOptionalString(body.phone, 40) ?? null;
   if (body.email !== undefined) data.email = asOptionalString(body.email, 200) ?? null;
   if (body.isDefault !== undefined) data.isDefault = Boolean(body.isDefault);

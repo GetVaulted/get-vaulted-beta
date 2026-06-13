@@ -20,6 +20,7 @@ import { getStripe } from "@/lib/stripe";
 import {
   buildCheckoutTaxSessionFields,
   buildMarketplaceCheckoutTaxBundle,
+  loadSellerShipFromForTax,
   fetchCheckoutSessionTax,
   STRIPE_TAX_CODE_SHIPPING,
   STRIPE_TAX_CODE_TANGIBLE,
@@ -776,6 +777,7 @@ export async function createBuyNowCheckoutSession(args: {
     itemPriceUsd: order.itemPriceUsd,
     shippingPriceUsd: order.shippingPriceUsd,
     applicationFeeCents: feeCents,
+    sellerShipFrom: await loadSellerShipFromForTax(listing.sellerId),
   });
 
   const expectedSubtotalCents =
@@ -1035,6 +1037,7 @@ export async function createPayOrderCheckoutSession(args: {
     itemPriceUsd: order.itemPriceUsd,
     shippingPriceUsd,
     applicationFeeCents: feeCents,
+    sellerShipFrom: await loadSellerShipFromForTax(order.sellerId),
   });
 
   const expectedSubtotalCents =
