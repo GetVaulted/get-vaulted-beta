@@ -116,15 +116,20 @@ export function buildItemPageExtras(listing: MarketplaceListing): ItemPageExtras
       (listing.auctionEndsAtIso != null && new Date(listing.auctionEndsAtIso).getTime() <= now));
 
   const estimatedShippingDisplay =
-    listing.shippingPriceUsd != null && Number.isFinite(listing.shippingPriceUsd)
+    listing.shippingPriceUsd != null && Number.isFinite(listing.shippingPriceUsd) && listing.shippingPriceUsd > 0
       ? listing.shippingPriceUsd.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 })
-      : "Calculated at checkout";
+      : "Estimated at checkout";
+
+  const handlingEstimateDisplay = (() => {
+    const trimmed = listing.handlingTimeLabel?.trim();
+    if (!trimmed || trimmed === "—" || trimmed === "-") {
+      return "Typically ships within 1–2 business days";
+    }
+    return trimmed;
+  })();
 
   const shipsFromDisplay =
     typeof listing.shipsFromRegion === "string" && listing.shipsFromRegion.trim() ? listing.shipsFromRegion.trim() : null;
-
-  const handlingEstimateDisplay =
-    listing.handlingTimeLabel?.trim() || "Typically ships within 1–2 business days";
 
   const trackingAfterPurchaseLine =
     "After your payment clears, the seller purchases a carrier label and tracking is added to your order automatically when available.";

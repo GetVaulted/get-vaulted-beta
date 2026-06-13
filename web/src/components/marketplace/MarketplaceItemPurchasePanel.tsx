@@ -9,6 +9,7 @@ import type { MarketplaceListing } from "@/content/marketplace-listings";
 import type { ItemPageExtras } from "@/lib/marketplace-item-extras";
 import { isLegacyMarketplaceTimedAuction } from "@/lib/marketplace-commerce-policy";
 import { MarketplaceMakeOfferModal } from "@/components/marketplace/MarketplaceMakeOfferModal";
+import { MarketplaceItemShippingEstimateLine } from "@/components/marketplace/MarketplaceItemShippingEstimateLine";
 
 import { formatMarketplaceUsd } from "@/lib/format-marketplace-usd";
 function OfferIcon() {
@@ -146,9 +147,11 @@ export function MarketplaceItemPurchasePanel({
       <p className="font-mono text-4xl font-black tracking-tight text-gold-bright sm:text-[2.75rem]">
         {formatMarketplaceUsd(listing.price)}
       </p>
-      <p className="text-sm text-zinc-400">
-        {extras.estimatedShippingDisplay} shipping · {extras.handlingEstimateDisplay}
-      </p>
+      <MarketplaceItemShippingEstimateLine
+        listingId={listing.id}
+        flatShippingUsd={listing.shippingPriceUsd}
+        handlingEstimate={extras.handlingEstimateDisplay}
+      />
       {allowLayaway ? (
         <p className="text-xs font-medium text-gold-bright/80">Layaway available — 25% deposit to reserve</p>
       ) : null}
