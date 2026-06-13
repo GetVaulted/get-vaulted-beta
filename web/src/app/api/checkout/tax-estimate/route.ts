@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
-import { estimateSalesTaxCents, isStripeTaxFeatureEnabled } from "@/lib/stripe-tax";
+import {
+  estimateSalesTaxCents,
+  isStripeTaxFeatureEnabled,
+  isTaxCollectionEnabledForShipTo,
+} from "@/lib/stripe-tax";
 
 export const runtime = "nodejs";
 
@@ -83,8 +87,20 @@ export async function POST(req: Request) {
     });
   } catch (e) {
     console.error("[checkout/tax-estimate]", e);
+    const collectTax = await isTaxCollectionEnabledForShipTo(shipTo.shipState, shipTo.shipCountry);
+    if (collectTax) {
+      return NextResponse.json({
+        collectTax: true,
+        taxAmountCents: 0,
+        taxUsd: 0,
+        taxCalculationId: null,
+        subtotalUsd: itemPriceUsd + shippingPriceUsd,
+        totalUsd: itemPriceUsd + shippingPriceUsd,
+        note: "Sales tax is added on secure checkout.",
+      });
+    }
     return NextResponse.json(
-      { error: "Tax estimate unavailable. Tax will be calculated at checkout." },
+      { error: "Tax estimate unavailable." },
       { status: 502 },
     );
   }

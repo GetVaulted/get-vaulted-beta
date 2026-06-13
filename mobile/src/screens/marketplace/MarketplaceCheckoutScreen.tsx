@@ -86,6 +86,9 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
   const [paymentReady, setPaymentReady] = useState(false);
   const [taxUsd, setTaxUsd] = useState(0);
+  const [taxCollect, setTaxCollect] = useState(false);
+  const [taxLoading, setTaxLoading] = useState(false);
+  const [taxNote, setTaxNote] = useState<string | null>(null);
   const [planType, setPlanType] = useState<'thirty_day' | 'sixty_day'>('thirty_day');
   const [termsAcknowledged, setTermsAcknowledged] = useState(false);
   const [layawayBlocked, setLayawayBlocked] = useState<string | null>(null);
@@ -245,18 +248,40 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
 
   useEffect(() => {
     if (!token || !shippingPayload) return;
+    if (!usesFlatShipping && shippingPriceUsd <= 0) {
+      setTaxUsd(0);
+      setTaxCollect(false);
+      setTaxNote(null);
+      return;
+    }
+    let cancelled = false;
     const t = setTimeout(() => {
+      setTaxLoading(true);
       void fetchMarketplaceCheckoutTaxEstimate(token, {
         itemPriceUsd,
         shippingPriceUsd,
         shipping: shippingPayload,
-      }).then((est) => setTaxUsd(est.taxUsd));
+      })
+        .then((est) => {
+          if (cancelled) return;
+          setTaxUsd(est.taxUsd);
+          setTaxCollect(est.collectTax);
+          setTaxNote(est.note);
+        })
+        .finally(() => {
+          if (!cancelled) setTaxLoading(false);
+        });
     }, 400);
-    return () => clearTimeout(t);
-  }, [itemPriceUsd, shippingPayload, shippingPriceUsd, token]);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [itemPriceUsd, shippingPayload, shippingPriceUsd, token, usesFlatShipping]);
 
+  const shippingReady = usesFlatShipping || Boolean(selectedRateId);
+  const summaryReady = Boolean(shippingPayload) && shippingReady;
   const subtotal = useMemo(() => itemPriceUsd + shippingPriceUsd, [itemPriceUsd, shippingPriceUsd]);
-  const total = useMemo(() => subtotal + taxUsd, [subtotal, taxUsd]);
+  const total = useMemo(() => subtotal + (taxCollect ? taxUsd : 0), [subtotal, taxCollect, taxUsd]);
   const depositUsd = useMemo(
     () => Math.round(itemPriceUsd * LAYAWAY_DEPOSIT_FRACTION * 100) / 100,
     [itemPriceUsd],
@@ -577,13 +602,17 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
             <Text style={styles.summaryLine} {...MARKETPLACE_TEXT_PROPS}>
               Shipping {fmtMoney(shippingPriceUsd)}
             </Text>
-            {taxUsd > 0 ? (
+            {summaryReady && (taxLoading || taxCollect) ? (
               <Text style={styles.summaryLine} {...MARKETPLACE_TEXT_PROPS}>
-                Tax {fmtMoney(taxUsd)}
+                {taxLoading
+                  ? 'Tax calculating…'
+                  : taxUsd > 0
+                    ? `Tax ${fmtMoney(taxUsd)}`
+                    : taxNote ?? 'Tax added at checkout'}
               </Text>
             ) : null}
             <Text style={styles.totalLine} {...MARKETPLACE_TEXT_PROPS}>
-              Total {fmtMoney(total)}
+              Total {fmtMoney(summaryReady ? total : itemPriceUsd)}
             </Text>
           </View>
         )}

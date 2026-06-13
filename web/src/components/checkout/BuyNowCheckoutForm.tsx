@@ -206,6 +206,12 @@ export function BuyNowCheckoutForm({
       setTaxNote(null);
       return;
     }
+    if (!usesFlatShipping && !liveRoomItemId && shippingPriceUsd <= 0) {
+      setTaxUsd(0);
+      setTaxCollect(false);
+      setTaxNote(null);
+      return;
+    }
     const t = window.setTimeout(() => {
       void (async () => {
         setTaxLoading(true);
@@ -239,7 +245,7 @@ export function BuyNowCheckoutForm({
           } else {
             setTaxUsd(0);
             setTaxCollect(false);
-            setTaxNote(j.error ?? "Tax calculated at checkout.");
+            setTaxNote(j.error ?? "Tax unavailable right now.");
           }
         } finally {
           setTaxLoading(false);
@@ -247,18 +253,30 @@ export function BuyNowCheckoutForm({
       })();
     }, 400);
     return () => window.clearTimeout(t);
-  }, [address, city, state, zip, country, name, listing.itemPriceUsd, shippingPriceUsd]);
+  }, [address, city, state, zip, country, name, listing.itemPriceUsd, liveRoomItemId, selectedRateId, shippingPriceUsd, usesFlatShipping]);
 
   const subtotal = useMemo(
     () => listing.itemPriceUsd + shippingPriceUsd,
     [listing.itemPriceUsd, shippingPriceUsd],
   );
 
-  const total = useMemo(() => subtotal + taxUsd, [subtotal, taxUsd]);
+  const total = useMemo(() => subtotal + (taxCollect ? taxUsd : 0), [subtotal, taxCollect, taxUsd]);
   const selectedRate = shippingRates.find((r) => r.id === selectedRateId) ?? null;
   const addressReady = Boolean(address.trim() && city.trim() && state.trim() && zip.trim());
+  const shippingReady = usesFlatShipping || Boolean(liveRoomItemId) || Boolean(selectedRateId);
+  const summaryReady = addressReady && shippingReady;
   const showRatePicker =
     ratesExpanded || shippingRates.length > 1 || (shippingRates.length > 0 && !selectedRate);
+
+  const taxLineLabel = (() => {
+    if (!summaryReady) return "—";
+    if (taxLoading) return "Calculating…";
+    if (taxCollect && taxUsd > 0) return formatMoney(taxUsd);
+    if (taxCollect && taxNote) return taxNote;
+    if (taxCollect) return "$0.00";
+    if (taxNote) return taxNote;
+    return "Not applicable";
+  })();
 
   const useVaultedSecureCheckout = orderTotalQualifiesForEscrow(subtotal);
   const secureFeeCents = useMemo(() => estimateEscrowFeeCents(subtotal), [subtotal]);
@@ -324,9 +342,50 @@ export function BuyNowCheckoutForm({
     listing.shipsFromRegion?.trim() ||
     "Seller region is confirmed on the order after you pay (US sellers ship from their verified address).";
 
+  const orderSummaryPanel = (
+    <div className="rounded-2xl border border-white/[0.08] bg-[#08080a]/90 p-5 sm:p-6">
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Order summary</p>
+      <dl className="mt-4 space-y-2 text-sm">
+        <div className="flex justify-between gap-4">
+          <dt className="text-zinc-500">Item price</dt>
+          <dd className="font-mono font-semibold text-zinc-200">{formatMoney(listing.itemPriceUsd)}</dd>
+        </div>
+        <div className="flex justify-between gap-4">
+          <dt className="text-zinc-500">Shipping</dt>
+          <dd className="font-mono font-semibold text-zinc-200">
+            {!shippingReady && !usesFlatShipping && !liveRoomItemId
+              ? "Select option"
+              : ratesLoading && !usesFlatShipping
+                ? "Calculating…"
+                : formatMoney(shippingPriceUsd)}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-4">
+          <dt className="text-zinc-500">Sales tax</dt>
+          <dd className="max-w-[58%] text-right font-mono font-semibold text-zinc-200">{taxLineLabel}</dd>
+        </div>
+        <div className="flex justify-between gap-4 border-t border-white/[0.06] pt-3">
+          <dt className="font-semibold text-zinc-300">Total</dt>
+          <dd className="font-mono text-base font-bold text-gold-bright">
+            {summaryReady ? formatMoney(total) : formatMoney(listing.itemPriceUsd)}
+          </dd>
+        </div>
+        {!summaryReady ? (
+          <p className="text-[10px] leading-snug text-zinc-500">
+            Choose your address and shipping option to see your full total.
+          </p>
+        ) : taxCollect ? (
+          <p className="text-[10px] leading-snug text-zinc-500">
+            Sales tax is buyer-paid and is not included in seller payout or platform fees.
+          </p>
+        ) : null}
+      </dl>
+    </div>
+  );
+
   return (
-    <form onSubmit={onSubmit} className="grid gap-10 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)] lg:gap-12">
-      <div className="space-y-4">
+    <form onSubmit={onSubmit} className="grid gap-8 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)] lg:gap-12">
+      <div className="space-y-4 lg:sticky lg:top-6 lg:self-start">
         <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Item</p>
         <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#08080a]">
           <div className="aspect-square w-full max-w-[280px] bg-[#0b0b0e]">
@@ -342,66 +401,13 @@ export function BuyNowCheckoutForm({
             <p className="mt-2 font-mono text-lg font-bold text-gold-bright">{formatMoney(listing.itemPriceUsd)}</p>
           </div>
         </div>
+        <div className="hidden lg:block">{orderSummaryPanel}</div>
       </div>
 
-      <div className="min-w-0 space-y-8">
+      <div className="min-w-0 space-y-6">
         {returnLiveRoomId ? (
           <LiveShippingIndicator liveShowId={returnLiveRoomId} pollMs={0} className="border border-zinc-800 bg-[#08080a]/90" />
         ) : null}
-        <div className="rounded-2xl border border-white/[0.08] bg-[#08080a]/90 p-5 sm:p-6">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Order details</p>
-          <dl className="mt-4 space-y-2 text-sm">
-            <div className="flex justify-between gap-4">
-              <dt className="text-zinc-500">Item price</dt>
-              <dd className="font-mono font-semibold text-zinc-200">{formatMoney(listing.itemPriceUsd)}</dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-zinc-500">Shipping</dt>
-              <dd className="font-mono font-semibold text-zinc-200">
-                {ratesLoading && !usesFlatShipping ? "Calculating…" : formatMoney(shippingPriceUsd)}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-zinc-500">Sales tax</dt>
-              <dd className="font-mono font-semibold text-zinc-200">
-                {taxLoading ? "Calculating…" : taxCollect ? formatMoney(taxUsd) : taxNote ?? "Calculated at checkout"}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-4 border-t border-white/[0.06] pt-3">
-              <dt className="font-semibold text-zinc-300">Total</dt>
-              <dd className="font-mono text-base font-bold text-gold-bright">{formatMoney(total)}</dd>
-            </div>
-            {taxCollect ? (
-              <p className="text-[10px] leading-snug text-zinc-500">
-                Sales tax is buyer-paid via Stripe Tax and is not included in seller payout or platform fees.
-              </p>
-            ) : null}
-          </dl>
-        </div>
-
-        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-950/10 p-5 sm:p-6">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-200/85">Shipping and delivery</p>
-          <dl className="mt-3 space-y-2.5 text-xs leading-snug text-zinc-400">
-            <div>
-              <dt className="font-semibold text-zinc-200">Estimated shipping</dt>
-              <dd className="mt-0.5">{formatMoney(shippingPriceUsd)} (included in total above)</dd>
-            </div>
-            <div>
-              <dt className="font-semibold text-zinc-200">Ships from</dt>
-              <dd className="mt-0.5">{shipsCheckout}</dd>
-            </div>
-            <div>
-              <dt className="font-semibold text-zinc-200">Handling</dt>
-              <dd className="mt-0.5">{listing.handlingEstimate}</dd>
-            </div>
-            <div>
-              <dt className="font-semibold text-zinc-200">Tracking</dt>
-              <dd className="mt-0.5">{listing.trackingAfterPurchaseLine}</dd>
-            </div>
-          </dl>
-        </div>
-
-        {useVaultedSecureCheckout ? <VaultedSecureCheckoutPanel feeCents={secureFeeCents} /> : null}
 
         {!hasSavedAddress ? (
           <div className="rounded-2xl border border-amber-500/25 bg-amber-950/10 p-5 sm:p-6">
@@ -415,86 +421,6 @@ export function BuyNowCheckoutForm({
             >
               Add shipping address in Wallet →
             </Link>
-          </div>
-        ) : null}
-
-        {!usesFlatShipping && !liveRoomItemId ? (
-          <div className="rounded-2xl border border-white/[0.08] bg-[#08080a]/90 p-5 sm:p-6">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Shipping</p>
-              {selectedRate && !ratesExpanded ? (
-                <button
-                  type="button"
-                  onClick={() => setRatesExpanded(true)}
-                  className="text-xs font-semibold text-gold-bright hover:underline"
-                >
-                  Change speed
-                </button>
-              ) : shippingRates.length > 0 && !selectedRate ? (
-                <button
-                  type="button"
-                  onClick={() => setRatesExpanded(true)}
-                  className="text-xs font-semibold text-gold-bright hover:underline"
-                >
-                  Choose shipping
-                </button>
-              ) : ratesExpanded ? (
-                <button
-                  type="button"
-                  onClick={() => setRatesExpanded(false)}
-                  className="text-xs font-semibold text-gold-bright hover:underline"
-                >
-                  Done
-                </button>
-              ) : null}
-            </div>
-            {ratesLoading ? (
-              <p className="mt-3 text-sm text-zinc-500">Loading carrier rates for your address…</p>
-            ) : null}
-            {!addressReady && !ratesLoading ? (
-              <p className="mt-3 text-sm text-zinc-500">Enter your shipping address below to load carrier options.</p>
-            ) : null}
-            {!ratesLoading && ratesError && shippingRates.length === 0 ? (
-              <p className="mt-3 text-xs font-medium text-rose-300">{ratesError}</p>
-            ) : null}
-            {!showRatePicker && selectedRate ? (
-              <div className="mt-3 rounded-xl border border-white/10 bg-[#0c0c10] px-4 py-3">
-                <p className="text-sm font-semibold text-zinc-100">
-                  {selectedRate.carrier} {selectedRate.serviceLevel}
-                </p>
-                <p className="mt-0.5 text-xs text-zinc-500">{selectedRate.estimatedDelivery}</p>
-                <p className="mt-2 font-mono text-sm font-bold text-gold-bright">
-                  {formatRatePrice(selectedRate.amount, selectedRate.currency)}
-                </p>
-              </div>
-            ) : null}
-            {showRatePicker && shippingRates.length > 0 ? (
-              <div className="mt-3 space-y-2">
-                {shippingRates.map((rate) => {
-                  const on = selectedRateId === rate.id;
-                  return (
-                    <button
-                      key={rate.id}
-                      type="button"
-                      onClick={() => selectShippingRate(rate)}
-                      className={`flex w-full items-center justify-between gap-4 rounded-xl border px-4 py-3 text-left transition ${
-                        on ? "border-gold/50 bg-gold/10" : "border-white/10 bg-[#0c0c10] hover:border-white/20"
-                      }`}
-                    >
-                      <span>
-                        <span className="block text-sm font-semibold text-zinc-100">
-                          {rate.carrier} {rate.serviceLevel}
-                        </span>
-                        <span className="mt-0.5 block text-xs text-zinc-500">{rate.estimatedDelivery}</span>
-                      </span>
-                      <span className="font-mono text-sm font-bold text-gold-bright">
-                        {formatRatePrice(rate.amount, rate.currency)}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
           </div>
         ) : null}
 
@@ -613,6 +539,108 @@ export function BuyNowCheckoutForm({
             </>
           )}
         </div>
+
+        {!usesFlatShipping && !liveRoomItemId ? (
+          <div className="rounded-2xl border border-white/[0.08] bg-[#08080a]/90 p-5 sm:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Shipping</p>
+              {selectedRate && !ratesExpanded ? (
+                <button
+                  type="button"
+                  onClick={() => setRatesExpanded(true)}
+                  className="text-xs font-semibold text-gold-bright hover:underline"
+                >
+                  Change speed
+                </button>
+              ) : shippingRates.length > 0 && !selectedRate ? (
+                <button
+                  type="button"
+                  onClick={() => setRatesExpanded(true)}
+                  className="text-xs font-semibold text-gold-bright hover:underline"
+                >
+                  Choose shipping
+                </button>
+              ) : ratesExpanded ? (
+                <button
+                  type="button"
+                  onClick={() => setRatesExpanded(false)}
+                  className="text-xs font-semibold text-gold-bright hover:underline"
+                >
+                  Done
+                </button>
+              ) : null}
+            </div>
+            {ratesLoading ? (
+              <p className="mt-3 text-sm text-zinc-500">Loading carrier rates for your address…</p>
+            ) : null}
+            {!addressReady && !ratesLoading ? (
+              <p className="mt-3 text-sm text-zinc-500">Confirm your shipping address to load carrier options.</p>
+            ) : null}
+            {!ratesLoading && ratesError && shippingRates.length === 0 ? (
+              <p className="mt-3 text-xs font-medium text-rose-300">{ratesError}</p>
+            ) : null}
+            {!showRatePicker && selectedRate ? (
+              <div className="mt-3 rounded-xl border border-white/10 bg-[#0c0c10] px-4 py-3">
+                <p className="text-sm font-semibold text-zinc-100">
+                  {selectedRate.carrier} {selectedRate.serviceLevel}
+                </p>
+                <p className="mt-0.5 text-xs text-zinc-500">{selectedRate.estimatedDelivery}</p>
+                <p className="mt-2 font-mono text-sm font-bold text-gold-bright">
+                  {formatRatePrice(selectedRate.amount, selectedRate.currency)}
+                </p>
+              </div>
+            ) : null}
+            {showRatePicker && shippingRates.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {shippingRates.map((rate) => {
+                  const on = selectedRateId === rate.id;
+                  return (
+                    <button
+                      key={rate.id}
+                      type="button"
+                      onClick={() => selectShippingRate(rate)}
+                      className={`flex w-full items-center justify-between gap-4 rounded-xl border px-4 py-3 text-left transition ${
+                        on ? "border-gold/50 bg-gold/10" : "border-white/10 bg-[#0c0c10] hover:border-white/20"
+                      }`}
+                    >
+                      <span>
+                        <span className="block text-sm font-semibold text-zinc-100">
+                          {rate.carrier} {rate.serviceLevel}
+                        </span>
+                        <span className="mt-0.5 block text-xs text-zinc-500">{rate.estimatedDelivery}</span>
+                      </span>
+                      <span className="font-mono text-sm font-bold text-gold-bright">
+                        {formatRatePrice(rate.amount, rate.currency)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-950/10 p-5 sm:p-6">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-200/85">Delivery</p>
+          <dl className="mt-3 space-y-2.5 text-xs leading-snug text-zinc-400">
+            <div>
+              <dt className="font-semibold text-zinc-200">Ships from</dt>
+              <dd className="mt-0.5">{shipsCheckout}</dd>
+            </div>
+            <div>
+              <dt className="font-semibold text-zinc-200">Handling</dt>
+              <dd className="mt-0.5">{listing.handlingEstimate}</dd>
+            </div>
+            <div>
+              <dt className="font-semibold text-zinc-200">Tracking</dt>
+              <dd className="mt-0.5">{listing.trackingAfterPurchaseLine}</dd>
+            </div>
+          </dl>
+        </div>
+
+        {useVaultedSecureCheckout ? <VaultedSecureCheckoutPanel feeCents={secureFeeCents} /> : null}
+
+        <div className="lg:hidden">{orderSummaryPanel}</div>
 
         <div className="rounded-2xl border border-white/[0.08] bg-[#08080a]/90 p-5 sm:p-6">
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Payment</p>

@@ -158,7 +158,7 @@ export default async function CheckoutPage({
           <p className="mt-1.5 text-sm text-zinc-500">
             {checkoutMode === "layaway"
               ? "Choose your plan, acknowledge terms, and pay your 25% deposit."
-              : "Review your order and enter shipping details."}
+              : "Confirm ship-to, pick shipping, then review your total before paying."}
           </p>
         </header>
         <div className="mt-8">
