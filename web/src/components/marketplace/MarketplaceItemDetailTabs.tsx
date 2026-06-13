@@ -10,9 +10,14 @@ type TabId = (typeof tabs)[number];
 type MarketplaceItemDetailTabsProps = {
   listing: MarketplaceListing;
   extras: ItemPageExtras;
+  variant?: "tabs" | "stacked";
 };
 
-export function MarketplaceItemDetailTabs({ listing, extras }: MarketplaceItemDetailTabsProps) {
+export function MarketplaceItemDetailTabs({
+  listing,
+  extras,
+  variant = "tabs",
+}: MarketplaceItemDetailTabsProps) {
   const [active, setActive] = useState<TabId>("Description");
 
   const authBody =
@@ -20,6 +25,48 @@ export function MarketplaceItemDetailTabs({ listing, extras }: MarketplaceItemDe
     (listing.condition.match(/^(PSA|BGS|SGC)/i)
       ? `${listing.condition} — grading details available from the seller.`
       : `Condition: ${listing.condition}. Request documentation from the seller before purchase if needed.`);
+
+  if (variant === "stacked") {
+    return (
+      <section className="space-y-8" aria-label="Listing details">
+        <div>
+          <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-zinc-500">Description</h2>
+          <p className="mt-4 max-w-prose text-base leading-[1.75] text-zinc-200 sm:text-[17px]">{extras.description}</p>
+        </div>
+
+        <div>
+          <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-zinc-500">Shipping</h2>
+          <div className="mt-4 space-y-4 rounded-xl border border-white/[0.06] bg-[#0a0a0c]/50 p-5">
+            <p className="text-base leading-[1.75] text-zinc-200 sm:text-[17px]">{extras.shippingSummary}</p>
+            <dl className="grid gap-3 border-t border-white/[0.06] pt-4 text-sm text-zinc-400 sm:grid-cols-2">
+              <div>
+                <dt className="font-semibold text-zinc-300">Estimated shipping</dt>
+                <dd className="mt-0.5">{extras.estimatedShippingDisplay}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-zinc-300">Handling</dt>
+                <dd className="mt-0.5">{extras.handlingEstimateDisplay}</dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="font-semibold text-zinc-300">Tracking</dt>
+                <dd className="mt-0.5">{extras.trackingAfterPurchaseLine}</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+
+        <div>
+          <h2 className="text-[11px] font-black uppercase tracking-[0.18em] text-zinc-500">Authentication</h2>
+          <div className="mt-4 space-y-3 text-[15px] leading-relaxed text-zinc-300 sm:text-base">
+            <p>{authBody}</p>
+            <p className="text-sm text-zinc-400">
+              <span className="font-semibold text-zinc-200">Listed condition:</span> {listing.condition}
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="mt-6 border-t border-white/[0.08] pt-6" aria-label="Listing details">

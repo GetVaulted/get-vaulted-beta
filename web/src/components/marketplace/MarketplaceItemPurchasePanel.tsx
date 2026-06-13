@@ -39,9 +39,14 @@ function TradeIcon() {
 type MarketplaceItemPurchasePanelProps = {
   listing: MarketplaceListing;
   extras: ItemPageExtras;
+  part?: "all" | "price" | "actions";
 };
 
-export function MarketplaceItemPurchasePanel({ listing, extras }: MarketplaceItemPurchasePanelProps) {
+export function MarketplaceItemPurchasePanel({
+  listing,
+  extras,
+  part = "all",
+}: MarketplaceItemPurchasePanelProps) {
   const { data: session } = useSession();
   const router = useRouter();
   const pathname = usePathname();
@@ -120,6 +125,7 @@ export function MarketplaceItemPurchasePanel({ listing, extras }: MarketplaceIte
   const showTradeButton = allowTrades && listingIsActive && !listingUnavailable && !isOwnListing;
 
   if (listingUnavailable) {
+    if (part === "price") return null;
     const statusMessage =
       listing.listingStatus === "sold"
         ? "This item has sold."
@@ -138,21 +144,23 @@ export function MarketplaceItemPurchasePanel({ listing, extras }: MarketplaceIte
     );
   }
 
-  return (
-    <>
-      <div className="space-y-1">
-        <p className="font-mono text-4xl font-black tracking-tight text-gold-bright sm:text-[2.75rem]">
-          {formatMoney(listing.price)}
-        </p>
-        <p className="text-sm text-zinc-400">
-          {extras.estimatedShippingDisplay} shipping · {extras.handlingEstimateDisplay}
-        </p>
-        {allowLayaway ? (
-          <p className="text-xs font-medium text-gold-bright/80">Layaway available — 25% deposit to reserve</p>
-        ) : null}
-      </div>
+  const priceBlock = (
+    <div className="space-y-1">
+      <p className="font-mono text-4xl font-black tracking-tight text-gold-bright sm:text-[2.75rem]">
+        {formatMoney(listing.price)}
+      </p>
+      <p className="text-sm text-zinc-400">
+        {extras.estimatedShippingDisplay} shipping · {extras.handlingEstimateDisplay}
+      </p>
+      {allowLayaway ? (
+        <p className="text-xs font-medium text-gold-bright/80">Layaway available — 25% deposit to reserve</p>
+      ) : null}
+    </div>
+  );
 
-      <div className="pt-4">
+  const actionsBlock = (
+    <>
+      <div className={part === "all" ? "pt-4" : undefined}>
         {isOwnListing ? (
           <p className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-center text-sm text-zinc-400">
             This is your listing — buyers will use Buy now here.
@@ -227,6 +235,16 @@ export function MarketplaceItemPurchasePanel({ listing, extras }: MarketplaceIte
         minimumOfferUsd={listing.minimumOfferUsd}
         onSubmit={handleOfferSubmit}
       />
+    </>
+  );
+
+  if (part === "price") return priceBlock;
+  if (part === "actions") return actionsBlock;
+
+  return (
+    <>
+      {priceBlock}
+      {actionsBlock}
     </>
   );
 }

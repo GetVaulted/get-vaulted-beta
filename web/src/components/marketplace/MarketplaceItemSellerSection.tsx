@@ -9,16 +9,15 @@ import { SellerFollowButton } from "@/components/seller/SellerFollowButton";
 import { ListingReportLink, UserReportLink } from "@/components/trust/TrustReportLinks";
 import type { MarketplaceListing } from "@/content/marketplace-listings";
 import type { ItemPageExtras } from "@/lib/marketplace-item-extras";
-import type { ItemTrustMetrics } from "@/lib/marketplace-item-trust";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 
 type MarketplaceItemSellerSectionProps = {
   listing: MarketplaceListing;
   extras: ItemPageExtras;
-  trustMetrics: ItemTrustMetrics;
+  embedded?: boolean;
 };
 
-export function MarketplaceItemSellerSection({ listing, extras, trustMetrics }: MarketplaceItemSellerSectionProps) {
+export function MarketplaceItemSellerSection({ listing, extras, embedded = false }: MarketplaceItemSellerSectionProps) {
   const { data: session } = useSession();
   const router = useRouter();
   const pathname = usePathname();
@@ -67,19 +66,25 @@ export function MarketplaceItemSellerSection({ listing, extras, trustMetrics }: 
 
   return (
     <section
-      className="rounded-2xl border border-white/[0.1] bg-[#09090b]/90 p-5 sm:p-6"
+      className={embedded ? "border-t border-white/[0.08] pt-6" : "rounded-2xl border border-white/[0.1] bg-[#09090b]/90 p-5 sm:p-6"}
       aria-labelledby="item-seller-heading"
     >
       <div className="flex items-start justify-between gap-3">
-        <p id="item-seller-heading" className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">
-          Seller spotlight
-        </p>
+        {!embedded ? (
+          <p id="item-seller-heading" className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">
+            Seller spotlight
+          </p>
+        ) : (
+          <span id="item-seller-heading" className="sr-only">
+            Seller spotlight
+          </span>
+        )}
         {!isOwnListing ? (
-          <div className="relative" ref={menuRef}>
+          <div className="relative ml-auto" ref={menuRef}>
             <button
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
-              className="inline-flex size-8 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition hover:border-white/20 hover:text-zinc-200"
+              className="inline-flex size-8 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-white/[0.04] hover:text-zinc-300"
               aria-label="More actions"
               aria-expanded={menuOpen}
             >
@@ -104,9 +109,9 @@ export function MarketplaceItemSellerSection({ listing, extras, trustMetrics }: 
         ) : null}
       </div>
 
-      <div className="mt-4 flex gap-4">
+      <div className="mt-3 flex items-center gap-4">
         <div
-          className="flex size-14 shrink-0 items-center justify-center rounded-full border border-gold/25 bg-gold/10 text-sm font-bold text-gold-bright"
+          className="flex size-12 shrink-0 items-center justify-center rounded-full border border-gold/30 bg-gradient-to-br from-gold/20 to-gold/5 text-sm font-bold text-gold-bright"
           aria-hidden
         >
           {initials}
@@ -115,60 +120,45 @@ export function MarketplaceItemSellerSection({ listing, extras, trustMetrics }: 
           <div className="flex flex-wrap items-center gap-2">
             <Link
               href={sellerProfilePath(listing.sellerUsername)}
-              className="text-lg font-semibold text-zinc-50 transition hover:text-gold-bright/90"
+              className="text-base font-semibold text-zinc-50 transition hover:text-gold-bright/90"
             >
               @{listing.sellerUsername}
             </Link>
             {listing.sellerLevelLabel ? (
-              <span className="inline-flex items-center rounded-md border border-gold/30 bg-gold/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gold-bright/90">
+              <span className="inline-flex items-center rounded border border-gold/35 bg-gold/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-gold-bright">
                 {listing.sellerLevelLabel}
               </span>
             ) : null}
-            {listing.sellerVerified ? (
-              <span className="inline-flex items-center rounded-md border border-sky-400/35 bg-sky-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-200">
-                Verified
-              </span>
-            ) : null}
           </div>
-          <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-zinc-400 sm:grid-cols-3">
-            <div>
-              <dt className="text-zinc-500">Sales</dt>
-              <dd className="font-semibold text-zinc-200">{trustMetrics.completedSales}</dd>
-            </div>
-            <div>
-              <dt className="text-zinc-500">Standing</dt>
-              <dd className="font-semibold text-zinc-200">{trustMetrics.accountStanding}</dd>
-            </div>
-            <div>
-              <dt className="text-zinc-500">Location</dt>
-              <dd className="font-semibold text-zinc-200">{location}</dd>
-            </div>
-            <div>
-              <dt className="text-zinc-500">Response</dt>
-              <dd className="font-semibold text-zinc-200">{trustMetrics.responseTime}</dd>
-            </div>
-          </dl>
+          <p className="mt-0.5 text-sm text-zinc-400">{location}</p>
         </div>
       </div>
 
       {!isOwnListing ? (
-        <div className="mt-5 flex flex-wrap gap-2">
+        <div className="mt-4 grid grid-cols-3 gap-2">
           {listing.sellerId ? (
-            <SellerFollowButton sellerUserId={listing.sellerId} variant="inline" showFollowerCount className="flex-1 sm:flex-none" />
-          ) : null}
-          <Link
-            href={sellerProfilePath(listing.sellerUsername)}
-            className="inline-flex h-10 flex-1 items-center justify-center rounded-xl border border-white/[0.12] bg-white/[0.03] px-4 text-xs font-semibold text-zinc-200 transition hover:border-white/20 hover:bg-white/[0.06] sm:flex-none"
-          >
-            View profile
-          </Link>
+            <SellerFollowButton
+              sellerUserId={listing.sellerId}
+              variant="inline"
+              showFollowerCount={false}
+              className="!h-10 !w-full !min-w-0 !flex-1 !justify-center !rounded-lg !border-white/[0.12] !bg-transparent !text-xs !font-semibold !text-zinc-200 hover:!border-white/20 hover:!bg-white/[0.04]"
+            />
+          ) : (
+            <span />
+          )}
           <button
             type="button"
             onClick={() => openAskSeller()}
-            className="inline-flex h-10 flex-1 items-center justify-center rounded-xl border border-gold/30 bg-gold/10 px-4 text-xs font-semibold text-gold-bright transition hover:border-gold/45 hover:bg-gold/15 sm:flex-none"
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-white/[0.12] bg-transparent text-xs font-semibold text-zinc-200 transition hover:border-white/20 hover:bg-white/[0.04]"
           >
-            Message seller
+            Message
           </button>
+          <Link
+            href={sellerProfilePath(listing.sellerUsername)}
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-white/[0.12] bg-transparent text-xs font-semibold text-zinc-200 transition hover:border-white/20 hover:bg-white/[0.04]"
+          >
+            View profile
+          </Link>
         </div>
       ) : (
         <p className="mt-4 text-sm text-zinc-500">This is your listing.</p>

@@ -78,7 +78,7 @@ export function MarketplaceItemGallery({ seeds, imageUrls, title }: MarketplaceI
         ) : null}
 
         <div className="min-w-0 flex-1 space-y-2.5">
-          <div className="group relative overflow-hidden rounded-2xl border border-white/[0.1] bg-[#0b0b0e]">
+          <div className="group relative overflow-hidden rounded-2xl border border-gold/20 bg-[#0b0b0e] shadow-[0_0_40px_-20px_rgba(201,162,39,0.35)]">
             <div className="relative aspect-[4/5] w-full overflow-hidden">
               <button
                 type="button"

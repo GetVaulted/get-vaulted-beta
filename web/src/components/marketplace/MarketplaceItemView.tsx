@@ -66,6 +66,7 @@ export function MarketplaceItemView({
   const showLowStock = extras.stockRemaining === 1;
   const showAuthBadge =
     Boolean(extras.authenticationLabel) || Boolean(listing.condition.match(/^(PSA|BGS|SGC)/i));
+  const gradedCondition = listing.condition.match(/^(PSA|BGS|SGC)/i);
   const legacyAuction =
     listing.buyingFormat === "auction" &&
     listing.listingStatus != null &&
@@ -109,15 +110,17 @@ export function MarketplaceItemView({
           title={listing.title}
         />
 
-        <div className="min-w-0 space-y-5">
+        <div className="min-w-0 rounded-2xl border border-white/[0.08] bg-[#0a0a0d]/95 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:p-7">
           <header className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               {listing.isCompanyListing ? <ProductBadge tone="sky">Official</ProductBadge> : null}
+              {gradedCondition ? (
+                <ProductBadge tone="gold">{listing.condition}</ProductBadge>
+              ) : (
+                <ProductBadge tone="neutral">{listing.condition}</ProductBadge>
+              )}
               {showAuthBadge ? <ProductBadge tone="gold">Authenticated</ProductBadge> : null}
-              <ProductBadge tone="neutral">{listing.condition}</ProductBadge>
-              {!legacyAuction ? <ProductBadge tone="emerald">Available now</ProductBadge> : null}
               {showLowStock ? <ProductBadge tone="rose">Only 1 left</ProductBadge> : null}
-              {listing.vaultPick ? <ProductBadge tone="gold">Vault pick</ProductBadge> : null}
             </div>
 
             <div className="flex items-start justify-between gap-3">
@@ -130,25 +133,30 @@ export function MarketplaceItemView({
             </div>
 
             {!legacyAuction ? (
-              <p className="text-sm text-zinc-400">
-                <span className="font-semibold tabular-nums text-zinc-200">{extras.watchingCount}</span> watching
-                {listing.sellerVerified ? (
-                  <>
-                    <span className="text-zinc-600"> · </span>
-                    <span className="text-zinc-300">Verified seller</span>
-                  </>
-                ) : null}
+              <p className="flex flex-wrap items-center gap-x-1.5 text-sm text-zinc-400">
+                <span>
+                  <span className="font-semibold tabular-nums text-zinc-200">{extras.watchingCount}</span> watching
+                </span>
+                <span className="text-zinc-600">·</span>
+                <span className="inline-flex items-center gap-1.5 text-zinc-300">
+                  <span className="size-1.5 rounded-full bg-emerald-400" aria-hidden />
+                  Available now
+                </span>
               </p>
             ) : null}
           </header>
 
-          <MarketplaceItemTrustVault metrics={trustMetrics} />
+          <div className="mt-6 space-y-5">
+            <MarketplaceItemPurchasePanel listing={listing} extras={extras} part="price" />
 
-          <MarketplaceItemPurchasePanel listing={listing} extras={extras} />
+            <MarketplaceItemTrustVault metrics={trustMetrics} />
 
-          <MarketplaceItemConfidenceStrip listing={listing} extras={extras} />
+            <MarketplaceItemConfidenceStrip listing={listing} extras={extras} />
 
-          <MarketplaceItemSellerSection listing={listing} extras={extras} trustMetrics={trustMetrics} />
+            <MarketplaceItemPurchasePanel listing={listing} extras={extras} part="actions" />
+
+            <MarketplaceItemSellerSection listing={listing} extras={extras} embedded />
+          </div>
 
           <div id="item-primary-cta-sentinel" className="h-px w-full scroll-mt-24" aria-hidden />
         </div>
@@ -156,9 +164,15 @@ export function MarketplaceItemView({
 
       <ListingLiveRooms listingId={listing.id} />
 
-      <MarketplaceItemDetailTabs listing={listing} extras={extras} />
-
-      <MarketplaceItemRecommendations similar={similar} sameSeller={sameSeller} related={related} />
+      <div className="mt-12 grid gap-10 border-t border-white/[0.07] pt-10 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px]">
+        <MarketplaceItemDetailTabs listing={listing} extras={extras} variant="stacked" />
+        <MarketplaceItemRecommendations
+          similar={similar}
+          sameSeller={sameSeller}
+          related={related}
+          layout="sidebar"
+        />
+      </div>
 
       {!legacyAuction ? (
         <MarketplaceItemStickyBuyBar
