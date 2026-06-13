@@ -73,12 +73,12 @@ export function validateAddressCreateInput(body: AddressInput):
   const postalCode = asTrimmedString(body.postalCode, 32);
   const country = asTrimmedString(body.country, 2) ?? "US";
   const normalizedCountry = normalizeCountryCode(country);
-  const normalizedState =
-    normalizedCountry === "US" ? normalizeUsStateCode(state) ?? state : state;
   if (!type) return { ok: false, error: "Invalid address type." };
   if (!name || !fullName || !line1 || !city || !state || !postalCode) {
     return { ok: false, error: "Missing required address fields." };
   }
+  const normalizedState =
+    normalizedCountry === "US" ? normalizeUsStateCode(state) ?? state : state;
   return {
     ok: true,
     data: {

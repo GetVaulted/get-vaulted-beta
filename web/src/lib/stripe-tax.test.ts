@@ -53,7 +53,7 @@ describe("stripe-tax helpers", () => {
     const extracted = extractTaxFromCheckoutSession({
       total_details: { amount_tax: 0 },
       metadata: { salesTaxCents: "825", stripeTaxCalculationId: "taxcalc_123" },
-    } as Parameters<typeof extractTaxFromCheckoutSession>[0]);
+    } as unknown as Parameters<typeof extractTaxFromCheckoutSession>[0]);
     expect(extracted.taxAmountCents).toBe(825);
     expect(extracted.stripeTaxCalculationId).toBe("taxcalc_123");
   });
