@@ -4,6 +4,7 @@ import {
   normalizeCountryCode,
   isStripeTaxFeatureEnabled,
   orderRequiresCheckoutForTax,
+  connectCheckoutPaymentIntentData,
 } from "@/lib/stripe-tax";
 
 describe("stripe-tax helpers", () => {
@@ -71,5 +72,29 @@ describe("sales tax exclusions (documented invariants)", () => {
     const gmvIncrement = 100;
     const taxUsd = 8;
     expect(gmvIncrement).not.toBe(gmvIncrement + taxUsd);
+  });
+});
+
+describe("connectCheckoutPaymentIntentData", () => {
+  it("uses application_fee_amount when tax does not require an explicit transfer", () => {
+    const data = connectCheckoutPaymentIntentData({
+      destinationAccountId: "acct_seller",
+      applicationFeeCents: 800,
+      sellerTransferCents: null,
+      metadata: { orderId: "ord_1", kind: "buy_now" },
+    });
+    expect(data.application_fee_amount).toBe(800);
+    expect(data.transfer_data).toEqual({ destination: "acct_seller" });
+  });
+
+  it("uses transfer_data.amount instead of application_fee_amount when tax is split out", () => {
+    const data = connectCheckoutPaymentIntentData({
+      destinationAccountId: "acct_seller",
+      applicationFeeCents: 800,
+      sellerTransferCents: 92_000,
+      metadata: { orderId: "ord_1", kind: "buy_now" },
+    });
+    expect(data.application_fee_amount).toBeUndefined();
+    expect(data.transfer_data).toEqual({ destination: "acct_seller", amount: 92_000 });
   });
 });

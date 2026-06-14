@@ -191,6 +191,36 @@ export type MarketplaceCheckoutTaxBundle = {
   metadata: Record<string, string>;
 };
 
+/**
+ * Stripe Connect destination charges: `application_fee_amount` and `transfer_data.amount`
+ * are mutually exclusive. When tax is a separate line item, set an explicit transfer so the
+ * seller receives item + shipping minus platform fee; the platform keeps fee + tax.
+ */
+export function connectCheckoutPaymentIntentData(args: {
+  destinationAccountId: string;
+  applicationFeeCents: number;
+  sellerTransferCents: number | null;
+  metadata: Record<string, string>;
+}): Pick<
+  Stripe.Checkout.SessionCreateParams.PaymentIntentData,
+  "application_fee_amount" | "transfer_data" | "metadata"
+> {
+  if (args.sellerTransferCents != null) {
+    return {
+      transfer_data: {
+        destination: args.destinationAccountId,
+        amount: args.sellerTransferCents,
+      },
+      metadata: args.metadata,
+    };
+  }
+  return {
+    application_fee_amount: args.applicationFeeCents,
+    transfer_data: { destination: args.destinationAccountId },
+    metadata: args.metadata,
+  };
+}
+
 function checkoutAutomaticTaxFields(): CheckoutTaxSessionFields["automatic_tax"] {
   return { enabled: true, liability: { type: "self" } };
 }

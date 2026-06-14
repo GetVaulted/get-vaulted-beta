@@ -20,6 +20,7 @@ import { getStripe } from "@/lib/stripe";
 import {
   buildCheckoutTaxSessionFields,
   buildMarketplaceCheckoutTaxBundle,
+  connectCheckoutPaymentIntentData,
   loadSellerShipFromForTax,
   fetchCheckoutSessionTax,
   STRIPE_TAX_CODE_SHIPPING,
@@ -806,14 +807,12 @@ export async function createBuyNowCheckoutSession(args: {
           liveRoomItemId: liveRoomItemId ?? "",
           ...taxBundle.metadata,
         },
-        payment_intent_data: {
-          application_fee_amount: feeCents,
-          transfer_data: {
-            destination: listing.seller.stripeAccountId!,
-            ...(taxBundle.sellerTransferCents != null ? { amount: taxBundle.sellerTransferCents } : {}),
-          },
+        payment_intent_data: connectCheckoutPaymentIntentData({
+          destinationAccountId: listing.seller.stripeAccountId!,
+          applicationFeeCents: feeCents,
+          sellerTransferCents: taxBundle.sellerTransferCents,
           metadata: { orderId: order.id, kind: "buy_now" },
-        },
+        }),
         line_items: [
           {
             quantity: 1,
@@ -1064,14 +1063,12 @@ export async function createPayOrderCheckoutSession(args: {
         buyerId: args.buyerId,
         ...taxBundle.metadata,
       },
-      payment_intent_data: {
-        application_fee_amount: feeCents,
-        transfer_data: {
-          destination: order.seller.stripeAccountId,
-          ...(taxBundle.sellerTransferCents != null ? { amount: taxBundle.sellerTransferCents } : {}),
-        },
+      payment_intent_data: connectCheckoutPaymentIntentData({
+        destinationAccountId: order.seller.stripeAccountId,
+        applicationFeeCents: feeCents,
+        sellerTransferCents: taxBundle.sellerTransferCents,
         metadata: { orderId: order.id, kind: "pay_order" },
-      },
+      }),
       line_items: [
         {
           quantity: 1,
