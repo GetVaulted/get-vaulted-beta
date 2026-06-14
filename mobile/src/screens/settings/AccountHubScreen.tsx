@@ -1,6 +1,6 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthContext';
@@ -21,6 +21,11 @@ import {
 } from '../../navigation/openPlatform';
 import { openSellerHQ } from '../../navigation/openSellerHQ';
 import { openSellerSetup } from '../../navigation/openSellerSetup';
+import {
+  alertPushRegistrationResult,
+  isPushNotificationsAvailable,
+  requestEnablePushNotifications,
+} from '../../push/pushRegistrationService';
 import type { RootStackParamList } from '../../navigation/types';
 import { spacing } from '../../theme';
 
@@ -44,6 +49,26 @@ export function AccountHubScreen({ navigation }: Props) {
   const walletSub = wallet.loading
     ? 'Checking wallet…'
     : buyerWalletStatusLabel(wallet);
+  const [pushBusy, setPushBusy] = useState(false);
+
+  const enablePushNotifications = async () => {
+    if (!user?.id || pushBusy) return;
+    if (!isPushNotificationsAvailable()) {
+      alertPushRegistrationResult({ ok: false, reason: 'Push requires a physical device.' });
+      return;
+    }
+    setPushBusy(true);
+    try {
+      alertPushRegistrationResult(
+        await requestEnablePushNotifications({
+          supabaseUserId: user.id,
+          accessToken: session?.access_token,
+        }),
+      );
+    } finally {
+      setPushBusy(false);
+    }
+  };
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
@@ -102,6 +127,12 @@ export function AccountHubScreen({ navigation }: Props) {
           icon="notifications-outline"
           badgeCount={notificationCount}
           onPress={() => openNotificationInbox(navigation)}
+        />
+        <SettingsRow
+          label={pushBusy ? 'Enabling notifications…' : 'Enable push notifications'}
+          sub="Sales, messages, offers, and shipping alerts on this device"
+          icon="phone-portrait-outline"
+          onPress={() => void enablePushNotifications()}
         />
         <SettingsRow
           label="Messages"

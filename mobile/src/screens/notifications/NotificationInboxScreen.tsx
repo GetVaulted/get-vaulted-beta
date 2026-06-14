@@ -5,6 +5,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthContext';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
+import { resolveRealtimeUserId, useCanonicalUserId } from '../../hooks/useCanonicalUserId';
 import {
   groupNotifications,
   listNotifications,
@@ -13,8 +14,8 @@ import {
   registerPushNotificationHooks,
   syncServerNotifications,
 } from '../../platform/notificationStore';
-import { openSellerLayaways } from '../../navigation/openSellerLayaways';
-import { openSellerOrderDetail } from '../../navigation/openSellerOrderDetail';
+import { openMessageThread } from '../../navigation/openMessages';
+import { openNotificationHref } from '../../navigation/openNotificationHref';
 import type { AppNotification } from '../../platform/notificationTypes';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
@@ -24,23 +25,25 @@ type Props = NativeStackScreenProps<RootStackParamList, 'NotificationInbox'>;
 export function NotificationInboxScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { user, session } = useAuth();
+  const canonicalUserId = useCanonicalUserId(session?.access_token);
+  const inboxUserId = resolveRealtimeUserId(canonicalUserId, user?.id);
   const [rows, setRows] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(false);
   const loadedOnceRef = useRef(false);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
-    if (!user?.id) return;
+    if (!inboxUserId) return;
     const silent = opts?.silent ?? loadedOnceRef.current;
     if (!silent) setLoading(true);
     try {
-      if (session?.access_token) await syncServerNotifications(user.id, session.access_token);
-      setRows(await listNotifications(user.id));
-      registerPushNotificationHooks(user.id);
+      if (session?.access_token) await syncServerNotifications(inboxUserId, session.access_token);
+      setRows(await listNotifications(inboxUserId));
+      if (user?.id) registerPushNotificationHooks(user.id, session?.access_token);
     } finally {
       loadedOnceRef.current = true;
       setLoading(false);
     }
-  }, [session?.access_token, user?.id]);
+  }, [inboxUserId, session?.access_token, user?.id]);
 
   useEffect(() => {
     void load();
@@ -55,8 +58,18 @@ export function NotificationInboxScreen({ navigation }: Props) {
   const groups = useMemo(() => groupNotifications(rows), [rows]);
 
   const openRow = async (n: AppNotification) => {
-    await markNotificationRead(n.id);
+    await markNotificationRead(n.id, session?.access_token);
     setRows((prev) => prev.map((r) => (r.id === n.id ? { ...r, read: true } : r)));
+
+    if (n.href) {
+      openNotificationHref(navigation, n.href, { type: n.serverType, notificationId: n.id });
+      return;
+    }
+
+    if (n.kind === 'message' && n.referenceId) {
+      openMessageThread(navigation, n.referenceId);
+      return;
+    }
     if (n.kind === 'support' && n.referenceId) {
       navigation.navigate('SupportTicketDetail', { ticketId: n.referenceId });
       return;
@@ -70,22 +83,6 @@ export function NotificationInboxScreen({ navigation }: Props) {
         screen: 'TradeCenter',
         params: { screen: 'TradeDetail', params: { tradeId: n.referenceId } },
       });
-      return;
-    }
-    if (n.kind === 'layaway') {
-      if (n.referenceId) {
-        openSellerLayaways(navigation, { layawayId: n.referenceId });
-      } else {
-        openSellerLayaways(navigation);
-      }
-      return;
-    }
-    if (n.kind === 'order') {
-      if (n.referenceId) {
-        openSellerOrderDetail(navigation, n.referenceId);
-        return;
-      }
-      navigation.navigate('MainTabs', { screen: 'HQ' });
     }
   };
 
@@ -93,11 +90,16 @@ export function NotificationInboxScreen({ navigation }: Props) {
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
       <PlatformFlowHeader
         title="Notifications"
-        subtitle="Live, trades, reviews, and vault activity"
+        subtitle="Sales, messages, offers, and vault activity"
         onBack={() => navigation.goBack()}
       />
       {rows.some((r) => !r.read) ? (
-        <Pressable onPress={() => user?.id && void markAllNotificationsRead(user.id).then(load)}>
+        <Pressable
+          onPress={() =>
+            inboxUserId &&
+            void markAllNotificationsRead(inboxUserId, session?.access_token).then(() => load({ silent: true }))
+          }
+        >
           <Text style={styles.markAll}>Mark all read</Text>
         </Pressable>
       ) : null}
@@ -126,7 +128,9 @@ export function NotificationInboxScreen({ navigation }: Props) {
           ))}
         </ScrollView>
       ) : (
-        <Text style={styles.empty}>No notifications yet. Follows, offers, and reviews will appear here.</Text>
+        <Text style={styles.empty}>
+          No notifications yet. When something sells, you get a message, or an offer comes in, it shows up here.
+        </Text>
       )}
     </View>
   );

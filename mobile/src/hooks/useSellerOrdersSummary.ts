@@ -26,8 +26,7 @@ export function useSellerOrdersSummary(accessToken: string | undefined) {
 
     const requestId = ++requestRef.current;
     const silent = opts?.silent ?? loadedOnceRef.current;
-    if (silent) setRefreshing(true);
-    else setLoading(true);
+    if (!silent) setLoading(true);
 
     try {
       const rows = await fetchSellerSalesOrders(accessToken);
@@ -42,8 +41,7 @@ export function useSellerOrdersSummary(accessToken: string | undefined) {
       if (requestId !== requestRef.current) return;
       setLoadedOnce(true);
       loadedOnceRef.current = true;
-      if (silent) setRefreshing(false);
-      else setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [accessToken]);
 

@@ -1,5 +1,6 @@
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
 import { prisma } from "@/lib/prisma";
+import { scheduleExpoPushForUser } from "@/lib/push/send-expo-push";
 import { emitUserNotificationCreated } from "@/lib/realtime-emit-server";
 
 export type NotificationDb = TransactionClient | typeof prisma;
@@ -13,9 +14,9 @@ export async function createNotification(
     body: string;
     href: string;
   },
-): Promise<void> {
+): Promise<string | null> {
   try {
-    await db.notification.create({
+    const row = await db.notification.create({
       data: {
         userId: input.userId,
         type: input.type,
@@ -25,7 +26,20 @@ export async function createNotification(
       },
     });
     emitUserNotificationCreated(input.userId);
+    scheduleExpoPushForUser(
+      {
+        userId: input.userId,
+        title: input.title,
+        body: input.body,
+        href: input.href,
+        type: input.type,
+        notificationId: row.id,
+      },
+      { deferMs: db === prisma ? 0 : 750 },
+    );
+    return row.id;
   } catch (e) {
     console.error("createNotification failed", e);
+    return null;
   }
 }

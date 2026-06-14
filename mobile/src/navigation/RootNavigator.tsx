@@ -26,6 +26,7 @@ import { DisputeDetailScreen } from '../screens/disputes/DisputeDetailScreen';
 import { NotificationInboxScreen } from '../screens/notifications/NotificationInboxScreen';
 import { MarketplaceReviewPromptEffect } from './MarketplaceReviewPromptEffect';
 import { PushRegistrationEffect } from './PushRegistrationEffect';
+import { NotificationDeepLinkEffect } from './NotificationDeepLinkEffect';
 import { lazyScreen } from './lazyScreen';
 import type { RootStackParamList } from './types';
 import { colors } from '../theme';
@@ -141,6 +142,7 @@ export function RootNavigator() {
       <AuthSessionRoutingEffect />
       <MarketplaceReviewPromptEffect />
       <PushRegistrationEffect />
+      <NotificationDeepLinkEffect />
       <CreateListingDraftProvider>
         <Stack.Navigator initialRouteName="LaunchIntro" screenOptions={stackScreenOptions}>
           <Stack.Screen

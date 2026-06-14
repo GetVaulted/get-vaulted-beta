@@ -475,6 +475,7 @@ model User {
   threadsAsSeller MessageThread[] @relation("ThreadSeller")
   messageThreadParticipants MessageThreadParticipant[]
   notifications   Notification[]
+  pushDeviceTokens PushDeviceToken[]
   liveRooms       LiveRoom[]
   liveRoomMessages LiveRoomMessage[]
   breakSpots      BreakSpot[]
@@ -603,6 +604,21 @@ model Notification {
 
   @@index([userId, createdAt])
   @@index([userId, readAt])
+}
+
+model PushDeviceToken {
+  id                 String   @id @default(cuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expoPushToken      String
+  platform           String?
+  deviceName         String?
+  supabaseAuthUserId String?
+  updatedAt          DateTime @updatedAt
+
+  @@unique([userId, expoPushToken])
+  @@index([userId])
+  @@index([supabaseAuthUserId])
 }
 
 model Listing {

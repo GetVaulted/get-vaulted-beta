@@ -1,7 +1,8 @@
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
+import { Alert, Linking, Platform } from 'react-native';
+import { registerPushTokenWithWebApi } from '../api/pushTokenRepository';
 import { getSupabase } from '../lib/supabase';
 
 const noopSubscription = { remove: () => {} };
@@ -89,11 +90,61 @@ export async function registerForPushNotifications(): Promise<PushRegistrationRe
   return { ok: true, token };
 }
 
-export async function persistPushToken(userId: string, token: string): Promise<void> {
-  const sb = getSupabase();
-  if (!sb) return;
+/** User-initiated registration (Settings, notification inbox). */
+export async function requestEnablePushNotifications(input: {
+  supabaseUserId: string;
+  accessToken?: string;
+}): Promise<PushRegistrationResult> {
+  const res = await registerForPushNotifications();
+  if (res.ok) {
+    await persistPushToken(input.supabaseUserId, res.token, input.accessToken);
+  }
+  return res;
+}
+
+export function alertPushRegistrationResult(res: PushRegistrationResult): void {
+  if (res.ok) {
+    Alert.alert(
+      'Notifications enabled',
+      'You will get alerts when something sells, you receive a message, or an offer comes in.',
+    );
+    return;
+  }
+  if (res.reason.toLowerCase().includes('denied')) {
+    Alert.alert(
+      'Permission needed',
+      'Turn on notifications in your device settings to get sale and message alerts.',
+      [
+        { text: 'Not now', style: 'cancel' },
+        { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+      ],
+    );
+    return;
+  }
+  if (res.reason.includes('Expo Go') || res.reason.includes('physical device')) {
+    Alert.alert(
+      'Push unavailable',
+      'Use a TestFlight or production build on a physical device. Push does not work in Expo Go or the simulator.',
+    );
+    return;
+  }
+  Alert.alert('Could not enable notifications', res.reason);
+}
+
+export async function persistPushToken(
+  userId: string,
+  token: string,
+  accessToken?: string,
+): Promise<void> {
   const platform = Platform.OS;
   const deviceName = Device.modelName ?? Device.deviceName ?? null;
+
+  if (accessToken) {
+    await registerPushTokenWithWebApi(accessToken, { token, platform, deviceName });
+  }
+
+  const sb = getSupabase();
+  if (!sb) return;
   const { error } = await sb.from('push_device_tokens').upsert(
     {
       user_id: userId,
@@ -114,4 +165,11 @@ export function addNotificationReceivedListener(
 ): Notifications.EventSubscription {
   if (!isPushNotificationsAvailable()) return noopSubscription;
   return Notifications.addNotificationReceivedListener(listener);
+}
+
+export function addNotificationResponseReceivedListener(
+  listener: (response: Notifications.NotificationResponse) => void,
+): Notifications.EventSubscription {
+  if (!isPushNotificationsAvailable()) return noopSubscription;
+  return Notifications.addNotificationResponseReceivedListener(listener);
 }

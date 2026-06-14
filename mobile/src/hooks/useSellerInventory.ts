@@ -29,8 +29,7 @@ export function useSellerInventory(accessToken: string | undefined, enabled: boo
 
       const requestId = ++requestRef.current;
       const silent = opts?.silent ?? loadedOnceRef.current;
-      if (silent) setRefreshing(true);
-      else setLoading(true);
+      if (!silent) setLoading(true);
 
       try {
         const next = await fetchSellerInventoryFromWeb(accessToken);
@@ -44,8 +43,7 @@ export function useSellerInventory(accessToken: string | undefined, enabled: boo
         if (!loadedOnceRef.current) setData(EMPTY);
       } finally {
         if (requestId !== requestRef.current) return;
-        if (silent) setRefreshing(false);
-        else setLoading(false);
+        if (!silent) setLoading(false);
       }
     },
     [accessToken, enabled],

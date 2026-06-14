@@ -134,6 +134,7 @@ export function SellerHubScreen() {
   const [preloadInventory, setPreloadInventory] = useState(true);
   const [giveaways, setGiveaways] = useState(true);
   const [stripeSetupBusy, setStripeSetupBusy] = useState(false);
+  const [pullRefreshing, setPullRefreshing] = useState(false);
   const [shipFromEditKey, setShipFromEditKey] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
   const studioSectionY = useRef(0);
@@ -149,6 +150,15 @@ export function SellerHubScreen() {
       void sellerSetup.refetchSilent();
     }, [sellerSetup.refetchSilent]),
   );
+
+  const pullRefresh = useCallback(async (...tasks: Array<() => void | Promise<void>>) => {
+    setPullRefreshing(true);
+    try {
+      await Promise.all(tasks.map((task) => task()));
+    } finally {
+      setPullRefreshing(false);
+    }
+  }, []);
 
   const sellerActivated = sellerSetup.displayActivated;
 
@@ -430,44 +440,42 @@ export function SellerHubScreen() {
           refreshControl={
             tab === 'listings' ? (
               <RefreshControl
-                refreshing={sellerInventory.refreshing}
-                onRefresh={() => void sellerInventory.refresh()}
+                refreshing={pullRefreshing}
+                onRefresh={() => void pullRefresh(() => sellerInventory.refresh())}
                 tintColor={colors.gold}
               />
             ) : tab === 'orders' ? (
               <RefreshControl
-                refreshing={ordersSummary.refreshing || layawaySummary.refreshing}
-                onRefresh={() => {
-                  void ordersSummary.reload({ silent: true });
-                  void layawaySummary.reload({ silent: true });
-                }}
+                refreshing={pullRefreshing}
+                onRefresh={() =>
+                  void pullRefresh(
+                    () => ordersSummary.reload({ silent: true }),
+                    () => layawaySummary.reload({ silent: true }),
+                  )
+                }
                 tintColor={colors.gold}
               />
             ) : tab === 'wallet' ? (
               <RefreshControl
-                refreshing={sellerWallet.refreshing}
-                onRefresh={() => void sellerWallet.refresh({ silent: true })}
+                refreshing={pullRefreshing}
+                onRefresh={() => void pullRefresh(() => sellerWallet.refresh({ silent: true }))}
                 tintColor={colors.gold}
               />
             ) : tab === 'overview' ? (
               <RefreshControl
-                refreshing={
-                  ordersSummary.refreshing ||
-                  layawaySummary.refreshing ||
-                  sellerInventory.refreshing ||
-                  sellerWallet.refreshing ||
-                  cmdData.roomsRefreshing
+                refreshing={pullRefreshing}
+                onRefresh={() =>
+                  void pullRefresh(
+                    () => ordersSummary.reload({ silent: true }),
+                    () => layawaySummary.reload({ silent: true }),
+                    () => sellerInventory.reload({ silent: true }),
+                    () => sellerWallet.refresh({ silent: true }),
+                    () => cmdData.reloadRooms({ silent: true }),
+                    () => (user?.id ? cmdData.reloadAnalytics(user.id) : undefined),
+                    () => sellerConnect.refresh({ silent: true }),
+                    () => cmdData.liveReadiness.refresh({ silent: true }),
+                  )
                 }
-                onRefresh={() => {
-                  void ordersSummary.reload({ silent: true });
-                  void layawaySummary.reload({ silent: true });
-                  void sellerInventory.reload({ silent: true });
-                  void sellerWallet.refresh({ silent: true });
-                  void cmdData.reloadRooms({ silent: true });
-                  if (user?.id) void cmdData.reloadAnalytics(user.id);
-                  void sellerConnect.refresh({ silent: true });
-                  void cmdData.liveReadiness.refresh({ silent: true });
-                }}
                 tintColor={colors.gold}
               />
             ) : undefined
@@ -712,6 +720,7 @@ function WalletPanel({
   onSetupPayouts: () => void;
 }) {
   const [stripeLinkBusy, setStripeLinkBusy] = useState(false);
+  const [walletRefreshBusy, setWalletRefreshBusy] = useState(false);
   const w = sellerWallet.wallet;
 
   const showWalletPlaceholder = sellerWallet.loading && !sellerWallet.loadedOnce;
@@ -747,12 +756,20 @@ function WalletPanel({
       <View style={styles.walletHeaderRow}>
         <Text style={styles.walletLabel}>Revenue vault · available</Text>
         <Pressable
-          onPress={() => void sellerWallet.refresh({ silent: true })}
-          disabled={sellerWallet.refreshing}
+          onPress={async () => {
+            if (walletRefreshBusy) return;
+            setWalletRefreshBusy(true);
+            try {
+              await sellerWallet.refresh({ silent: true });
+            } finally {
+              setWalletRefreshBusy(false);
+            }
+          }}
+          disabled={walletRefreshBusy}
           hitSlop={8}
         >
           <Text style={styles.walletRefresh}>
-            {sellerWallet.refreshing ? 'Refreshing…' : 'Refresh'}
+            {walletRefreshBusy ? 'Refreshing…' : 'Refresh'}
           </Text>
         </Pressable>
       </View>

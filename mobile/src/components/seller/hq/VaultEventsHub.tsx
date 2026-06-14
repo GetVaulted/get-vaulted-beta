@@ -118,8 +118,7 @@ export function VaultEventsHub({
 
     const requestId = ++requestRef.current;
     const silent = opts?.silent ?? loadedOnceRef.current;
-    if (silent) setRefreshing(true);
-    else setLoading(true);
+    if (!silent) setLoading(true);
     setFetchError(null);
 
     try {
@@ -142,8 +141,7 @@ export function VaultEventsHub({
       logVaultEvents('filter', { http: 'error', error: msg.slice(0, 200), roomCount: 0 });
     } finally {
       if (requestId !== requestRef.current) return;
-      if (silent) setRefreshing(false);
-      else setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [accessToken]);
 
@@ -158,7 +156,12 @@ export function VaultEventsHub({
   );
 
   const onRefresh = useCallback(async () => {
-    await load({ silent: true });
+    setRefreshing(true);
+    try {
+      await load({ silent: true });
+    } finally {
+      setRefreshing(false);
+    }
   }, [load]);
 
   const buckets = useMemo(() => bucketRooms(rooms), [rooms]);

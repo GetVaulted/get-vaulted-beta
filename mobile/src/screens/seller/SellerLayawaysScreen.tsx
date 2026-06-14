@@ -96,7 +96,6 @@ export function SellerLayawaysScreen({ navigation, route }: Props) {
       const silent = opts?.silent ?? (opts?.pull === true || loadedOnceRef.current);
       if (opts?.pull) setRefreshing(true);
       else if (!silent) setLoading(true);
-      else setRefreshing(true);
       setError(null);
       setMismatch(false);
 

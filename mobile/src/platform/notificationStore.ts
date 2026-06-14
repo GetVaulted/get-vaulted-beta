@@ -86,30 +86,38 @@ export async function unreadNotificationCount(userId: string): Promise<number> {
   return rows.filter((n) => !n.read).length;
 }
 
-export async function markNotificationRead(id: string): Promise<void> {
+export async function markNotificationRead(id: string, accessToken?: string): Promise<void> {
   const store = await load();
   const row = store.notifications.find((n) => n.id === id);
   if (row) row.read = true;
   await save(store);
+  if (accessToken && !id.startsWith('nt-')) {
+    const { markVaultNotificationRead } = await import('../api/pushTokenRepository');
+    void markVaultNotificationRead(accessToken, id);
+  }
   const { emitNotificationBadgeChanged } = await import('./notificationEvents');
   emitNotificationBadgeChanged();
 }
 
-export async function markAllNotificationsRead(userId: string): Promise<void> {
+export async function markAllNotificationsRead(userId: string, accessToken?: string): Promise<void> {
   const store = await load();
   for (const n of store.notifications) {
     if (n.userId === userId) n.read = true;
   }
   await save(store);
+  if (accessToken) {
+    const { markAllVaultNotificationsRead } = await import('../api/pushTokenRepository');
+    void markAllVaultNotificationsRead(accessToken);
+  }
   const { emitNotificationBadgeChanged } = await import('./notificationEvents');
   emitNotificationBadgeChanged();
 }
 
 /** Re-run Expo push registration (e.g. from notification settings). */
-export function registerPushNotificationHooks(userId: string): void {
+export function registerPushNotificationHooks(userId: string, accessToken?: string): void {
   void import('../push/pushRegistrationService').then(async ({ registerForPushNotifications, persistPushToken }) => {
     const res = await registerForPushNotifications();
-    if (res.ok) await persistPushToken(userId, res.token);
+    if (res.ok) await persistPushToken(userId, res.token, accessToken);
   });
 }
 
@@ -174,6 +182,7 @@ const KIND_LABELS: Record<import('./notificationTypes').NotificationKind, string
   trade: 'Trades',
   order: 'Orders',
   layaway: 'Layaways',
+  message: 'Messages',
 };
 
 const LAYAWAY_SERVER_TYPES = new Set([
@@ -189,14 +198,29 @@ const LAYAWAY_SERVER_TYPES = new Set([
 
 function serverTypeToKind(type: string): NotificationKind {
   if (LAYAWAY_SERVER_TYPES.has(type)) return 'layaway';
+  if (type === 'message_received') return 'message';
+  if (type.includes('counter')) return 'counter';
+  if (type.includes('offer')) return 'offer';
   if (type.startsWith('order_') || type === 'item_sold' || type === 'seller_ready_to_ship') return 'order';
-  if (type.includes('offer') || type.includes('counter')) return 'offer';
+  if (type.includes('auction') || type.includes('purchase') || type.includes('break_spot')) return 'order';
+  if (type === 'stripe_dispute') return 'dispute';
+  if (type === 'seller_live') return 'live_event';
   return 'order';
 }
 
-function parseLayawayIdFromHref(href: string): string | undefined {
-  const m = href.match(/\/layaways\/([^/?#]+)/);
-  return m?.[1];
+function parseReferenceFromHref(href: string): { referenceType?: string; referenceId?: string } {
+  const path = href.split('?')[0]?.split('#')[0] ?? '';
+  const layaway = path.match(/\/layaways\/([^/]+)/);
+  if (layaway?.[1]) return { referenceType: 'layaway', referenceId: decodeURIComponent(layaway[1]) };
+  const message = path.match(/\/messages\/([^/]+)/);
+  if (message?.[1]) return { referenceType: 'message', referenceId: decodeURIComponent(message[1]) };
+  const order = path.match(/\/orders\/([^/]+)/);
+  if (order?.[1]) return { referenceType: 'order', referenceId: decodeURIComponent(order[1]) };
+  const sellerOrder = path.match(/\/sales\/([^/]+)/);
+  if (sellerOrder?.[1] && sellerOrder[1] !== 'layaways') {
+    return { referenceType: 'order', referenceId: decodeURIComponent(sellerOrder[1]) };
+  }
+  return {};
 }
 
 /** Merge server notifications into the local inbox (deduped by server id). */
@@ -213,15 +237,17 @@ export async function syncServerNotifications(
 
   for (const n of notifications) {
     if (existingIds.has(n.id)) continue;
-    const layawayId = parseLayawayIdFromHref(n.href);
+    const ref = parseReferenceFromHref(n.href);
     store.notifications.unshift({
       id: n.id,
       userId,
       kind: serverTypeToKind(n.type),
       title: n.title,
       body: n.body,
-      referenceType: layawayId ? 'layaway' : undefined,
-      referenceId: layawayId,
+      referenceType: ref.referenceType,
+      referenceId: ref.referenceId,
+      serverType: n.type,
+      href: n.href,
       read: Boolean(n.readAt),
       createdAt: n.createdAt,
     });

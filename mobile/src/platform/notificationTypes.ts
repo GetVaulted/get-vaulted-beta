@@ -8,7 +8,8 @@ export type NotificationKind =
   | 'dispute'
   | 'trade'
   | 'order'
-  | 'layaway';
+  | 'layaway'
+  | 'message';
 
 export type AppNotification = {
   id: string;
@@ -18,6 +19,10 @@ export type AppNotification = {
   body: string;
   referenceType?: string;
   referenceId?: string;
+  /** Original server notification type (for routing). */
+  serverType?: string;
+  /** Original server href (for routing). */
+  href?: string;
   read: boolean;
   createdAt: string;
 };

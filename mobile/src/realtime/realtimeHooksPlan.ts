@@ -16,7 +16,8 @@ export type VaultRealtimeChannel =
   | 'follow'
   | 'review'
   | 'layaway_seller'
-  | 'seller_order';
+  | 'seller_order'
+  | 'user_notification';
 
 export type VaultRealtimeEvent<T = unknown> = {
   channel: VaultRealtimeChannel;
@@ -50,5 +51,9 @@ export const REALTIME_WIRING: Record<
   seller_order: {
     tables: ['broadcast:gv-ecosystem-*'],
     consumers: ['seller_fulfillment', 'badges', 'push'],
+  },
+  user_notification: {
+    tables: ['broadcast:gv-user-*'],
+    consumers: ['notification_inbox', 'badges', 'push'],
   },
 };

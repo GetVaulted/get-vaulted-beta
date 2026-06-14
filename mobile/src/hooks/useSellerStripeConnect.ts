@@ -28,8 +28,7 @@ export function useSellerStripeConnect(accessToken: string | undefined) {
 
       const requestId = ++requestRef.current;
       const silent = opts?.silent ?? loadedOnceRef.current;
-      if (silent) setRefreshing(true);
-      else setLoading(true);
+      if (!silent) setLoading(true);
 
       const { status: s, error } = await fetchSellerConnectStatus(accessToken);
       if (requestId !== requestRef.current) return s;
@@ -43,8 +42,7 @@ export function useSellerStripeConnect(accessToken: string | undefined) {
       setLoadedOnce(true);
       loadedOnceRef.current = true;
 
-      if (silent) setRefreshing(false);
-      else setLoading(false);
+      if (!silent) setLoading(false);
       return s;
     },
     [accessToken],

@@ -28,8 +28,7 @@ export function useSellerLiveReadiness(accessToken: string | undefined) {
 
       const requestId = ++requestRef.current;
       const silent = opts?.silent ?? loadedOnceRef.current;
-      if (silent) setRefreshing(true);
-      else setLoading(true);
+      if (!silent) setLoading(true);
 
       try {
         const r = await fetchSellerLiveReadiness(accessToken);
@@ -46,8 +45,7 @@ export function useSellerLiveReadiness(accessToken: string | undefined) {
         return null;
       } finally {
         if (requestId !== requestRef.current) return null;
-        if (silent) setRefreshing(false);
-        else setLoading(false);
+        if (!silent) setLoading(false);
       }
     },
     [accessToken],

@@ -1,18 +1,16 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 
 export async function PATCH(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await resolveAccountUserId(_req);
+  if (auth instanceof NextResponse) return auth;
 
   const { id: raw } = await ctx.params;
   const id = decodeURIComponent(raw);
 
   const res = await prisma.notification.updateMany({
-    where: { id, userId: session.user.id, readAt: null },
+    where: { id, userId: auth.userId, readAt: null },
     data: { readAt: new Date() },
   });
 

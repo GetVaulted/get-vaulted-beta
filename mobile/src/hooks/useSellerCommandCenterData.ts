@@ -52,8 +52,7 @@ export function useSellerCommandCenterData(
 
     const requestId = ++roomsRequestRef.current;
     const silent = opts?.silent ?? roomsLoadedOnceRef.current;
-    if (silent) setRoomsRefreshing(true);
-    else setRoomsLoading(true);
+    if (!silent) setRoomsLoading(true);
 
     try {
       const rows = await fetchMyLiveRooms(accessToken);
@@ -66,8 +65,7 @@ export function useSellerCommandCenterData(
       if (!roomsLoadedOnceRef.current) setRooms([]);
     } finally {
       if (requestId !== roomsRequestRef.current) return;
-      if (silent) setRoomsRefreshing(false);
-      else setRoomsLoading(false);
+      if (!silent) setRoomsLoading(false);
     }
   }, [accessToken]);
 
