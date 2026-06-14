@@ -16,7 +16,7 @@ import {
   isMarketplaceOrderPaymentIntentKind,
   logIgnoredMarketplacePaymentIntentWebhook,
 } from "@/lib/stripe-payment-intent-webhook";
-import { getStripe } from "@/lib/stripe";
+import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import {
   buildCheckoutTaxSessionFields,
   buildMarketplaceCheckoutTaxBundle,
@@ -144,6 +144,12 @@ export async function processAuctionPaymentExpiries(): Promise<void> {
       title: "Winner payment expired",
       body: `No payment for “${titleShort}” before the deadline. Choose what to do next in recovery options.`,
     });
+  }
+
+  try {
+    await reconcileStalePendingCheckoutSessionsGlobal();
+  } catch (e) {
+    console.error("[payments] reconcileStalePendingCheckoutSessionsGlobal", e);
   }
 }
 
@@ -1335,6 +1341,45 @@ export async function reconcileBuyerPendingCheckoutSessions(userId: string): Pro
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === "CHECKOUT_NOT_PAID" || msg === "UNSUPPORTED_CHECKOUT_KIND") continue;
       console.warn("[checkout] reconcile pending session", { sessionId, userId, error: msg });
+    }
+  }
+  return finalized;
+}
+
+let lastGlobalCheckoutReconcileMs = 0;
+const GLOBAL_CHECKOUT_RECONCILE_MIN_INTERVAL_MS = 30_000;
+
+/** Repair marketplace orders stuck in pending_payment after Stripe Checkout already paid. */
+export async function reconcileStalePendingCheckoutSessionsGlobal(limit = 25): Promise<number> {
+  const nowMs = Date.now();
+  if (nowMs - lastGlobalCheckoutReconcileMs < GLOBAL_CHECKOUT_RECONCILE_MIN_INTERVAL_MS) return 0;
+  lastGlobalCheckoutReconcileMs = nowMs;
+
+  if (!isStripeConfigured()) return 0;
+
+  const pending = await prisma.order.findMany({
+    where: {
+      paymentStatus: PAYMENT_PENDING,
+      paymentMethod: OrderPaymentMethod.stripe,
+      stripeCheckoutSessionId: { not: null },
+      createdAt: { gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) },
+    },
+    select: { buyerId: true, stripeCheckoutSessionId: true },
+    orderBy: { updatedAt: "desc" },
+    take: limit,
+  });
+
+  let finalized = 0;
+  for (const row of pending) {
+    const sessionId = row.stripeCheckoutSessionId?.trim();
+    if (!sessionId) continue;
+    try {
+      const result = await confirmMarketplaceCheckoutSessionFromRedirect(sessionId, row.buyerId);
+      if (result.finalized) finalized += 1;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === "CHECKOUT_NOT_PAID" || msg === "UNSUPPORTED_CHECKOUT_KIND") continue;
+      console.warn("[checkout] global reconcile pending session", { sessionId, error: msg });
     }
   }
   return finalized;

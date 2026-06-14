@@ -21,6 +21,7 @@ import {
 } from "@/lib/marketplace-commerce-policy";
 import {
   marketplaceListingRateKey,
+  parseMarketplaceAllowedCarriers,
   parseMarketplaceAllowedRateKeys,
   parseMarketplaceShippingOfferScope,
 } from "@/lib/marketplace-shipping-offer";
@@ -121,6 +122,7 @@ type ListingBody = {
   shipFromAddressId?: unknown;
   marketplaceShippingOfferScope?: unknown;
   marketplaceAllowedRateKeys?: unknown;
+  marketplaceAllowedCarriers?: unknown;
   publishRequestId?: unknown;
 };
 
@@ -229,6 +231,11 @@ export async function GET(req: Request) {
   }
 
   if (scope === "published") {
+    try {
+      await processAuctionPaymentExpiries();
+    } catch (e) {
+      console.error("[GET /api/listings] processAuctionPaymentExpiries", e);
+    }
     try {
       const rows = await prisma.listing.findMany({
         where: {
@@ -509,6 +516,7 @@ export async function POST(req: Request) {
     const [carrier = "", service = ""] = key.split("|");
     return marketplaceListingRateKey({ carrier, serviceLevel: service });
   });
+  const marketplaceAllowedCarriers = parseMarketplaceAllowedCarriers(body.marketplaceAllowedCarriers);
   const parcelRow = { parcelWeightOz, parcelLengthIn, parcelWidthIn, parcelHeightIn };
 
   if (publishedLive && !hasCompleteParcel(parcelRow)) {
@@ -516,6 +524,16 @@ export async function POST(req: Request) {
       {
         error: "Add parcel weight (oz) and length, width, and height (inches) before publishing — required for shipping labels.",
         code: "PARCEL_REQUIRED",
+      },
+      { status: 400 },
+    );
+  }
+
+  if (publishedLive && shippingPriceUsd <= 0 && marketplaceAllowedCarriers.length === 0) {
+    return NextResponse.json(
+      {
+        error: "Select at least one shipping carrier buyers can use at checkout.",
+        code: "SHIPPING_CARRIERS_REQUIRED",
       },
       { status: 400 },
     );
@@ -611,6 +629,7 @@ export async function POST(req: Request) {
     shipFromAddressId,
     marketplaceShippingOfferScope,
     marketplaceAllowedRateKeys,
+    marketplaceAllowedCarriers,
     ...(auctionPublished ? { auctionEndsAt: computeAuctionEndsAt(new Date(), auctionDurationDays) } : {}),
   };
 

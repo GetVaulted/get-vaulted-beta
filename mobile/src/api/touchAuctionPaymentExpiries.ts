@@ -1,7 +1,7 @@
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 
 /**
- * Triggers lazy `processAuctionPaymentExpiries` on the API (via GET /api/account/orders).
+ * Triggers lazy marketplace maintenance on the API (auction expiries + checkout reconciliation).
  * No-op when unauthenticated or API host unset.
  */
 export async function touchAuctionPaymentExpiries(accessToken: string | undefined): Promise<void> {

@@ -6,6 +6,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchMarketplaceListings } from '../api/listingsFeedRepository';
+import { touchAuctionPaymentExpiries } from '../api/touchAuctionPaymentExpiries';
+import { useAuth } from '../auth/AuthContext';
 import { PremiumEmptyPanel } from '../components/empty/PremiumEmptyPanel';
 import { MarketplaceCategoryRail, type MarketplaceLaneId } from '../components/discover/DiscoverCategoryRail';
 import { MarketplaceFeedSkeleton } from '../components/discover/DiscoverFeedSkeleton';
@@ -43,6 +45,7 @@ export function MarketplaceScreen() {
   const insets = useSafeAreaInsets();
   const layout = useMarketplaceLayout();
   const navigation = useNavigation<Nav>();
+  const { session } = useAuth();
   const [lane, setLane] = useState<MarketplaceLaneId>('all');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -74,10 +77,11 @@ export function MarketplaceScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      void touchAuctionPaymentExpiries(session?.access_token);
       if (!hasWarmHomeFeedCache()) {
         void load();
       }
-    }, [load]),
+    }, [load, session?.access_token]),
   );
 
   const onRefresh = useCallback(async () => {
