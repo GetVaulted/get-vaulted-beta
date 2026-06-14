@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -51,21 +51,27 @@ export function SellerLayawayDetailScreen({ navigation, route }: Props) {
   const { session, user } = useAuth();
   const canonicalUserId = useCanonicalUserId(session?.access_token);
   const [detail, setDetail] = useState<SellerLayawayDetail | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const loadedOnceRef = useRef(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!session?.access_token) {
       setDetail(null);
       setLoading(false);
       return;
     }
-    setLoading(true);
+    const silent = opts?.silent ?? loadedOnceRef.current;
+    if (!silent) setLoading(true);
     setError(null);
-    const row = await fetchSellerLayawayDetail(session.access_token, route.params.layawayId);
-    if (!row) setError('Layaway not found.');
-    setDetail(row);
-    setLoading(false);
+    try {
+      const row = await fetchSellerLayawayDetail(session.access_token, route.params.layawayId);
+      if (!row) setError('Layaway not found.');
+      setDetail(row);
+    } finally {
+      loadedOnceRef.current = true;
+      setLoading(false);
+    }
   }, [route.params.layawayId, session?.access_token]);
 
   useEffect(() => {
@@ -76,7 +82,7 @@ export function SellerLayawayDetailScreen({ navigation, route }: Props) {
     enabled: Boolean(session?.access_token && user?.id),
     canonicalUserId,
     supabaseUserId: user?.id,
-    refetch: load,
+    refetch: () => load({ silent: true }),
     refetchOnFocus: false,
   });
 
@@ -86,7 +92,7 @@ export function SellerLayawayDetailScreen({ navigation, route }: Props) {
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
       <PlatformFlowHeader title="Layaway detail" subtitle="Seller view" onBack={() => navigation.goBack()} />
 
-      {loading ? (
+      {loading && !loadedOnceRef.current ? (
         <ActivityIndicator color={colors.gold} style={{ marginTop: spacing.xl }} />
       ) : error || !detail ? (
         <Text style={styles.empty}>{error ?? 'Layaway not found.'}</Text>

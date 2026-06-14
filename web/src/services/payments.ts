@@ -32,6 +32,7 @@ import {
   buyNowCheckoutSubtotalCents,
   reuseOpenCheckoutSessionIfMatching,
 } from "@/lib/stripe-checkout-session";
+import { fetchCheckoutSessionChargeBreakdown } from "@/lib/stripe-checkout-breakdown";
 import {
   getLiveRoomCompletedSalesGmvUsd,
   recordLiveShowCompletedSaleTx,
@@ -1411,11 +1412,17 @@ export async function finalizeStripeMarketplaceOrderPaid(
 
   const taxFromSession =
     sessionId != null ? await fetchCheckoutSessionTax(sessionId) : null;
-  const taxAmountCents = taxFromSession?.taxAmountCents ?? 0;
-  const taxUsd = taxAmountCents / 100;
-  const totalUsd = order.itemPriceUsd + order.shippingPriceUsd + taxUsd;
+  const breakdown =
+    sessionId != null ? await fetchCheckoutSessionChargeBreakdown(sessionId) : null;
+  const taxAmountCents = breakdown
+    ? Math.round(breakdown.taxUsd * 100)
+    : taxFromSession?.taxAmountCents ?? 0;
+  const taxUsd = breakdown?.taxUsd ?? taxAmountCents / 100;
+  const itemPriceUsd = breakdown?.itemPriceUsd ?? order.itemPriceUsd;
+  const shippingPriceUsd = breakdown?.shippingPriceUsd ?? order.shippingPriceUsd;
+  const totalUsd = breakdown?.totalUsd ?? itemPriceUsd + shippingPriceUsd + taxUsd;
 
-  const shippingChargedCents = Math.round(Math.max(0, order.shippingPriceUsd) * 100);
+  const shippingChargedCents = Math.round(Math.max(0, shippingPriceUsd) * 100);
 
   const { closedLayaways } = await prisma.$transaction(async (tx) => {
     await tx.order.update({
@@ -1430,6 +1437,8 @@ export async function finalizeStripeMarketplaceOrderPaid(
         taxUsd,
         taxProvider: taxAmountCents > 0 ? TAX_PROVIDER_STRIPE : null,
         stripeTaxCalculationId: taxFromSession?.stripeTaxCalculationId ?? null,
+        itemPriceUsd,
+        shippingPriceUsd,
         totalUsd,
       },
     });

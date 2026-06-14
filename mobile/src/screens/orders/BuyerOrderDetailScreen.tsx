@@ -1,6 +1,6 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -55,11 +55,13 @@ export function BuyerOrderDetailScreen({ navigation, route }: Props) {
   const { orderId } = route.params;
   const [order, setOrder] = useState<BuyerOrder | null>(null);
   const [reviewed, setReviewed] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const loadedOnceRef = useRef(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!user?.id) return;
-    setLoading(true);
+    const silent = opts?.silent ?? loadedOnceRef.current;
+    if (!silent) setLoading(true);
     try {
       void touchAuctionPaymentExpiries(session?.access_token);
       const row = await fetchBuyerOrderById(user.id, orderId);
@@ -68,6 +70,7 @@ export function BuyerOrderDetailScreen({ navigation, route }: Props) {
         setReviewed(await hasReviewedReference(user.id, row.id, 'buyer_to_seller'));
       }
     } finally {
+      loadedOnceRef.current = true;
       setLoading(false);
     }
   }, [orderId, session?.access_token, user?.id]);
@@ -82,7 +85,7 @@ export function BuyerOrderDetailScreen({ navigation, route }: Props) {
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
       <PlatformFlowHeader title="Order detail" subtitle="Receipt · tracking · protection" onBack={() => navigation.goBack()} />
-      {loading ? (
+      {loading && !loadedOnceRef.current ? (
         <ActivityIndicator color={colors.gold} />
       ) : !order ? (
         <Text style={styles.muted}>Order not found.</Text>

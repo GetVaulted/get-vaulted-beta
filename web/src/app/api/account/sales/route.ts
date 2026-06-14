@@ -1,13 +1,9 @@
 import { NextResponse } from "next/server";
-import { sellerNextActionForOrder } from "@/lib/seller-fulfillment-next-action";
+import { enrichSellerOrderChargeBreakdown } from "@/lib/enrich-seller-order-charge-breakdown";
+import { mapSellerSalesOrderForApi } from "@/lib/map-seller-sales-order";
 import { sellerFulfillmentOrdersWhere } from "@/lib/seller-fulfillment-orders";
-import { resolveOrderCommerceSnapshot } from "@/lib/marketplace/commerce-state";
 import { resolveAccountSellerUserId } from "@/lib/resolve-account-seller-user";
-import {
-  estimateSellerOrderPayoutUsd,
-  resolvePlatformFeePercentForSellerOrder,
-  sellerInstantPayoutBannerMessage,
-} from "@/lib/seller-payout-estimate";
+import { sellerInstantPayoutBannerMessage } from "@/lib/seller-payout-estimate";
 import { prisma } from "@/lib/prisma";
 import { processAuctionPaymentExpiries } from "@/services/payments";
 import { repairListingCommerceConflicts } from "@/services/layaway";
@@ -54,12 +50,20 @@ export async function GET(req: Request) {
       totalUsd: true,
       itemPriceUsd: true,
       shippingPriceUsd: true,
+      taxUsd: true,
+      taxAmountCents: true,
       status: true,
       paymentStatus: true,
       fulfillmentStatus: true,
       createdAt: true,
+      shipRecipientName: true,
+      shipAddress: true,
       shipCity: true,
       shipState: true,
+      shipZip: true,
+      shipCountry: true,
+      carrier: true,
+      service: true,
       trackingNumber: true,
       trackingUrl: true,
       labelUrl: true,
@@ -71,6 +75,8 @@ export async function GET(req: Request) {
       payoutReserveAmountCents: true,
       deliveryConfirmedAt: true,
       payoutMethod: true,
+      stripeCheckoutSessionId: true,
+      shippingChargedCents: true,
       liveShippingSession: {
         select: {
           liveShowId: true,
@@ -82,6 +88,7 @@ export async function GET(req: Request) {
           id: true,
           title: true,
           status: true,
+          priceUsd: true,
           isCompanyListing: true,
           images: { orderBy: { sortOrder: "asc" }, take: 1, select: { url: true } },
         },
@@ -104,61 +111,11 @@ export async function GET(req: Request) {
         payoutTier: user.payoutTier,
       }),
     },
-    orders: orders.map((o) => {
-      const liveShowId = o.liveShippingSession?.liveShowId ?? null;
-      const liveShow = o.liveShippingSession?.liveShow;
-      const platformFeePercent = resolvePlatformFeePercentForSellerOrder({
-        isCompanyListing: Boolean(o.listing.isCompanyListing),
-        liveShowId,
-        liveShowCompletedGmvUsd: liveShow?.status === "live" ? liveShow.completedSalesGmvUsd : null,
-        orderItemPriceUsd: o.itemPriceUsd,
-        orderPaymentStatus: o.paymentStatus,
-      });
-      const commerce = resolveOrderCommerceSnapshot({
-        id: o.id,
-        listingId: o.listing.id,
-        buyerId: o.buyerId,
-        sellerId: o.sellerId,
-        status: o.status,
-        paymentStatus: o.paymentStatus,
-        fulfillmentStatus: o.fulfillmentStatus,
-        trackingNumber: o.trackingNumber,
-        listingStatus: o.listing.status,
-        layawayStatus: o.layaway?.status ?? null,
-        remainingBalanceUsd: o.layaway?.remainingBalanceUsd ?? null,
-      });
-      return {
-      id: o.id,
-      totalUsd: o.totalUsd,
-      status: o.status,
-      paymentStatus: o.paymentStatus,
-      fulfillmentStatus: o.fulfillmentStatus,
-      commerceBucket: commerce.sellerBucket,
-      createdAt: o.createdAt.toISOString(),
-      shipCity: o.shipCity,
-      shipState: o.shipState,
-      trackingNumber: o.trackingNumber,
-      trackingUrl: o.trackingUrl,
-      labelUrl: o.labelUrl,
-      shippoTransactionId: o.shippoTransactionId,
-      paymentDeadlineAt: o.paymentDeadlineAt?.toISOString() ?? null,
-      payoutStatus: o.payoutStatus,
-      payoutBlockedReason: o.payoutBlockedReason,
-      payoutHoldUntil: o.payoutHoldUntil?.toISOString() ?? null,
-      payoutReserveAmountCents: o.payoutReserveAmountCents,
-      deliveryConfirmedAt: o.deliveryConfirmedAt?.toISOString() ?? null,
-      payoutMethod: o.payoutMethod,
-      platformFeePercent,
-      payoutEstimateUsd: estimateSellerOrderPayoutUsd({
-        itemPriceUsd: o.itemPriceUsd,
-        shippingPriceUsd: o.shippingPriceUsd,
-        payoutReserveAmountCents: o.payoutReserveAmountCents,
-        platformFeePercent,
+    orders: await Promise.all(
+      orders.map(async (o) => {
+        const enriched = await enrichSellerOrderChargeBreakdown(o);
+        return mapSellerSalesOrderForApi(user, enriched);
       }),
-      listing: o.listing,
-      buyer: o.buyer,
-      sellerNextAction: sellerNextActionForOrder(user, o).label,
-    };
-    }),
+    ),
   });
 }

@@ -1,5 +1,5 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -71,17 +71,18 @@ export function SellerLayawaysScreen({ navigation, route }: Props) {
   const [filter, setFilter] = useState<FilterKey>(route.params?.filter ?? 'all');
   const [rows, setRows] = useState<SellerLayawayRow[]>([]);
   const [counts, setCounts] = useState<SellerLayawayCounts | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mismatch, setMismatch] = useState(false);
+  const loadedOnceRef = useRef(false);
 
   useEffect(() => {
     if (route.params?.filter) setFilter(route.params.filter);
   }, [route.params?.filter]);
 
   const load = useCallback(
-    async (opts?: { pull?: boolean }) => {
+    async (opts?: { pull?: boolean; silent?: boolean }) => {
       if (!session?.access_token) {
         setRows([]);
         setCounts(null);
@@ -89,10 +90,13 @@ export function SellerLayawaysScreen({ navigation, route }: Props) {
         setMismatch(false);
         setLoading(false);
         setRefreshing(false);
+        loadedOnceRef.current = false;
         return;
       }
+      const silent = opts?.silent ?? (opts?.pull === true || loadedOnceRef.current);
       if (opts?.pull) setRefreshing(true);
-      else setLoading(true);
+      else if (!silent) setLoading(true);
+      else setRefreshing(true);
       setError(null);
       setMismatch(false);
 
@@ -105,6 +109,7 @@ export function SellerLayawaysScreen({ navigation, route }: Props) {
         setError(msg);
         console.warn('[SellerLayaways] load failed', { error: msg });
       } finally {
+        loadedOnceRef.current = true;
         setLoading(false);
         setRefreshing(false);
       }
@@ -143,7 +148,7 @@ export function SellerLayawaysScreen({ navigation, route }: Props) {
     enabled: Boolean(session?.access_token && user?.id),
     canonicalUserId,
     supabaseUserId: user?.id,
-    refetch: load,
+    refetch: () => load({ silent: true }),
     refetchOnFocus: false,
   });
 
@@ -153,7 +158,7 @@ export function SellerLayawaysScreen({ navigation, route }: Props) {
     void load({ pull: true });
   }, [load]);
 
-  const showInitialSpinner = loading && rows.length === 0 && !error;
+  const showInitialSpinner = loading && !loadedOnceRef.current && rows.length === 0 && !error;
 
   const listEmpty = !showInitialSpinner && (
     <View style={styles.emptyWrap}>

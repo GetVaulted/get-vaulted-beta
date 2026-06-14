@@ -2,7 +2,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchMarketplaceListings } from '../api/listingsFeedRepository';
@@ -47,20 +47,24 @@ export function MarketplaceScreen() {
   const navigation = useNavigation<Nav>();
   const { session } = useAuth();
   const [lane, setLane] = useState<MarketplaceLaneId>('all');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [catalog, setCatalog] = useState<Product[]>([]);
+  const loadedOnceRef = useRef(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!isSupabaseConfigured()) {
       setCatalog([]);
       setLoading(false);
+      loadedOnceRef.current = true;
       return;
     }
-    setLoading(true);
+    const silent = opts?.silent ?? loadedOnceRef.current;
+    if (!silent) setLoading(true);
     try {
       setCatalog(await fetchMarketplaceListings({ limit: 48 }));
     } finally {
+      loadedOnceRef.current = true;
       setLoading(false);
     }
   }, []);
@@ -71,7 +75,7 @@ export function MarketplaceScreen() {
 
   useEffect(() => {
     return subscribeHomeFeedInvalidation(() => {
-      void load();
+      void load({ silent: true });
     });
   }, [load]);
 
@@ -79,14 +83,14 @@ export function MarketplaceScreen() {
     useCallback(() => {
       void touchAuctionPaymentExpiries(session?.access_token);
       if (!hasWarmHomeFeedCache()) {
-        void load();
+        void load({ silent: loadedOnceRef.current });
       }
     }, [load, session?.access_token]),
   );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await load();
+    await load({ silent: true });
     setRefreshing(false);
   }, [load]);
 
@@ -125,7 +129,8 @@ export function MarketplaceScreen() {
   );
 
   const hasListings = filtered.length > 0;
-  const showEmpty = !loading && !hasListings;
+  const showBlockingSkeleton = loading && catalog.length === 0;
+  const showEmpty = !showBlockingSkeleton && !hasListings;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.sm }]}>
@@ -151,7 +156,7 @@ export function MarketplaceScreen() {
 
         <MarketplaceCategoryRail active={lane} onChange={setLane} bleedPadding={layout.horizontalPadding} />
 
-        {loading ? (
+        {showBlockingSkeleton ? (
           <MarketplaceFeedSkeleton
             heroHeight={layout.heroHeight}
             cardHeight={layout.listingCardHeight}
@@ -159,7 +164,7 @@ export function MarketplaceScreen() {
           />
         ) : null}
 
-        {!loading && showEmpty ? (
+        {!showBlockingSkeleton && showEmpty ? (
           <PremiumEmptyPanel
             icon="storefront-outline"
             kicker="The vault"
@@ -174,7 +179,7 @@ export function MarketplaceScreen() {
           />
         ) : null}
 
-        {!loading && hasListings ? (
+        {!showBlockingSkeleton && hasListings ? (
           <>
             <MarketplaceHeroCarousel slides={heroSlides} onSlidePress={openHeroSlide} />
             <MarketplaceMomentumBar compact={layout.compact} />

@@ -21,6 +21,36 @@ export function estimateSellerOrderPayoutUsd(args: {
   return Math.max(0, Math.round((item - feeUsd - reserveUsd + shippingUsd) * 100) / 100);
 }
 
+const DEFAULT_STRIPE_PROCESSING_PERCENT = 2.9;
+const DEFAULT_STRIPE_PROCESSING_FIXED_USD = 0.3;
+
+function stripeProcessingFeePolicy(): { percent: number; fixedUsd: number } {
+  const pctRaw = process.env.STRIPE_PROCESSING_FEE_PERCENT;
+  const fixedRaw = process.env.STRIPE_PROCESSING_FEE_FIXED_USD;
+  const pct = pctRaw != null ? Number(pctRaw) : DEFAULT_STRIPE_PROCESSING_PERCENT;
+  const fixedUsd = fixedRaw != null ? Number(fixedRaw) : DEFAULT_STRIPE_PROCESSING_FIXED_USD;
+  return {
+    percent: Number.isFinite(pct) && pct >= 0 ? pct : DEFAULT_STRIPE_PROCESSING_PERCENT,
+    fixedUsd: Number.isFinite(fixedUsd) && fixedUsd >= 0 ? fixedUsd : DEFAULT_STRIPE_PROCESSING_FIXED_USD,
+  };
+}
+
+/** Estimated Stripe card processing fee on the buyer charge (2.9% + $0.30 by default). */
+export function estimateStripeProcessingFeeUsd(chargeAmountUsd: number): number {
+  const { percent, fixedUsd } = stripeProcessingFeePolicy();
+  const charge = Math.max(0, chargeAmountUsd);
+  return Math.max(0, Math.round((charge * (percent / 100) + fixedUsd) * 100) / 100);
+}
+
+export function estimatePlatformFeeUsd(args: {
+  itemPriceUsd: number;
+  platformFeePercent: number;
+}): number {
+  const item = Math.max(0, args.itemPriceUsd);
+  const pct = Math.max(0, args.platformFeePercent);
+  return Math.max(0, Math.round(((item * pct) / 100) * 100) / 100);
+}
+
 export function resolvePlatformFeePercentForSellerOrder(args: {
   isCompanyListing: boolean;
   liveShowId: string | null;

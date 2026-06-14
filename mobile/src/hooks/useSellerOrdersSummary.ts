@@ -40,6 +40,8 @@ export function useSellerOrdersSummary(accessToken: string | undefined) {
       if (!loadedOnceRef.current) setOrders([]);
     } finally {
       if (requestId !== requestRef.current) return;
+      setLoadedOnce(true);
+      loadedOnceRef.current = true;
       if (silent) setRefreshing(false);
       else setLoading(false);
     }

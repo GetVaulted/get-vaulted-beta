@@ -59,8 +59,8 @@ import { useSellerOrdersSummary } from '../hooks/useSellerOrdersSummary';
 import { useSellerHQSync } from '../hooks/useSellerCommerceSync';
 import { useCanonicalUserId } from '../hooks/useCanonicalUserId';
 import { openSellerLayaways } from '../navigation/openSellerLayaways';
+import { openSellerOrderDetail } from '../navigation/openSellerOrderDetail';
 import { SellerHQLayawaysCard } from '../components/seller/hq/SellerHQLayawaysCard';
-import { createSellerShippingLabel } from '../api/sellerSalesRepository';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { openStripeConnectDashboard } from '../lib/openStripeConnectDashboard';
 import {
@@ -291,12 +291,11 @@ export function SellerHubScreen() {
             orders={ordersSummary.orders}
             ordersLoading={ordersSummary.loading}
             ordersLoadedOnce={ordersSummary.loadedOnce}
-            accessToken={session?.access_token}
-            onRefreshOrders={() => void ordersSummary.reload({ silent: true })}
             layawayCounts={layawaySummary.counts}
             layawaysLoading={layawaySummary.loading}
             layawaysLoadedOnce={layawaySummary.loadedOnce}
             hasLayaways={layawaySummary.hasLayaways}
+            navigation={navigation as unknown as NativeStackNavigationProp<RootStackParamList>}
             onOpenLayaways={(filter) =>
               openSellerLayaways(navigation as unknown as NativeStackNavigationProp<RootStackParamList>, {
                 filter,
@@ -619,27 +618,23 @@ function OrdersPanel({
   orders,
   ordersLoading,
   ordersLoadedOnce,
-  accessToken,
-  onRefreshOrders,
   layawayCounts,
   layawaysLoading,
   layawaysLoadedOnce,
   hasLayaways,
   onOpenLayaways,
+  navigation,
 }: {
   orders: import('../api/sellerSalesRepository').SellerSalesOrderRow[];
   ordersLoading: boolean;
   ordersLoadedOnce: boolean;
-  accessToken?: string;
-  onRefreshOrders?: () => void;
   layawayCounts: import('../api/layawayRepository').SellerLayawayCounts | null;
   layawaysLoading: boolean;
   layawaysLoadedOnce: boolean;
   hasLayaways: boolean;
   onOpenLayaways: (filter?: 'active' | 'ready' | 'overdue') => void;
+  navigation: NativeStackNavigationProp<RootStackParamList>;
 }) {
-  const [labelBusyId, setLabelBusyId] = useState<string | null>(null);
-
   const fulfillmentLabel = (o: import('../api/sellerSalesRepository').SellerSalesOrderRow) => {
     const fs = o.fulfillmentStatus ?? '';
     if (fs === 'label_created') return 'Label ready';
@@ -651,40 +646,10 @@ function OrdersPanel({
     return o.status;
   };
 
-  const canCreateLabel = (o: import('../api/sellerSalesRepository').SellerSalesOrderRow) =>
-    o.paymentStatus === 'paid' && !o.shippoTransactionId && !o.labelUrl;
+  const showEmpty =
+    ordersLoadedOnce && !orders.length && !hasLayaways && layawaysLoadedOnce;
 
-  const onCreateLabel = async (orderId: string) => {
-    if (!accessToken || labelBusyId) return;
-    setLabelBusyId(orderId);
-    try {
-      const result = await createSellerShippingLabel(accessToken, orderId);
-      if (!result.ok) {
-        Alert.alert('Label not created', result.error);
-        return;
-      }
-      onRefreshOrders?.();
-      if (result.labelUrl) {
-        Alert.alert('Label ready', 'Your shipping label is ready.', [
-          { text: 'Not now', style: 'cancel' },
-          { text: 'Open label', onPress: () => void Linking.openURL(result.labelUrl!) },
-        ]);
-      } else {
-        Alert.alert('Label ready', 'Carrier label purchased. Tracking updates will notify the buyer.');
-      }
-    } finally {
-      setLabelBusyId(null);
-    }
-  };
-
-  const initialLoading =
-    (!ordersLoadedOnce && ordersLoading) || (!layawaysLoadedOnce && layawaysLoading);
-
-  if (initialLoading) {
-    return <ActivityIndicator color={colors.gold} style={{ marginTop: spacing.lg }} />;
-  }
-
-  if (ordersLoadedOnce && layawaysLoadedOnce && !orders.length && !hasLayaways) {
+  if (showEmpty) {
     return (
       <Text style={styles.orderEmpty}>
         No marketplace orders yet. When collectors buy from your vault, fulfillment appears here.
@@ -703,12 +668,11 @@ function OrdersPanel({
       />
       {orders.map((o) => {
         const amt = `$${(o.totalCents / 100).toFixed(2)}`;
-        const showCreateLabel = canCreateLabel(o);
         return (
           <View key={o.id} style={styles.orderRow}>
             <Pressable
               style={{ flex: 1 }}
-              onPress={() => openContactSupport({ category: 'order', referenceId: o.id })}
+              onPress={() => openSellerOrderDetail(navigation, o.id)}
             >
               <Text style={styles.orderItem}>{o.listingTitle}</Text>
               <Text style={styles.orderBuyer}>
@@ -716,22 +680,7 @@ function OrdersPanel({
               </Text>
             </Pressable>
             <View style={styles.orderRowActions}>
-              {showCreateLabel ? (
-                <Pressable
-                  style={styles.orderLabelBtn}
-                  disabled={labelBusyId === o.id}
-                  onPress={() => void onCreateLabel(o.id)}
-                >
-                  <Text style={styles.orderLabelBtnText}>
-                    {labelBusyId === o.id ? '…' : 'Label'}
-                  </Text>
-                </Pressable>
-              ) : null}
-              {o.labelUrl ? (
-                <Pressable onPress={() => void Linking.openURL(o.labelUrl!)}>
-                  <Text style={styles.orderTrackLink}>PDF</Text>
-                </Pressable>
-              ) : o.trackingUrl ? (
+              {o.trackingUrl ? (
                 <Pressable onPress={() => void Linking.openURL(o.trackingUrl!)}>
                   <Text style={styles.orderTrackLink}>Track</Text>
                 </Pressable>

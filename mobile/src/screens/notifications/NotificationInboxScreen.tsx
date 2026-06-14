@@ -1,5 +1,5 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,6 +14,7 @@ import {
   syncServerNotifications,
 } from '../../platform/notificationStore';
 import { openSellerLayaways } from '../../navigation/openSellerLayaways';
+import { openSellerOrderDetail } from '../../navigation/openSellerOrderDetail';
 import type { AppNotification } from '../../platform/notificationTypes';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
@@ -24,16 +25,19 @@ export function NotificationInboxScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { user, session } = useAuth();
   const [rows, setRows] = useState<AppNotification[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const loadedOnceRef = useRef(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!user?.id) return;
-    setLoading(true);
+    const silent = opts?.silent ?? loadedOnceRef.current;
+    if (!silent) setLoading(true);
     try {
       if (session?.access_token) await syncServerNotifications(user.id, session.access_token);
       setRows(await listNotifications(user.id));
       registerPushNotificationHooks(user.id);
     } finally {
+      loadedOnceRef.current = true;
       setLoading(false);
     }
   }, [session?.access_token, user?.id]);
@@ -44,7 +48,7 @@ export function NotificationInboxScreen({ navigation }: Props) {
 
   useFocusEffect(
     useCallback(() => {
-      void load();
+      void load({ silent: true });
     }, [load]),
   );
 
@@ -77,6 +81,10 @@ export function NotificationInboxScreen({ navigation }: Props) {
       return;
     }
     if (n.kind === 'order') {
+      if (n.referenceId) {
+        openSellerOrderDetail(navigation, n.referenceId);
+        return;
+      }
       navigation.navigate('MainTabs', { screen: 'HQ' });
     }
   };
@@ -93,7 +101,7 @@ export function NotificationInboxScreen({ navigation }: Props) {
           <Text style={styles.markAll}>Mark all read</Text>
         </Pressable>
       ) : null}
-      {loading ? (
+      {loading && !loadedOnceRef.current ? (
         <ActivityIndicator color={colors.gold} style={{ marginTop: spacing.xl }} />
       ) : rows.length ? (
         <ScrollView contentContainerStyle={styles.scroll}>

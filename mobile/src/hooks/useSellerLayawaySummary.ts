@@ -55,6 +55,8 @@ export function useSellerLayawaySummary(accessToken: string | undefined) {
       }
     } finally {
       if (requestId !== requestRef.current) return;
+      setLoadedOnce(true);
+      loadedOnceRef.current = true;
       if (silent) setRefreshing(false);
       else setLoading(false);
     }

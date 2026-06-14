@@ -325,11 +325,11 @@ export function useSellerSetupState(accessToken: string | undefined, enabled: bo
       publish({ ...EMPTY_STORE }, 'cache');
       return;
     }
-    if (subscribedAccessToken && subscribedAccessToken !== accessToken) {
-      publish({ ...EMPTY_STORE }, 'cache');
-    }
+    const tokenChanged = Boolean(subscribedAccessToken && subscribedAccessToken !== accessToken);
     subscribedAccessToken = accessToken;
-    void requestLoad(accessToken, enabled);
+    void requestLoad(accessToken, enabled, {
+      silent: tokenChanged && (store.hasLoaded || store.wasEverActivated),
+    });
   }, [accessToken, enabled]);
 
   useEffect(() => {
