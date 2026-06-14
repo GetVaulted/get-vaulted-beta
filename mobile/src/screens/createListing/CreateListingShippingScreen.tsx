@@ -20,10 +20,12 @@ import {
   isLikelyOvernightOrExpressAirRate,
   isPackageDetailsComplete,
   listingRateLabel,
+  marketplaceCarrierLabel,
   marketplaceListingRateKey,
   marketplaceOfferableRates,
   parsePackageNumber,
   packageWeightLbTotal,
+  uniqueCarriersFromRates,
   type ListingShippoRate,
   type MarketplaceShippingOfferScope,
 } from '../../createListing/shippoRates';
@@ -96,7 +98,7 @@ const SCOPE_OPTIONS: { id: MarketplaceShippingOfferScope; label: string; sub: st
     label: 'No overnight / next-day air',
     sub: 'Ground & slower · hides overnight-style lanes (heuristic)',
   },
-  { id: 'custom', label: 'Choose services', sub: 'Toggle exactly which carriers buyers can pick' },
+  { id: 'custom', label: 'Pick carriers', sub: 'Choose USPS, UPS, FedEx, etc. — only carriers Shippo returns for your package' },
 ];
 
 function RatePreviewCard({
@@ -178,21 +180,34 @@ export function CreateListingShippingScreen({
   const packageReady = isPackageDetailsComplete({ ...form, shipFromZip: effectiveShipFromZip });
 
   const offerablePreview = useMemo(
-    () => marketplaceOfferableRates(rates, form.marketplaceShippingOfferScope, form.marketplaceAllowedRateKeys),
-    [rates, form.marketplaceShippingOfferScope, form.marketplaceAllowedRateKeys],
+    () =>
+      marketplaceOfferableRates(
+        rates,
+        form.marketplaceShippingOfferScope,
+        form.marketplaceAllowedRateKeys,
+        form.marketplaceAllowedCarriers,
+      ),
+    [rates, form.marketplaceShippingOfferScope, form.marketplaceAllowedRateKeys, form.marketplaceAllowedCarriers],
   );
+
+  const previewCarriers = useMemo(() => uniqueCarriersFromRates(rates), [rates]);
 
   const applyRatesResult = useCallback(
     (nextRates: ListingShippoRate[]) => {
       const f = formRef.current;
-      let keys = f.marketplaceAllowedRateKeys.filter((k) => nextRates.some((r) => marketplaceListingRateKey(r) === k));
-      if (f.marketplaceShippingOfferScope === 'custom' && keys.length === 0 && nextRates.length > 0) {
-        keys = nextRates.map(marketplaceListingRateKey);
+      const carrierKeys = uniqueCarriersFromRates(nextRates);
+      let carriers = f.marketplaceAllowedCarriers.filter((k) => carrierKeys.includes(k));
+      if (carriers.length === 0 && carrierKeys.length > 0) {
+        carriers = carrierKeys;
       }
-      const keysForFilter = f.marketplaceShippingOfferScope === 'custom' ? keys : [];
-      const offerable = marketplaceOfferableRates(nextRates, f.marketplaceShippingOfferScope, keysForFilter);
+      const offerable = marketplaceOfferableRates(
+        nextRates,
+        f.marketplaceShippingOfferScope,
+        f.marketplaceAllowedRateKeys,
+        carriers,
+      );
       setForm({
-        marketplaceAllowedRateKeys: f.marketplaceShippingOfferScope === 'custom' ? keys : f.marketplaceAllowedRateKeys,
+        marketplaceAllowedCarriers: carriers,
         marketplaceRatesPreviewOk: nextRates.length > 0,
         marketplaceOfferableRateCount: offerable.length,
         selectedShippoRate: null,
@@ -314,15 +329,14 @@ export function CreateListingShippingScreen({
 
   const setScope = (scope: MarketplaceShippingOfferScope) => {
     const f = formRef.current;
-    let keys = f.marketplaceAllowedRateKeys;
-    if (scope === 'custom' && rates.length > 0) {
-      keys = keys.filter((k) => rates.some((r) => marketplaceListingRateKey(r) === k));
-      if (keys.length === 0) keys = rates.map(marketplaceListingRateKey);
-    }
-    const offerable = marketplaceOfferableRates(rates, scope, scope === 'custom' ? keys : []);
+    const offerable = marketplaceOfferableRates(
+      rates,
+      scope,
+      f.marketplaceAllowedRateKeys,
+      f.marketplaceAllowedCarriers,
+    );
     setForm({
       marketplaceShippingOfferScope: scope,
-      marketplaceAllowedRateKeys: scope === 'custom' ? keys : f.marketplaceAllowedRateKeys,
       marketplaceOfferableRateCount: offerable.length,
       marketplaceRatesPreviewOk: rates.length > 0,
       selectedShippoRate: null,
@@ -330,14 +344,19 @@ export function CreateListingShippingScreen({
     });
   };
 
-  const toggleKey = (key: string) => {
-    const set = new Set(formRef.current.marketplaceAllowedRateKeys);
-    if (set.has(key)) set.delete(key);
-    else set.add(key);
-    const nextKeys = [...set];
-    const offerable = marketplaceOfferableRates(rates, 'custom', nextKeys);
+  const toggleCarrier = (carrierKey: string) => {
+    const set = new Set(formRef.current.marketplaceAllowedCarriers);
+    if (set.has(carrierKey)) set.delete(carrierKey);
+    else set.add(carrierKey);
+    const nextCarriers = [...set];
+    const offerable = marketplaceOfferableRates(
+      rates,
+      formRef.current.marketplaceShippingOfferScope,
+      formRef.current.marketplaceAllowedRateKeys,
+      nextCarriers,
+    );
     setForm({
-      marketplaceAllowedRateKeys: nextKeys,
+      marketplaceAllowedCarriers: nextCarriers,
       marketplaceOfferableRateCount: offerable.length,
       marketplaceRatesPreviewOk: rates.length > 0,
       selectedShippoRate: null,
@@ -350,7 +369,7 @@ export function CreateListingShippingScreen({
     !loading &&
     rates.length > 0 &&
     form.marketplaceOfferableRateCount > 0 &&
-    (form.marketplaceShippingOfferScope !== 'custom' || form.marketplaceAllowedRateKeys.length > 0);
+    form.marketplaceAllowedCarriers.length > 0;
 
   return (
     <CreateListingChrome
@@ -514,9 +533,28 @@ export function CreateListingShippingScreen({
         ) : null}
         {offerablePreview.length > 0 ? (
           <Text style={styles.summaryLine}>
-            {form.marketplaceOfferableRateCount} service{form.marketplaceOfferableRateCount !== 1 ? 's' : ''} will be
-            offered at checkout (after your rules).
+            {form.marketplaceOfferableRateCount} carrier option{form.marketplaceOfferableRateCount !== 1 ? 's' : ''} will be
+            offered at checkout.
           </Text>
+        ) : null}
+
+        {previewCarriers.length > 0 ? (
+          <View style={styles.carrierRow}>
+            {previewCarriers.map((carrierKey) => {
+              const on = form.marketplaceAllowedCarriers.includes(carrierKey);
+              return (
+                <Pressable
+                  key={carrierKey}
+                  style={[styles.carrierChip, on && styles.carrierChipOn]}
+                  onPress={() => toggleCarrier(carrierKey)}
+                >
+                  <Text style={[styles.carrierChipTxt, on && styles.carrierChipTxtOn]}>
+                    {marketplaceCarrierLabel(carrierKey)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         ) : null}
 
         {loading ? (
@@ -553,26 +591,17 @@ export function CreateListingShippingScreen({
         ) : null}
 
         {!loading
-          ? rates.map((rate) => {
-              const rateKey = marketplaceListingRateKey(rate);
-              const mode = form.marketplaceShippingOfferScope;
-              const overnight = isLikelyOvernightOrExpressAirRate(rate);
-              const excludedByRule = mode === 'no_overnight' && overnight;
-              const allowedCustom = form.marketplaceAllowedRateKeys.includes(rateKey);
-              const allowed =
-                mode === 'all' ? true : mode === 'no_overnight' ? !overnight : allowedCustom;
-              return (
-                <RatePreviewCard
-                  key={rateKey}
-                  rate={rate}
-                  mode={mode}
-                  allowed={allowed}
-                  excluded={excludedByRule || (mode === 'custom' && !allowedCustom)}
-                  handlingFee={handlingFee}
-                  onToggleAllowed={() => toggleKey(rateKey)}
-                />
-              );
-            })
+          ? offerablePreview.map((rate) => (
+              <RatePreviewCard
+                key={marketplaceListingRateKey(rate)}
+                rate={rate}
+                mode="all"
+                allowed
+                excluded={false}
+                handlingFee={handlingFee}
+                onToggleAllowed={() => {}}
+              />
+            ))
           : null}
 
         <View style={styles.divider} />
@@ -627,6 +656,18 @@ const styles = StyleSheet.create({
   sectionK: { ...typography.micro, color: colors.gold, letterSpacing: 0.8, marginTop: spacing.sm },
   sectionHint: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
   summaryLine: { color: colors.textSecondary, fontSize: 14, fontWeight: '600' },
+  carrierRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
+  carrierChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceElevated,
+  },
+  carrierChipOn: { borderColor: colors.gold, backgroundColor: 'rgba(212,175,55,0.12)' },
+  carrierChipTxt: { color: colors.textMuted, fontSize: 12, fontWeight: '800', letterSpacing: 0.6 },
+  carrierChipTxtOn: { color: colors.gold },
   scopeCard: {
     padding: spacing.md,
     borderRadius: radii.md,

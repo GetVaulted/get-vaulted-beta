@@ -130,6 +130,8 @@ export type CreateListingFormState = {
    * When scope is `custom`, allowed `carrier|serviceLevel` keys. Ignored for `all` / `no_overnight`.
    */
   marketplaceAllowedRateKeys: string[];
+  /** Canonical carrier keys (usps, ups, fedex) buyers may choose at checkout. */
+  marketplaceAllowedCarriers: string[];
   /** Shippo returned ≥1 rate for this parcel (cleared when package fields change). */
   marketplaceRatesPreviewOk: boolean;
   /** Count of rates buyers can pick after applying scope + custom filters (≥1 to publish). */
@@ -253,6 +255,7 @@ export const emptyCreateListingForm = (): CreateListingFormState => ({
   selectedShippoRate: null,
   marketplaceShippingOfferScope: 'all',
   marketplaceAllowedRateKeys: [],
+  marketplaceAllowedCarriers: [],
   marketplaceRatesPreviewOk: false,
   marketplaceOfferableRateCount: 0,
   insurance: false,

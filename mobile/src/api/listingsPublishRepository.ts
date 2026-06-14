@@ -223,6 +223,7 @@ function buildWebListingBody(
     shippingPriceUsd: 0,
     marketplaceShippingOfferScope: form.marketplaceShippingOfferScope,
     marketplaceAllowedRateKeys: form.marketplaceAllowedRateKeys,
+    marketplaceAllowedCarriers: form.marketplaceAllowedCarriers,
     handlingTime: form.shippingNotes.trim() || '—',
     shippingCategory,
     shippingBaseWeightOz: shippingWeights.base,

@@ -14,6 +14,13 @@ export type ListingShippoRate = {
   insuranceAvailable: boolean;
 };
 
+export const MARKETPLACE_CARRIER_LABELS: Record<string, string> = {
+  usps: 'USPS',
+  ups: 'UPS',
+  fedex: 'FedEx',
+  dhl: 'DHL',
+};
+
 export function formatListingRatePrice(amount: string, currency: string, handlingFee = 0): string {
   const base = Number(amount);
   if (!Number.isFinite(base)) return amount;
@@ -28,6 +35,20 @@ export function formatListingRatePrice(amount: string, currency: string, handlin
 
 export function listingRateLabel(rate: ListingShippoRate): string {
   return `${rate.carrier} ${rate.serviceLevel}`.trim();
+}
+
+export function normalizeMarketplaceCarrierKey(carrier: string): string {
+  const raw = carrier.trim().toLowerCase();
+  if (!raw) return 'unknown';
+  if (raw.includes('usps') || raw.includes('postal')) return 'usps';
+  if (raw.includes('fedex') || raw.includes('fed ex')) return 'fedex';
+  if (raw === 'ups' || raw.startsWith('ups ') || raw.includes('united parcel')) return 'ups';
+  if (raw.includes('dhl')) return 'dhl';
+  return raw.replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'unknown';
+}
+
+export function marketplaceCarrierLabel(key: string): string {
+  return MARKETPLACE_CARRIER_LABELS[normalizeMarketplaceCarrierKey(key)] ?? key.trim().toUpperCase();
 }
 
 /** Stable key for allowlists across listing save + checkout matching (same package lanes). */
@@ -49,22 +70,47 @@ export function isLikelyOvernightOrExpressAirRate(rate: ListingShippoRate): bool
   );
 }
 
-/** Rates a buyer may be offered at checkout given seller rules + optional custom allowlist. */
+function cheapestRatePerCarrier(rates: ListingShippoRate[]): ListingShippoRate[] {
+  const byCarrier = new Map<string, ListingShippoRate>();
+  for (const rate of rates) {
+    const carrierKey = normalizeMarketplaceCarrierKey(rate.carrier);
+    const prev = byCarrier.get(carrierKey);
+    if (!prev || Number(rate.amount) < Number(prev.amount)) {
+      byCarrier.set(carrierKey, rate);
+    }
+  }
+  return [...byCarrier.values()].sort((a, b) => Number(a.amount) - Number(b.amount));
+}
+
+/** Rates a buyer may be offered at checkout given seller rules + carrier allowlist. */
 export function marketplaceOfferableRates(
   rates: ListingShippoRate[],
   scope: MarketplaceShippingOfferScope,
   allowedKeys: string[],
+  allowedCarriers: string[] = [],
 ): ListingShippoRate[] {
   if (rates.length === 0) return [];
   let list = rates;
+
+  if (allowedCarriers.length > 0) {
+    const carrierSet = new Set(allowedCarriers.map(normalizeMarketplaceCarrierKey));
+    list = list.filter((r) => carrierSet.has(normalizeMarketplaceCarrierKey(r.carrier)));
+  }
+
   if (scope === 'no_overnight') {
     list = list.filter((r) => !isLikelyOvernightOrExpressAirRate(r));
   }
-  if (scope === 'custom') {
+
+  if (scope === 'custom' && allowedKeys.length > 0) {
     const set = new Set(allowedKeys);
     list = list.filter((r) => set.has(marketplaceListingRateKey(r)));
   }
-  return list;
+
+  return cheapestRatePerCarrier(list);
+}
+
+export function uniqueCarriersFromRates(rates: ListingShippoRate[]): string[] {
+  return [...new Set(rates.map((r) => normalizeMarketplaceCarrierKey(r.carrier)))].filter((k) => k !== 'unknown');
 }
 
 /** Marketplace publish: package OK + at least one preview rate + offerable set non-empty. */
@@ -79,9 +125,11 @@ export function marketplaceShippingListingReady(form: {
   marketplaceOfferableRateCount: number;
   marketplaceShippingOfferScope: MarketplaceShippingOfferScope;
   marketplaceAllowedRateKeys: string[];
+  marketplaceAllowedCarriers: string[];
 }): boolean {
   if (!isPackageDetailsComplete(form)) return false;
   if (!form.marketplaceRatesPreviewOk || form.marketplaceOfferableRateCount < 1) return false;
+  if (form.marketplaceAllowedCarriers.length === 0) return false;
   if (form.marketplaceShippingOfferScope === 'custom' && form.marketplaceAllowedRateKeys.length === 0) return false;
   return true;
 }
