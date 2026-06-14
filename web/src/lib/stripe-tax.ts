@@ -262,12 +262,6 @@ export async function buildMarketplaceCheckoutTaxBundle(args: {
     };
   }
 
-  const customerId = await syncStripeCustomerShippingAddress(args.buyerId, shipTo);
-  const baseSessionFields: CheckoutTaxSessionFields = {
-    customer: customerId,
-    customer_update: { shipping: "auto", address: "auto" },
-  };
-
   try {
     const est = await estimateSalesTaxCents({
       itemPriceUsd: args.itemPriceUsd,
@@ -279,16 +273,15 @@ export async function buildMarketplaceCheckoutTaxBundle(args: {
     if (est.taxAmountCents > 0) {
       const sellerTransferCents = Math.max(0, itemCents + shippingCents - feeCents);
       return {
-        sessionFields: baseSessionFields,
+        // Explicit tax line item — no automatic_tax or customer on Connect destination checkout.
+        sessionFields: {},
         taxLineItem: {
           quantity: 1,
           price_data: {
             currency: "usd",
             unit_amount: est.taxAmountCents,
-            tax_behavior: "inclusive",
             product_data: {
               name: "Sales tax",
-              tax_code: STRIPE_TAX_CODE_TANGIBLE,
             },
           },
         },
@@ -303,19 +296,17 @@ export async function buildMarketplaceCheckoutTaxBundle(args: {
       };
     }
   } catch (e) {
-    console.warn("[stripe-tax] tax calculation failed; falling back to automatic_tax", e);
+    console.warn("[stripe-tax] tax calculation failed; proceeding without explicit tax line", e);
   }
 
+  // Connect destination charges cannot reliably use automatic_tax — skip rather than fail checkout.
   return {
-    sessionFields: {
-      ...baseSessionFields,
-      automatic_tax: checkoutAutomaticTaxFields(),
-    },
+    sessionFields: {},
     taxLineItem: null,
     sellerTransferCents: null,
     taxAmountCents: 0,
     stripeTaxCalculationId: null,
-    collectTax: true,
+    collectTax: false,
     metadata: {},
   };
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
 import { checkoutInfrastructureGate } from "@/lib/checkout-infrastructure";
+import { stripeRouteErrorResponse } from "@/lib/stripe-route-errors";
 import {
   createBreakSpotCheckoutSession,
   createBuyNowCheckoutSession,
@@ -102,7 +103,7 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
         return NextResponse.json({ error: "Complete all shipping fields." }, { status: 400 });
       }
       const selectedShippingRateId =
-        trim(body.selectedShippingRateId ?? sh.selectedShippingRateId, 120) || null;
+        trim(body.selectedShippingRateId ?? sh.selectedShippingRateId, 200) || null;
       const { url } = await createBuyNowCheckoutSession({
         buyerId,
         listingId,
@@ -162,7 +163,7 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
         return NextResponse.json({ error: "Complete all shipping fields." }, { status: 400 });
       }
       const selectedShippingRateId =
-        trim(body.selectedShippingRateId ?? sh.selectedShippingRateId, 120) || null;
+        trim(body.selectedShippingRateId ?? sh.selectedShippingRateId, 200) || null;
       const { url, layawayId } = await createLayawayDepositCheckout({
         buyerId,
         listingId,
@@ -257,6 +258,15 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
       INVALID_PLAN: { status: 400, msg: "Select a valid layaway plan." },
       SHIPPING_RATE_REQUIRED: { status: 400, msg: "Select a shipping option to continue." },
       SHIPPING_RATE_INVALID: { status: 409, msg: "That shipping option is no longer available. Pick another rate." },
+      LISTING_NOT_FOUND: { status: 404, msg: "Listing not found." },
+      SELLER_SHIP_FROM_INCOMPLETE: {
+        status: 422,
+        msg: "Seller ship-from address is not set up yet. Contact the seller before checkout.",
+      },
+      SHIPPO_SHIPMENT_FAILED: { status: 502, msg: "Shipping rates could not be confirmed. Try again or pick another rate." },
+      NO_CHECKOUT_URL: { status: 502, msg: "Checkout could not be created. Try again shortly." },
+      STRIPE_NOT_CONFIGURED: { status: 503, msg: "Payments are not configured on this site yet." },
+      USER_NOT_FOUND: { status: 404, msg: "Account not found." },
       LISTING_UNAVAILABLE: { status: 409, msg: "This listing is not available for layaway.", code: "ITEM_NOT_AVAILABLE" },
     };
     const hit = map[msg];
@@ -266,7 +276,7 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
         { status: hit.status },
       );
     }
-    console.error("[checkout]", e);
-    return NextResponse.json({ error: "Could not start checkout." }, { status: 500 });
+    const stripeErr = stripeRouteErrorResponse("checkout", e);
+    return NextResponse.json(stripeErr.body, { status: stripeErr.status });
   }
 }

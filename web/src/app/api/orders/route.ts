@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { checkoutInfrastructureGate } from "@/lib/checkout-infrastructure";
+import { stripeRouteErrorResponse } from "@/lib/stripe-route-errors";
 import { createBuyNowCheckoutSession } from "@/services/payments";
 
 type OrderBody = {
@@ -92,7 +93,7 @@ export async function POST(req: Request) {
     };
     const hit = map[code];
     if (hit) return NextResponse.json({ error: hit.msg }, { status: hit.status });
-    console.error("[api/orders POST]", e);
-    return NextResponse.json({ error: "Could not start checkout." }, { status: 500 });
+    const stripeErr = stripeRouteErrorResponse("api/orders POST", e);
+    return NextResponse.json(stripeErr.body, { status: stripeErr.status });
   }
 }
