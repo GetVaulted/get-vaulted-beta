@@ -15,6 +15,12 @@ import {
   isMarketplaceTimedAuctionPublishAttempt,
   MARKETPLACE_AUCTION_DISABLED_MESSAGE,
 } from "@/lib/marketplace-commerce-policy";
+import {
+  parseMarketplaceAllowedCarriers,
+  parseMarketplaceAllowedRateKeys,
+  parseMarketplaceShippingOfferScope,
+  marketplaceListingRateKey,
+} from "@/lib/marketplace-shipping-offer";
 import { resolveAllowLayawayForListing } from "@/lib/layaway/eligibility";
 import { LAYAWAY_MIN_LISTING_PRICE_USD } from "@/lib/layaway/constants";
 import type { BuyingFormat, ListingStatus } from "@/generated/prisma/client";
@@ -144,6 +150,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     shippingCategory?: "raw_card" | "slab" | "small_collectible" | "custom";
     shipAlone?: boolean;
     shipFromAddressId?: string | null;
+    marketplaceShippingOfferScope?: "all" | "no_overnight" | "custom";
+    marketplaceAllowedRateKeys?: string[];
+    marketplaceAllowedCarriers?: string[];
   } = {};
 
   if (typeof body.title === "string") data.title = body.title.trim();
@@ -221,6 +230,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (body.shipFromAddressId === null || typeof body.shipFromAddressId === "string") {
     const next = body.shipFromAddressId === null ? null : body.shipFromAddressId.trim();
     data.shipFromAddressId = next && next.length > 0 ? next : null;
+  }
+  if (body.marketplaceShippingOfferScope !== undefined) {
+    data.marketplaceShippingOfferScope = parseMarketplaceShippingOfferScope(body.marketplaceShippingOfferScope);
+  }
+  if (body.marketplaceAllowedRateKeys !== undefined) {
+    data.marketplaceAllowedRateKeys = parseMarketplaceAllowedRateKeys(body.marketplaceAllowedRateKeys).map((key) => {
+      const [carrier = "", service = ""] = key.split("|");
+      return marketplaceListingRateKey({ carrier, serviceLevel: service });
+    });
+  }
+  if (body.marketplaceAllowedCarriers !== undefined) {
+    data.marketplaceAllowedCarriers = parseMarketplaceAllowedCarriers(body.marketplaceAllowedCarriers);
   }
 
   const formatBeforeCoerce = data.buyingFormat ?? existing.buyingFormat;
@@ -356,6 +377,21 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       {
         error: "Add parcel weight (oz) and length, width, and height (inches) before publishing — required for shipping labels.",
         code: "PARCEL_REQUIRED",
+      },
+      { status: 400 },
+    );
+  }
+  const mergedShippingPrice =
+    data.shippingPriceUsd !== undefined ? data.shippingPriceUsd : existing.shippingPriceUsd;
+  const mergedAllowedCarriers =
+    data.marketplaceAllowedCarriers !== undefined
+      ? data.marketplaceAllowedCarriers
+      : existing.marketplaceAllowedCarriers;
+  if (willBePublished && mergedShippingPrice <= 0 && mergedAllowedCarriers.length === 0) {
+    return NextResponse.json(
+      {
+        error: "Select at least one shipping carrier buyers can use at checkout.",
+        code: "SHIPPING_CARRIERS_REQUIRED",
       },
       { status: 400 },
     );

@@ -161,6 +161,7 @@ async function loadListingShippingContext(listingId: string) {
       parcelHeightIn: true,
       marketplaceShippingOfferScope: true,
       marketplaceAllowedRateKeys: true,
+      marketplaceAllowedCarriers: true,
       shipFromAddress: {
         select: {
           fullName: true,
@@ -283,6 +284,7 @@ export async function fetchMarketplaceCheckoutShippingRates(args: {
     raw,
     listing.marketplaceShippingOfferScope,
     listing.marketplaceAllowedRateKeys,
+    listing.marketplaceAllowedCarriers,
   );
   if (offerable.length === 0 && raw.length > 0) {
     console.warn("[checkout-shipping] seller offer filter returned no rates; using live Shippo quotes", {

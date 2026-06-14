@@ -71,6 +71,25 @@ describe("marketplaceOfferableRates", () => {
     expect(out.map((r) => r.carrier)).toEqual(["USPS", "FedEx"]);
     expect(out[0]?.amount).toBe("8.00");
   });
+
+  it("filters to seller-selected carriers only", () => {
+    const multi = [
+      rates[0]!,
+      {
+        id: "3",
+        carrier: "UPS",
+        serviceLevel: "Ground",
+        estimatedDelivery: "3 days",
+        estimatedDays: 3,
+        amount: "11.00",
+        currency: "USD",
+        trackingIncluded: true,
+        insuranceAvailable: false,
+      },
+    ];
+    const out = marketplaceOfferableRates(multi, "all", [], ["usps"]);
+    expect(out.map((r) => r.carrier)).toEqual(["USPS"]);
+  });
 });
 
 describe("pickMarketplaceCheckoutRate", () => {

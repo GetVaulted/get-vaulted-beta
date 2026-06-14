@@ -19,6 +19,7 @@ import {
 import { hasCompleteParcel } from "@/lib/listing-publish";
 import { LISTING_WORKSPACE_KEY } from "@/lib/listing-workspace";
 import { compressImageFileToBlob } from "@/lib/listing-image-compress";
+import { marketplaceCarrierLabel, normalizeMarketplaceCarrierKey } from "@/lib/marketplace-shipping-offer";
 import type { SellerListingStatus, StoredUserListing } from "@/lib/user-listings-storage";
 import { useRequireSellerActivation } from "@/hooks/useRequireSellerActivation";
 
@@ -161,6 +162,8 @@ export function CreateListingPage() {
   const [estimateGroups, setEstimateGroups] = useState<
     Array<{ carrier: string; service: string; minCents: number; maxCents: number; sampleCount: number; currency: string }>
   >([]);
+  const [availableCarriers, setAvailableCarriers] = useState<Array<{ key: string; label: string }>>([]);
+  const [allowedCarriers, setAllowedCarriers] = useState<string[]>([]);
   const estimateSigRef = useRef<string>("");
 
   const [readinessLoading, setReadinessLoading] = useState(true);
@@ -519,6 +522,9 @@ export function CreateListingPage() {
       shippingBaseWeightOz: parsePositiveDim(shippingBaseWeightOz) ?? 1,
       shippingIncrementalWeightOz: parseNonNegativeMoney(shippingIncrementalWeightOz) ?? 0,
       shipFromAddressId: shipFromAddressId || null,
+      marketplaceAllowedCarriers:
+        (parseNonNegativeMoney(shippingPrice) ?? 0) <= 0 ? allowedCarriers : [],
+      marketplaceShippingOfferScope: "all" as const,
     };
     const hadEditingId = Boolean(editingListingId);
     setDraftSaving(true);
@@ -701,6 +707,14 @@ export function CreateListingPage() {
     if (!shippingCategory.trim() || base == null || incremental == null) {
       next.shippingProfile = "Set shipping preset/profile with category, base weight, and incremental weight.";
     }
+    const flatShip = parseNonNegativeMoney(shippingPrice) ?? 0;
+    if (flatShip <= 0 && hasCompleteParcel(pRow) && shipFromAddressId) {
+      if (availableCarriers.length === 0 && !estimateLoading) {
+        next.shippingProfile = "Load shipping estimates, then choose which carriers buyers can use at checkout.";
+      } else if (availableCarriers.length > 0 && allowedCarriers.length === 0) {
+        next.shippingProfile = "Select at least one carrier (USPS, UPS, FedEx, etc.) for buyer checkout.";
+      }
+    }
     if (!sellerCanPublish) {
       next.sellerReadiness = "Finish seller setup before publishing.";
     }
@@ -758,6 +772,8 @@ export function CreateListingPage() {
       shippingBaseWeightOz: shippingBase,
       shippingIncrementalWeightOz: shippingIncremental,
       shipFromAddressId: shipFromAddressId || null,
+      marketplaceAllowedCarriers: ship <= 0 ? allowedCarriers : [],
+      marketplaceShippingOfferScope: "all" as const,
     };
 
     setSubmitting(true);
@@ -769,6 +785,8 @@ export function CreateListingPage() {
         const msg = typeof errJ.error === "string" ? errJ.error : "Could not save listing. Try again.";
         if (errJ.code === "PARCEL_REQUIRED") {
           setErrors((e) => ({ ...e, parcel: msg, stripe: undefined }));
+        } else if (errJ.code === "SHIPPING_CARRIERS_REQUIRED") {
+          setErrors((e) => ({ ...e, shippingProfile: msg, stripe: undefined, parcel: undefined }));
         } else if (errJ.code === "STRIPE_ONBOARDING_REQUIRED") {
           setErrors((e) => ({ ...e, stripe: msg, parcel: undefined }));
         } else {
@@ -854,6 +872,7 @@ export function CreateListingPage() {
   useEffect(() => {
     if (!estimateRequestSignature) {
       setEstimateGroups([]);
+      setAvailableCarriers([]);
       return;
     }
     if (estimateRequestSignature === estimateSigRef.current) return;
@@ -881,13 +900,23 @@ export function CreateListingPage() {
         });
         const j = (await res.json().catch(() => ({}))) as {
           groups?: Array<{ carrier: string; service: string; minCents: number; maxCents: number; sampleCount: number; currency: string }>;
+          availableCarriers?: Array<{ key: string; label: string }>;
           error?: string;
         };
         if (!res.ok) {
           setEstimateError(j.error ?? "Could not estimate shipping right now.");
+          setAvailableCarriers([]);
           return;
         }
+        const carriers = Array.isArray(j.availableCarriers) ? j.availableCarriers : [];
         setEstimateGroups(Array.isArray(j.groups) ? j.groups : []);
+        setAvailableCarriers(carriers);
+        setAllowedCarriers((prev) => {
+          const keys = new Set(carriers.map((c) => c.key));
+          const kept = prev.filter((k) => keys.has(k));
+          if (kept.length > 0) return kept;
+          return carriers.map((c) => c.key);
+        });
         estimateSigRef.current = estimateRequestSignature;
       } finally {
         setEstimateLoading(false);
@@ -1381,6 +1410,41 @@ export function CreateListingPage() {
                         </li>
                       ))}
                     </ul>
+                  ) : null}
+
+                  {(parseNonNegativeMoney(shippingPrice) ?? 0) <= 0 && availableCarriers.length > 0 ? (
+                    <div className="mt-4 border-t border-white/10 pt-4">
+                      <p className="text-xs font-semibold text-zinc-200">Carriers buyers can choose at checkout</p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+                        Only carriers returned for your package are shown. Buyers pick one live rate per selected carrier.
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {availableCarriers.map((carrier) => {
+                          const on = allowedCarriers.includes(carrier.key);
+                          return (
+                            <button
+                              key={carrier.key}
+                              type="button"
+                              onClick={() =>
+                                setAllowedCarriers((prev) =>
+                                  on ? prev.filter((k) => k !== carrier.key) : [...prev, carrier.key],
+                                )
+                              }
+                              className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide transition ${
+                                on
+                                  ? "border-gold/45 bg-gold/15 text-gold-bright"
+                                  : "border-white/12 bg-white/[0.03] text-zinc-400 hover:border-white/20 hover:text-zinc-200"
+                              }`}
+                            >
+                              {carrier.label || marketplaceCarrierLabel(carrier.key)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {allowedCarriers.length === 0 ? (
+                        <p className="mt-2 text-[11px] text-rose-300">Select at least one carrier to publish.</p>
+                      ) : null}
+                    </div>
                   ) : null}
                   {!estimateLoading && !estimateError && estimateGroups.length === 0 ? (
                     <p className="mt-2 text-xs text-zinc-500">Calculating estimates automatically as shipping details become ready.</p>

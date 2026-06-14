@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isShippoConfigured, shippoCreateShipment } from "@/lib/shippo";
+import {
+  MARKETPLACE_CARRIER_LABELS,
+  normalizeMarketplaceCarrierKey,
+} from "@/lib/marketplace-shipping-offer";
 
 type Body = {
   shipFromAddressId?: unknown;
@@ -148,6 +152,10 @@ export async function POST(req: Request) {
 
   const payload = {
     groups: [...grouped.values()].sort((a, b) => a.minCents - b.minCents),
+    availableCarriers: [...new Set(allRows.map((row) => normalizeMarketplaceCarrierKey(row.carrier)))]
+      .filter((key) => key !== "unknown")
+      .sort()
+      .map((key) => ({ key, label: MARKETPLACE_CARRIER_LABELS[key] ?? key.toUpperCase() })),
     destinations: REPRESENTATIVE_DESTINATIONS,
     disclaimer:
       "Estimated rates use representative US destinations and can differ from checkout label prices.",
