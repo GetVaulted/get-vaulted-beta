@@ -1197,6 +1197,149 @@ export async function createBreakSpotCheckoutSession(args: {
   return { url: session.url };
 }
 
+async function markBuyNowLiveRoomItemSold(args: {
+  liveRoomItemId: string | null | undefined;
+  listingId: string | null | undefined;
+}): Promise<void> {
+  const liveRoomItemId = args.liveRoomItemId?.trim();
+  if (!liveRoomItemId) return;
+
+  const item = await prisma.liveRoomItem.findFirst({
+    where: { id: liveRoomItemId, listingId: args.listingId ?? undefined },
+    select: { id: true, liveRoomId: true, status: true },
+  });
+  if (!item || item.status === "sold") return;
+
+  const changed = await prisma.liveRoomItem.updateMany({
+    where: { id: item.id, status: { not: "sold" } },
+    data: { status: "sold", itemVersion: { increment: 1 } },
+  });
+  if (changed.count === 0) return;
+
+  const itemNext = await prisma.liveRoomItem.findUnique({
+    where: { id: item.id },
+    select: { id: true, itemVersion: true, liveRoomId: true },
+  });
+  if (!itemNext) return;
+
+  const roomNext = await prisma.liveRoom.update({
+    where: { id: item.liveRoomId },
+    data: { roomVersion: { increment: 1 } },
+    select: { roomVersion: true },
+  });
+  emitLiveRoomMessagesRefetch(item.liveRoomId);
+  emitPurchaseCompleted(item.liveRoomId, itemNext.id, {
+    roomVersion: roomNext.roomVersion,
+    itemVersion: itemNext.itemVersion,
+  });
+}
+
+/**
+ * Finalize a paid Stripe Checkout session when the buyer returns from Checkout or when
+ * reconciling a pending order (webhook fallback).
+ */
+export async function confirmMarketplaceCheckoutSessionFromRedirect(
+  sessionId: string,
+  userId: string,
+): Promise<{ orderId: string; finalized: boolean }> {
+  const trimmedSessionId = sessionId.trim();
+  if (!trimmedSessionId) throw new Error("SESSION_ID_REQUIRED");
+
+  const stripe = getStripe();
+  const session = await stripe.checkout.sessions.retrieve(trimmedSessionId);
+  if (session.payment_status !== "paid") throw new Error("CHECKOUT_NOT_PAID");
+
+  const kind = session.metadata?.kind ?? "";
+  if (kind !== "buy_now" && kind !== "pay_order") throw new Error("UNSUPPORTED_CHECKOUT_KIND");
+
+  const orderId = session.metadata?.orderId?.trim();
+  if (!orderId) throw new Error("ORDER_NOT_FOUND");
+
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { buyerId: true, paymentMethod: true, paymentStatus: true },
+  });
+  if (!order) throw new Error("ORDER_NOT_FOUND");
+  if (order.buyerId !== userId) throw new Error("FORBIDDEN");
+  if (order.paymentMethod === OrderPaymentMethod.escrow) throw new Error("UNSUPPORTED_CHECKOUT_KIND");
+
+  const alreadyPaid = order.paymentStatus === PAYMENT_PAID;
+  if (!alreadyPaid) {
+    const pi =
+      typeof session.payment_intent === "string"
+        ? session.payment_intent
+        : session.payment_intent?.id ?? null;
+    await finalizeStripeMarketplaceOrderPaid(orderId, pi, session.id);
+    if (kind === "buy_now") {
+      await markBuyNowLiveRoomItemSold({
+        liveRoomItemId: session.metadata?.liveRoomItemId,
+        listingId: session.metadata?.listingId,
+      });
+    }
+  }
+
+  return { orderId, finalized: !alreadyPaid };
+}
+
+/** Repair one pending order when its Checkout Session is already paid. */
+export async function reconcileOrderCheckoutSession(orderId: string, userId: string): Promise<boolean> {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: {
+      buyerId: true,
+      paymentStatus: true,
+      paymentMethod: true,
+      stripeCheckoutSessionId: true,
+    },
+  });
+  if (!order || order.buyerId !== userId) return false;
+  if (order.paymentStatus !== PAYMENT_PENDING || order.paymentMethod !== OrderPaymentMethod.stripe) {
+    return false;
+  }
+  const sessionId = order.stripeCheckoutSessionId?.trim();
+  if (!sessionId) return false;
+  try {
+    const result = await confirmMarketplaceCheckoutSessionFromRedirect(sessionId, userId);
+    return result.finalized;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg !== "CHECKOUT_NOT_PAID" && msg !== "UNSUPPORTED_CHECKOUT_KIND") {
+      console.warn("[checkout] reconcile order session", { orderId, userId, error: msg });
+    }
+    return false;
+  }
+}
+
+/** Repair pending Stripe checkout orders whose Checkout Session is already paid. */
+export async function reconcileBuyerPendingCheckoutSessions(userId: string): Promise<number> {
+  const pending = await prisma.order.findMany({
+    where: {
+      buyerId: userId,
+      paymentStatus: PAYMENT_PENDING,
+      paymentMethod: OrderPaymentMethod.stripe,
+      stripeCheckoutSessionId: { not: null },
+    },
+    select: { stripeCheckoutSessionId: true },
+    orderBy: { createdAt: "desc" },
+    take: 5,
+  });
+
+  let finalized = 0;
+  for (const row of pending) {
+    const sessionId = row.stripeCheckoutSessionId?.trim();
+    if (!sessionId) continue;
+    try {
+      const result = await confirmMarketplaceCheckoutSessionFromRedirect(sessionId, userId);
+      if (result.finalized) finalized += 1;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === "CHECKOUT_NOT_PAID" || msg === "UNSUPPORTED_CHECKOUT_KIND") continue;
+      console.warn("[checkout] reconcile pending session", { sessionId, userId, error: msg });
+    }
+  }
+  return finalized;
+}
+
 export async function finalizeStripeMarketplaceOrderPaid(
   orderId: string,
   paymentIntentId: string | null,
@@ -1398,36 +1541,11 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
         if (ord?.paymentMethod === OrderPaymentMethod.escrow) return;
         await finalizeStripeMarketplaceOrderPaid(orderId, pi, session.id);
 
-        const liveRoomItemId = session.metadata?.liveRoomItemId;
-        if (liveRoomItemId && kind === "buy_now") {
-          const item = await prisma.liveRoomItem.findFirst({
-            where: { id: liveRoomItemId, listingId: session.metadata?.listingId ?? undefined },
-            select: { id: true, liveRoomId: true, status: true },
+        if (kind === "buy_now") {
+          await markBuyNowLiveRoomItemSold({
+            liveRoomItemId: session.metadata?.liveRoomItemId,
+            listingId: session.metadata?.listingId,
           });
-          if (item && item.status !== "sold") {
-            const changed = await prisma.liveRoomItem.updateMany({
-              where: { id: item.id, status: { not: "sold" } },
-              data: { status: "sold", itemVersion: { increment: 1 } },
-            });
-            if (changed.count > 0) {
-              const itemNext = await prisma.liveRoomItem.findUnique({
-                where: { id: item.id },
-                select: { id: true, itemVersion: true, liveRoomId: true },
-              });
-              if (itemNext) {
-                const roomNext = await prisma.liveRoom.update({
-                  where: { id: item.liveRoomId },
-                  data: { roomVersion: { increment: 1 } },
-                  select: { roomVersion: true },
-                });
-                emitLiveRoomMessagesRefetch(item.liveRoomId);
-                emitPurchaseCompleted(item.liveRoomId, itemNext.id, {
-                  roomVersion: roomNext.roomVersion,
-                  itemVersion: itemNext.itemVersion,
-                });
-              }
-            }
-          }
         }
         return;
       }

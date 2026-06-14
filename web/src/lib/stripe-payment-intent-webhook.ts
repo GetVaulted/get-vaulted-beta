@@ -61,6 +61,8 @@ export async function assertMarketplaceOrderPaymentIntentMatchesOrder(
     select: {
       id: true,
       buyerId: true,
+      itemPriceUsd: true,
+      shippingPriceUsd: true,
       totalUsd: true,
       paymentMethod: true,
       paymentStatus: true,
@@ -73,8 +75,14 @@ export async function assertMarketplaceOrderPaymentIntentMatchesOrder(
     return { ok: false, reason: "escrow_order_skip_stripe_pi" };
   }
 
-  const expectedCents = Math.round(order.totalUsd * 100);
-  if (!Number.isFinite(pi.amount) || Math.abs(pi.amount - expectedCents) > 1) {
+  const subtotalCents =
+    Math.round(order.itemPriceUsd * 100) + Math.round(order.shippingPriceUsd * 100);
+  if (!Number.isFinite(pi.amount) || pi.amount + 1 < subtotalCents) {
+    return { ok: false, reason: "amount_mismatch" };
+  }
+  // Checkout may add sales tax as a line item after the order row was created (taxUsd still 0).
+  const maxReasonableTotalCents = subtotalCents + Math.round(subtotalCents * 0.12) + 100;
+  if (pi.amount > maxReasonableTotalCents) {
     return { ok: false, reason: "amount_mismatch" };
   }
 

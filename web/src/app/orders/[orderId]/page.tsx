@@ -12,7 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { isEscrowConfigured, orderTotalQualifiesForEscrow } from "@/lib/escrow-config";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
 import { orderRequiresCheckoutForTax } from "@/lib/stripe-tax";
-import { processAuctionPaymentExpiries } from "@/services/payments";
+import { processAuctionPaymentExpiries, reconcileOrderCheckoutSession } from "@/services/payments";
 
 export const dynamic = "force-dynamic";
 
@@ -30,13 +30,38 @@ function paymentStatusLabel(s: string): string {
   return s;
 }
 
-export default async function OrderPage({ params }: { params: Promise<{ orderId: string }> }) {
+export default async function OrderPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ orderId: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await getServerSessionSafe();
   const { orderId: raw } = await params;
   const orderId = decodeURIComponent(raw);
+  const sp = (await searchParams) ?? {};
+  const sessionIdRaw = sp.session_id;
+  const checkoutSessionId =
+    typeof sessionIdRaw === "string" ? sessionIdRaw : Array.isArray(sessionIdRaw) ? sessionIdRaw[0] : "";
 
   if (!session?.user?.id) {
     redirect(`/signin?returnTo=${encodeURIComponent(`/orders/${encodeURIComponent(orderId)}`)}`);
+  }
+
+  if (checkoutSessionId.trim()) {
+    const { confirmMarketplaceCheckoutSessionFromRedirect } = await import("@/services/payments");
+    try {
+      await confirmMarketplaceCheckoutSessionFromRedirect(checkoutSessionId.trim(), session.user.id);
+    } catch (e) {
+      console.error("[orders/[orderId]] confirm checkout session", e);
+    }
+  } else {
+    try {
+      await reconcileOrderCheckoutSession(orderId, session.user.id);
+    } catch (e) {
+      console.error("[orders/[orderId]] reconcile checkout session", e);
+    }
   }
 
   try {

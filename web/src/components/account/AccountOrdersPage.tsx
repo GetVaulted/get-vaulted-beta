@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useSession } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
 import { orderStatusLabel, orderStatusTone } from "@/lib/order-status";
@@ -29,8 +30,11 @@ function formatDate(iso: string) {
 
 export function AccountOrdersPage() {
   const { status } = useSession();
+  const searchParams = useSearchParams();
+  const checkoutSessionId = searchParams.get("session_id")?.trim() ?? "";
   const [rows, setRows] = useState<OrderRow[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -45,8 +49,43 @@ export function AccountOrdersPage() {
   }, []);
 
   useEffect(() => {
-    if (status === "authenticated") void load();
-  }, [load, status]);
+    if (status !== "authenticated") return;
+    if (!checkoutSessionId) {
+      void load();
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/checkout/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId: checkoutSessionId }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { error?: string; finalized?: boolean };
+        if (!cancelled) {
+          if (res.ok) {
+            setConfirmMessage(
+              data.finalized === false ? "Payment already confirmed." : "Payment confirmed. Your order is ready.",
+            );
+          } else {
+            setConfirmMessage(data.error ?? "We could not confirm payment yet. Your order list will refresh shortly.");
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setConfirmMessage("We could not confirm payment yet. Your order list will refresh shortly.");
+        }
+      } finally {
+        if (!cancelled) await load();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [checkoutSessionId, load, status]);
 
   if (status === "loading" || rows === null) {
     return (
@@ -71,6 +110,12 @@ export function AccountOrdersPage() {
             <AccountOrdersNav active="orders" />
           </div>
         </header>
+
+        {confirmMessage ? (
+          <div className="mt-6 rounded-2xl border border-emerald-500/25 bg-emerald-950/20 px-5 py-4 text-sm text-emerald-100">
+            {confirmMessage}
+          </div>
+        ) : null}
 
         {loadError ? (
           <div className="mt-8 rounded-2xl border border-rose-500/25 bg-rose-950/25 px-6 py-10 text-center">
