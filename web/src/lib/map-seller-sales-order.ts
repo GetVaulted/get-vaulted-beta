@@ -43,6 +43,9 @@ export type SellerSalesOrderRowInput = {
   trackingUrl: string | null;
   labelUrl: string | null;
   shippoTransactionId: string | null;
+  shippingStatus: string | null;
+  labelCreatedAt: Date | null;
+  shippedAt: Date | null;
   paymentDeadlineAt: Date | null;
   payoutStatus: string;
   payoutBlockedReason: string | null;
@@ -116,6 +119,9 @@ export function mapSellerSalesOrderForApi(user: SellerSalesOrderUser, o: SellerS
     trackingUrl: o.trackingUrl,
     labelUrl: o.labelUrl,
     shippoTransactionId: o.shippoTransactionId,
+    shippingStatus: o.shippingStatus,
+    labelCreatedAt: o.labelCreatedAt?.toISOString() ?? null,
+    shippedAt: o.shippedAt?.toISOString() ?? null,
     paymentDeadlineAt: o.paymentDeadlineAt?.toISOString() ?? null,
     payoutStatus: o.payoutStatus,
     payoutBlockedReason: o.payoutBlockedReason,

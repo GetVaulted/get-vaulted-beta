@@ -39,6 +39,9 @@ export type SellerSalesOrderDetail = {
   trackingUrl: string | null;
   labelUrl: string | null;
   shippoTransactionId: string | null;
+  shippingStatus: string | null;
+  labelCreatedAt: string | null;
+  shippedAt: string | null;
   paymentDeadlineAt: string | null;
   payoutStatus: string;
   payoutBlockedReason: string | null;
@@ -111,6 +114,9 @@ function normalizeSellerSalesOrder(raw: Record<string, unknown>): SellerSalesOrd
     trackingUrl: typeof raw.trackingUrl === 'string' ? raw.trackingUrl : null,
     labelUrl: typeof raw.labelUrl === 'string' ? raw.labelUrl : null,
     shippoTransactionId: typeof raw.shippoTransactionId === 'string' ? raw.shippoTransactionId : null,
+    shippingStatus: typeof raw.shippingStatus === 'string' ? raw.shippingStatus : null,
+    labelCreatedAt: typeof raw.labelCreatedAt === 'string' ? raw.labelCreatedAt : null,
+    shippedAt: typeof raw.shippedAt === 'string' ? raw.shippedAt : null,
     paymentDeadlineAt: typeof raw.paymentDeadlineAt === 'string' ? raw.paymentDeadlineAt : null,
     payoutStatus: typeof raw.payoutStatus === 'string' ? raw.payoutStatus : 'pending',
     payoutBlockedReason: typeof raw.payoutBlockedReason === 'string' ? raw.payoutBlockedReason : null,

@@ -5,8 +5,6 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  Linking,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -18,9 +16,11 @@ import {
   type SellerSalesOrderDetail,
 } from '../../api/sellerSalesRepository';
 import { PremiumVaultButton } from '../../components/product/PremiumVaultButton';
+import { SellerShippingLabelPanel } from '../../components/seller/SellerShippingLabelPanel';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { useAuth } from '../../auth/AuthContext';
 import { useStaleWhileRevalidate } from '../../hooks/useStaleWhileRevalidate';
+import { orderHasPurchasedLabel } from '../../lib/sellerShippingLabelState';
 import { openWebCommerceUrl, webSellerSalesUrl } from '../../lib/openWebCommerce';
 import {
   estimatePlatformFeeUsd,
@@ -90,7 +90,8 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
 
   const listingImage = detail?.listing.images?.[0]?.url;
   const needsLabel =
-    detail?.paymentStatus === 'paid' && !detail.shippoTransactionId && !detail.labelUrl;
+    detail?.paymentStatus === 'paid' && !orderHasPurchasedLabel(detail);
+  const hasLabelPanel = detail ? orderHasPurchasedLabel(detail) : false;
 
   const orderTotals = detail ? resolveSellerOrderTotals(detail) : null;
   const saleAmountUsd = orderTotals?.itemPriceUsd ?? 0;
@@ -124,14 +125,30 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
           contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + spacing.xl }]}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.desktopCard}>
-            <Ionicons name="desktop-outline" size={20} color={colors.gold} />
-            <Text style={styles.desktopTxt}>
-              {needsLabel
-                ? 'Print shipping labels from Seller Studio on getvaulted.com (desktop). Mobile shows order details only.'
-                : 'Shipping labels are managed on Seller Studio (desktop). Tracking and payout details are shown here.'}
-            </Text>
-          </View>
+          {needsLabel ? (
+            <View style={styles.desktopCard}>
+              <Ionicons name="desktop-outline" size={20} color={colors.gold} />
+              <Text style={styles.desktopTxt}>
+                Create shipping labels from Seller Studio on getvaulted.com (desktop). After purchase, print and
+                reprint labels here.
+              </Text>
+            </View>
+          ) : null}
+
+          {hasLabelPanel ? (
+            <SellerShippingLabelPanel
+              orderId={detail.id}
+              carrier={detail.carrier}
+              service={detail.service}
+              trackingNumber={detail.trackingNumber}
+              trackingUrl={detail.trackingUrl}
+              labelUrl={detail.labelUrl}
+              shippoTransactionId={detail.shippoTransactionId}
+              labelCreatedAt={detail.labelCreatedAt}
+              fulfillmentStatus={detail.fulfillmentStatus}
+              shippingStatus={detail.shippingStatus}
+            />
+          ) : null}
 
           <View style={styles.itemCard}>
             {listingImage ? (
@@ -170,31 +187,6 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
               {[detail.shipCity, detail.shipState, detail.shipZip].filter(Boolean).join(', ') || '—'}
             </Text>
             <Text style={styles.line}>{textOrDash(detail.shipCountry)}</Text>
-          </Section>
-
-          <Section title="Shipping">
-            {detail.carrier || detail.service ? (
-              <Text style={styles.line}>
-                {[detail.carrier, detail.service].filter(Boolean).join(' · ')}
-              </Text>
-            ) : (
-              <Text style={styles.line}>Carrier not assigned yet.</Text>
-            )}
-            {detail.trackingNumber ? (
-              <Text style={styles.line}>Tracking {detail.trackingNumber}</Text>
-            ) : (
-              <Text style={styles.line}>No tracking number yet.</Text>
-            )}
-            {detail.trackingUrl ? (
-              <Pressable onPress={() => void Linking.openURL(detail.trackingUrl!)}>
-                <Text style={styles.link}>Open carrier tracking</Text>
-              </Pressable>
-            ) : null}
-            {detail.labelUrl ? (
-              <Pressable onPress={() => void Linking.openURL(detail.labelUrl!)}>
-                <Text style={styles.link}>View label PDF</Text>
-              </Pressable>
-            ) : null}
           </Section>
 
           <Section title="Order totals">
@@ -237,7 +229,7 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
           <PremiumVaultButton
             label="Open Seller Studio"
             icon="open-outline"
-            variant="primary"
+            variant="secondary"
             onPress={openSellerStudio}
           />
         </ScrollView>

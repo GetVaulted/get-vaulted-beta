@@ -34,6 +34,9 @@ const orderSelect = {
   trackingUrl: true,
   labelUrl: true,
   shippoTransactionId: true,
+  shippingStatus: true,
+  labelCreatedAt: true,
+  shippedAt: true,
   paymentDeadlineAt: true,
   payoutStatus: true,
   payoutBlockedReason: true,
@@ -95,5 +98,23 @@ export async function GET(req: Request, ctx: RouteCtx) {
 
   const enriched = await enrichSellerOrderChargeBreakdown(order);
 
-  return NextResponse.json({ order: mapSellerSalesOrderForApi(user, enriched) });
+  const activityLog = await prisma.sellerCommerceEvent.findMany({
+    where: {
+      sellerId: auth.userId,
+      OR: [{ orderId: order.id }, { listingId: order.listing.id }],
+    },
+    orderBy: { createdAt: "asc" },
+    take: 40,
+    select: { id: true, title: true, body: true, createdAt: true },
+  });
+
+  return NextResponse.json({
+    order: mapSellerSalesOrderForApi(user, enriched),
+    activityLog: activityLog.map((ev) => ({
+      id: ev.id,
+      title: ev.title,
+      body: ev.body,
+      createdAt: ev.createdAt.toISOString(),
+    })),
+  });
 }

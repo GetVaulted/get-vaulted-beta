@@ -7,6 +7,7 @@ import { OrderPaySection } from "@/components/orders/OrderPaySection";
 import { OrderReportLink } from "@/components/orders/OrderReportLink";
 import { PaymentDeadlineCountdown } from "@/components/orders/PaymentDeadlineCountdown";
 import { OrderTimelineSteps, SellerMilestoneSteps } from "@/components/orders/OrderTimeline";
+import { SellerOrderDetailLabelSection } from "@/components/account/SellerOrderDetailLabelSection";
 import { orderStatusLabel } from "@/lib/order-status";
 import { prisma } from "@/lib/prisma";
 import { isEscrowConfigured, orderTotalQualifiesForEscrow } from "@/lib/escrow-config";
@@ -86,8 +87,13 @@ export default async function OrderPage({
       shippingPriceUsd: true,
       totalUsd: true,
       trackingNumber: true,
+      trackingUrl: true,
+      carrier: true,
+      service: true,
       labelUrl: true,
       shippoTransactionId: true,
+      shippingStatus: true,
+      labelCreatedAt: true,
       shippedAt: true,
       shipRecipientName: true,
       shipAddress: true,
@@ -183,6 +189,22 @@ export default async function OrderPage({
             <SellerMilestoneSteps milestones={sellerMilestones} heading="Fulfillment checklist" />
           </div>
         )}
+
+        {!isBuyer ? (
+          <SellerOrderDetailLabelSection
+            orderId={order.id}
+            paymentStatus={order.paymentStatus}
+            carrier={order.carrier}
+            service={order.service}
+            trackingNumber={order.trackingNumber}
+            trackingUrl={order.trackingUrl}
+            labelUrl={order.labelUrl}
+            shippoTransactionId={order.shippoTransactionId}
+            labelCreatedAt={order.labelCreatedAt?.toISOString() ?? null}
+            fulfillmentStatus={order.fulfillmentStatus}
+            shippingStatus={order.shippingStatus}
+          />
+        ) : null}
 
         <div className="mt-8 space-y-4 rounded-2xl border border-white/[0.08] bg-[#0a0a0d] p-6">
           <div className="flex flex-wrap justify-between gap-2 text-sm">
