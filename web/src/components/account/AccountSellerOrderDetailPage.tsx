@@ -60,6 +60,8 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
   const [activityLog, setActivityLog] = useState<ActivityRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [labelBusy, setLabelBusy] = useState(false);
+  const [repairBusy, setRepairBusy] = useState(false);
+  const [regenerateBusy, setRegenerateBusy] = useState(false);
   const [labelError, setLabelError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -97,6 +99,55 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
       setLabelError("Something went wrong.");
     } finally {
       setLabelBusy(false);
+    }
+  };
+
+  const repairLabel = async () => {
+    setLabelError(null);
+    setRepairBusy(true);
+    try {
+      const res = await fetch(`/api/account/sales/${encodeURIComponent(orderId)}/repair-label`, {
+        method: "POST",
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; order?: OrderDetail };
+      if (!res.ok) {
+        setLabelError(data.error ?? "Could not retrieve label.");
+        return;
+      }
+      if (data.order) setOrder(data.order);
+      else await load();
+    } catch {
+      setLabelError("Something went wrong.");
+    } finally {
+      setRepairBusy(false);
+    }
+  };
+
+  const regenerateLabel = async () => {
+    if (
+      !window.confirm(
+        "Purchase a new shipping label? Shippo may charge again if the original label cannot be recovered.",
+      )
+    ) {
+      return;
+    }
+    setLabelError(null);
+    setRegenerateBusy(true);
+    try {
+      const res = await fetch(`/api/account/sales/${encodeURIComponent(orderId)}/regenerate-label`, {
+        method: "POST",
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; order?: OrderDetail };
+      if (!res.ok) {
+        setLabelError(data.error ?? "Could not regenerate label.");
+        return;
+      }
+      if (data.order) setOrder(data.order);
+      else await load();
+    } catch {
+      setLabelError("Something went wrong.");
+    } finally {
+      setRegenerateBusy(false);
     }
   };
 
@@ -161,6 +212,10 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
           canCreateLabel={canCreateLabel}
           onCreateLabel={createLabel}
           createLabelBusy={labelBusy}
+          onRepairLabel={repairLabel}
+          repairLabelBusy={repairBusy}
+          onRegenerateLabel={regenerateLabel}
+          regenerateLabelBusy={regenerateBusy}
         />
         {labelError ? <p className="mt-2 text-xs font-medium text-rose-300">{labelError}</p> : null}
 

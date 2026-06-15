@@ -1,5 +1,5 @@
 import * as Clipboard from 'expo-clipboard';
-import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   orderHasLabelFile,
   orderHasPurchasedLabel,
@@ -18,6 +18,10 @@ export type SellerShippingLabelPanelProps = {
   labelCreatedAt: string | null;
   fulfillmentStatus: string;
   shippingStatus: string | null;
+  onRepairLabel?: () => void | Promise<void>;
+  repairLabelBusy?: boolean;
+  onRegenerateLabel?: () => void | Promise<void>;
+  regenerateLabelBusy?: boolean;
 };
 
 function formatDate(iso: string | null) {
@@ -44,6 +48,10 @@ function openUrl(url: string) {
 export function SellerShippingLabelPanel(props: SellerShippingLabelPanelProps) {
   const purchased = orderHasPurchasedLabel(props);
   const hasFile = orderHasLabelFile(props.labelUrl);
+  const canRepair =
+    purchased && !hasFile && Boolean(props.shippoTransactionId?.trim()) && props.onRepairLabel;
+  const canRegenerate = purchased && !hasFile && props.onRegenerateLabel;
+  const actionBusy = props.repairLabelBusy || props.regenerateLabelBusy;
 
   if (!purchased) return null;
 
@@ -71,7 +79,8 @@ export function SellerShippingLabelPanel(props: SellerShippingLabelPanelProps) {
 
       {purchased && !hasFile ? (
         <Text style={styles.warn}>
-          Label was created, but the label file is missing. Regenerate or contact support.
+          Label was created, but the label file is missing. Tap Retrieve label below, or Regenerate label to
+          purchase a new one.
         </Text>
       ) : null}
 
@@ -88,7 +97,24 @@ export function SellerShippingLabelPanel(props: SellerShippingLabelPanelProps) {
         {props.trackingUrl?.trim() ? (
           <ActionButton label="Open tracking" onPress={() => openUrl(props.trackingUrl!)} />
         ) : null}
+        {canRepair ? (
+          <ActionButton
+            label={props.repairLabelBusy ? 'Retrieving…' : 'Retrieve label'}
+            primary
+            disabled={actionBusy}
+            onPress={() => void props.onRepairLabel!()}
+          />
+        ) : null}
+        {canRegenerate ? (
+          <ActionButton
+            label={props.regenerateLabelBusy ? 'Regenerating…' : 'Regenerate label'}
+            primary={!canRepair}
+            disabled={actionBusy}
+            onPress={() => void props.onRegenerateLabel!()}
+          />
+        ) : null}
       </View>
+      {actionBusy ? <ActivityIndicator color={colors.gold} style={{ marginTop: spacing.xs }} /> : null}
     </View>
   );
 }
@@ -116,14 +142,22 @@ function ActionButton({
   label,
   onPress,
   primary,
+  disabled,
 }: {
   label: string;
   onPress: () => void;
   primary?: boolean;
+  disabled?: boolean;
 }) {
   return (
-    <Pressable style={[styles.btn, primary && styles.btnPrimary]} onPress={onPress}>
-      <Text style={[styles.btnTxt, primary && styles.btnTxtPrimary]}>{label}</Text>
+    <Pressable
+      style={[styles.btn, primary && styles.btnPrimary, disabled && styles.btnDisabled]}
+      onPress={onPress}
+      disabled={disabled}
+    >
+      <Text style={[styles.btnTxt, primary && styles.btnTxtPrimary, disabled && styles.btnTxtDisabled]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -171,6 +205,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceElevated,
   },
   btnPrimary: { borderColor: colors.gold, backgroundColor: `${colors.gold}18` },
+  btnDisabled: { opacity: 0.5 },
   btnTxt: { color: colors.textSecondary, fontSize: 12, fontWeight: '700' },
   btnTxtPrimary: { color: colors.gold },
+  btnTxtDisabled: { color: colors.textMuted },
 });

@@ -23,6 +23,10 @@ export type SellerShippingLabelPanelProps = {
   canCreateLabel?: boolean;
   onCreateLabel?: () => void | Promise<void>;
   createLabelBusy?: boolean;
+  onRepairLabel?: () => void | Promise<void>;
+  repairLabelBusy?: boolean;
+  onRegenerateLabel?: () => void | Promise<void>;
+  regenerateLabelBusy?: boolean;
 };
 
 function formatDate(iso: string | null) {
@@ -48,10 +52,16 @@ export function SellerShippingLabelPanel({
   canCreateLabel,
   onCreateLabel,
   createLabelBusy,
+  onRepairLabel,
+  repairLabelBusy,
+  onRegenerateLabel,
+  regenerateLabelBusy,
 }: SellerShippingLabelPanelProps) {
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const purchased = orderHasPurchasedLabel({ shippoTransactionId, labelUrl, fulfillmentStatus });
   const hasFile = orderHasLabelFile(labelUrl);
+  const canRepair = purchased && !hasFile && Boolean(shippoTransactionId?.trim()) && onRepairLabel;
+  const canRegenerate = purchased && !hasFile && onRegenerateLabel;
 
   if (!purchased && !canCreateLabel) return null;
 
@@ -96,7 +106,8 @@ export function SellerShippingLabelPanel({
 
       {purchased && !hasFile ? (
         <p className="mt-4 rounded-xl border border-amber-500/30 bg-amber-950/20 px-3 py-2 text-xs text-amber-100/90">
-          Label was created, but the label file is missing. Regenerate or contact support.
+          Label was created, but the label file is missing. Tap Retrieve label below, or Regenerate label to
+          purchase a new one.
         </p>
       ) : null}
 
@@ -139,6 +150,26 @@ export function SellerShippingLabelPanel({
           >
             Open tracking
           </a>
+        ) : null}
+        {canRepair ? (
+          <button
+            type="button"
+            disabled={repairLabelBusy || regenerateLabelBusy}
+            onClick={() => void onRepairLabel()}
+            className="rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-xs font-bold text-sky-100 transition hover:bg-sky-500/15 disabled:opacity-50"
+          >
+            {repairLabelBusy ? "Retrieving…" : "Retrieve label"}
+          </button>
+        ) : null}
+        {canRegenerate ? (
+          <button
+            type="button"
+            disabled={repairLabelBusy || regenerateLabelBusy}
+            onClick={() => void onRegenerateLabel()}
+            className="rounded-full border border-amber-400/30 bg-amber-500/10 px-4 py-2 text-xs font-bold text-amber-100 transition hover:bg-amber-500/15 disabled:opacity-50"
+          >
+            {regenerateLabelBusy ? "Regenerating…" : "Regenerate label"}
+          </button>
         ) : null}
         {canCreateLabel && onCreateLabel ? (
           <button

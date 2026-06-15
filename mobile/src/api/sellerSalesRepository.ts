@@ -15,6 +15,14 @@ export type CreateSellerLabelResult =
   | { ok: true; labelUrl: string | null; trackingNumber: string | null; trackingUrl: string | null }
   | { ok: false; error: string; code?: string };
 
+export type RepairSellerLabelResult =
+  | { ok: true; order: SellerSalesOrderDetail }
+  | { ok: false; error: string };
+
+export type RegenerateSellerLabelResult =
+  | { ok: true; order: SellerSalesOrderDetail }
+  | { ok: false; error: string };
+
 export type SellerSalesOrderDetail = {
   id: string;
   totalUsd: number;
@@ -242,4 +250,46 @@ export async function createSellerShippingLabel(
     trackingNumber: body?.order?.trackingNumber ?? null,
     trackingUrl: body?.order?.trackingUrl ?? null,
   };
+}
+
+/** Re-fetch label URL + tracking from Shippo when the DB row is incomplete. */
+export async function repairSellerShippingLabel(
+  accessToken: string,
+  orderId: string,
+): Promise<RepairSellerLabelResult> {
+  const res = await fetchWebApiAuthed(
+    `/api/account/sales/${encodeURIComponent(orderId)}/repair-label`,
+    accessToken,
+    { method: 'POST' },
+  );
+  const body = (await res.json().catch(() => null)) as { error?: string; order?: unknown } | null;
+  if (!res.ok) {
+    return { ok: false, error: body?.error ?? 'Could not retrieve label.' };
+  }
+  if (body?.order && typeof body.order === 'object') {
+    const order = normalizeSellerSalesOrder(body.order as Record<string, unknown>);
+    if (order) return { ok: true, order };
+  }
+  return { ok: false, error: 'Could not retrieve label.' };
+}
+
+/** Purchase a fresh Shippo label when the stored transaction has no printable file. */
+export async function regenerateSellerShippingLabel(
+  accessToken: string,
+  orderId: string,
+): Promise<RegenerateSellerLabelResult> {
+  const res = await fetchWebApiAuthed(
+    `/api/account/sales/${encodeURIComponent(orderId)}/regenerate-label`,
+    accessToken,
+    { method: 'POST' },
+  );
+  const body = (await res.json().catch(() => null)) as { error?: string; order?: unknown } | null;
+  if (!res.ok) {
+    return { ok: false, error: body?.error ?? 'Could not regenerate label.' };
+  }
+  if (body?.order && typeof body.order === 'object') {
+    const order = normalizeSellerSalesOrder(body.order as Record<string, unknown>);
+    if (order) return { ok: true, order };
+  }
+  return { ok: false, error: 'Could not regenerate label.' };
 }

@@ -25,8 +25,14 @@ export function sellerTrackingStatusLabel(
   shippingStatus?: string | null,
 ): string {
   const ship = shippingStatus?.trim();
-  if (ship && ship !== 'label_error') {
-    return ship.replace(/_/g, ' ');
+  if (ship) {
+    const upper = ship.toUpperCase();
+    if (upper === 'ERROR' || upper === 'LABEL_ERROR') {
+      return 'Label error';
+    }
+    if (ship !== 'label_error') {
+      return ship.replace(/_/g, ' ');
+    }
   }
   switch (fulfillmentStatus) {
     case 'label_created':

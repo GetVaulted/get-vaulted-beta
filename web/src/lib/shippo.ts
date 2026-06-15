@@ -79,6 +79,19 @@ export async function shippoPurchaseRate(rateObjectId: string): Promise<Record<s
   });
 }
 
+export type ShippoTransaction = {
+  object_id?: string;
+  status?: string;
+  tracking_number?: string;
+  tracking_url_provider?: string;
+  label_url?: string;
+  messages?: { text?: string }[];
+};
+
+export async function shippoGetTransaction(transactionObjectId: string): Promise<ShippoTransaction> {
+  return shippoFetch(`/transactions/${encodeURIComponent(transactionObjectId)}/`);
+}
+
 export function verifyShippoWebhookSignature(rawBody: string, signatureHeader: string | null): boolean {
   const secret = process.env.SHIPPO_WEBHOOK_SECRET;
   if (!secret || !signatureHeader) return false;

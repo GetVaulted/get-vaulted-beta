@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useCallback, useEffect, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,6 +13,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   fetchSellerSalesOrderById,
+  regenerateSellerShippingLabel,
+  repairSellerShippingLabel,
   type SellerSalesOrderDetail,
 } from '../../api/sellerSalesRepository';
 import { PremiumVaultButton } from '../../components/product/PremiumVaultButton';
@@ -74,6 +76,7 @@ function textOrDash(value: string | null | undefined) {
 export function SellerOrderDetailScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
+  const [labelActionBusy, setLabelActionBusy] = useState<'repair' | 'regenerate' | null>(null);
 
   const loadOrder = useCallback(async () => {
     if (!session?.access_token) return null;
@@ -112,6 +115,51 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
     void openWebCommerceUrl(url);
   };
 
+  const repairLabel = async () => {
+    if (!session?.access_token || !detail) return;
+    setLabelActionBusy('repair');
+    try {
+      const result = await repairSellerShippingLabel(session.access_token, detail.id);
+      if (!result.ok) {
+        Alert.alert('Retrieve label', result.error);
+        return;
+      }
+      await reload();
+    } finally {
+      setLabelActionBusy(null);
+    }
+  };
+
+  const regenerateLabel = () => {
+    if (!session?.access_token || !detail) return;
+    Alert.alert(
+      'Regenerate label',
+      'Purchase a new shipping label? Shippo may charge again if the original label cannot be recovered.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Regenerate',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setLabelActionBusy('regenerate');
+              try {
+                const result = await regenerateSellerShippingLabel(session.access_token!, detail.id);
+                if (!result.ok) {
+                  Alert.alert('Regenerate label', result.error);
+                  return;
+                }
+                await reload();
+              } finally {
+                setLabelActionBusy(null);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
+
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
       <PlatformFlowHeader title="Order detail" subtitle="Seller view" onBack={() => navigation.goBack()} />
@@ -147,6 +195,10 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
               labelCreatedAt={detail.labelCreatedAt}
               fulfillmentStatus={detail.fulfillmentStatus}
               shippingStatus={detail.shippingStatus}
+              onRepairLabel={repairLabel}
+              repairLabelBusy={labelActionBusy === 'repair'}
+              onRegenerateLabel={regenerateLabel}
+              regenerateLabelBusy={labelActionBusy === 'regenerate'}
             />
           ) : null}
 

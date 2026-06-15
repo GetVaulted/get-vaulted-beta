@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { enrichSellerOrderChargeBreakdown } from "@/lib/enrich-seller-order-charge-breakdown";
+import { enrichSellerOrderLabelFromShippo } from "@/lib/enrich-seller-order-label-from-shippo";
 import { mapSellerSalesOrderForApi } from "@/lib/map-seller-sales-order";
 import { sellerFulfillmentOrdersWhere } from "@/lib/seller-fulfillment-orders";
 import { resolveAccountSellerUserId } from "@/lib/resolve-account-seller-user";
@@ -97,6 +98,7 @@ export async function GET(req: Request, ctx: RouteCtx) {
   if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
 
   const enriched = await enrichSellerOrderChargeBreakdown(order);
+  const withLabel = await enrichSellerOrderLabelFromShippo(enriched);
 
   const activityLog = await prisma.sellerCommerceEvent.findMany({
     where: {
@@ -109,7 +111,7 @@ export async function GET(req: Request, ctx: RouteCtx) {
   });
 
   return NextResponse.json({
-    order: mapSellerSalesOrderForApi(user, enriched),
+    order: mapSellerSalesOrderForApi(user, withLabel),
     activityLog: activityLog.map((ev) => ({
       id: ev.id,
       title: ev.title,

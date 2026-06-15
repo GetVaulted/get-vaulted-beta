@@ -2,7 +2,7 @@ import { createNotification } from "@/lib/notifications";
 import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import { prisma } from "@/lib/prisma";
-import { isShippoConfigured, shippoCreateShipment, shippoListRates, shippoPurchaseRate, type ShippoAddress, type ShippoParcel } from "@/lib/shippo";
+import { isShippoConfigured, shippoCreateShipment, shippoGetTransaction, shippoListRates, shippoPurchaseRate, type ShippoAddress, type ShippoParcel } from "@/lib/shippo";
 
 const DEFAULT_PARCEL: ShippoParcel = {
   length: "10",
@@ -61,7 +61,22 @@ export async function fulfillOrderShippingAfterPayment(orderId: string): Promise
   });
   if (!order) return;
   if (order.paymentStatus !== "paid") return;
-  if (order.shippoTransactionId) return;
+  if (order.shippoTransactionId) {
+    if (order.labelUrl?.trim()) return;
+    const { enrichSellerOrderLabelFromShippo } = await import("@/lib/enrich-seller-order-label-from-shippo");
+    const repaired = await enrichSellerOrderLabelFromShippo({
+      id: order.id,
+      shippoTransactionId: order.shippoTransactionId,
+      labelUrl: order.labelUrl,
+      trackingNumber: order.trackingNumber,
+      trackingUrl: order.trackingUrl,
+      shippingStatus: order.shippingStatus,
+      fulfillmentStatus: order.fulfillmentStatus,
+      labelCreatedAt: order.labelCreatedAt,
+    });
+    if (repaired.labelUrl?.trim()) return;
+    return;
+  }
 
   const from = order.seller;
   if (!from.shipFromStreet || !from.shipFromCity || !from.shipFromState || !from.shipFromZip || !from.shipFromCountry) {
@@ -128,19 +143,34 @@ export async function fulfillOrderShippingAfterPayment(orderId: string): Promise
       status?: string;
     };
 
+    const txId = tx.object_id ?? picked.object_id;
+    let labelUrl = tx.label_url?.trim() || null;
+    if (!labelUrl && txId) {
+      try {
+        const fetched = await shippoGetTransaction(txId);
+        labelUrl = fetched.label_url?.trim() || null;
+      } catch (e) {
+        console.warn("[shippo] post-purchase label fetch failed", {
+          orderId,
+          txId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+
     const labelNow = new Date();
     await prisma.order.update({
       where: { id: orderId },
       data: {
         shippoShipmentId: sid,
-        shippoTransactionId: tx.object_id ?? picked.object_id,
+        shippoTransactionId: txId,
         carrier: picked.provider ?? null,
         service: picked.servicelevel?.name ?? null,
         trackingNumber: tx.tracking_number ?? null,
         trackingUrl: tx.tracking_url_provider ?? null,
-        labelUrl: tx.label_url ?? null,
+        labelUrl,
         shippingStatus: tx.status ?? "UNKNOWN",
-        fulfillmentStatus: "label_created",
+        fulfillmentStatus: labelUrl ? "label_created" : "exception",
         labelCreatedAt: labelNow,
         shippingLabelCostCents,
       },
