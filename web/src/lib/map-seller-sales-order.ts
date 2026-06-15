@@ -55,7 +55,7 @@ export type SellerSalesOrderRowInput = {
   payoutMethod: string;
   liveShippingSession: {
     liveShowId: string | null;
-    liveShow: { completedSalesGmvUsd: number; status: string } | null;
+    liveShow: { completedSalesGmvUsd: number; status: string; title?: string } | null;
   } | null;
   listing: {
     id: string;
@@ -106,6 +106,9 @@ export function mapSellerSalesOrderForApi(user: SellerSalesOrderUser, o: SellerS
     paymentStatus: o.paymentStatus,
     fulfillmentStatus: o.fulfillmentStatus,
     commerceBucket: commerce.sellerBucket,
+    liveShowId,
+    liveShowTitle: liveShow?.title ?? null,
+    liveShowStatus: liveShow?.status ?? null,
     createdAt: o.createdAt.toISOString(),
     shipRecipientName: o.shipRecipientName,
     shipAddress: o.shipAddress,

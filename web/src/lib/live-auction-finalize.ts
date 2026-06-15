@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
 import type { LiveRoomType } from "@/generated/prisma/client";
 import { closeActiveLiveRoomItemUnitSale } from "@/lib/live-room-item-unit-sale";
 import { sendBreakAuctionWinNotificationsDeferred } from "@/lib/break-live-auction-round-finalize";
@@ -122,6 +123,23 @@ export async function settleAndChargeLiveAuctionLot(args: {
     winningAmountUsd: settled.itemPriceUsd ?? null,
     itemSoldOut: settled.itemSoldOut,
   });
+
+  if (settled.orderId && settled.buyerId && settled.sellerId) {
+    const orderRow = await prisma.order.findUnique({
+      where: { id: settled.orderId },
+      select: { listingId: true, paymentStatus: true, status: true },
+    });
+    if (orderRow) {
+      emitOrderLifecycleSync({
+        orderId: settled.orderId,
+        parties: { sellerId: settled.sellerId, buyerId: settled.buyerId },
+        listingId: orderRow.listingId,
+        orderStatus: orderRow.status,
+        paymentStatus: orderRow.paymentStatus,
+        extraPayload: { liveShowId: liveRoomId },
+      });
+    }
+  }
 
   if (settled.pendingWinNotifications) {
     void sendBreakAuctionWinNotificationsDeferred(settled.pendingWinNotifications).catch((err) =>

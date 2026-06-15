@@ -56,11 +56,11 @@ import { useSellerCommandCenterData } from '../hooks/useSellerCommandCenterData'
 import { useSellerInventory } from '../hooks/useSellerInventory';
 import { useSellerLayawaySummary } from '../hooks/useSellerLayawaySummary';
 import { useSellerOrdersSummary } from '../hooks/useSellerOrdersSummary';
+import { useSellerLiveOrdersSummary } from '../hooks/useSellerLiveOrdersSummary';
 import { useSellerHQSync } from '../hooks/useSellerCommerceSync';
 import { useCanonicalUserId } from '../hooks/useCanonicalUserId';
 import { openSellerLayaways } from '../navigation/openSellerLayaways';
-import { openSellerOrderDetail } from '../navigation/openSellerOrderDetail';
-import { SellerHQLayawaysCard } from '../components/seller/hq/SellerHQLayawaysCard';
+import { SellerHQOrdersPanel } from '../components/seller/hq/SellerHQOrdersPanel';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { openStripeConnectDashboard } from '../lib/openStripeConnectDashboard';
 import {
@@ -98,13 +98,19 @@ export function SellerHubScreen() {
   const sellerInventory = useSellerInventory(session?.access_token, Boolean(user?.id));
   const inventoryListingCount = sellerInventory.marketplace.length + sellerInventory.liveShow.length;
   const layawaySummary = useSellerLayawaySummary(session?.access_token);
-  const ordersSummary = useSellerOrdersSummary(session?.access_token);
   const canonicalUserId = useCanonicalUserId(session?.access_token);
   const cmdData = useSellerCommandCenterData(
     session?.access_token,
     inventoryListingCount || userListings.length,
     layawaySummary.counts,
   );
+  const ordersSummary = useSellerOrdersSummary(session?.access_token);
+  const liveRoom = cmdData.liveRoom;
+  const liveOrdersSummary = useSellerLiveOrdersSummary(session?.access_token, liveRoom?.id, {
+    canonicalUserId,
+    supabaseUserId: user?.id,
+    enabled: Boolean(liveRoom?.id),
+  });
   const sellerSetup = useSellerSetupState(session?.access_token, Boolean(user?.id));
   const sellerConnect = cmdData.sellerConnect;
   const sellerWallet = cmdData.sellerWallet;
@@ -122,6 +128,7 @@ export function SellerHubScreen() {
     reloadWallet: sellerWallet.refresh,
     reloadConnect: sellerConnect.refresh,
     reloadLiveReadiness: cmdData.liveReadiness.refresh,
+    reloadLiveOrders: liveRoom ? liveOrdersSummary.reload : undefined,
   });
 
   useEffect(() => {
@@ -297,10 +304,14 @@ export function SellerHubScreen() {
         return null;
       case 'orders':
         return (
-          <OrdersPanel
+          <SellerHQOrdersPanel
             orders={ordersSummary.orders}
             ordersLoading={ordersSummary.loading}
             ordersLoadedOnce={ordersSummary.loadedOnce}
+            liveOrders={liveOrdersSummary.orders}
+            liveOrdersLoading={liveOrdersSummary.loading}
+            liveOrdersLoadedOnce={liveOrdersSummary.loadedOnce}
+            liveRoom={liveRoom}
             layawayCounts={layawaySummary.counts}
             layawaysLoading={layawaySummary.loading}
             layawaysLoadedOnce={layawaySummary.loadedOnce}
@@ -451,6 +462,7 @@ export function SellerHubScreen() {
                   void pullRefresh(
                     () => ordersSummary.reload({ silent: true }),
                     () => layawaySummary.reload({ silent: true }),
+                    () => liveOrdersSummary.reload({ silent: true }),
                   )
                 }
                 tintColor={colors.gold}
@@ -618,86 +630,6 @@ function ListingsPanel({
         drafts={drafts}
         loading={inventory.loading && !inventory.loadedOnce}
       />
-    </View>
-  );
-}
-
-function OrdersPanel({
-  orders,
-  ordersLoading,
-  ordersLoadedOnce,
-  layawayCounts,
-  layawaysLoading,
-  layawaysLoadedOnce,
-  hasLayaways,
-  onOpenLayaways,
-  navigation,
-}: {
-  orders: import('../api/sellerSalesRepository').SellerSalesOrderRow[];
-  ordersLoading: boolean;
-  ordersLoadedOnce: boolean;
-  layawayCounts: import('../api/layawayRepository').SellerLayawayCounts | null;
-  layawaysLoading: boolean;
-  layawaysLoadedOnce: boolean;
-  hasLayaways: boolean;
-  onOpenLayaways: (filter?: 'active' | 'ready' | 'overdue') => void;
-  navigation: NativeStackNavigationProp<RootStackParamList>;
-}) {
-  const fulfillmentLabel = (o: import('../api/sellerSalesRepository').SellerSalesOrderRow) => {
-    const fs = o.fulfillmentStatus ?? '';
-    if (fs === 'label_created') return 'Label ready';
-    if (fs === 'in_transit') return 'In transit';
-    if (fs === 'out_for_delivery') return 'Out for delivery';
-    if (fs === 'delivered') return 'Delivered';
-    if (o.status === 'shipped') return 'Shipped';
-    if (o.paymentStatus === 'paid') return 'Ready to ship';
-    return o.status;
-  };
-
-  const showEmpty =
-    ordersLoadedOnce && !orders.length && !hasLayaways && layawaysLoadedOnce;
-
-  if (showEmpty) {
-    return (
-      <Text style={styles.orderEmpty}>
-        No marketplace orders yet. When collectors buy from your vault, fulfillment appears here.
-      </Text>
-    );
-  }
-
-  return (
-    <View style={{ gap: spacing.md }}>
-      <SellerHQLayawaysCard
-        counts={layawayCounts}
-        loading={layawaysLoading && !layawaysLoadedOnce}
-        hasLayaways={hasLayaways}
-        onPress={() => onOpenLayaways()}
-        onPressFilter={(filter) => onOpenLayaways(filter)}
-      />
-      {orders.map((o) => {
-        const amt = `$${(o.totalCents / 100).toFixed(2)}`;
-        return (
-          <View key={o.id} style={styles.orderRow}>
-            <Pressable
-              style={{ flex: 1 }}
-              onPress={() => openSellerOrderDetail(navigation, o.id)}
-            >
-              <Text style={styles.orderItem}>{o.listingTitle}</Text>
-              <Text style={styles.orderBuyer}>
-                {o.buyerUsername ? `@${o.buyerUsername}` : 'Buyer'} · {fulfillmentLabel(o)}
-              </Text>
-            </Pressable>
-            <View style={styles.orderRowActions}>
-              {o.trackingUrl ? (
-                <Pressable onPress={() => void Linking.openURL(o.trackingUrl!)}>
-                  <Text style={styles.orderTrackLink}>Track</Text>
-                </Pressable>
-              ) : null}
-              <Text style={styles.orderAmt}>{amt}</Text>
-            </View>
-          </View>
-        );
-      })}
     </View>
   );
 }

@@ -40,8 +40,14 @@ export async function GET(req: Request) {
   });
   if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  const url = new URL(req.url);
+  const liveShowId = url.searchParams.get("liveShowId")?.trim() || null;
+
   const orders = await prisma.order.findMany({
-    where: sellerFulfillmentOrdersWhere(auth.userId),
+    where: {
+      ...sellerFulfillmentOrdersWhere(auth.userId),
+      ...(liveShowId ? { liveShippingSession: { liveShowId } } : {}),
+    },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -83,7 +89,7 @@ export async function GET(req: Request) {
       liveShippingSession: {
         select: {
           liveShowId: true,
-          liveShow: { select: { completedSalesGmvUsd: true, status: true } },
+          liveShow: { select: { completedSalesGmvUsd: true, status: true, title: true } },
         },
       },
       listing: {

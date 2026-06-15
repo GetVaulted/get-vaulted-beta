@@ -5,6 +5,9 @@ export type SellerSalesOrderRow = VaultOrderRow & {
   paymentStatus?: string;
   fulfillmentStatus?: string;
   commerceBucket?: string;
+  liveShowId?: string | null;
+  liveShowTitle?: string | null;
+  liveShowStatus?: string | null;
   labelUrl?: string | null;
   shippoTransactionId?: string | null;
   trackingNumber?: string | null;
@@ -23,6 +26,13 @@ export type RegenerateSellerLabelResult =
   | { ok: true; order: SellerSalesOrderDetail }
   | { ok: false; error: string };
 
+export type SellerOrderActivityRow = {
+  id: string;
+  title: string;
+  body: string;
+  createdAt: string;
+};
+
 export type SellerSalesOrderDetail = {
   id: string;
   totalUsd: number;
@@ -34,6 +44,9 @@ export type SellerSalesOrderDetail = {
   paymentStatus: string;
   fulfillmentStatus: string;
   commerceBucket?: string;
+  liveShowId?: string | null;
+  liveShowTitle?: string | null;
+  liveShowStatus?: string | null;
   createdAt: string;
   shipRecipientName: string;
   shipAddress: string;
@@ -109,6 +122,9 @@ function normalizeSellerSalesOrder(raw: Record<string, unknown>): SellerSalesOrd
     paymentStatus: typeof raw.paymentStatus === 'string' ? raw.paymentStatus : 'unknown',
     fulfillmentStatus: typeof raw.fulfillmentStatus === 'string' ? raw.fulfillmentStatus : 'unknown',
     commerceBucket: typeof raw.commerceBucket === 'string' ? raw.commerceBucket : undefined,
+    liveShowId: typeof raw.liveShowId === 'string' ? raw.liveShowId : null,
+    liveShowTitle: typeof raw.liveShowTitle === 'string' ? raw.liveShowTitle : null,
+    liveShowStatus: typeof raw.liveShowStatus === 'string' ? raw.liveShowStatus : null,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : new Date(0).toISOString(),
     shipRecipientName: typeof raw.shipRecipientName === 'string' ? raw.shipRecipientName : '',
     shipAddress: typeof raw.shipAddress === 'string' ? raw.shipAddress : '',
@@ -154,6 +170,9 @@ function mapApiOrderToRow(o: SellerSalesApiOrder): SellerSalesOrderRow {
     paymentStatus: o.paymentStatus,
     fulfillmentStatus: o.fulfillmentStatus,
     commerceBucket: o.commerceBucket,
+    liveShowId: o.liveShowId ?? null,
+    liveShowTitle: o.liveShowTitle ?? null,
+    liveShowStatus: o.liveShowStatus ?? null,
     labelUrl: o.labelUrl ?? null,
     shippoTransactionId: o.shippoTransactionId ?? null,
     trackingNumber: o.trackingNumber ?? null,
@@ -186,6 +205,14 @@ export async function fetchSellerSalesOrderById(
   accessToken: string,
   orderId: string,
 ): Promise<SellerSalesOrderDetail | null> {
+  const bundle = await fetchSellerSalesOrderDetailBundle(accessToken, orderId);
+  return bundle?.order ?? null;
+}
+
+export async function fetchSellerSalesOrderDetailBundle(
+  accessToken: string,
+  orderId: string,
+): Promise<{ order: SellerSalesOrderDetail; activityLog: SellerOrderActivityRow[] } | null> {
   const trimmedId = orderId.trim();
   if (!trimmedId) return null;
 
@@ -193,20 +220,65 @@ export async function fetchSellerSalesOrderById(
     `/api/account/sales/${encodeURIComponent(trimmedId)}`,
     accessToken,
   );
-  const body = (await res.json().catch(() => null)) as { order?: unknown; error?: string } | null;
+  const body = (await res.json().catch(() => null)) as {
+    order?: unknown;
+    activityLog?: unknown;
+    error?: string;
+  } | null;
   if (res.ok && body?.order && typeof body.order === 'object') {
-    return normalizeSellerSalesOrder(body.order as Record<string, unknown>);
+    const order = normalizeSellerSalesOrder(body.order as Record<string, unknown>);
+    if (!order) return null;
+    const activityLog = Array.isArray(body.activityLog)
+      ? body.activityLog
+          .map((row) => {
+            if (!row || typeof row !== 'object') return null;
+            const r = row as Record<string, unknown>;
+            const id = typeof r.id === 'string' ? r.id : '';
+            const title = typeof r.title === 'string' ? r.title : '';
+            const evBody = typeof r.body === 'string' ? r.body : '';
+            const createdAt = typeof r.createdAt === 'string' ? r.createdAt : '';
+            if (!id) return null;
+            return { id, title, body: evBody, createdAt };
+          })
+          .filter((r): r is SellerOrderActivityRow => r != null)
+      : [];
+    return { order, activityLog };
   }
 
-  // Fallback when detail route is not deployed yet: list payload includes the same fields.
   const list = await fetchSellerSalesList(accessToken);
-  return list.find((o) => o.id === trimmedId) ?? null;
+  const order = list.find((o) => o.id === trimmedId) ?? null;
+  return order ? { order, activityLog: [] } : null;
 }
 
 /** Seller orders — server is authoritative; do not re-filter layaways client-side. */
 export async function fetchSellerSalesOrders(accessToken: string): Promise<SellerSalesOrderRow[]> {
   const list = await fetchSellerSalesList(accessToken);
   return list.map(mapApiOrderToRow);
+}
+
+/** Orders sold during a specific live show (Seller HQ Live Orders tab). */
+export async function fetchSellerLiveShowOrders(
+  accessToken: string,
+  liveShowId: string,
+): Promise<SellerSalesOrderRow[]> {
+  const trimmedId = liveShowId.trim();
+  if (!trimmedId) return [];
+
+  const res = await fetchWebApiAuthed(
+    `/api/account/sales?liveShowId=${encodeURIComponent(trimmedId)}`,
+    accessToken,
+  );
+  const body = (await res.json().catch(() => null)) as { orders?: unknown } | null;
+  if (!res.ok || !Array.isArray(body?.orders)) {
+    const list = await fetchSellerSalesList(accessToken);
+    return list.map(mapApiOrderToRow).filter((o) => o.liveShowId === trimmedId);
+  }
+  return body.orders
+    .map((o) =>
+      o && typeof o === 'object' ? normalizeSellerSalesOrder(o as Record<string, unknown>) : null,
+    )
+    .filter((o): o is SellerSalesOrderDetail => o != null)
+    .map(mapApiOrderToRow);
 }
 
 /** Purchase a Shippo label for a paid seller order (same endpoint as web Seller Studio). */

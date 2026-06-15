@@ -17,6 +17,7 @@ type Options = {
   reloadWallet?: ReloadFn;
   reloadConnect?: ReloadFn;
   reloadLiveReadiness?: ReloadFn;
+  reloadLiveOrders?: ReloadFn;
   pollIntervalMs?: number;
 };
 
@@ -36,6 +37,7 @@ export function useSellerHQSync({
   reloadWallet,
   reloadConnect,
   reloadLiveReadiness,
+  reloadLiveOrders,
   pollIntervalMs,
 }: Options): void {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -52,12 +54,14 @@ export function useSellerHQSync({
       void reloadWallet?.({ silent: true });
       void reloadConnect?.({ silent: true });
       void reloadLiveReadiness?.({ silent: true });
+      void reloadLiveOrders?.({ silent: true });
     }, REFETCH_DEBOUNCE_MS);
   }, [
     reloadAnalytics,
     reloadConnect,
     reloadInventory,
     reloadLayaways,
+    reloadLiveOrders,
     reloadLiveReadiness,
     reloadOrders,
     reloadRooms,
