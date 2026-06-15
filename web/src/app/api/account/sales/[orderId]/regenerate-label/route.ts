@@ -105,6 +105,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ orderId: stri
           id: true,
           title: true,
           status: true,
+          priceUsd: true,
           isCompanyListing: true,
           images: { orderBy: { sortOrder: "asc" }, take: 1, select: { url: true } },
         },
