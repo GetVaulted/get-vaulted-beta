@@ -4,10 +4,23 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
 import { SellerShippingLabelPanel } from "@/components/account/SellerShippingLabelPanel";
+import { SellerOrderActivityFeed } from "@/components/account/seller-order-detail/SellerOrderActivityFeed";
+import { SellerFulfillmentTimelineCompact } from "@/components/account/seller-order-detail/SellerFulfillmentTimelineCompact";
+import { SellerOrderSidebarSections } from "@/components/account/seller-order-detail/SellerOrderSidebarSections";
+import { buildSellerFulfillmentTimelineCompact } from "@/lib/order-timeline";
 import { sellerMayShowFulfillmentControls } from "@/lib/order-shipping-guards";
-import { orderHasPurchasedLabel } from "@/lib/seller-shipping-label-state";
-import { buildSellerOrderMilestones } from "@/lib/order-timeline";
-import { SellerMilestoneSteps } from "@/components/orders/OrderTimeline";
+import {
+  copyTrackingNumber,
+  openLabelForPrint,
+  orderHasPurchasedLabel,
+} from "@/lib/seller-shipping-label-state";
+import {
+  formatSellerFulfillmentStatus,
+  formatSellerPaymentStatus,
+  resolveSellerOrderHeadline,
+  resolveSellerQuickActions,
+  type SellerQuickActionKind,
+} from "@/lib/seller-order-detail-display";
 
 type OrderDetail = {
   id: string;
@@ -37,6 +50,8 @@ type OrderDetail = {
   sellerNextAction: string;
   payoutStatus: string;
   payoutEstimateUsd: number;
+  platformFeeEstimateUsd: number;
+  stripeProcessingFeeEstimateUsd: number;
   listing: { id: string; title: string; status?: string; images: { url: string }[] };
   buyer: { username: string | null };
 };
@@ -55,6 +70,20 @@ function formatDate(iso: string) {
   }
 }
 
+function StatusPill({ label, tone }: { label: string; tone: "gold" | "green" | "zinc" | "sky" }) {
+  const tones = {
+    gold: "border-gold/30 bg-gold/10 text-gold-bright",
+    green: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
+    zinc: "border-white/10 bg-white/[0.04] text-zinc-300",
+    sky: "border-sky-500/30 bg-sky-500/10 text-sky-100",
+  };
+  return (
+    <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${tones[tone]}`}>
+      {label}
+    </span>
+  );
+}
+
 export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [activityLog, setActivityLog] = useState<ActivityRow[]>([]);
@@ -63,6 +92,7 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
   const [repairBusy, setRepairBusy] = useState(false);
   const [regenerateBusy, setRegenerateBusy] = useState(false);
   const [labelError, setLabelError] = useState<string | null>(null);
+  const [copyMsg, setCopyMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -86,9 +116,7 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
     setLabelError(null);
     setLabelBusy(true);
     try {
-      const res = await fetch(`/api/account/sales/${encodeURIComponent(orderId)}/create-label`, {
-        method: "POST",
-      });
+      const res = await fetch(`/api/account/sales/${encodeURIComponent(orderId)}/create-label`, { method: "POST" });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
         setLabelError(data.error ?? "Could not create label.");
@@ -106,9 +134,7 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
     setLabelError(null);
     setRepairBusy(true);
     try {
-      const res = await fetch(`/api/account/sales/${encodeURIComponent(orderId)}/repair-label`, {
-        method: "POST",
-      });
+      const res = await fetch(`/api/account/sales/${encodeURIComponent(orderId)}/repair-label`, { method: "POST" });
       const data = (await res.json().catch(() => ({}))) as { error?: string; order?: OrderDetail };
       if (!res.ok) {
         setLabelError(data.error ?? "Could not retrieve label.");
@@ -151,6 +177,31 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
     }
   };
 
+  const runQuickAction = async (kind: SellerQuickActionKind) => {
+    if (!order) return;
+    if (kind === "print_label" && order.labelUrl?.trim()) {
+      openLabelForPrint(order.labelUrl);
+      return;
+    }
+    if (kind === "download_label" && order.labelUrl?.trim()) {
+      window.open(order.labelUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (kind === "copy_tracking" && order.trackingNumber?.trim()) {
+      const ok = await copyTrackingNumber(order.trackingNumber.trim());
+      setCopyMsg(ok ? "Copied" : "Could not copy");
+      window.setTimeout(() => setCopyMsg(null), 2000);
+      return;
+    }
+    if (kind === "open_tracking" && order.trackingUrl?.trim()) {
+      window.open(order.trackingUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (kind === "retrieve_label") return repairLabel();
+    if (kind === "regenerate_label") return regenerateLabel();
+    if (kind === "create_label") return createLabel();
+  };
+
   if (loadError) {
     return (
       <main className="relative flex min-h-0 flex-1 flex-col">
@@ -167,7 +218,7 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
   if (!order) {
     return (
       <main className="relative flex min-h-0 flex-1 flex-col">
-        <div className="mx-auto w-full max-w-3xl px-4 py-10 text-sm text-zinc-500">Loading order…</div>
+        <div className="mx-auto w-full max-w-6xl px-4 py-10 text-sm text-zinc-500">Loading order…</div>
       </main>
     );
   }
@@ -175,7 +226,9 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
   const fulfillmentAllowed = sellerMayShowFulfillmentControls(order);
   const hasLabel = orderHasPurchasedLabel(order);
   const canCreateLabel = fulfillmentAllowed && !hasLabel;
-  const milestones = buildSellerOrderMilestones({
+  const headline = resolveSellerOrderHeadline(order);
+  const quickActions = resolveSellerQuickActions({ ...order, canCreateLabel });
+  const timeline = buildSellerFulfillmentTimelineCompact({
     paymentStatus: order.paymentStatus,
     fulfillmentStatus: order.fulfillmentStatus,
     orderStatus: order.status,
@@ -184,111 +237,136 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
     shippoTransactionId: order.shippoTransactionId,
   });
 
+  const paymentTone = order.paymentStatus === "paid" ? "green" : "zinc";
+  const fulfillmentTone =
+    order.fulfillmentStatus === "delivered"
+      ? "green"
+      : order.fulfillmentStatus === "label_created" || order.fulfillmentStatus === "in_transit"
+        ? "sky"
+        : "zinc";
+
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
-      <div className="relative mx-auto w-full max-w-3xl px-4 py-10 sm:px-6">
+      <div className="relative mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
         <AccountOrdersNav active="sales" />
-        <Link href="/account/sales" className="mt-6 text-[11px] font-semibold uppercase tracking-wider text-gold-bright/90 hover:text-gold-bright">
+        <Link
+          href="/account/sales"
+          className="mt-6 inline-flex text-[11px] font-semibold uppercase tracking-wider text-gold-bright/90 hover:text-gold-bright"
+        >
           ← Sales
         </Link>
-        <h1 className="font-display mt-4 text-2xl font-bold text-foreground">Order detail</h1>
-        <p className="mt-1 font-mono text-xs text-zinc-500">{order.id}</p>
 
-        <div className="mt-8">
-          <SellerMilestoneSteps milestones={milestones} heading="Fulfillment checklist" />
-        </div>
+        {/* Summary header */}
+        <header className="mt-5 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0a0a0d] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+          <div className="flex flex-col gap-5 p-5 sm:p-6 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex min-w-0 gap-4">
+              {order.listing.images[0]?.url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={order.listing.images[0].url}
+                  alt=""
+                  className="size-20 shrink-0 rounded-xl border border-white/10 object-cover sm:size-24"
+                />
+              ) : (
+                <div className="size-20 shrink-0 rounded-xl border border-white/10 bg-zinc-900 sm:size-24" />
+              )}
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-500">Seller HQ · Order</p>
+                <h1 className="font-display mt-1 text-xl font-bold leading-tight text-foreground sm:text-2xl">
+                  {order.listing.title}
+                </h1>
+                <p className="mt-2 font-mono text-[11px] text-zinc-500">
+                  {order.id.slice(0, 8).toUpperCase()} · @{order.buyer.username ?? "buyer"} · {formatDate(order.createdAt)}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <StatusPill label={formatSellerPaymentStatus(order.paymentStatus)} tone={paymentTone} />
+                  <StatusPill label={formatSellerFulfillmentStatus(order.fulfillmentStatus)} tone={fulfillmentTone} />
+                </div>
+              </div>
+            </div>
 
-        <SellerShippingLabelPanel
-          orderId={order.id}
-          carrier={order.carrier}
-          service={order.service}
-          trackingNumber={order.trackingNumber}
-          trackingUrl={order.trackingUrl}
-          labelUrl={order.labelUrl}
-          shippoTransactionId={order.shippoTransactionId}
-          labelCreatedAt={order.labelCreatedAt}
-          fulfillmentStatus={order.fulfillmentStatus}
-          shippingStatus={order.shippingStatus}
-          canCreateLabel={canCreateLabel}
-          onCreateLabel={createLabel}
-          createLabelBusy={labelBusy}
-          onRepairLabel={repairLabel}
-          repairLabelBusy={repairBusy}
-          onRegenerateLabel={regenerateLabel}
-          regenerateLabelBusy={regenerateBusy}
-        />
-        {labelError ? <p className="mt-2 text-xs font-medium text-rose-300">{labelError}</p> : null}
-
-        <div className="mt-6 space-y-4 rounded-2xl border border-white/[0.08] bg-[#0a0a0d] p-6">
-          <div className="flex gap-3">
-            {order.listing.images[0]?.url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={order.listing.images[0].url} alt="" className="size-16 rounded-lg border border-white/10 object-cover" />
-            ) : null}
-            <div>
-              <p className="font-medium text-zinc-100">{order.listing.title}</p>
-              <p className="mt-1 text-xs text-zinc-500">
-                @{order.buyer.username ?? "buyer"} · {formatDate(order.createdAt)}
+            <div className="flex shrink-0 flex-col items-start gap-1 lg:items-end lg:text-right">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Order total</p>
+              <p className="font-mono text-2xl font-bold text-zinc-100">{formatMoney(order.totalUsd)}</p>
+              <p className="text-sm text-zinc-400">
+                Est. payout{" "}
+                <span className="font-mono font-bold text-gold-bright">{formatMoney(order.payoutEstimateUsd)}</span>
               </p>
             </div>
           </div>
-          <div className="grid gap-2 text-sm sm:grid-cols-2">
-            <div>
-              <span className="text-zinc-500">Payment</span>
-              <p className="font-medium text-zinc-200">{order.paymentStatus.replace(/_/g, " ")}</p>
-            </div>
-            <div>
-              <span className="text-zinc-500">Fulfillment</span>
-              <p className="font-medium text-zinc-200">{order.fulfillmentStatus.replace(/_/g, " ")}</p>
-            </div>
-            <div>
-              <span className="text-zinc-500">Next step</span>
-              <p className="font-medium text-zinc-200">{order.sellerNextAction}</p>
-            </div>
-            <div>
-              <span className="text-zinc-500">Est. payout</span>
-              <p className="font-mono font-medium text-zinc-200">{formatMoney(order.payoutEstimateUsd)}</p>
-            </div>
-          </div>
-          <div className="border-t border-white/[0.06] pt-4 text-sm">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Ship to</p>
-            <p className="mt-2 text-zinc-200">
-              {order.shipRecipientName}
-              <br />
-              {order.shipAddress}
-              <br />
-              {order.shipCity}, {order.shipState} {order.shipZip}
-              <br />
-              {order.shipCountry}
-            </p>
-          </div>
-          <div className="border-t border-white/[0.06] pt-4 text-sm">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Order totals</p>
-            <div className="mt-2 space-y-1 font-mono text-xs text-zinc-300">
-              <p>Item {formatMoney(order.itemPriceUsd)}</p>
-              <p>Shipping {formatMoney(order.shippingPriceUsd)}</p>
-              <p>Tax {formatMoney(order.taxUsd)}</p>
-              <p className="font-bold text-gold-bright">Total {formatMoney(order.totalUsd)}</p>
-            </div>
-          </div>
-        </div>
 
-        {activityLog.length > 0 ? (
-          <div className="mt-8 rounded-2xl border border-white/[0.08] bg-[#0a0a0d] p-6">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Activity log</p>
-            <ul className="mt-4 divide-y divide-white/[0.06]">
-              {activityLog.map((ev) => (
-                <li key={ev.id} className="py-3 first:pt-0">
-                  <p className="text-sm font-semibold text-zinc-200">{ev.title}</p>
-                  <p className="mt-1 text-xs text-zinc-400">{ev.body}</p>
-                  <p className="mt-1 font-mono text-[10px] text-zinc-600">
-                    {new Date(ev.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
-                  </p>
-                </li>
-              ))}
-            </ul>
+          <div className="border-t border-white/[0.06] bg-black/20 px-5 py-4 sm:px-6">
+            <p className="text-sm font-semibold text-zinc-100">{headline.headline}</p>
+            <p className="mt-1 text-xs text-zinc-500">{headline.subheadline}</p>
+            {quickActions.length > 0 ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {quickActions.map((action) => (
+                  <button
+                    key={action.kind}
+                    type="button"
+                    disabled={labelBusy || repairBusy || regenerateBusy}
+                    onClick={() => void runQuickAction(action.kind)}
+                    className={`inline-flex h-10 items-center rounded-full border px-5 text-xs font-bold transition disabled:opacity-50 ${
+                      action.primary
+                        ? "border-gold/40 bg-gold/12 text-gold-bright hover:bg-gold/18"
+                        : "border-white/10 bg-white/[0.03] text-zinc-200 hover:border-white/18"
+                    }`}
+                  >
+                    {action.kind === "copy_tracking" && copyMsg ? copyMsg : action.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {labelError ? <p className="mt-3 text-xs font-medium text-rose-300">{labelError}</p> : null}
           </div>
-        ) : null}
+        </header>
+
+        {/* Two-column layout */}
+        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+          <div className="space-y-6">
+            <SellerFulfillmentTimelineCompact steps={timeline} />
+            <SellerOrderActivityFeed events={activityLog} />
+          </div>
+
+          <aside className="space-y-4 lg:sticky lg:top-6">
+            <SellerShippingLabelPanel
+              orderId={order.id}
+              carrier={order.carrier}
+              service={order.service}
+              trackingNumber={order.trackingNumber}
+              trackingUrl={order.trackingUrl}
+              labelUrl={order.labelUrl}
+              shippoTransactionId={order.shippoTransactionId}
+              labelCreatedAt={order.labelCreatedAt}
+              fulfillmentStatus={order.fulfillmentStatus}
+              shippingStatus={order.shippingStatus}
+              canCreateLabel={canCreateLabel}
+              onCreateLabel={createLabel}
+              createLabelBusy={labelBusy}
+              onRepairLabel={repairLabel}
+              repairLabelBusy={repairBusy}
+              onRegenerateLabel={regenerateLabel}
+              regenerateLabelBusy={regenerateBusy}
+            />
+            <SellerOrderSidebarSections
+              shipRecipientName={order.shipRecipientName}
+              shipAddress={order.shipAddress}
+              shipCity={order.shipCity}
+              shipState={order.shipState}
+              shipZip={order.shipZip}
+              shipCountry={order.shipCountry}
+              buyerUsername={order.buyer.username}
+              itemPriceUsd={order.itemPriceUsd}
+              shippingPriceUsd={order.shippingPriceUsd}
+              taxUsd={order.taxUsd}
+              totalUsd={order.totalUsd}
+              platformFeeEstimateUsd={order.platformFeeEstimateUsd}
+              stripeProcessingFeeEstimateUsd={order.stripeProcessingFeeEstimateUsd}
+              payoutEstimateUsd={order.payoutEstimateUsd}
+              payoutStatus={order.payoutStatus}
+            />
+          </aside>
+        </div>
       </div>
     </main>
   );

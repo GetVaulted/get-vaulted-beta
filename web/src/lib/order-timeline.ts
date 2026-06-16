@@ -256,3 +256,69 @@ export function buildSellerOrderMilestones(a: SellerArgs): SellerMilestone[] {
 
   return milestones;
 }
+
+/** Compact seller timeline: Ordered → Paid → Label → In transit → Delivered */
+export function buildSellerFulfillmentTimelineCompact(a: SellerArgs): SellerMilestone[] {
+  const paid = a.paymentStatus === "paid";
+  const pendingPay =
+    a.paymentStatus === "pending_payment" || a.paymentStatus === "payment_requires_action";
+  const hasLabel = Boolean(a.labelUrl || a.shippoTransactionId);
+  const delivered = a.fulfillmentStatus === "delivered";
+  const inTransit =
+    a.fulfillmentStatus === "in_transit" ||
+    a.fulfillmentStatus === "out_for_delivery" ||
+    a.orderStatus === "shipped" ||
+    (Boolean(a.trackingNumber) && paid && !delivered);
+
+  const steps: SellerMilestone[] = [
+    { key: "ordered", title: "Ordered", detail: "Buyer placed order", state: "upcoming" },
+    {
+      key: "paid",
+      title: "Paid",
+      detail: paid ? "Payment received" : pendingPay ? "Awaiting payment" : "Payment pending",
+      state: "upcoming",
+    },
+    {
+      key: "label",
+      title: "Label created",
+      detail: hasLabel ? "Label on file" : "No label yet",
+      state: "upcoming",
+    },
+    {
+      key: "transit",
+      title: "In transit",
+      detail: inTransit ? "Carrier has package" : "Shipped to buyer",
+      state: "upcoming",
+    },
+    {
+      key: "delivered",
+      title: "Delivered",
+      detail: delivered ? "Delivery confirmed" : "Awaiting delivery",
+      state: "upcoming",
+    },
+  ];
+
+  steps[0]!.state = "complete";
+  if (!paid) {
+    steps[1]!.state = pendingPay ? "current" : "upcoming";
+    return steps;
+  }
+  steps[1]!.state = "complete";
+  if (delivered) {
+    steps[2]!.state = "complete";
+    steps[3]!.state = "complete";
+    steps[4]!.state = "complete";
+    return steps;
+  }
+  if (inTransit) {
+    steps[2]!.state = "complete";
+    steps[3]!.state = "current";
+    return steps;
+  }
+  if (hasLabel) {
+    steps[2]!.state = "current";
+    return steps;
+  }
+  steps[2]!.state = "current";
+  return steps;
+}

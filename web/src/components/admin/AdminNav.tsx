@@ -2,14 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-
-const links: { href: string; label: string; exact?: boolean }[] = [
-  { href: "/admin", label: "Overview", exact: true },
-  { href: "/admin/listings", label: "Listings" },
-  { href: "/admin/users", label: "Users" },
-  { href: "/admin/orders", label: "Orders" },
-  { href: "/admin/reports", label: "Reports" },
-];
+import { ADMIN_NAV_LINKS } from "@/lib/admin/admin-modules";
 
 export function AdminNav() {
   const pathname = usePathname();
@@ -22,18 +15,18 @@ export function AdminNav() {
             ← Site
           </Link>
           <p className="font-display text-sm font-bold tracking-tight text-foreground">
-            <span className="text-gold-bright">Admin</span>
+            <span className="text-gold-bright">Ops Command</span>
             <span className="text-zinc-500"> · Get Vaulted</span>
           </p>
         </div>
-        <nav className="flex flex-wrap gap-1" aria-label="Admin">
-          {links.map(({ href, label, exact }) => {
+        <nav className="flex max-w-full flex-wrap gap-1 overflow-x-auto" aria-label="Admin">
+          {ADMIN_NAV_LINKS.map(({ href, label, exact }) => {
             const active = exact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
             return (
               <Link
                 key={href}
                 href={href}
-                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition sm:px-3 sm:text-xs ${
                   active ? "bg-gold/15 text-gold-bright" : "text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
                 }`}
               >

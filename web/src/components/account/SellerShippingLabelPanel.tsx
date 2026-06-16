@@ -27,6 +27,7 @@ export type SellerShippingLabelPanelProps = {
   repairLabelBusy?: boolean;
   onRegenerateLabel?: () => void | Promise<void>;
   regenerateLabelBusy?: boolean;
+  compact?: boolean;
 };
 
 function formatDate(iso: string | null) {
@@ -38,30 +39,76 @@ function formatDate(iso: string | null) {
   }
 }
 
-export function SellerShippingLabelPanel({
-  orderId,
-  carrier,
-  service,
-  trackingNumber,
-  trackingUrl,
-  labelUrl,
-  shippoTransactionId,
-  labelCreatedAt,
-  fulfillmentStatus,
-  shippingStatus,
-  canCreateLabel,
-  onCreateLabel,
-  createLabelBusy,
-  onRepairLabel,
-  repairLabelBusy,
-  onRegenerateLabel,
-  regenerateLabelBusy,
-}: SellerShippingLabelPanelProps) {
+function ActionBtn({
+  children,
+  onClick,
+  primary,
+  disabled,
+  href,
+  download,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  primary?: boolean;
+  disabled?: boolean;
+  href?: string;
+  download?: string;
+}) {
+  const cls = primary
+    ? "border-gold/40 bg-gold/12 text-gold-bright hover:bg-gold/18"
+    : "border-white/10 bg-white/[0.03] text-zinc-200 hover:border-white/18 hover:bg-white/[0.05]";
+  if (href) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        download={download}
+        className={`inline-flex h-9 items-center justify-center rounded-full border px-4 text-xs font-bold transition ${cls}`}
+      >
+        {children}
+      </a>
+    );
+  }
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`inline-flex h-9 items-center justify-center rounded-full border px-4 text-xs font-bold transition disabled:opacity-50 ${cls}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function SellerShippingLabelPanel(props: SellerShippingLabelPanelProps) {
+  const {
+    orderId,
+    carrier,
+    service,
+    trackingNumber,
+    trackingUrl,
+    labelUrl,
+    shippoTransactionId,
+    labelCreatedAt,
+    fulfillmentStatus,
+    shippingStatus,
+    canCreateLabel,
+    onCreateLabel,
+    createLabelBusy,
+    onRepairLabel,
+    repairLabelBusy,
+    onRegenerateLabel,
+    regenerateLabelBusy,
+  } = props;
+
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const purchased = orderHasPurchasedLabel({ shippoTransactionId, labelUrl, fulfillmentStatus });
   const hasFile = orderHasLabelFile(labelUrl);
   const canRepair = purchased && !hasFile && Boolean(shippoTransactionId?.trim()) && onRepairLabel;
   const canRegenerate = purchased && !hasFile && onRegenerateLabel;
+  const busy = createLabelBusy || repairLabelBusy || regenerateLabelBusy;
 
   if (!purchased && !canCreateLabel) return null;
 
@@ -73,115 +120,89 @@ export function SellerShippingLabelPanel({
   };
 
   return (
-    <div className="rounded-2xl border border-sky-500/25 bg-sky-950/20 p-6">
-      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-sky-200/90">Shipping label</p>
-      <p className="mt-1 text-xs text-zinc-500">Print or download your label any time after purchase.</p>
-
-      {purchased ? (
-        <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
-          <div>
-            <dt className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Carrier</dt>
-            <dd className="mt-0.5 text-zinc-200">{carrier?.trim() || "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Service</dt>
-            <dd className="mt-0.5 text-zinc-200">{service?.trim() || "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Tracking number</dt>
-            <dd className="mt-0.5 font-mono text-xs text-zinc-200">{trackingNumber?.trim() || "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Tracking status</dt>
-            <dd className="mt-0.5 text-zinc-200">
-              {sellerTrackingStatusLabel(fulfillmentStatus, shippingStatus)}
-            </dd>
-          </div>
-          <div className="sm:col-span-2">
-            <dt className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Label created</dt>
-            <dd className="mt-0.5 text-zinc-200">{formatDate(labelCreatedAt)}</dd>
-          </div>
-        </dl>
-      ) : null}
-
-      {purchased && !hasFile ? (
-        <p className="mt-4 rounded-xl border border-amber-500/30 bg-amber-950/20 px-3 py-2 text-xs text-amber-100/90">
-          Label was created, but the label file is missing. Tap Retrieve label below, or Regenerate label to
-          purchase a new one.
+    <section className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[linear-gradient(165deg,rgba(14,116,144,0.14)_0%,rgba(10,10,13,0.95)_42%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+      <div className="border-b border-white/[0.06] px-4 py-3 sm:px-5">
+        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-sky-200/85">Shipping label</p>
+        <p className="mt-0.5 text-xs text-zinc-500">
+          {hasFile ? "Print, download, or share tracking." : "Recover or regenerate your label below."}
         </p>
-      ) : null}
+      </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        {hasFile && labelUrl ? (
-          <>
-            <button
-              type="button"
-              onClick={() => openLabelForPrint(labelUrl)}
-              className="rounded-full border border-gold/35 bg-gold/10 px-4 py-2 text-xs font-bold text-gold-bright transition hover:bg-gold/15"
-            >
-              Print label
-            </button>
-            <a
-              href={labelUrl}
-              target="_blank"
-              rel="noreferrer"
-              download={`shipping-label-${orderId.slice(0, 8)}.pdf`}
-              className="rounded-full border border-white/12 px-4 py-2 text-xs font-semibold text-zinc-200 transition hover:border-gold/35 hover:text-gold-bright"
-            >
-              Download label
-            </a>
-          </>
+      <div className="space-y-4 p-4 sm:p-5">
+        {purchased && !hasFile ? (
+          <div className="rounded-xl border border-amber-500/25 bg-amber-950/25 px-3 py-3">
+            <p className="text-xs font-semibold text-amber-100">Label file missing</p>
+            <p className="mt-1 text-xs leading-relaxed text-amber-100/75">
+              The label was purchased but the PDF is not available. Retry lookup from Shippo or regenerate a new
+              label.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {canRepair ? (
+                <ActionBtn primary disabled={busy} onClick={() => void onRepairLabel!()}>
+                  {repairLabelBusy ? "Looking up…" : "Retry label lookup"}
+                </ActionBtn>
+              ) : null}
+              {canRegenerate ? (
+                <ActionBtn disabled={busy} onClick={() => void onRegenerateLabel!()}>
+                  {regenerateLabelBusy ? "Regenerating…" : "Regenerate label"}
+                </ActionBtn>
+              ) : null}
+              <ActionBtn href="mailto:support@shopgetvaulted.com?subject=Missing%20shipping%20label">Contact support</ActionBtn>
+            </div>
+          </div>
         ) : null}
-        {trackingNumber?.trim() ? (
-          <button
-            type="button"
-            onClick={() => void onCopy()}
-            className="rounded-full border border-white/12 px-4 py-2 text-xs font-semibold text-zinc-300 transition hover:border-white/20"
-          >
-            {copyMsg ?? "Copy tracking"}
-          </button>
+
+        {hasFile || canCreateLabel ? (
+          <div className="flex flex-wrap gap-2">
+            {hasFile && labelUrl ? (
+              <>
+                <ActionBtn primary onClick={() => openLabelForPrint(labelUrl)}>
+                  Print label
+                </ActionBtn>
+                <ActionBtn href={labelUrl} download={`shipping-label-${orderId.slice(0, 8)}.pdf`}>
+                  Download label
+                </ActionBtn>
+              </>
+            ) : null}
+            {trackingNumber?.trim() ? (
+              <ActionBtn onClick={() => void onCopy()}>{copyMsg ?? "Copy tracking"}</ActionBtn>
+            ) : null}
+            {trackingUrl?.trim() ? (
+              <ActionBtn href={trackingUrl}>Open tracking</ActionBtn>
+            ) : null}
+            {canCreateLabel && onCreateLabel ? (
+              <ActionBtn primary disabled={busy} onClick={() => void onCreateLabel()}>
+                {createLabelBusy ? "Creating…" : "Create label"}
+              </ActionBtn>
+            ) : null}
+          </div>
         ) : null}
-        {trackingUrl?.trim() ? (
-          <a
-            href={trackingUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="rounded-full border border-white/12 px-4 py-2 text-xs font-semibold text-zinc-300 transition hover:border-gold/35 hover:text-gold-bright"
-          >
-            Open tracking
-          </a>
-        ) : null}
-        {canRepair ? (
-          <button
-            type="button"
-            disabled={repairLabelBusy || regenerateLabelBusy}
-            onClick={() => void onRepairLabel()}
-            className="rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-xs font-bold text-sky-100 transition hover:bg-sky-500/15 disabled:opacity-50"
-          >
-            {repairLabelBusy ? "Retrieving…" : "Retrieve label"}
-          </button>
-        ) : null}
-        {canRegenerate ? (
-          <button
-            type="button"
-            disabled={repairLabelBusy || regenerateLabelBusy}
-            onClick={() => void onRegenerateLabel()}
-            className="rounded-full border border-amber-400/30 bg-amber-500/10 px-4 py-2 text-xs font-bold text-amber-100 transition hover:bg-amber-500/15 disabled:opacity-50"
-          >
-            {regenerateLabelBusy ? "Regenerating…" : "Regenerate label"}
-          </button>
-        ) : null}
-        {canCreateLabel && onCreateLabel ? (
-          <button
-            type="button"
-            disabled={createLabelBusy}
-            onClick={() => void onCreateLabel()}
-            className="rounded-full border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-xs font-bold text-sky-100 transition hover:bg-sky-500/15 disabled:opacity-50"
-          >
-            {createLabelBusy ? "Creating…" : "Create label"}
-          </button>
+
+        {purchased ? (
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+            <div>
+              <dt className="text-[10px] font-bold uppercase tracking-wide text-zinc-600">Carrier</dt>
+              <dd className="mt-0.5 font-medium text-zinc-200">{carrier?.trim() || "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-bold uppercase tracking-wide text-zinc-600">Service</dt>
+              <dd className="mt-0.5 font-medium text-zinc-200">{service?.trim() || "—"}</dd>
+            </div>
+            <div className="col-span-2">
+              <dt className="text-[10px] font-bold uppercase tracking-wide text-zinc-600">Tracking number</dt>
+              <dd className="mt-0.5 font-mono text-xs text-zinc-200">{trackingNumber?.trim() || "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-bold uppercase tracking-wide text-zinc-600">Tracking status</dt>
+              <dd className="mt-0.5 text-zinc-200">{sellerTrackingStatusLabel(fulfillmentStatus, shippingStatus)}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-bold uppercase tracking-wide text-zinc-600">Label created</dt>
+              <dd className="mt-0.5 text-zinc-200">{formatDate(labelCreatedAt)}</dd>
+            </div>
+          </dl>
         ) : null}
       </div>
-    </div>
+    </section>
   );
 }
