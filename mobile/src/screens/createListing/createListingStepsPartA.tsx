@@ -30,6 +30,7 @@ import {
   countListingPhotos,
   LISTING_MAX_PHOTOS,
   LISTING_MIN_PHOTOS,
+  LIVE_INVENTORY_PHOTOS,
 } from '../../createListing/types';
 import { commerceOptionsForChannel } from '../../createListing/listingChannel';
 import type { CreateListingStackParamList } from '../../navigation/types';
@@ -100,13 +101,15 @@ export function CreateListingMediaScreen({
   const { channel, accent, totalSteps, isLiveShow, step } = useCreateListingFlow();
 
   const photoCount = countListingPhotos(form.media);
-  const photosNeeded = Math.max(0, LISTING_MIN_PHOTOS - photoCount);
-  const atPhotoMax = photoCount >= LISTING_MAX_PHOTOS;
-  const canContinue = photoCount >= LISTING_MIN_PHOTOS;
+  const minPhotos = isLiveShow ? LIVE_INVENTORY_PHOTOS : LISTING_MIN_PHOTOS;
+  const maxPhotos = isLiveShow ? LIVE_INVENTORY_PHOTOS : LISTING_MAX_PHOTOS;
+  const photosNeeded = Math.max(0, minPhotos - photoCount);
+  const atPhotoMax = photoCount >= maxPhotos;
+  const canContinue = isLiveShow ? photoCount === LIVE_INVENTORY_PHOTOS : photoCount >= LISTING_MIN_PHOTOS;
 
   const tryRemoveMedia = (id: string) => {
     const item = form.media.find((m) => m.id === id);
-    if (item?.kind === 'photo' && photoCount <= LISTING_MIN_PHOTOS) {
+    if (!isLiveShow && item?.kind === 'photo' && photoCount <= LISTING_MIN_PHOTOS) {
       Alert.alert('Minimum photos', `Keep at least ${LISTING_MIN_PHOTOS} photos on your listing.`);
       return;
     }
@@ -138,7 +141,7 @@ export function CreateListingMediaScreen({
     const asset = picked.assets[0];
     const resolvedKind = asset.type === 'video' ? 'video' : 'photo';
     const target = form.media.find((m) => m.id === id);
-    if (target?.kind === 'photo' && resolvedKind === 'video' && photoCount <= LISTING_MIN_PHOTOS) {
+    if (!isLiveShow && target?.kind === 'photo' && resolvedKind === 'video' && photoCount <= LISTING_MIN_PHOTOS) {
       Alert.alert('Minimum photos', `Keep at least ${LISTING_MIN_PHOTOS} photos before adding a video-only slot.`);
       return;
     }
@@ -188,7 +191,7 @@ export function CreateListingMediaScreen({
       title={isLiveShow ? 'Upload show inventory' : 'Upload media'}
       subtitle={
         isLiveShow
-          ? `Fast batch upload · ${LISTING_MIN_PHOTOS}–${LISTING_MAX_PHOTOS} photos for the live queue.`
+          ? 'Single thumbnail for the live queue — shown on-air as the lot image.'
           : `Luxury listing gallery · ${LISTING_MIN_PHOTOS}–${LISTING_MAX_PHOTOS} photos (required). Optional video.`
       }
     >
@@ -203,26 +206,30 @@ export function CreateListingMediaScreen({
         <View style={styles.dropZone}>
           <LinearGradient colors={accent.gradient} style={StyleSheet.absoluteFillObject} />
           <Ionicons name="images-outline" size={36} color={accent.primary} />
-          <Text style={styles.dropTitle}>Add photos & video</Text>
+          <Text style={styles.dropTitle}>{isLiveShow ? 'Upload thumbnail' : 'Add photos & video'}</Text>
           <Text style={styles.dropSub}>
-            {photoCount} of {LISTING_MIN_PHOTOS}–{LISTING_MAX_PHOTOS} photos
-            {photosNeeded > 0 ? ` · ${photosNeeded} more required` : atPhotoMax ? ' · maximum reached' : ''}
-            {!atPhotoMax ? ' · select multiple at once' : ''}
+            {isLiveShow
+              ? photoCount >= LIVE_INVENTORY_PHOTOS
+                ? 'Thumbnail ready'
+                : 'Upload 1 thumbnail image'
+              : `${photoCount} of ${LISTING_MIN_PHOTOS}–${LISTING_MAX_PHOTOS} photos${
+                  photosNeeded > 0 ? ` · ${photosNeeded} more required` : atPhotoMax ? ' · maximum reached' : ''
+                }${!atPhotoMax ? ' · select multiple at once' : ''}`}
           </Text>
-          <View style={styles.dropActions}>
-            <Pressable
-              style={[styles.addBtn, atPhotoMax && styles.addBtnDisabled]}
-              onPress={() => !atPhotoMax && void promptAddPhotos()}
-              disabled={atPhotoMax}
-            >
-              <Ionicons name="camera-outline" size={18} color={atPhotoMax ? colors.textMuted : accent.primary} />
-              <Text style={[styles.addTxt, atPhotoMax && styles.addTxtDisabled]}>Add photos</Text>
-            </Pressable>
-            <Pressable style={styles.addBtn} onPress={() => addMockPhoto('video')}>
-              <Ionicons name="videocam-outline" size={18} color={accent.primary} />
-              <Text style={styles.addTxt}>Add video</Text>
-            </Pressable>
-          </View>
+          {!atPhotoMax ? (
+            <View style={styles.dropActions}>
+              <Pressable style={styles.addBtn} onPress={() => void promptAddPhotos()}>
+                <Ionicons name="camera-outline" size={18} color={accent.primary} />
+                <Text style={styles.addTxt}>{isLiveShow ? 'Upload thumbnail' : 'Add photos'}</Text>
+              </Pressable>
+              {!isLiveShow ? (
+                <Pressable style={styles.addBtn} onPress={() => addMockPhoto('video')}>
+                  <Ionicons name="videocam-outline" size={18} color={accent.primary} />
+                  <Text style={styles.addTxt}>Add video</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
         </View>
 
         {!isLiveShow && form.media.length > 0 ? (
@@ -249,7 +256,7 @@ export function CreateListingMediaScreen({
                 <Text style={styles.mediaKind}>{m.kind === 'video' ? 'Video' : 'Photo'}</Text>
                 <View style={styles.mediaRow}>
                   <Pressable onPress={() => void repickMedia(m.id, m.kind === 'video' ? 'video' : 'photo')}>
-                    <Text style={styles.link}>Replace photo</Text>
+                    <Text style={styles.link}>{isLiveShow ? 'Replace thumbnail' : 'Replace photo'}</Text>
                   </Pressable>
                   <Pressable onPress={() => tryRemoveMedia(m.id)}>
                     <Text style={styles.linkDanger}>Remove</Text>

@@ -15,7 +15,7 @@ import { sanitizeSubcategoriesForCategory } from './listingCategoryTaxonomy';
 import type { ListingChannel } from './listingChannel';
 import { normalizeCategoryId } from '../types';
 import type { AiTrackedField, CreateListingFormState, ListingCommerceType } from './types';
-import { countListingPhotos, emptyCreateListingForm, LISTING_MAX_PHOTOS, normalizeAuctionDurationDays } from './types';
+import { countListingPhotos, emptyCreateListingForm, LISTING_MAX_PHOTOS, LIVE_INVENTORY_PHOTOS, normalizeAuctionDurationDays } from './types';
 
 type SavedDraft = {
   id: string;
@@ -228,22 +228,31 @@ export function CreateListingDraftProvider({ children }: { children: ReactNode }
   const appendPhotoAssets = useCallback((assets: { uri: string }[]) => {
     if (!assets.length) return;
     setFormState((s) => {
-      const remaining = LISTING_MAX_PHOTOS - countListingPhotos(s.media);
+      const channel = s.listingChannel ?? 'marketplace';
+      const maxPhotos = channel === 'live_show' ? LIVE_INVENTORY_PHOTOS : LISTING_MAX_PHOTOS;
+      const currentPhotos = countListingPhotos(s.media);
+      if (channel === 'live_show' && currentPhotos >= LIVE_INVENTORY_PHOTOS) {
+        Alert.alert('Thumbnail limit', 'Live show inventory supports exactly 1 thumbnail image.');
+        return s;
+      }
+      const remaining = maxPhotos - currentPhotos;
       const toAdd = assets.slice(0, Math.max(0, remaining));
       if (assets.length > toAdd.length) {
         Alert.alert(
           'Photo limit',
-          `Only ${toAdd.length} more photo${toAdd.length === 1 ? '' : 's'} were added (max ${LISTING_MAX_PHOTOS} per listing).`
+          channel === 'live_show'
+            ? 'Live show inventory supports exactly 1 thumbnail image.'
+            : `Only ${toAdd.length} more photo${toAdd.length === 1 ? '' : 's'} were added (max ${LISTING_MAX_PHOTOS} per listing).`,
         );
       }
-      let photoIndex = countListingPhotos(s.media);
+      let photoIndex = currentPhotos;
       const newItems = toAdd.map((asset, i) => {
         photoIndex += 1;
         return {
           id: `m-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`,
           uri: asset.uri,
           kind: 'photo' as const,
-          label: photoIndex === 1 ? 'Hero photo' : `Photo ${photoIndex}`,
+          label: channel === 'live_show' ? 'Thumbnail' : photoIndex === 1 ? 'Hero photo' : `Photo ${photoIndex}`,
         };
       });
       return { ...s, media: relabelListingMedia([...s.media, ...newItems]) };
@@ -252,10 +261,17 @@ export function CreateListingDraftProvider({ children }: { children: ReactNode }
 
   const addPhotosFromSource = useCallback(
     async (source: 'camera' | 'library') => {
+      const channel = formRef.current.listingChannel ?? 'marketplace';
+      const maxPhotos = channel === 'live_show' ? LIVE_INVENTORY_PHOTOS : LISTING_MAX_PHOTOS;
       const photoCount = countListingPhotos(formRef.current.media);
-      const remaining = LISTING_MAX_PHOTOS - photoCount;
+      const remaining = maxPhotos - photoCount;
       if (remaining <= 0) {
-        Alert.alert('Photo limit', `Listings support up to ${LISTING_MAX_PHOTOS} photos.`);
+        Alert.alert(
+          'Photo limit',
+          channel === 'live_show'
+            ? 'Live show inventory supports exactly 1 thumbnail image.'
+            : `Listings support up to ${LISTING_MAX_PHOTOS} photos.`,
+        );
         return;
       }
 
@@ -266,21 +282,29 @@ export function CreateListingDraftProvider({ children }: { children: ReactNode }
         return;
       }
 
-      const picked = await pickPhotosFromLibrary(remaining);
+      const pickLimit = channel === 'live_show' ? 1 : remaining;
+      const picked = await pickPhotosFromLibrary(pickLimit);
       if (!picked || picked.canceled || !picked.assets?.length) return;
       const images = picked.assets.filter((a) => a.type !== 'video').map((a) => ({ uri: a.uri }));
       appendPhotoAssets(images);
     },
-    [appendPhotoAssets]
+    [appendPhotoAssets],
   );
 
   const promptAddPhotos = useCallback(async () => {
+    const channel = formRef.current.listingChannel ?? 'marketplace';
+    const maxPhotos = channel === 'live_show' ? LIVE_INVENTORY_PHOTOS : LISTING_MAX_PHOTOS;
     const photoCount = countListingPhotos(formRef.current.media);
-    if (photoCount >= LISTING_MAX_PHOTOS) {
-      Alert.alert('Photo limit', `Listings support up to ${LISTING_MAX_PHOTOS} photos.`);
+    if (photoCount >= maxPhotos) {
+      Alert.alert(
+        'Photo limit',
+        channel === 'live_show'
+          ? 'Live show inventory supports exactly 1 thumbnail image.'
+          : `Listings support up to ${LISTING_MAX_PHOTOS} photos.`,
+      );
       return;
     }
-    const source = await promptPhotoPickSource();
+    const source = await promptPhotoPickSource(channel === 'live_show' ? 'Upload thumbnail' : undefined);
     if (!source) return;
     await addPhotosFromSource(source);
   }, [addPhotosFromSource]);
@@ -288,6 +312,12 @@ export function CreateListingDraftProvider({ children }: { children: ReactNode }
   const addMockPhoto = useCallback(async (kind: 'photo' | 'video' = 'photo') => {
     if (kind === 'photo') {
       await promptAddPhotos();
+      return;
+    }
+
+    const channel = formRef.current.listingChannel ?? 'marketplace';
+    if (channel === 'live_show') {
+      Alert.alert('Not available', 'Live show inventory uses a single thumbnail image — video is not supported.');
       return;
     }
 

@@ -36,9 +36,12 @@ export type ListingMediaItem = {
   label?: string;
 };
 
-/** Required photo count for publish-ready listings (video is optional). */
+/** Required photo count for publish-ready marketplace listings (video is optional). */
 export const LISTING_MIN_PHOTOS = 3;
 export const LISTING_MAX_PHOTOS = 10;
+
+/** Live show inventory uses a single stream thumbnail. */
+export const LIVE_INVENTORY_PHOTOS = 1;
 
 export function countListingPhotos(media: ListingMediaItem[]): number {
   return media.filter((m) => m.kind === 'photo').length;

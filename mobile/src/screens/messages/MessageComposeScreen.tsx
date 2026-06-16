@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { MentionComposerInput } from '../../components/mentions/MentionComposerInput';
 import { startConversation } from '../../api/messagesRepository';
 import { useAuth } from '../../auth/AuthContext';
 import type { RootStackParamList } from '../../navigation/types';
@@ -77,10 +78,11 @@ export function MessageComposeScreen({ navigation, route }: Props) {
           ? 'Private message — stays off the live chat.'
           : 'Ask about condition, shipping, or make an offer.'}
       </Text>
-      <TextInput
+      <MentionComposerInput
         style={styles.input}
         value={draft}
         onChangeText={setDraft}
+        accessToken={token}
         placeholder="Hi — I'm interested in this piece…"
         placeholderTextColor={colors.textMuted}
         multiline

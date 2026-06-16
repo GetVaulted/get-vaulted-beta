@@ -24,6 +24,7 @@ function mapRow(m: LiveRoomChatMessageRow, hostUsername: string): ChatMessage | 
     senderAvatarUrl: m.senderAvatarUrl ?? null,
     isHost: Boolean(host && sender.toLowerCase() === host),
     messageType,
+    mentions: m.mentions,
   };
 }
 

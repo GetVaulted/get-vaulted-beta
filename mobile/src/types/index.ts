@@ -35,6 +35,7 @@ export type ChatMessage = {
   senderAvatarUrl?: string | null;
   isHost?: boolean;
   messageType?: ChatMessageKind;
+  mentions?: { userId: string; username: string }[];
 };
 
 export type Bid = {

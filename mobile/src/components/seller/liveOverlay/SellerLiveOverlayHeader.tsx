@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef } from 'react';
 import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LiveBadge } from '../../ui/LiveBadge';
@@ -66,11 +65,6 @@ export function SellerLiveOverlayHeader({
 
   return (
     <View style={[styles.wrap, { paddingTop, paddingHorizontal: spacing.md }]}>
-      <LinearGradient
-        colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0.2)', 'transparent']}
-        style={styles.topFade}
-        pointerEvents="none"
-      />
       <View style={styles.row}>
         <View style={styles.left}>
           <Pressable onPress={onBack} hitSlop={12} style={styles.back} accessibilityLabel="Back">
@@ -135,13 +129,6 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     zIndex: 12,
-  },
-  topFade: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    height: 120,
   },
   row: {
     flexDirection: 'row',

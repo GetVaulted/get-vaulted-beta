@@ -10,6 +10,7 @@ export type LiveRoomChatMessageRow = {
   body: string;
   messageType?: LiveRoomChatMessageType;
   createdAt: string;
+  mentions?: { userId: string; username: string }[];
 };
 
 function apiErrorMessage(res: Response, body: unknown): string {

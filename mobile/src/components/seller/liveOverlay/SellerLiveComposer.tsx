@@ -14,6 +14,7 @@ export function SellerLiveComposer({
   onChangeText,
   onSend,
   sendDisabled,
+  accessToken,
 }: {
   bottom: number;
   left: number;
@@ -22,6 +23,7 @@ export function SellerLiveComposer({
   onChangeText: (t: string) => void;
   onSend: () => void | Promise<void>;
   sendDisabled?: boolean;
+  accessToken?: string;
 }) {
   const glow = useRef(new Animated.Value(0)).current;
   const active = value.trim().length > 0;
@@ -64,6 +66,7 @@ export function SellerLiveComposer({
         }}
         onSend={sendDisabled ? () => undefined : onSend}
         sendDisabled={sendDisabled}
+        accessToken={accessToken}
       />
     </Animated.View>
   );

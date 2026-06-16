@@ -2,6 +2,7 @@ import type { ListingChannel } from '../createListing/listingChannel';
 import {
   countListingPhotos,
   LISTING_MIN_PHOTOS,
+  LIVE_INVENTORY_PHOTOS,
   type CreateListingFormState,
   type ListingCommerceType,
   type ListingMediaItem,
@@ -117,20 +118,27 @@ export function buildListingPreview(
 async function uploadListingImagesForWeb(
   accessToken: string,
   media: ListingMediaItem[],
+  channel: ListingChannel,
   timer: ReturnType<typeof createPublishTimer>,
 ): Promise<string[]> {
   const photos = media.filter((m) => m.kind === 'photo');
-  if (photos.length < LISTING_MIN_PHOTOS) {
+  if (channel === 'live_show') {
+    if (photos.length !== LIVE_INVENTORY_PHOTOS) {
+      throw new PublishListingError('Upload 1 thumbnail image.');
+    }
+  } else if (photos.length < LISTING_MIN_PHOTOS) {
     throw new PublishListingError(`Add at least ${LISTING_MIN_PHOTOS} photos before publishing.`);
   }
 
+  const photosToUpload = channel === 'live_show' ? photos.slice(0, LIVE_INVENTORY_PHOTOS) : photos;
+
   const prepared = await Promise.all(
-    photos.map(async (item) => {
+    photosToUpload.map(async (item) => {
       if (isRemoteListingImageUri(item.uri)) return item.uri;
       return prepareListingPhotoForUpload(item.uri);
     }),
   );
-  timer.mark(`compress (${photos.length} photos)`);
+  timer.mark(`compress (${photosToUpload.length} photos)`);
 
   const urls = await Promise.all(
     prepared.map(async (uri, index) => {
@@ -143,7 +151,7 @@ async function uploadListingImagesForWeb(
       }
     }),
   );
-  timer.mark(`upload (${photos.length} photos)`);
+  timer.mark(`upload (${photosToUpload.length} photos)`);
   return urls;
 }
 
@@ -259,7 +267,12 @@ async function runPublishCreateListingForm(
   if (!form.listingType) throw new PublishListingError('Choose a listing type before publishing.');
 
   const photoCount = countListingPhotos(form.media);
-  if (photoCount < LISTING_MIN_PHOTOS) {
+  const channel = form.listingChannel ?? 'marketplace';
+  if (channel === 'live_show') {
+    if (photoCount !== LIVE_INVENTORY_PHOTOS) {
+      throw new PublishListingError('Upload 1 thumbnail image.');
+    }
+  } else if (photoCount < LISTING_MIN_PHOTOS) {
     throw new PublishListingError(`Add at least ${LISTING_MIN_PHOTOS} photos before publishing.`);
   }
 
@@ -271,8 +284,7 @@ async function runPublishCreateListingForm(
   }
   timer.mark('auth token');
 
-  const channel = form.listingChannel ?? 'marketplace';
-  const imageUrls = await uploadListingImagesForWeb(accessToken, form.media, timer);
+  const imageUrls = await uploadListingImagesForWeb(accessToken, form.media, channel, timer);
   const body = buildWebListingBody(form, imageUrls, channel, publishRequestId);
 
   if (__DEV__) {

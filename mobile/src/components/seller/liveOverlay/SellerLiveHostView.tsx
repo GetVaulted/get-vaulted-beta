@@ -297,6 +297,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         onChangeText={setChatDraft}
         onSend={sendHostChat}
         sendDisabled={liveChat.sending || !roomLive}
+        accessToken={accessToken}
       />
 
       <SellerLivePinnedOverlay

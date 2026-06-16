@@ -78,6 +78,7 @@ export async function applyLiveModerationAction(args: {
   targetUserId?: string;
   targetMessageId?: string;
   reason?: string;
+  expiresAt?: string;
   metadata?: Record<string, unknown>;
 }): Promise<{ ok: boolean; error?: string }> {
   const base = getWebApiBaseUrl();
@@ -94,6 +95,7 @@ export async function applyLiveModerationAction(args: {
       targetUserId: args.targetUserId,
       targetMessageId: args.targetMessageId,
       reason: args.reason,
+      expiresAt: args.expiresAt,
       metadata: args.metadata,
     }),
   });
@@ -102,15 +104,59 @@ export async function applyLiveModerationAction(args: {
   return { ok: true };
 }
 
+export type LiveModeratorLevel = 'chat' | 'show' | 'break' | 'head';
+export type LiveViewerRole = 'buyer' | 'host' | 'moderator';
+
+export type LiveRoomModHistoryRow = {
+  id: string;
+  actionType: string;
+  moderatorUserId: string;
+  moderatorUsername: string | null;
+  targetUserId: string | null;
+  targetUsername: string | null;
+  targetMessageId: string | null;
+  reason: string;
+  expiresAt: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+};
+
+export type LiveRoomModQueueRow = {
+  id: string;
+  targetType: string;
+  targetId: string;
+  reason: string;
+  description: string;
+  reporterUsername: string | null;
+  createdAt: string;
+};
+
+export type LiveRoomViewerRow = {
+  userId: string;
+  username: string;
+  lastSeenAt: string;
+  messageCount: number;
+};
+
 export type LiveRoomModerationSnapshot = {
   canModerate: boolean;
+  viewerRole: LiveViewerRole;
+  moderatorLevel: LiveModeratorLevel | null;
+  allowedActions: string[];
+  sellerId?: string;
   slowModeSeconds: number;
   pinnedModeratorMessage: string | null;
+  pinnedModeratorMessageAt?: string | null;
+  moderators: { userId: string; username: string; moderatorLevel?: LiveModeratorLevel }[];
+  modHistory: LiveRoomModHistoryRow[];
+  modQueue: LiveRoomModQueueRow[];
+  viewers: LiveRoomViewerRow[];
   myRestrictions: {
     muted: boolean;
     roomBanned: boolean;
     bidBlocked: boolean;
     kickedUntil: string | null;
+    sellerStreamBanned?: boolean;
   } | null;
 };
 

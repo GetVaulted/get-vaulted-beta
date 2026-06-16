@@ -44,6 +44,19 @@ describe('createListingReviewDisplay', () => {
     expect(issues.some((i) => i.screen === 'CreateListingMedia')).toBe(true);
   });
 
+  it('getCreateListingReviewIssues requires exactly one thumbnail for live show', () => {
+    const form = {
+      ...emptyCreateListingForm(),
+      listingType: 'live_auction' as const,
+      category: 'cards' as const,
+      title: 'Live lot',
+    };
+    const missing = getCreateListingReviewIssues(form, { photoCount: 0, isLiveShow: true });
+    expect(missing.some((i) => i.message === 'Upload 1 thumbnail image.')).toBe(true);
+    const ok = getCreateListingReviewIssues(form, { photoCount: 1, isLiveShow: true });
+    expect(ok.some((i) => i.screen === 'CreateListingMedia')).toBe(false);
+  });
+
   it('partial pricing draft surfaces pricing step issue', () => {
     const form = {
       ...emptyCreateListingForm(),

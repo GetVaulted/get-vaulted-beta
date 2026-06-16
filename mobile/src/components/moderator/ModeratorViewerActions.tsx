@@ -1,0 +1,139 @@
+import { useEffect, useMemo } from 'react';
+import { ActionSheetIOS, Alert, Platform } from 'react-native';
+import { applyLiveModerationAction } from '../../api/trustRepository';
+import type { LiveModeratorLevel, LiveViewerRole } from '../../api/trustRepository';
+import { canPerformModeratorAction, TIMEOUT_MINUTES } from '../../lib/liveModeratorPermissions';
+import { openUserProfile } from '../../navigation/openPlatform';
+
+type Props = {
+  visible: boolean;
+  onClose: () => void;
+  liveRoomId: string;
+  accessToken?: string;
+  viewerRole: LiveViewerRole;
+  moderatorLevel: LiveModeratorLevel | null;
+  allowedActions?: string[];
+  userId: string;
+  username: string;
+  hostUserId?: string;
+  onComplete?: () => void;
+};
+
+function timeoutLabel(minutes: number): string {
+  if (minutes >= 24 * 60) return '24 hours';
+  if (minutes >= 60 && minutes % 60 === 0) return `${minutes / 60} hour`;
+  return `${minutes} min`;
+}
+
+export function ModeratorViewerActions({
+  visible,
+  onClose,
+  liveRoomId,
+  accessToken,
+  viewerRole,
+  moderatorLevel,
+  allowedActions,
+  userId,
+  username,
+  hostUserId,
+  onComplete,
+}: Props) {
+  const isHost = Boolean(hostUserId && userId === hostUserId);
+
+  const runAction = async (actionType: string, metadata?: Record<string, unknown>) => {
+    if (!accessToken) return;
+    const result = await applyLiveModerationAction({
+      accessToken,
+      roomId: liveRoomId,
+      actionType,
+      targetUserId: userId,
+      reason: `Moderator action on @${username}`,
+      metadata,
+    });
+    if (!result.ok) {
+      Alert.alert('Moderation', result.error ?? 'Action failed.');
+      return;
+    }
+    onComplete?.();
+  };
+
+  const options = useMemo(() => {
+    if (isHost) return [{ label: 'View profile', action: () => openUserProfile(userId) }];
+    const opts: { label: string; action: () => void; destructive?: boolean }[] = [
+      { label: 'View profile', action: () => openUserProfile(userId) },
+    ];
+    const can = (actionType: string) =>
+      canPerformModeratorAction({ actionType, viewerRole, moderatorLevel, allowedActions });
+
+    if (can('timeout')) {
+      for (const minutes of TIMEOUT_MINUTES) {
+        opts.push({
+          label: `Timeout — ${timeoutLabel(minutes)}`,
+          action: () => void runAction('timeout', { durationMinutes: minutes }),
+        });
+      }
+    }
+    if (can('mute')) opts.push({ label: 'Mute user', action: () => void runAction('mute') });
+    if (can('kick')) {
+      opts.push({ label: 'Kick from stream', destructive: true, action: () => void runAction('kick') });
+    }
+    if (can('room_ban')) {
+      opts.push({
+        label: 'Ban from stream',
+        destructive: true,
+        action: () => void runAction('room_ban'),
+      });
+    }
+    if (can('seller_stream_ban')) {
+      opts.push({
+        label: 'Ban from seller future streams',
+        destructive: true,
+        action: () => void runAction('seller_stream_ban'),
+      });
+    }
+    return opts;
+  }, [isHost, userId, viewerRole, moderatorLevel, allowedActions]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const labels = [...options.map((o) => o.label), 'Cancel'];
+    const handlers = [...options.map((o) => o.action), () => undefined];
+    const destructiveIndex = labels.findIndex((l) => l.startsWith('Ban') || l.startsWith('Kick'));
+
+    onClose();
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: labels,
+          cancelButtonIndex: labels.length - 1,
+          destructiveButtonIndex: destructiveIndex >= 0 ? destructiveIndex : undefined,
+          title: `@${username}`,
+        },
+        (idx) => {
+          if (idx == null || idx >= handlers.length) return;
+          handlers[idx]?.();
+        },
+      );
+      return;
+    }
+
+    Alert.alert(
+      `@${username}`,
+      undefined,
+      [
+        ...handlers.slice(0, -1).map((handler, i) => ({
+          text: labels[i],
+          onPress: handler,
+          style:
+            labels[i].startsWith('Ban') || labels[i].startsWith('Kick')
+              ? ('destructive' as const)
+              : undefined,
+        })),
+        { text: 'Cancel', style: 'cancel' },
+      ],
+    );
+  }, [visible]);
+
+  return null;
+}

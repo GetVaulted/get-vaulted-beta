@@ -46,6 +46,7 @@ export type ThreadMessage = {
   systemEvent: string | null;
   readAt: string | null;
   createdAt: string;
+  mentions?: { userId: string; username: string }[];
 };
 
 export type ThreadDetail = {

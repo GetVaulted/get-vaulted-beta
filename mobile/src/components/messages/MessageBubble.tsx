@@ -1,13 +1,16 @@
 import { StyleSheet, Text, View } from 'react-native';
+import { MentionText } from '../../components/mentions/MentionText';
 import type { ThreadMessage } from '../../types/messages';
 import { colors, radii, spacing } from '../../theme';
 
 export function MessageBubble({
   message,
   isMine,
+  onPressMentionUser,
 }: {
   message: ThreadMessage;
   isMine: boolean;
+  onPressMentionUser?: (userId: string) => void;
 }) {
   const system = message.kind === 'system';
 
@@ -24,7 +27,12 @@ export function MessageBubble({
   return (
     <View style={[styles.row, isMine ? styles.rowMine : styles.rowTheirs]}>
       <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}>
-        <Text style={[styles.body, isMine && styles.bodyMine]}>{message.body}</Text>
+        <MentionText
+          body={message.body}
+          mentions={message.mentions}
+          style={[styles.body, isMine && styles.bodyMine]}
+          onPressUser={onPressMentionUser ? (userId) => onPressMentionUser(userId) : undefined}
+        />
       </View>
     </View>
   );

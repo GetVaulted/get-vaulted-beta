@@ -1,5 +1,5 @@
 import type { CreateListingFormState, ListingCommerceType } from './types';
-import { LISTING_MIN_PHOTOS } from './types';
+import { LISTING_MIN_PHOTOS, LIVE_INVENTORY_PHOTOS } from './types';
 import type { CreateListingStackParamList } from '../navigation/types';
 
 /** Coerce optional / legacy draft values before string ops (.trim, .replace). */
@@ -65,7 +65,15 @@ export function getCreateListingReviewIssues(
   if (!asListingString(form.title).trim()) {
     issues.push({ severity: 'error', message: 'Add a listing title.', screen: 'CreateListingDetails' });
   }
-  if (opts.photoCount < LISTING_MIN_PHOTOS) {
+  if (opts.isLiveShow) {
+    if (opts.photoCount !== LIVE_INVENTORY_PHOTOS) {
+      issues.push({
+        severity: 'error',
+        message: 'Upload 1 thumbnail image.',
+        screen: 'CreateListingMedia',
+      });
+    }
+  } else if (opts.photoCount < LISTING_MIN_PHOTOS) {
     issues.push({
       severity: 'error',
       message: `Add at least ${LISTING_MIN_PHOTOS} photos.`,

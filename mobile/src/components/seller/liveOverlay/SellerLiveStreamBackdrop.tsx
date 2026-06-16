@@ -1,8 +1,5 @@
-import { LinearGradient } from 'expo-linear-gradient';
 import { ActivityIndicator, Animated, Image, Platform, StyleSheet, Text, View } from 'react-native';
 import { useEffect, useRef } from 'react';
-import { CinematicVignetteOverlay } from './CinematicVignetteOverlay';
-import { LiveStreamEnergyLayer } from './LiveStreamEnergyLayer';
 import { OnAirPill } from './OnAirPill';
 import { SellerCameraPermissionGate } from './SellerCameraPermissionGate';
 import { StageHostPreviewVideo } from './StageHostPreviewVideo';
@@ -10,13 +7,11 @@ import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
 import type { SellerCameraPermissionState } from '../../../hooks/useMobileStagePublish';
 import { colors } from '../../../theme';
 
-const DEFAULT_GRADIENT: [string, string, string] = ['#121018', '#0a0a0c', '#050506'];
-
 export function SellerLiveStreamBackdrop({
   thumbnailUrl,
   roomLive,
   streamConnected,
-  biddingUrgent,
+  biddingUrgent: _biddingUrgent,
   useStageCamera,
   showCameraPreview,
   cameraFacing,
@@ -64,15 +59,13 @@ export function SellerLiveStreamBackdrop({
   }, [drift, ken, useStageCamera]);
 
   const showLiveFeed = showCameraPreview && permissionState === 'granted';
-  const alive = roomLive || showLiveFeed || permissionState === 'requesting' || Boolean(thumbnailUrl?.trim());
   const permissionBlocked =
     useStageCamera && (permissionState === 'denied' || permissionState === 'unavailable');
   const thumb = thumbnailUrl?.trim();
   const translateX = drift.interpolate({ inputRange: [0, 1], outputRange: [-6, 6] });
 
   return (
-    <View style={StyleSheet.absoluteFill}>
-      <LinearGradient colors={DEFAULT_GRADIENT} style={StyleSheet.absoluteFill} />
+    <View style={styles.root}>
       <StageHostPreviewVideo
         active={showLiveFeed}
         cameraFacing={cameraFacing}
@@ -97,14 +90,6 @@ export function SellerLiveStreamBackdrop({
           />
         </Animated.View>
       ) : null}
-      {!useStageCamera && !thumb ? (
-        <LinearGradient
-          colors={['rgba(212,175,55,0.08)', 'transparent', 'rgba(80,40,120,0.1)']}
-          style={StyleSheet.absoluteFill}
-        />
-      ) : null}
-      <LiveStreamEnergyLayer active={alive} />
-      <CinematicVignetteOverlay urgent={biddingUrgent} />
       {roomLive ? (
         <OnAirPill label={showLiveFeed && streamConnected ? 'LIVE' : 'ON AIR'} liveFeed={showLiveFeed && streamConnected} />
       ) : useStageCamera && permissionState === 'requesting' ? (
@@ -123,6 +108,10 @@ export function SellerLiveStreamBackdrop({
 }
 
 const styles = StyleSheet.create({
+  root: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000',
+  },
   previewLane: {
     position: 'absolute',
     top: '40%',

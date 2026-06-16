@@ -1,10 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
-import { fetchLiveRoomModeration, type LiveRoomModerationSnapshot } from '../api/trustRepository';
+import {
+  fetchLiveRoomModeration,
+  type LiveRoomModerationSnapshot,
+  type LiveViewerRole,
+} from '../api/trustRepository';
 
 const EMPTY: LiveRoomModerationSnapshot = {
   canModerate: false,
+  viewerRole: 'buyer',
+  moderatorLevel: null,
+  allowedActions: [],
   slowModeSeconds: 0,
   pinnedModeratorMessage: null,
+  moderators: [],
+  modHistory: [],
+  modQueue: [],
+  viewers: [],
   myRestrictions: null,
 };
 
@@ -23,9 +34,18 @@ export function useLiveRoomModeration(args: {
       accessToken: args.accessToken,
     });
     if (!snap) return;
-    setState(snap);
+    setState({
+      ...EMPTY,
+      ...snap,
+      viewerRole: (snap.viewerRole ?? (snap.canModerate ? 'moderator' : 'buyer')) as LiveViewerRole,
+      allowedActions: snap.allowedActions ?? [],
+      moderators: snap.moderators ?? [],
+      modHistory: snap.modHistory ?? [],
+      modQueue: snap.modQueue ?? [],
+      viewers: snap.viewers ?? [],
+    });
     const r = snap.myRestrictions;
-    if (r?.roomBanned || r?.kickedUntil) setRoomBlocked(true);
+    if (r?.roomBanned || r?.kickedUntil || r?.sellerStreamBanned) setRoomBlocked(true);
   }, [args.accessToken, args.enabled, args.roomId]);
 
   useEffect(() => {

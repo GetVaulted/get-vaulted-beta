@@ -22,9 +22,10 @@ import PagerView from 'react-native-pager-view';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radii, spacing } from '../../theme';
 import { fetchLiveRoomPublicById } from '../../api/liveRoomsRepository';
-import type { LiveStream } from '../../types';
+import type { LiveStream, ChatMessage } from '../../types';
 import type { LiveStackParamList, MainTabParamList } from '../../navigation/types';
 import { rootNavigationRef } from '../../navigation/rootNavigationRef';
+import { openUserProfile } from '../../navigation/openPlatform';
 import { LiveAuctionSoldCelebration } from './LiveAuctionSoldCelebration';
 import {
   CHAT_ABOVE_COMPOSER_GAP,
@@ -37,6 +38,10 @@ import { useLiveRoomChat } from '../../hooks/useLiveRoomChat';
 import { useLiveRoomRealtimeSession } from '../../hooks/useLiveRoomRealtimeSession';
 import { BreakDisclaimerModal, breakDisclaimerStorageKey, readBreakDisclaimerAccepted, writeBreakDisclaimerAccepted } from './BreakDisclaimerModal';
 import { useLiveRoomModeration } from '../../hooks/useLiveRoomModeration';
+import { showModeratorTools } from '../../lib/liveModeratorPermissions';
+import { ModeratorActionSheet } from '../moderator/ModeratorActionSheet';
+import { ModeratorDrawer } from '../moderator/ModeratorDrawer';
+import { ModeratorFloatingButton } from '../moderator/ModeratorFloatingButton';
 import { ReportSheet } from '../trust/ReportSheet';
 import {
   FloatingChatComposer,
@@ -167,6 +172,8 @@ function LiveSlide({
   const [breakDisclaimerAccepted, setBreakDisclaimerAccepted] = useState(true);
   const [breakDisclaimerReady, setBreakDisclaimerReady] = useState(false);
   const [paymentRecoveryToast, setPaymentRecoveryToast] = useState<string | null>(null);
+  const [modDrawerOpen, setModDrawerOpen] = useState(false);
+  const [modActionMessage, setModActionMessage] = useState<ChatMessage | null>(null);
 
   const leaveRoomSafely = useCallback(() => {
     if (stackNav.canGoBack()) {
@@ -623,13 +630,64 @@ function LiveSlide({
         liveRoomId={stream.id}
         accessToken={accessToken}
         canModerate={moderation.canModerate}
+        viewerRole={moderation.viewerRole}
+        onLongPressMessage={(message) => setModActionMessage(message)}
         onModerationComplete={() => {
           void liveChat.reload();
           void moderation.reload();
         }}
+        onPressMentionUser={(userId) => openUserProfile(userId)}
       />
 
-      {moderation.roomBlocked || moderation.myRestrictions?.roomBanned || moderation.myRestrictions?.kickedUntil ? (
+      {showModeratorTools(moderation.viewerRole) ? (
+        <ModeratorFloatingButton
+          bottom={bottomStack.composerBottom + COMPOSER_BAR_HEIGHT + 14}
+          right={spacing.lg}
+          onPress={() => setModDrawerOpen(true)}
+        />
+      ) : null}
+
+      {showModeratorTools(moderation.viewerRole) && accessToken ? (
+        <ModeratorDrawer
+          visible={modDrawerOpen}
+          onClose={() => setModDrawerOpen(false)}
+          liveRoomId={stream.id}
+          hostUserId={stream.host.id}
+          accessToken={accessToken}
+          moderation={moderation}
+          onRefresh={() => {
+            void moderation.reload();
+            void liveChat.reload();
+          }}
+        />
+      ) : null}
+
+      {modActionMessage ? (
+        <ModeratorActionSheet
+          visible={Boolean(modActionMessage)}
+          onClose={() => setModActionMessage(null)}
+          liveRoomId={stream.id}
+          accessToken={accessToken}
+          viewerRole={moderation.viewerRole}
+          moderatorLevel={moderation.moderatorLevel}
+          allowedActions={moderation.allowedActions}
+          messageId={modActionMessage.id}
+          messageText={modActionMessage.text}
+          senderId={modActionMessage.senderId}
+          senderUsername={modActionMessage.user}
+          hostUserId={stream.host.id}
+          onComplete={() => {
+            setModActionMessage(null);
+            void liveChat.reload();
+            void moderation.reload();
+          }}
+        />
+      ) : null}
+
+      {moderation.roomBlocked ||
+      moderation.myRestrictions?.roomBanned ||
+      moderation.myRestrictions?.kickedUntil ||
+      moderation.myRestrictions?.sellerStreamBanned ? (
         <View style={[styles.blockedBanner, { top: stageInsets.top + 56 }]}>
           <LiveRoomText style={styles.blockedBannerText}>
             You cannot participate in this room.
@@ -656,6 +714,7 @@ function LiveSlide({
         onChangeText={setChatDraft}
         onSend={sendFloatingChat}
         sendDisabled={liveChat.sending || breakParticipationBlocked}
+        accessToken={accessToken}
       />
 
       <View

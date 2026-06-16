@@ -20,6 +20,7 @@ import {
   sendThreadMessage,
 } from '../../api/messagesRepository';
 import { useAuth } from '../../auth/AuthContext';
+import { MentionComposerInput } from '../../components/mentions/MentionComposerInput';
 import { MessageBubble } from '../../components/messages/MessageBubble';
 import { MessageContextBanner } from '../../components/messages/MessageContextBanner';
 import type { RootStackParamList } from '../../navigation/types';
@@ -165,14 +166,21 @@ export function MessageThreadScreen({ navigation, route }: Props) {
         keyExtractor={(m) => m.id}
         contentContainerStyle={styles.messages}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
-        renderItem={({ item }) => <MessageBubble message={item} isMine={item.senderId === uid} />}
+        renderItem={({ item }) => (
+          <MessageBubble
+            message={item}
+            isMine={item.senderId === uid}
+            onPressMentionUser={(userId) => navigation.navigate('UserProfile', { userId })}
+          />
+        )}
       />
 
       <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
-        <TextInput
+        <MentionComposerInput
           style={styles.input}
           value={draft}
           onChangeText={setDraft}
+          accessToken={token}
           placeholder="Message…"
           placeholderTextColor={colors.textMuted}
           multiline

@@ -23,8 +23,11 @@ import {
 } from '../../lib/liveRoomChatMessages';
 import { liveChatUsernameInitial } from '../../lib/liveChatAvatar';
 import { LIVE_ROOM_TEXT_PROPS } from '../../lib/liveRoomUiScale';
+import { MentionComposerInput } from '../mentions/MentionComposerInput';
+import { MentionText } from '../mentions/MentionText';
 import { LiveRoomText } from './LiveRoomText';
 import { LiveChatRowActions } from '../trust/LiveChatRowActions';
+import type { LiveModeratorLevel, LiveViewerRole } from '../../api/trustRepository';
 import type { ChatMessage } from '../../types';
 
 /** @deprecated Use COMPOSER_BAR_HEIGHT from liveRoomBottomLayout */
@@ -108,8 +111,11 @@ function FloatingChatRow({
   hostUserId,
   accessToken,
   canModerate,
+  viewerRole,
+  onLongPressMessage,
   onModerationComplete,
   compact,
+  onPressMentionUser,
 }: {
   message: ChatMessage;
   hostAvatarUrl: string;
@@ -118,8 +124,11 @@ function FloatingChatRow({
   hostUserId?: string;
   accessToken?: string;
   canModerate?: boolean;
+  viewerRole?: LiveViewerRole;
+  onLongPressMessage?: (message: ChatMessage) => void;
   onModerationComplete?: () => void;
   compact?: boolean;
+  onPressMentionUser?: (userId: string) => void;
 }) {
   if (isViewerEventMessage(message)) {
     const name = formatViewerEventName(message.user);
@@ -134,34 +143,51 @@ function FloatingChatRow({
   }
 
   const name = formatChatDisplayName(message.user);
-  const showActions =
+  const showBuyerActions =
+    !canModerate &&
     message.messageType === 'chat' &&
     liveRoomId &&
     message.senderId &&
     (!hostUserId || message.senderId !== hostUserId);
+  const showModLongPress =
+    canModerate &&
+    (viewerRole === 'host' || viewerRole === 'moderator') &&
+    message.messageType === 'chat' &&
+    message.senderId &&
+    (!hostUserId || message.senderId !== hostUserId);
 
   return (
-    <View style={[styles.chatRow, compact && styles.chatRowCompact, { opacity }]}>
+    <Pressable
+      style={[styles.chatRow, compact && styles.chatRowCompact, { opacity }]}
+      onLongPress={showModLongPress ? () => onLongPressMessage?.(message) : undefined}
+      delayLongPress={350}
+    >
       <ChatAvatarBubble message={message} hostAvatarUrl={hostAvatarUrl} compact={compact} />
       <View style={styles.chatTextWrap}>
         <LiveRoomText style={[styles.inlineLine, compact && styles.inlineLineCompact]} numberOfLines={3}>
           <LiveRoomText style={[styles.username, message.isHost && styles.usernameGold]}>{name}</LiveRoomText>
           {message.isHost ? <LiveRoomText style={styles.hostBadgeInline}> HOST</LiveRoomText> : null}
-          <LiveRoomText style={styles.messageBody}> {message.text}</LiveRoomText>
+          <LiveRoomText style={styles.messageBody}> </LiveRoomText>
+          <MentionText
+            body={message.text}
+            mentions={message.mentions}
+            style={styles.messageBody}
+            onPressUser={onPressMentionUser ? (userId) => onPressMentionUser(userId) : undefined}
+          />
         </LiveRoomText>
       </View>
-      {showActions ? (
+      {showBuyerActions ? (
         <LiveChatRowActions
           liveRoomId={liveRoomId}
           messageId={message.id}
           senderId={message.senderId}
           senderUsername={message.user}
           accessToken={accessToken}
-          canModerate={canModerate}
+          canModerate={false}
           onComplete={onModerationComplete}
         />
       ) : null}
-    </View>
+    </Pressable>
   );
 }
 
@@ -174,12 +200,16 @@ export function FloatingLiveChat({
   isActive,
   streamKey,
   maxHeight = CHAT_STACK_RESERVE,
+  maxRows = MAX_FLOATING_CHAT,
   liveRoomId,
   hostUserId,
   accessToken,
   canModerate,
+  viewerRole,
+  onLongPressMessage,
   onModerationComplete,
   compact = false,
+  onPressMentionUser,
 }: {
   pool: ChatMessage[];
   hostAvatarUrl: string;
@@ -189,14 +219,17 @@ export function FloatingLiveChat({
   isActive: boolean;
   streamKey: string;
   maxHeight?: number;
+  maxRows?: number;
   liveRoomId?: string;
   hostUserId?: string;
   accessToken?: string;
   canModerate?: boolean;
+  viewerRole?: LiveViewerRole;
+  onLongPressMessage?: (message: ChatMessage) => void;
   onModerationComplete?: () => void;
   compact?: boolean;
+  onPressMentionUser?: (userId: string) => void;
 }) {
-  const maxRows = compact ? 4 : MAX_FLOATING_CHAT;
   const visible = useMemo(
     () => tailUniqueChatMessages(pool, maxRows),
     [pool, maxRows],
@@ -220,8 +253,11 @@ export function FloatingLiveChat({
             hostUserId={hostUserId}
             accessToken={accessToken}
             canModerate={canModerate}
+            viewerRole={viewerRole}
+            onLongPressMessage={onLongPressMessage}
             onModerationComplete={onModerationComplete}
             compact={compact}
+            onPressMentionUser={onPressMentionUser}
           />
         ))}
       </View>
@@ -245,6 +281,7 @@ export function FloatingChatComposer({
   onChangeText,
   onSend,
   sendDisabled,
+  accessToken,
 }: {
   bottom: number;
   left: number;
@@ -253,6 +290,7 @@ export function FloatingChatComposer({
   onChangeText: (t: string) => void;
   onSend: () => void | Promise<void>;
   sendDisabled?: boolean;
+  accessToken?: string;
 }) {
   const submitLockRef = useRef(false);
   const canSend = !sendDisabled && value.trim().length > 0;
@@ -273,10 +311,11 @@ export function FloatingChatComposer({
       pointerEvents="box-none"
     >
       <View style={styles.composerPill}>
-        <TextInput
+        <MentionComposerInput
           style={styles.composerInput}
           value={value}
           onChangeText={onChangeText}
+          accessToken={accessToken}
           placeholder={COMPOSER_PLACEHOLDER}
           placeholderTextColor="rgba(255,255,255,0.48)"
           returnKeyType="send"

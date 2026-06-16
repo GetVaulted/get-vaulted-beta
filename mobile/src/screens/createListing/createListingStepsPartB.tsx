@@ -33,6 +33,7 @@ import {
   LISTING_COMMERCE_OPTIONS,
   LISTING_MAX_PHOTOS,
   LISTING_MIN_PHOTOS,
+  LIVE_INVENTORY_PHOTOS,
 } from '../../createListing/types';
 import { LISTING_CHANNEL_CONFIG } from '../../createListing/listingChannel';
 import { getLiveProfile, liveShippingStepComplete } from '../../createListing/liveShowShipping';
@@ -361,7 +362,9 @@ export function CreateListingReviewScreen({
   const photoCount = countListingPhotos(form.media ?? []);
   const reviewIssues = getCreateListingReviewIssues(form, { photoCount, isLiveShow });
   const requiredIssues = reviewIssues.filter((i) => i.severity === 'error');
-  const photosValid = photoCount >= LISTING_MIN_PHOTOS && photoCount <= LISTING_MAX_PHOTOS;
+  const photosValid = isLiveShow
+    ? photoCount === LIVE_INVENTORY_PHOTOS
+    : photoCount >= LISTING_MIN_PHOTOS && photoCount <= LISTING_MAX_PHOTOS;
 
   const aiReviewReasons = Array.isArray(form.aiReviewReasons) ? form.aiReviewReasons : [];
   const needsAck =
@@ -410,9 +413,11 @@ export function CreateListingReviewScreen({
     if (!photosValid) {
       Alert.alert(
         'Photos required',
-        photoCount < LISTING_MIN_PHOTOS
-          ? `Add at least ${LISTING_MIN_PHOTOS} photos on the Upload step before publishing.`
-          : `Listings support up to ${LISTING_MAX_PHOTOS} photos. Remove extras on the Upload step.`,
+        isLiveShow
+          ? 'Upload 1 thumbnail image on the Upload step before publishing.'
+          : photoCount < LISTING_MIN_PHOTOS
+            ? `Add at least ${LISTING_MIN_PHOTOS} photos on the Upload step before publishing.`
+            : `Listings support up to ${LISTING_MAX_PHOTOS} photos. Remove extras on the Upload step.`,
       );
       return;
     }
