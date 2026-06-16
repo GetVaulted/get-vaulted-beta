@@ -18,6 +18,7 @@ describe("serializeLiveRoomMessage", () => {
     expect(serializeLiveRoomMessage(row)).toMatchObject({
       senderUsername: "System",
       body: "Lot started",
+      mentions: [],
     });
   });
 

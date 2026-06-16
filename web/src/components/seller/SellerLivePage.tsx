@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
 import { compressImageFileToBlob } from "@/lib/listing-image-compress";
+import { uploadListingImageBlob } from "@/lib/upload-listing-image-client";
 import { logLiveDebugEvent } from "@/lib/live-debug";
 import { notifyLiveDiscoveryChanged } from "@/lib/notify-live-discovery-changed";
 import type { LiveRoomListApiRow } from "@/lib/live-room-directory-mapper";
@@ -29,14 +30,7 @@ const THUMBNAIL_UPLOAD_ALLOWED = new Set(["image/jpeg", "image/png", "image/webp
 const THUMBNAIL_MAX_FILE_BYTES = 20 * 1024 * 1024;
 
 async function uploadLiveThumbnailBlob(blob: Blob): Promise<string> {
-  const fd = new FormData();
-  fd.set("file", blob, "live-thumbnail.jpg");
-  const res = await fetch("/api/uploads/listing-image", { method: "POST", body: fd });
-  const j = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
-  if (!res.ok || typeof j.url !== "string") {
-    throw new Error(typeof j.error === "string" ? j.error : "Upload failed");
-  }
-  return j.url;
+  return uploadListingImageBlob(blob, "live-thumbnail.jpg");
 }
 
 function pad2(n: number) {
@@ -204,10 +198,12 @@ export function SellerLivePage() {
   const fallbackRefreshTimerRef = useRef<number | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   const thumbFileRef = useRef<HTMLInputElement>(null);
+  const itemImageFileRef = useRef<HTMLInputElement>(null);
 
   const [itemTitle, setItemTitle] = useState("");
   const [itemListingId, setItemListingId] = useState("");
   const [itemImage, setItemImage] = useState("");
+  const [itemImageUploading, setItemImageUploading] = useState(false);
   const [itemPrice, setItemPrice] = useState("");
   const [itemQuantity, setItemQuantity] = useState("1");
   const [itemStartBid, setItemStartBid] = useState("");
@@ -445,6 +441,30 @@ export function SellerLivePage() {
     }
   };
 
+  const uploadQueueItemThumbnailFile = async (file: File) => {
+    setCreateError(null);
+    if (!THUMBNAIL_UPLOAD_ALLOWED.has(file.type)) {
+      setCreateError("Use a JPG, PNG, or WebP image for the queue thumbnail.");
+      return;
+    }
+    if (file.size > THUMBNAIL_MAX_FILE_BYTES) {
+      setCreateError("Thumbnail image must be 20MB or smaller.");
+      return;
+    }
+
+    setItemImageUploading(true);
+    try {
+      const blob = await compressImageFileToBlob(file, 1280, 0.86);
+      const url = await uploadListingImageBlob(blob, "live-queue-thumbnail.jpg");
+      setItemImage(url);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      setCreateError(msg || "Could not upload thumbnail image.");
+    } finally {
+      setItemImageUploading(false);
+    }
+  };
+
   const onThumbDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setThumbDragOver(false);
@@ -654,6 +674,10 @@ export function SellerLivePage() {
     if (!selectedId) return;
     if (!itemTitle.trim()) {
       setCreateError("Enter a title for the queue item.");
+      return;
+    }
+    if (!itemImage.trim()) {
+      setCreateError("Upload 1 thumbnail image.");
       return;
     }
     setCreateError(null);
@@ -1669,14 +1693,62 @@ export function SellerLivePage() {
                   placeholder="Listing id (optional)"
                   value={itemListingId}
                   onChange={(e) => setItemListingId(e.target.value)}
-                  className="rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-sm text-zinc-100"
+                  className="rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-sm text-zinc-100 sm:col-span-2"
                 />
-                <input
-                  placeholder="Image URL"
-                  value={itemImage}
-                  onChange={(e) => setItemImage(e.target.value)}
-                  className="rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-sm text-zinc-100"
-                />
+                <div className="sm:col-span-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Thumbnail</span>
+                  <div
+                    onClick={() => !itemImage && itemImageFileRef.current?.click()}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if ((e.key === "Enter" || e.key === " ") && !itemImage) {
+                        e.preventDefault();
+                        itemImageFileRef.current?.click();
+                      }
+                    }}
+                    className={`mt-2 rounded-xl border border-dashed px-4 py-4 transition ${
+                      itemImage ? "border-white/10 bg-black/30" : "cursor-pointer border-white/15 bg-black/40 hover:border-white/25"
+                    } ${itemImageUploading ? "pointer-events-none opacity-70" : ""}`}
+                  >
+                    <input
+                      ref={itemImageFileRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="sr-only"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = "";
+                        if (f) void uploadQueueItemThumbnailFile(f);
+                      }}
+                    />
+                    {itemImage.trim() ? (
+                      <div className="flex items-center gap-3">
+                        {/* eslint-disable-next-line @next/next/no-img-element -- uploaded queue thumbnail */}
+                        <img src={itemImage} alt="" className="size-16 shrink-0 rounded-lg object-cover" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold text-zinc-200">Thumbnail uploaded</p>
+                          <p className="mt-0.5 text-[11px] text-zinc-500">Used on auction cards, queue, and pinned item.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            itemImageFileRef.current?.click();
+                          }}
+                          className="rounded-lg border border-white/12 px-2 py-1 text-[11px] font-semibold text-zinc-300 hover:bg-white/[0.06]"
+                        >
+                          Replace
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-2 text-center">
+                        <p className="text-sm font-semibold text-zinc-200">Upload thumbnail</p>
+                        <p className="mt-1 text-[11px] text-zinc-500">Upload 1 thumbnail image · JPG, PNG, or WebP</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
                 <input
                   placeholder="Buy now USD"
                   value={itemPrice}

@@ -1,6 +1,7 @@
 import { getLiveRoomHostAccess } from "@/lib/live-room-host-auth";
 import { requireLiveRoomHostAccess } from "@/lib/resolve-live-host-access";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
+import { getLiveRoomModeratorContext } from "@/lib/trust/live-room-moderation";
 import { checkRateLimit } from "@/lib/request-rate-limit";
 import { NextResponse } from "next/server";
 import { logIvsOpsServer } from "@/lib/ivs-ops-log";
@@ -58,6 +59,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const access = await getLiveRoomHostAccess(id, userId);
   if (access.ok) {
     return NextResponse.json({ stream: toHostStreamPayload(row), viewerRole: "host" });
+  }
+  const modCtx = await getLiveRoomModeratorContext({ liveRoomId: id, userId });
+  if (modCtx.isModerator) {
+    return NextResponse.json({ stream: toBuyerSafeStreamPayload(row), viewerRole: "moderator" });
   }
   return NextResponse.json({ stream: toBuyerSafeStreamPayload(row), viewerRole: "buyer" });
 }

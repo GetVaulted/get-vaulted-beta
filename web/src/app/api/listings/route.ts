@@ -10,6 +10,7 @@ import { assertSellerCanPublishListing } from "@/lib/seller-publish-readiness";
 import { dbListingToMarketplace, dbListingToStored, type ListingWithSellerImages } from "@/lib/listing-mapper";
 import { listingWithSellerFulfillmentInclude } from "@/lib/listing-with-seller-include";
 import { LISTING_WORKSPACE_KEY } from "@/lib/listing-workspace";
+import { validateListingImageCount } from "@/lib/listing-photo-requirements";
 import { resolveAllowLayawayForListing } from "@/lib/layaway/eligibility";
 import { prismaSellerVisibleOnPublicMarketplace } from "@/lib/demo-seed-sellers";
 import type { BuyingFormat, ListingStatus } from "@/generated/prisma/client";
@@ -395,6 +396,15 @@ export async function POST(req: Request) {
   if (!buyingFormat) return NextResponse.json({ error: "Invalid buyingFormat" }, { status: 400 });
 
   const status = parseStatus(body.status) ?? "draft";
+  const imageValidation = validateListingImageCount({
+    buyingFormat,
+    status,
+    imageCount: images.length,
+  });
+  if (!imageValidation.ok) {
+    return NextResponse.json({ error: imageValidation.error }, { status: 400 });
+  }
+
   if (isMarketplaceTimedAuctionPublishAttempt({ buyingFormat, status })) {
     return NextResponse.json(
       { error: MARKETPLACE_AUCTION_DISABLED_MESSAGE, code: "MARKETPLACE_AUCTION_DISABLED" },

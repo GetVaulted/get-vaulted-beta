@@ -93,6 +93,7 @@ export type LiveRoomMessageDTO = {
   body: string;
   messageType: LiveRoomMessageType;
   createdAt: string;
+  mentions: { userId: string; username: string }[];
 };
 
 export type LiveRoomDetailDTO = {
@@ -255,6 +256,7 @@ export function serializeLiveRoomItem(
 
 export function serializeLiveRoomMessage(
   row: LiveRoomMessage & { sender?: Pick<User, "username" | "image"> | null; deletedAt?: Date | null },
+  mentions: { userId: string; username: string }[] = [],
 ): LiveRoomMessageDTO {
   const deleted = row.deletedAt != null;
   return {
@@ -266,13 +268,16 @@ export function serializeLiveRoomMessage(
     body: deleted ? "[message removed]" : row.body,
     messageType: row.messageType,
     createdAt: row.createdAt.toISOString(),
+    mentions: deleted ? [] : mentions,
   };
 }
 
 export function buildLiveRoomDetail(room: LiveRoomDetailPayload): LiveRoomDetailDTO {
   const items = [...room.items].sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.getTime() - b.createdAt.getTime());
   const active = items.find((i) => i.status === "active") ?? null;
-  const messages = [...room.messages].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).map(serializeLiveRoomMessage);
+  const messages = [...room.messages]
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    .map((m) => serializeLiveRoomMessage(m));
 
   const breakSnapshot =
     room.roomType === "break"

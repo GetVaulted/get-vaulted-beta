@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { loadMentionsForSource } from "@/lib/mentions/load-message-mentions";
 import { serializeLiveRoomMessage } from "@/lib/live-room-serialize";
 import { broadcastRealtimeEvent, broadcastRealtimeEventOnce } from "@/lib/supabase-realtime-broadcast";
 import { LIVE_DISCOVERY_CHANNEL, LIVE_DISCOVERY_EVENT } from "@/lib/live-discovery-realtime";
@@ -46,7 +47,8 @@ export async function emitLiveRoomMessageById(messageId: string): Promise<void> 
     include: { sender: { select: { username: true, image: true } } },
   });
   if (!row) return;
-  const dto = serializeLiveRoomMessage(row);
+  const mentions = await loadMentionsForSource("live_room_message", row.id);
+  const dto = serializeLiveRoomMessage(row, mentions);
   emitRoomEventWithAliases(row.liveRoomId, RT_EVENT.chatMessage, { message: dto });
 }
 

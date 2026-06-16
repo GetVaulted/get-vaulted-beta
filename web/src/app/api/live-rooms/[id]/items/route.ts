@@ -5,6 +5,7 @@ import { requireLiveRoomHostUser } from "@/lib/resolve-live-room-host-user";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
 import { isVariantSalesFormat, normalizeVariantDrafts } from "@/lib/live-item-variant-presets";
 import { parseLiveItemSalesFormat } from "@/lib/live-item-variant-serialize";
+import { validateLiveRoomItemThumbnail } from "@/lib/listing-photo-requirements";
 
 type PostBody = {
   title?: string;
@@ -75,6 +76,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const imageUrl = typeof body.imageUrl === "string" ? body.imageUrl.trim().slice(0, 2000) : "";
+  const thumbValidation = validateLiveRoomItemThumbnail(imageUrl);
+  if (!thumbValidation.ok) {
+    return NextResponse.json({ error: thumbValidation.error }, { status: 400 });
+  }
   const priceUsd = typeof body.priceUsd === "number" && Number.isFinite(body.priceUsd) ? body.priceUsd : null;
   const startingBidUsd =
     typeof body.startingBidUsd === "number" && Number.isFinite(body.startingBidUsd) ? body.startingBidUsd : null;

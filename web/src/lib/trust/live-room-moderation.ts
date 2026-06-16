@@ -1,17 +1,36 @@
-import type { LiveRoomModerationActionType } from "@/generated/prisma/enums";
+import type { LiveRoomModerationActionType, LiveRoomModeratorLevel } from "@/generated/prisma/enums";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import {
+  canModeratorPerformAction,
+  resolveViewerRole,
+  type LiveViewerRole,
+} from "@/lib/trust/live-room-moderator-permissions";
 import { logTrustModerationAction } from "@/lib/trust/moderation-audit-log";
+import { emitLiveRoomMessageById } from "@/lib/realtime-emit-server";
+
+export type { LiveViewerRole };
+export type LiveRoomModeratorLevelType = LiveRoomModeratorLevel;
 
 export type LiveRoomUserRestrictions = {
   muted: boolean;
   roomBanned: boolean;
   bidBlocked: boolean;
   kickedUntil: string | null;
+  sellerStreamBanned: boolean;
+};
+
+export type LiveRoomModeratorContext = {
+  isHost: boolean;
+  isModerator: boolean;
+  canModerate: boolean;
+  viewerRole: LiveViewerRole;
+  moderatorLevel: LiveRoomModeratorLevel | null;
 };
 
 const REVERSAL: Partial<Record<LiveRoomModerationActionType, LiveRoomModerationActionType>> = {
   mute: "unmute",
+  timeout: "unmute",
   room_ban: "unban",
   block_bidding: "unblock_bidding",
 };
@@ -21,25 +40,78 @@ function isActive(expiresAt: Date | null | undefined, now: Date): boolean {
   return expiresAt.getTime() > now.getTime();
 }
 
+export async function getLiveRoomModeratorContext(args: {
+  liveRoomId: string;
+  userId: string;
+  isAdmin?: boolean;
+}): Promise<LiveRoomModeratorContext> {
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: args.liveRoomId },
+    select: { sellerId: true },
+  });
+  if (!room) {
+    return {
+      isHost: false,
+      isModerator: false,
+      canModerate: false,
+      viewerRole: "buyer",
+      moderatorLevel: null,
+    };
+  }
+
+  const isHost = room.sellerId === args.userId;
+  if (args.isAdmin) {
+    return {
+      isHost,
+      isModerator: false,
+      canModerate: true,
+      viewerRole: isHost ? "host" : "moderator",
+      moderatorLevel: "head",
+    };
+  }
+
+  const mod = await prisma.liveRoomModerator.findFirst({
+    where: { liveRoomId: args.liveRoomId, userId: args.userId, revokedAt: null },
+    select: { moderatorLevel: true },
+  });
+  const isModerator = Boolean(mod);
+  const canModerate = isHost || isModerator;
+  const moderatorLevel = isHost ? ("head" as const) : mod?.moderatorLevel ?? null;
+
+  return {
+    isHost,
+    isModerator,
+    canModerate,
+    viewerRole: resolveViewerRole({ isHost, isModerator }),
+    moderatorLevel,
+  };
+}
+
 export async function isLiveRoomHostOrModerator(args: {
   liveRoomId: string;
   userId: string;
   isAdmin?: boolean;
 }): Promise<{ isHost: boolean; isModerator: boolean; canModerate: boolean }> {
-  const room = await prisma.liveRoom.findUnique({
-    where: { id: args.liveRoomId },
-    select: { sellerId: true },
-  });
-  if (!room) return { isHost: false, isModerator: false, canModerate: false };
-  const isHost = room.sellerId === args.userId;
-  if (args.isAdmin) return { isHost, isModerator: false, canModerate: true };
+  const ctx = await getLiveRoomModeratorContext(args);
+  return { isHost: ctx.isHost, isModerator: ctx.isModerator, canModerate: ctx.canModerate };
+}
 
-  const mod = await prisma.liveRoomModerator.findFirst({
-    where: { liveRoomId: args.liveRoomId, userId: args.userId, revokedAt: null },
+async function isSellerStreamBanned(args: {
+  sellerId: string;
+  userId: string;
+  now?: Date;
+}): Promise<boolean> {
+  const now = args.now ?? new Date();
+  const row = await prisma.sellerStreamBan.findFirst({
+    where: {
+      sellerId: args.sellerId,
+      targetUserId: args.userId,
+      revokedAt: null,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+    },
     select: { id: true },
   });
-  const isModerator = Boolean(mod);
-  return { isHost, isModerator, canModerate: isHost || isModerator };
+  return Boolean(row);
 }
 
 export async function getLiveRoomUserRestrictions(args: {
@@ -47,12 +119,29 @@ export async function getLiveRoomUserRestrictions(args: {
   userId: string;
 }): Promise<LiveRoomUserRestrictions> {
   const now = new Date();
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: args.liveRoomId },
+    select: { sellerId: true },
+  });
+  if (!room) {
+    return { muted: false, roomBanned: false, bidBlocked: false, kickedUntil: null, sellerStreamBanned: false };
+  }
+
   const actions = await prisma.liveRoomModerationAction.findMany({
     where: {
       liveRoomId: args.liveRoomId,
       targetUserId: args.userId,
       actionType: {
-        in: ["mute", "unmute", "kick", "room_ban", "unban", "block_bidding", "unblock_bidding"],
+        in: [
+          "mute",
+          "unmute",
+          "timeout",
+          "kick",
+          "room_ban",
+          "unban",
+          "block_bidding",
+          "unblock_bidding",
+        ],
       },
     },
     orderBy: { createdAt: "desc" },
@@ -75,19 +164,25 @@ export async function getLiveRoomUserRestrictions(args: {
     }
     if (!isActive(a.expiresAt, now)) continue;
 
-    if (a.actionType === "mute") muted = true;
+    if (a.actionType === "mute" || a.actionType === "timeout") muted = true;
     if (a.actionType === "room_ban") roomBanned = true;
     if (a.actionType === "block_bidding") bidBlocked = true;
     if (a.actionType === "kick") kickedUntil = a.expiresAt?.toISOString() ?? null;
     seen.add(a.actionType);
   }
 
-  if (roomBanned) {
+  const sellerStreamBanned = await isSellerStreamBanned({
+    sellerId: room.sellerId,
+    userId: args.userId,
+    now,
+  });
+
+  if (roomBanned || sellerStreamBanned) {
     muted = true;
     bidBlocked = true;
   }
 
-  return { muted, roomBanned, bidBlocked, kickedUntil };
+  return { muted, roomBanned, bidBlocked, kickedUntil, sellerStreamBanned };
 }
 
 export async function getLiveRoomSlowModeSeconds(liveRoomId: string): Promise<number> {
@@ -118,12 +213,12 @@ export async function applyLiveRoomModerationAction(args: {
   metadata?: Record<string, unknown> | null;
   isAdmin?: boolean;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  const perm = await isLiveRoomHostOrModerator({
+  const ctx = await getLiveRoomModeratorContext({
     liveRoomId: args.liveRoomId,
     userId: args.moderatorUserId,
     isAdmin: args.isAdmin,
   });
-  if (!perm.canModerate) return { ok: false, error: "Not authorized to moderate this room." };
+  if (!ctx.canModerate) return { ok: false, error: "Not authorized to moderate this room." };
 
   const room = await prisma.liveRoom.findUnique({
     where: { id: args.liveRoomId },
@@ -132,7 +227,18 @@ export async function applyLiveRoomModerationAction(args: {
   if (!room) return { ok: false, error: "Room not found." };
 
   const reason = (args.reason ?? "").trim().slice(0, 500);
-  const actionType = args.actionType;
+  let actionType = args.actionType;
+
+  if (
+    !canModeratorPerformAction({
+      actionType,
+      isHost: ctx.isHost,
+      moderatorLevel: ctx.moderatorLevel,
+      isAdmin: args.isAdmin,
+    })
+  ) {
+    return { ok: false, error: "Your moderator level cannot perform this action." };
+  }
 
   if (actionType === "delete_message") {
     if (!args.targetMessageId) return { ok: false, error: "Message id required." };
@@ -169,14 +275,57 @@ export async function applyLiveRoomModerationAction(args: {
     });
   }
 
+  if (actionType === "post_announcement") {
+    const body = typeof args.metadata?.body === "string" ? args.metadata.body.trim().slice(0, 500) : "";
+    if (!body) return { ok: false, error: "post_announcement requires body." };
+    const modUser = await prisma.user.findUnique({
+      where: { id: args.moderatorUserId },
+      select: { username: true },
+    });
+    const announcementBody = `📢 ${body}`;
+    const msg = await prisma.liveRoomMessage.create({
+      data: {
+        liveRoomId: args.liveRoomId,
+        senderId: room.sellerId,
+        body: announcementBody,
+        messageType: "system",
+      },
+      select: { id: true },
+    });
+    void emitLiveRoomMessageById(msg.id);
+    if (!args.metadata) args.metadata = {};
+    args.metadata = { ...args.metadata, body, postedBy: modUser?.username ?? args.moderatorUserId };
+  }
+
+  if (actionType === "run_giveaway") {
+    const title = typeof args.metadata?.title === "string" ? args.metadata.title.trim().slice(0, 200) : "";
+    if (!title) return { ok: false, error: "run_giveaway requires title." };
+  }
+
+  if (actionType === "seller_stream_ban") {
+    if (!args.targetUserId) return { ok: false, error: "Target user required." };
+    await prisma.sellerStreamBan.create({
+      data: {
+        sellerId: room.sellerId,
+        targetUserId: args.targetUserId,
+        bannedByUserId: args.moderatorUserId,
+        liveRoomId: args.liveRoomId,
+        reason,
+        expiresAt: args.expiresAt ?? null,
+      },
+    });
+  }
+
   const userActions: LiveRoomModerationActionType[] = [
     "mute",
     "unmute",
+    "timeout",
     "kick",
     "room_ban",
     "unban",
     "block_bidding",
     "unblock_bidding",
+    "seller_stream_ban",
   ];
   if (userActions.includes(actionType) && !args.targetUserId) {
     return { ok: false, error: "Target user required." };
@@ -194,6 +343,13 @@ export async function applyLiveRoomModerationAction(args: {
   }
 
   let expiresAt = args.expiresAt ?? null;
+  if (actionType === "timeout") {
+    const minutes = Number(args.metadata?.durationMinutes ?? 5);
+    const allowed = [5, 30, 60, 24 * 60];
+    const picked = allowed.includes(minutes) ? minutes : 5;
+    expiresAt = new Date(Date.now() + picked * 60 * 1000);
+    actionType = "timeout";
+  }
   if (actionType === "mute" && !expiresAt) {
     expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
   }
@@ -204,6 +360,7 @@ export async function applyLiveRoomModerationAction(args: {
   await prisma.liveRoomModerationAction.create({
     data: {
       liveRoomId: args.liveRoomId,
+      sellerId: room.sellerId,
       moderatorUserId: args.moderatorUserId,
       targetUserId: args.targetUserId ?? null,
       actionType,
@@ -312,7 +469,122 @@ export async function listLiveRoomModerators(liveRoomId: string) {
     id: r.id,
     userId: r.userId,
     username: r.user.username,
+    moderatorLevel: r.moderatorLevel,
     assignedByUserId: r.assignedByUserId,
     createdAt: r.createdAt.toISOString(),
   }));
+}
+
+export type LiveRoomModHistoryRow = {
+  id: string;
+  actionType: LiveRoomModerationActionType;
+  moderatorUserId: string;
+  moderatorUsername: string | null;
+  targetUserId: string | null;
+  targetUsername: string | null;
+  targetMessageId: string | null;
+  reason: string;
+  expiresAt: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+};
+
+export async function listLiveRoomModHistory(liveRoomId: string, take = 50): Promise<LiveRoomModHistoryRow[]> {
+  const rows = await prisma.liveRoomModerationAction.findMany({
+    where: { liveRoomId },
+    orderBy: { createdAt: "desc" },
+    take,
+    include: {
+      moderator: { select: { username: true } },
+      targetUser: { select: { username: true } },
+    },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    actionType: r.actionType,
+    moderatorUserId: r.moderatorUserId,
+    moderatorUsername: r.moderator?.username ?? null,
+    targetUserId: r.targetUserId,
+    targetUsername: r.targetUser?.username ?? null,
+    targetMessageId: r.targetMessageId,
+    reason: r.reason,
+    expiresAt: r.expiresAt?.toISOString() ?? null,
+    metadata: (r.metadata as Record<string, unknown> | null) ?? null,
+    createdAt: r.createdAt.toISOString(),
+  }));
+}
+
+export type LiveRoomModQueueRow = {
+  id: string;
+  targetType: string;
+  targetId: string;
+  reason: string;
+  description: string;
+  reporterUsername: string | null;
+  createdAt: string;
+};
+
+export async function listLiveRoomModQueue(liveRoomId: string, take = 30): Promise<LiveRoomModQueueRow[]> {
+  const rows = await prisma.report.findMany({
+    where: { liveRoomId, status: { in: ["open", "reviewing"] } },
+    orderBy: { createdAt: "desc" },
+    take,
+    include: { reporter: { select: { username: true } } },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    targetType: r.targetType,
+    targetId: r.targetId,
+    reason: r.reason,
+    description: r.description,
+    reporterUsername: r.reporter.username,
+    createdAt: r.createdAt.toISOString(),
+  }));
+}
+
+export type LiveRoomViewerRow = {
+  userId: string;
+  username: string;
+  lastSeenAt: string;
+  messageCount: number;
+};
+
+export async function listLiveRoomRecentViewers(liveRoomId: string, take = 40): Promise<LiveRoomViewerRow[]> {
+  const since = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  const rows = await prisma.liveRoomMessage.findMany({
+    where: {
+      liveRoomId,
+      deletedAt: null,
+      createdAt: { gte: since },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 400,
+    select: {
+      senderId: true,
+      createdAt: true,
+      sender: { select: { username: true } },
+    },
+  });
+
+  const map = new Map<string, LiveRoomViewerRow>();
+  for (const row of rows) {
+    if (!row.senderId) continue;
+    const existing = map.get(row.senderId);
+    if (existing) {
+      existing.messageCount += 1;
+      if (row.createdAt.toISOString() > existing.lastSeenAt) {
+        existing.lastSeenAt = row.createdAt.toISOString();
+      }
+      continue;
+    }
+    map.set(row.senderId, {
+      userId: row.senderId,
+      username: row.sender.username,
+      lastSeenAt: row.createdAt.toISOString(),
+      messageCount: 1,
+    });
+    if (map.size >= take) break;
+  }
+
+  return [...map.values()].sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
 }

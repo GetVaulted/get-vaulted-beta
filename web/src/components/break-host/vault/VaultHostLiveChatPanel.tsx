@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { LiveChatMessageRowActions } from "@/components/trust/LiveChatMessageRowActions";
 import { LiveChatAvatar } from "@/components/live-auction/LiveChatAvatar";
+import { MentionComposer } from "@/components/mentions/MentionComposer";
+import { MentionText } from "@/components/mentions/MentionText";
 
 const PALETTE = ["text-sky-300", "text-emerald-300", "text-violet-300", "text-amber-300", "text-rose-300", "text-cyan-300"] as const;
 
@@ -175,7 +177,7 @@ export function VaultHostLiveChatPanel({
                       ) : null}
                       <span className="text-zinc-500">: </span>
                       <span className={isSystem || isBid ? "font-semibold text-amber-50" : isPurchase ? "font-semibold text-emerald-100" : "text-zinc-100"}>
-                        {m.body}
+                        <MentionText body={m.body} mentions={m.mentions} />
                       </span>
                       {m.messageType === "chat" && m.senderId !== hostUserId ? (
                         <LiveChatMessageRowActions
@@ -196,11 +198,12 @@ export function VaultHostLiveChatPanel({
 
           <div className={`shrink-0 ${variant === "sidebar" ? "p-1.5" : "border-t border-white/[0.06] bg-zinc-900/50 p-3"}`}>
             <div className={variant === "sidebar" ? "live-stage-chat-input-tray p-1.5" : ""}>
-            <textarea
+            <MentionComposer
               value={systemMsg}
-              onChange={(e) => onSystemMsgChange(e.target.value)}
+              onChange={onSystemMsgChange}
               placeholder="Send to chat…"
               rows={variant === "sidebar" ? 1 : 2}
+              maxLength={2000}
               className={`w-full resize-none rounded-lg border border-white/12 bg-black/55 text-zinc-50 placeholder:text-zinc-500 outline-none focus:border-amber-300/35 ${
                 variant === "sidebar" ? "px-2 py-1.5 text-[12px]" : "px-2.5 py-2 text-[12px]"
               }`}

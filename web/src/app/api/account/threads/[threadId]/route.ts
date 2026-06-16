@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { createNotification } from "@/lib/notifications";
+import { loadMentionsForSources } from "@/lib/mentions/load-message-mentions";
+import { processMessageMentions } from "@/lib/mentions/process-message-mentions";
 import {
   conversationKindLabel,
   offerStatusChip,
@@ -58,6 +60,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
     },
   });
 
+  const mentionMap = await loadMentionsForSources(
+    "thread_message",
+    messages.map((m) => m.id),
+  );
+
   const other = thread.buyerId === uid ? thread.seller : thread.buyer;
   const ctxLabel = await resolveThreadContext(thread);
 
@@ -108,6 +115,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
       systemEvent: m.systemEvent,
       readAt: m.readAt?.toISOString() ?? null,
       createdAt: m.createdAt.toISOString(),
+      mentions: mentionMap.get(m.id) ?? [],
     })),
   });
 }
@@ -187,7 +195,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
       where: { id: thread.id },
       data: { updatedAt: new Date() },
     });
-    return m;
+
+    const sender = await tx.user.findUnique({ where: { id: uid }, select: { username: true } });
+    const mentions = await processMessageMentions({
+      db: tx,
+      sourceType: "thread_message",
+      sourceId: m.id,
+      body: text,
+      senderId: uid,
+      senderUsername: sender?.username ?? "user",
+      threadId: thread.id,
+      notifyHref: `/account/messages/${encodeURIComponent(thread.id)}`,
+      notifyContext: "Message thread",
+    });
+
+    return { m, mentions };
   });
 
   const preview = text.length > 120 ? `${text.slice(0, 117)}…` : text;
@@ -201,13 +223,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
 
   return NextResponse.json({
     message: {
-      id: msg.id,
+      id: msg.m.id,
       senderId: uid,
       body: text,
       kind: "user" as const,
       systemEvent: null,
       readAt: null as string | null,
-      createdAt: msg.createdAt.toISOString(),
+      createdAt: msg.m.createdAt.toISOString(),
+      mentions: msg.mentions,
     },
   });
 }

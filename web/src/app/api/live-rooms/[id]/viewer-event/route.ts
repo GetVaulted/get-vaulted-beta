@@ -37,7 +37,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const restrictions = await getLiveRoomUserRestrictions({ liveRoomId, userId: auth.userId });
-  if (restrictions.roomBanned || restrictions.kickedUntil) {
+  if (restrictions.roomBanned || restrictions.kickedUntil || restrictions.sellerStreamBanned) {
     return NextResponse.json({ error: "You cannot join this room." }, { status: 403 });
   }
 

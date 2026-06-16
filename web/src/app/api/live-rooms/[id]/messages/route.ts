@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
 import type { LiveRoomMessageType } from "@/generated/prisma/client";
+import { loadMentionsForSources, loadMentionsForSource } from "@/lib/mentions/load-message-mentions";
+import { processMessageMentions } from "@/lib/mentions/process-message-mentions";
 import { serializeLiveRoomMessage } from "@/lib/live-room-serialize";
 import { prisma } from "@/lib/prisma";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { emitLiveRoomMessageById } from "@/lib/realtime-emit-server";
+import {
+  getLastChatAt,
+  getLiveRoomSlowModeSeconds,
+  getLiveRoomUserRestrictions,
+} from "@/lib/trust/live-room-moderation";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: raw } = await ctx.params;
@@ -19,8 +26,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     include: { sender: { select: { username: true, image: true } } },
   });
 
+  const mentionMap = await loadMentionsForSources(
+    "live_room_message",
+    rows.map((r) => r.id),
+  );
+
   return NextResponse.json({
-    messages: rows.map(serializeLiveRoomMessage),
+    messages: rows.map((r) => serializeLiveRoomMessage(r, mentionMap.get(r.id))),
   });
 }
 
@@ -29,12 +41,6 @@ type PostBody = {
   messageType?: string;
   clientMessageId?: string;
 };
-
-import {
-  getLastChatAt,
-  getLiveRoomSlowModeSeconds,
-  getLiveRoomUserRestrictions,
-} from "@/lib/trust/live-room-moderation";
 
 const CHAT_DUPLICATE_WINDOW_MS = 5000;
 
@@ -60,7 +66,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const restrictions = await getLiveRoomUserRestrictions({ liveRoomId, userId: auth.userId });
-  if (restrictions.roomBanned || restrictions.kickedUntil) {
+  if (restrictions.roomBanned || restrictions.kickedUntil || restrictions.sellerStreamBanned) {
     return NextResponse.json({ error: "You cannot participate in this room." }, { status: 403 });
   }
   if (restrictions.muted) {
@@ -100,20 +106,42 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     include: { sender: { select: { username: true, image: true } } },
   });
   if (duplicate) {
-    return NextResponse.json({ message: serializeLiveRoomMessage(duplicate) });
+    const mentions = await loadMentionsForSource("live_room_message", duplicate.id);
+    return NextResponse.json({ message: serializeLiveRoomMessage(duplicate, mentions) });
   }
 
-  const row = await prisma.liveRoomMessage.create({
-    data: {
-      liveRoomId,
-      senderId: auth.userId,
+  const sender = await prisma.user.findUnique({
+    where: { id: auth.userId },
+    select: { username: true },
+  });
+
+  const { row, mentions } = await prisma.$transaction(async (tx) => {
+    const created = await tx.liveRoomMessage.create({
+      data: {
+        liveRoomId,
+        senderId: auth.userId,
+        body: text,
+        messageType,
+      },
+      include: { sender: { select: { username: true, image: true } } },
+    });
+
+    const savedMentions = await processMessageMentions({
+      db: tx,
+      sourceType: "live_room_message",
+      sourceId: created.id,
       body: text,
-      messageType,
-    },
-    include: { sender: { select: { username: true, image: true } } },
+      senderId: auth.userId,
+      senderUsername: sender?.username ?? created.sender?.username ?? "user",
+      liveRoomId,
+      notifyHref: `/live/${encodeURIComponent(liveRoomId)}`,
+      notifyContext: "Live show chat",
+    });
+
+    return { row: created, mentions: savedMentions };
   });
 
   void emitLiveRoomMessageById(row.id);
 
-  return NextResponse.json({ message: serializeLiveRoomMessage(row) });
+  return NextResponse.json({ message: serializeLiveRoomMessage(row, mentions) });
 }

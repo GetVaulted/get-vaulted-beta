@@ -316,6 +316,18 @@ enum ReportStatus {
   dismissed
 }
 
+enum MessageMentionSourceType {
+  live_room_message
+  thread_message
+}
+
+enum LiveRoomModeratorLevel {
+  chat
+  show
+  break
+  head
+}
+
 enum LiveRoomModerationActionType {
   mute
   unmute
@@ -327,6 +339,10 @@ enum LiveRoomModerationActionType {
   unblock_bidding
   slow_mode
   pin_message
+  timeout
+  seller_stream_ban
+  post_announcement
+  run_giveaway
 }
 
 enum DisputeEvidenceStatus {
@@ -511,6 +527,10 @@ model User {
   liveRoomModeratorAssignedBy        LiveRoomModerator[]         @relation("LiveRoomModeratorAssignedBy")
   liveRoomModerationActionsTaken     LiveRoomModerationAction[]  @relation("LiveRoomModerationActor")
   liveRoomModerationActionsReceived  LiveRoomModerationAction[]  @relation("LiveRoomModerationTarget")
+  liveRoomModerationActionsAsSeller  LiveRoomModerationAction[]  @relation("LiveRoomModerationSeller")
+  sellerStreamBansFromSeller         SellerStreamBan[]           @relation("SellerStreamBanSeller")
+  sellerStreamBansReceived           SellerStreamBan[]           @relation("SellerStreamBanTarget")
+  sellerStreamBansIssued             SellerStreamBan[]           @relation("SellerStreamBanActor")
   reportAuditLogs                    ReportAuditLog[]
   trustModerationAuditLogs           TrustModerationAuditLog[]
   liveStreamReplaysAsSeller          LiveStreamReplay[]          @relation("LiveStreamReplaySeller")
@@ -518,6 +538,8 @@ model User {
   liveRoomMessagesDeleted            LiveRoomMessage[]           @relation("LiveRoomMessageDeletedBy")
   layawaysAsBuyer                    Layaway[]                   @relation("LayawayBuyer")
   layawaysAsSeller                   Layaway[]                   @relation("LayawaySeller")
+  messageMentionsReceived            MessageMention[]            @relation("MessageMentionRecipient")
+  messageMentionsAuthored            MessageMention[]            @relation("MessageMentionAuthor")
 }
 
 /// Single-use email verification OTP for signup (hashed at rest; expires).
@@ -879,6 +901,7 @@ model LiveRoom {
   tips      LiveTip[]
   moderators LiveRoomModerator[]
   moderationActions LiveRoomModerationAction[]
+  sellerStreamBans SellerStreamBan[]
   streamReplays LiveStreamReplay[]
   paymentFailures LiveRoomPaymentFailure[]
   reports Report[]
@@ -1699,17 +1722,35 @@ model ReportAuditLog {
   @@index([reportId, createdAt])
 }
 
+/// @username mention on chat or thread messages — one row per mentioned user per message.
+model MessageMention {
+  id                String                   @id @default(cuid())
+  sourceType        MessageMentionSourceType
+  sourceId          String
+  mentionedUserId   String
+  mentionedUser     User                     @relation("MessageMentionRecipient", fields: [mentionedUserId], references: [id], onDelete: Cascade)
+  mentionedByUserId String
+  mentionedBy       User                     @relation("MessageMentionAuthor", fields: [mentionedByUserId], references: [id], onDelete: Cascade)
+  usernameSnapshot  String
+  createdAt         DateTime                 @default(now())
+
+  @@unique([sourceType, sourceId, mentionedUserId])
+  @@index([mentionedUserId, createdAt])
+  @@index([sourceType, sourceId])
+}
+
 /// Host-assigned live room moderators (chat/bid governance — distinct from tip moderator).
 model LiveRoomModerator {
-  id               String    @id @default(cuid())
+  id               String                 @id @default(cuid())
   liveRoomId       String
-  liveRoom         LiveRoom  @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  liveRoom         LiveRoom               @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
   userId           String
-  user             User      @relation("LiveRoomModeratorUser", fields: [userId], references: [id], onDelete: Cascade)
+  user             User                   @relation("LiveRoomModeratorUser", fields: [userId], references: [id], onDelete: Cascade)
   assignedByUserId String
-  assignedBy       User      @relation("LiveRoomModeratorAssignedBy", fields: [assignedByUserId], references: [id], onDelete: Cascade)
+  assignedBy       User                   @relation("LiveRoomModeratorAssignedBy", fields: [assignedByUserId], references: [id], onDelete: Cascade)
+  moderatorLevel   LiveRoomModeratorLevel @default(chat)
   revokedAt        DateTime?
-  createdAt        DateTime  @default(now())
+  createdAt        DateTime               @default(now())
 
   @@unique([liveRoomId, userId])
   @@index([liveRoomId, revokedAt])
@@ -1720,6 +1761,8 @@ model LiveRoomModerationAction {
   id              String                       @id @default(cuid())
   liveRoomId      String
   liveRoom        LiveRoom                     @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  sellerId        String?
+  seller          User?                        @relation("LiveRoomModerationSeller", fields: [sellerId], references: [id], onDelete: SetNull)
   targetUserId    String?
   targetUser      User?                        @relation("LiveRoomModerationTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
   moderatorUserId String
@@ -1733,6 +1776,27 @@ model LiveRoomModerationAction {
 
   @@index([liveRoomId, targetUserId, createdAt])
   @@index([liveRoomId, actionType, createdAt])
+  @@index([sellerId, createdAt])
+}
+
+/// Seller-wide ban from future live streams (issued by host/head mod during a show).
+model SellerStreamBan {
+  id             String    @id @default(cuid())
+  sellerId       String
+  seller         User      @relation("SellerStreamBanSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  targetUserId   String
+  targetUser     User      @relation("SellerStreamBanTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+  bannedByUserId String
+  bannedBy       User      @relation("SellerStreamBanActor", fields: [bannedByUserId], references: [id], onDelete: Cascade)
+  liveRoomId     String?
+  liveRoom       LiveRoom? @relation(fields: [liveRoomId], references: [id], onDelete: SetNull)
+  reason         String    @default("")
+  expiresAt      DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([sellerId, targetUserId, revokedAt])
+  @@index([targetUserId, revokedAt])
 }
 
 /// Post-show stream replay metadata (IVS recording URL or manifest).

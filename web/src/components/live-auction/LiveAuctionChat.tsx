@@ -7,6 +7,8 @@ import { appendLiveRoomMessageDedupe } from "@/lib/realtime-merge-messages";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
 import { LiveChatMessageRowActions } from "@/components/trust/LiveChatMessageRowActions";
 import { LiveChatAvatar } from "@/components/live-auction/LiveChatAvatar";
+import { MentionComposer } from "@/components/mentions/MentionComposer";
+import { MentionText } from "@/components/mentions/MentionText";
 
 const PALETTE = ["text-sky-400", "text-emerald-400", "text-violet-400", "text-amber-400", "text-rose-400", "text-cyan-400"] as const;
 
@@ -223,7 +225,9 @@ export function LiveAuctionChat({
                       </span>
                     ) : null}
                     <span className="text-zinc-400">: </span>
-                    <span className={isSystem ? "text-zinc-100" : "text-zinc-50"}>{m.body}</span>
+                    <span className={isSystem ? "text-zinc-100" : "text-zinc-50"}>
+                      <MentionText body={m.body} mentions={m.mentions} />
+                    </span>
                     {renderMessageActions(m)}
                   </span>
                 </div>
@@ -234,18 +238,19 @@ export function LiveAuctionChat({
             <div className="flex w-full min-w-0 items-center gap-2 rounded-full border border-[color:var(--live-border)] bg-black/35 px-3 py-1 shadow-[var(--live-shadow-rail)] backdrop-blur-[var(--live-blur-xl)]">
               {status === "authenticated" && !mod.myRestrictions?.muted && !mod.roomBlocked ? (
                 <>
-                  <input
+                  <MentionComposer
                     data-testid="live-chat-input"
-                    type="text"
+                    singleLine
                     value={draft}
-                    onChange={(e) => {
-                      setDraft(e.target.value);
+                    onChange={(v) => {
+                      setDraft(v);
                       setSendError(null);
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") void send();
                     }}
                     placeholder="Chat…"
+                    maxLength={2000}
                     className="h-8 min-w-0 flex-1 bg-transparent px-2 text-[13px] leading-none text-zinc-100 placeholder:text-zinc-500 outline-none max-[380px]:h-7 max-[380px]:text-[12px]"
                   />
                   <button
@@ -334,7 +339,9 @@ export function LiveAuctionChat({
                     </span>
                   ) : null}
                   <span className="text-zinc-600">: </span>
-                  <span className={isSystem ? "text-zinc-200" : "text-zinc-300"}>{m.body}</span>
+                  <span className={isSystem ? "text-zinc-200" : "text-zinc-300"}>
+                    <MentionText body={m.body} mentions={m.mentions} />
+                  </span>
                   {renderMessageActions(m)}
                   {m.messageType !== "chat" && !isSystem && !isPurchase ? (
                     <span className="ml-2 text-[10px] uppercase tracking-wide text-zinc-600">({m.messageType})</span>
@@ -357,18 +364,19 @@ export function LiveAuctionChat({
         ) : (
           <>
             <div className="flex items-center gap-2">
-              <input
+              <MentionComposer
                 data-testid="live-chat-input"
-                type="text"
+                singleLine
                 value={draft}
-                onChange={(e) => {
-                  setDraft(e.target.value);
+                onChange={(v) => {
+                  setDraft(v);
                   setSendError(null);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void send();
                 }}
                 placeholder="Send a message…"
+                maxLength={2000}
                 className={`h-9 min-w-0 flex-1 rounded-xl border border-zinc-800 bg-black text-zinc-100 placeholder:text-zinc-600 outline-none ring-[#facc15]/0 transition-[box-shadow,border-color] focus:border-[#facc15]/50 focus:ring-2 focus:ring-[#facc15]/20 ${compact ? "px-4 py-1.5 text-sm" : "px-5 py-1.5 text-base"}`}
               />
               <button

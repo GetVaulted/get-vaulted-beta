@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { getLiveRoomHostAccess } from "@/lib/live-room-host-auth";
+import { processMessageMentions } from "@/lib/mentions/process-message-mentions";
 import { prisma } from "@/lib/prisma";
 import { emitLiveRoomMessageById } from "@/lib/realtime-emit-server";
 
@@ -35,14 +36,35 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ error: "Room has ended." }, { status: 409 });
   }
 
-  const msg = await prisma.liveRoomMessage.create({
-    data: {
-      liveRoomId,
-      senderId: room.sellerId,
+  const host = await prisma.user.findUnique({
+    where: { id: room.sellerId },
+    select: { username: true },
+  });
+
+  const msg = await prisma.$transaction(async (tx) => {
+    const created = await tx.liveRoomMessage.create({
+      data: {
+        liveRoomId,
+        senderId: room.sellerId,
+        body: text,
+        messageType: "system",
+      },
+      select: { id: true },
+    });
+
+    await processMessageMentions({
+      db: tx,
+      sourceType: "live_room_message",
+      sourceId: created.id,
       body: text,
-      messageType: "system",
-    },
-    select: { id: true },
+      senderId: room.sellerId,
+      senderUsername: host?.username ?? "host",
+      liveRoomId,
+      notifyHref: `/live/${encodeURIComponent(liveRoomId)}`,
+      notifyContext: "Live show chat",
+    });
+
+    return created;
   });
 
   void emitLiveRoomMessageById(msg.id);

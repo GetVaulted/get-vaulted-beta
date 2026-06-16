@@ -1209,6 +1209,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       try {
         const res = await createLiveRoomItem(roomId, {
           title: payload.title,
+          imageUrl: payload.imageUrl,
           priceUsd: payload.priceUsd,
           startingBidUsd: payload.startingBidUsd,
           quantity: payload.quantity,

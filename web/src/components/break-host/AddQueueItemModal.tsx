@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { LiveItemVariantBuilder, type LiveItemSalesFormatDraft } from "@/components/live-auction/LiveItemVariantBuilder";
+import { compressImageFileToBlob } from "@/lib/listing-image-compress";
 import { isVariantSalesFormat, type VariantDraftInput } from "@/lib/live-item-variant-presets";
+import { uploadListingImageBlob } from "@/lib/upload-listing-image-client";
 
 export type AddQueueItemCloseReason = "cancel" | "success" | "escape";
 
 export type AddQueueItemAuctionPayload = {
   title: string;
+  imageUrl: string;
   priceUsd: number | null;
   startingBidUsd: number;
   quantity: number;
@@ -27,6 +30,8 @@ type Props = {
 };
 
 const ALLOWED_CLOSE: AddQueueItemCloseReason[] = ["cancel", "success", "escape"];
+const THUMBNAIL_UPLOAD_ALLOWED = new Set(["image/jpeg", "image/png", "image/webp"]);
+const THUMBNAIL_MAX_FILE_BYTES = 20 * 1024 * 1024;
 
 function requestClose(reason: string, onRequestClose: (reason: AddQueueItemCloseReason) => void) {
   const allowed = ALLOWED_CLOSE.includes(reason as AddQueueItemCloseReason);
@@ -45,6 +50,9 @@ export function AddQueueItemModal({
 }: Props) {
   const [mounted, setMounted] = useState(false);
   const [auctionDraftTitle, setAuctionDraftTitle] = useState("");
+  const [auctionDraftImageUrl, setAuctionDraftImageUrl] = useState("");
+  const [auctionDraftImageUploading, setAuctionDraftImageUploading] = useState(false);
+  const [auctionDraftImageError, setAuctionDraftImageError] = useState<string | null>(null);
   const [auctionDraftPrice, setAuctionDraftPrice] = useState("");
   const [auctionDraftQuantity, setAuctionDraftQuantity] = useState("1");
   const [auctionDraftStartBid, setAuctionDraftStartBid] = useState("");
@@ -53,6 +61,7 @@ export function AddQueueItemModal({
   const [queueDraftMisc, setQueueDraftMisc] = useState(false);
   const builderSessionRef = useRef(0);
   const wasOpenRef = useRef(false);
+  const imageFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -62,6 +71,9 @@ export function AddQueueItemModal({
     if (open && !wasOpenRef.current) {
       builderSessionRef.current += 1;
       setAuctionDraftTitle("");
+      setAuctionDraftImageUrl("");
+      setAuctionDraftImageUploading(false);
+      setAuctionDraftImageError(null);
       setAuctionDraftPrice("");
       setAuctionDraftQuantity("1");
       setAuctionDraftStartBid("");
@@ -81,9 +93,37 @@ export function AddQueueItemModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onRequestClose]);
 
+  const uploadQueueThumbnail = useCallback(async (file: File) => {
+    setAuctionDraftImageError(null);
+    if (!THUMBNAIL_UPLOAD_ALLOWED.has(file.type)) {
+      setAuctionDraftImageError("Use a JPG, PNG, or WebP image.");
+      return;
+    }
+    if (file.size > THUMBNAIL_MAX_FILE_BYTES) {
+      setAuctionDraftImageError("Thumbnail image must be 20MB or smaller.");
+      return;
+    }
+
+    setAuctionDraftImageUploading(true);
+    try {
+      const blob = await compressImageFileToBlob(file, 1280, 0.86);
+      const url = await uploadListingImageBlob(blob, "live-queue-thumbnail.jpg");
+      setAuctionDraftImageUrl(url);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      setAuctionDraftImageError(msg || "Could not upload thumbnail image.");
+    } finally {
+      setAuctionDraftImageUploading(false);
+    }
+  }, []);
+
   const handleSubmitAuction = useCallback(async () => {
     const title = auctionDraftTitle.trim();
     if (!title) return;
+    if (!auctionDraftImageUrl.trim()) {
+      setAuctionDraftImageError("Upload 1 thumbnail image.");
+      return;
+    }
     const p = auctionDraftPrice.trim() === "" ? null : Number(auctionDraftPrice);
     const qtyRaw = auctionDraftQuantity.trim() === "" ? 1 : Number(auctionDraftQuantity);
     const quantity = Number.isFinite(qtyRaw) && qtyRaw >= 1 ? Math.min(512, Math.floor(qtyRaw)) : 1;
@@ -92,6 +132,7 @@ export function AddQueueItemModal({
       sbRaw === "" ? 1 : Number.isFinite(Number(sbRaw)) && Number(sbRaw) > 0 ? Number(sbRaw) : 1;
     const ok = await onSubmitAuction({
       title,
+      imageUrl: auctionDraftImageUrl.trim(),
       priceUsd: p != null && Number.isFinite(p) ? p : null,
       startingBidUsd,
       quantity: isVariantSalesFormat(auctionDraftSalesFormat) ? 1 : quantity,
@@ -101,6 +142,7 @@ export function AddQueueItemModal({
     });
     if (ok) requestClose("success", onRequestClose);
   }, [
+    auctionDraftImageUrl,
     auctionDraftPrice,
     auctionDraftQuantity,
     auctionDraftSalesFormat,
@@ -152,6 +194,65 @@ export function AddQueueItemModal({
                 placeholder="Title"
                 className="w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
               />
+              <div className="mt-3">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Thumbnail</span>
+                <div
+                  onClick={() => !auctionDraftImageUrl && imageFileRef.current?.click()}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if ((e.key === "Enter" || e.key === " ") && !auctionDraftImageUrl) {
+                      e.preventDefault();
+                      imageFileRef.current?.click();
+                    }
+                  }}
+                  className={`mt-2 rounded-lg border border-dashed px-4 py-4 transition ${
+                    auctionDraftImageUrl
+                      ? "border-white/10 bg-[#0c0c10]"
+                      : "cursor-pointer border-white/15 bg-[#0c0c10] hover:border-white/25"
+                  } ${auctionDraftImageUploading ? "pointer-events-none opacity-70" : ""}`}
+                >
+                  <input
+                    ref={imageFileRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="sr-only"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      if (f) void uploadQueueThumbnail(f);
+                    }}
+                  />
+                  {auctionDraftImageUrl.trim() ? (
+                    <div className="flex items-center gap-3">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- uploaded queue thumbnail */}
+                      <img src={auctionDraftImageUrl} alt="" className="size-16 shrink-0 rounded-lg object-cover" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-zinc-200">Thumbnail uploaded</p>
+                        <p className="mt-0.5 text-[11px] text-zinc-500">Shown on auction cards, queue, and pinned item.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          imageFileRef.current?.click();
+                        }}
+                        className="rounded-lg border border-white/12 px-2 py-1 text-[11px] font-semibold text-zinc-300 hover:bg-white/[0.06]"
+                      >
+                        Replace
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-2 text-center">
+                      <p className="text-sm font-semibold text-zinc-200">Upload thumbnail</p>
+                      <p className="mt-1 text-[11px] text-zinc-500">Upload 1 thumbnail image · JPG, PNG, or WebP</p>
+                    </div>
+                  )}
+                </div>
+                {auctionDraftImageError ? (
+                  <p className="mt-1 text-xs text-rose-300">{auctionDraftImageError}</p>
+                ) : null}
+              </div>
               <input
                 value={auctionDraftPrice}
                 onChange={(e) => setAuctionDraftPrice(e.target.value)}

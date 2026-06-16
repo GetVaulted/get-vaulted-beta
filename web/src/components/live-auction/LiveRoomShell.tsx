@@ -61,6 +61,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         body,
         messageType: "system",
         createdAt: new Date().toISOString(),
+        mentions: [],
       };
       return [...prev.slice(-199), next];
     });

@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { MentionComposer } from "@/components/mentions/MentionComposer";
+import { MentionText } from "@/components/mentions/MentionText";
+import type { MessageMentionDTO } from "@/lib/mentions/mention-types";
 
 type ThreadMeta = {
   id: string;
@@ -18,6 +21,7 @@ type Msg = {
   body: string;
   readAt: string | null;
   createdAt: string;
+  mentions?: MessageMentionDTO[];
 };
 
 function formatMsgTime(iso: string) {
@@ -148,7 +152,9 @@ export function AccountThreadPage({ threadId }: { threadId: string }) {
                       : "border-white/[0.1] bg-white/[0.03] text-zinc-200"
                   }`}
                 >
-                  <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                  <p className="whitespace-pre-wrap break-words">
+                    <MentionText body={m.body} mentions={m.mentions} />
+                  </p>
                   <p className={`mt-1.5 text-[10px] tabular-nums ${mine ? "text-zinc-500" : "text-zinc-600"}`}>
                     {formatMsgTime(m.createdAt)}
                   </p>
@@ -163,13 +169,14 @@ export function AccountThreadPage({ threadId }: { threadId: string }) {
       <div className="border-t border-white/[0.08] bg-[#060608] p-3 sm:p-4">
         {sendError ? <p className="mb-2 text-xs font-medium text-rose-300">{sendError}</p> : null}
         <div className="flex gap-2">
-          <textarea
+          <MentionComposer
             value={draft}
-            onChange={(e) => {
-              setDraft(e.target.value);
+            onChange={(v) => {
+              setDraft(v);
               setSendError(null);
             }}
             rows={2}
+            maxLength={8000}
             placeholder="Write a reply…"
             className="min-h-[44px] flex-1 resize-none rounded-xl border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-foreground outline-none focus:border-gold/35"
             onKeyDown={(e) => {

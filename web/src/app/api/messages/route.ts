@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createNotification } from "@/lib/notifications";
+import { processMessageMentions } from "@/lib/mentions/process-message-mentions";
 import {
   ensureThreadParticipants,
   listingAnchorKey,
@@ -155,7 +156,7 @@ export async function POST(req: Request) {
 
       await ensureThreadParticipants(tx, thread.id, buyerId, sellerId);
 
-      await tx.message.create({
+      const created = await tx.message.create({
         data: {
           threadId: thread.id,
           senderId: buyerId,
@@ -164,6 +165,20 @@ export async function POST(req: Request) {
           body: text,
           kind: "user",
         },
+        select: { id: true },
+      });
+
+      const buyer = await tx.user.findUnique({ where: { id: buyerId }, select: { username: true } });
+      await processMessageMentions({
+        db: tx,
+        sourceType: "thread_message",
+        sourceId: created.id,
+        body: text,
+        senderId: buyerId,
+        senderUsername: buyer?.username ?? "user",
+        threadId: thread.id,
+        notifyHref: `/account/messages/${encodeURIComponent(thread.id)}`,
+        notifyContext: "Message thread",
       });
 
       await tx.messageThread.update({

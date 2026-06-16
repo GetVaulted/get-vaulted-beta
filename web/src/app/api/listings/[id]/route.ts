@@ -24,6 +24,7 @@ import {
 import { resolveAllowLayawayForListing } from "@/lib/layaway/eligibility";
 import { LAYAWAY_MIN_LISTING_PRICE_USD } from "@/lib/layaway/constants";
 import type { BuyingFormat, ListingStatus } from "@/generated/prisma/client";
+import { validateListingImageCount } from "@/lib/listing-photo-requirements";
 
 const listingInclude = listingWithSellerFulfillmentInclude;
 
@@ -359,6 +360,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   const imageCountAfter = listedUrls !== null ? listedUrls.length : existing.images.length;
+  const imageValidation = validateListingImageCount({
+    buyingFormat: nextFormat,
+    status: nextStatus,
+    imageCount: imageCountAfter,
+  });
+  if (!imageValidation.ok) {
+    return NextResponse.json({ error: imageValidation.error }, { status: 400 });
+  }
   if ((nextStatus === "active" || nextStatus === "auction_live") && imageCountAfter === 0) {
     return NextResponse.json({ error: "At least one image is required to publish." }, { status: 400 });
   }

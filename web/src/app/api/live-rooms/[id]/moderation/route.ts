@@ -1,14 +1,19 @@
 import { NextResponse } from "next/server";
 import type { LiveRoomModerationActionType } from "@/generated/prisma/enums";
+import type { LiveRoomModeratorLevel } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { requireAdmin } from "@/lib/require-admin";
 import {
   applyLiveRoomModerationAction,
+  getLiveRoomModeratorContext,
   getLiveRoomUserRestrictions,
-  isLiveRoomHostOrModerator,
+  listLiveRoomModHistory,
+  listLiveRoomModQueue,
   listLiveRoomModerators,
+  listLiveRoomRecentViewers,
 } from "@/lib/trust/live-room-moderation";
+import { listAllowedModerationActions } from "@/lib/trust/live-room-moderator-permissions";
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: raw } = await ctx.params;
@@ -18,6 +23,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     where: { id: liveRoomId },
     select: {
       id: true,
+      sellerId: true,
       slowModeSeconds: true,
       pinnedModeratorMessage: true,
       pinnedModeratorMessageAt: true,
@@ -26,26 +32,60 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   if (!room) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const auth = await resolveLiveRoomsUserId(req);
-  let canModerate = false;
+  let modCtx: {
+    canModerate: boolean;
+    viewerRole: "buyer" | "host" | "moderator";
+    moderatorLevel: LiveRoomModeratorLevel | null;
+    isHost: boolean;
+  } = {
+    canModerate: false,
+    viewerRole: "buyer",
+    moderatorLevel: null,
+    isHost: false,
+  };
+
   if (!(auth instanceof NextResponse)) {
-    const perm = await isLiveRoomHostOrModerator({ liveRoomId, userId: auth.userId });
-    canModerate = perm.canModerate;
+    const ctxRow = await getLiveRoomModeratorContext({ liveRoomId, userId: auth.userId });
+    modCtx = {
+      canModerate: ctxRow.canModerate,
+      viewerRole: ctxRow.viewerRole,
+      moderatorLevel: ctxRow.moderatorLevel,
+      isHost: ctxRow.isHost,
+    };
   }
 
-  const moderators = canModerate ? await listLiveRoomModerators(liveRoomId) : [];
+  const moderators = modCtx.canModerate ? await listLiveRoomModerators(liveRoomId) : [];
 
   let myRestrictions = null;
   if (!(auth instanceof NextResponse)) {
     myRestrictions = await getLiveRoomUserRestrictions({ liveRoomId, userId: auth.userId });
   }
 
+  const allowedActions = modCtx.canModerate
+    ? listAllowedModerationActions({
+        isHost: modCtx.isHost,
+        moderatorLevel: modCtx.moderatorLevel,
+      })
+    : [];
+
+  const modHistory = modCtx.canModerate ? await listLiveRoomModHistory(liveRoomId) : [];
+  const modQueue = modCtx.canModerate ? await listLiveRoomModQueue(liveRoomId) : [];
+  const viewers = modCtx.canModerate ? await listLiveRoomRecentViewers(liveRoomId) : [];
+
   return NextResponse.json({
     slowModeSeconds: room.slowModeSeconds,
     pinnedModeratorMessage: room.pinnedModeratorMessage,
     pinnedModeratorMessageAt: room.pinnedModeratorMessageAt?.toISOString() ?? null,
-    canModerate,
+    canModerate: modCtx.canModerate,
+    viewerRole: modCtx.viewerRole,
+    moderatorLevel: modCtx.moderatorLevel,
+    allowedActions,
+    sellerId: modCtx.canModerate ? room.sellerId : undefined,
     moderators,
     myRestrictions,
+    modHistory,
+    modQueue,
+    viewers,
   });
 }
 
