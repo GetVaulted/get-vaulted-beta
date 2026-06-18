@@ -11,6 +11,7 @@ export const VIEWER_EVENT_SHARE_BODY = "shared this show ✉️";
 const JOIN_DEDUPE_WINDOW_MS = 30 * 1000;
 const SHARE_DEDUPE_WINDOW_MS = 30 * 1000;
 
+import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
 import { getLiveRoomUserRestrictions } from "@/lib/trust/live-room-moderation";
 
 type PostBody = { kind?: string };
@@ -32,8 +33,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (room.status === "ended") {
     return NextResponse.json({ error: "Room has ended." }, { status: 409 });
   }
-  if (room.status !== "live") {
-    return NextResponse.json({ error: "Room is not live yet." }, { status: 409 });
+  if (!liveRoomChatOpen(room.status)) {
+    return NextResponse.json({ error: "Room is not open for chat." }, { status: 409 });
   }
 
   const restrictions = await getLiveRoomUserRestrictions({ liveRoomId, userId: auth.userId });

@@ -29,6 +29,7 @@ import { HostVariantCommerceStage } from "@/components/break-host/HostVariantCom
 import { HostAddSupplementalModal } from "@/components/break-host/HostAddSupplementalModal";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import { canonicalLiveRoomUrl } from "@/lib/live-room-share-metadata";
+import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
 import {
   readHostCommercePanelMinimized,
   writeHostCommercePanelMinimized,
@@ -761,13 +762,13 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     [hostModeration, roomId],
   );
 
-  const chatPollLive = data?.room?.status?.toLowerCase() === "live";
+  const chatPollActive = liveRoomChatOpen(data?.room?.status);
   useEffect(() => {
-    if (!chatPollLive) return;
+    if (!chatPollActive) return;
     void mergeHostMessagesFromApi();
     const id = window.setInterval(() => void mergeHostMessagesFromApi(), 4000);
     return () => window.clearInterval(id);
-  }, [chatPollLive, mergeHostMessagesFromApi]);
+  }, [chatPollActive, mergeHostMessagesFromApi]);
 
   useEffect(() => {
     void load();

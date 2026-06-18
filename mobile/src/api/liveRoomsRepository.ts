@@ -8,6 +8,7 @@ import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 import { logVaultCommandCenter, supabaseJwtSub } from '../lib/logVaultCommandCenterFlow';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { liveRoomCategoryTagsForRow } from '../lib/liveRoomDisplay';
+import { resolveLiveRoomMediaUrl, resolveLiveRoomPreviewImage, assertLivePreviewResolvable } from '../lib/liveRoomPreviewImage';
 import { mapListingCategoryToCategoryId } from './listingsFeedRepository';
 import type { CategoryId, Host, LiveStream, ScheduledStream } from '../types';
 
@@ -19,6 +20,11 @@ export type LiveRoomApiRow = {
   roomType: 'auction' | 'sale' | 'break';
   status: 'scheduled' | 'live' | 'ended';
   thumbnailUrl: string;
+  /** Server-resolved cover art for discovery tiles (optional — client falls back). */
+  previewImageUrl?: string;
+  firstItemImageUrl?: string;
+  sellerAvatarUrl?: string;
+  sellerDisplayName?: string;
   viewerCount: number;
   scheduledStartAt: string | null;
   startedAt: string | null;
@@ -27,9 +33,6 @@ export type LiveRoomApiRow = {
   itemCount: number;
   activeItemTitle: string | null;
 };
-
-const FALLBACK_PREVIEW =
-  'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1200&q=78&auto=format&fit=crop';
 
 function parseApiErrorBody(raw: unknown): {
   json: { error?: string; code?: string; detail?: string } | null;
@@ -356,14 +359,26 @@ export async function fetchMyLiveRooms(accessToken: string): Promise<LiveRoomApi
 
 function hostFromRow(row: LiveRoomApiRow): Host {
   const uname = row.sellerUsername?.trim() || 'host';
+  const display = row.sellerDisplayName?.trim() || uname;
   return {
     id: uname,
-    name: uname,
+    name: display,
     handle: `@${uname}`,
-    avatarUrl: '',
+    avatarUrl: resolveLiveRoomMediaUrl(row.sellerAvatarUrl) ?? '',
     verified: false,
     followers: '—',
   };
+}
+
+function previewImageForRow(row: LiveRoomApiRow, category: CategoryId): string {
+  assertLivePreviewResolvable(row.thumbnailUrl);
+  const fromApi = row.previewImageUrl?.trim();
+  if (fromApi) return fromApi;
+  return resolveLiveRoomPreviewImage({
+    thumbnailUrl: row.thumbnailUrl,
+    firstItemImageUrl: row.firstItemImageUrl,
+    category,
+  });
 }
 
 function fmtSchedule(iso: string | null): string {
@@ -398,7 +413,7 @@ export function liveRoomRowToLiveStream(row: LiveRoomApiRow): LiveStream {
     viewers: Math.max(0, row.viewerCount ?? 0),
     roomStatus: row.status,
     scheduledStartAtIso: row.scheduledStartAt,
-    previewImageUrl: row.thumbnailUrl?.trim() || FALLBACK_PREVIEW,
+    previewImageUrl: previewImageForRow(row, cat),
     thumbnailGradient: ['#05070a', '#0c1018'] as [string, string],
     host: hostFromRow(row),
     currentItem: row.activeItemTitle?.trim() || 'Live',
@@ -434,6 +449,43 @@ export function liveRoomRowToScheduledStream(row: LiveRoomApiRow): ScheduledStre
     interestedCount: 0,
     cardGradient: ['#0a0c10', '#141a24'] as [string, string],
     eventTag: row.status === 'live' ? 'Live' : 'Scheduled',
+    previewImageUrl: previewImageForRow(row, cat),
+    scheduledStartAtIso: row.scheduledStartAt,
+  };
+}
+
+/** Map a scheduled vault event to the same tile model used for live rooms. */
+export function scheduledStreamToLiveStream(event: ScheduledStream): LiveStream {
+  const tags = liveRoomCategoryTagsForRow(event.category, event.category);
+  return {
+    id: event.id,
+    title: event.title,
+    category: event.category,
+    viewers: 0,
+    roomStatus: 'scheduled',
+    scheduledStartAtIso: event.scheduledStartAtIso ?? null,
+    previewImageUrl: event.previewImageUrl ?? resolveLiveRoomPreviewImage({ category: event.category }),
+    thumbnailGradient: ['#0a0c10', '#141a24'] as [string, string],
+    host: event.host,
+    currentItem: 'Upcoming',
+    startingBid: 0,
+    currentBid: 0,
+    reserve: 0,
+    buyNowPrice: null,
+    timeLeftSeconds: 0,
+    chat: [],
+    recentBids: [],
+    highlightsCount: 0,
+    showDescription: event.startsAt,
+    categoryTags: tags,
+    engagementLine: '',
+    discoveryTags: tags,
+    breakProgress: 0,
+    pinnedProductLabel: 'Vault event',
+    giveawayLine: '',
+    packStatusLine: '',
+    liveRoomFormat: 'auction',
+    hybridFocus: 'auction',
   };
 }
 

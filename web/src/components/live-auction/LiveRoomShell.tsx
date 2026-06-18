@@ -9,6 +9,7 @@ import { useRealtimeRoomPresence } from "@/hooks/useRealtimeRoomPresence";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
 import { logLiveDebugEvent } from "@/lib/live-debug";
 import { announceLiveRoomJoin } from "@/lib/live-room-viewer-event-client";
+import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
 import { appendLiveRoomMessageDedupe, mergeLiveRoomMessagesById } from "@/lib/realtime-merge-messages";
 import type { LiveRoomDetailDTO, LiveRoomItemDTO, LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { mergeLiveRoomDetailFromFetch } from "@/lib/live-room-fetch-merge";
@@ -390,15 +391,15 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     }
   }, [roomId]);
 
-  /** Chat-only poll while live: iOS / WebKit often misses Supabase broadcast frames; merge is idempotent. */
-  const chatPollLive = detail?.status === "live";
+  /** Chat poll while the room is published (scheduled or live). */
+  const chatPollActive = liveRoomChatOpen(detail?.status);
   useEffect(() => {
-    if (!chatPollLive) return;
+    if (!chatPollActive) return;
     const hasRealtime = Boolean(getSupabaseBrowserClient());
     const pollMs = hasRealtime ? 1100 : 2000;
     const id = window.setInterval(() => void mergeMessagesFromApi(), pollMs);
     return () => window.clearInterval(id);
-  }, [chatPollLive, mergeMessagesFromApi]);
+  }, [chatPollActive, mergeMessagesFromApi]);
 
   useEffect(() => {
     if (refreshNonce === 0) return;
@@ -415,9 +416,9 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     }
   }, [detail]);
 
-  /** Announce join when the room goes live (presence may have fired while still scheduled). */
+  /** Announce join when entering a published room (scheduled or live). */
   useEffect(() => {
-    if (detail?.status !== "live" || !session?.user?.id) return;
+    if (!liveRoomChatOpen(detail?.status) || !session?.user?.id) return;
     void announceLiveRoomJoin(roomId);
   }, [detail?.status, roomId, session?.user?.id]);
 

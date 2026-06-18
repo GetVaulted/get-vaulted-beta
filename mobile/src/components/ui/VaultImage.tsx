@@ -1,11 +1,15 @@
 import { Image, type ImageContentFit } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { DEFAULT_LIVE_ROOM_PREVIEW_IMAGE } from '../../lib/liveRoomPreviewImage';
 import { colors } from '../../theme';
 
 const PLACEHOLDER = { blurhash: 'LKO2?U%2Tw=w]~RBVZRi};RPxuwH' };
 
 type VaultImageProps = {
   uri?: string | null;
+  /** Used when `uri` is missing or fails to load. */
+  fallbackUri?: string;
   width: number;
   height: number;
   borderRadius?: number;
@@ -18,6 +22,7 @@ type VaultImageProps = {
 /** Stable-size remote image with placeholder — reduces layout shift on rails and hero cards. */
 export function VaultImage({
   uri,
+  fallbackUri = DEFAULT_LIVE_ROOM_PREVIEW_IMAGE,
   width,
   height,
   borderRadius = 0,
@@ -26,6 +31,8 @@ export function VaultImage({
   style,
   accessibilityLabel,
 }: VaultImageProps) {
+  const resolvedUri = uri?.trim() || fallbackUri;
+
   return (
     <View
       style={[
@@ -34,18 +41,21 @@ export function VaultImage({
         style,
       ]}
     >
-      {uri ? (
-        <Image
-          source={{ uri }}
-          style={{ width, height }}
-          contentFit={contentFit}
-          transition={180}
-          priority={priority}
-          placeholder={PLACEHOLDER}
-          recyclingKey={uri}
-          accessibilityLabel={accessibilityLabel}
-        />
-      ) : null}
+      <LinearGradient
+        colors={['#141820', '#0a0c10']}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+      <Image
+        source={{ uri: resolvedUri }}
+        style={{ width, height }}
+        contentFit={contentFit}
+        transition={180}
+        priority={priority}
+        placeholder={PLACEHOLDER}
+        recyclingKey={resolvedUri}
+        accessibilityLabel={accessibilityLabel}
+      />
     </View>
   );
 }

@@ -6,6 +6,7 @@ import { serializeLiveRoomMessage } from "@/lib/live-room-serialize";
 import { prisma } from "@/lib/prisma";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { emitLiveRoomMessageById } from "@/lib/realtime-emit-server";
+import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
 import {
   getLastChatAt,
   getLiveRoomSlowModeSeconds,
@@ -61,8 +62,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (room.status === "ended") {
     return NextResponse.json({ error: "Room has ended." }, { status: 409 });
   }
-  if (room.status !== "live") {
-    return NextResponse.json({ error: "Chat opens when the room is live." }, { status: 409 });
+  if (!liveRoomChatOpen(room.status)) {
+    return NextResponse.json({ error: "Chat is not available for this room." }, { status: 409 });
   }
 
   const restrictions = await getLiveRoomUserRestrictions({ liveRoomId, userId: auth.userId });

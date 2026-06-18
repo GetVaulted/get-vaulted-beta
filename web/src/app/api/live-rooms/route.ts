@@ -9,6 +9,10 @@ import { prisma } from "@/lib/prisma";
 import { parseTeamBoardLeague } from "@/lib/team-board-sets";
 import { emitLiveDiscoveryChanged } from "@/lib/realtime-emit-server";
 import { buildLiveTipRoomData } from "@/lib/live-tip-moderator";
+import {
+  resolveLiveRoomMediaUrl,
+  resolveLiveRoomPreviewImage,
+} from "@/lib/live-room-preview-image";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
 
 const ROOM_TYPES: LiveRoomType[] = ["auction", "sale", "break"];
@@ -74,9 +78,23 @@ export async function GET(req: Request) {
     const rows = await prisma.liveRoom.findMany({
       where,
       include: {
-        seller: { select: { username: true } },
+        seller: { select: { username: true, name: true, image: true } },
         tipModerator: { select: { username: true } },
-        items: { select: { id: true, title: true, status: true } },
+        items: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            imageUrl: true,
+            sortOrder: true,
+            listing: {
+              select: {
+                images: { select: { url: true }, orderBy: { sortOrder: "asc" }, take: 1 },
+              },
+            },
+          },
+          orderBy: { sortOrder: "asc" },
+        },
       },
       orderBy: { updatedAt: "desc" },
       take: limit,
@@ -91,6 +109,24 @@ export async function GET(req: Request) {
 
     const rooms = sorted.map((r) => {
       const active = r.items.find((i) => i.status === "active");
+      let firstItemImageUrl = "";
+      for (const item of r.items) {
+        const direct = item.imageUrl?.trim();
+        if (direct) {
+          firstItemImageUrl = direct;
+          break;
+        }
+        const listingImg = item.listing?.images?.[0]?.url?.trim();
+        if (listingImg) {
+          firstItemImageUrl = listingImg;
+          break;
+        }
+      }
+      const previewImageUrl = resolveLiveRoomPreviewImage({
+        thumbnailUrl: r.thumbnailUrl,
+        firstItemImageUrl,
+        category: r.category,
+      });
       return {
         id: r.id,
         title: r.title,
@@ -99,6 +135,10 @@ export async function GET(req: Request) {
         roomType: r.roomType,
         status: r.status,
         thumbnailUrl: r.thumbnailUrl ?? "",
+        previewImageUrl,
+        firstItemImageUrl,
+        sellerAvatarUrl: resolveLiveRoomMediaUrl(r.seller?.image ?? ""),
+        sellerDisplayName: r.seller?.name?.trim() || r.seller?.username || "seller",
         viewerCount: r.viewerCount,
         scheduledStartAt: r.scheduledStartAt?.toISOString() ?? null,
         startedAt: r.startedAt?.toISOString() ?? null,

@@ -166,6 +166,9 @@ export type ScheduledStream = {
   interestedCount: number;
   cardGradient: [string, string];
   eventTag: string;
+  /** Cover art for discovery tiles. */
+  previewImageUrl?: string;
+  scheduledStartAtIso?: string | null;
 };
 
 export type ListingLiveAppearance = {

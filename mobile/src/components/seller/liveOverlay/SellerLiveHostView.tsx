@@ -16,6 +16,7 @@ import type { SanitizedLiveError } from '../liveConsole/liveConsoleErrors';
 import { SellerLiveStreamBackdrop } from './SellerLiveStreamBackdrop';
 import type { MobileHostBroadcastPhase, SellerCameraPermissionState } from '../../../hooks/useMobileStagePublish';
 import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
+import { liveRoomChatOpen } from '../../../lib/liveRoomChatPolicy';
 import { useLiveRoomChat } from '../../../hooks/useLiveRoomChat';
 import { useLiveRoomModeration } from '../../../hooks/useLiveRoomModeration';
 import { useRealtimeRoomSubscription } from '../../../hooks/useRealtimeRoomSubscription';
@@ -130,7 +131,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   }, [user?.id]);
 
   const roomLive = host.room?.status === 'live';
-  const canHostChat = roomLive || host.broadcastPhase === 'live' || host.streamConnected;
+  const roomChatOpen = liveRoomChatOpen(host.room?.status);
+  const canHostChat = roomChatOpen || host.broadcastPhase === 'live' || host.streamConnected;
   const canStart = host.room?.status === 'scheduled';
   const canEnd = host.room?.status === 'live';
   const streamTitle = host.room?.title ?? 'Live show';
@@ -231,7 +233,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
     const text = chatDraft.trim();
     if (!text || liveChat.sending) return;
     if (!canHostChat) {
-      Alert.alert('Not live yet', 'Go live to chat with viewers.');
+      Alert.alert('Chat unavailable', 'Chat is closed for this show.');
       return;
     }
     try {
@@ -374,7 +376,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         onSend={sendHostChat}
         sendDisabled={liveChat.sending || !canHostChat}
         inputDisabled={host.room?.status === 'ended'}
-        placeholder={canHostChat ? 'Say something' : 'Go live to chat'}
+        placeholder={canHostChat ? 'Say something' : 'Chat unavailable'}
         accessToken={accessToken}
         leadingAccessory={
           <>

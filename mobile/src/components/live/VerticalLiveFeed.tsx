@@ -38,6 +38,7 @@ import {
   DEFAULT_COMMERCE_OVERLAY_HEIGHT,
 } from '../../lib/liveRoomBottomLayout';
 import { useLiveRoomChat } from '../../hooks/useLiveRoomChat';
+import { liveRoomChatOpen } from '../../lib/liveRoomChatPolicy';
 import { useLiveRoomRealtimeSession } from '../../hooks/useLiveRoomRealtimeSession';
 import { BreakDisclaimerModal, breakDisclaimerStorageKey, readBreakDisclaimerAccepted, writeBreakDisclaimerAccepted } from './BreakDisclaimerModal';
 import { useLiveRoomModeration } from '../../hooks/useLiveRoomModeration';
@@ -293,7 +294,7 @@ function LiveSlide({
   }, [isActive, stream.id, stageContainer, screenHeight]);
 
   useEffect(() => {
-    if (!isActive || !signedIn || !accessToken || roomStatus !== 'live') return;
+    if (!isActive || !signedIn || !accessToken || !liveRoomChatOpen(roomStatus)) return;
     void liveChat.announceJoin().catch((e) => {
       const msg = e instanceof Error ? e.message : String(e);
       moderation.handleRestrictionError(msg);

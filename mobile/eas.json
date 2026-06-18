@@ -6,13 +6,22 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_SITE_URL": "https://beta.shopgetvaulted.com"
+      }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_SITE_URL": "https://beta.shopgetvaulted.com"
+      }
     },
     "production": {
-      "autoIncrement": false
+      "autoIncrement": false,
+      "env": {
+        "EXPO_PUBLIC_SITE_URL": "https://beta.shopgetvaulted.com"
+      }
     }
   },
   "submit": {

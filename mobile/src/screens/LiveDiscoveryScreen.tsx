@@ -19,10 +19,10 @@ import {
   LIVE_ROOM_CARD_TOTAL_HEIGHT,
   LiveRoomCardSkeletonRail,
 } from '../components/home/LiveRoomCardSkeleton';
-import { LiveNowPreviewCard } from '../components/home/LiveNowPreviewCard';
-import { VaultDropCard } from '../components/home/VaultDropCard';
+import { LiveNowPreviewCard, type LivePromoBadge } from '../components/home/LiveNowPreviewCard';
 import { LiveEmptyBroadcastBlock } from '../components/live/LiveEmptyBroadcastBlock';
 import { SearchBar } from '../components/ui/SearchBar';
+import { scheduledStreamToLiveStream } from '../api/liveRoomsRepository';
 import { discoveryCategoryChips, filterScheduledByChip, filterShowsByChip } from '../data/categoryTaxonomy';
 import { useLiveDiscoverySync } from '../hooks/useLiveDiscoverySync';
 import {
@@ -32,7 +32,7 @@ import {
   loadHomeFeedCache,
   saveHomeFeedCache,
 } from '../lib/homeFeedCache';
-import { orderLiveDiscoveryRooms, type OrderedLiveRoom } from '../lib/liveDiscoveryOrder';
+import { orderLiveDiscoveryRooms } from '../lib/liveDiscoveryOrder';
 import {
   markLiveDiscoveryFetchAttempt,
   markLiveDiscoveryFetchResult,
@@ -197,6 +197,25 @@ export function LiveDiscoveryScreen() {
     [scheduledAll, chip],
   );
   const orderedRooms = useMemo(() => orderLiveDiscoveryRooms(filteredLive), [filteredLive]);
+  const scheduledTiles = useMemo(
+    () => filteredScheduled.map((event) => scheduledStreamToLiveStream(event)),
+    [filteredScheduled],
+  );
+  const gridTiles = useMemo(
+    () => [
+      ...orderedRooms.map((item) => ({
+        stream: item.stream,
+        kind: 'live' as const,
+        promoBadge: item.promoBadge,
+      })),
+      ...scheduledTiles.map((stream) => ({
+        stream,
+        kind: 'scheduled' as const,
+        promoBadge: undefined as LivePromoBadge | undefined,
+      })),
+    ],
+    [orderedRooms, scheduledTiles],
+  );
 
   const openShow = (streamId: string) => {
     if (guestExploreMode) {
@@ -212,15 +231,16 @@ export function LiveDiscoveryScreen() {
     liveAll.length > 0 &&
     filteredLive.length === 0 &&
     filteredScheduled.length === 0;
-  const showSkeleton = initialLoad && orderedRooms.length === 0 && scheduledAll.length === 0;
+  const showSkeleton = initialLoad && gridTiles.length === 0;
 
-  const renderRoom = ({ item }: { item: OrderedLiveRoom }) => (
+  const renderRoom = ({ item }: { item: (typeof gridTiles)[number] }) => (
     <LiveNowPreviewCard
       stream={item.stream}
       promoBadge={item.promoBadge}
       layout="grid"
       gridWidth={GRID_CARD_W}
       onPress={() => openShow(item.stream.id)}
+      onRemind={item.kind === 'scheduled' ? () => {} : undefined}
     />
   );
 
@@ -266,18 +286,18 @@ export function LiveDiscoveryScreen() {
         </View>
       ) : null}
       <Text style={styles.syncHint}>{discoveryMetaLine}</Text>
-      {refreshing && (orderedRooms.length > 0 || scheduledAll.length > 0) ? (
+      {refreshing && gridTiles.length > 0 ? (
         <Text style={styles.syncHint}>Updating vault events…</Text>
       ) : null}
       {showSkeleton ? (
         <View style={styles.skelSlot}>
-          <LiveRoomCardSkeletonRail count={6} />
+          <LiveRoomCardSkeletonRail count={6} layout="grid" gridWidth={GRID_CARD_W} />
         </View>
       ) : null}
-      {!showSkeleton && !liveEmpty && !filterEmpty && orderedRooms.length > 0 ? (
+      {!showSkeleton && !liveEmpty && !filterEmpty && gridTiles.length > 0 ? (
         <View style={styles.liveHead}>
-          <Text style={styles.liveTitle}>Live now</Text>
-          <Text style={styles.liveCount}>{orderedRooms.length} rooms</Text>
+          <Text style={styles.liveTitle}>Live & upcoming</Text>
+          <Text style={styles.liveCount}>{gridTiles.length} events</Text>
         </View>
       ) : null}
     </>
@@ -286,10 +306,10 @@ export function LiveDiscoveryScreen() {
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
       <FlatList
-        data={showSkeleton || liveEmpty || filterEmpty ? [] : orderedRooms}
+        data={showSkeleton || liveEmpty || filterEmpty ? [] : gridTiles}
         keyExtractor={(item) => item.stream.id}
         numColumns={GRID_COLS}
-        columnWrapperStyle={styles.gridRow}
+        columnWrapperStyle={GRID_COLS > 1 ? styles.gridRow : undefined}
         contentContainerStyle={styles.body}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={listHeader}
@@ -317,29 +337,7 @@ export function LiveDiscoveryScreen() {
           />
         }
         renderItem={renderRoom}
-        ListFooterComponent={
-          !showSkeleton && filteredScheduled.length > 0 ? (
-            <View style={styles.upcomingBlock}>
-              <View style={styles.liveHead}>
-                <Text style={styles.liveTitle}>Upcoming vault events</Text>
-                <Text style={styles.liveCount}>{filteredScheduled.length} scheduled</Text>
-              </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.upcomingRail}>
-                {filteredScheduled.map((event) => (
-                  <VaultDropCard
-                    key={event.id}
-                    event={event}
-                    onRemind={() => {}}
-                    onPress={() => openShow(event.id)}
-                  />
-                ))}
-              </ScrollView>
-              <View style={{ height: 120 }} />
-            </View>
-          ) : (
-            <View style={{ height: 120 }} />
-          )
-        }
+        ListFooterComponent={<View style={{ height: 120 }} />}
       />
     </View>
   );
@@ -382,13 +380,6 @@ const styles = StyleSheet.create({
   },
   warnIcon: {
     marginTop: 1,
-  },
-  upcomingBlock: {
-    marginTop: spacing.lg,
-  },
-  upcomingRail: {
-    paddingRight: spacing.xl,
-    gap: spacing.md,
   },
   skelSlot: {
     minHeight: LIVE_ROOM_CARD_TOTAL_HEIGHT,

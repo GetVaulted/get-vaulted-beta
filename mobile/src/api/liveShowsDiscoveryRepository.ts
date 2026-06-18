@@ -2,6 +2,7 @@ import { setLiveDiscoveryMeta } from '../lib/liveDiscoveryMeta';
 import { getSupabase } from '../lib/supabase';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { liveRoomCategoryTagsForRow } from '../lib/liveRoomDisplay';
+import { resolveLiveRoomPreviewImage, assertLivePreviewResolvable } from '../lib/liveRoomPreviewImage';
 import { mapListingCategoryToCategoryId } from './listingsFeedRepository';
 import type { Bid, CategoryId, ChatMessage, Host, LiveStream, ScheduledStream } from '../types';
 
@@ -26,7 +27,7 @@ type ProfileRow = {
 };
 
 const FALLBACK_PREVIEW =
-  'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1200&q=78&auto=format&fit=crop';
+  'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1200&h=1500&q=80&auto=format&fit=crop';
 
 function profileToHost(id: string, p?: ProfileRow): Host {
   const name = p?.display_name?.trim() || p?.username?.trim() || 'Host';
@@ -53,6 +54,11 @@ function showToLiveStream(row: ShowRow, host?: ProfileRow): LiveStream {
   const hostVm = profileToHost(row.host_id, host);
   const emptyChat: ChatMessage[] = [];
   const emptyBids: Bid[] = [];
+  assertLivePreviewResolvable(row.thumbnail_url);
+  const previewImageUrl = resolveLiveRoomPreviewImage({
+    thumbnailUrl: row.thumbnail_url,
+    category: cat,
+  });
   return {
     id: row.id,
     title: row.title,
@@ -60,7 +66,7 @@ function showToLiveStream(row: ShowRow, host?: ProfileRow): LiveStream {
     viewers: Math.max(0, row.viewer_count ?? 0),
     roomStatus: mapRoomStatus(row.status),
     scheduledStartAtIso: row.scheduled_start,
-    previewImageUrl: row.thumbnail_url?.trim() || FALLBACK_PREVIEW,
+    previewImageUrl: previewImageUrl || FALLBACK_PREVIEW,
     thumbnailGradient: ['#05070a', '#0c1018'] as [string, string],
     host: hostVm,
     currentItem: 'Live',
@@ -103,6 +109,7 @@ function fmtSchedule(iso: string | null): string {
 
 function showToScheduledStream(row: ShowRow, host?: ProfileRow): ScheduledStream {
   const cat = mapListingCategoryToCategoryId(row.category);
+  const stream = showToLiveStream(row, host);
   return {
     id: row.id,
     title: row.title,
@@ -112,6 +119,8 @@ function showToScheduledStream(row: ShowRow, host?: ProfileRow): ScheduledStream
     interestedCount: 0,
     cardGradient: ['#0a0c10', '#141a24'] as [string, string],
     eventTag: 'Scheduled',
+    previewImageUrl: stream.previewImageUrl,
+    scheduledStartAtIso: row.scheduled_start,
   };
 }
 
