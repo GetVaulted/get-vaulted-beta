@@ -113,31 +113,9 @@ function ChatAvatarBubble({
   );
 }
 
-/** Oldest row in the tail window fades; newest stays fully visible. */
-function rowOpacity(indexInTail: number, tailSize: number): number {
-  if (tailSize <= 1) return 1;
-  const progress = indexInTail / (tailSize - 1);
-  return 0.14 + progress ** 1.75 * 0.86;
-}
-
-function rowOpacityForMessage(
-  index: number,
-  total: number,
-  pinnedToBottom: boolean,
-  maxRows: number,
-): number {
-  if (!pinnedToBottom || total <= 1) return 1;
-  const distFromEnd = total - 1 - index;
-  if (distFromEnd >= maxRows) return 1;
-  const tailSize = Math.min(maxRows, total);
-  const indexInTail = tailSize - 1 - distFromEnd;
-  return rowOpacity(indexInTail, tailSize);
-}
-
 function FloatingChatRow({
   message,
   hostAvatarUrl,
-  opacity,
   liveRoomId,
   hostUserId,
   accessToken,
@@ -152,7 +130,6 @@ function FloatingChatRow({
 }: {
   message: ChatMessage;
   hostAvatarUrl?: string | null;
-  opacity: number;
   liveRoomId?: string;
   hostUserId?: string;
   accessToken?: string;
@@ -169,7 +146,7 @@ function FloatingChatRow({
   if (isViewerEventMessage(message)) {
     const name = formatViewerEventName(message.user);
     return (
-      <View style={[styles.eventRow, { opacity }]}>
+      <View style={[styles.eventRow]}>
         <LiveRoomText style={styles.inlineLine} numberOfLines={2}>
           <LiveRoomText style={[styles.username, message.isHost && styles.usernameGold]}>{name}</LiveRoomText>
           <LiveRoomText style={styles.messageBody}> {message.text}</LiveRoomText>
@@ -199,7 +176,7 @@ function FloatingChatRow({
 
   return (
     <Pressable
-      style={[styles.chatRow, compact && styles.chatRowCompact, { opacity }]}
+      style={[styles.chatRow, compact && styles.chatRowCompact]}
       onLongPress={showModLongPress ? () => onLongPressMessage?.(message) : undefined}
       delayLongPress={350}
     >
@@ -335,7 +312,6 @@ export function FloatingLiveChat({
             key={`${streamKey}-${m.id}`}
             message={m}
             hostAvatarUrl={hostAvatarUrl}
-            opacity={rowOpacityForMessage(idx, history.length, pinnedToBottom, maxRows)}
             liveRoomId={liveRoomId}
             hostUserId={hostUserId}
             accessToken={accessToken}
