@@ -14,7 +14,7 @@ type Props = {
 export function MentionText({ body, mentions = [], style, mentionStyle, onPressUser }: Props) {
   const segments = segmentMessageWithMentions(body, mentions);
   const mentionStyles: StyleProp<TextStyle> = [
-    { fontWeight: '800', color: colors.gold },
+    { fontWeight: '800', color: colors.mention },
     mentionStyle,
   ];
 

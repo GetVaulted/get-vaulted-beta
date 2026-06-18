@@ -31,13 +31,19 @@ function chatLabelForMessage(m: LiveRoomMessageDTO) {
   return m.senderUsername ?? "User";
 }
 
-function chatLabelClassForMessage(m: LiveRoomMessageDTO, compact: boolean, hostUserId?: string | null) {
+function chatLabelClassForMessage(
+  m: LiveRoomMessageDTO,
+  compact: boolean,
+  hostUserId?: string | null,
+  moderators: { userId: string }[] = [],
+) {
   const fw = compact ? "font-extrabold" : "font-bold";
   if (hostUserId && m.senderId === hostUserId && m.messageType === "chat") return `${fw} text-amber-300/95`;
+  if (isModeratorChatMessage(m, moderators) && m.senderId !== hostUserId) return `${fw} text-violet-300/95`;
   if (isNamedSystemMessage(m)) return `${fw} ${colorForUser(m.senderUsername)}`;
   if (m.messageType === "system") return `${fw} text-amber-200/95`;
   if (m.messageType === "purchase") return `${fw} text-emerald-300/95`;
-  return `${fw} ${colorForUser(m.senderUsername)}`;
+  return `${fw} text-zinc-100`;
 }
 
 function isHostChatMessage(m: LiveRoomMessageDTO, hostUserId: string | null) {
@@ -194,9 +200,11 @@ export function LiveAuctionChat({
             {overlayList.map((m, idx, arr) => {
               const isSystem = m.messageType === "system";
               const label = chatLabelForMessage(m);
-              const labelClass = chatLabelClassForMessage(m, true, hostUserId);
+              const labelClass = chatLabelClassForMessage(m, true, hostUserId, mod.moderators);
               const isNewest = idx === arr.length - 1;
               const showAvatar = shouldShowChatAvatar(m);
+              const isHost = isHostChatMessage(m, hostUserId);
+              const isMod = isModeratorChatMessage(m, mod.moderators) && !isHost;
               return (
                 <div
                   key={m.id}
@@ -219,9 +227,14 @@ export function LiveAuctionChat({
                   ) : null}
                   <span className={`inline-block min-w-0 flex-1 ${lineShadow}`}>
                     <span className={labelClass}>{label}</span>
-                    {isHostChatMessage(m, hostUserId) ? (
+                    {isHost ? (
                       <span className="ml-1 text-[9px] font-black uppercase tracking-wide text-amber-300/90">
                         HOST
+                      </span>
+                    ) : null}
+                    {isMod ? (
+                      <span className="ml-1 text-[9px] font-black uppercase tracking-wide text-violet-300/90">
+                        MOD
                       </span>
                     ) : null}
                     <span className="text-zinc-400">: </span>
@@ -313,8 +326,10 @@ export function LiveAuctionChat({
             const isSystem = m.messageType === "system";
             const isPurchase = m.messageType === "purchase";
             const label = chatLabelForMessage(m);
-            const labelClass = chatLabelClassForMessage(m, false, hostUserId);
+            const labelClass = chatLabelClassForMessage(m, false, hostUserId, mod.moderators);
             const showAvatar = shouldShowChatAvatar(m);
+            const isHost = isHostChatMessage(m, hostUserId);
+            const isMod = isModeratorChatMessage(m, mod.moderators) && !isHost;
             return (
               <div
                 key={m.id}
@@ -333,9 +348,14 @@ export function LiveAuctionChat({
                 ) : null}
                 <div className="min-w-0 flex-1">
                   <span className={labelClass}>{label}</span>
-                  {isHostChatMessage(m, hostUserId) ? (
+                  {isHost ? (
                     <span className="ml-1.5 text-[10px] font-black uppercase tracking-wide text-amber-300/90">
                       HOST
+                    </span>
+                  ) : null}
+                  {isMod ? (
+                    <span className="ml-1.5 text-[10px] font-black uppercase tracking-wide text-violet-300/90">
+                      MOD
                     </span>
                   ) : null}
                   <span className="text-zinc-600">: </span>

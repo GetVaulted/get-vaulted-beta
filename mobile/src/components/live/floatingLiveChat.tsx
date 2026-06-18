@@ -59,20 +59,32 @@ function chatAvatarUri(message: ChatMessage, hostAvatarUrl?: string | null): str
   return null;
 }
 
+function isModeratorSender(
+  message: ChatMessage,
+  hostUserId?: string,
+  moderatorUserIds?: ReadonlySet<string>,
+): boolean {
+  if (!message.senderId || !moderatorUserIds?.size || message.isHost) return false;
+  if (hostUserId && message.senderId === hostUserId) return false;
+  return moderatorUserIds.has(message.senderId);
+}
+
 function ChatAvatarBubble({
   message,
   hostAvatarUrl,
   compact,
+  isModeratorSender: isMod,
 }: {
   message: ChatMessage;
   hostAvatarUrl?: string | null;
   compact?: boolean;
+  isModeratorSender?: boolean;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
   const size = compact ? 22 : 24;
   const uri = chatAvatarUri(message, hostAvatarUrl);
-  const ringColor = message.isHost ? colors.gold : 'rgba(255,255,255,0.28)';
-  const ringWidth = message.isHost ? 1.5 : StyleSheet.hairlineWidth;
+  const ringColor = message.isHost ? colors.gold : isMod ? colors.mod : 'rgba(255,255,255,0.28)';
+  const ringWidth = message.isHost || isMod ? 1.5 : StyleSheet.hairlineWidth;
 
   if (uri && !imgFailed) {
     return (
@@ -136,6 +148,7 @@ function FloatingChatRow({
   onModerationComplete,
   compact,
   onPressChatUser,
+  moderatorUserIds,
 }: {
   message: ChatMessage;
   hostAvatarUrl?: string | null;
@@ -150,7 +163,9 @@ function FloatingChatRow({
   onModerationComplete?: () => void;
   compact?: boolean;
   onPressChatUser?: (user: { username: string; userId?: string }) => void;
+  moderatorUserIds?: ReadonlySet<string>;
 }) {
+  const isModSender = isModeratorSender(message, hostUserId, moderatorUserIds);
   if (isViewerEventMessage(message)) {
     const name = formatViewerEventName(message.user);
     return (
@@ -183,16 +198,26 @@ function FloatingChatRow({
       onLongPress={showModLongPress ? () => onLongPressMessage?.(message) : undefined}
       delayLongPress={350}
     >
-      <ChatAvatarBubble message={message} hostAvatarUrl={hostAvatarUrl} compact={compact} />
+      <ChatAvatarBubble
+        message={message}
+        hostAvatarUrl={hostAvatarUrl}
+        compact={compact}
+        isModeratorSender={isModSender}
+      />
       <View style={styles.chatTextWrap}>
         <LiveRoomText style={[styles.inlineLine, compact && styles.inlineLineCompact]} numberOfLines={3}>
           <LiveRoomText
-            style={[styles.username, message.isHost && styles.usernameGold]}
+            style={[
+              styles.username,
+              message.isHost && styles.usernameGold,
+              isModSender && styles.usernameMod,
+            ]}
             onPress={onPressChatUser ? () => onPressChatUser(chatUser) : undefined}
           >
             {name}
           </LiveRoomText>
           {message.isHost ? <LiveRoomText style={styles.hostBadgeInline}> HOST</LiveRoomText> : null}
+          {isModSender ? <LiveRoomText style={styles.modBadgeInline}> MOD</LiveRoomText> : null}
           <LiveRoomText style={styles.messageBody}> </LiveRoomText>
           <MentionText
             body={message.text}
@@ -241,6 +266,7 @@ export function FloatingLiveChat({
   onModerationComplete,
   compact = false,
   onPressChatUser,
+  moderatorUserIds,
 }: {
   pool: ChatMessage[];
   hostAvatarUrl?: string | null;
@@ -261,8 +287,10 @@ export function FloatingLiveChat({
   onModerationComplete?: () => void;
   compact?: boolean;
   onPressChatUser?: (user: { username: string; userId?: string }) => void;
+  moderatorUserIds?: string[];
 }) {
   const history = useMemo(() => prepareChatMessageHistory(pool), [pool]);
+  const moderatorIdSet = useMemo(() => new Set(moderatorUserIds ?? []), [moderatorUserIds]);
   const scrollRef = useRef<ScrollView>(null);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
 
@@ -313,6 +341,7 @@ export function FloatingLiveChat({
             onModerationComplete={onModerationComplete}
             compact={compact}
             onPressChatUser={onPressChatUser}
+            moderatorUserIds={moderatorIdSet}
           />
         ))}
       </ScrollView>
@@ -486,11 +515,20 @@ const styles = StyleSheet.create({
   usernameGold: {
     color: colors.gold,
   },
+  usernameMod: {
+    color: colors.mod,
+  },
   hostBadgeInline: {
     fontWeight: '900',
     fontSize: 9,
     letterSpacing: 0.5,
     color: colors.gold,
+  },
+  modBadgeInline: {
+    fontWeight: '900',
+    fontSize: 9,
+    letterSpacing: 0.5,
+    color: colors.mod,
   },
   messageBody: {
     fontWeight: '500',

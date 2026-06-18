@@ -372,6 +372,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
           void console.loadOnce();
         }}
         onPressChatUser={onPressChatUser}
+        moderatorUserIds={moderation.moderators.map((m) => m.userId)}
       />
 
       <SellerLivePinnedOverlay

@@ -24,7 +24,7 @@ export function MentionText({ body, mentions = [], className, mentionClassName }
         const href = seg.userId ? sellerProfilePath(seg.username) : undefined;
         const cls =
           mentionClassName ??
-          "font-semibold text-gold-bright hover:text-gold underline-offset-2 hover:underline";
+          "font-semibold text-cyan-300 hover:text-cyan-200 underline-offset-2 hover:underline";
         if (href) {
           return (
             <Link key={`m-${i}`} href={href} className={cls} onClick={(e) => e.stopPropagation()}>

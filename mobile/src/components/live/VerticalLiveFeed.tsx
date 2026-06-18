@@ -683,6 +683,7 @@ function LiveSlide({
           void moderation.reload();
         }}
         onPressChatUser={onPressChatUser}
+        moderatorUserIds={moderation.moderators.map((m) => m.userId)}
       />
 
       {showModeratorTools(moderation.isModerator) && accessToken ? (

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
+import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
 import { LiveChatMessageRowActions } from "@/components/trust/LiveChatMessageRowActions";
 import { LiveChatAvatar } from "@/components/live-auction/LiveChatAvatar";
 import { MentionComposer } from "@/components/mentions/MentionComposer";
@@ -27,12 +28,19 @@ function chatLabelForMessage(m: LiveRoomMessageDTO) {
   return m.senderUsername ?? "User";
 }
 
-function chatLabelClassForMessage(m: LiveRoomMessageDTO, hostUserId: string) {
+function chatLabelClassForMessage(
+  m: LiveRoomMessageDTO,
+  hostUserId: string,
+  moderators: { userId: string }[] = [],
+) {
   if (m.senderId === hostUserId && m.messageType === "chat") return "font-bold text-amber-300/95";
+  if (m.messageType === "chat" && moderators.some((mod) => mod.userId === m.senderId) && m.senderId !== hostUserId) {
+    return "font-bold text-violet-300/95";
+  }
   if (isNamedSystemMessage(m)) return `font-bold ${colorForUser(m.senderUsername)}`;
   if (m.messageType === "system") return "font-bold text-amber-200/95";
   if (m.messageType === "purchase") return "font-bold text-emerald-300/95";
-  return `font-bold ${colorForUser(m.senderUsername)}`;
+  return "font-bold text-zinc-100";
 }
 
 function shouldShowChatAvatar(m: LiveRoomMessageDTO) {
@@ -69,6 +77,7 @@ export function VaultHostLiveChatPanel({
 }: VaultHostLiveChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<"chat" | "watching">("chat");
+  const mod = useLiveRoomModerationState(liveRoomId, Boolean(liveRoomId));
   const visibleMessages = useMemo(() => messages.slice(-120), [messages]);
 
   const recentChatters = useMemo(() => {
@@ -150,10 +159,15 @@ export function VaultHostLiveChatPanel({
             ) : (
               visibleMessages.map((m) => {
                 const label = chatLabelForMessage(m);
-                const labelClass = chatLabelClassForMessage(m, hostUserId);
+                const labelClass = chatLabelClassForMessage(m, hostUserId, mod.moderators);
                 const isSystem = m.messageType === "system";
                 const isBid = m.messageType === "bid";
                 const isPurchase = m.messageType === "purchase";
+                const isHost = m.senderId === hostUserId && m.messageType === "chat";
+                const isMod =
+                  m.messageType === "chat" &&
+                  !isHost &&
+                  mod.moderators.some((moderator) => moderator.userId === m.senderId);
                 const rowClass = isBid ? "chat-msg-bid" : isPurchase ? "chat-msg-purchase" : "";
                 const showAvatar = shouldShowChatAvatar(m);
                 const avatarSize = variant === "sidebar" ? 28 : 24;
@@ -164,15 +178,21 @@ export function VaultHostLiveChatPanel({
                         username={m.senderUsername}
                         avatarUrl={m.senderAvatarUrl}
                         size={avatarSize}
-                        isHost={m.senderId === hostUserId && m.messageType === "chat"}
+                        isHost={isHost}
+                        isModerator={isMod}
                         className="mt-0.5 shrink-0"
                       />
                     ) : null}
                     <div className="min-w-0 flex-1">
                       <span className={labelClass}>{label}</span>
-                      {m.senderId === hostUserId && m.messageType === "chat" ? (
+                      {isHost ? (
                         <span className="ml-1 text-[9px] font-black uppercase tracking-wide text-amber-300/90">
                           HOST
+                        </span>
+                      ) : null}
+                      {isMod ? (
+                        <span className="ml-1 text-[9px] font-black uppercase tracking-wide text-violet-300/90">
+                          MOD
                         </span>
                       ) : null}
                       <span className="text-zinc-500">: </span>

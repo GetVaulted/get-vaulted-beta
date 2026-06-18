@@ -7,6 +7,10 @@ export const colors = {
   gold: '#D4AF37',
   goldMuted: '#9A7B2C',
   goldSoft: 'rgba(212, 175, 55, 0.15)',
+  /** Live chat moderator badge / username accent. */
+  mod: '#A78BFA',
+  /** @mention highlight in chat — distinct from host gold. */
+  mention: '#67E8F9',
   textPrimary: '#F4F1EA',
   textSecondary: '#9B9B9B',
   textMuted: '#6E6E6E',

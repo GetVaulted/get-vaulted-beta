@@ -31,6 +31,7 @@ export function MessageBubble({
           body={message.body}
           mentions={message.mentions}
           style={[styles.body, isMine && styles.bodyMine]}
+          mentionStyle={isMine ? styles.mentionOnMine : undefined}
           onPressUser={onPressMentionUser ? (userId) => { if (userId) onPressMentionUser(userId); } : undefined}
         />
       </View>
@@ -60,6 +61,7 @@ const styles = StyleSheet.create({
   },
   body: { fontSize: 14, lineHeight: 19, color: colors.textPrimary, fontWeight: '500' },
   bodyMine: { color: '#0a0a0a', fontWeight: '600' },
+  mentionOnMine: { color: '#0e7490' },
   systemWrap: { alignItems: 'center', marginVertical: spacing.sm, paddingHorizontal: spacing.lg },
   system: {
     paddingHorizontal: 12,
