@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import {
   Image,
@@ -41,7 +40,7 @@ export const CHAT_STACK_RESERVE = 248;
 
 const COMPOSER_PLACEHOLDER = 'Say something';
 
-/** TikTok/Whatnot-style overlay: ~6 visible lines with fade; scroll up for history. */
+/** TikTok/Whatnot-style overlay: ~6 visible lines; scroll up for history. */
 export const MAX_FLOATING_CHAT = 6;
 
 const ROW_HEIGHT_ESTIMATE = 26;
@@ -351,14 +350,6 @@ export function FloatingLiveChat({
           />
         ))}
       </ScrollView>
-      {pinnedToBottom && history.length >= 4 ? (
-        <LinearGradient
-          pointerEvents="none"
-          colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0.18)', 'transparent']}
-          locations={[0, 0.42, 0.72]}
-          style={styles.topFadeMask}
-        />
-      ) : null}
     </View>
   );
 }
@@ -466,13 +457,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     alignItems: 'flex-start',
     paddingTop: 4,
-  },
-  topFadeMask: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '62%',
   },
   chatRow: {
     flexDirection: 'row',
