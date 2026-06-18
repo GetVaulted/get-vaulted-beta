@@ -9,16 +9,20 @@ export async function loadMentionsForSources(
   const map = new Map<string, MessageMentionDTO[]>();
   if (sourceIds.length === 0) return map;
 
-  const rows = await prisma.messageMention.findMany({
-    where: { sourceType, sourceId: { in: sourceIds } },
-    select: { sourceId: true, mentionedUserId: true, usernameSnapshot: true },
-    orderBy: { createdAt: "asc" },
-  });
+  try {
+    const rows = await prisma.messageMention.findMany({
+      where: { sourceType, sourceId: { in: sourceIds } },
+      select: { sourceId: true, mentionedUserId: true, usernameSnapshot: true },
+      orderBy: { createdAt: "asc" },
+    });
 
-  for (const row of rows) {
-    const list = map.get(row.sourceId) ?? [];
-    list.push({ userId: row.mentionedUserId, username: row.usernameSnapshot });
-    map.set(row.sourceId, list);
+    for (const row of rows) {
+      const list = map.get(row.sourceId) ?? [];
+      list.push({ userId: row.mentionedUserId, username: row.usernameSnapshot });
+      map.set(row.sourceId, list);
+    }
+  } catch (e) {
+    console.error("loadMentionsForSources failed", { sourceType, sourceIds: sourceIds.length, error: e });
   }
   return map;
 }

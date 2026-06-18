@@ -168,19 +168,6 @@ export async function POST(req: Request) {
         select: { id: true },
       });
 
-      const buyer = await tx.user.findUnique({ where: { id: buyerId }, select: { username: true } });
-      await processMessageMentions({
-        db: tx,
-        sourceType: "thread_message",
-        sourceId: created.id,
-        body: text,
-        senderId: buyerId,
-        senderUsername: buyer?.username ?? "user",
-        threadId: thread.id,
-        notifyHref: `/account/messages/${encodeURIComponent(thread.id)}`,
-        notifyContext: "Message thread",
-      });
-
       await tx.messageThread.update({
         where: { id: thread.id },
         data: { updatedAt: new Date() },
@@ -196,10 +183,23 @@ export async function POST(req: Request) {
         href: `/account/messages/${encodeURIComponent(thread.id)}`,
       });
 
-      return { threadId: thread.id, inbox: thread.inbox };
+      return { threadId: thread.id, inbox: thread.inbox, messageId: created.id };
     });
 
-    return NextResponse.json(result);
+    const buyer = await prisma.user.findUnique({ where: { id: buyerId }, select: { username: true } });
+    await processMessageMentions({
+      db: prisma,
+      sourceType: "thread_message",
+      sourceId: result.messageId,
+      body: text,
+      senderId: buyerId,
+      senderUsername: buyer?.username ?? "user",
+      threadId: result.threadId,
+      notifyHref: `/account/messages/${encodeURIComponent(result.threadId)}`,
+      notifyContext: "Message thread",
+    });
+
+    return NextResponse.json({ threadId: result.threadId, inbox: result.inbox });
   } catch (e) {
     const code = e instanceof Error ? e.message : "";
     if (code === "NOT_FOUND") return NextResponse.json({ error: "Not found." }, { status: 404 });

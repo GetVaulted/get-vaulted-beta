@@ -196,20 +196,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
       data: { updatedAt: new Date() },
     });
 
-    const sender = await tx.user.findUnique({ where: { id: uid }, select: { username: true } });
-    const mentions = await processMessageMentions({
-      db: tx,
-      sourceType: "thread_message",
-      sourceId: m.id,
-      body: text,
-      senderId: uid,
-      senderUsername: sender?.username ?? "user",
-      threadId: thread.id,
-      notifyHref: `/account/messages/${encodeURIComponent(thread.id)}`,
-      notifyContext: "Message thread",
-    });
+    return m;
+  });
 
-    return { m, mentions };
+  const sender = await prisma.user.findUnique({ where: { id: uid }, select: { username: true } });
+  const mentions = await processMessageMentions({
+    db: prisma,
+    sourceType: "thread_message",
+    sourceId: msg.id,
+    body: text,
+    senderId: uid,
+    senderUsername: sender?.username ?? "user",
+    threadId: thread.id,
+    notifyHref: `/account/messages/${encodeURIComponent(thread.id)}`,
+    notifyContext: "Message thread",
   });
 
   const preview = text.length > 120 ? `${text.slice(0, 117)}…` : text;
@@ -223,14 +223,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
 
   return NextResponse.json({
     message: {
-      id: msg.m.id,
+      id: msg.id,
       senderId: uid,
       body: text,
       kind: "user" as const,
       systemEvent: null,
       readAt: null as string | null,
-      createdAt: msg.m.createdAt.toISOString(),
-      mentions: msg.mentions,
+      createdAt: msg.createdAt.toISOString(),
+      mentions,
     },
   });
 }

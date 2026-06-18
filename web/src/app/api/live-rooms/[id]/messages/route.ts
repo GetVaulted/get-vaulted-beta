@@ -116,8 +116,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     select: { username: true },
   });
 
-  const { row, mentions } = await prisma.$transaction(async (tx) => {
-    const created = await tx.liveRoomMessage.create({
+  let row;
+  try {
+    row = await prisma.liveRoomMessage.create({
       data: {
         liveRoomId,
         senderId: auth.userId,
@@ -126,20 +127,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       },
       include: { sender: { select: { username: true, image: true } } },
     });
+  } catch (e) {
+    console.error("live room chat create failed", e);
+    return NextResponse.json({ error: "Could not send message." }, { status: 500 });
+  }
 
-    const savedMentions = await processMessageMentions({
-      db: tx,
-      sourceType: "live_room_message",
-      sourceId: created.id,
-      body: text,
-      senderId: auth.userId,
-      senderUsername: sender?.username ?? created.sender?.username ?? "user",
-      liveRoomId,
-      notifyHref: `/live/${encodeURIComponent(liveRoomId)}`,
-      notifyContext: "Live show chat",
-    });
-
-    return { row: created, mentions: savedMentions };
+  const mentions = await processMessageMentions({
+    db: prisma,
+    sourceType: "live_room_message",
+    sourceId: row.id,
+    body: text,
+    senderId: auth.userId,
+    senderUsername: sender?.username ?? row.sender?.username ?? "user",
+    liveRoomId,
+    notifyHref: `/live/${encodeURIComponent(liveRoomId)}`,
+    notifyContext: "Live show chat",
   });
 
   void emitLiveRoomMessageById(row.id);

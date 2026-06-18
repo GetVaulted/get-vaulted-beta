@@ -41,30 +41,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     select: { username: true },
   });
 
-  const msg = await prisma.$transaction(async (tx) => {
-    const created = await tx.liveRoomMessage.create({
-      data: {
-        liveRoomId,
-        senderId: room.sellerId,
-        body: text,
-        messageType: "system",
-      },
-      select: { id: true },
-    });
-
-    await processMessageMentions({
-      db: tx,
-      sourceType: "live_room_message",
-      sourceId: created.id,
-      body: text,
-      senderId: room.sellerId,
-      senderUsername: host?.username ?? "host",
+  const msg = await prisma.liveRoomMessage.create({
+    data: {
       liveRoomId,
-      notifyHref: `/live/${encodeURIComponent(liveRoomId)}`,
-      notifyContext: "Live show chat",
-    });
+      senderId: room.sellerId,
+      body: text,
+      messageType: "system",
+    },
+    select: { id: true },
+  });
 
-    return created;
+  await processMessageMentions({
+    db: prisma,
+    sourceType: "live_room_message",
+    sourceId: msg.id,
+    body: text,
+    senderId: room.sellerId,
+    senderUsername: host?.username ?? "host",
+    liveRoomId,
+    notifyHref: `/live/${encodeURIComponent(liveRoomId)}`,
+    notifyContext: "Live show chat",
   });
 
   void emitLiveRoomMessageById(msg.id);
