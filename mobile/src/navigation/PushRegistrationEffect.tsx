@@ -75,12 +75,19 @@ export function PushRegistrationEffect() {
     const deferPush = deferAfterFirstPaint(() => {
       if (!isPushNotificationsAvailable() || !user?.id) return;
       void (async () => {
-        const regKey = `${realtimeUserId}:${session.access_token.slice(0, 12)}`;
-        if (registered.current === regKey) return;
-        const res = await registerForPushNotifications();
-        if (res.ok) {
-          await persistPushToken(user.id, res.token, session.access_token);
-          registered.current = regKey;
+        try {
+          const regKey = `${realtimeUserId}:${session.access_token.slice(0, 12)}`;
+          if (registered.current === regKey) return;
+          const res = await registerForPushNotifications();
+          if (!res.ok) return;
+          const persisted = await persistPushToken(user.id, res.token, session.access_token);
+          if (persisted.ok) {
+            registered.current = regKey;
+          } else {
+            console.warn('[push] auto-register persist failed', persisted.reason);
+          }
+        } catch (e) {
+          console.warn('[push] auto-register failed', e instanceof Error ? e.message : String(e));
         }
       })();
     }, 800);

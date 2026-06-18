@@ -3,16 +3,18 @@ import { fetchWebApiAuthed } from '../lib/fetchWebApiAuthed';
 export async function registerPushTokenWithWebApi(
   accessToken: string,
   input: { token: string; platform: string; deviceName: string | null },
-): Promise<void> {
+): Promise<boolean> {
   const res = await fetchWebApiAuthed('/api/account/push-token', accessToken, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
-  if (!res.ok && __DEV__) {
+  if (!res.ok) {
     const body = await res.text().catch(() => '');
-    console.warn('[push] registerPushTokenWithWebApi', res.status, body.slice(0, 200));
+    console.warn('[push] registerPushTokenWithWebApi failed', res.status, body.slice(0, 200));
+    return false;
   }
+  return true;
 }
 
 export async function markVaultNotificationRead(accessToken: string, notificationId: string): Promise<void> {

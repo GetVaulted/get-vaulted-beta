@@ -4,6 +4,7 @@ import * as Notifications from 'expo-notifications';
 import { Alert, Linking, Platform } from 'react-native';
 import { registerPushTokenWithWebApi } from '../api/pushTokenRepository';
 import { getSupabase } from '../lib/supabase';
+import { resolveEasProjectId } from './resolveEasProjectId';
 
 const noopSubscription = { remove: () => {} };
 
@@ -75,19 +76,34 @@ export async function registerForPushNotifications(): Promise<PushRegistrationRe
       name: 'Vault activity',
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 120, 60, 120],
+      lightColor: '#D4AF37',
     });
   }
 
-  const projectId =
-    process.env.EXPO_PUBLIC_EAS_PROJECT_ID ??
-    process.env.EAS_PROJECT_ID ??
-    undefined;
+  const projectId = resolveEasProjectId();
+  if (!projectId) {
+    return {
+      ok: false,
+      reason: 'Push is misconfigured (missing EAS project id). Update the app from the store.',
+    };
+  }
 
-  const tokenData = await Notifications.getExpoPushTokenAsync(
-    projectId ? { projectId } : undefined,
-  );
-  const token = tokenData.data;
-  return { ok: true, token };
+  try {
+    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+    const token = tokenData.data;
+    return { ok: true, token };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (__DEV__) console.warn('[push] getExpoPushTokenAsync failed', msg);
+    if (Platform.OS === 'android') {
+      return {
+        ok: false,
+        reason:
+          'Android push is not configured for this build yet. Install the latest app update after FCM credentials are uploaded to EAS.',
+      };
+    }
+    return { ok: false, reason: msg || 'Could not register for push notifications.' };
+  }
 }
 
 /** User-initiated registration (Settings, notification inbox). */
@@ -96,9 +112,9 @@ export async function requestEnablePushNotifications(input: {
   accessToken?: string;
 }): Promise<PushRegistrationResult> {
   const res = await registerForPushNotifications();
-  if (res.ok) {
-    await persistPushToken(input.supabaseUserId, res.token, input.accessToken);
-  }
+  if (!res.ok) return res;
+  const persisted = await persistPushToken(input.supabaseUserId, res.token, input.accessToken);
+  if (!persisted.ok) return { ok: false, reason: persisted.reason };
   return res;
 }
 
@@ -135,16 +151,19 @@ export async function persistPushToken(
   userId: string,
   token: string,
   accessToken?: string,
-): Promise<void> {
+): Promise<{ ok: true } | { ok: false; reason: string }> {
   const platform = Platform.OS;
   const deviceName = Device.modelName ?? Device.deviceName ?? null;
 
   if (accessToken) {
-    await registerPushTokenWithWebApi(accessToken, { token, platform, deviceName });
+    const webOk = await registerPushTokenWithWebApi(accessToken, { token, platform, deviceName });
+    if (!webOk) {
+      return { ok: false, reason: 'Could not save push token to the server. Check your connection and try again.' };
+    }
   }
 
   const sb = getSupabase();
-  if (!sb) return;
+  if (!sb) return { ok: true };
   const { error } = await sb.from('push_device_tokens').upsert(
     {
       user_id: userId,
@@ -155,9 +174,11 @@ export async function persistPushToken(
     },
     { onConflict: 'user_id,expo_push_token' },
   );
-  if (error && __DEV__) {
-    console.warn('[push] persistPushToken', error.message);
+  if (error) {
+    console.warn('[push] persistPushToken supabase', error.message);
+    return { ok: false, reason: 'Could not save push token locally.' };
   }
+  return { ok: true };
 }
 
 export function addNotificationReceivedListener(

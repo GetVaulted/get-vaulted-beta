@@ -21,20 +21,20 @@ export type ExpoPushPayload = {
 
 async function loadExpoPushTokens(userId: string): Promise<string[]> {
   const tokens = new Set<string>();
+  const authUserIds = new Set<string>([userId]);
 
   const rows = await prisma.pushDeviceToken.findMany({
     where: { userId },
     select: { expoPushToken: true, supabaseAuthUserId: true },
   });
-  const supabaseAuthUserIds = new Set<string>();
   for (const row of rows) {
     if (row.expoPushToken) tokens.add(row.expoPushToken);
-    if (row.supabaseAuthUserId) supabaseAuthUserIds.add(row.supabaseAuthUserId);
+    if (row.supabaseAuthUserId) authUserIds.add(row.supabaseAuthUserId);
   }
 
   const admin = getSupabaseAdminClient();
   if (admin) {
-    for (const authUserId of supabaseAuthUserIds) {
+    for (const authUserId of authUserIds) {
       const { data } = await admin
         .from("push_device_tokens")
         .select("expo_push_token")
@@ -95,9 +95,7 @@ export async function sendExpoPushForUser(payload: ExpoPushPayload): Promise<voi
           if (typeof token === "string" && ticket.details?.error === "DeviceNotRegistered") {
             invalid.push(token);
           }
-          if (process.env.NODE_ENV !== "production") {
-            console.warn("[push] ticket error", ticket.message, ticket.details);
-          }
+          console.warn("[push] ticket error", ticket.message, ticket.details);
         }
       });
     }
