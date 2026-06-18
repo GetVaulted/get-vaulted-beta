@@ -131,6 +131,11 @@ export type CreateLiveRoomInput = {
   teamSelectionBoardEnabled?: boolean;
   tipModeratorId?: string | null;
   tipsToModerator?: boolean;
+  defaultShippingProfileId?: string | null;
+  shippingCapEnabled?: boolean;
+  shippingCapCents?: number | null;
+  freeShippingEnabled?: boolean;
+  sellerPaysOverCap?: boolean;
 };
 
 export async function createLiveRoom(

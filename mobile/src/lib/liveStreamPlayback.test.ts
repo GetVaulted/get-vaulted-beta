@@ -28,6 +28,7 @@ describe('liveStreamPlayback', () => {
       lastStatusSyncAt: '2026-01-02T00:00:00.000Z',
       streamMode: 'stage_webrtc',
       stageAvailable: true,
+      streamPaused: false,
     });
   });
 

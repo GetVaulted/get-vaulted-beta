@@ -15,6 +15,7 @@ type VaultImageProps = {
   borderRadius?: number;
   priority?: 'low' | 'normal' | 'high';
   contentFit?: ImageContentFit;
+  contentPosition?: ImageContentPosition;
   style?: StyleProp<ViewStyle>;
   accessibilityLabel?: string;
 };

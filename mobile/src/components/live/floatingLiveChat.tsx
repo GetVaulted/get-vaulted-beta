@@ -396,37 +396,44 @@ export function FloatingChatComposer({
       pointerEvents="box-none"
     >
       {leadingAccessory}
-      <View style={[styles.composerPill, leadingAccessory ? styles.composerPillWithLeading : null]}>
-        <MentionComposerInput
-          ref={composerRef}
-          style={styles.composerInput}
-          value={value}
-          onChangeText={onChangeText}
-          accessToken={accessToken}
-          placeholder={placeholder}
-          placeholderTextColor="rgba(255,255,255,0.48)"
-          returnKeyType="send"
-          enablesReturnKeyAutomatically
-          blurOnSubmit={false}
-          onSubmitEditing={() => void handleSend()}
-          editable={editable}
-          maxLength={280}
-          allowFontScaling={LIVE_ROOM_TEXT_PROPS.allowFontScaling}
-          maxFontSizeMultiplier={LIVE_ROOM_TEXT_PROPS.maxFontSizeMultiplier}
-        />
-        <Pressable
-          style={[styles.composerSendBtn, !canSend && styles.composerSendBtnDim]}
-          onPress={() => void handleSend()}
-          hitSlop={8}
-          disabled={!canSend}
-        >
-          <Ionicons
-            name="send"
-            size={16}
-            color={canSend ? colors.gold : 'rgba(255,255,255,0.28)'}
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        scrollEnabled={false}
+        style={styles.composerScroll}
+        contentContainerStyle={styles.composerPillFlex}
+      >
+        <View style={[styles.composerPill, leadingAccessory ? styles.composerPillWithLeading : null]}>
+          <MentionComposerInput
+            ref={composerRef}
+            style={styles.composerInput}
+            value={value}
+            onChangeText={onChangeText}
+            accessToken={accessToken}
+            placeholder={placeholder}
+            placeholderTextColor="rgba(255,255,255,0.48)"
+            returnKeyType="send"
+            enablesReturnKeyAutomatically
+            blurOnSubmit={false}
+            onSubmitEditing={() => void handleSend()}
+            editable={editable}
+            maxLength={280}
+            allowFontScaling={LIVE_ROOM_TEXT_PROPS.allowFontScaling}
+            maxFontSizeMultiplier={LIVE_ROOM_TEXT_PROPS.maxFontSizeMultiplier}
           />
-        </Pressable>
-      </View>
+          <Pressable
+            style={[styles.composerSendBtn, !canSend && styles.composerSendBtnDim]}
+            onPress={() => void handleSend()}
+            hitSlop={8}
+            disabled={!canSend}
+          >
+            <Ionicons
+              name="send"
+              size={16}
+              color={canSend ? colors.gold : 'rgba(255,255,255,0.28)'}
+            />
+          </Pressable>
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -544,9 +551,16 @@ const styles = StyleSheet.create({
     zIndex: 20,
     elevation: 20,
   },
-  composerPill: {
+  composerScroll: {
     flex: 1,
     minWidth: 0,
+  },
+  composerPillFlex: {
+    flexGrow: 1,
+    width: '100%',
+  },
+  composerPill: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: radii.pill,

@@ -2,7 +2,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -184,11 +186,18 @@ export function ModeratorDrawer({
     }
   }, [
     tab,
+    accessToken,
+    hostUserId,
+    viewerSearch,
     moderation.modQueue,
     moderation.tips,
     moderation.tipSummary,
     moderation.modHistory,
     moderation.pinnedModeratorMessage,
+    moderation.moderatorLevel,
+    moderation.allowedActions,
+    moderation.isModerator,
+    moderation.isHost,
     pinnedBody,
     announcementBody,
     giveawayTitle,
@@ -199,38 +208,47 @@ export function ModeratorDrawer({
     <>
       <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
         <Pressable style={styles.backdrop} onPress={onClose}>
-          <Pressable
-            style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}
-            onPress={(e) => e.stopPropagation()}
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.keyboardAvoid}
           >
-            <View style={styles.handle} />
-            <View style={styles.headerRow}>
-              <Text style={styles.title}>Moderator tools</Text>
-              <Pressable onPress={onClose} hitSlop={12}>
-                <Ionicons name="close" size={22} color={colors.textSecondary} />
-              </Pressable>
-            </View>
-            <Text style={styles.subtitle}>
-              Moderator{moderation.moderatorLevel ? ` · ${moderation.moderatorLevel}` : ''}
-            </Text>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabRail}>
-              {TABS.map((t) => (
-                <Pressable
-                  key={t.id}
-                  style={[styles.tabChip, tab === t.id && styles.tabChipActive]}
-                  onPress={() => setTab(t.id)}
-                >
-                  <Text style={[styles.tabChipText, tab === t.id && styles.tabChipTextActive]}>{t.label}</Text>
+            <Pressable
+              style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.handle} />
+              <View style={styles.headerRow}>
+                <Text style={styles.title}>Moderator tools</Text>
+                <Pressable onPress={onClose} hitSlop={12}>
+                  <Ionicons name="close" size={22} color={colors.textSecondary} />
                 </Pressable>
-              ))}
-            </ScrollView>
+              </View>
+              <Text style={styles.subtitle}>
+                Moderator{moderation.moderatorLevel ? ` · ${moderation.moderatorLevel}` : ''}
+              </Text>
 
-            <ScrollView style={styles.body} keyboardShouldPersistTaps="handled">
-              {tabContent}
-              {error ? <Text style={styles.error}>{error}</Text> : null}
-            </ScrollView>
-          </Pressable>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabRail}>
+                {TABS.map((t) => (
+                  <Pressable
+                    key={t.id}
+                    style={[styles.tabChip, tab === t.id && styles.tabChipActive]}
+                    onPress={() => setTab(t.id)}
+                  >
+                    <Text style={[styles.tabChipText, tab === t.id && styles.tabChipTextActive]}>{t.label}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+
+              <ScrollView
+                style={styles.body}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="interactive"
+              >
+                {tabContent}
+                {error ? <Text style={styles.error}>{error}</Text> : null}
+              </ScrollView>
+            </Pressable>
+          </KeyboardAvoidingView>
         </Pressable>
       </Modal>
 
@@ -417,7 +435,7 @@ function PinnedTab({
         placeholder="Pinned message for the room"
         placeholderTextColor="rgba(255,255,255,0.35)"
         multiline
-        editable={canPin && !busy}
+        editable={!busy}
       />
       <Pressable
         style={[styles.primaryBtn, (!canPin || busy || !value.trim()) && styles.primaryBtnDim]}
@@ -453,7 +471,7 @@ function AnnouncementTab({
         placeholder="Post a room announcement"
         placeholderTextColor="rgba(255,255,255,0.35)"
         multiline
-        editable={canPost && !busy}
+        editable={!busy}
       />
       <Pressable
         style={[styles.primaryBtn, (!canPost || busy || !value.trim()) && styles.primaryBtnDim]}
@@ -489,7 +507,7 @@ function GiveawayTab({
         onChangeText={onChange}
         placeholder="Giveaway title"
         placeholderTextColor="rgba(255,255,255,0.35)"
-        editable={canRun && !busy}
+        editable={!busy}
       />
       <Pressable
         style={[styles.primaryBtn, (!canRun || busy || !value.trim()) && styles.primaryBtnDim]}
@@ -508,6 +526,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
+  },
+  keyboardAvoid: {
+    width: '100%',
   },
   sheet: {
     backgroundColor: colors.surface,

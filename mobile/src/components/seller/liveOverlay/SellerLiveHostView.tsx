@@ -270,10 +270,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
       const ok = await liveChat.send(text);
       if (ok) {
         setChatDraft('');
-        chatComposerRef.current?.dismissSuggestions();
-        requestAnimationFrame(() => {
-          chatComposerRef.current?.focus();
-        });
+        chatComposerRef.current?.blur();
+        Keyboard.dismiss();
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

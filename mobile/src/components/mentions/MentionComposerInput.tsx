@@ -116,7 +116,6 @@ export const MentionComposerInput = forwardRef<MentionComposerInputHandle, Props
           setCursor(t.length);
         }}
         onSelectionChange={(e) => setCursor(e.nativeEvent.selection.end)}
-        submitBehavior="submit"
         onSubmitEditing={handleSubmitEditing}
         {...inputProps}
       />
