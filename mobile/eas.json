@@ -25,7 +25,13 @@
     }
   },
   "submit": {
-    "production": {},
+    "production": {
+      "ios": {
+        "appleId": "admin@shopgetvaulted.com",
+        "appleTeamId": "6BJ9R4C598",
+        "ascAppId": "6780714456"
+      }
+    },
     "preview": {
       "android": {
         "track": "internal"
