@@ -27,6 +27,7 @@ import { createRealtimeEventGuard, shouldProcessRealtimeEvent } from '../lib/rea
 import type { RoomBroadcastPayload } from '../lib/realtimeChannels';
 import { estimateClockSkewMs, syncedWallTimeMs } from '../lib/serverClockSync';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from '../lib/vaultRevealSpin';
 import { useRealtimeRoomSubscription, type LiveRoomChatBroadcastMessage } from './useRealtimeRoomSubscription';
 
 const FALLBACK_POLL_CONNECTED_MS = 30_000;
@@ -55,6 +56,8 @@ export function useLiveRoomRealtimeSession(args: {
   const [myHighBidUsd, setMyHighBidUsd] = useState<number | null>(null);
   const [showOutbidToast, setShowOutbidToast] = useState(false);
   const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
+  const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
+  const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
 
   const unresolvedPaymentFailure = roomSnap?.unresolvedPaymentFailure ?? null;
 
@@ -249,6 +252,14 @@ export function useLiveRoomRealtimeSession(args: {
     },
     onMessagesRefreshMerge: () => args.onChatBroadcast?.({ id: '', body: '', messageType: '__refresh__' }),
     onQueueItemsChange: () => scheduleReconcile(350),
+    onGiveawaysChange: () => scheduleReconcile(250),
+    onVaultRevealSpin: (payload) => {
+      const spin = parseVaultRevealSpinPayload(payload);
+      if (!spin || seenVaultRevealSpinIdsRef.current.has(spin.spinId)) return;
+      seenVaultRevealSpinIdsRef.current.add(spin.spinId);
+      setVaultRevealSpin(spin);
+      scheduleReconcile(250);
+    },
     onBreakSpotsChange: () => scheduleReconcile(450),
     onListingBid: () => scheduleReconcile(450),
     onTeamBoardChange: () => scheduleReconcile(450),
@@ -374,6 +385,8 @@ export function useLiveRoomRealtimeSession(args: {
     showOutbidToast,
     soldCelebration,
     clearSoldCelebration: () => setSoldCelebration(null),
+    vaultRevealSpin,
+    clearVaultRevealSpin: () => setVaultRevealSpin(null),
     unresolvedPaymentFailure,
     fetchSnapshot,
     syncedNowMs: () => syncedWallTimeMs(clockSkewMs),

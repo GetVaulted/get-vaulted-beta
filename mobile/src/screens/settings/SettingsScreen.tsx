@@ -77,7 +77,7 @@ export function SettingsScreen({ navigation }: Props) {
           onPress={() => navigation.navigate('AccountHub')}
         />
         <SettingsRow
-          label="Wallet"
+          label="Vault Wallet"
           sub="Shipping + payment for live and checkout"
           icon="wallet-outline"
           onPress={() => navigation.navigate('BuyerWallet')}

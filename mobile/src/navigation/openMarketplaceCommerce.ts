@@ -48,18 +48,33 @@ async function openMarketplaceCheckout(
   accessToken: string,
 ) {
   const ready = await ensureBuyerWalletReady(accessToken);
-  const walletSetupFirst = !ready.paymentReady || !ready.shippingReady;
-  if (walletSetupFirst) {
+  if (!ready.paymentReady || !ready.shippingReady) {
     Alert.alert(
-      'Wallet setup',
-      'Add a saved shipping address and payment method once — they apply to live shows and marketplace checkout.',
-      [{ text: 'Continue', style: 'default' }],
+      'Vault Wallet setup',
+      'Add a shipping address and payment method in Vault Wallet before checkout.',
+      [
+        { text: 'Not now', style: 'cancel' },
+        {
+          text: 'Open Vault Wallet',
+          onPress: () => navigation.navigate('BuyerWallet'),
+        },
+        {
+          text: 'Continue anyway',
+          onPress: () =>
+            navigation.navigate('MarketplaceCheckout', {
+              listingId: product.id,
+              mode,
+              walletSetupFirst: true,
+            }),
+        },
+      ],
     );
+    return;
   }
   navigation.navigate('MarketplaceCheckout', {
     listingId: product.id,
     mode,
-    walletSetupFirst,
+    walletSetupFirst: false,
   });
 }
 
@@ -88,6 +103,7 @@ export async function openMarketplaceLayaway(
 }
 
 export function openMarketplaceMakeOffer(
+  navigation: RootNav,
   onOpen: () => void,
   product: Product,
   opts: { accessToken?: string; guestExploreMode: boolean },
@@ -96,7 +112,21 @@ export function openMarketplaceMakeOffer(
     promptMarketplaceSignIn(product.id, 'make_offer');
     return;
   }
-  onOpen();
+  void (async () => {
+    const ready = await ensureBuyerWalletReady(opts.accessToken!);
+    if (!ready.paymentReady || !ready.shippingReady) {
+      Alert.alert(
+        'Vault Wallet setup',
+        'Complete shipping and payment in Vault Wallet before making an offer.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Vault Wallet', onPress: () => navigation.navigate('BuyerWallet') },
+        ],
+      );
+      return;
+    }
+    onOpen();
+  })();
 }
 
 export function openMarketplaceTrade(

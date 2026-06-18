@@ -22,6 +22,7 @@ import {
 
 export type { LiveItemVariantDTO };
 import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
+import type { ViewerGiveawayDTO } from "@/lib/live-giveaway";
 
 /** Result of `liveRoom.findUnique` with seller, items, messages+sender, and optional break relations. */
 export type LiveRoomDetailPayload = LiveRoom & {
@@ -142,6 +143,8 @@ export type LiveRoomDetailDTO = {
   buyerUnresolvedPaymentFailure?: LiveBuyerPaymentFailureDTO | null;
   /** Host-only: buyers with failed payments in this room. */
   sellerUnresolvedPaymentFailures?: SellerPaymentFailureDTO[];
+  /** Open giveaways accepting entries (buyer watch UI). */
+  giveaways?: ViewerGiveawayDTO[];
 };
 
 export type LiveBuyerPaymentFailureDTO = {

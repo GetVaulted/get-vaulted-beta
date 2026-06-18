@@ -2,13 +2,14 @@
 
 import { VaultQueueCarousel, type VaultQueueRow } from "@/components/break-host/vault/VaultQueueCarousel";
 import { SELLER_CONSOLE } from "@/lib/seller-console-copy";
-
-type QueueTab = "auction" | "bin" | "givvy" | "sold";
+import type { LiveGiveawayDTO } from "@/lib/live-giveaway";
+import { isGiveawayTab, type SellerQueueTab } from "@/lib/seller-queue-tabs";
 
 type SellerConsoleInventoryRailProps = {
-  tab: QueueTab;
-  onTab: (t: QueueTab) => void;
+  tab: SellerQueueTab;
+  onTab: (t: SellerQueueTab) => void;
   rows: VaultQueueRow[];
+  giveaways: LiveGiveawayDTO[];
   selectedId: string;
   onSelect: (id: string) => void;
   viewerCount: number;
@@ -17,6 +18,13 @@ type SellerConsoleInventoryRailProps = {
   onSkip?: (id: string) => void;
   onDelete: (id: string) => void;
   onAddItem: () => void;
+  onAddGiveaway: () => void;
+  onGiveawayOpenEntries: (id: string) => void;
+  onGiveawayCloseEntries: (id: string) => void;
+  onGiveawayDraw: (id: string) => void;
+  onGiveawayCancel: (id: string) => void;
+  onGiveawayDelete: (id: string) => void;
+  onGiveawayTimerExpired?: () => void;
   onPinSelected: () => void;
   onNextItem: () => void;
   onStartAuction?: () => void;
@@ -31,6 +39,7 @@ export function SellerConsoleInventoryRail({
   tab,
   onTab,
   rows,
+  giveaways,
   selectedId,
   onSelect,
   viewerCount,
@@ -39,6 +48,13 @@ export function SellerConsoleInventoryRail({
   onSkip,
   onDelete,
   onAddItem,
+  onAddGiveaway,
+  onGiveawayOpenEntries,
+  onGiveawayCloseEntries,
+  onGiveawayDraw,
+  onGiveawayCancel,
+  onGiveawayDelete,
+  onGiveawayTimerExpired,
   onPinSelected,
   onNextItem,
   onStartAuction,
@@ -54,10 +70,10 @@ export function SellerConsoleInventoryRail({
         <p className="text-[10px] font-black uppercase tracking-[0.22em] text-zinc-400">{SELLER_CONSOLE.lineup}</p>
         <button
           type="button"
-          onClick={onAddItem}
+          onClick={isGiveawayTab(tab) ? onAddGiveaway : onAddItem}
           className="rounded-full border border-gold/35 bg-gold/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-gold-bright hover:bg-gold/15"
         >
-          + {SELLER_CONSOLE.addItem}
+          + {isGiveawayTab(tab) ? "Giveaway" : SELLER_CONSOLE.addItem}
         </button>
       </div>
       <div className="shrink-0 space-y-2 px-3 py-2">
@@ -102,6 +118,7 @@ export function SellerConsoleInventoryRail({
           tab={tab}
           onTab={onTab}
           rows={rows}
+          giveaways={giveaways}
           selectedId={selectedId}
           onSelect={onSelect}
           viewerCount={viewerCount}
@@ -110,6 +127,13 @@ export function SellerConsoleInventoryRail({
           onSkip={onSkip}
           onDelete={onDelete}
           onAddAuction={onAddItem}
+          onAddGiveaway={onAddGiveaway}
+          onGiveawayOpenEntries={onGiveawayOpenEntries}
+          onGiveawayCloseEntries={onGiveawayCloseEntries}
+          onGiveawayDraw={onGiveawayDraw}
+          onGiveawayCancel={onGiveawayCancel}
+          onGiveawayDelete={onGiveawayDelete}
+          onGiveawayTimerExpired={onGiveawayTimerExpired}
           lineup
         />
       </div>

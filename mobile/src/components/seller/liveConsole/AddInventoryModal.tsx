@@ -1,6 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Keyboard,
   Modal,
@@ -13,80 +16,113 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { uploadListingImageViaWeb } from '../../../api/webListingsRepository';
 import {
-  auctionPricingFromItem,
-  validateAuctionPricing,
-  type AuctionPricingInput,
-  type AuctionPricingValues,
+  emptyQuickLiveLotInput,
+  validateQuickLiveLot,
+  type LiveLotSaleType,
+  type QuickLiveLotInput,
+  type QuickLiveLotValues,
 } from '../../../lib/liveAuctionPricing';
 import { useKeyboardInset } from '../../wallet/walletSheetKeyboard';
 import { colors, radii, spacing } from '../../../theme';
-import { AuctionPricingFields } from './AuctionPricingFields';
 
-export type AddInventoryChoice = 'marketplace' | 'live_show' | 'quick_lot' | 'scan';
+const THUMBNAIL_MAX_BYTES = 20 * 1024 * 1024;
 
-const OPTIONS: {
-  id: AddInventoryChoice;
-  title: string;
-  sub: string;
-  icon: keyof typeof Ionicons.glyphMap;
-}[] = [
-  { id: 'live_show', title: 'From inventory', sub: 'Pull a live-show listing', icon: 'layers-outline' },
-  { id: 'marketplace', title: 'Marketplace item', sub: 'Add to collector network', icon: 'storefront-outline' },
-  { id: 'quick_lot', title: 'Quick live lot', sub: 'Title-only lane card', icon: 'flash-outline' },
-];
+export type QuickLiveLotSubmitPayload = QuickLiveLotValues & { imageUrl: string };
 
 export function AddInventoryModal({
   visible,
-  quickTitle,
-  onChangeQuickTitle,
+  accessToken,
+  busy,
   onClose,
-  onSelect,
-  showAuctionPricing,
-  pricingBusy,
+  onSubmit,
 }: {
   visible: boolean;
-  quickTitle: string;
-  onChangeQuickTitle: (s: string) => void;
+  accessToken: string;
+  busy?: boolean;
   onClose: () => void;
-  onSelect: (id: AddInventoryChoice, pricing?: AuctionPricingValues) => void;
-  showAuctionPricing?: boolean;
-  pricingBusy?: boolean;
+  onSubmit: (payload: QuickLiveLotSubmitPayload) => void;
 }) {
   const insets = useSafeAreaInsets();
   const keyboardInset = useKeyboardInset();
-  const [pricing, setPricing] = useState<AuctionPricingInput>(auctionPricingFromItem({}));
+  const [draft, setDraft] = useState<QuickLiveLotInput>(emptyQuickLiveLotInput());
+  const [imageUri, setImageUri] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (visible) setPricing(auctionPricingFromItem({}));
+    if (visible) {
+      setDraft(emptyQuickLiveLotInput());
+      setImageUri(null);
+      setImageUrl(null);
+      setImageUploading(false);
+      setImageError(null);
+    }
   }, [visible]);
 
-  const queueQuickLot = () => {
-    if (showAuctionPricing) {
-      const v = validateAuctionPricing(pricing);
-      if (!v.ok) {
-        Alert.alert('Auction pricing', v.message);
-        return;
-      }
-      onSelect('quick_lot', v.values);
+  const setSaleType = (saleType: LiveLotSaleType) => {
+    setDraft((prev) => ({ ...prev, saleType }));
+  };
+
+  const pickPhoto = async () => {
+    setImageError(null);
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Photos access needed', 'Allow photo library access to add a product photo.');
       return;
     }
-    onSelect('quick_lot');
+    const picked = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.86,
+    });
+    if (picked.canceled || !picked.assets[0]?.uri) return;
+    const asset = picked.assets[0];
+    if (asset.fileSize && asset.fileSize > THUMBNAIL_MAX_BYTES) {
+      setImageError('Photo must be 20MB or smaller.');
+      return;
+    }
+    setImageUri(asset.uri);
+    setImageUrl(null);
+    setImageUploading(true);
+    try {
+      const url = await uploadListingImageViaWeb(accessToken, asset.uri);
+      setImageUrl(url);
+    } catch (e) {
+      setImageError(e instanceof Error ? e.message : 'Could not upload photo.');
+      setImageUri(null);
+    } finally {
+      setImageUploading(false);
+    }
   };
+
+  const saveToShow = () => {
+    if (!imageUrl?.trim()) {
+      Alert.alert('Photo required', 'Add one product photo before saving to the show.');
+      return;
+    }
+    const validated = validateQuickLiveLot(draft);
+    if (!validated.ok) {
+      Alert.alert('Add product', validated.message);
+      return;
+    }
+    onSubmit({ ...validated.values, imageUrl: imageUrl.trim() });
+  };
+
+  const priceLabel = draft.saleType === 'auction' ? 'Starting bid' : 'Buy-it-now price';
+  const pricePlaceholder = draft.saleType === 'auction' ? '1' : '25';
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <View style={styles.root}>
         <Pressable style={styles.backdrop} onPress={() => Keyboard.dismiss()} accessibilityLabel="Dismiss keyboard" />
-        <View
-          style={[
-            styles.sheet,
-            { paddingBottom: Math.max(insets.bottom, spacing.md) + keyboardInset },
-          ]}
-        >
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.md) + keyboardInset }]}>
           <View style={styles.sheetHeader}>
             <View style={styles.handle} />
-            <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn} accessibilityLabel="Close add inventory">
+            <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn} accessibilityLabel="Close add product">
               <Ionicons name="close" size={22} color={colors.textSecondary} />
             </Pressable>
           </View>
@@ -96,43 +132,88 @@ export function AddInventoryModal({
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollContent}
           >
-            <Text style={styles.title}>Add inventory</Text>
-            <Text style={styles.sub}>Queue lots without leaving the lane.</Text>
-            {OPTIONS.map((o) => (
-              <Pressable
-                key={o.id}
-                style={styles.row}
-                onPress={() => onSelect(o.id)}
-                disabled={pricingBusy}
-              >
-                <View style={styles.iconBubble}>
-                  <Ionicons name={o.icon} size={20} color={colors.gold} />
+            <Text style={styles.title}>Add to show</Text>
+            <Text style={styles.sub}>Photo, title, price, and quantity — ready in seconds.</Text>
+
+            <Text style={styles.fieldLbl}>Photo</Text>
+            <Pressable
+              style={[styles.photoBox, imageUri && styles.photoBoxFilled]}
+              onPress={() => void pickPhoto()}
+              disabled={busy || imageUploading}
+            >
+              {imageUri ? (
+                <Image source={{ uri: imageUri }} style={styles.photoPreview} contentFit="cover" />
+              ) : (
+                <View style={styles.photoPlaceholder}>
+                  <Ionicons name="camera-outline" size={28} color={colors.gold} />
+                  <Text style={styles.photoPlaceholderTxt}>Add photo</Text>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.rowTitle}>{o.title}</Text>
-                  <Text style={styles.rowSub}>{o.sub}</Text>
+              )}
+              {imageUploading ? (
+                <View style={styles.photoUploading}>
+                  <ActivityIndicator color={colors.gold} />
                 </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-              </Pressable>
-            ))}
-            <Text style={styles.quickLbl}>Quick lot title</Text>
+              ) : null}
+            </Pressable>
+            {imageError ? <Text style={styles.errorTxt}>{imageError}</Text> : null}
+
+            <Text style={styles.fieldLbl}>Title</Text>
             <TextInput
-              value={quickTitle}
-              onChangeText={onChangeQuickTitle}
+              value={draft.title}
+              onChangeText={(title) => setDraft((prev) => ({ ...prev, title }))}
               placeholder="e.g. PSA 10 rookie chase"
               placeholderTextColor={colors.textMuted}
               style={styles.input}
-              editable={!pricingBusy}
+              editable={!busy}
             />
-            {showAuctionPricing ? (
-              <AuctionPricingFields value={pricing} onChange={setPricing} disabled={pricingBusy} />
-            ) : null}
+
+            <Text style={styles.fieldLbl}>Sale type</Text>
+            <View style={styles.toggleRow}>
+              {(['auction', 'buy_now'] as const).map((type) => {
+                const active = draft.saleType === type;
+                return (
+                  <Pressable
+                    key={type}
+                    style={[styles.toggleBtn, active && styles.toggleBtnActive]}
+                    onPress={() => setSaleType(type)}
+                    disabled={busy}
+                  >
+                    <Text style={[styles.toggleBtnTxt, active && styles.toggleBtnTxtActive]}>
+                      {type === 'auction' ? 'Auction' : 'Buy It Now'}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Text style={styles.fieldLbl}>{priceLabel}</Text>
+            <TextInput
+              value={draft.price}
+              onChangeText={(price) => setDraft((prev) => ({ ...prev, price }))}
+              placeholder={pricePlaceholder}
+              placeholderTextColor={colors.textMuted}
+              keyboardType="decimal-pad"
+              style={styles.input}
+              editable={!busy}
+            />
+
+            <Text style={styles.fieldLbl}>Quantity</Text>
+            <TextInput
+              value={draft.quantity}
+              onChangeText={(quantity) => setDraft((prev) => ({ ...prev, quantity }))}
+              placeholder="1"
+              placeholderTextColor={colors.textMuted}
+              keyboardType="number-pad"
+              style={styles.input}
+              editable={!busy}
+            />
+
             <Pressable
-              style={[styles.primary, pricingBusy && styles.primaryOff]}
-              onPress={queueQuickLot}
-              disabled={pricingBusy}
+              style={[styles.primary, (busy || imageUploading) && styles.primaryOff]}
+              onPress={saveToShow}
+              disabled={busy || imageUploading}
             >
-              <Text style={styles.primaryTxt}>{pricingBusy ? 'Adding…' : 'Add quick lot to queue'}</Text>
+              <Text style={styles.primaryTxt}>{busy ? 'Saving…' : 'Save to show'}</Text>
             </Pressable>
           </ScrollView>
         </View>
@@ -150,7 +231,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(212,175,55,0.3)',
-    maxHeight: Platform.OS === 'ios' ? '88%' : '92%',
+    maxHeight: Platform.OS === 'ios' ? '92%' : '94%',
   },
   sheetHeader: { alignItems: 'center', paddingTop: spacing.sm },
   handle: {
@@ -160,41 +241,40 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.2)',
     marginBottom: spacing.xs,
   },
-  closeBtn: {
-    position: 'absolute',
-    right: spacing.md,
-    top: spacing.sm,
-    padding: 4,
-  },
+  closeBtn: { position: 'absolute', right: spacing.md, top: spacing.sm, padding: 4 },
   scrollContent: { padding: spacing.md, paddingTop: spacing.xs, gap: spacing.sm },
   title: { fontSize: 20, fontWeight: '900', color: colors.textPrimary },
   sub: { fontSize: 13, color: colors.textMuted, marginBottom: spacing.xs },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
-  },
-  iconBubble: {
-    width: 40,
-    height: 40,
-    borderRadius: radii.md,
-    backgroundColor: 'rgba(212,175,55,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rowTitle: { fontSize: 15, fontWeight: '800', color: colors.textPrimary },
-  rowSub: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
-  quickLbl: {
+  fieldLbl: {
     fontSize: 10,
     fontWeight: '700',
     color: colors.textMuted,
     letterSpacing: 0.8,
     textTransform: 'uppercase',
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
   },
+  photoBox: {
+    height: 148,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(212,175,55,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoBoxFilled: { borderStyle: 'solid' },
+  photoPreview: { width: '100%', height: '100%' },
+  photoPlaceholder: { alignItems: 'center', gap: 6 },
+  photoPlaceholderTxt: { fontSize: 13, fontWeight: '700', color: colors.textSecondary },
+  photoUploading: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  errorTxt: { fontSize: 12, color: '#fca5a5' },
   input: {
     borderWidth: 1,
     borderColor: 'rgba(212,175,55,0.25)',
@@ -203,7 +283,24 @@ const styles = StyleSheet.create({
     minHeight: 44,
     color: colors.textPrimary,
     backgroundColor: 'rgba(0,0,0,0.35)',
+    fontSize: 15,
   },
+  toggleRow: { flexDirection: 'row', gap: spacing.sm },
+  toggleBtn: {
+    flex: 1,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  toggleBtnActive: {
+    borderColor: 'rgba(212,175,55,0.45)',
+    backgroundColor: 'rgba(212,175,55,0.14)',
+  },
+  toggleBtnTxt: { fontSize: 14, fontWeight: '700', color: colors.textMuted },
+  toggleBtnTxtActive: { color: colors.gold },
   primary: {
     marginTop: spacing.sm,
     paddingVertical: 14,

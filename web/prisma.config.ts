@@ -8,9 +8,10 @@ import { defineConfig } from "prisma/config";
 config({ path: ".env" });
 config({ path: ".env.local" });
 
-// Lets `prisma generate` (including `postinstall`) run before DATABASE_URL exists locally or in CI.
-// Set DATABASE_URL in `.env` / `.env.local` (or the environment) for real migrations and runtime.
+// Migrations and Prisma CLI need a direct/session Postgres URL (port 5432).
+// DATABASE_URL on Supabase is often the transaction pooler (6543) and can hang on `migrate deploy`.
 const databaseUrl =
+  process.env.DIRECT_URL?.trim() ||
   process.env.DATABASE_URL?.trim() ||
   "postgresql://127.0.0.1:5432/postgres?schema=public";
 

@@ -10,6 +10,9 @@ export default defineConfig({
     include: ['src/**/*.test.ts'],
     environment: 'node',
   },
+  define: {
+    __DEV__: false,
+  },
   resolve: {
     alias: {
       'react-native': path.resolve(root, 'src/test/stubs/react-native.ts'),

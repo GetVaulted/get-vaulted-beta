@@ -14,6 +14,7 @@ import {
   listLiveRoomRecentViewers,
 } from "@/lib/trust/live-room-moderation";
 import { listAllowedModerationActions } from "@/lib/trust/live-room-moderator-permissions";
+import { listLiveRoomTipLedger } from "@/lib/live-tip-ledger";
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id: raw } = await ctx.params;
@@ -37,11 +38,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     viewerRole: "buyer" | "host" | "moderator";
     moderatorLevel: LiveRoomModeratorLevel | null;
     isHost: boolean;
+    isModerator: boolean;
   } = {
     canModerate: false,
     viewerRole: "buyer",
     moderatorLevel: null,
     isHost: false,
+    isModerator: false,
   };
 
   if (!(auth instanceof NextResponse)) {
@@ -51,6 +54,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       viewerRole: ctxRow.viewerRole,
       moderatorLevel: ctxRow.moderatorLevel,
       isHost: ctxRow.isHost,
+      isModerator: ctxRow.isModerator,
     };
   }
 
@@ -71,12 +75,17 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const modHistory = modCtx.canModerate ? await listLiveRoomModHistory(liveRoomId) : [];
   const modQueue = modCtx.canModerate ? await listLiveRoomModQueue(liveRoomId) : [];
   const viewers = modCtx.canModerate ? await listLiveRoomRecentViewers(liveRoomId) : [];
+  const tipLedger = modCtx.canModerate ? await listLiveRoomTipLedger(liveRoomId) : null;
+
+  const isModerator = modCtx.isModerator;
 
   return NextResponse.json({
     slowModeSeconds: room.slowModeSeconds,
     pinnedModeratorMessage: room.pinnedModeratorMessage,
     pinnedModeratorMessageAt: room.pinnedModeratorMessageAt?.toISOString() ?? null,
     canModerate: modCtx.canModerate,
+    isHost: modCtx.isHost,
+    isModerator,
     viewerRole: modCtx.viewerRole,
     moderatorLevel: modCtx.moderatorLevel,
     allowedActions,
@@ -86,6 +95,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     modHistory,
     modQueue,
     viewers,
+    tips: tipLedger?.tips ?? [],
+    tipSummary: tipLedger?.summary ?? null,
   });
 }
 

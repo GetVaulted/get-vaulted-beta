@@ -1,14 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Image,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import { colors, radii, spacing } from '../../theme';
 import {
@@ -19,7 +22,7 @@ import {
   formatChatDisplayName,
   formatViewerEventName,
   isViewerEventMessage,
-  tailUniqueChatMessages,
+  prepareChatMessageHistory,
 } from '../../lib/liveRoomChatMessages';
 import { liveChatUsernameInitial } from '../../lib/liveChatAvatar';
 import { LIVE_ROOM_TEXT_PROPS } from '../../lib/liveRoomUiScale';
@@ -38,8 +41,11 @@ export const CHAT_STACK_RESERVE = 248;
 
 const COMPOSER_PLACEHOLDER = 'Say something';
 
-/** TikTok/Whatnot-style overlay: last N lines, oldest fade at top. */
-export const MAX_FLOATING_CHAT = 5;
+/** TikTok/Whatnot-style overlay: ~6 visible lines with fade; scroll up for history. */
+export const MAX_FLOATING_CHAT = 6;
+
+const ROW_HEIGHT_ESTIMATE = 26;
+const ROW_HEIGHT_COMPACT = 22;
 
 const TEXT_SHADOW = {
   textShadowColor: 'rgba(0,0,0,0.85)',
@@ -47,7 +53,7 @@ const TEXT_SHADOW = {
   textShadowRadius: 6,
 } as const;
 
-function chatAvatarUri(message: ChatMessage, hostAvatarUrl: string): string | null {
+function chatAvatarUri(message: ChatMessage, hostAvatarUrl?: string | null): string | null {
   const fromMessage = message.senderAvatarUrl?.trim();
   if (fromMessage) return fromMessage;
   if (message.isHost) return hostAvatarUrl?.trim() || null;
@@ -60,7 +66,7 @@ function ChatAvatarBubble({
   compact,
 }: {
   message: ChatMessage;
-  hostAvatarUrl: string;
+  hostAvatarUrl?: string | null;
   compact?: boolean;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
@@ -96,11 +102,25 @@ function ChatAvatarBubble({
   );
 }
 
-/** Oldest row (top) fades out; newest (bottom) stays fully visible. */
-function rowOpacity(index: number, total: number): number {
-  if (total <= 1) return 1;
-  const progress = index / (total - 1);
+/** Oldest row in the tail window fades; newest stays fully visible. */
+function rowOpacity(indexInTail: number, tailSize: number): number {
+  if (tailSize <= 1) return 1;
+  const progress = indexInTail / (tailSize - 1);
   return 0.14 + progress ** 1.75 * 0.86;
+}
+
+function rowOpacityForMessage(
+  index: number,
+  total: number,
+  pinnedToBottom: boolean,
+  maxRows: number,
+): number {
+  if (!pinnedToBottom || total <= 1) return 1;
+  const distFromEnd = total - 1 - index;
+  if (distFromEnd >= maxRows) return 1;
+  const tailSize = Math.min(maxRows, total);
+  const indexInTail = tailSize - 1 - distFromEnd;
+  return rowOpacity(indexInTail, tailSize);
 }
 
 function FloatingChatRow({
@@ -111,6 +131,7 @@ function FloatingChatRow({
   hostUserId,
   accessToken,
   canModerate,
+  isModerator,
   viewerRole,
   onLongPressMessage,
   onModerationComplete,
@@ -118,12 +139,13 @@ function FloatingChatRow({
   onPressMentionUser,
 }: {
   message: ChatMessage;
-  hostAvatarUrl: string;
+  hostAvatarUrl?: string | null;
   opacity: number;
   liveRoomId?: string;
   hostUserId?: string;
   accessToken?: string;
   canModerate?: boolean;
+  isModerator?: boolean;
   viewerRole?: LiveViewerRole;
   onLongPressMessage?: (message: ChatMessage) => void;
   onModerationComplete?: () => void;
@@ -150,8 +172,7 @@ function FloatingChatRow({
     message.senderId &&
     (!hostUserId || message.senderId !== hostUserId);
   const showModLongPress =
-    canModerate &&
-    (viewerRole === 'host' || viewerRole === 'moderator') &&
+    Boolean(isModerator) &&
     message.messageType === 'chat' &&
     message.senderId &&
     (!hostUserId || message.senderId !== hostUserId);
@@ -205,6 +226,7 @@ export function FloatingLiveChat({
   hostUserId,
   accessToken,
   canModerate,
+  isModerator,
   viewerRole,
   onLongPressMessage,
   onModerationComplete,
@@ -212,7 +234,7 @@ export function FloatingLiveChat({
   onPressMentionUser,
 }: {
   pool: ChatMessage[];
-  hostAvatarUrl: string;
+  hostAvatarUrl?: string | null;
   bottom: number;
   left: number;
   rightEdge: number;
@@ -224,35 +246,59 @@ export function FloatingLiveChat({
   hostUserId?: string;
   accessToken?: string;
   canModerate?: boolean;
+  isModerator?: boolean;
   viewerRole?: LiveViewerRole;
   onLongPressMessage?: (message: ChatMessage) => void;
   onModerationComplete?: () => void;
   compact?: boolean;
   onPressMentionUser?: (userId: string) => void;
 }) {
-  const visible = useMemo(
-    () => tailUniqueChatMessages(pool, maxRows),
-    [pool, maxRows],
-  );
+  const history = useMemo(() => prepareChatMessageHistory(pool), [pool]);
+  const scrollRef = useRef<ScrollView>(null);
+  const [pinnedToBottom, setPinnedToBottom] = useState(true);
 
-  if (!isActive || visible.length === 0) return null;
+  const rowHeight = compact ? ROW_HEIGHT_COMPACT : ROW_HEIGHT_ESTIMATE;
+  const viewportHeight = Math.min(maxHeight, maxRows * rowHeight + 12);
+
+  useEffect(() => {
+    if (!isActive || !pinnedToBottom) return;
+    scrollRef.current?.scrollToEnd({ animated: false });
+  }, [history.length, isActive, pinnedToBottom, streamKey]);
+
+  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const distFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
+    setPinnedToBottom(distFromBottom < 32);
+  };
+
+  if (!isActive || history.length === 0) return null;
 
   return (
     <View
-      style={[styles.floatChatColumn, { bottom, left, right: rightEdge, maxHeight }]}
+      style={[styles.floatChatColumn, { bottom, left, right: rightEdge, maxHeight: viewportHeight }]}
       pointerEvents="box-none"
     >
-      <View style={styles.stackInner} pointerEvents="box-none">
-        {visible.map((m, idx) => (
+      <ScrollView
+        ref={scrollRef}
+        style={styles.scrollViewport}
+        contentContainerStyle={styles.stackInner}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+      >
+        {history.map((m, idx) => (
           <FloatingChatRow
             key={`${streamKey}-${m.id}`}
             message={m}
             hostAvatarUrl={hostAvatarUrl}
-            opacity={rowOpacity(idx, visible.length)}
+            opacity={rowOpacityForMessage(idx, history.length, pinnedToBottom, maxRows)}
             liveRoomId={liveRoomId}
             hostUserId={hostUserId}
             accessToken={accessToken}
             canModerate={canModerate}
+            isModerator={isModerator}
             viewerRole={viewerRole}
             onLongPressMessage={onLongPressMessage}
             onModerationComplete={onModerationComplete}
@@ -260,8 +306,8 @@ export function FloatingLiveChat({
             onPressMentionUser={onPressMentionUser}
           />
         ))}
-      </View>
-      {visible.length >= 3 ? (
+      </ScrollView>
+      {pinnedToBottom && history.length >= 4 ? (
         <LinearGradient
           pointerEvents="none"
           colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0.18)', 'transparent']}
@@ -281,7 +327,10 @@ export function FloatingChatComposer({
   onChangeText,
   onSend,
   sendDisabled,
+  inputDisabled,
   accessToken,
+  leadingAccessory,
+  placeholder = COMPOSER_PLACEHOLDER,
 }: {
   bottom: number;
   left: number;
@@ -290,10 +339,15 @@ export function FloatingChatComposer({
   onChangeText: (t: string) => void;
   onSend: () => void | Promise<void>;
   sendDisabled?: boolean;
+  /** When true, blocks focus/typing only (send can still be gated separately). */
+  inputDisabled?: boolean;
   accessToken?: string;
+  leadingAccessory?: ReactNode;
+  placeholder?: string;
 }) {
   const submitLockRef = useRef(false);
   const canSend = !sendDisabled && value.trim().length > 0;
+  const editable = !inputDisabled;
 
   const handleSend = async () => {
     if (submitLockRef.current || sendDisabled || !value.trim()) return;
@@ -310,18 +364,19 @@ export function FloatingChatComposer({
       style={[styles.composerWrap, { bottom, left, right: rightEdge, height: COMPOSER_BAR_HEIGHT }]}
       pointerEvents="box-none"
     >
-      <View style={styles.composerPill}>
+      {leadingAccessory}
+      <View style={[styles.composerPill, leadingAccessory ? styles.composerPillWithLeading : null]}>
         <MentionComposerInput
           style={styles.composerInput}
           value={value}
           onChangeText={onChangeText}
           accessToken={accessToken}
-          placeholder={COMPOSER_PLACEHOLDER}
+          placeholder={placeholder}
           placeholderTextColor="rgba(255,255,255,0.48)"
           returnKeyType="send"
           blurOnSubmit={false}
           onSubmitEditing={() => void handleSend()}
-          editable={!sendDisabled}
+          editable={editable}
           maxLength={280}
           allowFontScaling={LIVE_ROOM_TEXT_PROPS.allowFontScaling}
           maxFontSizeMultiplier={LIVE_ROOM_TEXT_PROPS.maxFontSizeMultiplier}
@@ -351,10 +406,15 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     zIndex: 14,
   },
+  scrollViewport: {
+    width: '100%',
+    flexGrow: 0,
+  },
   stackInner: {
     width: '100%',
     justifyContent: 'flex-end',
     alignItems: 'flex-start',
+    paddingTop: 4,
   },
   topFadeMask: {
     position: 'absolute',
@@ -426,10 +486,15 @@ const styles = StyleSheet.create({
   },
   composerWrap: {
     position: 'absolute',
-    zIndex: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    zIndex: 20,
+    elevation: 20,
   },
   composerPill: {
     flex: 1,
+    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: radii.pill,
@@ -447,6 +512,9 @@ const styles = StyleSheet.create({
       },
       android: { elevation: 3 },
     }),
+  },
+  composerPillWithLeading: {
+    flex: 1,
   },
   composerInput: {
     flex: 1,

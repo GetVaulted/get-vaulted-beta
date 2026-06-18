@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { UserAvatar } from '../ui/UserAvatar';
 import { colors, radii, spacing } from '../../theme';
 import type { FeaturedCreator } from '../../types';
 import type { SaleActivity } from '../../types';
@@ -48,7 +49,7 @@ export function BrowseCuratorCard({ creator, onViewListings, onSeeLive }: Curato
 
   return (
     <View style={styles.curatorCard}>
-      <Image source={{ uri: host.avatarUrl }} style={styles.curatorAvatar} />
+      <UserAvatar uri={host.avatarUrl} name={host.name} username={host.handle} size={56} tone="light" borderWidth={1} />
       <Text style={styles.curatorName} numberOfLines={1}>
         {host.name}
       </Text>

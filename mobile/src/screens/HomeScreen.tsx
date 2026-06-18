@@ -261,7 +261,7 @@ export function HomeScreen() {
         id: sellerNextRoom.sellerUsername,
         name: sellerNextRoom.sellerUsername,
         handle: `@${sellerNextRoom.sellerUsername}`,
-        avatarUrl: `https://i.pravatar.cc/120?u=${encodeURIComponent(sellerNextRoom.sellerUsername)}`,
+        avatarUrl: '',
         verified: true,
         followers: '—',
       },

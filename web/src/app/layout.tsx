@@ -7,6 +7,7 @@ import { AuthProvider } from "@/components/providers/AuthProvider";
 import { LiveMarketplaceGateProvider } from "@/components/providers/LiveMarketplaceGateProvider";
 import { VaultEcosystemRealtimeProvider } from "@/components/providers/VaultEcosystemRealtimeProvider";
 import { isLiveMarketplacePubliclyAvailable } from "@/lib/live-coming-soon";
+import { publicSiteBaseUrl } from "@/lib/live-room-share-metadata";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -26,6 +27,7 @@ const displaySerif = Cormorant_Garamond({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(publicSiteBaseUrl()),
   title: "Get Vaulted — Premium Collectibles Marketplace",
   description:
     "Marketplace for graded cards, live breaks, and trades—dark, fast, and built for serious collectors.",

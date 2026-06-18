@@ -24,6 +24,8 @@ import { BUYER_LIVE_MAIN_SECTION, BUYER_LIVE_PAGE_GRID } from "@/components/live
 import { HostLiveRoomConsoleBanner } from "@/components/live-auction/buyer/HostLiveRoomConsoleBanner";
 import { useBuyerLiveDesktop } from "@/components/live-auction/buyer/useBuyerLiveDesktop";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
+import { LiveGiveawayEnterStrip } from "@/components/live-auction/LiveGiveawayEnterStrip";
+import type { ViewerGiveawayDTO } from "@/lib/live-giveaway";
 import { TeamBoardChromeButton } from "@/components/team-board/TeamBoardChromeButton";
 import { TeamBoardOverlay } from "@/components/team-board/TeamBoardOverlay";
 import type { LiveRoomBreakPublicDTO, LiveRoomItemDTO, LiveRoomMessageDTO } from "@/lib/live-room-serialize";
@@ -40,6 +42,11 @@ import {
 } from "@/lib/live-auction-lot-phase";
 import { patchLiveRoomItemStatus, startLiveRoomItemAuction } from "@/lib/live-room-control-client";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
+import {
+  buildLiveRoomShareTitle,
+  canonicalLiveRoomUrl,
+  LIVE_SHARE_DESCRIPTION,
+} from "@/lib/live-room-share-metadata";
 import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
@@ -104,6 +111,7 @@ function mapDbItem(i: LiveRoomItemDTO, roomIsLive: boolean, clockSkewMs = 0): Sa
 export type LiveAuctionRoomProps = {
   breakId: string;
   roomTitle?: string;
+  roomCategory?: string;
   sellerId: string;
   sellerShopUsername?: string;
   hostDisplayName: string;
@@ -138,6 +146,7 @@ export type LiveAuctionRoomProps = {
   buyerLiveBidPaymentReady?: boolean;
   /** When `false`, non-host buyers need a shipping address in Wallet (server enforces on POST). */
   buyerLiveShippingReady?: boolean;
+  giveaways?: ViewerGiveawayDTO[];
 };
 
 function fmt(n: number) {
@@ -187,6 +196,7 @@ function parseAuctionHttpAckPayload(raw: unknown): {
 export function LiveAuctionRoom({
   breakId: _breakId,
   roomTitle,
+  roomCategory,
   sellerId,
   sellerShopUsername,
   hostDisplayName,
@@ -207,6 +217,7 @@ export function LiveAuctionRoom({
   clockSkewMs: clockSkewProp = 0,
   buyerLiveBidPaymentReady,
   buyerLiveShippingReady,
+  giveaways = [],
 }: LiveAuctionRoomProps) {
   const router = useRouter();
   const { data: session, status } = useSession();
@@ -653,11 +664,21 @@ export function LiveAuctionRoom({
   }, [activeDbItem, hostAuctionDurationSec, hostClutchTimeEnabled, liveRoomId, onAuctionHttpAck, onRefetch, router, toast]);
 
   const handleShare = useCallback(async () => {
-    const title = streamTitle;
-    const shareUrl = typeof window !== "undefined" ? window.location.href : `/live/${encodeURIComponent(liveRoomId)}`;
+    const showTitle = streamTitle;
+    const shareUrl = canonicalLiveRoomUrl(liveRoomId);
+    const shareTitle = buildLiveRoomShareTitle({
+      id: liveRoomId,
+      title: showTitle,
+      category: roomCategory,
+      sellerUsername: sellerShopUsername ?? hostDisplayName.replace(/^@+/, ""),
+    });
     try {
       if (typeof navigator !== "undefined" && navigator.share) {
-        await navigator.share({ title, text: `Join ${title} on Vaulted Live`, url: shareUrl });
+        await navigator.share({
+          title: shareTitle,
+          text: LIVE_SHARE_DESCRIPTION,
+          url: shareUrl,
+        });
         toast("Shared.");
         return;
       }
@@ -670,7 +691,7 @@ export function LiveAuctionRoom({
     } catch {
       toast("Could not share right now.");
     }
-  }, [liveRoomId, streamTitle, toast]);
+  }, [hostDisplayName, liveRoomId, roomCategory, sellerShopUsername, streamTitle, toast]);
 
   const handleWallet = useCallback(() => {
     if (status !== "authenticated") {
@@ -1288,6 +1309,17 @@ export function LiveAuctionRoom({
                   queueCount={buyerLineupItems.length}
                   shopHref={shopHref}
                   onOpenQueue={() => setBuyerLineupOpen(true)}
+                />
+              ) : null}
+
+              {!isHost && isLive && giveaways.length > 0 ? (
+                <LiveGiveawayEnterStrip
+                  liveRoomId={liveRoomId}
+                  giveaways={giveaways}
+                  signedIn={Boolean(session?.user?.id)}
+                  onRequireSignIn={() => router.push(`/login?callbackUrl=${encodeURIComponent(`/live/${liveRoomId}`)}`)}
+                  onEntered={() => void onRefetch?.()}
+                  onTimerExpired={() => void onRefetch?.()}
                 />
               ) : null}
 

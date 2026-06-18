@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { listViewerGiveawaysForRoom } from "@/lib/live-giveaway";
 import { getServerSessionSafe } from "@/lib/auth";
 import { resolveLiveRoomsUserId, resolveOptionalLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { attachHighBidderUsernames } from "@/lib/live-room-high-bidder-enrich";
@@ -162,6 +163,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   detail.items = await attachHighBidderUsernames(detail.items);
   const activeId = detail.activeItem?.id ?? null;
   detail.activeItem = activeId ? detail.items.find((i) => i.id === activeId) ?? null : null;
+  detail.giveaways = await listViewerGiveawaysForRoom(id, viewerId);
   logSellerRoomStateSnapshot({
     source: "buyer-room-get",
     roomId: id,

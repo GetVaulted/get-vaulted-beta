@@ -3,6 +3,7 @@ import { loadMentionsForSource } from "@/lib/mentions/load-message-mentions";
 import { serializeLiveRoomMessage } from "@/lib/live-room-serialize";
 import { broadcastRealtimeEvent, broadcastRealtimeEventOnce } from "@/lib/supabase-realtime-broadcast";
 import { LIVE_DISCOVERY_CHANNEL, LIVE_DISCOVERY_EVENT } from "@/lib/live-discovery-realtime";
+import type { VaultRevealSpinPayload } from "@/lib/vault-reveal-spin";
 import { listingBidsChannel, roomChannel, RT_EVENT, RT_EVENT_ALIASES, userNotificationsChannel } from "@/lib/realtime-channels";
 
 function buildRoomBroadcastEnriched(liveRoomId: string, payload: Record<string, unknown>) {
@@ -54,6 +55,18 @@ export async function emitLiveRoomMessageById(messageId: string): Promise<void> 
 
 export function emitLiveRoomMessagesRefetch(liveRoomId: string): void {
   emitRoomEventWithAliases(liveRoomId, RT_EVENT.messagesRefresh, {});
+}
+
+export function emitLiveRoomModerationChanged(liveRoomId: string, payload?: { userId?: string }): void {
+  emitRoomEventWithAliases(liveRoomId, RT_EVENT.moderationChanged, payload ?? {});
+}
+
+export function emitLiveRoomGiveawaysChanged(liveRoomId: string): void {
+  emitRoomEventWithAliases(liveRoomId, RT_EVENT.giveawaysChanged, { liveRoomId });
+}
+
+export function emitVaultRevealSpin(liveRoomId: string, spin: VaultRevealSpinPayload): void {
+  emitRoomEventWithAliases(liveRoomId, RT_EVENT.vaultRevealSpin, { spin });
 }
 
 export function emitBreakSpotsChanged(liveRoomId: string): void {

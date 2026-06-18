@@ -105,12 +105,10 @@ export function SellerLiveConsolePanel({
       </Pressable>
       <AddInventoryModal
         visible={c.inventoryOpen}
-        quickTitle={c.quickTitle}
-        onChangeQuickTitle={c.setQuickTitle}
+        accessToken={accessToken}
         onClose={() => c.setInventoryOpen(false)}
-        onSelect={c.onInventorySelect}
-        showAuctionPricing={c.auctionRoom}
-        pricingBusy={c.busy}
+        onSubmit={c.onQuickAddLot}
+        busy={c.busy}
       />
       <EditQueueItemPricingModal
         item={c.pricingEditItem}

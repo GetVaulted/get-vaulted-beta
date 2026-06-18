@@ -148,7 +148,19 @@ function CountryPickerModal({
   );
 }
 
-function SupportedMethods({ applePayEnabled }: { applePayEnabled: boolean }) {
+function SupportedMethods({
+  applePayEnabled,
+  googlePayEnabled,
+  linkEnabled,
+  cashAppPayEnabled,
+  paypalEnabled,
+}: {
+  applePayEnabled: boolean;
+  googlePayEnabled: boolean;
+  linkEnabled: boolean;
+  cashAppPayEnabled: boolean;
+  paypalEnabled: boolean;
+}) {
   return (
     <View style={ps.sectionCard}>
       <View style={ps.methodRow}>
@@ -168,6 +180,50 @@ function SupportedMethods({ applePayEnabled }: { applePayEnabled: boolean }) {
           <View style={ps.methodTextBlock}>
             <LiveRoomText style={ps.methodTitle}>Apple Pay</LiveRoomText>
             <LiveRoomText style={ps.methodSub}>When available on your device</LiveRoomText>
+          </View>
+        </View>
+      ) : null}
+      {Platform.OS === 'android' && googlePayEnabled ? (
+        <View style={ps.methodRow}>
+          <View style={ps.methodIconWrap}>
+            <Ionicons name="logo-google" size={22} color="#18181B" />
+          </View>
+          <View style={ps.methodTextBlock}>
+            <LiveRoomText style={ps.methodTitle}>Google Pay</LiveRoomText>
+            <LiveRoomText style={ps.methodSub}>When available on your device</LiveRoomText>
+          </View>
+        </View>
+      ) : null}
+      {linkEnabled ? (
+        <View style={ps.methodRow}>
+          <View style={ps.methodIconWrap}>
+            <Ionicons name="link-outline" size={22} color="#18181B" />
+          </View>
+          <View style={ps.methodTextBlock}>
+            <LiveRoomText style={ps.methodTitle}>Link by Stripe</LiveRoomText>
+            <LiveRoomText style={ps.methodSub}>Fast checkout with Link</LiveRoomText>
+          </View>
+        </View>
+      ) : null}
+      {cashAppPayEnabled ? (
+        <View style={ps.methodRow}>
+          <View style={ps.methodIconWrap}>
+            <Ionicons name="cash-outline" size={22} color="#18181B" />
+          </View>
+          <View style={ps.methodTextBlock}>
+            <LiveRoomText style={ps.methodTitle}>Cash App Pay</LiveRoomText>
+            <LiveRoomText style={ps.methodSub}>When enabled on your Stripe account</LiveRoomText>
+          </View>
+        </View>
+      ) : null}
+      {paypalEnabled ? (
+        <View style={ps.methodRow}>
+          <View style={ps.methodIconWrap}>
+            <Ionicons name="logo-paypal" size={22} color="#18181B" />
+          </View>
+          <View style={ps.methodTextBlock}>
+            <LiveRoomText style={ps.methodTitle}>PayPal</LiveRoomText>
+            <LiveRoomText style={ps.methodSub}>Via Stripe when enabled in Dashboard</LiveRoomText>
           </View>
         </View>
       ) : null}
@@ -220,7 +276,13 @@ function PaymentSheetLauncher({
       </LiveRoomText>
       <View style={ps.section}>
         <LiveRoomText style={ps.sectionTitle}>Supported methods</LiveRoomText>
-        <SupportedMethods applePayEnabled={payload.applePayEnabled !== false} />
+        <SupportedMethods
+          applePayEnabled={payload.applePayEnabled !== false}
+          googlePayEnabled={payload.googlePayEnabled !== false}
+          linkEnabled={payload.linkEnabled === true}
+          cashAppPayEnabled={payload.cashAppPayEnabled === true}
+          paypalEnabled={payload.paypalEnabled === true}
+        />
       </View>
       <LiveRoomText style={ps.scanHint}>
         Stripe checkout includes card scanning on supported devices. Everything stays in the app — no
@@ -403,6 +465,10 @@ function WalletPaymentSetupInner({
         applePay:
           Platform.OS === 'ios' && payload.applePayEnabled !== false
             ? { merchantCountryCode: payload.merchantCountryCode ?? 'US' }
+            : undefined,
+        googlePay:
+          Platform.OS === 'android' && payload.googlePayEnabled !== false
+            ? { merchantCountryCode: payload.merchantCountryCode ?? 'US', testEnv: __DEV__ }
             : undefined,
         appearance: {
           colors: {

@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { UserAvatar } from '../../ui/UserAvatar';
 import { colors, radii, spacing } from '../../../theme';
 import { hq } from './hqStyles';
 
@@ -48,13 +49,15 @@ export function SellerHQCommandHeader({
       />
       <View style={styles.top}>
         <View style={styles.avatarWrap}>
-          {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, styles.avatarPh]}>
-              <Ionicons name="person" size={28} color={colors.gold} />
-            </View>
-          )}
+          <UserAvatar
+            uri={avatarUrl}
+            name={displayName}
+            username={handle}
+            size={56}
+            tone="light"
+            borderColor="rgba(212,175,55,0.35)"
+            borderWidth={1}
+          />
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <View style={styles.rankRow}>

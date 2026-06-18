@@ -1,5 +1,5 @@
-import { useRef } from 'react';
-import { Animated, StyleSheet } from 'react-native';
+import { useRef, type ReactNode } from 'react';
+import { Animated, StyleSheet, View } from 'react-native';
 import {
   COMPOSER_BAR_H,
   FloatingChatComposer,
@@ -14,7 +14,10 @@ export function SellerLiveComposer({
   onChangeText,
   onSend,
   sendDisabled,
+  inputDisabled,
   accessToken,
+  leadingAccessory,
+  placeholder,
 }: {
   bottom: number;
   left: number;
@@ -23,7 +26,10 @@ export function SellerLiveComposer({
   onChangeText: (t: string) => void;
   onSend: () => void | Promise<void>;
   sendDisabled?: boolean;
+  inputDisabled?: boolean;
   accessToken?: string;
+  leadingAccessory?: ReactNode;
+  placeholder?: string;
 }) {
   const glow = useRef(new Animated.Value(0)).current;
   const active = value.trim().length > 0;
@@ -40,34 +46,40 @@ export function SellerLiveComposer({
           shadowOpacity: active ? 0.55 : 0.28,
         },
       ]}
+      pointerEvents="box-none"
     >
-      <Animated.View
-        style={[
-          styles.glowRing,
-          {
-            opacity: glow.interpolate({
-              inputRange: [0, 1],
-              outputRange: [active ? 0.45 : 0.15, 0.9],
-            }),
-          },
-        ]}
-        pointerEvents="none"
-      />
-      <FloatingChatComposer
-        bottom={0}
-        left={0}
-        rightEdge={0}
-        value={value}
-        onChangeText={(t) => {
-          onChangeText(t);
-          if (t.trim()) {
-            Animated.timing(glow, { toValue: 0.55, duration: 200, useNativeDriver: true }).start();
-          }
-        }}
-        onSend={sendDisabled ? () => undefined : onSend}
-        sendDisabled={sendDisabled}
-        accessToken={accessToken}
-      />
+      <View style={styles.composerSlot}>
+        <Animated.View
+          style={[
+            styles.glowRing,
+            {
+              opacity: glow.interpolate({
+                inputRange: [0, 1],
+                outputRange: [active ? 0.45 : 0.15, 0.9],
+              }),
+            },
+          ]}
+          pointerEvents="none"
+        />
+        <FloatingChatComposer
+          bottom={0}
+          left={0}
+          rightEdge={0}
+          value={value}
+          onChangeText={(t) => {
+            onChangeText(t);
+            if (t.trim()) {
+              Animated.timing(glow, { toValue: 0.55, duration: 200, useNativeDriver: true }).start();
+            }
+          }}
+          onSend={sendDisabled ? () => undefined : onSend}
+          sendDisabled={sendDisabled}
+          inputDisabled={inputDisabled}
+          placeholder={placeholder}
+          accessToken={accessToken}
+          leadingAccessory={leadingAccessory}
+        />
+      </View>
     </Animated.View>
   );
 }
@@ -75,11 +87,15 @@ export function SellerLiveComposer({
 const styles = StyleSheet.create({
   host: {
     position: 'absolute',
-    zIndex: 6,
+    zIndex: 20,
+    elevation: 20,
     shadowColor: colors.gold,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 0 },
-    elevation: 6,
+  },
+  composerSlot: {
+    flex: 1,
+    minWidth: 0,
   },
   glowRing: {
     ...StyleSheet.absoluteFillObject,

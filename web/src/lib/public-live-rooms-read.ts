@@ -11,5 +11,8 @@ export function isPublicLiveRoomsBuyerRead(request: Pick<NextRequest, "method" |
   if (pathname === "/api/live-rooms") {
     return searchParams.get("mine") !== "1";
   }
+  if (/^\/api\/live-rooms\/[^/]+\/share-meta$/.test(pathname)) {
+    return true;
+  }
   return /^\/api\/live-rooms\/[^/]+$/.test(pathname);
 }

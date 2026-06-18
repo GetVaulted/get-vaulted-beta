@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef } from 'react';
-import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { UserAvatar } from '../../ui/UserAvatar';
 import { LiveBadge } from '../../ui/LiveBadge';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { colors, spacing } from '../../../theme';
@@ -25,7 +26,7 @@ export function SellerLiveOverlayHeader({
 }: {
   paddingTop: number;
   hostName: string;
-  hostAvatarUrl: string;
+  hostAvatarUrl: string | null;
   streamTitle: string;
   viewerCount: number;
   roomLive: boolean;
@@ -80,7 +81,7 @@ export function SellerLiveOverlayHeader({
                   ]}
                 />
               ) : null}
-              <Image source={{ uri: hostAvatarUrl }} style={styles.avatar} />
+              <UserAvatar uri={hostAvatarUrl} name={hostName} size={32} borderColor="rgba(255,255,255,0.35)" />
             </View>
             <View style={styles.textCol}>
               <Text style={styles.hostName} numberOfLines={1}>

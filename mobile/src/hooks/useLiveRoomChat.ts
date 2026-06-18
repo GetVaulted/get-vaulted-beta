@@ -5,9 +5,14 @@ import {
   sendLiveRoomChatMessage,
   type LiveRoomChatMessageRow,
 } from '../api/liveRoomChatRepository';
-import { dedupeChatMessagesById } from '../lib/liveRoomChatMessages';
+import {
+  JOIN_ANNOUNCE_COOLDOWN_MS,
+  mergeChatMessagesById,
+} from '../lib/liveRoomChatMessages';
 import type { LiveRoomChatBroadcastMessage } from './useRealtimeRoomSubscription';
 import type { ChatMessage, ChatMessageKind } from '../types';
+
+const joinCooldownByRoom = new Map<string, number>();
 
 function mapRow(m: LiveRoomChatMessageRow, hostUsername: string): ChatMessage | null {
   const text = m.body?.trim();
@@ -25,6 +30,7 @@ function mapRow(m: LiveRoomChatMessageRow, hostUsername: string): ChatMessage | 
     isHost: Boolean(host && sender.toLowerCase() === host),
     messageType,
     mentions: m.mentions,
+    createdAt: m.createdAt,
   };
 }
 
@@ -35,10 +41,6 @@ function mapRows(rows: LiveRoomChatMessageRow[], hostUsername: string): ChatMess
     if (mapped) out.push(mapped);
   }
   return out;
-}
-
-function mergeChatMessages(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
-  return dedupeChatMessagesById([...prev, ...incoming]).slice(-80);
 }
 
 export function useLiveRoomChat(args: {
@@ -54,17 +56,15 @@ export function useLiveRoomChat(args: {
   const [error, setError] = useState<string | null>(null);
   const sendLockRef = useRef(false);
   const reloadLockRef = useRef(false);
-  const joinAnnouncedRef = useRef(false);
 
   useEffect(() => {
-    joinAnnouncedRef.current = false;
     setMessages([]);
   }, [args.roomId]);
 
   const appendRows = useCallback((rows: LiveRoomChatMessageRow[]) => {
     const mapped = mapRows(rows, args.hostUsername);
     if (mapped.length === 0) return;
-    setMessages((prev) => mergeChatMessages(prev, mapped));
+    setMessages((prev) => mergeChatMessagesById(prev, mapped));
   }, [args.hostUsername]);
 
   const reload = useCallback(async () => {
@@ -72,7 +72,8 @@ export function useLiveRoomChat(args: {
     reloadLockRef.current = true;
     try {
       const rows = await fetchLiveRoomChatMessages(args.roomId);
-      setMessages(mapRows(rows, args.hostUsername));
+      const mapped = mapRows(rows, args.hostUsername);
+      setMessages((prev) => mergeChatMessagesById(prev, mapped));
       setError(null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -93,7 +94,8 @@ export function useLiveRoomChat(args: {
         senderUsername: message.senderUsername ?? 'Guest',
         senderAvatarUrl: message.senderAvatarUrl ?? null,
         messageType: (message.messageType as LiveRoomChatMessageRow['messageType']) ?? 'chat',
-        createdAt: new Date().toISOString(),
+        createdAt: message.createdAt ?? new Date().toISOString(),
+        mentions: message.mentions,
       };
       appendRows([row]);
     },
@@ -103,7 +105,7 @@ export function useLiveRoomChat(args: {
   useEffect(() => {
     if (!args.enabled) return undefined;
     void reload();
-    const pollMs = args.realtimePrimary ? 30_000 : 4000;
+    const pollMs = args.realtimePrimary ? 2000 : 4000;
     const id = setInterval(() => {
       void reload();
     }, pollMs);
@@ -112,20 +114,21 @@ export function useLiveRoomChat(args: {
 
   const announceJoin = useCallback(async (): Promise<boolean> => {
     if (!args.accessToken || !args.enabled) return false;
-    if (joinAnnouncedRef.current) return false;
-    joinAnnouncedRef.current = true;
+    const last = joinCooldownByRoom.get(args.roomId) ?? 0;
+    if (Date.now() - last < JOIN_ANNOUNCE_COOLDOWN_MS) return false;
     try {
       const row = await announceLiveRoomViewerEvent({
         accessToken: args.accessToken,
         roomId: args.roomId,
         kind: 'join',
       });
+      joinCooldownByRoom.set(args.roomId, Date.now());
       appendRows([row]);
       setError(null);
       return true;
     } catch (e) {
-      joinAnnouncedRef.current = false;
       const msg = e instanceof Error ? e.message : String(e);
+      if (/not live yet|room has ended|409/i.test(msg)) return false;
       setError(msg);
       if (__DEV__) console.warn('[useLiveRoomChat] join announce failed', msg);
       throw e;
@@ -170,7 +173,7 @@ export function useLiveRoomChat(args: {
         });
         const next = mapRow(row, args.hostUsername);
         if (next) {
-          setMessages((prev) => mergeChatMessages(prev, [next]));
+          setMessages((prev) => mergeChatMessagesById(prev, [next]));
         }
         setError(null);
         return true;

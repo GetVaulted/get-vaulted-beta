@@ -4,6 +4,7 @@ import { buildCheckoutTaxSessionFields, STRIPE_TAX_CODE_TANGIBLE, stripeLineItem
 import { recordLiveShowCompletedSaleTx, resolveCheckoutApplicationFeeCents } from "@/lib/live-show-gmv";
 
 import { emitLiveRoomMessagesRefetch, emitVariantPurchased } from "@/lib/realtime-emit-server";
+import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
 import { createNotification } from "@/lib/notifications";
 import { maybeMarkVariantBreakReady } from "@/lib/live-item-variant-break";
 
@@ -62,6 +63,9 @@ export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, st
     itemVersion: item.itemVersion,
   });
   emitLiveRoomMessagesRefetch(purchase.liveRoomId);
+  void recordBuyerGiveawayPurchaseEntries(purchase.liveRoomId, purchase.buyerId, purchase.id).catch((e) => {
+    console.error("[variant purchase] buyers giveaway entry", e);
+  });
 
   const room = await prisma.liveRoom.findUnique({
     where: { id: purchase.liveRoomId },

@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { VaultImage } from '../ui/VaultImage';
+import { UserAvatar } from '../ui/UserAvatar';
 import { displayTradeStatus } from '../../lib/tradeStatusLabels';
 import { colors, radii, spacing } from '../../theme';
 import type { ListingLite, ProfileLite, TradeOfferStatus } from '../../types/tradeOffers';
@@ -46,15 +47,12 @@ export function TradeDealCard({ partner, status, requested, offered, onPress, me
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.shell, pressed && styles.pressed]}>
       <View style={styles.top}>
-        <VaultImage
-          uri={
-            partner.avatar_url?.trim() ||
-            `https://i.pravatar.cc/80?u=${encodeURIComponent(partner.id)}`
-          }
-          width={40}
-          height={40}
-          borderRadius={20}
-          priority="low"
+        <UserAvatar
+          uri={partner.avatar_url}
+          name={partner.display_name}
+          username={partner.username}
+          size={40}
+          tone="light"
         />
         <View style={styles.headMeta}>
           <View style={styles.nameRow}>

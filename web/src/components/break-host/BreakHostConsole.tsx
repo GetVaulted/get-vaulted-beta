@@ -9,17 +9,26 @@ import { TeamBoardHostPanel } from "@/components/team-board/TeamBoardHostPanel";
 import { TeamBoardOverlay } from "@/components/team-board/TeamBoardOverlay";
 import { LiveSellerCommandCenter } from "@/components/break-host/LiveSellerCommandCenter";
 import { LiveAuctionSoldCelebration } from "@/components/live-auction/LiveAuctionSoldCelebration";
+import { VaultRevealWheelOverlay } from "@/components/live-auction/VaultRevealWheelOverlay";
 import { VaultHostAnnouncements } from "@/components/break-host/vault/VaultHostAnnouncements";
 import { VaultHostLiveChatPanel } from "@/components/break-host/vault/VaultHostLiveChatPanel";
 import { VaultHostStageEdgeRail } from "@/components/break-host/vault/VaultHostStageEdgeRail";
 import { VaultHostRightRail } from "@/components/break-host/vault/VaultHostRightRail";
 import { VaultBroadcastControl } from "@/components/break-host/vault/VaultBroadcastControl";
 import { VaultPinnedLot } from "@/components/break-host/vault/VaultPinnedLot";
-import { AddQueueItemModal, type AddQueueItemAuctionPayload, type AddQueueItemCloseReason } from "@/components/break-host/AddQueueItemModal";
+import { addModalModeForTab, isGiveawayTab, type SellerQueueAddModalMode, type SellerQueueTab } from "@/lib/seller-queue-tabs";
+import type { LiveGiveawayDTO } from "@/lib/live-giveaway";
+import {
+  createLiveGiveawayClient,
+  deleteLiveGiveawayClient,
+  patchLiveGiveawayClient,
+} from "@/lib/live-giveaway-client";
+import { AddQueueItemModal, type AddQueueItemAuctionPayload, type AddQueueItemCloseReason, type AddQueueItemGiveawayPayload } from "@/components/break-host/AddQueueItemModal";
 import { VaultQueueDrawer } from "@/components/break-host/vault/VaultQueueDrawer";
 import { HostVariantCommerceStage } from "@/components/break-host/HostVariantCommerceStage";
 import { HostAddSupplementalModal } from "@/components/break-host/HostAddSupplementalModal";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
+import { canonicalLiveRoomUrl } from "@/lib/live-room-share-metadata";
 import {
   readHostCommercePanelMinimized,
   writeHostCommercePanelMinimized,
@@ -53,6 +62,7 @@ import { logIvsWeb } from "@/lib/ivs-web-broadcast-log";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
 import { logLiveDebugEvent } from "@/lib/live-debug";
+import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from "@/lib/vault-reveal-spin";
 import {
   createLiveRoomItem,
   deleteLiveRoomItem,
@@ -145,6 +155,7 @@ type HostPayload = {
   recentSales?: HostRecentSaleRowDTO[];
   feeTier?: LiveShowFeeTierSnapshot | null;
   sellerUnresolvedPaymentFailures?: SellerPaymentFailureDTO[];
+  giveaways?: LiveGiveawayDTO[];
 };
 
 function fmtHostSpotUsd(n: number | null | undefined) {
@@ -215,7 +226,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
   const [systemMsg, setSystemMsg] = useState("");
 
-  const [queueAddModal, setQueueAddModal] = useState<null | "auction" | "bin" | "givvy">(null);
+  const [queueAddModal, setQueueAddModal] = useState<SellerQueueAddModalMode>(null);
   const [obsSetupModalOpen, setObsSetupModalOpen] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
 
@@ -231,7 +242,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const [teamBreakBusy, setTeamBreakBusy] = useState(false);
   const [auctionTickHost, setAuctionTickHost] = useState(0);
   const [hostClockSkewMs, setHostClockSkewMs] = useState(0);
-  const [hostQueueTab, setHostQueueTab] = useState<"auction" | "bin" | "givvy" | "sold">("auction");
+  const [hostQueueTab, setHostQueueTab] = useState<SellerQueueTab>("auction");
   const [vaultMode, setVaultMode] = useState<VaultMode>("auction_night");
   const [vaultCommandOpen, setVaultCommandOpen] = useState(false);
   const [hostLineupOpen, setHostLineupOpen] = useState(false);
@@ -250,6 +261,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const lotTransitionTimersRef = useRef<number[]>([]);
   const [realtimeConnectionStatus, setRealtimeConnectionStatus] = useState("Connecting…");
   const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
+  const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
+  const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
   const lastRefreshAtRef = useRef<number | null>(null);
   const reconnectCountRef = useRef(0);
   const fallbackRefreshTimerRef = useRef<number | null>(null);
@@ -267,7 +280,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   /** After first successful host-console load for this mount/room; avoids wiping UI on poll network blips. */
   const hostConsoleHydratedRef = useRef(false);
 
-  const publicUrl = useMemo(() => `${typeof window !== "undefined" ? window.location.origin : ""}/live/${encodeURIComponent(roomId)}`, [roomId]);
+  const publicUrl = useMemo(() => canonicalLiveRoomUrl(roomId), [roomId]);
 
   useEffect(() => {
     hostConsoleHydratedRef.current = false;
@@ -822,6 +835,14 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       });
       void load();
     },
+    onGiveawaysChange: () => void load(),
+    onVaultRevealSpin: (payload) => {
+      const spin = parseVaultRevealSpinPayload(payload);
+      if (!spin || seenVaultRevealSpinIdsRef.current.has(spin.spinId)) return;
+      seenVaultRevealSpinIdsRef.current.add(spin.spinId);
+      setVaultRevealSpin(spin);
+      void load();
+    },
     onTeamBreakReady: () => {
       flashHostNotice("All divisions sold. Break is ready to begin.");
       void load();
@@ -1236,6 +1257,70 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     [load, roomId, router],
   );
 
+  const runGiveawayAction = useCallback(
+    async (giveawayId: string, action: "open_entries" | "close_entries" | "cancel" | "draw") => {
+      setBusy(true);
+      setToast(null);
+      try {
+        const res = await patchLiveGiveawayClient(roomId, giveawayId, action);
+        if (!res.ok) {
+          setToast(res.error);
+          return;
+        }
+        await load();
+        if (action === "draw" && res.data.giveaway.winnerUsername) {
+          /* Winner shown on synchronized Vault Reveal wheel */
+        }
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, roomId],
+  );
+
+  const handleSubmitGiveawayAdd = useCallback(
+    async (payload: AddQueueItemGiveawayPayload): Promise<boolean> => {
+      setBusy(true);
+      setToast(null);
+      try {
+        const res = await createLiveGiveawayClient(roomId, payload);
+        if (!res.ok) {
+          setToast(res.error);
+          return false;
+        }
+        await load();
+        setHostQueueTab(payload.kind === "buyers" ? "buyers_giveaway" : "giveaway");
+        setToast(
+          payload.kind === "buyers"
+            ? "Buyers giveaway created — AMOE link is in official rules."
+            : "Giveaway created.",
+        );
+        return true;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, roomId],
+  );
+
+  const handleDeleteGiveaway = useCallback(
+    async (giveawayId: string) => {
+      setBusy(true);
+      setToast(null);
+      try {
+        const res = await deleteLiveGiveawayClient(roomId, giveawayId);
+        if (!res.ok) {
+          setToast(res.error);
+          return;
+        }
+        await load();
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, roomId],
+  );
+
   const copyPublic = async () => {
     try {
       await navigator.clipboard.writeText(publicUrl);
@@ -1575,6 +1660,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       tab={hostQueueTab}
       onTab={setHostQueueTab}
       rows={data.queueItems}
+      giveaways={data.giveaways ?? []}
       selectedId={selectedQueueItemId}
       onSelect={handleSelectQueueItem}
       viewerCount={room.viewerCount}
@@ -1583,6 +1669,13 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       onSkip={(id) => void patchItem(id, "skipped")}
       onDelete={(id) => void deleteQueueItem(id)}
       onAddItem={() => setQueueAddModal("auction")}
+      onAddGiveaway={() => setQueueAddModal(addModalModeForTab(hostQueueTab))}
+      onGiveawayOpenEntries={(id) => void runGiveawayAction(id, "open_entries")}
+      onGiveawayCloseEntries={(id) => void runGiveawayAction(id, "close_entries")}
+      onGiveawayDraw={(id) => void runGiveawayAction(id, "draw")}
+      onGiveawayCancel={(id) => void runGiveawayAction(id, "cancel")}
+      onGiveawayDelete={(id) => void handleDeleteGiveaway(id)}
+      onGiveawayTimerExpired={() => void load()}
       onPinSelected={handleHostPinSelected}
       onNextItem={handleHostNextItem}
       onStartAuction={() => void handleHostStartLiveItemAuction()}
@@ -1652,6 +1745,17 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       setVaultCommandOpen(false);
       setQueueAddModal("auction");
     },
+    onAddGiveaway: () => {
+      setVaultCommandOpen(false);
+      setQueueAddModal(addModalModeForTab(hostQueueTab));
+    },
+    giveaways: data.giveaways ?? [],
+    onGiveawayOpenEntries: (id: string) => void runGiveawayAction(id, "open_entries"),
+    onGiveawayCloseEntries: (id: string) => void runGiveawayAction(id, "close_entries"),
+    onGiveawayDraw: (id: string) => void runGiveawayAction(id, "draw"),
+    onGiveawayCancel: (id: string) => void runGiveawayAction(id, "cancel"),
+    onGiveawayDelete: (id: string) => void handleDeleteGiveaway(id),
+    onGiveawayTimerExpired: () => void load(),
     onGoLive: handleGoLive,
     onToggleTeamBoard: toggleHostTeamBoardPanel,
     teamBoardPanelOpen: hostTeamBoardOpen,
@@ -2119,6 +2223,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       ) : null}
 
       <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
+      <VaultRevealWheelOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
 
       <SellerShareSheet
         open={shareSheetOpen}
@@ -2172,6 +2277,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         busy={busy}
         onRequestClose={handleQueueAddModalClose}
         onSubmitAuction={handleSubmitAuctionAdd}
+        onSubmitGiveaway={handleSubmitGiveawayAdd}
       />
     </div>
   );

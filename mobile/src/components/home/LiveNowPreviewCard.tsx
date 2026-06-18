@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { UserAvatar } from '../ui/UserAvatar';
 import { VaultImage } from '../ui/VaultImage';
 import { liveRoomCardStatusLine, liveRoomCategoryLine } from '../../lib/liveRoomDisplay';
 import { colors, radii, spacing } from '../../theme';
@@ -108,7 +109,13 @@ export function LiveNowPreviewCard({
 
           <View style={styles.body}>
             <View style={styles.hostRow}>
-              <VaultImage uri={stream.host.avatarUrl} width={28} height={28} borderRadius={14} priority="low" />
+              <UserAvatar
+                uri={stream.host.avatarUrl}
+                name={stream.host.name}
+                username={stream.host.handle}
+                size={28}
+                tone="light"
+              />
               <Text style={styles.title} numberOfLines={2}>
                 {stream.title}
               </Text>

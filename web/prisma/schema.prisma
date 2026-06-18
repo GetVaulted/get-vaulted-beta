@@ -167,6 +167,29 @@ enum OrderPaymentMethod {
   layaway
 }
 
+/// Primary payment processor for buyer charge (Stripe vs separate PayPal/Venmo path).
+enum PaymentProcessor {
+  STRIPE
+  PAYPAL_VENMO
+}
+
+/// Wallet / checkout payment instrument type.
+enum WalletPaymentMethodType {
+  card
+  apple_pay
+  google_pay
+  link
+  cash_app_pay
+  paypal
+  venmo
+}
+
+/// How seller payout is routed for this order.
+enum SellerPayoutProcessor {
+  STRIPE
+  PAYPAL
+}
+
 /// Marketplace layaway plan length (buyer-selected at checkout).
 enum LayawayPlanType {
   thirty_day
@@ -343,6 +366,25 @@ enum LiveRoomModerationActionType {
   seller_stream_ban
   post_announcement
   run_giveaway
+}
+
+enum LiveGiveawayKind {
+  open
+  buyers
+}
+
+enum LiveGiveawayStatus {
+  draft
+  entries_open
+  entries_closed
+  drawn
+  cancelled
+}
+
+enum LiveGiveawayEntryMethod {
+  watch_enter
+  purchase
+  amoe_form
 }
 
 enum DisputeEvidenceStatus {
@@ -536,6 +578,9 @@ model User {
   liveStreamReplaysAsSeller          LiveStreamReplay[]          @relation("LiveStreamReplaySeller")
   disputeEvidenceGenerated           DisputeEvidenceBundle[]     @relation("DisputeEvidenceAdmin")
   liveRoomMessagesDeleted            LiveRoomMessage[]           @relation("LiveRoomMessageDeletedBy")
+  liveGiveawaysCreated               LiveGiveaway[]              @relation("LiveGiveawayCreator")
+  liveGiveawaysWon                   LiveGiveaway[]              @relation("LiveGiveawayWinner")
+  liveGiveawayEntries                LiveGiveawayEntry[]
   layawaysAsBuyer                    Layaway[]                   @relation("LayawayBuyer")
   layawaysAsSeller                   Layaway[]                   @relation("LayawaySeller")
   messageMentionsReceived            MessageMention[]            @relation("MessageMentionRecipient")
@@ -901,6 +946,7 @@ model LiveRoom {
   tips      LiveTip[]
   moderators LiveRoomModerator[]
   moderationActions LiveRoomModerationAction[]
+  giveaways LiveGiveaway[]
   sellerStreamBans SellerStreamBan[]
   streamReplays LiveStreamReplay[]
   paymentFailures LiveRoomPaymentFailure[]
@@ -1369,6 +1415,14 @@ model Order {
   escrowReleasePaused     Boolean            @default(false)
   stripeCheckoutSessionId String?
   stripePaymentIntentId   String?
+  /// Payment processor abstraction — Stripe default; PayPal/Venmo when enabled separately.
+  paymentProcessor        PaymentProcessor        @default(STRIPE)
+  walletPaymentMethodType WalletPaymentMethodType @default(card)
+  processorPaymentId      String?
+  processorCustomerId     String?
+  processorTransferId     String?
+  sellerPayoutProcessor   SellerPayoutProcessor   @default(STRIPE)
+  walletPaymentMethodId   String?
   /// When set (auction win unpaid), buyer must pay before this instant or the order expires.
   paymentDeadlineAt       DateTime?
   liveShippingSessionId   String?
@@ -1737,6 +1791,53 @@ model MessageMention {
   @@unique([sourceType, sourceId, mentionedUserId])
   @@index([mentionedUserId, createdAt])
   @@index([sourceType, sourceId])
+}
+
+/// Live show giveaway — open (everyone) or buyers-only (purchase + discreet AMOE).
+model LiveGiveaway {
+  id               String             @id @default(cuid())
+  liveRoomId       String
+  liveRoom         LiveRoom           @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  kind             LiveGiveawayKind
+  title            String
+  prizeDescription String             @default("")
+  imageUrl         String             @default("")
+  /// Official promotion rules (required for buyers giveaways).
+  rulesText        String             @default("")
+  /// Discreet slug for AMOE — linked only from official rules, not the live stage.
+  amoeRulesSlug    String?            @unique
+  status           LiveGiveawayStatus @default(draft)
+  entryOpenAt      DateTime?
+  entryCloseAt     DateTime?
+  drawnAt          DateTime?
+  winnerUserId     String?
+  winnerUser       User?              @relation("LiveGiveawayWinner", fields: [winnerUserId], references: [id], onDelete: SetNull)
+  drawSeed         String?
+  entryCount       Int                @default(0)
+  sortOrder        Int                @default(0)
+  createdById      String
+  createdBy        User               @relation("LiveGiveawayCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  entries          LiveGiveawayEntry[]
+
+  @@index([liveRoomId, status])
+  @@index([liveRoomId, kind])
+}
+
+model LiveGiveawayEntry {
+  id          String                  @id @default(cuid())
+  giveawayId  String
+  giveaway    LiveGiveaway            @relation(fields: [giveawayId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  method      LiveGiveawayEntryMethod
+  purchaseRef String?
+  amoeMeta    Json?
+  createdAt   DateTime                @default(now())
+
+  @@unique([giveawayId, userId])
+  @@index([giveawayId])
 }
 
 /// Host-assigned live room moderators (chat/bid governance — distinct from tip moderator).

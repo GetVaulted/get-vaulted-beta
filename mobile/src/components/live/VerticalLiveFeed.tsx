@@ -26,7 +26,10 @@ import type { LiveStream, ChatMessage } from '../../types';
 import type { LiveStackParamList, MainTabParamList } from '../../navigation/types';
 import { rootNavigationRef } from '../../navigation/rootNavigationRef';
 import { openUserProfile } from '../../navigation/openPlatform';
+import { UserAvatar } from '../ui/UserAvatar';
 import { LiveAuctionSoldCelebration } from './LiveAuctionSoldCelebration';
+import { VaultRevealWheelOverlay } from './VaultRevealWheelOverlay';
+import { LiveGiveawayEnterChip } from './LiveGiveawayEnterChip';
 import {
   CHAT_ABOVE_COMPOSER_GAP,
   COMPOSER_BAR_HEIGHT,
@@ -41,7 +44,11 @@ import { useLiveRoomModeration } from '../../hooks/useLiveRoomModeration';
 import { showModeratorTools } from '../../lib/liveModeratorPermissions';
 import { ModeratorActionSheet } from '../moderator/ModeratorActionSheet';
 import { ModeratorDrawer } from '../moderator/ModeratorDrawer';
-import { ModeratorFloatingButton } from '../moderator/ModeratorFloatingButton';
+import { HostModeratorAssignSheet } from '../moderator/HostModeratorAssignSheet';
+import {
+  HostModeratorAssignButton,
+  ModeratorToolsButton,
+} from '../moderator/ModeratorFloatingButton';
 import { ReportSheet } from '../trust/ReportSheet';
 import {
   FloatingChatComposer,
@@ -66,6 +73,7 @@ import {
   type LiveStageContainer,
 } from '../../lib/liveRoomViewport';
 import { isCompactLiveRoomLayout } from '../../lib/liveRoomUiScale';
+import { buildLiveRoomShareMessage } from '../../lib/liveRoomShare';
 
 function chatRightEdgeForWidth(layoutWidth: number): number {
   return isCompactLiveRoomLayout(layoutWidth) ? 84 : 92;
@@ -173,6 +181,7 @@ function LiveSlide({
   const [breakDisclaimerReady, setBreakDisclaimerReady] = useState(false);
   const [paymentRecoveryToast, setPaymentRecoveryToast] = useState<string | null>(null);
   const [modDrawerOpen, setModDrawerOpen] = useState(false);
+  const [modAssignOpen, setModAssignOpen] = useState(false);
   const [modActionMessage, setModActionMessage] = useState<ChatMessage | null>(null);
 
   const leaveRoomSafely = useCallback(() => {
@@ -284,12 +293,12 @@ function LiveSlide({
   }, [isActive, stream.id, stageContainer, screenHeight]);
 
   useEffect(() => {
-    if (!isActive || !signedIn || !accessToken) return;
+    if (!isActive || !signedIn || !accessToken || roomStatus !== 'live') return;
     void liveChat.announceJoin().catch((e) => {
       const msg = e instanceof Error ? e.message : String(e);
       moderation.handleRestrictionError(msg);
     });
-  }, [isActive, signedIn, accessToken, liveChat.announceJoin, moderation.handleRestrictionError]);
+  }, [isActive, signedIn, accessToken, roomStatus, liveChat.announceJoin, moderation.handleRestrictionError]);
 
   const chatPool = liveChat.messages;
 
@@ -334,9 +343,12 @@ function LiveSlide({
   };
 
   const shareRoom = async () => {
+    const { title, message, url } = buildLiveRoomShareMessage(stream);
     try {
       await Share.share({
-        message: `Watch “${stream.title}” with ${stream.host.name} on Get Vaulted`,
+        title,
+        message,
+        url: Platform.OS === 'ios' && url ? url : undefined,
       });
       if (signedIn && accessToken) {
         void liveChat.announceShare();
@@ -376,6 +388,10 @@ function LiveSlide({
       <LiveAuctionSoldCelebration
         celebration={liveSession.soldCelebration}
         onDone={liveSession.clearSoldCelebration}
+      />
+      <VaultRevealWheelOverlay
+        spin={liveSession.vaultRevealSpin}
+        onDismiss={liveSession.clearVaultRevealSpin}
       />
       <View style={styles.slide}>
         <View style={computeLiveStageHostStyle(stageContainer)}>
@@ -430,9 +446,12 @@ function LiveSlide({
               accessibilityRole="button"
               accessibilityLabel={`Host ${stream.host.name}`}
             >
-              <Image
-                source={{ uri: stream.host.avatarUrl }}
-                style={[styles.hostAvatarTop, compact && styles.hostAvatarTopCompact]}
+              <UserAvatar
+                uri={stream.host.avatarUrl}
+                name={stream.host.name}
+                username={stream.host.handle}
+                size={compact ? 28 : 32}
+                borderColor="rgba(255,255,255,0.35)"
               />
               <View style={styles.hostTextCol}>
                 <LiveRoomText style={[styles.hostNameTop, compact && styles.hostNameTopCompact]} numberOfLines={1}>
@@ -630,6 +649,7 @@ function LiveSlide({
         liveRoomId={stream.id}
         accessToken={accessToken}
         canModerate={moderation.canModerate}
+        isModerator={moderation.isModerator}
         viewerRole={moderation.viewerRole}
         onLongPressMessage={(message) => setModActionMessage(message)}
         onModerationComplete={() => {
@@ -639,15 +659,7 @@ function LiveSlide({
         onPressMentionUser={(userId) => openUserProfile(userId)}
       />
 
-      {showModeratorTools(moderation.viewerRole) ? (
-        <ModeratorFloatingButton
-          bottom={bottomStack.composerBottom + COMPOSER_BAR_HEIGHT + 14}
-          right={spacing.lg}
-          onPress={() => setModDrawerOpen(true)}
-        />
-      ) : null}
-
-      {showModeratorTools(moderation.viewerRole) && accessToken ? (
+      {showModeratorTools(moderation.isModerator) && accessToken ? (
         <ModeratorDrawer
           visible={modDrawerOpen}
           onClose={() => setModDrawerOpen(false)}
@@ -662,13 +674,26 @@ function LiveSlide({
         />
       ) : null}
 
-      {modActionMessage ? (
+      {moderation.isHost && accessToken ? (
+        <HostModeratorAssignSheet
+          visible={modAssignOpen}
+          onClose={() => setModAssignOpen(false)}
+          liveRoomId={stream.id}
+          accessToken={accessToken}
+          moderation={moderation}
+          hostUserId={stream.host.id}
+          onRefresh={() => void moderation.reload()}
+        />
+      ) : null}
+
+      {modActionMessage && moderation.isModerator ? (
         <ModeratorActionSheet
           visible={Boolean(modActionMessage)}
           onClose={() => setModActionMessage(null)}
           liveRoomId={stream.id}
           accessToken={accessToken}
-          viewerRole={moderation.viewerRole}
+          isModerator={moderation.isModerator}
+          isHost={moderation.isHost}
           moderatorLevel={moderation.moderatorLevel}
           allowedActions={moderation.allowedActions}
           messageId={modActionMessage.id}
@@ -715,7 +740,39 @@ function LiveSlide({
         onSend={sendFloatingChat}
         sendDisabled={liveChat.sending || breakParticipationBlocked}
         accessToken={accessToken}
+        leadingAccessory={
+          <>
+            {showModeratorTools(moderation.isModerator) ? (
+              <ModeratorToolsButton onPress={() => setModDrawerOpen(true)} />
+            ) : null}
+            {moderation.isHost && accessToken ? (
+              <HostModeratorAssignButton onPress={() => setModAssignOpen(true)} />
+            ) : null}
+          </>
+        }
       />
+
+      {roomStatus === 'live' && (liveSession.roomSnap?.giveaways?.length ?? 0) > 0 ? (
+        <View
+          style={{
+            position: 'absolute',
+            left: spacing.md,
+            right: spacing.md,
+            bottom: bottomStack.commerceBottom + commerceHeight + spacing.sm,
+            zIndex: 12,
+          }}
+        >
+          <LiveGiveawayEnterChip
+            roomId={stream.id}
+            accessToken={accessToken}
+            giveaways={liveSession.roomSnap?.giveaways ?? []}
+            signedIn={signedIn}
+            onRequireAuth={onRequireAuth}
+            onEntered={() => void liveSession.fetchSnapshot()}
+            onTimerExpired={() => void liveSession.fetchSnapshot()}
+          />
+        </View>
+      ) : null}
 
       <View
         style={[

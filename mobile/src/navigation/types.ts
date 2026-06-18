@@ -95,4 +95,5 @@ export type RootStackParamList = {
   SellerLayaways: { filter?: 'active' | 'ready' | 'overdue' } | undefined;
   SellerLayawayDetail: { layawayId: string };
   SellerOrderDetail: { orderId: string };
+  PromoEntry: { slug: string };
 };

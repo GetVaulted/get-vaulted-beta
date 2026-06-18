@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isInvalidRefreshTokenError } from './recoverInvalidAuthSession';
+import { isInvalidRefreshTokenError } from './recoverInvalidAuthSessionErrors';
 
 describe('isInvalidRefreshTokenError', () => {
   it('matches AuthApiError refresh token not found', () => {

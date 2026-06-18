@@ -28,24 +28,26 @@ const ACTION_MIN_LEVEL: Record<string, LiveModeratorLevel> = {
 
 export function canPerformModeratorAction(args: {
   actionType: string;
-  viewerRole: LiveViewerRole;
+  isModerator: boolean;
+  isHost?: boolean;
   moderatorLevel: LiveModeratorLevel | null;
   allowedActions?: string[];
 }): boolean {
+  if (!args.isModerator) return false;
   if (args.allowedActions?.length) {
     return args.allowedActions.includes(args.actionType);
   }
-  if (args.viewerRole === 'buyer') return false;
   const level: LiveModeratorLevel | null =
-    args.viewerRole === 'host' ? 'head' : args.moderatorLevel;
+    args.isHost && args.isModerator ? 'head' : args.moderatorLevel;
   if (!level) return false;
   const required = ACTION_MIN_LEVEL[args.actionType];
-  if (!required) return args.viewerRole === 'host';
+  if (!required) return Boolean(args.isHost && args.isModerator);
   return LEVEL_RANK[level] >= LEVEL_RANK[required];
 }
 
-export function showModeratorTools(viewerRole: LiveViewerRole): boolean {
-  return viewerRole === 'host' || viewerRole === 'moderator';
+/** Mod tools shield — explicit moderator assignment only (not host/seller/creator by default). */
+export function showModeratorTools(isModerator: boolean): boolean {
+  return isModerator;
 }
 
 export const TIMEOUT_MINUTES = [5, 30, 60, 24 * 60] as const;

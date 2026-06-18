@@ -10,6 +10,8 @@ import { formatAuctionLeaderLine, formatAuctionMoneyUsd } from "@/lib/live-aucti
 import { liveAuctionDisplayBidUsd } from "@/lib/live-auction-overlay-price";
 import type { LiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
 import type { LiveRoomModeratorRow } from "@/hooks/useLiveRoomModerationState";
+import type { LiveGiveawayDTO } from "@/lib/live-giveaway";
+import type { SellerQueueTab } from "@/lib/seller-queue-tabs";
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { isVariantPurchaseItem, summarizeVariantSpots } from "@/lib/live-item-variant-presets";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
@@ -18,7 +20,7 @@ import { LiveRoomEnergyMeter } from "@/components/live-stage/LiveRoomEnergyMeter
 import { computeLiveRoomEnergy } from "@/lib/live-room-energy";
 import type { LiveRoomEnergyLevel } from "@/lib/live-room-energy";
 
-type QueueTab = "auction" | "bin" | "givvy" | "sold";
+type QueueTab = SellerQueueTab;
 
 export type LiveSellerCommandCenterProps = {
   roomTitle: string;
@@ -45,12 +47,19 @@ export type LiveSellerCommandCenterProps = {
   queueTab: QueueTab;
   onQueueTab: (t: QueueTab) => void;
   queueRows: VaultQueueRow[];
+  giveaways?: LiveGiveawayDTO[];
   selectedQueueItemId: string;
   onSelectQueueItem: (id: string) => void;
   onPostItem: (id: string) => void;
   onSkipItem?: (id: string) => void;
   onDeleteItem: (id: string) => void;
   onAddAuction: () => void;
+  onAddGiveaway?: () => void;
+  onGiveawayOpenEntries?: (id: string) => void;
+  onGiveawayCloseEntries?: (id: string) => void;
+  onGiveawayDraw?: (id: string) => void;
+  onGiveawayCancel?: (id: string) => void;
+  onGiveawayDelete?: (id: string) => void;
   onOpenObs: () => void;
   /** Go Live: patch room live AND auto-start the default webcam broadcast (no Tools required). */
   onGoLive: () => void;
@@ -176,12 +185,19 @@ export function LiveSellerCommandCenter({
   queueTab,
   onQueueTab,
   queueRows,
+  giveaways = [],
   selectedQueueItemId,
   onSelectQueueItem,
   onPostItem,
   onSkipItem,
   onDeleteItem,
   onAddAuction,
+  onAddGiveaway,
+  onGiveawayOpenEntries,
+  onGiveawayCloseEntries,
+  onGiveawayDraw,
+  onGiveawayCancel,
+  onGiveawayDelete,
   onOpenObs,
   onGoLive,
   onToggleTeamBoard,
@@ -558,6 +574,7 @@ export function LiveSellerCommandCenter({
             tab={queueTab}
             onTab={onQueueTab}
             rows={queueRows}
+            giveaways={giveaways}
             selectedId={selectedQueueItemId}
             onSelect={onSelectQueueItem}
             viewerCount={viewerCount}
@@ -566,6 +583,12 @@ export function LiveSellerCommandCenter({
             onSkip={onSkipItem}
             onDelete={onDeleteItem}
             onAddAuction={onAddAuction}
+            onAddGiveaway={onAddGiveaway}
+            onGiveawayOpenEntries={onGiveawayOpenEntries}
+            onGiveawayCloseEntries={onGiveawayCloseEntries}
+            onGiveawayDraw={onGiveawayDraw}
+            onGiveawayCancel={onGiveawayCancel}
+            onGiveawayDelete={onGiveawayDelete}
             compact={isDesktopPanel}
           />
         </section>

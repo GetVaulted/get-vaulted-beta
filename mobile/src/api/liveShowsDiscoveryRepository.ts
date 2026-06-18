@@ -35,9 +35,7 @@ function profileToHost(id: string, p?: ProfileRow): Host {
     id,
     name,
     handle,
-    avatarUrl:
-      p?.avatar_url?.trim() ||
-      'https://images.unsplash.com/photo-1517649763962-0c62306601b7?w=200&q=80&auto=format&fit=crop',
+    avatarUrl: p?.avatar_url?.trim() || '',
     verified: p?.verified_status === 'verified',
     followers: '—',
   };

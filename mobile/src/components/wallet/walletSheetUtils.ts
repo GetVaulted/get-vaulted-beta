@@ -1,4 +1,5 @@
 import type { BuyerPaymentMethodRow, BuyerShippingAddressRow } from '../../api/buyerWalletRepository';
+import { walletPmSummary } from './walletPaymentMethodDisplay';
 
 export function pickDefaultShippingAddress(
   addresses: BuyerShippingAddressRow[],
@@ -10,13 +11,11 @@ export function pickDefaultShippingAddress(
 export function pickPrimaryPaymentMethod(
   methods: BuyerPaymentMethodRow[],
 ): BuyerPaymentMethodRow | null {
-  return methods[0] ?? null;
+  return methods.find((m) => m.isDefault) ?? methods[0] ?? null;
 }
 
 export function formatPaymentSummary(method: BuyerPaymentMethodRow | null): string {
-  if (!method) return 'Add payment method';
-  const brand = method.brand?.trim() || 'Card';
-  return `${brand} ···· ${method.last4}`;
+  return walletPmSummary(method);
 }
 
 export function formatAddressOneLine(address: BuyerShippingAddressRow | null): string {

@@ -26,7 +26,7 @@ export function isViewerEventMessage(m: ChatMessage): boolean {
   return isJoinEventBody(m.text) || m.text === VIEWER_EVENT_SHARE_BODY;
 }
 
-/** Keep one join/share line per username in the visible feed. */
+/** Collapse duplicate join/share lines in the visible window. */
 export function dedupeViewerEventMessages(messages: ChatMessage[]): ChatMessage[] {
   const seen = new Set<string>();
   const out: ChatMessage[] = [];
@@ -48,6 +48,30 @@ export function dedupeViewerEventMessages(messages: ChatMessage[]): ChatMessage[
 export function tailUniqueChatMessages(messages: ChatMessage[], max: number): ChatMessage[] {
   return dedupeViewerEventMessages(dedupeChatMessagesById(messages)).slice(-max);
 }
+
+/** Full deduped history for scrollable overlay (newest last). */
+export function prepareChatMessageHistory(messages: ChatMessage[]): ChatMessage[] {
+  return sortChatMessagesByTime(dedupeViewerEventMessages(dedupeChatMessagesById(messages)));
+}
+
+export function sortChatMessagesByTime(messages: ChatMessage[]): ChatMessage[] {
+  return [...messages].sort((a, b) => {
+    const ta = a.createdAt ? Date.parse(a.createdAt) : 0;
+    const tb = b.createdAt ? Date.parse(b.createdAt) : 0;
+    if (ta !== tb) return ta - tb;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+export function mergeChatMessagesById(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+  const byId = new Map<string, ChatMessage>();
+  for (const m of prev) byId.set(m.id, m);
+  for (const m of incoming) byId.set(m.id, m);
+  return sortChatMessagesByTime([...byId.values()]).slice(-80);
+}
+
+/** Client-side cooldown before re-announcing a room join (leave + return). */
+export const JOIN_ANNOUNCE_COOLDOWN_MS = 30_000;
 
 export function formatChatDisplayName(user: string): string {
   const trimmed = user.trim();

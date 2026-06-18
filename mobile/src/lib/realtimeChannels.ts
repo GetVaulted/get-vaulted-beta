@@ -20,6 +20,9 @@ export const RT_EVENT = {
   listingBid: 'listing_bid',
   teamBoard: 'team_board',
   streamStatus: 'stream_status',
+  moderationChanged: 'moderation_changed',
+  giveawaysChanged: 'giveaways_changed',
+  vaultRevealSpin: 'vault_reveal_spin',
 } as const;
 
 export const RT_EVENT_ALIASES = {

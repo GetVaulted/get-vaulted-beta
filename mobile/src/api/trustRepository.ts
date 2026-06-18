@@ -138,8 +138,35 @@ export type LiveRoomViewerRow = {
   messageCount: number;
 };
 
+export type LiveRoomTipStatus = 'pending' | 'paid' | 'failed';
+
+export type LiveRoomTipRow = {
+  id: string;
+  amountUsd: number;
+  message: string;
+  status: LiveRoomTipStatus;
+  senderId: string;
+  senderUsername: string;
+  recipientId: string;
+  recipientUsername: string;
+  paidAt: string | null;
+  createdAt: string;
+};
+
+export type LiveRoomTipSummary = {
+  totalPaidUsd: number;
+  paidCount: number;
+  pendingCount: number;
+  failedCount: number;
+  tipRecipientMode: 'host' | 'moderator';
+  tipsToModerator: boolean;
+  tipModeratorUsername: string | null;
+};
+
 export type LiveRoomModerationSnapshot = {
   canModerate: boolean;
+  isHost: boolean;
+  isModerator: boolean;
   viewerRole: LiveViewerRole;
   moderatorLevel: LiveModeratorLevel | null;
   allowedActions: string[];
@@ -151,6 +178,8 @@ export type LiveRoomModerationSnapshot = {
   modHistory: LiveRoomModHistoryRow[];
   modQueue: LiveRoomModQueueRow[];
   viewers: LiveRoomViewerRow[];
+  tips: LiveRoomTipRow[];
+  tipSummary: LiveRoomTipSummary | null;
   myRestrictions: {
     muted: boolean;
     roomBanned: boolean;
@@ -159,6 +188,48 @@ export type LiveRoomModerationSnapshot = {
     sellerStreamBanned?: boolean;
   } | null;
 };
+
+export async function assignLiveRoomModerator(args: {
+  accessToken: string;
+  roomId: string;
+  userId: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const base = getWebApiBaseUrl();
+  if (!base) return { ok: false, error: 'Not configured.' };
+
+  const res = await fetch(`${base.replace(/\/$/, '')}/api/live-rooms/${encodeURIComponent(args.roomId)}/moderators`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${args.accessToken}`,
+    },
+    body: JSON.stringify({ userId: args.userId }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) return { ok: false, error: data.error ?? 'Could not assign moderator.' };
+  return { ok: true };
+}
+
+export async function revokeLiveRoomModerator(args: {
+  accessToken: string;
+  roomId: string;
+  userId: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const base = getWebApiBaseUrl();
+  if (!base) return { ok: false, error: 'Not configured.' };
+
+  const res = await fetch(`${base.replace(/\/$/, '')}/api/live-rooms/${encodeURIComponent(args.roomId)}/moderators`, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${args.accessToken}`,
+    },
+    body: JSON.stringify({ userId: args.userId }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) return { ok: false, error: data.error ?? 'Could not remove moderator.' };
+  return { ok: true };
+}
 
 export async function fetchLiveRoomModeration(args: {
   accessToken?: string;

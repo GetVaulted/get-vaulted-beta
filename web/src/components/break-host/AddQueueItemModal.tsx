@@ -2,9 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { LiveItemVariantBuilder, type LiveItemSalesFormatDraft } from "@/components/live-auction/LiveItemVariantBuilder";
 import { compressImageFileToBlob } from "@/lib/listing-image-compress";
-import { isVariantSalesFormat, type VariantDraftInput } from "@/lib/live-item-variant-presets";
 import { uploadListingImageBlob } from "@/lib/upload-listing-image-client";
 
 export type AddQueueItemCloseReason = "cancel" | "success" | "escape";
@@ -15,18 +13,31 @@ export type AddQueueItemAuctionPayload = {
   priceUsd: number | null;
   startingBidUsd: number;
   quantity: number;
-  salesFormat: LiveItemSalesFormatDraft;
-  variants: VariantDraftInput[];
+  salesFormat: "auction" | "buy_now";
+  variants: [];
   teamBoardMisc: boolean;
+};
+
+import type { LiveGiveawayKind } from "@/lib/seller-queue-tabs";
+import type { SellerQueueAddModalMode } from "@/lib/seller-queue-tabs";
+
+export type AddQueueItemGiveawayPayload = {
+  kind: LiveGiveawayKind;
+  title: string;
+  prizeDescription: string;
+  imageUrl: string;
+  rulesText: string;
+  openEntries: boolean;
 };
 
 type Props = {
   open: boolean;
-  mode: "auction" | "bin" | "givvy" | null;
+  mode: SellerQueueAddModalMode;
   teamBoardLeague?: string | null;
   busy?: boolean;
   onRequestClose: (reason: AddQueueItemCloseReason) => void;
   onSubmitAuction: (payload: AddQueueItemAuctionPayload) => Promise<boolean>;
+  onSubmitGiveaway?: (payload: AddQueueItemGiveawayPayload) => Promise<boolean>;
 };
 
 const ALLOWED_CLOSE: AddQueueItemCloseReason[] = ["cancel", "success", "escape"];
@@ -35,9 +46,16 @@ const THUMBNAIL_MAX_FILE_BYTES = 20 * 1024 * 1024;
 
 function requestClose(reason: string, onRequestClose: (reason: AddQueueItemCloseReason) => void) {
   const allowed = ALLOWED_CLOSE.includes(reason as AddQueueItemCloseReason);
-  console.log("[add queue modal] close reason", reason, allowed ? "(allowed)" : "(blocked)");
   if (!allowed) return;
   onRequestClose(reason as AddQueueItemCloseReason);
+}
+
+function parseUsd(raw: string): number | null {
+  const cleaned = raw.replace(/[^0-9.]/g, "").trim();
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n * 100) / 100;
 }
 
 export function AddQueueItemModal({
@@ -47,19 +65,21 @@ export function AddQueueItemModal({
   busy = false,
   onRequestClose,
   onSubmitAuction,
+  onSubmitGiveaway,
 }: Props) {
   const [mounted, setMounted] = useState(false);
-  const [auctionDraftTitle, setAuctionDraftTitle] = useState("");
-  const [auctionDraftImageUrl, setAuctionDraftImageUrl] = useState("");
-  const [auctionDraftImageUploading, setAuctionDraftImageUploading] = useState(false);
-  const [auctionDraftImageError, setAuctionDraftImageError] = useState<string | null>(null);
-  const [auctionDraftPrice, setAuctionDraftPrice] = useState("");
-  const [auctionDraftQuantity, setAuctionDraftQuantity] = useState("1");
-  const [auctionDraftStartBid, setAuctionDraftStartBid] = useState("");
-  const [auctionDraftSalesFormat, setAuctionDraftSalesFormat] = useState<LiveItemSalesFormatDraft>("auction");
-  const [auctionDraftVariants, setAuctionDraftVariants] = useState<VariantDraftInput[]>([]);
+  const [title, setTitle] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [saleType, setSaleType] = useState<"auction" | "buy_now">("auction");
+  const [price, setPrice] = useState("");
+  const [quantity, setQuantity] = useState("1");
   const [queueDraftMisc, setQueueDraftMisc] = useState(false);
-  const builderSessionRef = useRef(0);
+  const [rulesText, setRulesText] = useState("");
+  const [prizeDescription, setPrizeDescription] = useState("");
+  const [openEntriesOnCreate, setOpenEntriesOnCreate] = useState(true);
+  const [formError, setFormError] = useState<string | null>(null);
   const wasOpenRef = useRef(false);
   const imageFileRef = useRef<HTMLInputElement>(null);
 
@@ -69,20 +89,21 @@ export function AddQueueItemModal({
 
   useEffect(() => {
     if (open && !wasOpenRef.current) {
-      builderSessionRef.current += 1;
-      setAuctionDraftTitle("");
-      setAuctionDraftImageUrl("");
-      setAuctionDraftImageUploading(false);
-      setAuctionDraftImageError(null);
-      setAuctionDraftPrice("");
-      setAuctionDraftQuantity("1");
-      setAuctionDraftStartBid("");
-      setAuctionDraftSalesFormat("auction");
-      setAuctionDraftVariants([]);
+      setTitle("");
+      setImageUrl("");
+      setImageUploading(false);
+      setImageError(null);
+      setSaleType(mode === "bin" ? "buy_now" : "auction");
+      setPrice("");
+      setQuantity("1");
       setQueueDraftMisc(false);
+      setRulesText("");
+      setPrizeDescription("");
+      setOpenEntriesOnCreate(true);
+      setFormError(null);
     }
     wasOpenRef.current = open;
-  }, [open]);
+  }, [mode, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -94,87 +115,248 @@ export function AddQueueItemModal({
   }, [open, onRequestClose]);
 
   const uploadQueueThumbnail = useCallback(async (file: File) => {
-    setAuctionDraftImageError(null);
+    setImageError(null);
     if (!THUMBNAIL_UPLOAD_ALLOWED.has(file.type)) {
-      setAuctionDraftImageError("Use a JPG, PNG, or WebP image.");
+      setImageError("Use a JPG, PNG, or WebP image.");
       return;
     }
     if (file.size > THUMBNAIL_MAX_FILE_BYTES) {
-      setAuctionDraftImageError("Thumbnail image must be 20MB or smaller.");
+      setImageError("Photo must be 20MB or smaller.");
       return;
     }
 
-    setAuctionDraftImageUploading(true);
+    setImageUploading(true);
     try {
       const blob = await compressImageFileToBlob(file, 1280, 0.86);
       const url = await uploadListingImageBlob(blob, "live-queue-thumbnail.jpg");
-      setAuctionDraftImageUrl(url);
+      setImageUrl(url);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
-      setAuctionDraftImageError(msg || "Could not upload thumbnail image.");
+      setImageError(msg || "Could not upload photo.");
     } finally {
-      setAuctionDraftImageUploading(false);
+      setImageUploading(false);
     }
   }, []);
 
-  const handleSubmitAuction = useCallback(async () => {
-    const title = auctionDraftTitle.trim();
-    if (!title) return;
-    if (!auctionDraftImageUrl.trim()) {
-      setAuctionDraftImageError("Upload 1 thumbnail image.");
+  const handleSubmit = useCallback(async () => {
+    setFormError(null);
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) {
+      setFormError("Enter a product title.");
       return;
     }
-    const p = auctionDraftPrice.trim() === "" ? null : Number(auctionDraftPrice);
-    const qtyRaw = auctionDraftQuantity.trim() === "" ? 1 : Number(auctionDraftQuantity);
-    const quantity = Number.isFinite(qtyRaw) && qtyRaw >= 1 ? Math.min(512, Math.floor(qtyRaw)) : 1;
-    const sbRaw = auctionDraftStartBid.trim();
-    const startingBidUsd =
-      sbRaw === "" ? 1 : Number.isFinite(Number(sbRaw)) && Number(sbRaw) > 0 ? Number(sbRaw) : 1;
+    if (!imageUrl.trim()) {
+      setImageError("Add one product photo.");
+      return;
+    }
+
+    const qtyRaw = quantity.trim() === "" ? 1 : Number(quantity);
+    const parsedQty = Number.isFinite(qtyRaw) && qtyRaw >= 1 ? Math.min(512, Math.floor(qtyRaw)) : 1;
+    const parsedPrice = parseUsd(price);
+
+    if (saleType === "buy_now") {
+      if (parsedPrice == null) {
+        setFormError("Enter a buy-it-now price.");
+        return;
+      }
+      const ok = await onSubmitAuction({
+        title: trimmedTitle,
+        imageUrl: imageUrl.trim(),
+        priceUsd: parsedPrice,
+        startingBidUsd: 1,
+        quantity: parsedQty,
+        salesFormat: "buy_now",
+        variants: [],
+        teamBoardMisc: queueDraftMisc,
+      });
+      if (ok) requestClose("success", onRequestClose);
+      return;
+    }
+
+    const startingBidUsd = parsedPrice ?? 1;
     const ok = await onSubmitAuction({
-      title,
-      imageUrl: auctionDraftImageUrl.trim(),
-      priceUsd: p != null && Number.isFinite(p) ? p : null,
+      title: trimmedTitle,
+      imageUrl: imageUrl.trim(),
+      priceUsd: null,
       startingBidUsd,
-      quantity: isVariantSalesFormat(auctionDraftSalesFormat) ? 1 : quantity,
-      salesFormat: auctionDraftSalesFormat,
-      variants: auctionDraftVariants,
+      quantity: parsedQty,
+      salesFormat: "auction",
+      variants: [],
       teamBoardMisc: queueDraftMisc,
     });
     if (ok) requestClose("success", onRequestClose);
+  }, [imageUrl, onRequestClose, onSubmitAuction, price, quantity, queueDraftMisc, saleType, title]);
+
+  const handleSubmitGiveaway = useCallback(async () => {
+    if (!onSubmitGiveaway || (mode !== "giveaway" && mode !== "buyers_giveaway")) return;
+    setFormError(null);
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) {
+      setFormError("Enter a giveaway title.");
+      return;
+    }
+    const kind: LiveGiveawayKind = mode === "buyers_giveaway" ? "buyers" : "open";
+    if (kind === "buyers" && rulesText.trim().length < 80) {
+      setFormError("Buyers giveaways need official promotion rules (80+ characters).");
+      return;
+    }
+    const ok = await onSubmitGiveaway({
+      kind,
+      title: trimmedTitle,
+      prizeDescription: prizeDescription.trim(),
+      imageUrl: imageUrl.trim(),
+      rulesText: rulesText.trim(),
+      openEntries: openEntriesOnCreate,
+    });
+    if (ok) requestClose("success", onRequestClose);
   }, [
-    auctionDraftImageUrl,
-    auctionDraftPrice,
-    auctionDraftQuantity,
-    auctionDraftSalesFormat,
-    auctionDraftStartBid,
-    auctionDraftTitle,
-    auctionDraftVariants,
+    imageUrl,
+    mode,
     onRequestClose,
-    onSubmitAuction,
-    queueDraftMisc,
+    onSubmitGiveaway,
+    openEntriesOnCreate,
+    prizeDescription,
+    rulesText,
+    title,
   ]);
 
   if (!mounted || !open || !mode) return null;
+
+  if (mode === "giveaway" || mode === "buyers_giveaway") {
+    const buyers = mode === "buyers_giveaway";
+    return createPortal(
+      <div
+        role="dialog"
+        aria-modal
+        aria-label={buyers ? "Create buyers giveaway" : "Create giveaway"}
+        className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-4"
+      >
+        <div className="flex max-h-[min(92dvh,calc(100vh-48px))] w-full max-w-[min(520px,calc(100vw-48px))] flex-col overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-950 shadow-xl">
+          <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-3 sm:px-5">
+            <h2 className="text-sm font-bold uppercase tracking-wide text-zinc-100">
+              {buyers ? "Buyers giveaway" : "Giveaway"}
+            </h2>
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={() => requestClose("cancel", onRequestClose)}
+              className="rounded-lg border border-white/12 px-2.5 py-1 text-xs font-semibold text-zinc-300 hover:bg-white/[0.06]"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+            <p className="mb-4 text-sm text-zinc-500">
+              {buyers
+                ? "Purchases enter buyers silently. AMOE link is generated inside official rules only."
+                : "Everyone in the room can enter while entries are open."}
+            </p>
+            <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Title</label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. PSA slab givvy"
+              className="mt-1 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
+            />
+            <label className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+              Prize description
+            </label>
+            <input
+              value={prizeDescription}
+              onChange={(e) => setPrizeDescription(e.target.value)}
+              placeholder="What the winner receives"
+              className="mt-1 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
+            />
+            <span className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+              Prize photo (optional)
+            </span>
+            <div
+              onClick={() => !imageUploading && imageFileRef.current?.click()}
+              role="button"
+              tabIndex={0}
+              className={`mt-2 rounded-lg border border-dashed px-4 py-3 ${imageUploading ? "opacity-70" : "cursor-pointer border-white/15 hover:border-white/25"}`}
+            >
+              <input
+                ref={imageFileRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="sr-only"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  if (f) void uploadQueueThumbnail(f);
+                }}
+              />
+              {imageUrl ? <p className="text-xs text-zinc-300">Photo added</p> : <p className="text-xs text-zinc-500">Add optional photo</p>}
+            </div>
+            {imageError ? <p className="mt-1 text-xs text-rose-300">{imageError}</p> : null}
+            {buyers ? (
+              <>
+                <label className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                  Official promotion rules
+                </label>
+                <textarea
+                  value={rulesText}
+                  onChange={(e) => setRulesText(e.target.value)}
+                  rows={6}
+                  placeholder="Full legal rules. The no-purchase entry link will be embedded here for counsel review — not promoted on stage."
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
+                />
+              </>
+            ) : null}
+            <label className="mt-4 flex cursor-pointer items-center gap-2 text-xs text-zinc-300">
+              <input
+                type="checkbox"
+                checked={openEntriesOnCreate}
+                onChange={(e) => setOpenEntriesOnCreate(e.target.checked)}
+                className="rounded border-white/20 bg-[#0c0c10]"
+              />
+              Open entries immediately after creating
+            </label>
+            {formError ? <p className="mt-3 text-xs text-rose-300">{formError}</p> : null}
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                onClick={() => requestClose("cancel", onRequestClose)}
+                className="flex-1 rounded-lg border border-white/12 py-2 text-sm font-semibold text-zinc-200 hover:bg-white/[0.06]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={busy || imageUploading}
+                onClick={() => void handleSubmitGiveaway()}
+                className="flex-1 rounded-lg bg-gold/25 py-2 text-sm font-bold text-gold-bright ring-1 ring-gold/35 hover:bg-gold/30 disabled:opacity-50"
+              >
+                Create giveaway
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  }
+
+  const priceLabel = saleType === "auction" ? "Starting bid" : "Buy-it-now price";
 
   return createPortal(
     <div
       role="dialog"
       aria-modal
-      aria-label="Add queue item"
+      aria-label="Add product to show"
       className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) requestClose("backdrop", onRequestClose);
       }}
     >
       <div
-        className="flex max-h-[min(92dvh,calc(100vh-48px))] w-full max-w-[min(840px,calc(100vw-48px))] flex-col overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-950 shadow-xl"
+        className="flex max-h-[min(92dvh,calc(100vh-48px))] w-full max-w-[min(520px,calc(100vw-48px))] flex-col overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-950 shadow-xl"
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-3 sm:px-5">
-          <h2 className="text-sm font-bold uppercase tracking-wide text-zinc-100">
-            {mode === "auction" ? "Add queue item" : mode === "bin" ? "Add BIN item" : "Add Givvy"}
-          </h2>
+          <h2 className="text-sm font-bold uppercase tracking-wide text-zinc-100">Add to show</h2>
           <button
             type="button"
             aria-label="Close"
@@ -186,170 +368,142 @@ export function AddQueueItemModal({
         </div>
 
         <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-4 sm:p-5">
-          {mode === "auction" ? (
-            <>
-              <input
-                value={auctionDraftTitle}
-                onChange={(e) => setAuctionDraftTitle(e.target.value)}
-                placeholder="Title"
-                className="w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
-              />
-              <div className="mt-3">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Thumbnail</span>
-                <div
-                  onClick={() => !auctionDraftImageUrl && imageFileRef.current?.click()}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if ((e.key === "Enter" || e.key === " ") && !auctionDraftImageUrl) {
-                      e.preventDefault();
-                      imageFileRef.current?.click();
-                    }
-                  }}
-                  className={`mt-2 rounded-lg border border-dashed px-4 py-4 transition ${
-                    auctionDraftImageUrl
-                      ? "border-white/10 bg-[#0c0c10]"
-                      : "cursor-pointer border-white/15 bg-[#0c0c10] hover:border-white/25"
-                  } ${auctionDraftImageUploading ? "pointer-events-none opacity-70" : ""}`}
-                >
-                  <input
-                    ref={imageFileRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    className="sr-only"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      e.target.value = "";
-                      if (f) void uploadQueueThumbnail(f);
-                    }}
-                  />
-                  {auctionDraftImageUrl.trim() ? (
-                    <div className="flex items-center gap-3">
-                      {/* eslint-disable-next-line @next/next/no-img-element -- uploaded queue thumbnail */}
-                      <img src={auctionDraftImageUrl} alt="" className="size-16 shrink-0 rounded-lg object-cover" />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold text-zinc-200">Thumbnail uploaded</p>
-                        <p className="mt-0.5 text-[11px] text-zinc-500">Shown on auction cards, queue, and pinned item.</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          imageFileRef.current?.click();
-                        }}
-                        className="rounded-lg border border-white/12 px-2 py-1 text-[11px] font-semibold text-zinc-300 hover:bg-white/[0.06]"
-                      >
-                        Replace
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-2 text-center">
-                      <p className="text-sm font-semibold text-zinc-200">Upload thumbnail</p>
-                      <p className="mt-1 text-[11px] text-zinc-500">Upload 1 thumbnail image · JPG, PNG, or WebP</p>
-                    </div>
-                  )}
+          <p className="mb-4 text-sm text-zinc-500">Photo, title, price, and quantity — ready in seconds.</p>
+
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Photo</span>
+          <div
+            onClick={() => !imageUploading && imageFileRef.current?.click()}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if ((e.key === "Enter" || e.key === " ") && !imageUploading) {
+                e.preventDefault();
+                imageFileRef.current?.click();
+              }
+            }}
+            className={`mt-2 rounded-lg border border-dashed px-4 py-4 transition ${
+              imageUrl ? "border-white/10 bg-[#0c0c10]" : "cursor-pointer border-white/15 bg-[#0c0c10] hover:border-white/25"
+            } ${imageUploading ? "pointer-events-none opacity-70" : ""}`}
+          >
+            <input
+              ref={imageFileRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="sr-only"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void uploadQueueThumbnail(f);
+              }}
+            />
+            {imageUrl.trim() ? (
+              <div className="flex items-center gap-3">
+                {/* eslint-disable-next-line @next/next/no-img-element -- uploaded queue thumbnail */}
+                <img src={imageUrl} alt="" className="size-20 shrink-0 rounded-lg object-cover" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-zinc-200">Photo added</p>
+                  <p className="mt-0.5 text-[11px] text-zinc-500">Shown on queue cards and pinned item.</p>
                 </div>
-                {auctionDraftImageError ? (
-                  <p className="mt-1 text-xs text-rose-300">{auctionDraftImageError}</p>
-                ) : null}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    imageFileRef.current?.click();
+                  }}
+                  className="rounded-lg border border-white/12 px-2 py-1 text-[11px] font-semibold text-zinc-300 hover:bg-white/[0.06]"
+                >
+                  Replace
+                </button>
               </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-3 text-center">
+                <p className="text-sm font-semibold text-zinc-200">Add photo</p>
+                <p className="mt-1 text-[11px] text-zinc-500">1 photo required · JPG, PNG, or WebP</p>
+              </div>
+            )}
+          </div>
+          {imageError ? <p className="mt-1 text-xs text-rose-300">{imageError}</p> : null}
+
+          <label className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Title</label>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="e.g. PSA 10 rookie chase"
+            className="mt-1 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
+          />
+
+          <span className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Sale type</span>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {(["auction", "buy_now"] as const).map((type) => {
+              const active = saleType === type;
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setSaleType(type)}
+                  className={`rounded-lg border px-3 py-2.5 text-sm font-bold transition ${
+                    active
+                      ? "border-gold/45 bg-gold/15 text-gold-bright"
+                      : "border-white/12 bg-[#0c0c10] text-zinc-400 hover:bg-white/[0.04]"
+                  }`}
+                >
+                  {type === "auction" ? "Auction" : "Buy It Now"}
+                </button>
+              );
+            })}
+          </div>
+
+          <label className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">{priceLabel}</label>
+          <input
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            placeholder={saleType === "auction" ? "1" : "25"}
+            inputMode="decimal"
+            className="mt-1 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
+          />
+
+          <label className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Quantity</label>
+          <input
+            inputMode="numeric"
+            min={1}
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value.replace(/[^\d]/g, ""))}
+            placeholder="1"
+            className="mt-1 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
+            aria-label="Quantity"
+          />
+
+          {teamBoardLeague === "nfl" ? (
+            <label className="mt-4 flex cursor-pointer items-center gap-2 text-xs text-zinc-300">
               <input
-                value={auctionDraftPrice}
-                onChange={(e) => setAuctionDraftPrice(e.target.value)}
-                placeholder="Price USD (optional)"
-                className="mt-2 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
+                type="checkbox"
+                checked={queueDraftMisc}
+                onChange={(e) => setQueueDraftMisc(e.target.checked)}
+                className="rounded border-white/20 bg-[#0c0c10]"
               />
-              <div className="mt-3 min-w-0">
-                <LiveItemVariantBuilder
-                  key={`variant-builder-${builderSessionRef.current}`}
-                  salesFormat={auctionDraftSalesFormat}
-                  onSalesFormatChange={setAuctionDraftSalesFormat}
-                  defaultPriceUsd={auctionDraftPrice}
-                  variants={auctionDraftVariants}
-                  onVariantsChange={setAuctionDraftVariants}
-                />
-              </div>
-              {!isVariantSalesFormat(auctionDraftSalesFormat) ? (
-                <>
-                  <input
-                    value={auctionDraftStartBid}
-                    onChange={(e) => setAuctionDraftStartBid(e.target.value)}
-                    placeholder="Starting bid USD (default 1.00)"
-                    className="mt-2 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
-                  />
-                  <label className="mt-2 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
-                    Quantity
-                  </label>
-                  <input
-                    inputMode="numeric"
-                    min={1}
-                    value={auctionDraftQuantity}
-                    onChange={(e) => setAuctionDraftQuantity(e.target.value.replace(/[^\d]/g, ""))}
-                    placeholder="1"
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
-                    aria-label="Quantity"
-                  />
-                  <p className="mt-1 text-[11px] text-zinc-500">
-                    Quantity creates numbered units, like PYT Break 1 #1, #2, #3.
-                  </p>
-                </>
-              ) : null}
-              {teamBoardLeague === "nfl" ? (
-                <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-zinc-300">
-                  <input
-                    type="checkbox"
-                    checked={queueDraftMisc}
-                    onChange={(e) => setQueueDraftMisc(e.target.checked)}
-                    className="rounded border-white/20 bg-[#0c0c10]"
-                  />
-                  MISC spot (shows MISC on team board while this item is active)
-                </label>
-              ) : null}
-              <div className="mt-4 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => requestClose("cancel", onRequestClose)}
-                  className="flex-1 rounded-lg border border-white/12 py-2 text-sm font-semibold text-zinc-200 hover:bg-white/[0.06]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void handleSubmitAuction()}
-                  className="flex-1 rounded-lg bg-gold/25 py-2 text-sm font-bold text-gold-bright ring-1 ring-gold/35 hover:bg-gold/30 disabled:opacity-50"
-                >
-                  Add
-                </button>
-              </div>
-            </>
-          ) : mode === "bin" ? (
-            <>
-              <p className="text-sm leading-relaxed text-zinc-500">
-                BIN queue is not wired to the API yet. Use the auction queue for live lots for now.
-              </p>
-              <button
-                type="button"
-                onClick={() => requestClose("cancel", onRequestClose)}
-                className="mt-4 w-full rounded-lg bg-gold/25 py-2.5 text-sm font-bold text-gold-bright ring-1 ring-gold/35 hover:bg-gold/30"
-              >
-                Close
-              </button>
-            </>
-          ) : (
-            <>
-              <p className="text-sm leading-relaxed text-zinc-500">
-                Giveaway queue is not wired yet. This tab will connect to your givvy flow when the API is ready.
-              </p>
-              <button
-                type="button"
-                onClick={() => requestClose("cancel", onRequestClose)}
-                className="mt-4 w-full rounded-lg bg-gold/25 py-2.5 text-sm font-bold text-gold-bright ring-1 ring-gold/35 hover:bg-gold/30"
-              >
-                Close
-              </button>
-            </>
-          )}
+              MISC spot (shows MISC on team board while this item is active)
+            </label>
+          ) : null}
+
+          {formError ? <p className="mt-3 text-xs text-rose-300">{formError}</p> : null}
+
+          <div className="mt-5 flex gap-2">
+            <button
+              type="button"
+              onClick={() => requestClose("cancel", onRequestClose)}
+              className="flex-1 rounded-lg border border-white/12 py-2 text-sm font-semibold text-zinc-200 hover:bg-white/[0.06]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={busy || imageUploading}
+              onClick={() => void handleSubmit()}
+              className="flex-1 rounded-lg bg-gold/25 py-2 text-sm font-bold text-gold-bright ring-1 ring-gold/35 hover:bg-gold/30 disabled:opacity-50"
+            >
+              Save to show
+            </button>
+          </div>
         </div>
       </div>
     </div>,

@@ -86,7 +86,7 @@ export function AccountHubScreen({ navigation }: Props) {
           onPress={() => user?.id && openUserProfile(user.id, navigation)}
         />
         <SettingsRow
-          label="Wallet"
+          label="Vault Wallet"
           sub={walletSub}
           icon="wallet-outline"
           onPress={() => navigation.navigate('BuyerWallet')}

@@ -88,6 +88,8 @@ export async function createLiveRoomQueueItem(
   roomId: string,
   input: {
     title: string;
+    imageUrl: string;
+    salesFormat?: 'auction' | 'buy_now';
     listingId?: string | null;
     quantity?: number | null;
     startingBidUsd?: number | null;
@@ -99,6 +101,8 @@ export async function createLiveRoomQueueItem(
     method: 'POST',
     body: JSON.stringify({
       title: input.title.trim(),
+      imageUrl: input.imageUrl.trim(),
+      salesFormat: input.salesFormat ?? 'auction',
       listingId: input.listingId ?? null,
       quantity: input.quantity ?? 1,
       startingBidUsd: input.startingBidUsd ?? null,

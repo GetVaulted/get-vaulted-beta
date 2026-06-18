@@ -360,8 +360,7 @@ function hostFromRow(row: LiveRoomApiRow): Host {
     id: uname,
     name: uname,
     handle: `@${uname}`,
-    avatarUrl:
-      'https://images.unsplash.com/photo-1517649763962-0c62306601b7?w=200&q=80&auto=format&fit=crop',
+    avatarUrl: '',
     verified: false,
     followers: '—',
   };

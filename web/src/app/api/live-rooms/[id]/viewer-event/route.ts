@@ -8,7 +8,7 @@ export const VIEWER_EVENT_JOIN_BODY = "joined 🔥";
 export const VIEWER_EVENT_JOIN_BODY_LEGACY = "joined 👋";
 export const VIEWER_EVENT_SHARE_BODY = "shared this show ✉️";
 
-const JOIN_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
+const JOIN_DEDUPE_WINDOW_MS = 30 * 1000;
 const SHARE_DEDUPE_WINDOW_MS = 30 * 1000;
 
 import { getLiveRoomUserRestrictions } from "@/lib/trust/live-room-moderation";

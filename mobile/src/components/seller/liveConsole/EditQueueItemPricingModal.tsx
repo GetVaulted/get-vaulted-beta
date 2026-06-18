@@ -14,14 +14,13 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import {
-  auctionPricingFromItem,
-  validateAuctionPricing,
-  type AuctionPricingInput,
-  type AuctionPricingValues,
+  quickLiveLotFromItem,
+  validateQuickLiveLot,
+  type QuickLiveLotInput,
 } from '../../../lib/liveAuctionPricing';
 import { useKeyboardInset } from '../../wallet/walletSheetKeyboard';
 import { colors, spacing } from '../../../theme';
-import { AuctionPricingFields } from './AuctionPricingFields';
+import { QuickLiveLotFields } from './QuickLiveLotFields';
 
 export function EditQueueItemPricingModal({
   item,
@@ -32,24 +31,24 @@ export function EditQueueItemPricingModal({
   item: LiveRoomItemRow | null;
   busy?: boolean;
   onClose: () => void;
-  onSave: (itemId: string, values: AuctionPricingValues) => void;
+  onSave: (itemId: string, values: import('../../../lib/liveAuctionPricing').QuickLiveLotValues) => void;
 }) {
   const insets = useSafeAreaInsets();
   const keyboardInset = useKeyboardInset();
-  const [pricing, setPricing] = useState<AuctionPricingInput>(auctionPricingFromItem({}));
+  const [draft, setDraft] = useState<QuickLiveLotInput>(quickLiveLotFromItem({}));
 
   useEffect(() => {
-    if (item) setPricing(auctionPricingFromItem(item));
+    if (item) setDraft(quickLiveLotFromItem(item));
   }, [item?.id]);
 
   const save = () => {
     if (!item) return;
-    const v = validateAuctionPricing(pricing);
-    if (!v.ok) {
-      Alert.alert('Auction pricing', v.message);
+    const validated = validateQuickLiveLot({ ...draft, title: item.title });
+    if (!validated.ok) {
+      Alert.alert('Edit lot', validated.message);
       return;
     }
-    onSave(item.id, v.values);
+    onSave(item.id, validated.values);
   };
 
   const locked = item?.biddingOpen || item?.status === 'sold';
@@ -73,7 +72,7 @@ export function EditQueueItemPricingModal({
             {locked ? (
               <Text style={styles.locked}>Bidding has started — pricing can no longer be changed.</Text>
             ) : (
-              <AuctionPricingFields value={pricing} onChange={setPricing} disabled={busy} />
+              <QuickLiveLotFields value={draft} onChange={setDraft} disabled={busy} />
             )}
             {!locked ? (
               <Pressable style={[styles.primary, busy && styles.primaryOff]} onPress={save} disabled={busy}>

@@ -14,6 +14,7 @@ import {
   emitLiveRoomQueueItemsChanged,
   emitPurchaseCompleted,
 } from "@/lib/realtime-emit-server";
+import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
 
 /**
  * Grace after `auctionEndsAt` before the server force-finalizes an overdue lot. Kept small so the
@@ -211,6 +212,9 @@ export async function settleAndChargeLiveAuctionLot(args: {
         itemId,
         orderId: settled.orderId,
         buyerId: settled.buyerId,
+      });
+      void recordBuyerGiveawayPurchaseEntries(liveRoomId, settled.buyerId, settled.orderId).catch((e) => {
+        console.error("[auction close] buyers giveaway entry", e);
       });
     } else {
       console.info("[auction close] payment failed", {

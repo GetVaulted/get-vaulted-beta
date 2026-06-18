@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { UserAvatar } from '../ui/UserAvatar';
 import { VaultImage } from '../ui/VaultImage';
 import { useMarketplaceLayout } from '../../hooks/useMarketplaceLayout';
 import { marketplaceFontSize, MARKETPLACE_TEXT_PROPS } from '../../lib/marketplaceUiScale';
@@ -116,12 +117,12 @@ export function MarketplaceListingCard({
             </Text>
           ) : null}
           <View style={styles.sellerRow}>
-            <VaultImage
+            <UserAvatar
               uri={product.seller.avatarUrl}
-              width={18}
-              height={18}
-              borderRadius={9}
-              priority="low"
+              name={product.seller.name}
+              username={product.seller.handle}
+              size={18}
+              tone="light"
             />
             <Text style={styles.seller} numberOfLines={1} ellipsizeMode="tail" {...MARKETPLACE_TEXT_PROPS}>
               {product.seller.handle}

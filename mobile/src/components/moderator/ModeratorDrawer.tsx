@@ -16,17 +16,20 @@ import {
   type LiveRoomModHistoryRow,
   type LiveRoomModQueueRow,
   type LiveRoomModerationSnapshot,
+  type LiveRoomTipRow,
+  type LiveRoomTipSummary,
   type LiveRoomViewerRow,
 } from '../../api/trustRepository';
 import { canPerformModeratorAction, formatModActionLabel } from '../../lib/liveModeratorPermissions';
 import { colors, radii, spacing } from '../../theme';
 import { ModeratorViewerActions } from './ModeratorViewerActions';
 
-type TabId = 'queue' | 'viewers' | 'pinned' | 'announcements' | 'giveaway' | 'history';
+type TabId = 'queue' | 'viewers' | 'tips' | 'pinned' | 'announcements' | 'giveaway' | 'history';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'queue', label: 'Mod Queue' },
   { id: 'viewers', label: 'Viewers' },
+  { id: 'tips', label: 'Tips' },
   { id: 'pinned', label: 'Pinned' },
   { id: 'announcements', label: 'Announce' },
   { id: 'giveaway', label: 'Giveaway' },
@@ -64,7 +67,8 @@ export function ModeratorDrawer({
   const can = (actionType: string) =>
     canPerformModeratorAction({
       actionType,
-      viewerRole: moderation.viewerRole,
+      isModerator: moderation.isModerator,
+      isHost: moderation.isHost,
       moderatorLevel: moderation.moderatorLevel,
       allowedActions: moderation.allowedActions,
     });
@@ -105,6 +109,10 @@ export function ModeratorDrawer({
             onSelect={(row) => setViewerAction(row)}
             emptyLabel="No recent chat activity yet."
           />
+        );
+      case 'tips':
+        return (
+          <TipsTab tips={moderation.tips} summary={moderation.tipSummary} />
         );
       case 'pinned':
         return (
@@ -154,6 +162,8 @@ export function ModeratorDrawer({
     tab,
     moderation.modQueue,
     moderation.viewers,
+    moderation.tips,
+    moderation.tipSummary,
     moderation.modHistory,
     moderation.pinnedModeratorMessage,
     pinnedBody,
@@ -178,8 +188,7 @@ export function ModeratorDrawer({
               </Pressable>
             </View>
             <Text style={styles.subtitle}>
-              {moderation.viewerRole === 'host' ? 'Host' : 'Moderator'}
-              {moderation.moderatorLevel ? ` · ${moderation.moderatorLevel}` : ''}
+              Moderator{moderation.moderatorLevel ? ` · ${moderation.moderatorLevel}` : ''}
             </Text>
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabRail}>
@@ -208,7 +217,8 @@ export function ModeratorDrawer({
           onClose={() => setViewerAction(null)}
           liveRoomId={liveRoomId}
           accessToken={accessToken}
-          viewerRole={moderation.viewerRole}
+          isModerator={moderation.isModerator}
+          isHost={moderation.isHost}
           moderatorLevel={moderation.moderatorLevel}
           allowedActions={moderation.allowedActions}
           userId={viewerAction.userId}
@@ -283,6 +293,68 @@ function HistoryList({ rows }: { rows: LiveRoomModHistoryRow[] }) {
         </View>
       ))}
     </>
+  );
+}
+
+function formatTipUsd(amount: number): string {
+  return `$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function tipStatusLabel(status: LiveRoomTipRow['status']): string {
+  if (status === 'paid') return 'Paid';
+  if (status === 'pending') return 'Pending';
+  return 'Failed';
+}
+
+function TipsTab({ tips, summary }: { tips: LiveRoomTipRow[]; summary: LiveRoomTipSummary | null }) {
+  if (!summary) {
+    return <Text style={styles.empty}>Tip tracking unavailable.</Text>;
+  }
+
+  const routingLabel = summary.tipsToModerator
+    ? `Tips route to @${summary.tipModeratorUsername ?? 'moderator'}`
+    : 'Tips route to host';
+
+  return (
+    <View style={styles.formBlock}>
+      <View style={styles.tipSummaryCard}>
+        <Text style={styles.tipSummaryTotal}>{formatTipUsd(summary.totalPaidUsd)}</Text>
+        <Text style={styles.tipSummaryLbl}>Paid tips this show</Text>
+        <Text style={styles.tipSummaryMeta}>
+          {summary.paidCount} paid
+          {summary.pendingCount > 0 ? ` · ${summary.pendingCount} pending` : ''}
+          {summary.failedCount > 0 ? ` · ${summary.failedCount} failed` : ''}
+        </Text>
+        <Text style={styles.tipRouting}>{routingLabel}</Text>
+      </View>
+
+      {tips.length === 0 ? (
+        <Text style={styles.empty}>No tips yet this show.</Text>
+      ) : (
+        tips.map((tip) => (
+          <View key={tip.id} style={styles.card}>
+            <View style={styles.tipRowTop}>
+              <Text style={styles.cardTitle}>{formatTipUsd(tip.amountUsd)}</Text>
+              <Text
+                style={[
+                  styles.tipStatus,
+                  tip.status === 'paid' && styles.tipStatusPaid,
+                  tip.status === 'pending' && styles.tipStatusPending,
+                  tip.status === 'failed' && styles.tipStatusFailed,
+                ]}
+              >
+                {tipStatusLabel(tip.status)}
+              </Text>
+            </View>
+            <Text style={styles.cardMeta}>
+              @{tip.senderUsername} → @{tip.recipientUsername} ·{' '}
+              {new Date(tip.paidAt ?? tip.createdAt).toLocaleTimeString()}
+            </Text>
+            {tip.message.trim() ? <Text style={styles.cardBody}>{tip.message}</Text> : null}
+          </View>
+        ))
+      )}
+    </View>
   );
 }
 
@@ -539,5 +611,59 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: spacing.sm,
     marginBottom: spacing.lg,
+  },
+  tipSummaryCard: {
+    borderRadius: radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,215,128,0.35)',
+    backgroundColor: 'rgba(255,215,128,0.08)',
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    alignItems: 'center',
+  },
+  tipSummaryTotal: {
+    color: colors.gold,
+    fontSize: 28,
+    fontWeight: '900',
+    fontVariant: ['tabular-nums'],
+  },
+  tipSummaryLbl: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  tipSummaryMeta: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    marginTop: 4,
+  },
+  tipRouting: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    marginTop: spacing.sm,
+    textAlign: 'center',
+  },
+  tipRowTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  tipStatus: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    color: colors.textMuted,
+  },
+  tipStatusPaid: {
+    color: colors.gold,
+  },
+  tipStatusPending: {
+    color: '#fbbf24',
+  },
+  tipStatusFailed: {
+    color: '#f87171',
   },
 });

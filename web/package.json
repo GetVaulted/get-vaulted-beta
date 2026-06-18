@@ -17,7 +17,7 @@
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:migrate": "prisma migrate dev",
-    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:deploy": "node scripts/prisma-migrate-deploy.mjs",
     "db:generate:clean": "prisma generate && node scripts/clean-next-dev.mjs",
     "db:migrate:resolve:auction-deadline-applied": "prisma migrate resolve --applied 20260503200000_auction_payment_deadline",
     "db:seed": "prisma db seed",

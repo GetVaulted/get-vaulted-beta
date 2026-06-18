@@ -53,6 +53,12 @@ export const RT_EVENT = {
   teamBoard: "team_board",
   /** IVS / server stream health changed — clients refetch GET /api/live-rooms/[id]/stream (buyer-safe). */
   streamStatus: "stream_status",
+  /** Moderator roster changed — clients refetch GET /api/live-rooms/[id]/moderation. */
+  moderationChanged: "moderation_changed",
+  /** Giveaway rows created/updated — clients refetch host console giveaways. */
+  giveawaysChanged: "giveaways_changed",
+  /** Synchronized Vault Reveal wheel (giveaway draw + PYT randomizer). */
+  vaultRevealSpin: "vault_reveal_spin",
 } as const;
 
 /**
@@ -76,4 +82,6 @@ export const RT_EVENT_ALIASES = {
   paymentFailed: [],
   paymentRecovered: [],
   streamStatus: [],
+  moderationChanged: [],
+  giveawaysChanged: [],
 } as const;

@@ -18,6 +18,7 @@ import {
   PAYMENT_PENDING,
 } from "@/services/payments";
 import { emitLiveRoomMessagesRefetch, emitPurchaseCompleted } from "@/lib/realtime-emit-server";
+import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
 import { createNotification } from "@/lib/notifications";
 
 export type BuyerShippingSnapshot = {
@@ -312,6 +313,9 @@ export async function finalizeLiveBuyNowPurchaseComplete(args: {
     winningAmountUsd: order.itemPriceUsd,
     orderId: order.id,
     paymentStatus: "paid",
+  });
+  void recordBuyerGiveawayPurchaseEntries(args.liveRoomId, order.buyerId, order.id).catch((e) => {
+    console.error("[live-buy-now] buyers giveaway entry", e);
   });
 
   const titleShort =

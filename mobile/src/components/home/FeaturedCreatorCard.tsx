@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { UserAvatar } from '../ui/UserAvatar';
 import { colors, radii, spacing, typography } from '../../theme';
 import type { FeaturedCreator } from '../../types';
 
@@ -17,7 +18,7 @@ export function FeaturedCreatorCard({ creator, onFollow, onPress }: Props) {
   return (
     <Pressable style={styles.card} onPress={onPress} disabled={!onPress}>
       <View style={styles.top}>
-        <Image source={{ uri: host.avatarUrl }} style={styles.avatar} />
+        <UserAvatar uri={host.avatarUrl} name={host.name} username={host.handle} size={48} tone="light" borderWidth={1} />
         <View style={{ flex: 1 }}>
           <View style={styles.nameRow}>
             <Text style={styles.name} numberOfLines={1}>

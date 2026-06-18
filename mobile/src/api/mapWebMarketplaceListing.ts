@@ -3,9 +3,6 @@ import type { WebMarketplaceListing } from './webListingsTypes';
 import type { CategoryId, Host, Product } from '../types';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 
-const FALLBACK_AVATAR =
-  'https://images.unsplash.com/photo-1517649763962-0c62306601b7?w=200&q=80&auto=format&fit=crop';
-
 import { formatMarketplaceUsd } from '../lib/formatMarketplaceUsd';
 export function resolveListingImageUrl(url: string | undefined): string | undefined {
   if (!url?.trim()) return undefined;
@@ -22,7 +19,7 @@ function sellerToHost(listing: WebMarketplaceListing): Host {
     id: listing.sellerId ?? username,
     name: username,
     handle: `@${username}`,
-    avatarUrl: FALLBACK_AVATAR,
+    avatarUrl: '',
     verified: listing.sellerVerified,
     followers: '—',
   };

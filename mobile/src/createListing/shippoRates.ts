@@ -52,7 +52,7 @@ export function marketplaceCarrierLabel(key: string): string {
 }
 
 /** Stable key for allowlists across listing save + checkout matching (same package lanes). */
-export function marketplaceListingRateKey(rate: ListingShippoRate): string {
+export function marketplaceListingRateKey(rate: Pick<ListingShippoRate, 'carrier' | 'serviceLevel'>): string {
   return `${rate.carrier.trim().toLowerCase()}|${rate.serviceLevel.trim().toLowerCase()}`;
 }
 

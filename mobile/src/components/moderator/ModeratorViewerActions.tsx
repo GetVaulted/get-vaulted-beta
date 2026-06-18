@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { ActionSheetIOS, Alert, Platform } from 'react-native';
 import { applyLiveModerationAction } from '../../api/trustRepository';
-import type { LiveModeratorLevel, LiveViewerRole } from '../../api/trustRepository';
+import type { LiveModeratorLevel } from '../../api/trustRepository';
 import { canPerformModeratorAction, TIMEOUT_MINUTES } from '../../lib/liveModeratorPermissions';
 import { openUserProfile } from '../../navigation/openPlatform';
 
@@ -10,7 +10,8 @@ type Props = {
   onClose: () => void;
   liveRoomId: string;
   accessToken?: string;
-  viewerRole: LiveViewerRole;
+  isModerator: boolean;
+  isHost?: boolean;
   moderatorLevel: LiveModeratorLevel | null;
   allowedActions?: string[];
   userId: string;
@@ -30,7 +31,8 @@ export function ModeratorViewerActions({
   onClose,
   liveRoomId,
   accessToken,
-  viewerRole,
+  isModerator,
+  isHost: actorIsHost,
   moderatorLevel,
   allowedActions,
   userId,
@@ -63,7 +65,13 @@ export function ModeratorViewerActions({
       { label: 'View profile', action: () => openUserProfile(userId) },
     ];
     const can = (actionType: string) =>
-      canPerformModeratorAction({ actionType, viewerRole, moderatorLevel, allowedActions });
+      canPerformModeratorAction({
+        actionType,
+        isModerator,
+        isHost: actorIsHost,
+        moderatorLevel,
+        allowedActions,
+      });
 
     if (can('timeout')) {
       for (const minutes of TIMEOUT_MINUTES) {
@@ -92,7 +100,7 @@ export function ModeratorViewerActions({
       });
     }
     return opts;
-  }, [isHost, userId, viewerRole, moderatorLevel, allowedActions]);
+  }, [isHost, userId, isModerator, actorIsHost, moderatorLevel, allowedActions]);
 
   useEffect(() => {
     if (!visible) return;

@@ -1,15 +1,16 @@
 "use client";
 
 import { VaultQueueCarousel, type VaultQueueRow } from "@/components/break-host/vault/VaultQueueCarousel";
-
-type QueueTab = "auction" | "bin" | "givvy" | "sold";
+import type { LiveGiveawayDTO } from "@/lib/live-giveaway";
+import type { SellerQueueTab } from "@/lib/seller-queue-tabs";
 
 type VaultQueueDrawerProps = {
   open: boolean;
   onClose: () => void;
-  tab: QueueTab;
-  onTab: (t: QueueTab) => void;
+  tab: SellerQueueTab;
+  onTab: (t: SellerQueueTab) => void;
   rows: VaultQueueRow[];
+  giveaways?: LiveGiveawayDTO[];
   selectedId: string;
   onSelect: (id: string) => void;
   viewerCount: number;
@@ -18,6 +19,12 @@ type VaultQueueDrawerProps = {
   onSkip?: (id: string) => void;
   onDelete: (id: string) => void;
   onAddAuction: () => void;
+  onAddGiveaway?: () => void;
+  onGiveawayOpenEntries?: (id: string) => void;
+  onGiveawayCloseEntries?: (id: string) => void;
+  onGiveawayDraw?: (id: string) => void;
+  onGiveawayCancel?: (id: string) => void;
+  onGiveawayDelete?: (id: string) => void;
 };
 
 /** Floating lineup drawer — opens over the stage, not inside the left rail. */
@@ -27,6 +34,7 @@ export function VaultQueueDrawer({
   tab,
   onTab,
   rows,
+  giveaways = [],
   selectedId,
   onSelect,
   viewerCount,
@@ -35,6 +43,12 @@ export function VaultQueueDrawer({
   onSkip,
   onDelete,
   onAddAuction,
+  onAddGiveaway,
+  onGiveawayOpenEntries,
+  onGiveawayCloseEntries,
+  onGiveawayDraw,
+  onGiveawayCancel,
+  onGiveawayDelete,
 }: VaultQueueDrawerProps) {
   if (!open) return null;
 
@@ -66,6 +80,7 @@ export function VaultQueueDrawer({
             tab={tab}
             onTab={onTab}
             rows={rows}
+            giveaways={giveaways}
             selectedId={selectedId}
             onSelect={onSelect}
             viewerCount={viewerCount}
@@ -74,6 +89,12 @@ export function VaultQueueDrawer({
             onSkip={onSkip}
             onDelete={onDelete}
             onAddAuction={onAddAuction}
+            onAddGiveaway={onAddGiveaway}
+            onGiveawayOpenEntries={onGiveawayOpenEntries}
+            onGiveawayCloseEntries={onGiveawayCloseEntries}
+            onGiveawayDraw={onGiveawayDraw}
+            onGiveawayCancel={onGiveawayCancel}
+            onGiveawayDelete={onGiveawayDelete}
             lineup
           />
         </div>

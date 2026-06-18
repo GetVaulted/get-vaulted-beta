@@ -10,6 +10,8 @@ import type { HostRecentSaleRowDTO } from "@/lib/live-room-recent-sales";
 import type { LiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
 import { LiveShowFeeTierTile } from "@/components/break-host/LiveShowFeeTierTile";
 import { LiveHostRoomGovernance } from "@/components/trust/LiveHostRoomGovernance";
+import type { LiveGiveawayDTO } from "@/lib/live-giveaway";
+import type { SellerQueueTab } from "@/lib/seller-queue-tabs";
 import type { LiveRoomModeratorRow } from "@/hooks/useLiveRoomModerationState";
 
 type HitLite = {
@@ -48,15 +50,23 @@ type VaultCommandCenterOverlayProps = {
   onStartAuction: () => void;
   startAuctionEnabled: boolean;
   startAuctionBusy: boolean;
-  queueTab: "auction" | "bin" | "givvy" | "sold";
-  onQueueTab: (t: "auction" | "bin" | "givvy" | "sold") => void;
+  queueTab: SellerQueueTab;
+  onQueueTab: (t: SellerQueueTab) => void;
   queueRows: VaultQueueRow[];
+  giveaways?: LiveGiveawayDTO[];
   selectedQueueItemId: string;
   onSelectQueueItem: (id: string) => void;
   onPostItem: (id: string) => void;
   onSkipItem?: (id: string) => void;
   onDeleteItem: (id: string) => void;
   onAddAuction: () => void;
+  onAddGiveaway?: () => void;
+  onGiveawayOpenEntries?: (id: string) => void;
+  onGiveawayCloseEntries?: (id: string) => void;
+  onGiveawayDraw?: (id: string) => void;
+  onGiveawayCancel?: (id: string) => void;
+  onGiveawayDelete?: (id: string) => void;
+  onGiveawayTimerExpired?: () => void;
   recentSales: HostRecentSaleRowDTO[];
   feeTier?: LiveShowFeeTierSnapshot | null;
   hits: HitLite[];
@@ -108,12 +118,20 @@ export function VaultCommandCenterOverlay({
   queueTab,
   onQueueTab,
   queueRows,
+  giveaways = [],
   selectedQueueItemId,
   onSelectQueueItem,
   onPostItem,
   onSkipItem,
   onDeleteItem,
   onAddAuction,
+  onAddGiveaway,
+  onGiveawayOpenEntries,
+  onGiveawayCloseEntries,
+  onGiveawayDraw,
+  onGiveawayCancel,
+  onGiveawayDelete,
+  onGiveawayTimerExpired,
   recentSales,
   feeTier,
   hits,
@@ -252,7 +270,7 @@ export function VaultCommandCenterOverlay({
               <GhostButton disabled={busy} onClick={() => onSoon("Flash sale")}>
                 Flash sale
               </GhostButton>
-              <GhostButton disabled={busy} onClick={() => onSoon("Giveaway launch")}>
+              <GhostButton disabled={busy} onClick={() => (onAddGiveaway ? onAddGiveaway() : onSoon("Giveaway launch"))}>
                 Giveaway launch
               </GhostButton>
               <GhostButton disabled={busy} onClick={() => onSoon("Re-run item")}>
@@ -387,6 +405,7 @@ export function VaultCommandCenterOverlay({
               tab={queueTab}
               onTab={onQueueTab}
               rows={queueRows}
+              giveaways={giveaways}
               selectedId={selectedQueueItemId}
               onSelect={onSelectQueueItem}
               viewerCount={viewerCount}
@@ -395,6 +414,13 @@ export function VaultCommandCenterOverlay({
               onSkip={onSkipItem}
               onDelete={onDeleteItem}
               onAddAuction={onAddAuction}
+              onAddGiveaway={onAddGiveaway}
+              onGiveawayOpenEntries={onGiveawayOpenEntries}
+              onGiveawayCloseEntries={onGiveawayCloseEntries}
+              onGiveawayDraw={onGiveawayDraw}
+              onGiveawayCancel={onGiveawayCancel}
+              onGiveawayDelete={onGiveawayDelete}
+              onGiveawayTimerExpired={onGiveawayTimerExpired}
             />
           </section>
 

@@ -3,6 +3,7 @@ import { sortVariantsForBuyerDisplay } from '../lib/liveItemVariant';
 import { WalletIncompleteError } from '../lib/buyerWalletErrors';
 import { logBuyerRoomStateSnapshot } from '../lib/logRoomStateSnapshot';
 import { liveAuctionMinBidUsd } from '../lib/liveAuctionBidMath';
+import type { ViewerGiveawayRow } from './liveGiveawayRepository';
 import {
   resolveLiveAuctionLotBidPhase,
   type LiveAuctionLotBidPhase,
@@ -70,6 +71,8 @@ export type LiveRoomBuyerSnapshot = {
   shippingReady?: boolean | null;
   /** Unresolved payment failure — buyer must recover before commerce in this room. */
   unresolvedPaymentFailure?: LiveBuyerPaymentFailureSnapshot | null;
+  /** Open giveaways accepting entries (watch UI). */
+  giveaways?: ViewerGiveawayRow[];
 };
 
 function apiErrorMessage(res: Response, body: unknown): string {
@@ -112,6 +115,31 @@ function parseVariantSnapshots(raw: unknown): LiveItemVariantSnapshot[] {
     out.push({ id, label, priceUsd, quantityRemaining, soldCount, isHot, sortOrder, status, buyerUsername });
   }
   return sortVariantsForBuyerDisplay(out);
+}
+
+function parseViewerGiveaways(raw: unknown): ViewerGiveawayRow[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ViewerGiveawayRow[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue;
+    const o = row as Record<string, unknown>;
+    const id = typeof o.id === 'string' ? o.id.trim() : '';
+    const title = typeof o.title === 'string' ? o.title.trim() : '';
+    if (!id || !title) continue;
+    out.push({
+      id,
+      kind: o.kind === 'buyers' ? 'buyers' : 'open',
+      title,
+      prizeDescription: typeof o.prizeDescription === 'string' ? o.prizeDescription : '',
+      imageUrl: typeof o.imageUrl === 'string' ? o.imageUrl : '',
+      status: typeof o.status === 'string' ? o.status : 'draft',
+      entryCount: typeof o.entryCount === 'number' && Number.isFinite(o.entryCount) ? o.entryCount : 0,
+      entryCloseAt: typeof o.entryCloseAt === 'string' ? o.entryCloseAt : null,
+      viewerEntered: o.viewerEntered === true,
+      canEnter: o.canEnter === true,
+    });
+  }
+  return out;
 }
 
 function parsePaymentFailure(raw: unknown): LiveBuyerPaymentFailureSnapshot | null {
@@ -175,6 +203,7 @@ export async function fetchLiveRoomBuyerSnapshot(
         breakPaused?: boolean;
         breakFull?: boolean;
       } | null;
+      giveaways?: unknown;
     };
     serverNowMs?: number;
     error?: string;
@@ -265,6 +294,7 @@ export async function fetchLiveRoomBuyerSnapshot(
     startingBidUsd: typeof active?.startingBidUsd === 'number' ? active.startingBidUsd : null,
     priceUsd: typeof active?.priceUsd === 'number' ? active.priceUsd : null,
     unresolvedPaymentFailure: parsePaymentFailure(detail?.buyerUnresolvedPaymentFailure),
+    giveaways: parseViewerGiveaways(detail?.giveaways),
   };
   logBuyerRoomStateSnapshot('fetch', snapshot);
   return snapshot;

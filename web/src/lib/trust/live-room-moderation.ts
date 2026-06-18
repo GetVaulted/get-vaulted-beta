@@ -7,7 +7,7 @@ import {
   type LiveViewerRole,
 } from "@/lib/trust/live-room-moderator-permissions";
 import { logTrustModerationAction } from "@/lib/trust/moderation-audit-log";
-import { emitLiveRoomMessageById } from "@/lib/realtime-emit-server";
+import { emitLiveRoomMessageById, emitLiveRoomModerationChanged } from "@/lib/realtime-emit-server";
 
 export type { LiveViewerRole };
 export type LiveRoomModeratorLevelType = LiveRoomModeratorLevel;
@@ -425,6 +425,8 @@ export async function assignLiveRoomModerator(args: {
     liveRoomId: args.liveRoomId,
   });
 
+  emitLiveRoomModerationChanged(args.liveRoomId, { userId: args.userId });
+
   return { ok: true };
 }
 
@@ -455,6 +457,8 @@ export async function revokeLiveRoomModerator(args: {
     targetId: args.userId,
     liveRoomId: args.liveRoomId,
   });
+
+  emitLiveRoomModerationChanged(args.liveRoomId, { userId: args.userId });
 
   return { ok: true };
 }

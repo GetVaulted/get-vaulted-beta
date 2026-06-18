@@ -1,4 +1,4 @@
-import { Text, type TextStyle } from 'react-native';
+import { Text, type StyleProp, type TextStyle } from 'react-native';
 import type { MessageMentionDTO } from '../../lib/mentions/parseMentions';
 import { segmentMessageWithMentions } from '../../lib/mentions/parseMentions';
 import { colors } from '../../theme';
@@ -6,18 +6,17 @@ import { colors } from '../../theme';
 type Props = {
   body: string;
   mentions?: MessageMentionDTO[];
-  style?: TextStyle;
-  mentionStyle?: TextStyle;
+  style?: StyleProp<TextStyle>;
+  mentionStyle?: StyleProp<TextStyle>;
   onPressUser?: (userId: string, username: string) => void;
 };
 
 export function MentionText({ body, mentions = [], style, mentionStyle, onPressUser }: Props) {
   const segments = segmentMessageWithMentions(body, mentions);
-  const mentionStyles: TextStyle = {
-    fontWeight: '800',
-    color: colors.gold,
-    ...(mentionStyle ?? {}),
-  };
+  const mentionStyles: StyleProp<TextStyle> = [
+    { fontWeight: '800', color: colors.gold },
+    mentionStyle,
+  ];
 
   return (
     <Text style={style}>

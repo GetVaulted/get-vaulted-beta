@@ -1,4 +1,5 @@
 import type { LiveRoomItemRow } from './liveRoomControlRepository';
+import type { LiveGiveawayRow } from './liveGiveawayRepository';
 import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 import { logVaultCommandCenter, supabaseJwtSub } from '../lib/logVaultCommandCenterFlow';
 
@@ -284,6 +285,7 @@ export type HostConsolePayload = {
   activeItem: LiveRoomItemRow | null;
   recentSalesTotalUsd: number;
   messages: HostConsoleMessage[];
+  giveaways: LiveGiveawayRow[];
 };
 
 export async function fetchHostConsole(accessToken: string, roomId: string): Promise<HostConsolePayload> {
@@ -294,6 +296,7 @@ export async function fetchHostConsole(accessToken: string, roomId: string): Pro
     queueItems?: { item: LiveRoomItemRow }[];
     messages?: HostConsoleMessage[];
     recentSales?: { amountUsd?: number }[];
+    giveaways?: LiveGiveawayRow[];
     error?: string;
     code?: string;
     detail?: string;
@@ -312,6 +315,7 @@ export async function fetchHostConsole(accessToken: string, roomId: string): Pro
     return sum + (Number.isFinite(n) ? n : 0);
   }, 0);
   const messages = Array.isArray(j.messages) ? j.messages : [];
+  const giveaways = Array.isArray(j.giveaways) ? j.giveaways : [];
   return {
     serverNowMs: j.serverNowMs ?? Date.now(),
     room: { ...j.room, viewerCount: j.room.viewerCount ?? 0 },
@@ -319,6 +323,7 @@ export async function fetchHostConsole(accessToken: string, roomId: string): Pro
     activeItem,
     recentSalesTotalUsd,
     messages,
+    giveaways,
   };
 }
 

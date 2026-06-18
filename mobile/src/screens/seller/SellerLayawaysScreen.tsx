@@ -159,7 +159,7 @@ export function SellerLayawaysScreen({ navigation, route }: Props) {
 
   const showInitialSpinner = loading && !loadedOnceRef.current && rows.length === 0 && !error;
 
-  const listEmpty = !showInitialSpinner && (
+  const listEmpty = showInitialSpinner ? null : (
     <View style={styles.emptyWrap}>
       {error ? (
         <>

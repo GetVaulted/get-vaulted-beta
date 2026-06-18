@@ -17,7 +17,7 @@ function hashSeed(input: string): number {
 }
 
 export function buildProductTrustMetrics(product: Product): ItemTrustMetrics {
-  const seed = hashSeed(product.seller.username);
+  const seed = hashSeed(product.seller.handle);
   const sales = 52 + (seed % 948);
   const salesLabel = sales.toLocaleString('en-US');
   const levelLabel = resolvePublicSellerLevelLabel(product.sellerLevel, product.sellerLevelLabel);

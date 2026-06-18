@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { applyLiveModerationAction } from '../../api/trustRepository';
-import type { LiveModeratorLevel, LiveViewerRole } from '../../api/trustRepository';
+import type { LiveModeratorLevel } from '../../api/trustRepository';
 import { canPerformModeratorAction, TIMEOUT_MINUTES } from '../../lib/liveModeratorPermissions';
 import { openUserProfile } from '../../navigation/openPlatform';
 import { colors, radii, spacing } from '../../theme';
@@ -23,7 +23,8 @@ type Props = {
   onClose: () => void;
   liveRoomId: string;
   accessToken?: string;
-  viewerRole: LiveViewerRole;
+  isModerator: boolean;
+  isHost?: boolean;
   moderatorLevel: LiveModeratorLevel | null;
   allowedActions?: string[];
   messageId: string;
@@ -46,7 +47,8 @@ export function ModeratorActionSheet(props: Props) {
     onClose,
     liveRoomId,
     accessToken,
-    viewerRole,
+    isModerator,
+    isHost,
     moderatorLevel,
     allowedActions,
     messageId,
@@ -59,7 +61,7 @@ export function ModeratorActionSheet(props: Props) {
 
   const [reportOpen, setReportOpen] = useState(false);
   const isHostMessage = Boolean(hostUserId && senderId === hostUserId);
-  const canMod = viewerRole === 'host' || viewerRole === 'moderator';
+  const canMod = isModerator;
 
   const runAction = async (actionType: string, metadata?: Record<string, unknown>) => {
     if (!accessToken || !senderId) return;
@@ -83,7 +85,7 @@ export function ModeratorActionSheet(props: Props) {
     if (!canMod || !accessToken || !senderId || isHostMessage) return [];
     const opts: { label: string; action: () => void; destructive?: boolean }[] = [];
     const can = (actionType: string) =>
-      canPerformModeratorAction({ actionType, viewerRole, moderatorLevel, allowedActions });
+      canPerformModeratorAction({ actionType, isModerator, isHost, moderatorLevel, allowedActions });
 
     if (can('delete_message')) {
       opts.push({
@@ -116,7 +118,7 @@ export function ModeratorActionSheet(props: Props) {
       });
     }
     return opts;
-  }, [canMod, accessToken, senderId, isHostMessage, viewerRole, moderatorLevel, allowedActions]);
+  }, [canMod, accessToken, senderId, isHostMessage, isModerator, isHost, moderatorLevel, allowedActions]);
 
   useEffect(() => {
     if (!visible) return;

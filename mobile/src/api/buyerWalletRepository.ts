@@ -4,10 +4,37 @@ import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 
 export type BuyerPaymentMethodRow = {
   id: string;
+  type?: string;
   brand: string;
   last4: string;
   expMonth: number;
   expYear: number;
+  isDefault?: boolean;
+};
+
+export type BuyerWalletCapabilities = {
+  stripeConfigured: boolean;
+  card: boolean;
+  applePay: boolean;
+  googlePay: boolean;
+  link: boolean;
+  cashAppPay: boolean;
+  paypal: boolean;
+  venmo: boolean;
+};
+
+export type BuyerWalletSummary = {
+  paymentReady: boolean;
+  shippingReady: boolean;
+  walletReady: boolean;
+  vaultCreditsUsd: number;
+  referralCreditUsd: number;
+  promoCodeApplied: string | null;
+  promoDiscountUsd: number;
+  capabilities: BuyerWalletCapabilities;
+  defaultPaymentMethod: BuyerPaymentMethodRow | null;
+  paymentMethods: BuyerPaymentMethodRow[];
+  defaultShippingAddressId: string | null;
 };
 
 export type BuyerShippingAddressRow = {
@@ -29,6 +56,11 @@ export type BuyerSetupIntentPayload = {
   publishableKey: string;
   merchantCountryCode?: string;
   applePayEnabled?: boolean;
+  googlePayEnabled?: boolean;
+  linkEnabled?: boolean;
+  cashAppPayEnabled?: boolean;
+  paypalEnabled?: boolean;
+  venmoEnabled?: boolean;
   paymentMethodTypes?: string[];
 };
 
@@ -112,6 +144,11 @@ export async function createBuyerSetupIntent(
     publishableKey?: string;
     merchantCountryCode?: string;
     applePayEnabled?: boolean;
+    googlePayEnabled?: boolean;
+    linkEnabled?: boolean;
+    cashAppPayEnabled?: boolean;
+    paypalEnabled?: boolean;
+    venmoEnabled?: boolean;
     paymentMethodTypes?: string[];
     error?: string;
   };
@@ -126,8 +163,94 @@ export async function createBuyerSetupIntent(
     publishableKey: j.publishableKey,
     merchantCountryCode: j.merchantCountryCode ?? 'US',
     applePayEnabled: j.applePayEnabled !== false,
+    googlePayEnabled: j.googlePayEnabled !== false,
+    linkEnabled: j.linkEnabled === true,
+    cashAppPayEnabled: j.cashAppPayEnabled === true,
+    paypalEnabled: j.paypalEnabled === true,
+    venmoEnabled: j.venmoEnabled === true,
     paymentMethodTypes: Array.isArray(j.paymentMethodTypes) ? j.paymentMethodTypes : ['card'],
   };
+}
+
+export async function fetchBuyerWalletSummary(
+  accessToken: string | undefined,
+): Promise<BuyerWalletSummary | null> {
+  if (!getWebApiBaseUrl() || !accessToken?.trim()) return null;
+  const res = await fetchWebApiAuthed('/api/account/wallet', accessToken);
+  const j = (await res.json().catch(() => ({}))) as { wallet?: BuyerWalletSummary; error?: string };
+  if (!res.ok) {
+    throw new Error(typeof j.error === 'string' ? j.error : 'Could not load wallet.');
+  }
+  return j.wallet ?? null;
+}
+
+export async function setBuyerDefaultPaymentMethod(
+  accessToken: string | undefined,
+  paymentMethodId: string,
+): Promise<void> {
+  requireApiBase();
+  if (!accessToken?.trim()) throw new Error('Sign in to update payment method.');
+  const res = await fetchWebApiAuthed(
+    `/api/account/payment-methods/${encodeURIComponent(paymentMethodId)}`,
+    accessToken,
+    { method: 'PATCH', body: JSON.stringify({ action: 'set_default' }) },
+  );
+  const j = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(typeof j.error === 'string' ? j.error : 'Could not set default.');
+}
+
+export async function deleteBuyerPaymentMethod(
+  accessToken: string | undefined,
+  paymentMethodId: string,
+): Promise<void> {
+  requireApiBase();
+  if (!accessToken?.trim()) throw new Error('Sign in to remove payment method.');
+  const res = await fetchWebApiAuthed(
+    `/api/account/payment-methods/${encodeURIComponent(paymentMethodId)}`,
+    accessToken,
+    { method: 'DELETE' },
+  );
+  const j = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(typeof j.error === 'string' ? j.error : 'Could not remove payment method.');
+}
+
+export async function updateBuyerShippingAddress(
+  accessToken: string | undefined,
+  addressId: string,
+  input: CreateShippingAddressInput,
+): Promise<void> {
+  requireApiBase();
+  if (!accessToken?.trim()) throw new Error('Sign in to save your address.');
+  const res = await fetchWebApiAuthed(`/api/account/addresses/${encodeURIComponent(addressId)}`, accessToken, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      type: 'shipping',
+      name: input.name.trim(),
+      fullName: input.fullName.trim(),
+      line1: input.line1.trim(),
+      line2: input.line2?.trim() ? input.line2.trim() : null,
+      city: input.city.trim(),
+      state: input.state.trim(),
+      postalCode: input.postalCode.trim(),
+      country: input.country.trim().toUpperCase().slice(0, 2) || 'US',
+      isDefault: input.isDefault !== false,
+    }),
+  });
+  const j = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(typeof j.error === 'string' ? j.error : 'Could not update address.');
+}
+
+export async function deleteBuyerShippingAddress(
+  accessToken: string | undefined,
+  addressId: string,
+): Promise<void> {
+  requireApiBase();
+  if (!accessToken?.trim()) throw new Error('Sign in to remove address.');
+  const res = await fetchWebApiAuthed(`/api/account/addresses/${encodeURIComponent(addressId)}`, accessToken, {
+    method: 'DELETE',
+  });
+  const j = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(typeof j.error === 'string' ? j.error : 'Could not remove address.');
 }
 
 /** Carries the HTTP status so the UI can show 401/400-specific recovery copy. */

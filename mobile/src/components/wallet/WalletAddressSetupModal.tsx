@@ -14,6 +14,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   createBuyerShippingAddress,
+  updateBuyerShippingAddress,
   type CreateShippingAddressInput,
 } from '../../api/buyerWalletRepository';
 import { colors, spacing } from '../../theme';
@@ -25,6 +26,7 @@ type Props = {
   visible: boolean;
   accessToken?: string;
   editing?: boolean;
+  addressId?: string;
   initialDraft?: CreateShippingAddressInput;
   onClose: () => void;
   onSaved: () => void;
@@ -78,6 +80,7 @@ export function WalletAddressSetupModal({
   visible,
   accessToken,
   editing = false,
+  addressId,
   initialDraft,
   onClose,
   onSaved,
@@ -101,7 +104,11 @@ export function WalletAddressSetupModal({
     setBusy(true);
     setError(null);
     try {
-      await createBuyerShippingAddress(accessToken, draft);
+      if (editing && addressId?.trim()) {
+        await updateBuyerShippingAddress(accessToken, addressId, draft);
+      } else {
+        await createBuyerShippingAddress(accessToken, draft);
+      }
       onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save address.');

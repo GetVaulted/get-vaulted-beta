@@ -1,6 +1,6 @@
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Keyboard, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { HostStreamPayload, LiveRoomHostDetail } from '../../../api/liveHostRepository';
 import { fetchProfileById } from '../../../api/profilesRepository';
@@ -17,7 +17,10 @@ import { SellerLiveStreamBackdrop } from './SellerLiveStreamBackdrop';
 import type { MobileHostBroadcastPhase, SellerCameraPermissionState } from '../../../hooks/useMobileStagePublish';
 import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
 import { useLiveRoomChat } from '../../../hooks/useLiveRoomChat';
+import { useLiveRoomModeration } from '../../../hooks/useLiveRoomModeration';
 import { useRealtimeRoomSubscription } from '../../../hooks/useRealtimeRoomSubscription';
+import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from '../../../lib/vaultRevealSpin';
+import { VaultRevealWheelOverlay } from '../../live/VaultRevealWheelOverlay';
 import { useSellerLiveConsole } from '../../../hooks/useSellerLiveConsole';
 import { webLiveRoomUrl } from '../../../lib/openWebCommerce';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
@@ -29,8 +32,16 @@ import {
   SELLER_PINNED_OVERLAY_HEIGHT,
 } from './SellerLivePinnedOverlay';
 import { SellerLiveQueueSheet } from './SellerLiveQueueSheet';
+import { SellerLiveGiveawaySheet } from './SellerLiveGiveawaySheet';
 import { SellerConsoleActionBar } from './SellerConsoleActionBar';
 import { SellerShareSheet } from './SellerShareSheet';
+import { HostModeratorAssignSheet } from '../../moderator/HostModeratorAssignSheet';
+import {
+  HostModeratorAssignButton,
+  ModeratorToolsButton,
+} from '../../moderator/ModeratorFloatingButton';
+import { ModeratorDrawer } from '../../moderator/ModeratorDrawer';
+import { showModeratorTools } from '../../../lib/liveModeratorPermissions';
 import { colors, radii, spacing } from '../../../theme';
 
 const CHAT_RIGHT_EDGE = 88;
@@ -78,17 +89,22 @@ type Props = {
 export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Props) {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const [hostAvatarUrl, setHostAvatarUrl] = useState(
-    `https://i.pravatar.cc/120?u=${encodeURIComponent(user?.id ?? 'seller')}`,
-  );
+  const [hostAvatarUrl, setHostAvatarUrl] = useState<string | null>(null);
   const [hostName, setHostName] = useState('You');
   const [sellerUsername, setSellerUsername] = useState<string | null>(null);
   const [queueOpen, setQueueOpen] = useState(false);
+  const [giveawayOpen, setGiveawayOpen] = useState(false);
+  const [giveawayBusy, setGiveawayBusy] = useState(false);
+  const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
+  const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareToast, setShareToast] = useState<string | null>(null);
   const [chatDraft, setChatDraft] = useState('');
+  const [modDrawerOpen, setModDrawerOpen] = useState(false);
+  const [modAssignOpen, setModAssignOpen] = useState(false);
   const [biddingUrgent, setBiddingUrgent] = useState(false);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
 
   const console = useSellerLiveConsole({
     accessToken,
@@ -109,10 +125,12 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
       if (p.display_name?.trim()) setHostName(p.display_name.trim());
       else if (p.username?.trim()) setHostName(p.username.trim());
       if (p.avatar_url?.trim()) setHostAvatarUrl(p.avatar_url.trim());
+      else setHostAvatarUrl(null);
     });
   }, [user?.id]);
 
   const roomLive = host.room?.status === 'live';
+  const canHostChat = roomLive || host.broadcastPhase === 'live' || host.streamConnected;
   const canStart = host.room?.status === 'scheduled';
   const canEnd = host.room?.status === 'live';
   const streamTitle = host.room?.title ?? 'Live show';
@@ -132,14 +150,30 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
     setCommerceHeight(pinnedOverlayEstimate);
   }, [pinnedOverlayEstimate]);
 
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      setKeyboardOffset(e.endCoordinates.height - insets.bottom);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardOffset(0);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [insets.bottom]);
+
   const bottomStack = useMemo(
     () =>
       computeLiveRoomBottomStack({
         dockPaddingBottom: commerceBottom,
         commerceHeight,
+        keyboardOffset,
         compact: true,
       }),
-    [commerceBottom, commerceHeight],
+    [commerceBottom, commerceHeight, keyboardOffset],
   );
 
   const onStartAuction = () => {
@@ -161,6 +195,12 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
     realtimePrimary: true,
   });
 
+  const moderation = useLiveRoomModeration({
+    roomId,
+    accessToken,
+    enabled: true,
+  });
+
   useRealtimeRoomSubscription({
     liveRoomId: roomId,
     enabled: true,
@@ -170,6 +210,19 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
     onMessagesRefreshMerge: () => {
       void liveChat.reload();
     },
+    onQueueItemsChange: () => {
+      console.syncQueue();
+    },
+    onGiveawaysChange: () => {
+      console.syncGiveaways();
+    },
+    onVaultRevealSpin: (payload) => {
+      const spin = parseVaultRevealSpinPayload(payload);
+      if (!spin || seenVaultRevealSpinIdsRef.current.has(spin.spinId)) return;
+      seenVaultRevealSpinIdsRef.current.add(spin.spinId);
+      setVaultRevealSpin(spin);
+      console.syncGiveaways();
+    },
   });
 
   const chatPool = liveChat.messages;
@@ -177,7 +230,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   const sendHostChat = useCallback(async () => {
     const text = chatDraft.trim();
     if (!text || liveChat.sending) return;
-    if (!roomLive) {
+    if (!canHostChat) {
       Alert.alert('Not live yet', 'Go live to chat with viewers.');
       return;
     }
@@ -188,7 +241,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
       const msg = e instanceof Error ? e.message : String(e);
       Alert.alert('Chat', msg);
     }
-  }, [chatDraft, liveChat, roomLive]);
+  }, [chatDraft, liveChat, canHostChat]);
 
   const onGoLive = () => {
     if (host.readinessBlocked?.length) {
@@ -252,6 +305,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         top={actionBarTop}
         onShare={() => setShareOpen(true)}
         onAddItem={() => console.setInventoryOpen(true)}
+        onGiveaways={() => setGiveawayOpen(true)}
         onObs={() => setBroadcastOpen(true)}
         broadcastPhase={host.broadcastPhase}
         roomLive={roomLive}
@@ -282,22 +336,13 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         liveRoomId={roomId}
         hostUserId={user?.id}
         accessToken={accessToken}
-        canModerate
+        canModerate={moderation.canModerate}
+        isModerator={moderation.isModerator}
         onModerationComplete={() => {
           void liveChat.reload();
+          void moderation.reload();
           void console.loadOnce();
         }}
-      />
-
-      <SellerLiveComposer
-        bottom={bottomStack.composerBottom}
-        left={spacing.lg}
-        rightEdge={CHAT_RIGHT_EDGE}
-        value={chatDraft}
-        onChangeText={setChatDraft}
-        onSend={sendHostChat}
-        sendDisabled={liveChat.sending || !roomLive}
-        accessToken={accessToken}
       />
 
       <SellerLivePinnedOverlay
@@ -319,6 +364,56 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
           if (h > 0 && Math.abs(h - commerceHeight) > 2) setCommerceHeight(h);
         }}
       />
+
+      <SellerLiveComposer
+        bottom={bottomStack.composerBottom}
+        left={spacing.lg}
+        rightEdge={CHAT_RIGHT_EDGE}
+        value={chatDraft}
+        onChangeText={setChatDraft}
+        onSend={sendHostChat}
+        sendDisabled={liveChat.sending || !canHostChat}
+        inputDisabled={host.room?.status === 'ended'}
+        placeholder={canHostChat ? 'Say something' : 'Go live to chat'}
+        accessToken={accessToken}
+        leadingAccessory={
+          <>
+            {showModeratorTools(moderation.isModerator) ? (
+              <ModeratorToolsButton onPress={() => setModDrawerOpen(true)} />
+            ) : null}
+            {moderation.isHost ? (
+              <HostModeratorAssignButton onPress={() => setModAssignOpen(true)} />
+            ) : null}
+          </>
+        }
+      />
+
+      {showModeratorTools(moderation.isModerator) ? (
+        <ModeratorDrawer
+          visible={modDrawerOpen}
+          onClose={() => setModDrawerOpen(false)}
+          liveRoomId={roomId}
+          hostUserId={user?.id}
+          accessToken={accessToken}
+          moderation={moderation}
+          onRefresh={() => {
+            void moderation.reload();
+            void liveChat.reload();
+          }}
+        />
+      ) : null}
+
+      {moderation.isHost ? (
+        <HostModeratorAssignSheet
+          visible={modAssignOpen}
+          onClose={() => setModAssignOpen(false)}
+          liveRoomId={roomId}
+          accessToken={accessToken}
+          moderation={moderation}
+          hostUserId={user?.id}
+          onRefresh={() => void moderation.reload()}
+        />
+      ) : null}
 
       {host.broadcastError && host.broadcastPhase === 'idle' ? (
         <View style={[styles.banner, { top: insets.top + 48 }]}>
@@ -365,6 +460,23 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         onEditPricing={(item) => console.setPricingEditItem(item)}
       />
 
+      <SellerLiveGiveawaySheet
+        visible={giveawayOpen}
+        onClose={() => setGiveawayOpen(false)}
+        accessToken={accessToken}
+        roomId={roomId}
+        giveaways={console.giveaways}
+        busy={console.busy || giveawayBusy}
+        onRefresh={async () => {
+          await console.loadOnce();
+        }}
+        onBusyChange={setGiveawayBusy}
+        onToast={(msg) => {
+          setShareToast(msg);
+          setTimeout(() => setShareToast(null), 2200);
+        }}
+      />
+
       <SellerLiveBroadcastSheet
         visible={broadcastOpen}
         onClose={() => setBroadcastOpen(false)}
@@ -395,12 +507,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
 
       <AddInventoryModal
         visible={console.inventoryOpen}
-        quickTitle={console.quickTitle}
-        onChangeQuickTitle={console.setQuickTitle}
+        accessToken={accessToken}
         onClose={() => console.setInventoryOpen(false)}
-        onSelect={console.onInventorySelect}
-        showAuctionPricing={console.auctionRoom}
-        pricingBusy={console.busy}
+        onSubmit={console.onQuickAddLot}
+        busy={console.busy}
       />
       <EditQueueItemPricingModal
         item={console.pricingEditItem}
@@ -408,6 +518,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         onClose={() => console.setPricingEditItem(null)}
         onSave={console.onSaveQueuePricing}
       />
+      <VaultRevealWheelOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
     </View>
     </SellerLiveGestureLayer>
   );

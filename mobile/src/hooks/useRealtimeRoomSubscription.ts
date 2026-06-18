@@ -9,6 +9,8 @@ export type LiveRoomChatBroadcastMessage = {
   senderUsername?: string;
   senderAvatarUrl?: string | null;
   messageType?: string;
+  createdAt?: string;
+  mentions?: { userId: string; username: string }[];
 };
 
 export function useRealtimeRoomSubscription(opts: {
@@ -17,6 +19,8 @@ export function useRealtimeRoomSubscription(opts: {
   onLiveRoomMessage: (message: LiveRoomChatBroadcastMessage) => void;
   onMessagesRefreshMerge: () => void | Promise<void>;
   onQueueItemsChange?: () => void | Promise<void>;
+  onGiveawaysChange?: () => void | Promise<void>;
+  onVaultRevealSpin?: (payload: Record<string, unknown>) => void | Promise<void>;
   onBreakSpotsChange?: () => void | Promise<void>;
   onListingBid?: (listingId: string) => void | Promise<void>;
   onTeamBoardChange?: () => void | Promise<void>;
@@ -89,6 +93,11 @@ export function useRealtimeRoomSubscription(opts: {
         else void refs.current.onRoomStateEvent?.();
       })
       .on('broadcast', { event: RT_EVENT.queueItems }, () => void refs.current.onQueueItemsChange?.())
+      .on('broadcast', { event: RT_EVENT.giveawaysChanged }, () => void refs.current.onGiveawaysChange?.())
+      .on('broadcast', { event: RT_EVENT.vaultRevealSpin }, ({ payload }) => {
+        const p = (payload as Record<string, unknown> | null) ?? {};
+        void refs.current.onVaultRevealSpin?.(p);
+      })
       .on('broadcast', { event: RT_EVENT.variantPurchased }, () => void refs.current.onQueueItemsChange?.())
       .on('broadcast', { event: RT_EVENT.breakSpots }, () => void refs.current.onBreakSpotsChange?.())
       .on('broadcast', { event: RT_EVENT.listingBid }, ({ payload }) => {

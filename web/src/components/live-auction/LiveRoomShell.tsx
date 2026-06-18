@@ -8,6 +8,7 @@ import { LiveSaleRoom } from "@/components/live-auction/LiveSaleRoom";
 import { useRealtimeRoomPresence } from "@/hooks/useRealtimeRoomPresence";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
 import { logLiveDebugEvent } from "@/lib/live-debug";
+import { announceLiveRoomJoin } from "@/lib/live-room-viewer-event-client";
 import { appendLiveRoomMessageDedupe, mergeLiveRoomMessagesById } from "@/lib/realtime-merge-messages";
 import type { LiveRoomDetailDTO, LiveRoomItemDTO, LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { mergeLiveRoomDetailFromFetch } from "@/lib/live-room-fetch-merge";
@@ -19,7 +20,9 @@ import { estimateClockSkewMs } from "@/lib/server-clock-sync";
 import { parsePurchaseCompletedCelebration, type LiveAuctionCloseCelebration } from "@/lib/live-auction-winner-display";
 import { LiveAuctionSoldCelebration } from "@/components/live-auction/LiveAuctionSoldCelebration";
 import { LivePaymentFailureBlocker } from "@/components/live-auction/LivePaymentFailureBlocker";
+import { VaultRevealWheelOverlay } from "@/components/live-auction/VaultRevealWheelOverlay";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
+import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from "@/lib/vault-reveal-spin";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
 
 type LiveRoomShellProps = {
@@ -50,6 +53,8 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const lastAuctionSeqRef = useRef(0);
   const prevRoomLifecycleRef = useRef<LiveRoomStatus | null>(null);
   const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
+  const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
+  const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
   const appendSystemMessage = useCallback((body: string, chatLabel = "System") => {
     setMessages((prev) => {
       const next: LiveRoomMessageDTO = {
@@ -72,8 +77,8 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     enabled: Boolean(roomId),
     userId: session?.user?.id ?? null,
     viewerDisplayName: session?.user?.username?.trim() ? session.user.username : null,
-    onViewerEvent: ({ label }) => {
-      appendSystemMessage("Joined the Arena.", label);
+    onViewerEvent: () => {
+      void announceLiveRoomJoin(roomId);
     },
     onPresenceStateChange: ({ status, reconnectCount }) => {
       if (reconnectCount > reconnectCountRef.current) reconnectCountRef.current = reconnectCount;
@@ -410,6 +415,12 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     }
   }, [detail]);
 
+  /** Announce join when the room goes live (presence may have fired while still scheduled). */
+  useEffect(() => {
+    if (detail?.status !== "live" || !session?.user?.id) return;
+    void announceLiveRoomJoin(roomId);
+  }, [detail?.status, roomId, session?.user?.id]);
+
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
@@ -464,6 +475,16 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       });
       requestQueueSnapshotSyncDebounced();
       scheduleFallbackRefresh("queue_items", 350);
+    },
+    onGiveawaysChange: () => {
+      scheduleFallbackRefresh("giveaways_changed", 250);
+    },
+    onVaultRevealSpin: (payload) => {
+      const spin = parseVaultRevealSpinPayload(payload);
+      if (!spin || seenVaultRevealSpinIdsRef.current.has(spin.spinId)) return;
+      seenVaultRevealSpinIdsRef.current.add(spin.spinId);
+      setVaultRevealSpin(spin);
+      scheduleFallbackRefresh("giveaways_changed", 250);
     },
     onBreakSpotsChange: () => {
       logLiveDebugEvent({
@@ -753,6 +774,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         <LiveAuctionRoom
           breakId={detail.id}
           roomTitle={detail.title}
+          roomCategory={detail.category}
           sellerId={detail.sellerId}
           sellerShopUsername={detail.sellerUsername}
           hostDisplayName={host}
@@ -773,8 +795,10 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           clockSkewMs={clockSkewMs}
           buyerLiveBidPaymentReady={detail.buyerLiveBidPaymentReady}
           buyerLiveShippingReady={detail.buyerLiveShippingReady}
+          giveaways={detail.giveaways ?? []}
         />
         <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
+        <VaultRevealWheelOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
         {paymentBlocker}
       </>
     );
@@ -785,6 +809,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       <LiveSaleRoom
       roomId={detail.id}
       roomTitle={detail.title}
+      roomCategory={detail.category}
       sellerId={detail.sellerId}
       sellerShopUsername={detail.sellerUsername}
       hostDisplayName={host}
@@ -804,8 +829,10 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       clockSkewMs={clockSkewMs}
       buyerLiveBidPaymentReady={detail.buyerLiveBidPaymentReady}
       buyerLiveShippingReady={detail.buyerLiveShippingReady}
+      giveaways={detail.giveaways ?? []}
     />
       <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
+      <VaultRevealWheelOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
       {paymentBlocker}
     </>
   );

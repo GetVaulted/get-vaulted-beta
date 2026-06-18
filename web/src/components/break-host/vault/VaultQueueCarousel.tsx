@@ -1,5 +1,9 @@
 "use client";
 
+import type { LiveGiveawayDTO } from "@/lib/live-giveaway";
+import type { SellerQueueTab } from "@/lib/seller-queue-tabs";
+import { isGiveawayTab } from "@/lib/seller-queue-tabs";
+import { VaultGiveawayLane } from "@/components/break-host/vault/VaultGiveawayLane";
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 
 type ClaimLite = { user: { username: string } } | null;
@@ -15,12 +19,13 @@ function titleLine(item: Pick<LiveRoomItemDTO, "title" | "displayTitle" | "progr
   return item.progressLabel ? `${label} · ${item.progressLabel}` : label;
 }
 
-type Tab = "auction" | "bin" | "givvy" | "sold";
+type Tab = SellerQueueTab;
 
 type VaultQueueCarouselProps = {
   tab: Tab;
   onTab: (t: Tab) => void;
   rows: VaultQueueRow[];
+  giveaways?: LiveGiveawayDTO[];
   selectedId: string;
   onSelect: (id: string) => void;
   viewerCount: number;
@@ -29,6 +34,13 @@ type VaultQueueCarouselProps = {
   onSkip?: (id: string) => void;
   onDelete: (id: string) => void;
   onAddAuction: () => void;
+  onAddGiveaway?: () => void;
+  onGiveawayOpenEntries?: (id: string) => void;
+  onGiveawayCloseEntries?: (id: string) => void;
+  onGiveawayDraw?: (id: string) => void;
+  onGiveawayCancel?: (id: string) => void;
+  onGiveawayDelete?: (id: string) => void;
+  onGiveawayTimerExpired?: () => void;
   /** Tighter cards for desktop seller sidebar */
   compact?: boolean;
   /** Flat lineup tiles for floating queue drawer */
@@ -39,6 +51,7 @@ export function VaultQueueCarousel({
   tab,
   onTab,
   rows,
+  giveaways: giveawayRows = [],
   selectedId,
   onSelect,
   viewerCount,
@@ -47,6 +60,13 @@ export function VaultQueueCarousel({
   onSkip,
   onDelete,
   onAddAuction,
+  onAddGiveaway,
+  onGiveawayOpenEntries,
+  onGiveawayCloseEntries,
+  onGiveawayDraw,
+  onGiveawayCancel,
+  onGiveawayDelete,
+  onGiveawayTimerExpired,
   compact = false,
   lineup = false,
 }: VaultQueueCarouselProps) {
@@ -84,7 +104,8 @@ export function VaultQueueCarousel({
           [
             { id: "auction" as const, label: "Auction" },
             { id: "bin" as const, label: "Buy now" },
-            { id: "givvy" as const, label: "Giveaway" },
+            { id: "giveaway" as const, label: "Giveaway" },
+            { id: "buyers_giveaway" as const, label: "Buyers" },
             { id: "sold" as const, label: "Sold" },
           ] as const
         ).map((t) => (
@@ -116,18 +137,33 @@ export function VaultQueueCarousel({
         </button>
       ) : null}
 
-      {tab === "bin" || tab === "givvy" ? (
+      {tab === "bin" ? (
         <p className="rounded-xl border border-dashed border-zinc-700/80 bg-zinc-950/40 px-3 py-4 text-center text-[11px] leading-relaxed text-zinc-500">
-          {tab === "bin"
-            ? "Buy-now lane is being wired to checkout. Run auctions from the auction lane for now."
-            : "Giveaway lane hooks into your givvy flow soon — queue winners here once the API lands."}
+          Buy-now lane is being wired to checkout. Run auctions from the auction lane for now.
         </p>
+      ) : null}
+
+      {isGiveawayTab(tab) ? (
+        <VaultGiveawayLane
+          kind={tab === "giveaway" ? "open" : "buyers"}
+          giveaways={giveawayRows}
+          busy={busy}
+          lineup={lineup}
+          onAdd={() => onAddGiveaway?.()}
+          onOpenEntries={(id) => onGiveawayOpenEntries?.(id)}
+          onCloseEntries={(id) => onGiveawayCloseEntries?.(id)}
+          onDraw={(id) => onGiveawayDraw?.(id)}
+          onCancel={(id) => onGiveawayCancel?.(id)}
+          onDelete={(id) => onGiveawayDelete?.(id)}
+          onTimerExpired={onGiveawayTimerExpired}
+        />
       ) : null}
 
       {(tab === "auction" || tab === "sold") && visible.length === 0 ? (
         <p className="rounded-xl border border-zinc-800/80 bg-black/30 py-8 text-center text-[11px] text-zinc-600">No lots in this lane yet.</p>
       ) : null}
 
+      {!isGiveawayTab(tab) ? (
       <div
         className={
           lineup
@@ -301,8 +337,9 @@ export function VaultQueueCarousel({
           );
         })}
       </div>
+      ) : null}
 
-      {!compact && !lineup ? (
+      {!compact && !lineup && !isGiveawayTab(tab) ? (
         <p className="text-center text-[10px] text-zinc-600">Drag-to-reorder sync is coming — order follows your queue for now.</p>
       ) : null}
     </div>

@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { UserAvatar } from '../ui/UserAvatar';
 import type { TradeMomentumItem } from '../../types/tradeUi';
 import { colors, radii, spacing } from '../../theme';
 
@@ -17,7 +18,7 @@ export function TradeMomentumRail({
         {items.map((item) => (
           <View key={item.id} style={styles.card}>
             <View style={styles.cardTop}>
-              <Image source={{ uri: item.avatarUrl }} style={styles.avatar} />
+              <UserAvatar uri={item.avatarUrl} username={item.handle} size={36} tone="light" />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <View style={styles.handleRow}>
                   <Text style={styles.handle} numberOfLines={1}>

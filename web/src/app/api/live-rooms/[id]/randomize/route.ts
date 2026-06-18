@@ -4,7 +4,8 @@ import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { buildAssignments } from "@/lib/break-randomize";
 import { getLiveRoomHostAccess, parseTeamLabelsJson } from "@/lib/live-room-host-auth";
 import { prisma } from "@/lib/prisma";
-import { emitBreakSpotsChanged, emitLiveRoomMessageById } from "@/lib/realtime-emit-server";
+import { emitBreakSpotsChanged, emitLiveRoomMessageById, emitVaultRevealSpin } from "@/lib/realtime-emit-server";
+import { VAULT_REVEAL_DEFAULT_DURATION_MS } from "@/lib/vault-reveal-spin";
 
 type PostBody = {
   mode?: string;
@@ -120,6 +121,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   void emitLiveRoomMessageById(sysMsg.id);
   emitBreakSpotsChanged(liveRoomId);
+
+  const wheelLabels = labels;
+  const firstPick = preview.assignments[0]?.label ?? "";
+  const winnerIndex = Math.max(0, wheelLabels.findIndex((l) => l === firstPick));
+  emitVaultRevealSpin(liveRoomId, {
+    spinId: `pyt-${liveRoomId}-${Date.now()}`,
+    kind: "break_pyt",
+    title: "PYT randomizer",
+    labels: wheelLabels,
+    winnerIndex,
+    winnerLabel: firstPick || wheelLabels[winnerIndex] || "",
+    durationMs: VAULT_REVEAL_DEFAULT_DURATION_MS,
+    referenceId: liveRoomId,
+    assignments: preview.assignments,
+  });
 
   return NextResponse.json({ ok: true, result: preview });
 }

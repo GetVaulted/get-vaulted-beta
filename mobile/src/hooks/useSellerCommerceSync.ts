@@ -2,7 +2,7 @@ import { useCallback, useRef } from 'react';
 import type { SellerReloadOptions } from './sellerReloadOptions';
 import { useMoneyStateSync } from './useMoneyStateSync';
 
-type ReloadFn = (opts?: SellerReloadOptions) => void | Promise<void>;
+type ReloadFn = (opts?: SellerReloadOptions) => void | Promise<unknown>;
 
 type Options = {
   enabled?: boolean;

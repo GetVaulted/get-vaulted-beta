@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { UserAvatar } from '../ui/UserAvatar';
 import { colors, radii, spacing, typography } from '../../theme';
 import type { ScheduledStream } from '../../types';
 import { categoryMeta } from '../../data/categoryTaxonomy';
@@ -46,7 +47,7 @@ export function VaultDropCard({ event, onRemind, onPress }: Props) {
       </LinearGradient>
       <View style={styles.body}>
         <View style={styles.hostRow}>
-          <Image source={{ uri: event.host.avatarUrl }} style={styles.avatar} />
+          <UserAvatar uri={event.host.avatarUrl} name={event.host.name} username={event.host.handle} size={36} tone="light" />
           <View style={{ flex: 1 }}>
             <View style={styles.nameRow}>
               <Text style={styles.hostName} numberOfLines={1}>

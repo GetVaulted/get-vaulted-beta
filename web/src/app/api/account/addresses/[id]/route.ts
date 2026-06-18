@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
 import { validateAddressPatchInput, type AddressInput } from "@/lib/address-book";
 import type { AddressType } from "@/generated/prisma/enums";
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
   const { id } = await ctx.params;
   const existing = await prisma.address.findFirst({
-    where: { id: decodeURIComponent(id), userId: session.user.id },
+    where: { id: decodeURIComponent(id), userId: auth.userId },
   });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
   let body: AddressInput;
@@ -26,7 +26,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const address = await prisma.$transaction(async (tx) => {
     if (nextDefault) {
       await tx.address.updateMany({
-        where: { userId: session.user.id, type: nextType, isDefault: true, id: { not: existing.id } },
+        where: { userId: auth.userId, type: nextType, isDefault: true, id: { not: existing.id } },
         data: { isDefault: false },
       });
     }
@@ -39,18 +39,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await resolveAccountUserId(_req);
+  if (auth instanceof NextResponse) return auth;
   const { id } = await ctx.params;
   const existing = await prisma.address.findFirst({
-    where: { id: decodeURIComponent(id), userId: session.user.id },
+    where: { id: decodeURIComponent(id), userId: auth.userId },
   });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
   await prisma.$transaction(async (tx) => {
     await tx.address.delete({ where: { id: existing.id } });
     if (existing.isDefault) {
       const replacement = await tx.address.findFirst({
-        where: { userId: session.user.id, type: existing.type },
+        where: { userId: auth.userId, type: existing.type },
         orderBy: { createdAt: "asc" },
       });
       if (replacement) {

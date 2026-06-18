@@ -40,7 +40,10 @@ export function SellerLiveGestureLayer({
 
   const panResponder = useRef(
     PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
       onMoveShouldSetPanResponder: (_, g) => g.dy < -18 && Math.abs(g.dy) > Math.abs(g.dx),
+      onMoveShouldSetPanResponderCapture: () => false,
       onPanResponderMove: (_, g) => {
         if (g.dy < 0) swipeY.setValue(Math.min(0, g.dy));
       },
@@ -60,7 +63,7 @@ export function SellerLiveGestureLayer({
   ];
 
   return (
-    <View style={styles.fill} {...panResponder.panHandlers}>
+    <View style={styles.fill} pointerEvents="box-none" {...panResponder.panHandlers}>
       {children}
       <Pressable
         style={styles.longPressZone}
@@ -100,7 +103,7 @@ const styles = StyleSheet.create({
   longPressZone: {
     position: 'absolute',
     top: '20%',
-    bottom: '34%',
+    bottom: '42%',
     left: '12%',
     right: '24%',
     zIndex: 2,

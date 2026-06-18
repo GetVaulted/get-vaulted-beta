@@ -1,6 +1,7 @@
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert } from 'react-native';
+import type { LiveGiveawayRow } from '../api/liveGiveawayRepository';
 import { fetchHostConsole } from '../api/liveHostRepository';
 import {
   createLiveRoomQueueItem,
@@ -8,13 +9,12 @@ import {
   patchLiveRoomItem,
   type LiveRoomItemRow,
 } from '../api/liveRoomControlRepository';
-import type { AddInventoryChoice } from '../components/seller/liveConsole/AddInventoryModal';
-import type { AuctionPricingValues } from '../lib/liveAuctionPricing';
+import type { QuickLiveLotSubmitPayload } from '../components/seller/liveConsole/AddInventoryModal';
+import type { QuickLiveLotValues } from '../lib/liveAuctionPricing';
 import { logSellerQueue } from '../lib/logSellerQueue';
 import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
 import { DEFAULT_AUCTION_SEC } from '../components/seller/liveConsole/VaultPinnedLotCard';
-import { openCreateListing } from '../navigation/openCreateListing';
 import type { ChatMessage } from '../types';
 
 export function useSellerLiveConsole({
@@ -37,6 +37,7 @@ export function useSellerLiveConsole({
   onAfterAddLot?: () => void;
 }) {
   const [items, setItems] = useState<LiveRoomItemRow[]>([]);
+  const [giveaways, setGiveaways] = useState<LiveGiveawayRow[]>([]);
   const [activeItem, setActiveItem] = useState<LiveRoomItemRow | null>(null);
   const [viewerCount, setViewerCount] = useState(0);
   const [serverNowMs, setServerNowMs] = useState(Date.now());
@@ -45,7 +46,6 @@ export function useSellerLiveConsole({
   const [startingAuction, setStartingAuction] = useState(false);
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [pricingEditItem, setPricingEditItem] = useState<LiveRoomItemRow | null>(null);
-  const [quickTitle, setQuickTitle] = useState('');
   const [consoleError, setConsoleError] = useState<SanitizedLiveError | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const hydratedRef = useRef(false);
@@ -53,6 +53,7 @@ export function useSellerLiveConsole({
   const applyConsolePayload = useCallback(
     (data: Awaited<ReturnType<typeof fetchHostConsole>>) => {
       setItems(data.items);
+      setGiveaways(data.giveaways);
       setActiveItem(data.activeItem);
       logSellerQueue('queue_length', {
         total: data.items.length,
@@ -161,59 +162,51 @@ export function useSellerLiveConsole({
     }
   };
 
-  const onAddLot = (title: string, pricing?: AuctionPricingValues) => {
-    const t = title.trim();
-    if (!t) {
-      Alert.alert('Title required', 'Name your lot for the vault queue.');
-      return;
-    }
-    void run(async () => {
-      await createLiveRoomQueueItem(accessToken, roomId, {
-        title: t,
-        quantity: pricing?.quantity ?? 1,
-        startingBidUsd: pricing?.startingBidUsd ?? null,
-        reservePriceUsd: pricing?.reservePriceUsd ?? null,
-        priceUsd: pricing?.buyNowPriceUsd ?? null,
-      });
-      setQuickTitle('');
-      setInventoryOpen(false);
-      logSellerQueue('add_item_success', {
-        title: t.slice(0, 80),
-        quantity: pricing?.quantity ?? 1,
-        startingBidUsd: pricing?.startingBidUsd ?? null,
-      });
-      onAfterAddLot?.();
-    });
+  const onQuickAddLot = (payload: QuickLiveLotSubmitPayload) => {
+    if (busy || roomStatus === 'ended') return;
+    setBusy(true);
+    setConsoleError(null);
+    void (async () => {
+      try {
+        await createLiveRoomQueueItem(accessToken, roomId, {
+          title: payload.title,
+          imageUrl: payload.imageUrl,
+          salesFormat: payload.saleType,
+          quantity: payload.quantity,
+          startingBidUsd: payload.startingBidUsd,
+          priceUsd: payload.priceUsd,
+        });
+        logSellerQueue('add_item_success', {
+          title: payload.title.slice(0, 80),
+          quantity: payload.quantity,
+          salesFormat: payload.saleType,
+          startingBidUsd: payload.startingBidUsd,
+          priceUsd: payload.priceUsd,
+        });
+        await reload();
+        setInventoryOpen(false);
+        onAfterAddLot?.();
+      } catch (e) {
+        const sanitized = sanitizeLiveError(e, 'console');
+        setConsoleError(sanitized);
+        Alert.alert('Add to show', sanitized.userMessage);
+      } finally {
+        setBusy(false);
+      }
+    })();
   };
 
-  const onSaveQueuePricing = (itemId: string, pricing: AuctionPricingValues) => {
+  const onSaveQueuePricing = (itemId: string, values: QuickLiveLotValues) => {
     void run(async () => {
       await patchLiveRoomItem(accessToken, roomId, itemId, {
-        quantity: pricing.quantity,
-        startingBidUsd: pricing.startingBidUsd,
-        reservePriceUsd: pricing.reservePriceUsd,
-        priceUsd: pricing.buyNowPriceUsd,
+        quantity: values.quantity,
+        startingBidUsd: values.saleType === 'auction' ? values.startingBidUsd : null,
+        reservePriceUsd: null,
+        priceUsd: values.saleType === 'buy_now' ? values.priceUsd : null,
+        salesFormat: values.saleType,
       });
       setPricingEditItem(null);
     });
-  };
-
-  const onInventorySelect = (id: AddInventoryChoice, pricing?: AuctionPricingValues) => {
-    if (id === 'scan') {
-      Alert.alert('Scan card', 'Card scanning is coming to your vault lane.');
-      return;
-    }
-    if (id === 'marketplace') {
-      setInventoryOpen(false);
-      void openCreateListing(navigation, { channel: 'marketplace' });
-      return;
-    }
-    if (id === 'live_show') {
-      setInventoryOpen(false);
-      void openCreateListing(navigation, { channel: 'live_show' });
-      return;
-    }
-    onAddLot(quickTitle || 'Vault lot', pricing);
   };
 
   const onReorder = (ordered: LiveRoomItemRow[]) => {
@@ -302,6 +295,7 @@ export function useSellerLiveConsole({
 
   return {
     items,
+    giveaways,
     activeItem,
     viewerCount,
     serverNowMs,
@@ -313,12 +307,16 @@ export function useSellerLiveConsole({
     pricingEditItem,
     setPricingEditItem,
     onSaveQueuePricing,
-    quickTitle,
-    setQuickTitle,
+    onQuickAddLot,
     consoleError,
     chatMessages,
     loadOnce,
-    onInventorySelect,
+    syncQueue: () => {
+      void reload({ soft: true });
+    },
+    syncGiveaways: () => {
+      void reload({ soft: true });
+    },
     onReorder,
     onStartBidding,
     onSold,

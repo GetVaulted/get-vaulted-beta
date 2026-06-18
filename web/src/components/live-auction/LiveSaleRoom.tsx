@@ -22,6 +22,8 @@ import { BUYER_LIVE_MAIN_SECTION, BUYER_LIVE_PAGE_GRID } from "@/components/live
 import { HostLiveRoomConsoleBanner } from "@/components/live-auction/buyer/HostLiveRoomConsoleBanner";
 import { useBuyerLiveDesktop } from "@/components/live-auction/buyer/useBuyerLiveDesktop";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
+import { LiveGiveawayEnterStrip } from "@/components/live-auction/LiveGiveawayEnterStrip";
+import type { ViewerGiveawayDTO } from "@/lib/live-giveaway";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
 import type { LiveRoomItemDTO, LiveRoomMessageDTO } from "@/lib/live-room-serialize";
@@ -39,6 +41,11 @@ import { patchLiveRoomItemStatus, startLiveRoomItemAuction } from "@/lib/live-ro
 import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { logAuctionTimer } from "@/lib/auction-timer-sync";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
+import {
+  buildLiveRoomShareTitle,
+  canonicalLiveRoomUrl,
+  LIVE_SHARE_DESCRIPTION,
+} from "@/lib/live-room-share-metadata";
 import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
 import { isVariantSalesFormat, summarizeVariantSpots, variantBuyerSelectLabel } from "@/lib/live-item-variant-presets";
 import { purchaseLiveBuyNowWithSca } from "@/lib/live-buy-now-client";
@@ -158,6 +165,7 @@ type ListingBidMeta = {
 export type LiveSaleRoomProps = {
   roomId: string;
   roomTitle?: string;
+  roomCategory?: string;
   sellerShopUsername?: string;
   sellerId: string;
   hostDisplayName: string;
@@ -185,11 +193,13 @@ export type LiveSaleRoomProps = {
   clockSkewMs?: number;
   buyerLiveBidPaymentReady?: boolean;
   buyerLiveShippingReady?: boolean;
+  giveaways?: ViewerGiveawayDTO[];
 };
 
 export function LiveSaleRoom({
   roomId: _roomId,
   roomTitle,
+  roomCategory,
   sellerShopUsername,
   sellerId,
   hostDisplayName,
@@ -209,6 +219,7 @@ export function LiveSaleRoom({
   clockSkewMs: clockSkewProp = 0,
   buyerLiveBidPaymentReady,
   buyerLiveShippingReady,
+  giveaways = [],
 }: LiveSaleRoomProps) {
   const { data: session, status } = useSession();
   const shopHref =
@@ -640,11 +651,21 @@ export function LiveSaleRoom({
   ]);
 
   const handleShare = useCallback(async () => {
-    const title = roomTitle?.trim() || liveTitle;
-    const shareUrl = typeof window !== "undefined" ? window.location.href : `/live/${encodeURIComponent(liveRoomId)}`;
+    const showTitle = roomTitle?.trim() || liveTitle;
+    const shareUrl = canonicalLiveRoomUrl(liveRoomId);
+    const shareTitle = buildLiveRoomShareTitle({
+      id: liveRoomId,
+      title: showTitle,
+      category: roomCategory,
+      sellerUsername: sellerShopUsername ?? hostDisplayName.replace(/^@+/, ""),
+    });
     try {
       if (typeof navigator !== "undefined" && navigator.share) {
-        await navigator.share({ title, text: `Join ${title} on Vaulted Live`, url: shareUrl });
+        await navigator.share({
+          title: shareTitle,
+          text: LIVE_SHARE_DESCRIPTION,
+          url: shareUrl,
+        });
         toast("Shared.");
         return;
       }
@@ -657,7 +678,7 @@ export function LiveSaleRoom({
     } catch {
       toast("Could not share right now.");
     }
-  }, [liveRoomId, liveTitle, roomTitle, toast]);
+  }, [hostDisplayName, liveRoomId, liveTitle, roomCategory, roomTitle, sellerShopUsername, toast]);
 
   const handleWallet = useCallback(() => {
     if (status !== "authenticated") {
@@ -1250,6 +1271,17 @@ export function LiveSaleRoom({
                   queueCount={queue.length}
                   shopHref={shopHref}
                   onOpenQueue={() => setBuyerLineupOpen(true)}
+                />
+              ) : null}
+
+              {!isHost && isLive && giveaways.length > 0 ? (
+                <LiveGiveawayEnterStrip
+                  liveRoomId={liveRoomId}
+                  giveaways={giveaways}
+                  signedIn={Boolean(session?.user?.id)}
+                  onRequireSignIn={() => router.push(`/login?callbackUrl=${encodeURIComponent(`/live/${liveRoomId}`)}`)}
+                  onEntered={() => void onRefetch?.()}
+                  onTimerExpired={() => void onRefetch?.()}
                 />
               ) : null}
 

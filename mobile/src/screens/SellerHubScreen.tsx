@@ -41,6 +41,7 @@ import { openSellerListingManagementFromTab } from '../navigation/openSellerList
 import { consumePendingSellerHQTab, setPendingVaultEventSchedule } from '../navigation/openSellerHQ';
 import { navigateAuthLogin, navigateAuthSignUp, rootNavigationRef } from '../navigation/rootNavigationRef';
 import { useAuth } from '../auth/AuthContext';
+import { fetchProfileById } from '../api/profilesRepository';
 import { LISTING_CHANNEL_CONFIG } from '../createListing/listingChannel';
 import type { ListingChannel } from '../createListing/listingChannel';
 import type { ListingPreview } from '../createListing/types';
@@ -158,7 +159,7 @@ export function SellerHubScreen() {
     }, [sellerSetup.refetchSilent]),
   );
 
-  const pullRefresh = useCallback(async (...tasks: Array<() => void | Promise<void>>) => {
+  const pullRefresh = useCallback(async (...tasks: Array<() => void | Promise<unknown>>) => {
     setPullRefreshing(true);
     try {
       await Promise.all(tasks.map((task) => task()));
@@ -166,6 +167,18 @@ export function SellerHubScreen() {
       setPullRefreshing(false);
     }
   }, []);
+
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setProfileAvatarUrl(null);
+      return;
+    }
+    void fetchProfileById(user.id).then((p) => {
+      setProfileAvatarUrl(p?.avatar_url?.trim() || null);
+    });
+  }, [user?.id]);
 
   const sellerActivated = sellerSetup.displayActivated;
 
@@ -190,14 +203,9 @@ export function SellerHubScreen() {
           : user?.email?.split('@')[0] ?? 'Creator';
     const uname = typeof meta?.username === 'string' ? meta.username : null;
     const handle = uname ? `@${uname}` : '@you';
-    const avatar =
-      typeof meta?.avatar_url === 'string'
-        ? meta.avatar_url
-        : typeof meta?.picture === 'string'
-          ? meta.picture
-          : null;
+    const avatar = profileAvatarUrl;
     return { displayName, handle, avatar };
-  }, [user]);
+  }, [user, profileAvatarUrl]);
 
   const openStripeOnboarding = useCallback(async () => {
     const base = getWebApiBaseUrl();

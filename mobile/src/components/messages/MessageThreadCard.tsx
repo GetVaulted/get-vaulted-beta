@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { UserAvatar } from '../ui/UserAvatar';
 import type { ThreadListItem } from '../../types/messages';
 import { colors, radii, spacing } from '../../theme';
 
@@ -18,9 +19,6 @@ function formatTime(iso: string) {
 }
 
 export function MessageThreadCard({ thread, onPress }: { thread: ThreadListItem; onPress: () => void }) {
-  const avatar =
-    thread.otherAvatarUrl?.trim() ||
-    `https://i.pravatar.cc/96?u=${encodeURIComponent(thread.otherUsername)}`;
   const thumb = thread.thumbnailUrl?.trim();
 
   return (
@@ -32,7 +30,12 @@ export function MessageThreadCard({ thread, onPress }: { thread: ThreadListItem;
       )}
       <View style={styles.row}>
         <View style={styles.avatarCol}>
-          <Image source={{ uri: avatar }} style={styles.avatar} />
+          <UserAvatar
+            uri={thread.otherAvatarUrl}
+            username={thread.otherUsername}
+            size={40}
+            borderColor="rgba(255,255,255,0.2)"
+          />
           {thread.unreadCount > 0 ? <View style={styles.unreadDot} /> : null}
         </View>
         {thumb ? (

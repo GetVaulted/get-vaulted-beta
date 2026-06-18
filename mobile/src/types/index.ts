@@ -36,6 +36,8 @@ export type ChatMessage = {
   isHost?: boolean;
   messageType?: ChatMessageKind;
   mentions?: { userId: string; username: string }[];
+  /** ISO timestamp for ordering merged history (API + realtime). */
+  createdAt?: string;
 };
 
 export type Bid = {

@@ -17,6 +17,7 @@ import { fetchCompletedTradesForUser } from '../../api/tradeOffersRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { ReportSheet } from '../../components/trust/ReportSheet';
+import { UserAvatar } from '../../components/ui/UserAvatar';
 import { VaultImage } from '../../components/ui/VaultImage';
 import { openDispute } from '../../navigation/openPlatform';
 import { openMessageSellerForListing } from '../../navigation/openMessages';
@@ -147,12 +148,14 @@ export function UserProfileScreen({ navigation, route }: Props) {
       <PlatformFlowHeader title="Vault profile" onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
-          <VaultImage
-            uri={profile.avatar_url ?? 'https://api.dicebear.com/7.x/shapes/png?seed=vault'}
-            width={72}
-            height={72}
-            borderRadius={36}
-            priority="normal"
+          <UserAvatar
+            uri={profile.avatar_url}
+            name={displayName}
+            username={profile.username}
+            size={72}
+            tone="light"
+            borderColor={colors.borderStrong}
+            borderWidth={1}
           />
           <View style={styles.heroText}>
             <Text style={styles.name}>{displayName}</Text>

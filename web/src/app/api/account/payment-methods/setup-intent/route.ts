@@ -49,6 +49,11 @@ export async function POST(req: Request) {
       publishableKey,
       merchantCountryCode: "US",
       applePayEnabled: paymentMethodTypes.includes("card"),
+      googlePayEnabled: paymentMethodTypes.includes("card"),
+      linkEnabled: paymentMethodTypes.includes("link") || paymentMethodTypes.includes("card"),
+      cashAppPayEnabled: paymentMethodTypes.includes("cashapp"),
+      paypalEnabled: paymentMethodTypes.includes("paypal"),
+      venmoEnabled: false,
       paymentMethodTypes,
     });
   } catch (e) {

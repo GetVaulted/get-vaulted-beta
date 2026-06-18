@@ -12,6 +12,8 @@ export function useRealtimeRoomSubscription(opts: {
   onMessagesRefreshMerge: () => void | Promise<void>;
   /** Queue rows added/removed — refetch room detail / host console. */
   onQueueItemsChange?: () => void | Promise<void>;
+  onGiveawaysChange?: () => void | Promise<void>;
+  onVaultRevealSpin?: (payload: Record<string, unknown>) => void | Promise<void>;
   onTeamBreakReady?: () => void | Promise<void>;
   onTeamBreakBegan?: () => void | Promise<void>;
   onBreakSpotsChange: () => void | Promise<void>;
@@ -100,6 +102,8 @@ export function useRealtimeRoomSubscription(opts: {
     onLiveRoomMessage,
     onMessagesRefreshMerge,
     onQueueItemsChange,
+    onGiveawaysChange,
+    onVaultRevealSpin,
     onTeamBreakReady,
     onTeamBreakBegan,
     onBreakSpotsChange,
@@ -122,6 +126,8 @@ export function useRealtimeRoomSubscription(opts: {
     onLiveRoomMessage,
     onMessagesRefreshMerge,
     onQueueItemsChange,
+    onGiveawaysChange,
+    onVaultRevealSpin,
     onTeamBreakReady,
     onTeamBreakBegan,
     onBreakSpotsChange,
@@ -144,6 +150,8 @@ export function useRealtimeRoomSubscription(opts: {
       onLiveRoomMessage,
       onMessagesRefreshMerge,
     onQueueItemsChange,
+    onGiveawaysChange,
+    onVaultRevealSpin,
     onTeamBreakReady,
     onTeamBreakBegan,
     onBreakSpotsChange,
@@ -165,6 +173,8 @@ export function useRealtimeRoomSubscription(opts: {
     onLiveRoomMessage,
     onMessagesRefreshMerge,
     onQueueItemsChange,
+    onGiveawaysChange,
+    onVaultRevealSpin,
     onTeamBreakReady,
     onTeamBreakBegan,
     onBreakSpotsChange,
@@ -234,6 +244,11 @@ export function useRealtimeRoomSubscription(opts: {
         else void refs.current.onRoomStateEvent?.();
       })
       .on("broadcast", { event: RT_EVENT.queueItems }, () => void refs.current.onQueueItemsChange?.())
+      .on("broadcast", { event: RT_EVENT.giveawaysChanged }, () => void refs.current.onGiveawaysChange?.())
+      .on("broadcast", { event: RT_EVENT.vaultRevealSpin }, ({ payload }) => {
+        const p = (payload as Record<string, unknown> | null) ?? {};
+        void refs.current.onVaultRevealSpin?.(p);
+      })
       .on("broadcast", { event: RT_EVENT.variantPurchased }, () => void refs.current.onQueueItemsChange?.())
       .on("broadcast", { event: RT_EVENT.teamBreakReady }, () => void refs.current.onTeamBreakReady?.())
       .on("broadcast", { event: RT_EVENT.teamBreakBegan }, () => void refs.current.onTeamBreakBegan?.())

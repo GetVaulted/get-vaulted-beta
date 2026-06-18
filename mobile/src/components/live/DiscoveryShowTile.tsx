@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { UserAvatar } from '../ui/UserAvatar';
 import { colors, radii, spacing } from '../../theme';
 import type { LiveStream } from '../../types';
 import { LiveBadge } from '../ui/LiveBadge';
@@ -70,9 +71,12 @@ export function DiscoveryShowTile({ show, onPress, variant = 'default', tileWidt
 
         <View style={[styles.bottom, isHero && styles.bottomHero]}>
           <View style={styles.hostMini}>
-            <Image
-              source={{ uri: show.host.avatarUrl }}
-              style={[styles.avatar, isHero && styles.avatarHero]}
+            <UserAvatar
+              uri={show.host.avatarUrl}
+              name={show.host.name}
+              username={show.host.handle}
+              size={isHero ? 36 : 28}
+              borderColor="rgba(255,255,255,0.25)"
             />
             <View style={{ flex: 1 }}>
               <View style={styles.nameRow}>

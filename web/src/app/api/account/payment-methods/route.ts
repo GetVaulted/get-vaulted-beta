@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
-import { listBuyerCardPaymentMethods } from "@/lib/stripe-customer";
+import { listBuyerWalletPaymentMethods } from "@/lib/stripe-customer";
 import { isStripeConfigured } from "@/lib/stripe";
 
 export type PaymentMethodApiRow = {
   id: string;
+  type: string;
   brand: string;
   last4: string;
   expMonth: number;
   expYear: number;
+  isDefault: boolean;
 };
 
 /**
@@ -27,7 +29,7 @@ export async function GET(req: Request) {
   }
 
   try {
-    const paymentMethods = await listBuyerCardPaymentMethods(auth.userId);
+    const paymentMethods = await listBuyerWalletPaymentMethods(auth.userId);
     return NextResponse.json({
       paymentMethods,
       stripeConfigured: true,

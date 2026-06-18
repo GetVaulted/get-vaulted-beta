@@ -1,5 +1,84 @@
 import { liveAuctionMinBidUsd } from './liveAuctionBidMath';
 
+export type LiveLotSaleType = 'auction' | 'buy_now';
+
+export type QuickLiveLotInput = {
+  title: string;
+  saleType: LiveLotSaleType;
+  price: string;
+  quantity: string;
+};
+
+export type QuickLiveLotValues = {
+  title: string;
+  saleType: LiveLotSaleType;
+  quantity: number;
+  startingBidUsd: number | null;
+  priceUsd: number | null;
+};
+
+export function emptyQuickLiveLotInput(saleType: LiveLotSaleType = 'auction'): QuickLiveLotInput {
+  return { title: '', saleType, price: '', quantity: '' };
+}
+
+export function quickLiveLotFromItem(item: {
+  title?: string;
+  salesFormat?: 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
+  startingBidUsd?: number | null;
+  priceUsd?: number | null;
+  quantity?: number | null;
+  remainingQuantity?: number | null;
+  quantityInitial?: number | null;
+}): QuickLiveLotInput {
+  const saleType: LiveLotSaleType = item.salesFormat === 'buy_now' ? 'buy_now' : 'auction';
+  const quantity = String(queueItemQuantity(item));
+  const price =
+    saleType === 'buy_now'
+      ? formatUsdInput(item.priceUsd)
+      : formatUsdInput(item.startingBidUsd ?? DEFAULT_STARTING_BID_USD);
+  return {
+    title: item.title?.trim() ?? '',
+    saleType,
+    price,
+    quantity,
+  };
+}
+
+export function validateQuickLiveLot(
+  input: QuickLiveLotInput,
+): { ok: true; values: QuickLiveLotValues } | { ok: false; message: string } {
+  const title = input.title.trim();
+  if (!title) {
+    return { ok: false, message: 'Enter a product title.' };
+  }
+
+  const quantityParsed = parseQuantityInput(input.quantity);
+  if (input.quantity.trim() && quantityParsed == null) {
+    return { ok: false, message: 'Quantity must be at least 1.' };
+  }
+  const quantity = quantityParsed ?? DEFAULT_QUEUE_QUANTITY;
+
+  const priceUsd = parseUsdInput(input.price);
+  if (input.saleType === 'auction') {
+    const startingBidUsd = priceUsd ?? DEFAULT_STARTING_BID_USD;
+    if (startingBidUsd < 1) {
+      return { ok: false, message: 'Starting bid must be at least $1.' };
+    }
+    return {
+      ok: true,
+      values: { title, saleType: 'auction', quantity, startingBidUsd, priceUsd: null },
+    };
+  }
+
+  if (priceUsd == null) {
+    return { ok: false, message: 'Enter a buy-it-now price.' };
+  }
+  return {
+    ok: true,
+    values: { title, saleType: 'buy_now', quantity, startingBidUsd: null, priceUsd },
+  };
+}
+
 export type AuctionPricingInput = {
   quantity: string;
   startingBid: string;

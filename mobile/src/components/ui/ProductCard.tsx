@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { UserAvatar } from './UserAvatar';
 import { VaultImage } from './VaultImage';
 import { colors, radii, spacing, typography } from '../../theme';
 import type { CategoryId, Product } from '../../types';
@@ -115,12 +116,12 @@ export function ProductCard({
                 {product.listingPrice}
               </Text>
               <View style={styles.sellerRow}>
-                <VaultImage
+                <UserAvatar
                   uri={product.seller.avatarUrl}
-                  width={22}
-                  height={22}
-                  borderRadius={11}
-                  priority="low"
+                  name={product.seller.name}
+                  username={product.seller.handle}
+                  size={22}
+                  tone="light"
                 />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.sellerLabel} numberOfLines={1}>

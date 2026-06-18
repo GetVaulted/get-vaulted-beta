@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { BreakSpot, LiveRoomItem, User } from "@/generated/prisma/client";
+import { listLiveGiveawaysForRoom } from "@/lib/live-giveaway";
 import { parseTeamLabelsJson } from "@/lib/live-room-host-auth";
 import { requireLiveRoomHostUser } from "@/lib/resolve-live-room-host-user";
 import { logLiveLoaderDebug, safeDecodeRouteSegment } from "@/lib/live-loader-debug";
@@ -235,6 +236,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       pickerMatches,
       recentSales,
       sellerUnresolvedPaymentFailures,
+      giveaways: await listLiveGiveawaysForRoom(liveRoomId, true),
     });
   } catch (e) {
     const prismaDto = serializePrismaClientError(e);

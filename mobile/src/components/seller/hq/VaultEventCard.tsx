@@ -13,6 +13,7 @@ import {
   type VaultEventDisplayStatus,
 } from '../../../lib/vaultEventModel';
 import { VaultImage } from '../../ui/VaultImage';
+import { UserAvatar } from '../../ui/UserAvatar';
 import { colors, radii, spacing } from '../../../theme';
 
 const CARD_H = 200;
@@ -37,8 +38,6 @@ export function VaultEventCard({
   const isLive = displayStatus === 'live';
   const cta = primaryCta(displayStatus);
   const cover = room.thumbnailUrl?.trim() || FALLBACK_COVER;
-  const avatar =
-    sellerAvatarUrl?.trim() || `https://i.pravatar.cc/80?u=${encodeURIComponent(room.sellerUsername)}`;
   const categoryLabel = formatLiveRoomCategoryLabel(
     room.category,
     mapListingCategoryToCategoryId(room.category),
@@ -92,7 +91,12 @@ export function VaultEventCard({
         </Text>
         <Text style={styles.when}>{formatEventWhen(room, displayStatus)}</Text>
         <View style={styles.metaRow}>
-          <VaultImage uri={avatar} width={22} height={22} borderRadius={11} priority="low" />
+          <UserAvatar
+            uri={sellerAvatarUrl}
+            username={room.sellerUsername}
+            size={22}
+            borderColor="rgba(255,255,255,0.2)"
+          />
           <Text style={styles.metaTxt}>
             @{room.sellerUsername}
             {room.itemCount > 0 ? ` · ${room.itemCount} lots` : ' · setup inventory'}

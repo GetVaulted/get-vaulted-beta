@@ -1,4 +1,5 @@
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { UserAvatar } from './UserAvatar';
 import { colors, radii, spacing, typography } from '../../theme';
 import type { Host } from '../../types';
 
@@ -12,7 +13,7 @@ type Props = {
 export function HostRow({ host, onFollowPress, following, compact }: Props) {
   return (
     <View style={[styles.row, compact && styles.compact]}>
-      <Image source={{ uri: host.avatarUrl }} style={styles.avatar} />
+      <UserAvatar uri={host.avatarUrl} name={host.name} username={host.handle} size={44} tone="light" borderWidth={1} />
       <View style={styles.textCol}>
         <View style={styles.nameRow}>
           <Text style={[typography.subtitle, styles.name]} numberOfLines={1}>

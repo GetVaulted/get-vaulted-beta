@@ -115,6 +115,10 @@ const BuyerWalletScreen = lazyScreen(
   () => import('../screens/account/BuyerWalletScreen'),
   (m) => m.BuyerWalletScreen,
 );
+const PromoEntryScreen = lazyScreen(
+  () => import('../screens/promo/PromoEntryScreen'),
+  (m) => m.PromoEntryScreen,
+);
 
 const theme = {
   ...DarkTheme,
@@ -243,6 +247,11 @@ export function RootNavigator() {
           <Stack.Screen name="SellerLayaways" component={SellerLayawaysScreen} />
           <Stack.Screen name="SellerLayawayDetail" component={SellerLayawayDetailScreen} />
           <Stack.Screen name="SellerOrderDetail" component={SellerOrderDetailScreen} />
+          <Stack.Screen
+            name="PromoEntry"
+            component={PromoEntryScreen}
+            options={{ animation: 'slide_from_right', presentation: 'card' }}
+          />
         </Stack.Navigator>
       </CreateListingDraftProvider>
     </NavigationContainer>

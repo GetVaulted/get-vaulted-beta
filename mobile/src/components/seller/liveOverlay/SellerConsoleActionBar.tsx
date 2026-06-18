@@ -13,6 +13,7 @@ type Props = {
   top: number;
   onShare: () => void;
   onAddItem: () => void;
+  onGiveaways: () => void;
   onObs: () => void;
   broadcastPhase: MobileHostBroadcastPhase;
   roomLive: boolean;
@@ -32,6 +33,7 @@ export function SellerConsoleActionBar({
   top,
   onShare,
   onAddItem,
+  onGiveaways,
   onObs,
   broadcastPhase,
   roomLive,
@@ -80,6 +82,15 @@ export function SellerConsoleActionBar({
             >
               <Ionicons name="add" size={16} color="rgba(255,255,255,0.92)" />
               <Text style={styles.addTxt}>{SELLER_CONSOLE.addItem}</Text>
+            </Pressable>
+            <Pressable
+              style={styles.actionBtn}
+              onPress={onGiveaways}
+              accessibilityLabel="Giveaways"
+              hitSlop={4}
+            >
+              <Ionicons name="gift-outline" size={15} color="rgba(255,255,255,0.92)" />
+              <Text style={styles.addTxt}>Givvys</Text>
             </Pressable>
             <Pressable
               style={styles.actionBtn}
