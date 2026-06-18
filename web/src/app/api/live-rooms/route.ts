@@ -141,6 +141,7 @@ export async function GET(req: Request) {
         thumbnailUrl: r.thumbnailUrl ?? "",
         previewImageUrl,
         firstItemImageUrl,
+        sellerId: r.sellerId,
         sellerAvatarUrl: resolveLiveRoomMediaUrl(r.seller?.image ?? ""),
         sellerDisplayName: r.seller?.name?.trim() || r.seller?.username || "seller",
         viewerCount: r.viewerCount,

@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+  buildSellerLiveShareMessage,
   buildSellerLiveShareOgDescription,
   buildSellerLiveShareOgTitle,
 } from '../../../lib/liveRoomShare';
@@ -60,12 +61,18 @@ export function SellerShareSheet({ visible, onClose, publicUrl, showTitle, hostU
 
   const shareTitle = buildSellerLiveShareOgTitle(hostUsername ?? 'host', isLive);
   const shareDescription = buildSellerLiveShareOgDescription(showTitle, isLive);
+  const shareMessage = buildSellerLiveShareMessage({
+    hostUsername: hostUsername ?? 'host',
+    showTitle,
+    publicUrl,
+    isLive,
+  }).message;
 
   const nativeShare = async () => {
     try {
       await Share.share({
         title: shareTitle,
-        message: `${shareTitle}\n${shareDescription}\n${publicUrl}`,
+        message: shareMessage,
         url: Platform.OS === 'ios' ? publicUrl : undefined,
       });
       onClose();

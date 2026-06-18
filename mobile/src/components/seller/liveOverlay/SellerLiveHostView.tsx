@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { HostStreamPayload, LiveRoomHostDetail } from '../../../api/liveHostRepository';
 import { fetchProfileById } from '../../../api/profilesRepository';
 import { useAuth } from '../../../auth/AuthContext';
+import { KeyboardDismissStageShield } from '../../ui/KeyboardDismissStageShield';
 import { FloatingLiveChat } from '../../live/floatingLiveChat';
 import type { MentionComposerInputHandle } from '../../mentions/MentionComposerInput';
 import { appendMentionToDraft, promptLiveChatUserAction } from '../../../lib/liveChatUserActions';
@@ -26,6 +27,13 @@ import { useLiveRoomModeration } from '../../../hooks/useLiveRoomModeration';
 import { useRealtimeRoomSubscription } from '../../../hooks/useRealtimeRoomSubscription';
 import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from '../../../lib/vaultRevealSpin';
 import { VaultRevealWheelOverlay } from '../../live/VaultRevealWheelOverlay';
+import { LiveSpotTakenCelebration } from '../../live/LiveSpotTakenCelebration';
+import {
+  parseAuctionWinSpotCelebration,
+  parseVariantPurchasedCelebration,
+  type LiveSpotTakenCelebration as SpotTakenCelebration,
+} from '../../../lib/liveSpotCelebration';
+import { isVariantSalesFormat } from '../../../lib/liveItemVariant';
 import { useSellerLiveConsole } from '../../../hooks/useSellerLiveConsole';
 import { canonicalLiveShareUrl } from '../../../lib/liveShareUrl';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
@@ -40,6 +48,7 @@ import { SellerLiveQueueSheet } from './SellerLiveQueueSheet';
 import { SellerNextUpRail, SELLER_NEXT_UP_RAIL_HEIGHT } from './SellerNextUpRail';
 import { SellerLiveGiveawaySheet } from './SellerLiveGiveawaySheet';
 import { SellerConsoleActionBar } from './SellerConsoleActionBar';
+import { SellerBreakSpotBoardSheet } from './SellerBreakSpotBoardSheet';
 import { SellerShareSheet } from './SellerShareSheet';
 import { HostModeratorAssignSheet } from '../../moderator/HostModeratorAssignSheet';
 import {
@@ -104,6 +113,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   const [giveawayOpen, setGiveawayOpen] = useState(false);
   const [giveawayBusy, setGiveawayBusy] = useState(false);
   const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
+  const [spotCelebration, setSpotCelebration] = useState<SpotTakenCelebration | null>(null);
+  const [teamsBoardOpen, setTeamsBoardOpen] = useState(false);
   const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -152,6 +163,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   const nextQueued = console.items.find((i) => i.status === 'queued') ?? null;
   const queuePreview = !console.activeItem && Boolean(nextQueued) && !console.roomEnded;
   const displayItem = console.activeItem ?? (queuePreview ? nextQueued : null);
+  const showTeamsBoard = Boolean(displayItem && isVariantSalesFormat(displayItem.salesFormat) && (displayItem.variants?.length ?? 0) > 0);
   const pinnedOverlayEstimate =
     displayItem || queuePreview ? SELLER_PINNED_OVERLAY_HEIGHT : SELLER_PINNED_EMPTY_HEIGHT;
   const [commerceHeight, setCommerceHeight] = useState(pinnedOverlayEstimate);
@@ -204,6 +216,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   const liveChat = useLiveRoomChat({
     roomId,
     hostUsername: hostChatUsername,
+    hostUserId: user?.id,
     accessToken,
     enabled: true,
     realtimePrimary: true,
@@ -237,9 +250,33 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
       setVaultRevealSpin(spin);
       console.syncGiveaways();
     },
+    onVariantPurchased: (payload) => {
+      const taken = parseVariantPurchasedCelebration(payload);
+      if (taken) setSpotCelebration(taken);
+      console.syncQueue();
+    },
+    onPurchaseCompleted: (payload) => {
+      const taken = parseAuctionWinSpotCelebration(payload);
+      if (taken) setSpotCelebration(taken);
+      console.syncQueue();
+    },
   });
 
   const chatPool = liveChat.messages;
+
+  const pinnedModerator = useMemo(() => {
+    const body = moderation.pinnedModeratorMessage?.trim();
+    if (!body) return null;
+    return {
+      body,
+      username: moderation.pinnedModeratorUsername?.trim() || 'Moderator',
+      avatarUrl: moderation.pinnedModeratorAvatarUrl,
+    };
+  }, [
+    moderation.pinnedModeratorAvatarUrl,
+    moderation.pinnedModeratorMessage,
+    moderation.pinnedModeratorUsername,
+  ]);
 
   const tagUserInChat = useCallback((username: string) => {
     setChatDraft((prev) => appendMentionToDraft(prev, username));
@@ -300,6 +337,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
       onSync={() => void console.loadOnce()}
     >
     <View style={styles.root}>
+      <KeyboardDismissStageShield active={keyboardOffset > 0} />
       <SellerLiveStreamBackdrop
         thumbnailUrl={host.thumbnailUrl}
         roomLive={roomLive}
@@ -343,6 +381,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         onAddItem={() => console.setInventoryOpen(true)}
         onGiveaways={() => setGiveawayOpen(true)}
         onObs={() => setBroadcastOpen(true)}
+        showTeamsBoard={showTeamsBoard}
+        onTeams={() => setTeamsBoardOpen(true)}
         broadcastPhase={host.broadcastPhase}
         roomLive={roomLive}
         canStartRoom={canStart}
@@ -383,7 +423,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         }}
         onPressChatUser={onPressChatUser}
         moderatorUserIds={moderation.moderators.map((m) => m.userId)}
-        pinnedModeratorMessage={moderation.pinnedModeratorMessage}
+        pinnedModerator={pinnedModerator}
       />
 
       <SellerLivePinnedOverlay
@@ -585,6 +625,12 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         onSave={console.onSaveBreakSpots}
       />
       <VaultRevealWheelOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
+      <LiveSpotTakenCelebration celebration={spotCelebration} onDone={() => setSpotCelebration(null)} />
+      <SellerBreakSpotBoardSheet
+        visible={teamsBoardOpen}
+        onClose={() => setTeamsBoardOpen(false)}
+        item={displayItem}
+      />
     </View>
     </SellerLiveGestureLayer>
   );

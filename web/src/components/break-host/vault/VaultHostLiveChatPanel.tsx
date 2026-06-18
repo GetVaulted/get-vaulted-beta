@@ -217,6 +217,29 @@ export function VaultHostLiveChatPanel({
             )}
           </div>
 
+          {mod.pinnedModeratorMessage ? (
+            <div className="shrink-0 px-2 pt-1">
+              <div className="flex items-start gap-2 rounded-xl border border-white/20 bg-black/50 px-2.5 py-2 backdrop-blur-sm">
+                <LiveChatAvatar
+                  username={mod.pinnedModeratorUsername ?? "Moderator"}
+                  avatarUrl={mod.pinnedModeratorAvatarUrl}
+                  size={24}
+                  isModerator
+                  className="mt-0.5 shrink-0"
+                />
+                <p className="min-w-0 flex-1 text-[12px] leading-snug">
+                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                    <span className="font-extrabold text-white">{mod.pinnedModeratorUsername ?? "Moderator"}</span>
+                    <span className="inline-flex rounded bg-zinc-500/90 px-1 py-0.5 text-[9px] font-bold leading-none text-white">
+                      Mod
+                    </span>
+                  </span>
+                  <span className="mt-0.5 block font-medium text-zinc-50">{mod.pinnedModeratorMessage}</span>
+                </p>
+              </div>
+            </div>
+          ) : null}
+
           <div className={`shrink-0 ${variant === "sidebar" ? "p-1.5" : "border-t border-white/[0.06] bg-zinc-900/50 p-3"}`}>
             <div className={variant === "sidebar" ? "live-stage-chat-input-tray p-1.5" : ""}>
             <MentionComposer

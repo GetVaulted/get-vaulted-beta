@@ -41,6 +41,63 @@ function isActive(expiresAt: Date | null | undefined, now: Date): boolean {
   return expiresAt.getTime() > now.getTime();
 }
 
+const PIN_EXPIRES_MINUTES_ALLOWED = [15, 30, 60, 120, 240, 24 * 60] as const;
+const DEFAULT_PIN_EXPIRES_MINUTES = 60;
+
+/** Clears expired pins and returns the active pinned body (if any). */
+export async function resolveLiveRoomPinnedMessage(liveRoomId: string): Promise<{
+  body: string | null;
+  pinnedAt: Date | null;
+  expiresAt: Date | null;
+  pinnedBy: { userId: string; username: string; avatarUrl: string | null } | null;
+}> {
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: liveRoomId },
+    select: {
+      pinnedModeratorMessage: true,
+      pinnedModeratorMessageAt: true,
+      pinnedModeratorMessageExpiresAt: true,
+      pinnedModeratorUserId: true,
+    },
+  });
+  if (!room?.pinnedModeratorMessage?.trim()) {
+    return { body: null, pinnedAt: null, expiresAt: null, pinnedBy: null };
+  }
+  const now = new Date();
+  if (room.pinnedModeratorMessageExpiresAt && room.pinnedModeratorMessageExpiresAt <= now) {
+    await prisma.liveRoom.update({
+      where: { id: liveRoomId },
+      data: {
+        pinnedModeratorMessage: null,
+        pinnedModeratorMessageAt: null,
+        pinnedModeratorMessageExpiresAt: null,
+        pinnedModeratorUserId: null,
+      },
+    });
+    return { body: null, pinnedAt: null, expiresAt: null, pinnedBy: null };
+  }
+  let pinnedBy: { userId: string; username: string; avatarUrl: string | null } | null = null;
+  if (room.pinnedModeratorUserId) {
+    const user = await prisma.user.findUnique({
+      where: { id: room.pinnedModeratorUserId },
+      select: { id: true, username: true, image: true },
+    });
+    if (user) {
+      pinnedBy = {
+        userId: user.id,
+        username: user.username,
+        avatarUrl: user.image?.trim() || null,
+      };
+    }
+  }
+  return {
+    body: room.pinnedModeratorMessage,
+    pinnedAt: room.pinnedModeratorMessageAt,
+    expiresAt: room.pinnedModeratorMessageExpiresAt,
+    pinnedBy,
+  };
+}
+
 export async function getLiveRoomModeratorContext(args: {
   liveRoomId: string;
   userId: string;
@@ -293,33 +350,54 @@ export async function applyLiveRoomModerationAction(args: {
 
   if (actionType === "pin_message") {
     const body = typeof args.metadata?.body === "string" ? args.metadata.body.trim().slice(0, 500) : "";
-    if (!body) return { ok: false, error: "pin_message requires body." };
-    await prisma.liveRoom.update({
-      where: { id: args.liveRoomId },
-      data: { pinnedModeratorMessage: body, pinnedModeratorMessageAt: new Date() },
-    });
+    if (!body) {
+      await prisma.liveRoom.update({
+        where: { id: args.liveRoomId },
+        data: {
+          pinnedModeratorMessage: null,
+          pinnedModeratorMessageAt: null,
+          pinnedModeratorMessageExpiresAt: null,
+          pinnedModeratorUserId: null,
+        },
+      });
+    } else {
+      const rawMinutes = Number(args.metadata?.expiresMinutes ?? DEFAULT_PIN_EXPIRES_MINUTES);
+      const expiresMinutes = PIN_EXPIRES_MINUTES_ALLOWED.includes(
+        rawMinutes as (typeof PIN_EXPIRES_MINUTES_ALLOWED)[number],
+      )
+        ? rawMinutes
+        : DEFAULT_PIN_EXPIRES_MINUTES;
+      const pinnedAt = new Date();
+      const expiresAt =
+        expiresMinutes > 0 ? new Date(pinnedAt.getTime() + expiresMinutes * 60 * 1000) : null;
+      await prisma.liveRoom.update({
+        where: { id: args.liveRoomId },
+        data: {
+          pinnedModeratorMessage: body,
+          pinnedModeratorMessageAt: pinnedAt,
+          pinnedModeratorMessageExpiresAt: expiresAt,
+          pinnedModeratorUserId: args.moderatorUserId,
+        },
+      });
+      if (!args.metadata) args.metadata = {};
+      args.metadata = { ...args.metadata, body, expiresMinutes };
+    }
   }
 
   if (actionType === "post_announcement") {
     const body = typeof args.metadata?.body === "string" ? args.metadata.body.trim().slice(0, 500) : "";
     if (!body) return { ok: false, error: "post_announcement requires body." };
-    const modUser = await prisma.user.findUnique({
-      where: { id: args.moderatorUserId },
-      select: { username: true },
-    });
     const announcementBody = `📢 ${body}`;
     const msg = await prisma.liveRoomMessage.create({
       data: {
         liveRoomId: args.liveRoomId,
-        senderId: room.sellerId,
+        senderId: args.moderatorUserId,
         body: announcementBody,
-        messageType: "system",
+        messageType: "chat",
       },
       select: { id: true },
     });
     void emitLiveRoomMessageById(msg.id);
-    if (!args.metadata) args.metadata = {};
-    args.metadata = { ...args.metadata, body, postedBy: modUser?.username ?? args.moderatorUserId };
   }
 
   if (actionType === "run_giveaway") {

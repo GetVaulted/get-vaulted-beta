@@ -174,6 +174,10 @@ export type LiveRoomModerationSnapshot = {
   slowModeSeconds: number;
   pinnedModeratorMessage: string | null;
   pinnedModeratorMessageAt?: string | null;
+  pinnedModeratorMessageExpiresAt?: string | null;
+  pinnedModeratorUserId?: string | null;
+  pinnedModeratorUsername?: string | null;
+  pinnedModeratorAvatarUrl?: string | null;
   moderators: { userId: string; username: string; moderatorLevel?: LiveModeratorLevel }[];
   modHistory: LiveRoomModHistoryRow[];
   modQueue: LiveRoomModQueueRow[];

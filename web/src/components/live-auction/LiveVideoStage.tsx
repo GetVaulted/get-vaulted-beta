@@ -64,6 +64,8 @@ type LiveVideoStageProps = {
   onWallet?: () => void;
   /** Opens buyer tip sheet — shown on the right rail when the show is live. */
   onTip?: () => void;
+  /** Buyer giveaway ghost tab + expand panel (left edge of stage). */
+  giveawaySideTab?: ReactNode;
   /** When set, loads buyer-safe stream info and renders IVS HLS playback behind overlays (never exposes keys). */
   liveRoomId?: string;
   /** Ambient bottom glow intensity 0–100 (room energy). Desktop host stage. */
@@ -130,6 +132,7 @@ export function LiveVideoStage({
   onShare,
   onWallet,
   onTip,
+  giveawaySideTab,
   liveRoomId,
   stageEnergyScore = 0,
   ambientBleed = false,
@@ -245,7 +248,7 @@ export function LiveVideoStage({
     <div className="motion-reduce:animate-none flex flex-col items-center gap-1 max-[380px]:gap-0.5 rounded-2xl border border-[color:var(--live-border)] bg-black/18 px-1 py-1.5 backdrop-blur-[var(--live-blur-xl)] shadow-[var(--live-shadow-rail)] [animation:live-rail-in_var(--live-duration-enter)_var(--live-ease)_both] motion-reduce:[animation:none] md:gap-1.5 md:px-1.5 md:py-2">
       {onTip ? <ActionPill label="Tip" icon={<TipIcon />} onClick={onTip} /> : null}
       <ActionPill label="Share" icon={<ShareIcon />} onClick={onShare} />
-      <ActionPill label="Wallet" icon={<WalletIcon />} onClick={onWallet} />
+      <ActionPill label="Premium" icon={<WalletIcon />} onClick={onWallet} />
       <ActionPill label="Shop" icon={<ShopIcon />} href={shopHref ?? "/marketplace"} />
       {liveRoomId ? (
         <ReportTrigger
@@ -361,6 +364,18 @@ export function LiveVideoStage({
 
             {chatOverlay ? <div className={mobileChatClass}>{chatOverlay}</div> : null}
 
+            {giveawaySideTab ? (
+              <div
+                className={`pointer-events-none absolute left-0 z-[15] ${
+                  hasMobileItemSheet
+                    ? "top-[max(5.5rem,calc(env(safe-area-inset-top)+4.5rem))]"
+                    : "top-1/2 -translate-y-1/2"
+                }`}
+              >
+                {giveawaySideTab}
+              </div>
+            ) : null}
+
             {sellerHostRail ? <div className={mobileHostRailClass}>{sellerHostRail}</div> : buyerRightRail ? (
               <div
                 className={`absolute right-2 z-10 ${
@@ -429,6 +444,10 @@ export function LiveVideoStage({
         ) : null}
 
         {chatOverlay ? <div className={`pointer-events-auto ${desktopChatClass}`}>{chatOverlay}</div> : null}
+
+        {giveawaySideTab ? (
+          <div className="pointer-events-none absolute left-0 top-1/2 z-[15] -translate-y-1/2">{giveawaySideTab}</div>
+        ) : null}
 
         {stageEdgeRail ? (
           <div className="pointer-events-none absolute inset-y-8 right-3 z-20 flex items-center">

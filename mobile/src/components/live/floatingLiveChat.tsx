@@ -43,6 +43,15 @@ const COMPOSER_PLACEHOLDER = 'Say something';
 /** TikTok/Whatnot-style overlay: ~6 visible lines; scroll up for history. */
 export const MAX_FLOATING_CHAT = 6;
 
+/** Whatnot-style pinned mod row (avatar + username + Mod pill + body). */
+export type PinnedModeratorChat = {
+  body: string;
+  username: string;
+  avatarUrl?: string | null;
+};
+
+const PINNED_ROW_HEIGHT = 62;
+
 const ROW_HEIGHT_ESTIMATE = 26;
 const ROW_HEIGHT_COMPACT = 22;
 
@@ -200,8 +209,8 @@ function FloatingChatRow({
           </LiveRoomText>
           {message.isHost ? <LiveRoomText style={styles.hostBadgeInline}> HOST</LiveRoomText> : null}
           {isModSender ? <LiveRoomText style={styles.modBadgeInline}> MOD</LiveRoomText> : null}
-          <LiveRoomText style={styles.messageBody}> </LiveRoomText>
           <MentionText
+            inline
             body={message.text}
             mentions={message.mentions}
             style={styles.messageBody}
@@ -228,6 +237,58 @@ function FloatingChatRow({
   );
 }
 
+function PinnedModeratorRow({
+  pinned,
+  compact,
+}: {
+  pinned: PinnedModeratorChat;
+  compact?: boolean;
+}) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const size = compact ? 22 : 24;
+  const uri = pinned.avatarUrl?.trim() || null;
+  const username = pinned.username.trim() || 'Moderator';
+
+  return (
+    <View style={styles.pinnedRowShell} pointerEvents="none">
+      <View style={[styles.pinnedRowInner, compact && styles.pinnedRowInnerCompact]}>
+        {uri && !imgFailed ? (
+          <Image
+            source={{ uri }}
+            style={[
+              styles.chatAvatar,
+              { width: size, height: size, borderRadius: size / 2, borderColor: 'rgba(255,255,255,0.28)', borderWidth: StyleSheet.hairlineWidth },
+            ]}
+            onError={() => setImgFailed(true)}
+          />
+        ) : (
+          <View
+            style={[
+              styles.chatAvatarFallback,
+              { width: size, height: size, borderRadius: size / 2, borderColor: 'rgba(255,255,255,0.28)', borderWidth: StyleSheet.hairlineWidth },
+            ]}
+          >
+            <Text style={[styles.chatAvatarInitial, { fontSize: compact ? 10 : 11 }]}>
+              {liveChatUsernameInitial(username)}
+            </Text>
+          </View>
+        )}
+        <View style={styles.pinnedTextWrap}>
+          <View style={styles.pinnedMetaRow}>
+            <LiveRoomText style={styles.pinnedUsername}>{username}</LiveRoomText>
+            <View style={styles.pinnedModPill}>
+              <LiveRoomText style={styles.pinnedModPillText}>Mod</LiveRoomText>
+            </View>
+          </View>
+          <LiveRoomText style={[styles.pinnedBody, compact && styles.inlineLineCompact]} numberOfLines={2}>
+            {pinned.body.trim()}
+          </LiveRoomText>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 export function FloatingLiveChat({
   pool,
   hostAvatarUrl,
@@ -249,7 +310,7 @@ export function FloatingLiveChat({
   compact = false,
   onPressChatUser,
   moderatorUserIds,
-  pinnedModeratorMessage,
+  pinnedModerator,
 }: {
   pool: ChatMessage[];
   hostAvatarUrl?: string | null;
@@ -271,7 +332,7 @@ export function FloatingLiveChat({
   compact?: boolean;
   onPressChatUser?: (user: { username: string; userId?: string }) => void;
   moderatorUserIds?: string[];
-  pinnedModeratorMessage?: string | null;
+  pinnedModerator?: PinnedModeratorChat | null;
 }) {
   const history = useMemo(() => prepareChatMessageHistory(pool), [pool]);
   const moderatorIdSet = useMemo(() => new Set(moderatorUserIds ?? []), [moderatorUserIds]);
@@ -294,26 +355,22 @@ export function FloatingLiveChat({
 
   if (!isActive) return null;
 
-  const pinnedText = pinnedModeratorMessage?.trim();
+  const pinnedText = pinnedModerator?.body?.trim();
   const hasChat = history.length > 0;
   if (!pinnedText && !hasChat) return null;
 
+  const pinnedRowHeight = pinnedText ? PINNED_ROW_HEIGHT : 0;
+  const scrollMaxHeight = Math.max(48, viewportHeight - pinnedRowHeight);
+
   return (
     <View
-      style={[styles.floatChatColumn, { bottom, left, right: rightEdge, maxHeight: viewportHeight }]}
+      style={[styles.floatChatColumn, { bottom, left, right: rightEdge }]}
       pointerEvents="box-none"
     >
-      {pinnedText ? (
-        <View style={styles.pinnedBanner} pointerEvents="none">
-          <LiveRoomText style={styles.pinnedBannerText} numberOfLines={3}>
-            📌 {pinnedText}
-          </LiveRoomText>
-        </View>
-      ) : null}
       {hasChat ? (
       <ScrollView
         ref={scrollRef}
-        style={styles.scrollViewport}
+        style={[styles.scrollViewport, { maxHeight: scrollMaxHeight }]}
         contentContainerStyle={styles.stackInner}
         onScroll={onScroll}
         scrollEventThrottle={16}
@@ -340,6 +397,9 @@ export function FloatingLiveChat({
           />
         ))}
       </ScrollView>
+      ) : null}
+      {pinnedText && pinnedModerator ? (
+        <PinnedModeratorRow pinned={pinnedModerator} compact={compact} />
       ) : null}
     </View>
   );
@@ -398,6 +458,7 @@ export function FloatingChatComposer({
       {leadingAccessory}
       <ScrollView
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
         scrollEnabled={false}
         style={styles.composerScroll}
         contentContainerStyle={styles.composerPillFlex}
@@ -443,24 +504,69 @@ const styles = StyleSheet.create({
     position: 'absolute',
     justifyContent: 'flex-end',
     alignItems: 'flex-start',
-    overflow: 'hidden',
     zIndex: 14,
   },
-  pinnedBanner: {
+  pinnedRowShell: {
     width: '100%',
-    marginBottom: 6,
+    marginTop: 6,
+  },
+  pinnedRowInner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    width: '100%',
     paddingHorizontal: 10,
     paddingVertical: 8,
-    borderRadius: radii.md,
+    borderRadius: radii.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,215,128,0.35)',
-    backgroundColor: 'rgba(46,36,8,0.72)',
+    borderColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(0,0,0,0.48)',
   },
-  pinnedBannerText: {
-    color: colors.gold,
-    fontSize: 12,
+  pinnedRowInnerCompact: {
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+  },
+  pinnedTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  pinnedMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 2,
+  },
+  pinnedInlineLine: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    lineHeight: 17,
+    ...TEXT_SHADOW,
+  },
+  pinnedUsername: {
+    fontWeight: '800',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.96)',
+    ...TEXT_SHADOW,
+  },
+  pinnedModPill: {
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    backgroundColor: 'rgba(113,113,122,0.92)',
+  },
+  pinnedModPillText: {
     fontWeight: '700',
-    lineHeight: 16,
+    fontSize: 10,
+    color: '#fff',
+    letterSpacing: 0.2,
+  },
+  pinnedBody: {
+    fontWeight: '500',
+    fontSize: 13,
+    lineHeight: 17,
+    color: 'rgba(255,255,255,0.94)',
     ...TEXT_SHADOW,
   },
   scrollViewport: {

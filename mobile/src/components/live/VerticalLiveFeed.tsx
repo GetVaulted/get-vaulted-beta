@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Image } from 'expo-image';
@@ -24,13 +23,14 @@ import { colors, radii, spacing } from '../../theme';
 import { fetchLiveRoomPublicById } from '../../api/liveRoomsRepository';
 import { fetchLiveBuyerPaymentSession } from '../../api/liveBuyerPaymentRepository';
 import type { LiveStream, ChatMessage } from '../../types';
-import type { LiveStackParamList, MainTabParamList } from '../../navigation/types';
+import type { LiveStackParamList } from '../../navigation/types';
 import { rootNavigationRef } from '../../navigation/rootNavigationRef';
-import { openUserProfile } from '../../navigation/openPlatform';
+import { openLiveHostProfile, openUserProfile } from '../../navigation/openPlatform';
 import { UserAvatar } from '../ui/UserAvatar';
 import { LiveAuctionSoldCelebration } from './LiveAuctionSoldCelebration';
+import { LiveSpotTakenCelebration } from './LiveSpotTakenCelebration';
 import { VaultRevealWheelOverlay } from './VaultRevealWheelOverlay';
-import { LiveGiveawayEnterChip } from './LiveGiveawayEnterChip';
+import { LiveGiveawaySideTab } from './LiveGiveawaySideTab';
 import {
   CHAT_ABOVE_COMPOSER_GAP,
   COMPOSER_BAR_HEIGHT,
@@ -67,6 +67,7 @@ import { LiveEmptyBroadcastBlock } from './LiveEmptyBroadcastBlock';
 import { LiveStagePlayback } from './LiveStagePlayback';
 import { LiveRoomText } from './LiveRoomText';
 import { LiveBadge } from '../ui/LiveBadge';
+import { KeyboardDismissStageShield } from '../ui/KeyboardDismissStageShield';
 import {
   computeLiveStageContainer,
   computeLiveStageHostStyle,
@@ -128,7 +129,6 @@ function LiveSlide({
   const insets = useSafeAreaInsets();
   const stageInsets = computeLiveStageSafeInsets(stageContainer, screenHeight, insets, spacing.sm);
   const stackNav = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
-  const tabNav = stackNav.getParent<BottomTabNavigationProp<MainTabParamList>>();
   const openWalletRef = useRef<(reason?: string) => void>(() => {});
   const layoutWidth = stageContainer.designWidth;
   const compact = isCompactLiveRoomLayout(layoutWidth);
@@ -160,9 +160,20 @@ function LiveSlide({
     onBack?.();
   }, [stackNav, onBack]);
 
+  const moderation = useLiveRoomModeration({
+    roomId: stream.id,
+    accessToken,
+    enabled: isActive,
+  });
+  const showHostUserId = useMemo(
+    () => resolveShowHostUserId(moderation.sellerId, stream.host.id),
+    [moderation.sellerId, stream.host.id],
+  );
+
   const liveChat = useLiveRoomChat({
     roomId: stream.id,
     hostUsername: stream.host.handle.replace(/^@/, '') || stream.host.name,
+    hostUserId: showHostUserId,
     accessToken,
     enabled: isActive,
     realtimePrimary: true,
@@ -222,15 +233,6 @@ function LiveSlide({
   }, [isActive, roomStatus, stream.id]);
 
   const hostHandle = stream.host.handle.replace(/^@/, '') || stream.host.name;
-  const moderation = useLiveRoomModeration({
-    roomId: stream.id,
-    accessToken,
-    enabled: isActive,
-  });
-  const showHostUserId = useMemo(
-    () => resolveShowHostUserId(moderation.sellerId, stream.host.id),
-    [moderation.sellerId, stream.host.id],
-  );
   const staffCommerceBlocked = moderation.isHost || moderation.isModerator;
 
   useEffect(() => {
@@ -282,6 +284,20 @@ function LiveSlide({
   }, [isActive, signedIn, accessToken, roomStatus, liveChat.announceJoin, moderation.handleRestrictionError]);
 
   const chatPool = liveChat.messages;
+
+  const pinnedModerator = useMemo(() => {
+    const body = moderation.pinnedModeratorMessage?.trim();
+    if (!body) return null;
+    return {
+      body,
+      username: moderation.pinnedModeratorUsername?.trim() || 'Moderator',
+      avatarUrl: moderation.pinnedModeratorAvatarUrl,
+    };
+  }, [
+    moderation.pinnedModeratorAvatarUrl,
+    moderation.pinnedModeratorMessage,
+    moderation.pinnedModeratorUsername,
+  ]);
 
   const dockPaddingBottom = stageInsets.bottom;
   const bottomStack = computeLiveRoomBottomStack({
@@ -339,7 +355,12 @@ function LiveSlide({
     }
   }, [signedIn, onRequireAuth, breakParticipationBlocked, chatDraft, liveChat.sending, liveChat.send, moderation.handleRestrictionError]);
 
-  const openMarketplace = () => tabNav?.navigate('Marketplace');
+  const openHostProfile = useCallback(() => {
+    void openLiveHostProfile({
+      hostUserId: showHostUserId,
+      hostUsername: hostHandle,
+    });
+  }, [hostHandle, showHostUserId]);
 
   const openProfileSettings = () => {
     if (rootNavigationRef.isReady()) rootNavigationRef.navigate('Settings');
@@ -392,11 +413,16 @@ function LiveSlide({
         celebration={liveSession.soldCelebration}
         onDone={liveSession.clearSoldCelebration}
       />
+      <LiveSpotTakenCelebration
+        celebration={liveSession.spotCelebration}
+        onDone={liveSession.clearSpotCelebration}
+      />
       <VaultRevealWheelOverlay
         spin={liveSession.vaultRevealSpin}
         onDismiss={liveSession.clearVaultRevealSpin}
       />
       <View style={styles.slide}>
+        <KeyboardDismissStageShield active={keyboardOffset > 0} />
         <View style={computeLiveStageHostStyle(stageContainer)}>
           <View style={[styles.stageRoot, computeLiveStageRootStyle(stageContainer)]}>
             <View style={styles.stageVideoFrame}>
@@ -445,9 +471,9 @@ function LiveSlide({
             ) : null}
             <Pressable
               style={styles.hostIdentity}
-              onPress={openMarketplace}
+              onPress={openHostProfile}
               accessibilityRole="button"
-              accessibilityLabel={`Host ${stream.host.name}`}
+              accessibilityLabel={`View ${stream.host.name} profile`}
             >
               <UserAvatar
                 uri={stream.host.avatarUrl}
@@ -593,10 +619,10 @@ function LiveSlide({
             }
             openWalletRef.current('rail_wallet');
           }}
-          accessibilityLabel="Wallet"
+          accessibilityLabel="Get Vaulted Premium"
         >
           <Ionicons name="wallet-outline" size={compact ? 20 : 22} color="rgba(255,255,255,0.92)" />
-          <LiveRoomText style={styles.railLabel}>Wallet</LiveRoomText>
+          <LiveRoomText style={styles.railLabel}>Premium</LiveRoomText>
         </Pressable>
         <Pressable
           style={styles.railBtn}
@@ -663,7 +689,7 @@ function LiveSlide({
         }}
         onPressChatUser={onPressChatUser}
         moderatorUserIds={moderation.moderators.map((m) => m.userId)}
-        pinnedModeratorMessage={moderation.pinnedModeratorMessage}
+        pinnedModerator={pinnedModerator}
       />
 
       {showModeratorTools(moderation.isModerator) && accessToken ? (
@@ -765,13 +791,13 @@ function LiveSlide({
         <View
           style={{
             position: 'absolute',
-            left: spacing.md,
-            right: spacing.md,
-            bottom: bottomStack.commerceBottom + commerceHeight + spacing.sm,
-            zIndex: 12,
+            left: 0,
+            top: '38%',
+            zIndex: 15,
           }}
+          pointerEvents="box-none"
         >
-          <LiveGiveawayEnterChip
+          <LiveGiveawaySideTab
             roomId={stream.id}
             accessToken={accessToken}
             giveaways={liveSession.roomSnap?.giveaways ?? []}

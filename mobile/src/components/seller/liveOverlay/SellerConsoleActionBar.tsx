@@ -15,6 +15,8 @@ type Props = {
   onAddItem: () => void;
   onGiveaways: () => void;
   onObs: () => void;
+  onTeams?: () => void;
+  showTeamsBoard?: boolean;
   broadcastPhase: MobileHostBroadcastPhase;
   roomLive: boolean;
   canStartRoom: boolean;
@@ -37,6 +39,8 @@ export function SellerConsoleActionBar({
   onAddItem,
   onGiveaways,
   onObs,
+  onTeams,
+  showTeamsBoard = false,
   broadcastPhase,
   roomLive,
   canStartRoom,
@@ -96,6 +100,17 @@ export function SellerConsoleActionBar({
               <Ionicons name="gift-outline" size={15} color="rgba(255,255,255,0.92)" />
               <Text style={styles.addTxt}>Givvys</Text>
             </Pressable>
+            {showTeamsBoard && onTeams ? (
+              <Pressable
+                style={styles.actionBtn}
+                onPress={onTeams}
+                accessibilityLabel="View team board"
+                hitSlop={4}
+              >
+                <Ionicons name="grid-outline" size={15} color="rgba(255,255,255,0.92)" />
+                <Text style={styles.addTxt}>Teams</Text>
+              </Pressable>
+            ) : null}
             <Pressable
               style={styles.actionBtn}
               onPress={onObs}

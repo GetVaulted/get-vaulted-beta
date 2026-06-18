@@ -10,7 +10,7 @@ import {
   chargeBreakSpotWithSavedCard,
   syncBreakSpotPaymentIntent,
 } from "@/lib/live-payment-pipeline";
-import { finalizeLiveItemVariantPurchasePaid } from "@/lib/live-item-variant-purchase";
+import { finalizeLiveItemVariantPurchasePaid, releaseVariantPurchaseOnCheckoutExpired } from "@/lib/live-item-variant-purchase";
 import { finalizeBreakSpotPaid } from "@/lib/live-buy-now-purchase";
 import { prisma } from "@/lib/prisma";
 import {
@@ -777,4 +777,43 @@ export async function syncLiveRoomPaymentFailureAfterSca(args: {
     error: "Payment not completed yet.",
     paymentFailure: dto,
   };
+}
+
+/** Host dismisses a stuck payment retry — releases held variant spot and unblocks the buyer. */
+export async function cancelLiveRoomPaymentFailureBySeller(args: {
+  liveRoomId: string;
+  sellerId: string;
+  failureId: string;
+}): Promise<{ ok: true } | { ok: false; error: string; code: string }> {
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: args.liveRoomId },
+    select: { sellerId: true },
+  });
+  if (!room) return { ok: false, error: "Room not found.", code: "NOT_FOUND" };
+  if (room.sellerId !== args.sellerId) {
+    return { ok: false, error: "Only the host can cancel this payment retry.", code: "FORBIDDEN" };
+  }
+
+  const failure = await prisma.liveRoomPaymentFailure.findFirst({
+    where: {
+      id: args.failureId,
+      liveRoomId: args.liveRoomId,
+      status: { in: UNRESOLVED_STATUSES },
+    },
+  });
+  if (!failure) return { ok: false, error: "Payment retry not found or already resolved.", code: "NOT_FOUND" };
+
+  if (failure.variantPurchaseId) {
+    const purchase = await prisma.liveItemVariantPurchase.findUnique({
+      where: { id: failure.variantPurchaseId },
+      select: { paymentStatus: true },
+    });
+    if (purchase?.paymentStatus === "pending_payment") {
+      await releaseVariantPurchaseOnCheckoutExpired(failure.variantPurchaseId);
+    }
+  }
+
+  await prisma.liveRoomPaymentFailure.delete({ where: { id: failure.id } });
+  emitLiveRoomQueueItemsChanged(args.liveRoomId);
+  return { ok: true };
 }

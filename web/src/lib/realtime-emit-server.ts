@@ -85,6 +85,7 @@ export function emitVariantPurchased(
     purchaseId: string;
     label: string;
     buyerUsername: string;
+    amountUsd?: number;
     itemVersion: number;
   },
 ): void {
@@ -215,6 +216,8 @@ export type PurchaseCompletedEmitOpts = {
   winnerUsername?: string | null;
   winnerId?: string | null;
   winningAmountUsd?: number | null;
+  /** Team / lot label for on-screen winner announcement. */
+  itemTitle?: string | null;
   orderId?: string | null;
   /** paid | pending | payment_failed | requires_action */
   paymentStatus?: string | null;
@@ -234,6 +237,7 @@ export function emitPurchaseCompleted(
     winnerUsername: opts?.winnerUsername ?? null,
     winnerId: opts?.winnerId ?? null,
     winningAmountUsd: opts?.winningAmountUsd ?? null,
+    itemTitle: opts?.itemTitle ?? null,
     orderId: opts?.orderId ?? null,
     paymentStatus: opts?.paymentStatus ?? null,
     noBids: opts?.noBids === true,

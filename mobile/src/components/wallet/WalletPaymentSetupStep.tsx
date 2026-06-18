@@ -42,6 +42,11 @@ import {
 } from './walletPaymentSetupCountries';
 import { WalletNativePayButton } from './WalletNativePayButton';
 import { walletPaymentSetupStyles as ps } from './walletPaymentSetupStyles';
+import {
+  catalogEntryIcon,
+  liveAcceptedWalletMethods,
+  LIVE_PREMIUM_WALLET_TITLE,
+} from '../../lib/livePremiumWallet';
 
 type Props = {
   visible: boolean;
@@ -146,6 +151,66 @@ function CountryPickerModal({
         </Pressable>
       </Pressable>
     </Modal>
+  );
+}
+
+function LivePaymentMethodPicker({
+  payload,
+  onClose,
+  onPickCard,
+  onPickWallet,
+}: {
+  payload: BuyerSetupIntentPayload;
+  onClose: () => void;
+  onPickCard: () => void;
+  onPickWallet: () => void;
+}) {
+  const platform = Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web';
+  const capabilities = {
+    link: payload.linkEnabled === true,
+    cashAppPay: payload.cashAppPayEnabled === true,
+    amazonPay: payload.amazonPayEnabled === true,
+    paypal: false,
+  };
+  const methods = liveAcceptedWalletMethods(platform, capabilities);
+
+  return (
+    <View style={ps.body}>
+      <View style={ps.headerRowDark}>
+        <Pressable onPress={onClose} hitSlop={12} style={ps.headerSpacer}>
+          <Ionicons name="close" size={24} color="rgba(255,255,255,0.65)" />
+        </Pressable>
+        <LiveRoomText style={ps.headerTitleDark}>Add payment method</LiveRoomText>
+        <View style={ps.headerSpacer} />
+      </View>
+      <LiveRoomText style={ps.pickerSubtitle}>
+        You won&apos;t be charged until you win or buy on {LIVE_PREMIUM_WALLET_TITLE}.
+      </LiveRoomText>
+      <ScrollView style={ps.pickerList} showsVerticalScrollIndicator={false}>
+        {methods.map((entry, idx) => {
+          const isLast = idx === methods.length - 1;
+          const onPress =
+            entry.id === 'card'
+              ? onPickCard
+              : entry.id === 'apple_pay' || entry.id === 'google_pay'
+                ? onPickWallet
+                : onPickWallet;
+          return (
+            <Pressable
+              key={entry.id}
+              style={[ps.pickerRow, isLast && ps.pickerRowLast]}
+              onPress={onPress}
+            >
+              <View style={ps.pickerIconWrap}>
+                <Ionicons name={catalogEntryIcon(entry.id)} size={22} color="#fff" />
+              </View>
+              <LiveRoomText style={ps.pickerRowTitle}>{entry.label}</LiveRoomText>
+              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.35)" />
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -285,9 +350,9 @@ function PaymentSheetLauncher({
         </Pressable>
       }
     >
-      <LiveRoomText style={ps.subtitle}>
-        Cards and wallets are saved securely with Stripe for live bids and auction wins.
-      </LiveRoomText>
+        <LiveRoomText style={ps.subtitle}>
+          You won&apos;t be charged until you win or buy on live. Saved securely with Stripe for Get Vaulted Premium.
+        </LiveRoomText>
       <View style={ps.section}>
         <LiveRoomText style={ps.sectionTitle}>Add with Apple Pay or Google Pay</LiveRoomText>
         <WalletNativePayButton
@@ -432,7 +497,7 @@ function WalletPaymentSetupInner({
   const { initPaymentSheet, presentPaymentSheet, confirmSetupIntent, retrieveSetupIntent } = useStripe();
   const [useManualCard, setUseManualCard] = useState(false);
   const [sheetReady, setSheetReady] = useState(false);
-  const [showLauncher, setShowLauncher] = useState(false);
+  const [showPicker, setShowPicker] = useState(true);
   const [initError, setInitError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const initStartedRef = useRef(false);
@@ -529,7 +594,7 @@ function WalletPaymentSetupInner({
     autoPresentedRef.current = false;
     setUseManualCard(false);
     setSheetReady(false);
-    setShowLauncher(false);
+    setShowPicker(true);
     setInitError(null);
     setBusy(false);
     void initPaymentSheetFlow();
@@ -545,19 +610,19 @@ function WalletPaymentSetupInner({
       if (presentError) {
         if (presentError.code === 'Canceled') return { outcome: 'cancelled' };
         setInitError(mapLivePaymentFailureMessage(presentError.message, presentError.code));
-        setShowLauncher(true);
+        setShowPicker(true);
         return { outcome: 'failed' };
       }
       const retrieved = await retrieveSetupIntent(payload.clientSecret);
       if (retrieved.error) {
         setInitError(mapLivePaymentFailureMessage(retrieved.error.message, retrieved.error.code));
-        setShowLauncher(true);
+        setShowPicker(true);
         return { outcome: 'failed' };
       }
       const paymentMethodId = paymentMethodIdFromSetupIntent(retrieved.setupIntent);
       if (!paymentMethodId) {
         setInitError('Could not read saved card details. Try again.');
-        setShowLauncher(true);
+        setShowPicker(true);
         return { outcome: 'failed' };
       }
       return { outcome: 'saved', paymentMethodId };
@@ -565,16 +630,6 @@ function WalletPaymentSetupInner({
       setBusy(false);
     }
   }, [busy, payload.clientSecret, presentPaymentSheet, retrieveSetupIntent, sheetReady]);
-
-  useEffect(() => {
-    if (!sheetReady || useManualCard || autoPresentedRef.current) return;
-    autoPresentedRef.current = true;
-    void (async () => {
-      const result = await presentSheet();
-      if (result.outcome === 'saved') await completeSavedPaymentMethod(result.paymentMethodId);
-      if (result.outcome === 'cancelled' || result.outcome === 'failed') setShowLauncher(true);
-    })();
-  }, [completeSavedPaymentMethod, presentSheet, sheetReady, useManualCard]);
 
   const saveManualCard = async () => {
     if (busy) return;
@@ -611,21 +666,37 @@ function WalletPaymentSetupInner({
     );
   }
 
-  if (showLauncher || !sheetReady) {
+  if (showPicker && !useManualCard) {
     return (
-      <PaymentSheetLauncher
+      <LivePaymentMethodPicker
         payload={payload}
-        sheetReady={sheetReady}
-        busy={busy}
-        initError={initError}
         onClose={onClose}
-        onPresent={() => {
+        onPickCard={() => {
+          setShowPicker(false);
+          setUseManualCard(true);
+        }}
+        onPickWallet={() => {
+          setShowPicker(false);
+          autoPresentedRef.current = true;
           void (async () => {
             const result = await presentSheet();
             if (result.outcome === 'saved') await completeSavedPaymentMethod(result.paymentMethodId);
+            if (result.outcome === 'cancelled' || result.outcome === 'failed') {
+              autoPresentedRef.current = false;
+              setShowPicker(true);
+            }
           })();
         }}
       />
+    );
+  }
+
+  if (!useManualCard && !sheetReady) {
+    return (
+      <View style={ps.loadingBlock}>
+        <ActivityIndicator color={colors.gold} size="large" />
+        <LiveRoomText style={ps.loadingText}>Preparing secure checkout…</LiveRoomText>
+      </View>
     );
   }
 
@@ -699,7 +770,7 @@ export function WalletPaymentSetupModal({ visible, accessToken, onClose, onSaved
     >
       <View style={ps.backdrop}>
         <SafeAreaView style={ps.panelShell} edges={['top']}>
-          <View style={ps.panel}>
+          <View style={ps.panelDark}>
             {loading ? (
               <PaymentSetupLoader onClose={onClose} />
             ) : error || !payload ? (

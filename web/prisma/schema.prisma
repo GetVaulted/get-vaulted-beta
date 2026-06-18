@@ -976,6 +976,8 @@ model LiveRoom {
   slowModeSeconds Int @default(0)
   pinnedModeratorMessage String?
   pinnedModeratorMessageAt DateTime?
+  pinnedModeratorMessageExpiresAt DateTime?
+  pinnedModeratorUserId String?
 
   /// Show-level shipping (unified profiles + cap/free shipping).
   defaultShippingProfileId String?

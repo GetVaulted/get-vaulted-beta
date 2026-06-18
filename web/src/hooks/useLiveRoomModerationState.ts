@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
+import { roomChannel, RT_EVENT } from "@/lib/realtime-channels";
 
 export type LiveRoomModeratorRow = {
   userId: string;
@@ -13,6 +15,9 @@ export type LiveRoomModerationState = {
   isModerator: boolean;
   slowModeSeconds: number;
   pinnedModeratorMessage: string | null;
+  pinnedModeratorMessageExpiresAt: string | null;
+  pinnedModeratorUsername: string | null;
+  pinnedModeratorAvatarUrl: string | null;
   moderators: LiveRoomModeratorRow[];
   myRestrictions: {
     muted: boolean;
@@ -28,6 +33,9 @@ const EMPTY: LiveRoomModerationState = {
   isModerator: false,
   slowModeSeconds: 0,
   pinnedModeratorMessage: null,
+  pinnedModeratorMessageExpiresAt: null,
+  pinnedModeratorUsername: null,
+  pinnedModeratorAvatarUrl: null,
   moderators: [],
   myRestrictions: null,
 };
@@ -50,6 +58,9 @@ export function useLiveRoomModerationState(liveRoomId: string, enabled = true) {
         isModerator: Boolean(j.isModerator),
         slowModeSeconds: j.slowModeSeconds ?? 0,
         pinnedModeratorMessage: j.pinnedModeratorMessage ?? null,
+        pinnedModeratorMessageExpiresAt: j.pinnedModeratorMessageExpiresAt ?? null,
+        pinnedModeratorUsername: j.pinnedModeratorUsername ?? null,
+        pinnedModeratorAvatarUrl: j.pinnedModeratorAvatarUrl ?? null,
         moderators: Array.isArray(j.moderators)
           ? j.moderators.map((m) => ({
               userId: m.userId,
@@ -73,6 +84,23 @@ export function useLiveRoomModerationState(liveRoomId: string, enabled = true) {
     const id = window.setInterval(() => void reload(), 12_000);
     return () => window.clearInterval(id);
   }, [enabled, reload]);
+
+  useEffect(() => {
+    if (!enabled || !liveRoomId) return undefined;
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return undefined;
+
+    const channel = supabase
+      .channel(`${roomChannel(liveRoomId)}:moderation-ui`)
+      .on("broadcast", { event: RT_EVENT.moderationChanged }, () => {
+        void reload();
+      })
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [enabled, liveRoomId, reload]);
 
   const handleRestrictionError = useCallback((message: string) => {
     if (

@@ -9,6 +9,7 @@ import { TeamBoardHostPanel } from "@/components/team-board/TeamBoardHostPanel";
 import { TeamBoardOverlay } from "@/components/team-board/TeamBoardOverlay";
 import { LiveSellerCommandCenter } from "@/components/break-host/LiveSellerCommandCenter";
 import { LiveAuctionSoldCelebration } from "@/components/live-auction/LiveAuctionSoldCelebration";
+import { LiveSpotTakenCelebration } from "@/components/live-auction/LiveSpotTakenCelebration";
 import { VaultRevealWheelOverlay } from "@/components/live-auction/VaultRevealWheelOverlay";
 import { VaultHostAnnouncements } from "@/components/break-host/vault/VaultHostAnnouncements";
 import { VaultHostLiveChatPanel } from "@/components/break-host/vault/VaultHostLiveChatPanel";
@@ -87,6 +88,11 @@ import {
 } from "@/lib/live-room-realtime-merge";
 import { estimateClockSkewMs, syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { parsePurchaseCompletedCelebration, type LiveAuctionCloseCelebration } from "@/lib/live-auction-winner-display";
+import {
+  parseAuctionWinSpotCelebration,
+  parseVariantPurchasedCelebration,
+  type LiveSpotTakenCelebration as LiveSpotTakenCelebrationPayload,
+} from "@/lib/live-spot-celebration";
 import { liveAuctionDisplayBidUsd } from "@/lib/live-auction-overlay-price";
 import { parseTeamBoardPublicPayload, type TeamBoardPublicPayload } from "@/lib/team-board-public";
 
@@ -262,6 +268,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const lotTransitionTimersRef = useRef<number[]>([]);
   const [realtimeConnectionStatus, setRealtimeConnectionStatus] = useState("Connecting…");
   const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
+  const [spotCelebration, setSpotCelebration] = useState<LiveSpotTakenCelebrationPayload | null>(null);
   const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
   const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
   const lastRefreshAtRef = useRef<number | null>(null);
@@ -563,6 +570,28 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     }, 3200);
   }, []);
 
+  const cancelHostPaymentRetry = useCallback(
+    async (failureId: string) => {
+      try {
+        const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/payment-failure/cancel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ failureId }),
+        });
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          flashHostNotice(j.error ?? "Could not cancel payment retry.");
+          return;
+        }
+        flashHostNotice("Payment retry cancelled · spot returned to board");
+        void load();
+      } catch {
+        flashHostNotice("Could not cancel payment retry.");
+      }
+    },
+    [flashHostNotice, load, roomId],
+  );
+
   const handleBeginTeamBreak = useCallback(async () => {
     const row =
       hostDataRef.current?.queueItems.find((q) => q.item.status.toLowerCase() === "active") ?? null;
@@ -852,6 +881,13 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       flashHostNotice("Break has begun.");
       void load();
     },
+    onVariantPurchased: (payload) => {
+      if (!shouldProcessRealtimePayload("variant_purchased", payload)) return;
+      const taken = parseVariantPurchasedCelebration(payload);
+      if (taken) setSpotCelebration(taken);
+      flashHostNotice(`@${taken?.username ?? "buyer"} took ${taken?.label ?? "a spot"}`);
+      void load();
+    },
     onBreakSpotsChange: () => {
       logLiveDebugEvent({
         event: "event_received",
@@ -1027,6 +1063,19 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       });
       if (!shouldProcessRealtimePayload("purchase_completed", payload)) return;
       const celebration = parsePurchaseCompletedCelebration(payload);
+      const spotTaken =
+        celebration?.kind === "sold"
+          ? parseAuctionWinSpotCelebration({
+              winnerUsername: celebration.winnerUsername,
+              winningAmountUsd: celebration.winningAmountUsd,
+              itemTitle:
+                hostDataRef.current?.queueItems.find((q) => q.item.id === celebration.itemId)?.item.displayTitle ??
+                hostDataRef.current?.queueItems.find((q) => q.item.id === celebration.itemId)?.item.title ??
+                null,
+              noBids: false,
+            })
+          : null;
+      if (spotTaken) setSpotCelebration(spotTaken);
       if (celebration) setSoldCelebration(celebration);
       if (celebration?.kind === "sold") {
         const nextQueued = hostDataRef.current?.queueItems.find((q) => q.item.status === "queued");
@@ -2027,12 +2076,21 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       {hostPaymentFailures.length > 0 ? (
         <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[61] w-[min(92vw,28rem)] -translate-x-1/2 px-2">
           <div className="pointer-events-auto rounded-2xl border border-rose-500/35 bg-rose-950/70 px-3 py-2 text-[11px] leading-snug text-rose-50 shadow-lg backdrop-blur-xl ring-1 ring-rose-400/25">
-            <p className="font-bold uppercase tracking-wide text-rose-200">Payment failed</p>
+            <p className="font-bold uppercase tracking-wide text-rose-200">Payment failed — commerce blocked</p>
             {hostPaymentFailures.slice(0, 3).map((f) => (
-              <p key={f.id} className="mt-1">
-                @{f.buyerUsername?.replace(/^@/, "") ?? "buyer"} · {fmtHostSpotUsd(f.amountUsd)}
-                {f.itemTitle ? ` · ${f.itemTitle}` : ""}
-              </p>
+              <div key={f.id} className="mt-1.5 flex items-start justify-between gap-2">
+                <p className="min-w-0 flex-1">
+                  @{f.buyerUsername?.replace(/^@/, "") ?? "buyer"} · {fmtHostSpotUsd(f.amountUsd)}
+                  {f.itemTitle ? ` · ${f.itemTitle}` : ""}
+                </p>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-lg border border-rose-300/35 bg-rose-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-100 hover:bg-rose-500/25"
+                  onClick={() => void cancelHostPaymentRetry(f.id)}
+                >
+                  Cancel retry
+                </button>
+              </div>
             ))}
           </div>
         </div>
@@ -2261,6 +2319,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       ) : null}
 
       <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
+      <LiveSpotTakenCelebration celebration={spotCelebration} onDone={() => setSpotCelebration(null)} />
       <VaultRevealWheelOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
 
       <SellerShareSheet

@@ -25,6 +25,8 @@ export type LiveRoomApiRow = {
   firstItemImageUrl?: string;
   sellerAvatarUrl?: string;
   sellerDisplayName?: string;
+  /** Prisma user id for the show host — used for profile navigation. */
+  sellerId?: string;
   viewerCount: number;
   scheduledStartAt: string | null;
   startedAt: string | null;
@@ -296,6 +298,7 @@ export async function fetchLiveRoomPublicById(roomId: string): Promise<LiveRoomA
       scheduledStartAt?: string | null;
       startedAt?: string | null;
       endedAt?: string | null;
+      sellerId?: string;
       sellerUsername?: string;
       itemCount?: number;
       activeItem?: { title?: string; displayTitle?: string } | null;
@@ -321,6 +324,7 @@ export async function fetchLiveRoomPublicById(roomId: string): Promise<LiveRoomA
     scheduledStartAt: r.scheduledStartAt ?? null,
     startedAt: r.startedAt ?? null,
     endedAt: r.endedAt ?? null,
+    sellerId: r.sellerId?.trim() || undefined,
     sellerUsername: r.sellerUsername ?? 'host',
     itemCount: r.itemCount ?? 0,
     activeItemTitle: (r.activeItem?.displayTitle?.trim() || r.activeItem?.title) ?? null,
@@ -366,7 +370,7 @@ function hostFromRow(row: LiveRoomApiRow): Host {
   const uname = row.sellerUsername?.trim() || 'host';
   const display = row.sellerDisplayName?.trim() || uname;
   return {
-    id: uname,
+    id: row.sellerId?.trim() || uname,
     name: display,
     handle: `@${uname}`,
     avatarUrl: resolveLiveRoomMediaUrl(row.sellerAvatarUrl) ?? '',

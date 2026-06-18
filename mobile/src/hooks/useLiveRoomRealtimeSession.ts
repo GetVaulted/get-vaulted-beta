@@ -23,6 +23,11 @@ import {
   parsePurchaseCompletedCelebration,
   type LiveAuctionCloseCelebration,
 } from '../lib/liveAuctionWinnerDisplay';
+import {
+  parseAuctionWinSpotCelebration,
+  parseVariantPurchasedCelebration,
+  type LiveSpotTakenCelebration,
+} from '../lib/liveSpotCelebration';
 import { createRealtimeEventGuard, shouldProcessRealtimeEvent } from '../lib/realtimeEventGuard';
 import type { RoomBroadcastPayload } from '../lib/realtimeChannels';
 import { estimateClockSkewMs, syncedWallTimeMs } from '../lib/serverClockSync';
@@ -56,6 +61,7 @@ export function useLiveRoomRealtimeSession(args: {
   const [myHighBidUsd, setMyHighBidUsd] = useState<number | null>(null);
   const [showOutbidToast, setShowOutbidToast] = useState(false);
   const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
+  const [spotCelebration, setSpotCelebration] = useState<LiveSpotTakenCelebration | null>(null);
   const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
   const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
 
@@ -263,6 +269,12 @@ export function useLiveRoomRealtimeSession(args: {
       scheduleReconcile(250);
     },
     onBreakSpotsChange: () => scheduleReconcile(450),
+    onVariantPurchased: (payload) => {
+      if (!shouldProcessRealtimeEvent(guardRef.current, 'variant_purchased', payload)) return;
+      const taken = parseVariantPurchasedCelebration(payload);
+      if (taken) setSpotCelebration(taken);
+      scheduleReconcile(250);
+    },
     onListingBid: () => scheduleReconcile(450),
     onTeamBoardChange: () => scheduleReconcile(450),
     onBidPlaced,
@@ -289,6 +301,8 @@ export function useLiveRoomRealtimeSession(args: {
         return applyBuyerSnapshotPurchaseCompleted(prev, payload.itemId, wallNow);
       });
       const celebration = parsePurchaseCompletedCelebration(payload, args.userId);
+      const spotTaken = parseAuctionWinSpotCelebration(payload);
+      if (spotTaken) setSpotCelebration(spotTaken);
       if (celebration) setSoldCelebration(celebration);
       logAuctionTimer({
         source: 'purchase_completed',
@@ -387,6 +401,8 @@ export function useLiveRoomRealtimeSession(args: {
     showOutbidToast,
     soldCelebration,
     clearSoldCelebration: () => setSoldCelebration(null),
+    spotCelebration,
+    clearSpotCelebration: () => setSpotCelebration(null),
     vaultRevealSpin,
     clearVaultRevealSpin: () => setVaultRevealSpin(null),
     unresolvedPaymentFailure,

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   formatLiveRoomShareDescription,
   formatLiveRoomShareOgTitle,
+  formatLiveRoomShareText,
 } from "@/lib/live-room-share-metadata";
 import { SELLER_CONSOLE } from "@/lib/seller-console-copy";
 
@@ -36,6 +37,15 @@ export function SellerShareSheet({ open, onClose, publicUrl, showTitle, hostUser
     [hostUsername, showTitle],
   );
   const shareDescription = useMemo(() => formatLiveRoomShareDescription({ title: showTitle }), [showTitle]);
+  const shareText = useMemo(
+    () =>
+      formatLiveRoomShareText({
+        hostUsername: hostUsername ?? "host",
+        showTitle,
+        url: publicUrl,
+      }),
+    [hostUsername, publicUrl, showTitle],
+  );
 
   useEffect(() => {
     if (!open) setCopied(false);
@@ -72,7 +82,7 @@ export function SellerShareSheet({ open, onClose, publicUrl, showTitle, hostUser
       if (navigator.share) {
         await navigator.share({
           title: shareTitle,
-          text: shareDescription,
+          text: shareText,
           url: publicUrl,
         });
         onClose();
@@ -82,7 +92,7 @@ export function SellerShareSheet({ open, onClose, publicUrl, showTitle, hostUser
     } catch {
       /* dismissed */
     }
-  }, [copyLink, onClose, publicUrl, shareDescription, shareTitle]);
+  }, [copyLink, onClose, publicUrl, shareText, shareTitle]);
 
   if (!open) return null;
 

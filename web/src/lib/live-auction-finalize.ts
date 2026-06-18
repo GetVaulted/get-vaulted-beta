@@ -188,6 +188,7 @@ export async function settleAndChargeLiveAuctionLot(args: {
       winnerUsername,
       winnerId: settled.buyerId,
       winningAmountUsd: settled.itemPriceUsd,
+      itemTitle: settled.listingTitle ?? null,
       orderId: settled.orderId,
       paymentStatus,
     });

@@ -10,6 +10,45 @@ import { LiveChatAvatar } from "@/components/live-auction/LiveChatAvatar";
 import { MentionComposer } from "@/components/mentions/MentionComposer";
 import { MentionText } from "@/components/mentions/MentionText";
 
+function PinnedChatBar({
+  message,
+  username,
+  avatarUrl,
+  compact,
+}: {
+  message: string;
+  username: string;
+  avatarUrl?: string | null;
+  compact?: boolean;
+}) {
+  return (
+    <div className={`pointer-events-none shrink-0 ${compact ? "px-1 pt-1" : "px-2 pt-1"}`}>
+      <div
+        className={`flex items-start gap-2 rounded-xl border border-white/20 bg-black/50 backdrop-blur-sm ${
+          compact ? "px-2 py-1.5" : "px-2.5 py-2"
+        }`}
+      >
+        <LiveChatAvatar
+          username={username}
+          avatarUrl={avatarUrl}
+          size={24}
+          isModerator
+          className="mt-0.5 shrink-0"
+        />
+        <p className={`min-w-0 flex-1 leading-snug [text-shadow:0_1px_2px_rgba(0,0,0,0.95)] ${compact ? "text-[12px]" : "text-[13px]"}`}>
+          <span className="inline-flex flex-wrap items-center gap-1.5">
+            <span className="font-extrabold text-white">{username}</span>
+            <span className="inline-flex rounded bg-zinc-500/90 px-1 py-0.5 text-[9px] font-bold leading-none text-white">
+              Mod
+            </span>
+          </span>
+          <span className="mt-0.5 block font-medium text-zinc-50">{message}</span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
 const PALETTE = ["text-sky-400", "text-emerald-400", "text-violet-400", "text-amber-400", "text-rose-400", "text-cyan-400"] as const;
 
 function colorForUser(username: string | undefined) {
@@ -182,11 +221,6 @@ export function LiveAuctionChat({
       <div className="pointer-events-none flex h-full min-h-0 w-full min-w-0 flex-col">
         <div className="pointer-events-auto flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
           {blockedBanner}
-          {mod.pinnedModeratorMessage ? (
-            <p className="pointer-events-none shrink-0 border-b border-amber-500/20 bg-amber-950/30 px-2 py-1 text-[10px] text-amber-100">
-              📌 {mod.pinnedModeratorMessage}
-            </p>
-          ) : null}
           <div
             ref={overlayScrollRef}
             data-testid="live-chat-messages"
@@ -248,6 +282,14 @@ export function LiveAuctionChat({
               );
             })}
           </div>
+          {mod.pinnedModeratorMessage ? (
+            <PinnedChatBar
+              message={mod.pinnedModeratorMessage}
+              username={mod.pinnedModeratorUsername ?? "Moderator"}
+              avatarUrl={mod.pinnedModeratorAvatarUrl}
+              compact
+            />
+          ) : null}
           <div className="shrink-0 bg-transparent px-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-1.5">
             <div className="flex w-full min-w-0 items-center gap-2 rounded-full border border-[color:var(--live-border)] bg-black/35 px-3 py-1 shadow-[var(--live-shadow-rail)] backdrop-blur-[var(--live-blur-xl)]">
               {status === "authenticated" && !mod.myRestrictions?.muted && !mod.roomBlocked ? (
@@ -304,11 +346,6 @@ export function LiveAuctionChat({
         <p className={`${compact ? "text-[10px]" : "text-[11px]"} font-bold uppercase tracking-wider text-zinc-500`}>Live chat</p>
       </div>
       {blockedBanner}
-      {mod.pinnedModeratorMessage ? (
-        <p className="shrink-0 border-b border-amber-500/20 bg-amber-950/30 px-3 py-1.5 text-[10px] text-amber-100">
-          📌 {mod.pinnedModeratorMessage}
-        </p>
-      ) : null}
       <div
         data-testid="live-chat-messages"
         className={`chat-messages space-y-2 overflow-x-hidden overscroll-contain [-webkit-overflow-scrolling:touch] touch-pan-y ${compact ? "p-2.5" : "p-4"} ${
@@ -373,6 +410,14 @@ export function LiveAuctionChat({
           })
         )}
       </div>
+      {mod.pinnedModeratorMessage ? (
+        <PinnedChatBar
+          message={mod.pinnedModeratorMessage}
+          username={mod.pinnedModeratorUsername ?? "Moderator"}
+          avatarUrl={mod.pinnedModeratorAvatarUrl}
+          compact={compact}
+        />
+      ) : null}
       <div className={`chat-input shrink-0 border-t border-zinc-800 ${compact ? "bg-black/20 p-2.5 backdrop-blur-[var(--live-blur-md)]" : "p-3"}`}>
         {status === "loading" ? (
           <p className="text-center text-[11px] text-zinc-500">Loading session…</p>

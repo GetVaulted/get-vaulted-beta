@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useLiveStagePlayback } from '../../hooks/useLiveStagePlayback';
+import { useHlsLiveEdgeSeek } from '../../hooks/useHlsLiveEdgeSeek';
 import {
   resolveLivePlaybackSurfaceState,
   shouldAttachHlsPlayback,
@@ -133,8 +134,15 @@ export function LiveStagePlayback({
   const player = useVideoPlayer(attachHls ? playbackUrl : null, (p) => {
     p.loop = false;
     p.muted = muted;
+    p.bufferOptions = {
+      preferredForwardBufferDuration: 3,
+      waitsToMinimizeStalling: false,
+      minBufferForPlayback: 1,
+    };
     p.play();
   });
+
+  useHlsLiveEdgeSeek(player, attachHls && playback.videoHasData);
 
   useEffect(() => {
     if (!attachHls) return;

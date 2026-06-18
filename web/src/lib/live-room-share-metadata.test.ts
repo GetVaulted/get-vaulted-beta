@@ -5,6 +5,7 @@ import {
   canonicalShareSiteUrl,
   formatLiveRoomShareDescription,
   formatLiveRoomShareOgTitle,
+  formatLiveRoomShareText,
   liveRoomOgImageUrl,
   resolveLiveRoomShareImageUrl,
 } from "./live-room-share-metadata";
@@ -75,15 +76,27 @@ describe("live-room-share-metadata", () => {
     });
     expect(meta.title).toBe("seller1 is LIVE on Get Vaulted");
     expect(meta.description).toBe("Vault Drop • Join the live auction now");
-    expect(meta.image).toContain("/api/og/live/room1");
+    expect(meta.image).toContain("https://beta.shopgetvaulted.com/api/og/live/room1");
     expect(meta.url).toBe("https://shopgetvaulted.com/live/room1");
   });
 
-  it("defaults og image host to canonical share site", () => {
-    expect(liveRoomOgImageUrl("room1")).toBe("https://shopgetvaulted.com/api/og/live/room1");
+  it("defaults og image host to beta when canonical share site is apex static", () => {
+    expect(liveRoomOgImageUrl("room1")).toBe("https://beta.shopgetvaulted.com/api/og/live/room1");
   });
 
-  it("builds og image URL on deployment host", () => {
+  it("formats native share text with url", () => {
+    expect(
+      formatLiveRoomShareText({
+        hostUsername: "vaultking",
+        showTitle: "Friday Night Break",
+        url: "https://shopgetvaulted.com/live/room1",
+      }),
+    ).toBe(
+      "vaultking is LIVE on Get Vaulted — Friday Night Break. Join now: https://shopgetvaulted.com/live/room1",
+    );
+  });
+
+  it("builds og image URL on deployment host when explicitly passed", () => {
     expect(liveRoomOgImageUrl("room1", "https://beta.shopgetvaulted.com")).toBe(
       "https://beta.shopgetvaulted.com/api/og/live/room1",
     );

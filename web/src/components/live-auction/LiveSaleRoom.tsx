@@ -11,6 +11,7 @@ import { LiveVariantSelectionSheet } from "@/components/live-auction/LiveVariant
 import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotBoard";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
 import { LiveTipSheet } from "@/components/live-auction/LiveTipSheet";
+import { LivePremiumWalletSheet } from "@/components/live-auction/LivePremiumWalletSheet";
 import { BuyerLiveDesktopShell } from "@/components/live-auction/buyer/BuyerLiveDesktopShell";
 import { BuyerLiveHostStrip } from "@/components/live-auction/buyer/BuyerLiveHostStrip";
 import { BuyerLiveItemBoard } from "@/components/live-auction/buyer/BuyerLiveItemBoard";
@@ -23,7 +24,7 @@ import { HostLiveRoomConsoleBanner } from "@/components/live-auction/buyer/HostL
 import { useBuyerLiveDesktop } from "@/components/live-auction/buyer/useBuyerLiveDesktop";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
-import { LiveGiveawayEnterStrip } from "@/components/live-auction/LiveGiveawayEnterStrip";
+import { LiveGiveawaySideTab } from "@/components/live-auction/LiveGiveawaySideTab";
 import type { ViewerGiveawayDTO } from "@/lib/live-giveaway";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
@@ -47,7 +48,7 @@ import { sellerProfilePath } from "@/lib/seller-profile-url";
 import {
   buildLiveRoomShareTitle,
   canonicalLiveRoomUrl,
-  formatLiveRoomShareDescription,
+  formatLiveRoomShareText,
 } from "@/lib/live-room-share-metadata";
 import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
 import { isVariantSalesFormat, summarizeVariantSpots, variantBuyerSelectLabel } from "@/lib/live-item-variant-presets";
@@ -266,6 +267,7 @@ export function LiveSaleRoom({
   const [buyerLineupOpen, setBuyerLineupOpen] = useState(false);
   const isBuyerDesktop = useBuyerLiveDesktop();
   const [tipOpen, setTipOpen] = useState(false);
+  const [premiumWalletOpen, setPremiumWalletOpen] = useState(false);
   const [roomPaymentMethodId, setRoomPaymentMethodId] = useState<string | null>(null);
   useLayoutEffect(() => {
     const mq = window.matchMedia("(min-width: 1280px)");
@@ -683,19 +685,23 @@ export function LiveSaleRoom({
       category: roomCategory,
       sellerUsername: sellerShopUsername ?? hostDisplayName.replace(/^@+/, ""),
     });
-    const shareDescription = formatLiveRoomShareDescription({ title: showTitle });
+    const shareText = formatLiveRoomShareText({
+      hostUsername: sellerShopUsername ?? hostDisplayName.replace(/^@+/, ""),
+      showTitle,
+      url: shareUrl,
+    });
     try {
       if (typeof navigator !== "undefined" && navigator.share) {
         await navigator.share({
           title: shareTitle,
-          text: shareDescription,
+          text: shareText,
           url: shareUrl,
         });
         toast("Shared.");
         return;
       }
       if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(shareUrl);
+        await navigator.clipboard.writeText(shareText);
         toast("Link copied.");
         return;
       }
@@ -710,9 +716,8 @@ export function LiveSaleRoom({
       redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
       return;
     }
-    toast("Opening wallet and payment status.");
-    router.push("/account/orders");
-  }, [liveRoomId, router, status, toast]);
+    setPremiumWalletOpen(true);
+  }, [liveRoomId, status]);
 
   const handleTip = useCallback(() => {
     if (status !== "authenticated") {
@@ -1190,6 +1195,18 @@ export function LiveSaleRoom({
 
   const hostConsoleRoomType = roomType === "break" ? "break" : roomType === "sale" ? "sale" : "auction";
 
+  const giveawaySideTab =
+    !isHost && isLive && giveaways.length > 0 ? (
+      <LiveGiveawaySideTab
+        liveRoomId={liveRoomId}
+        giveaways={giveaways}
+        signedIn={Boolean(session?.user?.id)}
+        onRequireSignIn={() => router.push(`/login?callbackUrl=${encodeURIComponent(`/live/${liveRoomId}`)}`)}
+        onEntered={() => void onRefetch?.()}
+        onTimerExpired={() => void onRefetch?.()}
+      />
+    ) : null;
+
   const videoStageProps = {
     overlayMessage: `Live · ${actionUi ? actionUi.displayTitle : "Current item"} · ${
       roomType === "auction" && activeOverlayPrice
@@ -1216,6 +1233,7 @@ export function LiveSaleRoom({
     onShare: handleShare,
     onWallet: handleWallet,
     onTip: isLive && !isHost ? handleTip : undefined,
+    giveawaySideTab,
   };
 
   return (
@@ -1310,17 +1328,6 @@ export function LiveSaleRoom({
                 />
               ) : null}
 
-              {!isHost && isLive && giveaways.length > 0 ? (
-                <LiveGiveawayEnterStrip
-                  liveRoomId={liveRoomId}
-                  giveaways={giveaways}
-                  signedIn={Boolean(session?.user?.id)}
-                  onRequireSignIn={() => router.push(`/login?callbackUrl=${encodeURIComponent(`/live/${liveRoomId}`)}`)}
-                  onEntered={() => void onRefetch?.()}
-                  onTimerExpired={() => void onRefetch?.()}
-                />
-              ) : null}
-
               {!isHost && (roomType === "auction" || roomType === "sale") ? (
                 <LiveShippingIndicator
           liveShowId={liveRoomId}
@@ -1375,7 +1382,7 @@ export function LiveSaleRoom({
           item={activeDb}
           liveRoomId={liveRoomId}
           walletReady={buyerLiveWalletReady}
-          onWalletRequired={() => setActionError("Add payment and shipping in Wallet before checkout.")}
+          onWalletRequired={() => setPremiumWalletOpen(true)}
           onPurchased={() => {
             setShipUxNonce((n) => n + 1);
             router.refresh();
@@ -1390,6 +1397,12 @@ export function LiveSaleRoom({
         onPaymentMethodIdChange={setRoomPaymentMethodId}
         onSuccess={() => toast("Tip sent — thanks for supporting the show!")}
         onError={(msg) => toast(msg)}
+      />
+      <LivePremiumWalletSheet
+        open={premiumWalletOpen}
+        onClose={() => setPremiumWalletOpen(false)}
+        liveRoomId={liveRoomId}
+        onReadinessChange={() => void onRefetch?.()}
       />
     </div>
   );

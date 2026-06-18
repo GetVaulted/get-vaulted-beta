@@ -32,6 +32,7 @@ export function useLiveStagePlayback(args: {
   const lastAttachKeyRef = useRef('');
   const transportRef = useRef<LivePlaybackTransport>('none');
   const webrtcFailedRef = useRef(false);
+  const webrtcRetryCountRef = useRef(0);
 
   const clearBackoff = useCallback(() => {
     if (backoffTimerRef.current != null) {
@@ -67,6 +68,7 @@ export function useLiveStagePlayback(args: {
 
       if (!isLiveStreamSignal(safe.streamHealth)) {
         webrtcFailedRef.current = false;
+        webrtcRetryCountRef.current = 0;
       }
 
       const wantWebrtc = shouldUseStageWebrtcPlayback(safe, webrtcFailedRef.current, args.accessToken);
@@ -101,6 +103,7 @@ export function useLiveStagePlayback(args: {
     if (!args.enabled) {
       applyTransport('none');
       webrtcFailedRef.current = false;
+      webrtcRetryCountRef.current = 0;
       return undefined;
     }
     void fetchStream();
@@ -141,6 +144,7 @@ export function useLiveStagePlayback(args: {
     setPlayerFatal(false);
     retryRef.current = 0;
     setPlayerRetryCount(0);
+    webrtcRetryCountRef.current = 0;
   }, []);
 
   const onVideoError = useCallback(() => {
@@ -165,7 +169,10 @@ export function useLiveStagePlayback(args: {
       if (__DEV__) {
         console.log('[LiveStagePlayback] WebRTC subscribe failed, falling back to HLS', { reason });
       }
-      webrtcFailedRef.current = true;
+      webrtcRetryCountRef.current += 1;
+      if (webrtcRetryCountRef.current >= 2) {
+        webrtcFailedRef.current = true;
+      }
       applyTransport('waiting');
       lastAttachKeyRef.current = '';
       setVideoHasData(false);
@@ -175,7 +182,10 @@ export function useLiveStagePlayback(args: {
   );
 
   const onWebrtcDisconnected = useCallback(() => {
-    webrtcFailedRef.current = true;
+    webrtcRetryCountRef.current += 1;
+    if (webrtcRetryCountRef.current >= 2) {
+      webrtcFailedRef.current = true;
+    }
     setVideoHasData(false);
     applyTransport('waiting');
     void fetchStream();

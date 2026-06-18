@@ -19,8 +19,15 @@ import {
 } from "@/lib/live-room-realtime-merge";
 import { estimateClockSkewMs } from "@/lib/server-clock-sync";
 import { parsePurchaseCompletedCelebration, type LiveAuctionCloseCelebration } from "@/lib/live-auction-winner-display";
+import {
+  parseAuctionWinSpotCelebration,
+  parseVariantPurchasedCelebration,
+  type LiveSpotTakenCelebration as LiveSpotTakenCelebrationPayload,
+} from "@/lib/live-spot-celebration";
 import { LiveAuctionSoldCelebration } from "@/components/live-auction/LiveAuctionSoldCelebration";
+import { LiveSpotTakenCelebration } from "@/components/live-auction/LiveSpotTakenCelebration";
 import { LivePaymentFailureBlocker } from "@/components/live-auction/LivePaymentFailureBlocker";
+import { LivePremiumWalletSheet } from "@/components/live-auction/LivePremiumWalletSheet";
 import { VaultRevealWheelOverlay } from "@/components/live-auction/VaultRevealWheelOverlay";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from "@/lib/vault-reveal-spin";
@@ -54,7 +61,9 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const lastAuctionSeqRef = useRef(0);
   const prevRoomLifecycleRef = useRef<LiveRoomStatus | null>(null);
   const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
+  const [spotCelebration, setSpotCelebration] = useState<LiveSpotTakenCelebrationPayload | null>(null);
   const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
+  const [premiumWalletOpen, setPremiumWalletOpen] = useState(false);
   const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
   const appendSystemMessage = useCallback((body: string, chatLabel = "System") => {
     setMessages((prev) => {
@@ -498,6 +507,12 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       requestRoomSnapshotSync();
       scheduleFallbackRefresh("break_spots", 450);
     },
+    onVariantPurchased: (payload) => {
+      if (!shouldProcessRealtimePayload("variant_purchased", payload)) return;
+      const taken = parseVariantPurchasedCelebration(payload);
+      if (taken) setSpotCelebration(taken);
+      scheduleFallbackRefresh("variant_purchased", 250);
+    },
     onListingBid: () => {
       logLiveDebugEvent({
         event: "event_received",
@@ -639,6 +654,19 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       });
       if (!shouldProcessRealtimePayload("purchase_completed", payload)) return;
       const celebration = parsePurchaseCompletedCelebration(payload);
+      const spotTaken =
+        celebration?.kind === "sold"
+          ? parseAuctionWinSpotCelebration({
+              winnerUsername: celebration.winnerUsername,
+              winningAmountUsd: celebration.winningAmountUsd,
+              itemTitle:
+                detail?.items.find((it) => it.id === celebration.itemId)?.displayTitle ??
+                detail?.items.find((it) => it.id === celebration.itemId)?.title ??
+                null,
+              noBids: false,
+            })
+          : null;
+      if (spotTaken) setSpotCelebration(spotTaken);
       if (celebration) setSoldCelebration(celebration);
       if (
         payload.paymentStatus === "payment_failed" &&
@@ -763,9 +791,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         liveRoomId={detail.id}
         failure={paymentFailure}
         onResolved={() => void load()}
-        onOpenWallet={() => {
-          window.open("/account/payment-methods", "_blank", "noopener,noreferrer");
-        }}
+        onOpenWallet={() => setPremiumWalletOpen(true)}
       />
     ) : null;
 
@@ -799,8 +825,15 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           giveaways={detail.giveaways ?? []}
         />
         <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
+        <LiveSpotTakenCelebration celebration={spotCelebration} onDone={() => setSpotCelebration(null)} />
         <VaultRevealWheelOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
         {paymentBlocker}
+        <LivePremiumWalletSheet
+          open={premiumWalletOpen}
+          onClose={() => setPremiumWalletOpen(false)}
+          liveRoomId={detail.id}
+          onReadinessChange={() => void load()}
+        />
       </>
     );
   }
@@ -833,8 +866,15 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       giveaways={detail.giveaways ?? []}
     />
       <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
+      <LiveSpotTakenCelebration celebration={spotCelebration} onDone={() => setSpotCelebration(null)} />
       <VaultRevealWheelOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
       {paymentBlocker}
+      <LivePremiumWalletSheet
+        open={premiumWalletOpen}
+        onClose={() => setPremiumWalletOpen(false)}
+        liveRoomId={detail.id}
+        onReadinessChange={() => void load()}
+      />
     </>
   );
 }

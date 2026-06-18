@@ -122,6 +122,6 @@ export function resolveLivePlaybackSurfaceState(input: {
   return 'offline';
 }
 
-export const STREAM_POLL_MS = 5_000;
+export const STREAM_POLL_MS = 2_500;
 export const MAX_PLAYER_RETRIES = 5;
 export const PLAYER_BACKOFF_BASE_MS = 900;

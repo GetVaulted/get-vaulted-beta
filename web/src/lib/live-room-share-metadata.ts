@@ -9,6 +9,11 @@ export const DEFAULT_LIVE_SHARE_OG_IMAGE =
 
 export const CANONICAL_SHARE_SITE_FALLBACK = "https://shopgetvaulted.com";
 
+/** Host where the Next.js app (live pages + OG API) is deployed today. */
+export const LIVE_WEB_APP_ORIGIN_FALLBACK = "https://beta.shopgetvaulted.com";
+
+const APEX_STATIC_SHARE_HOSTS = new Set(["shopgetvaulted.com", "www.shopgetvaulted.com"]);
+
 const CATEGORY_LABEL_ALIASES: Record<string, string> = {
   cards: "Sports Cards",
   card: "Sports Cards",
@@ -72,11 +77,31 @@ export function canonicalShareSiteUrl(): string {
   return withProto.replace(/\/$/, "");
 }
 
-/** Host that serves dynamic OG images (same origin as public share links by default). */
-export function ogImageSiteUrl(): string {
-  const raw = process.env.NEXT_PUBLIC_OG_IMAGE_SITE_URL?.trim() || canonicalShareSiteUrl();
+function liveWebAppOrigin(): string {
+  const raw =
+    process.env.NEXT_PUBLIC_LIVE_WEB_APP_URL?.trim() ||
+    process.env.NEXT_PUBLIC_OG_IMAGE_SITE_URL?.trim() ||
+    LIVE_WEB_APP_ORIGIN_FALLBACK;
   const withProto = raw.includes("://") ? raw : `https://${raw}`;
   return withProto.replace(/\/$/, "");
+}
+
+/** Host that serves dynamic OG images and live pages when apex is static-only. */
+export function ogImageSiteUrl(): string {
+  const explicit = process.env.NEXT_PUBLIC_OG_IMAGE_SITE_URL?.trim();
+  if (explicit) {
+    const withProto = explicit.includes("://") ? explicit : `https://${explicit}`;
+    return withProto.replace(/\/$/, "");
+  }
+  try {
+    const canonicalHost = new URL(canonicalShareSiteUrl()).hostname;
+    if (APEX_STATIC_SHARE_HOSTS.has(canonicalHost)) {
+      return liveWebAppOrigin();
+    }
+  } catch {
+    /* ignore */
+  }
+  return canonicalShareSiteUrl();
 }
 
 export function canonicalLiveRoomUrl(roomId: string, siteBase = canonicalShareSiteUrl()): string {
@@ -155,6 +180,22 @@ export function formatLiveRoomShareDescription(input: Pick<LiveRoomShareMetaInpu
   const showTitle = input.title?.trim() || "Live show";
   const tagline = input.isLive === false ? UPCOMING_LIVE_SHARE_DESCRIPTION : LIVE_SHARE_DESCRIPTION;
   return `${showTitle} • ${tagline}`;
+}
+
+/** Native share / SMS copy — single line with URL. */
+export function formatLiveRoomShareText(input: {
+  hostUsername: string;
+  showTitle: string;
+  url: string;
+  isLive?: boolean;
+}): string {
+  const host = formatLiveRoomShareHostName({ sellerUsername: input.hostUsername });
+  const title = input.showTitle?.trim() || "Live show";
+  const url = input.url.trim();
+  if (input.isLive === false) {
+    return `${host} on Get Vaulted — ${title}. Join when we go live: ${url}`;
+  }
+  return `${host} is LIVE on Get Vaulted — ${title}. Join now: ${url}`;
 }
 
 /** @deprecated Use formatLiveRoomShareOgTitle for new share surfaces. */

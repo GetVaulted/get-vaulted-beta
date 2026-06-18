@@ -10,9 +10,9 @@ import { fetchViewerStageToken } from '../api/liveRoomStreamRepository';
 import { ensureStageSdkInitialized } from '../lib/stageSdk';
 
 /** If no remote media arrives within this window, fail over to HLS. */
-const CONNECT_TIMEOUT_MS = 12_000;
+const CONNECT_TIMEOUT_MS = 7_000;
 /** When signed out, do not block on WebRTC forever — fail over to HLS for guests. */
-const AUTH_WAIT_MS = 2_500;
+const AUTH_WAIT_MS = 1_500;
 
 export type MobileStageRemoteTarget = {
   participantId: string;

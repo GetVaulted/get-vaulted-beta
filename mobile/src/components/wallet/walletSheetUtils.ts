@@ -18,6 +18,13 @@ export function formatPaymentSummary(method: BuyerPaymentMethodRow | null): stri
   return walletPmSummary(method);
 }
 
+export function formatShipToLine(address: BuyerShippingAddressRow | null): string {
+  if (!address) return 'Add shipping address';
+  const street = [address.line1, address.line2].filter(Boolean).join(' ');
+  const cityLine = `${address.city} ${address.state} ${address.postalCode}`.trim();
+  return `Ship to ${[street, cityLine].filter(Boolean).join(', ')}`;
+}
+
 export function formatAddressOneLine(address: BuyerShippingAddressRow | null): string {
   if (!address) return 'Add shipping address';
   const street = [address.line1, address.line2].filter(Boolean).join(', ');

@@ -12,6 +12,7 @@ import {
   listLiveRoomModQueue,
   listLiveRoomModerators,
   listLiveRoomRecentViewers,
+  resolveLiveRoomPinnedMessage,
 } from "@/lib/trust/live-room-moderation";
 import { listAllowedModerationActions } from "@/lib/trust/live-room-moderator-permissions";
 import { listLiveRoomTipLedger } from "@/lib/live-tip-ledger";
@@ -26,11 +27,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       id: true,
       sellerId: true,
       slowModeSeconds: true,
-      pinnedModeratorMessage: true,
-      pinnedModeratorMessageAt: true,
     },
   });
   if (!room) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const pinned = await resolveLiveRoomPinnedMessage(liveRoomId);
 
   const auth = await resolveLiveRoomsUserId(req);
   let modCtx: {
@@ -81,15 +82,19 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
   return NextResponse.json({
     slowModeSeconds: room.slowModeSeconds,
-    pinnedModeratorMessage: room.pinnedModeratorMessage,
-    pinnedModeratorMessageAt: room.pinnedModeratorMessageAt?.toISOString() ?? null,
+    pinnedModeratorMessage: pinned.body,
+    pinnedModeratorMessageAt: pinned.pinnedAt?.toISOString() ?? null,
+    pinnedModeratorMessageExpiresAt: pinned.expiresAt?.toISOString() ?? null,
+    pinnedModeratorUserId: pinned.pinnedBy?.userId ?? null,
+    pinnedModeratorUsername: pinned.pinnedBy?.username ?? null,
+    pinnedModeratorAvatarUrl: pinned.pinnedBy?.avatarUrl ?? null,
     canModerate: modCtx.canModerate,
     isHost: modCtx.isHost,
     isModerator,
     viewerRole: modCtx.viewerRole,
     moderatorLevel: modCtx.moderatorLevel,
     allowedActions,
-    sellerId: modCtx.canModerate ? room.sellerId : undefined,
+    sellerId: room.sellerId,
     moderators,
     myRestrictions,
     modHistory,

@@ -150,6 +150,16 @@ export async function uploadMyAvatar(userId: string, localUri: string, _mimeType
   return avatarUrlWithCacheBust(data.publicUrl);
 }
 
+export async function fetchProfileIdByUsername(raw: string): Promise<string | null> {
+  const sb = getSupabase();
+  if (!sb) return null;
+  const canonical = normalizeUsernameForStorage(raw.trim());
+  if (!canonical) return null;
+  const { data, error } = await sb.from('profiles').select('id').eq('username', canonical).maybeSingle();
+  if (error || !data?.id) return null;
+  return data.id;
+}
+
 export async function fetchProfileById(userId: string): Promise<ProfileLite | null> {
   const sb = getSupabase();
   if (!sb) return null;

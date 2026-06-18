@@ -76,7 +76,7 @@ export function UsernameMentionPicker({
       {open ? (
         <View style={styles.dropdown}>
           <FlatList
-            keyboardShouldPersistTaps="always"
+            keyboardShouldPersistTaps="handled"
             data={results}
             keyExtractor={(u) => u.id}
             renderItem={({ item }) => (

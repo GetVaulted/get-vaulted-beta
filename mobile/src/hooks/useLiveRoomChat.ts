@@ -14,30 +14,31 @@ import type { ChatMessage, ChatMessageKind } from '../types';
 
 const joinCooldownByRoom = new Map<string, number>();
 
-function mapRow(m: LiveRoomChatMessageRow, hostUsername: string): ChatMessage | null {
+function mapRow(m: LiveRoomChatMessageRow, hostUsername: string, hostUserId?: string): ChatMessage | null {
   const text = m.body?.trim();
   if (!text) return null;
   const host = hostUsername.trim().toLowerCase();
   const sender = m.senderUsername?.trim() || 'Guest';
   const messageType = (m.messageType ?? 'chat') as ChatMessageKind;
   if (messageType === 'bid') return null;
+  const senderId = m.senderId?.trim() || undefined;
   return {
     id: m.id,
     user: sender,
     text,
-    senderId: m.senderId,
+    senderId,
     senderAvatarUrl: m.senderAvatarUrl ?? null,
-    isHost: Boolean(host && sender.toLowerCase() === host),
+    isHost: Boolean(hostUserId && senderId === hostUserId),
     messageType,
     mentions: m.mentions,
     createdAt: m.createdAt,
   };
 }
 
-function mapRows(rows: LiveRoomChatMessageRow[], hostUsername: string): ChatMessage[] {
+function mapRows(rows: LiveRoomChatMessageRow[], hostUsername: string, hostUserId?: string): ChatMessage[] {
   const out: ChatMessage[] = [];
   for (const row of rows) {
-    const mapped = mapRow(row, hostUsername);
+    const mapped = mapRow(row, hostUsername, hostUserId);
     if (mapped) out.push(mapped);
   }
   return out;
@@ -46,6 +47,7 @@ function mapRows(rows: LiveRoomChatMessageRow[], hostUsername: string): ChatMess
 export function useLiveRoomChat(args: {
   roomId: string;
   hostUsername: string;
+  hostUserId?: string;
   accessToken?: string;
   enabled: boolean;
   /** When true, rely on Supabase chat events; poll slowly as fallback. */
@@ -62,17 +64,17 @@ export function useLiveRoomChat(args: {
   }, [args.roomId]);
 
   const appendRows = useCallback((rows: LiveRoomChatMessageRow[]) => {
-    const mapped = mapRows(rows, args.hostUsername);
+    const mapped = mapRows(rows, args.hostUsername, args.hostUserId);
     if (mapped.length === 0) return;
     setMessages((prev) => mergeChatMessagesById(prev, mapped));
-  }, [args.hostUsername]);
+  }, [args.hostUserId, args.hostUsername]);
 
   const reload = useCallback(async () => {
     if (reloadLockRef.current) return;
     reloadLockRef.current = true;
     try {
       const rows = await fetchLiveRoomChatMessages(args.roomId);
-      const mapped = mapRows(rows, args.hostUsername);
+      const mapped = mapRows(rows, args.hostUsername, args.hostUserId);
       setMessages((prev) => mergeChatMessagesById(prev, mapped));
       setError(null);
     } catch (e) {
@@ -82,7 +84,7 @@ export function useLiveRoomChat(args: {
     } finally {
       reloadLockRef.current = false;
     }
-  }, [args.hostUsername, args.roomId]);
+  }, [args.hostUserId, args.hostUsername, args.roomId]);
 
   const appendBroadcast = useCallback(
     (message: LiveRoomChatBroadcastMessage) => {
@@ -171,7 +173,7 @@ export function useLiveRoomChat(args: {
           body,
           clientMessageId,
         });
-        const next = mapRow(row, args.hostUsername);
+        const next = mapRow(row, args.hostUsername, args.hostUserId);
         if (next) {
           setMessages((prev) => mergeChatMessagesById(prev, [next]));
         }
@@ -186,7 +188,7 @@ export function useLiveRoomChat(args: {
         setSending(false);
       }
     },
-    [args.accessToken, args.hostUsername, args.roomId],
+    [args.accessToken, args.hostUserId, args.hostUsername, args.roomId],
   );
 
   return { messages, send, sending, error, reload, announceJoin, announceShare, appendBroadcast };

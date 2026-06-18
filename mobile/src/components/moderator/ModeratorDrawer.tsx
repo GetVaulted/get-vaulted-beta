@@ -28,6 +28,15 @@ import { canPerformModeratorAction, formatModActionLabel } from '../../lib/liveM
 import { colors, radii, spacing } from '../../theme';
 import { ModeratorViewerActions } from './ModeratorViewerActions';
 
+const PIN_EXPIRES_OPTIONS = [
+  { minutes: 15, label: '15 min' },
+  { minutes: 30, label: '30 min' },
+  { minutes: 60, label: '1 hr' },
+  { minutes: 120, label: '2 hr' },
+  { minutes: 240, label: '4 hr' },
+  { minutes: 24 * 60, label: '24 hr' },
+] as const;
+
 type TabId = 'queue' | 'viewers' | 'tips' | 'pinned' | 'announcements' | 'giveaway' | 'history';
 
 const TABS: { id: TabId; label: string }[] = [
@@ -64,6 +73,7 @@ export function ModeratorDrawer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pinnedBody, setPinnedBody] = useState(moderation.pinnedModeratorMessage ?? '');
+  const [pinExpiresMinutes, setPinExpiresMinutes] = useState<number>(60);
   const [announcementBody, setAnnouncementBody] = useState('');
   const [giveawayTitle, setGiveawayTitle] = useState('');
   const [viewerAction, setViewerAction] = useState<LiveRoomViewerRow | null>(null);
@@ -146,9 +156,18 @@ export function ModeratorDrawer({
             value={pinnedBody}
             onChange={setPinnedBody}
             current={moderation.pinnedModeratorMessage}
+            expiresAt={moderation.pinnedModeratorMessageExpiresAt ?? null}
+            expiresMinutes={pinExpiresMinutes}
+            onChangeExpiresMinutes={setPinExpiresMinutes}
             canPin={can('pin_message')}
             busy={busy}
-            onSave={() => void runAction({ actionType: 'pin_message', metadata: { body: pinnedBody } })}
+            onSave={() =>
+              void runAction({
+                actionType: 'pin_message',
+                metadata: { body: pinnedBody, expiresMinutes: pinExpiresMinutes },
+              })
+            }
+            onUnpin={() => void runAction({ actionType: 'pin_message', metadata: { body: '' } })}
           />
         );
       case 'announcements':
@@ -194,11 +213,13 @@ export function ModeratorDrawer({
     moderation.tipSummary,
     moderation.modHistory,
     moderation.pinnedModeratorMessage,
+    moderation.pinnedModeratorMessageExpiresAt,
     moderation.moderatorLevel,
     moderation.allowedActions,
     moderation.isModerator,
     moderation.isHost,
     pinnedBody,
+    pinExpiresMinutes,
     announcementBody,
     giveawayTitle,
     busy,
@@ -409,16 +430,24 @@ function PinnedTab({
   value,
   onChange,
   current,
+  expiresAt,
+  expiresMinutes,
+  onChangeExpiresMinutes,
   canPin,
   busy,
   onSave,
+  onUnpin,
 }: {
   value: string;
   onChange: (v: string) => void;
   current: string | null;
+  expiresAt: string | null;
+  expiresMinutes: number;
+  onChangeExpiresMinutes: (v: number) => void;
   canPin: boolean;
   busy: boolean;
   onSave: () => void;
+  onUnpin: () => void;
 }) {
   return (
     <View style={styles.formBlock}>
@@ -426,6 +455,16 @@ function PinnedTab({
         <View style={styles.card}>
           <Text style={styles.cardMeta}>Current pin</Text>
           <Text style={styles.cardBody}>{current}</Text>
+          {expiresAt ? (
+            <Text style={styles.cardMeta}>
+              Expires {new Date(expiresAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+            </Text>
+          ) : null}
+          {canPin ? (
+            <Pressable style={[styles.secondaryBtn, busy && styles.primaryBtnDim]} disabled={busy} onPress={onUnpin}>
+              <Text style={styles.secondaryBtnText}>Remove pin</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
       <TextInput
@@ -437,6 +476,20 @@ function PinnedTab({
         multiline
         editable={!busy}
       />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.expiryRail}>
+        {PIN_EXPIRES_OPTIONS.map((opt) => (
+          <Pressable
+            key={opt.minutes}
+            style={[styles.expiryChip, expiresMinutes === opt.minutes && styles.expiryChipActive]}
+            onPress={() => onChangeExpiresMinutes(opt.minutes)}
+            disabled={!canPin || busy}
+          >
+            <Text style={[styles.expiryChipText, expiresMinutes === opt.minutes && styles.expiryChipTextActive]}>
+              {opt.label}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
       <Pressable
         style={[styles.primaryBtn, (!canPin || busy || !value.trim()) && styles.primaryBtnDim]}
         disabled={!canPin || busy || !value.trim()}
@@ -650,6 +703,42 @@ const styles = StyleSheet.create({
     color: '#111',
     fontWeight: '900',
     fontSize: 14,
+  },
+  secondaryBtn: {
+    marginTop: spacing.sm,
+    borderRadius: radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.18)',
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  secondaryBtnText: {
+    color: colors.textPrimary,
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  expiryRail: {
+    marginBottom: spacing.sm,
+  },
+  expiryChip: {
+    marginRight: spacing.xs,
+    borderRadius: radii.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.14)',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+  },
+  expiryChipActive: {
+    borderColor: 'rgba(255,215,128,0.45)',
+    backgroundColor: 'rgba(255,215,128,0.12)',
+  },
+  expiryChipText: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  expiryChipTextActive: {
+    color: colors.gold,
   },
   hint: {
     color: colors.textSecondary,

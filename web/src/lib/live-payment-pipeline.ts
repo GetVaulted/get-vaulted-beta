@@ -12,6 +12,7 @@ import Stripe from "stripe";
 import { getBuyerLiveWalletReadiness } from "@/lib/buyer-live-wallet-readiness";
 import {
   finalizeLiveItemVariantPurchasePaid,
+  releaseVariantPurchaseOnCheckoutExpired,
 } from "@/lib/live-item-variant-purchase";
 import {
   recordLiveRoomPaymentFailure,
@@ -346,6 +347,8 @@ export async function settleLiveItemVariantPurchase(args: {
         paymentIntentId: charge.paymentIntentId,
       };
     }
+    await releaseVariantPurchaseOnCheckoutExpired(args.purchaseId);
+    emitLiveRoomQueueItemsChanged(purchaseMeta.liveRoomId);
     return {
       ok: false,
       purchaseId: args.purchaseId,

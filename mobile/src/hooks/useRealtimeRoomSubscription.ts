@@ -35,6 +35,7 @@ export function useRealtimeRoomSubscription(opts: {
   onStreamStatusChange?: (payload: RoomBroadcastPayload) => void | Promise<void>;
   onTeamBreakReady?: () => void | Promise<void>;
   onTeamBreakBegan?: () => void | Promise<void>;
+  onVariantPurchased?: (payload: RoomBroadcastPayload) => void | Promise<void>;
   onReconnect?: () => void | Promise<void>;
   onConnectionStateChange?: (state: { status: string; reconnectCount: number }) => void;
 }): void {
@@ -100,7 +101,11 @@ export function useRealtimeRoomSubscription(opts: {
         const p = (payload as Record<string, unknown> | null) ?? {};
         void refs.current.onVaultRevealSpin?.(p);
       })
-      .on('broadcast', { event: RT_EVENT.variantPurchased }, () => void refs.current.onQueueItemsChange?.())
+      .on('broadcast', { event: RT_EVENT.variantPurchased }, ({ payload }) => {
+        const p = (payload as RoomBroadcastPayload | null) ?? {};
+        if (refs.current.onVariantPurchased) void refs.current.onVariantPurchased(p);
+        else void refs.current.onQueueItemsChange?.();
+      })
       .on('broadcast', { event: RT_EVENT.teamBreakReady }, () => void refs.current.onTeamBreakReady?.())
       .on('broadcast', { event: RT_EVENT.teamBreakBegan }, () => void refs.current.onTeamBreakBegan?.())
       .on('broadcast', { event: RT_EVENT.breakSpots }, () => void refs.current.onBreakSpotsChange?.())

@@ -40,14 +40,52 @@ export function buildLiveRoomShareTitle(stream: LiveStream): string {
   return buildLiveRoomShareOgTitle(stream);
 }
 
+export function buildLiveRoomShareText(args: {
+  hostUsername: string;
+  showTitle: string;
+  url: string;
+  isLive?: boolean;
+}): string {
+  const host = args.hostUsername.replace(/^@+/, '').trim() || 'Host';
+  const title = args.showTitle.trim() || 'Live show';
+  const url = args.url.trim();
+  if (args.isLive === false) {
+    return `${host} on Get Vaulted — ${title}. Join when we go live: ${url}`;
+  }
+  return `${host} is LIVE on Get Vaulted — ${title}. Join now: ${url}`;
+}
+
 export function buildLiveRoomShareMessage(stream: LiveStream): {
   title: string;
   message: string;
   url: string | null;
 } {
   const title = buildLiveRoomShareOgTitle(stream);
-  const description = buildLiveRoomShareOgDescription(stream);
   const url = canonicalLiveShareUrl(stream.id);
-  const message = url ? `${title}\n${description}\n${url}` : `${title}\n${description}`;
+  const hostUsername = stream.host.handle.replace(/^@+/, '') || stream.host.name || 'Host';
+  const message = url
+    ? buildLiveRoomShareText({
+        hostUsername,
+        showTitle: stream.title,
+        url,
+        isLive: !isScheduledStream(stream),
+      })
+    : buildLiveRoomShareOgDescription(stream);
   return { title, message, url };
+}
+
+export function buildSellerLiveShareMessage(args: {
+  hostUsername: string;
+  showTitle: string;
+  publicUrl: string;
+  isLive?: boolean;
+}): { title: string; message: string } {
+  const title = buildSellerLiveShareOgTitle(args.hostUsername, args.isLive !== false);
+  const message = buildLiveRoomShareText({
+    hostUsername: args.hostUsername,
+    showTitle: args.showTitle,
+    url: args.publicUrl,
+    isLive: args.isLive,
+  });
+  return { title, message };
 }

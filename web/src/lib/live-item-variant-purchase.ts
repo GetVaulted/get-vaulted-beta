@@ -61,6 +61,7 @@ export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, st
     purchaseId: purchase.id,
     label: purchase.variant.label,
     buyerUsername: purchase.buyer.username,
+    amountUsd: purchase.totalUsd,
     itemVersion: item.itemVersion,
   });
   emitLiveRoomMessagesRefetch(purchase.liveRoomId);

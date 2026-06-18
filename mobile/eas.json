@@ -20,7 +20,8 @@
     "production": {
       "autoIncrement": false,
       "env": {
-        "EXPO_PUBLIC_SITE_URL": "https://beta.shopgetvaulted.com"
+        "EXPO_PUBLIC_SITE_URL": "https://beta.shopgetvaulted.com",
+        "EXPO_PUBLIC_SHARE_SITE_URL": "https://shopgetvaulted.com"
       }
     }
   },

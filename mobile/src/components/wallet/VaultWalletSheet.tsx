@@ -39,6 +39,7 @@ import {
   formatAddressBlock,
   formatAddressOneLine,
   formatCardExp,
+  formatShipToLine,
   pickDefaultShippingAddress,
   pickPrimaryPaymentMethod,
 } from './walletSheetUtils';
@@ -51,11 +52,11 @@ import {
 } from './walletPaymentMethodDisplay';
 import { WalletNativePayButton } from './WalletNativePayButton';
 import {
-  WALLET_MARKETPLACE_BNPL_CATALOG,
-  WALLET_SAVABLE_METHOD_CATALOG,
-  shouldShowWalletCatalogEntry,
-  walletMethodEligibilityLabel,
-} from '../../lib/paymentMethodCatalog';
+  LIVE_PREMIUM_WALLET_TITLE,
+  catalogEntryIcon,
+  liveAcceptedMethodsLabel,
+  liveAcceptedWalletMethods,
+} from '../../lib/livePremiumWallet';
 
 export type WalletStep =
   | 'main'
@@ -65,7 +66,8 @@ export type WalletStep =
   | 'payment'
   | 'credits'
   | 'promo'
-  | 'referral';
+  | 'referral'
+  | 'premium';
 
 type Props = {
   visible: boolean;
@@ -124,6 +126,8 @@ function SectionRow({
   trailing,
   missing,
   onPress,
+  liveStyle,
+  accentIcon,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
@@ -131,14 +135,16 @@ function SectionRow({
   trailing?: string;
   missing?: boolean;
   onPress: () => void;
+  liveStyle?: boolean;
+  accentIcon?: boolean;
 }) {
   return (
     <Pressable
-      style={({ pressed }) => [t.sectionCard, pressed && t.sectionCardPressed]}
+      style={({ pressed }) => [t.sectionCard, liveStyle && t.sectionCardLive, pressed && t.sectionCardPressed]}
       onPress={onPress}
     >
-      <View style={t.sectionIcon}>
-        <Ionicons name={icon} size={20} color={colors.gold} />
+      <View style={[t.sectionIcon, liveStyle && t.sectionIconLive, accentIcon && t.sectionIconAccent]}>
+        <Ionicons name={icon} size={20} color={accentIcon ? '#0a0908' : liveStyle ? '#fff' : colors.gold} />
       </View>
       <View style={t.sectionBody}>
         <LiveRoomText style={t.sectionTitle}>{title}</LiveRoomText>
@@ -371,27 +377,28 @@ export function VaultWalletSheet({
 
   const creditsUsd = summary?.vaultCreditsUsd ?? 0;
   const referralUsd = summary?.referralCreditUsd ?? 0;
+  const walletCapabilities = summary?.capabilities;
+  const stripePublishableKey = summary?.stripePublishableKey ?? null;
+  const walletPlatform = Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web';
+  const liveMethods = liveAcceptedWalletMethods(walletPlatform, walletCapabilities);
 
   const renderMain = () => (
     <>
-      <View style={t.hero}>
-        <View style={t.heroIcon}>
-          <Ionicons name="wallet" size={24} color={colors.gold} />
-        </View>
-        <LiveRoomText style={t.heroTitle}>Vault Wallet</LiveRoomText>
-        <LiveRoomText style={t.heroSub}>
-          Your shipping, payments, and credits for live shows, marketplace, offers, and trades.
+      {!recoveryMode ? (
+        <Pressable style={t.liveCloseBtn} onPress={onClose} hitSlop={12} accessibilityLabel="Close">
+          <Ionicons name="close" size={22} color="rgba(255,255,255,0.65)" />
+        </Pressable>
+      ) : null}
+      <LiveRoomText style={t.liveSheetTitle}>{LIVE_PREMIUM_WALLET_TITLE}</LiveRoomText>
+      <View style={[t.readinessPill, walletReady ? t.readinessReady : t.readinessSetup, { alignSelf: 'center', marginBottom: spacing.sm }]}>
+        <Ionicons
+          name={walletReady ? 'checkmark-circle' : 'alert-circle-outline'}
+          size={14}
+          color={walletReady ? '#6ee7b7' : colors.gold}
+        />
+        <LiveRoomText style={[t.readinessTxt, walletReady ? t.readinessTxtReady : t.readinessTxtSetup]}>
+          {walletReady ? 'Ready to bid & buy live' : 'Complete setup to bid & buy'}
         </LiveRoomText>
-        <View style={[t.readinessPill, walletReady ? t.readinessReady : t.readinessSetup]}>
-          <Ionicons
-            name={walletReady ? 'checkmark-circle' : 'alert-circle-outline'}
-            size={14}
-            color={walletReady ? '#6ee7b7' : colors.gold}
-          />
-          <LiveRoomText style={[t.readinessTxt, walletReady ? t.readinessTxtReady : t.readinessTxtSetup]}>
-            {walletReady ? 'Ready to bid & buy' : 'Setup required'}
-          </LiveRoomText>
-        </View>
       </View>
       {actionError ? <LiveRoomText style={t.errorText}>{actionError}</LiveRoomText> : null}
       <ScrollView
@@ -400,39 +407,58 @@ export function VaultWalletSheet({
         keyboardShouldPersistTaps="handled"
       >
         <SectionRow
-          icon="location-outline"
-          title="Shipping Address"
-          subtitle={formatAddressOneLine(defaultAddress)}
+          icon="car-outline"
+          title="Shipping"
+          subtitle={formatShipToLine(defaultAddress)}
           missing={!shippingReady}
+          liveStyle
           onPress={() => setStep('shipping')}
         />
         <SectionRow
           icon="card-outline"
-          title="Payment Methods"
-          subtitle={walletPmSummary(primaryPayment)}
+          title="Payment"
+          subtitle={
+            primaryPayment
+              ? walletPmSummary(primaryPayment)
+              : liveAcceptedMethodsLabel(walletPlatform, walletCapabilities)
+          }
           missing={!paymentReady}
+          liveStyle
           onPress={() => setStep('payment')}
         />
         <SectionRow
-          icon="diamond-outline"
-          title="Vault Credits"
-          subtitle={creditsUsd > 0 ? 'Apply at checkout' : 'No credits yet'}
-          trailing={formatUsd(creditsUsd)}
-          onPress={() => setStep('credits')}
+          icon="gift-outline"
+          title="Get Vaulted Premium"
+          subtitle={
+            creditsUsd > 0
+              ? `${formatUsd(creditsUsd)} in Vault credits · buyer protection`
+              : 'Buyer protection, credits & show perks'
+          }
+          trailing={referralUsd > 0 ? formatUsd(referralUsd) : undefined}
+          liveStyle
+          accentIcon
+          onPress={() => setStep('premium')}
         />
-        <SectionRow
-          icon="pricetag-outline"
-          title="Promo Code"
-          subtitle={summary?.promoCodeApplied ? `Applied: ${summary.promoCodeApplied}` : 'Add a promo code'}
-          onPress={() => setStep('promo')}
-        />
-        <SectionRow
-          icon="people-outline"
-          title="Referral Credit"
-          subtitle={referralUsd > 0 ? 'Eligible to apply' : 'Invite friends to earn'}
-          trailing={formatUsd(referralUsd)}
-          onPress={() => setStep('referral')}
-        />
+        <View style={t.promoRow}>
+          <TextInput
+            style={[t.promoInput, { flex: 1, marginBottom: 0 }]}
+            placeholder="Promo Code"
+            placeholderTextColor="rgba(255,255,255,0.35)"
+            value={promoDraft}
+            onChangeText={setPromoDraft}
+            autoCapitalize="characters"
+          />
+          <Pressable
+            style={[t.promoApplyBtn, promoDraft.trim() && t.promoApplyBtnActive]}
+            disabled={!promoDraft.trim()}
+            onPress={() => Alert.alert('Coming soon', 'Promo codes will validate at checkout in an upcoming release.')}
+          >
+            <LiveRoomText style={[t.promoApplyText, promoDraft.trim() && t.promoApplyTextActive]}>Apply</LiveRoomText>
+          </Pressable>
+        </View>
+        <LiveRoomText style={[t.hintText, { marginTop: spacing.sm }]}>
+          Live accepts {liveAcceptedMethodsLabel(walletPlatform, walletCapabilities)}.
+        </LiveRoomText>
         {loading ? (
           <View style={{ alignItems: 'center', paddingVertical: spacing.md }}>
             <ActivityIndicator color={colors.gold} size="small" />
@@ -446,14 +472,9 @@ export function VaultWalletSheet({
           disabled={loading && !walletReady}
         >
           <LiveRoomText style={t.primaryBtnText}>
-            {walletReady ? 'Done' : 'Finish Vault Wallet Setup'}
+            {walletReady ? 'Done' : 'Finish setup'}
           </LiveRoomText>
         </Pressable>
-        {!recoveryMode ? (
-          <Pressable style={t.secondaryBtn} onPress={onClose}>
-            <LiveRoomText style={t.secondaryBtnText}>Stay in room</LiveRoomText>
-          </Pressable>
-        ) : null}
       </View>
     </>
   );
@@ -543,148 +564,85 @@ export function VaultWalletSheet({
     </>
   );
 
-  const walletCapabilities = summary?.capabilities;
-  const stripePublishableKey = summary?.stripePublishableKey ?? null;
-  const walletPlatform = Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web';
-
-  const renderPaymentCatalogRow = (entry: (typeof WALLET_SAVABLE_METHOD_CATALOG)[number]) => {
-    if (!shouldShowWalletCatalogEntry(entry, walletPlatform)) return null;
-    const iconName =
-      entry.id === 'apple_pay'
-        ? 'logo-apple'
-        : entry.id === 'google_pay'
-          ? 'logo-google'
-          : entry.id === 'cash_app_pay'
-            ? 'cash-outline'
-            : entry.id === 'link'
-              ? 'link-outline'
-              : entry.id === 'amazon_pay'
-                ? 'logo-amazon'
-                : 'card-outline';
-    return (
-      <View key={entry.id} style={t.detailCard}>
-        <View style={t.pmRow}>
-          <View style={t.pmIcon}>
-            <Ionicons name={iconName} size={20} color={colors.gold} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <LiveRoomText style={t.detailTitle}>{entry.label}</LiveRoomText>
-            <LiveRoomText style={t.detailBody}>{walletMethodEligibilityLabel(entry)}</LiveRoomText>
-          </View>
-        </View>
-      </View>
-    );
-  };
-
   const renderPayment = () => (
     <>
-      <SheetHeader title="Payment Methods" onBack={goMain} />
-      <ScrollView contentContainerStyle={t.scrollContent}>
-        <LiveRoomText style={t.hintText}>
-          Saved methods charge instantly for live wins and buy-it-now. Marketplace checkout may also offer
-          payment plans when Stripe says you are eligible.
-        </LiveRoomText>
+      <SheetHeader title="Payment" onBack={goMain} />
+      <ScrollView contentContainerStyle={t.scrollContent} showsVerticalScrollIndicator={false}>
+        {stripePublishableKey ? (
+          <WalletNativePayButton
+            publishableKey={stripePublishableKey}
+            onPress={openPaymentSetup}
+            appearance="dark"
+          />
+        ) : null}
 
-        <LiveRoomText style={[t.sectionTitle, { marginTop: spacing.sm }]}>Payment Methods</LiveRoomText>
-        {WALLET_SAVABLE_METHOD_CATALOG.map(renderPaymentCatalogRow)}
-
-        <View style={[t.detailCard, { gap: spacing.sm, marginTop: spacing.sm }]}>
-          <LiveRoomText style={t.detailTitle}>Add payment method</LiveRoomText>
-          {stripePublishableKey ? (
-            <WalletNativePayButton
-              publishableKey={stripePublishableKey}
-              onPress={openPaymentSetup}
-              appearance="dark"
-            />
-          ) : null}
-          <Pressable style={t.payOptionBtn} onPress={openPaymentSetup}>
-            <Ionicons name="card-outline" size={20} color={colors.gold} />
-            <LiveRoomText style={t.payOptionBtnText}>Credit / debit card & more</LiveRoomText>
-            <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
-          </Pressable>
-          {walletCapabilities?.link || walletCapabilities?.cashAppPay || walletCapabilities?.amazonPay ? (
-            <LiveRoomText style={t.hintText}>
-              Link, Cash App Pay, and Amazon Pay appear in Stripe when you add a payment method.
-            </LiveRoomText>
-          ) : null}
+        <View style={t.orDividerRow}>
+          <View style={t.orDividerLine} />
+          <LiveRoomText style={t.orDividerText}>Or use</LiveRoomText>
+          <View style={t.orDividerLine} />
         </View>
 
-        <LiveRoomText style={[t.sectionTitle, { marginTop: spacing.md }]}>Marketplace Payment Plans</LiveRoomText>
-        <LiveRoomText style={[t.hintText, { marginBottom: spacing.sm }]}>
-          Available for Marketplace checkout only — not live auctions or trades.
-        </LiveRoomText>
-        {WALLET_MARKETPLACE_BNPL_CATALOG.map((entry) => (
-          <View key={entry.id} style={t.detailCard}>
-            <View style={t.pmRow}>
-              <View style={t.pmIcon}>
-                <Ionicons name="time-outline" size={20} color={colors.gold} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <LiveRoomText style={t.detailTitle}>{entry.label}</LiveRoomText>
-                <LiveRoomText style={t.detailBody}>{walletMethodEligibilityLabel(entry)}</LiveRoomText>
-              </View>
-            </View>
-          </View>
-        ))}
-
-        <LiveRoomText style={[t.sectionTitle, { marginTop: spacing.md }]}>Saved methods</LiveRoomText>
+        <LiveRoomText style={t.liveSectionLabel}>Saved</LiveRoomText>
         {paymentMethods.length === 0 ? (
-          <LiveRoomText style={t.sectionSubWarn}>Add a payment method to bid and buy.</LiveRoomText>
+          <LiveRoomText style={t.sectionSubWarn}>No saved payment method yet.</LiveRoomText>
         ) : (
           paymentMethods.map((pm) => {
             const pmType = normalizePmType(pm.type);
-            const catalogEntry =
-              WALLET_SAVABLE_METHOD_CATALOG.find((e) => e.id === pmType) ??
-              WALLET_SAVABLE_METHOD_CATALOG.find((e) => e.id === 'card');
             return (
-              <View key={pm.id} style={t.detailCard}>
-                <View style={t.pmRow}>
-                  <View style={t.pmIcon}>
-                    <Ionicons name={walletPmIcon(pmType)} size={20} color={colors.gold} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <LiveRoomText style={t.detailTitle}>{walletPmLabel(pm)}</LiveRoomText>
-                    {pmType === 'card' && pm.last4 ? (
-                      <LiveRoomText style={t.detailBody}>
-                        ···· {pm.last4} · Exp {formatCardExp(pm.expMonth, pm.expYear)}
-                      </LiveRoomText>
-                    ) : (
-                      <LiveRoomText style={t.detailBody}>Saved with Stripe</LiveRoomText>
-                    )}
-                    {catalogEntry ? (
-                      <LiveRoomText style={[t.hintText, { marginTop: 4 }]}>
-                        {walletMethodEligibilityLabel(catalogEntry)}
-                      </LiveRoomText>
-                    ) : null}
-                  </View>
-                  {pm.isDefault ? (
-                    <View style={t.badge}>
-                      <LiveRoomText style={t.badgeText}>Default</LiveRoomText>
-                    </View>
-                  ) : null}
+              <Pressable
+                key={pm.id}
+                style={[t.savedPmCard, (pm.isDefault || pm.id === primaryPayment?.id) && t.savedPmCardSelected]}
+                onPress={() => void handleSetDefaultPm(pm)}
+              >
+                <View style={t.pmIcon}>
+                  <Ionicons name={walletPmIcon(pmType)} size={20} color="#fff" />
                 </View>
-                <View style={t.pmActions}>
-                  {!pm.isDefault ? (
-                    <Pressable onPress={() => void handleSetDefaultPm(pm)}>
-                      <LiveRoomText style={t.pmActionTxt}>Set default</LiveRoomText>
-                    </Pressable>
-                  ) : null}
-                  <Pressable onPress={() => handleRemovePm(pm)}>
-                    <LiveRoomText style={[t.pmActionTxt, { color: '#fca5a5' }]}>Remove</LiveRoomText>
-                  </Pressable>
+                <View style={{ flex: 1 }}>
+                  <LiveRoomText style={t.detailTitle}>{walletPmLabel(pm)}</LiveRoomText>
+                  {pmType === 'card' && pm.last4 ? (
+                    <LiveRoomText style={t.detailBody}>
+                      ···· {pm.last4} · Exp {formatCardExp(pm.expMonth, pm.expYear)}
+                    </LiveRoomText>
+                  ) : (
+                    <LiveRoomText style={t.detailBody}>Saved for live checkout</LiveRoomText>
+                  )}
                 </View>
-              </View>
+                {pm.isDefault ? (
+                  <LiveRoomText style={[t.pmActionTxt, { color: '#93c5fd' }]}>Default</LiveRoomText>
+                ) : (
+                  <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
+                )}
+              </Pressable>
             );
           })
         )}
 
-        <View style={[t.detailCard, { marginTop: spacing.md }]}>
-          <LiveRoomText style={t.detailTitle}>Payout method</LiveRoomText>
-          <LiveRoomText style={t.detailBody}>
-            Seller payouts use Stripe Connect bank accounts — separate from buyer payment methods. Manage
-            payouts in Seller Hub.
-          </LiveRoomText>
+        <LiveRoomText style={t.liveSectionLabel}>New payment method</LiveRoomText>
+        <Pressable style={t.newCardBtn} onPress={openPaymentSetup}>
+          <Ionicons name="card-outline" size={18} color="#f4f2ec" />
+          <LiveRoomText style={t.newCardBtnText}>New card</LiveRoomText>
+        </Pressable>
+
+        <LiveRoomText style={t.liveSectionLabel}>Accepted on live</LiveRoomText>
+        <View style={t.detailCard}>
+          {liveMethods.map((entry, idx) => (
+            <View
+              key={entry.id}
+              style={[t.liveMethodRow, idx === liveMethods.length - 1 && t.liveMethodRowLast]}
+            >
+              <View style={t.pmIcon}>
+                <Ionicons name={catalogEntryIcon(entry.id)} size={18} color={colors.gold} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <LiveRoomText style={t.detailTitle}>{entry.label}</LiveRoomText>
+                <LiveRoomText style={t.detailBody}>Instant checkout for bids & buy-now</LiveRoomText>
+              </View>
+            </View>
+          ))}
         </View>
+        <LiveRoomText style={t.hintText}>
+          Affirm, Klarna, and Afterpay are marketplace-only — not available during live shows.
+        </LiveRoomText>
       </ScrollView>
       <View style={t.footer}>
         {recoveryMode ? (
@@ -694,6 +652,46 @@ export function VaultWalletSheet({
         ) : null}
         <Pressable style={recoveryMode ? t.secondaryBtn : t.primaryBtn} onPress={goMain}>
           <LiveRoomText style={recoveryMode ? t.secondaryBtnText : t.primaryBtnText}>Done</LiveRoomText>
+        </Pressable>
+      </View>
+    </>
+  );
+
+  const renderPremium = () => (
+    <>
+      <SheetHeader title="Get Vaulted Premium" onBack={goMain} />
+      <ScrollView contentContainerStyle={t.scrollContent}>
+        <View style={{ alignItems: 'center', marginBottom: spacing.md }}>
+          <View style={t.premiumHeroIcon}>
+            <Ionicons name="shield-checkmark" size={28} color="#0a0908" />
+          </View>
+          <LiveRoomText style={[t.heroTitle, { fontSize: 20 }]}>Get Vaulted Premium</LiveRoomText>
+          <LiveRoomText style={t.heroSub}>
+            Secure checkout for live bids, PYT spots, and instant buy-now — backed by Stripe.
+          </LiveRoomText>
+        </View>
+        <View style={t.detailCard}>
+          <LiveRoomText style={t.detailTitle}>Vault credits</LiveRoomText>
+          <LiveRoomText style={[t.sectionAmount, { fontSize: 24, marginTop: 4 }]}>{formatUsd(creditsUsd)}</LiveRoomText>
+          <LiveRoomText style={t.detailBody}>Applied automatically on eligible live & marketplace purchases.</LiveRoomText>
+        </View>
+        <View style={t.detailCard}>
+          <LiveRoomText style={t.detailTitle}>Referral credit</LiveRoomText>
+          <LiveRoomText style={[t.sectionAmount, { fontSize: 24, marginTop: 4 }]}>{formatUsd(referralUsd)}</LiveRoomText>
+          <LiveRoomText style={t.detailBody}>Invite friends to Get Vaulted and earn credit when your referral program is active.</LiveRoomText>
+        </View>
+        <View style={t.detailCard}>
+          <LiveRoomText style={t.detailTitle}>Live payment methods</LiveRoomText>
+          {liveMethods.map((entry) => (
+            <LiveRoomText key={entry.id} style={[t.detailBody, { marginTop: 4 }]}>
+              · {entry.label}
+            </LiveRoomText>
+          ))}
+        </View>
+      </ScrollView>
+      <View style={t.footer}>
+        <Pressable style={t.primaryBtn} onPress={goMain}>
+          <LiveRoomText style={t.primaryBtnText}>Done</LiveRoomText>
         </Pressable>
       </View>
     </>
@@ -839,6 +837,8 @@ export function VaultWalletSheet({
         return renderPromo();
       case 'referral':
         return renderReferral();
+      case 'premium':
+        return renderPremium();
       default:
         return renderMain();
     }
@@ -863,7 +863,7 @@ export function VaultWalletSheet({
           <Pressable
             style={StyleSheet.absoluteFill}
             onPress={recoveryMode ? undefined : step === 'main' ? onClose : undefined}
-            accessibilityLabel="Dismiss Vault Wallet"
+            accessibilityLabel="Dismiss Get Vaulted Premium"
           />
           <KeyboardAvoidingView
             style={{ maxHeight: sheetMaxHeight, width: '100%' }}

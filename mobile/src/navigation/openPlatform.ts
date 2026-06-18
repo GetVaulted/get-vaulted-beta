@@ -1,7 +1,13 @@
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
+import { fetchProfileIdByUsername } from '../api/profilesRepository';
 import type { DisputeContextType, SupportCategory } from '../platform/types';
 import { rootNavigationRef } from './rootNavigationRef';
 import type { RootStackParamList } from './types';
+
+function isLikelyPlatformUserId(value: string): boolean {
+  const v = value.trim();
+  return v.length >= 20 && /^c[a-z0-9]+$/i.test(v);
+}
 
 type RootNav = NavigationProp<RootStackParamList>;
 
@@ -28,6 +34,22 @@ export function openUserProfile(userId: string, navigation?: { navigate: RootNav
     return;
   }
   if (rootNavigationRef.isReady()) rootNavigationRef.navigate('UserProfile', { userId });
+}
+
+/** Open a live show host profile from buyer console (id preferred; username fallback). */
+export async function openLiveHostProfile(
+  args: { hostUserId?: string; hostUsername?: string },
+  navigation?: { navigate: RootNav['navigate'] },
+) {
+  const hostUserId = args.hostUserId?.trim();
+  if (hostUserId && isLikelyPlatformUserId(hostUserId)) {
+    openUserProfile(hostUserId, navigation);
+    return;
+  }
+  const username = (args.hostUsername ?? hostUserId)?.replace(/^@+/, '').trim();
+  if (!username) return;
+  const profileId = await fetchProfileIdByUsername(username);
+  if (profileId) openUserProfile(profileId, navigation);
 }
 
 export function openContactSupport(
