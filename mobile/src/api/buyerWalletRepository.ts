@@ -19,6 +19,7 @@ export type BuyerWalletCapabilities = {
   googlePay: boolean;
   link: boolean;
   cashAppPay: boolean;
+  amazonPay: boolean;
   paypal: boolean;
   venmo: boolean;
 };
@@ -31,6 +32,7 @@ export type BuyerWalletSummary = {
   referralCreditUsd: number;
   promoCodeApplied: string | null;
   promoDiscountUsd: number;
+  stripePublishableKey?: string | null;
   capabilities: BuyerWalletCapabilities;
   defaultPaymentMethod: BuyerPaymentMethodRow | null;
   paymentMethods: BuyerPaymentMethodRow[];
@@ -59,6 +61,7 @@ export type BuyerSetupIntentPayload = {
   googlePayEnabled?: boolean;
   linkEnabled?: boolean;
   cashAppPayEnabled?: boolean;
+  amazonPayEnabled?: boolean;
   paypalEnabled?: boolean;
   venmoEnabled?: boolean;
   paymentMethodTypes?: string[];
@@ -147,6 +150,7 @@ export async function createBuyerSetupIntent(
     googlePayEnabled?: boolean;
     linkEnabled?: boolean;
     cashAppPayEnabled?: boolean;
+    amazonPayEnabled?: boolean;
     paypalEnabled?: boolean;
     venmoEnabled?: boolean;
     paymentMethodTypes?: string[];
@@ -166,6 +170,7 @@ export async function createBuyerSetupIntent(
     googlePayEnabled: j.googlePayEnabled !== false,
     linkEnabled: j.linkEnabled === true,
     cashAppPayEnabled: j.cashAppPayEnabled === true,
+    amazonPayEnabled: j.amazonPayEnabled === true,
     paypalEnabled: j.paypalEnabled === true,
     venmoEnabled: j.venmoEnabled === true,
     paymentMethodTypes: Array.isArray(j.paymentMethodTypes) ? j.paymentMethodTypes : ['card'],

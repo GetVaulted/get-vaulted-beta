@@ -19,6 +19,7 @@ export type WalletCapabilities = {
   googlePay: boolean;
   link: boolean;
   cashAppPay: boolean;
+  amazonPay: boolean;
   paypal: boolean;
   /** Phase 2 — separate PayPal/Venmo processor, not Stripe Connect. */
   venmo: boolean;
@@ -42,6 +43,7 @@ export type BuyerWalletSummaryDTO = {
   referralCreditUsd: number;
   promoCodeApplied: string | null;
   promoDiscountUsd: number;
+  stripePublishableKey: string | null;
   capabilities: WalletCapabilities;
   defaultPaymentMethod: BuyerWalletPaymentMethodDTO | null;
   paymentMethods: BuyerWalletPaymentMethodDTO[];
@@ -56,7 +58,8 @@ export function defaultWalletCapabilities(stripeConfigured: boolean): WalletCapa
     googlePay: stripeConfigured,
     link: stripeConfigured,
     cashAppPay: stripeConfigured,
-    paypal: stripeConfigured,
+    amazonPay: stripeConfigured,
+    paypal: false,
     venmo: false,
   };
 }
@@ -75,6 +78,7 @@ export function stripePmTypeToWalletType(
   if (t === "link") return "link";
   if (t === "cashapp") return "cash_app_pay";
   if (t === "paypal") return "paypal";
+  if (t === "amazon_pay") return "card";
   return "card";
 }
 
@@ -92,8 +96,11 @@ export function walletMethodLabel(type: WalletPaymentMethodType, brand: string):
       return "PayPal";
     case "venmo":
       return "Venmo";
-    default:
-      return brand?.trim() || "Card";
+    default: {
+      const b = brand?.trim();
+      if (b?.toLowerCase() === "amazon pay") return "Amazon Pay";
+      return b || "Card";
+    }
   }
 }
 

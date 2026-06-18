@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { stripeCheckoutSessionPaymentOptions } from "@/lib/stripe-payment-method-config";
 import { buildCheckoutTaxSessionFields, STRIPE_TAX_CODE_TANGIBLE, stripeLineItemProductData } from "@/lib/stripe-tax";
 import { recordLiveShowCompletedSaleTx, resolveCheckoutApplicationFeeCents } from "@/lib/live-show-gmv";
 
@@ -156,6 +157,7 @@ export async function createLiveItemVariantCheckoutSession(args: {
   const session = await stripe.checkout.sessions.create(
     {
       mode: "payment",
+      ...stripeCheckoutSessionPaymentOptions("live"),
       success_url: `${base}${args.successPath ?? `/live/${encodeURIComponent(purchase.liveRoomId)}`}?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}${args.cancelPath ?? `/live/${encodeURIComponent(purchase.liveRoomId)}`}`,
       ...taxFields,

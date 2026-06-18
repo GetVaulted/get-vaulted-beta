@@ -82,7 +82,7 @@ export async function listBuyerCardPaymentMethods(userId: string): Promise<Buyer
   });
 }
 
-const WALLET_PM_STRIPE_TYPES = ["card", "link", "cashapp", "paypal"] as const;
+const WALLET_PM_STRIPE_TYPES = ["card", "link", "cashapp", "amazon_pay", "paypal"] as const;
 
 async function resolveDefaultPaymentMethodId(customerId: string): Promise<string | null> {
   const stripe = getStripe();
@@ -139,6 +139,9 @@ export async function listBuyerWalletPaymentMethods(userId: string): Promise<Buy
       } else if (pm.type === "paypal") {
         brand = "PayPal";
         last4 = pm.paypal?.payer_email?.slice(-4) ?? "····";
+      } else if (pm.type === "amazon_pay") {
+        brand = "Amazon Pay";
+        last4 = "····";
       }
       rows.push({
         id: pm.id,

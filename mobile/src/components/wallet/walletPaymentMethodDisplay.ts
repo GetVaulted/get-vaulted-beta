@@ -7,6 +7,7 @@ export type WalletPmType =
   | 'google_pay'
   | 'link'
   | 'cash_app_pay'
+  | 'amazon_pay'
   | 'paypal'
   | 'venmo';
 
@@ -16,6 +17,7 @@ export function normalizePmType(type?: string): WalletPmType {
     case 'google_pay':
     case 'link':
     case 'cash_app_pay':
+    case 'amazon_pay':
     case 'paypal':
     case 'venmo':
       return type;
@@ -34,6 +36,8 @@ export function walletPmIcon(type: WalletPmType): keyof typeof Ionicons.glyphMap
       return 'link-outline';
     case 'cash_app_pay':
       return 'cash-outline';
+    case 'amazon_pay':
+      return 'logo-amazon';
     case 'paypal':
       return 'logo-paypal';
     case 'venmo':
@@ -54,6 +58,8 @@ export function walletPmLabel(method: BuyerPaymentMethodRow): string {
       return 'Link';
     case 'cash_app_pay':
       return 'Cash App Pay';
+    case 'amazon_pay':
+      return 'Amazon Pay';
     case 'paypal':
       return 'PayPal';
     case 'venmo':

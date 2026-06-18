@@ -31,7 +31,12 @@ describe("live-room-payment-failure helpers", () => {
     ).toContain("verification");
   });
 
-  it("maps paid to paid status", () => {
-    expect(chargeOutcomeToFailureStatus({ outcome: "paid", paymentIntentId: "pi" })).toBe("paid");
+  it("maps incomplete live charges to payment_failed recovery state", () => {
+    expect(
+      chargeOutcomeToFailureStatus({ outcome: "error", code: "PAYMENT_INTENT_NOT_COMPLETED" }),
+    ).toBe("payment_failed");
+    expect(
+      chargeOutcomeToFailureStatus({ outcome: "error", code: "CARD_DECLINED" }),
+    ).toBe("payment_failed");
   });
 });

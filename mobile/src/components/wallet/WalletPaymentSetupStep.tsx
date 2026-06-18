@@ -40,6 +40,7 @@ import {
   WALLET_BILLING_COUNTRIES,
   billingCountryLabel,
 } from './walletPaymentSetupCountries';
+import { WalletNativePayButton } from './WalletNativePayButton';
 import { walletPaymentSetupStyles as ps } from './walletPaymentSetupStyles';
 
 type Props = {
@@ -153,12 +154,14 @@ function SupportedMethods({
   googlePayEnabled,
   linkEnabled,
   cashAppPayEnabled,
+  amazonPayEnabled,
   paypalEnabled,
 }: {
   applePayEnabled: boolean;
   googlePayEnabled: boolean;
   linkEnabled: boolean;
   cashAppPayEnabled: boolean;
+  amazonPayEnabled: boolean;
   paypalEnabled: boolean;
 }) {
   return (
@@ -212,7 +215,18 @@ function SupportedMethods({
           </View>
           <View style={ps.methodTextBlock}>
             <LiveRoomText style={ps.methodTitle}>Cash App Pay</LiveRoomText>
-            <LiveRoomText style={ps.methodSub}>When enabled on your Stripe account</LiveRoomText>
+            <LiveRoomText style={ps.methodSub}>Available for Live, Marketplace, and Trade</LiveRoomText>
+          </View>
+        </View>
+      ) : null}
+      {amazonPayEnabled ? (
+        <View style={ps.methodRow}>
+          <View style={ps.methodIconWrap}>
+            <Ionicons name="logo-amazon" size={22} color="#18181B" />
+          </View>
+          <View style={ps.methodTextBlock}>
+            <LiveRoomText style={ps.methodTitle}>Amazon Pay</LiveRoomText>
+            <LiveRoomText style={ps.methodSub}>When supported in Stripe checkout</LiveRoomText>
           </View>
         </View>
       ) : null}
@@ -272,8 +286,16 @@ function PaymentSheetLauncher({
       }
     >
       <LiveRoomText style={ps.subtitle}>
-        Cards are saved securely with Stripe for live bids and auction wins.
+        Cards and wallets are saved securely with Stripe for live bids and auction wins.
       </LiveRoomText>
+      <View style={ps.section}>
+        <LiveRoomText style={ps.sectionTitle}>Add with Apple Pay or Google Pay</LiveRoomText>
+        <WalletNativePayButton
+          publishableKey={payload.publishableKey}
+          onPress={onPresent}
+          appearance="light"
+        />
+      </View>
       <View style={ps.section}>
         <LiveRoomText style={ps.sectionTitle}>Supported methods</LiveRoomText>
         <SupportedMethods
@@ -281,7 +303,8 @@ function PaymentSheetLauncher({
           googlePayEnabled={payload.googlePayEnabled !== false}
           linkEnabled={payload.linkEnabled === true}
           cashAppPayEnabled={payload.cashAppPayEnabled === true}
-          paypalEnabled={payload.paypalEnabled === true}
+          amazonPayEnabled={payload.amazonPayEnabled === true}
+          paypalEnabled={false}
         />
       </View>
       <LiveRoomText style={ps.scanHint}>

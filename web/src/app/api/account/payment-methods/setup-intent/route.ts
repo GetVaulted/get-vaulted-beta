@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { ensureStripeCustomerIdForUser } from "@/lib/stripe-customer";
 import { getStripe, getStripePublishableKey, isStripeConfigured } from "@/lib/stripe";
+import { stripeSetupIntentPaymentOptions } from "@/lib/stripe-payment-method-config";
 
 /**
  * Creates a SetupIntent so the buyer can add a card to their Stripe Customer (off-session usage for wins).
@@ -30,11 +31,7 @@ export async function POST(req: Request) {
     const stripe = getStripe();
     const setupIntent = await stripe.setupIntents.create({
       customer: customerId,
-      // PaymentSheet-friendly: card + Apple Pay (when configured). No redirect wallets on mobile.
-      automatic_payment_methods: {
-        enabled: true,
-        allow_redirects: "never",
-      },
+      ...stripeSetupIntentPaymentOptions(),
       usage: "off_session",
     });
     const clientSecret = setupIntent.client_secret;
@@ -50,9 +47,10 @@ export async function POST(req: Request) {
       merchantCountryCode: "US",
       applePayEnabled: paymentMethodTypes.includes("card"),
       googlePayEnabled: paymentMethodTypes.includes("card"),
-      linkEnabled: paymentMethodTypes.includes("link") || paymentMethodTypes.includes("card"),
+      linkEnabled: paymentMethodTypes.includes("link"),
       cashAppPayEnabled: paymentMethodTypes.includes("cashapp"),
-      paypalEnabled: paymentMethodTypes.includes("paypal"),
+      amazonPayEnabled: paymentMethodTypes.includes("amazon_pay"),
+      paypalEnabled: false,
       venmoEnabled: false,
       paymentMethodTypes,
     });

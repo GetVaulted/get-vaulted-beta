@@ -32,6 +32,7 @@ import {
 import { marketplacePlatformFeePercent, applicationFeeCentsFromSubtotalUsd } from "@/lib/platform-fee-policy";
 import { resolveCheckoutApplicationFeeCents } from "@/lib/live-show-gmv";
 import { getStripe } from "@/lib/stripe";
+import { stripeCheckoutSessionPaymentOptions } from "@/lib/stripe-payment-method-config";
 import { stripeLineItemProductData, STRIPE_TAX_CODE_TANGIBLE, TAX_PROVIDER_STRIPE } from "@/lib/stripe-tax";
 import { prisma } from "@/lib/prisma";
 import { PAYMENT_PAID, PAYMENT_PENDING } from "@/services/payments";
@@ -522,6 +523,7 @@ export async function createLayawayDepositCheckout(args: {
 
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
+    ...stripeCheckoutSessionPaymentOptions("marketplace"),
     success_url: successUrl,
     cancel_url: cancelUrl,
     metadata: {
@@ -710,6 +712,7 @@ export async function createLayawayBalanceCheckout(args: {
 
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
+    ...stripeCheckoutSessionPaymentOptions("marketplace"),
     success_url: successUrl,
     cancel_url: cancelUrl,
     metadata: {

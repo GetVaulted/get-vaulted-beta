@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
 import { AccountWalletShippingSection } from "@/components/account/AccountWalletShippingSection";
 import { BuyerWalletReadinessBanner } from "@/components/account/BuyerWalletReadinessBanner";
+import { WALLET_METHOD_CATALOG, walletMethodEligibilityLabel } from "@/lib/stripe-payment-method-config";
 
 type PmRow = { id: string; brand: string; last4: string; expMonth: number; expYear: number };
 
@@ -427,6 +428,49 @@ export function AccountPaymentMethodsPage() {
               Add another card
             </button>
           ) : null}
+        </section>
+
+        <section className="mt-10 space-y-3" aria-label="Accepted payment methods">
+          <h2 className="font-display text-lg font-bold text-foreground">Payment methods</h2>
+          <p className="text-xs text-zinc-500">
+            Saved methods charge instantly for live wins. Marketplace checkout may also offer payment plans when
+            Stripe says you are eligible.
+          </p>
+          <ul className="space-y-2">
+            {WALLET_METHOD_CATALOG.filter((e) => e.savableInWallet).map((entry) => (
+              <li
+                key={entry.id}
+                className="rounded-xl border border-white/[0.08] bg-[#08080a]/90 px-4 py-3"
+              >
+                <p className="text-sm font-semibold text-zinc-100">{entry.label}</p>
+                <p className="text-[11px] text-zinc-500">{walletMethodEligibilityLabel(entry)}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section className="mt-8 space-y-3" aria-label="Marketplace payment plans">
+          <h2 className="font-display text-lg font-bold text-foreground">Marketplace payment plans</h2>
+          <p className="text-xs text-zinc-500">Available for Marketplace checkout only — not live auctions or trades.</p>
+          <ul className="space-y-2">
+            {WALLET_METHOD_CATALOG.filter((e) => !e.savableInWallet).map((entry) => (
+              <li
+                key={entry.id}
+                className="rounded-xl border border-white/[0.08] bg-[#08080a]/90 px-4 py-3"
+              >
+                <p className="text-sm font-semibold text-zinc-100">{entry.label}</p>
+                <p className="text-[11px] text-zinc-500">{walletMethodEligibilityLabel(entry)}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section className="mt-8 rounded-xl border border-white/[0.08] bg-[#08080a]/90 px-4 py-3" aria-label="Payout method">
+          <p className="text-sm font-semibold text-zinc-100">Payout method</p>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Seller payouts use Stripe Connect bank accounts — separate from buyer payment methods. Manage payouts in
+            Seller Hub.
+          </p>
         </section>
 
         {formOpen && stripeConfigured ? (

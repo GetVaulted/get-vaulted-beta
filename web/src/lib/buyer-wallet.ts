@@ -9,7 +9,7 @@ import {
   getBuyerDefaultCardPaymentMethodId,
   listBuyerWalletPaymentMethods,
 } from "@/lib/stripe-customer";
-import { isStripeConfigured } from "@/lib/stripe";
+import { isStripeConfigured, getStripePublishableKey } from "@/lib/stripe";
 
 export async function buildBuyerWalletSummary(userId: string): Promise<BuyerWalletSummaryDTO> {
   const [{ paymentReady, shippingReady }, paymentMethods, defaultAddress] = await Promise.all([
@@ -27,6 +27,7 @@ export async function buildBuyerWalletSummary(userId: string): Promise<BuyerWall
     paymentMethods.find((pm) => pm.id === defaultPmId) ?? paymentMethods.find((pm) => pm.isDefault) ?? paymentMethods[0] ?? null;
 
   const stripeConfigured = isStripeConfigured();
+  const publishableKey = stripeConfigured ? getStripePublishableKey().trim() : "";
 
   return {
     paymentReady,
@@ -36,6 +37,7 @@ export async function buildBuyerWalletSummary(userId: string): Promise<BuyerWall
     referralCreditUsd: 0,
     promoCodeApplied: null,
     promoDiscountUsd: 0,
+    stripePublishableKey: publishableKey || null,
     capabilities: defaultWalletCapabilities(stripeConfigured),
     defaultPaymentMethod,
     paymentMethods,

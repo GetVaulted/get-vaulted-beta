@@ -5,6 +5,7 @@
     "typecheck:web": "cd web && npx tsc --noEmit",
     "typecheck:mobile": "cd mobile && npx tsc --noEmit",
     "typecheck": "npm run typecheck:web && npm run typecheck:mobile",
+    "test": "npm run test --prefix web && npm run test --prefix mobile",
     "build": "npm install --prefix web && npm run build --prefix web",
     "netlify:build": "npm install --prefix web && npm run netlify:build --prefix web",
     "web:netlify:build": "npm run netlify:build --prefix web",

@@ -5,6 +5,7 @@ import { isEscrowConfigured, orderTotalQualifiesForEscrow } from "@/lib/escrow-c
 import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId } from "@/lib/stripe-customer";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { stripeOffSessionPaymentIntentOptions } from "@/lib/stripe-payment-method-config";
 import { orderRequiresCheckoutForTax } from "@/lib/stripe-tax";
 import { resolveCheckoutApplicationFeeCents, resolveLiveRoomIdForOrder } from "@/lib/live-show-gmv";
 import { finalizeLiveBuyNowPurchaseComplete } from "@/lib/live-buy-now-purchase";
@@ -317,9 +318,8 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
         customer: customerId,
         payment_method: pmId,
         confirm: true,
-        // In-app saved-card recovery charge: keep card-only, never trigger redirect-based methods
-        // (which would otherwise require a return_url and fail PI creation).
-        automatic_payment_methods: { enabled: true, allow_redirects: "never" },
+        // In-app saved-card recovery charge: instant methods only, no BNPL/ACH redirects.
+        ...stripeOffSessionPaymentIntentOptions("marketplace"),
         metadata: {
           orderId: row.id,
           kind: PI_KIND,
@@ -636,9 +636,8 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
         payment_method: pmId,
         confirm: true,
         off_session: true,
-        // In-app saved-card recovery charge: keep card-only, never trigger redirect-based methods
-        // (which would otherwise require a return_url and fail PI creation).
-        automatic_payment_methods: { enabled: true, allow_redirects: "never" },
+        // Live saved-card recovery: instant methods only.
+        ...stripeOffSessionPaymentIntentOptions("live"),
         metadata: {
           orderId: row.id,
           kind: LIVE_BUY_NOW_PI_KIND,

@@ -49,6 +49,13 @@ import {
   walletPmSummary,
   normalizePmType,
 } from './walletPaymentMethodDisplay';
+import { WalletNativePayButton } from './WalletNativePayButton';
+import {
+  WALLET_MARKETPLACE_BNPL_CATALOG,
+  WALLET_SAVABLE_METHOD_CATALOG,
+  shouldShowWalletCatalogEntry,
+  walletMethodEligibilityLabel,
+} from '../../lib/paymentMethodCatalog';
 
 export type WalletStep =
   | 'main'
@@ -537,49 +544,98 @@ export function VaultWalletSheet({
   );
 
   const walletCapabilities = summary?.capabilities;
+  const stripePublishableKey = summary?.stripePublishableKey ?? null;
+  const walletPlatform = Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web';
+
+  const renderPaymentCatalogRow = (entry: (typeof WALLET_SAVABLE_METHOD_CATALOG)[number]) => {
+    if (!shouldShowWalletCatalogEntry(entry, walletPlatform)) return null;
+    const iconName =
+      entry.id === 'apple_pay'
+        ? 'logo-apple'
+        : entry.id === 'google_pay'
+          ? 'logo-google'
+          : entry.id === 'cash_app_pay'
+            ? 'cash-outline'
+            : entry.id === 'link'
+              ? 'link-outline'
+              : entry.id === 'amazon_pay'
+                ? 'logo-amazon'
+                : 'card-outline';
+    return (
+      <View key={entry.id} style={t.detailCard}>
+        <View style={t.pmRow}>
+          <View style={t.pmIcon}>
+            <Ionicons name={iconName} size={20} color={colors.gold} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <LiveRoomText style={t.detailTitle}>{entry.label}</LiveRoomText>
+            <LiveRoomText style={t.detailBody}>{walletMethodEligibilityLabel(entry)}</LiveRoomText>
+          </View>
+        </View>
+      </View>
+    );
+  };
 
   const renderPayment = () => (
     <>
       <SheetHeader title="Payment Methods" onBack={goMain} />
       <ScrollView contentContainerStyle={t.scrollContent}>
         <LiveRoomText style={t.hintText}>
-          Add a saved payment method with Stripe — card, Apple Pay, Google Pay, Link, and more when available.
+          Saved methods charge instantly for live wins and buy-it-now. Marketplace checkout may also offer
+          payment plans when Stripe says you are eligible.
         </LiveRoomText>
 
-        <View style={t.detailCard}>
+        <LiveRoomText style={[t.sectionTitle, { marginTop: spacing.sm }]}>Payment Methods</LiveRoomText>
+        {WALLET_SAVABLE_METHOD_CATALOG.map(renderPaymentCatalogRow)}
+
+        <View style={[t.detailCard, { gap: spacing.sm, marginTop: spacing.sm }]}>
           <LiveRoomText style={t.detailTitle}>Add payment method</LiveRoomText>
-          {Platform.OS === 'ios' && walletCapabilities?.applePay !== false ? (
-            <Pressable style={t.payOptionBtn} onPress={openPaymentSetup}>
-              <Ionicons name="logo-apple" size={20} color={colors.gold} />
-              <LiveRoomText style={t.payOptionBtnText}>Apple Pay</LiveRoomText>
-              <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
-            </Pressable>
-          ) : null}
-          {Platform.OS === 'android' && walletCapabilities?.googlePay !== false ? (
-            <Pressable style={t.payOptionBtn} onPress={openPaymentSetup}>
-              <Ionicons name="logo-google" size={20} color={colors.gold} />
-              <LiveRoomText style={t.payOptionBtnText}>Google Pay</LiveRoomText>
-              <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
-            </Pressable>
+          {stripePublishableKey ? (
+            <WalletNativePayButton
+              publishableKey={stripePublishableKey}
+              onPress={openPaymentSetup}
+              appearance="dark"
+            />
           ) : null}
           <Pressable style={t.payOptionBtn} onPress={openPaymentSetup}>
             <Ionicons name="card-outline" size={20} color={colors.gold} />
-            <LiveRoomText style={t.payOptionBtnText}>Card & more with Stripe</LiveRoomText>
+            <LiveRoomText style={t.payOptionBtnText}>Credit / debit card & more</LiveRoomText>
             <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
           </Pressable>
-          {walletCapabilities?.link ? (
-            <LiveRoomText style={[t.hintText, { marginTop: 6 }]}>
-              Link, Cash App Pay, and PayPal appear in Stripe checkout when enabled on your account.
+          {walletCapabilities?.link || walletCapabilities?.cashAppPay || walletCapabilities?.amazonPay ? (
+            <LiveRoomText style={t.hintText}>
+              Link, Cash App Pay, and Amazon Pay appear in Stripe when you add a payment method.
             </LiveRoomText>
           ) : null}
         </View>
 
-        <LiveRoomText style={[t.sectionTitle, { marginTop: spacing.sm }]}>Saved methods</LiveRoomText>
+        <LiveRoomText style={[t.sectionTitle, { marginTop: spacing.md }]}>Marketplace Payment Plans</LiveRoomText>
+        <LiveRoomText style={[t.hintText, { marginBottom: spacing.sm }]}>
+          Available for Marketplace checkout only — not live auctions or trades.
+        </LiveRoomText>
+        {WALLET_MARKETPLACE_BNPL_CATALOG.map((entry) => (
+          <View key={entry.id} style={t.detailCard}>
+            <View style={t.pmRow}>
+              <View style={t.pmIcon}>
+                <Ionicons name="time-outline" size={20} color={colors.gold} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <LiveRoomText style={t.detailTitle}>{entry.label}</LiveRoomText>
+                <LiveRoomText style={t.detailBody}>{walletMethodEligibilityLabel(entry)}</LiveRoomText>
+              </View>
+            </View>
+          </View>
+        ))}
+
+        <LiveRoomText style={[t.sectionTitle, { marginTop: spacing.md }]}>Saved methods</LiveRoomText>
         {paymentMethods.length === 0 ? (
           <LiveRoomText style={t.sectionSubWarn}>Add a payment method to bid and buy.</LiveRoomText>
         ) : (
           paymentMethods.map((pm) => {
             const pmType = normalizePmType(pm.type);
+            const catalogEntry =
+              WALLET_SAVABLE_METHOD_CATALOG.find((e) => e.id === pmType) ??
+              WALLET_SAVABLE_METHOD_CATALOG.find((e) => e.id === 'card');
             return (
               <View key={pm.id} style={t.detailCard}>
                 <View style={t.pmRow}>
@@ -595,6 +651,11 @@ export function VaultWalletSheet({
                     ) : (
                       <LiveRoomText style={t.detailBody}>Saved with Stripe</LiveRoomText>
                     )}
+                    {catalogEntry ? (
+                      <LiveRoomText style={[t.hintText, { marginTop: 4 }]}>
+                        {walletMethodEligibilityLabel(catalogEntry)}
+                      </LiveRoomText>
+                    ) : null}
                   </View>
                   {pm.isDefault ? (
                     <View style={t.badge}>
@@ -616,6 +677,14 @@ export function VaultWalletSheet({
             );
           })
         )}
+
+        <View style={[t.detailCard, { marginTop: spacing.md }]}>
+          <LiveRoomText style={t.detailTitle}>Payout method</LiveRoomText>
+          <LiveRoomText style={t.detailBody}>
+            Seller payouts use Stripe Connect bank accounts — separate from buyer payment methods. Manage
+            payouts in Seller Hub.
+          </LiveRoomText>
+        </View>
       </ScrollView>
       <View style={t.footer}>
         {recoveryMode ? (

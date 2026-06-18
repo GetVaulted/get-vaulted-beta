@@ -29,6 +29,11 @@ import {
   TAX_PROVIDER_STRIPE,
 } from "@/lib/stripe-tax";
 import {
+  resolveBuyNowCheckoutLane,
+  resolveOrderCheckoutLane,
+  stripeCheckoutSessionPaymentOptions,
+} from "@/lib/stripe-payment-method-config";
+import {
   buyNowCheckoutSubtotalCents,
   reuseOpenCheckoutSessionIfMatching,
 } from "@/lib/stripe-checkout-session";
@@ -805,6 +810,7 @@ export async function createBuyNowCheckoutSession(args: {
         success_url: successUrl,
         cancel_url: cancelUrl,
         client_reference_id: order.id,
+        ...stripeCheckoutSessionPaymentOptions(resolveBuyNowCheckoutLane(liveRoomItemId)),
         ...taxBundle.sessionFields,
         metadata: {
           kind: "buy_now",
@@ -1062,6 +1068,9 @@ export async function createPayOrderCheckoutSession(args: {
       success_url: `${base}${args.successPath ?? `/orders/${encodeURIComponent(order.id)}`}?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}${args.cancelPath ?? `/orders/${encodeURIComponent(order.id)}`}`,
       client_reference_id: order.id,
+      ...stripeCheckoutSessionPaymentOptions(
+        resolveOrderCheckoutLane({ liveShippingSessionId: payOrder.liveShippingSession?.id }),
+      ),
       ...taxBundle.sessionFields,
       metadata: {
         kind: "pay_order",
@@ -1164,6 +1173,7 @@ export async function createBreakSpotCheckoutSession(args: {
       mode: "payment",
       success_url: `${base}${args.successPath ?? `/live/${encodeURIComponent(spot.liveRoomId)}`}?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}${args.cancelPath ?? `/live/${encodeURIComponent(spot.liveRoomId)}`}`,
+      ...stripeCheckoutSessionPaymentOptions("live"),
       ...taxFields,
       metadata: {
         kind: "break_spot",

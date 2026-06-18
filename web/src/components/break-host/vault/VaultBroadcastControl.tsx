@@ -35,7 +35,6 @@ export function VaultBroadcastControl({
         </button>
         <button
           type="button"
-          disabled={phase === "stopping"}
           onClick={onStop}
           aria-label="Stop stream"
           className={stopClass}

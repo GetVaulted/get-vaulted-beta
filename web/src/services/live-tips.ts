@@ -1,4 +1,5 @@
 import { getStripe, getStripePublishableKey, isStripeConfigured } from "@/lib/stripe";
+import { stripeCheckoutSessionPaymentOptions } from "@/lib/stripe-payment-method-config";
 import { prisma } from "@/lib/prisma";
 import { liveTipApplicationFeeCents, resolveLiveTipRecipientUserId } from "@/lib/live-tip-routing";
 import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId } from "@/lib/stripe-customer";
@@ -83,6 +84,7 @@ export async function createLiveTipCheckoutSession(args: {
     const session = await stripe.checkout.sessions.create(
       {
         mode: "payment",
+        ...stripeCheckoutSessionPaymentOptions("live"),
         success_url: `${base}${args.successPath ?? `/live/${encodeURIComponent(room.id)}`}?tip=success&session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${base}${args.cancelPath ?? `/live/${encodeURIComponent(room.id)}`}?tip=cancelled`,
         metadata: {

@@ -1,6 +1,9 @@
 import type { Handler } from '@netlify/functions';
 import Stripe from 'stripe';
 
+/** Instant-confirming Stripe Checkout methods for trade fees (no BNPL/ACH). */
+const TRADE_CHECKOUT_PAYMENT_METHOD_TYPES = ['card', 'link', 'cashapp', 'amazon_pay'] as const;
+
 /**
  * Stripe Checkout for bundled Get Vaulted trade fee (shipping + protection + support).
  * Persists `payments` + auto-labels via `stripe-webhook` on `checkout.session.completed`.
@@ -35,6 +38,7 @@ export const handler: Handler = async (event) => {
 
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
+    payment_method_types: [...TRADE_CHECKOUT_PAYMENT_METHOD_TYPES],
     success_url: `${site}/trade/fee/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${site}/trade/fee/cancel`,
     line_items: [
