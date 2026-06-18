@@ -7,6 +7,7 @@ type Props = {
   targetUserId: string;
   targetUsername: string;
   targetMessageId?: string;
+  hostUserId?: string | null;
   canModerate: boolean;
   onActionComplete?: () => void;
 };
@@ -16,6 +17,7 @@ export function LiveModeratorMenu({
   targetUserId,
   targetUsername,
   targetMessageId,
+  hostUserId = null,
   canModerate,
   onActionComplete,
 }: Props) {
@@ -24,6 +26,7 @@ export function LiveModeratorMenu({
   const [error, setError] = useState<string | null>(null);
 
   if (!canModerate) return null;
+  if (hostUserId && targetUserId === hostUserId) return null;
 
   const act = async (actionType: string, metadata?: Record<string, unknown>) => {
     setBusy(true);

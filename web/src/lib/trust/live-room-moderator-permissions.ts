@@ -69,3 +69,22 @@ export function listAllowedModerationActions(args: {
     .filter(([, minLevel]) => rank >= LEVEL_RANK[minLevel])
     .map(([action]) => action);
 }
+
+const HOST_REVERSIBLE_ACTIONS = new Set<LiveRoomModerationActionType>([
+  "unmute",
+  "unban",
+  "unblock_bidding",
+]);
+
+/** Assigned moderators (non-admin) cannot mute/kick/ban/delete messages for the show host. */
+export function isModeratorActionBlockedOnHost(args: {
+  actionType: LiveRoomModerationActionType;
+  targetUserId: string | null | undefined;
+  hostUserId: string;
+  isAdmin?: boolean;
+}): boolean {
+  if (!args.targetUserId || args.targetUserId !== args.hostUserId) return false;
+  if (args.isAdmin) return false;
+  if (HOST_REVERSIBLE_ACTIONS.has(args.actionType)) return false;
+  return true;
+}

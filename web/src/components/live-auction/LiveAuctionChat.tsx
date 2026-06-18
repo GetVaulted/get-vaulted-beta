@@ -148,6 +148,7 @@ export function LiveAuctionChat({
         messageId={m.id}
         senderId={m.senderId}
         senderUsername={m.senderUsername}
+        hostUserId={hostUserId}
         canModerate={mod.canModerate}
         onModerationComplete={() => {
           void mod.reload();

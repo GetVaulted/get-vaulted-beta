@@ -20,7 +20,7 @@ import {
   type LiveRoomTipSummary,
   type LiveRoomViewerRow,
 } from '../../api/trustRepository';
-import { canPerformModeratorAction, formatModActionLabel } from '../../lib/liveModeratorPermissions';
+import { canPerformModeratorAction, formatModActionLabel, isLiveRoomHostUser } from '../../lib/liveModeratorPermissions';
 import { colors, radii, spacing } from '../../theme';
 import { ModeratorViewerActions } from './ModeratorViewerActions';
 
@@ -106,6 +106,7 @@ export function ModeratorDrawer({
         return (
           <ViewersList
             rows={moderation.viewers}
+            hostUserId={hostUserId}
             onSelect={(row) => setViewerAction(row)}
             emptyLabel="No recent chat activity yet."
           />
@@ -255,24 +256,33 @@ function ModQueueList({ rows, emptyLabel }: { rows: LiveRoomModQueueRow[]; empty
 
 function ViewersList({
   rows,
+  hostUserId,
   onSelect,
   emptyLabel,
 }: {
   rows: LiveRoomViewerRow[];
+  hostUserId?: string;
   onSelect: (row: LiveRoomViewerRow) => void;
   emptyLabel: string;
 }) {
   if (rows.length === 0) return <Text style={styles.empty}>{emptyLabel}</Text>;
   return (
     <>
-      {rows.map((row) => (
-        <Pressable key={row.userId} style={styles.card} onPress={() => onSelect(row)}>
-          <Text style={styles.cardTitle}>@{row.username}</Text>
-          <Text style={styles.cardMeta}>
-            {row.messageCount} messages · {new Date(row.lastSeenAt).toLocaleTimeString()}
-          </Text>
-        </Pressable>
-      ))}
+      {rows.map((row) => {
+        const isHost = isLiveRoomHostUser(hostUserId, row.userId);
+        return (
+          <Pressable key={row.userId} style={styles.card} onPress={() => onSelect(row)}>
+            <Text style={styles.cardTitle}>
+              @{row.username}
+              {isHost ? ' · HOST' : ''}
+            </Text>
+            <Text style={styles.cardMeta}>
+              {row.messageCount} messages · {new Date(row.lastSeenAt).toLocaleTimeString()}
+              {isHost ? ' · moderation unavailable' : ''}
+            </Text>
+          </Pressable>
+        );
+      })}
     </>
   );
 }

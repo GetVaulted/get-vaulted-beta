@@ -9,6 +9,7 @@ type Props = {
   messageId: string;
   senderId: string;
   senderUsername: string;
+  hostUserId?: string | null;
   canModerate: boolean;
   reportable?: boolean;
   onModerationComplete?: () => void;
@@ -19,6 +20,7 @@ export function LiveChatMessageRowActions({
   messageId,
   senderId,
   senderUsername,
+  hostUserId = null,
   canModerate,
   reportable = true,
   onModerationComplete,
@@ -26,6 +28,7 @@ export function LiveChatMessageRowActions({
   const [reportOpen, setReportOpen] = useState(false);
 
   if (!reportable && !canModerate) return null;
+  const hostProtected = Boolean(hostUserId && senderId === hostUserId);
 
   return (
     <span className="ml-1 inline-flex items-center gap-0.5 align-middle opacity-0 transition group-hover:opacity-100 [.chat-msg-row:hover_&]:opacity-100">
@@ -39,12 +42,13 @@ export function LiveChatMessageRowActions({
           report
         </button>
       ) : null}
-      {canModerate ? (
+      {canModerate && !hostProtected ? (
         <LiveModeratorMenu
           roomId={liveRoomId}
           targetUserId={senderId}
           targetUsername={senderUsername}
           targetMessageId={messageId}
+          hostUserId={hostUserId}
           canModerate={canModerate}
           onActionComplete={onModerationComplete}
         />

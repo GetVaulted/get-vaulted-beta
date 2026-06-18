@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { ActionSheetIOS, Alert, Platform } from 'react-native';
 import { applyLiveModerationAction } from '../../api/trustRepository';
 import type { LiveModeratorLevel } from '../../api/trustRepository';
-import { canPerformModeratorAction, TIMEOUT_MINUTES } from '../../lib/liveModeratorPermissions';
+import { canPerformModeratorAction, isLiveRoomHostUser, TIMEOUT_MINUTES } from '../../lib/liveModeratorPermissions';
 import { openUserProfile } from '../../navigation/openPlatform';
 
 type Props = {
@@ -40,7 +40,7 @@ export function ModeratorViewerActions({
   hostUserId,
   onComplete,
 }: Props) {
-  const isHost = Boolean(hostUserId && userId === hostUserId);
+  const isHost = isLiveRoomHostUser(hostUserId, userId);
 
   const runAction = async (actionType: string, metadata?: Record<string, unknown>) => {
     if (!accessToken) return;

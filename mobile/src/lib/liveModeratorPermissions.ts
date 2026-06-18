@@ -45,6 +45,14 @@ export function canPerformModeratorAction(args: {
   return LEVEL_RANK[level] >= LEVEL_RANK[required];
 }
 
+/** Assigned moderators cannot perform punitive actions on the show host. */
+export function isLiveRoomHostUser(
+  hostUserId: string | undefined,
+  targetUserId: string | undefined,
+): boolean {
+  return Boolean(hostUserId && targetUserId && hostUserId === targetUserId);
+}
+
 /** Mod tools shield — explicit moderator assignment only (not host/seller/creator by default). */
 export function showModeratorTools(isModerator: boolean): boolean {
   return isModerator;

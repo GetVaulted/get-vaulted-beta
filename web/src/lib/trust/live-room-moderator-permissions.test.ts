@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canModeratorPerformAction,
   effectiveModeratorLevel,
+  isModeratorActionBlockedOnHost,
   resolveViewerRole,
 } from "./live-room-moderator-permissions";
 
@@ -43,5 +44,24 @@ describe("live-room-moderator-permissions", () => {
     expect(
       canModeratorPerformAction({ actionType: "seller_stream_ban", isHost: false, moderatorLevel: "head" }),
     ).toBe(true);
+  });
+
+  it("blocks assigned moderators from punitive actions on the host", () => {
+    const hostId = "host-1";
+    expect(isModeratorActionBlockedOnHost({ actionType: "mute", targetUserId: hostId, hostUserId: hostId })).toBe(
+      true,
+    );
+    expect(
+      isModeratorActionBlockedOnHost({ actionType: "delete_message", targetUserId: hostId, hostUserId: hostId }),
+    ).toBe(true);
+    expect(isModeratorActionBlockedOnHost({ actionType: "kick", targetUserId: hostId, hostUserId: hostId })).toBe(
+      true,
+    );
+    expect(isModeratorActionBlockedOnHost({ actionType: "unmute", targetUserId: hostId, hostUserId: hostId })).toBe(
+      false,
+    );
+    expect(isModeratorActionBlockedOnHost({ actionType: "mute", targetUserId: "buyer-1", hostUserId: hostId })).toBe(
+      false,
+    );
   });
 });

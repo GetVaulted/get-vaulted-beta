@@ -205,6 +205,7 @@ export function VaultHostLiveChatPanel({
                           messageId={m.id}
                           senderId={m.senderId}
                           senderUsername={m.senderUsername}
+                          hostUserId={hostUserId}
                           canModerate
                           onModerationComplete={() => onMessagesRefresh?.()}
                         />

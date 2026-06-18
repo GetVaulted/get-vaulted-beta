@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { ActionSheetIOS, Alert, Platform, Pressable, StyleSheet } from 'react-native';
 import { applyLiveModerationAction } from '../../api/trustRepository';
+import { isLiveRoomHostUser } from '../../lib/liveModeratorPermissions';
 import { radii, spacing } from '../../theme';
 import { ReportSheet } from './ReportSheet';
 
@@ -10,6 +11,7 @@ type Props = {
   messageId: string;
   senderId?: string;
   senderUsername: string;
+  hostUserId?: string;
   accessToken?: string;
   canModerate?: boolean;
   onComplete?: () => void;
@@ -20,14 +22,16 @@ export function LiveChatRowActions({
   messageId,
   senderId,
   senderUsername,
+  hostUserId,
   accessToken,
   canModerate = false,
   onComplete,
 }: Props) {
   const [reportOpen, setReportOpen] = useState(false);
+  const hostProtected = isLiveRoomHostUser(hostUserId, senderId);
 
   const runMod = async (actionType: string) => {
-    if (!accessToken || !senderId) return;
+    if (!accessToken || !senderId || hostProtected) return;
     const result = await applyLiveModerationAction({
       accessToken,
       roomId: liveRoomId,
@@ -47,7 +51,7 @@ export function LiveChatRowActions({
     const options: string[] = ['Report message'];
     const handlers: Array<() => void> = [() => setReportOpen(true)];
 
-    if (canModerate && accessToken && senderId) {
+    if (canModerate && accessToken && senderId && !hostProtected) {
       options.push('Mute', 'Kick', 'Ban from room', 'Block bidding', 'Delete message');
       handlers.push(
         () => void runMod('mute'),

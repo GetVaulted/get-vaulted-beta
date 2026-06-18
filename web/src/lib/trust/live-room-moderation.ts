@@ -3,6 +3,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   canModeratorPerformAction,
+  isModeratorActionBlockedOnHost,
   resolveViewerRole,
   type LiveViewerRole,
 } from "@/lib/trust/live-room-moderator-permissions";
@@ -240,19 +241,43 @@ export async function applyLiveRoomModerationAction(args: {
     return { ok: false, error: "Your moderator level cannot perform this action." };
   }
 
+  let resolvedTargetUserId = args.targetUserId ?? null;
   if (actionType === "delete_message") {
     if (!args.targetMessageId) return { ok: false, error: "Message id required." };
     const msg = await prisma.liveRoomMessage.findFirst({
       where: { id: args.targetMessageId, liveRoomId: args.liveRoomId },
-      select: { id: true, deletedAt: true },
+      select: { id: true, deletedAt: true, senderId: true },
     });
     if (!msg) return { ok: false, error: "Message not found." };
+    resolvedTargetUserId = resolvedTargetUserId ?? msg.senderId;
+    if (
+      isModeratorActionBlockedOnHost({
+        actionType,
+        targetUserId: resolvedTargetUserId,
+        hostUserId: room.sellerId,
+        isAdmin: args.isAdmin,
+      })
+    ) {
+      return { ok: false, error: "Cannot moderate the host." };
+    }
     if (!msg.deletedAt) {
       await prisma.liveRoomMessage.update({
         where: { id: msg.id },
         data: { deletedAt: new Date(), deletedByUserId: args.moderatorUserId },
       });
     }
+  }
+
+  if (
+    resolvedTargetUserId &&
+    isModeratorActionBlockedOnHost({
+      actionType,
+      targetUserId: resolvedTargetUserId,
+      hostUserId: room.sellerId,
+      isAdmin: args.isAdmin,
+    })
+  ) {
+    return { ok: false, error: "Cannot moderate the host." };
   }
 
   if (actionType === "slow_mode") {
@@ -329,17 +354,6 @@ export async function applyLiveRoomModerationAction(args: {
   ];
   if (userActions.includes(actionType) && !args.targetUserId) {
     return { ok: false, error: "Target user required." };
-  }
-
-  if (
-    args.targetUserId &&
-    args.targetUserId === room.sellerId &&
-    !args.isAdmin &&
-    actionType !== "unmute" &&
-    actionType !== "unban" &&
-    actionType !== "unblock_bidding"
-  ) {
-    return { ok: false, error: "Cannot moderate the host." };
   }
 
   let expiresAt = args.expiresAt ?? null;
