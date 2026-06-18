@@ -1,10 +1,13 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { LIVE_BUNDLED_SHIPPING_DESTINATION_KEY } from "@/services/shipping/live-shipping-pricing";
 import {
-  computeBundledNextItemShippingDeltaCents,
-  LIVE_BUNDLED_SHIPPING_DESTINATION_KEY,
-  liveShippingTierLabelForPricingWeightOz,
-} from "@/services/shipping/live-shipping-pricing";
+  computeSessionPoolTotals,
+  estimateWinItemShippingDeltaCents,
+  liveShowShippingConfigFromRoom,
+  computePoolTotalsFromGroups,
+  resolveLiveRoomItemShippingProfile,
+} from "@/services/shipping/live-shipping-pool";
 
 export type BuyerLiveShippingSessionApi = {
   shippingCostCents: number;
@@ -12,33 +15,61 @@ export type BuyerLiveShippingSessionApi = {
   capReached: boolean;
   nextIncrementalCostCents: number | null;
   tierLabel: string | null;
+  /** Show-level buyer shipping cap (cents), when enabled. */
+  shippingCapCents: number | null;
+  freeShippingEnabled: boolean;
+  packageCount: number;
+  /** Preview: if buyer wins `previewItemId`, shipping adds this much. */
+  previewWinDeltaCents: number | null;
+  previewRequiresSeparatePackage: boolean;
 };
 
-type Db = Pick<PrismaClient, "liveRoom" | "liveShippingSession" | "liveShippingSessionItem">;
+type Db = Pick<PrismaClient, "liveRoom" | "liveRoomItem" | "liveShippingSession" | "liveShippingSessionItem" | "platformShippingProfile">;
 
 /**
- * Read-only bundled live shipping snapshot for buyer UX (does not create sessions or change pricing).
+ * Bundled live shipping pool for buyer UX (read-only).
+ * Pool total is capped per show — cards stay cheap; a helmet adds a separate package and can bump the total until cap.
  */
 export async function getBuyerBundledLiveShippingSessionUx(
   buyerId: string,
   liveShowId: string,
+  opts?: { previewLiveRoomItemId?: string | null },
   db: Db = prisma,
 ): Promise<BuyerLiveShippingSessionApi | null> {
   const room = await db.liveRoom.findUnique({
     where: { id: liveShowId },
-    select: { id: true, sellerId: true, roomType: true },
+    select: {
+      id: true,
+      sellerId: true,
+      roomType: true,
+      shippingCapEnabled: true,
+      shippingCapCents: true,
+      freeShippingEnabled: true,
+      sellerPaysOverCap: true,
+    },
   });
   if (!room || (room.roomType !== "auction" && room.roomType !== "sale")) {
     return null;
   }
+
+  const showConfig = liveShowShippingConfigFromRoom(room);
+  const capCents = room.shippingCapEnabled ? room.shippingCapCents : null;
+
+  const emptyPayload = (): BuyerLiveShippingSessionApi => ({
+    shippingCostCents: 0,
+    pricingWeightOz: 0,
+    capReached: false,
+    nextIncrementalCostCents: null,
+    tierLabel: null,
+    shippingCapCents: capCents,
+    freeShippingEnabled: room.freeShippingEnabled,
+    packageCount: 0,
+    previewWinDeltaCents: null,
+    previewRequiresSeparatePackage: false,
+  });
+
   if (room.sellerId === buyerId) {
-    return {
-      shippingCostCents: 0,
-      pricingWeightOz: 0,
-      capReached: false,
-      nextIncrementalCostCents: null,
-      tierLabel: null,
-    };
+    return emptyPayload();
   }
 
   const session = await db.liveShippingSession.findUnique({
@@ -50,72 +81,66 @@ export async function getBuyerBundledLiveShippingSessionUx(
         destinationAddressId: LIVE_BUNDLED_SHIPPING_DESTINATION_KEY,
       },
     },
-    select: {
-      id: true,
-      pricingWeightOz: true,
-      shippingCostCents: true,
-      capReached: true,
-    },
+    select: { id: true },
   });
 
-  if (!session) {
-    return {
-      shippingCostCents: 0,
-      pricingWeightOz: 0,
-      capReached: false,
-      nextIncrementalCostCents: null,
-      tierLabel: null,
-    };
+  let pool = session ? await computeSessionPoolTotals(session.id, db) : null;
+
+  if (!session || !pool || (await db.liveShippingSessionItem.count({ where: { sessionId: session.id } })) === 0) {
+    pool = computePoolTotalsFromGroups([], showConfig);
   }
 
-  const itemCount = await db.liveShippingSessionItem.count({
-    where: { sessionId: session.id },
-  });
+  const previewItemId = opts?.previewLiveRoomItemId?.trim();
+  let previewWinDeltaCents: number | null = null;
+  let previewRequiresSeparatePackage = false;
 
-  if (itemCount === 0) {
-    return {
-      shippingCostCents: 0,
-      pricingWeightOz: 0,
-      capReached: false,
-      nextIncrementalCostCents: null,
-      tierLabel: null,
-    };
+  if (previewItemId) {
+    previewWinDeltaCents = await estimateWinItemShippingDeltaCents({
+      buyerId,
+      liveShowId,
+      liveRoomItemId: previewItemId,
+      db,
+    });
+    const prof = await resolveLiveRoomItemShippingProfile(previewItemId, db);
+    previewRequiresSeparatePackage = prof?.resolved.requiresSeparatePackage === true;
+  } else if (!pool.capReached && session) {
+    const lastItem = await db.liveShippingSessionItem.findFirst({
+      where: { sessionId: session.id },
+      orderBy: { createdAt: "desc" },
+      select: { listingId: true },
+    });
+    if (lastItem) {
+      const liveItem = await db.liveRoomItem.findFirst({
+        where: { liveRoomId: room.id, listingId: lastItem.listingId },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true },
+      });
+      if (liveItem) {
+        previewWinDeltaCents = await estimateWinItemShippingDeltaCents({
+          buyerId,
+          liveShowId,
+          liveRoomItemId: liveItem.id,
+          db,
+        });
+      }
+    }
   }
 
-  const lastItem = await db.liveShippingSessionItem.findFirst({
-    where: { sessionId: session.id },
-    orderBy: { createdAt: "desc" },
-    select: {
-      incrementalWeightOz: true,
-      listing: {
-        select: { shippingIncrementalWeightOz: true, shippingPriceCapCents: true },
-      },
-    },
-  });
-
-  const inc =
-    lastItem && Number.isFinite(lastItem.incrementalWeightOz) && lastItem.incrementalWeightOz > 0
-      ? lastItem.incrementalWeightOz
-      : lastItem?.listing?.shippingIncrementalWeightOz ?? 0;
-
-  const listingCap = lastItem?.listing?.shippingPriceCapCents ?? null;
-
-  const nextIncrementalCostCents =
-    itemCount > 0 && Number.isFinite(inc) && inc > 0
-      ? computeBundledNextItemShippingDeltaCents({
-          currentPricingWeightOz: session.pricingWeightOz,
-          currentShippingCostCents: session.shippingCostCents,
-          capReached: session.capReached,
-          incrementalWeightOz: inc,
-          listingCapCents: listingCap,
-        })
-      : null;
+  const packageLabel =
+    pool.packageCount <= 1
+      ? "1 package"
+      : `${pool.packageCount} packages`;
 
   return {
-    shippingCostCents: session.shippingCostCents,
-    pricingWeightOz: session.pricingWeightOz,
-    capReached: session.capReached,
-    nextIncrementalCostCents,
-    tierLabel: liveShippingTierLabelForPricingWeightOz(session.pricingWeightOz),
+    shippingCostCents: pool.buyerTotalCents,
+    pricingWeightOz: pool.pricingWeightOz,
+    capReached: pool.capReached,
+    nextIncrementalCostCents: previewWinDeltaCents,
+    tierLabel: packageLabel,
+    shippingCapCents: capCents,
+    freeShippingEnabled: room.freeShippingEnabled,
+    packageCount: pool.packageCount,
+    previewWinDeltaCents,
+    previewRequiresSeparatePackage,
   };
 }

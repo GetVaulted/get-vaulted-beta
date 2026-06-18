@@ -1,4 +1,4 @@
-import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { MobileHostBroadcastPhase } from '../../../hooks/useMobileStagePublish';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { colors, radii } from '../../../theme';
@@ -12,10 +12,12 @@ type Props = {
   busy: boolean;
   onStart: () => void;
   onStop: () => void;
+  onPause?: () => void;
+  onResume?: () => void;
   compact?: boolean;
 };
 
-/** Go Live / Start Stream / Stop Stream — mirrors web VaultBroadcastControl. */
+/** Go Live / Pause / Resume / Stop Stream — mirrors web VaultBroadcastControl. */
 export function SellerBroadcastControl({
   phase,
   roomLive,
@@ -25,29 +27,70 @@ export function SellerBroadcastControl({
   busy,
   onStart,
   onStop,
+  onPause,
+  onResume,
   compact,
 }: Props) {
   if (!stageEnabled) return null;
 
-  const isBroadcasting = phase === 'live' || phase === 'stopping';
+  const isBroadcasting = phase === 'live' || phase === 'paused' || phase === 'stopping';
   const stopping = phase === 'stopping';
   const showStart = (canStartRoom || (roomLive && phase === 'idle')) && cameraReady;
   const idleLabel = roomLive ? SELLER_CONSOLE.startStream : SELLER_CONSOLE.goLive;
 
+  if (phase === 'paused') {
+    return (
+      <View style={styles.row}>
+        <Pressable
+          style={[compact ? styles.pauseCompact : styles.pause, busy && styles.disabled]}
+          onPress={onResume}
+          disabled={busy}
+          accessibilityLabel={SELLER_CONSOLE.resumeStream}
+        >
+          <Text style={compact ? styles.pauseCompactTxt : styles.pauseTxt}>{SELLER_CONSOLE.resumeStream}</Text>
+        </Pressable>
+        <Pressable
+          style={[compact ? styles.stopCompact : styles.stop, stopping && styles.disabled]}
+          onPress={onStop}
+          disabled={stopping || busy}
+          accessibilityLabel={SELLER_CONSOLE.stopStream}
+        >
+          {stopping ? (
+            <ActivityIndicator color="#fecdd3" size="small" />
+          ) : (
+            <Text style={compact ? styles.stopCompactTxt : styles.stopTxt}>{SELLER_CONSOLE.stopStream}</Text>
+          )}
+        </Pressable>
+      </View>
+    );
+  }
+
   if (isBroadcasting) {
     return (
-      <Pressable
-        style={[compact ? styles.stopCompact : styles.stop, stopping && styles.disabled]}
-        onPress={onStop}
-        disabled={stopping || busy}
-        accessibilityLabel={SELLER_CONSOLE.stopStream}
-      >
-        {stopping ? (
-          <ActivityIndicator color="#fecdd3" size="small" />
-        ) : (
-          <Text style={compact ? styles.stopCompactTxt : styles.stopTxt}>{SELLER_CONSOLE.stopStream}</Text>
-        )}
-      </Pressable>
+      <View style={styles.row}>
+        {onPause && phase === 'live' ? (
+          <Pressable
+            style={[compact ? styles.pauseCompact : styles.pause, (stopping || busy) && styles.disabled]}
+            onPress={onPause}
+            disabled={stopping || busy}
+            accessibilityLabel={SELLER_CONSOLE.pauseStream}
+          >
+            <Text style={compact ? styles.pauseCompactTxt : styles.pauseTxt}>{SELLER_CONSOLE.pauseStream}</Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          style={[compact ? styles.stopCompact : styles.stop, stopping && styles.disabled]}
+          onPress={onStop}
+          disabled={stopping || busy}
+          accessibilityLabel={SELLER_CONSOLE.stopStream}
+        >
+          {stopping ? (
+            <ActivityIndicator color="#fecdd3" size="small" />
+          ) : (
+            <Text style={compact ? styles.stopCompactTxt : styles.stopTxt}>{SELLER_CONSOLE.stopStream}</Text>
+          )}
+        </Pressable>
+      </View>
     );
   }
 
@@ -70,6 +113,11 @@ export function SellerBroadcastControl({
 }
 
 const styles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   start: {
     alignSelf: 'center',
     paddingHorizontal: 28,
@@ -90,6 +138,25 @@ const styles = StyleSheet.create({
     color: '#0a0a0a',
     letterSpacing: 0.3,
   },
+  pause: {
+    alignSelf: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.55)',
+    backgroundColor: 'rgba(46,36,8,0.82)',
+    minWidth: 110,
+    alignItems: 'center',
+    zIndex: 16,
+  },
+  pauseTxt: {
+    fontWeight: '900',
+    fontSize: 13,
+    color: colors.gold,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+  },
   stop: {
     alignSelf: 'center',
     paddingHorizontal: 22,
@@ -98,7 +165,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(244,63,94,0.55)',
     backgroundColor: 'rgba(76,5,25,0.72)',
-    minWidth: 150,
+    minWidth: 120,
     alignItems: 'center',
     zIndex: 16,
   },
@@ -123,6 +190,23 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     fontSize: 11,
     color: '#0a0a0a',
+  },
+  pauseCompact: {
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.55)',
+    backgroundColor: 'rgba(46,36,8,0.82)',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pauseCompactTxt: {
+    fontWeight: '900',
+    fontSize: 10,
+    color: colors.gold,
+    textTransform: 'uppercase',
   },
   stopCompact: {
     borderRadius: radii.pill,

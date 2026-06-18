@@ -26,6 +26,7 @@ import {
   parseMarketplaceAllowedRateKeys,
   parseMarketplaceShippingOfferScope,
 } from "@/lib/marketplace-shipping-offer";
+import { resolvePlatformProfileForListing } from "@/services/shipping/platform-shipping-profiles";
 import {
   prismaListingCreateHint,
   serializePrismaClientError,
@@ -124,6 +125,8 @@ type ListingBody = {
   marketplaceShippingOfferScope?: unknown;
   marketplaceAllowedRateKeys?: unknown;
   marketplaceAllowedCarriers?: unknown;
+  platformShippingProfileId?: unknown;
+  platformShippingProfileSlug?: unknown;
   publishRequestId?: unknown;
 };
 
@@ -527,7 +530,19 @@ export async function POST(req: Request) {
     return marketplaceListingRateKey({ carrier, serviceLevel: service });
   });
   const marketplaceAllowedCarriers = parseMarketplaceAllowedCarriers(body.marketplaceAllowedCarriers);
-  const parcelRow = { parcelWeightOz, parcelLengthIn, parcelWidthIn, parcelHeightIn };
+  const platformProfileEarly = await resolvePlatformProfileForListing({
+    platformShippingProfileId:
+      typeof body.platformShippingProfileId === "string" ? body.platformShippingProfileId : null,
+    platformShippingProfileSlug:
+      typeof body.platformShippingProfileSlug === "string" ? body.platformShippingProfileSlug : null,
+    category,
+  });
+  const parcelRow = {
+    parcelWeightOz: parcelWeightOz ?? platformProfileEarly?.defaultWeightOz ?? null,
+    parcelLengthIn: parcelLengthIn ?? platformProfileEarly?.defaultLengthIn ?? null,
+    parcelWidthIn: parcelWidthIn ?? platformProfileEarly?.defaultWidthIn ?? null,
+    parcelHeightIn: parcelHeightIn ?? platformProfileEarly?.defaultHeightIn ?? null,
+  };
 
   if (publishedLive && !hasCompleteParcel(parcelRow)) {
     return NextResponse.json(
@@ -607,6 +622,17 @@ export async function POST(req: Request) {
       ? resolveAllowLayawayForListing({ allowLayaway: allowLayawayRequested, priceUsd: resolvedPrice })
       : false;
 
+  const platformProfile = platformProfileEarly;
+
+  const resolvedParcelWeightOz = parcelWeightOz ?? platformProfile?.defaultWeightOz ?? null;
+  const resolvedParcelLengthIn = parcelLengthIn ?? platformProfile?.defaultLengthIn ?? null;
+  const resolvedParcelWidthIn = parcelWidthIn ?? platformProfile?.defaultWidthIn ?? null;
+  const resolvedParcelHeightIn = parcelHeightIn ?? platformProfile?.defaultHeightIn ?? null;
+  const resolvedShippingBaseWeightOz = platformProfile?.defaultWeightOz ?? shippingBaseWeightOz;
+  const resolvedShippingIncrementalWeightOz = platformProfile
+    ? Math.max(1, Math.round(platformProfile.defaultWeightOz * 0.25))
+    : shippingIncrementalWeightOz;
+
   const baseData = {
     title: title || "Untitled draft",
     description,
@@ -627,16 +653,17 @@ export async function POST(req: Request) {
     reservePriceUsd: buyingFormat === "auction" ? reservePriceUsd : null,
     auctionDurationDays: buyingFormat === "auction" ? auctionDurationDays ?? undefined : null,
     vaultPick,
-    parcelWeightOz,
-    parcelLengthIn,
-    parcelWidthIn,
-    parcelHeightIn,
-    shippingBaseWeightOz,
-    shippingIncrementalWeightOz,
+    parcelWeightOz: resolvedParcelWeightOz,
+    parcelLengthIn: resolvedParcelLengthIn,
+    parcelWidthIn: resolvedParcelWidthIn,
+    parcelHeightIn: resolvedParcelHeightIn,
+    shippingBaseWeightOz: resolvedShippingBaseWeightOz,
+    shippingIncrementalWeightOz: resolvedShippingIncrementalWeightOz,
     shippingPriceCapCents,
     shippingCategory,
     shipAlone,
     shipFromAddressId,
+    platformShippingProfileId: platformProfile?.id ?? null,
     marketplaceShippingOfferScope,
     marketplaceAllowedRateKeys,
     marketplaceAllowedCarriers,

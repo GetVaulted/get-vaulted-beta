@@ -21,7 +21,7 @@ import {
 } from '../lib/sellerHostCamera';
 import { ensureStageSdkInitialized } from '../lib/stageSdk';
 
-export type MobileHostBroadcastPhase = 'idle' | 'starting' | 'live' | 'stopping';
+export type MobileHostBroadcastPhase = 'idle' | 'starting' | 'live' | 'paused' | 'stopping';
 export type SellerCameraPermissionState = 'idle' | 'requesting' | 'granted' | 'denied' | 'unavailable';
 
 function friendlyPublishError(err: unknown): string {
@@ -275,7 +275,7 @@ export function useMobileStagePublish(args: {
 
   /** Stop publishing to buyers; keep local preview for the seller. */
   const stop = useCallback(async () => {
-    setPhase((prev) => (prev === 'live' || prev === 'starting' ? 'stopping' : prev));
+    setPhase((prev) => (prev === 'live' || prev === 'starting' || prev === 'paused' ? 'stopping' : prev));
     if (!publishingRef.current && phase === 'idle') return;
     setError(null);
     await teardownStageConnection();
@@ -290,9 +290,35 @@ export function useMobileStagePublish(args: {
     }
   }, [endServerSession, phase, teardownStageConnection]);
 
+  /** Pause video/audio to buyers while keeping the stage session warm. */
+  const pause = useCallback(async () => {
+    if (phase !== 'live' || !publishingRef.current) return;
+    setError(null);
+    try {
+      await setStreamsPublished(false);
+      publishingRef.current = false;
+      setPhase('paused');
+    } catch (err) {
+      setError(friendlyPublishError(err));
+    }
+  }, [phase]);
+
+  /** Resume publishing after a pause. */
+  const resume = useCallback(async () => {
+    if (phase !== 'paused') return;
+    setError(null);
+    try {
+      await setStreamsPublished(true);
+      publishingRef.current = true;
+      setPhase('live');
+    } catch (err) {
+      setError(friendlyPublishError(err));
+    }
+  }, [phase]);
+
   /** End show — fully release camera/mic hardware. */
   const releaseCamera = useCallback(async () => {
-    if (publishingRef.current || phase !== 'idle') {
+    if (publishingRef.current || phase === 'live' || phase === 'paused' || phase === 'starting') {
       await stop();
     }
     await releaseLocalDevices();
@@ -307,9 +333,11 @@ export function useMobileStagePublish(args: {
     cameraFacing,
     start,
     stop,
+    pause,
+    resume,
     releaseCamera,
     flipCamera,
     retryPreviewPermission,
-    isPublishing: phase === 'live' || phase === 'starting',
+    isPublishing: phase === 'live' || phase === 'starting' || phase === 'paused',
   };
 }

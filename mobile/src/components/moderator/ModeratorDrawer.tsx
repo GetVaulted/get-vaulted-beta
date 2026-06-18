@@ -74,6 +74,10 @@ export function ModeratorDrawer({
     }
   }, [visible]);
 
+  useEffect(() => {
+    setPinnedBody(moderation.pinnedModeratorMessage ?? '');
+  }, [moderation.pinnedModeratorMessage, visible]);
+
   const can = (actionType: string) =>
     canPerformModeratorAction({
       actionType,
@@ -422,7 +426,7 @@ function PinnedTab({
       >
         {busy ? <ActivityIndicator color="#111" /> : <Text style={styles.primaryBtnText}>Save pin</Text>}
       </Pressable>
-      {!canPin ? <Text style={styles.hint}>Show-level moderators can pin messages.</Text> : null}
+      {!canPin ? <Text style={styles.hint}>Only assigned show moderators can pin messages.</Text> : null}
     </View>
   );
 }

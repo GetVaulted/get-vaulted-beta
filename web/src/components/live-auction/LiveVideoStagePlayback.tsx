@@ -199,6 +199,7 @@ export function LiveVideoStagePlayback({
   const [fetchFailed, setFetchFailed] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [streamHealth, setStreamHealth] = useState("offline");
+  const [streamPaused, setStreamPaused] = useState(false);
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [videoHasData, setVideoHasData] = useState(false);
@@ -437,6 +438,7 @@ export function LiveVideoStagePlayback({
         return;
       }
       setStreamHealth(safe.streamHealth);
+      setStreamPaused(safe.streamPaused);
       setPlaybackUrl(safe.playbackUrl);
       setLatencyMode(safe.latencyMode ?? null);
       setStreamMode(safe.streamMode);
@@ -664,7 +666,7 @@ export function LiveVideoStagePlayback({
 
   const showVideoLayer = transport === "webrtc" || Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
   const showPlaybackErrorCenter = surface === "error" && roomLifecycleLive;
-  const showStandbyCenter = !showVideoLayer || showPlaybackErrorCenter;
+  const showStandbyCenter = streamPaused && roomLifecycleLive || !showVideoLayer || showPlaybackErrorCenter;
   /**
    * Show the host-uploaded thumbnail as a placeholder behind the standby/countdown
    * content whenever the live video isn't actually painting frames yet (pre-live,
@@ -757,6 +759,14 @@ export function LiveVideoStagePlayback({
               <p className="text-[10px] font-black uppercase tracking-[0.28em] text-gold-bright/90">Vaulted Live</p>
               <p className="text-base font-semibold tracking-tight text-zinc-100">We couldn’t load the stream right now.</p>
               <p className="text-sm leading-relaxed text-zinc-500">Refresh the page or try again in a moment.</p>
+            </div>
+          ) : streamPaused && roomLifecycleLive ? (
+            <div className="max-w-md space-y-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.28em] text-gold-bright/90">Vaulted Live</p>
+              <p className="text-base font-semibold tracking-tight text-zinc-100">Host paused</p>
+              <p className="text-sm leading-relaxed text-zinc-500">
+                The host stepped away briefly. Hang tight — we&apos;ll be back soon.
+              </p>
             </div>
           ) : roomLifecycleLive ? (
             <div className="max-w-md space-y-3">

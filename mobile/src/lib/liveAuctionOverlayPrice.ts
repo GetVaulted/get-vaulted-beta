@@ -1,4 +1,5 @@
 import { formatAuctionMoneyUsd } from './liveAuctionWinnerDisplay';
+import { isVariantPurchaseItem, summarizeVariantSpots } from './liveItemVariant';
 
 export type LiveItemCommerceMode = 'auction' | 'buy_now';
 
@@ -11,9 +12,14 @@ export type LiveItemOverlayPrice = {
   amountFormatted: string;
 };
 
-export function liveAuctionOpeningBidUsd(args: { startingBidUsd?: number | null }): number {
+export function liveAuctionOpeningBidUsd(args: {
+  startingBidUsd?: number | null;
+  priceUsd?: number | null;
+}): number {
   const s = args.startingBidUsd;
   if (typeof s === 'number' && Number.isFinite(s) && s > 0) return s;
+  const p = args.priceUsd;
+  if (typeof p === 'number' && Number.isFinite(p) && p > 0) return p;
   return 1;
 }
 
@@ -78,6 +84,69 @@ export function resolveLiveItemOverlayPrice(args: {
     amountUsd: opening,
     amountFormatted: formatAuctionMoneyUsd(opening),
   };
+}
+
+type PinnedLotOverlayInput = {
+  commerceMode?: LiveItemCommerceMode;
+  salesFormat?: string | null;
+  variants?: Array<{
+    priceUsd?: number;
+    quantityRemaining?: number;
+    status?: string;
+    soldCount?: number;
+  }>;
+  status?: string;
+  currentBidUsd?: number | null;
+  startingBidUsd?: number | null;
+  priceUsd?: number | null;
+  lastHighBidderId?: string | null;
+  lastHighBidderUsername?: string | null;
+};
+
+/** Host/buyer pinned lot tile — PYT/PYD spots use lowest open spot price, not auction opening bid. */
+export function resolvePinnedLotOverlayPrice(args: PinnedLotOverlayInput): LiveItemOverlayPrice {
+  if (args.commerceMode === 'buy_now') {
+    return resolveLiveItemOverlayPrice({
+      commerceMode: 'buy_now',
+      priceUsd: args.priceUsd,
+      startingBidUsd: args.startingBidUsd,
+    });
+  }
+
+  if (isVariantPurchaseItem(args)) {
+    const spotStats = summarizeVariantSpots(
+      (args.variants ?? []).map((v) => ({
+        priceUsd: v.priceUsd,
+        quantityRemaining: v.quantityRemaining ?? 0,
+        status: v.status ?? 'available',
+        soldCount: v.soldCount,
+      })),
+    );
+    if (spotStats.fromPriceUsd != null) {
+      return {
+        kind: 'asking',
+        label: 'From',
+        amountUsd: spotStats.fromPriceUsd,
+        amountFormatted: formatAuctionMoneyUsd(spotStats.fromPriceUsd),
+      };
+    }
+    return {
+      kind: 'sold',
+      label: 'Status',
+      amountUsd: 0,
+      amountFormatted: 'Sold out',
+    };
+  }
+
+  return resolveLiveItemOverlayPrice({
+    commerceMode: 'auction',
+    status: args.status,
+    currentBidUsd: args.currentBidUsd,
+    startingBidUsd: args.startingBidUsd,
+    priceUsd: args.priceUsd,
+    lastHighBidderId: args.lastHighBidderId,
+    lastHighBidderUsername: args.lastHighBidderUsername,
+  });
 }
 
 export function liveAuctionDisplayBidUsd(args: {

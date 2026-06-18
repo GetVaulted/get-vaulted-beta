@@ -22,6 +22,7 @@ import PagerView from 'react-native-pager-view';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radii, spacing } from '../../theme';
 import { fetchLiveRoomPublicById } from '../../api/liveRoomsRepository';
+import { fetchLiveBuyerPaymentSession } from '../../api/liveBuyerPaymentRepository';
 import type { LiveStream, ChatMessage } from '../../types';
 import type { LiveStackParamList, MainTabParamList } from '../../navigation/types';
 import { rootNavigationRef } from '../../navigation/rootNavigationRef';
@@ -57,6 +58,7 @@ import {
 } from './floatingLiveChat';
 import type { MentionComposerInputHandle } from '../mentions/MentionComposerInput';
 import { appendMentionToDraft, promptLiveChatUserAction } from '../../lib/liveChatUserActions';
+import { LiveBuyerShopSheet } from './LiveBuyerShopSheet';
 import { LiveTipSheet } from './LiveTipSheet';
 import { LivePinnedActionBar } from './LivePinnedActionBar';
 import { LivePaymentFailureModal } from './LivePaymentFailureModal';
@@ -98,45 +100,6 @@ function formatViewers(n: number) {
   return String(n);
 }
 
-function CompactShopModal({
-  visible,
-  onClose,
-  stream,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  stream: LiveStream;
-}) {
-  return (
-    <Modal visible={visible} animationType="fade" transparent statusBarTranslucent onRequestClose={onClose}>
-      <View style={styles.shopModalRoot}>
-        <Pressable style={styles.shopModalBackdrop} onPress={onClose} accessibilityLabel="Dismiss shop" />
-        <View style={styles.shopDrawer}>
-          <View style={styles.shopDrawerHeader}>
-            <Text style={styles.shopDrawerTitle}>Shop this room</Text>
-            <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close">
-              <Ionicons name="close" size={22} color={colors.textSecondary} />
-            </Pressable>
-          </View>
-          <Text style={styles.shopDrawerPinned} numberOfLines={2}>
-            {stream.pinnedProductLabel}
-          </Text>
-          <ScrollView style={styles.shopDrawerScroll} showsVerticalScrollIndicator={false}>
-            <Text style={styles.shopDrawerMuted}>
-              Lane inventory, buy-now SKUs, and pinned lots — compact overlay, not a room takeover.
-            </Text>
-            <View style={styles.shopPlaceholderCard}>
-              <Ionicons name="bag-handle-outline" size={28} color={colors.gold} />
-              <Text style={styles.shopPlaceholderTitle}>Inventory rail</Text>
-              <Text style={styles.shopDrawerMuted}>Hooks to seller catalog & live pins.</Text>
-            </View>
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
 function LiveSlide({
   stream,
   isActive,
@@ -173,6 +136,7 @@ function LiveSlide({
   const [following, setFollowing] = useState(false);
   const [shopOpen, setShopOpen] = useState(false);
   const [tipOpen, setTipOpen] = useState(false);
+  const [roomPaymentMethodId, setRoomPaymentMethodId] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [chatDraft, setChatDraft] = useState('');
   const [streamMuted, setStreamMuted] = useState(true);
@@ -267,6 +231,15 @@ function LiveSlide({
     () => resolveShowHostUserId(moderation.sellerId, stream.host.id),
     [moderation.sellerId, stream.host.id],
   );
+  const staffCommerceBlocked = moderation.isHost || moderation.isModerator;
+
+  useEffect(() => {
+    if (!signedIn || !accessToken?.trim() || moderation.isHost) return;
+    void fetchLiveBuyerPaymentSession(accessToken, stream.id).then((session) => {
+      const nextId = session?.activePaymentMethodId?.trim() || null;
+      if (nextId) setRoomPaymentMethodId(nextId);
+    });
+  }, [accessToken, moderation.isHost, signedIn, stream.id]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -591,24 +564,26 @@ function LiveSlide({
           <Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.gold} />
           <LiveRoomText style={[styles.railLabel, { color: colors.gold }]}>Message</LiveRoomText>
         </Pressable>
-        <Pressable
-          style={styles.railBtn}
-          onPress={() => {
-            if (!signedIn) {
-              onRequireAuth?.();
-              return;
-            }
-            if (!accessToken) {
-              Alert.alert('Sign in required', 'Log in to send a tip.');
-              return;
-            }
-            setTipOpen(true);
-          }}
-          accessibilityLabel="Send a tip"
-        >
-          <Ionicons name="cash-outline" size={22} color={colors.gold} />
-          <LiveRoomText style={[styles.railLabel, { color: colors.gold }]}>Tip</LiveRoomText>
-        </Pressable>
+        {!moderation.isHost ? (
+          <Pressable
+            style={styles.railBtn}
+            onPress={() => {
+              if (!signedIn) {
+                onRequireAuth?.();
+                return;
+              }
+              if (!accessToken) {
+                Alert.alert('Sign in required', 'Log in to send a tip.');
+                return;
+              }
+              setTipOpen(true);
+            }}
+            accessibilityLabel="Send a tip"
+          >
+            <Ionicons name="cash-outline" size={22} color={colors.gold} />
+            <LiveRoomText style={[styles.railLabel, { color: colors.gold }]}>Tip</LiveRoomText>
+          </Pressable>
+        ) : null}
         <Pressable
           style={[styles.railBtn, compact && styles.railBtnCompact]}
           onPress={() => {
@@ -688,6 +663,7 @@ function LiveSlide({
         }}
         onPressChatUser={onPressChatUser}
         moderatorUserIds={moderation.moderators.map((m) => m.userId)}
+        pinnedModeratorMessage={moderation.pinnedModeratorMessage}
       />
 
       {showModeratorTools(moderation.isModerator) && accessToken ? (
@@ -840,6 +816,7 @@ function LiveSlide({
           onRegisterOpenWallet={(open) => {
             openWalletRef.current = open;
           }}
+          staffCommerceBlocked={staffCommerceBlocked}
         />
       </View>
       {liveSession.unresolvedPaymentFailure && signedIn && accessToken ? (
@@ -862,13 +839,22 @@ function LiveSlide({
         </View>
       </View>
 
-      <CompactShopModal visible={shopOpen} onClose={() => setShopOpen(false)} stream={stream} />
+      <LiveBuyerShopSheet
+        visible={shopOpen}
+        onClose={() => setShopOpen(false)}
+        lineupItems={liveSession.roomSnap?.lineupItems ?? []}
+        activeItemId={liveSession.roomSnap?.activeItemId ?? null}
+      />
       {accessToken ? (
         <LiveTipSheet
           visible={tipOpen}
           onClose={() => setTipOpen(false)}
           liveRoomId={stream.id}
           accessToken={accessToken}
+          paymentMethodId={roomPaymentMethodId}
+          onPaymentMethodIdChange={setRoomPaymentMethodId}
+          onOpenWallet={() => openWalletRef.current('tip_wallet')}
+          onSuccess={() => Alert.alert('Tip sent', 'Thanks for supporting the show!')}
           onError={(msg) => Alert.alert('Tip', msg)}
         />
       ) : null}

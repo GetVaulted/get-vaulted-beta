@@ -13,6 +13,7 @@ export type StreamRow = {
   streamProvider: string;
   streamMode: string;
   streamHealth: string;
+  streamPaused: boolean;
   ivsPlaybackUrl: string | null;
   ivsIngestEndpoint: string | null;
   ivsChannelArn: string | null;
@@ -34,6 +35,7 @@ export async function getStreamRow(liveRoomId: string): Promise<StreamRow | null
       streamProvider: true,
       streamMode: true,
       streamHealth: true,
+      streamPaused: true,
       ivsPlaybackUrl: true,
       ivsIngestEndpoint: true,
       ivsChannelArn: true,
@@ -63,6 +65,7 @@ export function toBuyerSafeStreamPayload(row: StreamRow) {
     // No ARN is exposed — buyers fetch a subscribe-only token from the stage-token endpoint.
     stageAvailable: Boolean(row.ivsStageArn),
     streamHealth: row.streamHealth,
+    streamPaused: row.streamPaused,
     playbackUrl: row.ivsPlaybackUrl,
     streamStartedAt: toIso(row.streamStartedAt),
     streamEndedAt: toIso(row.streamEndedAt),

@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { LIVE_AUCTION_HOST_TIMER_ENDED_COPY, resolveLiveAuctionLotBidPhase } from '../../../lib/liveAuctionLotPhase';
-import { resolveLiveItemOverlayPrice } from '../../../lib/liveAuctionOverlayPrice';
+import { resolvePinnedLotOverlayPrice } from '../../../lib/liveAuctionOverlayPrice';
+import { isVariantPurchaseItem, summarizeVariantSpots } from '../../../lib/liveItemVariant';
 import { colors, radii, spacing } from '../../../theme';
 import { lc } from './liveConsoleTheme';
 
@@ -253,8 +254,11 @@ export function VaultPinnedLotCard({
   }
 
   const thumb = item.imageUrl?.trim();
-  const overlayPrice = resolveLiveItemOverlayPrice({
-    commerceMode: 'auction',
+  const isVariantItem = isVariantPurchaseItem(item);
+  const spotStats = isVariantItem ? summarizeVariantSpots(item.variants) : null;
+  const overlayPrice = resolvePinnedLotOverlayPrice({
+    salesFormat: item.salesFormat,
+    variants: item.variants,
     status: item.status,
     currentBidUsd: item.currentBidUsd,
     startingBidUsd: item.startingBidUsd,
@@ -265,7 +269,7 @@ export function VaultPinnedLotCard({
     item.priceUsd != null && item.currentBidUsd != null && item.currentBidUsd >= item.priceUsd;
   const closingSoon = countdown != null && countdown.progress <= 0.28;
   const hudPhase = resolveHostLotHudPhase({ item, roomLive, lotBidPhase, queuePreview });
-  const showStartAuction = hudPhase === 'ready';
+  const showStartAuction = hudPhase === 'ready' && !isVariantItem;
   const showRunningStrip = !hostOverlayMinimal && hudPhase === 'running';
   const showEndedActions = hudPhase === 'ended';
   const showSecondaryActions =
@@ -336,6 +340,12 @@ export function VaultPinnedLotCard({
                 @{item.lastHighBidderUsername}
               </Text>
             </View>
+          ) : isVariantItem && spotStats ? (
+            <Text style={[styles.meta, compact && styles.metaCompact]}>
+              {spotStats.available > 0
+                ? `${spotStats.available} spot${spotStats.available === 1 ? '' : 's'} available`
+                : 'All spots sold'}
+            </Text>
           ) : hostOverlayMinimal ? null : (
             <Text style={[styles.meta, compact && styles.metaCompact]}>Waiting for first bid</Text>
           )}
@@ -346,17 +356,23 @@ export function VaultPinnedLotCard({
             <View style={styles.metaRow}>
               {!hostOverlayMinimal ? (
                 <Text style={[styles.meta, compact && styles.metaCompact]}>
-                  {showRunningStrip
-                    ? 'Auction running'
-                    : hudPhase === 'ended'
-                      ? 'Awaiting mark sold'
-                      : hudPhase === 'sold'
-                        ? 'Sold'
-                        : hudPhase === 'skipped'
-                          ? 'Skipped'
-                          : hudPhase === 'ready'
-                            ? 'Ready to start'
-                            : 'Ready'}
+                  {isVariantItem
+                    ? roomLive
+                      ? spotStats && spotStats.available > 0
+                        ? 'Spots live'
+                        : 'Break complete'
+                      : 'Go live for spots'
+                    : showRunningStrip
+                      ? 'Auction running'
+                      : hudPhase === 'ended'
+                        ? 'Awaiting mark sold'
+                        : hudPhase === 'sold'
+                          ? 'Sold'
+                          : hudPhase === 'skipped'
+                            ? 'Skipped'
+                            : hudPhase === 'ready'
+                              ? 'Ready to start'
+                              : 'Ready'}
                 </Text>
               ) : null}
               {item.priceUsd != null ? (

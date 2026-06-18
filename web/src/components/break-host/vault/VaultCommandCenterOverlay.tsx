@@ -37,6 +37,8 @@ type VaultCommandCenterOverlayProps = {
   onOpenObs: () => void;
   onCopyPublic: () => void;
   onSoon: (label: string) => void;
+  streamPaused?: boolean;
+  onToggleStreamPause?: () => void;
   /** When set, replaces placeholder audience-control buttons with live moderation wiring. */
   roomGovernance?: {
     slowModeSeconds: number;
@@ -111,6 +113,8 @@ export function VaultCommandCenterOverlay({
   onOpenObs,
   onCopyPublic,
   onSoon,
+  streamPaused = false,
+  onToggleStreamPause,
   roomGovernance,
   onStartAuction,
   startAuctionEnabled,
@@ -218,8 +222,11 @@ export function VaultCommandCenterOverlay({
                   Go live
                 </button>
               )}
-              <GhostButton disabled={busy} onClick={() => onSoon("Pause stream")}>
-                Pause stream
+              <GhostButton
+                disabled={busy || !isLive || !onToggleStreamPause}
+                onClick={() => (onToggleStreamPause ? onToggleStreamPause() : onSoon("Pause stream"))}
+              >
+                {streamPaused ? "Resume stream" : "Pause stream"}
               </GhostButton>
               <GhostButton disabled={busy} onClick={() => onSoon("Switch camera")}>
                 Switch camera

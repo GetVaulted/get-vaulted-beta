@@ -2,6 +2,7 @@ export type AdminModuleId =
   | "live-shows"
   | "finance"
   | "fees"
+  | "shipping-profiles"
   | "seller-risk"
   | "moderation"
   | "users"
@@ -44,6 +45,13 @@ export const ADMIN_MODULES: AdminModuleDef[] = [
     description: "Marketplace fee, live selling tiers, payout program, layaway policy.",
     href: "/admin/fees",
     accent: "gold",
+  },
+  {
+    id: "shipping-profiles",
+    title: "Shipping Profiles",
+    description: "Platform parcel defaults for Live, Marketplace, and Trade — weights, dims, bundle rules.",
+    href: "/admin/shipping-profiles",
+    accent: "sky",
   },
   {
     id: "seller-risk",
@@ -122,7 +130,7 @@ export const ADMIN_MODULES: AdminModuleDef[] = [
 ];
 
 export const ADMIN_PRIMARY_MODULES = ADMIN_MODULES.filter((m) =>
-  ["live-shows", "finance", "fees", "seller-risk", "moderation", "users", "fulfillment", "trust", "health"].includes(
+  ["live-shows", "finance", "fees", "shipping-profiles", "seller-risk", "moderation", "users", "fulfillment", "trust", "health"].includes(
     m.id,
   ),
 );
@@ -132,6 +140,7 @@ export const ADMIN_NAV_LINKS: { href: string; label: string; exact?: boolean }[]
   { href: "/admin/live-shows", label: "Live" },
   { href: "/admin/finance", label: "Finance" },
   { href: "/admin/fees", label: "Fees" },
+  { href: "/admin/shipping-profiles", label: "Shipping" },
   { href: "/admin/seller-risk", label: "Seller Risk" },
   { href: "/admin/moderation", label: "Moderation" },
   { href: "/admin/users-management", label: "Users" },

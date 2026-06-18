@@ -6,6 +6,7 @@ import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
 import { isVariantSalesFormat, normalizeVariantDrafts } from "@/lib/live-item-variant-presets";
 import { parseLiveItemSalesFormat } from "@/lib/live-item-variant-serialize";
 import { validateLiveRoomItemThumbnail } from "@/lib/listing-photo-requirements";
+import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-shipping-profiles";
 
 type PostBody = {
   title?: string;
@@ -21,6 +22,7 @@ type PostBody = {
   quantity?: number | string;
   salesFormat?: string;
   variants?: unknown;
+  shippingProfileId?: string | null;
 };
 
 function clampItemQuantity(n: number): number {
@@ -114,6 +116,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ error: "Add at least one selectable option for variant items." }, { status: 400 });
   }
 
+  const explicitProfileId =
+    typeof body.shippingProfileId === "string" && body.shippingProfileId.trim()
+      ? body.shippingProfileId.trim()
+      : null;
+  const inheritedProfile = await resolveDefaultProfileForLiveShow({
+    showDefaultProfileId: room.defaultShippingProfileId,
+    category: room.category,
+    db: prisma,
+  });
+  const resolvedProfile = explicitProfileId
+    ? await prisma.platformShippingProfile.findFirst({
+        where: { id: explicitProfileId, isActive: true },
+      })
+    : inheritedProfile;
+  if (explicitProfileId && !resolvedProfile) {
+    return NextResponse.json({ error: "That shipping profile is not available." }, { status: 400 });
+  }
+
   const baseCreate = {
     liveRoomId,
     listingId,
@@ -130,6 +150,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     quantity: isVariantSalesFormat(salesFormat) ? 1 : quantity,
     quantityInitial: isVariantSalesFormat(salesFormat) ? 1 : quantity,
     salesFormat,
+    shippingProfileId: resolvedProfile?.id ?? null,
+    requiresSeparatePackage: resolvedProfile?.requiresSeparatePackage ?? null,
   };
 
   /** Turbopack / dev can keep an older bundled Prisma client that rejects `quantity` even after `prisma generate`. */

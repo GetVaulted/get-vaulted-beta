@@ -25,6 +25,8 @@ type Props = {
   publicUrl: string;
   showTitle: string;
   hostUsername?: string;
+  /** When false, share copy reflects an upcoming scheduled show. */
+  isLive?: boolean;
   onToast?: (message: string) => void;
 };
 
@@ -36,7 +38,7 @@ function socialShareUrl(platform: 'x' | 'facebook' | 'sms', url: string, title: 
   return Platform.OS === 'ios' ? `sms:&body=${text}%20${link}` : `sms:?body=${text}%20${link}`;
 }
 
-export function SellerShareSheet({ visible, onClose, publicUrl, showTitle, hostUsername, onToast }: Props) {
+export function SellerShareSheet({ visible, onClose, publicUrl, showTitle, hostUsername, isLive = true, onToast }: Props) {
   const insets = useSafeAreaInsets();
   const [copied, setCopied] = useState(false);
 
@@ -56,8 +58,8 @@ export function SellerShareSheet({ visible, onClose, publicUrl, showTitle, hostU
     }
   };
 
-  const shareTitle = buildSellerLiveShareOgTitle(hostUsername ?? 'host');
-  const shareDescription = buildSellerLiveShareOgDescription(showTitle);
+  const shareTitle = buildSellerLiveShareOgTitle(hostUsername ?? 'host', isLive);
+  const shareDescription = buildSellerLiveShareOgDescription(showTitle, isLive);
 
   const nativeShare = async () => {
     try {

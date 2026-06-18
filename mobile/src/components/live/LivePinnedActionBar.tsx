@@ -80,6 +80,8 @@ type Props = {
   onBidPlaced?: (amountUsd: number) => void;
   /** Break rooms: block bid CTAs until disclaimer accepted. */
   participationBlocked?: boolean;
+  /** Host or assigned moderator — cannot bid/buy in this show. */
+  staffCommerceBlocked?: boolean;
   /** Parent can disable feed gestures while wallet overlay is open. */
   onWalletOverlayChange?: (active: boolean) => void;
   /** Stage design width — drives compact HUD sizing on iPhone 15-class screens. */
@@ -102,6 +104,7 @@ export function LivePinnedActionBar({
   mergeBidAck,
   onBidPlaced,
   participationBlocked = false,
+  staffCommerceBlocked = false,
   onWalletOverlayChange,
   layoutWidth,
   onRegisterOpenWallet,
@@ -157,8 +160,8 @@ export function LivePinnedActionBar({
   const auctionLane = buyerKind === 'auction';
   const commerceBlocked =
     walletOverlayActive || walletSheetOpen || variantSheetOpen || Boolean(roomSnap?.unresolvedPaymentFailure);
-  const primaryDisabled = m.buyerPrimaryDisabled === true || participationBlocked || commerceBlocked;
-  const secondaryDisabled = m.buyerSecondaryDisabled === true || participationBlocked || commerceBlocked;
+  const primaryDisabled = m.buyerPrimaryDisabled === true || participationBlocked || commerceBlocked || staffCommerceBlocked;
+  const secondaryDisabled = m.buyerSecondaryDisabled === true || participationBlocked || commerceBlocked || staffCommerceBlocked;
   const padBottom = 4 + Math.min(10, Math.round(bottomSafeInset * (compact ? 0.25 : 0.35)));
   const metaLine = [m.winningLine, m.stateLine].filter(Boolean).join(' · ');
 
@@ -501,6 +504,13 @@ export function LivePinnedActionBar({
   ]);
 
   const runPrimaryLiveCommerceAction = useCallback(() => {
+    if (staffCommerceBlocked) {
+      Alert.alert(
+        'Not available',
+        'Hosts and moderators cannot bid or buy items in this show.',
+      );
+      return;
+    }
     if (walletOverlayOpenRef.current || walletSheetOpen || bidInFlightRef.current) {
       logBidControl('blocked', { reason: 'wallet overlay open' });
       logLiveBidBlocked('wallet overlay open');
@@ -541,10 +551,12 @@ export function LivePinnedActionBar({
     roomSnap?.lotBidPhase,
     roomSnap?.roomType,
     stream.id,
+    staffCommerceBlocked,
     tryPlaceLiveBid,
     variantItemActive,
     useLiveAuctionBidFlow,
     walletSheetOpen,
+    staffCommerceBlocked,
   ]);
 
   const onSecondary = () => {

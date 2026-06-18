@@ -773,7 +773,7 @@ export async function endHostStageSession(roomId: string): Promise<void> {
   const now = new Date();
   await prisma.liveRoom.update({
     where: { id: roomId },
-    data: { streamHealth: "ended", streamEndedAt: now, lastIvsStatusSyncAt: now },
+    data: { streamHealth: "ended", streamEndedAt: now, streamPaused: false, lastIvsStatusSyncAt: now },
   });
   logIvsOpsServer("ivs_stage_broadcast_stop", { roomId });
 }

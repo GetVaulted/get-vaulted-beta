@@ -12,11 +12,14 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const liveShowId = (searchParams.get("liveShowId") ?? "").trim();
+  const previewLiveRoomItemId = (searchParams.get("previewItemId") ?? "").trim() || null;
   if (!liveShowId) {
     return NextResponse.json({ error: "liveShowId is required." }, { status: 400 });
   }
 
-  const payload = await getBuyerBundledLiveShippingSessionUx(session.user.id, liveShowId);
+  const payload = await getBuyerBundledLiveShippingSessionUx(session.user.id, liveShowId, {
+    previewLiveRoomItemId,
+  });
   if (!payload) {
     return NextResponse.json({ error: "Live show not found or live shipping does not apply." }, { status: 404 });
   }

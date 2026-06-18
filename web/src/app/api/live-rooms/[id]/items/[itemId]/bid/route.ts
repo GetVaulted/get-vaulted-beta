@@ -15,6 +15,7 @@ import { getLiveRoomItemSnapshotDto } from "@/lib/live-room-item-snapshot-server
 import { resolveLiveProxyBidChain, upsertLiveAuctionProxyBid } from "@/services/live-auction/resolve-live-proxy-bid-chain";
 import { isStripeConfigured } from "@/lib/stripe";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
+import { getLiveBuyerCommerceBlock } from "@/lib/live-room-commerce-guards";
 import { getLiveRoomUserRestrictions } from "@/lib/trust/live-room-moderation";
 import { getTransactionServerNow, getServerNow } from "@/lib/server-transaction-now";
 import { recordLiveRoomBid } from "@/lib/record-live-room-bid";
@@ -106,8 +107,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
     return NextResponse.json({ error: "The bidding window for this lot has ended." }, { status: 409 });
   }
 
-  if (room.sellerId === auth.userId) {
-    return NextResponse.json({ error: "You cannot bid on items in your own live room." }, { status: 400 });
+  const commerceBlock = await getLiveBuyerCommerceBlock({ liveRoomId, userId: auth.userId });
+  if (commerceBlock) {
+    return NextResponse.json({ error: commerceBlock.error, code: commerceBlock.code }, { status: commerceBlock.status });
   }
 
   const modRestrictions = await getLiveRoomUserRestrictions({ liveRoomId, userId: auth.userId });

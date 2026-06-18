@@ -3,6 +3,7 @@ import {
   liveAuctionDisplayBidUsd,
   liveAuctionOpeningBidUsd,
   resolveLiveItemOverlayPrice,
+  resolvePinnedLotOverlayPrice,
 } from "@/lib/live-auction-overlay-price";
 
 describe("live-auction-overlay-price", () => {
@@ -55,6 +56,28 @@ describe("live-auction-overlay-price", () => {
         startingBidUsd: 1,
       }),
     ).toMatchObject({ kind: "asking", label: "Asking", amountUsd: 32 });
+  });
+
+  it("uses priceUsd when starting bid is unset (PYT/PYD spot boards)", () => {
+    expect(liveAuctionOpeningBidUsd({ priceUsd: 35 })).toBe(35);
+    expect(
+      resolveLiveItemOverlayPrice({
+        commerceMode: "auction",
+        priceUsd: 35,
+      }).amountUsd,
+    ).toBe(35);
+  });
+
+  it("resolvePinnedLotOverlayPrice shows From for variant spot boards", () => {
+    expect(
+      resolvePinnedLotOverlayPrice({
+        salesFormat: "variant_selection",
+        variants: [
+          { priceUsd: 35, quantityRemaining: 1, status: "available" },
+          { priceUsd: 40, quantityRemaining: 1, status: "available" },
+        ],
+      }),
+    ).toMatchObject({ kind: "asking", label: "From", amountUsd: 35 });
   });
 
   it("display bid ignores priceUsd without accepted bid", () => {

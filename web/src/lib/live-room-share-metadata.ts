@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 export const LIVE_SHARE_DESCRIPTION = "Join the live auction now";
+export const UPCOMING_LIVE_SHARE_DESCRIPTION = "Join when we go live";
 
 /** Branded fallback when a show has no uploaded thumbnail (absolute HTTPS). */
 export const DEFAULT_LIVE_SHARE_OG_IMAGE =
@@ -71,9 +72,9 @@ export function canonicalShareSiteUrl(): string {
   return withProto.replace(/\/$/, "");
 }
 
-/** Host that serves dynamic OG images (defaults to deployed app origin). */
+/** Host that serves dynamic OG images (same origin as public share links by default). */
 export function ogImageSiteUrl(): string {
-  const raw = process.env.NEXT_PUBLIC_OG_IMAGE_SITE_URL?.trim() || publicSiteBaseUrl();
+  const raw = process.env.NEXT_PUBLIC_OG_IMAGE_SITE_URL?.trim() || canonicalShareSiteUrl();
   const withProto = raw.includes("://") ? raw : `https://${raw}`;
   return withProto.replace(/\/$/, "");
 }
@@ -131,6 +132,8 @@ export type LiveRoomShareMetaInput = {
   thumbnailUrl?: string | null;
   sellerUsername?: string | null;
   viewerCount?: number | null;
+  /** When false, copy reflects an upcoming scheduled show. Defaults to live wording. */
+  isLive?: boolean;
 };
 
 export function formatLiveRoomShareHostName(input: Pick<LiveRoomShareMetaInput, "sellerUsername">): string {
@@ -138,16 +141,20 @@ export function formatLiveRoomShareHostName(input: Pick<LiveRoomShareMetaInput, 
   return host;
 }
 
-/** og:title — "{hostName} is LIVE on Get Vaulted" */
+/** og:title — live: "{hostName} is LIVE on Get Vaulted"; scheduled: "{hostName} on Get Vaulted" */
 export function formatLiveRoomShareOgTitle(input: LiveRoomShareMetaInput): string {
   const host = formatLiveRoomShareHostName(input);
+  if (input.isLive === false) {
+    return `${host} on Get Vaulted`;
+  }
   return `${host} is LIVE on Get Vaulted`;
 }
 
-/** og:description — "{showTitle} • Join the live auction now" */
-export function formatLiveRoomShareDescription(input: Pick<LiveRoomShareMetaInput, "title">): string {
+/** og:description — "{showTitle} • …" */
+export function formatLiveRoomShareDescription(input: Pick<LiveRoomShareMetaInput, "title" | "isLive">): string {
   const showTitle = input.title?.trim() || "Live show";
-  return `${showTitle} • ${LIVE_SHARE_DESCRIPTION}`;
+  const tagline = input.isLive === false ? UPCOMING_LIVE_SHARE_DESCRIPTION : LIVE_SHARE_DESCRIPTION;
+  return `${showTitle} • ${tagline}`;
 }
 
 /** @deprecated Use formatLiveRoomShareOgTitle for new share surfaces. */

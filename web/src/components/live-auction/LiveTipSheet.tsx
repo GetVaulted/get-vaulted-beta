@@ -1,25 +1,68 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
   LIVE_TIP_MAX_USD,
   LIVE_TIP_MIN_USD,
   LIVE_TIP_PRESET_AMOUNTS_USD,
-  startLiveTipCheckout,
+  fetchLiveBuyerPaymentSession,
+  fetchLiveTipPaymentMethods,
+  formatLiveTipPaymentMethodLabel,
+  sendLiveTipWithSavedCard,
+  setLiveBuyerPaymentMethod,
+  type LiveTipPaymentMethodRow,
 } from "@/lib/live-tip-client";
 
 type LiveTipSheetProps = {
   open: boolean;
   onClose: () => void;
   liveRoomId: string;
+  paymentMethodId?: string | null;
+  onPaymentMethodIdChange?: (id: string | null) => void;
+  onSuccess?: () => void;
   onError?: (message: string) => void;
 };
 
-export function LiveTipSheet({ open, onClose, liveRoomId, onError }: LiveTipSheetProps) {
+export function LiveTipSheet({
+  open,
+  onClose,
+  liveRoomId,
+  paymentMethodId,
+  onPaymentMethodIdChange,
+  onSuccess,
+  onError,
+}: LiveTipSheetProps) {
   const [amountUsd, setAmountUsd] = useState<number>(10);
   const [customAmount, setCustomAmount] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loadingPm, setLoadingPm] = useState(false);
+  const [paymentMethods, setPaymentMethods] = useState<LiveTipPaymentMethodRow[]>([]);
+  const [selectedPmId, setSelectedPmId] = useState<string | null>(paymentMethodId ?? null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const refreshPaymentMethod = useCallback(async () => {
+    if (!open) return;
+    setLoadingPm(true);
+    try {
+      const [session, pmRes] = await Promise.all([
+        fetchLiveBuyerPaymentSession(liveRoomId),
+        fetchLiveTipPaymentMethods(),
+      ]);
+      setPaymentMethods(pmRes);
+      const nextId =
+        paymentMethodId?.trim() ||
+        session?.activePaymentMethodId?.trim() ||
+        pmRes.find((pm) => pm.isDefault)?.id ||
+        pmRes[0]?.id ||
+        null;
+      setSelectedPmId(nextId);
+      onPaymentMethodIdChange?.(nextId);
+    } finally {
+      setLoadingPm(false);
+    }
+  }, [liveRoomId, onPaymentMethodIdChange, open, paymentMethodId]);
 
   useEffect(() => {
     if (!open) return;
@@ -27,7 +70,27 @@ export function LiveTipSheet({ open, onClose, liveRoomId, onError }: LiveTipShee
     setCustomAmount("");
     setMessage("");
     setBusy(false);
-  }, [open, liveRoomId]);
+    setPickerOpen(false);
+    void refreshPaymentMethod();
+  }, [open, liveRoomId, refreshPaymentMethod]);
+
+  useEffect(() => {
+    if (paymentMethodId?.trim()) setSelectedPmId(paymentMethodId.trim());
+  }, [paymentMethodId]);
+
+  const pickMethod = useCallback(
+    async (pm: LiveTipPaymentMethodRow) => {
+      setSelectedPmId(pm.id);
+      onPaymentMethodIdChange?.(pm.id);
+      setPickerOpen(false);
+      try {
+        await setLiveBuyerPaymentMethod(liveRoomId, pm.id);
+      } catch (e) {
+        onError?.(e instanceof Error ? e.message : "Could not update payment method.");
+      }
+    },
+    [liveRoomId, onError, onPaymentMethodIdChange],
+  );
 
   const submit = useCallback(async () => {
     const custom = customAmount.trim() ? Number(customAmount) : NaN;
@@ -36,18 +99,24 @@ export function LiveTipSheet({ open, onClose, liveRoomId, onError }: LiveTipShee
       onError?.(`Enter a tip between $${LIVE_TIP_MIN_USD} and $${LIVE_TIP_MAX_USD}.`);
       return;
     }
+    if (!selectedPmId?.trim()) {
+      onError?.("Add a saved payment method in Vault Wallet before tipping.");
+      return;
+    }
     setBusy(true);
     try {
-      const { url } = await startLiveTipCheckout(liveRoomId, {
+      await sendLiveTipWithSavedCard(liveRoomId, {
         amountUsd: finalAmount,
         message: message.trim() || undefined,
+        paymentMethodId: selectedPmId,
       });
-      window.location.assign(url);
+      onSuccess?.();
+      onClose();
     } catch (e) {
-      onError?.(e instanceof Error ? e.message : "Could not start tip checkout.");
+      onError?.(e instanceof Error ? e.message : "Could not send tip.");
       setBusy(false);
     }
-  }, [amountUsd, customAmount, liveRoomId, message, onError]);
+  }, [amountUsd, customAmount, liveRoomId, message, onClose, onError, onSuccess, selectedPmId]);
 
   if (!open) return null;
 
@@ -77,8 +146,57 @@ export function LiveTipSheet({ open, onClose, liveRoomId, onError }: LiveTipShee
         </div>
         <div className="space-y-4 p-4">
           <p className="text-xs leading-relaxed text-zinc-500">
-            Get Vaulted does not take a platform fee from tips. Standard payment processing still applies.
+            Tips use your Vault Wallet saved card for this room. Get Vaulted does not take a platform fee from tips.
           </p>
+
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Payment method</p>
+            <button
+              type="button"
+              disabled={busy || loadingPm}
+              onClick={() => {
+                if (paymentMethods.length > 1) setPickerOpen((v) => !v);
+              }}
+              className="mt-2 flex w-full items-center gap-2 rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2.5 text-left disabled:opacity-50"
+            >
+              <span className="flex-1 text-sm font-bold text-zinc-200">
+                {loadingPm ? "Loading…" : formatLiveTipPaymentMethodLabel(paymentMethods, selectedPmId)}
+              </span>
+              {paymentMethods.length > 1 ? (
+                <span className="text-xs font-bold text-gold-bright">{pickerOpen ? "Done" : "Change"}</span>
+              ) : (
+                <Link href="/account/payment-methods" className="text-xs font-bold text-gold-bright hover:underline">
+                  Wallet
+                </Link>
+              )}
+            </button>
+            {pickerOpen ? (
+              <div className="mt-2 space-y-1.5">
+                {paymentMethods.map((pm) => (
+                  <button
+                    key={pm.id}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void pickMethod(pm)}
+                    className={`flex w-full rounded-xl border px-3 py-2.5 text-left text-sm font-bold transition ${
+                      pm.id === selectedPmId
+                        ? "border-gold/50 bg-gold/10 text-gold-bright"
+                        : "border-white/10 bg-black/25 text-zinc-300 hover:border-white/20"
+                    }`}
+                  >
+                    {formatLiveTipPaymentMethodLabel(paymentMethods, pm.id)}
+                  </button>
+                ))}
+                <Link
+                  href="/account/payment-methods"
+                  className="block rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 text-sm font-bold text-gold-bright hover:border-white/20"
+                >
+                  Manage in Vault Wallet
+                </Link>
+              </div>
+            ) : null}
+          </div>
+
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Amount</p>
             <div className="mt-2 grid grid-cols-4 gap-2">
@@ -133,7 +251,7 @@ export function LiveTipSheet({ open, onClose, liveRoomId, onError }: LiveTipShee
             onClick={() => void submit()}
             className="flex min-h-11 w-full items-center justify-center rounded-xl bg-gradient-to-r from-gold to-gold-bright text-sm font-black text-zinc-950 transition hover:brightness-110 disabled:opacity-50"
           >
-            {busy ? "Opening checkout…" : "Continue to payment"}
+            {busy ? "Sending…" : "Send tip"}
           </button>
         </div>
       </div>

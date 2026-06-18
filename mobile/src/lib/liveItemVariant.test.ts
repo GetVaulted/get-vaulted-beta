@@ -5,8 +5,10 @@ import {
   isActiveVariantBuyerItem,
   isVariantSalesFormat,
   sortVariantsForBuyerDisplay,
+  summarizeVariantSpots,
   variantSelectSpotLabel,
 } from './liveItemVariant';
+import { resolvePinnedLotOverlayPrice } from './liveAuctionOverlayPrice';
 
 describe('isVariantSalesFormat', () => {
   it('matches team break formats', () => {
@@ -64,5 +66,27 @@ describe('variantSelectSpotLabel', () => {
   it('uses team label for team_break', () => {
     expect(variantSelectSpotLabel('team_break')).toBe('Pick Your Division');
     expect(variantSelectSpotLabel('variant_selection')).toBe('Pick Your Team');
+  });
+});
+
+describe('summarizeVariantSpots', () => {
+  it('returns lowest open spot price', () => {
+    const stats = summarizeVariantSpots([
+      { priceUsd: 35, quantityRemaining: 1, status: 'available' },
+      { priceUsd: 50, quantityRemaining: 0, status: 'sold_out', soldCount: 1 },
+    ]);
+    expect(stats.fromPriceUsd).toBe(35);
+    expect(stats.available).toBe(1);
+  });
+});
+
+describe('resolvePinnedLotOverlayPrice', () => {
+  it('shows From for PYT spot boards', () => {
+    expect(
+      resolvePinnedLotOverlayPrice({
+        salesFormat: 'variant_selection',
+        variants: [{ priceUsd: 35, quantityRemaining: 32, status: 'available' }],
+      }),
+    ).toMatchObject({ label: 'From', amountUsd: 35 });
   });
 });

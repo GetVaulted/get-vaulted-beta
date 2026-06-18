@@ -1,4 +1,5 @@
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
+import { captureLiveRoomItemShippingSnapshotTx } from "@/services/shipping/live-item-shipping-snapshot";
 
 /**
  * Queue rows can represent multiple units (`LiveRoomItem.quantity`). Mark the row sold only when
@@ -19,6 +20,7 @@ export async function refreshLiveRoomItemSoldAfterBreakSpotChange(
 
   if (count >= qty) {
     if (item.status !== "sold") {
+      await captureLiveRoomItemShippingSnapshotTx(tx, liveRoomItemId);
       await tx.liveRoomItem.update({
         where: { id: liveRoomItemId },
         data: { status: "sold", itemVersion: { increment: 1 } },

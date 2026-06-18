@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSessionSafe } from "@/lib/auth";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
+import { getLiveBuyerCommerceBlock } from "@/lib/live-room-commerce-guards";
 import { liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
 import { settleLiveBuyNowPurchase } from "@/lib/live-payment-pipeline";
 import { syncLiveBuyNowOrderPaymentIntent } from "@/lib/stripe-charge-order-saved-pm";
@@ -63,8 +64,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   const paymentBlock = await liveRoomPaymentBlockResponse(liveRoomId, session.user.id);
   if (paymentBlock) return paymentBlock;
 
-  if (room.sellerId === session.user.id) {
-    return NextResponse.json({ error: "You cannot purchase items in your own live room." }, { status: 400 });
+  const commerceBlock = await getLiveBuyerCommerceBlock({ liveRoomId, userId: session.user.id });
+  if (commerceBlock) {
+    return NextResponse.json({ error: commerceBlock.error, code: commerceBlock.code }, { status: commerceBlock.status });
   }
 
   if (!item.listingId) {

@@ -1,4 +1,4 @@
-import { Image, type ImageContentFit } from 'expo-image';
+import { Image, type ImageContentFit, type ImageContentPosition } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { DEFAULT_LIVE_ROOM_PREVIEW_IMAGE } from '../../lib/liveRoomPreviewImage';
@@ -28,6 +28,7 @@ export function VaultImage({
   borderRadius = 0,
   priority = 'normal',
   contentFit = 'cover',
+  contentPosition = 'center',
   style,
   accessibilityLabel,
 }: VaultImageProps) {
@@ -48,8 +49,9 @@ export function VaultImage({
       />
       <Image
         source={{ uri: resolvedUri }}
-        style={{ width, height }}
+        style={StyleSheet.absoluteFillObject}
         contentFit={contentFit}
+        contentPosition={contentPosition}
         transition={180}
         priority={priority}
         placeholder={PLACEHOLDER}

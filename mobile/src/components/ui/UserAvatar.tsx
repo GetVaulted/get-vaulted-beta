@@ -45,6 +45,7 @@ export function UserAvatar({
           source={{ uri: imageUri }}
           style={{ width: size, height: size }}
           contentFit="cover"
+          contentPosition="center"
           cachePolicy="memory-disk"
           transition={100}
         />

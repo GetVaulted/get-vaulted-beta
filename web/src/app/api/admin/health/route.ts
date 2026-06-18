@@ -71,12 +71,12 @@ export async function GET() {
     probeEndpoint: "TODO: GET /api/admin/health/ivs",
   });
 
-  const shippoKey = process.env.SHIPPO_API_KEY;
+  const shippoKey = process.env.SHIPPO_API_TOKEN;
   checks.push({
     id: "shippo",
     label: "Shippo",
     status: shippoKey ? "ok" : "degraded",
-    detail: shippoKey ? "API key configured" : "SHIPPO_API_KEY missing",
+    detail: shippoKey ? "API key configured" : "SHIPPO_API_TOKEN missing",
     probeEndpoint: "TODO: GET /api/admin/health/shippo",
   });
 

@@ -21,6 +21,7 @@ import { BuyerLiveQueueSheet } from "@/components/live-auction/buyer/BuyerLiveQu
 import { BUYER_LIVE_MAIN_SECTION, BUYER_LIVE_PAGE_GRID } from "@/components/live-auction/buyer/buyerLiveLayout";
 import { HostLiveRoomConsoleBanner } from "@/components/live-auction/buyer/HostLiveRoomConsoleBanner";
 import { useBuyerLiveDesktop } from "@/components/live-auction/buyer/useBuyerLiveDesktop";
+import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
 import { LiveGiveawayEnterStrip } from "@/components/live-auction/LiveGiveawayEnterStrip";
 import type { ViewerGiveawayDTO } from "@/lib/live-giveaway";
@@ -28,8 +29,10 @@ import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
 import type { LiveRoomItemDTO, LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { liveAuctionMinBidUsd } from "@/lib/auction";
-import { liveAuctionDisplayBidUsd, resolveLiveItemOverlayPrice } from "@/lib/live-auction-overlay-price";
+import { liveAuctionDisplayBidUsd, resolvePinnedLotOverlayPrice } from "@/lib/live-auction-overlay-price";
 import { LIVE_AUCTION_CLIENT_END_GRACE_MS } from "@/lib/live-auction-bid-extension";
+import { projectBuyerQueueLineup } from "@/lib/live-buyer-queue-projection";
+import { fetchLiveBuyerPaymentSession } from "@/lib/live-tip-client";
 import { createLiveBidIdempotencyKey, liveBidRequestHeaders } from "@/lib/live-bid-client";
 import {
   LIVE_AUCTION_BUYER_NOT_STARTED_COPY,
@@ -263,6 +266,7 @@ export function LiveSaleRoom({
   const [buyerLineupOpen, setBuyerLineupOpen] = useState(false);
   const isBuyerDesktop = useBuyerLiveDesktop();
   const [tipOpen, setTipOpen] = useState(false);
+  const [roomPaymentMethodId, setRoomPaymentMethodId] = useState<string | null>(null);
   useLayoutEffect(() => {
     const mq = window.matchMedia("(min-width: 1280px)");
     const apply = () => setBuyerWideRail(mq.matches);
@@ -372,13 +376,14 @@ export function LiveSaleRoom({
   const activeOverlayPrice = useMemo(() => {
     if (!activeDb) return null;
     if (roomType === "sale") {
-      return resolveLiveItemOverlayPrice({
+      return resolvePinnedLotOverlayPrice({
         commerceMode: "buy_now",
         priceUsd: activeDb.priceUsd,
       });
     }
-    return resolveLiveItemOverlayPrice({
-      commerceMode: "auction",
+    return resolvePinnedLotOverlayPrice({
+      salesFormat: activeDb.salesFormat,
+      variants: activeDb.variants,
       status: activeDb.status,
       currentBidUsd: activeDb.currentBidUsd,
       startingBidUsd: activeDb.startingBidUsd,
@@ -427,12 +432,31 @@ export function LiveSaleRoom({
     Math.abs(bidMeta.currentBidUsd - userHighBidUsd) < 0.02;
 
   const queue = items.filter((i) => i.status !== "sold" && i.status !== "skipped");
+  const buyerQueueRows = useMemo(
+    () =>
+      projectBuyerQueueLineup(dbItems, {
+        roomIsLive: isLive,
+        clockSkewMs,
+        nowMs: syncedWallTimeMs(clockSkewMs),
+      }),
+    [dbItems, isLive, clockSkewMs, liveAuctionResolutionTick, clockTick],
+  );
   const buyerNextUpItem = useMemo(() => {
     const active = queue.find((i) => i.status === "live" || i.id === selectedId);
     return queue.find((i) => i.id !== active?.id) ?? queue[0] ?? null;
   }, [queue, selectedId]);
 
   const isHost = Boolean(session?.user?.id && session.user.id === sellerId);
+  const viewerModeration = useLiveRoomModerationState(liveRoomId, Boolean(liveRoomId));
+  const staffCommerceBlocked = isHost || viewerModeration.isModerator;
+
+  useEffect(() => {
+    if (status !== "authenticated" || isHost || !liveRoomId) return;
+    void fetchLiveBuyerPaymentSession(liveRoomId).then((session) => {
+      const nextId = session?.activePaymentMethodId?.trim() || null;
+      if (nextId) setRoomPaymentMethodId(nextId);
+    });
+  }, [isHost, liveRoomId, status]);
   const payReady = buyerLiveBidPaymentReady !== false;
   const shipReady = buyerLiveShippingReady !== false;
   const buyerLiveWalletReady = payReady && shipReady;
@@ -472,7 +496,7 @@ export function LiveSaleRoom({
   const sessionBlocksBuyer = (status === "unauthenticated" || status === "loading") && !isHost && isLive;
   const actionsDisabled =
     !isLive ||
-    isHost ||
+    staffCommerceBlocked ||
     busy ||
     bidFlight ||
     sessionBlocksBuyer ||
@@ -733,7 +757,13 @@ export function LiveSaleRoom({
       </p>
       <p className="mt-0.5 line-clamp-2 text-[11px] font-medium text-zinc-200">{priceLine}</p>
       {!isHost && (roomType === "auction" || roomType === "sale") ? (
-        <LiveShippingIndicator liveShowId={liveRoomId} refreshNonce={shipUxNonce} pollMs={isLive ? 8000 : 0} className="mt-2" />
+        <LiveShippingIndicator
+          liveShowId={liveRoomId}
+          previewLiveRoomItemId={activeDb?.id}
+          refreshNonce={shipUxNonce}
+          pollMs={isLive ? 8000 : 0}
+          className="mt-2"
+        />
       ) : null}
       {roomType === "auction" && isHost && activeDb?.status === "active" ? (
         <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
@@ -949,6 +979,7 @@ export function LiveSaleRoom({
       {!isHost && (roomType === "auction" || roomType === "sale") ? (
         <LiveShippingIndicator
           liveShowId={liveRoomId}
+          previewLiveRoomItemId={activeDb?.id}
           refreshNonce={shipUxNonce}
           pollMs={isLive ? 8000 : 0}
           compact
@@ -1230,10 +1261,10 @@ export function LiveSaleRoom({
               !isHost ? (
                 <BuyerLiveItemBoard
                   commerce={showSaleActiveOverlay ? desktopVideoOverlay : null}
-                  items={queue.map((item) => ({
+                  items={buyerQueueRows.map((item) => ({
                     id: item.id,
                     displayTitle: item.displayTitle,
-                    metaLine: roomType === "auction" ? `${fmt(item.topBid)} bid` : fmt(item.buyNow),
+                    metaLine: item.metaLine,
                   }))}
                   selectedId={selectedId}
                   shopHref={shopHref}
@@ -1259,17 +1290,21 @@ export function LiveSaleRoom({
 
               {isHost ? (
                 <HostLiveRoomConsoleBanner liveRoomId={liveRoomId} roomType={hostConsoleRoomType} />
-              ) : queue.length > 0 ? (
+              ) : buyerQueueRows.length > 0 ? (
                 <BuyerLiveNextUpRail
-                  nextTitle={buyerNextUpItem?.displayTitle ?? "More coming soon"}
+                  nextTitle={buyerNextUpItem?.displayTitle ?? buyerQueueRows[0]?.displayTitle ?? "More coming soon"}
                   nextMeta={
-                    buyerNextUpItem
-                      ? roomType === "auction"
-                        ? `${fmt(buyerNextUpItem.topBid)} bid · ${queue.length} in lineup`
-                        : `${fmt(buyerNextUpItem.buyNow)} · ${queue.length} in lineup`
-                      : `${queue.length} in lineup`
+                    (() => {
+                      const row =
+                        buyerQueueRows.find((r) => r.id === buyerNextUpItem?.id) ??
+                        buyerQueueRows.find((r) => !r.isPinned) ??
+                        buyerQueueRows[0];
+                      return row
+                        ? `${row.metaLine} · ${buyerQueueRows.length} in lineup`
+                        : `${buyerQueueRows.length} in lineup`;
+                    })()
                   }
-                  queueCount={queue.length}
+                  queueCount={buyerQueueRows.length}
                   shopHref={shopHref}
                   onOpenQueue={() => setBuyerLineupOpen(true)}
                 />
@@ -1288,8 +1323,9 @@ export function LiveSaleRoom({
 
               {!isHost && (roomType === "auction" || roomType === "sale") ? (
                 <LiveShippingIndicator
-                  liveShowId={liveRoomId}
-                  refreshNonce={shipUxNonce}
+          liveShowId={liveRoomId}
+          previewLiveRoomItemId={activeDb?.id}
+          refreshNonce={shipUxNonce}
                   pollMs={isLive ? 8000 : 0}
                   compact
                 />
@@ -1304,13 +1340,14 @@ export function LiveSaleRoom({
         open={buyerLineupOpen && !isHost}
         onClose={() => setBuyerLineupOpen(false)}
         title="Lineup"
-        subtitle={`${queue.length} item${queue.length === 1 ? "" : "s"} in queue`}
+        subtitle={`${buyerQueueRows.length} item${buyerQueueRows.length === 1 ? "" : "s"} in queue`}
         shopHref={shopHref}
         footer={
           !isHost && (roomType === "auction" || roomType === "sale") ? (
             <LiveShippingIndicator
-              liveShowId={liveRoomId}
-              refreshNonce={shipUxNonce}
+          liveShowId={liveRoomId}
+          previewLiveRoomItemId={activeDb?.id}
+          refreshNonce={shipUxNonce}
               pollMs={isLive ? 8000 : 0}
               compact
             />
@@ -1318,10 +1355,10 @@ export function LiveSaleRoom({
         }
       >
         <BuyerLiveQueueList
-          items={queue.map((item) => ({
+          items={buyerQueueRows.map((item) => ({
             id: item.id,
             displayTitle: item.displayTitle,
-            metaLine: roomType === "auction" ? `${fmt(item.topBid)} bid` : fmt(item.buyNow),
+            metaLine: item.metaLine,
           }))}
           selectedId={selectedId}
           onSelect={(id) => {
@@ -1349,6 +1386,9 @@ export function LiveSaleRoom({
         open={tipOpen}
         onClose={() => setTipOpen(false)}
         liveRoomId={liveRoomId}
+        paymentMethodId={roomPaymentMethodId}
+        onPaymentMethodIdChange={setRoomPaymentMethodId}
+        onSuccess={() => toast("Tip sent — thanks for supporting the show!")}
         onError={(msg) => toast(msg)}
       />
     </div>

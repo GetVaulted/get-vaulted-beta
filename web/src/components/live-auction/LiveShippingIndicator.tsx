@@ -9,6 +9,11 @@ export type LiveShippingSessionPayload = {
   capReached: boolean;
   nextIncrementalCostCents: number | null;
   tierLabel: string | null;
+  shippingCapCents: number | null;
+  freeShippingEnabled: boolean;
+  packageCount: number;
+  previewWinDeltaCents: number | null;
+  previewRequiresSeparatePackage: boolean;
 };
 
 function formatUsdFromCents(cents: number): string {
@@ -16,24 +21,23 @@ function formatUsdFromCents(cents: number): string {
 }
 
 function hasBundledShippingActivity(d: LiveShippingSessionPayload): boolean {
-  return d.shippingCostCents > 0 || d.pricingWeightOz > 0;
+  return d.shippingCostCents > 0 || d.pricingWeightOz > 0 || d.packageCount > 0;
 }
 
 type Props = {
   liveShowId: string;
-  /** Bump after bid win / buy-now / checkout return to force refetch. */
+  /** Active lot — preview shipping if you win this item (helmet vs cards). */
+  previewLiveRoomItemId?: string | null;
   refreshNonce?: number;
-  /** Background refresh while on a live page (0 disables). */
   pollMs?: number;
   className?: string;
-  /** Dense one-line + subtext for sidebars. */
   compact?: boolean;
-  /** Skip network (e.g. host console). */
   disabled?: boolean;
 };
 
 export function LiveShippingIndicator({
   liveShowId,
+  previewLiveRoomItemId = null,
   refreshNonce = 0,
   pollMs = 0,
   className = "",
@@ -55,10 +59,11 @@ export function LiveShippingIndicator({
     }
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/live-shipping/session?liveShowId=${encodeURIComponent(liveShowId.trim())}`,
-        { cache: "no-store" },
-      );
+      const sp = new URLSearchParams({ liveShowId: liveShowId.trim() });
+      if (previewLiveRoomItemId?.trim()) {
+        sp.set("previewItemId", previewLiveRoomItemId.trim());
+      }
+      const res = await fetch(`/api/live-shipping/session?${sp.toString()}`, { cache: "no-store" });
       if (res.status === 401) {
         setData(null);
         return;
@@ -68,11 +73,7 @@ export function LiveShippingIndicator({
         return;
       }
       const j = (await res.json()) as LiveShippingSessionPayload;
-      if (
-        typeof j.shippingCostCents === "number" &&
-        typeof j.pricingWeightOz === "number" &&
-        typeof j.capReached === "boolean"
-      ) {
+      if (typeof j.shippingCostCents === "number" && typeof j.capReached === "boolean") {
         setData(j);
       } else {
         setData(null);
@@ -82,7 +83,7 @@ export function LiveShippingIndicator({
     } finally {
       setLoading(false);
     }
-  }, [disabled, liveShowId, status]);
+  }, [disabled, liveShowId, previewLiveRoomItemId, status]);
 
   useEffect(() => {
     void load();
@@ -112,48 +113,93 @@ export function LiveShippingIndicator({
     );
   }
 
+  const capLine =
+    data?.shippingCapCents != null && data.shippingCapCents > 0 && !data.freeShippingEnabled
+      ? ` · cap ${formatUsdFromCents(data.shippingCapCents)}`
+      : "";
+
+  const previewDelta = data?.previewWinDeltaCents ?? data?.nextIncrementalCostCents;
+  const separateHint = data?.previewRequiresSeparatePackage ? " (separate package)" : "";
+
   if (!data || !hasBundledShippingActivity(data)) {
+    if (previewDelta != null && previewDelta > 0) {
+      return (
+        <div className={`rounded-lg border border-emerald-500/20 bg-emerald-950/15 px-2.5 py-2 ${className}`}>
+          <p className={`font-semibold text-emerald-100/95 ${compact ? "text-[10px]" : "text-xs"}`}>
+            Win this item → about {formatUsdFromCents(previewDelta)} shipping{separateHint}
+          </p>
+          {capLine ? (
+            <p className={`mt-0.5 text-emerald-200/75 ${compact ? "text-[9px]" : "text-[10px]"}`}>
+              Bundled pool{capLine}
+            </p>
+          ) : null}
+        </div>
+      );
+    }
     return (
       <div className={`rounded-lg border border-emerald-500/20 bg-emerald-950/15 px-2.5 py-2 ${className}`}>
         <p className={`font-semibold text-emerald-100/95 ${compact ? "text-[10px]" : "text-xs"}`}>
           Win your first item to start shipping
         </p>
-        {!compact ? <p className="mt-0.5 text-[10px] text-emerald-200/75">Bundled rates apply per seller, per show.</p> : null}
+        {!compact ? (
+          <p className="mt-0.5 text-[10px] text-emerald-200/75">
+            One pool per seller per show{capLine || " — cards bundle; big items may ship separately"}.
+          </p>
+        ) : null}
       </div>
     );
   }
 
   const tierLine = data.tierLabel ? ` · ${data.tierLabel}` : "";
 
+  if (data.freeShippingEnabled) {
+    return (
+      <div className={`rounded-lg border border-emerald-400/25 bg-emerald-950/15 px-2.5 py-2 ${className}`}>
+        <p className={`font-semibold text-emerald-100 ${compact ? "text-[10px]" : "text-xs"}`}>
+          Free shipping on this show{tierLine}
+        </p>
+      </div>
+    );
+  }
+
   if (data.capReached) {
     return (
       <div className={`rounded-lg border border-amber-400/30 bg-amber-950/20 px-2.5 py-2 ${className}`}>
         <p className={`font-semibold text-amber-100 ${compact ? "text-[10px]" : "text-xs"}`}>
-          Max shipping reached 🎉{tierLine}
+          Shipping pool max reached 🎉{tierLine}
+          {capLine}
         </p>
-        <p className={`mt-0.5 text-amber-100/85 ${compact ? "text-[9px]" : "text-[10px]"}`}>Keep buying with no extra shipping</p>
+        <p className={`mt-0.5 text-amber-100/85 ${compact ? "text-[9px]" : "text-[10px]"}`}>
+          Keep buying — no extra shipping until cap changes
+        </p>
       </div>
     );
   }
 
   const next =
-    data.nextIncrementalCostCents != null && data.nextIncrementalCostCents > 0
-      ? formatUsdFromCents(data.nextIncrementalCostCents)
-      : null;
+    previewDelta != null && previewDelta > 0 ? formatUsdFromCents(previewDelta) : null;
 
   return (
     <div className={`rounded-lg border border-emerald-400/25 bg-emerald-950/15 px-2.5 py-2 ${className}`}>
       <p className={`font-semibold text-emerald-100 ${compact ? "text-[10px]" : "text-xs"}`}>
-        Shipping so far: {formatUsdFromCents(data.shippingCostCents)}
+        Shipping pool: {formatUsdFromCents(data.shippingCostCents)}
         {tierLine}
+        {capLine}
       </p>
       {next ? (
         <>
-          <p className={`mt-0.5 text-emerald-50/95 ${compact ? "text-[9px]" : "text-[10px]"}`}>Next item adds about {next}</p>
-          <p className={`mt-0.5 text-emerald-200/75 ${compact ? "text-[9px]" : "text-[10px]"}`}>Items ship together</p>
+          <p className={`mt-0.5 text-emerald-50/95 ${compact ? "text-[9px]" : "text-[10px]"}`}>
+            Win this item → adds about {next}
+            {separateHint}
+          </p>
+          <p className={`mt-0.5 text-emerald-200/75 ${compact ? "text-[9px]" : "text-[10px]"}`}>
+            All wins in this show share one capped pool
+          </p>
         </>
       ) : (
-        <p className={`mt-0.5 text-emerald-200/75 ${compact ? "text-[9px]" : "text-[10px]"}`}>Items ship together</p>
+        <p className={`mt-0.5 text-emerald-200/75 ${compact ? "text-[9px]" : "text-[10px]"}`}>
+          Items ship together in your pool
+        </p>
       )}
     </div>
   );

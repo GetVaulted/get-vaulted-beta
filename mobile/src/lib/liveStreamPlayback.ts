@@ -3,6 +3,7 @@
 export type BuyerSafeStreamFields = {
   playbackUrl: string | null;
   streamHealth: string;
+  streamPaused: boolean;
   streamStartedAt: string | null;
   streamEndedAt: string | null;
   lastStatusSyncAt: string | null;
@@ -33,6 +34,7 @@ export function parseBuyerSafeStreamPayload(data: unknown): BuyerSafeStreamField
     typeof s.playbackUrl === 'string' && s.playbackUrl.trim().length > 0 ? s.playbackUrl.trim() : null;
   const streamHealth =
     typeof s.streamHealth === 'string' && s.streamHealth.trim() ? s.streamHealth.trim() : 'offline';
+  const streamPaused = s.streamPaused === true;
   const streamStartedAt = typeof s.streamStartedAt === 'string' ? s.streamStartedAt : null;
   const streamEndedAt = typeof s.streamEndedAt === 'string' ? s.streamEndedAt : null;
   const lastStatusSyncAt = typeof s.lastStatusSyncAt === 'string' ? s.lastStatusSyncAt : null;
@@ -41,6 +43,7 @@ export function parseBuyerSafeStreamPayload(data: unknown): BuyerSafeStreamField
   return {
     playbackUrl,
     streamHealth,
+    streamPaused,
     streamStartedAt,
     streamEndedAt,
     lastStatusSyncAt,

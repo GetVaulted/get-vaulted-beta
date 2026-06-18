@@ -194,6 +194,18 @@ function shippingWeightsForCategory(shippingCategory: string): { base: number; i
   }
 }
 
+function webPlatformShippingSlugFromCategory(category: CategoryId): string {
+  const c = String(category).toLowerCase();
+  if (c.includes('graded') || c.includes('slab')) return 'graded_card';
+  if (c.includes('sneaker') || c.includes('shoe')) return 'sneakers';
+  if (c.includes('watch')) return 'watch';
+  if (c.includes('helmet')) return 'full_size_helmet';
+  if (c.includes('jersey') || c.includes('apparel')) return 'jersey';
+  if (c.includes('funko') || c.includes('collectible')) return 'funko_collectible';
+  if (c.includes('lot')) return 'card_lot';
+  return 'trading_cards';
+}
+
 function buildWebListingBody(
   form: CreateListingFormState,
   imageUrls: string[],
@@ -234,6 +246,7 @@ function buildWebListingBody(
     marketplaceAllowedCarriers: form.marketplaceAllowedCarriers,
     handlingTime: form.shippingNotes.trim() || '—',
     shippingCategory,
+    platformShippingProfileSlug: webPlatformShippingSlugFromCategory(category),
     shippingBaseWeightOz: shippingWeights.base,
     shippingIncrementalWeightOz: shippingWeights.incremental,
     parcelWeightOz: packageWeightOzTotal(form),

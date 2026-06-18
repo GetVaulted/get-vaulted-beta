@@ -253,6 +253,10 @@ export function ScheduleVaultEventModal({
           teamSelectionBoardEnabled: isBreak ? teamBoardEnabled : undefined,
           tipModeratorId,
           tipsToModerator,
+          shippingCapEnabled: true,
+          shippingCapCents: 1199,
+          freeShippingEnabled: false,
+          sellerPaysOverCap: true,
         },
         { sellerUserId: freshReadiness.sellerUserId ?? null },
       );
@@ -366,7 +370,12 @@ export function ScheduleVaultEventModal({
           <Text style={styles.label}>Cover image (optional)</Text>
           <View style={styles.thumbCard}>
             {thumbUrl ? (
-              <Image source={{ uri: thumbUrl }} style={styles.thumbPreview} accessibilityLabel="Cover preview" />
+              <Image
+                source={{ uri: thumbUrl }}
+                style={styles.thumbPreview}
+                resizeMode="cover"
+                accessibilityLabel="Cover preview"
+              />
             ) : (
               <View style={styles.thumbPlaceholder}>
                 <Ionicons name="image-outline" size={28} color={colors.gold} />
@@ -672,7 +681,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     backgroundColor: 'rgba(0,0,0,0.25)',
   },
-  thumbPreview: { width: '100%', aspectRatio: 16 / 9, borderRadius: radii.md },
+  thumbPreview: { width: '100%', aspectRatio: 5 / 4, borderRadius: radii.md },
   thumbPlaceholder: { alignItems: 'center', paddingVertical: spacing.lg, gap: 6 },
   thumbPlaceholderTxt: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
   thumbHint: { fontSize: 11, color: colors.textMuted, textAlign: 'center' },

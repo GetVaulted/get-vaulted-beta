@@ -19,6 +19,11 @@ import {
   patchLiveRoomItemStatus,
 } from "@/lib/live-room-control-client";
 import { LiveShowTipModeratorSettings, patchLiveRoomTipSettings } from "@/components/seller/LiveShowTipModeratorSettings";
+import {
+  LiveShowShippingSettingsFields,
+  type LiveShowShippingSettingsValue,
+  type PlatformShippingProfileOption,
+} from "@/components/shipping/LiveShowShippingSettingsFields";
 import { useRequireSellerActivation } from "@/hooks/useRequireSellerActivation";
 
 type RoomTypeChoice = "auction" | "sale" | "break";
@@ -183,6 +188,14 @@ export function SellerLivePage() {
   const [createTipModeratorId, setCreateTipModeratorId] = useState<string | null>(null);
   const [createTipModeratorUsername, setCreateTipModeratorUsername] = useState("");
   const [createTipsToModerator, setCreateTipsToModerator] = useState(false);
+  const [shippingProfiles, setShippingProfiles] = useState<PlatformShippingProfileOption[]>([]);
+  const [createShipping, setCreateShipping] = useState<LiveShowShippingSettingsValue>({
+    defaultShippingProfileId: "",
+    shippingCapEnabled: true,
+    shippingCapCents: 1199,
+    freeShippingEnabled: false,
+    sellerPaysOverCap: true,
+  });
   const [editTipModeratorId, setEditTipModeratorId] = useState<string | null>(null);
   const [editTipModeratorUsername, setEditTipModeratorUsername] = useState("");
   const [editTipsToModerator, setEditTipsToModerator] = useState(false);
@@ -376,6 +389,20 @@ export function SellerLivePage() {
   }, [loadLiveReadiness, loadRooms, status]);
 
   useEffect(() => {
+    if (status !== "authenticated") return;
+    void (async () => {
+      try {
+        const res = await fetch("/api/shipping/profiles", { cache: "no-store" });
+        if (!res.ok) return;
+        const j = (await res.json()) as { profiles?: PlatformShippingProfileOption[] };
+        setShippingProfiles(Array.isArray(j.profiles) ? j.profiles : []);
+      } catch {
+        /* optional */
+      }
+    })();
+  }, [status]);
+
+  useEffect(() => {
     if (selectedId) void loadDetail(selectedId);
   }, [loadDetail, selectedId]);
 
@@ -530,6 +557,13 @@ export function SellerLivePage() {
         body.tipModeratorId = createTipModeratorId;
         body.tipsToModerator = createTipsToModerator;
       }
+      if (createShipping.defaultShippingProfileId.trim()) {
+        body.defaultShippingProfileId = createShipping.defaultShippingProfileId.trim();
+      }
+      body.shippingCapEnabled = createShipping.shippingCapEnabled;
+      body.shippingCapCents = createShipping.shippingCapCents;
+      body.freeShippingEnabled = createShipping.freeShippingEnabled;
+      body.sellerPaysOverCap = createShipping.sellerPaysOverCap;
 
       logCreateLiveRoom("POST /api/live-rooms payload", { body });
 
@@ -1369,11 +1403,27 @@ export function SellerLivePage() {
               </section>
             )}
 
-            {/* Moderator + tip routing */}
+            {/* Shipping */}
             <section className="space-y-4 rounded-2xl border border-white/[0.06] bg-zinc-950/50 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
               <div className="flex items-baseline gap-3">
                 <span className="font-mono text-xs font-bold text-gold-bright/90">
                   {roomType === "break" ? "04" : "03"}
+                </span>
+                <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-zinc-500">Shipping</h2>
+              </div>
+              <LiveShowShippingSettingsFields
+                profiles={shippingProfiles}
+                value={createShipping}
+                onChange={setCreateShipping}
+                disabled={busy}
+              />
+            </section>
+
+            {/* Moderator + tip routing */}
+            <section className="space-y-4 rounded-2xl border border-white/[0.06] bg-zinc-950/50 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+              <div className="flex items-baseline gap-3">
+                <span className="font-mono text-xs font-bold text-gold-bright/90">
+                  {roomType === "break" ? "05" : "04"}
                 </span>
                 <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-zinc-500">Moderator & tips</h2>
               </div>
@@ -1396,7 +1446,7 @@ export function SellerLivePage() {
             <section className="space-y-4">
               <div className="flex items-baseline gap-3">
                 <span className="font-mono text-xs font-bold text-gold-bright/90">
-                  {roomType === "break" ? "05" : "04"}
+                  {roomType === "break" ? "06" : "05"}
                 </span>
                 <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-zinc-500">Pre-live checklist</h2>
               </div>

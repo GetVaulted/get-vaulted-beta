@@ -8,6 +8,7 @@ import {
   syncLiveItemVariantPurchasePaymentIntent,
 } from "@/lib/live-payment-pipeline";
 import { prisma } from "@/lib/prisma";
+import { getLiveBuyerCommerceBlock } from "@/lib/live-room-commerce-guards";
 import { liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { isStripeConfigured } from "@/lib/stripe";
@@ -96,8 +97,9 @@ export async function POST(
     return NextResponse.json({ error: "Purchases are locked for this room." }, { status: 409 });
   }
 
-  if (room.sellerId === userId) {
-    return NextResponse.json({ error: "You cannot purchase in your own room." }, { status: 400 });
+  const commerceBlock = await getLiveBuyerCommerceBlock({ liveRoomId, userId });
+  if (commerceBlock) {
+    return NextResponse.json({ error: commerceBlock.error, code: commerceBlock.code }, { status: commerceBlock.status });
   }
 
   if (isStripeConfigured()) {

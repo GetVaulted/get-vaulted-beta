@@ -33,6 +33,7 @@ export type HostStreamPayload = {
   roomId: string;
   streamProvider: string;
   streamHealth: string;
+  streamPaused?: boolean;
   playbackUrl: string | null;
   streamStartedAt: string | null;
   streamEndedAt: string | null;
@@ -352,4 +353,23 @@ export async function rotateHostStreamKey(
   if (!endpoint || !key) throw new Error('Could not rotate stream key.');
   if (!j.stream) throw new Error('Stream key rotated but status missing.');
   return { stream: j.stream, ingestEndpoint: endpoint, oneTimeStreamKey: key };
+}
+
+export async function patchLiveRoomStreamPaused(
+  accessToken: string,
+  roomId: string,
+  streamPaused: boolean,
+): Promise<void> {
+  const res = await hostFetch(
+    `/api/live-rooms/${encodeURIComponent(roomId)}/stream-settings`,
+    accessToken,
+    { method: 'PATCH', body: JSON.stringify({ streamPaused }) },
+  );
+  let j: { error?: string } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
 }

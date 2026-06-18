@@ -10,7 +10,7 @@ import type {
 } from "amazon-ivs-web-broadcast";
 import { logIvsWeb } from "@/lib/ivs-web-broadcast-log";
 
-export type HostBroadcastPhase = "idle" | "preview" | "starting" | "live" | "stopping";
+export type HostBroadcastPhase = "idle" | "preview" | "starting" | "live" | "paused" | "stopping";
 
 type StageTokenResponse = {
   error?: string;
@@ -268,8 +268,8 @@ export function useHostStagePublish({
   }, [acquireMedia, cleanupStage, endServerSession, previewStream, roomId]);
 
   const stop = useCallback(async () => {
-    setPhase((prev) => (prev === "live" || prev === "starting" ? "stopping" : prev));
-    if (!stageRef.current && phase !== "live" && phase !== "starting") return;
+    setPhase((prev) => (prev === "live" || prev === "starting" || prev === "paused" ? "stopping" : prev));
+    if (!stageRef.current && phase !== "live" && phase !== "starting" && phase !== "paused") return;
     setError(null);
     cleanupStage();
     try {
@@ -282,6 +282,24 @@ export function useHostStagePublish({
       setPhase(mediaStreamRef.current ? "preview" : "idle");
     }
   }, [cleanupStage, endServerSession, phase]);
+
+  const pause = useCallback(async () => {
+    if (phase !== "live") return;
+    const media = mediaStreamRef.current;
+    for (const track of media?.getTracks() ?? []) {
+      track.enabled = false;
+    }
+    setPhase("paused");
+  }, [phase]);
+
+  const resume = useCallback(async () => {
+    if (phase !== "paused") return;
+    const media = mediaStreamRef.current;
+    for (const track of media?.getTracks() ?? []) {
+      track.enabled = true;
+    }
+    setPhase("live");
+  }, [phase]);
 
   return {
     phase,
@@ -297,5 +315,7 @@ export function useHostStagePublish({
     restartPreviewWithDevices,
     start,
     stop,
+    pause,
+    resume,
   };
 }

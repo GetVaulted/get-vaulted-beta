@@ -120,6 +120,7 @@ export function LiveStagePlayback({
 
   const playbackUrl = playback.stream?.playbackUrl ?? null;
   const streamHealth = playback.stream?.streamHealth ?? 'offline';
+  const streamPaused = playback.stream?.streamPaused === true;
   const streamMode = playback.stream?.streamMode ?? 'channel_hls';
   const stageAvailable = playback.stream?.stageAvailable ?? false;
   const transport = playback.transport;
@@ -202,6 +203,7 @@ export function LiveStagePlayback({
     Boolean(thumbnailUrl) &&
     (!showVideoLayer || (!playback.videoHasData && !streamAttaching) || surface === 'offline');
   const showStandby =
+    (streamPaused && roomLifecycleLive) ||
     surface === 'offline' ||
     surface === 'loading' ||
     surface === 'reconnecting' ||
@@ -210,6 +212,14 @@ export function LiveStagePlayback({
     (roomLifecycleLive && !playback.videoHasData && !streamAttaching);
 
   const standbyContent = (() => {
+    if (streamPaused && roomLifecycleLive) {
+      return (
+        <StandbyOverlay
+          title="Host paused"
+          body="The host stepped away briefly. Hang tight — we'll be back soon."
+        />
+      );
+    }
     if (surface === 'reconnecting') {
       return (
         <StandbyOverlay title="Reconnecting…" body="Restoring your live stream connection." />

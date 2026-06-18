@@ -5,6 +5,7 @@ import type { SellerQueueTab } from "@/lib/seller-queue-tabs";
 import { isGiveawayTab } from "@/lib/seller-queue-tabs";
 import { VaultGiveawayLane } from "@/components/break-host/vault/VaultGiveawayLane";
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
+import { hostAuctionLaneItems, hostBinLaneItems } from "@/lib/live-buyer-queue-projection";
 
 type ClaimLite = { user: { username: string } } | null;
 export type VaultQueueRow = { item: LiveRoomItemDTO; claim: ClaimLite; claims: { user: { username: string } }[] };
@@ -70,17 +71,26 @@ export function VaultQueueCarousel({
   compact = false,
   lineup = false,
 }: VaultQueueCarouselProps) {
-  const auctionRows = rows.filter((r) => r.item.status !== "sold" && r.item.status !== "skipped");
+  const auctionRows = hostAuctionLaneItems(rows.map((r) => r.item)).map((item) => {
+    const row = rows.find((r) => r.item.id === item.id);
+    return row ?? { item, claim: null, claims: [] };
+  });
+  const binRows = hostBinLaneItems(rows.map((r) => r.item)).map((item) => {
+    const row = rows.find((r) => r.item.id === item.id);
+    return row ?? { item, claim: null, claims: [] };
+  });
   const soldRows = rows.filter((r) => r.item.status === "sold");
 
   const visible =
     tab === "sold"
       ? soldRows
-      : tab === "auction"
-        ? auctionRows.length > 0
-          ? auctionRows
-          : rows
-        : [];
+      : tab === "bin"
+        ? binRows
+        : tab === "auction"
+          ? auctionRows.length > 0
+            ? auctionRows
+            : rows.filter((r) => r.item.status !== "sold" && r.item.status !== "skipped")
+          : [];
 
   const tabBtnClass = (active: boolean) =>
     lineup
@@ -138,9 +148,20 @@ export function VaultQueueCarousel({
       ) : null}
 
       {tab === "bin" ? (
-        <p className="rounded-xl border border-dashed border-zinc-700/80 bg-zinc-950/40 px-3 py-4 text-center text-[11px] leading-relaxed text-zinc-500">
-          Buy-now lane is being wired to checkout. Run auctions from the auction lane for now.
-        </p>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onAddAuction}
+          className={`w-full font-bold text-amber-100 disabled:opacity-50 ${
+            lineup
+              ? "rounded-lg border border-amber-400/20 bg-amber-500/10 py-1.5 text-[9px] uppercase tracking-wide hover:bg-amber-500/18"
+              : `rounded-lg border border-amber-400/30 bg-gradient-to-r from-amber-500/15 to-yellow-500/10 ring-1 ring-amber-400/20 hover:from-amber-500/25 ${
+                  compact ? "py-1.5 text-[10px]" : "rounded-xl py-2.5 text-[11px]"
+                }`
+          }`}
+        >
+          + Add buy-now SKU
+        </button>
       ) : null}
 
       {isGiveawayTab(tab) ? (
@@ -159,7 +180,7 @@ export function VaultQueueCarousel({
         />
       ) : null}
 
-      {(tab === "auction" || tab === "sold") && visible.length === 0 ? (
+      {(tab === "auction" || tab === "bin" || tab === "sold") && visible.length === 0 ? (
         <p className="rounded-xl border border-zinc-800/80 bg-black/30 py-8 text-center text-[11px] text-zinc-600">No lots in this lane yet.</p>
       ) : null}
 
@@ -174,6 +195,10 @@ export function VaultQueueCarousel({
         {visible.map(({ item, claim }) => {
           const thumb = item.imageUrl?.trim();
           const selected = item.id === selectedId;
+          const priceLabel =
+            item.salesFormat === "buy_now"
+              ? fmtMoney(item.priceUsd)
+              : fmtMoney(item.currentBidUsd ?? item.startingBidUsd);
           const reserve =
             item.priceUsd != null && Number.isFinite(item.priceUsd)
               ? item.currentBidUsd != null && Number.isFinite(item.currentBidUsd) && item.currentBidUsd >= item.priceUsd
@@ -213,9 +238,7 @@ export function VaultQueueCarousel({
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[11px] font-semibold text-zinc-100">{titleLine(item)}</p>
                     <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[9px]">
-                      <span className="font-mono font-bold text-amber-100/90">
-                        {fmtMoney(item.currentBidUsd ?? item.startingBidUsd)}
-                      </span>
+                      <span className="font-mono font-bold text-amber-100/90">{priceLabel}</span>
                       <span className="text-zinc-600">·</span>
                       <span className="uppercase tracking-wide text-zinc-500">{item.status}</span>
                       {item.progressLabel ? (
@@ -280,7 +303,7 @@ export function VaultQueueCarousel({
                 </button>
                 <div className={`space-y-1 ${compact ? "px-2 py-1.5" : "space-y-1.5 px-2.5 py-2"}`}>
                   <div className="flex items-center justify-between text-[10px]">
-                    <span className="font-mono font-bold text-zinc-200">{fmtMoney(item.currentBidUsd ?? item.startingBidUsd)}</span>
+                    <span className="font-mono font-bold text-zinc-200">{priceLabel}</span>
                     <span className="text-zinc-500">{viewerCount} room</span>
                   </div>
                   <div className="flex flex-wrap gap-1 text-[9px] font-bold uppercase tracking-wide text-zinc-500">

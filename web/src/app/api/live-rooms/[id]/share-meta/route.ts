@@ -21,6 +21,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     title: payload.showTitle,
     sellerUsername: payload.hostUsername,
     viewerCount: payload.viewerCount,
+    isLive: payload.isLive,
   });
 
   return NextResponse.json(

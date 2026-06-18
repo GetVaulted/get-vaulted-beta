@@ -83,6 +83,8 @@ type HostActions = {
   onFlipCamera: () => void;
   onStartBroadcast: () => void;
   onStopBroadcast: () => void;
+  onPauseBroadcast: () => void;
+  onResumeBroadcast: () => void;
 };
 
 type Props = {
@@ -353,6 +355,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         }
         onGoLive={onGoLive}
         onStopStream={host.onStopBroadcast}
+        onPauseStream={host.onPauseBroadcast}
+        onResumeStream={host.onResumeBroadcast}
         viewerCount={console.viewerCount}
         showCameraFlip={host.stageWebrtcEnabled && host.showCameraPreview}
         cameraFlipDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
@@ -379,6 +383,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         }}
         onPressChatUser={onPressChatUser}
         moderatorUserIds={moderation.moderators.map((m) => m.userId)}
+        pinnedModeratorMessage={moderation.pinnedModeratorMessage}
       />
 
       <SellerLivePinnedOverlay
@@ -553,6 +558,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         publicUrl={publicUrl}
         showTitle={streamTitle}
         hostUsername={sellerUsername ?? undefined}
+        isLive={roomLive}
         onToast={(msg) => {
           setShareToast(msg);
           setTimeout(() => setShareToast(null), 2200);

@@ -20,6 +20,7 @@ import {
 import { emitLiveRoomMessagesRefetch, emitPurchaseCompleted } from "@/lib/realtime-emit-server";
 import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
 import { createNotification } from "@/lib/notifications";
+import { captureLiveRoomItemShippingSnapshotTx } from "@/services/shipping/live-item-shipping-snapshot";
 
 export type BuyerShippingSnapshot = {
   shipRecipientName: string;
@@ -279,6 +280,9 @@ export async function finalizeLiveBuyNowPurchaseComplete(args: {
   let roomVersion = 0;
   let itemVersion = item.itemVersion ?? 0;
   if (item.status !== "sold") {
+    await prisma.$transaction(async (tx) => {
+      await captureLiveRoomItemShippingSnapshotTx(tx, item.id);
+    });
     const changed = await prisma.liveRoomItem.updateMany({
       where: { id: item.id, status: { not: "sold" } },
       data: { status: "sold", itemVersion: { increment: 1 } },

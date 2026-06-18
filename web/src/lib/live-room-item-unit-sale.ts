@@ -7,6 +7,7 @@ import {
 } from "@/lib/live-room-item-quantity-display";
 import { settleLiveAuctionItemWhenMarkedSold } from "@/lib/live-auction-item-sold-settle";
 import { createOrderFromAuctionWin } from "@/lib/offer-fulfillment";
+import { captureLiveRoomItemShippingSnapshotTx } from "@/services/shipping/live-item-shipping-snapshot";
 
 export type CloseActiveUnitSaleResult = {
   closed: boolean;
@@ -84,6 +85,7 @@ export async function closeActiveLiveRoomItemUnitSale(
     if (!winnerId || winUsd < 1) {
       return { closed: false, itemSoldOut: false, skipStartAuction: false, soldUnitNumber };
     }
+    await captureLiveRoomItemShippingSnapshotTx(tx, args.liveRoomItemId);
     const settleOut = await settleLiveAuctionItemWhenMarkedSold(tx, {
       liveRoomId: args.liveRoomId,
       liveRoomItemId: args.liveRoomItemId,

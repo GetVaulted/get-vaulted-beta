@@ -18,6 +18,11 @@ export type BuildCreateLiveRoomPayloadInput = {
   teamSelectionBoardEnabled?: boolean;
   tipModeratorId?: string | null;
   tipsToModerator?: boolean;
+  defaultShippingProfileId?: string | null;
+  shippingCapEnabled?: boolean;
+  shippingCapCents?: number | null;
+  freeShippingEnabled?: boolean;
+  sellerPaysOverCap?: boolean;
 };
 
 export function buildCreateLiveRoomPayload(
@@ -59,6 +64,22 @@ export function buildCreateLiveRoomPayload(
   if (input.tipModeratorId) {
     body.tipModeratorId = input.tipModeratorId;
     body.tipsToModerator = input.tipsToModerator === true;
+  }
+
+  if (input.defaultShippingProfileId?.trim()) {
+    body.defaultShippingProfileId = input.defaultShippingProfileId.trim();
+  }
+  if (typeof input.shippingCapEnabled === 'boolean') {
+    body.shippingCapEnabled = input.shippingCapEnabled;
+  }
+  if (input.shippingCapCents != null && Number.isFinite(input.shippingCapCents)) {
+    body.shippingCapCents = Math.max(0, Math.floor(input.shippingCapCents));
+  }
+  if (typeof input.freeShippingEnabled === 'boolean') {
+    body.freeShippingEnabled = input.freeShippingEnabled;
+  }
+  if (typeof input.sellerPaysOverCap === 'boolean') {
+    body.sellerPaysOverCap = input.sellerPaysOverCap;
   }
 
   return body;

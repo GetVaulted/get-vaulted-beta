@@ -3,48 +3,74 @@
 import type { HostBroadcastPhase } from "@/hooks/useHostStagePublish";
 
 /**
- * Persistent Go Live / Stop Stream pill for the seller console stage chrome.
- *
- * Reflects the in-browser webcam broadcast phase so the host always has a visible control:
- *   idle (room not live) → primary "Go Live" (patches live + starts the default webcam)
- *   idle (room live)     → "Start Stream" (restart webcam after a stop)
- *   starting             → disabled "Starting stream…"
- *   live                 → "Stop Stream" (visible on the stage, not hidden in a modal)
- *   stopping             → disabled "Stopping…"
+ * Persistent Go Live / Pause / Stop Stream controls for the seller console stage chrome.
  */
 export function VaultBroadcastControl({
   phase,
   roomLive = false,
   onStart,
   onStop,
+  onPause,
+  onResume,
 }: {
   phase: HostBroadcastPhase;
   /** Whether the room is already live (controls the idle label: "Go Live" vs "Start Stream"). */
   roomLive?: boolean;
   onStart: () => void;
   onStop: () => void;
+  onPause?: () => void;
+  onResume?: () => void;
 }) {
-  const isBroadcasting = phase === "live" || phase === "stopping";
-  const idleLabel = roomLive ? "Start Stream" : "Go Live";
-
   const baseClass =
     "inline-flex max-w-[9rem] items-center gap-1 rounded-full border px-2 py-[3px] text-[8px] font-black uppercase tracking-[0.12em] backdrop-blur-md transition active:scale-95 disabled:opacity-50 max-[360px]:max-w-[7.5rem] max-[360px]:gap-0.5 max-[360px]:px-1.5 max-[360px]:text-[7px] max-[360px]:tracking-[0.08em]";
 
+  const pauseClass = `${baseClass} border-amber-400/40 bg-amber-950/55 text-amber-50 hover:bg-amber-900/55`;
+  const stopClass = `${baseClass} border-rose-400/45 bg-rose-950/55 text-rose-50 shadow-[0_0_22px_-10px_rgba(244,63,94,0.6)] hover:bg-rose-900/65`;
+
+  if (phase === "paused") {
+    return (
+      <div className="flex items-center gap-1">
+        <button type="button" onClick={onResume} aria-label="Resume stream" className={pauseClass}>
+          <span className="truncate">Resume</span>
+        </button>
+        <button
+          type="button"
+          disabled={phase === "stopping"}
+          onClick={onStop}
+          aria-label="Stop stream"
+          className={stopClass}
+        >
+          <span className="truncate">Stop</span>
+        </button>
+      </div>
+    );
+  }
+
+  const isBroadcasting = phase === "live" || phase === "stopping";
+  const idleLabel = roomLive ? "Start Stream" : "Go Live";
+
   if (isBroadcasting) {
     return (
-      <button
-        type="button"
-        disabled={phase === "stopping"}
-        onClick={onStop}
-        aria-label="Stop stream"
-        className={`${baseClass} border-rose-400/45 bg-rose-950/55 text-rose-50 shadow-[0_0_22px_-10px_rgba(244,63,94,0.6)] hover:bg-rose-900/65`}
-      >
-        <span
-          className="inline-flex size-1.5 shrink-0 rounded-full bg-rose-300 shadow-[0_0_10px_rgba(244,63,94,0.9)] motion-safe:animate-pulse"
-          aria-hidden
-        />
-        <span className="truncate">{phase === "stopping" ? "Stopping…" : "Stop Stream"}</span>
-      </button>
+      <div className="flex items-center gap-1">
+        {onPause && phase === "live" ? (
+          <button type="button" onClick={onPause} aria-label="Pause stream" className={pauseClass}>
+            <span className="truncate">Pause</span>
+          </button>
+        ) : null}
+        <button
+          type="button"
+          disabled={phase === "stopping"}
+          onClick={onStop}
+          aria-label="Stop stream"
+          className={stopClass}
+        >
+          <span
+            className="inline-flex size-1.5 shrink-0 rounded-full bg-rose-300 shadow-[0_0_10px_rgba(244,63,94,0.9)] motion-safe:animate-pulse"
+            aria-hidden
+          />
+          <span className="truncate">{phase === "stopping" ? "Stopping…" : "Stop"}</span>
+        </button>
+      </div>
     );
   }
 

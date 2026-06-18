@@ -112,6 +112,49 @@ export function lowestAvailableVariantPrice(variants: LiveItemVariantSnapshot[] 
   return Math.min(...prices);
 }
 
+export type VariantSpotSummary = {
+  available: number;
+  sold: number;
+  spotCount: number;
+  fromPriceUsd: number | null;
+};
+
+type VariantSpotRow = {
+  soldCount?: number;
+  quantityRemaining: number;
+  status: string;
+  priceUsd?: number;
+};
+
+export function summarizeVariantSpots(variants: VariantSpotRow[] | undefined | null): VariantSpotSummary {
+  if (!variants?.length) {
+    return { available: 0, sold: 0, spotCount: 0, fromPriceUsd: null };
+  }
+  let available = 0;
+  let sold = 0;
+  const prices: number[] = [];
+  for (const v of variants) {
+    sold += Math.max(0, v.soldCount ?? 0);
+    const soldOut = v.quantityRemaining <= 0 || v.status === 'sold_out';
+    if (!soldOut) {
+      available += v.quantityRemaining;
+      if (typeof v.priceUsd === 'number' && Number.isFinite(v.priceUsd)) prices.push(v.priceUsd);
+    }
+  }
+  return {
+    available,
+    sold,
+    spotCount: variants.length,
+    fromPriceUsd: prices.length ? Math.min(...prices) : null,
+  };
+}
+
+export function isVariantPurchaseItem(
+  item: { salesFormat?: string | null; variants?: unknown[] } | null | undefined,
+): boolean {
+  return Boolean(item && isVariantSalesFormat(item.salesFormat) && (item.variants?.length ?? 0) > 0);
+}
+
 export function variantSelectSpotLabel(format: LiveItemSalesFormat | null | undefined): string {
   if (format === 'team_break') return 'Pick Your Division';
   if (format === 'variant_selection') return 'Pick Your Team';

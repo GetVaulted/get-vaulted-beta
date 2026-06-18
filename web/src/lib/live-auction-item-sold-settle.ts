@@ -1,6 +1,7 @@
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
 import { createOrderFromAuctionWin } from "@/lib/offer-fulfillment";
 import { resolveProxyAuction, type BidLike } from "@/lib/proxy-auction";
+import { captureLiveRoomItemShippingSnapshotTx } from "@/services/shipping/live-item-shipping-snapshot";
 
 /**
  * When a host marks a live auction queue item sold, ensure a marketplace `Order` exists
@@ -37,6 +38,8 @@ export async function settleLiveAuctionItemWhenMarkedSold(
     },
   });
   if (!item) throw new Error("LIVE_AUCTION_ITEM_NOT_FOUND");
+
+  await captureLiveRoomItemShippingSnapshotTx(tx, args.liveRoomItemId);
 
   let listingId = item.listingId;
 

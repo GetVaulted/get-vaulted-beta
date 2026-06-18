@@ -9,6 +9,8 @@ export type LiveRoomModeratorRow = {
 
 export type LiveRoomModerationState = {
   canModerate: boolean;
+  isHost: boolean;
+  isModerator: boolean;
   slowModeSeconds: number;
   pinnedModeratorMessage: string | null;
   moderators: LiveRoomModeratorRow[];
@@ -22,6 +24,8 @@ export type LiveRoomModerationState = {
 
 const EMPTY: LiveRoomModerationState = {
   canModerate: false,
+  isHost: false,
+  isModerator: false,
   slowModeSeconds: 0,
   pinnedModeratorMessage: null,
   moderators: [],
@@ -42,6 +46,8 @@ export function useLiveRoomModerationState(liveRoomId: string, enabled = true) {
       if (!res.ok) return;
       setState({
         canModerate: Boolean(j.canModerate),
+        isHost: Boolean(j.isHost),
+        isModerator: Boolean(j.isModerator),
         slowModeSeconds: j.slowModeSeconds ?? 0,
         pinnedModeratorMessage: j.pinnedModeratorMessage ?? null,
         moderators: Array.isArray(j.moderators)

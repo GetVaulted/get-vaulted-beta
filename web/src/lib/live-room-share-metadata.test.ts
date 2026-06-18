@@ -11,6 +11,26 @@ import {
 import { formatOgViewerLabel } from "./live-room-og-payload";
 
 describe("live-room-share-metadata", () => {
+  it("formats scheduled og:title without LIVE wording", () => {
+    expect(
+      formatLiveRoomShareOgTitle({
+        id: "room1",
+        title: "Friday Night Break",
+        sellerUsername: "vaultking",
+        isLive: false,
+      }),
+    ).toBe("vaultking on Get Vaulted");
+  });
+
+  it("formats scheduled og:description", () => {
+    expect(
+      formatLiveRoomShareDescription({
+        title: "Friday Night Break",
+        isLive: false,
+      }),
+    ).toBe("Friday Night Break • Join when we go live");
+  });
+
   it("formats og:title as host is LIVE on Get Vaulted", () => {
     expect(
       formatLiveRoomShareOgTitle({
@@ -57,6 +77,10 @@ describe("live-room-share-metadata", () => {
     expect(meta.description).toBe("Vault Drop • Join the live auction now");
     expect(meta.image).toContain("/api/og/live/room1");
     expect(meta.url).toBe("https://shopgetvaulted.com/live/room1");
+  });
+
+  it("defaults og image host to canonical share site", () => {
+    expect(liveRoomOgImageUrl("room1")).toBe("https://shopgetvaulted.com/api/og/live/room1");
   });
 
   it("builds og image URL on deployment host", () => {

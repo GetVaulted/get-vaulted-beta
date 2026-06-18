@@ -399,6 +399,10 @@ export async function applyLiveRoomModerationAction(args: {
     },
   });
 
+  emitLiveRoomModerationChanged(args.liveRoomId, {
+    userId: args.targetUserId ?? undefined,
+  });
+
   return { ok: true };
 }
 
@@ -407,6 +411,7 @@ export async function assignLiveRoomModerator(args: {
   userId: string;
   assignedByUserId: string;
   isAdmin?: boolean;
+  moderatorLevel?: LiveRoomModeratorLevel;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const perm = await isLiveRoomHostOrModerator({
     liveRoomId: args.liveRoomId,
@@ -420,15 +425,18 @@ export async function assignLiveRoomModerator(args: {
   const user = await prisma.user.findUnique({ where: { id: args.userId }, select: { id: true } });
   if (!user) return { ok: false, error: "User not found." };
 
+  const level = args.moderatorLevel ?? "show";
+
   await prisma.liveRoomModerator.upsert({
     where: { liveRoomId_userId: { liveRoomId: args.liveRoomId, userId: args.userId } },
     create: {
       liveRoomId: args.liveRoomId,
       userId: args.userId,
       assignedByUserId: args.assignedByUserId,
+      moderatorLevel: level,
       revokedAt: null,
     },
-    update: { revokedAt: null, assignedByUserId: args.assignedByUserId },
+    update: { revokedAt: null, assignedByUserId: args.assignedByUserId, moderatorLevel: level },
   });
 
   await logTrustModerationAction({

@@ -56,10 +56,10 @@ export function LiveNowPreviewCard({
   const cardWidth = layout === 'grid' && gridWidth ? gridWidth : LIVE_ROOM_CARD_WIDTH;
   const imageHeight = coverHeight(cardWidth);
   const hostLabel = stream.host.name?.trim() || stream.host.handle.replace(/^@/, '');
-  const coverUri = resolveLiveRoomPreviewImage({
-    thumbnailUrl: stream.previewImageUrl,
-    category: stream.category,
-  });
+  const coverUri =
+    stream.previewImageUrl?.trim() ||
+    (isScheduled ? stream.host.avatarUrl?.trim() : undefined) ||
+    resolveLiveRoomPreviewImage({ category: stream.category });
 
   useEffect(() => {
     if (!isLive) {
@@ -136,6 +136,7 @@ export function LiveNowPreviewCard({
               height={imageHeight}
               priority="high"
               contentFit="cover"
+              contentPosition="center"
               borderRadius={radii.md}
             />
             <LinearGradient

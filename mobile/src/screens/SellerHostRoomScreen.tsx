@@ -8,6 +8,7 @@ import {
   fetchLiveRoomForHost,
   fetchSellerLiveReadiness,
   patchLiveRoomAction,
+  patchLiveRoomStreamPaused,
   provisionHostStream,
   rotateHostStreamKey,
   type HostStreamPayload,
@@ -247,6 +248,34 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     }
   };
 
+  const onPauseBroadcast = async () => {
+    if (!token) return;
+    setBusy('refresh');
+    try {
+      await patchLiveRoomStreamPaused(token, roomId, true);
+      await stagePublish.pause();
+      await reloadStream(false);
+    } catch (e) {
+      setStreamWarning(sanitizeLiveError(e, 'stream'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const onResumeBroadcast = async () => {
+    if (!token) return;
+    setBusy('refresh');
+    try {
+      await patchLiveRoomStreamPaused(token, roomId, false);
+      await stagePublish.resume();
+      await reloadStream(false);
+    } catch (e) {
+      setStreamWarning(sanitizeLiveError(e, 'stream'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const onStartShow = async () => {
     if (!token) return;
     setBusy('start');
@@ -294,7 +323,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   const streamKey = oneTimeKey;
 
   const streamConnected = useMemo(() => {
-    if (stagePublish.phase === 'live') return true;
+    if (stagePublish.phase === 'live' || stagePublish.phase === 'paused') return true;
     const h = (stream?.streamHealth ?? '').toLowerCase();
     return h === 'live' || h === 'connecting';
   }, [stream?.streamHealth, stagePublish.phase]);
@@ -379,6 +408,8 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
           onFlipCamera,
           onStartBroadcast: () => void onStartBroadcast(),
           onStopBroadcast: () => void onStopBroadcast(),
+          onPauseBroadcast: () => void onPauseBroadcast(),
+          onResumeBroadcast: () => void onResumeBroadcast(),
         }}
       />
     </View>

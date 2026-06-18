@@ -214,9 +214,22 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       changed += u.count;
     }
     if (changed > 0) {
+      const refreshedVariants = await tx.liveItemVariant.findMany({
+        where: { liveRoomItemId: itemId },
+        select: { priceUsd: true, quantityRemaining: true, status: true },
+      });
+      const openPrices = refreshedVariants
+        .filter((v) => v.quantityRemaining > 0 && v.status !== "sold_out")
+        .map((v) => v.priceUsd)
+        .filter((p) => Number.isFinite(p) && p >= 0);
+      const nextItemPriceUsd = openPrices.length ? Math.min(...openPrices) : undefined;
+
       await tx.liveRoomItem.update({
         where: { id: itemId },
-        data: { itemVersion: { increment: 1 } },
+        data: {
+          itemVersion: { increment: 1 },
+          ...(nextItemPriceUsd != null ? { priceUsd: nextItemPriceUsd } : {}),
+        },
       });
       await tx.liveRoom.update({
         where: { id: liveRoomId },

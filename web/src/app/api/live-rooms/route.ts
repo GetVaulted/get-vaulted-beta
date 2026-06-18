@@ -14,6 +14,10 @@ import {
   resolveLiveRoomPreviewImage,
 } from "@/lib/live-room-preview-image";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
+import {
+  resolveDefaultProfileForLiveShow,
+  seedPlatformShippingProfiles,
+} from "@/services/shipping/platform-shipping-profiles";
 
 const ROOM_TYPES: LiveRoomType[] = ["auction", "sale", "break"];
 
@@ -192,6 +196,11 @@ type PostBody = {
   tipModeratorId?: string | null;
   tipRecipientMode?: string;
   tipsToModerator?: boolean;
+  defaultShippingProfileId?: string | null;
+  shippingCapEnabled?: boolean;
+  shippingCapCents?: number | null;
+  freeShippingEnabled?: boolean;
+  sellerPaysOverCap?: boolean;
 };
 
 function peekBearerJwtSub(req: Request): string | null {
@@ -320,6 +329,25 @@ export async function POST(req: Request) {
 
   const teamSelectionBoardEnabled = body.teamSelectionBoardEnabled !== false;
 
+  await seedPlatformShippingProfiles().catch(() => {
+    /* profiles table may not exist until migration runs */
+  });
+
+  const defaultProfile = await resolveDefaultProfileForLiveShow({
+    showDefaultProfileId:
+      typeof body.defaultShippingProfileId === "string" ? body.defaultShippingProfileId.trim() : null,
+    category,
+  });
+
+  const shippingCapEnabled = body.shippingCapEnabled === true;
+  const shippingCapRaw = body.shippingCapCents;
+  const shippingCapCents =
+    shippingCapRaw != null && Number.isFinite(Number(shippingCapRaw))
+      ? Math.max(0, Math.floor(Number(shippingCapRaw)))
+      : null;
+  const freeShippingEnabled = body.freeShippingEnabled === true;
+  const sellerPaysOverCap = body.sellerPaysOverCap !== false;
+
   const tipBuilt = await buildLiveTipRoomData(sellerId, body);
   if (!tipBuilt.ok) {
     return NextResponse.json({ error: tipBuilt.error }, { status: 400 });
@@ -353,6 +381,11 @@ export async function POST(req: Request) {
     teamBoardLeague,
     tipModeratorId: tipBuilt.data.tipModeratorId,
     tipRecipientMode: tipBuilt.data.tipRecipientMode,
+    defaultShippingProfileId: defaultProfile?.id ?? null,
+    shippingCapEnabled,
+    shippingCapCents: shippingCapEnabled ? shippingCapCents : null,
+    freeShippingEnabled,
+    sellerPaysOverCap,
     ...(rt === "break"
       ? {
           ...(breakTotalSpots != null ? { breakTotalSpots } : {}),

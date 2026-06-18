@@ -21,6 +21,7 @@
     "db:generate:clean": "prisma generate && node scripts/clean-next-dev.mjs",
     "db:migrate:resolve:auction-deadline-applied": "prisma migrate resolve --applied 20260503200000_auction_payment_deadline",
     "db:seed": "prisma db seed",
+    "db:seed-shipping-profiles": "tsx scripts/seed-platform-shipping-profiles.ts",
     "db:purge-demo": "tsx scripts/purge-demo-seed-data.ts",
     "cleanup:duplicate-listings": "tsx scripts/cleanup-duplicate-listings.ts",
     "smoke:escrow": "tsx scripts/smoke-vaulted-secure-checkout.ts",

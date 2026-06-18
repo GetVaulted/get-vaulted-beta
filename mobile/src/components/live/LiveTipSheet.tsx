@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
+import { useStripe } from '@stripe/stripe-react-native';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -13,27 +13,77 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+  fetchBuyerPaymentMethods,
+  type BuyerPaymentMethodRow,
+} from '../../api/buyerWalletRepository';
+import {
+  fetchLiveBuyerPaymentSession,
+  setLiveBuyerPaymentMethod,
+} from '../../api/liveBuyerPaymentRepository';
+import {
   LIVE_TIP_MAX_USD,
   LIVE_TIP_MIN_USD,
   LIVE_TIP_PRESET_AMOUNTS_USD,
-  startLiveTipCheckout,
+  sendLiveTipWithSavedCard,
 } from '../../api/liveTipsRepository';
 import { colors, radii, spacing } from '../../theme';
+import { formatTipPaymentMethodLabel } from './liveTipPayment';
 
 type Props = {
   visible: boolean;
   onClose: () => void;
   liveRoomId: string;
   accessToken: string;
+  paymentMethodId?: string | null;
+  onPaymentMethodIdChange?: (paymentMethodId: string | null) => void;
+  onOpenWallet?: () => void;
+  onSuccess?: () => void;
   onError: (message: string) => void;
 };
 
-export function LiveTipSheet({ visible, onClose, liveRoomId, accessToken, onError }: Props) {
+export function LiveTipSheet({
+  visible,
+  onClose,
+  liveRoomId,
+  accessToken,
+  paymentMethodId,
+  onPaymentMethodIdChange,
+  onOpenWallet,
+  onSuccess,
+  onError,
+}: Props) {
   const insets = useSafeAreaInsets();
+  const { confirmPayment } = useStripe();
   const [amountUsd, setAmountUsd] = useState(10);
   const [customAmount, setCustomAmount] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [loadingPm, setLoadingPm] = useState(false);
+  const [paymentMethods, setPaymentMethods] = useState<BuyerPaymentMethodRow[]>([]);
+  const [selectedPmId, setSelectedPmId] = useState<string | null>(paymentMethodId ?? null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const refreshPaymentMethod = useCallback(async () => {
+    if (!visible || !accessToken.trim()) return;
+    setLoadingPm(true);
+    try {
+      const [session, pmRes] = await Promise.all([
+        fetchLiveBuyerPaymentSession(accessToken, liveRoomId),
+        fetchBuyerPaymentMethods(accessToken),
+      ]);
+      setPaymentMethods(pmRes.paymentMethods);
+      const nextId =
+        paymentMethodId?.trim() ||
+        session?.activePaymentMethodId?.trim() ||
+        pmRes.paymentMethods.find((pm) => pm.isDefault)?.id ||
+        pmRes.paymentMethods[0]?.id ||
+        null;
+      setSelectedPmId(nextId);
+      onPaymentMethodIdChange?.(nextId);
+    } finally {
+      setLoadingPm(false);
+    }
+  }, [accessToken, liveRoomId, onPaymentMethodIdChange, paymentMethodId, visible]);
 
   useEffect(() => {
     if (!visible) return;
@@ -41,7 +91,13 @@ export function LiveTipSheet({ visible, onClose, liveRoomId, accessToken, onErro
     setCustomAmount('');
     setMessage('');
     setBusy(false);
-  }, [visible, liveRoomId]);
+    setPickerOpen(false);
+    void refreshPaymentMethod();
+  }, [visible, liveRoomId, refreshPaymentMethod]);
+
+  useEffect(() => {
+    if (paymentMethodId?.trim()) setSelectedPmId(paymentMethodId.trim());
+  }, [paymentMethodId]);
 
   const submit = async () => {
     const custom = customAmount.trim() ? Number(customAmount) : NaN;
@@ -50,19 +106,41 @@ export function LiveTipSheet({ visible, onClose, liveRoomId, accessToken, onErro
       onError(`Enter a tip between $${LIVE_TIP_MIN_USD} and $${LIVE_TIP_MAX_USD}.`);
       return;
     }
+    if (!selectedPmId?.trim()) {
+      onError('Add a saved payment method in Vault Wallet before tipping.');
+      onOpenWallet?.();
+      return;
+    }
     setBusy(true);
     try {
-      const { url } = await startLiveTipCheckout(accessToken, liveRoomId, {
+      const result = await sendLiveTipWithSavedCard(accessToken, liveRoomId, {
         amountUsd: finalAmount,
         message: message.trim() || undefined,
+        paymentMethodId: selectedPmId,
       });
-      await Linking.openURL(url);
+      if ('requiresAction' in result) {
+        const conf = await confirmPayment(result.clientSecret, { paymentMethodType: 'Card' });
+        if (conf.error) {
+          onError(conf.error.message ?? 'Payment confirmation failed.');
+          return;
+        }
+      }
+      onSuccess?.();
       onClose();
     } catch (e) {
-      onError(e instanceof Error ? e.message : 'Could not start tip checkout.');
+      onError(e instanceof Error ? e.message : 'Could not send tip.');
     } finally {
       setBusy(false);
     }
+  };
+
+  const pickMethod = (pm: BuyerPaymentMethodRow) => {
+    setSelectedPmId(pm.id);
+    onPaymentMethodIdChange?.(pm.id);
+    setPickerOpen(false);
+    void setLiveBuyerPaymentMethod(accessToken, liveRoomId, pm.id).catch((e) => {
+      onError(e instanceof Error ? e.message : 'Could not update payment method.');
+    });
   };
 
   return (
@@ -76,8 +154,46 @@ export function LiveTipSheet({ visible, onClose, liveRoomId, accessToken, onErro
         </View>
         <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
           <Text style={styles.helper}>
-            Get Vaulted does not take a platform fee from tips. Standard payment processing still applies.
+            Tips use your Vault Wallet card for this room. Get Vaulted does not take a platform fee from tips.
           </Text>
+
+          <Text style={styles.label}>Payment method</Text>
+          <Pressable
+            style={styles.pmRow}
+            disabled={busy || loadingPm}
+            onPress={() => (paymentMethods.length > 1 ? setPickerOpen((v) => !v) : onOpenWallet?.())}
+          >
+            {loadingPm ? (
+              <ActivityIndicator color={colors.gold} size="small" />
+            ) : (
+              <>
+                <Ionicons name="card-outline" size={18} color={colors.gold} />
+                <Text style={styles.pmLabel} numberOfLines={1}>
+                  {formatTipPaymentMethodLabel(paymentMethods, selectedPmId)}
+                </Text>
+                <Text style={styles.pmAction}>{paymentMethods.length > 1 ? 'Change' : 'Wallet'}</Text>
+              </>
+            )}
+          </Pressable>
+          {pickerOpen ? (
+            <View style={styles.pmPicker}>
+              {paymentMethods.map((pm) => (
+                <Pressable
+                  key={pm.id}
+                  style={[styles.pmOption, pm.id === selectedPmId && styles.pmOptionOn]}
+                  onPress={() => pickMethod(pm)}
+                >
+                  <Text style={styles.pmOptionTxt}>{formatTipPaymentMethodLabel(paymentMethods, pm.id)}</Text>
+                </Pressable>
+              ))}
+              {onOpenWallet ? (
+                <Pressable style={styles.pmOption} onPress={onOpenWallet}>
+                  <Text style={[styles.pmOptionTxt, { color: colors.gold }]}>Manage in Vault Wallet</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+
           <Text style={styles.label}>Amount</Text>
           <View style={styles.amountRow}>
             {LIVE_TIP_PRESET_AMOUNTS_USD.map((amt) => {
@@ -121,7 +237,7 @@ export function LiveTipSheet({ visible, onClose, liveRoomId, accessToken, onErro
           {busy ? (
             <ActivityIndicator color={colors.background} />
           ) : (
-            <Text style={styles.submitTxt}>Continue to payment</Text>
+            <Text style={styles.submitTxt}>Send tip</Text>
           )}
         </Pressable>
       </View>
@@ -141,6 +257,29 @@ const styles = StyleSheet.create({
   title: { fontSize: 18, fontWeight: '800', color: colors.textPrimary },
   body: { paddingHorizontal: spacing.md, gap: spacing.sm, paddingBottom: spacing.lg },
   helper: { fontSize: 12, lineHeight: 17, color: colors.textSecondary },
+  pmRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: radii.md,
+    padding: spacing.sm,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  pmLabel: { flex: 1, fontSize: 14, fontWeight: '700', color: colors.textPrimary },
+  pmAction: { fontSize: 12, fontWeight: '800', color: colors.gold },
+  pmPicker: { gap: 6, marginTop: 4 },
+  pmOption: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: radii.md,
+    paddingVertical: 10,
+    paddingHorizontal: spacing.sm,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  pmOptionOn: { borderColor: 'rgba(212,175,55,0.45)', backgroundColor: 'rgba(212,175,55,0.1)' },
+  pmOptionTxt: { fontSize: 13, fontWeight: '700', color: colors.textPrimary },
   label: {
     fontSize: 11,
     fontWeight: '800',

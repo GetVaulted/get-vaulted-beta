@@ -17,6 +17,7 @@ import { isVariantPurchaseItem, summarizeVariantSpots } from "@/lib/live-item-va
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { VAULT_MODE_META } from "@/components/break-host/vault/vault-modes";
 import { LiveRoomEnergyMeter } from "@/components/live-stage/LiveRoomEnergyMeter";
+import { LiveShowShippingPanel } from "@/components/break-host/LiveShowShippingPanel";
 import { computeLiveRoomEnergy } from "@/lib/live-room-energy";
 import type { LiveRoomEnergyLevel } from "@/lib/live-room-energy";
 
@@ -89,6 +90,7 @@ export type LiveSellerCommandCenterProps = {
   queueDrawerOpen?: boolean;
   uiDimmed?: boolean;
   onClose?: () => void;
+  liveRoomId?: string;
 };
 
 function PrimaryBtn({
@@ -216,6 +218,7 @@ export function LiveSellerCommandCenter({
   queueDrawerOpen = false,
   uiDimmed = false,
   onClose,
+  liveRoomId,
 }: LiveSellerCommandCenterProps) {
   const live = roomStatus === "live";
   const item = activeBoardRow?.item ?? null;
@@ -619,6 +622,11 @@ export function LiveSellerCommandCenter({
                   );
                 })}
               </div>
+            </CollapsibleSection>
+          ) : null}
+          {liveRoomId ? (
+            <CollapsibleSection title="Shipping" glass defaultOpen={false}>
+              <LiveShowShippingPanel liveRoomId={liveRoomId} compact />
             </CollapsibleSection>
           ) : null}
           {!isCompactRail ? (

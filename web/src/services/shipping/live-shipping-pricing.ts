@@ -1,7 +1,12 @@
 import type { ShippingCategory } from "@/generated/prisma/enums";
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
+import { resolveShippingProfileDimensions } from "@/lib/unified-shipping-engine";
 import { prisma } from "@/lib/prisma";
-
+import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-shipping-profiles";
+import {
+  buildSessionPackageGroups,
+  refreshLiveShippingSessionShippoEstimate,
+} from "@/services/shipping/live-shipping-quote";
 export type LiveShippingTier = { maxWeightOz: number; costCents: number };
 /** Bundled live shipping session key (excludes `shipAlone` per-order sessions). */
 export const LIVE_BUNDLED_SHIPPING_DESTINATION_KEY = "__default__";
@@ -228,7 +233,17 @@ export async function addOrderToLiveShippingSessionTx(
               liveRoomId: opts.liveShowId,
               liveRoom: { sellerId: order.sellerId, roomType: { in: ["auction", "break", "sale"] } },
             },
-            select: { liveRoomId: true },
+            select: {
+              liveRoomId: true,
+              shippingProfileId: true,
+              customWeightOz: true,
+              customLengthIn: true,
+              customWidthIn: true,
+              customHeightIn: true,
+              requiresSeparatePackage: true,
+              shippingProfile: true,
+              liveRoom: { select: { defaultShippingProfileId: true, category: true } },
+            },
           })
         : opts?.liveShowId
           ? await tx.liveRoomItem.findFirst({
@@ -237,14 +252,34 @@ export async function addOrderToLiveShippingSessionTx(
                 liveRoomId: opts.liveShowId,
                 liveRoom: { sellerId: order.sellerId, roomType: { in: ["auction", "sale"] } },
               },
-              select: { liveRoomId: true },
+              select: {
+                liveRoomId: true,
+                shippingProfileId: true,
+                customWeightOz: true,
+                customLengthIn: true,
+                customWidthIn: true,
+                customHeightIn: true,
+                requiresSeparatePackage: true,
+                shippingProfile: true,
+                liveRoom: { select: { defaultShippingProfileId: true, category: true } },
+              },
             })
           : await tx.liveRoomItem.findFirst({
               where: {
                 listingId: order.listingId,
                 liveRoom: { sellerId: order.sellerId, roomType: { in: ["auction", "sale"] } },
               },
-              select: { liveRoomId: true },
+              select: {
+                liveRoomId: true,
+                shippingProfileId: true,
+                customWeightOz: true,
+                customLengthIn: true,
+                customWidthIn: true,
+                customHeightIn: true,
+                requiresSeparatePackage: true,
+                shippingProfile: true,
+                liveRoom: { select: { defaultShippingProfileId: true, category: true } },
+              },
               orderBy: { updatedAt: "desc" },
             });
     if (!liveItem) throw new Error("LIVE_SHIPPING_NOT_APPLICABLE");
@@ -257,15 +292,61 @@ export async function addOrderToLiveShippingSessionTx(
         : defaults.incremental;
 
     const shipAloneAddressKey = listing.shipAlone ? `ship-alone:${order.id}` : null;
-    const session = await findOrCreateLiveShippingSessionTx(tx, {
-      buyerId: order.buyerId,
-      sellerId: order.sellerId,
-      liveShowId: liveItem.liveRoomId,
-      destinationAddressId: shipAloneAddressKey,
+  const session = await findOrCreateLiveShippingSessionTx(tx, {
+    buyerId: order.buyerId,
+    sellerId: order.sellerId,
+    liveShowId: liveItem.liveRoomId,
+    destinationAddressId: shipAloneAddressKey,
+  });
+
+  if (session.shippingCapCents == null) {
+    const show = await tx.liveRoom.findUnique({
+      where: { id: liveItem.liveRoomId },
+      select: {
+        shippingCapEnabled: true,
+        shippingCapCents: true,
+        freeShippingEnabled: true,
+      },
     });
+    if (show) {
+      await tx.liveShippingSession.update({
+        where: { id: session.id },
+        data: {
+          shippingCapCents: show.shippingCapEnabled ? show.shippingCapCents : null,
+          freeShippingApplied: show.freeShippingEnabled,
+        },
+      });
+    }
+  }
+
+  const showCap = await tx.liveRoom.findUnique({
+    where: { id: liveItem.liveRoomId },
+    select: { shippingCapEnabled: true, shippingCapCents: true, freeShippingEnabled: true },
+  });
+  const effectiveCapCents =
+    showCap?.freeShippingEnabled
+      ? 0
+      : showCap?.shippingCapEnabled && showCap.shippingCapCents != null
+        ? showCap.shippingCapCents
+        : listing.shippingPriceCapCents ?? null;
 
     const itemCount = await tx.liveShippingSessionItem.count({ where: { sessionId: session.id } });
-    const appliedWeightOz = itemCount === 0 ? baseWeightOz : incrementalWeightOz;
+
+    let appliedWeightOz = itemCount === 0 ? baseWeightOz : incrementalWeightOz;
+    if (liveItem?.shippingProfile) {
+      const resolved = resolveShippingProfileDimensions(liveItem.shippingProfile, liveItem);
+      appliedWeightOz = itemCount === 0 ? resolved.weightOz : Math.max(1, resolved.weightOz * 0.25);
+    } else if (liveItem) {
+      const fallbackProfile = await resolveDefaultProfileForLiveShow({
+        showDefaultProfileId: liveItem.liveRoom.defaultShippingProfileId,
+        category: liveItem.liveRoom.category,
+        db: tx,
+      });
+      if (fallbackProfile) {
+        const resolved = resolveShippingProfileDimensions(fallbackProfile, liveItem);
+        appliedWeightOz = itemCount === 0 ? resolved.weightOz : Math.max(1, resolved.weightOz * 0.25);
+      }
+    }
 
     await tx.liveShippingSessionItem.create({
       data: {
@@ -278,7 +359,9 @@ export async function addOrderToLiveShippingSessionTx(
       },
     });
 
-    const summary = await recalcLiveShippingSessionTx(tx, session.id, listing.shippingPriceCapCents ?? null);
+    const summary = await recalcLiveShippingSessionTx(tx, session.id, effectiveCapCents, {
+      freeShipping: showCap?.freeShippingEnabled === true,
+    });
 
     await tx.order.update({
       where: { id: order.id },
@@ -300,33 +383,74 @@ export async function addOrderToLiveShippingSession(
   pricingWeightOz: number;
   capReached: boolean;
 }> {
-  return prisma.$transaction(async (tx) => addOrderToLiveShippingSessionTx(tx, orderId, opts));
+  const summary = await prisma.$transaction(async (tx) => addOrderToLiveShippingSessionTx(tx, orderId, opts));
+  try {
+    await refreshLiveShippingSessionShippoEstimate(summary.sessionId);
+    const refreshed = await getLiveShippingSessionSummary(summary.sessionId);
+    return refreshed ?? summary;
+  } catch (e) {
+    console.warn("[live-shipping] Shippo refresh failed; using tier estimate", e);
+    return summary;
+  }
 }
 
-async function recalcLiveShippingSessionTx(tx: TransactionClient, sessionId: string, capCents?: number | null) {
-  const items = await tx.liveShippingSessionItem.findMany({
-    where: { sessionId },
-    select: { appliedWeightOz: true },
+async function recalcLiveShippingSessionTx(
+  tx: TransactionClient,
+  sessionId: string,
+  capCents?: number | null,
+  opts?: { freeShipping?: boolean },
+) {
+  const { computeSessionPoolTotals, computePoolTotalsFromGroups, liveShowShippingConfigFromRoom } =
+    await import("@/services/shipping/live-shipping-pool");
+
+  const session = await tx.liveShippingSession.findUnique({
+    where: { id: sessionId },
+    select: {
+      liveShow: {
+        select: {
+          shippingCapEnabled: true,
+          shippingCapCents: true,
+          freeShippingEnabled: true,
+          sellerPaysOverCap: true,
+        },
+      },
+    },
   });
-  const pricingWeightOz = calculateLivePricingWeight(items);
-  const shippingCostCents = calculateLiveShippingCost(pricingWeightOz, capCents ?? null);
-  const cap = getLiveShippingCapCents(capCents ?? null);
-  const capReached = shippingCostCents >= cap;
+  if (!session) {
+    throw new Error("LIVE_SHIPPING_SESSION_NOT_FOUND");
+  }
+
+  const showConfig = liveShowShippingConfigFromRoom({
+    ...session.liveShow,
+    freeShippingEnabled: opts?.freeShipping === true ? true : session.liveShow.freeShippingEnabled,
+    shippingCapCents:
+      capCents !== undefined && capCents !== null
+        ? capCents
+        : session.liveShow.shippingCapCents,
+    shippingCapEnabled:
+      capCents !== undefined && capCents !== null ? true : session.liveShow.shippingCapEnabled,
+  });
+
+  const pool = await computeSessionPoolTotals(sessionId, tx);
+  const totals = pool ?? computePoolTotalsFromGroups([], showConfig);
 
   await tx.liveShippingSession.update({
     where: { id: sessionId },
     data: {
-      pricingWeightOz,
-      shippingCostCents,
-      capReached,
+      pricingWeightOz: totals.pricingWeightOz,
+      shippingCostCents: totals.buyerTotalCents,
+      capReached: totals.capReached,
+      freeShippingApplied: totals.freeShippingApplied,
+      estimatedLabelCostCents: totals.rawEstimateCents,
+      sellerShippingSubsidyCents: totals.sellerSubsidyCents,
     },
   });
 
   return {
     sessionId,
-    shippingCostCents,
-    pricingWeightOz,
-    capReached,
+    shippingCostCents: totals.buyerTotalCents,
+    pricingWeightOz: totals.pricingWeightOz,
+    capReached: totals.capReached,
   };
 }
 

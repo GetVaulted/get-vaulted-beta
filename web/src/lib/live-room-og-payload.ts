@@ -78,6 +78,7 @@ export async function fetchLiveRoomOgPayload(rawShowId: string): Promise<LiveRoo
     id: row.id,
     title: row.title,
     sellerUsername: hostUsername,
+    isLive: row.status === "live",
   };
 
   return {

@@ -37,6 +37,7 @@ export async function GET(_request: Request, context: { params: Promise<{ showId
               width: "100%",
               height: "100%",
               objectFit: "cover",
+              objectPosition: "center",
             }}
           />
         ) : null}
@@ -111,7 +112,7 @@ export async function GET(_request: Request, context: { params: Promise<{ showId
                 />
               ) : null}
               <div style={{ fontSize: 24, fontWeight: 900, color: "#ffffff", letterSpacing: 1.2 }}>
-                {payload.isLive ? "LIVE" : "SHOW"}
+                {payload.isLive ? "LIVE" : "SCHEDULED"}
               </div>
             </div>
           </div>
@@ -128,6 +129,7 @@ export async function GET(_request: Request, context: { params: Promise<{ showId
                   borderRadius: "50%",
                   border: "4px solid rgba(212,175,55,0.85)",
                   objectFit: "cover",
+                  objectPosition: "center",
                 }}
               />
             ) : (
@@ -166,7 +168,7 @@ export async function GET(_request: Request, context: { params: Promise<{ showId
                 <div style={{ fontSize: 24, fontWeight: 700, color: "#d4af37" }}>{viewerLabel}</div>
               ) : (
                 <div style={{ fontSize: 22, fontWeight: 600, color: "rgba(255,255,255,0.62)" }}>
-                  Tap to join the live auction
+                  {payload.isLive ? "Tap to join the live auction" : "Tap to join when we go live"}
                 </div>
               )}
             </div>

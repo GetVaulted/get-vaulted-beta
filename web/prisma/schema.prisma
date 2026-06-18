@@ -757,6 +757,9 @@ model Listing {
   marketplaceAllowedRateKeys      String[]                      @default([])
   /// Canonical carrier keys (usps, ups, fedex, …) the seller offers at checkout.
   marketplaceAllowedCarriers      String[]                      @default([])
+  /// Unified platform shipping profile (Live + Marketplace + Trade).
+  platformShippingProfileId       String?
+  platformShippingProfile         PlatformShippingProfile?      @relation(fields: [platformShippingProfileId], references: [id], onDelete: SetNull)
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
 
@@ -946,6 +949,8 @@ model LiveRoom {
   randomizationResultJson String?
   lockPurchases           Boolean     @default(false)
   breakPaused             Boolean     @default(false)
+  /// Host paused the live video feed (room stays live; buyers see a hold screen).
+  streamPaused            Boolean     @default(false)
   /// PYT team board organization (break rooms). Set at room creation.
   teamBoardLeague         TeamBoardLeague @default(nba)
 
@@ -971,6 +976,15 @@ model LiveRoom {
   slowModeSeconds Int @default(0)
   pinnedModeratorMessage String?
   pinnedModeratorMessageAt DateTime?
+
+  /// Show-level shipping (unified profiles + cap/free shipping).
+  defaultShippingProfileId String?
+  defaultShippingProfile   PlatformShippingProfile? @relation(fields: [defaultShippingProfileId], references: [id], onDelete: SetNull)
+  shippingCapEnabled       Boolean @default(false)
+  shippingCapCents         Int?
+  freeShippingEnabled      Boolean @default(false)
+  /// When true, seller absorbs shipping above buyer cap (default platform behavior).
+  sellerPaysOverCap        Boolean @default(true)
 
   @@index([sellerId, status])
   @@index([status, scheduledStartAt])
@@ -1146,6 +1160,16 @@ model LiveRoomItem {
   variantBreakReadyAt DateTime?
   /// Host clicked Begin Break — broadcast to all viewers.
   variantBreakBeganAt DateTime?
+  /// Platform shipping profile for this queue row (inherits show default on create).
+  shippingProfileId String?
+  shippingProfile   PlatformShippingProfile? @relation(fields: [shippingProfileId], references: [id], onDelete: SetNull)
+  customWeightOz    Float?
+  customLengthIn    Float?
+  customWidthIn     Float?
+  customHeightIn    Float?
+  requiresSeparatePackage Boolean?
+  /// Frozen profile snapshot at sale time (JSON) — admin profile edits must not mutate sold rows.
+  shippingProfileSnapshotJson String?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
   breakHits      BreakHit[]
@@ -1464,6 +1488,12 @@ model Order {
   shippingChargedCents   Int?
   /// Carrier label price from Shippo (cents) when a label is purchased.
   shippingLabelCostCents Int?
+  /// Seller subsidy when cap/free shipping applies (cents).
+  sellerShippingSubsidyCents Int @default(0)
+  shippingCapApplied       Boolean @default(false)
+  freeShippingApplied      Boolean @default(false)
+  estimatedLabelCostCents  Int?
+  shippoRateId             String?
   /// Seller payout lifecycle (instant after delivery vs standard hold).
   payoutStatus             OrderPayoutStatus @default(pending)
   deliveryConfirmedAt      DateTime?
@@ -1478,6 +1508,7 @@ model Order {
   /// First carrier acceptance scan (fast payout trigger).
   carrierAcceptedAt        DateTime?
   refundRequests           OrderRefundRequest[]
+  shipmentPackages         ShipmentPackage[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1635,10 +1666,16 @@ model LiveShippingSession {
   pricingWeightOz   Float    @default(0)
   shippingCostCents Int      @default(0)
   capReached        Boolean  @default(false)
+  /// Snapshot from show at session creation — honors cap advertised at first purchase.
+  shippingCapCents  Int?
+  freeShippingApplied Boolean @default(false)
+  estimatedLabelCostCents Int?
+  sellerShippingSubsidyCents Int @default(0)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   orders            Order[]
   items             LiveShippingSessionItem[]
+  packages          ShipmentPackage[]
 
   @@unique([buyerId, sellerId, liveShowId, destinationAddressId])
   @@index([buyerId, liveShowId, sellerId])
@@ -1900,7 +1937,7 @@ model LiveRoomModerator {
   user             User                   @relation("LiveRoomModeratorUser", fields: [userId], references: [id], onDelete: Cascade)
   assignedByUserId String
   assignedBy       User                   @relation("LiveRoomModeratorAssignedBy", fields: [assignedByUserId], references: [id], onDelete: Cascade)
-  moderatorLevel   LiveRoomModeratorLevel @default(chat)
+  moderatorLevel   LiveRoomModeratorLevel @default(show)
   revokedAt        DateTime?
   createdAt        DateTime               @default(now())
 
@@ -2005,4 +2042,62 @@ model TrustModerationAuditLog {
   @@index([liveRoomId, createdAt])
   @@index([actorUserId, createdAt])
   @@index([targetType, targetId])
+}
+
+/// Admin-controlled shipping profile definitions (Live, Marketplace, Trade).
+model PlatformShippingProfile {
+  id                      String   @id @default(cuid())
+  slug                    String   @unique
+  name                    String
+  defaultWeightOz         Float
+  defaultLengthIn         Float
+  defaultWidthIn          Float
+  defaultHeightIn         Float
+  packageType             String   @default("")
+  bundleAllowed           Boolean  @default(true)
+  requiresSeparatePackage Boolean  @default(false)
+  isActive                Boolean  @default(true)
+  sortOrder               Int      @default(0)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  liveRooms    LiveRoom[]
+  liveRoomItems LiveRoomItem[]
+  listings     Listing[]
+
+  @@index([isActive, sortOrder])
+}
+
+enum ShipmentPackageStatus {
+  estimated
+  label_created
+  voided
+}
+
+/// Multi-package support under one buyer/show session or single marketplace order.
+model ShipmentPackage {
+  id                    String                @id @default(cuid())
+  liveShippingSessionId String?
+  liveShippingSession   LiveShippingSession?  @relation(fields: [liveShippingSessionId], references: [id], onDelete: Cascade)
+  orderId               String?
+  order                 Order?                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  packageIndex          Int                   @default(0)
+  weightOz              Float
+  lengthIn              Float
+  widthIn               Float
+  heightIn              Float
+  shippoShipmentId      String?
+  shippoRateId          String?
+  shippoTransactionId   String?
+  carrier               String?
+  serviceLevel          String?
+  trackingNumber        String?
+  labelUrl              String?
+  labelCostCents        Int?
+  status                ShipmentPackageStatus @default(estimated)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  @@index([liveShippingSessionId, packageIndex])
+  @@index([orderId])
 }

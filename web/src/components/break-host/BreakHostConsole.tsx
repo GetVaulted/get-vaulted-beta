@@ -1394,6 +1394,40 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     void patchRoom("start");
   }, [patchRoom, webcamBroadcast]);
 
+  const handlePauseStream = useCallback(() => {
+    void (async () => {
+      try {
+        const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/stream-settings`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ streamPaused: true }),
+        });
+        if (!res.ok) throw new Error("pause_failed");
+        await webcamBroadcast.pause();
+        refreshHostStreamSurfaces();
+      } catch {
+        setToast("Could not pause stream.");
+      }
+    })();
+  }, [refreshHostStreamSurfaces, roomId, webcamBroadcast]);
+
+  const handleResumeStream = useCallback(() => {
+    void (async () => {
+      try {
+        const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/stream-settings`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ streamPaused: false }),
+        });
+        if (!res.ok) throw new Error("resume_failed");
+        await webcamBroadcast.resume();
+        refreshHostStreamSurfaces();
+      } catch {
+        setToast("Could not resume stream.");
+      }
+    })();
+  }, [refreshHostStreamSurfaces, roomId, webcamBroadcast]);
+
   const handlePreviewVideoDevice = useCallback(
     (deviceId: string) => {
       void webcamBroadcast.restartPreviewWithDevices(deviceId, webcamBroadcast.selectedAudioDeviceId);
@@ -1783,6 +1817,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     onOpenQueueDrawer: () => setQueueDrawerOpen((v) => !v),
     queueDrawerOpen,
     uiDimmed: false,
+    liveRoomId: roomId,
   };
 
   const hostDesktopItemOverlay = (
@@ -1852,6 +1887,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         roomLive={room.status === "live"}
         onStart={handleGoLive}
         onStop={() => void webcamBroadcast.stop()}
+        onPause={handlePauseStream}
+        onResume={handleResumeStream}
       />
       <LiveRoomEnergyMeter score={roomEnergy.score} level={roomEnergy.level} compact />
       <button

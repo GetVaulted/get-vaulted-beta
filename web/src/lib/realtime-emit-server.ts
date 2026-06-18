@@ -278,10 +278,16 @@ export function emitUserNotificationCreated(userId: string): void {
 /** Buyer-safe payload only (no ingest, keys, or ARNs). */
 export function emitStreamStatusChanged(
   liveRoomId: string,
-  payload: { streamHealth: string; roomVersion?: number; lastStatusSyncAt?: string },
+  payload: {
+    streamHealth: string;
+    streamPaused?: boolean;
+    roomVersion?: number;
+    lastStatusSyncAt?: string;
+  },
 ): void {
   emitRoomEventWithAliases(liveRoomId, RT_EVENT.streamStatus, {
     streamHealth: payload.streamHealth,
+    streamPaused: payload.streamPaused ?? false,
     roomVersion: payload.roomVersion,
     lastStatusSyncAt: payload.lastStatusSyncAt,
   });

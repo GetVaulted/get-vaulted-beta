@@ -20,6 +20,11 @@ import {
 } from "@/lib/shippo";
 import { PAYMENT_PAID } from "@/services/payments";
 import { LIVE_BUNDLED_SHIPPING_DESTINATION_KEY } from "@/services/shipping/live-shipping-pricing";
+import { buildSessionPackageGroups } from "@/services/shipping/live-shipping-quote";
+import {
+  filterShippoRatesUspsUps,
+  type PackageGroup,
+} from "@/lib/unified-shipping-engine";
 
 export type GenerateBundledShippoLabelResult = {
   alreadyExisted: boolean;
@@ -113,13 +118,12 @@ function maxBundleDimensionsInches(listings: ListingShipProfile[]): { length: nu
   };
 }
 
-function buildBundleParcel(totalWeightOz: number, listings: ListingShipProfile[]): ShippoParcel {
-  const dims = maxBundleDimensionsInches(listings);
-  const w = Math.max(1, Math.ceil(totalWeightOz * 10) / 10);
+function buildParcelFromPackageGroup(group: PackageGroup, totalWeightOz?: number): ShippoParcel {
+  const w = Math.max(1, Math.ceil((totalWeightOz ?? group.weightOz + bundleWeightBufferOz()) * 10) / 10);
   return {
-    length: String(dims.length),
-    width: String(dims.width),
-    height: String(dims.height),
+    length: String(group.lengthIn),
+    width: String(group.widthIn),
+    height: String(group.heightIn),
     distance_unit: "in",
     weight: String(w),
     mass_unit: "oz",
@@ -268,56 +272,111 @@ export async function generateBundledShippoLabelForSession(
   };
 
   const listings = eligible.map((o) => o.listing);
-  const rawWeightOz = listings.reduce((sum, li) => sum + physicalListingWeightOz(li), 0);
-  const totalWeightOz = rawWeightOz + bundleWeightBufferOz();
-  const parcel = buildBundleParcel(totalWeightOz, listings);
+  const built = await buildSessionPackageGroups(sessionId);
+  const packageGroups =
+    built && built.groups.length > 0
+      ? built.groups
+      : [
+          {
+            packageIndex: 0,
+            items: eligible.map((o) => ({ itemId: o.id, profile: { id: "legacy", slug: "legacy", name: "Legacy", weightOz: physicalListingWeightOz(o.listing), lengthIn: 10, widthIn: 8, heightIn: 4, bundleAllowed: true, requiresSeparatePackage: false } })),
+            weightOz: listings.reduce((sum, li) => sum + physicalListingWeightOz(li), 0) + bundleWeightBufferOz(),
+            lengthIn: maxBundleDimensionsInches(listings).length,
+            widthIn: maxBundleDimensionsInches(listings).width,
+            heightIn: maxBundleDimensionsInches(listings).height,
+          },
+        ];
+
+  let shippingLabelCostCentsTotal = 0;
+  const primaryTxIds: string[] = [];
+  const primaryLabelUrls: string[] = [];
+  let primaryTracking: string | null = null;
+  let primaryTrackingUrl: string | null = null;
+  let primaryCarrier: string | null = null;
+  let primaryService: string | null = null;
+  let primaryShipmentId: string | null = null;
 
   try {
-    const shipment = (await shippoCreateShipment({
-      address_from: addressFrom,
-      address_to: addressTo,
-      parcels: [parcel],
-      async: false,
-    })) as { object_id?: string };
+    for (const group of packageGroups) {
+      const parcel = buildParcelFromPackageGroup(group);
+      const shipment = (await shippoCreateShipment({
+        address_from: addressFrom,
+        address_to: addressTo,
+        parcels: [parcel],
+        async: false,
+      })) as { object_id?: string };
 
-    const sid = shipment.object_id;
-    if (!sid) throw new Error("Shippo shipment missing object_id");
+      const sid = shipment.object_id;
+      if (!sid) throw new Error("Shippo shipment missing object_id");
 
-    const ratesRes = (await shippoListRates(sid)) as {
-      results?: { object_id?: string; amount?: string; provider?: string; servicelevel?: { name?: string } }[];
-    };
-    const rates = ratesRes.results ?? [];
-    const cheapest = [...rates].sort((a, b) => Number(a.amount ?? 0) - Number(b.amount ?? 0))[0];
-    if (!cheapest?.object_id) throw new Error("No Shippo rates");
+      const ratesRes = (await shippoListRates(sid)) as {
+        results?: { object_id?: string; amount?: string; provider?: string; servicelevel?: { name?: string } }[];
+      };
+      const rates = filterShippoRatesUspsUps(ratesRes.results ?? []);
+      const cheapest = rates[0];
+      if (!cheapest?.object_id) throw new Error("No Shippo rates");
 
-    const shippingLabelCostCentsTotal = Math.round(Number(cheapest.amount ?? 0) * 100);
+      const packageCostCents = Math.round(Number(cheapest.amount ?? 0) * 100);
+      shippingLabelCostCentsTotal += packageCostCents;
 
-    const tx = (await shippoPurchaseRate(cheapest.object_id)) as {
-      object_id?: string;
-      tracking_number?: string;
-      tracking_url_provider?: string;
-      label_url?: string;
-      status?: string;
-    };
+      const tx = (await shippoPurchaseRate(cheapest.object_id)) as {
+        object_id?: string;
+        tracking_number?: string;
+        tracking_url_provider?: string;
+        label_url?: string;
+        status?: string;
+      };
 
-    const transactionId = tx.object_id ?? cheapest.object_id;
+      const transactionId = tx.object_id ?? cheapest.object_id;
+      if (group.packageIndex === 0) {
+        primaryShipmentId = sid;
+        primaryTxIds.push(transactionId ?? "");
+        primaryLabelUrls.push(tx.label_url ?? "");
+        primaryTracking = tx.tracking_number ?? null;
+        primaryTrackingUrl = tx.tracking_url_provider ?? null;
+        primaryCarrier = cheapest.provider ?? null;
+        primaryService = cheapest.servicelevel?.name ?? null;
+      }
+
+      await prisma.shipmentPackage.create({
+        data: {
+          liveShippingSessionId: sessionId,
+          packageIndex: group.packageIndex,
+          weightOz: group.weightOz,
+          lengthIn: group.lengthIn,
+          widthIn: group.widthIn,
+          heightIn: group.heightIn,
+          shippoShipmentId: sid,
+          shippoRateId: cheapest.object_id,
+          shippoTransactionId: transactionId ?? null,
+          carrier: cheapest.provider ?? null,
+          serviceLevel: cheapest.servicelevel?.name ?? null,
+          trackingNumber: tx.tracking_number ?? null,
+          labelUrl: tx.label_url ?? null,
+          labelCostCents: packageCostCents,
+          status: "label_created",
+        },
+      });
+    }
+
     const n = eligible.length;
     const baseEach = Math.floor(shippingLabelCostCentsTotal / n);
     const remainder = shippingLabelCostCentsTotal - baseEach * n;
 
-    const carrier = cheapest.provider ?? null;
-    const service = cheapest.servicelevel?.name ?? null;
-    const trackingNumber = tx.tracking_number ?? null;
-    const trackingUrl = tx.tracking_url_provider ?? null;
-    const labelUrl = tx.label_url ?? null;
-    const shippingStatus = tx.status ?? "UNKNOWN";
+    const transactionId = primaryTxIds[0] ?? null;
+    const labelUrl = primaryLabelUrls[0] ?? null;
+    const trackingNumber = primaryTracking;
+    const trackingUrl = primaryTrackingUrl;
+    const carrier = primaryCarrier;
+    const service = primaryService;
+    const shippingStatus = "SUCCESS";
 
     await prisma.$transaction(
       eligible.map((o, idx) =>
         prisma.order.update({
           where: { id: o.id },
           data: {
-            shippoShipmentId: sid,
+            shippoShipmentId: primaryShipmentId,
             shippoTransactionId: transactionId,
             carrier,
             service,
@@ -361,7 +420,7 @@ export async function generateBundledShippoLabelForSession(
 
     return {
       alreadyExisted: false,
-      shippoShipmentId: sid,
+      shippoShipmentId: primaryShipmentId,
       shippoTransactionId: transactionId ?? null,
       labelUrl: labelUrl ?? null,
       trackingNumber,

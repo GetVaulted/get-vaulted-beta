@@ -8,6 +8,9 @@ import {
   resolveLiveAuctionLotBidPhase,
   type LiveAuctionLotBidPhase,
 } from '../lib/liveAuctionLotPhase';
+import { projectBuyerQueueLineup, type LiveRoomLineupItemSnapshot } from '../lib/liveBuyerQueueProjection';
+
+export type { LiveRoomLineupItemSnapshot };
 
 export type LiveItemSalesFormat = 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
 
@@ -74,6 +77,8 @@ export type LiveRoomBuyerSnapshot = {
   unresolvedPaymentFailure?: LiveBuyerPaymentFailureSnapshot | null;
   /** Open giveaways accepting entries (watch UI). */
   giveaways?: ViewerGiveawayRow[];
+  /** Host queue aligned lineup (auction + buy-now + PYT/PYD masters). */
+  lineupItems?: LiveRoomLineupItemSnapshot[];
 };
 
 function apiErrorMessage(res: Response, body: unknown): string {
@@ -167,6 +172,37 @@ function parsePaymentFailure(raw: unknown): LiveBuyerPaymentFailureSnapshot | nu
   };
 }
 
+function parseRoomLineupItems(raw: unknown): Parameters<typeof projectBuyerQueueLineup>[0] {
+  if (!Array.isArray(raw)) return [];
+  const out: Parameters<typeof projectBuyerQueueLineup>[0] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue;
+    const o = row as Record<string, unknown>;
+    const id = typeof o.id === 'string' ? o.id.trim() : '';
+    if (!id) continue;
+    out.push({
+      id,
+      title: typeof o.title === 'string' ? o.title : undefined,
+      displayTitle: typeof o.displayTitle === 'string' ? o.displayTitle : null,
+      progressLabel: typeof o.progressLabel === 'string' ? o.progressLabel : null,
+      imageUrl: typeof o.imageUrl === 'string' ? o.imageUrl : null,
+      priceUsd: typeof o.priceUsd === 'number' ? o.priceUsd : null,
+      startingBidUsd: typeof o.startingBidUsd === 'number' ? o.startingBidUsd : null,
+      currentBidUsd: typeof o.currentBidUsd === 'number' ? o.currentBidUsd : null,
+      lastHighBidderId: typeof o.lastHighBidderId === 'string' ? o.lastHighBidderId : null,
+      lastHighBidderUsername: typeof o.lastHighBidderUsername === 'string' ? o.lastHighBidderUsername : null,
+      status: typeof o.status === 'string' ? o.status : 'queued',
+      sortOrder: typeof o.sortOrder === 'number' ? o.sortOrder : out.length,
+      biddingOpen: o.biddingOpen === true,
+      auctionEndsAt: typeof o.auctionEndsAt === 'string' ? o.auctionEndsAt : null,
+      salesFormat: typeof o.salesFormat === 'string' ? o.salesFormat : 'auction',
+      variants: parseVariantSnapshots(o.variants),
+      createdAt: typeof o.createdAt === 'string' ? o.createdAt : undefined,
+    });
+  }
+  return out;
+}
+
 /** Buyer snapshot for placing bids from mobile (same room GET as web). */
 export async function fetchLiveRoomBuyerSnapshot(
   accessToken: string | undefined,
@@ -206,6 +242,7 @@ export async function fetchLiveRoomBuyerSnapshot(
         breakFull?: boolean;
       } | null;
       giveaways?: unknown;
+      items?: unknown;
     };
     serverNowMs?: number;
     error?: string;
@@ -269,6 +306,7 @@ export async function fetchLiveRoomBuyerSnapshot(
     (typeof active?.displayTitle === 'string' && active.displayTitle.trim()) ||
     (typeof active?.title === 'string' && active.title.trim()) ||
     null;
+  const lineupItems = projectBuyerQueueLineup(parseRoomLineupItems(detail?.items), phaseNowMs);
   const snapshot: LiveRoomBuyerSnapshot = {
     roomId,
     status: (detail?.status as LiveRoomBuyerSnapshot['status']) ?? 'ended',
@@ -297,6 +335,7 @@ export async function fetchLiveRoomBuyerSnapshot(
     priceUsd: typeof active?.priceUsd === 'number' ? active.priceUsd : null,
     unresolvedPaymentFailure: parsePaymentFailure(detail?.buyerUnresolvedPaymentFailure),
     giveaways: parseViewerGiveaways(detail?.giveaways),
+    lineupItems,
   };
   logBuyerRoomStateSnapshot('fetch', snapshot);
   return snapshot;

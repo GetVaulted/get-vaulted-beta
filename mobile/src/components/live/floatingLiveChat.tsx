@@ -249,6 +249,7 @@ export function FloatingLiveChat({
   compact = false,
   onPressChatUser,
   moderatorUserIds,
+  pinnedModeratorMessage,
 }: {
   pool: ChatMessage[];
   hostAvatarUrl?: string | null;
@@ -270,6 +271,7 @@ export function FloatingLiveChat({
   compact?: boolean;
   onPressChatUser?: (user: { username: string; userId?: string }) => void;
   moderatorUserIds?: string[];
+  pinnedModeratorMessage?: string | null;
 }) {
   const history = useMemo(() => prepareChatMessageHistory(pool), [pool]);
   const moderatorIdSet = useMemo(() => new Set(moderatorUserIds ?? []), [moderatorUserIds]);
@@ -290,13 +292,25 @@ export function FloatingLiveChat({
     setPinnedToBottom(distFromBottom < 32);
   };
 
-  if (!isActive || history.length === 0) return null;
+  if (!isActive) return null;
+
+  const pinnedText = pinnedModeratorMessage?.trim();
+  const hasChat = history.length > 0;
+  if (!pinnedText && !hasChat) return null;
 
   return (
     <View
       style={[styles.floatChatColumn, { bottom, left, right: rightEdge, maxHeight: viewportHeight }]}
       pointerEvents="box-none"
     >
+      {pinnedText ? (
+        <View style={styles.pinnedBanner} pointerEvents="none">
+          <LiveRoomText style={styles.pinnedBannerText} numberOfLines={3}>
+            📌 {pinnedText}
+          </LiveRoomText>
+        </View>
+      ) : null}
+      {hasChat ? (
       <ScrollView
         ref={scrollRef}
         style={styles.scrollViewport}
@@ -326,6 +340,7 @@ export function FloatingLiveChat({
           />
         ))}
       </ScrollView>
+      ) : null}
     </View>
   );
 }
@@ -423,6 +438,23 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     overflow: 'hidden',
     zIndex: 14,
+  },
+  pinnedBanner: {
+    width: '100%',
+    marginBottom: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,215,128,0.35)',
+    backgroundColor: 'rgba(46,36,8,0.72)',
+  },
+  pinnedBannerText: {
+    color: colors.gold,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
+    ...TEXT_SHADOW,
   },
   scrollViewport: {
     width: '100%',
