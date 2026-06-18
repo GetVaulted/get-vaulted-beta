@@ -329,8 +329,10 @@ function LiveSlide({
       const ok = await liveChat.send(t);
       if (ok) {
         setChatDraft('');
-        chatComposerRef.current?.blur();
-        Keyboard.dismiss();
+        chatComposerRef.current?.dismissSuggestions();
+        requestAnimationFrame(() => {
+          chatComposerRef.current?.focus();
+        });
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
