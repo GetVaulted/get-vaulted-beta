@@ -9,7 +9,6 @@ import {
   isInvalidRefreshTokenError,
   recoverFromStaleAuthSession,
 } from './src/lib/recoverInvalidAuthSession';
-import { KeyboardDismissView } from './src/components/ui/KeyboardDismissView';
 import { RootNavigator } from './src/navigation/RootNavigator';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -31,11 +30,9 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={styles.root}>
-      <KeyboardDismissView>
-        <AuthProvider>
-          <RootNavigator />
-        </AuthProvider>
-      </KeyboardDismissView>
+      <AuthProvider>
+        <RootNavigator />
+      </AuthProvider>
       <StatusBar style="light" />
     </GestureHandlerRootView>
   );

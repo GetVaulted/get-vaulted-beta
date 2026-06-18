@@ -16,6 +16,7 @@ export type LiveRoomModerationState = {
   slowModeSeconds: number;
   pinnedModeratorMessage: string | null;
   pinnedModeratorMessageExpiresAt: string | null;
+  pinnedModeratorUserId: string | null;
   pinnedModeratorUsername: string | null;
   pinnedModeratorAvatarUrl: string | null;
   moderators: LiveRoomModeratorRow[];
@@ -34,6 +35,7 @@ const EMPTY: LiveRoomModerationState = {
   slowModeSeconds: 0,
   pinnedModeratorMessage: null,
   pinnedModeratorMessageExpiresAt: null,
+  pinnedModeratorUserId: null,
   pinnedModeratorUsername: null,
   pinnedModeratorAvatarUrl: null,
   moderators: [],
@@ -59,6 +61,7 @@ export function useLiveRoomModerationState(liveRoomId: string, enabled = true) {
         slowModeSeconds: j.slowModeSeconds ?? 0,
         pinnedModeratorMessage: j.pinnedModeratorMessage ?? null,
         pinnedModeratorMessageExpiresAt: j.pinnedModeratorMessageExpiresAt ?? null,
+        pinnedModeratorUserId: j.pinnedModeratorUserId ?? null,
         pinnedModeratorUsername: j.pinnedModeratorUsername ?? null,
         pinnedModeratorAvatarUrl: j.pinnedModeratorAvatarUrl ?? null,
         moderators: Array.isArray(j.moderators)

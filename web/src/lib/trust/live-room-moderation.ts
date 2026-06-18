@@ -44,6 +44,48 @@ function isActive(expiresAt: Date | null | undefined, now: Date): boolean {
 const PIN_EXPIRES_MINUTES_ALLOWED = [15, 30, 60, 120, 240, 24 * 60] as const;
 const DEFAULT_PIN_EXPIRES_MINUTES = 60;
 
+async function resolvePinnedModeratorUser(
+  liveRoomId: string,
+  pinnedUserId: string | null,
+): Promise<{ userId: string; username: string; avatarUrl: string | null } | null> {
+  if (pinnedUserId) {
+    const user = await prisma.user.findUnique({
+      where: { id: pinnedUserId },
+      select: { id: true, username: true, image: true },
+    });
+    if (user) {
+      return {
+        userId: user.id,
+        username: user.username,
+        avatarUrl: user.image?.trim() || null,
+      };
+    }
+  }
+
+  const recentPins = await prisma.liveRoomModerationAction.findMany({
+    where: { liveRoomId, actionType: "pin_message" },
+    orderBy: { createdAt: "desc" },
+    take: 10,
+    select: {
+      metadata: true,
+      moderator: { select: { id: true, username: true, image: true } },
+    },
+  });
+
+  for (const row of recentPins) {
+    const meta = row.metadata as { body?: unknown } | null;
+    const body = typeof meta?.body === "string" ? meta.body.trim() : "";
+    if (!body) continue;
+    return {
+      userId: row.moderator.id,
+      username: row.moderator.username,
+      avatarUrl: row.moderator.image?.trim() || null,
+    };
+  }
+
+  return null;
+}
+
 /** Clears expired pins and returns the active pinned body (if any). */
 export async function resolveLiveRoomPinnedMessage(liveRoomId: string): Promise<{
   body: string | null;
@@ -76,19 +118,14 @@ export async function resolveLiveRoomPinnedMessage(liveRoomId: string): Promise<
     });
     return { body: null, pinnedAt: null, expiresAt: null, pinnedBy: null };
   }
-  let pinnedBy: { userId: string; username: string; avatarUrl: string | null } | null = null;
-  if (room.pinnedModeratorUserId) {
-    const user = await prisma.user.findUnique({
-      where: { id: room.pinnedModeratorUserId },
-      select: { id: true, username: true, image: true },
-    });
-    if (user) {
-      pinnedBy = {
-        userId: user.id,
-        username: user.username,
-        avatarUrl: user.image?.trim() || null,
-      };
-    }
+  let pinnedBy = await resolvePinnedModeratorUser(liveRoomId, room.pinnedModeratorUserId);
+  if (!room.pinnedModeratorUserId && pinnedBy) {
+    await prisma.liveRoom
+      .update({
+        where: { id: liveRoomId },
+        data: { pinnedModeratorUserId: pinnedBy.userId },
+      })
+      .catch(() => undefined);
   }
   return {
     body: room.pinnedModeratorMessage,

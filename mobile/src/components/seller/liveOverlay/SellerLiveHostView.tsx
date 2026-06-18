@@ -23,6 +23,7 @@ import type { MobileHostBroadcastPhase, SellerCameraPermissionState } from '../.
 import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
 import { liveRoomChatOpen } from '../../../lib/liveRoomChatPolicy';
 import { useLiveRoomChat } from '../../../hooks/useLiveRoomChat';
+import { resolvePinnedModeratorUsername } from '../../../lib/resolvePinnedModeratorUsername';
 import { useLiveRoomModeration } from '../../../hooks/useLiveRoomModeration';
 import { useRealtimeRoomSubscription } from '../../../hooks/useRealtimeRoomSubscription';
 import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from '../../../lib/vaultRevealSpin';
@@ -267,14 +268,22 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   const pinnedModerator = useMemo(() => {
     const body = moderation.pinnedModeratorMessage?.trim();
     if (!body) return null;
+    const username =
+      resolvePinnedModeratorUsername({
+        pinnedModeratorUsername: moderation.pinnedModeratorUsername,
+        pinnedModeratorUserId: moderation.pinnedModeratorUserId,
+        moderators: moderation.moderators,
+      }) ?? '';
     return {
       body,
-      username: moderation.pinnedModeratorUsername?.trim() || 'Moderator',
+      username,
       avatarUrl: moderation.pinnedModeratorAvatarUrl,
     };
   }, [
+    moderation.moderators,
     moderation.pinnedModeratorAvatarUrl,
     moderation.pinnedModeratorMessage,
+    moderation.pinnedModeratorUserId,
     moderation.pinnedModeratorUsername,
   ]);
 

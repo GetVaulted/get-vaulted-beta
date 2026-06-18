@@ -42,6 +42,7 @@ import { useLiveRoomChat } from '../../hooks/useLiveRoomChat';
 import { liveRoomChatOpen } from '../../lib/liveRoomChatPolicy';
 import { useLiveRoomRealtimeSession } from '../../hooks/useLiveRoomRealtimeSession';
 import { BreakDisclaimerModal, breakDisclaimerStorageKey, readBreakDisclaimerAccepted, writeBreakDisclaimerAccepted } from './BreakDisclaimerModal';
+import { resolvePinnedModeratorUsername } from '../../lib/resolvePinnedModeratorUsername';
 import { useLiveRoomModeration } from '../../hooks/useLiveRoomModeration';
 import { resolveShowHostUserId, showModeratorTools } from '../../lib/liveModeratorPermissions';
 import { ModeratorActionSheet } from '../moderator/ModeratorActionSheet';
@@ -288,14 +289,22 @@ function LiveSlide({
   const pinnedModerator = useMemo(() => {
     const body = moderation.pinnedModeratorMessage?.trim();
     if (!body) return null;
+    const username =
+      resolvePinnedModeratorUsername({
+        pinnedModeratorUsername: moderation.pinnedModeratorUsername,
+        pinnedModeratorUserId: moderation.pinnedModeratorUserId,
+        moderators: moderation.moderators,
+      }) ?? '';
     return {
       body,
-      username: moderation.pinnedModeratorUsername?.trim() || 'Moderator',
+      username,
       avatarUrl: moderation.pinnedModeratorAvatarUrl,
     };
   }, [
+    moderation.moderators,
     moderation.pinnedModeratorAvatarUrl,
     moderation.pinnedModeratorMessage,
+    moderation.pinnedModeratorUserId,
     moderation.pinnedModeratorUsername,
   ]);
 

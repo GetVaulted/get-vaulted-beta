@@ -247,7 +247,7 @@ function PinnedModeratorRow({
   const [imgFailed, setImgFailed] = useState(false);
   const size = compact ? 22 : 24;
   const uri = pinned.avatarUrl?.trim() || null;
-  const username = pinned.username.trim() || 'Moderator';
+  const username = pinned.username.trim();
 
   return (
     <View style={styles.pinnedRowShell} pointerEvents="none">
@@ -269,13 +269,13 @@ function PinnedModeratorRow({
             ]}
           >
             <Text style={[styles.chatAvatarInitial, { fontSize: compact ? 10 : 11 }]}>
-              {liveChatUsernameInitial(username)}
+              {username ? liveChatUsernameInitial(username) : 'M'}
             </Text>
           </View>
         )}
         <View style={styles.pinnedTextWrap}>
           <View style={styles.pinnedMetaRow}>
-            <LiveRoomText style={styles.pinnedUsername}>{username}</LiveRoomText>
+            {username ? <LiveRoomText style={styles.pinnedUsername}>{username}</LiveRoomText> : null}
             <View style={styles.pinnedModPill}>
               <LiveRoomText style={styles.pinnedModPillText}>Mod</LiveRoomText>
             </View>

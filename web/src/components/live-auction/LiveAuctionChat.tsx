@@ -8,6 +8,7 @@ import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
 import { LiveChatMessageRowActions } from "@/components/trust/LiveChatMessageRowActions";
 import { LiveChatAvatar } from "@/components/live-auction/LiveChatAvatar";
 import { MentionComposer } from "@/components/mentions/MentionComposer";
+import { resolvePinnedModeratorUsername } from "@/lib/trust/resolve-pinned-moderator-username";
 import { MentionText } from "@/components/mentions/MentionText";
 
 function PinnedChatBar({
@@ -37,7 +38,7 @@ function PinnedChatBar({
         />
         <p className={`min-w-0 flex-1 leading-snug [text-shadow:0_1px_2px_rgba(0,0,0,0.95)] ${compact ? "text-[12px]" : "text-[13px]"}`}>
           <span className="inline-flex flex-wrap items-center gap-1.5">
-            <span className="font-extrabold text-white">{username}</span>
+            {username ? <span className="font-extrabold text-white">{username}</span> : null}
             <span className="inline-flex rounded bg-zinc-500/90 px-1 py-0.5 text-[9px] font-bold leading-none text-white">
               Mod
             </span>
@@ -133,6 +134,12 @@ export function LiveAuctionChat({
 }: LiveAuctionChatProps) {
   const { data: session, status } = useSession();
   const mod = useLiveRoomModerationState(liveRoomId, Boolean(liveRoomId));
+  const pinnedModeratorUsername =
+    resolvePinnedModeratorUsername({
+      pinnedModeratorUsername: mod.pinnedModeratorUsername,
+      pinnedModeratorUserId: mod.pinnedModeratorUserId,
+      moderators: mod.moderators,
+    }) ?? "";
   /** Bid lines are not shown in arena chat (bids surface via realtime / UI elsewhere). */
   const chatMessages = useMemo(() => messages.filter((m) => m.messageType !== "bid"), [messages]);
   const [draft, setDraft] = useState("");
@@ -285,7 +292,7 @@ export function LiveAuctionChat({
           {mod.pinnedModeratorMessage ? (
             <PinnedChatBar
               message={mod.pinnedModeratorMessage}
-              username={mod.pinnedModeratorUsername ?? "Moderator"}
+              username={pinnedModeratorUsername}
               avatarUrl={mod.pinnedModeratorAvatarUrl}
               compact
             />
@@ -413,7 +420,7 @@ export function LiveAuctionChat({
       {mod.pinnedModeratorMessage ? (
         <PinnedChatBar
           message={mod.pinnedModeratorMessage}
-          username={mod.pinnedModeratorUsername ?? "Moderator"}
+          username={pinnedModeratorUsername}
           avatarUrl={mod.pinnedModeratorAvatarUrl}
           compact={compact}
         />

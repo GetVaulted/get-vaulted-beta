@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
+import { resolvePinnedModeratorUsername } from "@/lib/trust/resolve-pinned-moderator-username";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
 import { LiveChatMessageRowActions } from "@/components/trust/LiveChatMessageRowActions";
 import { LiveChatAvatar } from "@/components/live-auction/LiveChatAvatar";
@@ -78,6 +79,12 @@ export function VaultHostLiveChatPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<"chat" | "watching">("chat");
   const mod = useLiveRoomModerationState(liveRoomId, Boolean(liveRoomId));
+  const pinnedModeratorUsername =
+    resolvePinnedModeratorUsername({
+      pinnedModeratorUsername: mod.pinnedModeratorUsername,
+      pinnedModeratorUserId: mod.pinnedModeratorUserId,
+      moderators: mod.moderators,
+    }) ?? "";
   const visibleMessages = useMemo(() => messages.slice(-120), [messages]);
 
   const recentChatters = useMemo(() => {
@@ -221,7 +228,7 @@ export function VaultHostLiveChatPanel({
             <div className="shrink-0 px-2 pt-1">
               <div className="flex items-start gap-2 rounded-xl border border-white/20 bg-black/50 px-2.5 py-2 backdrop-blur-sm">
                 <LiveChatAvatar
-                  username={mod.pinnedModeratorUsername ?? "Moderator"}
+                  username={pinnedModeratorUsername}
                   avatarUrl={mod.pinnedModeratorAvatarUrl}
                   size={24}
                   isModerator
@@ -229,7 +236,9 @@ export function VaultHostLiveChatPanel({
                 />
                 <p className="min-w-0 flex-1 text-[12px] leading-snug">
                   <span className="inline-flex flex-wrap items-center gap-1.5">
-                    <span className="font-extrabold text-white">{mod.pinnedModeratorUsername ?? "Moderator"}</span>
+                    {pinnedModeratorUsername ? (
+                      <span className="font-extrabold text-white">{pinnedModeratorUsername}</span>
+                    ) : null}
                     <span className="inline-flex rounded bg-zinc-500/90 px-1 py-0.5 text-[9px] font-bold leading-none text-white">
                       Mod
                     </span>
