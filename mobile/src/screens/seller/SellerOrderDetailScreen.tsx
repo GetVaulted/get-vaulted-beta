@@ -23,6 +23,7 @@ import {
 } from '../../api/sellerSalesRepository';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { SellerOrderCompactTimeline } from '../../components/seller/SellerOrderCompactTimeline';
+import { OrderRefundRequestSection } from '../../components/orders/OrderRefundRequestSection';
 import { SellerShippingLabelPanel } from '../../components/seller/SellerShippingLabelPanel';
 import { useAuth } from '../../auth/AuthContext';
 import { useStaleWhileRevalidate } from '../../hooks/useStaleWhileRevalidate';
@@ -297,6 +298,14 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
             ) : null}
 
             <SellerOrderCompactTimeline steps={timeline} />
+
+            {detail.liveShowId && (detail.paymentStatus === 'paid' || detail.paymentStatus === 'refunded') ? (
+              <OrderRefundRequestSection
+                accessToken={session?.access_token}
+                orderId={detail.id}
+                role="seller"
+              />
+            ) : null}
 
             <View style={styles.card}>
               <Text style={styles.cardKicker}>Ship to</Text>

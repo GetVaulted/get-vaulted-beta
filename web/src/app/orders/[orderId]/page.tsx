@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { buildBuyerOrderTimeline, buildSellerOrderMilestones } from "@/lib/order-timeline";
+import { OrderRefundRequestPanel } from "@/components/orders/OrderRefundRequestPanel";
 import { OrderEscrowBuyerPanel } from "@/components/orders/OrderEscrowBuyerPanel";
 import { OrderPaySection } from "@/components/orders/OrderPaySection";
 import { OrderReportLink } from "@/components/orders/OrderReportLink";
@@ -106,6 +107,7 @@ export default async function OrderPage({
       paymentMethod: true,
       escrowStatus: true,
       listing: { select: { id: true, title: true, status: true, buyingFormat: true } },
+      liveShippingSession: { select: { liveShowId: true } },
     },
   });
 
@@ -317,6 +319,11 @@ export default async function OrderPage({
             paymentStatus={order.paymentStatus}
             escrowStatus={order.escrowStatus}
           />
+        ) : null}
+
+        {order.liveShippingSession?.liveShowId &&
+        (order.paymentStatus === "paid" || order.paymentStatus === "refunded") ? (
+          <OrderRefundRequestPanel orderId={order.id} role={isBuyer ? "buyer" : "seller"} />
         ) : null}
 
         {!isBuyer && sellerCommerceEventsAsc.length > 0 ? (

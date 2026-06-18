@@ -53,9 +53,14 @@ export function AdminTrustSafetyPage() {
       title="Reports & Trust & Safety"
       subtitle="Unified trust queue across users, listings, live shows, chat, and orders."
       actions={
-        <Link href="/admin/reports" className="rounded-lg bg-gold/15 px-3 py-1.5 text-xs font-semibold text-gold-bright hover:bg-gold/25">
-          Open report queue →
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/admin/refund-requests" className="rounded-lg bg-gold/15 px-3 py-1.5 text-xs font-semibold text-gold-bright hover:bg-gold/25">
+            Refund escalations →
+          </Link>
+          <Link href="/admin/reports" className="rounded-lg bg-gold/15 px-3 py-1.5 text-xs font-semibold text-gold-bright hover:bg-gold/25">
+            Open report queue →
+          </Link>
+        </div>
       }
     >
       {loading ? (

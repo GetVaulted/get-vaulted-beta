@@ -352,3 +352,31 @@ async function getLiveShippingSessionSummaryTx(tx: TransactionClient, sessionId:
 export async function getLiveShippingSessionSummary(sessionId: string) {
   return prisma.$transaction((tx) => getLiveShippingSessionSummaryTx(tx, sessionId));
 }
+
+/** Remove a refunded order from its live bundled session and recalculate session totals. */
+export async function removeOrderFromLiveShippingSessionOnRefundTx(
+  tx: TransactionClient,
+  orderId: string,
+): Promise<void> {
+  const item = await tx.liveShippingSessionItem.findUnique({
+    where: { orderId },
+    select: {
+      sessionId: true,
+      listing: { select: { shippingPriceCapCents: true } },
+    },
+  });
+  if (!item) {
+    await tx.order.updateMany({
+      where: { id: orderId },
+      data: { liveShippingSessionId: null },
+    });
+    return;
+  }
+
+  await tx.liveShippingSessionItem.delete({ where: { orderId } });
+  await recalcLiveShippingSessionTx(tx, item.sessionId, item.listing?.shippingPriceCapCents ?? null);
+  await tx.order.update({
+    where: { id: orderId },
+    data: { liveShippingSessionId: null },
+  });
+}

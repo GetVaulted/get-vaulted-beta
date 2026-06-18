@@ -11,6 +11,10 @@ export const SELLER_COMMERCE_KIND = {
   fulfillmentInTransit: "fulfillment_in_transit",
   fulfillmentDelivered: "fulfillment_delivered",
   fulfillmentException: "fulfillment_exception",
+  orderRefundRequested: "order_refund_requested",
+  orderRefundApproved: "order_refund_approved",
+  orderRefundDenied: "order_refund_denied",
+  orderRefunded: "order_refunded",
 } as const;
 
 export async function logSellerCommerceEvent(args: {

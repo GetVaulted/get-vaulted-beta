@@ -18,6 +18,7 @@ import type { BuyerOrder } from '../../api/ordersRepository';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { VaultImage } from '../../components/ui/VaultImage';
 import { ReportButton } from '../../components/trust/ReportSheet';
+import { OrderRefundRequestSection } from '../../components/orders/OrderRefundRequestSection';
 import { useAuth } from '../../auth/AuthContext';
 import {
   openContactSupport,
@@ -204,6 +205,14 @@ export function BuyerOrderDetailScreen({ navigation, route }: Props) {
               }
             />
           </View>
+
+          {order.status !== 'pending_payment' && order.status !== 'cancelled' && order.status !== 'canceled' ? (
+            <OrderRefundRequestSection
+              accessToken={session?.access_token}
+              orderId={order.id}
+              role="buyer"
+            />
+          ) : null}
 
           <View style={styles.receipt}>
             <Text style={styles.receiptTitle}>Receipt</Text>

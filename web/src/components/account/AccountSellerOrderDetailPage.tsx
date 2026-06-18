@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
+import { OrderRefundRequestPanel } from "@/components/orders/OrderRefundRequestPanel";
 import { SellerShippingLabelPanel } from "@/components/account/SellerShippingLabelPanel";
 import { SellerOrderActivityFeed } from "@/components/account/seller-order-detail/SellerOrderActivityFeed";
 import { SellerFulfillmentTimelineCompact } from "@/components/account/seller-order-detail/SellerFulfillmentTimelineCompact";
@@ -52,6 +53,7 @@ type OrderDetail = {
   payoutEstimateUsd: number;
   platformFeeEstimateUsd: number;
   stripeProcessingFeeEstimateUsd: number;
+  liveShowId?: string | null;
   listing: { id: string; title: string; status?: string; images: { url: string }[] };
   buyer: { username: string | null };
 };
@@ -325,6 +327,9 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
         <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
           <div className="space-y-6">
             <SellerFulfillmentTimelineCompact steps={timeline} />
+            {order.liveShowId && (order.paymentStatus === "paid" || order.paymentStatus === "refunded") ? (
+              <OrderRefundRequestPanel orderId={order.id} role="seller" />
+            ) : null}
             <SellerOrderActivityFeed events={activityLog} />
           </div>
 

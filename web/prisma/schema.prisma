@@ -265,6 +265,21 @@ enum OrderPayoutMethod {
   instant_after_delivery
 }
 
+enum OrderRefundRequestKind {
+  cancel
+  return
+}
+
+enum OrderRefundRequestStatus {
+  pending_seller
+  seller_denied
+  escalated
+  awaiting_return
+  return_in_transit
+  support_denied
+  refunded
+}
+
 enum SellerPayoutTier {
   standard
   fast
@@ -526,6 +541,8 @@ model User {
   sellerOffers  Offer[]       @relation("OfferSeller")
   orders        Order[]         @relation("OrderBuyer")
   sales         Order[]         @relation("OrderSeller")
+  buyerRefundRequests OrderRefundRequest[] @relation("OrderRefundRequestBuyer")
+  sellerRefundRequests OrderRefundRequest[] @relation("OrderRefundRequestSeller")
   watchlist       WatchlistItem[]
   messagesSent    Message[]       @relation("MsgSender")
   messagesRecv    Message[]       @relation("MsgRecipient")
@@ -1460,12 +1477,46 @@ model Order {
   labelCreatedAt           DateTime?
   /// First carrier acceptance scan (fast payout trigger).
   carrierAcceptedAt        DateTime?
+  refundRequests           OrderRefundRequest[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([escrowTransactionId])
   @@index([liveShippingSessionId])
   @@index([sellerId, payoutStatus])
+}
+
+/// Live show order cancel / return refund workflow (buyer request → seller → optional support escalation).
+model OrderRefundRequest {
+  id                   String                   @id @default(cuid())
+  orderId              String
+  order                Order                    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  kind                 OrderRefundRequestKind
+  status               OrderRefundRequestStatus @default(pending_seller)
+  buyerId              String
+  buyer                User                     @relation("OrderRefundRequestBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  sellerId             String
+  seller               User                     @relation("OrderRefundRequestSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  reason               String
+  photoUrls            String[]                 @default([])
+  sellerDenyReason     String?
+  supportNote          String?
+  returnTrackingNumber String?
+  returnCarrier        String?
+  sellerDirect         Boolean                  @default(false)
+  escalatedAt          DateTime?
+  sellerRespondedAt    DateTime?
+  supportResolvedAt    DateTime?
+  returnReceivedAt     DateTime?
+  refundedAt           DateTime?
+  stripeRefundId       String?
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+
+  @@index([orderId, createdAt])
+  @@index([sellerId, status])
+  @@index([buyerId, status])
+  @@index([status, escalatedAt])
 }
 
 /// Persistent seller metrics for payout tier eligibility and risk review.
