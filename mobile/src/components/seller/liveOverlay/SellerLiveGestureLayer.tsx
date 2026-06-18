@@ -1,10 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import { useRef, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
-  Animated,
   Modal,
-  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
@@ -36,23 +34,6 @@ export function SellerLiveGestureLayer({
   children: ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const swipeY = useRef(new Animated.Value(0)).current;
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onStartShouldSetPanResponderCapture: () => false,
-      onMoveShouldSetPanResponder: (_, g) => g.dy < -18 && Math.abs(g.dy) > Math.abs(g.dx),
-      onMoveShouldSetPanResponderCapture: () => false,
-      onPanResponderMove: (_, g) => {
-        if (g.dy < 0) swipeY.setValue(Math.min(0, g.dy));
-      },
-      onPanResponderRelease: (_, g) => {
-        if (g.dy < -72) onOpenQueue();
-        Animated.spring(swipeY, { toValue: 0, friction: 7, useNativeDriver: true }).start();
-      },
-    }),
-  ).current;
 
   const actions: QuickAction[] = [
     { key: 'queue', label: 'Queue', icon: 'layers-outline', onPress: () => { setMenuOpen(false); onOpenQueue(); } },
@@ -63,7 +44,7 @@ export function SellerLiveGestureLayer({
   ];
 
   return (
-    <View style={styles.fill} pointerEvents="box-none" {...panResponder.panHandlers}>
+    <View style={styles.fill} pointerEvents="box-none">
       {children}
       <Pressable
         style={styles.longPressZone}
@@ -71,9 +52,6 @@ export function SellerLiveGestureLayer({
         delayLongPress={480}
         accessibilityLabel="Hold for seller quick actions"
       />
-      <Animated.View style={[styles.swipeHint, { transform: [{ translateY: swipeY }] }]} pointerEvents="none">
-        <Text style={styles.swipeHintTxt}>Swipe up · queue</Text>
-      </Animated.View>
       <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
         <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
           <View style={styles.menuCard}>
@@ -107,19 +85,6 @@ const styles = StyleSheet.create({
     left: '12%',
     right: '24%',
     zIndex: 2,
-  },
-  swipeHint: {
-    position: 'absolute',
-    bottom: 4,
-    alignSelf: 'center',
-    zIndex: 3,
-    opacity: 0.35,
-  },
-  swipeHintTxt: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.65)',
-    letterSpacing: 0.5,
   },
   menuBackdrop: {
     flex: 1,

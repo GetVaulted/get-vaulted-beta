@@ -3,13 +3,13 @@ import {
   mapLivePaymentFailureMessage,
   recoveryStatusMessage,
 } from '../../lib/livePaymentFailureCopy';
+import * as Linking from 'expo-linking';
 import {
   CardForm,
   StripeProvider,
   confirmSetupIntent,
   useStripe,
 } from '@stripe/stripe-react-native';
-import * as Linking from 'expo-linking';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
@@ -265,7 +265,7 @@ function PaymentSheetLauncher({
                 (!sheetReady || busy) && ps.primaryBtnTextDisabled,
               ]}
             >
-              Add card with Stripe
+              Continue with Stripe
             </LiveRoomText>
           )}
         </Pressable>
@@ -626,6 +626,9 @@ function PaymentSetupLoader({ onClose }: { onClose: () => void }) {
   );
 }
 
+const STRIPE_MERCHANT_IDENTIFIER = 'merchant.com.getvaulted.app';
+const STRIPE_URL_SCHEME = 'getvaulted';
+
 /** Full-screen add-card flow over a dimmed live room — separate from the wallet bottom sheet. */
 export function WalletPaymentSetupModal({ visible, accessToken, onClose, onSaved }: Props) {
   const [loading, setLoading] = useState(false);
@@ -686,7 +689,11 @@ export function WalletPaymentSetupModal({ visible, accessToken, onClose, onSaved
                 </View>
               </View>
             ) : (
-              <StripeProvider publishableKey={payload.publishableKey}>
+              <StripeProvider
+                publishableKey={payload.publishableKey}
+                merchantIdentifier={STRIPE_MERCHANT_IDENTIFIER}
+                urlScheme={STRIPE_URL_SCHEME}
+              >
                 <WalletPaymentSetupInner
                   accessToken={accessToken}
                   onClose={onClose}

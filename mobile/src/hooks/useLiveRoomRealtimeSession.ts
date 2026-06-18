@@ -252,6 +252,8 @@ export function useLiveRoomRealtimeSession(args: {
     },
     onMessagesRefreshMerge: () => args.onChatBroadcast?.({ id: '', body: '', messageType: '__refresh__' }),
     onQueueItemsChange: () => scheduleReconcile(350),
+    onTeamBreakReady: () => scheduleReconcile(200),
+    onTeamBreakBegan: () => scheduleReconcile(200),
     onGiveawaysChange: () => scheduleReconcile(250),
     onVaultRevealSpin: (payload) => {
       const spin = parseVaultRevealSpinPayload(payload);

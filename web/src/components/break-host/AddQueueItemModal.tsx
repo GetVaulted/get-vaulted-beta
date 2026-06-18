@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { compressImageFileToBlob } from "@/lib/listing-image-compress";
 import { uploadListingImageBlob } from "@/lib/upload-listing-image-client";
+import { buildVariantsFromPreset, type VariantDraftInput } from "@/lib/live-item-variant-presets";
+import { LiveItemVariantBuilder } from "@/components/live-auction/LiveItemVariantBuilder";
 
 export type AddQueueItemCloseReason = "cancel" | "success" | "escape";
 
@@ -13,8 +15,8 @@ export type AddQueueItemAuctionPayload = {
   priceUsd: number | null;
   startingBidUsd: number;
   quantity: number;
-  salesFormat: "auction" | "buy_now";
-  variants: [];
+  salesFormat: "auction" | "buy_now" | "variant_selection" | "team_break";
+  variants: VariantDraftInput[];
   teamBoardMisc: boolean;
 };
 
@@ -72,7 +74,7 @@ export function AddQueueItemModal({
   const [imageUrl, setImageUrl] = useState("");
   const [imageUploading, setImageUploading] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
-  const [saleType, setSaleType] = useState<"auction" | "buy_now">("auction");
+  const [saleType, setSaleType] = useState<"auction" | "buy_now" | "pyt" | "pyd">("auction");
   const [price, setPrice] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [queueDraftMisc, setQueueDraftMisc] = useState(false);
@@ -80,6 +82,7 @@ export function AddQueueItemModal({
   const [prizeDescription, setPrizeDescription] = useState("");
   const [openEntriesOnCreate, setOpenEntriesOnCreate] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
+  const [spotVariants, setSpotVariants] = useState<VariantDraftInput[]>([]);
   const wasOpenRef = useRef(false);
   const imageFileRef = useRef<HTMLInputElement>(null);
 
@@ -101,9 +104,24 @@ export function AddQueueItemModal({
       setPrizeDescription("");
       setOpenEntriesOnCreate(true);
       setFormError(null);
+      setSpotVariants([]);
     }
     wasOpenRef.current = open;
   }, [mode, open]);
+
+  useEffect(() => {
+    if (saleType !== "pyt" && saleType !== "pyd") {
+      setSpotVariants([]);
+      return;
+    }
+    const base = parseUsd(price);
+    const expected = saleType === "pyt" ? 32 : 8;
+    setSpotVariants((prev) => {
+      if (prev.length === expected) return prev;
+      if (base == null) return [];
+      return buildVariantsFromPreset(saleType === "pyt" ? "nfl_teams" : "nfl_divisions", base, 1);
+    });
+  }, [price, saleType]);
 
   useEffect(() => {
     if (!open) return;
@@ -154,6 +172,29 @@ export function AddQueueItemModal({
     const parsedQty = Number.isFinite(qtyRaw) && qtyRaw >= 1 ? Math.min(512, Math.floor(qtyRaw)) : 1;
     const parsedPrice = parseUsd(price);
 
+    if (saleType === "pyt" || saleType === "pyd") {
+      if (parsedPrice == null) {
+        setFormError(saleType === "pyt" ? "Enter a price per team." : "Enter a price per division.");
+        return;
+      }
+      const variants =
+        spotVariants.length === (saleType === "pyt" ? 32 : 8)
+          ? spotVariants
+          : buildVariantsFromPreset(saleType === "pyt" ? "nfl_teams" : "nfl_divisions", parsedPrice, 1);
+      const ok = await onSubmitAuction({
+        title: trimmedTitle,
+        imageUrl: imageUrl.trim(),
+        priceUsd: parsedPrice,
+        startingBidUsd: 1,
+        quantity: 1,
+        salesFormat: saleType === "pyt" ? "variant_selection" : "team_break",
+        variants,
+        teamBoardMisc: queueDraftMisc,
+      });
+      if (ok) requestClose("success", onRequestClose);
+      return;
+    }
+
     if (saleType === "buy_now") {
       if (parsedPrice == null) {
         setFormError("Enter a buy-it-now price.");
@@ -185,7 +226,7 @@ export function AddQueueItemModal({
       teamBoardMisc: queueDraftMisc,
     });
     if (ok) requestClose("success", onRequestClose);
-  }, [imageUrl, onRequestClose, onSubmitAuction, price, quantity, queueDraftMisc, saleType, title]);
+  }, [imageUrl, onRequestClose, onSubmitAuction, price, quantity, queueDraftMisc, saleType, spotVariants, title]);
 
   const handleSubmitGiveaway = useCallback(async () => {
     if (!onSubmitGiveaway || (mode !== "giveaway" && mode !== "buyers_giveaway")) return;
@@ -338,7 +379,15 @@ export function AddQueueItemModal({
     );
   }
 
-  const priceLabel = saleType === "auction" ? "Starting bid" : "Buy-it-now price";
+  const priceLabel =
+    saleType === "auction"
+      ? "Starting bid"
+      : saleType === "pyt"
+        ? "Price per team"
+        : saleType === "pyd"
+          ? "Price per division"
+          : "Buy-it-now price";
+  const isBreakSale = saleType === "pyt" || saleType === "pyd";
 
   return createPortal(
     <div
@@ -434,42 +483,69 @@ export function AddQueueItemModal({
 
           <span className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Sale type</span>
           <div className="mt-2 grid grid-cols-2 gap-2">
-            {(["auction", "buy_now"] as const).map((type) => {
-              const active = saleType === type;
+            {(
+              [
+                { id: "auction", label: "Auction", sub: "Timed bidding" },
+                { id: "buy_now", label: "Buy It Now", sub: "Fixed price" },
+                { id: "pyt", label: "PYT", sub: "32 NFL teams" },
+                { id: "pyd", label: "PYD", sub: "8 divisions" },
+              ] as const
+            ).map((type) => {
+              const active = saleType === type.id;
               return (
                 <button
-                  key={type}
+                  key={type.id}
                   type="button"
-                  onClick={() => setSaleType(type)}
-                  className={`rounded-lg border px-3 py-2.5 text-sm font-bold transition ${
+                  onClick={() => setSaleType(type.id)}
+                  className={`rounded-lg border px-3 py-2.5 text-left transition ${
                     active
                       ? "border-gold/45 bg-gold/15 text-gold-bright"
                       : "border-white/12 bg-[#0c0c10] text-zinc-400 hover:bg-white/[0.04]"
                   }`}
                 >
-                  {type === "auction" ? "Auction" : "Buy It Now"}
+                  <span className="block text-sm font-bold">{type.label}</span>
+                  <span className="mt-0.5 block text-[11px] font-medium opacity-80">{type.sub}</span>
                 </button>
               );
             })}
           </div>
 
+          {isBreakSale ? (
+            <p className="mt-3 rounded-lg border border-gold/20 bg-gold/5 px-3 py-2 text-xs text-zinc-300">
+              Buyers pick from {saleType === "pyt" ? "32 teams" : "8 divisions"}. Sold spots disappear from the board.
+            </p>
+          ) : null}
+
           <label className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">{priceLabel}</label>
           <input
             value={price}
             onChange={(e) => setPrice(e.target.value)}
-            placeholder={saleType === "auction" ? "1" : "25"}
+            placeholder={saleType === "auction" ? "1" : isBreakSale ? "25" : "25"}
             inputMode="decimal"
             className="mt-1 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
           />
+
+          {isBreakSale && spotVariants.length > 0 ? (
+            <div className="mt-4 min-w-0">
+              <LiveItemVariantBuilder
+                salesFormat={saleType === "pyt" ? "variant_selection" : "team_break"}
+                onSalesFormatChange={() => {}}
+                defaultPriceUsd={price}
+                variants={spotVariants}
+                onVariantsChange={setSpotVariants}
+              />
+            </div>
+          ) : null}
 
           <label className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Quantity</label>
           <input
             inputMode="numeric"
             min={1}
-            value={quantity}
+            value={isBreakSale ? "1" : quantity}
             onChange={(e) => setQuantity(e.target.value.replace(/[^\d]/g, ""))}
             placeholder="1"
-            className="mt-1 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
+            disabled={isBreakSale}
+            className="mt-1 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100 disabled:opacity-45"
             aria-label="Quantity"
           />
 

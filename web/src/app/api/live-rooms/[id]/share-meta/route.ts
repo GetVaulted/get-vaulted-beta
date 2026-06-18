@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
+import { fetchLiveRoomOgPayload } from "@/lib/live-room-og-payload";
 import { buildLiveRoomShareMetadata } from "@/lib/live-room-share-metadata";
 import { safeDecodeRouteSegment } from "@/lib/live-loader-debug";
-import { prisma } from "@/lib/prisma";
 
 /** Public OG/share metadata for crawlers and clients (iMessage, X, Discord, etc.). */
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
@@ -11,32 +11,32 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ error: "Invalid room id." }, { status: 400 });
   }
 
-  const row = await prisma.liveRoom.findUnique({
-    where: { id: roomId },
-    select: {
-      id: true,
-      title: true,
-      category: true,
-      thumbnailUrl: true,
-      seller: { select: { username: true } },
-    },
-  });
-
-  if (!row) {
+  const payload = await fetchLiveRoomOgPayload(roomId);
+  if (!payload) {
     return NextResponse.json({ error: "Live room not found." }, { status: 404 });
   }
 
   const meta = buildLiveRoomShareMetadata({
-    id: row.id,
-    title: row.title,
-    category: row.category,
-    thumbnailUrl: row.thumbnailUrl,
-    sellerUsername: row.seller.username,
+    id: payload.id,
+    title: payload.showTitle,
+    sellerUsername: payload.hostUsername,
+    viewerCount: payload.viewerCount,
   });
 
-  return NextResponse.json(meta, {
-    headers: {
-      "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
+  return NextResponse.json(
+    {
+      ...meta,
+      ogImageUrl: payload.ogImageUrl,
+      hostUsername: payload.hostUsername,
+      hostDisplayName: payload.hostDisplayName,
+      showTitle: payload.showTitle,
+      viewerCount: payload.viewerCount,
+      isLive: payload.isLive,
     },
-  });
+    {
+      headers: {
+        "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
+      },
+    },
+  );
 }

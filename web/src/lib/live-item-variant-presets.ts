@@ -1,10 +1,14 @@
 /** Preset labels for fast variant / spot setup in live queue items. */
 
-export type LiveItemVariantPresetId = "nfl_divisions" | "custom";
+import { TEAM_BOARD_SETS, TEAM_BOARD_DISPLAY_NAMES } from "@/lib/team-board-sets";
+
+export type LiveItemVariantPresetId = "nfl_divisions" | "nfl_teams" | "custom";
 
 export type LiveItemVariantPresetOption = {
   label: string;
   sortOrder: number;
+  /** NFL team abbreviation when preset is nfl_teams. */
+  abbr?: string;
 };
 
 export const NFL_DIVISIONS_PRESET: LiveItemVariantPresetOption[] = [
@@ -18,13 +22,23 @@ export const NFL_DIVISIONS_PRESET: LiveItemVariantPresetOption[] = [
   { label: "NFC West", sortOrder: 7 },
 ];
 
+export const NFL_TEAMS_PRESET: LiveItemVariantPresetOption[] = TEAM_BOARD_SETS.nfl.map((abbr, sortOrder) => ({
+  label: TEAM_BOARD_DISPLAY_NAMES.nfl[abbr] ?? abbr,
+  sortOrder,
+  abbr,
+}));
+
 export const LIVE_ITEM_VARIANT_PRESETS: Record<
   Exclude<LiveItemVariantPresetId, "custom">,
   { label: string; options: LiveItemVariantPresetOption[] }
 > = {
   nfl_divisions: {
-    label: "NFL Divisions",
+    label: "NFL Divisions (PYD)",
     options: NFL_DIVISIONS_PRESET,
+  },
+  nfl_teams: {
+    label: "NFL Teams (PYT)",
+    options: NFL_TEAMS_PRESET,
   },
 };
 
@@ -49,6 +63,7 @@ export function buildVariantsFromPreset(
     priceUsd: defaultPriceUsd,
     quantityInitial: defaultQty,
     sortOrder: o.sortOrder,
+    color: o.abbr ?? "",
   }));
 }
 
@@ -133,7 +148,9 @@ export function allVariantSpotsSold(variants: VariantSpotRow[] | undefined | nul
 }
 
 export function variantBuyerSelectLabel(format: string | null | undefined): string {
-  return format === "team_break" ? "Select Division" : "Select Spot";
+  if (format === "team_break") return "Pick Your Division";
+  if (format === "variant_selection") return "Pick Your Team";
+  return "Select Spot";
 }
 
 export function variantHostSpotsLabel(opts: {

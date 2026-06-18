@@ -16,6 +16,8 @@ export const RT_EVENT = {
   messagesRefresh: 'messages_refresh',
   queueItems: 'queue_items',
   variantPurchased: 'variant_purchased',
+  teamBreakReady: 'team_break_ready',
+  teamBreakBegan: 'team_break_began',
   breakSpots: 'break_spots',
   listingBid: 'listing_bid',
   teamBoard: 'team_board',

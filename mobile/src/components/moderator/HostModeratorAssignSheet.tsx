@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -9,12 +9,13 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { MentionSearchUser } from '../../api/mentionSearchRepository';
 import {
   assignLiveRoomModerator,
   revokeLiveRoomModerator,
   type LiveRoomModerationSnapshot,
-  type LiveRoomViewerRow,
 } from '../../api/trustRepository';
+import { UsernameMentionPicker } from '../mentions/UsernameMentionPicker';
 import { colors, radii, spacing } from '../../theme';
 
 type Props = {
@@ -39,26 +40,43 @@ export function HostModeratorAssignSheet({
   const insets = useSafeAreaInsets();
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   const moderatorIds = useMemo(
     () => new Set(moderation.moderators.map((m) => m.userId)),
     [moderation.moderators],
   );
 
-  const assign = async (row: LiveRoomViewerRow) => {
+  useEffect(() => {
+    if (!visible) {
+      setSearch('');
+      setError(null);
+    }
+  }, [visible]);
+
+  const assignUser = async (user: MentionSearchUser) => {
     if (!accessToken || busyUserId) return;
-    setBusyUserId(row.userId);
+    if (hostUserId && user.id === hostUserId) {
+      setError('The show host cannot be assigned as a moderator.');
+      return;
+    }
+    if (moderatorIds.has(user.id)) {
+      setError(`@${user.username} is already a moderator.`);
+      return;
+    }
+    setBusyUserId(user.id);
     setError(null);
     const result = await assignLiveRoomModerator({
       accessToken,
       roomId: liveRoomId,
-      userId: row.userId,
+      userId: user.id,
     });
     setBusyUserId(null);
     if (!result.ok) {
       setError(result.error ?? 'Could not assign moderator.');
       return;
     }
+    setSearch('');
     onRefresh();
   };
 
@@ -85,49 +103,53 @@ export function HostModeratorAssignSheet({
         <Pressable style={[styles.sheet, { paddingBottom: insets.bottom + spacing.lg }]} onPress={() => undefined}>
           <View style={styles.handle} />
           <Text style={styles.title}>Assign moderator</Text>
-          <Text style={styles.subtitle}>Pick a viewer from recent chat activity.</Text>
+          <Text style={styles.subtitle}>
+            Type @username like chat mentions, tap a match, and their mod tools will appear on their device.
+          </Text>
 
+          <View style={styles.searchBlock}>
+            <UsernameMentionPicker
+              value={search}
+              onChangeText={setSearch}
+              accessToken={accessToken}
+              onSelectUser={(user) => void assignUser(user)}
+              placeholder="@username"
+              editable={!busyUserId}
+            />
+            {busyUserId ? (
+              <View style={styles.assigningRow}>
+                <ActivityIndicator color={colors.gold} size="small" />
+                <Text style={styles.assigningTxt}>Assigning moderator…</Text>
+              </View>
+            ) : null}
+          </View>
+
+          <Text style={styles.sectionLabel}>Current moderators</Text>
           <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
-            {moderation.viewers.length === 0 ? (
-              <Text style={styles.empty}>No recent chat activity yet.</Text>
+            {moderation.moderators.length === 0 ? (
+              <Text style={styles.empty}>No moderators assigned yet.</Text>
             ) : (
-              moderation.viewers.map((row) => {
-                if (hostUserId && row.userId === hostUserId) return null;
-                const isMod = moderatorIds.has(row.userId);
-                const busy = busyUserId === row.userId;
+              moderation.moderators.map((mod) => {
+                const busy = busyUserId === mod.userId;
                 return (
-                  <View key={row.userId} style={styles.row}>
+                  <View key={mod.userId} style={styles.row}>
                     <View style={styles.rowBody}>
-                      <Text style={styles.rowName}>@{row.username}</Text>
+                      <Text style={styles.rowName}>@{mod.username}</Text>
                       <Text style={styles.rowMeta}>
-                        {row.messageCount} message{row.messageCount === 1 ? '' : 's'}
+                        {mod.moderatorLevel ? `${mod.moderatorLevel} mod` : 'Moderator'} · shield tools active
                       </Text>
                     </View>
-                    {isMod ? (
-                      <Pressable
-                        style={styles.removeBtn}
-                        disabled={busy}
-                        onPress={() => void revoke(row.userId)}
-                      >
-                        {busy ? (
-                          <ActivityIndicator color={colors.live} size="small" />
-                        ) : (
-                          <Text style={styles.removeTxt}>Remove</Text>
-                        )}
-                      </Pressable>
-                    ) : (
-                      <Pressable
-                        style={styles.assignBtn}
-                        disabled={busy}
-                        onPress={() => void assign(row)}
-                      >
-                        {busy ? (
-                          <ActivityIndicator color={colors.background} size="small" />
-                        ) : (
-                          <Text style={styles.assignTxt}>Make moderator</Text>
-                        )}
-                      </Pressable>
-                    )}
+                    <Pressable
+                      style={styles.removeBtn}
+                      disabled={busy}
+                      onPress={() => void revoke(mod.userId)}
+                    >
+                      {busy ? (
+                        <ActivityIndicator color={colors.live} size="small" />
+                      ) : (
+                        <Text style={styles.removeTxt}>Remove</Text>
+                      )}
+                    </Pressable>
                   </View>
                 );
               })
@@ -152,7 +174,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
   sheet: {
-    maxHeight: '72%',
+    maxHeight: '78%',
     borderTopLeftRadius: radii.lg,
     borderTopRightRadius: radii.lg,
     backgroundColor: colors.surface,
@@ -178,14 +200,35 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  list: {
+  searchBlock: {
     marginTop: spacing.md,
-    maxHeight: 360,
+    gap: spacing.sm,
+  },
+  assigningRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  assigningTxt: {
+    color: colors.textMuted,
+    fontSize: 12,
+  },
+  sectionLabel: {
+    marginTop: spacing.lg,
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  list: {
+    marginTop: spacing.sm,
+    maxHeight: 280,
   },
   empty: {
     color: colors.textMuted,
     fontSize: 13,
-    paddingVertical: spacing.lg,
+    paddingVertical: spacing.md,
   },
   row: {
     flexDirection: 'row',
@@ -198,22 +241,13 @@ const styles = StyleSheet.create({
   rowBody: { flex: 1, minWidth: 0 },
   rowName: { color: colors.textPrimary, fontWeight: '700', fontSize: 14 },
   rowMeta: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
-  assignBtn: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.pill,
-    backgroundColor: colors.gold,
-    minWidth: 112,
-    alignItems: 'center',
-  },
-  assignTxt: { color: colors.background, fontWeight: '800', fontSize: 12 },
   removeBtn: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: radii.pill,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,59,48,0.45)',
-    minWidth: 112,
+    minWidth: 88,
     alignItems: 'center',
   },
   removeTxt: { color: colors.live, fontWeight: '800', fontSize: 12 },

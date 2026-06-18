@@ -31,6 +31,7 @@ export function SellerLiveQueueSheet({
   onRemove,
   onReorder,
   onEditPricing,
+  onAddItem,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -46,10 +47,11 @@ export function SellerLiveQueueSheet({
   onRemove: (item: LiveRoomItemRow) => void;
   onReorder: (ordered: LiveRoomItemRow[]) => void;
   onEditPricing?: (item: LiveRoomItemRow) => void;
+  onAddItem?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
-  const drawerHeight = Math.round(windowHeight * 0.62);
+  const drawerHeight = Math.round(windowHeight * 0.86);
   const queued = items.filter((i) => i.status === 'queued');
 
   const listHeader = (
@@ -82,8 +84,8 @@ export function SellerLiveQueueSheet({
         >
           <View style={styles.handle} />
           <View style={styles.head}>
-            <Text style={styles.title}>Queue</Text>
-            <Text style={styles.count}>{queuedCount} waiting · tap Start to pin</Text>
+            <Text style={styles.title}>Show queue</Text>
+            <Text style={styles.count}>{queuedCount} waiting · no limit</Text>
             <Pressable onPress={onClose} hitSlop={12} accessibilityLabel="Close">
               <Ionicons name="close" size={22} color={colors.textSecondary} />
             </Pressable>
@@ -107,6 +109,18 @@ export function SellerLiveQueueSheet({
               listHeader
             )}
           </View>
+          {!roomEnded && onAddItem ? (
+            <Pressable
+              style={[styles.addFooter, busy && styles.addFooterOff]}
+              onPress={onAddItem}
+              disabled={busy}
+              accessibilityRole="button"
+              accessibilityLabel="Add item to show queue"
+            >
+              <Ionicons name="add-circle-outline" size={20} color={colors.gold} />
+              <Text style={styles.addFooterTxt}>Add item</Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -145,4 +159,19 @@ const styles = StyleSheet.create({
   listHost: { flex: 1, minHeight: 0, paddingHorizontal: spacing.md },
   listHeader: { gap: spacing.sm },
   listContent: { paddingBottom: spacing.md },
+  addFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    paddingVertical: 14,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.35)',
+    backgroundColor: 'rgba(212,175,55,0.08)',
+  },
+  addFooterOff: { opacity: 0.55 },
+  addFooterTxt: { fontSize: 14, fontWeight: '800', color: colors.gold },
 });

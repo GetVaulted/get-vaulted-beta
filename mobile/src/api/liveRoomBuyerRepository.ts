@@ -21,6 +21,7 @@ export type LiveItemVariantSnapshot = {
   sortOrder: number;
   status: string;
   buyerUsername: string | null;
+  color?: string | null;
 };
 
 export type LiveBuyerPaymentFailureSnapshot = {
@@ -112,7 +113,8 @@ function parseVariantSnapshots(raw: unknown): LiveItemVariantSnapshot[] {
     const status = typeof o.status === 'string' ? o.status : 'available';
     const buyerUsername =
       typeof o.buyerUsername === 'string' && o.buyerUsername.trim() ? o.buyerUsername.trim() : null;
-    out.push({ id, label, priceUsd, quantityRemaining, soldCount, isHot, sortOrder, status, buyerUsername });
+    const color = typeof o.color === 'string' && o.color.trim() ? o.color.trim() : null;
+    out.push({ id, label, priceUsd, quantityRemaining, soldCount, isHot, sortOrder, status, buyerUsername, color });
   }
   return sortVariantsForBuyerDisplay(out);
 }

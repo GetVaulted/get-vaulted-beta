@@ -33,6 +33,8 @@ export function useRealtimeRoomSubscription(opts: {
   onPaymentFailed?: (payload: RoomBroadcastPayload) => void | Promise<void>;
   onPaymentRecovered?: (payload: RoomBroadcastPayload) => void | Promise<void>;
   onStreamStatusChange?: (payload: RoomBroadcastPayload) => void | Promise<void>;
+  onTeamBreakReady?: () => void | Promise<void>;
+  onTeamBreakBegan?: () => void | Promise<void>;
   onReconnect?: () => void | Promise<void>;
   onConnectionStateChange?: (state: { status: string; reconnectCount: number }) => void;
 }): void {
@@ -99,6 +101,8 @@ export function useRealtimeRoomSubscription(opts: {
         void refs.current.onVaultRevealSpin?.(p);
       })
       .on('broadcast', { event: RT_EVENT.variantPurchased }, () => void refs.current.onQueueItemsChange?.())
+      .on('broadcast', { event: RT_EVENT.teamBreakReady }, () => void refs.current.onTeamBreakReady?.())
+      .on('broadcast', { event: RT_EVENT.teamBreakBegan }, () => void refs.current.onTeamBreakBegan?.())
       .on('broadcast', { event: RT_EVENT.breakSpots }, () => void refs.current.onBreakSpotsChange?.())
       .on('broadcast', { event: RT_EVENT.listingBid }, ({ payload }) => {
         const listingId = (payload as { listingId?: string } | null)?.listingId;

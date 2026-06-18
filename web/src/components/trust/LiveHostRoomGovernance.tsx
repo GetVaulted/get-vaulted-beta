@@ -2,6 +2,8 @@
 
 import { useState, type ReactNode } from "react";
 import type { LiveRoomModeratorRow } from "@/hooks/useLiveRoomModerationState";
+import type { MentionSearchUser } from "@/lib/mentions/mention-types";
+import { MentionComposer } from "@/components/mentions/MentionComposer";
 
 const SLOW_MODE_PRESETS = [0, 5, 10, 30] as const;
 
@@ -51,12 +53,17 @@ export function LiveHostRoomGovernance({
   onAssignModerator,
   onRevokeModerator,
 }: Props) {
-  const [modUserId, setModUserId] = useState("");
+  const [modSearch, setModSearch] = useState("");
 
   const nextSlowMode = () => {
     const idx = SLOW_MODE_PRESETS.indexOf(slowModeSeconds as (typeof SLOW_MODE_PRESETS)[number]);
     const next = SLOW_MODE_PRESETS[(idx >= 0 ? idx + 1 : 0) % SLOW_MODE_PRESETS.length];
     onSetSlowMode(next);
+  };
+
+  const pickModerator = (user: MentionSearchUser) => {
+    onAssignModerator(user.id);
+    setModSearch("");
   };
 
   return (
@@ -98,26 +105,19 @@ export function LiveHostRoomGovernance({
             ))}
           </ul>
         )}
-        <div className="mt-3 flex gap-2">
-          <input
-            value={modUserId}
-            onChange={(e) => setModUserId(e.target.value)}
-            placeholder="User id to add as mod"
-            className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/50 px-2.5 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-amber-400/35"
+        <div className="mt-3">
+          <p className="mb-2 text-[11px] text-zinc-500">
+            Type @username like chat mentions and tap a match to assign. Their mod tools appear on their device.
+          </p>
+          <MentionComposer
+            singleLine
+            value={modSearch}
+            onChange={setModSearch}
+            onPickUser={pickModerator}
+            disabled={busy}
+            placeholder="@username"
+            className="w-full rounded-lg border border-white/10 bg-black/50 px-2.5 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-amber-400/35"
           />
-          <button
-            type="button"
-            disabled={busy || !modUserId.trim()}
-            onClick={() => {
-              const id = modUserId.trim();
-              if (!id) return;
-              onAssignModerator(id);
-              setModUserId("");
-            }}
-            className="shrink-0 rounded-lg bg-amber-500/90 px-3 py-2 text-[10px] font-black uppercase text-zinc-950 disabled:opacity-40"
-          >
-            Add
-          </button>
         </div>
       </div>
 

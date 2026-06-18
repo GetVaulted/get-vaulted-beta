@@ -47,12 +47,30 @@ describe('validateAuctionPricing', () => {
 });
 
 describe('validateQuickLiveLot', () => {
+  it('accepts auction with reserve and buy-it-now', () => {
+    const r = validateQuickLiveLot({
+      title: 'Rookie slab',
+      saleType: 'auction',
+      price: '5',
+      quantity: '2',
+      reservePrice: '20',
+      buyNowPrice: '50',
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.values.reservePriceUsd).toBe(20);
+      expect(r.values.priceUsd).toBe(50);
+    }
+  });
+
   it('accepts auction with default quantity', () => {
     const r = validateQuickLiveLot({
       title: 'Rookie slab',
       saleType: 'auction',
       price: '5',
       quantity: '',
+      reservePrice: '',
+      buyNowPrice: '',
     });
     expect(r.ok).toBe(true);
     if (r.ok) {
@@ -68,7 +86,43 @@ describe('validateQuickLiveLot', () => {
       saleType: 'buy_now',
       price: '',
       quantity: '2',
+      reservePrice: '',
+      buyNowPrice: '',
     });
     expect(r.ok).toBe(false);
+  });
+
+  it('builds PYT variants for all 32 teams', () => {
+    const r = validateQuickLiveLot({
+      title: '2024 Prizm Hobby',
+      saleType: 'pyt',
+      price: '35',
+      quantity: '1',
+      reservePrice: '',
+      buyNowPrice: '',
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.values.salesFormat).toBe('variant_selection');
+      expect(r.values.variants?.length).toBe(32);
+      expect(r.values.variants?.[0]?.color).toBe('ARI');
+    }
+  });
+
+  it('builds PYD variants for all 8 divisions', () => {
+    const r = validateQuickLiveLot({
+      title: 'Division break',
+      saleType: 'pyd',
+      price: '120',
+      quantity: '1',
+      reservePrice: '',
+      buyNowPrice: '',
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.values.salesFormat).toBe('team_break');
+      expect(r.values.variants?.length).toBe(8);
+      expect(r.values.variants?.[0]?.label).toBe('AFC East');
+    }
   });
 });

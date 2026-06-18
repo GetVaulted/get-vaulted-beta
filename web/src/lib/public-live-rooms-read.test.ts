@@ -1,6 +1,10 @@
 import { NextRequest } from "next/server";
 import { describe, expect, it } from "vitest";
-import { isPublicLiveRoomsBuyerRead } from "./public-live-rooms-read";
+import {
+  isPublicLiveOgImageRoute,
+  isPublicLiveRoomSharePage,
+  isPublicLiveRoomsBuyerRead,
+} from "./public-live-rooms-read";
 
 function req(method: string, pathname: string, search = ""): NextRequest {
   return new NextRequest(`https://beta.shopgetvaulted.com${pathname}${search}`, { method });
@@ -22,5 +26,15 @@ describe("isPublicLiveRoomsBuyerRead", () => {
   it("blocks host subroutes", () => {
     expect(isPublicLiveRoomsBuyerRead(req("GET", "/api/live-rooms/room-abc/host-console"))).toBe(false);
     expect(isPublicLiveRoomsBuyerRead(req("POST", "/api/live-rooms"))).toBe(false);
+  });
+
+  it("allows dynamic OG image routes", () => {
+    expect(isPublicLiveOgImageRoute("/api/og/live/room-abc")).toBe(true);
+    expect(isPublicLiveOgImageRoute("/api/og/live")).toBe(false);
+  });
+
+  it("allows single-room share landing pages", () => {
+    expect(isPublicLiveRoomSharePage("/live/room-abc")).toBe(true);
+    expect(isPublicLiveRoomSharePage("/live")).toBe(false);
   });
 });

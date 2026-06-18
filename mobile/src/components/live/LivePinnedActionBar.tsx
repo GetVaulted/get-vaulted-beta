@@ -42,7 +42,7 @@ import { colors, radii, spacing } from '../../theme';
 import type { LiveStream } from '../../types';
 import { HoldToBidButton } from './HoldToBidButton';
 import { resolveBuyerRoomKind, resolveLiveBuyerCommerceHud } from './liveActionModule';
-import { LiveVariantSelectionSheet } from './LiveVariantSelectionSheet';
+import { LiveBreakSpotGridSheet } from './LiveBreakSpotGridSheet';
 import { isActiveVariantBuyerItem } from '../../lib/liveItemVariant';
 import { reconcileBuyerSnapshotMonotonic } from '../../lib/liveRoomBuyerSnapshotMerge';
 import { computeAuctionRemainingMs, logAuctionTimer } from '../../lib/auctionTimerSync';
@@ -711,7 +711,7 @@ export function LivePinnedActionBar({
       />
 
       {variantItemActive && roomSnap?.activeItemId ? (
-        <LiveVariantSelectionSheet
+        <LiveBreakSpotGridSheet
           visible={variantSheetOpen}
           onClose={() => setVariantSheetOpen(false)}
           roomId={stream.id}

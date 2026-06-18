@@ -1,10 +1,10 @@
-import { readAsStringAsync } from 'expo-file-system/legacy';
 import {
   evaluateUsernamePolicy,
   normalizeUsernameForStorage,
   USERNAME_UNAVAILABLE_MESSAGE,
   usernamePolicyUserMessage,
 } from '../lib/username-policy';
+import { prepareProfileAvatarForUpload, avatarUrlWithCacheBust } from '../lib/profileAvatarUpload';
 import { getSupabase } from '../lib/supabase';
 import type { ProfileLite } from '../types/tradeOffers';
 
@@ -130,33 +130,24 @@ export async function checkUsernameAvailable(raw: string): Promise<{ available: 
   return { available: true };
 }
 
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const bin = atob(base64);
-  const len = bin.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes.buffer;
-}
-
 /**
- * Upload a square/cropped image to Storage `avatars/{userId}/avatar.{ext}` and return the public URL.
+ * Upload a circle-cropped JPEG to Storage `avatars/{userId}/avatar.jpg` and return the public URL.
  */
-export async function uploadMyAvatar(userId: string, localUri: string, mimeType: string): Promise<string> {
+export async function uploadMyAvatar(userId: string, localUri: string, _mimeType?: string): Promise<string> {
   const sb = getSupabase();
   if (!sb) throw new Error('Supabase is not configured');
-  const mime = mimeType || 'image/jpeg';
-  const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
-  const path = `${userId}/avatar.${ext}`;
-  const base64 = await readAsStringAsync(localUri, { encoding: 'base64' });
-  const body = base64ToArrayBuffer(base64);
+  const preparedUri = await prepareProfileAvatarForUpload(localUri);
+  const path = `${userId}/avatar.jpg`;
+  const response = await fetch(preparedUri);
+  const body = await response.arrayBuffer();
   const { error: upErr } = await sb.storage.from('avatars').upload(path, body, {
-    contentType: mime,
+    contentType: 'image/jpeg',
     upsert: true,
   });
   if (upErr) throw new Error(upErr.message);
   const { data } = sb.storage.from('avatars').getPublicUrl(path);
   if (!data?.publicUrl) throw new Error('Could not resolve avatar URL');
-  return data.publicUrl;
+  return avatarUrlWithCacheBust(data.publicUrl);
 }
 
 export async function fetchProfileById(userId: string): Promise<ProfileLite | null> {

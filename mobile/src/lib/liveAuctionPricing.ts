@@ -1,12 +1,19 @@
+import { buildPydVariants, buildPytVariants, type LiveBreakVariantDraft } from './liveBreakPresets';
 import { liveAuctionMinBidUsd } from './liveAuctionBidMath';
 
-export type LiveLotSaleType = 'auction' | 'buy_now';
+export type LiveLotSaleType = 'auction' | 'buy_now' | 'pyt' | 'pyd';
+
+export type LiveLotApiSalesFormat = 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
 
 export type QuickLiveLotInput = {
   title: string;
   saleType: LiveLotSaleType;
   price: string;
   quantity: string;
+  reservePrice: string;
+  buyNowPrice: string;
+  /** Per-spot overrides for PYT/PYD (prices + pins). */
+  spotDrafts?: LiveBreakVariantDraft[];
 };
 
 export type QuickLiveLotValues = {
@@ -14,17 +21,31 @@ export type QuickLiveLotValues = {
   saleType: LiveLotSaleType;
   quantity: number;
   startingBidUsd: number | null;
+  reservePriceUsd: number | null;
   priceUsd: number | null;
+  salesFormat: LiveLotApiSalesFormat;
+  variants?: LiveBreakVariantDraft[];
 };
 
+export function isBreakLotSaleType(saleType: LiveLotSaleType): saleType is 'pyt' | 'pyd' {
+  return saleType === 'pyt' || saleType === 'pyd';
+}
+
+export function breakSpotCountForSaleType(saleType: LiveLotSaleType): number {
+  if (saleType === 'pyt') return 32;
+  if (saleType === 'pyd') return 8;
+  return 0;
+}
+
 export function emptyQuickLiveLotInput(saleType: LiveLotSaleType = 'auction'): QuickLiveLotInput {
-  return { title: '', saleType, price: '', quantity: '' };
+  return { title: '', saleType, price: '', quantity: '', reservePrice: '', buyNowPrice: '' };
 }
 
 export function quickLiveLotFromItem(item: {
   title?: string;
   salesFormat?: 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
   startingBidUsd?: number | null;
+  reservePriceUsd?: number | null;
   priceUsd?: number | null;
   quantity?: number | null;
   remainingQuantity?: number | null;
@@ -41,6 +62,8 @@ export function quickLiveLotFromItem(item: {
     saleType,
     price,
     quantity,
+    reservePrice: saleType === 'auction' ? formatUsdInput(item.reservePriceUsd) : '',
+    buyNowPrice: saleType === 'auction' ? formatUsdInput(item.priceUsd) : '',
   };
 }
 
@@ -64,9 +87,69 @@ export function validateQuickLiveLot(
     if (startingBidUsd < 1) {
       return { ok: false, message: 'Starting bid must be at least $1.' };
     }
+
+    let reservePriceUsd: number | null = null;
+    if (input.reservePrice.trim()) {
+      reservePriceUsd = parseUsdInput(input.reservePrice);
+      if (reservePriceUsd == null) {
+        return { ok: false, message: 'Enter a valid reserve price or leave it blank.' };
+      }
+      if (reservePriceUsd < startingBidUsd) {
+        return { ok: false, message: 'Reserve must be at least the starting bid.' };
+      }
+    }
+
+    let buyNowPriceUsd: number | null = null;
+    if (input.buyNowPrice.trim()) {
+      buyNowPriceUsd = parseUsdInput(input.buyNowPrice);
+      if (buyNowPriceUsd == null) {
+        return { ok: false, message: 'Enter a valid buy-it-now price or leave it blank.' };
+      }
+      if (reservePriceUsd != null && buyNowPriceUsd < reservePriceUsd) {
+        return { ok: false, message: 'Buy it now must be at least the reserve.' };
+      }
+    }
+
     return {
       ok: true,
-      values: { title, saleType: 'auction', quantity, startingBidUsd, priceUsd: null },
+      values: {
+        title,
+        saleType: 'auction',
+        quantity,
+        startingBidUsd,
+        reservePriceUsd,
+        priceUsd: buyNowPriceUsd,
+        salesFormat: 'auction',
+      },
+    };
+  }
+
+  if (input.saleType === 'pyt' || input.saleType === 'pyd') {
+    const spotPrice = parseUsdInput(input.price);
+    if (spotPrice == null) {
+      return {
+        ok: false,
+        message: input.saleType === 'pyt' ? 'Enter a price per team.' : 'Enter a price per division.',
+      };
+    }
+    const variants =
+      input.spotDrafts?.length === (input.saleType === 'pyt' ? 32 : 8)
+        ? input.spotDrafts
+        : input.saleType === 'pyt'
+          ? buildPytVariants(spotPrice)
+          : buildPydVariants(spotPrice);
+    return {
+      ok: true,
+      values: {
+        title,
+        saleType: input.saleType,
+        quantity: 1,
+        startingBidUsd: null,
+        reservePriceUsd: null,
+        priceUsd: spotPrice,
+        salesFormat: input.saleType === 'pyt' ? 'variant_selection' : 'team_break',
+        variants: variants.map((v) => ({ ...v, isHot: v.isHot === true })),
+      },
     };
   }
 
@@ -75,7 +158,15 @@ export function validateQuickLiveLot(
   }
   return {
     ok: true,
-    values: { title, saleType: 'buy_now', quantity, startingBidUsd: null, priceUsd },
+    values: {
+      title,
+      saleType: 'buy_now',
+      quantity,
+      startingBidUsd: null,
+      reservePriceUsd: null,
+      priceUsd,
+      salesFormat: 'buy_now',
+    },
   };
 }
 

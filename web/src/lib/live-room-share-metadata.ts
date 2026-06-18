@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 
-export const LIVE_SHARE_DESCRIPTION = "Watch live auctions, breaks, and drops on Get Vaulted.";
+export const LIVE_SHARE_DESCRIPTION = "Join the live auction now";
 
-/** Default preview when a show has no uploaded thumbnail (absolute HTTPS). */
+/** Branded fallback when a show has no uploaded thumbnail (absolute HTTPS). */
 export const DEFAULT_LIVE_SHARE_OG_IMAGE =
   "https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1200&h=630&q=80&auto=format&fit=crop";
+
+export const CANONICAL_SHARE_SITE_FALLBACK = "https://shopgetvaulted.com";
 
 const CATEGORY_LABEL_ALIASES: Record<string, string> = {
   cards: "Sports Cards",
@@ -59,9 +61,31 @@ export function publicSiteBaseUrl(): string {
   return withProto.replace(/\/$/, "");
 }
 
-export function canonicalLiveRoomUrl(roomId: string, siteBase = publicSiteBaseUrl()): string {
+/** Public share + og:url host (never beta in user-facing share links). */
+export function canonicalShareSiteUrl(): string {
+  const raw =
+    process.env.NEXT_PUBLIC_CANONICAL_SHARE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_SHARE_SITE_URL?.trim() ||
+    CANONICAL_SHARE_SITE_FALLBACK;
+  const withProto = raw.includes("://") ? raw : `https://${raw}`;
+  return withProto.replace(/\/$/, "");
+}
+
+/** Host that serves dynamic OG images (defaults to deployed app origin). */
+export function ogImageSiteUrl(): string {
+  const raw = process.env.NEXT_PUBLIC_OG_IMAGE_SITE_URL?.trim() || publicSiteBaseUrl();
+  const withProto = raw.includes("://") ? raw : `https://${raw}`;
+  return withProto.replace(/\/$/, "");
+}
+
+export function canonicalLiveRoomUrl(roomId: string, siteBase = canonicalShareSiteUrl()): string {
   const id = roomId.trim();
   return `${siteBase}/live/${encodeURIComponent(id)}`;
+}
+
+export function liveRoomOgImageUrl(roomId: string, siteBase = ogImageSiteUrl()): string {
+  const id = roomId.trim();
+  return `${siteBase}/api/og/live/${encodeURIComponent(id)}`;
 }
 
 export function resolveLiveRoomShareImageUrl(
@@ -77,28 +101,66 @@ export function resolveLiveRoomShareImageUrl(
   return `${siteBase}/${trimmed.replace(/^\/+/, "")}`;
 }
 
+function resolveShareMediaUrl(url: string | null | undefined, siteBase: string): string {
+  const trimmed = url?.trim() ?? "";
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/^http:\/\//i, "https://");
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  if (trimmed.startsWith("/")) return `${siteBase}${trimmed}`;
+  return `${siteBase}/${trimmed.replace(/^\/+/, "")}`;
+}
+
+/** Background for OG card: thumbnail → host avatar → branded banner. */
+export function resolveLiveRoomShareBackgroundUrl(
+  thumbnailUrl: string | null | undefined,
+  siteBase = publicSiteBaseUrl(),
+  hostAvatarUrl?: string | null,
+  brandedFallback = DEFAULT_LIVE_SHARE_OG_IMAGE,
+): string | null {
+  const thumb = resolveShareMediaUrl(thumbnailUrl, siteBase);
+  if (thumb) return thumb;
+  const avatar = resolveShareMediaUrl(hostAvatarUrl, siteBase);
+  if (avatar) return avatar;
+  return brandedFallback;
+}
+
 export type LiveRoomShareMetaInput = {
   id: string;
   title: string;
   category?: string | null;
   thumbnailUrl?: string | null;
   sellerUsername?: string | null;
+  viewerCount?: number | null;
 };
 
-export function buildLiveRoomShareTitle(input: LiveRoomShareMetaInput): string {
+export function formatLiveRoomShareHostName(input: Pick<LiveRoomShareMetaInput, "sellerUsername">): string {
   const host = (input.sellerUsername ?? "host").trim().replace(/^@+/, "") || "host";
-  const categoryName = formatLiveRoomCategoryDisplayName(input.category);
+  return host;
+}
+
+/** og:title — "{hostName} is LIVE on Get Vaulted" */
+export function formatLiveRoomShareOgTitle(input: LiveRoomShareMetaInput): string {
+  const host = formatLiveRoomShareHostName(input);
+  return `${host} is LIVE on Get Vaulted`;
+}
+
+/** og:description — "{showTitle} • Join the live auction now" */
+export function formatLiveRoomShareDescription(input: Pick<LiveRoomShareMetaInput, "title">): string {
   const showTitle = input.title?.trim() || "Live show";
-  return `${host} is live · ${categoryName} · ${showTitle}`;
+  return `${showTitle} • ${LIVE_SHARE_DESCRIPTION}`;
+}
+
+/** @deprecated Use formatLiveRoomShareOgTitle for new share surfaces. */
+export function buildLiveRoomShareTitle(input: LiveRoomShareMetaInput): string {
+  return formatLiveRoomShareOgTitle(input);
 }
 
 export function buildLiveRoomShareMetadata(input: LiveRoomShareMetaInput) {
-  const siteBase = publicSiteBaseUrl();
-  const title = buildLiveRoomShareTitle(input);
-  const description = LIVE_SHARE_DESCRIPTION;
-  const url = canonicalLiveRoomUrl(input.id, siteBase);
-  const image = resolveLiveRoomShareImageUrl(input.thumbnailUrl, siteBase);
-  return { title, description, url, image, siteBase };
+  const title = formatLiveRoomShareOgTitle(input);
+  const description = formatLiveRoomShareDescription(input);
+  const url = canonicalLiveRoomUrl(input.id);
+  const image = liveRoomOgImageUrl(input.id);
+  return { title, description, url, image, siteBase: canonicalShareSiteUrl() };
 }
 
 export function liveRoomShareMetadataToNext(input: LiveRoomShareMetaInput): Metadata {

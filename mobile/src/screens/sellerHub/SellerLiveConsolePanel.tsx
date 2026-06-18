@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { useSellerLiveConsole } from '../../hooks/useSellerLiveConsole';
 import { AddInventoryModal } from '../../components/seller/liveConsole/AddInventoryModal';
+import { EditBreakSpotsModal } from '../../components/seller/liveConsole/EditBreakSpotsModal';
 import { EditQueueItemPricingModal } from '../../components/seller/liveConsole/EditQueueItemPricingModal';
 import { liveConsoleStyles } from '../../components/seller/liveConsole/liveConsoleTheme';
 import { LiveConsoleWarningBanner } from '../../components/seller/liveConsole/LiveConsoleWarningBanner';
@@ -86,7 +87,7 @@ export function SellerLiveConsolePanel({
             onLaunch={c.onLaunch}
             onRemove={c.onRemove}
             onReorder={c.onReorder}
-            onEditPricing={(item) => c.setPricingEditItem(item)}
+            onEditPricing={(item) => c.openPricingEditor(item)}
             listHeaderComponent={queueHeader}
             contentContainerStyle={styles.queueListContent}
           />
@@ -111,10 +112,16 @@ export function SellerLiveConsolePanel({
         busy={c.busy}
       />
       <EditQueueItemPricingModal
-        item={c.pricingEditItem}
+        item={c.pricingEditIsBreak ? null : c.pricingEditItem}
         busy={c.busy}
         onClose={() => c.setPricingEditItem(null)}
         onSave={c.onSaveQueuePricing}
+      />
+      <EditBreakSpotsModal
+        item={c.pricingEditIsBreak ? c.pricingEditItem : null}
+        busy={c.busy}
+        onClose={() => c.setPricingEditItem(null)}
+        onSave={c.onSaveBreakSpots}
       />
     </View>
   );

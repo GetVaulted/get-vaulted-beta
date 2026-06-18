@@ -70,7 +70,7 @@ describe("live-item-variant-presets", () => {
   });
 
   it("variantBuyerSelectLabel uses division wording for team breaks", () => {
-    expect(variantBuyerSelectLabel("team_break")).toBe("Select Division");
-    expect(variantBuyerSelectLabel("variant_selection")).toBe("Select Spot");
+    expect(variantBuyerSelectLabel("team_break")).toBe("Pick Your Division");
+    expect(variantBuyerSelectLabel("variant_selection")).toBe("Pick Your Team");
   });
 });

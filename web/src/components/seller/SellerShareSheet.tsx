@@ -1,6 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  formatLiveRoomShareDescription,
+  formatLiveRoomShareOgTitle,
+} from "@/lib/live-room-share-metadata";
 import { SELLER_CONSOLE } from "@/lib/seller-console-copy";
 
 type SellerShareSheetProps = {
@@ -8,19 +12,30 @@ type SellerShareSheetProps = {
   onClose: () => void;
   publicUrl: string;
   showTitle: string;
+  hostUsername?: string;
   onToast?: (message: string) => void;
 };
 
-function socialShareUrl(platform: "x" | "facebook" | "sms", url: string, title: string): string {
-  const text = encodeURIComponent(`Watch "${title}" live on Get Vaulted`);
+function socialShareUrl(platform: "x" | "facebook" | "sms", url: string, title: string, description: string): string {
+  const text = encodeURIComponent(`${title}\n${description}`);
   const link = encodeURIComponent(url);
   if (platform === "x") return `https://twitter.com/intent/tweet?text=${text}&url=${link}`;
   if (platform === "facebook") return `https://www.facebook.com/sharer/sharer.php?u=${link}`;
   return `sms:?&body=${text}%20${link}`;
 }
 
-export function SellerShareSheet({ open, onClose, publicUrl, showTitle, onToast }: SellerShareSheetProps) {
+export function SellerShareSheet({ open, onClose, publicUrl, showTitle, hostUsername, onToast }: SellerShareSheetProps) {
   const [copied, setCopied] = useState(false);
+  const shareTitle = useMemo(
+    () =>
+      formatLiveRoomShareOgTitle({
+        id: "",
+        title: showTitle,
+        sellerUsername: hostUsername ?? "host",
+      }),
+    [hostUsername, showTitle],
+  );
+  const shareDescription = useMemo(() => formatLiveRoomShareDescription({ title: showTitle }), [showTitle]);
 
   useEffect(() => {
     if (!open) setCopied(false);
@@ -56,8 +71,8 @@ export function SellerShareSheet({ open, onClose, publicUrl, showTitle, onToast 
     try {
       if (navigator.share) {
         await navigator.share({
-          title: showTitle,
-          text: `Watch "${showTitle}" live on Get Vaulted`,
+          title: shareTitle,
+          text: shareDescription,
           url: publicUrl,
         });
         onClose();
@@ -67,7 +82,7 @@ export function SellerShareSheet({ open, onClose, publicUrl, showTitle, onToast 
     } catch {
       /* dismissed */
     }
-  }, [copyLink, onClose, publicUrl, showTitle]);
+  }, [copyLink, onClose, publicUrl, shareDescription, shareTitle]);
 
   if (!open) return null;
 
@@ -113,7 +128,7 @@ export function SellerShareSheet({ open, onClose, publicUrl, showTitle, onToast 
             ).map(([label, platform]) => (
               <a
                 key={platform}
-                href={socialShareUrl(platform, publicUrl, showTitle)}
+                href={socialShareUrl(platform, publicUrl, shareTitle, shareDescription)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="rounded-xl border border-white/10 bg-zinc-900/80 px-3 py-2.5 text-center text-xs font-bold uppercase tracking-wide text-zinc-200 hover:border-white/20"

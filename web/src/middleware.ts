@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { isLiveMarketplaceBlocked } from "@/lib/live-coming-soon";
-import { isPublicLiveRoomsBuyerRead } from "@/lib/public-live-rooms-read";
+import {
+  isPublicLiveOgImageRoute,
+  isPublicLiveRoomSharePage,
+  isPublicLiveRoomsBuyerRead,
+} from "@/lib/public-live-rooms-read";
 
 let loggedMissingNextAuthSecret = false;
 
@@ -49,6 +53,9 @@ export default async function middleware(request: NextRequest) {
   }
 
   if (isLiveMarketplaceBlocked()) {
+    if (isPublicLiveOgImageRoute(pathname)) {
+      return NextResponse.next();
+    }
     if (pathname.startsWith("/api/live-rooms") && !isPublicLiveRoomsBuyerRead(request)) {
       return NextResponse.json(LIVE_COMING_SOON_JSON, {
         status: 503,
@@ -61,7 +68,7 @@ export default async function middleware(request: NextRequest) {
         headers: { "Cache-Control": "no-store" },
       });
     }
-    if (pathname === "/live" || pathname.startsWith("/live/")) {
+    if (pathname === "/live" || (pathname.startsWith("/live/") && !isPublicLiveRoomSharePage(pathname))) {
       return NextResponse.redirect(new URL("/coming-soon", request.url));
     }
     if (pathname === "/seller/live" || pathname.startsWith("/seller/live/")) {
@@ -93,6 +100,7 @@ export const config = {
     "/seller/live/:path*",
     "/live",
     "/live/:path*",
+    "/api/og/live/:path*",
     "/api/live-rooms",
     "/api/live-rooms/:path*",
     "/api/seller/live-readiness",

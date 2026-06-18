@@ -9,10 +9,11 @@ import { FloatingLiveChat } from '../../live/floatingLiveChat';
 import type { MentionComposerInputHandle } from '../../mentions/MentionComposerInput';
 import { appendMentionToDraft, promptLiveChatUserAction } from '../../../lib/liveChatUserActions';
 import { openUserProfile } from '../../../navigation/openPlatform';
-import { computeLiveRoomBottomStack } from '../../../lib/liveRoomBottomLayout';
+import { computeLiveRoomBottomStack, COMPOSER_BAR_HEIGHT } from '../../../lib/liveRoomBottomLayout';
 import { SellerLiveComposer } from './SellerLiveComposer';
 import { SellerLiveGestureLayer } from './SellerLiveGestureLayer';
 import { AddInventoryModal } from '../liveConsole/AddInventoryModal';
+import { EditBreakSpotsModal } from '../liveConsole/EditBreakSpotsModal';
 import { EditQueueItemPricingModal } from '../liveConsole/EditQueueItemPricingModal';
 import { LiveConsoleWarningBanner } from '../liveConsole/LiveConsoleWarningBanner';
 import type { SanitizedLiveError } from '../liveConsole/liveConsoleErrors';
@@ -26,7 +27,7 @@ import { useRealtimeRoomSubscription } from '../../../hooks/useRealtimeRoomSubsc
 import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from '../../../lib/vaultRevealSpin';
 import { VaultRevealWheelOverlay } from '../../live/VaultRevealWheelOverlay';
 import { useSellerLiveConsole } from '../../../hooks/useSellerLiveConsole';
-import { webLiveRoomUrl } from '../../../lib/openWebCommerce';
+import { canonicalLiveShareUrl } from '../../../lib/liveShareUrl';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { SellerLiveBroadcastSheet } from './SellerLiveBroadcastSheet';
 import { SellerLiveOverlayHeader } from './SellerLiveOverlayHeader';
@@ -36,6 +37,7 @@ import {
   SELLER_PINNED_OVERLAY_HEIGHT,
 } from './SellerLivePinnedOverlay';
 import { SellerLiveQueueSheet } from './SellerLiveQueueSheet';
+import { SellerNextUpRail, SELLER_NEXT_UP_RAIL_HEIGHT } from './SellerNextUpRail';
 import { SellerLiveGiveawaySheet } from './SellerLiveGiveawaySheet';
 import { SellerConsoleActionBar } from './SellerConsoleActionBar';
 import { SellerShareSheet } from './SellerShareSheet';
@@ -140,7 +142,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   const canStart = host.room?.status === 'scheduled';
   const canEnd = host.room?.status === 'live';
   const streamTitle = host.room?.title ?? 'Live show';
-  const publicUrl = webLiveRoomUrl(roomId) ?? '';
+  const publicUrl = canonicalLiveShareUrl(roomId) ?? '';
   const actionBarTop = insets.top + 56;
   const actionBarHeight = 56;
 
@@ -181,6 +183,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
       }),
     [commerceBottom, commerceHeight, keyboardOffset],
   );
+
+  const nextUpRailBottom = bottomStack.commerceTop + 6;
+  const sellerComposerBottom = nextUpRailBottom + SELLER_NEXT_UP_RAIL_HEIGHT + 6;
+  const sellerChatBottom = sellerComposerBottom + COMPOSER_BAR_HEIGHT + 12;
 
   const onStartAuction = () => {
     if (console.activeItem) {
@@ -356,7 +362,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
       <FloatingLiveChat
         pool={chatPool}
         hostAvatarUrl={hostAvatarUrl}
-        bottom={bottomStack.chatBottom}
+        bottom={sellerChatBottom}
         left={spacing.lg}
         rightEdge={CHAT_RIGHT_EDGE}
         isActive
@@ -395,8 +401,23 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         }}
       />
 
+      <SellerNextUpRail
+        bottom={nextUpRailBottom}
+        left={spacing.md}
+        right={spacing.md}
+        items={console.items}
+        queuedCount={console.queuedCount}
+        loading={console.loading}
+        busy={console.busy}
+        roomEnded={console.roomEnded}
+        roomLive={console.roomLive}
+        onOpenQueue={() => setQueueOpen(true)}
+        onAddItem={() => console.setInventoryOpen(true)}
+        onPinNext={onStartAuction}
+      />
+
       <SellerLiveComposer
-        bottom={bottomStack.composerBottom}
+        bottom={sellerComposerBottom}
         left={spacing.lg}
         rightEdge={CHAT_RIGHT_EDGE}
         value={chatDraft}
@@ -488,7 +509,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         }}
         onRemove={console.onRemove}
         onReorder={console.onReorder}
-        onEditPricing={(item) => console.setPricingEditItem(item)}
+        onEditPricing={(item) => console.openPricingEditor(item)}
+        onAddItem={() => console.setInventoryOpen(true)}
       />
 
       <SellerLiveGiveawaySheet
@@ -530,6 +552,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         onClose={() => setShareOpen(false)}
         publicUrl={publicUrl}
         showTitle={streamTitle}
+        hostUsername={sellerUsername ?? undefined}
         onToast={(msg) => {
           setShareToast(msg);
           setTimeout(() => setShareToast(null), 2200);
@@ -544,10 +567,16 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         busy={console.busy}
       />
       <EditQueueItemPricingModal
-        item={console.pricingEditItem}
+        item={console.pricingEditIsBreak ? null : console.pricingEditItem}
         busy={console.busy}
         onClose={() => console.setPricingEditItem(null)}
         onSave={console.onSaveQueuePricing}
+      />
+      <EditBreakSpotsModal
+        item={console.pricingEditIsBreak ? console.pricingEditItem : null}
+        busy={console.busy}
+        onClose={() => console.setPricingEditItem(null)}
+        onSave={console.onSaveBreakSpots}
       />
       <VaultRevealWheelOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
     </View>

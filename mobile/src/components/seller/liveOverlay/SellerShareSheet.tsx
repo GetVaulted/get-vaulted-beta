@@ -12,6 +12,10 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  buildSellerLiveShareOgDescription,
+  buildSellerLiveShareOgTitle,
+} from '../../../lib/liveRoomShare';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { colors, radii, spacing } from '../../../theme';
 
@@ -20,18 +24,19 @@ type Props = {
   onClose: () => void;
   publicUrl: string;
   showTitle: string;
+  hostUsername?: string;
   onToast?: (message: string) => void;
 };
 
-function socialShareUrl(platform: 'x' | 'facebook' | 'sms', url: string, title: string): string {
-  const text = encodeURIComponent(`Watch "${title}" live on Get Vaulted`);
+function socialShareUrl(platform: 'x' | 'facebook' | 'sms', url: string, title: string, description: string): string {
+  const text = encodeURIComponent(`${title}\n${description}`);
   const link = encodeURIComponent(url);
   if (platform === 'x') return `https://twitter.com/intent/tweet?text=${text}&url=${link}`;
   if (platform === 'facebook') return `https://www.facebook.com/sharer/sharer.php?u=${link}`;
   return Platform.OS === 'ios' ? `sms:&body=${text}%20${link}` : `sms:?body=${text}%20${link}`;
 }
 
-export function SellerShareSheet({ visible, onClose, publicUrl, showTitle, onToast }: Props) {
+export function SellerShareSheet({ visible, onClose, publicUrl, showTitle, hostUsername, onToast }: Props) {
   const insets = useSafeAreaInsets();
   const [copied, setCopied] = useState(false);
 
@@ -51,11 +56,14 @@ export function SellerShareSheet({ visible, onClose, publicUrl, showTitle, onToa
     }
   };
 
+  const shareTitle = buildSellerLiveShareOgTitle(hostUsername ?? 'host');
+  const shareDescription = buildSellerLiveShareOgDescription(showTitle);
+
   const nativeShare = async () => {
     try {
       await Share.share({
-        title: showTitle,
-        message: `Watch "${showTitle}" live on Get Vaulted\n${publicUrl}`,
+        title: shareTitle,
+        message: `${shareTitle}\n${shareDescription}\n${publicUrl}`,
         url: Platform.OS === 'ios' ? publicUrl : undefined,
       });
       onClose();
@@ -65,7 +73,7 @@ export function SellerShareSheet({ visible, onClose, publicUrl, showTitle, onToa
   };
 
   const openSocial = async (platform: 'x' | 'facebook' | 'sms') => {
-    const url = socialShareUrl(platform, publicUrl, showTitle);
+    const url = socialShareUrl(platform, publicUrl, shareTitle, shareDescription);
     try {
       await Linking.openURL(url);
     } catch {

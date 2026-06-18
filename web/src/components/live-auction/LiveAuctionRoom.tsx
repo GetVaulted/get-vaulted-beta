@@ -45,7 +45,7 @@ import { sellerProfilePath } from "@/lib/seller-profile-url";
 import {
   buildLiveRoomShareTitle,
   canonicalLiveRoomUrl,
-  LIVE_SHARE_DESCRIPTION,
+  formatLiveRoomShareDescription,
 } from "@/lib/live-room-share-metadata";
 import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
@@ -672,11 +672,12 @@ export function LiveAuctionRoom({
       category: roomCategory,
       sellerUsername: sellerShopUsername ?? hostDisplayName.replace(/^@+/, ""),
     });
+    const shareDescription = formatLiveRoomShareDescription({ title: showTitle });
     try {
       if (typeof navigator !== "undefined" && navigator.share) {
         await navigator.share({
           title: shareTitle,
-          text: LIVE_SHARE_DESCRIPTION,
+          text: shareDescription,
           url: shareUrl,
         });
         toast("Shared.");

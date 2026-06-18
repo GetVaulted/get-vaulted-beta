@@ -2231,6 +2231,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         onClose={() => setShareSheetOpen(false)}
         publicUrl={publicUrl}
         showTitle={streamTitle}
+        hostUsername={hostUsername}
         onToast={(msg) => setToast(msg)}
       />
 

@@ -32,6 +32,8 @@ export type LiveRoomItemRow = {
     isHot: boolean;
     status: string;
     buyerUsername: string | null;
+    color?: string | null;
+    sortOrder?: number;
   }[];
 };
 
@@ -89,26 +91,38 @@ export async function createLiveRoomQueueItem(
   input: {
     title: string;
     imageUrl: string;
-    salesFormat?: 'auction' | 'buy_now';
+    salesFormat?: 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
     listingId?: string | null;
     quantity?: number | null;
     startingBidUsd?: number | null;
     reservePriceUsd?: number | null;
     priceUsd?: number | null;
+    variants?: Array<{
+      label: string;
+      priceUsd: number;
+      quantityInitial?: number;
+      sortOrder?: number;
+      color?: string;
+      isHot?: boolean;
+    }>;
   },
 ): Promise<void> {
+  const body: Record<string, unknown> = {
+    title: input.title.trim(),
+    imageUrl: input.imageUrl.trim(),
+    salesFormat: input.salesFormat ?? 'auction',
+    listingId: input.listingId ?? null,
+    quantity: input.quantity ?? 1,
+    startingBidUsd: input.startingBidUsd ?? null,
+    reservePriceUsd: input.reservePriceUsd ?? null,
+    priceUsd: input.priceUsd ?? null,
+  };
+  if (input.variants?.length) {
+    body.variants = input.variants;
+  }
   const res = await controlFetch(`/api/live-rooms/${encodeURIComponent(roomId)}/items`, accessToken, {
     method: 'POST',
-    body: JSON.stringify({
-      title: input.title.trim(),
-      imageUrl: input.imageUrl.trim(),
-      salesFormat: input.salesFormat ?? 'auction',
-      listingId: input.listingId ?? null,
-      quantity: input.quantity ?? 1,
-      startingBidUsd: input.startingBidUsd ?? null,
-      reservePriceUsd: input.reservePriceUsd ?? null,
-      priceUsd: input.priceUsd ?? null,
-    }),
+    body: JSON.stringify(body),
   });
   let j: unknown;
   try {
@@ -129,6 +143,26 @@ export async function patchLiveRoomItem(
     `/api/live-rooms/${encodeURIComponent(roomId)}/items/${encodeURIComponent(itemId)}`,
     accessToken,
     { method: 'PATCH', body: JSON.stringify(body) },
+  );
+  let j: unknown;
+  try {
+    j = await res.json();
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+}
+
+export async function patchLiveItemVariants(
+  accessToken: string,
+  roomId: string,
+  itemId: string,
+  updates: Array<{ id: string; priceUsd?: number; isHot?: boolean }>,
+): Promise<void> {
+  const res = await controlFetch(
+    `/api/live-rooms/${encodeURIComponent(roomId)}/items/${encodeURIComponent(itemId)}/variants`,
+    accessToken,
+    { method: 'PATCH', body: JSON.stringify({ updates }) },
   );
   let j: unknown;
   try {

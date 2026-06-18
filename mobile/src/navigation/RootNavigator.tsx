@@ -170,7 +170,7 @@ export function RootNavigator() {
           <Stack.Screen
             name="SellerHostRoom"
             component={SellerHostRoomScreen}
-            options={{ animation: 'slide_from_right', presentation: 'card' }}
+            options={{ animation: 'slide_from_right', presentation: 'card', gestureEnabled: false }}
           />
           <Stack.Screen
             name="ProductDetail"

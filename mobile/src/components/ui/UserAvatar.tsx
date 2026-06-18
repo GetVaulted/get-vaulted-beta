@@ -1,4 +1,5 @@
-import { Image, StyleSheet, Text, View, type ImageStyle, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
+import { Image } from 'expo-image';
+import { StyleSheet, Text, View, type ImageStyle, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 import { normalizeAvatarUri, profileDisplayInitial } from '../../lib/profileAvatar';
 import { colors } from '../../theme';
 
@@ -34,13 +35,20 @@ export function UserAvatar({
 
   if (imageUri) {
     return (
-      <Image
-        source={{ uri: imageUri }}
+      <View
         style={[
-          { width: size, height: size, borderRadius: radius, borderWidth: ring, borderColor: ringColor },
-          style,
+          { width: size, height: size, borderRadius: radius, borderWidth: ring, borderColor: ringColor, overflow: 'hidden' },
+          style as StyleProp<ViewStyle>,
         ]}
-      />
+      >
+        <Image
+          source={{ uri: imageUri }}
+          style={{ width: size, height: size }}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          transition={100}
+        />
+      </View>
     );
   }
 

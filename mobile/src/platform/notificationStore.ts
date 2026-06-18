@@ -203,7 +203,7 @@ function serverTypeToKind(type: string): NotificationKind {
   if (type.includes('counter')) return 'counter';
   if (type.includes('offer')) return 'offer';
   if (type.startsWith('order_') || type === 'item_sold' || type === 'seller_ready_to_ship') return 'order';
-  if (type.includes('auction') || type.includes('purchase') || type.includes('break_spot')) return 'order';
+  if (type.includes('auction') || type.includes('purchase') || type.includes('break_')) return 'order';
   if (type === 'stripe_dispute') return 'dispute';
   if (type === 'seller_live') return 'live_event';
   return 'order';

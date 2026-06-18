@@ -62,7 +62,7 @@ describe('sortVariantsForBuyerDisplay', () => {
 
 describe('variantSelectSpotLabel', () => {
   it('uses team label for team_break', () => {
-    expect(variantSelectSpotLabel('team_break')).toBe('Select Division');
-    expect(variantSelectSpotLabel('variant_selection')).toBe('Select Spot');
+    expect(variantSelectSpotLabel('team_break')).toBe('Pick Your Division');
+    expect(variantSelectSpotLabel('variant_selection')).toBe('Pick Your Team');
   });
 });

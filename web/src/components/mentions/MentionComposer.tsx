@@ -17,6 +17,8 @@ type Props = {
   className?: string;
   maxLength?: number;
   singleLine?: boolean;
+  /** When set, picking a user from @ search calls this instead of inserting into the field. */
+  onPickUser?: (user: MentionSearchUser) => void;
   "data-testid"?: string;
 };
 
@@ -30,6 +32,7 @@ export function MentionComposer({
   className,
   maxLength,
   singleLine = false,
+  onPickUser,
   "data-testid": testId,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -72,6 +75,12 @@ export function MentionComposer({
 
   const pick = useCallback(
     (user: MentionSearchUser) => {
+      if (onPickUser) {
+        onPickUser(user);
+        onChange("");
+        setOpen(false);
+        return;
+      }
       if (!active) return;
       const next = insertMentionAtQuery(value, active, user.username);
       onChange(next.text);
@@ -84,7 +93,7 @@ export function MentionComposer({
         setCursor(next.cursor);
       });
     },
-    [active, onChange, singleLine, value],
+    [active, onChange, onPickUser, singleLine, value],
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>) => {

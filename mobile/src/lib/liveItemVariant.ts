@@ -113,5 +113,7 @@ export function lowestAvailableVariantPrice(variants: LiveItemVariantSnapshot[] 
 }
 
 export function variantSelectSpotLabel(format: LiveItemSalesFormat | null | undefined): string {
-  return format === 'team_break' ? 'Select Division' : 'Select Spot';
+  if (format === 'team_break') return 'Pick Your Division';
+  if (format === 'variant_selection') return 'Pick Your Team';
+  return 'Select Spot';
 }

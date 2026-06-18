@@ -6,11 +6,14 @@ import { fetchHostConsole } from '../api/liveHostRepository';
 import {
   createLiveRoomQueueItem,
   deleteLiveRoomQueueItem,
+  patchLiveItemVariants,
   patchLiveRoomItem,
   type LiveRoomItemRow,
 } from '../api/liveRoomControlRepository';
-import type { QuickLiveLotSubmitPayload } from '../components/seller/liveConsole/AddInventoryModal';
+import type { QuickLiveLotSubmitPayload, QuickLiveLotSubmitOptions } from '../components/seller/liveConsole/AddInventoryModal';
 import type { QuickLiveLotValues } from '../lib/liveAuctionPricing';
+import type { LiveBreakVariantDraft } from '../lib/liveBreakPresets';
+import { isVariantSalesFormat } from '../lib/liveItemVariant';
 import { logSellerQueue } from '../lib/logSellerQueue';
 import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
@@ -162,7 +165,7 @@ export function useSellerLiveConsole({
     }
   };
 
-  const onQuickAddLot = (payload: QuickLiveLotSubmitPayload) => {
+  const onQuickAddLot = (payload: QuickLiveLotSubmitPayload, options?: QuickLiveLotSubmitOptions) => {
     if (busy || roomStatus === 'ended') return;
     setBusy(true);
     setConsoleError(null);
@@ -171,20 +174,24 @@ export function useSellerLiveConsole({
         await createLiveRoomQueueItem(accessToken, roomId, {
           title: payload.title,
           imageUrl: payload.imageUrl,
-          salesFormat: payload.saleType,
+          salesFormat: payload.salesFormat,
           quantity: payload.quantity,
           startingBidUsd: payload.startingBidUsd,
+          reservePriceUsd: payload.reservePriceUsd,
           priceUsd: payload.priceUsd,
+          variants: payload.variants,
         });
         logSellerQueue('add_item_success', {
           title: payload.title.slice(0, 80),
           quantity: payload.quantity,
-          salesFormat: payload.saleType,
+          salesFormat: payload.salesFormat,
+          variantCount: payload.variants?.length ?? 0,
           startingBidUsd: payload.startingBidUsd,
+          reservePriceUsd: payload.reservePriceUsd,
           priceUsd: payload.priceUsd,
         });
         await reload();
-        setInventoryOpen(false);
+        if (!options?.addAnother) setInventoryOpen(false);
         onAfterAddLot?.();
       } catch (e) {
         const sanitized = sanitizeLiveError(e, 'console');
@@ -201,13 +208,37 @@ export function useSellerLiveConsole({
       await patchLiveRoomItem(accessToken, roomId, itemId, {
         quantity: values.quantity,
         startingBidUsd: values.saleType === 'auction' ? values.startingBidUsd : null,
-        reservePriceUsd: null,
-        priceUsd: values.saleType === 'buy_now' ? values.priceUsd : null,
-        salesFormat: values.saleType,
+        reservePriceUsd: values.saleType === 'auction' ? values.reservePriceUsd : null,
+        priceUsd: values.priceUsd,
+        salesFormat: values.salesFormat,
       });
       setPricingEditItem(null);
     });
   };
+
+  const onSaveBreakSpots = (itemId: string, spots: LiveBreakVariantDraft[]) => {
+    void run(async () => {
+      const updates = spots
+        .filter((s): s is LiveBreakVariantDraft & { id: string } => Boolean(s.id))
+        .map((s) => ({
+          id: s.id,
+          priceUsd: s.priceUsd,
+          isHot: s.isHot === true,
+        }));
+      if (updates.length === 0) {
+        Alert.alert('Edit break', 'No spots to update.');
+        return;
+      }
+      await patchLiveItemVariants(accessToken, roomId, itemId, updates);
+      setPricingEditItem(null);
+    });
+  };
+
+  const openPricingEditor = (item: LiveRoomItemRow) => {
+    setPricingEditItem(item);
+  };
+
+  const pricingEditIsBreak = pricingEditItem != null && isVariantSalesFormat(pricingEditItem.salesFormat);
 
   const onReorder = (ordered: LiveRoomItemRow[]) => {
     void run(async () => {
@@ -306,7 +337,10 @@ export function useSellerLiveConsole({
     setInventoryOpen,
     pricingEditItem,
     setPricingEditItem,
+    pricingEditIsBreak,
+    openPricingEditor,
     onSaveQueuePricing,
+    onSaveBreakSpots,
     onQuickAddLot,
     consoleError,
     chatMessages,

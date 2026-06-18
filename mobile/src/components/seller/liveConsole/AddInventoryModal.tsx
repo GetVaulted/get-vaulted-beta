@@ -18,18 +18,27 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { uploadListingImageViaWeb } from '../../../api/webListingsRepository';
 import {
+  breakSpotCountForSaleType,
   emptyQuickLiveLotInput,
+  isBreakLotSaleType,
+  parseUsdInput,
   validateQuickLiveLot,
   type LiveLotSaleType,
   type QuickLiveLotInput,
   type QuickLiveLotValues,
 } from '../../../lib/liveAuctionPricing';
+import { buildPydVariants, buildPytVariants, type LiveBreakVariantDraft } from '../../../lib/liveBreakPresets';
 import { useKeyboardInset } from '../../wallet/walletSheetKeyboard';
 import { colors, radii, spacing } from '../../../theme';
+import { BreakSpotSetupGrid } from './BreakSpotSetupGrid';
 
 const THUMBNAIL_MAX_BYTES = 20 * 1024 * 1024;
 
 export type QuickLiveLotSubmitPayload = QuickLiveLotValues & { imageUrl: string };
+
+export type QuickLiveLotSubmitOptions = {
+  addAnother?: boolean;
+};
 
 export function AddInventoryModal({
   visible,
@@ -42,7 +51,7 @@ export function AddInventoryModal({
   accessToken: string;
   busy?: boolean;
   onClose: () => void;
-  onSubmit: (payload: QuickLiveLotSubmitPayload) => void;
+  onSubmit: (payload: QuickLiveLotSubmitPayload, options?: QuickLiveLotSubmitOptions) => void;
 }) {
   const insets = useSafeAreaInsets();
   const keyboardInset = useKeyboardInset();
@@ -51,19 +60,38 @@ export function AddInventoryModal({
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [spotDrafts, setSpotDrafts] = useState<LiveBreakVariantDraft[]>([]);
+
+  const resetDraft = () => {
+    setDraft(emptyQuickLiveLotInput());
+    setSpotDrafts([]);
+    setImageUri(null);
+    setImageUrl(null);
+    setImageUploading(false);
+    setImageError(null);
+  };
 
   useEffect(() => {
-    if (visible) {
-      setDraft(emptyQuickLiveLotInput());
-      setImageUri(null);
-      setImageUrl(null);
-      setImageUploading(false);
-      setImageError(null);
-    }
+    if (visible) resetDraft();
   }, [visible]);
+
+  useEffect(() => {
+    if (!isBreakLotSaleType(draft.saleType)) {
+      setSpotDrafts([]);
+      return;
+    }
+    const basePrice = parseUsdInput(draft.price);
+    const expected = breakSpotCountForSaleType(draft.saleType);
+    setSpotDrafts((prev) => {
+      if (prev.length === expected) return prev;
+      if (basePrice == null) return [];
+      return draft.saleType === 'pyt' ? buildPytVariants(basePrice) : buildPydVariants(basePrice);
+    });
+  }, [draft.saleType, draft.price]);
 
   const setSaleType = (saleType: LiveLotSaleType) => {
     setDraft((prev) => ({ ...prev, saleType }));
+    setSpotDrafts([]);
   };
 
   const pickPhoto = async () => {
@@ -99,21 +127,31 @@ export function AddInventoryModal({
     }
   };
 
-  const saveToShow = () => {
+  const saveToShow = (addAnother: boolean) => {
     if (!imageUrl?.trim()) {
       Alert.alert('Photo required', 'Add one product photo before saving to the show.');
       return;
     }
-    const validated = validateQuickLiveLot(draft);
+    const validated = validateQuickLiveLot({ ...draft, spotDrafts });
     if (!validated.ok) {
       Alert.alert('Add product', validated.message);
       return;
     }
-    onSubmit({ ...validated.values, imageUrl: imageUrl.trim() });
+    onSubmit({ ...validated.values, imageUrl: imageUrl.trim() }, { addAnother });
+    if (addAnother) resetDraft();
   };
 
-  const priceLabel = draft.saleType === 'auction' ? 'Starting bid' : 'Buy-it-now price';
-  const pricePlaceholder = draft.saleType === 'auction' ? '1' : '25';
+  const priceLabel =
+    draft.saleType === 'auction'
+      ? 'Starting bid'
+      : draft.saleType === 'pyt'
+        ? 'Price per team'
+        : draft.saleType === 'pyd'
+          ? 'Price per division'
+          : 'Buy-it-now price';
+  const pricePlaceholder =
+    draft.saleType === 'auction' ? '1' : draft.saleType === 'pyt' || draft.saleType === 'pyd' ? '25' : '25';
+  const breakSpots = breakSpotCountForSaleType(draft.saleType);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
@@ -133,7 +171,7 @@ export function AddInventoryModal({
             contentContainerStyle={styles.scrollContent}
           >
             <Text style={styles.title}>Add to show</Text>
-            <Text style={styles.sub}>Photo, title, price, and quantity — ready in seconds.</Text>
+            <Text style={styles.sub}>Photo, title, pricing, and quantity — queue as many lots as you need.</Text>
 
             <Text style={styles.fieldLbl}>Photo</Text>
             <Pressable
@@ -168,23 +206,38 @@ export function AddInventoryModal({
             />
 
             <Text style={styles.fieldLbl}>Sale type</Text>
-            <View style={styles.toggleRow}>
-              {(['auction', 'buy_now'] as const).map((type) => {
-                const active = draft.saleType === type;
+            <View style={styles.saleTypeGrid}>
+              {(
+                [
+                  { id: 'auction', label: 'Auction', sub: 'Timed bidding' },
+                  { id: 'buy_now', label: 'Buy It Now', sub: 'Fixed price' },
+                  { id: 'pyt', label: 'PYT', sub: '32 NFL teams' },
+                  { id: 'pyd', label: 'PYD', sub: '8 divisions' },
+                ] as const
+              ).map((type) => {
+                const active = draft.saleType === type.id;
                 return (
                   <Pressable
-                    key={type}
-                    style={[styles.toggleBtn, active && styles.toggleBtnActive]}
-                    onPress={() => setSaleType(type)}
+                    key={type.id}
+                    style={[styles.saleTypeCard, active && styles.saleTypeCardActive]}
+                    onPress={() => setSaleType(type.id)}
                     disabled={busy}
                   >
-                    <Text style={[styles.toggleBtnTxt, active && styles.toggleBtnTxtActive]}>
-                      {type === 'auction' ? 'Auction' : 'Buy It Now'}
-                    </Text>
+                    <Text style={[styles.saleTypeLabel, active && styles.saleTypeLabelActive]}>{type.label}</Text>
+                    <Text style={[styles.saleTypeSub, active && styles.saleTypeSubActive]}>{type.sub}</Text>
                   </Pressable>
                 );
               })}
             </View>
+
+            {isBreakLotSaleType(draft.saleType) ? (
+              <View style={styles.breakHint}>
+                <Ionicons name="grid-outline" size={16} color={colors.gold} />
+                <Text style={styles.breakHintTxt}>
+                  Buyers pick from {breakSpots} selectable spots. Sold spots disappear from the board.
+                </Text>
+              </View>
+            ) : null}
 
             <Text style={styles.fieldLbl}>{priceLabel}</Text>
             <TextInput
@@ -197,6 +250,15 @@ export function AddInventoryModal({
               editable={!busy}
             />
 
+            {isBreakLotSaleType(draft.saleType) && spotDrafts.length > 0 ? (
+              <BreakSpotSetupGrid
+                saleType={draft.saleType}
+                spots={spotDrafts}
+                onChange={setSpotDrafts}
+                disabled={busy}
+              />
+            ) : null}
+
             <Text style={styles.fieldLbl}>Quantity</Text>
             <TextInput
               value={draft.quantity}
@@ -204,17 +266,51 @@ export function AddInventoryModal({
               placeholder="1"
               placeholderTextColor={colors.textMuted}
               keyboardType="number-pad"
-              style={styles.input}
-              editable={!busy}
+              style={[styles.input, isBreakLotSaleType(draft.saleType) && styles.inputDisabled]}
+              editable={!busy && !isBreakLotSaleType(draft.saleType)}
             />
 
-            <Pressable
-              style={[styles.primary, (busy || imageUploading) && styles.primaryOff]}
-              onPress={saveToShow}
-              disabled={busy || imageUploading}
-            >
-              <Text style={styles.primaryTxt}>{busy ? 'Saving…' : 'Save to show'}</Text>
-            </Pressable>
+            {draft.saleType === 'auction' ? (
+              <>
+                <Text style={styles.fieldLbl}>Reserve (optional)</Text>
+                <TextInput
+                  value={draft.reservePrice}
+                  onChangeText={(reservePrice) => setDraft((prev) => ({ ...prev, reservePrice }))}
+                  placeholder="Hidden minimum"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="decimal-pad"
+                  style={styles.input}
+                  editable={!busy}
+                />
+                <Text style={styles.fieldLbl}>Buy it now (optional)</Text>
+                <TextInput
+                  value={draft.buyNowPrice}
+                  onChangeText={(buyNowPrice) => setDraft((prev) => ({ ...prev, buyNowPrice }))}
+                  placeholder="Instant purchase price"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="decimal-pad"
+                  style={styles.input}
+                  editable={!busy}
+                />
+              </>
+            ) : null}
+
+            <View style={styles.actionRow}>
+              <Pressable
+                style={[styles.secondary, (busy || imageUploading) && styles.primaryOff]}
+                onPress={() => saveToShow(true)}
+                disabled={busy || imageUploading}
+              >
+                <Text style={styles.secondaryTxt}>{busy ? 'Saving…' : 'Save & add another'}</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.primary, styles.primaryFlex, (busy || imageUploading) && styles.primaryOff]}
+                onPress={() => saveToShow(false)}
+                disabled={busy || imageUploading}
+              >
+                <Text style={styles.primaryTxt}>{busy ? 'Saving…' : 'Save to show'}</Text>
+              </Pressable>
+            </View>
           </ScrollView>
         </View>
       </View>
@@ -285,24 +381,41 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.35)',
     fontSize: 15,
   },
-  toggleRow: { flexDirection: 'row', gap: spacing.sm },
-  toggleBtn: {
-    flex: 1,
+  inputDisabled: { opacity: 0.45 },
+  saleTypeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  saleTypeCard: {
+    width: '47%',
+    flexGrow: 1,
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
     backgroundColor: 'rgba(255,255,255,0.04)',
     paddingVertical: 12,
-    alignItems: 'center',
+    paddingHorizontal: 10,
+    minHeight: 64,
+    justifyContent: 'center',
   },
-  toggleBtnActive: {
-    borderColor: 'rgba(212,175,55,0.45)',
-    backgroundColor: 'rgba(212,175,55,0.14)',
+  saleTypeCardActive: {
+    borderColor: 'rgba(212,175,55,0.55)',
+    backgroundColor: 'rgba(212,175,55,0.12)',
   },
-  toggleBtnTxt: { fontSize: 14, fontWeight: '700', color: colors.textMuted },
-  toggleBtnTxtActive: { color: colors.gold },
+  saleTypeLabel: { fontSize: 14, fontWeight: '900', color: colors.textMuted },
+  saleTypeLabelActive: { color: colors.gold },
+  saleTypeSub: { marginTop: 2, fontSize: 11, fontWeight: '600', color: colors.textMuted },
+  saleTypeSubActive: { color: 'rgba(255,215,80,0.75)' },
+  breakHint: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 10,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.22)',
+    backgroundColor: 'rgba(212,175,55,0.06)',
+  },
+  breakHintTxt: { flex: 1, fontSize: 12, lineHeight: 17, color: colors.textSecondary },
+  actionRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
   primary: {
-    marginTop: spacing.sm,
     paddingVertical: 14,
     borderRadius: radii.md,
     backgroundColor: colors.gold,
@@ -310,6 +423,18 @@ const styles = StyleSheet.create({
     minHeight: 48,
     justifyContent: 'center',
   },
+  primaryFlex: { flex: 1 },
   primaryOff: { opacity: 0.55 },
   primaryTxt: { fontWeight: '900', color: '#0a0a0a', fontSize: 15 },
+  secondary: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    minHeight: 48,
+    justifyContent: 'center',
+  },
+  secondaryTxt: { fontWeight: '800', color: colors.textSecondary, fontSize: 13 },
 });

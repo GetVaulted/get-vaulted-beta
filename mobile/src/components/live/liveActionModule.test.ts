@@ -226,7 +226,7 @@ describe('resolveLiveBuyerCommerceHud', () => {
       fetchedAtMs: Date.now(),
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
-    expect(hud.bottomRightLabel).toBe('Select Division');
+    expect(hud.bottomRightLabel).toBe('Pick Your Division');
     expect(hud.bottomRightLabel).not.toMatch(/bid/i);
     expect(hud.currentPrefix).toBe('From');
     expect(hud.buyerPrimaryDisabled).toBe(false);
@@ -254,7 +254,7 @@ describe('resolveLiveBuyerCommerceHud', () => {
       fetchedAtMs: Date.now(),
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
-    expect(hud.bottomRightLabel).toBe('Select Spot');
+    expect(hud.bottomRightLabel).toBe('Pick Your Team');
   });
 });
 

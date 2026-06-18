@@ -159,7 +159,7 @@ function QuantityField({
 function HotSpotButton({ active, onClick }: { active: boolean; onClick: () => void }) {
   return (
     <div className="min-w-0">
-      <p className={FIELD_LABEL}>Hot spot</p>
+      <p className={FIELD_LABEL}>Pin spot</p>
       <button
         type="button"
         onClick={onClick}
@@ -170,7 +170,7 @@ function HotSpotButton({ active, onClick }: { active: boolean; onClick: () => vo
             : "border-white/10 bg-white/[0.03] text-zinc-500 hover:border-white/16 hover:text-zinc-300"
         }`}
       >
-        🔥 Hot
+        📌 Pin
       </button>
     </div>
   );

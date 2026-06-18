@@ -2,11 +2,21 @@ import { Ionicons } from '@expo/vector-icons';
 import type { ReactElement } from 'react';
 import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
+import { isVariantSalesFormat } from '../../../lib/liveItemVariant';
 import { formatUsdDisplay, queueItemQuantity } from '../../../lib/liveAuctionPricing';
 import { queueStatusLabel } from '../liveOverlay/SellerQueueStrip';
 import { colors, radii, spacing } from '../../../theme';
 
 function pricingSummary(item: LiveRoomItemRow): string {
+  if (isVariantSalesFormat(item.salesFormat)) {
+    const spots = item.variants?.length ?? (item.salesFormat === 'variant_selection' ? 32 : 8);
+    const pinned = item.variants?.filter((v) => v.isHot).length ?? 0;
+    const label = item.salesFormat === 'variant_selection' ? 'PYT' : 'PYD';
+    const from = item.variants?.length
+      ? formatUsdDisplay(Math.min(...item.variants.map((v) => v.priceUsd)))
+      : '—';
+    return `${label} · ${spots} spots · from ${from}${pinned ? ` · ${pinned} pinned` : ''}`;
+  }
   const qty = queueItemQuantity(item);
   const start = formatUsdDisplay(item.startingBidUsd ?? 1);
   const reserve = item.reservePriceUsd != null ? formatUsdDisplay(item.reservePriceUsd) : null;
@@ -37,7 +47,11 @@ function VaultQueueRow({
   onEditPricing?: (item: LiveRoomItemRow) => void;
 }) {
   const canEditPricing =
-    !item.biddingOpen && item.status !== 'sold' && item.status !== 'skipped' && !roomEnded;
+    !item.biddingOpen &&
+    item.status !== 'sold' &&
+    item.status !== 'skipped' &&
+    !roomEnded &&
+    (isVariantSalesFormat(item.salesFormat) || item.salesFormat == null || item.salesFormat === 'auction' || item.salesFormat === 'buy_now');
   const reserve = item.reservePriceUsd != null ? formatUsdDisplay(item.reservePriceUsd) : null;
   const bin = item.priceUsd != null ? formatUsdDisplay(item.priceUsd) : null;
 
@@ -72,7 +86,7 @@ function VaultQueueRow({
         <View style={styles.actions}>
           {canEditPricing && onEditPricing ? (
             <Pressable style={styles.editBtn} disabled={busy} onPress={() => onEditPricing(item)}>
-              <Text style={styles.editBtnTxt}>Edit</Text>
+              <Text style={styles.editBtnTxt}>{isVariantSalesFormat(item.salesFormat) ? 'Spots' : 'Edit'}</Text>
             </Pressable>
           ) : null}
           <Pressable style={styles.launch} disabled={busy} onPress={() => onLaunch(item)}>

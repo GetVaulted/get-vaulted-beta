@@ -9,18 +9,21 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   TextInput,
   useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+  createBuyerShippingAddress,
   deleteBuyerPaymentMethod,
   deleteBuyerShippingAddress,
   fetchBuyerShippingAddresses,
   fetchBuyerWalletReadiness,
   fetchBuyerWalletSummary,
   setBuyerDefaultPaymentMethod,
+  updateBuyerShippingAddress,
   type BuyerPaymentMethodRow,
   type BuyerShippingAddressRow,
   type BuyerWalletSummary,
@@ -31,7 +34,6 @@ import { colors, spacing } from '../../theme';
 import { LiveRoomText } from '../live/LiveRoomText';
 import { logWalletSheet, useKeyboardInset } from './walletSheetKeyboard';
 import { WalletPaymentSetupModal } from './WalletPaymentSetupStep';
-import { WalletAddressSetupModal } from './WalletAddressSetupModal';
 import { vaultWalletTheme as t } from './vaultWalletTheme';
 import {
   formatAddressBlock,
@@ -52,6 +54,7 @@ export type WalletStep =
   | 'main'
   | 'shipping'
   | 'addresses'
+  | 'addressForm'
   | 'payment'
   | 'credits'
   | 'promo'
@@ -167,10 +170,10 @@ export function VaultWalletSheet({
   const [paymentSetupOpen, setPaymentSetupOpen] = useState(
     () => recoveryMode && openPaymentSetupOnMount,
   );
-  const [addressSetupOpen, setAddressSetupOpen] = useState(false);
-  const [addressModalDraft, setAddressModalDraft] = useState<CreateShippingAddressInput | null>(null);
-  const [addressModalEditing, setAddressModalEditing] = useState(false);
+  const [addressFormDraft, setAddressFormDraft] = useState<CreateShippingAddressInput>(EMPTY_ADDRESS);
+  const [addressFormEditing, setAddressFormEditing] = useState(false);
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
+  const [addressFormBusy, setAddressFormBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [readiness, setReadiness] = useState<BuyerWalletReadiness | null>(initialReadiness ?? null);
   const [summary, setSummary] = useState<BuyerWalletSummary | null>(null);
@@ -179,6 +182,8 @@ export function VaultWalletSheet({
   const [promoDraft, setPromoDraft] = useState('');
   const openSeedAppliedRef = useRef(false);
   const loadInFlight = useRef(false);
+  const wasVisibleRef = useRef(false);
+  const addressFormReturnStep = useRef<WalletStep>('shipping');
 
   const paymentMethods = summary?.paymentMethods ?? [];
   const defaultAddress = pickDefaultShippingAddress(addresses);
@@ -224,16 +229,20 @@ export function VaultWalletSheet({
 
   useEffect(() => {
     if (!visible) {
+      wasVisibleRef.current = false;
       setStep('main');
       setPaymentSetupOpen(false);
-      setAddressSetupOpen(false);
-      setAddressModalDraft(null);
       setEditingAddressId(null);
       setActionError(null);
       openSeedAppliedRef.current = false;
       return;
     }
-    if (initialReadiness && !openSeedAppliedRef.current) {
+
+    const justOpened = !wasVisibleRef.current;
+    wasVisibleRef.current = true;
+    if (!justOpened) return;
+
+    if (initialReadiness) {
       setReadiness(initialReadiness);
       openSeedAppliedRef.current = true;
     }
@@ -245,10 +254,11 @@ export function VaultWalletSheet({
   const goMain = () => setStep('main');
   const openPaymentSetup = () => setPaymentSetupOpen(true);
 
-  const openAddAddress = (seed?: BuyerShippingAddressRow) => {
+  const openAddressForm = (seed?: BuyerShippingAddressRow, returnStep: WalletStep = 'shipping') => {
+    addressFormReturnStep.current = returnStep;
     if (seed) {
       setEditingAddressId(seed.id);
-      setAddressModalDraft({
+      setAddressFormDraft({
         name: seed.name,
         fullName: seed.fullName,
         line1: seed.line1,
@@ -259,13 +269,32 @@ export function VaultWalletSheet({
         country: seed.country,
         isDefault: seed.isDefault !== false,
       });
-      setAddressModalEditing(true);
+      setAddressFormEditing(true);
     } else {
       setEditingAddressId(null);
-      setAddressModalDraft(EMPTY_ADDRESS);
-      setAddressModalEditing(false);
+      setAddressFormDraft(EMPTY_ADDRESS);
+      setAddressFormEditing(false);
     }
-    setAddressSetupOpen(true);
+    setStep('addressForm');
+  };
+
+  const saveAddressForm = async () => {
+    if (!accessToken || addressFormBusy) return;
+    setAddressFormBusy(true);
+    setActionError(null);
+    try {
+      if (addressFormEditing && editingAddressId?.trim()) {
+        await updateBuyerShippingAddress(accessToken, editingAddressId, addressFormDraft);
+      } else {
+        await createBuyerShippingAddress(accessToken, addressFormDraft);
+      }
+      await loadWalletData();
+      setStep(addressFormReturnStep.current);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Could not save address.');
+    } finally {
+      setAddressFormBusy(false);
+    }
   };
 
   const handleSetDefaultPm = async (pm: BuyerPaymentMethodRow) => {
@@ -321,9 +350,9 @@ export function VaultWalletSheet({
   };
 
   const finishWalletSetup = () => {
+    if (loading) return;
     if (!shippingReady) {
-      if (addresses.length === 0) openAddAddress();
-      else setStep('shipping');
+      setStep('shipping');
       return;
     }
     if (!paymentReady) {
@@ -405,9 +434,9 @@ export function VaultWalletSheet({
       </ScrollView>
       <View style={[t.footer, { paddingBottom: 0 }]}>
         <Pressable
-          style={[t.primaryBtn, loading && t.primaryBtnDisabled]}
+          style={[t.primaryBtn, loading && !walletReady && t.primaryBtnDisabled]}
           onPress={walletReady ? onClose : finishWalletSetup}
-          disabled={loading}
+          disabled={loading && !walletReady}
         >
           <LiveRoomText style={t.primaryBtnText}>
             {walletReady ? 'Done' : 'Finish Vault Wallet Setup'}
@@ -429,7 +458,12 @@ export function VaultWalletSheet({
         <LiveRoomText style={t.hintText}>
           Required before bidding, buying, claiming spots, or making offers.
         </LiveRoomText>
-        {defaultAddress ? (
+        {loading && !defaultAddress ? (
+          <View style={{ alignItems: 'center', paddingVertical: spacing.lg }}>
+            <ActivityIndicator color={colors.gold} />
+            <LiveRoomText style={[t.hintText, { marginTop: spacing.sm }]}>Loading your address…</LiveRoomText>
+          </View>
+        ) : defaultAddress ? (
           <View style={t.detailCard}>
             <LiveRoomText style={t.detailTitle}>{defaultAddress.fullName}</LiveRoomText>
             <LiveRoomText style={t.detailBody}>{formatAddressBlock(defaultAddress)}</LiveRoomText>
@@ -438,14 +472,19 @@ export function VaultWalletSheet({
                 <LiveRoomText style={t.badgeText}>Default</LiveRoomText>
               </View>
             ) : null}
-            <Pressable style={t.linkBtn} onPress={() => openAddAddress(defaultAddress)}>
+            <Pressable style={t.linkBtn} onPress={() => openAddressForm(defaultAddress, 'shipping')}>
               <LiveRoomText style={t.linkBtnText}>Edit address</LiveRoomText>
             </Pressable>
           </View>
         ) : (
-          <LiveRoomText style={t.sectionSubWarn}>Add a shipping address to continue.</LiveRoomText>
+          <LiveRoomText style={t.sectionSubWarn}>No shipping address on file yet.</LiveRoomText>
         )}
-        <Pressable style={t.linkBtn} onPress={() => (addresses.length ? setStep('addresses') : openAddAddress())}>
+        <Pressable
+          style={t.linkBtn}
+          onPress={() =>
+            addresses.length ? setStep('addresses') : openAddressForm(undefined, 'shipping')
+          }
+        >
           <LiveRoomText style={t.linkBtnText}>
             {addresses.length ? 'Manage all addresses' : '+ Add address'}
           </LiveRoomText>
@@ -453,7 +492,7 @@ export function VaultWalletSheet({
       </ScrollView>
       <View style={t.footer}>
         <Pressable style={t.primaryBtn} onPress={goMain}>
-          <LiveRoomText style={t.primaryBtnText}>Save</LiveRoomText>
+          <LiveRoomText style={t.primaryBtnText}>Done</LiveRoomText>
         </Pressable>
       </View>
     </>
@@ -465,7 +504,7 @@ export function VaultWalletSheet({
         title="Addresses"
         onBack={() => setStep(defaultAddress ? 'shipping' : 'main')}
         rightSlot={
-          <Pressable onPress={() => openAddAddress()} hitSlop={8}>
+          <Pressable onPress={() => openAddressForm(undefined, 'addresses')} hitSlop={8}>
             <Ionicons name="add-circle-outline" size={24} color={colors.gold} />
           </Pressable>
         }
@@ -481,7 +520,7 @@ export function VaultWalletSheet({
               </View>
             ) : null}
             <View style={t.pmActions}>
-              <Pressable onPress={() => openAddAddress(addr)}>
+              <Pressable onPress={() => openAddressForm(addr, 'addresses')}>
                 <LiveRoomText style={t.pmActionTxt}>Edit</LiveRoomText>
               </Pressable>
               <Pressable onPress={() => handleRemoveAddress(addr)}>
@@ -490,20 +529,52 @@ export function VaultWalletSheet({
             </View>
           </View>
         ))}
-        <Pressable style={t.linkBtn} onPress={() => openAddAddress()}>
+        <Pressable style={t.linkBtn} onPress={() => openAddressForm(undefined, 'addresses')}>
           <LiveRoomText style={t.linkBtnText}>+ Add new address</LiveRoomText>
         </Pressable>
       </ScrollView>
     </>
   );
 
+  const walletCapabilities = summary?.capabilities;
+
   const renderPayment = () => (
     <>
       <SheetHeader title="Payment Methods" onBack={goMain} />
       <ScrollView contentContainerStyle={t.scrollContent}>
         <LiveRoomText style={t.hintText}>
-          Cards, Apple Pay, Google Pay, Link, Cash App Pay, and PayPal run through Stripe. Venmo arrives in a future update.
+          Add a saved payment method with Stripe — card, Apple Pay, Google Pay, Link, and more when available.
         </LiveRoomText>
+
+        <View style={t.detailCard}>
+          <LiveRoomText style={t.detailTitle}>Add payment method</LiveRoomText>
+          {Platform.OS === 'ios' && walletCapabilities?.applePay !== false ? (
+            <Pressable style={t.payOptionBtn} onPress={openPaymentSetup}>
+              <Ionicons name="logo-apple" size={20} color={colors.gold} />
+              <LiveRoomText style={t.payOptionBtnText}>Apple Pay</LiveRoomText>
+              <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
+            </Pressable>
+          ) : null}
+          {Platform.OS === 'android' && walletCapabilities?.googlePay !== false ? (
+            <Pressable style={t.payOptionBtn} onPress={openPaymentSetup}>
+              <Ionicons name="logo-google" size={20} color={colors.gold} />
+              <LiveRoomText style={t.payOptionBtnText}>Google Pay</LiveRoomText>
+              <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
+            </Pressable>
+          ) : null}
+          <Pressable style={t.payOptionBtn} onPress={openPaymentSetup}>
+            <Ionicons name="card-outline" size={20} color={colors.gold} />
+            <LiveRoomText style={t.payOptionBtnText}>Card & more with Stripe</LiveRoomText>
+            <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
+          </Pressable>
+          {walletCapabilities?.link ? (
+            <LiveRoomText style={[t.hintText, { marginTop: 6 }]}>
+              Link, Cash App Pay, and PayPal appear in Stripe checkout when enabled on your account.
+            </LiveRoomText>
+          ) : null}
+        </View>
+
+        <LiveRoomText style={[t.sectionTitle, { marginTop: spacing.sm }]}>Saved methods</LiveRoomText>
         {paymentMethods.length === 0 ? (
           <LiveRoomText style={t.sectionSubWarn}>Add a payment method to bid and buy.</LiveRoomText>
         ) : (
@@ -545,13 +616,6 @@ export function VaultWalletSheet({
             );
           })
         )}
-        <Pressable style={t.sectionCard} onPress={openPaymentSetup}>
-          <View style={t.sectionIcon}>
-            <Ionicons name="add" size={20} color={colors.gold} />
-          </View>
-          <LiveRoomText style={t.sectionTitle}>Add payment method</LiveRoomText>
-          <Ionicons name="chevron-forward" size={18} color="#fff" style={t.chevron} />
-        </Pressable>
       </ScrollView>
       <View style={t.footer}>
         {recoveryMode ? (
@@ -561,6 +625,74 @@ export function VaultWalletSheet({
         ) : null}
         <Pressable style={recoveryMode ? t.secondaryBtn : t.primaryBtn} onPress={goMain}>
           <LiveRoomText style={recoveryMode ? t.secondaryBtnText : t.primaryBtnText}>Done</LiveRoomText>
+        </Pressable>
+      </View>
+    </>
+  );
+
+  const renderAddressForm = () => (
+    <>
+      <SheetHeader
+        title={addressFormEditing ? 'Edit Address' : 'Add Address'}
+        onBack={() => setStep(addressFormReturnStep.current)}
+      />
+      <ScrollView contentContainerStyle={t.scrollContent} keyboardShouldPersistTaps="handled">
+        <LiveRoomText style={t.hintText}>Used for live wins, PYT/PYD spots, and vault deliveries.</LiveRoomText>
+        {(
+          [
+            ['Label', 'name', 'Shipping'],
+            ['Full name', 'fullName', 'Jane Collector'],
+            ['Address line 1', 'line1', '123 Main St'],
+            ['Address line 2 (optional)', 'line2', 'Apt 4'],
+            ['City', 'city', 'City'],
+            ['State / region', 'state', 'CA'],
+            ['Postal code', 'postalCode', '90210'],
+            ['Country (ISO)', 'country', 'US'],
+          ] as const
+        ).map(([label, key, placeholder]) => (
+          <View key={key} style={{ gap: 4 }}>
+            <LiveRoomText style={t.fieldLabel}>{label}</LiveRoomText>
+            <TextInput
+              value={key === 'line2' ? addressFormDraft.line2 ?? '' : String(addressFormDraft[key] ?? '')}
+              onChangeText={(text) =>
+                setAddressFormDraft((prev) => ({
+                  ...prev,
+                  [key]:
+                    key === 'line2'
+                      ? text
+                      : key === 'country'
+                        ? text.toUpperCase().slice(0, 2)
+                        : text,
+                }))
+              }
+              placeholder={placeholder}
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              style={t.formInput}
+              autoCapitalize={key === 'country' ? 'characters' : 'words'}
+              keyboardType={key === 'postalCode' ? 'number-pad' : 'default'}
+            />
+          </View>
+        ))}
+        <View style={t.switchRow}>
+          <LiveRoomText style={t.switchLabel}>Default shipping address</LiveRoomText>
+          <Switch
+            value={addressFormDraft.isDefault !== false}
+            onValueChange={(v) => setAddressFormDraft((prev) => ({ ...prev, isDefault: v }))}
+            trackColor={{ true: colors.gold }}
+          />
+        </View>
+      </ScrollView>
+      <View style={t.footer}>
+        <Pressable
+          style={[t.primaryBtn, addressFormBusy && t.primaryBtnDisabled]}
+          onPress={() => void saveAddressForm()}
+          disabled={addressFormBusy}
+        >
+          {addressFormBusy ? (
+            <ActivityIndicator color="#0a0a0a" />
+          ) : (
+            <LiveRoomText style={t.primaryBtnText}>Save address</LiveRoomText>
+          )}
         </Pressable>
       </View>
     </>
@@ -628,6 +760,8 @@ export function VaultWalletSheet({
         return renderShipping();
       case 'addresses':
         return renderAddresses();
+      case 'addressForm':
+        return renderAddressForm();
       case 'payment':
         return renderPayment();
       case 'credits':
@@ -644,10 +778,16 @@ export function VaultWalletSheet({
   return (
     <>
       <Modal
-        visible={visible && !paymentSetupOpen && !addressSetupOpen}
+        visible={visible}
         animationType="slide"
         transparent
-        onRequestClose={recoveryMode ? () => {} : step === 'main' ? onClose : () => setStep('main')}
+        onRequestClose={
+          recoveryMode
+            ? () => {}
+            : step === 'main'
+              ? onClose
+              : () => setStep(step === 'addressForm' ? addressFormReturnStep.current : 'main')
+        }
         statusBarTranslucent
       >
         <View style={t.backdrop}>
@@ -682,19 +822,6 @@ export function VaultWalletSheet({
           setPaymentSetupOpen(false);
           setStep('payment');
           onPaymentMethodSaved?.(paymentMethodId);
-        }}
-      />
-      <WalletAddressSetupModal
-        visible={visible && addressSetupOpen}
-        accessToken={accessToken}
-        editing={addressModalEditing}
-        addressId={editingAddressId ?? undefined}
-        initialDraft={addressModalDraft ?? undefined}
-        onClose={() => setAddressSetupOpen(false)}
-        onSaved={() => {
-          void loadWalletData();
-          setAddressSetupOpen(false);
-          setStep(addressModalEditing ? 'addresses' : 'shipping');
         }}
       />
     </>

@@ -1,22 +1,32 @@
 import { describe, expect, it } from "vitest";
 import {
   buildLiveRoomShareMetadata,
-  buildLiveRoomShareTitle,
   canonicalLiveRoomUrl,
-  formatLiveRoomCategoryDisplayName,
+  canonicalShareSiteUrl,
+  formatLiveRoomShareDescription,
+  formatLiveRoomShareOgTitle,
+  liveRoomOgImageUrl,
   resolveLiveRoomShareImageUrl,
 } from "./live-room-share-metadata";
+import { formatOgViewerLabel } from "./live-room-og-payload";
 
 describe("live-room-share-metadata", () => {
-  it("formats share title with host, category, and show name", () => {
+  it("formats og:title as host is LIVE on Get Vaulted", () => {
     expect(
-      buildLiveRoomShareTitle({
+      formatLiveRoomShareOgTitle({
         id: "room1",
         title: "Friday Night Break",
-        category: "Trading Cards",
         sellerUsername: "vaultking",
       }),
-    ).toBe("vaultking is live · Trading Cards · Friday Night Break");
+    ).toBe("vaultking is LIVE on Get Vaulted");
+  });
+
+  it("formats og:description with show title", () => {
+    expect(
+      formatLiveRoomShareDescription({
+        title: "Friday Night Break",
+      }),
+    ).toBe("Friday Night Break • Join the live auction now");
   });
 
   it("resolves relative thumbnails against the site base", () => {
@@ -27,34 +37,39 @@ describe("live-room-share-metadata", () => {
     expect(image).toBe("https://beta.shopgetvaulted.com/uploads/listings/abc.jpg");
   });
 
-  it("falls back to the default live preview image", () => {
-    const image = resolveLiveRoomShareImageUrl("", "https://beta.shopgetvaulted.com");
-    expect(image).toMatch(/^https:\/\//);
-    expect(image).toContain("unsplash.com");
-  });
-
-  it("builds canonical public room URLs", () => {
-    expect(canonicalLiveRoomUrl("abc 123", "https://beta.shopgetvaulted.com")).toBe(
-      "https://beta.shopgetvaulted.com/live/abc%20123",
+  it("builds canonical public room URLs on shopgetvaulted.com", () => {
+    expect(canonicalLiveRoomUrl("abc 123", "https://shopgetvaulted.com")).toBe(
+      "https://shopgetvaulted.com/live/abc%20123",
     );
   });
 
-  it("normalizes category labels", () => {
-    expect(formatLiveRoomCategoryDisplayName("trading_cards")).toBe("Trading Cards");
-    expect(formatLiveRoomCategoryDisplayName("Memorabilia")).toBe("Memorabilia");
+  it("defaults canonical share site to shopgetvaulted.com", () => {
+    expect(canonicalShareSiteUrl()).toBe("https://shopgetvaulted.com");
   });
 
-  it("returns full metadata payload for share-meta API", () => {
+  it("returns full metadata payload with dynamic OG image endpoint", () => {
     const meta = buildLiveRoomShareMetadata({
       id: "room1",
       title: "Vault Drop",
-      category: "Sneakers",
       sellerUsername: "seller1",
-      thumbnailUrl: "https://cdn.example.com/thumb.jpg",
     });
-    expect(meta.title).toContain("seller1 is live");
-    expect(meta.description).toContain("Get Vaulted");
-    expect(meta.image).toBe("https://cdn.example.com/thumb.jpg");
-    expect(meta.url).toContain("/live/room1");
+    expect(meta.title).toBe("seller1 is LIVE on Get Vaulted");
+    expect(meta.description).toBe("Vault Drop • Join the live auction now");
+    expect(meta.image).toContain("/api/og/live/room1");
+    expect(meta.url).toBe("https://shopgetvaulted.com/live/room1");
+  });
+
+  it("builds og image URL on deployment host", () => {
+    expect(liveRoomOgImageUrl("room1", "https://beta.shopgetvaulted.com")).toBe(
+      "https://beta.shopgetvaulted.com/api/og/live/room1",
+    );
+  });
+});
+
+describe("live-room-og-payload helpers", () => {
+  it("formats viewer counts for OG cards", () => {
+    expect(formatOgViewerLabel(842)).toBe("842 watching");
+    expect(formatOgViewerLabel(2400)).toBe("2.4k watching");
+    expect(formatOgViewerLabel(0)).toBeNull();
   });
 });

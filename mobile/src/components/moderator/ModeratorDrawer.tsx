@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -20,7 +20,9 @@ import {
   type LiveRoomTipSummary,
   type LiveRoomViewerRow,
 } from '../../api/trustRepository';
-import { canPerformModeratorAction, formatModActionLabel, isLiveRoomHostUser } from '../../lib/liveModeratorPermissions';
+import type { MentionSearchUser } from '../../api/mentionSearchRepository';
+import { UsernameMentionPicker } from '../mentions/UsernameMentionPicker';
+import { canPerformModeratorAction, formatModActionLabel } from '../../lib/liveModeratorPermissions';
 import { colors, radii, spacing } from '../../theme';
 import { ModeratorViewerActions } from './ModeratorViewerActions';
 
@@ -28,7 +30,7 @@ type TabId = 'queue' | 'viewers' | 'tips' | 'pinned' | 'announcements' | 'giveaw
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'queue', label: 'Mod Queue' },
-  { id: 'viewers', label: 'Viewers' },
+  { id: 'viewers', label: 'Find user' },
   { id: 'tips', label: 'Tips' },
   { id: 'pinned', label: 'Pinned' },
   { id: 'announcements', label: 'Announce' },
@@ -63,6 +65,14 @@ export function ModeratorDrawer({
   const [announcementBody, setAnnouncementBody] = useState('');
   const [giveawayTitle, setGiveawayTitle] = useState('');
   const [viewerAction, setViewerAction] = useState<LiveRoomViewerRow | null>(null);
+  const [viewerSearch, setViewerSearch] = useState('');
+
+  useEffect(() => {
+    if (!visible) {
+      setViewerSearch('');
+      setViewerAction(null);
+    }
+  }, [visible]);
 
   const can = (actionType: string) =>
     canPerformModeratorAction({
@@ -104,11 +114,20 @@ export function ModeratorDrawer({
         );
       case 'viewers':
         return (
-          <ViewersList
-            rows={moderation.viewers}
+          <ViewerSearchTab
+            accessToken={accessToken}
+            search={viewerSearch}
+            onChangeSearch={setViewerSearch}
             hostUserId={hostUserId}
-            onSelect={(row) => setViewerAction(row)}
-            emptyLabel="No recent chat activity yet."
+            onSelectUser={(user) => {
+              setViewerSearch('');
+              setViewerAction({
+                userId: user.id,
+                username: user.username,
+                messageCount: 0,
+                lastSeenAt: new Date().toISOString(),
+              });
+            }}
           />
         );
       case 'tips':
@@ -162,7 +181,6 @@ export function ModeratorDrawer({
   }, [
     tab,
     moderation.modQueue,
-    moderation.viewers,
     moderation.tips,
     moderation.tipSummary,
     moderation.modHistory,
@@ -254,36 +272,33 @@ function ModQueueList({ rows, emptyLabel }: { rows: LiveRoomModQueueRow[]; empty
   );
 }
 
-function ViewersList({
-  rows,
+function ViewerSearchTab({
+  accessToken,
+  search,
+  onChangeSearch,
   hostUserId,
-  onSelect,
-  emptyLabel,
+  onSelectUser,
 }: {
-  rows: LiveRoomViewerRow[];
+  accessToken?: string;
+  search: string;
+  onChangeSearch: (value: string) => void;
   hostUserId?: string;
-  onSelect: (row: LiveRoomViewerRow) => void;
-  emptyLabel: string;
+  onSelectUser: (user: MentionSearchUser) => void;
 }) {
-  if (rows.length === 0) return <Text style={styles.empty}>{emptyLabel}</Text>;
   return (
-    <>
-      {rows.map((row) => {
-        const isHost = isLiveRoomHostUser(hostUserId, row.userId);
-        return (
-          <Pressable key={row.userId} style={styles.card} onPress={() => onSelect(row)}>
-            <Text style={styles.cardTitle}>
-              @{row.username}
-              {isHost ? ' · HOST' : ''}
-            </Text>
-            <Text style={styles.cardMeta}>
-              {row.messageCount} messages · {new Date(row.lastSeenAt).toLocaleTimeString()}
-              {isHost ? ' · moderation unavailable' : ''}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </>
+    <View style={styles.formBlock}>
+      <Text style={styles.hint}>Search @username like chat mentions. Tap a user to open moderation tools.</Text>
+      <UsernameMentionPicker
+        value={search}
+        onChangeText={onChangeSearch}
+        accessToken={accessToken}
+        onSelectUser={onSelectUser}
+        placeholder="@username"
+      />
+      {hostUserId ? (
+        <Text style={styles.hint}>Host accounts cannot be moderated from this panel.</Text>
+      ) : null}
+    </View>
   );
 }
 
