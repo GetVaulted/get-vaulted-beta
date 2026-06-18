@@ -106,7 +106,7 @@ export function alertPushRegistrationResult(res: PushRegistrationResult): void {
   if (res.ok) {
     Alert.alert(
       'Notifications enabled',
-      'You will get alerts when something sells, you receive a message, or an offer comes in.',
+      'You will get alerts when something sells, you receive a message, someone tags you in live chat, or an offer comes in.',
     );
     return;
   }

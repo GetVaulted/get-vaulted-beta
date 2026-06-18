@@ -6,6 +6,9 @@ import type { HostStreamPayload, LiveRoomHostDetail } from '../../../api/liveHos
 import { fetchProfileById } from '../../../api/profilesRepository';
 import { useAuth } from '../../../auth/AuthContext';
 import { FloatingLiveChat } from '../../live/floatingLiveChat';
+import type { MentionComposerInputHandle } from '../../mentions/MentionComposerInput';
+import { appendMentionToDraft, promptLiveChatUserAction } from '../../../lib/liveChatUserActions';
+import { openUserProfile } from '../../../navigation/openPlatform';
 import { computeLiveRoomBottomStack } from '../../../lib/liveRoomBottomLayout';
 import { SellerLiveComposer } from './SellerLiveComposer';
 import { SellerLiveGestureLayer } from './SellerLiveGestureLayer';
@@ -102,6 +105,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   const [shareOpen, setShareOpen] = useState(false);
   const [shareToast, setShareToast] = useState<string | null>(null);
   const [chatDraft, setChatDraft] = useState('');
+  const chatComposerRef = useRef<MentionComposerInputHandle>(null);
   const [modDrawerOpen, setModDrawerOpen] = useState(false);
   const [modAssignOpen, setModAssignOpen] = useState(false);
   const [biddingUrgent, setBiddingUrgent] = useState(false);
@@ -229,6 +233,23 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
 
   const chatPool = liveChat.messages;
 
+  const tagUserInChat = useCallback((username: string) => {
+    setChatDraft((prev) => appendMentionToDraft(prev, username));
+    requestAnimationFrame(() => chatComposerRef.current?.focus());
+  }, []);
+
+  const onPressChatUser = useCallback(
+    (user: { username: string; userId?: string }) => {
+      promptLiveChatUserAction({
+        username: user.username,
+        userId: user.userId,
+        onTag: tagUserInChat,
+        onViewProfile: user.userId ? (userId) => openUserProfile(userId) : undefined,
+      });
+    },
+    [tagUserInChat],
+  );
+
   const sendHostChat = useCallback(async () => {
     const text = chatDraft.trim();
     if (!text || liveChat.sending) return;
@@ -236,9 +257,14 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
       Alert.alert('Chat unavailable', 'Chat is closed for this show.');
       return;
     }
+    chatComposerRef.current?.dismissSuggestions();
     try {
       const ok = await liveChat.send(text);
-      if (ok) setChatDraft('');
+      if (ok) {
+        setChatDraft('');
+        chatComposerRef.current?.blur();
+        Keyboard.dismiss();
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       Alert.alert('Chat', msg);
@@ -345,6 +371,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
           void moderation.reload();
           void console.loadOnce();
         }}
+        onPressChatUser={onPressChatUser}
       />
 
       <SellerLivePinnedOverlay
@@ -378,6 +405,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         inputDisabled={host.room?.status === 'ended'}
         placeholder={canHostChat ? 'Say something' : 'Chat unavailable'}
         accessToken={accessToken}
+        inputRef={chatComposerRef}
         leadingAccessory={
           <>
             {showModeratorTools(moderation.isModerator) ? (

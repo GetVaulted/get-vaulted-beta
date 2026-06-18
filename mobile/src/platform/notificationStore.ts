@@ -197,6 +197,7 @@ const LAYAWAY_SERVER_TYPES = new Set([
 ]);
 
 function serverTypeToKind(type: string): NotificationKind {
+  if (type === 'chat_mention') return 'message';
   if (LAYAWAY_SERVER_TYPES.has(type)) return 'layaway';
   if (type === 'message_received') return 'message';
   if (type.includes('counter')) return 'counter';
@@ -219,6 +220,10 @@ function parseReferenceFromHref(href: string): { referenceType?: string; referen
   const sellerOrder = path.match(/\/sales\/([^/]+)/);
   if (sellerOrder?.[1] && sellerOrder[1] !== 'layaways') {
     return { referenceType: 'order', referenceId: decodeURIComponent(sellerOrder[1]) };
+  }
+  const liveRoom = path.match(/^\/live\/([^/]+)/);
+  if (liveRoom?.[1]) {
+    return { referenceType: 'live_room', referenceId: decodeURIComponent(liveRoom[1]) };
   }
   return {};
 }

@@ -55,6 +55,8 @@ import {
   FloatingChatComposer,
   FloatingLiveChat,
 } from './floatingLiveChat';
+import type { MentionComposerInputHandle } from '../mentions/MentionComposerInput';
+import { appendMentionToDraft, promptLiveChatUserAction } from '../../lib/liveChatUserActions';
 import { LiveTipSheet } from './LiveTipSheet';
 import { LivePinnedActionBar } from './LivePinnedActionBar';
 import { LivePaymentFailureModal } from './LivePaymentFailureModal';
@@ -184,6 +186,7 @@ function LiveSlide({
   const [modDrawerOpen, setModDrawerOpen] = useState(false);
   const [modAssignOpen, setModAssignOpen] = useState(false);
   const [modActionMessage, setModActionMessage] = useState<ChatMessage | null>(null);
+  const chatComposerRef = useRef<MentionComposerInputHandle>(null);
 
   const leaveRoomSafely = useCallback(() => {
     if (stackNav.canGoBack()) {
@@ -316,6 +319,23 @@ function LiveSlide({
     chatBottom: bottomStack.chatBottom,
   });
 
+  const tagUserInChat = useCallback((username: string) => {
+    setChatDraft((prev) => appendMentionToDraft(prev, username));
+    requestAnimationFrame(() => chatComposerRef.current?.focus());
+  }, []);
+
+  const onPressChatUser = useCallback(
+    (user: { username: string; userId?: string }) => {
+      promptLiveChatUserAction({
+        username: user.username,
+        userId: user.userId,
+        onTag: tagUserInChat,
+        onViewProfile: user.userId ? (userId) => openUserProfile(userId) : undefined,
+      });
+    },
+    [tagUserInChat],
+  );
+
   const sendFloatingChat = useCallback(async () => {
     if (!signedIn) {
       onRequireAuth?.();
@@ -327,9 +347,14 @@ function LiveSlide({
     }
     const t = chatDraft.trim();
     if (!t || liveChat.sending) return;
+    chatComposerRef.current?.dismissSuggestions();
     try {
       const ok = await liveChat.send(t);
-      if (ok) setChatDraft('');
+      if (ok) {
+        setChatDraft('');
+        chatComposerRef.current?.blur();
+        Keyboard.dismiss();
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       moderation.handleRestrictionError(msg);
@@ -657,7 +682,7 @@ function LiveSlide({
           void liveChat.reload();
           void moderation.reload();
         }}
-        onPressMentionUser={(userId) => openUserProfile(userId)}
+        onPressChatUser={onPressChatUser}
       />
 
       {showModeratorTools(moderation.isModerator) && accessToken ? (
@@ -741,6 +766,7 @@ function LiveSlide({
         onSend={sendFloatingChat}
         sendDisabled={liveChat.sending || breakParticipationBlocked}
         accessToken={accessToken}
+        inputRef={chatComposerRef}
         leadingAccessory={
           <>
             {showModeratorTools(moderation.isModerator) ? (

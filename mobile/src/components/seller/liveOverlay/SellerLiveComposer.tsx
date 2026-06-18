@@ -1,9 +1,10 @@
-import { useRef, type ReactNode } from 'react';
+import { useRef, type ReactNode, type RefObject } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import {
   COMPOSER_BAR_H,
   FloatingChatComposer,
 } from '../../live/floatingLiveChat';
+import type { MentionComposerInputHandle } from '../../mentions/MentionComposerInput';
 import { colors } from '../../../theme';
 
 export function SellerLiveComposer({
@@ -18,6 +19,7 @@ export function SellerLiveComposer({
   accessToken,
   leadingAccessory,
   placeholder,
+  inputRef,
 }: {
   bottom: number;
   left: number;
@@ -30,6 +32,7 @@ export function SellerLiveComposer({
   accessToken?: string;
   leadingAccessory?: ReactNode;
   placeholder?: string;
+  inputRef?: RefObject<MentionComposerInputHandle | null>;
 }) {
   const glow = useRef(new Animated.Value(0)).current;
   const active = value.trim().length > 0;
@@ -78,6 +81,7 @@ export function SellerLiveComposer({
           placeholder={placeholder}
           accessToken={accessToken}
           leadingAccessory={leadingAccessory}
+          inputRef={inputRef}
         />
       </View>
     </Animated.View>

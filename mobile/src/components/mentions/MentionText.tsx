@@ -25,12 +25,12 @@ export function MentionText({ body, mentions = [], style, mentionStyle, onPressU
           return <Text key={`t-${i}`}>{seg.value}</Text>;
         }
         const label = `@${seg.username}`;
-        if (seg.userId && onPressUser) {
+        if (onPressUser) {
           return (
             <Text
               key={`m-${i}`}
               style={mentionStyles}
-              onPress={() => onPressUser(seg.userId!, seg.username)}
+              onPress={() => onPressUser(seg.userId ?? '', seg.username)}
             >
               {label}
             </Text>

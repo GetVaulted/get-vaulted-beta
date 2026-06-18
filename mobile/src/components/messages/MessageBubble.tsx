@@ -31,7 +31,7 @@ export function MessageBubble({
           body={message.body}
           mentions={message.mentions}
           style={[styles.body, isMine && styles.bodyMine]}
-          onPressUser={onPressMentionUser ? (userId) => onPressMentionUser(userId) : undefined}
+          onPressUser={onPressMentionUser ? (userId) => { if (userId) onPressMentionUser(userId); } : undefined}
         />
       </View>
     </View>

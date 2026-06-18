@@ -24,19 +24,25 @@ async function loadExpoPushTokens(userId: string): Promise<string[]> {
 
   const rows = await prisma.pushDeviceToken.findMany({
     where: { userId },
-    select: { expoPushToken: true },
+    select: { expoPushToken: true, supabaseAuthUserId: true },
   });
-  for (const row of rows) tokens.add(row.expoPushToken);
+  const supabaseAuthUserIds = new Set<string>();
+  for (const row of rows) {
+    if (row.expoPushToken) tokens.add(row.expoPushToken);
+    if (row.supabaseAuthUserId) supabaseAuthUserIds.add(row.supabaseAuthUserId);
+  }
 
   const admin = getSupabaseAdminClient();
   if (admin) {
-    const { data } = await admin
-      .from("push_device_tokens")
-      .select("expo_push_token")
-      .eq("user_id", userId);
-    for (const row of data ?? []) {
-      if (typeof row.expo_push_token === "string" && row.expo_push_token.trim()) {
-        tokens.add(row.expo_push_token.trim());
+    for (const authUserId of supabaseAuthUserIds) {
+      const { data } = await admin
+        .from("push_device_tokens")
+        .select("expo_push_token")
+        .eq("user_id", authUserId);
+      for (const row of data ?? []) {
+        if (typeof row.expo_push_token === "string" && row.expo_push_token.trim()) {
+          tokens.add(row.expo_push_token.trim());
+        }
       }
     }
   }
@@ -75,6 +81,7 @@ export async function sendExpoPushForUser(payload: ExpoPushPayload): Promise<voi
         notificationId: payload.notificationId ?? "",
       },
       channelId: "vault-default",
+      priority: payload.type === "chat_mention" ? "high" : undefined,
     }));
 
     const chunks = client.chunkPushNotifications(messages);

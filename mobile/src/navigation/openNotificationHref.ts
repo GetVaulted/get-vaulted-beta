@@ -83,6 +83,15 @@ export function openNotificationHref(
     return true;
   }
 
+  const liveMatch = path.match(/^\/live\/([^/]+)/);
+  if (liveMatch?.[1]) {
+    n.navigate('MainTabs', {
+      screen: 'Live',
+      params: { screen: 'LiveRoom', params: { streamId: decodeURIComponent(liveMatch[1]) } },
+    });
+    return true;
+  }
+
   if (path.startsWith('/account/listings') || ctx?.type === 'item_sold' || ctx?.type === 'seller_ready_to_ship') {
     n.navigate('MainTabs', { screen: 'HQ' });
     return true;

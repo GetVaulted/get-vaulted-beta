@@ -58,9 +58,11 @@ export async function processMessageMentions(args: ProcessArgs): Promise<Message
 
   const users = await args.db.user.findMany({
     where: {
-      username: { in: usernames },
       suspendedAt: null,
       accountDeletedAt: null,
+      OR: usernames.map((username) => ({
+        username: { equals: username, mode: "insensitive" },
+      })),
     },
     select: { id: true, username: true },
   });
@@ -70,6 +72,15 @@ export async function processMessageMentions(args: ProcessArgs): Promise<Message
   for (const name of usernames) {
     const user = byUsername.get(name);
     if (user) uniqueById.set(user.id, user);
+  }
+
+  let liveRoomTitle: string | null = null;
+  if (args.liveRoomId) {
+    const room = await args.db.liveRoom.findUnique({
+      where: { id: args.liveRoomId },
+      select: { title: true },
+    });
+    liveRoomTitle = room?.title?.trim() || null;
   }
 
   const saved: MessageMentionDTO[] = [];
@@ -103,11 +114,19 @@ export async function processMessageMentions(args: ProcessArgs): Promise<Message
     });
     if (!shouldNotify) continue;
 
+    const mentionTitle =
+      args.sourceType === "live_room_message"
+        ? `@${args.senderUsername} tagged you in live chat`
+        : `@${args.senderUsername} mentioned you`;
+    const mentionBody = liveRoomTitle
+      ? `${liveRoomTitle}: ${preview}`
+      : `${args.notifyContext}: ${preview}`;
+
     await createNotification(args.db, {
       userId: user.id,
       type: "chat_mention",
-      title: `@${args.senderUsername} mentioned you`,
-      body: `${args.notifyContext}: ${preview}`,
+      title: mentionTitle,
+      body: mentionBody,
       href: args.notifyHref,
     });
   }

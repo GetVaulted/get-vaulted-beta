@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import {
   Image,
   Platform,
@@ -8,7 +8,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -26,7 +25,7 @@ import {
 } from '../../lib/liveRoomChatMessages';
 import { liveChatUsernameInitial } from '../../lib/liveChatAvatar';
 import { LIVE_ROOM_TEXT_PROPS } from '../../lib/liveRoomUiScale';
-import { MentionComposerInput } from '../mentions/MentionComposerInput';
+import { MentionComposerInput, type MentionComposerInputHandle } from '../mentions/MentionComposerInput';
 import { MentionText } from '../mentions/MentionText';
 import { LiveRoomText } from './LiveRoomText';
 import { LiveChatRowActions } from '../trust/LiveChatRowActions';
@@ -136,7 +135,7 @@ function FloatingChatRow({
   onLongPressMessage,
   onModerationComplete,
   compact,
-  onPressMentionUser,
+  onPressChatUser,
 }: {
   message: ChatMessage;
   hostAvatarUrl?: string | null;
@@ -150,7 +149,7 @@ function FloatingChatRow({
   onLongPressMessage?: (message: ChatMessage) => void;
   onModerationComplete?: () => void;
   compact?: boolean;
-  onPressMentionUser?: (userId: string) => void;
+  onPressChatUser?: (user: { username: string; userId?: string }) => void;
 }) {
   if (isViewerEventMessage(message)) {
     const name = formatViewerEventName(message.user);
@@ -165,6 +164,7 @@ function FloatingChatRow({
   }
 
   const name = formatChatDisplayName(message.user);
+  const chatUser = { username: message.user, userId: message.senderId };
   const showBuyerActions =
     !canModerate &&
     message.messageType === 'chat' &&
@@ -186,14 +186,23 @@ function FloatingChatRow({
       <ChatAvatarBubble message={message} hostAvatarUrl={hostAvatarUrl} compact={compact} />
       <View style={styles.chatTextWrap}>
         <LiveRoomText style={[styles.inlineLine, compact && styles.inlineLineCompact]} numberOfLines={3}>
-          <LiveRoomText style={[styles.username, message.isHost && styles.usernameGold]}>{name}</LiveRoomText>
+          <LiveRoomText
+            style={[styles.username, message.isHost && styles.usernameGold]}
+            onPress={onPressChatUser ? () => onPressChatUser(chatUser) : undefined}
+          >
+            {name}
+          </LiveRoomText>
           {message.isHost ? <LiveRoomText style={styles.hostBadgeInline}> HOST</LiveRoomText> : null}
           <LiveRoomText style={styles.messageBody}> </LiveRoomText>
           <MentionText
             body={message.text}
             mentions={message.mentions}
             style={styles.messageBody}
-            onPressUser={onPressMentionUser ? (userId) => onPressMentionUser(userId) : undefined}
+            onPressUser={
+              onPressChatUser
+                ? (userId, username) => onPressChatUser({ userId: userId || undefined, username })
+                : undefined
+            }
           />
         </LiveRoomText>
       </View>
@@ -231,7 +240,7 @@ export function FloatingLiveChat({
   onLongPressMessage,
   onModerationComplete,
   compact = false,
-  onPressMentionUser,
+  onPressChatUser,
 }: {
   pool: ChatMessage[];
   hostAvatarUrl?: string | null;
@@ -251,7 +260,7 @@ export function FloatingLiveChat({
   onLongPressMessage?: (message: ChatMessage) => void;
   onModerationComplete?: () => void;
   compact?: boolean;
-  onPressMentionUser?: (userId: string) => void;
+  onPressChatUser?: (user: { username: string; userId?: string }) => void;
 }) {
   const history = useMemo(() => prepareChatMessageHistory(pool), [pool]);
   const scrollRef = useRef<ScrollView>(null);
@@ -303,7 +312,7 @@ export function FloatingLiveChat({
             onLongPressMessage={onLongPressMessage}
             onModerationComplete={onModerationComplete}
             compact={compact}
-            onPressMentionUser={onPressMentionUser}
+            onPressChatUser={onPressChatUser}
           />
         ))}
       </ScrollView>
@@ -331,6 +340,7 @@ export function FloatingChatComposer({
   accessToken,
   leadingAccessory,
   placeholder = COMPOSER_PLACEHOLDER,
+  inputRef,
 }: {
   bottom: number;
   left: number;
@@ -344,13 +354,17 @@ export function FloatingChatComposer({
   accessToken?: string;
   leadingAccessory?: ReactNode;
   placeholder?: string;
+  inputRef?: RefObject<MentionComposerInputHandle | null>;
 }) {
   const submitLockRef = useRef(false);
+  const localInputRef = useRef<MentionComposerInputHandle>(null);
+  const composerRef = inputRef ?? localInputRef;
   const canSend = !sendDisabled && value.trim().length > 0;
   const editable = !inputDisabled;
 
   const handleSend = async () => {
     if (submitLockRef.current || sendDisabled || !value.trim()) return;
+    composerRef.current?.dismissSuggestions();
     submitLockRef.current = true;
     try {
       await onSend();
@@ -367,6 +381,7 @@ export function FloatingChatComposer({
       {leadingAccessory}
       <View style={[styles.composerPill, leadingAccessory ? styles.composerPillWithLeading : null]}>
         <MentionComposerInput
+          ref={composerRef}
           style={styles.composerInput}
           value={value}
           onChangeText={onChangeText}
@@ -374,6 +389,7 @@ export function FloatingChatComposer({
           placeholder={placeholder}
           placeholderTextColor="rgba(255,255,255,0.48)"
           returnKeyType="send"
+          enablesReturnKeyAutomatically
           blurOnSubmit={false}
           onSubmitEditing={() => void handleSend()}
           editable={editable}
