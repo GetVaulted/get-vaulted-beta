@@ -45,12 +45,30 @@ export function canPerformModeratorAction(args: {
   return LEVEL_RANK[level] >= LEVEL_RANK[required];
 }
 
-/** Assigned moderators cannot perform punitive actions on the show host. */
+/** True when the target is the live show host/seller — the only user mods cannot punish. */
 export function isLiveRoomHostUser(
   hostUserId: string | undefined,
   targetUserId: string | undefined,
 ): boolean {
   return Boolean(hostUserId && targetUserId && hostUserId === targetUserId);
+}
+
+/** Host protection for chat rows — seller id match and/or host badge on the message. */
+export function isProtectedShowHost(args: {
+  hostUserId?: string;
+  targetUserId?: string;
+  messageIsHost?: boolean;
+}): boolean {
+  if (args.messageIsHost) return true;
+  return isLiveRoomHostUser(args.hostUserId, args.targetUserId);
+}
+
+/** Resolve canonical show host id (seller) for moderation guards. */
+export function resolveShowHostUserId(
+  sellerId: string | undefined,
+  fallbackHostUserId: string | undefined,
+): string | undefined {
+  return sellerId?.trim() || fallbackHostUserId?.trim() || undefined;
 }
 
 /** Mod tools shield — explicit moderator assignment only (not host/seller/creator by default). */

@@ -24,6 +24,7 @@ import {
   prepareChatMessageHistory,
 } from '../../lib/liveRoomChatMessages';
 import { liveChatUsernameInitial } from '../../lib/liveChatAvatar';
+import { isProtectedShowHost } from '../../lib/liveModeratorPermissions';
 import { LIVE_ROOM_TEXT_PROPS } from '../../lib/liveRoomUiScale';
 import { MentionComposerInput, type MentionComposerInputHandle } from '../mentions/MentionComposerInput';
 import { MentionText } from '../mentions/MentionText';
@@ -180,17 +181,22 @@ function FloatingChatRow({
 
   const name = formatChatDisplayName(message.user);
   const chatUser = { username: message.user, userId: message.senderId };
+  const protectedHost = isProtectedShowHost({
+    hostUserId,
+    targetUserId: message.senderId,
+    messageIsHost: message.isHost,
+  });
   const showBuyerActions =
     !canModerate &&
     message.messageType === 'chat' &&
     liveRoomId &&
     message.senderId &&
-    (!hostUserId || message.senderId !== hostUserId);
+    !protectedHost;
   const showModLongPress =
     Boolean(isModerator) &&
     message.messageType === 'chat' &&
     message.senderId &&
-    (!hostUserId || message.senderId !== hostUserId);
+    !protectedHost;
 
   return (
     <Pressable

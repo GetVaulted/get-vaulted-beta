@@ -13,7 +13,7 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import { applyLiveModerationAction } from '../../api/trustRepository';
 import type { LiveModeratorLevel } from '../../api/trustRepository';
-import { canPerformModeratorAction, isLiveRoomHostUser, TIMEOUT_MINUTES } from '../../lib/liveModeratorPermissions';
+import { canPerformModeratorAction, isProtectedShowHost, TIMEOUT_MINUTES } from '../../lib/liveModeratorPermissions';
 import { openUserProfile } from '../../navigation/openPlatform';
 import { colors, radii, spacing } from '../../theme';
 import { ReportSheet } from '../trust/ReportSheet';
@@ -32,6 +32,7 @@ type Props = {
   senderId?: string;
   senderUsername: string;
   hostUserId?: string;
+  messageIsHost?: boolean;
   onComplete?: () => void;
 };
 
@@ -56,11 +57,12 @@ export function ModeratorActionSheet(props: Props) {
     senderId,
     senderUsername,
     hostUserId,
+    messageIsHost,
     onComplete,
   } = props;
 
   const [reportOpen, setReportOpen] = useState(false);
-  const isHostMessage = isLiveRoomHostUser(hostUserId, senderId);
+  const isHostMessage = isProtectedShowHost({ hostUserId, targetUserId: senderId, messageIsHost });
   const canMod = isModerator;
 
   const runAction = async (actionType: string, metadata?: Record<string, unknown>) => {

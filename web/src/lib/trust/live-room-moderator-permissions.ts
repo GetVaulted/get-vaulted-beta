@@ -76,7 +76,7 @@ const HOST_REVERSIBLE_ACTIONS = new Set<LiveRoomModerationActionType>([
   "unblock_bidding",
 ]);
 
-/** Assigned moderators (non-admin) cannot mute/kick/ban/delete messages for the show host. */
+/** Assigned moderators (non-admin) cannot punish the show host/seller; all other users remain fair game. */
 export function isModeratorActionBlockedOnHost(args: {
   actionType: LiveRoomModerationActionType;
   targetUserId: string | null | undefined;

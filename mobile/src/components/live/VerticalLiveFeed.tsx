@@ -42,7 +42,7 @@ import { liveRoomChatOpen } from '../../lib/liveRoomChatPolicy';
 import { useLiveRoomRealtimeSession } from '../../hooks/useLiveRoomRealtimeSession';
 import { BreakDisclaimerModal, breakDisclaimerStorageKey, readBreakDisclaimerAccepted, writeBreakDisclaimerAccepted } from './BreakDisclaimerModal';
 import { useLiveRoomModeration } from '../../hooks/useLiveRoomModeration';
-import { showModeratorTools } from '../../lib/liveModeratorPermissions';
+import { resolveShowHostUserId, showModeratorTools } from '../../lib/liveModeratorPermissions';
 import { ModeratorActionSheet } from '../moderator/ModeratorActionSheet';
 import { ModeratorDrawer } from '../moderator/ModeratorDrawer';
 import { HostModeratorAssignSheet } from '../moderator/HostModeratorAssignSheet';
@@ -263,6 +263,10 @@ function LiveSlide({
     accessToken,
     enabled: isActive,
   });
+  const showHostUserId = useMemo(
+    () => resolveShowHostUserId(moderation.sellerId, stream.host.id),
+    [moderation.sellerId, stream.host.id],
+  );
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -664,7 +668,7 @@ function LiveSlide({
       <FloatingLiveChat
         pool={chatPool}
         hostAvatarUrl={stream.host.avatarUrl}
-        hostUserId={stream.host.id}
+        hostUserId={showHostUserId}
         bottom={bottomStack.chatBottom}
         left={spacing.lg}
         rightEdge={chatRightEdge}
@@ -691,7 +695,7 @@ function LiveSlide({
           visible={modDrawerOpen}
           onClose={() => setModDrawerOpen(false)}
           liveRoomId={stream.id}
-          hostUserId={stream.host.id}
+          hostUserId={showHostUserId}
           accessToken={accessToken}
           moderation={moderation}
           onRefresh={() => {
@@ -708,7 +712,7 @@ function LiveSlide({
           liveRoomId={stream.id}
           accessToken={accessToken}
           moderation={moderation}
-          hostUserId={stream.host.id}
+          hostUserId={showHostUserId}
           onRefresh={() => void moderation.reload()}
         />
       ) : null}
@@ -727,7 +731,8 @@ function LiveSlide({
           messageText={modActionMessage.text}
           senderId={modActionMessage.senderId}
           senderUsername={modActionMessage.user}
-          hostUserId={stream.host.id}
+          hostUserId={showHostUserId}
+          messageIsHost={modActionMessage.isHost}
           onComplete={() => {
             setModActionMessage(null);
             void liveChat.reload();
