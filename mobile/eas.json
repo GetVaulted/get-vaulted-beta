@@ -24,7 +24,9 @@
       "env": {
         "EXPO_PUBLIC_SITE_URL": "https://beta.shopgetvaulted.com",
         "EXPO_PUBLIC_SHARE_SITE_URL": "https://shopgetvaulted.com",
-        "EXPO_PUBLIC_AUTH_APPLE_ENABLED": "true"
+        "EXPO_PUBLIC_AUTH_APPLE_ENABLED": "true",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://xkaaicokjgmpbctfermj.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_KS2VWV2UL3qH0PRkBcBX9A_mC-WzF46"
       }
     }
   },

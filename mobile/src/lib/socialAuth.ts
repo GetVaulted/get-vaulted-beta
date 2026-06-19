@@ -9,7 +9,7 @@ import {
   isGoogleOAuthConfigured,
 } from './authProviderAvailability';
 import { provisionSocialAuthAccount } from './provisionSocialAuthAccount';
-import { getSupabase, isSupabaseConfigured } from './supabase';
+import { ensureSupabaseReady, getSupabase, isSupabaseConfigured } from './supabase';
 import { getWebApiBaseUrl } from './webApiBaseUrl';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -42,6 +42,7 @@ export async function signInWithGoogleOAuth(): Promise<SocialAuthResult> {
   if (!isGoogleOAuthConfigured()) {
     throw new Error(googleOAuthNotConfiguredMessage());
   }
+  await ensureSupabaseReady();
   if (!isSupabaseConfigured()) {
     throw new Error('Supabase is not configured (EXPO_PUBLIC_SUPABASE_URL / ANON_KEY).');
   }
@@ -98,6 +99,7 @@ export async function signInWithAppleOAuth(): Promise<SocialAuthResult> {
   const available = await AppleAuthentication.isAvailableAsync();
   if (!available) throw new Error('Apple Sign In is not available on this device.');
 
+  await ensureSupabaseReady();
   if (!isSupabaseConfigured()) {
     throw new Error('Supabase is not configured.');
   }

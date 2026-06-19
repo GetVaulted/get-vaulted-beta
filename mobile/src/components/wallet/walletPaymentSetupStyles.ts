@@ -305,6 +305,9 @@ export const walletPaymentSetupStyles = StyleSheet.create({
   pickerRowLast: {
     borderBottomWidth: 0,
   },
+  pickerRowDisabled: {
+    opacity: 0.45,
+  },
   pickerIconWrap: {
     width: 40,
     height: 40,

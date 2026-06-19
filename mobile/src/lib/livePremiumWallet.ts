@@ -25,9 +25,9 @@ export function liveAcceptedWalletMethods(
   return WALLET_SAVABLE_METHOD_CATALOG.filter((entry) => {
     if (!entry.eligibility.includes('live')) return false;
     if (!shouldShowWalletCatalogEntry(entry, platform)) return false;
-    if (entry.id === 'link' && capabilities && !capabilities.link) return false;
-    if (entry.id === 'cash_app_pay' && capabilities && !capabilities.cashAppPay) return false;
-    if (entry.id === 'amazon_pay' && capabilities && !capabilities.amazonPay) return false;
+    if (entry.id === 'link' && !capabilities?.link) return false;
+    if (entry.id === 'cash_app_pay' && !capabilities?.cashAppPay) return false;
+    if (entry.id === 'amazon_pay' && !capabilities?.amazonPay) return false;
     return true;
   });
 }

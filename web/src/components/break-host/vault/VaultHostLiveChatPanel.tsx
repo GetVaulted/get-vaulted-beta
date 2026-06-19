@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
+import { useChatScrollToBottom } from "@/hooks/useChatScrollToBottom";
 import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { resolvePinnedModeratorUsername } from "@/lib/trust/resolve-pinned-moderator-username";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
@@ -76,7 +77,6 @@ export function VaultHostLiveChatPanel({
   variant = "overlay",
   uiDimmed = false,
 }: VaultHostLiveChatPanelProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<"chat" | "watching">("chat");
   const mod = useLiveRoomModerationState(liveRoomId, Boolean(liveRoomId));
   const pinnedModeratorUsername =
@@ -89,6 +89,7 @@ export function VaultHostLiveChatPanel({
     hostUserId && mod.pinnedModeratorUserId && mod.pinnedModeratorUserId === hostUserId,
   );
   const visibleMessages = useMemo(() => messages.slice(-120), [messages]);
+  const chatScroll = useChatScrollToBottom(visibleMessages.length, tab === "chat");
 
   const recentChatters = useMemo(() => {
     const chatOnly = messages.filter((m) => m.messageType === "chat");
@@ -102,16 +103,6 @@ export function VaultHostLiveChatPanel({
     }
     return out;
   }, [messages]);
-
-  useEffect(() => {
-    if (tab !== "chat") return;
-    const el = scrollRef.current;
-    if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    if (nearBottom || visibleMessages.length <= 1) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [visibleMessages, tab]);
 
   const shellClass =
     variant === "sidebar"
@@ -160,7 +151,8 @@ export function VaultHostLiveChatPanel({
       {(showTabs ? tab === "chat" : true) ? (
         <>
           <div
-            ref={scrollRef}
+            ref={chatScroll.ref}
+            onScroll={chatScroll.onScroll}
             data-testid="host-live-chat-messages"
             className={`chat-messages min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [-webkit-overflow-scrolling:touch] touch-pan-y ${msgListClass}`}
           >
@@ -206,7 +198,7 @@ export function VaultHostLiveChatPanel({
                         </span>
                       ) : null}
                       <span className="text-zinc-500">: </span>
-                      <span className={isSystem || isBid ? "font-semibold text-amber-50" : isPurchase ? "font-semibold text-emerald-100" : "text-zinc-100"}>
+                      <span className={`ml-1 ${isSystem || isBid ? "font-semibold text-amber-50" : isPurchase ? "font-semibold text-emerald-100" : "text-zinc-100"}`}>
                         <MentionText body={m.body} mentions={m.mentions} />
                       </span>
                       {m.messageType === "chat" && m.senderId !== hostUserId ? (

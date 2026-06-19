@@ -1,7 +1,8 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useChatScrollToBottom } from "@/hooks/useChatScrollToBottom";
 import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { appendLiveRoomMessageDedupe } from "@/lib/realtime-merge-messages";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
@@ -154,16 +155,8 @@ export function LiveAuctionChat({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const overlayScrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = overlayScrollRef.current;
-    if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
-    if (nearBottom || chatMessages.length <= 1) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [chatMessages]);
+  const overlayScroll = useChatScrollToBottom(chatMessages.length, overlayMode);
+  const panelScroll = useChatScrollToBottom(chatMessages.length, scrollMessages && !overlayMode);
 
   const send = useCallback(async () => {
     const text = draft.trim();
@@ -238,7 +231,8 @@ export function LiveAuctionChat({
         <div className="pointer-events-auto flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
           {blockedBanner}
           <div
-            ref={overlayScrollRef}
+            ref={overlayScroll.ref}
+            onScroll={overlayScroll.onScroll}
             data-testid="live-chat-messages"
             className="chat-messages min-h-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden overscroll-contain bg-transparent px-1 py-1 [-webkit-overflow-scrolling:touch] touch-pan-y"
           >
@@ -289,7 +283,7 @@ export function LiveAuctionChat({
                       </span>
                     ) : null}
                     <span className="text-zinc-400">: </span>
-                    <span className={isSystem ? "text-zinc-100" : "text-zinc-50"}>
+                    <span className={`ml-1 ${isSystem ? "text-zinc-100" : "text-zinc-50"}`}>
                       <MentionText body={m.body} mentions={m.mentions} />
                     </span>
                     {renderMessageActions(m)}
@@ -364,6 +358,8 @@ export function LiveAuctionChat({
       </div>
       {blockedBanner}
       <div
+        ref={scrollMessages ? panelScroll.ref : undefined}
+        onScroll={scrollMessages ? panelScroll.onScroll : undefined}
         data-testid="live-chat-messages"
         className={`chat-messages space-y-2 overflow-x-hidden overscroll-contain [-webkit-overflow-scrolling:touch] touch-pan-y ${compact ? "p-2.5" : "p-4"} ${
           scrollMessages
@@ -414,7 +410,7 @@ export function LiveAuctionChat({
                     </span>
                   ) : null}
                   <span className="text-zinc-600">: </span>
-                  <span className={isSystem ? "text-zinc-200" : "text-zinc-300"}>
+                  <span className={`ml-1 ${isSystem ? "text-zinc-200" : "text-zinc-300"}`}>
                     <MentionText body={m.body} mentions={m.mentions} />
                   </span>
                   {renderMessageActions(m)}

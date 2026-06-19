@@ -41,7 +41,6 @@ export function HostVariantCommerceStage({
       <div className="pointer-events-none absolute inset-x-0 bottom-28 z-[14] hidden justify-center px-4 min-[1400px]:flex">
         <LiveVariantSpotBoard
           item={activeBoardRow.item}
-          pinned
           hostMode
           minimized={commerceMinimized}
           onToggleMinimized={onToggleCommerceMinimized}

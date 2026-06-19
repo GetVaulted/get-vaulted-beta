@@ -1221,7 +1221,8 @@ export function LiveSaleRoom({
     liveRoomId,
     hostSellerId: sellerId,
     onBack: () => router.back(),
-    centerOverlay: activeHasVariants && activeDb ? <LiveVariantSpotBoard item={activeDb} /> : undefined,
+    centerOverlay:
+      isHost && activeHasVariants && activeDb ? <LiveVariantSpotBoard item={activeDb} hostMode /> : undefined,
     onNotifyMe: () => redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`),
     streamPlaybackRefreshNonce,
     viewerAuthenticated: status === "authenticated",

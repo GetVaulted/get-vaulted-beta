@@ -1,9 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Image } from 'expo-image';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Modal,
   Pressable,
   ScrollView,
@@ -15,15 +14,21 @@ import type { LiveItemVariantSnapshot } from '../../api/liveRoomBuyerRepository'
 import { purchaseLiveItemVariant } from '../../api/liveVariantPurchaseRepository';
 import { isWalletIncompleteError } from '../../lib/buyerWalletErrors';
 import {
-  isLightSpotAccent,
-  spotAccentColor,
-  teamAbbrForVariant,
-} from '../../lib/liveBreakPresets';
-import { variantIsAvailable, type LiveItemSalesFormat } from '../../lib/liveItemVariant';
+  sortVariantsForBuyerDisplay,
+  summarizeVariantSpots,
+  variantIsAvailable,
+  variantSelectSpotLabel,
+  type LiveItemSalesFormat,
+} from '../../lib/liveItemVariant';
 import { colors, radii, spacing } from '../../theme';
+import { WalletNativePayButton } from '../wallet/WalletNativePayButton';
 import { HoldToBidButton } from './HoldToBidButton';
 import { LiveRoomText } from './LiveRoomText';
 
+/**
+ * Buyer checkout bottom sheet for PYT (variant_selection) and PYD (team_break).
+ * This is the only buyer-facing spot picker — do not add a center team board for buyers.
+ */
 type Props = {
   visible: boolean;
   onClose: () => void;
@@ -37,6 +42,7 @@ type Props = {
   walletReady: boolean;
   onWalletRequired: () => void;
   onPurchased: () => void;
+  stripePublishableKey?: string | null;
 };
 
 function fmtMoney(n: number) {
@@ -49,51 +55,66 @@ export function LiveBreakSpotGridSheet({
   roomId,
   itemId,
   title,
+  imageUrl,
   salesFormat,
   variants,
   accessToken,
   walletReady,
   onWalletRequired,
   onPurchased,
+  stripePublishableKey,
 }: Props) {
   const insets = useSafeAreaInsets();
   const isDivisionBreak = salesFormat === 'team_break';
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [quantity, setQuantity] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const availableVariants = useMemo(
-    () =>
-      variants
-        .filter(variantIsAvailable)
-        .sort((a, b) => {
-          if (a.isHot !== b.isHot) return a.isHot ? -1 : 1;
-          return a.sortOrder - b.sortOrder;
-        }),
-    [variants],
-  );
+  const sortedVariants = useMemo(() => sortVariantsForBuyerDisplay(variants), [variants]);
+  const spotSummary = useMemo(() => summarizeVariantSpots(variants), [variants]);
+  const selected = sortedVariants.find((v) => v.id === selectedId) ?? null;
+  const pickerBaseLabel = variantSelectSpotLabel(salesFormat);
 
-  const soldCount = variants.length - availableVariants.length;
-  const selected = availableVariants.find((v) => v.id === selectedId) ?? null;
+  const unitPrice = selected?.priceUsd ?? spotSummary.fromPriceUsd ?? 0;
+  const maxQty = selected ? Math.max(1, selected.quantityRemaining) : 1;
+
+  const total = useMemo(() => {
+    if (!selected) return 0;
+    return Math.round(selected.priceUsd * quantity * 100) / 100;
+  }, [quantity, selected]);
 
   useEffect(() => {
     if (!visible) {
       setSelectedId(null);
+      setQuantity(1);
       setError(null);
       setBusy(false);
       return;
     }
-    if (selectedId && !availableVariants.some((v) => v.id === selectedId)) {
+    if (selectedId && !sortedVariants.some((v) => v.id === selectedId && variantIsAvailable(v))) {
       setSelectedId(null);
+      setQuantity(1);
     }
-  }, [availableVariants, selectedId, visible]);
+  }, [selectedId, sortedVariants, visible]);
 
-  const sheetTitle = isDivisionBreak ? 'Pick Your Division' : 'Pick Your Team';
-  const allSold = availableVariants.length === 0 && variants.length > 0;
+  useEffect(() => {
+    setQuantity(1);
+  }, [selectedId]);
+
+  const pickerTitle = selected
+    ? `${pickerBaseLabel}: ${selected.label}`
+    : pickerBaseLabel;
+
+  const allSold = spotSummary.available <= 0 && variants.length > 0;
 
   const checkout = async () => {
     if (!selected) {
-      setError('Select a spot first.');
+      setError(`Select ${isDivisionBreak ? 'a division' : 'a team'} first.`);
+      return;
+    }
+    if (!variantIsAvailable(selected)) {
+      setError('That spot was just taken. Pick another.');
       return;
     }
     if (!accessToken?.trim()) {
@@ -112,7 +133,7 @@ export function LiveBreakSpotGridSheet({
         liveRoomId: roomId,
         itemId,
         variantId: selected.id,
-        quantity: 1,
+        quantity,
       });
       if (!res.ok) {
         setError(res.paymentFailed ? `${res.error} Spot was not sold.` : res.error);
@@ -122,7 +143,8 @@ export function LiveBreakSpotGridSheet({
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         onPurchased();
         setSelectedId(null);
-        if (availableVariants.length <= 1) {
+        setQuantity(1);
+        if (spotSummary.available <= quantity) {
           onClose();
         }
         return;
@@ -147,168 +169,217 @@ export function LiveBreakSpotGridSheet({
     }
   };
 
+  const onCheckoutPress = () => {
+    void checkout();
+  };
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
-        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
-          <LinearGradient
-            colors={['rgba(212,175,55,0.14)', 'rgba(10,10,14,0)']}
-            style={styles.sheetGlow}
-            pointerEvents="none"
-          />
-          <View style={styles.handle} />
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close checkout" />
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
           <View style={styles.headerRow}>
             <View style={styles.headerCopy}>
-              <LiveRoomText style={styles.sheetTitle}>{sheetTitle}</LiveRoomText>
-              <LiveRoomText style={styles.itemTitle} numberOfLines={2}>
-                {title}
-              </LiveRoomText>
-              <LiveRoomText style={styles.spotsMeta}>
-                {allSold
-                  ? 'Break full — all spots sold'
-                  : `${availableVariants.length} open · ${soldCount} sold`}
-              </LiveRoomText>
+              <LiveRoomText style={styles.checkoutHeading}>Checkout</LiveRoomText>
+              <View style={styles.securityRow}>
+                <Ionicons name="lock-closed" size={10} color="rgba(255,255,255,0.42)" />
+                <LiveRoomText style={styles.securityLine}>Secure checkout · encrypted by Stripe</LiveRoomText>
+              </View>
             </View>
-            <Pressable style={styles.closeBtn} onPress={onClose} hitSlop={10}>
-              <Ionicons name="close" size={18} color="rgba(255,255,255,0.75)" />
+            <Pressable style={styles.closeBtn} onPress={onClose} hitSlop={10} accessibilityLabel="Close">
+              <Ionicons name="close" size={20} color="rgba(255,255,255,0.78)" />
             </Pressable>
           </View>
 
           <ScrollView
-            style={styles.gridScroll}
-            contentContainerStyle={[
-              styles.gridContent,
-              isDivisionBreak ? styles.gridContentDivision : styles.gridContentTeams,
-            ]}
-            showsVerticalScrollIndicator={false}
+            style={styles.bodyScroll}
+            contentContainerStyle={styles.bodyContent}
             keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            {availableVariants.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Ionicons name="checkmark-done-circle" size={42} color={colors.gold} />
-                <LiveRoomText style={styles.emptyTitle}>Break is full</LiveRoomText>
-                <LiveRoomText style={styles.emptySub}>
-                  Every {isDivisionBreak ? 'division' : 'team'} has been claimed. Watch for the break to start.
+            <View style={styles.productRow}>
+              <View style={styles.thumbWrap}>
+                {imageUrl?.trim() ? (
+                  <Image source={{ uri: imageUrl.trim() }} style={styles.thumb} contentFit="cover" />
+                ) : (
+                  <View style={styles.thumbFallback}>
+                    <LiveRoomText style={styles.thumbFallbackTxt}>{title.slice(0, 1).toUpperCase()}</LiveRoomText>
+                  </View>
+                )}
+              </View>
+              <View style={styles.productCopy}>
+                <LiveRoomText style={styles.productTitle} numberOfLines={2}>
+                  {title}
+                </LiveRoomText>
+                <LiveRoomText style={styles.productPrice}>{fmtMoney(unitPrice)}</LiveRoomText>
+                <LiveRoomText style={styles.remainingMeta}>
+                  {allSold
+                    ? 'All spots sold'
+                    : `${spotSummary.available} spot${spotSummary.available === 1 ? '' : 's'} remaining`}
                 </LiveRoomText>
               </View>
-            ) : (
-              availableVariants.map((variant) => (
-                <SpotCell
-                  key={variant.id}
-                  variant={variant}
-                  isDivision={isDivisionBreak}
-                  selected={selectedId === variant.id}
-                  onSelect={() => {
-                    void Haptics.selectionAsync().catch(() => {});
-                    setSelectedId(variant.id);
-                    setError(null);
-                  }}
-                />
-              ))
-            )}
-          </ScrollView>
-
-          {selected ? (
-            <View style={styles.checkoutBar}>
-              <View style={styles.checkoutMeta}>
-                <LiveRoomText style={styles.checkoutLabel}>Selected</LiveRoomText>
-                <LiveRoomText style={styles.checkoutSpot} numberOfLines={1}>
-                  {selected.label}
-                </LiveRoomText>
-                <LiveRoomText style={styles.checkoutPrice}>{fmtMoney(selected.priceUsd)}</LiveRoomText>
-              </View>
-              <View style={styles.holdWrap}>
-                <HoldToBidButton
-                  label={busy ? 'Processing…' : `Hold to buy · ${fmtMoney(selected.priceUsd)}`}
-                  disabled={!selected || allSold}
-                  busy={busy}
-                  onHoldStart={() => {
-                    if (!accessToken?.trim()) {
-                      setError('Sign in to checkout.');
-                      return false;
-                    }
-                    if (!walletReady) {
-                      onWalletRequired();
-                      return false;
-                    }
-                    return true;
-                  }}
-                  onCommit={() => void checkout()}
-                  variant="gold"
-                />
+              <View style={styles.qtyCol}>
+                <LiveRoomText style={styles.qtyLabel}>Qty</LiveRoomText>
+                <View style={styles.qtyControl}>
+                  <Pressable
+                    style={[styles.qtyBtn, quantity <= 1 && styles.qtyBtnDisabled]}
+                    disabled={quantity <= 1 || !selected}
+                    onPress={() => setQuantity((q) => Math.max(1, q - 1))}
+                  >
+                    <LiveRoomText style={styles.qtyBtnText}>−</LiveRoomText>
+                  </Pressable>
+                  <LiveRoomText style={styles.qtyValue}>{quantity}</LiveRoomText>
+                  <Pressable
+                    style={[styles.qtyBtn, (!selected || quantity >= maxQty) && styles.qtyBtnDisabled]}
+                    disabled={!selected || quantity >= maxQty}
+                    onPress={() => setQuantity((q) => Math.min(maxQty, q + 1))}
+                  >
+                    <LiveRoomText style={styles.qtyBtnText}>+</LiveRoomText>
+                  </Pressable>
+                </View>
               </View>
             </View>
-          ) : (
-            <LiveRoomText style={styles.selectHint}>
-              Tap {isDivisionBreak ? 'a division' : 'a team'}, then hold to buy
-            </LiveRoomText>
-          )}
 
-          {error ? <LiveRoomText style={styles.error}>{error}</LiveRoomText> : null}
+            <View style={styles.pickerSection}>
+              <LiveRoomText style={styles.pickerTitle}>{pickerTitle}</LiveRoomText>
+              <LiveRoomText style={styles.pickerHint}>
+                {selected
+                  ? `Confirm ${isDivisionBreak ? 'division' : 'team'} and hold to buy below`
+                  : `Tap ${isDivisionBreak ? 'a division' : 'a team'} to continue`}
+              </LiveRoomText>
+              <View style={styles.pillWrap}>
+                {sortedVariants.map((variant) => (
+                  <TeamPill
+                    key={variant.id}
+                    variant={variant}
+                    selected={selectedId === variant.id}
+                    onSelect={() => {
+                      if (!variantIsAvailable(variant)) return;
+                      void Haptics.selectionAsync().catch(() => {});
+                      setSelectedId(variant.id);
+                      setError(null);
+                    }}
+                  />
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.summaryCard}>
+              <SummaryRow
+                icon="cube-outline"
+                label="Shipping"
+                value={walletReady ? 'Uses your Vault wallet address' : 'Add shipping in Vault Wallet'}
+              />
+              <SummaryRow
+                icon="card-outline"
+                label="Payment"
+                value={walletReady ? 'Saved card in Vault Wallet' : 'Add a card in Vault Wallet'}
+              />
+              <SummaryRow icon="receipt-outline" label="Taxes" value="Calculated at checkout" />
+            </View>
+
+            {error ? <LiveRoomText style={styles.error}>{error}</LiveRoomText> : null}
+          </ScrollView>
+
+          <View style={styles.stickyBar}>
+            <View style={styles.totalCol}>
+              <LiveRoomText style={styles.totalLabel}>Total</LiveRoomText>
+              <LiveRoomText style={styles.totalValue}>{selected ? fmtMoney(total) : '—'}</LiveRoomText>
+            </View>
+            <View style={styles.payCol}>
+              {stripePublishableKey?.trim() && selected && walletReady ? (
+                <WalletNativePayButton publishableKey={stripePublishableKey} onPress={onCheckoutPress} />
+              ) : null}
+              <HoldToBidButton
+                label={selected ? `Hold to buy · ${fmtMoney(total)}` : 'Select a spot'}
+                disabled={!selected || allSold}
+                busy={busy}
+                onHoldStart={() => {
+                  if (!accessToken?.trim()) {
+                    setError('Sign in to checkout.');
+                    return false;
+                  }
+                  if (!walletReady) {
+                    onWalletRequired();
+                    return false;
+                  }
+                  return true;
+                }}
+                onCommit={onCheckoutPress}
+                variant="gold"
+              />
+            </View>
+          </View>
         </View>
       </View>
     </Modal>
   );
 }
 
-function SpotCell({
+function SummaryRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.summaryRow}>
+      <Ionicons name={icon} size={14} color="rgba(255,255,255,0.38)" />
+      <LiveRoomText style={styles.summaryLabel}>{label}</LiveRoomText>
+      <LiveRoomText style={styles.summaryValue} numberOfLines={2}>
+        {value}
+      </LiveRoomText>
+    </View>
+  );
+}
+
+function TeamPill({
   variant,
-  isDivision,
   selected,
   onSelect,
 }: {
   variant: LiveItemVariantSnapshot;
-  isDivision: boolean;
   selected: boolean;
   onSelect: () => void;
 }) {
-  const accent = spotAccentColor(variant.label, variant.color, isDivision);
-  const lightText = isLightSpotAccent(accent);
-  const abbr = !isDivision ? teamAbbrForVariant(variant.label, variant.color) : null;
-  const conference = isDivision ? (variant.color === 'NFC' ? 'NFC' : 'AFC') : null;
-
+  const soldOut = !variantIsAvailable(variant);
   return (
     <Pressable
       style={[
-        styles.spotCell,
-        isDivision ? styles.spotCellDivision : styles.spotCellTeam,
-        selected && styles.spotCellSelected,
+        styles.pill,
+        soldOut && styles.pillSold,
+        selected && !soldOut && styles.pillSelected,
       ]}
+      disabled={soldOut}
       onPress={onSelect}
       accessibilityRole="button"
-      accessibilityState={{ selected }}
+      accessibilityState={{ selected, disabled: soldOut }}
     >
-      <LinearGradient
-        colors={[accent, `${accent}CC`]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.spotGradient}
+      {variant.isHot && !soldOut ? (
+        <View style={styles.hotBadge}>
+          <LiveRoomText style={styles.hotBadgeText}>Hot</LiveRoomText>
+        </View>
+      ) : null}
+      <LiveRoomText
+        style={[
+          styles.pillLabel,
+          soldOut && styles.pillLabelSold,
+          selected && !soldOut && styles.pillLabelSelected,
+        ]}
+        numberOfLines={1}
       >
-        {conference ? (
-          <LiveRoomText style={[styles.conferenceBadge, lightText && styles.spotTextDark]}>
-            {conference}
-          </LiveRoomText>
-        ) : null}
-        {variant.isHot ? (
-          <View style={styles.pinBadge} pointerEvents="none">
-            <Ionicons name="pin" size={10} color={colors.gold} />
-          </View>
-        ) : null}
-        {abbr ? (
-          <LiveRoomText style={[styles.spotAbbr, lightText && styles.spotTextDark]}>{abbr}</LiveRoomText>
-        ) : null}
-        <LiveRoomText
-          style={[isDivision ? styles.spotDivisionLabel : styles.spotTeamLabel, lightText && styles.spotTextDark]}
-          numberOfLines={isDivision ? 2 : 1}
-        >
-          {variant.label}
-        </LiveRoomText>
-        <LiveRoomText style={[styles.spotPrice, lightText && styles.spotTextDarkMuted]}>
+        {variant.label}
+      </LiveRoomText>
+      {!soldOut ? (
+        <LiveRoomText style={[styles.pillPrice, selected && styles.pillPriceSelected]}>
           {fmtMoney(variant.priceUsd)}
         </LiveRoomText>
-      </LinearGradient>
-      {selected ? <View style={styles.spotSelectedRing} pointerEvents="none" /> : null}
+      ) : (
+        <LiveRoomText style={styles.pillSoldMeta}>Sold</LiveRoomText>
+      )}
     </Pressable>
   );
 }
@@ -317,58 +388,44 @@ const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.62)',
+    backgroundColor: 'rgba(0,0,0,0.48)',
   },
   sheet: {
-    backgroundColor: '#07070b',
+    backgroundColor: '#0b0b10',
     borderTopLeftRadius: radii.lg,
     borderTopRightRadius: radii.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,215,80,0.22)',
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
-    maxHeight: '90%',
+    borderColor: 'rgba(255,255,255,0.1)',
+    maxHeight: '72%',
     overflow: 'hidden',
-  },
-  sheetGlow: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 120,
-  },
-  handle: {
-    alignSelf: 'center',
-    width: 42,
-    height: 4,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    marginBottom: spacing.sm,
+    flexDirection: 'column',
+    width: '100%',
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
   },
-  headerCopy: { flex: 1 },
-  sheetTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.4,
-    textTransform: 'uppercase',
-    color: colors.gold,
-  },
-  itemTitle: {
-    marginTop: 4,
-    fontSize: 17,
+  headerCopy: { flex: 1, gap: 4 },
+  checkoutHeading: {
+    fontSize: 18,
     fontWeight: '900',
     color: '#fff',
   },
-  spotsMeta: {
-    marginTop: 4,
-    fontSize: 12,
+  securityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  securityLine: {
+    fontSize: 11,
     fontWeight: '600',
-    color: 'rgba(255,255,255,0.48)',
+    color: 'rgba(255,255,255,0.42)',
   },
   closeBtn: {
     width: 34,
@@ -378,172 +435,283 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.06)',
   },
-  gridScroll: {
-    marginTop: spacing.md,
-    maxHeight: '58%',
+  bodyScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+    flexBasis: 'auto',
   },
-  gridContent: {
+  bodyContent: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
     paddingBottom: spacing.sm,
+    gap: spacing.md,
   },
-  gridContentTeams: {
+  productRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  gridContentDivision: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  spotCell: {
-    borderRadius: radii.md,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  spotCellTeam: {
-    width: '23%',
-    minWidth: 74,
-    flexGrow: 1,
-    aspectRatio: 0.92,
-  },
-  spotCellDivision: {
-    width: '47%',
-    minHeight: 92,
-    flexGrow: 1,
-  },
-  spotCellSelected: {
-    transform: [{ scale: 0.98 }],
-  },
-  spotGradient: {
-    flex: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 10,
-    justifyContent: 'flex-end',
-    minHeight: 72,
-  },
-  spotSelectedRing: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: radii.md,
-    borderWidth: 2,
-    borderColor: colors.gold,
-    shadowColor: colors.gold,
-    shadowOpacity: 0.45,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 0 },
-  },
-  conferenceBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-    color: 'rgba(255,255,255,0.82)',
-  },
-  pinBadge: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.45)',
-  },
-  spotAbbr: {
-    fontSize: 15,
-    fontWeight: '900',
-    letterSpacing: 0.6,
-    color: '#fff',
-  },
-  spotTeamLabel: {
-    marginTop: 2,
-    fontSize: 10,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.88)',
-  },
-  spotDivisionLabel: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: '#fff',
-    lineHeight: 18,
-  },
-  spotPrice: {
-    marginTop: 4,
-    fontSize: 10,
-    fontWeight: '800',
-    color: 'rgba(255,255,255,0.72)',
-    fontVariant: ['tabular-nums'],
-  },
-  spotTextDark: { color: '#111' },
-  spotTextDarkMuted: { color: 'rgba(17,17,17,0.72)' },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.xl,
-    gap: 8,
-    width: '100%',
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#fff',
-  },
-  emptySub: {
-    textAlign: 'center',
-    fontSize: 13,
-    lineHeight: 18,
-    color: 'rgba(255,255,255,0.55)',
-    paddingHorizontal: spacing.lg,
-  },
-  checkoutBar: {
-    marginTop: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,215,80,0.22)',
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    padding: spacing.sm,
+    alignItems: 'flex-start',
     gap: spacing.sm,
   },
-  checkoutMeta: {
+  thumbWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: radii.md,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  thumb: {
+    width: '100%',
+    height: '100%',
+  },
+  thumbFallback: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  thumbFallbackTxt: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: 'rgba(255,255,255,0.28)',
+  },
+  productCopy: {
+    flex: 1,
+    minWidth: 0,
     gap: 2,
   },
-  checkoutLabel: {
-    fontSize: 10,
+  productTitle: {
+    fontSize: 14,
     fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    color: 'rgba(255,255,255,0.45)',
-  },
-  checkoutSpot: {
-    fontSize: 16,
-    fontWeight: '900',
     color: '#fff',
+    lineHeight: 18,
   },
-  checkoutPrice: {
-    fontSize: 13,
-    fontWeight: '800',
+  productPrice: {
+    fontSize: 15,
+    fontWeight: '900',
     color: colors.gold,
     fontVariant: ['tabular-nums'],
   },
-  holdWrap: {
-    minHeight: 48,
-  },
-  selectHint: {
-    marginTop: spacing.md,
-    textAlign: 'center',
-    fontSize: 12,
+  remainingMeta: {
+    fontSize: 11,
     fontWeight: '600',
     color: 'rgba(255,255,255,0.45)',
   },
+  qtyCol: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  qtyLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.38)',
+  },
+  qtyControl: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+  },
+  qtyBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  qtyBtnDisabled: {
+    opacity: 0.35,
+  },
+  qtyBtnText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#fff',
+  },
+  qtyValue: {
+    minWidth: 18,
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#fff',
+    fontVariant: ['tabular-nums'],
+  },
+  pickerSection: {
+    gap: 6,
+  },
+  pickerTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#fff',
+  },
+  pickerHint: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.42)',
+  },
+  pillWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+  },
+  pill: {
+    minWidth: 88,
+    maxWidth: '48%',
+    flexGrow: 1,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    position: 'relative',
+  },
+  pillSelected: {
+    borderColor: 'rgba(255,215,80,0.55)',
+    backgroundColor: 'rgba(255,190,40,0.1)',
+  },
+  pillSold: {
+    borderStyle: 'dashed',
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.015)',
+    opacity: 0.72,
+  },
+  pillLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.88)',
+  },
+  pillLabelSelected: {
+    fontWeight: '900',
+    color: '#fff',
+  },
+  pillLabelSold: {
+    textDecorationLine: 'line-through',
+    color: 'rgba(255,255,255,0.38)',
+  },
+  pillPrice: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.5)',
+    fontVariant: ['tabular-nums'],
+  },
+  pillPriceSelected: {
+    color: colors.gold,
+    fontWeight: '800',
+  },
+  pillSoldMeta: {
+    marginTop: 2,
+    fontSize: 9,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.32)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  hotBadge: {
+    position: 'absolute',
+    top: -6,
+    right: 8,
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    backgroundColor: '#dc2626',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  hotBadgeText: {
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    color: '#fff',
+  },
+  summaryCard: {
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(0,0,0,0.28)',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    gap: 8,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  summaryLabel: {
+    width: 62,
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.45)',
+  },
+  summaryValue: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.72)',
+    textAlign: 'right',
+  },
   error: {
-    marginTop: 8,
     textAlign: 'center',
     fontSize: 12,
     color: '#fca5a5',
+  },
+  stickyBar: {
+    flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#0b0b10',
+  },
+  totalCol: {
+    minWidth: 88,
+    gap: 2,
+  },
+  totalLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.42)',
+  },
+  totalValue: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: colors.gold,
+    fontVariant: ['tabular-nums'],
+  },
+  payCol: {
+    flex: 1,
+    gap: 8,
+    minWidth: 0,
+  },
+  checkoutBtn: {
+    borderRadius: radii.md,
+    backgroundColor: colors.gold,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  checkoutBtnDisabled: {
+    opacity: 0.45,
+  },
+  checkoutBtnText: {
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+    color: '#111',
   },
 });

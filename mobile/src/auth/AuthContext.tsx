@@ -3,7 +3,12 @@ import type { Session, User } from '@supabase/supabase-js';
 import { updateMyProfile } from '../api/profilesRepository';
 import { setKeepMeLoggedInPreference } from '../lib/authSessionStorage';
 import { resolveInitialAuthSession } from '../lib/recoverInvalidAuthSession';
-import { getSupabase, isSupabaseConfigured } from '../lib/supabase';
+import {
+  ensureSupabaseReady,
+  getSupabase,
+  isSupabaseConfigured,
+  resetSupabaseBootstrap,
+} from '../lib/supabase';
 import { signInWithAppleOAuth, signInWithGoogleOAuth, type SocialAuthResult } from '../lib/socialAuth';
 
 type AuthCtx = {
@@ -31,37 +36,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [guestExploreMode, setGuestExploreMode] = useState(false);
 
   useEffect(() => {
-    const sb = getSupabase();
-    if (!sb) {
-      setSession(null);
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
 
     void (async () => {
       try {
+        await ensureSupabaseReady();
+        const sb = getSupabase();
+        if (!sb) {
+          if (!cancelled) setSession(null);
+          return;
+        }
+
         const { session: initial } = await resolveInitialAuthSession(sb);
         if (cancelled) return;
         setSession(initial);
         setGuestExploreMode(false);
+
+        const { data: sub } = sb.auth.onAuthStateChange((_event, next) => {
+          setSession(next);
+        });
+        unsubscribe = () => sub.subscription.unsubscribe();
       } catch {
-        if (cancelled) return;
-        setSession(null);
-        setGuestExploreMode(false);
+        if (!cancelled) {
+          setSession(null);
+          setGuestExploreMode(false);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
 
-    const { data: sub } = sb.auth.onAuthStateChange((_event, next) => {
-      setSession(next);
-    });
-
     return () => {
       cancelled = true;
-      sub.subscription.unsubscribe();
+      unsubscribe?.();
     };
   }, []);
 
@@ -74,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signInWithPassword = useCallback(async (email: string, password: string, opts?: { persistSession?: boolean }) => {
+    await ensureSupabaseReady();
     const sb = getSupabase();
     if (!sb || !isSupabaseConfigured()) throw new Error('Supabase is not configured (EXPO_PUBLIC_SUPABASE_URL / ANON_KEY).');
     const persist = opts?.persistSession ?? true;
@@ -94,24 +103,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUpWithPassword = useCallback(
     async (params: { email: string; password: string; username: string }) => {
-      const sb = getSupabase();
-      if (!sb || !isSupabaseConfigured()) throw new Error('Supabase is not configured.');
+      const runSignUp = async () => {
+        await ensureSupabaseReady();
+        const sb = getSupabase();
+        if (!sb || !isSupabaseConfigured()) throw new Error('Supabase is not configured.');
+        const username = params.username.trim().toLowerCase();
+        const displayName = username;
+        return sb.auth.signUp({
+          email: params.email.trim(),
+          password: params.password,
+          options: {
+            data: {
+              username,
+              display_name: displayName,
+            },
+            emailRedirectTo:
+              process.env.EXPO_PUBLIC_SITE_URL?.trim()?.replace(/\/+$/, '') ||
+              'https://beta.shopgetvaulted.com',
+          },
+        });
+      };
+
+      let { data, error } = await runSignUp();
+      if (error?.message === 'Invalid API key') {
+        resetSupabaseBootstrap();
+        ({ data, error } = await runSignUp());
+      }
+      if (error) throw error;
+
       const username = params.username.trim().toLowerCase();
       const displayName = username;
-      const { data, error } = await sb.auth.signUp({
-        email: params.email.trim(),
-        password: params.password,
-        options: {
-          data: {
-            username,
-            display_name: displayName,
-          },
-          emailRedirectTo:
-            process.env.EXPO_PUBLIC_SITE_URL?.trim()?.replace(/\/+$/, '') ||
-            'https://beta.shopgetvaulted.com',
-        },
-      });
-      if (error) throw error;
       const uid = data.user?.id;
       if (data.session?.user && uid && username) {
         void updateMyProfile(uid, { username, display_name: displayName }).catch((e) => {
@@ -125,6 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const requestPasswordReset = useCallback(async (email: string) => {
+    await ensureSupabaseReady();
     const sb = getSupabase();
     if (!sb || !isSupabaseConfigured()) {
       throw new Error('Supabase is not configured (EXPO_PUBLIC_SUPABASE_URL / ANON_KEY).');

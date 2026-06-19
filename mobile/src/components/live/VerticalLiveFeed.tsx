@@ -47,9 +47,7 @@ import { useLiveRoomModeration } from '../../hooks/useLiveRoomModeration';
 import { resolveShowHostUserId, showModeratorTools } from '../../lib/liveModeratorPermissions';
 import { ModeratorActionSheet } from '../moderator/ModeratorActionSheet';
 import { ModeratorDrawer } from '../moderator/ModeratorDrawer';
-import { HostModeratorAssignSheet } from '../moderator/HostModeratorAssignSheet';
 import {
-  HostModeratorAssignButton,
   ModeratorToolsButton,
 } from '../moderator/ModeratorFloatingButton';
 import { ReportSheet } from '../trust/ReportSheet';
@@ -150,7 +148,6 @@ function LiveSlide({
   const [breakDisclaimerReady, setBreakDisclaimerReady] = useState(false);
   const [paymentRecoveryToast, setPaymentRecoveryToast] = useState<string | null>(null);
   const [modDrawerOpen, setModDrawerOpen] = useState(false);
-  const [modAssignOpen, setModAssignOpen] = useState(false);
   const [modActionMessage, setModActionMessage] = useState<ChatMessage | null>(null);
   const chatComposerRef = useRef<MentionComposerInputHandle>(null);
 
@@ -747,18 +744,6 @@ function LiveSlide({
         />
       ) : null}
 
-      {moderation.isHost && accessToken ? (
-        <HostModeratorAssignSheet
-          visible={modAssignOpen}
-          onClose={() => setModAssignOpen(false)}
-          liveRoomId={stream.id}
-          accessToken={accessToken}
-          moderation={moderation}
-          hostUserId={showHostUserId}
-          onRefresh={() => void moderation.reload()}
-        />
-      ) : null}
-
       {modActionMessage && moderation.isModerator ? (
         <ModeratorActionSheet
           visible={Boolean(modActionMessage)}
@@ -816,14 +801,9 @@ function LiveSlide({
         accessToken={accessToken}
         inputRef={chatComposerRef}
         leadingAccessory={
-          <>
-            {showModeratorTools(moderation.isModerator) ? (
-              <ModeratorToolsButton onPress={() => setModDrawerOpen(true)} />
-            ) : null}
-            {moderation.isHost && accessToken ? (
-              <HostModeratorAssignButton onPress={() => setModAssignOpen(true)} />
-            ) : null}
-          </>
+          showModeratorTools(moderation.isModerator) ? (
+            <ModeratorToolsButton onPress={() => setModDrawerOpen(true)} />
+          ) : null
         }
       />
 

@@ -41,10 +41,10 @@ describe("stripe-payment-method-config", () => {
     expect(paymentMethodTypesIncludeBnpl(types)).toBe(false);
   });
 
-  it("wallet setup intent allows instant methods only", () => {
+  it("wallet setup intent defaults to card only until optional methods are enabled", () => {
     const { payment_method_types } = stripeSetupIntentPaymentOptions();
     expect(paymentMethodTypesIncludeBnpl(payment_method_types)).toBe(false);
-    expect(payment_method_types).toEqual([...INSTANT_STRIPE_PAYMENT_METHOD_TYPES]);
+    expect(payment_method_types).toEqual(["card"]);
   });
 
   it("off-session recovery PaymentIntent excludes BNPL for live and marketplace", () => {

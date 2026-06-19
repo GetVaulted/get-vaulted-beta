@@ -137,11 +137,25 @@ export function stripeCheckoutSessionPaymentOptions(lane: CommercePaymentLane): 
   return { payment_method_types: checkoutPaymentMethodTypesForLane(lane) };
 }
 
+/** Optional wallet add flows — off by default until enabled in Stripe Dashboard + env. */
+export function walletOptionalPaymentMethodTypes(): StripeCheckoutPaymentMethodType[] {
+  const types: StripeCheckoutPaymentMethodType[] = [];
+  if (process.env.STRIPE_WALLET_LINK_ENABLED === "true") types.push("link");
+  if (process.env.STRIPE_WALLET_CASH_APP_ENABLED === "true") types.push("cashapp");
+  if (process.env.STRIPE_WALLET_AMAZON_PAY_ENABLED === "true") types.push("amazon_pay");
+  return types;
+}
+
+/** Wallet SetupIntent — card + platform wallets always; optional methods only when explicitly enabled. */
+export function walletSetupPaymentMethodTypes(): StripeCheckoutPaymentMethodType[] {
+  return ["card", ...walletOptionalPaymentMethodTypes()];
+}
+
 /** Wallet SetupIntent — instant methods only (saved PMs used for Live off-session). */
 export function stripeSetupIntentPaymentOptions(): {
   payment_method_types: StripeCheckoutPaymentMethodType[];
 } {
-  return { payment_method_types: [...INSTANT_STRIPE_PAYMENT_METHOD_TYPES] };
+  return { payment_method_types: walletSetupPaymentMethodTypes() };
 }
 
 /**

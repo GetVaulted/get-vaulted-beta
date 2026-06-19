@@ -156,11 +156,13 @@ function CountryPickerModal({
 
 function LivePaymentMethodPicker({
   payload,
+  sheetReady,
   onClose,
   onPickCard,
   onPickWallet,
 }: {
   payload: BuyerSetupIntentPayload;
+  sheetReady: boolean;
   onClose: () => void;
   onPickCard: () => void;
   onPickWallet: () => void;
@@ -172,7 +174,9 @@ function LivePaymentMethodPicker({
     amazonPay: payload.amazonPayEnabled === true,
     paypal: false,
   };
-  const methods = liveAcceptedWalletMethods(platform, capabilities);
+  const methods = liveAcceptedWalletMethods(platform, capabilities).filter(
+    (entry) => entry.id !== 'cash_app_pay' && entry.id !== 'amazon_pay' && entry.id !== 'link',
+  );
 
   return (
     <View style={ps.body}>
@@ -186,6 +190,12 @@ function LivePaymentMethodPicker({
       <LiveRoomText style={ps.pickerSubtitle}>
         You won&apos;t be charged until you win or buy on {LIVE_PREMIUM_WALLET_TITLE}.
       </LiveRoomText>
+      {!sheetReady ? (
+        <View style={ps.loadingBlock}>
+          <ActivityIndicator color={colors.gold} size="small" />
+          <LiveRoomText style={ps.loadingText}>Preparing secure checkout…</LiveRoomText>
+        </View>
+      ) : null}
       <ScrollView style={ps.pickerList} showsVerticalScrollIndicator={false}>
         {methods.map((entry, idx) => {
           const isLast = idx === methods.length - 1;
@@ -198,8 +208,9 @@ function LivePaymentMethodPicker({
           return (
             <Pressable
               key={entry.id}
-              style={[ps.pickerRow, isLast && ps.pickerRowLast]}
+              style={[ps.pickerRow, isLast && ps.pickerRowLast, !sheetReady && ps.pickerRowDisabled]}
               onPress={onPress}
+              disabled={!sheetReady}
             >
               <View style={ps.pickerIconWrap}>
                 <Ionicons name={catalogEntryIcon(entry.id)} size={22} color="#fff" />
@@ -667,26 +678,31 @@ function WalletPaymentSetupInner({
   }
 
   if (showPicker && !useManualCard) {
+    const openPaymentSheet = () => {
+      if (!sheetReady || busy) {
+        setInitError('Payment setup is still loading. Try again in a moment.');
+        return;
+      }
+      setInitError(null);
+      setShowPicker(false);
+      void (async () => {
+        const result = await presentSheet();
+        if (result.outcome === 'saved') {
+          await completeSavedPaymentMethod(result.paymentMethodId);
+          return;
+        }
+        autoPresentedRef.current = false;
+        setShowPicker(true);
+      })();
+    };
+
     return (
       <LivePaymentMethodPicker
         payload={payload}
+        sheetReady={sheetReady}
         onClose={onClose}
-        onPickCard={() => {
-          setShowPicker(false);
-          setUseManualCard(true);
-        }}
-        onPickWallet={() => {
-          setShowPicker(false);
-          autoPresentedRef.current = true;
-          void (async () => {
-            const result = await presentSheet();
-            if (result.outcome === 'saved') await completeSavedPaymentMethod(result.paymentMethodId);
-            if (result.outcome === 'cancelled' || result.outcome === 'failed') {
-              autoPresentedRef.current = false;
-              setShowPicker(true);
-            }
-          })();
-        }}
+        onPickCard={openPaymentSheet}
+        onPickWallet={openPaymentSheet}
       />
     );
   }

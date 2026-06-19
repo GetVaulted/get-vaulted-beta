@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -99,33 +101,43 @@ export function HostModeratorAssignSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={[styles.sheet, { paddingBottom: insets.bottom + spacing.lg }]} onPress={() => undefined}>
+      <KeyboardAvoidingView
+        style={styles.backdrop}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
+      >
+        <Pressable style={styles.dismissArea} onPress={onClose} accessibilityLabel="Close assign moderator" />
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + spacing.lg }]}>
           <View style={styles.handle} />
           <Text style={styles.title}>Assign moderator</Text>
           <Text style={styles.subtitle}>
             Type @username like chat mentions, tap a match, and their mod tools will appear on their device.
           </Text>
 
-          <View style={styles.searchBlock}>
-            <UsernameMentionPicker
-              value={search}
-              onChangeText={setSearch}
-              accessToken={accessToken}
-              onSelectUser={(user) => void assignUser(user)}
-              placeholder="@username"
-              editable={!busyUserId}
-            />
-            {busyUserId ? (
-              <View style={styles.assigningRow}>
-                <ActivityIndicator color={colors.gold} size="small" />
-                <Text style={styles.assigningTxt}>Assigning moderator…</Text>
-              </View>
-            ) : null}
-          </View>
+          <ScrollView
+            style={styles.body}
+            contentContainerStyle={styles.bodyContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.searchBlock}>
+              <UsernameMentionPicker
+                value={search}
+                onChangeText={setSearch}
+                accessToken={accessToken}
+                onSelectUser={(user) => void assignUser(user)}
+                placeholder="@username"
+                editable={!busyUserId}
+              />
+              {busyUserId ? (
+                <View style={styles.assigningRow}>
+                  <ActivityIndicator color={colors.gold} size="small" />
+                  <Text style={styles.assigningTxt}>Assigning moderator…</Text>
+                </View>
+              ) : null}
+            </View>
 
-          <Text style={styles.sectionLabel}>Current moderators</Text>
-          <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
+            <Text style={styles.sectionLabel}>Current moderators</Text>
             {moderation.moderators.length === 0 ? (
               <Text style={styles.empty}>No moderators assigned yet.</Text>
             ) : (
@@ -154,15 +166,15 @@ export function HostModeratorAssignSheet({
                 );
               })
             )}
-          </ScrollView>
 
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+          </ScrollView>
 
           <Pressable style={styles.closeBtn} onPress={onClose}>
             <Text style={styles.closeTxt}>Done</Text>
           </Pressable>
-        </Pressable>
-      </Pressable>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -173,8 +185,11 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
+  dismissArea: {
+    flex: 1,
+  },
   sheet: {
-    maxHeight: '78%',
+    maxHeight: '88%',
     borderTopLeftRadius: radii.lg,
     borderTopRightRadius: radii.lg,
     backgroundColor: colors.surface,
@@ -200,8 +215,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  searchBlock: {
+  body: {
     marginTop: spacing.md,
+    flexGrow: 0,
+  },
+  bodyContent: {
+    paddingBottom: spacing.sm,
+  },
+  searchBlock: {
     gap: spacing.sm,
   },
   assigningRow: {
@@ -220,10 +241,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
-  },
-  list: {
-    marginTop: spacing.sm,
-    maxHeight: 280,
   },
   empty: {
     color: colors.textMuted,

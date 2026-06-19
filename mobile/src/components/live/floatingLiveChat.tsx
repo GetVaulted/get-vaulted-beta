@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import {
   Image,
   Platform,
@@ -210,6 +210,7 @@ function FloatingChatRow({
           </LiveRoomText>
           {message.isHost ? <LiveRoomText style={styles.hostBadgeInline}> HOST</LiveRoomText> : null}
           {isModSender ? <LiveRoomText style={styles.modBadgeInline}> MOD</LiveRoomText> : null}
+          <LiveRoomText style={styles.messageSep}>: </LiveRoomText>
           <MentionText
             inline
             body={message.text}
@@ -356,10 +357,22 @@ export function FloatingLiveChat({
   const rowHeight = compact ? ROW_HEIGHT_COMPACT : ROW_HEIGHT_ESTIMATE;
   const viewportHeight = Math.min(maxHeight, maxRows * rowHeight + 12);
 
+  const scrollToBottom = useCallback(
+    (animated = false) => {
+      scrollRef.current?.scrollToEnd({ animated });
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!isActive || !pinnedToBottom) return;
-    scrollRef.current?.scrollToEnd({ animated: false });
-  }, [history.length, isActive, pinnedToBottom, streamKey]);
+    const frame = requestAnimationFrame(() => scrollToBottom(false));
+    return () => cancelAnimationFrame(frame);
+  }, [history.length, isActive, pinnedToBottom, scrollToBottom, streamKey]);
+
+  const onContentSizeChange = () => {
+    if (pinnedToBottom) scrollToBottom(false);
+  };
 
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
@@ -374,6 +387,10 @@ export function FloatingLiveChat({
 
   const scrollMaxHeight = Math.max(48, viewportHeight);
 
+  const onScrollLayout = () => {
+    if (pinnedToBottom) scrollToBottom(false);
+  };
+
   return (
     <View
       style={[styles.floatChatColumn, { bottom, left, right: rightEdge }]}
@@ -382,8 +399,10 @@ export function FloatingLiveChat({
       <ScrollView
         ref={scrollRef}
         style={[styles.scrollViewport, { maxHeight: scrollMaxHeight }]}
-        contentContainerStyle={styles.stackInner}
+        contentContainerStyle={[styles.stackInner, { minHeight: scrollMaxHeight }]}
         onScroll={onScroll}
+        onContentSizeChange={onContentSizeChange}
+        onLayout={onScrollLayout}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -594,6 +613,7 @@ const styles = StyleSheet.create({
   },
   stackInner: {
     width: '100%',
+    flexGrow: 1,
     justifyContent: 'flex-end',
     alignItems: 'flex-start',
     paddingTop: 4,
@@ -663,6 +683,11 @@ const styles = StyleSheet.create({
   messageBody: {
     fontWeight: '500',
     color: 'rgba(255,255,255,0.92)',
+    marginLeft: 4,
+  },
+  messageSep: {
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.55)',
   },
   eventRow: {
     marginBottom: 6,

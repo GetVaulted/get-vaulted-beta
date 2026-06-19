@@ -159,7 +159,12 @@ export function AuthSignUpScreen({ navigation }: Props) {
       if (__DEV__) console.log('[auth:signup] success → Home');
       finishBuyerHome();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Sign-up failed');
+      const msg = e instanceof Error ? e.message : 'Sign-up failed';
+      setErr(
+        msg === 'Invalid API key'
+          ? 'Account setup could not reach Supabase. Update the app to the latest build, check your connection, and try again.'
+          : msg,
+      );
     } finally {
       setBusy(false);
     }

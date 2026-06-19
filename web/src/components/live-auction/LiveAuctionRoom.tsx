@@ -1216,7 +1216,9 @@ export function LiveAuctionRoom({
 
   const videoStageCenterOverlay =
     teamBoardOverlay ??
-    (activeHasVariants && activeDbItem ? <LiveVariantSpotBoard item={activeDbItem} /> : null);
+    (isHost && activeHasVariants && activeDbItem ? (
+      <LiveVariantSpotBoard item={activeDbItem} hostMode />
+    ) : null);
 
   const giveawaySideTab =
     !isHost && isLive && giveaways.length > 0 ? (
