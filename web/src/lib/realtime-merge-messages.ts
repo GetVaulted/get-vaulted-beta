@@ -1,4 +1,5 @@
 import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
+import { dedupeViewerJoinChatMessages } from "@/lib/dedupe-viewer-join-messages";
 
 export function mergeLiveRoomMessagesById(
   prev: LiveRoomMessageDTO[],
@@ -7,7 +8,9 @@ export function mergeLiveRoomMessagesById(
   const map = new Map<string, LiveRoomMessageDTO>();
   for (const m of prev) map.set(m.id, m);
   for (const m of incoming) map.set(m.id, m);
-  return [...map.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return dedupeViewerJoinChatMessages(
+    [...map.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+  );
 }
 
 export function appendLiveRoomMessageDedupe(

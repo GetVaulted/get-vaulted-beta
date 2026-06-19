@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -335,20 +336,36 @@ export function ScheduleVaultEventModal({
   const submitIcon = scheduleMode === 'later' ? 'calendar' : 'radio';
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={[styles.screen, { paddingTop: insets.top + spacing.sm }]}>
-        <View style={styles.header}>
-          <Pressable onPress={onClose} hitSlop={12} accessibilityLabel="Close">
-            <Ionicons name="close" size={26} color={colors.textPrimary} />
-          </Pressable>
-          <View style={{ flex: 1, alignItems: 'center' }}>
-            <Text style={styles.headerTitle}>Create Vault Event</Text>
-            <Text style={styles.headerSub}>Schedule later or start now in the command center</Text>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      <View style={styles.root}>
+        <KeyboardAvoidingView
+          style={styles.screen}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
+            <Pressable onPress={onClose} hitSlop={12} accessibilityLabel="Close">
+              <Ionicons name="close" size={26} color={colors.textPrimary} />
+            </Pressable>
+            <View style={styles.headerCenter}>
+              <Text style={styles.headerTitle}>Create Vault Event</Text>
+              <Text style={styles.headerSub}>Schedule later or start now in the command center</Text>
+            </View>
+            <View style={styles.headerSpacer} />
           </View>
-          <View style={{ width: 26 }} />
-        </View>
 
-        <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.form}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            showsVerticalScrollIndicator={false}
+          >
           <Text style={styles.label}>Event title</Text>
           <TextInput
             value={scheduleTitle}
@@ -579,36 +596,53 @@ export function ScheduleVaultEventModal({
           />
 
           {submitError ? <Text style={styles.fieldError}>{submitError}</Text> : null}
-        </ScrollView>
+          </ScrollView>
 
-        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
-          <Pressable
-            style={[styles.primary, (liveBlocked || busy || thumbUploading || !titleComplete) && styles.primaryOff]}
-            onPress={() => void submit()}
-            disabled={busy || liveBlocked || thumbUploading || !titleComplete}
-          >
-            {busy ? (
-              <ActivityIndicator color={colors.background} />
-            ) : (
-              <>
-                <Ionicons name={submitIcon} size={20} color={colors.background} />
-                <Text style={styles.primaryTxt}>{submitLabel}</Text>
-              </>
-            )}
-          </Pressable>
-        </View>
+          <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
+            <Pressable
+              style={[styles.primary, (liveBlocked || busy || thumbUploading || !titleComplete) && styles.primaryOff]}
+              onPress={() => void submit()}
+              disabled={busy || liveBlocked || thumbUploading || !titleComplete}
+            >
+              {busy ? (
+                <ActivityIndicator color={colors.background} />
+              ) : (
+                <>
+                  <Ionicons name={submitIcon} size={20} color={colors.background} />
+                  <Text style={styles.primaryTxt}>{submitLabel}</Text>
+                </>
+              )}
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
+  root: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  screen: {
+    flex: 1,
+  },
+  scroll: {
+    flex: 1,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.sm,
+  },
+  headerCenter: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  headerSpacer: {
+    width: 26,
   },
   headerTitle: { fontSize: 17, fontWeight: '900', color: colors.textPrimary },
   headerSub: { fontSize: 11, color: colors.textMuted, marginTop: 2, textAlign: 'center' },

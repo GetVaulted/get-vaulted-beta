@@ -1,3 +1,4 @@
+import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 
 export type ReportTargetType = 'user' | 'listing' | 'live_room' | 'message' | 'order' | 'break';
@@ -81,24 +82,24 @@ export async function applyLiveModerationAction(args: {
   expiresAt?: string;
   metadata?: Record<string, unknown>;
 }): Promise<{ ok: boolean; error?: string }> {
-  const base = getWebApiBaseUrl();
-  if (!base) return { ok: false, error: 'Not configured.' };
-
-  const res = await fetch(`${base.replace(/\/$/, '')}/api/live-rooms/${encodeURIComponent(args.roomId)}/moderation`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${args.accessToken}`,
+  const res = await fetchWebApiMobile(
+    `/api/live-rooms/${encodeURIComponent(args.roomId)}/moderation`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${args.accessToken}`,
+      },
+      body: JSON.stringify({
+        actionType: args.actionType,
+        targetUserId: args.targetUserId,
+        targetMessageId: args.targetMessageId,
+        reason: args.reason,
+        expiresAt: args.expiresAt,
+        metadata: args.metadata,
+      }),
     },
-    body: JSON.stringify({
-      actionType: args.actionType,
-      targetUserId: args.targetUserId,
-      targetMessageId: args.targetMessageId,
-      reason: args.reason,
-      expiresAt: args.expiresAt,
-      metadata: args.metadata,
-    }),
-  });
+  );
   const data = (await res.json().catch(() => ({}))) as { error?: string };
   if (!res.ok) return { ok: false, error: data.error ?? 'Moderation failed.' };
   return { ok: true };
@@ -239,15 +240,13 @@ export async function fetchLiveRoomModeration(args: {
   accessToken?: string;
   roomId: string;
 }): Promise<LiveRoomModerationSnapshot | null> {
-  const base = getWebApiBaseUrl();
-  if (!base) return null;
-
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (args.accessToken) headers.Authorization = `Bearer ${args.accessToken}`;
 
-  const res = await fetch(`${base.replace(/\/$/, '')}/api/live-rooms/${encodeURIComponent(args.roomId)}/moderation`, {
-    headers,
-  });
+  const res = await fetchWebApiMobile(
+    `/api/live-rooms/${encodeURIComponent(args.roomId)}/moderation`,
+    { headers },
+  );
   if (!res.ok) return null;
   return (await res.json().catch(() => null)) as LiveRoomModerationSnapshot | null;
 }

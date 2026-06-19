@@ -56,6 +56,7 @@ import { ReportSheet } from '../trust/ReportSheet';
 import {
   FloatingChatComposer,
   FloatingLiveChat,
+  PinnedModeratorBar,
 } from './floatingLiveChat';
 import type { MentionComposerInputHandle } from '../mentions/MentionComposerInput';
 import { appendMentionToDraft, promptLiveChatUserAction } from '../../lib/liveChatUserActions';
@@ -327,6 +328,7 @@ function LiveSlide({
     commerceHeight,
     keyboardOffset: keyboardOffset / Math.max(0.001, stageContainer.uniformScale),
     compact,
+    pinnedModeratorActive: Boolean(pinnedModerator),
   });
   const chatMaxHeight = computeChatStackMaxHeight({
     slideHeight: stageContainer.designHeight,
@@ -711,8 +713,22 @@ function LiveSlide({
         }}
         onPressChatUser={onPressChatUser}
         moderatorUserIds={moderation.moderators.map((m) => m.userId)}
-        pinnedModerator={pinnedModerator}
       />
+
+      {pinnedModerator ? (
+        <View
+          style={{
+            position: 'absolute',
+            bottom: bottomStack.pinnedBarBottom,
+            left: spacing.lg,
+            right: chatRightEdge,
+            zIndex: 17,
+          }}
+          pointerEvents="none"
+        >
+          <PinnedModeratorBar pinned={pinnedModerator} compact={compact} />
+        </View>
+      ) : null}
 
       {showModeratorTools(moderation.isModerator) && accessToken ? (
         <ModeratorDrawer
@@ -720,8 +736,10 @@ function LiveSlide({
           onClose={() => setModDrawerOpen(false)}
           liveRoomId={stream.id}
           hostUserId={showHostUserId}
+          moderatorUserId={userId}
           accessToken={accessToken}
           moderation={moderation}
+          onModerationPatch={moderation.patch}
           onRefresh={() => {
             void moderation.reload();
             void liveChat.reload();

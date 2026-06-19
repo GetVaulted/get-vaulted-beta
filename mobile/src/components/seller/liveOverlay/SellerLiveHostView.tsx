@@ -6,11 +6,16 @@ import type { HostStreamPayload, LiveRoomHostDetail } from '../../../api/liveHos
 import { fetchProfileById } from '../../../api/profilesRepository';
 import { useAuth } from '../../../auth/AuthContext';
 import { KeyboardDismissStageShield } from '../../ui/KeyboardDismissStageShield';
-import { FloatingLiveChat } from '../../live/floatingLiveChat';
+import { FloatingLiveChat, PinnedModeratorBar } from '../../live/floatingLiveChat';
 import type { MentionComposerInputHandle } from '../../mentions/MentionComposerInput';
 import { appendMentionToDraft, promptLiveChatUserAction } from '../../../lib/liveChatUserActions';
 import { openUserProfile } from '../../../navigation/openPlatform';
-import { computeLiveRoomBottomStack, COMPOSER_BAR_HEIGHT } from '../../../lib/liveRoomBottomLayout';
+import {
+  computeLiveRoomBottomStack,
+  COMPOSER_BAR_HEIGHT,
+  PINNED_ABOVE_COMPOSER_GAP,
+  PINNED_MODERATOR_ROW_HEIGHT,
+} from '../../../lib/liveRoomBottomLayout';
 import { SellerLiveComposer } from './SellerLiveComposer';
 import { SellerLiveGestureLayer } from './SellerLiveGestureLayer';
 import { AddInventoryModal } from '../liveConsole/AddInventoryModal';
@@ -201,7 +206,6 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
 
   const nextUpRailBottom = bottomStack.commerceTop + 6;
   const sellerComposerBottom = nextUpRailBottom + SELLER_NEXT_UP_RAIL_HEIGHT + 6;
-  const sellerChatBottom = sellerComposerBottom + COMPOSER_BAR_HEIGHT + 12;
 
   const onStartAuction = () => {
     if (console.activeItem) {
@@ -292,6 +296,12 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
     moderation.pinnedModeratorUsername,
     user?.id,
   ]);
+
+  const sellerPinnedBarBottom = sellerComposerBottom + COMPOSER_BAR_HEIGHT + PINNED_ABOVE_COMPOSER_GAP;
+  const sellerPinnedReserve = pinnedModerator
+    ? PINNED_MODERATOR_ROW_HEIGHT + PINNED_ABOVE_COMPOSER_GAP
+    : 0;
+  const sellerChatBottom = sellerComposerBottom + COMPOSER_BAR_HEIGHT + 12 + sellerPinnedReserve;
 
   const tagUserInChat = useCallback((username: string) => {
     setChatDraft((prev) => appendMentionToDraft(prev, username));
@@ -438,8 +448,22 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         }}
         onPressChatUser={onPressChatUser}
         moderatorUserIds={moderation.moderators.map((m) => m.userId)}
-        pinnedModerator={pinnedModerator}
       />
+
+      {pinnedModerator ? (
+        <View
+          style={{
+            position: 'absolute',
+            bottom: sellerPinnedBarBottom,
+            left: spacing.lg,
+            right: CHAT_RIGHT_EDGE,
+            zIndex: 17,
+          }}
+          pointerEvents="none"
+        >
+          <PinnedModeratorBar pinned={pinnedModerator} compact />
+        </View>
+      ) : null}
 
       <SellerLivePinnedOverlay
         bottom={bottomStack.commerceBottom}
@@ -506,8 +530,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
           onClose={() => setModDrawerOpen(false)}
           liveRoomId={roomId}
           hostUserId={user?.id}
+          moderatorUserId={user?.id}
           accessToken={accessToken}
           moderation={moderation}
+          onModerationPatch={moderation.patch}
           onRefresh={() => {
             void moderation.reload();
             void liveChat.reload();

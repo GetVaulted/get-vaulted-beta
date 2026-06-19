@@ -4,11 +4,14 @@ import { prisma } from "@/lib/prisma";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { emitLiveRoomMessageById } from "@/lib/realtime-emit-server";
 
-export const VIEWER_EVENT_JOIN_BODY = "joined 🔥";
-export const VIEWER_EVENT_JOIN_BODY_LEGACY = "joined 👋";
-export const VIEWER_EVENT_SHARE_BODY = "shared this show ✉️";
+import {
+  VIEWER_EVENT_JOIN_BODY,
+  VIEWER_EVENT_JOIN_BODY_LEGACY,
+  VIEWER_EVENT_SHARE_BODY,
+  VIEWER_JOIN_DEDUPE_WINDOW_MS,
+} from "@/lib/live-room-viewer-events";
 
-const JOIN_DEDUPE_WINDOW_MS = 30 * 1000;
+const JOIN_DEDUPE_WINDOW_MS = VIEWER_JOIN_DEDUPE_WINDOW_MS;
 const SHARE_DEDUPE_WINDOW_MS = 30 * 1000;
 
 import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
@@ -61,8 +64,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     where: {
       liveRoomId,
       senderId: auth.userId,
-      body: text,
       messageType: "system",
+      body: kind === "join" ? { in: [VIEWER_EVENT_JOIN_BODY, VIEWER_EVENT_JOIN_BODY_LEGACY] } : text,
       createdAt: { gte: new Date(Date.now() - dedupeWindowMs) },
     },
     orderBy: { createdAt: "desc" },

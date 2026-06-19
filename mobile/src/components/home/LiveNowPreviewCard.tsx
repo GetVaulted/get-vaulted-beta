@@ -176,7 +176,9 @@ export function LiveNowPreviewCard({
             </Text>
             {isScheduled ? (
               <Text style={styles.status} numberOfLines={1}>
-                {stream.showDescription?.trim() || status}
+                {stream.scheduledStartAtIso
+                  ? status
+                  : stream.showDescription?.trim() || status}
               </Text>
             ) : null}
           </View>

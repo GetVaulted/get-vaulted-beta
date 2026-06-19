@@ -35,6 +35,20 @@ export function formatScheduledStartLong(iso: string, locale = undefined): strin
   });
 }
 
+/** Compact schedule line for discovery tiles. */
+export function formatScheduledStartShort(iso: string | null | undefined, locale = undefined): string | null {
+  if (!iso?.trim()) return null;
+  const ms = Date.parse(iso.trim());
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toLocaleString(locale, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 export type CountdownParts = { hours: number; minutes: number; seconds: number };
 
 export function getCountdownParts(nowMs: number, targetMs: number): CountdownParts {

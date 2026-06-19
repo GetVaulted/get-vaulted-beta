@@ -42,3 +42,8 @@ export function msUntilPinnedMessageExpires(args: {
   if (Number.isNaN(pinned.getTime())) return null;
   return pinned.getTime() + DEFAULT_PIN_EXPIRES_MINUTES * 60 * 1000 - Date.now();
 }
+
+export function computePinExpiresIso(pinnedAt: Date, expiresMinutes: number): string | null {
+  if (!Number.isFinite(expiresMinutes) || expiresMinutes <= 0) return null;
+  return new Date(pinnedAt.getTime() + expiresMinutes * 60 * 1000).toISOString();
+}

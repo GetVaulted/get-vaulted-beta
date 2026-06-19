@@ -7,18 +7,20 @@ import { hq } from './hqStyles';
 
 function formatWhen(iso: string | null, status: LiveRoomApiRow['status']): string {
   if (status === 'live') return 'On air now';
-  if (!iso) return 'Schedule TBA';
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-  } catch {
-    return 'Scheduled';
+  if (iso) {
+    try {
+      return new Date(iso).toLocaleString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+    } catch {
+      return 'Scheduled';
+    }
   }
+  return 'Ready — go live when you are set';
 }
 
 export function SellerLiveVaultEvents({
@@ -84,7 +86,9 @@ export function SellerLiveVaultEvents({
             />
             <View style={styles.eventTop}>
               <View style={[styles.statusPill, isLive && styles.statusPillLive]}>
-                <Text style={styles.statusTxt}>{isLive ? 'Live' : 'Scheduled'}</Text>
+                <Text style={styles.statusTxt}>
+                  {isLive ? 'Live' : room.scheduledStartAt ? 'Scheduled' : 'Ready'}
+                </Text>
               </View>
               <Text style={styles.eventMeta}>{room.category}</Text>
             </View>

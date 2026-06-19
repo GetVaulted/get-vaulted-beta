@@ -1,4 +1,5 @@
 import { formatLiveRoomCategoryLabel } from '../data/categoryDisplayShared';
+import { formatScheduledStartShort } from './liveStreamScheduled';
 import type { CategoryId, LiveStream } from '../types';
 
 export { formatLiveRoomCategoryLabel } from '../data/categoryDisplayShared';
@@ -90,6 +91,12 @@ function modeStatus(stream: LiveStream): string | null {
 
 /** Dynamic status for live cards — category-aware; breaker terms only on break lanes. */
 export function liveRoomCardStatusLine(stream: LiveStream): string {
+  if (stream.roomStatus === 'scheduled') {
+    const scheduledLine = formatScheduledStartShort(stream.scheduledStartAtIso);
+    if (scheduledLine) return scheduledLine;
+    return 'Scheduled';
+  }
+
   if (stream.urgencyLine?.trim()) return stream.urgencyLine.trim();
   if (stream.heatLabel?.trim()) return stream.heatLabel.trim();
   if (stream.soldFlash?.trim()) return stream.soldFlash.trim();

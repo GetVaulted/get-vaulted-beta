@@ -58,7 +58,10 @@ export function mapApiRowToLiveNowRoom(row: LiveRoomListApiRow): LiveNowRoom {
   const category = normalizeCategory(row.category);
   const { roomKind, formatBadge } = roomKindAndBadge(row.roomType);
   const showStatus: LiveShowStatus = row.status === "live" ? "live_now" : "scheduled";
-  const scheduledFor = row.status === "scheduled" ? formatSchedule(row.scheduledStartAt) ?? "Upcoming" : undefined;
+  const scheduledFor =
+    row.status === "scheduled" && row.scheduledStartAt
+      ? formatSchedule(row.scheduledStartAt) ?? "Upcoming"
+      : undefined;
   const imageSeed = row.thumbnailUrl?.trim() ? `live-thumb-${row.id}` : `live-db-${row.id}`;
 
   if (roomKind === "break_room") {

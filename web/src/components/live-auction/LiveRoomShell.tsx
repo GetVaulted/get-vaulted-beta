@@ -87,9 +87,6 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     enabled: Boolean(roomId),
     userId: session?.user?.id ?? null,
     viewerDisplayName: session?.user?.username?.trim() ? session.user.username : null,
-    onViewerEvent: () => {
-      void announceLiveRoomJoin(roomId);
-    },
     onPresenceStateChange: ({ status, reconnectCount }) => {
       if (reconnectCount > reconnectCountRef.current) reconnectCountRef.current = reconnectCount;
       logLiveDebugEvent({

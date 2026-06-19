@@ -51,7 +51,7 @@ export type PinnedModeratorChat = {
   isHost?: boolean;
 };
 
-const PINNED_ROW_HEIGHT = 62;
+export const PINNED_MODERATOR_ROW_HEIGHT = 62;
 
 const ROW_HEIGHT_ESTIMATE = 26;
 const ROW_HEIGHT_COMPACT = 22;
@@ -238,7 +238,7 @@ function FloatingChatRow({
   );
 }
 
-function PinnedModeratorRow({
+export function PinnedModeratorBar({
   pinned,
   compact,
 }: {
@@ -326,7 +326,6 @@ export function FloatingLiveChat({
   compact = false,
   onPressChatUser,
   moderatorUserIds,
-  pinnedModerator,
 }: {
   pool: ChatMessage[];
   hostAvatarUrl?: string | null;
@@ -348,7 +347,6 @@ export function FloatingLiveChat({
   compact?: boolean;
   onPressChatUser?: (user: { username: string; userId?: string }) => void;
   moderatorUserIds?: string[];
-  pinnedModerator?: PinnedModeratorChat | null;
 }) {
   const history = useMemo(() => prepareChatMessageHistory(pool), [pool]);
   const moderatorIdSet = useMemo(() => new Set(moderatorUserIds ?? []), [moderatorUserIds]);
@@ -371,19 +369,16 @@ export function FloatingLiveChat({
 
   if (!isActive) return null;
 
-  const pinnedText = pinnedModerator?.body?.trim();
   const hasChat = history.length > 0;
-  if (!pinnedText && !hasChat) return null;
+  if (!hasChat) return null;
 
-  const pinnedRowHeight = pinnedText ? PINNED_ROW_HEIGHT : 0;
-  const scrollMaxHeight = Math.max(48, viewportHeight - pinnedRowHeight);
+  const scrollMaxHeight = Math.max(48, viewportHeight);
 
   return (
     <View
       style={[styles.floatChatColumn, { bottom, left, right: rightEdge }]}
       pointerEvents="box-none"
     >
-      {hasChat ? (
       <ScrollView
         ref={scrollRef}
         style={[styles.scrollViewport, { maxHeight: scrollMaxHeight }]}
@@ -413,10 +408,6 @@ export function FloatingLiveChat({
           />
         ))}
       </ScrollView>
-      ) : null}
-      {pinnedText && pinnedModerator ? (
-        <PinnedModeratorRow pinned={pinnedModerator} compact={compact} />
-      ) : null}
     </View>
   );
 }
@@ -520,7 +511,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     justifyContent: 'flex-end',
     alignItems: 'flex-start',
-    zIndex: 14,
+    zIndex: 16,
   },
   pinnedRowShell: {
     width: '100%',

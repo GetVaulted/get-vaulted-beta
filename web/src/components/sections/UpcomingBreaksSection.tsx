@@ -64,7 +64,7 @@ export function UpcomingBreaksSection() {
 
   const cards = useMemo(() => {
     if (!liveMarketplaceEnabled || !rows) return [];
-    const scheduled = rows.filter((r) => r.status === "scheduled");
+    const scheduled = rows.filter((r) => r.status === "scheduled" && r.scheduledStartAt);
     scheduled.sort((a, b) => {
       const ta = a.scheduledStartAt ? new Date(a.scheduledStartAt).getTime() : Number.POSITIVE_INFINITY;
       const tb = b.scheduledStartAt ? new Date(b.scheduledStartAt).getTime() : Number.POSITIVE_INFINITY;

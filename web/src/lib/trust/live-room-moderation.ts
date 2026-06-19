@@ -44,6 +44,51 @@ function isActive(expiresAt: Date | null | undefined, now: Date): boolean {
 const PIN_EXPIRES_MINUTES_ALLOWED = [15, 30, 60, 120, 240, 24 * 60] as const;
 const DEFAULT_PIN_EXPIRES_MINUTES = 60;
 
+function resolvePinExpiresMinutes(rawMinutes: unknown): number {
+  const minutes = Number(rawMinutes ?? DEFAULT_PIN_EXPIRES_MINUTES);
+  return PIN_EXPIRES_MINUTES_ALLOWED.includes(minutes as (typeof PIN_EXPIRES_MINUTES_ALLOWED)[number])
+    ? minutes
+    : DEFAULT_PIN_EXPIRES_MINUTES;
+}
+
+function resolvePinExpiryDate(pinnedAt: Date, expiresMinutes: number): Date | null {
+  return expiresMinutes > 0 ? new Date(pinnedAt.getTime() + expiresMinutes * 60 * 1000) : null;
+}
+
+async function setLiveRoomPinnedMessage(args: {
+  liveRoomId: string;
+  moderatorUserId: string;
+  body: string;
+  expiresMinutes?: unknown;
+}): Promise<void> {
+  const body = args.body.trim().slice(0, 500);
+  if (!body) {
+    await prisma.liveRoom.update({
+      where: { id: args.liveRoomId },
+      data: {
+        pinnedModeratorMessage: null,
+        pinnedModeratorMessageAt: null,
+        pinnedModeratorMessageExpiresAt: null,
+        pinnedModeratorUserId: null,
+      },
+    });
+    return;
+  }
+
+  const expiresMinutes = resolvePinExpiresMinutes(args.expiresMinutes);
+  const pinnedAt = new Date();
+  const expiresAt = resolvePinExpiryDate(pinnedAt, expiresMinutes);
+  await prisma.liveRoom.update({
+    where: { id: args.liveRoomId },
+    data: {
+      pinnedModeratorMessage: body,
+      pinnedModeratorMessageAt: pinnedAt,
+      pinnedModeratorMessageExpiresAt: expiresAt,
+      pinnedModeratorUserId: args.moderatorUserId,
+    },
+  });
+}
+
 async function resolvePinnedModeratorUser(
   liveRoomId: string,
   pinnedUserId: string | null,
@@ -63,7 +108,10 @@ async function resolvePinnedModeratorUser(
   }
 
   const recentPins = await prisma.liveRoomModerationAction.findMany({
-    where: { liveRoomId, actionType: "pin_message" },
+    where: {
+      liveRoomId,
+      actionType: { in: ["pin_message", "post_announcement"] },
+    },
     orderBy: { createdAt: "desc" },
     take: 10,
     select: {
@@ -99,7 +147,10 @@ async function resolveEffectivePinExpiry(
   if (!room.pinnedModeratorMessageAt) return null;
 
   const lastPin = await prisma.liveRoomModerationAction.findFirst({
-    where: { liveRoomId, actionType: "pin_message" },
+    where: {
+      liveRoomId,
+      actionType: { in: ["pin_message", "post_announcement"] },
+    },
     orderBy: { createdAt: "desc" },
     select: { metadata: true },
   });
@@ -440,43 +491,26 @@ export async function applyLiveRoomModerationAction(args: {
 
   if (actionType === "pin_message") {
     const body = typeof args.metadata?.body === "string" ? args.metadata.body.trim().slice(0, 500) : "";
-    if (!body) {
-      await prisma.liveRoom.update({
-        where: { id: args.liveRoomId },
-        data: {
-          pinnedModeratorMessage: null,
-          pinnedModeratorMessageAt: null,
-          pinnedModeratorMessageExpiresAt: null,
-          pinnedModeratorUserId: null,
-        },
-      });
-    } else {
-      const rawMinutes = Number(args.metadata?.expiresMinutes ?? DEFAULT_PIN_EXPIRES_MINUTES);
-      const expiresMinutes = PIN_EXPIRES_MINUTES_ALLOWED.includes(
-        rawMinutes as (typeof PIN_EXPIRES_MINUTES_ALLOWED)[number],
-      )
-        ? rawMinutes
-        : DEFAULT_PIN_EXPIRES_MINUTES;
-      const pinnedAt = new Date();
-      const expiresAt =
-        expiresMinutes > 0 ? new Date(pinnedAt.getTime() + expiresMinutes * 60 * 1000) : null;
-      await prisma.liveRoom.update({
-        where: { id: args.liveRoomId },
-        data: {
-          pinnedModeratorMessage: body,
-          pinnedModeratorMessageAt: pinnedAt,
-          pinnedModeratorMessageExpiresAt: expiresAt,
-          pinnedModeratorUserId: args.moderatorUserId,
-        },
-      });
+    await setLiveRoomPinnedMessage({
+      liveRoomId: args.liveRoomId,
+      moderatorUserId: args.moderatorUserId,
+      body,
+      expiresMinutes: args.metadata?.expiresMinutes,
+    });
+    if (body) {
       if (!args.metadata) args.metadata = {};
-      args.metadata = { ...args.metadata, body, expiresMinutes };
+      args.metadata = {
+        ...args.metadata,
+        body,
+        expiresMinutes: resolvePinExpiresMinutes(args.metadata?.expiresMinutes),
+      };
     }
   }
 
   if (actionType === "post_announcement") {
     const body = typeof args.metadata?.body === "string" ? args.metadata.body.trim().slice(0, 500) : "";
     if (!body) return { ok: false, error: "post_announcement requires body." };
+    const expiresMinutes = resolvePinExpiresMinutes(args.metadata?.expiresMinutes);
     const announcementBody = `📢 ${body}`;
     const msg = await prisma.liveRoomMessage.create({
       data: {
@@ -488,6 +522,14 @@ export async function applyLiveRoomModerationAction(args: {
       select: { id: true },
     });
     void emitLiveRoomMessageById(msg.id);
+    await setLiveRoomPinnedMessage({
+      liveRoomId: args.liveRoomId,
+      moderatorUserId: args.moderatorUserId,
+      body,
+      expiresMinutes,
+    });
+    if (!args.metadata) args.metadata = {};
+    args.metadata = { ...args.metadata, body, expiresMinutes };
   }
 
   if (actionType === "run_giveaway") {

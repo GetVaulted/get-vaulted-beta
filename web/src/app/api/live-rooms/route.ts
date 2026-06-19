@@ -18,6 +18,7 @@ import {
   resolveDefaultProfileForLiveShow,
   seedPlatformShippingProfiles,
 } from "@/services/shipping/platform-shipping-profiles";
+import { isPublicDiscoveryLiveRoom } from "@/lib/live-room-public-discovery";
 
 const ROOM_TYPES: LiveRoomType[] = ["auction", "sale", "break"];
 
@@ -73,7 +74,16 @@ export async function GET(req: Request) {
 
     const where: Prisma.LiveRoomWhereInput = {
       ...(sellerId ? { sellerId } : {}),
-      ...(ownerListingEnded ? {} : { status: { in: ["live", "scheduled"] } }),
+      ...(ownerListingEnded
+        ? {}
+        : viewingOwnSellerRooms
+          ? { status: { in: ["live", "scheduled"] } }
+          : {
+              OR: [
+                { status: "live" },
+                { status: "scheduled", scheduledStartAt: { not: null } },
+              ],
+            }),
       ...(!viewingOwnSellerRooms
         ? { seller: prismaSellerVisibleOnPublicMarketplace() }
         : {}),
@@ -111,7 +121,11 @@ export async function GET(req: Request) {
       return 0;
     });
 
-    const rooms = sorted.map((r) => {
+    const visibleRows = viewingOwnSellerRooms
+      ? sorted
+      : sorted.filter((r) => isPublicDiscoveryLiveRoom(r));
+
+    const rooms = visibleRows.map((r) => {
       const active = r.items.find((i) => i.status === "active");
       let firstItemImageUrl = "";
       for (const item of r.items) {

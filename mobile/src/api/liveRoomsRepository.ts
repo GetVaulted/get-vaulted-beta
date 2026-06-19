@@ -506,7 +506,9 @@ export function mapLiveRoomsToDiscovery(rows: LiveRoomApiRow[]): {
   const scheduled: ScheduledStream[] = [];
   for (const r of rows) {
     if (r.status === 'live') live.push(liveRoomRowToLiveStream(r));
-    else if (r.status === 'scheduled') scheduled.push(liveRoomRowToScheduledStream(r));
+    else if (r.status === 'scheduled' && r.scheduledStartAt) {
+      scheduled.push(liveRoomRowToScheduledStream(r));
+    }
   }
   return { live, scheduled };
 }

@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -25,6 +25,7 @@ import {
 import type { MentionSearchUser } from '../../api/mentionSearchRepository';
 import { UsernameMentionPicker } from '../mentions/UsernameMentionPicker';
 import { canPerformModeratorAction, formatModActionLabel } from '../../lib/liveModeratorPermissions';
+import { computePinExpiresIso } from '../../lib/pinnedMessageExpiry';
 import { colors, radii, spacing } from '../../theme';
 import { ModeratorViewerActions } from './ModeratorViewerActions';
 
@@ -54,9 +55,11 @@ type Props = {
   onClose: () => void;
   liveRoomId: string;
   hostUserId?: string;
+  moderatorUserId?: string;
   accessToken?: string;
-  moderation: LiveRoomModerationSnapshot;
+  moderation: LiveRoomModerationSnapshot & { pinnedMessageActive?: boolean };
   onRefresh: () => void;
+  onModerationPatch?: (patch: Partial<LiveRoomModerationSnapshot>) => void;
 };
 
 export function ModeratorDrawer({
@@ -64,9 +67,11 @@ export function ModeratorDrawer({
   onClose,
   liveRoomId,
   hostUserId,
+  moderatorUserId,
   accessToken,
   moderation,
   onRefresh,
+  onModerationPatch,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<TabId>('queue');
@@ -99,6 +104,23 @@ export function ModeratorDrawer({
       allowedActions: moderation.allowedActions,
     });
 
+  const resolveModeratorPinIdentity = useCallback(() => {
+    const userId = moderatorUserId?.trim() ?? null;
+    const fromList = userId
+      ? moderation.moderators.find((row) => row.userId === userId)?.username?.trim()
+      : null;
+    return {
+      pinnedModeratorUserId: userId,
+      pinnedModeratorUsername: fromList ?? moderation.pinnedModeratorUsername ?? null,
+      pinnedModeratorAvatarUrl: moderation.pinnedModeratorAvatarUrl ?? null,
+    };
+  }, [
+    moderation.moderators,
+    moderation.pinnedModeratorAvatarUrl,
+    moderation.pinnedModeratorUsername,
+    moderatorUserId,
+  ]);
+
   const runAction = async (args: {
     actionType: string;
     targetUserId?: string;
@@ -119,6 +141,43 @@ export function ModeratorDrawer({
       setError(result.error ?? 'Action failed.');
       return;
     }
+
+    if (args.actionType === 'pin_message') {
+      const body = typeof args.metadata?.body === 'string' ? args.metadata.body.trim() : '';
+      if (!body) {
+        onModerationPatch?.({
+          pinnedModeratorMessage: null,
+          pinnedModeratorMessageAt: null,
+          pinnedModeratorMessageExpiresAt: null,
+          pinnedModeratorUserId: null,
+          pinnedModeratorUsername: null,
+          pinnedModeratorAvatarUrl: null,
+        });
+      } else {
+        const pinnedAt = new Date();
+        const expiresMinutes = Number(args.metadata?.expiresMinutes ?? 60);
+        onModerationPatch?.({
+          pinnedModeratorMessage: body,
+          pinnedModeratorMessageAt: pinnedAt.toISOString(),
+          pinnedModeratorMessageExpiresAt: computePinExpiresIso(pinnedAt, expiresMinutes),
+          ...resolveModeratorPinIdentity(),
+        });
+      }
+    }
+
+    if (args.actionType === 'post_announcement') {
+      const body = typeof args.metadata?.body === 'string' ? args.metadata.body.trim() : '';
+      if (body) {
+        const pinnedAt = new Date();
+        onModerationPatch?.({
+          pinnedModeratorMessage: body,
+          pinnedModeratorMessageAt: pinnedAt.toISOString(),
+          pinnedModeratorMessageExpiresAt: computePinExpiresIso(pinnedAt, 60),
+          ...resolveModeratorPinIdentity(),
+        });
+      }
+    }
+
     onRefresh();
   };
 
@@ -155,7 +214,7 @@ export function ModeratorDrawer({
           <PinnedTab
             value={pinnedBody}
             onChange={setPinnedBody}
-            current={moderation.pinnedModeratorMessage}
+            current={moderation.pinnedMessageActive ? moderation.pinnedModeratorMessage : null}
             expiresAt={moderation.pinnedModeratorMessageExpiresAt ?? null}
             expiresMinutes={pinExpiresMinutes}
             onChangeExpiresMinutes={setPinExpiresMinutes}
@@ -175,6 +234,7 @@ export function ModeratorDrawer({
           <AnnouncementTab
             value={announcementBody}
             onChange={setAnnouncementBody}
+            current={moderation.pinnedMessageActive ? moderation.pinnedModeratorMessage : null}
             canPost={can('post_announcement')}
             busy={busy}
             onPost={() => {
@@ -214,6 +274,7 @@ export function ModeratorDrawer({
     moderation.modHistory,
     moderation.pinnedModeratorMessage,
     moderation.pinnedModeratorMessageExpiresAt,
+    moderation.pinnedMessageActive,
     moderation.moderatorLevel,
     moderation.allowedActions,
     moderation.isModerator,
@@ -505,18 +566,29 @@ function PinnedTab({
 function AnnouncementTab({
   value,
   onChange,
+  current,
   canPost,
   busy,
   onPost,
 }: {
   value: string;
   onChange: (v: string) => void;
+  current: string | null;
   canPost: boolean;
   busy: boolean;
   onPost: () => void;
 }) {
   return (
     <View style={styles.formBlock}>
+      <Text style={styles.hint}>
+        Posts to chat and pins the message above the composer for everyone in the room.
+      </Text>
+      {current ? (
+        <View style={styles.card}>
+          <Text style={styles.cardMeta}>Live announcement</Text>
+          <Text style={styles.cardBody}>{current}</Text>
+        </View>
+      ) : null}
       <TextInput
         style={styles.input}
         value={value}

@@ -3,6 +3,8 @@ import {
   computeChatStackMaxHeight,
   computeLiveRoomBottomStack,
   DEFAULT_COMMERCE_OVERLAY_HEIGHT,
+  PINNED_ABOVE_COMPOSER_GAP,
+  PINNED_MODERATOR_ROW_HEIGHT,
 } from './liveRoomBottomLayout';
 
 describe('computeLiveRoomBottomStack', () => {
@@ -29,6 +31,22 @@ describe('computeLiveRoomBottomStack', () => {
     });
     expect(open.commerceBottom).toBe(closed.commerceBottom + 280);
     expect(open.composerBottom).toBe(closed.composerBottom + 280);
+  });
+
+  it('reserves space above the composer when a pinned mod announcement is active', () => {
+    const plain = computeLiveRoomBottomStack({
+      dockPaddingBottom: 20,
+      commerceHeight: 140,
+    });
+    const pinned = computeLiveRoomBottomStack({
+      dockPaddingBottom: 20,
+      commerceHeight: 140,
+      pinnedModeratorActive: true,
+    });
+    expect(pinned.pinnedBarBottom).toBeGreaterThan(plain.composerBottom);
+    expect(pinned.chatBottom - plain.chatBottom).toBe(
+      PINNED_MODERATOR_ROW_HEIGHT + PINNED_ABOVE_COMPOSER_GAP,
+    );
   });
 });
 
