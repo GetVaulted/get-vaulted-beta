@@ -385,11 +385,7 @@ export function VaultWalletSheet({
   const creditsUsd = summary?.vaultCreditsUsd ?? 0;
   const referralUsd = summary?.referralCreditUsd ?? 0;
   const walletCapabilities = summary?.capabilities;
-  const stripePublishableKeyRef = useRef<string | null>(null);
-  if (summary?.stripePublishableKey?.trim()) {
-    stripePublishableKeyRef.current = summary.stripePublishableKey;
-  }
-  const stripePublishableKey = stripePublishableKeyRef.current;
+  const stripePublishableKey = summary?.stripePublishableKey?.trim() || null;
   const walletPlatform = Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web';
   const liveMethods = liveAcceptedWalletMethods(walletPlatform, walletCapabilities);
 
@@ -858,7 +854,7 @@ export function VaultWalletSheet({
   return (
     <>
       <Modal
-        visible={visible}
+        visible={visible && !paymentSetupOpen}
         animationType="slide"
         transparent
         onRequestClose={

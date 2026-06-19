@@ -822,7 +822,7 @@ export function WalletPaymentSetupModal({
     return () => {
       cancelled = true;
     };
-  }, [visible, accessToken]);
+  }, [visible, accessToken, startWith]);
 
   return (
     <Modal
@@ -831,6 +831,7 @@ export function WalletPaymentSetupModal({
       transparent
       onRequestClose={onClose}
       statusBarTranslucent
+      presentationStyle="overFullScreen"
     >
       <View style={ps.backdrop}>
         <SafeAreaView style={ps.panelShell} edges={['top']}>
@@ -853,6 +854,7 @@ export function WalletPaymentSetupModal({
                 urlScheme={STRIPE_URL_SCHEME}
               >
                 <WalletPaymentSetupInner
+                  key={`${payload.clientSecret}:${startWith}`}
                   accessToken={accessToken}
                   onClose={onClose}
                   onSaved={onSaved}

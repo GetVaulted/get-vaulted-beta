@@ -23,17 +23,14 @@ let platformPaySupportCache: boolean | null = null;
 let platformPaySupportInflight: Promise<boolean> | null = null;
 
 async function resolvePlatformPaySupported(): Promise<boolean> {
-  if (platformPaySupportCache !== null) return platformPaySupportCache;
+  if (platformPaySupportCache === true) return true;
   if (!platformPaySupportInflight) {
     platformPaySupportInflight = isPlatformPaySupported()
       .then((ok) => {
-        platformPaySupportCache = ok;
+        if (ok) platformPaySupportCache = true;
         return ok;
       })
-      .catch(() => {
-        platformPaySupportCache = false;
-        return false;
-      })
+      .catch(() => false)
       .finally(() => {
         platformPaySupportInflight = null;
       });
@@ -46,13 +43,15 @@ function NativePayButtonInner({
   appearance = 'dark',
   disabled = false,
 }: Omit<Props, 'publishableKey'>) {
-  const [supported, setSupported] = useState<boolean | null>(platformPaySupportCache);
+  const [supported, setSupported] = useState<boolean | null>(
+    platformPaySupportCache === true ? true : null,
+  );
   const mountedRef = useRef(true);
 
   useEffect(() => {
     mountedRef.current = true;
-    if (platformPaySupportCache !== null) {
-      setSupported(platformPaySupportCache);
+    if (platformPaySupportCache === true) {
+      setSupported(true);
       return;
     }
     void resolvePlatformPaySupported().then((ok) => {
@@ -64,9 +63,13 @@ function NativePayButtonInner({
   }, []);
 
   const platform = Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web';
+  const expectsNativePay = platform === 'ios' || platform === 'android';
+  if (!expectsNativePay) return null;
+  if (supported === false) return null;
+
   const showApple = shouldShowApplePay(platform, supported === true);
   const showGoogle = shouldShowGooglePay(platform, supported === true);
-  if (supported === false || (!showApple && !showGoogle)) return null;
+  if (supported === true && !showApple && !showGoogle) return null;
 
   const buttonStyle =
     appearance === 'light' ? PlatformPay.ButtonStyle.Black : PlatformPay.ButtonStyle.White;
