@@ -1,12 +1,11 @@
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js";
+import {
+  extractSupabaseAuthEmail,
+  placeholderEmailForSupabaseUser,
+} from "@/lib/extract-supabase-auth-email";
 import { prisma } from "@/lib/prisma";
 import { pickPrismaUserIdForSupabaseSession } from "@/lib/pick-prisma-user-for-supabase-auth";
 import { syncPrismaEmailVerifiedFromSupabase } from "@/lib/sync-prisma-email-verified";
-
-function normalizeEmail(email: string | undefined): string | null {
-  const e = email?.trim().toLowerCase();
-  return e ? e : null;
-}
 
 function baseUsernameFromSupabaseUser(user: SupabaseAuthUser): string {
   const meta = user.user_metadata as Record<string, unknown> | undefined;
@@ -39,9 +38,8 @@ async function allocateUsername(base: string): Promise<string> {
  */
 export async function ensurePrismaUserForSupabaseAuth(supabaseUser: SupabaseAuthUser): Promise<string | null> {
   const meta = supabaseUser.user_metadata as Record<string, unknown> | undefined;
-  const metaEmail =
-    typeof meta?.email === "string" ? meta.email : typeof meta?.email_address === "string" ? meta.email_address : undefined;
-  const email = normalizeEmail(supabaseUser.email ?? metaEmail ?? undefined);
+  const email =
+    extractSupabaseAuthEmail(supabaseUser) ?? placeholderEmailForSupabaseUser(supabaseUser.id);
 
   const stripePickSelect = {
     id: true,
@@ -72,8 +70,6 @@ export async function ensurePrismaUserForSupabaseAuth(supabaseUser: SupabaseAuth
     await syncPrismaEmailVerifiedFromSupabase(picked, supabaseUser);
     return picked;
   }
-
-  if (!email) return null;
 
   const username = await allocateUsername(baseUsernameFromSupabaseUser(supabaseUser));
   const displayRaw = meta?.display_name;

@@ -1,10 +1,8 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { signIn } from "next-auth/react";
 import { Suspense, useEffect, useState } from "react";
 import { safeReturnTo } from "@/lib/safe-return-to";
-import { getSupabaseBrowserAuthClient } from "@/lib/supabase-browser-auth-client";
 import { AUTH_USER_MESSAGES } from "@/lib/unified-auth";
 
 function OAuthBridgeInner() {
@@ -17,35 +15,16 @@ function OAuthBridgeInner() {
     let cancelled = false;
 
     void (async () => {
-      const supabase = getSupabaseBrowserAuthClient();
-      if (!supabase) {
-        if (!cancelled) setMessage("Sign-in is not configured on this site.");
-        return;
-      }
-
-      const { data, error } = await supabase.auth.getSession();
-      if (cancelled) return;
-
-      if (error) {
-        setMessage(error.message || AUTH_USER_MESSAGES.socialSignInFailed);
-        return;
-      }
-
-      const accessToken = data.session?.access_token ?? null;
-      if (!accessToken) {
-        setMessage(AUTH_USER_MESSAGES.socialSignInFailed);
-        return;
-      }
-
-      const res = await signIn("supabase-oauth", {
-        accessToken,
-        redirect: false,
+      const res = await fetch("/api/auth/complete-oauth", {
+        method: "POST",
+        credentials: "include",
       });
 
       if (cancelled) return;
 
-      if (!res?.ok || res.error) {
-        setMessage(AUTH_USER_MESSAGES.socialSignInFailed);
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok || body?.error) {
+        setMessage(body?.error ?? AUTH_USER_MESSAGES.socialSignInFailed);
         return;
       }
 

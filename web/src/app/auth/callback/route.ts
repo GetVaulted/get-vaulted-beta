@@ -1,6 +1,5 @@
 import { type NextRequest } from "next/server";
-import { authorizeSupabaseAccessToken } from "@/lib/authorize-supabase-access-token";
-import { attachNextAuthSessionCookie } from "@/lib/create-nextauth-session-response";
+import { OAUTH_ACCESS_TOKEN_COOKIE } from "@/lib/oauth-access-token-cookie";
 import {
   clearOAuthReturnToCookie,
   createSupabaseRouteHandlerAuthClient,
@@ -40,17 +39,14 @@ export async function GET(request: NextRequest) {
     return signInRedirect(origin, returnTo, sessionError?.message ?? "no_session");
   }
 
-  const nextAuthUser = await authorizeSupabaseAccessToken(accessToken);
-  if (!nextAuthUser) {
-    return signInRedirect(
-      origin,
-      returnTo,
-      "Could not finish setting up your account. Try email sign-in or contact support.",
-    );
-  }
-
-  const response = redirectWithForwardedHost(request, returnTo);
-  auth.applyCookies(response);
-  clearOAuthReturnToCookie(response);
-  return attachNextAuthSessionCookie(response, nextAuthUser);
+  const bridgePath = `/auth/oauth-bridge?returnTo=${encodeURIComponent(returnTo)}`;
+  const response = auth.applyCookies(redirectWithForwardedHost(request, bridgePath));
+  response.cookies.set(OAUTH_ACCESS_TOKEN_COOKIE, accessToken, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 120,
+  });
+  return clearOAuthReturnToCookie(response);
 }
