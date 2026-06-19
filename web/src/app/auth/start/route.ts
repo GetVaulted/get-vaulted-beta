@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     return signInRedirect(origin, returnTo, "not_configured");
   }
 
-  const redirectTo = buildWebOAuthCallbackUrl(returnTo, origin);
+  const redirectTo = buildWebOAuthCallbackOrigin(origin);
   const { data, error } = await auth.supabase.auth.signInWithOAuth({
     provider: provider as "google" | "apple",
     options: {
