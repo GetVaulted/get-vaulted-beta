@@ -38,7 +38,10 @@ async function allocateUsername(base: string): Promise<string> {
  * - Else creates a minimal `User` with `id = supabaseUser.id` so mobile sessions stay aligned.
  */
 export async function ensurePrismaUserForSupabaseAuth(supabaseUser: SupabaseAuthUser): Promise<string | null> {
-  const email = normalizeEmail(supabaseUser.email ?? undefined);
+  const meta = supabaseUser.user_metadata as Record<string, unknown> | undefined;
+  const metaEmail =
+    typeof meta?.email === "string" ? meta.email : typeof meta?.email_address === "string" ? meta.email_address : undefined;
+  const email = normalizeEmail(supabaseUser.email ?? metaEmail ?? undefined);
 
   const stripePickSelect = {
     id: true,
@@ -73,7 +76,6 @@ export async function ensurePrismaUserForSupabaseAuth(supabaseUser: SupabaseAuth
   if (!email) return null;
 
   const username = await allocateUsername(baseUsernameFromSupabaseUser(supabaseUser));
-  const meta = supabaseUser.user_metadata as Record<string, unknown> | undefined;
   const displayRaw = meta?.display_name;
   const display =
     typeof displayRaw === "string" && displayRaw.trim() ? displayRaw.trim().slice(0, 120) : null;

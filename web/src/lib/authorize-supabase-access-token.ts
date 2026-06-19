@@ -24,7 +24,14 @@ export async function authorizeSupabaseAccessToken(
     console.error("[authorizeSupabaseAccessToken] ensurePrismaUser failed", e);
     return null;
   }
-  if (!prismaUserId) return null;
+  if (!prismaUserId) {
+    console.warn("[authorizeSupabaseAccessToken] no Prisma user for Supabase auth user", {
+      supabaseUserId: data.user.id,
+      email: data.user.email ?? null,
+      providers: data.user.app_metadata?.providers,
+    });
+    return null;
+  }
 
   const user = await prisma.user.findUnique({
     where: { id: prismaUserId },
@@ -38,11 +45,23 @@ export async function authorizeSupabaseAccessToken(
       emailVerified: true,
     },
   });
-  if (!user || user.suspendedAt || isAccountDeleted(user)) return null;
+  if (!user || user.suspendedAt || isAccountDeleted(user)) {
+    console.warn("[authorizeSupabaseAccessToken] Prisma user blocked or missing", {
+      prismaUserId,
+      found: Boolean(user),
+    });
+    return null;
+  }
 
   if (!user.emailVerified) {
     const synced = await syncPrismaEmailVerifiedFromSupabase(user.id, data.user);
-    if (!synced) return null;
+    if (!synced) {
+      console.warn("[authorizeSupabaseAccessToken] emailVerified sync failed", {
+        userId: user.id,
+        supabaseEmailConfirmed: data.user.email_confirmed_at ?? null,
+      });
+      return null;
+    }
   }
 
   return {
