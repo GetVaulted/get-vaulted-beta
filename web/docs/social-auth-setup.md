@@ -64,7 +64,7 @@ Copy **Web client ID + secret** into Supabase Google provider settings.
 
 | Flow | Path |
 |------|------|
-| Start OAuth | Sign In / Sign Up → **Continue with Google** |
+| Start OAuth | Sign In / Sign Up → **Continue with Google** or **Continue with Apple** |
 | Callback | `/auth/callback?returnTo=…` → exchanges PKCE code → NextAuth `supabase-oauth` provider |
 | Post-login | Respects `returnTo` (default `/marketplace`) |
 
@@ -91,8 +91,9 @@ Copy **Web client ID + secret** into Supabase Google provider settings.
 
 - `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` — same project as web
 - `EXPO_PUBLIC_SITE_URL` — must match the web host used for OAuth return (LAN IP for device dev, `https://beta.shopgetvaulted.com` on beta)
+- `EXPO_PUBLIC_AUTH_APPLE_ENABLED=true` — included in `mobile/eas.json`; on iOS the Apple button also shows when unset
 
-After OAuth login, the existing Supabase session + `ensurePrismaUserForSupabaseAuth` on API calls preserve seller/buyer onboarding. Email/password login is unchanged.
+After OAuth login, the app calls `/api/account/identity` to create the Prisma user row immediately (username auto-generated). Email/password login is unchanged.
 
 ---
 
@@ -100,7 +101,7 @@ After OAuth login, the existing Supabase session + `ensurePrismaUserForSupabaseA
 
 - [ ] Web: Google sign **up** (new Google account)
 - [ ] Web: Google sign **in** (returning user)
-- [ ] Web: email/password sign-in still works
+- [ ] Web: Apple sign up / sign in (when `AUTH_OAUTH_APPLE_ENABLED=true`)
 - [ ] Mobile: Google sign up / sign in (iOS + Android)
 - [ ] Mobile: Apple sign up / sign in (iOS)
 - [ ] Mobile: email/password still works

@@ -1,9 +1,13 @@
+import { Platform } from 'react-native';
 import { getWebApiBaseUrl } from './webApiBaseUrl';
 import { isSupabaseConfigured } from './supabase';
 
-/** Apple OAuth in Supabase must be enabled explicitly (issuer https://appleid.apple.com). */
+/** Apple OAuth in Supabase (issuer https://appleid.apple.com). Enabled on iOS unless explicitly off. */
 export function isAppleOAuthProviderEnabled(): boolean {
-  return process.env.EXPO_PUBLIC_AUTH_APPLE_ENABLED === 'true';
+  const flag = process.env.EXPO_PUBLIC_AUTH_APPLE_ENABLED?.trim();
+  if (flag === 'false') return false;
+  if (flag === 'true') return true;
+  return Platform.OS === 'ios';
 }
 
 /** Google OAuth needs Supabase + a redirect URL allowlisted in the dashboard. */

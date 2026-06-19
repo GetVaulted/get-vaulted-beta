@@ -1,15 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { isGoogleOAuthProviderEnabled } from "@/lib/auth-provider-availability";
-import { getSupabaseBrowserAuthClient } from "@/lib/supabase-browser-auth-client";
-import { buildWebOAuthCallbackUrl } from "@/lib/supabase-oauth-redirect";
+import { isAppleOAuthProviderEnabled, isGoogleOAuthProviderEnabled } from "@/lib/auth-provider-availability";
 import { AUTH_USER_MESSAGES } from "@/lib/unified-auth";
 
 type Props = {
   returnTo: string;
   disabled?: boolean;
 };
+
+type SocialProvider = "google" | "apple";
 
 function GoogleIcon() {
   return (
@@ -34,50 +34,34 @@ function GoogleIcon() {
   );
 }
 
+function AppleIcon() {
+  return (
+    <svg className="size-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+      <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
+    </svg>
+  );
+}
+
+/** Server route stores PKCE verifier in cookies before redirecting to Google/Apple. */
+function oauthStartUrl(provider: SocialProvider, returnTo: string): string {
+  const qs = new URLSearchParams({
+    provider,
+    returnTo,
+  });
+  return `/auth/start?${qs.toString()}`;
+}
+
 export function SocialAuthButtons({ returnTo, disabled }: Props) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<SocialProvider | null>(null);
   const googleEnabled = isGoogleOAuthProviderEnabled();
+  const appleEnabled = isAppleOAuthProviderEnabled();
 
-  if (!googleEnabled) return null;
+  if (!googleEnabled && !appleEnabled) return null;
 
-  const onGoogle = async () => {
-    setError(null);
-    const supabase = getSupabaseBrowserAuthClient();
-    if (!supabase) {
-      setError(AUTH_USER_MESSAGES.socialNotConfigured);
-      return;
-    }
-    setBusy(true);
-    if (process.env.NODE_ENV === "development") {
-      console.log("[auth:google] start", { returnTo });
-    }
-    try {
-      const redirectTo =
-        typeof window !== "undefined"
-          ? buildWebOAuthCallbackUrl(returnTo, window.location.origin)
-          : buildWebOAuthCallbackUrl(returnTo);
-      const { error: oauthError } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo,
-          queryParams: { prompt: "select_account" },
-        },
-      });
-      if (oauthError) {
-        setError(oauthError.message || AUTH_USER_MESSAGES.socialSignInFailed);
-        setBusy(false);
-        if (process.env.NODE_ENV === "development") {
-          console.log("[auth:google] oauth error", oauthError.message);
-        }
-      }
-    } catch (e) {
-      setError(AUTH_USER_MESSAGES.socialSignInFailed);
-      setBusy(false);
-      if (process.env.NODE_ENV === "development") {
-        console.log("[auth:google] threw", e);
-      }
-    }
+  const onSocial = (provider: SocialProvider) => {
+    if (disabled || busy) return;
+    setBusy(provider);
+    window.location.assign(oauthStartUrl(provider, returnTo));
   };
 
   return (
@@ -87,23 +71,42 @@ export function SocialAuthButtons({ returnTo, disabled }: Props) {
         <span className="text-[11px] font-medium text-zinc-500">or continue with</span>
         <span className="h-px flex-1 bg-white/10" aria-hidden />
       </div>
-      <button
-        type="button"
-        disabled={disabled || busy}
-        onClick={() => void onGoogle()}
-        className="flex h-11 w-full items-center justify-center gap-2.5 rounded-full border border-white/12 bg-white/[0.04] text-sm font-semibold text-foreground transition hover:border-white/20 hover:bg-white/[0.07] disabled:opacity-60"
-      >
-        <GoogleIcon />
-        {busy ? (
-          <span className="inline-flex items-center gap-2">
-            <span className="size-4 animate-spin rounded-full border-2 border-zinc-950/30 border-t-zinc-950" aria-hidden />
-            Redirecting…
-          </span>
-        ) : (
-          "Continue with Google"
-        )}
-      </button>
-      {error ? <p className="text-center text-xs font-medium text-rose-300">{error}</p> : null}
+      {googleEnabled ? (
+        <button
+          type="button"
+          disabled={disabled || Boolean(busy)}
+          onClick={() => onSocial("google")}
+          className="flex h-11 w-full items-center justify-center gap-2.5 rounded-full border border-white/12 bg-white/[0.04] text-sm font-semibold text-foreground transition hover:border-white/20 hover:bg-white/[0.07] disabled:opacity-60"
+        >
+          <GoogleIcon />
+          {busy === "google" ? (
+            <span className="inline-flex items-center gap-2">
+              <span className="size-4 animate-spin rounded-full border-2 border-zinc-950/30 border-t-zinc-950" aria-hidden />
+              Redirecting…
+            </span>
+          ) : (
+            "Continue with Google"
+          )}
+        </button>
+      ) : null}
+      {appleEnabled ? (
+        <button
+          type="button"
+          disabled={disabled || Boolean(busy)}
+          onClick={() => onSocial("apple")}
+          className="flex h-11 w-full items-center justify-center gap-2.5 rounded-full border border-white/20 bg-black text-sm font-semibold text-white transition hover:border-white/30 hover:bg-zinc-950 disabled:opacity-60"
+        >
+          <AppleIcon />
+          {busy === "apple" ? (
+            <span className="inline-flex items-center gap-2">
+              <span className="size-4 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-hidden />
+              Redirecting…
+            </span>
+          ) : (
+            "Continue with Apple"
+          )}
+        </button>
+      ) : null}
     </div>
   );
 }

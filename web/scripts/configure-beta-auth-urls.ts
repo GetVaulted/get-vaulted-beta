@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { SUPABASE_OAUTH_REDIRECT_ALLOWLIST } from "../src/lib/supabase-oauth-redirect";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(__dirname, "..", "..");
@@ -32,8 +33,13 @@ function main() {
     BETA_SITE,
     `${BETA_SITE}/signin`,
     `${BETA_SITE}/join`,
+    ...SUPABASE_OAUTH_REDIRECT_ALLOWLIST.filter((u) => u.startsWith("https://beta.")),
     "http://127.0.0.1:3000",
     "http://localhost:3000",
+    "http://127.0.0.1:3000/auth/callback",
+    "http://localhost:3000/auth/callback",
+    "http://127.0.0.1:3000/mobile/auth/callback",
+    "http://localhost:3000/mobile/auth/callback",
   ];
 
   const original = fs.readFileSync(configPath, "utf8");

@@ -16,6 +16,7 @@ function SignInForm() {
   const registered = searchParams.get("registered");
   const confirm = searchParams.get("confirm");
   const suspended = searchParams.get("suspended") === "1";
+  const oauthErrorRaw = searchParams.get("oauthError");
   const emailFromQuery = searchParams.get("email")?.trim().toLowerCase() ?? "";
 
   /** If credentials ever landed in the query string (native GET fallback), strip them from the address bar. */
@@ -33,7 +34,9 @@ function SignInForm() {
 
   const [email, setEmail] = useState(() => emailFromQuery);
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() =>
+    oauthErrorRaw ? decodeURIComponent(oauthErrorRaw.replace(/\+/g, " ")) : null,
+  );
   const [loading, setLoading] = useState(false);
 
   const onSubmit = async (e: React.FormEvent) => {

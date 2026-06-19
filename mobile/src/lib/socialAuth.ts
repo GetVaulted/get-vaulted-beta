@@ -7,6 +7,7 @@ import {
   isAppleProviderDisabledError,
   isGoogleOAuthConfigured,
 } from './authProviderAvailability';
+import { provisionSocialAuthAccount } from './provisionSocialAuthAccount';
 import { getSupabase, isSupabaseConfigured } from './supabase';
 import { getWebApiBaseUrl } from './webApiBaseUrl';
 
@@ -23,7 +24,7 @@ export function getMobileOAuthRedirectUrl(): string {
 
 const devAuthLog = __DEV__
   ? (...args: unknown[]) => {
-      console.log('[auth:google]', ...args);
+      console.log('[auth:social]', ...args);
     }
   : () => {};
 
@@ -69,6 +70,7 @@ export async function signInWithGoogleOAuth(): Promise<SocialAuthResult> {
     devAuthLog('exchange error', exchangeError.message);
     throw exchangeError;
   }
+  await provisionSocialAuthAccount();
   devAuthLog('success');
   return 'success';
 }
@@ -113,6 +115,23 @@ export async function signInWithAppleOAuth(): Promise<SocialAuthResult> {
       }
       throw error;
     }
+
+    const given = credential.fullName?.givenName?.trim() ?? '';
+    const family = credential.fullName?.familyName?.trim() ?? '';
+    const displayName = [given, family].filter(Boolean).join(' ').trim();
+    if (displayName) {
+      const { error: metaError } = await sb.auth.updateUser({
+        data: {
+          display_name: displayName,
+          full_name: displayName,
+        },
+      });
+      if (metaError && __DEV__) {
+        devAuthLog('apple metadata update', metaError.message);
+      }
+    }
+
+    await provisionSocialAuthAccount();
     return 'success';
   } catch (e) {
     if (

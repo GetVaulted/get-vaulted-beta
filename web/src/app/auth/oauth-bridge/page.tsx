@@ -7,7 +7,7 @@ import { safeReturnTo } from "@/lib/safe-return-to";
 import { getSupabaseBrowserAuthClient } from "@/lib/supabase-browser-auth-client";
 import { AUTH_USER_MESSAGES } from "@/lib/unified-auth";
 
-function OAuthCallbackInner() {
+function OAuthBridgeInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = safeReturnTo(searchParams.get("returnTo"));
@@ -23,33 +23,17 @@ function OAuthCallbackInner() {
         return;
       }
 
-      const oauthError = searchParams.get("error_description") ?? searchParams.get("error");
-      if (oauthError) {
-        if (!cancelled) setMessage(decodeURIComponent(oauthError.replace(/\+/g, " ")));
+      const { data, error } = await supabase.auth.getSession();
+      if (cancelled) return;
+
+      if (error) {
+        setMessage(error.message || AUTH_USER_MESSAGES.socialSignInFailed);
         return;
       }
 
-      const code = searchParams.get("code");
-      let accessToken: string | null = null;
-
-      try {
-        if (code) {
-          const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-          if (error) throw error;
-          accessToken = data.session?.access_token ?? null;
-        } else {
-          const { data, error } = await supabase.auth.getSession();
-          if (error) throw error;
-          accessToken = data.session?.access_token ?? null;
-        }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : AUTH_USER_MESSAGES.socialSignInFailed;
-        if (!cancelled) setMessage(msg);
-        return;
-      }
-
+      const accessToken = data.session?.access_token ?? null;
       if (!accessToken) {
-        if (!cancelled) setMessage(AUTH_USER_MESSAGES.socialSignInFailed);
+        setMessage(AUTH_USER_MESSAGES.socialSignInFailed);
         return;
       }
 
@@ -72,7 +56,7 @@ function OAuthCallbackInner() {
     return () => {
       cancelled = true;
     };
-  }, [router, returnTo, searchParams]);
+  }, [router, returnTo]);
 
   return (
     <main className="flex min-h-[50vh] flex-col items-center justify-center px-6 text-center">
@@ -90,7 +74,7 @@ function OAuthCallbackInner() {
   );
 }
 
-export default function OAuthCallbackPage() {
+export default function OAuthBridgePage() {
   return (
     <Suspense
       fallback={
@@ -99,7 +83,7 @@ export default function OAuthCallbackPage() {
         </main>
       }
     >
-      <OAuthCallbackInner />
+      <OAuthBridgeInner />
     </Suspense>
   );
 }

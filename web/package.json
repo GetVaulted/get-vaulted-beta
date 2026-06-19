@@ -68,6 +68,7 @@
     "@prisma/client": "^7.8.0",
     "@stripe/connect-js": "^3.3.39",
     "@stripe/stripe-js": "^9.4.0",
+    "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.105.1",
     "amazon-ivs-web-broadcast": "^1.35.0",
     "bcryptjs": "^3.0.3",
