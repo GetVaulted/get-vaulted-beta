@@ -266,6 +266,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   const chatPool = liveChat.messages;
 
   const pinnedModerator = useMemo(() => {
+    if (!moderation.pinnedMessageActive) return null;
     const body = moderation.pinnedModeratorMessage?.trim();
     if (!body) return null;
     const username =
@@ -274,17 +275,22 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         pinnedModeratorUserId: moderation.pinnedModeratorUserId,
         moderators: moderation.moderators,
       }) ?? '';
+    const pinnedUserId = moderation.pinnedModeratorUserId?.trim();
+    const isHost = Boolean(pinnedUserId && user?.id && pinnedUserId === user.id);
     return {
       body,
       username,
       avatarUrl: moderation.pinnedModeratorAvatarUrl,
+      isHost,
     };
   }, [
     moderation.moderators,
+    moderation.pinnedMessageActive,
     moderation.pinnedModeratorAvatarUrl,
     moderation.pinnedModeratorMessage,
     moderation.pinnedModeratorUserId,
     moderation.pinnedModeratorUsername,
+    user?.id,
   ]);
 
   const tagUserInChat = useCallback((username: string) => {
@@ -343,7 +349,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
       onOpenBroadcast={() => setBroadcastOpen(true)}
       onSold={() => console.onSold()}
       onSkip={() => console.onSkip()}
-      onSync={() => void console.loadOnce()}
+      onSync={() => void console.refreshConsole()}
     >
     <View style={styles.root}>
       <KeyboardDismissStageShield active={keyboardOffset > 0} />
@@ -428,7 +434,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         onModerationComplete={() => {
           void liveChat.reload();
           void moderation.reload();
-          void console.loadOnce();
+          void console.refreshConsole();
         }}
         onPressChatUser={onPressChatUser}
         moderatorUserIds={moderation.moderators.map((m) => m.userId)}
@@ -575,7 +581,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         giveaways={console.giveaways}
         busy={console.busy || giveawayBusy}
         onRefresh={async () => {
-          await console.loadOnce();
+          await console.refreshConsole();
         }}
         onBusyChange={setGiveawayBusy}
         onToast={(msg) => {

@@ -351,7 +351,7 @@ function PaymentSheetLauncher({
       }
     >
         <LiveRoomText style={ps.subtitle}>
-          You won&apos;t be charged until you win or buy on live. Saved securely with Stripe for Get Vaulted Premium.
+          You won&apos;t be charged until you win or buy on live. Saved securely with Stripe for your Vault Wallet.
         </LiveRoomText>
       <View style={ps.section}>
         <LiveRoomText style={ps.sectionTitle}>Add with Apple Pay or Google Pay</LiveRoomText>

@@ -85,6 +85,9 @@ export function VaultHostLiveChatPanel({
       pinnedModeratorUserId: mod.pinnedModeratorUserId,
       moderators: mod.moderators,
     }) ?? "";
+  const pinnedIsHost = Boolean(
+    hostUserId && mod.pinnedModeratorUserId && mod.pinnedModeratorUserId === hostUserId,
+  );
   const visibleMessages = useMemo(() => messages.slice(-120), [messages]);
 
   const recentChatters = useMemo(() => {
@@ -224,23 +227,36 @@ export function VaultHostLiveChatPanel({
             )}
           </div>
 
-          {mod.pinnedModeratorMessage ? (
+          {mod.pinnedMessageActive && mod.pinnedModeratorMessage ? (
             <div className="shrink-0 px-2 pt-1">
               <div className="flex items-start gap-2 rounded-xl border border-white/20 bg-black/50 px-2.5 py-2 backdrop-blur-sm">
                 <LiveChatAvatar
                   username={pinnedModeratorUsername}
                   avatarUrl={mod.pinnedModeratorAvatarUrl}
                   size={24}
-                  isModerator
+                  isHost={pinnedIsHost}
+                  isModerator={!pinnedIsHost}
                   className="mt-0.5 shrink-0"
                 />
                 <p className="min-w-0 flex-1 text-[12px] leading-snug">
                   <span className="inline-flex flex-wrap items-center gap-1.5">
                     {pinnedModeratorUsername ? (
-                      <span className="font-extrabold text-white">{pinnedModeratorUsername}</span>
+                      <span
+                        className={
+                          pinnedIsHost ? "font-extrabold text-amber-300/95" : "font-extrabold text-violet-300/95"
+                        }
+                      >
+                        {pinnedModeratorUsername}
+                      </span>
                     ) : null}
-                    <span className="inline-flex rounded bg-zinc-500/90 px-1 py-0.5 text-[9px] font-bold leading-none text-white">
-                      Mod
+                    <span
+                      className={
+                        pinnedIsHost
+                          ? "inline-flex rounded bg-amber-500/25 px-1 py-0.5 text-[9px] font-bold leading-none text-amber-200"
+                          : "inline-flex rounded bg-zinc-500/90 px-1 py-0.5 text-[9px] font-bold leading-none text-white"
+                      }
+                    >
+                      {pinnedIsHost ? "Host" : "Mod"}
                     </span>
                   </span>
                   <span className="mt-0.5 block font-medium text-zinc-50">{mod.pinnedModeratorMessage}</span>

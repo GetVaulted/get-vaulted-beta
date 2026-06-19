@@ -100,7 +100,7 @@ export function LiveTipSheet({
       return;
     }
     if (!selectedPmId?.trim()) {
-      onError?.("Add a saved payment method in Get Vaulted Premium before tipping.");
+      onError?.("Add a saved payment method in your Vault Wallet before tipping.");
       return;
     }
     setBusy(true);
@@ -146,7 +146,7 @@ export function LiveTipSheet({
         </div>
         <div className="space-y-4 p-4">
           <p className="text-xs leading-relaxed text-zinc-500">
-            Tips use your saved payment method from Get Vaulted Premium for this room. Get Vaulted does not take a platform fee from tips.
+            Tips use your saved payment method from your Vault Wallet for this room. Get Vaulted does not take a platform fee from tips.
           </p>
 
           <div>
@@ -166,7 +166,7 @@ export function LiveTipSheet({
                 <span className="text-xs font-bold text-gold-bright">{pickerOpen ? "Done" : "Change"}</span>
               ) : (
                 <Link href="/account/payment-methods" className="text-xs font-bold text-gold-bright hover:underline">
-                  Premium
+                  Wallet
                 </Link>
               )}
             </button>
@@ -191,7 +191,7 @@ export function LiveTipSheet({
                   href="/account/payment-methods"
                   className="block rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 text-sm font-bold text-gold-bright hover:border-white/20"
                 >
-                  Manage in Get Vaulted Premium
+                  Manage in Vault Wallet
                 </Link>
               </div>
             ) : null}

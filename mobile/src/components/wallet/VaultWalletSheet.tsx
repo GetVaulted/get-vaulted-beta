@@ -428,7 +428,7 @@ export function VaultWalletSheet({
         />
         <SectionRow
           icon="gift-outline"
-          title="Get Vaulted Premium"
+          title="Vault credits"
           subtitle={
             creditsUsd > 0
               ? `${formatUsd(creditsUsd)} in Vault credits · buyer protection`
@@ -659,13 +659,13 @@ export function VaultWalletSheet({
 
   const renderPremium = () => (
     <>
-      <SheetHeader title="Get Vaulted Premium" onBack={goMain} />
+      <SheetHeader title="Vault credits" onBack={goMain} />
       <ScrollView contentContainerStyle={t.scrollContent}>
         <View style={{ alignItems: 'center', marginBottom: spacing.md }}>
           <View style={t.premiumHeroIcon}>
             <Ionicons name="shield-checkmark" size={28} color="#0a0908" />
           </View>
-          <LiveRoomText style={[t.heroTitle, { fontSize: 20 }]}>Get Vaulted Premium</LiveRoomText>
+          <LiveRoomText style={[t.heroTitle, { fontSize: 20 }]}>Vault credits</LiveRoomText>
           <LiveRoomText style={t.heroSub}>
             Secure checkout for live bids, PYT spots, and instant buy-now — backed by Stripe.
           </LiveRoomText>
@@ -863,7 +863,7 @@ export function VaultWalletSheet({
           <Pressable
             style={StyleSheet.absoluteFill}
             onPress={recoveryMode ? undefined : step === 'main' ? onClose : undefined}
-            accessibilityLabel="Dismiss Get Vaulted Premium"
+            accessibilityLabel="Dismiss Vault Wallet"
           />
           <KeyboardAvoidingView
             style={{ maxHeight: sheetMaxHeight, width: '100%' }}

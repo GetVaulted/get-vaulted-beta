@@ -16,12 +16,19 @@ function PinnedChatBar({
   username,
   avatarUrl,
   compact,
+  isHost,
 }: {
   message: string;
   username: string;
   avatarUrl?: string | null;
   compact?: boolean;
+  isHost?: boolean;
 }) {
+  const usernameClass = isHost ? "font-extrabold text-amber-300/95" : "font-extrabold text-violet-300/95";
+  const badgeClass = isHost
+    ? "inline-flex rounded bg-amber-500/25 px-1 py-0.5 text-[9px] font-bold leading-none text-amber-200"
+    : "inline-flex rounded bg-zinc-500/90 px-1 py-0.5 text-[9px] font-bold leading-none text-white";
+
   return (
     <div className={`pointer-events-none shrink-0 ${compact ? "px-1 pt-1" : "px-2 pt-1"}`}>
       <div
@@ -33,15 +40,14 @@ function PinnedChatBar({
           username={username}
           avatarUrl={avatarUrl}
           size={24}
-          isModerator
+          isHost={isHost}
+          isModerator={!isHost}
           className="mt-0.5 shrink-0"
         />
         <p className={`min-w-0 flex-1 leading-snug [text-shadow:0_1px_2px_rgba(0,0,0,0.95)] ${compact ? "text-[12px]" : "text-[13px]"}`}>
           <span className="inline-flex flex-wrap items-center gap-1.5">
-            {username ? <span className="font-extrabold text-white">{username}</span> : null}
-            <span className="inline-flex rounded bg-zinc-500/90 px-1 py-0.5 text-[9px] font-bold leading-none text-white">
-              Mod
-            </span>
+            {username ? <span className={usernameClass}>{username}</span> : null}
+            <span className={badgeClass}>{isHost ? "Host" : "Mod"}</span>
           </span>
           <span className="mt-0.5 block font-medium text-zinc-50">{message}</span>
         </p>
@@ -140,6 +146,9 @@ export function LiveAuctionChat({
       pinnedModeratorUserId: mod.pinnedModeratorUserId,
       moderators: mod.moderators,
     }) ?? "";
+  const pinnedIsHost = Boolean(
+    hostUserId && mod.pinnedModeratorUserId && mod.pinnedModeratorUserId === hostUserId,
+  );
   /** Bid lines are not shown in arena chat (bids surface via realtime / UI elsewhere). */
   const chatMessages = useMemo(() => messages.filter((m) => m.messageType !== "bid"), [messages]);
   const [draft, setDraft] = useState("");
@@ -289,11 +298,12 @@ export function LiveAuctionChat({
               );
             })}
           </div>
-          {mod.pinnedModeratorMessage ? (
+          {mod.pinnedMessageActive && mod.pinnedModeratorMessage ? (
             <PinnedChatBar
               message={mod.pinnedModeratorMessage}
               username={pinnedModeratorUsername}
               avatarUrl={mod.pinnedModeratorAvatarUrl}
+              isHost={pinnedIsHost}
               compact
             />
           ) : null}
@@ -417,11 +427,12 @@ export function LiveAuctionChat({
           })
         )}
       </div>
-      {mod.pinnedModeratorMessage ? (
+      {mod.pinnedMessageActive && mod.pinnedModeratorMessage ? (
         <PinnedChatBar
           message={mod.pinnedModeratorMessage}
           username={pinnedModeratorUsername}
           avatarUrl={mod.pinnedModeratorAvatarUrl}
+          isHost={pinnedIsHost}
           compact={compact}
         />
       ) : null}

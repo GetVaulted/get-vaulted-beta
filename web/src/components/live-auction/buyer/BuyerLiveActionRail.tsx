@@ -32,7 +32,7 @@ export function BuyerLiveActionRail({
     <div className={wrapClass}>
       {onTip ? <ActionPill label="Tip" icon={<TipIcon />} onClick={onTip} compact={layout === "row"} /> : null}
       <ActionPill label="Share" icon={<ShareIcon />} onClick={onShare} compact={layout === "row"} />
-      <ActionPill label="Premium" icon={<WalletIcon />} onClick={onWallet} compact={layout === "row"} />
+      <ActionPill label="Wallet" icon={<WalletIcon />} onClick={onWallet} compact={layout === "row"} />
       <ActionPill label="Shop" icon={<ShopIcon />} href={shopHref ?? "/marketplace"} compact={layout === "row"} />
       <ReportTrigger
         targetType="live_room"

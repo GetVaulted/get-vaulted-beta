@@ -17,6 +17,7 @@ import { isVariantSalesFormat } from '../lib/liveItemVariant';
 import { logSellerQueue } from '../lib/logSellerQueue';
 import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
+import { mergeLiveRoomItemsById } from '../lib/mergeLiveRoomItems';
 import { DEFAULT_AUCTION_SEC } from '../components/seller/liveConsole/VaultPinnedLotCard';
 import type { ChatMessage } from '../types';
 
@@ -52,12 +53,14 @@ export function useSellerLiveConsole({
   const [consoleError, setConsoleError] = useState<SanitizedLiveError | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const hydratedRef = useRef(false);
+  const sellerUsernameRef = useRef(sellerUsername);
+  sellerUsernameRef.current = sellerUsername;
 
   const applyConsolePayload = useCallback(
     (data: Awaited<ReturnType<typeof fetchHostConsole>>) => {
-      setItems(data.items);
+      setItems((prev) => mergeLiveRoomItemsById(prev, data.items));
       setGiveaways(data.giveaways);
-      setActiveItem(data.activeItem);
+      setActiveItem((prev) => data.activeItem ?? prev);
       logSellerQueue('queue_length', {
         total: data.items.length,
         queued: data.items.filter((i) => i.status === 'queued').length,
@@ -68,7 +71,7 @@ export function useSellerLiveConsole({
       });
       setViewerCount(data.room.viewerCount);
       setServerNowMs(data.serverNowMs);
-      const hostUser = sellerUsername?.trim().toLowerCase() ?? '';
+      const hostUser = sellerUsernameRef.current?.trim().toLowerCase() ?? '';
       setChatMessages(
         data.messages
           .filter((m) => m.messageType !== 'bid')
@@ -84,7 +87,7 @@ export function useSellerLiveConsole({
       hydratedRef.current = true;
       setConsoleError(null);
     },
-    [sellerUsername],
+    [],
   );
 
   const reload = useCallback(
@@ -113,7 +116,18 @@ export function useSellerLiveConsole({
 
   useEffect(() => {
     hydratedRef.current = false;
-  }, [roomId]);
+    setLoading(true);
+    setConsoleError(null);
+    void reload().finally(() => setLoading(false));
+  }, [roomId, reload]);
+
+  useEffect(() => {
+    if (roomStatus !== 'live') return;
+    const id = setInterval(() => {
+      void reload({ soft: true });
+    }, 5000);
+    return () => clearInterval(id);
+  }, [reload, roomStatus]);
 
   const loadOnce = useCallback(async () => {
     setLoading(true);
@@ -127,17 +141,13 @@ export function useSellerLiveConsole({
     }
   }, [reload]);
 
-  useEffect(() => {
-    void loadOnce();
-  }, [loadOnce]);
-
-  useEffect(() => {
-    if (roomStatus !== 'live') return;
-    const id = setInterval(() => {
-      void reload({ soft: true });
-    }, 5000);
-    return () => clearInterval(id);
-  }, [reload, roomStatus]);
+  const refreshConsole = useCallback(async () => {
+    try {
+      await reload({ soft: true });
+    } catch {
+      /* keep last synced console state */
+    }
+  }, [reload]);
 
   const biddingUrgent = useMemo(() => {
     if (!activeItem?.biddingOpen || !activeItem.auctionEndsAt) return false;
@@ -345,6 +355,7 @@ export function useSellerLiveConsole({
     consoleError,
     chatMessages,
     loadOnce,
+    refreshConsole,
     syncQueue: () => {
       void reload({ soft: true });
     },

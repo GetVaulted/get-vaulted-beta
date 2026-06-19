@@ -287,6 +287,7 @@ function LiveSlide({
   const chatPool = liveChat.messages;
 
   const pinnedModerator = useMemo(() => {
+    if (!moderation.pinnedMessageActive) return null;
     const body = moderation.pinnedModeratorMessage?.trim();
     if (!body) return null;
     const username =
@@ -295,17 +296,29 @@ function LiveSlide({
         pinnedModeratorUserId: moderation.pinnedModeratorUserId,
         moderators: moderation.moderators,
       }) ?? '';
+    const pinnedUserId = moderation.pinnedModeratorUserId?.trim();
+    const isHost = Boolean(
+      pinnedUserId &&
+        (pinnedUserId === showHostUserId ||
+          pinnedUserId === moderation.sellerId ||
+          pinnedUserId === stream.host.id),
+    );
     return {
       body,
       username,
       avatarUrl: moderation.pinnedModeratorAvatarUrl,
+      isHost,
     };
   }, [
     moderation.moderators,
+    moderation.pinnedMessageActive,
     moderation.pinnedModeratorAvatarUrl,
     moderation.pinnedModeratorMessage,
     moderation.pinnedModeratorUserId,
     moderation.pinnedModeratorUsername,
+    moderation.sellerId,
+    showHostUserId,
+    stream.host.id,
   ]);
 
   const dockPaddingBottom = stageInsets.bottom;
@@ -628,10 +641,10 @@ function LiveSlide({
             }
             openWalletRef.current('rail_wallet');
           }}
-          accessibilityLabel="Get Vaulted Premium"
+          accessibilityLabel="Vault Wallet"
         >
           <Ionicons name="wallet-outline" size={compact ? 20 : 22} color="rgba(255,255,255,0.92)" />
-          <LiveRoomText style={styles.railLabel}>Premium</LiveRoomText>
+          <LiveRoomText style={styles.railLabel}>Wallet</LiveRoomText>
         </Pressable>
         <Pressable
           style={styles.railBtn}

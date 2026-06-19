@@ -6,6 +6,7 @@ import {
 } from '../api/trustRepository';
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase';
 import { roomChannel, RT_EVENT } from '../lib/realtimeChannels';
+import { isPinnedMessageActive, msUntilPinnedMessageExpires } from '../lib/pinnedMessageExpiry';
 
 const EMPTY: LiveRoomModerationSnapshot = {
   canModerate: false,
@@ -16,6 +17,7 @@ const EMPTY: LiveRoomModerationSnapshot = {
   allowedActions: [],
   slowModeSeconds: 0,
   pinnedModeratorMessage: null,
+  pinnedModeratorMessageAt: null,
   pinnedModeratorMessageExpiresAt: null,
   pinnedModeratorUsername: null,
   pinnedModeratorAvatarUrl: null,
@@ -50,6 +52,7 @@ export function useLiveRoomModeration(args: {
       isModerator: Boolean(snap.isModerator),
       viewerRole: (snap.viewerRole ?? 'buyer') as LiveViewerRole,
       allowedActions: snap.allowedActions ?? [],
+      pinnedModeratorMessageAt: snap.pinnedModeratorMessageAt ?? null,
       pinnedModeratorMessageExpiresAt: snap.pinnedModeratorMessageExpiresAt ?? null,
       moderators: snap.moderators ?? [],
       modHistory: snap.modHistory ?? [],
@@ -86,6 +89,17 @@ export function useLiveRoomModeration(args: {
     };
   }, [args.enabled, args.roomId, reload]);
 
+  useEffect(() => {
+    if (args.enabled === false) return undefined;
+    const waitMs = msUntilPinnedMessageExpires({
+      expiresAt: state.pinnedModeratorMessageExpiresAt,
+      pinnedAt: state.pinnedModeratorMessageAt,
+    });
+    if (waitMs == null || waitMs <= 0) return undefined;
+    const id = setTimeout(() => void reload(), waitMs + 250);
+    return () => clearTimeout(id);
+  }, [args.enabled, reload, state.pinnedModeratorMessageAt, state.pinnedModeratorMessageExpiresAt]);
+
   const handleRestrictionError = useCallback(
     (message: string) => {
       if (
@@ -103,5 +117,15 @@ export function useLiveRoomModeration(args: {
     [reload],
   );
 
-  return { ...state, roomBlocked, reload, handleRestrictionError };
+  return {
+    ...state,
+    roomBlocked,
+    reload,
+    handleRestrictionError,
+    pinnedMessageActive: isPinnedMessageActive({
+      message: state.pinnedModeratorMessage,
+      expiresAt: state.pinnedModeratorMessageExpiresAt,
+      pinnedAt: state.pinnedModeratorMessageAt,
+    }),
+  };
 }

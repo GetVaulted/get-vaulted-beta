@@ -248,7 +248,7 @@ export function LiveVideoStage({
     <div className="motion-reduce:animate-none flex flex-col items-center gap-1 max-[380px]:gap-0.5 rounded-2xl border border-[color:var(--live-border)] bg-black/18 px-1 py-1.5 backdrop-blur-[var(--live-blur-xl)] shadow-[var(--live-shadow-rail)] [animation:live-rail-in_var(--live-duration-enter)_var(--live-ease)_both] motion-reduce:[animation:none] md:gap-1.5 md:px-1.5 md:py-2">
       {onTip ? <ActionPill label="Tip" icon={<TipIcon />} onClick={onTip} /> : null}
       <ActionPill label="Share" icon={<ShareIcon />} onClick={onShare} />
-      <ActionPill label="Premium" icon={<WalletIcon />} onClick={onWallet} />
+      <ActionPill label="Wallet" icon={<WalletIcon />} onClick={onWallet} />
       <ActionPill label="Shop" icon={<ShopIcon />} href={shopHref ?? "/marketplace"} />
       {liveRoomId ? (
         <ReportTrigger

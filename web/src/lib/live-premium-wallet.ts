@@ -1,6 +1,6 @@
 import { WALLET_METHOD_CATALOG, type WalletMethodCatalogEntry } from "@/lib/stripe-payment-method-config";
 
-export const LIVE_PREMIUM_WALLET_TITLE = "Get Vaulted Premium";
+export const LIVE_PREMIUM_WALLET_TITLE = "Vault Wallet";
 
 export type LiveWalletCapabilities = {
   link?: boolean;

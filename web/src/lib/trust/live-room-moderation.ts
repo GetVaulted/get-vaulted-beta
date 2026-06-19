@@ -86,6 +86,58 @@ async function resolvePinnedModeratorUser(
   return null;
 }
 
+async function resolveEffectivePinExpiry(
+  liveRoomId: string,
+  room: {
+    pinnedModeratorMessageAt: Date | null;
+    pinnedModeratorMessageExpiresAt: Date | null;
+  },
+): Promise<Date | null> {
+  if (room.pinnedModeratorMessageExpiresAt) {
+    return room.pinnedModeratorMessageExpiresAt;
+  }
+  if (!room.pinnedModeratorMessageAt) return null;
+
+  const lastPin = await prisma.liveRoomModerationAction.findFirst({
+    where: { liveRoomId, actionType: "pin_message" },
+    orderBy: { createdAt: "desc" },
+    select: { metadata: true },
+  });
+  const meta = lastPin?.metadata as { body?: unknown; expiresMinutes?: unknown } | null;
+  const body = typeof meta?.body === "string" ? meta.body.trim() : "";
+  if (!body) {
+    return new Date(
+      room.pinnedModeratorMessageAt.getTime() + DEFAULT_PIN_EXPIRES_MINUTES * 60 * 1000,
+    );
+  }
+  if (meta?.expiresMinutes === 0) return null;
+
+  const rawMinutes = Number(meta?.expiresMinutes ?? DEFAULT_PIN_EXPIRES_MINUTES);
+  const minutes = PIN_EXPIRES_MINUTES_ALLOWED.includes(
+    rawMinutes as (typeof PIN_EXPIRES_MINUTES_ALLOWED)[number],
+  )
+    ? rawMinutes
+    : DEFAULT_PIN_EXPIRES_MINUTES;
+  if (minutes <= 0) return null;
+
+  return new Date(room.pinnedModeratorMessageAt.getTime() + minutes * 60 * 1000);
+}
+
+async function clearPinnedMessage(liveRoomId: string, emitChange: boolean): Promise<void> {
+  await prisma.liveRoom.update({
+    where: { id: liveRoomId },
+    data: {
+      pinnedModeratorMessage: null,
+      pinnedModeratorMessageAt: null,
+      pinnedModeratorMessageExpiresAt: null,
+      pinnedModeratorUserId: null,
+    },
+  });
+  if (emitChange) {
+    emitLiveRoomModerationChanged(liveRoomId);
+  }
+}
+
 /** Clears expired pins and returns the active pinned body (if any). */
 export async function resolveLiveRoomPinnedMessage(liveRoomId: string): Promise<{
   body: string | null;
@@ -106,17 +158,18 @@ export async function resolveLiveRoomPinnedMessage(liveRoomId: string): Promise<
     return { body: null, pinnedAt: null, expiresAt: null, pinnedBy: null };
   }
   const now = new Date();
-  if (room.pinnedModeratorMessageExpiresAt && room.pinnedModeratorMessageExpiresAt <= now) {
-    await prisma.liveRoom.update({
-      where: { id: liveRoomId },
-      data: {
-        pinnedModeratorMessage: null,
-        pinnedModeratorMessageAt: null,
-        pinnedModeratorMessageExpiresAt: null,
-        pinnedModeratorUserId: null,
-      },
-    });
+  const effectiveExpiresAt = await resolveEffectivePinExpiry(liveRoomId, room);
+  if (effectiveExpiresAt && effectiveExpiresAt <= now) {
+    await clearPinnedMessage(liveRoomId, true);
     return { body: null, pinnedAt: null, expiresAt: null, pinnedBy: null };
+  }
+  if (!room.pinnedModeratorMessageExpiresAt && effectiveExpiresAt && effectiveExpiresAt > now) {
+    await prisma.liveRoom
+      .update({
+        where: { id: liveRoomId },
+        data: { pinnedModeratorMessageExpiresAt: effectiveExpiresAt },
+      })
+      .catch(() => undefined);
   }
   let pinnedBy = await resolvePinnedModeratorUser(liveRoomId, room.pinnedModeratorUserId);
   if (!room.pinnedModeratorUserId && pinnedBy) {
@@ -130,7 +183,7 @@ export async function resolveLiveRoomPinnedMessage(liveRoomId: string): Promise<
   return {
     body: room.pinnedModeratorMessage,
     pinnedAt: room.pinnedModeratorMessageAt,
-    expiresAt: room.pinnedModeratorMessageExpiresAt,
+    expiresAt: effectiveExpiresAt ?? room.pinnedModeratorMessageExpiresAt,
     pinnedBy,
   };
 }

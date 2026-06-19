@@ -48,6 +48,7 @@ export type PinnedModeratorChat = {
   body: string;
   username: string;
   avatarUrl?: string | null;
+  isHost?: boolean;
 };
 
 const PINNED_ROW_HEIGHT = 62;
@@ -248,6 +249,9 @@ function PinnedModeratorRow({
   const size = compact ? 22 : 24;
   const uri = pinned.avatarUrl?.trim() || null;
   const username = pinned.username.trim();
+  const isHost = Boolean(pinned.isHost);
+  const ringColor = isHost ? colors.gold : colors.mod;
+  const ringWidth = 1.5;
 
   return (
     <View style={styles.pinnedRowShell} pointerEvents="none">
@@ -257,7 +261,7 @@ function PinnedModeratorRow({
             source={{ uri }}
             style={[
               styles.chatAvatar,
-              { width: size, height: size, borderRadius: size / 2, borderColor: 'rgba(255,255,255,0.28)', borderWidth: StyleSheet.hairlineWidth },
+              { width: size, height: size, borderRadius: size / 2, borderColor: ringColor, borderWidth: ringWidth },
             ]}
             onError={() => setImgFailed(true)}
           />
@@ -265,20 +269,32 @@ function PinnedModeratorRow({
           <View
             style={[
               styles.chatAvatarFallback,
-              { width: size, height: size, borderRadius: size / 2, borderColor: 'rgba(255,255,255,0.28)', borderWidth: StyleSheet.hairlineWidth },
+              { width: size, height: size, borderRadius: size / 2, borderColor: ringColor, borderWidth: ringWidth },
             ]}
           >
             <Text style={[styles.chatAvatarInitial, { fontSize: compact ? 10 : 11 }]}>
-              {username ? liveChatUsernameInitial(username) : 'M'}
+              {username ? liveChatUsernameInitial(username) : isHost ? 'H' : 'M'}
             </Text>
           </View>
         )}
         <View style={styles.pinnedTextWrap}>
           <View style={styles.pinnedMetaRow}>
-            {username ? <LiveRoomText style={styles.pinnedUsername}>{username}</LiveRoomText> : null}
-            <View style={styles.pinnedModPill}>
-              <LiveRoomText style={styles.pinnedModPillText}>Mod</LiveRoomText>
-            </View>
+            {username ? (
+              <LiveRoomText
+                style={[styles.pinnedUsername, isHost ? styles.usernameGold : styles.usernameMod]}
+              >
+                {username}
+              </LiveRoomText>
+            ) : null}
+            {isHost ? (
+              <View style={styles.pinnedHostPill}>
+                <LiveRoomText style={styles.pinnedHostPillText}>Host</LiveRoomText>
+              </View>
+            ) : (
+              <View style={styles.pinnedModPill}>
+                <LiveRoomText style={styles.pinnedModPillText}>Mod</LiveRoomText>
+              </View>
+            )}
           </View>
           <LiveRoomText style={[styles.pinnedBody, compact && styles.inlineLineCompact]} numberOfLines={2}>
             {pinned.body.trim()}
@@ -560,6 +576,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 10,
     color: '#fff',
+    letterSpacing: 0.2,
+  },
+  pinnedHostPill: {
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    backgroundColor: 'rgba(212, 175, 55, 0.28)',
+  },
+  pinnedHostPillText: {
+    fontWeight: '700',
+    fontSize: 10,
+    color: colors.gold,
     letterSpacing: 0.2,
   },
   pinnedBody: {

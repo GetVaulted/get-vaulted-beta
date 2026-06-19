@@ -77,6 +77,7 @@ import {
   beginLiveRoomTeamBreak,
 } from "@/lib/live-room-control-client";
 import { appendLiveRoomMessageDedupe, mergeLiveRoomMessagesById } from "@/lib/realtime-merge-messages";
+import { mergeHostQueueRows } from "@/lib/realtime-merge-queue";
 import type { LiveRoomItemDTO, LiveRoomMessageDTO, SellerPaymentFailureDTO } from "@/lib/live-room-serialize";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
@@ -287,6 +288,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
   /** After first successful host-console load for this mount/room; avoids wiping UI on poll network blips. */
   const hostConsoleHydratedRef = useRef(false);
+  const loadGenerationRef = useRef(0);
+  const queueSnapshotDebounceRef = useRef<number | null>(null);
+  const goLivePatchRequestedRef = useRef(false);
 
   const publicUrl = useMemo(() => canonicalLiveRoomUrl(roomId), [roomId]);
 
@@ -295,6 +299,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   }, [roomId]);
 
   const load = useCallback(async () => {
+    const generation = ++loadGenerationRef.current;
     try {
       const t0 = Date.now();
       const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/host-console`, { cache: "no-store" });
@@ -330,6 +335,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         hostConsoleHydratedRef.current = false;
         return;
       }
+      if (generation !== loadGenerationRef.current) return;
       setLoadError(null);
       setRefreshWarning(null);
       const j = (await res.json()) as HostPayload & { serverNowMs?: number };
@@ -346,6 +352,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         hostConsoleHydratedRef.current = false;
         return;
       }
+      if (generation !== loadGenerationRef.current) return;
       setData((prev) => {
         if (!prev) {
           return {
@@ -360,6 +367,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           recentSales: j.recentSales ?? prev.recentSales ?? [],
           feeTier: j.feeTier ?? prev.feeTier ?? null,
           sellerUnresolvedPaymentFailures: j.sellerUnresolvedPaymentFailures ?? prev.sellerUnresolvedPaymentFailures ?? [],
+          queueItems: mergeHostQueueRows(prev.queueItems, j.queueItems ?? []),
           messages: mergeLiveRoomMessagesById(prev.messages, j.messages),
         };
       });
@@ -863,7 +871,13 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         lastRefreshAtMs: lastRefreshAtRef.current,
         extra: { type: "queue_items", surface: "host_console" },
       });
-      void load();
+      if (queueSnapshotDebounceRef.current != null) {
+        window.clearTimeout(queueSnapshotDebounceRef.current);
+      }
+      queueSnapshotDebounceRef.current = window.setTimeout(() => {
+        queueSnapshotDebounceRef.current = null;
+        void load();
+      }, 120);
     },
     onGiveawaysChange: () => void load(),
     onVaultRevealSpin: (payload) => {
@@ -1417,11 +1431,14 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   }, []);
 
   const handleWebcamBroadcastStarted = useCallback(() => {
-    if (data?.room.status === "live") {
-      logIvsWeb("room go-live skipped", { reason: "room_already_live" });
+    if (data?.room.status === "live" || goLivePatchRequestedRef.current) {
+      logIvsWeb("room go-live skipped", {
+        reason: data?.room.status === "live" ? "room_already_live" : "patch_already_requested",
+      });
       return;
     }
     logIvsWeb("room go-live patch requested");
+    goLivePatchRequestedRef.current = true;
     void patchRoom("start");
   }, [data?.room.status, patchRoom]);
 
@@ -1439,6 +1456,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const handleGoLive = useCallback(() => {
     setVaultCommandOpen(false);
     setShareSheetOpen(false);
+    goLivePatchRequestedRef.current = true;
     void webcamBroadcast.start();
     void patchRoom("start");
   }, [patchRoom, webcamBroadcast]);

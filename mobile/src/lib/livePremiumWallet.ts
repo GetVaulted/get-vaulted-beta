@@ -7,8 +7,8 @@ import {
   type WalletMethodCatalogEntry,
 } from './paymentMethodCatalog';
 
-/** Live in-room wallet sheet title — Get Vaulted branded, not generic "Wallet". */
-export const LIVE_PREMIUM_WALLET_TITLE = 'Get Vaulted Premium';
+/** Live in-room wallet sheet title. */
+export const LIVE_PREMIUM_WALLET_TITLE = 'Vault Wallet';
 
 export type LiveWalletCapabilities = Pick<
   NonNullable<BuyerWalletSummary['capabilities']>,

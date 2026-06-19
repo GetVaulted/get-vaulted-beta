@@ -46,7 +46,7 @@ export function LivePaymentFailureBlocker({ liveRoomId, failure, onResolved, onO
         const pk = payload.publishableKey?.trim() || process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() || "";
         const stripe = pk ? await loadStripe(pk) : null;
         if (!stripe) {
-          setError("Complete verification in Get Vaulted Premium, then tap Fix Payment again.");
+          setError("Complete verification in your Vault Wallet, then tap Fix Payment again.");
           return;
         }
         const conf = await stripe.confirmCardPayment(payload.clientSecret);

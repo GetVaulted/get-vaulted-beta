@@ -206,7 +206,7 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId, onReadinessC
                 />
                 <RowButton
                   icon="✦"
-                  title="Get Vaulted Premium"
+                  title="Vault credits"
                   subtitle="Buyer protection, credits & show perks"
                   accent
                   onClick={() => setStep("premium")}
@@ -343,7 +343,7 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId, onReadinessC
 
           {step === "premium" ? (
             <>
-              <SheetHeader title="Get Vaulted Premium" onBack={() => setStep("main")} />
+              <SheetHeader title="Vault credits" onBack={() => setStep("main")} />
               <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
                 <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-center">
                   <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-amber-400 text-2xl text-zinc-950">

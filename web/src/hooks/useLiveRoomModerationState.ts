@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 import { roomChannel, RT_EVENT } from "@/lib/realtime-channels";
+import { isPinnedMessageActive, msUntilPinnedMessageExpires } from "@/lib/trust/pinned-message-expiry";
 
 export type LiveRoomModeratorRow = {
   userId: string;
@@ -15,6 +16,7 @@ export type LiveRoomModerationState = {
   isModerator: boolean;
   slowModeSeconds: number;
   pinnedModeratorMessage: string | null;
+  pinnedModeratorMessageAt: string | null;
   pinnedModeratorMessageExpiresAt: string | null;
   pinnedModeratorUserId: string | null;
   pinnedModeratorUsername: string | null;
@@ -34,6 +36,7 @@ const EMPTY: LiveRoomModerationState = {
   isModerator: false,
   slowModeSeconds: 0,
   pinnedModeratorMessage: null,
+  pinnedModeratorMessageAt: null,
   pinnedModeratorMessageExpiresAt: null,
   pinnedModeratorUserId: null,
   pinnedModeratorUsername: null,
@@ -60,6 +63,7 @@ export function useLiveRoomModerationState(liveRoomId: string, enabled = true) {
         isModerator: Boolean(j.isModerator),
         slowModeSeconds: j.slowModeSeconds ?? 0,
         pinnedModeratorMessage: j.pinnedModeratorMessage ?? null,
+        pinnedModeratorMessageAt: j.pinnedModeratorMessageAt ?? null,
         pinnedModeratorMessageExpiresAt: j.pinnedModeratorMessageExpiresAt ?? null,
         pinnedModeratorUserId: j.pinnedModeratorUserId ?? null,
         pinnedModeratorUsername: j.pinnedModeratorUsername ?? null,
@@ -105,6 +109,17 @@ export function useLiveRoomModerationState(liveRoomId: string, enabled = true) {
     };
   }, [enabled, liveRoomId, reload]);
 
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const waitMs = msUntilPinnedMessageExpires({
+      expiresAt: state.pinnedModeratorMessageExpiresAt,
+      pinnedAt: state.pinnedModeratorMessageAt,
+    });
+    if (waitMs == null || waitMs <= 0) return undefined;
+    const id = window.setTimeout(() => void reload(), waitMs + 250);
+    return () => window.clearTimeout(id);
+  }, [enabled, reload, state.pinnedModeratorMessageAt, state.pinnedModeratorMessageExpiresAt]);
+
   const handleRestrictionError = useCallback((message: string) => {
     if (
       message.includes("cannot participate") ||
@@ -118,5 +133,15 @@ export function useLiveRoomModerationState(liveRoomId: string, enabled = true) {
     }
   }, [reload]);
 
-  return { ...state, roomBlocked, reload, handleRestrictionError };
+  return {
+    ...state,
+    roomBlocked,
+    reload,
+    handleRestrictionError,
+    pinnedMessageActive: isPinnedMessageActive({
+      message: state.pinnedModeratorMessage,
+      expiresAt: state.pinnedModeratorMessageExpiresAt,
+      pinnedAt: state.pinnedModeratorMessageAt,
+    }),
+  };
 }

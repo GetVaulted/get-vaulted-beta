@@ -22,6 +22,7 @@ export type LiveRoomItemRow = {
   biddingOpen: boolean;
   auctionEndsAt: string | null;
   lastHighBidderUsername?: string | null;
+  itemVersion?: number;
   sortOrder: number;
   salesFormat?: 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
   variants?: {
