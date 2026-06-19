@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { isAppleOAuthProviderEnabled, isGoogleOAuthProviderEnabled } from "@/lib/auth-provider-availability";
-import { AUTH_USER_MESSAGES } from "@/lib/unified-auth";
 
 type Props = {
   returnTo: string;
@@ -10,6 +9,8 @@ type Props = {
 };
 
 type SocialProvider = "google" | "apple";
+
+type OauthProviders = { google: boolean; apple: boolean };
 
 function GoogleIcon() {
   return (
@@ -53,8 +54,26 @@ function oauthStartUrl(provider: SocialProvider, returnTo: string): string {
 
 export function SocialAuthButtons({ returnTo, disabled }: Props) {
   const [busy, setBusy] = useState<SocialProvider | null>(null);
-  const googleEnabled = isGoogleOAuthProviderEnabled();
-  const appleEnabled = isAppleOAuthProviderEnabled();
+  const [oauthProviders, setOauthProviders] = useState<OauthProviders | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/auth/config", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((body: { oauthProviders?: OauthProviders }) => {
+        if (cancelled || !body.oauthProviders) return;
+        setOauthProviders(body.oauthProviders);
+      })
+      .catch(() => {
+        /* fall back to build-time env flags below */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const googleEnabled = oauthProviders?.google ?? isGoogleOAuthProviderEnabled();
+  const appleEnabled = oauthProviders?.apple ?? isAppleOAuthProviderEnabled();
 
   if (!googleEnabled && !appleEnabled) return null;
 
