@@ -75,8 +75,7 @@ describe('LiveBreakSpotGridSheet QA safeguards', () => {
     expect(sheet).toContain('stickyBar');
     expect(sheet).toContain('flexShrink: 0');
     expect(sheet).toContain('bodyScroll');
-    expect(sheet).toContain('WalletNativePayButton');
-    expect(sheet).toContain('checkoutBtn');
+    expect(sheet).toContain('HoldToBidButton');
   });
 
   it('blocks sold spots and updates picker title with selection', () => {

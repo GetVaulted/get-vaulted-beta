@@ -15,6 +15,7 @@ import {
   landingRotationDeg,
   type VaultRevealSpinPayload,
 } from '../../lib/vaultRevealSpin';
+import { NFL_DIVISION_COLORS, NFL_TEAM_COLORS } from '../../lib/liveBreakPresets';
 import { colors, radii, spacing } from '../../theme';
 
 const WHEEL_SIZE = 300;
@@ -22,6 +23,24 @@ const CX = WHEEL_SIZE / 2;
 const CY = WHEEL_SIZE / 2;
 const R = WHEEL_SIZE / 2 - 4;
 const SEGMENT_COLORS = ['#047857', '#059669', '#10b981', '#34d399', '#065f46', '#0d9488'];
+
+function segmentColor(label: string, abbr?: string) {
+  if (abbr?.trim()) {
+    const c = NFL_TEAM_COLORS[abbr.trim().toUpperCase()];
+    if (c) return c;
+  }
+  const div = NFL_DIVISION_COLORS[label.trim()];
+  if (div) return div;
+  let hash = 0;
+  for (let i = 0; i < label.length; i++) hash = (hash * 31 + label.charCodeAt(i)) >>> 0;
+  return SEGMENT_COLORS[hash % SEGMENT_COLORS.length]!;
+}
+
+function spinKindCopy(kind: VaultRevealSpinPayload['kind']) {
+  if (kind === 'random_reveal') return 'Vault Reveal';
+  if (kind === 'break_pyt') return 'Break randomizer';
+  return 'Giveaway';
+}
 
 function polar(cx: number, cy: number, r: number, angleDeg: number) {
   const rad = ((angleDeg - 90) * Math.PI) / 180;
@@ -61,7 +80,7 @@ export function VaultRevealWheelOverlay({
       start: i * slice,
       end: (i + 1) * slice,
       mid: i * slice + slice / 2,
-      color: SEGMENT_COLORS[i % SEGMENT_COLORS.length]!,
+      color: segmentColor(label, spin.segmentAbbrs?.[i] ?? undefined),
     }));
   }, [spin]);
 
@@ -77,7 +96,7 @@ export function VaultRevealWheelOverlay({
     seenRef.current = spin.spinId;
     setPhase('spinning');
     anim.setValue(0);
-    const target = landingRotationDeg(spin.winnerIndex, spin.labels.length);
+    const target = landingRotationDeg(spin.winnerIndex, spin.labels.length, 6);
     Animated.timing(anim, {
       toValue: target,
       duration: spin.durationMs,
@@ -101,12 +120,13 @@ export function VaultRevealWheelOverlay({
   if (!spin) return null;
 
   const winner = spin.winnerLabel.replace(/^@/, '');
+  const buyer = spin.buyerUsername?.replace(/^@/, '');
 
   return (
     <Modal visible animationType="fade" transparent statusBarTranslucent onRequestClose={onDismiss}>
       <View style={[styles.root, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.lg }]}>
         <View style={styles.header}>
-          <Text style={styles.kicker}>Vault reveal</Text>
+          <Text style={styles.kicker}>{spinKindCopy(spin.kind)}</Text>
           <Pressable onPress={onDismiss} hitSlop={12}>
             <Text style={styles.close}>Close</Text>
           </Pressable>
@@ -115,9 +135,10 @@ export function VaultRevealWheelOverlay({
           {spin.title}
         </Text>
         <Text style={styles.meta}>
-          {spin.kind === 'break_pyt' ? 'PYT randomizer' : 'Giveaway'} · {spin.labels.length} on wheel
+          {spin.labels.length} remaining · premium wheel
         </Text>
 
+        <View style={styles.wheelGlow} />
         <View style={styles.wheelWrap}>
           <View style={styles.pointer} />
           <Animated.View style={{ transform: [{ rotate: spinInterpolate }] }}>
@@ -147,9 +168,18 @@ export function VaultRevealWheelOverlay({
 
         {phase === 'done' ? (
           <View style={styles.winnerBox}>
-            <Text style={styles.winnerKicker}>{spin.kind === 'break_pyt' ? 'First pick' : 'Winner'}</Text>
-            <Text style={styles.winnerName}>@{winner}</Text>
-            {spin.kind === 'break_pyt' && spin.assignments?.length ? (
+            <Text style={styles.winnerKicker}>
+              {spin.kind === 'random_reveal' ? 'Your team' : spin.kind === 'break_pyt' ? 'First pick' : 'Winner'}
+            </Text>
+            <Text style={styles.winnerName}>{winner}</Text>
+            {buyer ? <Text style={styles.buyerName}>@{buyer}</Text> : spin.kind === 'giveaway' ? (
+              <Text style={styles.buyerName}>@{winner}</Text>
+            ) : null}
+            {spin.kind === 'random_reveal' ? (
+              <Text style={styles.assignMeta}>
+                Removed from wheel · {Math.max(0, spin.labels.length - 1)} left
+              </Text>
+            ) : spin.kind === 'break_pyt' && spin.assignments?.length ? (
               <Text style={styles.assignMeta}>Full order locked · {spin.assignments.length} spots</Text>
             ) : null}
           </View>
@@ -194,12 +224,23 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   meta: { fontSize: 12, color: colors.textMuted, marginBottom: spacing.lg },
+  wheelGlow: {
+    position: 'absolute',
+    width: WHEEL_SIZE + 48,
+    height: WHEEL_SIZE + 48,
+    borderRadius: (WHEEL_SIZE + 48) / 2,
+    backgroundColor: 'rgba(212,175,55,0.12)',
+    top: '38%',
+  },
   wheelWrap: {
     width: WHEEL_SIZE,
     height: WHEEL_SIZE,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.lg,
+    borderWidth: 3,
+    borderColor: 'rgba(212,175,55,0.45)',
+    borderRadius: WHEEL_SIZE / 2,
   },
   pointer: {
     position: 'absolute',
@@ -244,6 +285,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   winnerName: { fontSize: 24, fontWeight: '900', color: '#ecfdf5', marginTop: 4 },
+  buyerName: { fontSize: 14, fontWeight: '700', color: '#6ee7b7', marginTop: 4 },
   assignMeta: { fontSize: 10, color: '#a7f3d0', marginTop: 4 },
   spinningRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   spinningTxt: { fontSize: 14, fontWeight: '600', color: colors.textSecondary },

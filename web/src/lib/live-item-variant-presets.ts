@@ -52,6 +52,34 @@ export type VariantDraftInput = {
   color?: string;
 };
 
+export function buildRandomVariantsFromPreset(
+  presetId: "nfl_teams" | "nfl_divisions",
+  defaultPriceUsd: number,
+): VariantDraftInput[] {
+  const count = presetId === "nfl_teams" ? 32 : 8;
+  const label = presetId === "nfl_teams" ? "Random NFL Team" : "Random NFL Division";
+  return [
+    {
+      label,
+      priceUsd: defaultPriceUsd,
+      quantityInitial: count,
+      sortOrder: 0,
+      color: presetId,
+    },
+  ];
+}
+
+export function isRandomVariantItem(item: {
+  variantAssignmentMode?: string | null;
+  salesFormat?: string | null;
+} | null | undefined): boolean {
+  return Boolean(item && isRandomVariantAssignment(item.variantAssignmentMode) && isVariantSalesFormat(item.salesFormat));
+}
+
+export function isRandomVariantAssignment(mode: string | null | undefined): boolean {
+  return mode === "random";
+}
+
 export function buildVariantsFromPreset(
   presetId: Exclude<LiveItemVariantPresetId, "custom">,
   defaultPriceUsd: number,
@@ -147,7 +175,11 @@ export function allVariantSpotsSold(variants: VariantSpotRow[] | undefined | nul
   return variants.every((v) => v.quantityRemaining <= 0 || v.status === "sold_out");
 }
 
-export function variantBuyerSelectLabel(format: string | null | undefined): string {
+export function variantBuyerSelectLabel(format: string | null | undefined, random = false): string {
+  if (random) {
+    if (format === "team_break") return "Random Division";
+    if (format === "variant_selection") return "Random Team";
+  }
   if (format === "team_break") return "Pick Your Division";
   if (format === "variant_selection") return "Pick Your Team";
   return "Select Spot";

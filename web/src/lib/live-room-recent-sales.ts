@@ -10,13 +10,15 @@ import {
 
 export type HostRecentSaleRowDTO = {
   id: string;
-  kind: "order" | "break_spot";
+  kind: "order" | "break_spot" | "variant_purchase";
   buyerUsername: string;
   amountUsd: number;
   /** paid = green, retry = red, pending = amber */
   paymentTone: "paid" | "retry" | "pending";
   statusLabel: string;
   occurredAt: string;
+  /** Team/division assigned on random reveal, or PYT/PYD spot label. */
+  spotLabel?: string | null;
 };
 
 function toneFromOrderPaymentStatus(ps: string): { paymentTone: HostRecentSaleRowDTO["paymentTone"]; statusLabel: string } {
@@ -75,7 +77,7 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
   });
   const listingIds = [...new Set(listingRows.map((r) => r.listingId).filter((x): x is string => Boolean(x)))];
 
-  const [ordersByListing, ordersBySession, spots] = await Promise.all([
+  const [ordersByListing, ordersBySession, spots, variantPurchases] = await Promise.all([
     listingIds.length
       ? prisma.order.findMany({
           where: { sellerId, listingId: { in: listingIds } },
@@ -102,6 +104,15 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
       orderBy: { createdAt: "desc" },
       take: 50,
     }),
+    prisma.liveItemVariantPurchase.findMany({
+      where: { liveRoomId, paymentStatus: "paid" },
+      include: {
+        buyer: { select: { username: true } },
+        variant: { select: { label: true } },
+      },
+      orderBy: { paidAt: "desc" },
+      take: 50,
+    }),
   ]);
 
   const orderById = new Map<string, OrderWithBuyer>();
@@ -115,6 +126,19 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
   }
   for (const s of spots) {
     rows.push(mapBreakSpot(s));
+  }
+  for (const vp of variantPurchases) {
+    const spotLabel = vp.revealedLabel?.trim() || vp.variant.label;
+    rows.push({
+      id: `variant_purchase:${vp.id}`,
+      kind: "variant_purchase",
+      buyerUsername: vp.buyer?.username?.trim() || "buyer",
+      amountUsd: vp.totalUsd,
+      paymentTone: "paid",
+      statusLabel: vp.revealedLabel ? "Revealed" : "Paid",
+      occurredAt: (vp.paidAt ?? vp.createdAt).toISOString(),
+      spotLabel,
+    });
   }
 
   rows.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));

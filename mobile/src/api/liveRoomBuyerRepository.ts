@@ -50,6 +50,7 @@ export type LiveRoomBuyerSnapshot = {
   activeItemTitle?: string | null;
   activeItemImageUrl?: string | null;
   activeItemSalesFormat?: LiveItemSalesFormat | null;
+  activeItemVariantAssignmentMode?: 'pick' | 'random' | null;
   activeItemVariants?: LiveItemVariantSnapshot[];
   biddingOpen: boolean;
   currentBidUsd: number | null;
@@ -315,6 +316,8 @@ export async function fetchLiveRoomBuyerSnapshot(
     activeItemTitle: activeTitle,
     activeItemImageUrl: typeof active?.imageUrl === 'string' ? active.imageUrl : null,
     activeItemSalesFormat: activeSalesFormat,
+    activeItemVariantAssignmentMode:
+      active?.variantAssignmentMode === 'random' ? 'random' : active ? 'pick' : null,
     activeItemVariants: activeVariants.length > 0 ? activeVariants : undefined,
     biddingOpen: lotBidPhase === 'bidding_open',
     currentBidUsd: typeof current === 'number' ? current : null,

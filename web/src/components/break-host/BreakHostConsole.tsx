@@ -28,6 +28,7 @@ import { AddQueueItemModal, type AddQueueItemAuctionPayload, type AddQueueItemCl
 import { VaultQueueDrawer } from "@/components/break-host/vault/VaultQueueDrawer";
 import { HostVariantCommerceStage } from "@/components/break-host/HostVariantCommerceStage";
 import { HostAddSupplementalModal } from "@/components/break-host/HostAddSupplementalModal";
+import { HostEditBreakSpotsModal, variantItemForSpotEditor } from "@/components/break-host/HostEditBreakSpotsModal";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import { canonicalLiveRoomUrl } from "@/lib/live-room-share-metadata";
 import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
@@ -70,6 +71,7 @@ import {
   deleteLiveRoomItem,
   finalizeOverdueLiveAuctions,
   appendLiveItemSupplementalVariants,
+  patchLiveItemVariants,
   patchLiveRoomAction,
   patchLiveRoomItemStatus,
   sendLiveRoomSystemMessage,
@@ -257,6 +259,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const [queueDrawerOpen, setQueueDrawerOpen] = useState(false);
   const [hostCommerceMinimized, setHostCommerceMinimized] = useState(false);
   const [supplementalModalOpen, setSupplementalModalOpen] = useState(false);
+  const [variantSpotEditOpen, setVariantSpotEditOpen] = useState(false);
   const [stageMotionBurst, setStageMotionBurst] = useState<LiveStageMotionBurst>(null);
   const [bidsLastMinute, setBidsLastMinute] = useState(0);
   const [lotTransitionPhase, setLotTransitionPhase] = useState<LiveLotTransitionPhase>("idle");
@@ -1287,7 +1290,11 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       const miscPayload =
         hostDataRef.current?.room.teamBoardLeague === "nfl" ? { teamBoardMisc: payload.teamBoardMisc } : {};
       const variantPayload = isVariantSalesFormat(payload.salesFormat)
-        ? { salesFormat: payload.salesFormat, variants: payload.variants }
+        ? {
+            salesFormat: payload.salesFormat,
+            variants: payload.variants,
+            variantAssignmentMode: payload.variantAssignmentMode ?? "pick",
+          }
         : { salesFormat: payload.salesFormat };
       setBusy(true);
       setToast(null);
@@ -1674,6 +1681,11 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const overlayQueueRow = activeBoardRow;
   const previewQueueRow = selectedQueueRow;
 
+  const variantSpotEditItem = useMemo(
+    () => variantItemForSpotEditor({ activeBoardRow, previewQueueRow }),
+    [activeBoardRow, previewQueueRow],
+  );
+
   const biddingWindowStillRunningHost = Boolean(
     activeBoardRow?.item.biddingOpen &&
       !isVariantSalesFormat(activeBoardRow.item.salesFormat) &&
@@ -1814,6 +1826,32 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     }
   };
 
+  const handleOpenVariantSpotEditor = () => {
+    if (!variantSpotEditItem) return;
+    setVariantSpotEditOpen(true);
+  };
+
+  const handleSaveVariantSpots = async (
+    itemId: string,
+    updates: Array<{ id: string; priceUsd?: number; isHot?: boolean }>,
+  ) => {
+    setBusy(true);
+    setToast(null);
+    try {
+      const res = await patchLiveItemVariants(roomId, itemId, updates);
+      if (!res.ok) {
+        setToast(res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error);
+        return;
+      }
+      setVariantSpotEditOpen(false);
+      await load();
+      router.refresh();
+      setToast("Spot prices updated.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const commandCenterProps = {
     roomTitle: streamTitle,
     roomStatus: room.status,
@@ -1919,6 +1957,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       lotTransitionPhase={lotTransitionPhase}
       hostCommerceMinimized={hostCommerceMinimized}
       onToggleHostCommerceMinimized={toggleHostCommerceMinimized}
+      onEditVariantSpots={variantSpotEditItem ? handleOpenVariantSpotEditor : undefined}
     />
   );
 
@@ -1944,6 +1983,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       hostClockSkewMs={hostClockSkewMs}
       hostCommerceMinimized={hostCommerceMinimized}
       onToggleHostCommerceMinimized={toggleHostCommerceMinimized}
+      onEditVariantSpots={variantSpotEditItem ? handleOpenVariantSpotEditor : undefined}
     />
   );
 
@@ -2048,6 +2088,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           commerceMinimized={hostCommerceMinimized}
           onToggleCommerceMinimized={toggleHostCommerceMinimized}
           onAddSupplemental={() => setSupplementalModalOpen(true)}
+          onEditSpots={variantSpotEditItem ? handleOpenVariantSpotEditor : undefined}
         />
       </>
     ),
@@ -2385,6 +2426,14 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           onSubmit={handleAppendSupplemental}
         />
       ) : null}
+
+      <HostEditBreakSpotsModal
+        open={variantSpotEditOpen}
+        item={variantSpotEditItem}
+        busy={busy}
+        onClose={() => setVariantSpotEditOpen(false)}
+        onSave={(itemId, updates) => void handleSaveVariantSpots(itemId, updates)}
+      />
 
       <AddQueueItemModal
         open={queueAddModal != null}

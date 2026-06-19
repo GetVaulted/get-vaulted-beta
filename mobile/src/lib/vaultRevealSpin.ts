@@ -1,6 +1,6 @@
 /** Shared Vault Reveal wheel payload — must match web `vault-reveal-spin.ts`. */
 
-export type VaultRevealSpinKind = 'giveaway' | 'break_pyt';
+export type VaultRevealSpinKind = 'giveaway' | 'break_pyt' | 'random_reveal';
 
 export type VaultRevealSpinPayload = {
   spinId: string;
@@ -12,6 +12,8 @@ export type VaultRevealSpinPayload = {
   durationMs: number;
   referenceId?: string;
   assignments?: { order: number; label: string }[];
+  segmentAbbrs?: string[];
+  buyerUsername?: string;
 };
 
 export const VAULT_REVEAL_DEFAULT_DURATION_MS = 4200;
@@ -36,11 +38,19 @@ export function parseVaultRevealSpinPayload(raw: unknown): VaultRevealSpinPayloa
   const spinId =
     typeof spin.spinId === 'string' ? spin.spinId : typeof o.eventId === 'string' ? o.eventId : '';
   if (!spinId) return null;
-  const kind = spin.kind === 'break_pyt' ? 'break_pyt' : 'giveaway';
+  const kind =
+    spin.kind === 'break_pyt' ? 'break_pyt' : spin.kind === 'random_reveal' ? 'random_reveal' : 'giveaway';
   return {
     spinId,
     kind,
-    title: typeof spin.title === 'string' ? spin.title : kind === 'break_pyt' ? 'PYT randomizer' : 'Giveaway',
+    title:
+      typeof spin.title === 'string'
+        ? spin.title
+        : kind === 'random_reveal'
+          ? 'Random reveal'
+          : kind === 'break_pyt'
+            ? 'PYT randomizer'
+            : 'Giveaway',
     labels,
     winnerIndex: Math.max(0, Math.min(winnerIndex, labels.length - 1)),
     winnerLabel: typeof spin.winnerLabel === 'string' ? spin.winnerLabel : labels[winnerIndex] ?? '',
@@ -49,6 +59,10 @@ export function parseVaultRevealSpinPayload(raw: unknown): VaultRevealSpinPayloa
         ? spin.durationMs
         : VAULT_REVEAL_DEFAULT_DURATION_MS,
     referenceId: typeof spin.referenceId === 'string' ? spin.referenceId : undefined,
+    segmentAbbrs: Array.isArray(spin.segmentAbbrs)
+      ? spin.segmentAbbrs.filter((a): a is string => typeof a === 'string')
+      : undefined,
+    buyerUsername: typeof spin.buyerUsername === 'string' ? spin.buyerUsername : undefined,
     assignments: Array.isArray(spin.assignments)
       ? spin.assignments
           .filter((a): a is { order: number; label: string } => {

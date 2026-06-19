@@ -124,6 +124,30 @@ export function buildPydVariants(priceUsd: number): LiveBreakVariantDraft[] {
   }));
 }
 
+export function buildRandomTeamVariants(priceUsd: number): LiveBreakVariantDraft[] {
+  return [
+    {
+      label: 'Random NFL Team',
+      priceUsd,
+      quantityInitial: 32,
+      sortOrder: 0,
+      color: 'nfl_teams',
+    },
+  ];
+}
+
+export function buildRandomDivisionVariants(priceUsd: number): LiveBreakVariantDraft[] {
+  return [
+    {
+      label: 'Random NFL Division',
+      priceUsd,
+      quantityInitial: 8,
+      sortOrder: 0,
+      color: 'nfl_divisions',
+    },
+  ];
+}
+
 export function teamAbbrForVariant(label: string, color?: string | null): string | null {
   if (color?.trim()) return color.trim().toUpperCase();
   const match = NFL_TEAMS.find((t) => t.name.toLowerCase() === label.trim().toLowerCase());

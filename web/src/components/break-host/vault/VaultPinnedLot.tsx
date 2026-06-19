@@ -67,6 +67,7 @@ type VaultPinnedLotProps = {
   lotTransitionPhase?: LiveLotTransitionPhase;
   hostCommerceMinimized?: boolean;
   onToggleHostCommerceMinimized?: () => void;
+  onEditVariantSpots?: () => void;
 };
 
 function BidVelocityBar({
@@ -132,6 +133,7 @@ export function VaultPinnedLot({
   lotTransitionPhase,
   hostCommerceMinimized,
   onToggleHostCommerceMinimized,
+  onEditVariantSpots,
 }: VaultPinnedLotProps) {
   const meta = VAULT_MODE_META[vaultMode];
   const isMobile = variant === "mobile";
@@ -186,6 +188,7 @@ export function VaultPinnedLot({
         lotTransitionPhase={lotTransitionPhase}
         hostMinimized={hostCommerceMinimized}
         onToggleHostMinimized={onToggleHostCommerceMinimized}
+        onEditVariantSpots={onEditVariantSpots}
       />
     );
   }

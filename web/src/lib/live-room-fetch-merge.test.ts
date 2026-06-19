@@ -36,6 +36,7 @@ function item(id: string, itemVersion: number, patch: Partial<LiveRoomItemDTO> =
     auctionEndsAt: patch.auctionEndsAt ?? null,
     clutchTimeEnabled: patch.clutchTimeEnabled ?? false,
     salesFormat: patch.salesFormat ?? "auction",
+    variantAssignmentMode: patch.variantAssignmentMode ?? "pick",
     variants: patch.variants ?? [],
     variantBreakReadyAt: patch.variantBreakReadyAt ?? null,
     variantBreakBeganAt: patch.variantBreakBeganAt ?? null,

@@ -155,7 +155,18 @@ export function isVariantPurchaseItem(
   return Boolean(item && isVariantSalesFormat(item.salesFormat) && (item.variants?.length ?? 0) > 0);
 }
 
-export function variantSelectSpotLabel(format: LiveItemSalesFormat | null | undefined): string {
+export function isRandomVariantAssignment(mode: string | null | undefined): boolean {
+  return mode === 'random';
+}
+
+export function variantSelectSpotLabel(
+  format: LiveItemSalesFormat | null | undefined,
+  random = false,
+): string {
+  if (random) {
+    if (format === 'team_break') return 'Random Division';
+    if (format === 'variant_selection') return 'Random Team';
+  }
   if (format === 'team_break') return 'Pick Your Division';
   if (format === 'variant_selection') return 'Pick Your Team';
   return 'Select Spot';

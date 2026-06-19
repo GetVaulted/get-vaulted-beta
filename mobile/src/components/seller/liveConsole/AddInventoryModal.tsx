@@ -21,6 +21,7 @@ import {
   breakSpotCountForSaleType,
   emptyQuickLiveLotInput,
   isBreakLotSaleType,
+  isPickBreakLotSaleType,
   parseUsdInput,
   validateQuickLiveLot,
   type LiveLotSaleType,
@@ -76,7 +77,7 @@ export function AddInventoryModal({
   }, [visible]);
 
   useEffect(() => {
-    if (!isBreakLotSaleType(draft.saleType)) {
+    if (!isPickBreakLotSaleType(draft.saleType)) {
       setSpotDrafts([]);
       return;
     }
@@ -211,8 +212,10 @@ export function AddInventoryModal({
                 [
                   { id: 'auction', label: 'Auction', sub: 'Timed bidding' },
                   { id: 'buy_now', label: 'Buy It Now', sub: 'Fixed price' },
-                  { id: 'pyt', label: 'PYT', sub: '32 NFL teams' },
-                  { id: 'pyd', label: 'PYD', sub: '8 divisions' },
+                  { id: 'pyt', label: 'PYT', sub: 'Pick your team' },
+                  { id: 'pyd', label: 'PYD', sub: 'Pick division' },
+                  { id: 'random_pyt', label: 'Random Teams', sub: '32 · wheel' },
+                  { id: 'random_pyd', label: 'Random Divisions', sub: '8 · wheel' },
                 ] as const
               ).map((type) => {
                 const active = draft.saleType === type.id;
@@ -250,7 +253,7 @@ export function AddInventoryModal({
               editable={!busy}
             />
 
-            {isBreakLotSaleType(draft.saleType) && spotDrafts.length > 0 ? (
+            {isPickBreakLotSaleType(draft.saleType) && spotDrafts.length > 0 ? (
               <BreakSpotSetupGrid
                 saleType={draft.saleType}
                 spots={spotDrafts}

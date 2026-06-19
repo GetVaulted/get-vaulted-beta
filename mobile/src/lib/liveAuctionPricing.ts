@@ -1,7 +1,7 @@
-import { buildPydVariants, buildPytVariants, type LiveBreakVariantDraft } from './liveBreakPresets';
+import { buildPydVariants, buildPytVariants, buildRandomDivisionVariants, buildRandomTeamVariants, type LiveBreakVariantDraft } from './liveBreakPresets';
 import { liveAuctionMinBidUsd } from './liveAuctionBidMath';
 
-export type LiveLotSaleType = 'auction' | 'buy_now' | 'pyt' | 'pyd';
+export type LiveLotSaleType = 'auction' | 'buy_now' | 'pyt' | 'pyd' | 'random_pyt' | 'random_pyd';
 
 export type LiveLotApiSalesFormat = 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
 
@@ -24,16 +24,21 @@ export type QuickLiveLotValues = {
   reservePriceUsd: number | null;
   priceUsd: number | null;
   salesFormat: LiveLotApiSalesFormat;
+  variantAssignmentMode?: 'pick' | 'random';
   variants?: LiveBreakVariantDraft[];
 };
 
-export function isBreakLotSaleType(saleType: LiveLotSaleType): saleType is 'pyt' | 'pyd' {
+export function isBreakLotSaleType(saleType: LiveLotSaleType): saleType is 'pyt' | 'pyd' | 'random_pyt' | 'random_pyd' {
+  return saleType === 'pyt' || saleType === 'pyd' || saleType === 'random_pyt' || saleType === 'random_pyd';
+}
+
+export function isPickBreakLotSaleType(saleType: LiveLotSaleType): saleType is 'pyt' | 'pyd' {
   return saleType === 'pyt' || saleType === 'pyd';
 }
 
 export function breakSpotCountForSaleType(saleType: LiveLotSaleType): number {
-  if (saleType === 'pyt') return 32;
-  if (saleType === 'pyd') return 8;
+  if (saleType === 'pyt' || saleType === 'random_pyt') return 32;
+  if (saleType === 'pyd' || saleType === 'random_pyd') return 8;
   return 0;
 }
 
@@ -148,7 +153,35 @@ export function validateQuickLiveLot(
         reservePriceUsd: null,
         priceUsd: spotPrice,
         salesFormat: input.saleType === 'pyt' ? 'variant_selection' : 'team_break',
+        variantAssignmentMode: 'pick',
         variants: variants.map((v) => ({ ...v, isHot: v.isHot === true })),
+      },
+    };
+  }
+
+  if (input.saleType === 'random_pyt' || input.saleType === 'random_pyd') {
+    const spotPrice = parseUsdInput(input.price);
+    if (spotPrice == null) {
+      return {
+        ok: false,
+        message: input.saleType === 'random_pyt' ? 'Enter a price per team.' : 'Enter a price per division.',
+      };
+    }
+    return {
+      ok: true,
+      values: {
+        title,
+        saleType: input.saleType,
+        quantity: 1,
+        startingBidUsd: null,
+        reservePriceUsd: null,
+        priceUsd: spotPrice,
+        salesFormat: input.saleType === 'random_pyt' ? 'variant_selection' : 'team_break',
+        variantAssignmentMode: 'random',
+        variants:
+          input.saleType === 'random_pyt'
+            ? buildRandomTeamVariants(spotPrice)
+            : buildRandomDivisionVariants(spotPrice),
       },
     };
   }

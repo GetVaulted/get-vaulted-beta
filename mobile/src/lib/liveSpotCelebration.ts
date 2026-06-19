@@ -11,7 +11,9 @@ export function parseVariantPurchasedCelebration(payload: {
   label?: string | null;
   buyerUsername?: string | null;
   amountUsd?: number | null;
+  randomReveal?: boolean;
 }): LiveSpotTakenCelebration | null {
+  if (payload.randomReveal) return null;
   const label = payload.label?.trim();
   const username = payload.buyerUsername?.trim()?.replace(/^@+/, '');
   if (!label || !username) return null;

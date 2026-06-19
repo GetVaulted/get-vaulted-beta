@@ -25,8 +25,13 @@ export function HostRecentSalesTile({ rows }: { rows: HostRecentSaleRowDTO[] }) 
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold text-zinc-100">
                   @{r.buyerUsername}{" "}
-                  <span className="font-normal text-zinc-500">{r.kind === "order" ? "· order" : "· spot"}</span>
+                  <span className="font-normal text-zinc-500">
+                    {r.kind === "order" ? "· order" : r.kind === "variant_purchase" ? "· spot" : "· spot"}
+                  </span>
                 </p>
+                {r.spotLabel ? (
+                  <p className="mt-0.5 truncate text-[10px] font-bold text-amber-200/90">{r.spotLabel}</p>
+                ) : null}
                 <p className="mt-0.5 font-mono tabular-nums text-zinc-300">{fmtUsd(r.amountUsd)}</p>
               </div>
               <span

@@ -61,7 +61,7 @@ export async function maybeMarkVariantBreakReady(liveRoomItemId: string, liveRoo
         userId: row.buyerId,
         type: "break_ready",
         title: "Break is full",
-        body: `All spots sold for ${itemTitle}. Watch the live show — the break is starting soon.`,
+        body: `All spots sold for ${itemTitle}. The break is starting soon — watch live for the rip!`,
         href,
       }),
     ),

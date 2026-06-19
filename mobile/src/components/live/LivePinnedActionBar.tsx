@@ -15,7 +15,6 @@ import {
   View,
 } from 'react-native';
 import { LiveRoomText } from './LiveRoomText';
-import { fetchBuyerWalletSummary } from '../../api/buyerWalletRepository';
 import {
   createLiveBidIdempotencyKey,
   fetchLiveRoomBuyerSnapshot,
@@ -124,7 +123,6 @@ export function LivePinnedActionBar({
   const bidSafetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [walletReadiness, setWalletReadiness] = useState<BuyerWalletReadiness | null>(null);
   const [variantSheetOpen, setVariantSheetOpen] = useState(false);
-  const [variantStripePublishableKey, setVariantStripePublishableKey] = useState<string | null>(null);
   const [timerTick, setTimerTick] = useState(0);
   const [localRoomSnap, setLocalRoomSnap] = useState<LiveRoomBuyerSnapshot | null>(null);
   const [localSyncRefreshing, setLocalSyncRefreshing] = useState(false);
@@ -258,24 +256,6 @@ export function LivePinnedActionBar({
     const r = walletReadiness ?? fromSnap;
     return Boolean(r?.paymentReady && r?.shippingReady);
   }, [roomSnap, walletReadiness]);
-
-  useEffect(() => {
-    if (!variantSheetOpen || !accessToken?.trim()) {
-      setVariantStripePublishableKey(null);
-      return;
-    }
-    let cancelled = false;
-    void fetchBuyerWalletSummary(accessToken)
-      .then((summary) => {
-        if (!cancelled) setVariantStripePublishableKey(summary?.stripePublishableKey ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) setVariantStripePublishableKey(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, variantSheetOpen]);
 
   const refreshRoomSnapshot = useCallback(async (): Promise<LiveRoomBuyerSnapshot | null> => {
     if (onRefreshSnapshot) return onRefreshSnapshot();
@@ -752,6 +732,7 @@ export function LivePinnedActionBar({
           title={roomSnap.activeItemTitle ?? m.itemTitle}
           imageUrl={roomSnap.activeItemImageUrl}
           salesFormat={roomSnap.activeItemSalesFormat ?? 'variant_selection'}
+          variantAssignmentMode={roomSnap.activeItemVariantAssignmentMode ?? 'pick'}
           variants={roomSnap.activeItemVariants ?? []}
           accessToken={accessToken}
           walletReady={walletReady}
@@ -761,7 +742,6 @@ export function LivePinnedActionBar({
           onPurchased={() => {
             void refreshRoomSnapshot();
           }}
-          stripePublishableKey={variantStripePublishableKey}
         />
       ) : null}
     </View>

@@ -154,6 +154,38 @@ export async function beginLiveRoomTeamBreak(
   }
 }
 
+/** Bulk-update spot prices / hot flags on a live break item. */
+export async function patchLiveItemVariants(
+  liveRoomId: string,
+  itemId: string,
+  updates: Array<{ id: string; priceUsd?: number; isHot?: boolean }>,
+): Promise<ApiResult<Record<string, unknown>>> {
+  try {
+    const res = await fetch(
+      `/api/live-rooms/${encodeURIComponent(liveRoomId)}/items/${encodeURIComponent(itemId)}/variants`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ updates }),
+      },
+    );
+    const payload = await readJsonSafe<Record<string, unknown>>(res);
+    if (!res.ok) {
+      const { error, issues } = normalizeError(payload, "Could not update spots.");
+      return { ok: false, error, issues };
+    }
+    return { ok: true, data: payload ?? {} };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return {
+      ok: false,
+      error: msg ? `Could not reach the server (${msg}).` : "Could not reach the server.",
+      issues: [],
+    };
+  }
+}
+
 /** Append supplemental spot/division variants to the active variant item (same lot — buyers see immediately). */
 export async function appendLiveItemSupplementalVariants(
   liveRoomId: string,
@@ -204,6 +236,7 @@ export async function createLiveRoomItem(
     quantity?: number;
     salesFormat?: string;
     variants?: unknown;
+    variantAssignmentMode?: "pick" | "random";
   },
 ): Promise<ApiResult<Record<string, unknown>>> {
   try {

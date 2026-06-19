@@ -5,6 +5,7 @@ import { requireLiveRoomHostUser } from "@/lib/resolve-live-room-host-user";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
 import { isVariantSalesFormat, normalizeVariantDrafts } from "@/lib/live-item-variant-presets";
 import { parseLiveItemSalesFormat } from "@/lib/live-item-variant-serialize";
+import type { LiveItemVariantAssignmentMode } from "@/generated/prisma/client";
 import { validateLiveRoomItemThumbnail } from "@/lib/listing-photo-requirements";
 import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-shipping-profiles";
 
@@ -22,6 +23,7 @@ type PostBody = {
   quantity?: number | string;
   salesFormat?: string;
   variants?: unknown;
+  variantAssignmentMode?: string;
   shippingProfileId?: string | null;
 };
 
@@ -111,6 +113,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     body.teamBoardMisc === true && room.roomType === "break" && room.teamBoardLeague === "nfl";
 
   const salesFormat = parseLiveItemSalesFormat(body.salesFormat);
+  const variantAssignmentMode: LiveItemVariantAssignmentMode =
+    body.variantAssignmentMode === "random" && isVariantSalesFormat(salesFormat) ? "random" : "pick";
   const variantDrafts = isVariantSalesFormat(salesFormat) ? normalizeVariantDrafts(body.variants) : [];
   if (isVariantSalesFormat(salesFormat) && variantDrafts.length === 0) {
     return NextResponse.json({ error: "Add at least one selectable option for variant items." }, { status: 400 });
@@ -150,6 +154,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     quantity: isVariantSalesFormat(salesFormat) ? 1 : quantity,
     quantityInitial: isVariantSalesFormat(salesFormat) ? 1 : quantity,
     salesFormat,
+    variantAssignmentMode,
     shippingProfileId: resolvedProfile?.id ?? null,
     requiresSeparatePackage: resolvedProfile?.requiresSeparatePackage ?? null,
   };

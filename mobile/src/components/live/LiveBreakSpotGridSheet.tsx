@@ -18,10 +18,10 @@ import {
   summarizeVariantSpots,
   variantIsAvailable,
   variantSelectSpotLabel,
+  isRandomVariantAssignment,
   type LiveItemSalesFormat,
 } from '../../lib/liveItemVariant';
 import { colors, radii, spacing } from '../../theme';
-import { WalletNativePayButton } from '../wallet/WalletNativePayButton';
 import { HoldToBidButton } from './HoldToBidButton';
 import { LiveRoomText } from './LiveRoomText';
 
@@ -37,12 +37,12 @@ type Props = {
   title: string;
   imageUrl?: string | null;
   salesFormat: LiveItemSalesFormat;
+  variantAssignmentMode?: 'pick' | 'random';
   variants: LiveItemVariantSnapshot[];
   accessToken?: string;
   walletReady: boolean;
   onWalletRequired: () => void;
   onPurchased: () => void;
-  stripePublishableKey?: string | null;
 };
 
 function fmtMoney(n: number) {
@@ -57,12 +57,12 @@ export function LiveBreakSpotGridSheet({
   title,
   imageUrl,
   salesFormat,
+  variantAssignmentMode = 'pick',
   variants,
   accessToken,
   walletReady,
   onWalletRequired,
   onPurchased,
-  stripePublishableKey,
 }: Props) {
   const insets = useSafeAreaInsets();
   const isDivisionBreak = salesFormat === 'team_break';
@@ -71,10 +71,11 @@ export function LiveBreakSpotGridSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isRandom = isRandomVariantAssignment(variantAssignmentMode);
   const sortedVariants = useMemo(() => sortVariantsForBuyerDisplay(variants), [variants]);
   const spotSummary = useMemo(() => summarizeVariantSpots(variants), [variants]);
   const selected = sortedVariants.find((v) => v.id === selectedId) ?? null;
-  const pickerBaseLabel = variantSelectSpotLabel(salesFormat);
+  const pickerBaseLabel = variantSelectSpotLabel(salesFormat, isRandom);
 
   const unitPrice = selected?.priceUsd ?? spotSummary.fromPriceUsd ?? 0;
   const maxQty = selected ? Math.max(1, selected.quantityRemaining) : 1;
@@ -92,11 +93,15 @@ export function LiveBreakSpotGridSheet({
       setBusy(false);
       return;
     }
+    if (isRandom) {
+      const available = sortedVariants.find((v) => variantIsAvailable(v));
+      if (available) setSelectedId(available.id);
+    }
     if (selectedId && !sortedVariants.some((v) => v.id === selectedId && variantIsAvailable(v))) {
       setSelectedId(null);
       setQuantity(1);
     }
-  }, [selectedId, sortedVariants, visible]);
+  }, [isRandom, selectedId, sortedVariants, visible]);
 
   useEffect(() => {
     setQuantity(1);
@@ -287,9 +292,6 @@ export function LiveBreakSpotGridSheet({
               <LiveRoomText style={styles.totalValue}>{selected ? fmtMoney(total) : '—'}</LiveRoomText>
             </View>
             <View style={styles.payCol}>
-              {stripePublishableKey?.trim() && selected && walletReady ? (
-                <WalletNativePayButton publishableKey={stripePublishableKey} onPress={onCheckoutPress} />
-              ) : null}
               <HoldToBidButton
                 label={selected ? `Hold to buy · ${fmtMoney(total)}` : 'Select a spot'}
                 disabled={!selected || allSold}

@@ -183,6 +183,9 @@ export function VaultWalletSheet({
   const [paymentSetupOpen, setPaymentSetupOpen] = useState(
     () => recoveryMode && openPaymentSetupOnMount,
   );
+  const [paymentSetupStartWith, setPaymentSetupStartWith] = useState<'picker' | 'card' | 'wallet'>(
+    'picker',
+  );
   const [addressFormDraft, setAddressFormDraft] = useState<CreateShippingAddressInput>(EMPTY_ADDRESS);
   const [addressFormEditing, setAddressFormEditing] = useState(false);
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
@@ -245,6 +248,7 @@ export function VaultWalletSheet({
       wasVisibleRef.current = false;
       setStep('main');
       setPaymentSetupOpen(false);
+      setPaymentSetupStartWith('picker');
       setEditingAddressId(null);
       setActionError(null);
       openSeedAppliedRef.current = false;
@@ -265,7 +269,10 @@ export function VaultWalletSheet({
   }, [visible, recoveryMode, initialStep, openPaymentSetupOnMount, initialReadiness]);
 
   const goMain = () => setStep('main');
-  const openPaymentSetup = () => setPaymentSetupOpen(true);
+  const openPaymentSetup = (mode: 'picker' | 'card' | 'wallet' = 'picker') => {
+    setPaymentSetupStartWith(mode);
+    setPaymentSetupOpen(true);
+  };
 
   const openAddressForm = (seed?: BuyerShippingAddressRow, returnStep: WalletStep = 'shipping') => {
     addressFormReturnStep.current = returnStep;
@@ -378,7 +385,11 @@ export function VaultWalletSheet({
   const creditsUsd = summary?.vaultCreditsUsd ?? 0;
   const referralUsd = summary?.referralCreditUsd ?? 0;
   const walletCapabilities = summary?.capabilities;
-  const stripePublishableKey = summary?.stripePublishableKey ?? null;
+  const stripePublishableKeyRef = useRef<string | null>(null);
+  if (summary?.stripePublishableKey?.trim()) {
+    stripePublishableKeyRef.current = summary.stripePublishableKey;
+  }
+  const stripePublishableKey = stripePublishableKeyRef.current;
   const walletPlatform = Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web';
   const liveMethods = liveAcceptedWalletMethods(walletPlatform, walletCapabilities);
 
@@ -571,7 +582,7 @@ export function VaultWalletSheet({
         {stripePublishableKey ? (
           <WalletNativePayButton
             publishableKey={stripePublishableKey}
-            onPress={openPaymentSetup}
+            onPress={() => openPaymentSetup('wallet')}
             appearance="dark"
           />
         ) : null}
@@ -618,7 +629,7 @@ export function VaultWalletSheet({
         )}
 
         <LiveRoomText style={t.liveSectionLabel}>New payment method</LiveRoomText>
-        <Pressable style={t.newCardBtn} onPress={openPaymentSetup}>
+        <Pressable style={t.newCardBtn} onPress={() => openPaymentSetup('card')}>
           <Ionicons name="card-outline" size={18} color="#f4f2ec" />
           <LiveRoomText style={t.newCardBtnText}>New card</LiveRoomText>
         </Pressable>
@@ -879,16 +890,19 @@ export function VaultWalletSheet({
       <WalletPaymentSetupModal
         visible={visible && paymentSetupOpen}
         accessToken={accessToken}
+        startWith={paymentSetupStartWith}
         onClose={() => {
           if (recoveryMode) {
             onClose();
             return;
           }
           setPaymentSetupOpen(false);
+          setPaymentSetupStartWith('picker');
         }}
         onSaved={(paymentMethodId) => {
           void loadWalletData();
           setPaymentSetupOpen(false);
+          setPaymentSetupStartWith('picker');
           setStep('payment');
           onPaymentMethodSaved?.(paymentMethodId);
         }}

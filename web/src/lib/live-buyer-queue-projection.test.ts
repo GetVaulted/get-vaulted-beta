@@ -37,6 +37,7 @@ function baseItem(overrides: Partial<LiveRoomItemDTO> = {}): LiveRoomItemDTO {
     auctionEndsAt: null,
     clutchTimeEnabled: false,
     salesFormat: "auction",
+    variantAssignmentMode: "pick",
     variants: [],
     variantBreakReadyAt: null,
     variantBreakBeganAt: null,

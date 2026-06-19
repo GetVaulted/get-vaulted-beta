@@ -95,6 +95,11 @@ enum LiveItemSalesFormat {
   team_break
 }
 
+enum LiveItemVariantAssignmentMode {
+  pick
+  random
+}
+
 enum LiveItemVariantStatus {
   available
   reserved
@@ -1158,6 +1163,8 @@ model LiveRoomItem {
   clutchTimeEnabled Boolean        @default(false)
   /// Commerce format for this queue row (variant / team break = selectable options).
   salesFormat    LiveItemSalesFormat @default(auction)
+  /// pick = buyer chooses spot (PYT/PYD); random = wheel assigns team/division on purchase.
+  variantAssignmentMode LiveItemVariantAssignmentMode @default(pick)
   /// All variant spots sold — host can begin the break (team_break / PYD).
   variantBreakReadyAt DateTime?
   /// Host clicked Begin Break — broadcast to all viewers.
@@ -1225,6 +1232,9 @@ model LiveItemVariantPurchase {
   stripeCheckoutSessionId String?
   stripePaymentIntentId   String?
   paidAt                  DateTime?
+  /// Wheel-assigned team/division label (random assignment mode).
+  revealedLabel           String?
+  revealedAbbr            String?
   createdAt               DateTime                      @default(now())
 
   @@index([variantId, paymentStatus])

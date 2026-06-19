@@ -12,6 +12,7 @@ type LiveVariantSpotBoardProps = {
   onToggleMinimized?: () => void;
   onAddSupplemental?: () => void;
   hostBusy?: boolean;
+  onEditSpots?: () => void;
 };
 
 function fmtMoney(n: number) {
@@ -27,6 +28,7 @@ export function LiveVariantSpotBoard({
   onToggleMinimized,
   onAddSupplemental,
   hostBusy = false,
+  onEditSpots,
 }: LiveVariantSpotBoardProps) {
   if (!item || !isVariantSalesFormat(item.salesFormat) || !item.variants?.length) return null;
 
@@ -78,6 +80,16 @@ export function LiveVariantSpotBoard({
         </div>
         {hostMode ? (
           <div className="flex shrink-0 items-center gap-1">
+            {onEditSpots ? (
+              <button
+                type="button"
+                disabled={hostBusy}
+                onClick={onEditSpots}
+                className="rounded-lg border border-amber-300/35 bg-amber-500/15 px-2 py-1 text-[8px] font-black uppercase tracking-wide text-amber-100 disabled:opacity-40"
+              >
+                Edit prices
+              </button>
+            ) : null}
             {onAddSupplemental ? (
               <button
                 type="button"

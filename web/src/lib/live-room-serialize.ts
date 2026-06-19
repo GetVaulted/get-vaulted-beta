@@ -75,6 +75,7 @@ export type LiveRoomItemDTO = {
   /** True = sudden death (no timer extension on bids). */
   clutchTimeEnabled: boolean;
   salesFormat: LiveItemSalesFormat;
+  variantAssignmentMode: "pick" | "random";
   variants: LiveItemVariantDTO[];
   /** ISO when all variant spots sold (team break ready). */
   variantBreakReadyAt: string | null;
@@ -201,6 +202,7 @@ export function serializeLiveRoomItem(
     auctionEndsAt?: Date | null;
     clutchTimeEnabled?: unknown;
     salesFormat?: LiveItemSalesFormat;
+    variantAssignmentMode?: "pick" | "random";
     variants?: LiveRoomItemVariantRow[];
     variantBreakReadyAt?: Date | null;
     variantBreakBeganAt?: Date | null;
@@ -212,6 +214,7 @@ export function serializeLiveRoomItem(
   const lastHighBidderId =
     typeof row.lastHighBidderId === "string" && row.lastHighBidderId.trim() ? row.lastHighBidderId.trim() : null;
   const salesFormat = ext.salesFormat ?? "auction";
+  const variantAssignmentMode = ext.variantAssignmentMode === "random" ? "random" : "pick";
   const variants = serializeLiveItemVariants(ext.variants);
   const variantBreakReadyAt =
     ext.variantBreakReadyAt instanceof Date && !Number.isNaN(ext.variantBreakReadyAt.getTime())
@@ -249,6 +252,7 @@ export function serializeLiveRoomItem(
     auctionEndsAt,
     clutchTimeEnabled,
     salesFormat,
+    variantAssignmentMode,
     variants,
     variantBreakReadyAt,
     variantBreakBeganAt,

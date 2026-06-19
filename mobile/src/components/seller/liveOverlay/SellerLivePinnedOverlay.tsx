@@ -21,6 +21,7 @@ export function SellerLivePinnedOverlay({
   onSold,
   onSkip,
   onExtend,
+  onEditSpots,
   hostOverlayMinimal = true,
   queuePreview = false,
   onLayoutHeight,
@@ -37,6 +38,7 @@ export function SellerLivePinnedOverlay({
   onSold: () => void;
   onSkip: () => void;
   onExtend: () => void;
+  onEditSpots?: () => void;
   hostOverlayMinimal?: boolean;
   queuePreview?: boolean;
   onLayoutHeight?: (height: number) => void;
@@ -74,6 +76,7 @@ export function SellerLivePinnedOverlay({
             onExtend={onExtend}
             hostOverlayMinimal={hostOverlayMinimal}
             queuePreview={queuePreview}
+            onEditSpots={onEditSpots}
           />
         </View>
       </View>

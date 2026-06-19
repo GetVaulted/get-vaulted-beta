@@ -73,6 +73,7 @@ export function VaultPinnedLotCard({
   pinNextLabel,
   hostOverlayMinimal = false,
   queuePreview = false,
+  onEditSpots,
 }: {
   item: LiveRoomItemRow | null;
   serverNowMs: number;
@@ -92,6 +93,8 @@ export function VaultPinnedLotCard({
   hostOverlayMinimal?: boolean;
   /** Show the next queued lot before it is pinned. */
   queuePreview?: boolean;
+  /** Open live team/division spot editor (PYT/PYD). */
+  onEditSpots?: () => void;
 }) {
   const compact = density === 'broadcast';
 
@@ -274,6 +277,105 @@ export function VaultPinnedLotCard({
   const showEndedActions = hudPhase === 'ended';
   const showSecondaryActions =
     !hostOverlayMinimal && roomLive && hudPhase !== 'sold' && hudPhase !== 'skipped';
+  const canEditSpots = Boolean(isVariantItem && onEditSpots && !busy);
+
+  const lotIdentity = (
+    <>
+      <View style={styles.thumbWrap}>
+        {thumb ? (
+          <Image source={{ uri: thumb }} style={[styles.thumb, compact && styles.thumbCompact]} />
+        ) : (
+          <View style={[styles.thumb, styles.thumbPh, compact && styles.thumbCompact]}>
+            <Ionicons name="diamond-outline" size={compact ? 20 : 26} color={colors.gold} />
+          </View>
+        )}
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <View style={styles.headRow}>
+          <Text style={[lc.eyebrow, compact && styles.eyebrowCompact]}>
+            {queuePreview ? 'Next up' : 'On screen'}
+          </Text>
+          {countdown ? (
+            <View style={[styles.timerChip, closingSoon && styles.timerChipUrgent]}>
+              <Text style={[styles.timerChipTxt, closingSoon && styles.timerChipTxtUrgent]}>
+                {countdown.label}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+        {countdown ? (
+          <View style={styles.timerTrack}>
+            <View
+              style={[
+                styles.timerFill,
+                closingSoon && styles.timerFillUrgent,
+                { width: `${Math.round(countdown.progress * 100)}%` },
+              ]}
+            />
+          </View>
+        ) : null}
+        <Text style={[styles.title, compact && styles.titleCompact]} numberOfLines={2}>
+          {item.displayTitle ?? item.title}
+        </Text>
+        <Text style={[lc.eyebrow, compact && styles.eyebrowCompact]}>{overlayPrice.label}</Text>
+        <Animated.Text style={[styles.bidVal, compact && styles.bidValCompact, { transform: [{ scale: priceScale }] }]}>
+          {overlayPrice.amountFormatted}
+        </Animated.Text>
+        {item.lastHighBidderUsername ? (
+          <View style={styles.bidderRow}>
+            <Animated.View style={[styles.bidderDot, { opacity: pulse }]} />
+            <Text style={[styles.leader, compact && styles.leaderCompact]} numberOfLines={1}>
+              @{item.lastHighBidderUsername}
+            </Text>
+          </View>
+        ) : isVariantItem && spotStats ? (
+          <Text style={[styles.meta, compact && styles.metaCompact]}>
+            {spotStats.available > 0
+              ? `${spotStats.available} spot${spotStats.available === 1 ? '' : 's'} available`
+              : 'All spots sold'}
+          </Text>
+        ) : hostOverlayMinimal ? null : (
+          <Text style={[styles.meta, compact && styles.metaCompact]}>Waiting for first bid</Text>
+        )}
+        {canEditSpots ? (
+          <Text style={[styles.editSpotsHint, compact && styles.metaCompact]}>Tap to edit teams</Text>
+        ) : null}
+        {hudPhase === 'ended' ? (
+          <Text style={styles.hostEndedCopy}>{LIVE_AUCTION_HOST_TIMER_ENDED_COPY}</Text>
+        ) : null}
+        {!hostOverlayMinimal || (hudPhase !== 'ready' && item.priceUsd != null) ? (
+          <View style={styles.metaRow}>
+            {!hostOverlayMinimal ? (
+              <Text style={[styles.meta, compact && styles.metaCompact]}>
+                {isVariantItem
+                  ? roomLive
+                    ? spotStats && spotStats.available > 0
+                      ? 'Spots live'
+                      : 'Break complete'
+                    : 'Go live for spots'
+                  : showRunningStrip
+                    ? 'Auction running'
+                    : hudPhase === 'ended'
+                      ? 'Awaiting mark sold'
+                      : hudPhase === 'sold'
+                        ? 'Sold'
+                        : hudPhase === 'skipped'
+                          ? 'Skipped'
+                          : hudPhase === 'ready'
+                            ? 'Ready to start'
+                            : 'Ready'}
+              </Text>
+            ) : null}
+            {item.priceUsd != null ? (
+              <Text style={[styles.meta, compact && styles.metaCompact, reserve && styles.metaOk]}>
+                {reserve ? 'Reserve met' : 'Reserve'}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+    </>
+  );
 
   return (
     <Animated.View
@@ -292,98 +394,19 @@ export function VaultPinnedLotCard({
         <Animated.View style={[styles.countdownWash, { opacity: countdownGlow }]} pointerEvents="none" />
       ) : null}
       <Animated.View style={[styles.bidderFlash, { opacity: bidderFlash }]} pointerEvents="none" />
-      <View style={[styles.row, compact && styles.rowCompact]}>
-        <View style={styles.thumbWrap}>
-          {thumb ? (
-            <Image source={{ uri: thumb }} style={[styles.thumb, compact && styles.thumbCompact]} />
-          ) : (
-            <View style={[styles.thumb, styles.thumbPh, compact && styles.thumbCompact]}>
-              <Ionicons name="diamond-outline" size={compact ? 20 : 26} color={colors.gold} />
-            </View>
-          )}
-        </View>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <View style={styles.headRow}>
-            <Text style={[lc.eyebrow, compact && styles.eyebrowCompact]}>
-              {queuePreview ? 'Next up' : 'On screen'}
-            </Text>
-            {countdown ? (
-              <View style={[styles.timerChip, closingSoon && styles.timerChipUrgent]}>
-                <Text style={[styles.timerChipTxt, closingSoon && styles.timerChipTxtUrgent]}>
-                  {countdown.label}
-                </Text>
-              </View>
-            ) : null}
-          </View>
-          {countdown ? (
-            <View style={styles.timerTrack}>
-              <View
-                style={[
-                  styles.timerFill,
-                  closingSoon && styles.timerFillUrgent,
-                  { width: `${Math.round(countdown.progress * 100)}%` },
-                ]}
-              />
-            </View>
-          ) : null}
-          <Text style={[styles.title, compact && styles.titleCompact]} numberOfLines={2}>
-            {item.displayTitle ?? item.title}
-          </Text>
-          <Text style={[lc.eyebrow, compact && styles.eyebrowCompact]}>{overlayPrice.label}</Text>
-          <Animated.Text style={[styles.bidVal, compact && styles.bidValCompact, { transform: [{ scale: priceScale }] }]}>
-            {overlayPrice.amountFormatted}
-          </Animated.Text>
-          {item.lastHighBidderUsername ? (
-            <View style={styles.bidderRow}>
-              <Animated.View style={[styles.bidderDot, { opacity: pulse }]} />
-              <Text style={[styles.leader, compact && styles.leaderCompact]} numberOfLines={1}>
-                @{item.lastHighBidderUsername}
-              </Text>
-            </View>
-          ) : isVariantItem && spotStats ? (
-            <Text style={[styles.meta, compact && styles.metaCompact]}>
-              {spotStats.available > 0
-                ? `${spotStats.available} spot${spotStats.available === 1 ? '' : 's'} available`
-                : 'All spots sold'}
-            </Text>
-          ) : hostOverlayMinimal ? null : (
-            <Text style={[styles.meta, compact && styles.metaCompact]}>Waiting for first bid</Text>
-          )}
-          {hudPhase === 'ended' ? (
-            <Text style={styles.hostEndedCopy}>{LIVE_AUCTION_HOST_TIMER_ENDED_COPY}</Text>
-          ) : null}
-          {!hostOverlayMinimal || (hudPhase !== 'ready' && item.priceUsd != null) ? (
-            <View style={styles.metaRow}>
-              {!hostOverlayMinimal ? (
-                <Text style={[styles.meta, compact && styles.metaCompact]}>
-                  {isVariantItem
-                    ? roomLive
-                      ? spotStats && spotStats.available > 0
-                        ? 'Spots live'
-                        : 'Break complete'
-                      : 'Go live for spots'
-                    : showRunningStrip
-                      ? 'Auction running'
-                      : hudPhase === 'ended'
-                        ? 'Awaiting mark sold'
-                        : hudPhase === 'sold'
-                          ? 'Sold'
-                          : hudPhase === 'skipped'
-                            ? 'Skipped'
-                            : hudPhase === 'ready'
-                              ? 'Ready to start'
-                              : 'Ready'}
-                </Text>
-              ) : null}
-              {item.priceUsd != null ? (
-                <Text style={[styles.meta, compact && styles.metaCompact, reserve && styles.metaOk]}>
-                  {reserve ? 'Reserve met' : 'Reserve'}
-                </Text>
-              ) : null}
-            </View>
-          ) : null}
-        </View>
-      </View>
+      {canEditSpots ? (
+        <Pressable
+          style={[styles.row, compact && styles.rowCompact]}
+          disabled={busy}
+          onPress={onEditSpots}
+          accessibilityRole="button"
+          accessibilityLabel="Edit team spots and prices"
+        >
+          {lotIdentity}
+        </Pressable>
+      ) : (
+        <View style={[styles.row, compact && styles.rowCompact]}>{lotIdentity}</View>
+      )}
 
       {showRunningStrip ? (
         <View style={[styles.runningStrip, compact && styles.runningStripCompact]}>
@@ -538,6 +561,14 @@ const styles = StyleSheet.create({
   leaderCompact: { fontSize: 10 },
   metaRow: { flexDirection: 'row', gap: spacing.sm, marginTop: 2 },
   meta: { fontSize: 10, fontWeight: '600', color: colors.textMuted },
+  editSpotsHint: {
+    color: 'rgba(212,175,55,0.92)',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    marginTop: 2,
+    textTransform: 'uppercase',
+  },
   metaCompact: { fontSize: 9 },
   metaOk: { color: colors.success },
   hostEndedCopy: {

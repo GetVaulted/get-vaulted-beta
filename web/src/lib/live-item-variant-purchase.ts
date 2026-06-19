@@ -8,6 +8,10 @@ import { emitLiveRoomMessagesRefetch, emitVariantPurchased } from "@/lib/realtim
 import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
 import { createNotification } from "@/lib/notifications";
 import { maybeMarkVariantBreakReady } from "@/lib/live-item-variant-break";
+import {
+  executeRandomVariantRevealOnPurchase,
+  isRandomVariantAssignment,
+} from "@/lib/live-item-variant-random-reveal";
 
 function siteUrl(): string {
   return (process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");
@@ -49,6 +53,29 @@ export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, st
     });
   }
 
+  const itemRow = await prisma.liveRoomItem.findUnique({
+    where: { id: purchase.liveRoomItemId },
+    select: { itemVersion: true, title: true, salesFormat: true, variantAssignmentMode: true },
+  });
+
+  let displayLabel = purchase.variant.label;
+  let randomReveal = false;
+
+  if (itemRow && isRandomVariantAssignment(itemRow.variantAssignmentMode)) {
+    const revealed = await executeRandomVariantRevealOnPurchase({
+      purchaseId: purchase.id,
+      liveRoomId: purchase.liveRoomId,
+      liveRoomItemId: purchase.liveRoomItemId,
+      buyerUsername: purchase.buyer.username,
+      itemTitle: itemRow.title,
+      salesFormat: itemRow.salesFormat,
+    });
+    if (revealed) {
+      displayLabel = revealed.label;
+      randomReveal = true;
+    }
+  }
+
   const item = await prisma.liveRoomItem.update({
     where: { id: purchase.liveRoomItemId },
     data: { itemVersion: { increment: 1 } },
@@ -59,10 +86,11 @@ export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, st
     itemId: purchase.liveRoomItemId,
     variantId: purchase.variantId,
     purchaseId: purchase.id,
-    label: purchase.variant.label,
+    label: displayLabel,
     buyerUsername: purchase.buyer.username,
     amountUsd: purchase.totalUsd,
     itemVersion: item.itemVersion,
+    randomReveal,
   });
   emitLiveRoomMessagesRefetch(purchase.liveRoomId);
   void recordBuyerGiveawayPurchaseEntries(purchase.liveRoomId, purchase.buyerId, purchase.id).catch((e) => {
@@ -80,8 +108,10 @@ export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, st
   await createNotification(prisma, {
     userId: purchase.buyerId,
     type: "break_spot_paid",
-    title: "Spot confirmed",
-    body: `Payment confirmed for ${purchase.variant.label}.`,
+    title: randomReveal ? "Team revealed!" : "Spot confirmed",
+    body: randomReveal
+      ? `You got ${displayLabel}!`
+      : `Payment confirmed for ${displayLabel}.`,
     href: `/live/${encodeURIComponent(purchase.liveRoomId)}`,
   });
 }

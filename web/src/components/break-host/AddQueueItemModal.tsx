@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { compressImageFileToBlob } from "@/lib/listing-image-compress";
 import { uploadListingImageBlob } from "@/lib/upload-listing-image-client";
-import { buildVariantsFromPreset, type VariantDraftInput } from "@/lib/live-item-variant-presets";
+import { buildRandomVariantsFromPreset, buildVariantsFromPreset, type VariantDraftInput } from "@/lib/live-item-variant-presets";
 import { LiveItemVariantBuilder } from "@/components/live-auction/LiveItemVariantBuilder";
 
 export type AddQueueItemCloseReason = "cancel" | "success" | "escape";
@@ -16,6 +16,7 @@ export type AddQueueItemAuctionPayload = {
   startingBidUsd: number;
   quantity: number;
   salesFormat: "auction" | "buy_now" | "variant_selection" | "team_break";
+  variantAssignmentMode?: "pick" | "random";
   variants: VariantDraftInput[];
   teamBoardMisc: boolean;
 };
@@ -74,7 +75,9 @@ export function AddQueueItemModal({
   const [imageUrl, setImageUrl] = useState("");
   const [imageUploading, setImageUploading] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
-  const [saleType, setSaleType] = useState<"auction" | "buy_now" | "pyt" | "pyd">("auction");
+  const [saleType, setSaleType] = useState<
+    "auction" | "buy_now" | "pyt" | "pyd" | "random_pyt" | "random_pyd"
+  >("auction");
   const [price, setPrice] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [queueDraftMisc, setQueueDraftMisc] = useState(false);
@@ -188,7 +191,29 @@ export function AddQueueItemModal({
         startingBidUsd: 1,
         quantity: 1,
         salesFormat: saleType === "pyt" ? "variant_selection" : "team_break",
+        variantAssignmentMode: "pick",
         variants,
+        teamBoardMisc: queueDraftMisc,
+      });
+      if (ok) requestClose("success", onRequestClose);
+      return;
+    }
+
+    if (saleType === "random_pyt" || saleType === "random_pyd") {
+      if (parsedPrice == null) {
+        setFormError(saleType === "random_pyt" ? "Enter a price per team." : "Enter a price per division.");
+        return;
+      }
+      const preset = saleType === "random_pyt" ? "nfl_teams" : "nfl_divisions";
+      const ok = await onSubmitAuction({
+        title: trimmedTitle,
+        imageUrl: imageUrl.trim(),
+        priceUsd: parsedPrice,
+        startingBidUsd: 1,
+        quantity: 1,
+        salesFormat: saleType === "random_pyt" ? "variant_selection" : "team_break",
+        variantAssignmentMode: "random",
+        variants: buildRandomVariantsFromPreset(preset, parsedPrice),
         teamBoardMisc: queueDraftMisc,
       });
       if (ok) requestClose("success", onRequestClose);
@@ -387,7 +412,10 @@ export function AddQueueItemModal({
         : saleType === "pyd"
           ? "Price per division"
           : "Buy-it-now price";
-  const isBreakSale = saleType === "pyt" || saleType === "pyd";
+  const isBreakSale =
+    saleType === "pyt" || saleType === "pyd" || saleType === "random_pyt" || saleType === "random_pyd";
+  const isPickBreak = saleType === "pyt" || saleType === "pyd";
+  const isRandomBreak = saleType === "random_pyt" || saleType === "random_pyd";
 
   return createPortal(
     <div
@@ -482,13 +510,15 @@ export function AddQueueItemModal({
           />
 
           <span className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Sale type</span>
-          <div className="mt-2 grid grid-cols-2 gap-2">
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
             {(
               [
                 { id: "auction", label: "Auction", sub: "Timed bidding" },
                 { id: "buy_now", label: "Buy It Now", sub: "Fixed price" },
-                { id: "pyt", label: "PYT", sub: "32 NFL teams" },
-                { id: "pyd", label: "PYD", sub: "8 divisions" },
+                { id: "pyt", label: "PYT", sub: "Pick your team" },
+                { id: "pyd", label: "PYD", sub: "Pick division" },
+                { id: "random_pyt", label: "Random Teams", sub: "32 · wheel reveal" },
+                { id: "random_pyd", label: "Random Divisions", sub: "8 · wheel reveal" },
               ] as const
             ).map((type) => {
               const active = saleType === type.id;
@@ -512,7 +542,9 @@ export function AddQueueItemModal({
 
           {isBreakSale ? (
             <p className="mt-3 rounded-lg border border-gold/20 bg-gold/5 px-3 py-2 text-xs text-zinc-300">
-              Buyers pick from {saleType === "pyt" ? "32 teams" : "8 divisions"}. Sold spots disappear from the board.
+              {isRandomBreak
+                ? `Buyers purchase a spot — the Vault wheel assigns ${saleType === "random_pyt" ? "an NFL team" : "a division"} from what's left. Won teams leave the wheel.`
+                : `Buyers pick from ${saleType === "pyt" ? "32 teams" : "8 divisions"}. Sold spots disappear from the board.`}
             </p>
           ) : null}
 
@@ -525,7 +557,7 @@ export function AddQueueItemModal({
             className="mt-1 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
           />
 
-          {isBreakSale && spotVariants.length > 0 ? (
+          {isPickBreak && spotVariants.length > 0 ? (
             <div className="mt-4 min-w-0">
               <LiveItemVariantBuilder
                 salesFormat={saleType === "pyt" ? "variant_selection" : "team_break"}

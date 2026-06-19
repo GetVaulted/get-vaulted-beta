@@ -25,6 +25,7 @@ export type LiveRoomItemRow = {
   itemVersion?: number;
   sortOrder: number;
   salesFormat?: 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
+  variantAssignmentMode?: 'pick' | 'random';
   variants?: {
     id: string;
     label: string;
@@ -106,6 +107,7 @@ export async function createLiveRoomQueueItem(
       color?: string;
       isHot?: boolean;
     }>;
+    variantAssignmentMode?: 'pick' | 'random';
   },
 ): Promise<void> {
   const body: Record<string, unknown> = {
@@ -118,6 +120,9 @@ export async function createLiveRoomQueueItem(
     reservePriceUsd: input.reservePriceUsd ?? null,
     priceUsd: input.priceUsd ?? null,
   };
+  if (input.variantAssignmentMode) {
+    body.variantAssignmentMode = input.variantAssignmentMode;
+  }
   if (input.variants?.length) {
     body.variants = input.variants;
   }

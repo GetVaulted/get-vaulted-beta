@@ -83,7 +83,10 @@ function resolveBuyerVariantItemHud(
         ? `${available} spot${available === 1 ? '' : 's'} available — tap to choose yours.`
         : 'All spots are sold or unavailable.',
     bottomLeftLabel: 'Custom',
-    bottomRightLabel: variantSelectSpotLabel(snap.activeItemSalesFormat),
+    bottomRightLabel: variantSelectSpotLabel(
+      snap.activeItemSalesFormat,
+      snap.activeItemVariantAssignmentMode === 'random',
+    ),
     bottomRightIsSlide: false,
     buyerPrimaryDisabled: available <= 0,
     buyerSecondaryDisabled: true,

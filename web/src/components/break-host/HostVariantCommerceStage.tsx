@@ -15,6 +15,7 @@ type Props = {
   commerceMinimized?: boolean;
   onToggleCommerceMinimized?: () => void;
   onAddSupplemental?: () => void;
+  onEditSpots?: () => void;
 };
 
 /**
@@ -30,6 +31,7 @@ export function HostVariantCommerceStage({
   commerceMinimized = false,
   onToggleCommerceMinimized,
   onAddSupplemental,
+  onEditSpots,
 }: Props) {
   const activeVariant =
     activeBoardRow != null && isVariantSalesFormat(activeBoardRow.item.salesFormat);
@@ -46,6 +48,7 @@ export function HostVariantCommerceStage({
           onToggleMinimized={onToggleCommerceMinimized}
           onAddSupplemental={onAddSupplemental}
           hostBusy={busy}
+          onEditSpots={onEditSpots}
         />
       </div>
     );

@@ -4,7 +4,7 @@ import { loadStripe } from "@stripe/stripe-js";
 import { useEffect, useMemo, useState } from "react";
 import type { LiveItemVariantDTO, LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { sortVariantsForBuyerDisplay } from "@/lib/live-item-variant-display-order";
-import { isVariantSalesFormat, variantBuyerSelectLabel } from "@/lib/live-item-variant-presets";
+import { isVariantSalesFormat, isRandomVariantAssignment, variantBuyerSelectLabel } from "@/lib/live-item-variant-presets";
 import {
   createLiveVariantPurchaseIdempotencyKey,
   purchaseLiveItemVariant,
@@ -56,10 +56,11 @@ export function LiveVariantSelectionSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isRandom = isRandomVariantAssignment(item.variantAssignmentMode);
   const variants = useMemo(() => sortVariantsForBuyerDisplay(item.variants ?? []), [item.variants]);
   const selected = variants.find((v) => v.id === selectedId) ?? null;
   const spotSummary = useMemo(() => summarizeSpots(variants), [variants]);
-  const pickerBase = variantBuyerSelectLabel(item.salesFormat);
+  const pickerBase = variantBuyerSelectLabel(item.salesFormat, isRandom);
   const pickerTitle = selected ? `${pickerBase}: ${selected.label}` : pickerBase;
   const unitPrice = selected?.priceUsd ?? spotSummary.fromPrice ?? 0;
   const maxQty = selected ? Math.max(1, selected.quantityRemaining) : 1;
@@ -75,8 +76,13 @@ export function LiveVariantSelectionSheet({
       setQuantity(1);
       setError(null);
       setBusy(false);
+      return;
     }
-  }, [open]);
+    if (isRandom) {
+      const available = variants.find((v) => v.quantityRemaining > 0 && v.status !== "sold_out");
+      if (available) setSelectedId(available.id);
+    }
+  }, [open, isRandom, variants]);
 
   useEffect(() => {
     setQuantity(1);
@@ -239,22 +245,35 @@ export function LiveVariantSelectionSheet({
           <div className="mt-4">
             <p className="text-sm font-black text-white">{pickerTitle}</p>
             <p className="mt-0.5 text-[11px] font-semibold text-zinc-500">
-              {selected ? "Confirm your spot and hold to buy below" : "Tap a team or division to continue"}
+              {isRandom
+                ? "Hold to buy — the Vault wheel assigns your team from what's left"
+                : selected
+                  ? "Confirm your spot and hold to buy below"
+                  : "Tap a team or division to continue"}
             </p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {variants.map((v) => (
-                <VariantPill
-                  key={v.id}
-                  variant={v}
-                  selected={selectedId === v.id}
-                  onSelect={() => {
-                    if (v.quantityRemaining <= 0 || v.status === "sold_out") return;
-                    setSelectedId(v.id);
-                    setError(null);
-                  }}
-                />
-              ))}
-            </div>
+            {!isRandom ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {variants.map((v) => (
+                  <VariantPill
+                    key={v.id}
+                    variant={v}
+                    selected={selectedId === v.id}
+                    onSelect={() => {
+                      if (v.quantityRemaining <= 0 || v.status === "sold_out") return;
+                      setSelectedId(v.id);
+                      setError(null);
+                    }}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="mt-3 rounded-xl border border-amber-400/25 bg-gradient-to-r from-amber-500/10 to-zinc-950/80 px-4 py-3 text-center">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-200/90">Vault Reveal</p>
+                <p className="mt-1 text-sm font-bold text-white">
+                  {spotSummary.available} {item.salesFormat === "team_break" ? "divisions" : "teams"} left on the wheel
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="mt-4 space-y-2 rounded-xl border border-white/[0.08] bg-black/30 px-3 py-2 text-[11px]">
@@ -273,7 +292,13 @@ export function LiveVariantSelectionSheet({
           </div>
           <div className="min-w-0 flex-1">
             <HoldToBuyButton
-              label={selected ? `Hold to buy · ${fmtMoney(total)}` : "Select a spot"}
+              label={
+                selected
+                  ? isRandom
+                    ? `Hold to buy · wheel reveal · ${fmtMoney(total)}`
+                    : `Hold to buy · ${fmtMoney(total)}`
+                  : "Select a spot"
+              }
               disabled={!selected || allSold}
               busy={busy}
               onHoldStart={() => {

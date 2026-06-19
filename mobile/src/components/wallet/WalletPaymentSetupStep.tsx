@@ -53,6 +53,8 @@ type Props = {
   accessToken?: string;
   onClose: () => void;
   onSaved: (paymentMethodId?: string) => void;
+  /** Skip method picker — open card form or wallet sheet immediately. */
+  startWith?: 'picker' | 'card' | 'wallet';
 };
 
 /** Fixed header + scrollable body + sticky footer; single KeyboardAvoidingView (no manual keyboard inset). */
@@ -498,21 +500,23 @@ function WalletPaymentSetupInner({
   onSaved,
   payload,
   stripeNativeReady,
+  startWith = 'picker',
 }: {
   accessToken?: string;
   onClose: () => void;
   onSaved: (paymentMethodId?: string) => void;
   payload: BuyerSetupIntentPayload;
   stripeNativeReady: boolean;
+  startWith?: 'picker' | 'card' | 'wallet';
 }) {
   const { initPaymentSheet, presentPaymentSheet, confirmSetupIntent, retrieveSetupIntent } = useStripe();
-  const [useManualCard, setUseManualCard] = useState(false);
+  const [useManualCard, setUseManualCard] = useState(startWith === 'card');
   const [sheetReady, setSheetReady] = useState(false);
-  const [showPicker, setShowPicker] = useState(true);
+  const [showPicker, setShowPicker] = useState(startWith === 'picker');
   const [initError, setInitError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const initStartedRef = useRef(false);
-  const autoPresentedRef = useRef(false);
+  const walletAutoPresentRef = useRef(startWith === 'wallet');
 
   const completeSavedPaymentMethod = useCallback(async (paymentMethodId?: string | null) => {
     if (!accessToken?.trim()) {
@@ -589,27 +593,43 @@ function WalletPaymentSetupInner({
         },
       });
       if (stripeInitError) {
-        setInitError(mapLivePaymentFailureMessage(stripeInitError.message, stripeInitError.code));
-        setUseManualCard(true);
+        if (startWith !== 'wallet') {
+          setInitError(mapLivePaymentFailureMessage(stripeInitError.message, stripeInitError.code));
+          setUseManualCard(true);
+        } else {
+          setInitError(mapLivePaymentFailureMessage(stripeInitError.message, stripeInitError.code));
+        }
         return;
       }
       setSheetReady(true);
     } catch (e) {
-      setInitError(mapLivePaymentFailureMessage(e instanceof Error ? e.message : null));
-      setUseManualCard(true);
+      if (startWith !== 'wallet') {
+        setInitError(mapLivePaymentFailureMessage(e instanceof Error ? e.message : null));
+        setUseManualCard(true);
+      } else {
+        setInitError(mapLivePaymentFailureMessage(e instanceof Error ? e.message : null));
+      }
     }
-  }, [initPaymentSheet, payload]);
+  }, [
+    initPaymentSheet,
+    payload.applePayEnabled,
+    payload.clientSecret,
+    payload.googlePayEnabled,
+    payload.merchantCountryCode,
+    startWith,
+  ]);
 
   useEffect(() => {
     initStartedRef.current = false;
-    autoPresentedRef.current = false;
-    setUseManualCard(false);
     setSheetReady(false);
-    setShowPicker(true);
     setInitError(null);
     setBusy(false);
+    setUseManualCard(startWith === 'card');
+    setShowPicker(startWith === 'picker');
+    walletAutoPresentRef.current = startWith === 'wallet';
+    if (startWith === 'card') return;
     void initPaymentSheetFlow();
-  }, [payload.clientSecret, initPaymentSheetFlow]);
+  }, [payload.clientSecret, initPaymentSheetFlow, startWith]);
 
   const presentSheet = useCallback(async (): Promise<
     { outcome: 'saved'; paymentMethodId: string } | { outcome: 'cancelled' | 'failed' }
@@ -641,6 +661,46 @@ function WalletPaymentSetupInner({
       setBusy(false);
     }
   }, [busy, payload.clientSecret, presentPaymentSheet, retrieveSetupIntent, sheetReady]);
+
+  useEffect(() => {
+    if (!walletAutoPresentRef.current || !sheetReady || busy || useManualCard || showPicker) return;
+    walletAutoPresentRef.current = false;
+    void (async () => {
+      const result = await presentSheet();
+      if (result.outcome === 'saved') {
+        await completeSavedPaymentMethod(result.paymentMethodId);
+        return;
+      }
+      if (result.outcome === 'cancelled') {
+        onClose();
+        return;
+      }
+      setShowPicker(true);
+    })();
+  }, [sheetReady, busy, useManualCard, showPicker, presentSheet, completeSavedPaymentMethod, onClose]);
+
+  const openWalletSheet = useCallback(() => {
+    if (!sheetReady || busy) {
+      setInitError('Payment setup is still loading. Try again in a moment.');
+      return;
+    }
+    setInitError(null);
+    setShowPicker(false);
+    void (async () => {
+      const result = await presentSheet();
+      if (result.outcome === 'saved') {
+        await completeSavedPaymentMethod(result.paymentMethodId);
+        return;
+      }
+      setShowPicker(true);
+    })();
+  }, [sheetReady, busy, presentSheet, completeSavedPaymentMethod]);
+
+  const openManualCard = useCallback(() => {
+    setInitError(null);
+    setShowPicker(false);
+    setUseManualCard(true);
+  }, []);
 
   const saveManualCard = async () => {
     if (busy) return;
@@ -678,31 +738,13 @@ function WalletPaymentSetupInner({
   }
 
   if (showPicker && !useManualCard) {
-    const openPaymentSheet = () => {
-      if (!sheetReady || busy) {
-        setInitError('Payment setup is still loading. Try again in a moment.');
-        return;
-      }
-      setInitError(null);
-      setShowPicker(false);
-      void (async () => {
-        const result = await presentSheet();
-        if (result.outcome === 'saved') {
-          await completeSavedPaymentMethod(result.paymentMethodId);
-          return;
-        }
-        autoPresentedRef.current = false;
-        setShowPicker(true);
-      })();
-    };
-
     return (
       <LivePaymentMethodPicker
         payload={payload}
         sheetReady={sheetReady}
         onClose={onClose}
-        onPickCard={openPaymentSheet}
-        onPickWallet={openPaymentSheet}
+        onPickCard={openManualCard}
+        onPickWallet={openWalletSheet}
       />
     );
   }
@@ -740,7 +782,13 @@ const STRIPE_MERCHANT_IDENTIFIER = 'merchant.com.getvaulted.app';
 const STRIPE_URL_SCHEME = 'getvaulted';
 
 /** Full-screen add-card flow over a dimmed live room — separate from the wallet bottom sheet. */
-export function WalletPaymentSetupModal({ visible, accessToken, onClose, onSaved }: Props) {
+export function WalletPaymentSetupModal({
+  visible,
+  accessToken,
+  onClose,
+  onSaved,
+  startWith = 'picker',
+}: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<BuyerSetupIntentPayload | null>(null);
@@ -810,6 +858,7 @@ export function WalletPaymentSetupModal({ visible, accessToken, onClose, onSaved
                   onSaved={onSaved}
                   payload={payload}
                   stripeNativeReady={stripeNativeReady}
+                  startWith={startWith}
                 />
               </StripeProvider>
             )}

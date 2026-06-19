@@ -87,6 +87,7 @@ export function emitVariantPurchased(
     buyerUsername: string;
     amountUsd?: number;
     itemVersion: number;
+    randomReveal?: boolean;
   },
 ): void {
   emitRoomEventWithAliases(liveRoomId, RT_EVENT.variantPurchased, payload);

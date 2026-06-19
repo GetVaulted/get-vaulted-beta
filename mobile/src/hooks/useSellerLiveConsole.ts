@@ -190,6 +190,7 @@ export function useSellerLiveConsole({
           reservePriceUsd: payload.reservePriceUsd,
           priceUsd: payload.priceUsd,
           variants: payload.variants,
+          variantAssignmentMode: payload.variantAssignmentMode,
         });
         logSellerQueue('add_item_success', {
           title: payload.title.slice(0, 80),

@@ -478,6 +478,11 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         onSold={console.onSold}
         onSkip={console.onSkip}
         onExtend={console.onExtend}
+        onEditSpots={
+          displayItem && isVariantSalesFormat(displayItem.salesFormat)
+            ? () => console.openPricingEditor(displayItem)
+            : undefined
+        }
         hostOverlayMinimal
         queuePreview={queuePreview}
         onLayoutHeight={(h) => {

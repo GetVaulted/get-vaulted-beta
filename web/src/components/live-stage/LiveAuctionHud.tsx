@@ -73,6 +73,8 @@ type LiveAuctionHudProps = {
   /** Host embedded HUD — collapse to title pill (session state from parent). */
   hostMinimized?: boolean;
   onToggleHostMinimized?: () => void;
+  /** Open live team/division spot editor for the pinned variant item. */
+  onEditVariantSpots?: () => void;
 };
 
 function HudAction({
@@ -134,6 +136,7 @@ export function LiveAuctionHud({
   lotTransitionPhase = "idle",
   hostMinimized = false,
   onToggleHostMinimized,
+  onEditVariantSpots,
 }: LiveAuctionHudProps) {
   const previewItem =
     previewQueueRow?.item &&
@@ -191,6 +194,18 @@ export function LiveAuctionHud({
     onStartAuction();
   };
 
+  const editableVariantItem =
+    commerceItem && isVariantSalesFormat(commerceItem.salesFormat)
+      ? commerceItem
+      : previewItem && isVariantSalesFormat(previewItem.salesFormat)
+        ? previewItem
+        : null;
+
+  const handleEditVariantSpots = () => {
+    if (!editableVariantItem || !onEditVariantSpots) return;
+    onEditVariantSpots();
+  };
+
   const winnerLine =
     item && !isVariantItem
       ? formatAuctionLeaderLine({
@@ -239,13 +254,28 @@ export function LiveAuctionHud({
           : sold
             ? "Sold"
             : "On block";
+    const titleEl = (
+      <span className="min-w-0 truncate text-[11px] font-bold text-white">{hostQueueTitleLine(item)}</span>
+    );
     return (
       <div
         className={`live-stage-auction-hud relative w-full ${ENERGY_WRAPPER[energyLevel]}`}
         data-testid="live-auction-hud"
       >
         <div className="live-stage-command-bar flex min-h-[36px] items-center justify-between gap-2 px-3 py-1.5">
-          <p className="min-w-0 truncate text-[11px] font-bold text-white">{hostQueueTitleLine(item)}</p>
+          {editableVariantItem && onEditVariantSpots ? (
+            <button
+              type="button"
+              disabled={hostBusy}
+              onClick={handleEditVariantSpots}
+              className="min-w-0 flex-1 truncate text-left disabled:opacity-50"
+              aria-label="Edit team spots and prices"
+            >
+              {titleEl}
+            </button>
+          ) : (
+            titleEl
+          )}
           <span className="shrink-0 font-mono text-[10px] font-black tabular-nums text-amber-100">{statusBit}</span>
           {onToggleHostMinimized ? (
             <button
@@ -303,7 +333,36 @@ export function LiveAuctionHud({
           breakReady && !breakBegan ? "live-stage-command-bar-ready" : ""
         }`}
       >
-        {/* LEFT — item identity */}
+        {/* LEFT — item identity (tap PYT/PYD pinned lot to edit spots) */}
+        {editableVariantItem && onEditVariantSpots ? (
+          <button
+            type="button"
+            disabled={hostBusy}
+            onClick={handleEditVariantSpots}
+            className="live-stage-command-section flex min-w-0 flex-[1.05] items-center gap-1.5 border-r border-amber-400/10 px-2.5 py-1 text-left transition hover:bg-amber-500/10 disabled:opacity-50"
+            aria-label="Edit team spots and prices"
+          >
+            <div className="size-8 shrink-0 overflow-hidden rounded-md bg-zinc-900/80 ring-1 ring-amber-300/15">
+              {thumb ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={thumb} alt="" className="size-full object-cover" />
+              ) : (
+                <div className="flex size-full items-center justify-center text-[8px] font-black text-zinc-600">
+                  {(item?.title ?? "—").slice(0, 2).toUpperCase()}
+                </div>
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-[10px] font-semibold text-zinc-100">
+                {item ? hostQueueTitleLine(item) : "No lot pinned"}
+                {item ? <span className="font-medium text-zinc-500"> · #{item.sortOrder}</span> : null}
+              </p>
+              <p className="truncate text-[8px] font-bold uppercase tracking-[0.14em] text-amber-200/90">
+                Tap to edit teams
+              </p>
+            </div>
+          </button>
+        ) : (
         <div className="live-stage-command-section flex min-w-0 flex-[1.05] items-center gap-1.5 border-r border-amber-400/10 px-2.5 py-1">
           <div className="size-8 shrink-0 overflow-hidden rounded-md bg-zinc-900/80 ring-1 ring-amber-300/15">
             {thumb ? (
@@ -328,6 +387,7 @@ export function LiveAuctionHud({
             ) : null}
           </div>
         </div>
+        )}
 
         {/* CENTER — price / timer / spot status */}
         <div className="live-stage-command-section flex min-w-0 flex-1 flex-col items-center justify-center px-2 py-1">
