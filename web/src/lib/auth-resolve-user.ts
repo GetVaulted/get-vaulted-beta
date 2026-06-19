@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { usesUnifiedSupabaseAuth } from "@/lib/unified-auth";
 
 const userSelect = {
   id: true,
@@ -56,7 +57,9 @@ export async function resolveAuthUserForToken(args: {
   if (!row) return { ok: false, reason: "not_found" };
   if (row.accountDeletedAt) return { ok: false, reason: "deleted" };
   if (row.suspendedAt) return { ok: false, reason: "suspended" };
-  if (row.passwordHash && !row.emailVerified) return { ok: false, reason: "unverified_credentials" };
+  if (row.passwordHash && !row.emailVerified && !usesUnifiedSupabaseAuth()) {
+    return { ok: false, reason: "unverified_credentials" };
+  }
 
   const role: "user" | "admin" = row.role === "admin" ? "admin" : "user";
   return {

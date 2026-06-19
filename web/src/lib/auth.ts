@@ -72,7 +72,7 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
       if (user) {
         token.sub = user.id;
         token.email = user.email;
@@ -87,6 +87,9 @@ export const authOptions: NextAuthOptions = {
             tokenEmail: typeof token.email === "string" ? token.email : undefined,
           });
           if (!resolved.ok) {
+            if (trigger === "signIn" && user) {
+              return token;
+            }
             if (resolved.reason === "not_found") {
               console.warn("[next-auth jwt] no User row for token; expiring session", {
                 sub: token.sub,

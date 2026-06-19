@@ -13,7 +13,7 @@ function clearOAuthAccessTokenCookie(response: NextResponse): void {
   });
 }
 
-/** Finishes web OAuth by turning a short-lived Supabase access token into a NextAuth session. */
+/** Legacy fallback: completes OAuth when gv_oauth_at is still present. */
 export async function POST(request: NextRequest) {
   const accessToken = request.cookies.get(OAUTH_ACCESS_TOKEN_COOKIE)?.value?.trim();
   if (!accessToken) {

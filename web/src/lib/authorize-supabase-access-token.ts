@@ -3,6 +3,7 @@ import { getSupabaseAuthServerClient, type CredentialsSessionUser } from "@/lib/
 import { isAccountDeleted } from "@/lib/account-deletion";
 import { prisma } from "@/lib/prisma";
 import { syncPrismaEmailVerifiedFromSupabase } from "@/lib/sync-prisma-email-verified";
+import { isEmailVerificationRequiredForSignIn } from "@/lib/unified-auth";
 
 /** Validates a Supabase access token (OAuth or password) and returns a NextAuth user shape. */
 export async function authorizeSupabaseAccessToken(
@@ -55,7 +56,7 @@ export async function authorizeSupabaseAccessToken(
 
   if (!user.emailVerified) {
     const synced = await syncPrismaEmailVerifiedFromSupabase(user.id, data.user);
-    if (!synced) {
+    if (!synced && isEmailVerificationRequiredForSignIn()) {
       console.warn("[authorizeSupabaseAccessToken] emailVerified sync failed", {
         userId: user.id,
         supabaseEmailConfirmed: data.user.email_confirmed_at ?? null,

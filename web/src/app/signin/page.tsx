@@ -76,6 +76,12 @@ function SignInForm() {
         )}
       </p>
 
+      {oauthErrorRaw ? (
+        <p className="mt-4 rounded-lg border border-rose-400/30 bg-rose-950/30 px-3 py-2.5 text-center text-sm font-medium text-rose-100 sm:text-left">
+          {error}
+        </p>
+      ) : null}
+
       {suspended ? (
         <p className="mt-3 rounded-lg border border-amber-400/25 bg-amber-950/25 px-3 py-2 text-center text-xs font-medium text-amber-100/95 sm:text-left">
           This account is suspended and cannot sign in. If this is a mistake, contact support.
