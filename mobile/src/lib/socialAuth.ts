@@ -1,5 +1,6 @@
-import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
+import * as Crypto from 'expo-crypto';
+import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 import {
   googleOAuthNotConfiguredMessage,
@@ -15,11 +16,20 @@ WebBrowser.maybeCompleteAuthSession();
 
 export type SocialAuthResult = 'success' | 'cancel' | 'error';
 
-/** OAuth return URL allowlisted in Supabase (web page or custom scheme fallback). */
+/** OAuth return URL allowlisted in Supabase (`getvaulted://auth/callback` on native). */
 export function getMobileOAuthRedirectUrl(): string {
-  const base = getWebApiBaseUrl();
-  if (base) return `${base.replace(/\/+$/, '')}/mobile/auth/callback`;
+  if (Platform.OS === 'web') {
+    const base = getWebApiBaseUrl();
+    if (base) return `${base.replace(/\/+$/, '')}/mobile/auth/callback`;
+  }
   return makeRedirectUri({ scheme: 'getvaulted', path: 'auth/callback' });
+}
+
+/** Apple requires a SHA-256 hashed nonce; Supabase validates the raw nonce on signInWithIdToken. */
+export async function createAppleSignInNonce(): Promise<{ raw: string; hashed: string }> {
+  const raw = Crypto.randomUUID();
+  const hashed = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, raw);
+  return { raw, hashed };
 }
 
 const devAuthLog = __DEV__
@@ -57,6 +67,7 @@ export async function signInWithGoogleOAuth(): Promise<SocialAuthResult> {
   const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo, {
     showInRecents: false,
     preferEphemeralSession: false,
+    createTask: false,
   });
 
   devAuthLog('browser result', result.type);
@@ -94,11 +105,13 @@ export async function signInWithAppleOAuth(): Promise<SocialAuthResult> {
   if (!sb) throw new Error('Supabase client unavailable.');
 
   try {
+    const { raw: appleNonce, hashed: appleNonceHashed } = await createAppleSignInNonce();
     const credential = await AppleAuthentication.signInAsync({
       requestedScopes: [
         AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
         AppleAuthentication.AppleAuthenticationScope.EMAIL,
       ],
+      nonce: appleNonceHashed,
     });
 
     if (!credential.identityToken) {
@@ -108,6 +121,7 @@ export async function signInWithAppleOAuth(): Promise<SocialAuthResult> {
     const { error } = await sb.auth.signInWithIdToken({
       provider: 'apple',
       token: credential.identityToken,
+      nonce: appleNonce,
     });
     if (error) {
       if (isAppleProviderDisabledError(error.message)) {

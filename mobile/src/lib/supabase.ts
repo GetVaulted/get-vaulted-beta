@@ -20,6 +20,8 @@ export function getSupabase(): SupabaseClient | null {
           storage: supabaseAuthStorage,
           persistSession: true,
           autoRefreshToken: true,
+          detectSessionInUrl: false,
+          flowType: 'pkce',
         },
       },
     );

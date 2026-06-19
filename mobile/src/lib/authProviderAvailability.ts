@@ -24,5 +24,7 @@ export function googleOAuthNotConfiguredMessage(): string {
 }
 
 export function isAppleProviderDisabledError(message: string): boolean {
-  return /appleid\.apple\.com/i.test(message) && /not enabled/i.test(message);
+  const m = message.toLowerCase();
+  if (/appleid\.apple\.com/i.test(message) && /not enabled/i.test(message)) return true;
+  return m.includes('apple provider') && m.includes('not enabled');
 }
