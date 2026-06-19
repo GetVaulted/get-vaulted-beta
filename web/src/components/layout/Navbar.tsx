@@ -169,7 +169,11 @@ export function Navbar() {
                 </button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pt-2">
-                {status === "authenticated" && session?.user ? (
+                {status === "loading" ? (
+                  <div className="px-3 pt-2">
+                    <div className="h-11 rounded-xl bg-white/[0.06]" aria-hidden />
+                  </div>
+                ) : status === "authenticated" && session?.user ? (
                   <NavbarAccountMenu
                     user={{
                       username: session.user.username,
@@ -298,7 +302,7 @@ export function Navbar() {
                   className="hidden md:block"
                 />
               </>
-            ) : (
+            ) : status === "loading" ? null : (
               <Link
                 href="/signin"
                 className="hidden rounded-full border border-border-subtle px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-gold/35 hover:bg-surface-elevated md:inline-flex"

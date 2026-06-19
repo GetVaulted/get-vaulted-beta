@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { Suspense, useEffect, useState } from "react";
 import { safeReturnTo } from "@/lib/safe-return-to";
 import { AUTH_USER_MESSAGES } from "@/lib/unified-auth";
@@ -12,6 +12,7 @@ import { PasswordInput } from "@/components/auth/PasswordInput";
 function SignInForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: session, status } = useSession();
   const returnTo = safeReturnTo(searchParams.get("returnTo") || searchParams.get("callbackUrl"));
   const registered = searchParams.get("registered");
   const confirm = searchParams.get("confirm");
@@ -28,6 +29,14 @@ function SignInForm() {
     const qs = next.toString();
     router.replace(`/signin${qs ? `?${qs}` : ""}`, { scroll: false });
   }, [router, searchParams]);
+
+  /** If OAuth failed but the session cookie is already set, skip the error screen. */
+  useEffect(() => {
+    if (status !== "authenticated" || !session?.user) return;
+    const next = returnTo.startsWith("/") ? returnTo : "/marketplace";
+    router.replace(next);
+    router.refresh();
+  }, [returnTo, router, session?.user, status]);
 
   const joinHref =
     returnTo !== "/marketplace" ? `/join?returnTo=${encodeURIComponent(returnTo)}` : "/join";
@@ -126,7 +135,7 @@ function SignInForm() {
             minLength={8}
           />
         </div>
-        {error ? <p className="text-xs font-medium text-rose-300">{error}</p> : null}
+        {error && !oauthErrorRaw ? <p className="text-xs font-medium text-rose-300">{error}</p> : null}
         <button
           type="submit"
           disabled={loading}
