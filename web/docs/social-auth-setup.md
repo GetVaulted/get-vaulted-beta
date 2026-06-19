@@ -101,7 +101,7 @@ After OAuth login, the app calls `/api/account/identity` to create the Prisma us
 
 - [ ] Web: Google sign **up** (new Google account)
 - [ ] Web: Google sign **in** (returning user)
-- [ ] Web: Apple sign up / sign in (when `AUTH_OAUTH_APPLE_ENABLED=true`)
+- [ ] Web: Apple sign up / sign in (when `NEXT_PUBLIC_AUTH_OAUTH_APPLE_ENABLED=true` on Netlify)
 - [ ] Mobile: Google sign up / sign in (iOS + Android)
 - [ ] Mobile: Apple sign up / sign in (iOS)
 - [ ] Mobile: email/password still works

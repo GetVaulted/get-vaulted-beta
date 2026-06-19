@@ -1,6 +1,9 @@
-/** Apple OAuth in Supabase must be enabled explicitly (issuer https://appleid.apple.com). */
+/** Apple OAuth in Supabase (issuer https://appleid.apple.com). Client bundle needs NEXT_PUBLIC_* at build time. */
 export function isAppleOAuthProviderEnabled(): boolean {
-  return process.env.AUTH_OAUTH_APPLE_ENABLED === "true";
+  return (
+    process.env.NEXT_PUBLIC_AUTH_OAUTH_APPLE_ENABLED === "true" ||
+    process.env.AUTH_OAUTH_APPLE_ENABLED === "true"
+  );
 }
 
 export function isGoogleOAuthProviderEnabled(): boolean {
