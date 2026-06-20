@@ -74,6 +74,7 @@ export function VaultPinnedLotCard({
   hostOverlayMinimal = false,
   queuePreview = false,
   onEditSpots,
+  hudScale = 1,
 }: {
   item: LiveRoomItemRow | null;
   serverNowMs: number;
@@ -95,8 +96,12 @@ export function VaultPinnedLotCard({
   queuePreview?: boolean;
   /** Open live team/division spot editor (PYT/PYD). */
   onEditSpots?: () => void;
+  /** Tablet scale for broadcast overlay typography (default 1). */
+  hudScale?: number;
 }) {
   const compact = density === 'broadcast';
+  const scale = compact ? (hudScale ?? 1) : 1;
+  const fs = (n: number) => Math.round(n * scale);
 
   const pulse = useRef(new Animated.Value(0.3)).current;
   const priceScale = useRef(new Animated.Value(1)).current;
@@ -314,11 +319,25 @@ export function VaultPinnedLotCard({
             />
           </View>
         ) : null}
-        <Text style={[styles.title, compact && styles.titleCompact]} numberOfLines={2}>
+        <Text
+          style={[
+            styles.title,
+            compact && styles.titleCompact,
+            compact && scale !== 1 ? { fontSize: fs(12), lineHeight: fs(15) } : null,
+          ]}
+          numberOfLines={2}
+        >
           {item.displayTitle ?? item.title}
         </Text>
         <Text style={[lc.eyebrow, compact && styles.eyebrowCompact]}>{overlayPrice.label}</Text>
-        <Animated.Text style={[styles.bidVal, compact && styles.bidValCompact, { transform: [{ scale: priceScale }] }]}>
+        <Animated.Text
+          style={[
+            styles.bidVal,
+            compact && styles.bidValCompact,
+            compact && scale !== 1 ? { fontSize: fs(18) } : null,
+            { transform: [{ scale: priceScale }] },
+          ]}
+        >
           {overlayPrice.amountFormatted}
         </Animated.Text>
         {item.lastHighBidderUsername ? (
@@ -429,7 +448,11 @@ export function VaultPinnedLotCard({
 
       {showStartAuction ? (
         <Pressable
-          style={[styles.startAuctionPrimary, compact && styles.startAuctionPrimaryCompact]}
+          style={[
+            styles.startAuctionPrimary,
+            compact && styles.startAuctionPrimaryCompact,
+            compact && scale !== 1 ? { minHeight: fs(40), paddingVertical: fs(10) } : null,
+          ]}
           disabled={busy || startingAuction}
           onPress={onStartBidding}
           accessibilityRole="button"
@@ -438,7 +461,13 @@ export function VaultPinnedLotCard({
           {startingAuction ? (
             <ActivityIndicator color="#0a0a0a" size="small" />
           ) : (
-            <Text style={[styles.startAuctionPrimaryTxt, compact && styles.startAuctionPrimaryTxtCompact]}>
+            <Text
+              style={[
+                styles.startAuctionPrimaryTxt,
+                compact && styles.startAuctionPrimaryTxtCompact,
+                compact && scale !== 1 ? { fontSize: fs(12) } : null,
+              ]}
+            >
               Start Auction
             </Text>
           )}

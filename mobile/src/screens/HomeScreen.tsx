@@ -3,6 +3,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,8 +11,14 @@ import { fetchLiveShowsForDiscovery } from '../api/liveShowsDiscoveryRepository'
 import { fetchMarketplaceListings } from '../api/listingsFeedRepository';
 import { fetchMyLiveRooms, type LiveRoomApiRow } from '../api/liveRoomsRepository';
 import { PremiumEmptyPanel } from '../components/empty/PremiumEmptyPanel';
+import { FeaturedCreatorCard } from '../components/home/FeaturedCreatorCard';
+import { HomeCompactHeader } from '../components/home/HomeCompactHeader';
 import { HomeCultureHero } from '../components/home/HomeCultureHero';
+import { HomeFeaturedLiveHero } from '../components/home/HomeFeaturedLiveHero';
+import { HomeFeedSection } from '../components/home/HomeFeedSection';
 import { HomeFeedSyncHint } from '../components/home/HomeFeedSyncHint';
+import { HomeLiveActivityStrip } from '../components/home/HomeLiveActivityStrip';
+import { HomeRecentSalesRail } from '../components/home/HomeRecentSalesRail';
 import { HomeSellerEventBanner } from '../components/home/HomeSellerEventBanner';
 import { HomeSellerOnboardingStrip } from '../components/home/HomeSellerOnboardingStrip';
 import { HotClipCard } from '../components/home/HotClipCard';
@@ -24,13 +31,17 @@ import {
   MARKETPLACE_RAIL_CARD_HEIGHT,
   MarketplaceCardSkeletonRail,
 } from '../components/home/MarketplaceCardSkeleton';
+import { MomentumStrip } from '../components/home/MomentumStrip';
 import { VaultDropCard } from '../components/home/VaultDropCard';
-import { BrandLogo } from '../components/ui/BrandLogo';
-import { LiveEmptyBroadcastBlock } from '../components/live/LiveEmptyBroadcastBlock';
 import { ProductCard } from '../components/ui/ProductCard';
 import { SearchBar } from '../components/ui/SearchBar';
-import { SectionHeader } from '../components/ui/SectionHeader';
 import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
+import {
+  deriveLiveActivityPulse,
+  deriveTrendingSales,
+  deriveVerifiedSellers,
+  placeholderCommunitySales,
+} from '../lib/homeFeedDerivations';
 import {
   markLiveDiscoveryFetchAttempt,
   markLiveDiscoveryFetchResult,
@@ -50,10 +61,14 @@ import { alertGuestLiveRestricted } from '../navigation/guestExploreGuards';
 import { useAuth } from '../auth/AuthContext';
 import { useSellerSetupState } from '../hooks/useSellerSetupState';
 import { openMessagesInbox } from '../navigation/openMessages';
-import { NotificationBadge } from '../components/platform/NotificationBadge';
 import { useNotificationBadge } from '../hooks/useNotificationBadge';
-import { openHelpCenter, openMyOrders, openNotificationInbox, openSettings } from '../navigation/openPlatform';
-import { confirmAndSignOut } from '../lib/signOutSession';
+import {
+  openHelpCenter,
+  openMyOrders,
+  openNotificationInbox,
+  openSettings,
+  openUserProfile,
+} from '../navigation/openPlatform';
 import { countActiveBuyerOrders } from '../api/ordersRepository';
 import { openSellerHostRoom } from '../navigation/openSellerHostRoom';
 import { openSellerHQ } from '../navigation/openSellerHQ';
@@ -80,7 +95,7 @@ function initialFeedState() {
 export function HomeScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<Nav>();
-  const { user, guestExploreMode, session, signOut } = useAuth();
+  const { user, guestExploreMode, session } = useAuth();
   const { count: notificationCount } = useNotificationBadge(user?.id);
   const sellerSetup = useSellerSetupState(session?.access_token, Boolean(user?.id));
 
@@ -95,6 +110,18 @@ export function HomeScreen() {
   const [activeBuyerOrders, setActiveBuyerOrders] = useState(0);
 
   const sellerActivated = sellerSetup.displayActivated;
+
+  const featuredLive = liveRows[0] ?? null;
+  const featuredUpcoming = scheduledRows[0] ?? null;
+  const verifiedSellers = useMemo(
+    () => deriveVerifiedSellers(liveRows, scheduledRows),
+    [liveRows, scheduledRows],
+  );
+  const activityPulse = useMemo(() => deriveLiveActivityPulse(liveRows), [liveRows]);
+  const communitySales = useMemo(() => {
+    const trending = deriveTrendingSales(listings);
+    return trending.length ? trending : placeholderCommunitySales();
+  }, [listings]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -282,170 +309,223 @@ export function HomeScreen() {
   const liveBootHint = showLiveSkeleton ? 'Loading live rooms…' : null;
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-        <View style={styles.brandRow}>
-          <View style={styles.brandTextCol}>
-            <BrandLogo width={210} accessibilityLabel="Get Vaulted" />
-          </View>
-          <View style={styles.headerActions}>
-            {activeBuyerOrders > 0 ? (
-              <Pressable
-                style={styles.ordersShortcut}
-                onPress={() => openMyOrders(navigation)}
-                accessibilityLabel="My orders"
-              >
-                <Ionicons name="receipt-outline" size={18} color={colors.gold} />
-                <Text style={styles.ordersShortcutText}>Orders</Text>
-                <View style={styles.ordersBadge}>
-                  <Text style={styles.ordersBadgeText}>{activeBuyerOrders}</Text>
-                </View>
-              </Pressable>
-            ) : null}
-            <Pressable style={styles.bell} onPress={() => openNotificationInbox(navigation)}>
-              <Ionicons name="notifications-outline" size={22} color={colors.textPrimary} />
-              <NotificationBadge count={notificationCount} />
-            </Pressable>
-            <Pressable style={styles.bell} onPress={() => openMessagesInbox(navigation)}>
-              <Ionicons name="chatbubbles-outline" size={22} color={colors.textPrimary} />
-            </Pressable>
-            {user ? (
-              <>
-                <Pressable
-                  style={styles.bell}
-                  onPress={() => openSettings(navigation)}
-                  accessibilityLabel="Account settings"
-                >
-                  <Ionicons name="person-circle-outline" size={24} color={colors.textPrimary} />
-                </Pressable>
-                <Pressable
-                  style={styles.bell}
-                  onPress={() => confirmAndSignOut(signOut)}
-                  accessibilityLabel="Sign out"
-                >
-                  <Ionicons name="log-out-outline" size={22} color={colors.live} />
-                </Pressable>
-              </>
-            ) : null}
-          </View>
-        </View>
+    <View style={styles.screen}>
+      <LinearGradient
+        colors={['rgba(212,175,55,0.06)', 'transparent', 'transparent']}
+        style={styles.topGlow}
+        pointerEvents="none"
+      />
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + spacing.sm }]}
+      >
+        <HomeCompactHeader
+          notificationCount={notificationCount}
+          activeBuyerOrders={activeBuyerOrders}
+          signedIn={Boolean(user)}
+          onOrders={() => openMyOrders(navigation)}
+          onNotifications={() => openNotificationInbox(navigation)}
+          onMessages={() => openMessagesInbox(navigation)}
+          onProfile={() => openSettings(navigation)}
+        />
 
         <SearchBar
+          home
           placeholder="Search live rooms, sellers, grails…"
           onPress={() => openHelpCenter(navigation, true)}
         />
 
         <HomeCultureHero onLiveHub={goLive} onVault={goMarketplace} />
 
+        <MomentumStrip
+          liveCount={liveRows.length}
+          listingCount={listings.length}
+          scheduledCount={scheduledRows.length}
+        />
+
         {sellerSetup.showSetupGate ? (
-          <HomeSellerOnboardingStrip
-            hasUser={Boolean(user)}
-            phase={sellerSetup.phase}
-            onPress={onSellerOnboarding}
-          />
+          <View style={styles.inlineBanner}>
+            <HomeSellerOnboardingStrip
+              hasUser={Boolean(user)}
+              phase={sellerSetup.phase}
+              onPress={onSellerOnboarding}
+            />
+          </View>
         ) : null}
 
         {sellerActivated ? (
-          <HomeSellerEventBanner
-            event={sellerEventForBanner}
-            onOpenCommandCenter={() => {
-              if (sellerNextRoom) openSellerHostRoom(navigation, sellerNextRoom.id);
-              else openSellerHQ(navigation, { tab: 'live' });
-            }}
-          />
+          <View style={styles.inlineBanner}>
+            <HomeSellerEventBanner
+              event={sellerEventForBanner}
+              onOpenCommandCenter={() => {
+                if (sellerNextRoom) openSellerHostRoom(navigation, sellerNextRoom.id);
+                else openSellerHQ(navigation, { tab: 'live' });
+              }}
+            />
+          </View>
         ) : null}
 
-        <SectionHeader title="Live now" actionLabel="See all" onPressAction={goLive} />
-        {liveBootHint ? <HomeFeedSyncHint message={liveBootHint} /> : null}
-        {liveSyncHint ? <HomeFeedSyncHint message={liveSyncHint} /> : null}
-        <View style={styles.liveRailSlot}>
-          {showLiveSkeleton ? (
-            <LiveRoomCardSkeletonRail count={5} />
-          ) : liveRows.length ? (
-            <FlatList
-              horizontal
-              data={liveRows}
-              keyExtractor={(item) => item.id}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.liveRail}
-              snapToInterval={LIVE_ROOM_CARD_SNAP}
-              snapToAlignment="start"
-              decelerationRate="fast"
-              renderItem={({ item }) => (
-                <LiveNowPreviewCard stream={item} onPress={() => openLiveShow(item.id)} />
-              )}
-            />
-          ) : showLiveEmpty ? (
-            <LiveEmptyBroadcastBlock
-              useDefaultTabActions={false}
-              primaryLabel="Explore live hub"
-              secondaryLabel="Browse marketplace"
-              onStartLive={goLive}
-              onExploreListings={goMarketplace}
-            />
-          ) : null}
-        </View>
-
-        <SectionHeader title="The vault" actionLabel="Marketplace" onPressAction={goMarketplace} />
-        {marketSyncHint ? <HomeFeedSyncHint message={marketSyncHint} /> : null}
-        <View style={styles.marketRailSlot}>
-          {showMarketplaceSkeleton ? (
-            <MarketplaceCardSkeletonRail count={4} />
-          ) : showMarketplaceEmpty ? (
-            <PremiumEmptyPanel
-              icon="storefront-outline"
-              title="No listings in the vault yet."
-              subtitle="List authenticated inventory to appear in discovery — buy-now, offers, and auctions."
-              actions={[
-                {
-                  label: 'Create first listing',
-                  onPress: () => void openCreateListing(navigation, { channel: 'marketplace' }),
-                },
-                { label: 'Browse marketplace', onPress: goMarketplace, variant: 'secondary' },
-              ]}
-            />
-          ) : (
-            <FlatList
-              horizontal
-              data={listings}
-              keyExtractor={(item) => item.id}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.hList}
-              renderItem={({ item }) => (
-                <ProductCard product={item} onPress={() => openProduct(item)} variant="rail" marketplaceMeta />
-              )}
-            />
-          )}
-        </View>
-
-        <SectionHeader title="Upcoming vault events" actionLabel="Live hub" onPressAction={goLive} />
-        {scheduledRows.length ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
-            {scheduledRows.map((s) => (
-              <VaultDropCard key={s.id} event={s} onRemind={() => {}} onPress={() => openLiveShow(s.id)} />
-            ))}
-          </ScrollView>
-        ) : (
-          <PremiumEmptyPanel
-            icon="calendar-outline"
-            title="Drops incoming"
-            subtitle="Vault events surface here as sellers lock dates — live drops and auctions incoming."
-            actions={[{ label: 'Explore live hub', onPress: goLive }]}
+        <HomeFeedSection
+          first
+          eyebrow="Spotlight"
+          title="Featured"
+          actionLabel="Live hub"
+          onAction={goLive}
+        >
+          <HomeFeaturedLiveHero
+            liveStream={featuredLive}
+            upcomingEvent={featuredUpcoming}
+            onPressLive={() => featuredLive && openLiveShow(featuredLive.id)}
+            onPressUpcoming={() => featuredUpcoming && openLiveShow(featuredUpcoming.id)}
+            onPressExplore={goLive}
           />
-        )}
+        </HomeFeedSection>
+
+        <HomeFeedSection eyebrow="Now streaming" title="Live now" actionLabel="See all" onAction={goLive}>
+          {liveBootHint ? <HomeFeedSyncHint message={liveBootHint} /> : null}
+          {liveSyncHint ? <HomeFeedSyncHint message={liveSyncHint} /> : null}
+          <View style={styles.liveRailSlot}>
+            {showLiveSkeleton ? (
+              <LiveRoomCardSkeletonRail count={5} />
+            ) : liveRows.length ? (
+              <FlatList
+                horizontal
+                data={liveRows}
+                keyExtractor={(item) => item.id}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.liveRail}
+                snapToInterval={LIVE_ROOM_CARD_SNAP}
+                snapToAlignment="start"
+                decelerationRate="fast"
+                renderItem={({ item, index }) => (
+                  <LiveNowPreviewCard
+                    stream={item}
+                    onPress={() => openLiveShow(item.id)}
+                    promoBadge={index === 0 ? 'FEATURED' : index === 1 ? 'TRENDING' : undefined}
+                  />
+                )}
+              />
+            ) : showLiveEmpty ? (
+              <PremiumEmptyPanel
+                icon="radio-outline"
+                kicker="Live floor"
+                title="The live floor opens soon"
+                subtitle="Join vault events, breaks, and auctions the moment sellers go live."
+                actions={[
+                  { label: 'Enter live', onPress: goLive },
+                  { label: 'Browse vault', onPress: goMarketplace, variant: 'secondary' },
+                ]}
+              />
+            ) : null}
+          </View>
+        </HomeFeedSection>
+
+        <HomeFeedSection
+          eyebrow="Trending this week"
+          title="Vault inventory"
+          actionLabel="Marketplace"
+          onAction={goMarketplace}
+        >
+          {marketSyncHint ? <HomeFeedSyncHint message={marketSyncHint} /> : null}
+          <View style={styles.marketRailSlot}>
+            {showMarketplaceSkeleton ? (
+              <MarketplaceCardSkeletonRail count={4} />
+            ) : showMarketplaceEmpty ? (
+              <PremiumEmptyPanel
+                icon="diamond-outline"
+                kicker="Vault marketplace"
+                title="Ready to make your first vault listing?"
+                subtitle="Reach collectors with verified inventory, buy-now listings, offers, and live auctions."
+                actions={[
+                  {
+                    label: 'Create listing',
+                    onPress: () => void openCreateListing(navigation, { channel: 'marketplace' }),
+                  },
+                  { label: 'Browse vault', onPress: goMarketplace, variant: 'secondary' },
+                ]}
+              />
+            ) : (
+              <FlatList
+                horizontal
+                data={listings}
+                keyExtractor={(item) => item.id}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.hList}
+                renderItem={({ item }) => (
+                  <ProductCard product={item} onPress={() => openProduct(item)} variant="rail" marketplaceMeta />
+                )}
+              />
+            )}
+          </View>
+        </HomeFeedSection>
+
+        <HomeFeedSection eyebrow="Upcoming drops" title="Vault events" actionLabel="See all" onAction={goLive}>
+          {scheduledRows.length ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
+              {scheduledRows.map((s) => (
+                <VaultDropCard key={s.id} event={s} onRemind={() => {}} onPress={() => openLiveShow(s.id)} />
+              ))}
+            </ScrollView>
+          ) : (
+            <View style={styles.upcomingPlaceholder}>
+              <Ionicons name="calendar-outline" size={22} color="rgba(212,175,55,0.7)" />
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={styles.upcomingTitle}>Drops are being scheduled</Text>
+                <Text style={styles.upcomingSub}>
+                  Vault events surface here as sellers lock dates for live breaks and auctions.
+                </Text>
+              </View>
+              <Pressable style={styles.upcomingCta} onPress={goLive}>
+                <Text style={styles.upcomingCtaTxt}>Explore</Text>
+              </Pressable>
+            </View>
+          )}
+        </HomeFeedSection>
+
+        <HomeFeedSection eyebrow="Vault verified" title="Top sellers" actionLabel="Live hub" onAction={goLive}>
+          {verifiedSellers.length ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sellerRail}>
+              {verifiedSellers.map((creator) => (
+                <FeaturedCreatorCard
+                  key={creator.host.id}
+                  creator={creator}
+                  onFollow={() => openUserProfile(creator.host.id, navigation)}
+                  onPress={() => openUserProfile(creator.host.id, navigation)}
+                />
+              ))}
+            </ScrollView>
+          ) : (
+            <View style={styles.upcomingPlaceholder}>
+              <Ionicons name="shield-checkmark-outline" size={22} color="rgba(212,175,55,0.7)" />
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={styles.upcomingTitle}>Verified sellers go live here</Text>
+                <Text style={styles.upcomingSub}>
+                  Follow breakout hosts, breakers, and vault shops as they hit the live floor.
+                </Text>
+              </View>
+            </View>
+          )}
+        </HomeFeedSection>
+
+        <HomeFeedSection eyebrow="Community pulse" title="Collector activity">
+          <HomeLiveActivityStrip items={activityPulse} />
+        </HomeFeedSection>
+
+        <HomeFeedSection eyebrow="Market heat" title="Recently sold & trending" actionLabel="Vault" onAction={goMarketplace}>
+          <HomeRecentSalesRail sales={communitySales} />
+        </HomeFeedSection>
 
         {clips.length ? (
-          <>
-            <SectionHeader title="Hit clips" actionLabel="Live" onPressAction={goLive} />
+          <HomeFeedSection eyebrow="Highlights" title="Hit clips" actionLabel="Live" onAction={goLive}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
               {clips.map((clip) => (
                 <HotClipCard key={clip.id} clip={clip} />
               ))}
             </ScrollView>
-          </>
+          </HomeFeedSection>
         ) : null}
 
-        <View style={{ height: spacing.xxxl }} />
+        <View style={{ height: spacing.xxl }} />
       </ScrollView>
     </View>
   );
@@ -457,6 +537,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     paddingHorizontal: spacing.lg,
   },
+  topGlow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 220,
+  },
   scroll: {
     paddingBottom: 120,
   },
@@ -466,47 +553,8 @@ const styles = StyleSheet.create({
   marketRailSlot: {
     minHeight: MARKETPLACE_RAIL_CARD_HEIGHT,
   },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
-  },
-  brandTextCol: {
-    flex: 1,
-    minWidth: 0,
-    marginRight: spacing.md,
-  },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  ordersShortcut: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: 10,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.35)',
-    backgroundColor: 'rgba(212,175,55,0.08)',
-  },
-  ordersShortcutText: { fontSize: 12, fontWeight: '800', color: colors.gold },
-  ordersBadge: {
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: colors.gold,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  ordersBadgeText: { fontSize: 10, fontWeight: '900', color: '#0a0a0a' },
-  bell: {
-    padding: spacing.sm,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceElevated,
-    position: 'relative',
+  inlineBanner: {
+    marginTop: spacing.sm,
   },
   hList: {
     paddingRight: spacing.lg,
@@ -514,5 +562,43 @@ const styles = StyleSheet.create({
   },
   liveRail: {
     paddingRight: spacing.lg,
+  },
+  sellerRail: {
+    paddingRight: spacing.lg,
+    gap: spacing.sm,
+  },
+  upcomingPlaceholder: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: radii.lg,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.07)',
+  },
+  upcomingTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  upcomingSub: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: colors.textMuted,
+    fontWeight: '500',
+  },
+  upcomingCta: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(212,175,55,0.12)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(212,175,55,0.28)',
+  },
+  upcomingCtaTxt: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.gold,
   },
 });

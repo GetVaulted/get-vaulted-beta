@@ -1,6 +1,10 @@
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { colors, radii, spacing } from '../../theme';
 import { WALLET_CARD_FORM_HEIGHT } from './walletCardFieldStyle';
+
+const VAULT_BG = '#0c0b10';
+const VAULT_SURFACE = 'rgba(255,255,255,0.045)';
+const VAULT_BORDER = 'rgba(255,255,255,0.09)';
 
 export const walletPaymentSetupStyles = StyleSheet.create({
   backdrop: {
@@ -17,41 +21,63 @@ export const walletPaymentSetupStyles = StyleSheet.create({
   },
   embeddedPanel: {
     flex: 1,
-    backgroundColor: '#F7F7F8',
+    backgroundColor: VAULT_BG,
   },
-  panel: {
+  panelDark: {
     flex: 1,
     marginTop: spacing.md,
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
-    backgroundColor: '#F7F7F8',
+    backgroundColor: VAULT_BG,
     overflow: 'hidden',
+    borderTopWidth: 1,
+    borderColor: 'rgba(201,162,39,0.28)',
   },
   body: {
     flex: 1,
+    backgroundColor: VAULT_BG,
   },
   keyboardFrame: {
     flex: 1,
   },
-  headerRow: {
+  headerBlock: {
+    paddingBottom: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  headerRowDark: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
-    paddingBottom: spacing.md,
-    minHeight: 52,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#E4E4E7',
-    backgroundColor: '#FFFFFF',
+    minHeight: 48,
   },
-  headerSpacer: { width: 32 },
-  headerTitle: {
+  headerSpacer: { width: 36 },
+  headerBackBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: VAULT_BORDER,
+  },
+  headerTitleDark: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#18181B',
+    fontSize: 17,
+    fontWeight: '900',
+    color: '#faf8f2',
     letterSpacing: -0.3,
+  },
+  headerSubtitle: {
+    color: 'rgba(255,255,255,0.52)',
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+    paddingHorizontal: spacing.xl,
+    marginTop: spacing.xs,
   },
   scroll: {
     flex: 1,
@@ -59,73 +85,104 @@ export const walletPaymentSetupStyles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
-    paddingBottom: spacing.lg,
+    paddingBottom: spacing.xl,
     gap: spacing.lg,
   },
-  subtitle: {
-    color: '#52525B',
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  section: {
+  pickerScrollContent: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xxxl,
     gap: spacing.sm,
   },
-  sectionTitle: {
-    color: '#18181B',
-    fontSize: 13,
+  sectionLabel: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 0.4,
+    letterSpacing: 0.8,
     textTransform: 'uppercase',
+    marginBottom: spacing.xs,
   },
-  sectionCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: '#E4E4E7',
-    padding: spacing.md,
-    gap: spacing.md,
-  },
-  methodRow: {
+  methodCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    paddingVertical: spacing.sm,
+    padding: spacing.md,
+    borderRadius: 16,
+    backgroundColor: VAULT_SURFACE,
+    borderWidth: 1,
+    borderColor: VAULT_BORDER,
+  },
+  methodCardPressed: {
+    backgroundColor: 'rgba(201,162,39,0.08)',
+    borderColor: 'rgba(201,162,39,0.28)',
   },
   methodIconWrap: {
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: '#F4F4F5',
+    backgroundColor: 'rgba(201,162,39,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#E4E4E7',
+    borderColor: 'rgba(201,162,39,0.22)',
   },
   methodTextBlock: {
     flex: 1,
-    gap: 2,
+    gap: 3,
+    minWidth: 0,
   },
   methodTitle: {
-    color: '#18181B',
+    color: '#f4f2ec',
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   methodSub: {
-    color: '#71717A',
+    color: 'rgba(255,255,255,0.48)',
     fontSize: 13,
     lineHeight: 18,
   },
-  scanHint: {
-    color: '#71717A',
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  cardFormWrap: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: radii.md,
+  methodBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(52,211,153,0.14)',
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: 'rgba(52,211,153,0.35)',
+  },
+  methodBadgeText: {
+    color: '#6ee7b7',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  cardEntrySection: {
+    gap: spacing.sm,
+  },
+  stripeCardShell: {
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    padding: spacing.sm,
+  },
+  stripeCardInner: {
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
     overflow: 'hidden',
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.14,
+        shadowRadius: 16,
+      },
+      android: {
+        elevation: 6,
+      },
+    }),
   },
   cardForm: {
     width: '100%',
@@ -135,53 +192,40 @@ export const walletPaymentSetupStyles = StyleSheet.create({
   cardFormLoading: {
     alignItems: 'center',
     justifyContent: 'center',
+    minHeight: WALLET_CARD_FORM_HEIGHT,
     backgroundColor: '#FFFFFF',
+    borderRadius: 14,
   },
-  fieldLabel: {
-    color: '#3F3F46',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  fieldRow: {
-    minHeight: 52,
-    borderRadius: radii.md,
+  trustBlock: {
+    gap: spacing.xs,
+    padding: spacing.md,
+    borderRadius: radii.lg,
+    backgroundColor: VAULT_SURFACE,
     borderWidth: 1,
-    borderColor: '#D1D5DB',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: spacing.md,
+    borderColor: VAULT_BORDER,
+  },
+  trustRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: spacing.sm,
   },
-  fieldValue: {
-    color: '#111111',
-    fontSize: 16,
-    fontWeight: '600',
-    flex: 1,
-  },
-  switchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-    opacity: 0.55,
-  },
-  switchLabel: {
-    color: '#52525B',
+  trustTitle: {
+    color: '#f4f2ec',
     fontSize: 14,
-    fontWeight: '600',
-    flex: 1,
+    fontWeight: '800',
   },
-  switchHint: {
-    color: '#A1A1AA',
-    fontSize: 12,
+  trustBody: {
+    color: 'rgba(255,255,255,0.48)',
+    fontSize: 13,
+    lineHeight: 19,
+    paddingLeft: 26,
   },
   footer: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#E4E4E7',
-    backgroundColor: '#FFFFFF',
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: VAULT_BG,
   },
   primaryBtn: {
     minHeight: 54,
@@ -190,9 +234,16 @@ export const walletPaymentSetupStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    gap: spacing.sm,
   },
   primaryBtnDisabled: {
-    backgroundColor: '#D4D4D8',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  primaryBtnSuccess: {
+    backgroundColor: 'rgba(52,211,153,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(52,211,153,0.35)',
   },
   primaryBtnText: {
     color: '#111111',
@@ -201,24 +252,33 @@ export const walletPaymentSetupStyles = StyleSheet.create({
     textAlign: 'center',
   },
   primaryBtnTextDisabled: {
-    color: '#374151',
+    color: 'rgba(255,255,255,0.32)',
   },
-  secondaryBtn: {
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: spacing.sm,
+  primaryBtnTextSuccess: {
+    color: '#6ee7b7',
   },
-  secondaryBtnText: {
-    color: '#52525B',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  errorText: { color: '#DC2626', fontSize: 14, fontWeight: '600', lineHeight: 20 },
-  hintText: {
-    color: '#71717A',
+  errorText: {
+    color: '#fca5a5',
     fontSize: 13,
-    lineHeight: 18,
+    fontWeight: '600',
+    lineHeight: 19,
+    marginTop: spacing.xs,
+  },
+  successBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radii.lg,
+    backgroundColor: 'rgba(52,211,153,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(52,211,153,0.3)',
+  },
+  successBannerText: {
+    color: '#6ee7b7',
+    fontSize: 14,
+    fontWeight: '800',
+    flex: 1,
   },
   loadingBlock: {
     flex: 1,
@@ -226,108 +286,24 @@ export const walletPaymentSetupStyles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.md,
     paddingHorizontal: spacing.xl,
+    backgroundColor: VAULT_BG,
   },
-  loadingText: { color: '#71717A', fontSize: 15, textAlign: 'center' },
-  countryPickerBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'flex-end',
-  },
-  countryPickerSheet: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '55%',
-    paddingBottom: spacing.lg,
-  },
-  countryPickerTitle: {
-    color: '#18181B',
-    fontSize: 16,
-    fontWeight: '800',
+  loadingText: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 15,
     textAlign: 'center',
-    paddingVertical: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#E4E4E7',
+    lineHeight: 22,
   },
-  countryOption: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#F4F4F5',
-  },
-  countryOptionSelected: {
-    backgroundColor: '#FFFBEB',
-  },
-  countryOptionText: {
-    color: '#18181B',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  panelDark: {
+  errorStateBlock: {
     flex: 1,
-    marginTop: spacing.md,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    backgroundColor: '#0c0b10',
-    overflow: 'hidden',
-    borderTopWidth: 1,
-    borderColor: 'rgba(201,162,39,0.28)',
-  },
-  headerRowDark: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.md,
-    minHeight: 52,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
+    paddingTop: spacing.xl,
+    gap: spacing.md,
   },
-  headerTitleDark: {
-    flex: 1,
-    textAlign: 'center',
+  errorStateTitle: {
+    color: '#faf8f2',
     fontSize: 17,
     fontWeight: '900',
-    color: '#faf8f2',
-  },
-  pickerSubtitle: {
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: 13,
-    lineHeight: 18,
     textAlign: 'center',
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.md,
-  },
-  pickerList: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.lg,
-  },
-  pickerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
-  },
-  pickerRowLast: {
-    borderBottomWidth: 0,
-  },
-  pickerRowDisabled: {
-    opacity: 0.45,
-  },
-  pickerIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pickerRowTitle: {
-    flex: 1,
-    color: '#f4f2ec',
-    fontSize: 16,
-    fontWeight: '700',
   },
 });

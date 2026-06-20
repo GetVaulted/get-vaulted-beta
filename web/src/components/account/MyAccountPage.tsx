@@ -108,8 +108,8 @@ export function MyAccountPage() {
     },
     {
       href: "/account/following",
-      title: "Following",
-      description: "Sellers and hosts you follow.",
+      title: "Followers & Following",
+      description: "See who follows you and sellers you follow.",
     },
   ];
 

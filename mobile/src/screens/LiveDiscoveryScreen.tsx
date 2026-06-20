@@ -3,13 +3,13 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Dimensions,
   FlatList,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -50,14 +50,9 @@ import { openSellerHQ } from '../navigation/openSellerHQ';
 import type { LiveStackParamList } from '../navigation/types';
 import { alertGuestLiveRestricted } from '../navigation/guestExploreGuards';
 import { openHelpCenter } from '../navigation/openPlatform';
+import { computeLiveDiscoveryGrid } from '../lib/liveDiscoveryGrid';
 import { colors, radii, spacing } from '../theme';
 import type { LiveStream, ScheduledStream } from '../types';
-
-const SCREEN_W = Dimensions.get('window').width;
-const GRID_PAD = spacing.lg;
-const GRID_GAP = spacing.sm;
-const GRID_COLS = 2;
-const GRID_CARD_W = (SCREEN_W - GRID_PAD * 2 - GRID_GAP) / GRID_COLS;
 
 function liveChipIcon(label: string): keyof typeof Ionicons.glyphMap | undefined {
   switch (label) {
@@ -115,6 +110,13 @@ function initialDiscoveryState(): { live: LiveStream[]; scheduled: ScheduledStre
 
 export function LiveDiscoveryScreen() {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const {
+    cols: gridCols,
+    cardWidth: gridCardW,
+    pad: gridPad,
+    gap: gridGap,
+  } = useMemo(() => computeLiveDiscoveryGrid(windowWidth), [windowWidth]);
   const navigation = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const { guestExploreMode } = useAuth();
   const [chip, setChip] = useState<string>('All');
@@ -238,7 +240,7 @@ export function LiveDiscoveryScreen() {
       stream={item.stream}
       promoBadge={item.promoBadge}
       layout="grid"
-      gridWidth={GRID_CARD_W}
+      gridWidth={gridCardW}
       onPress={() => openShow(item.stream.id)}
       onRemind={item.kind === 'scheduled' ? () => {} : undefined}
     />
@@ -291,7 +293,7 @@ export function LiveDiscoveryScreen() {
       ) : null}
       {showSkeleton ? (
         <View style={styles.skelSlot}>
-          <LiveRoomCardSkeletonRail count={6} layout="grid" gridWidth={GRID_CARD_W} />
+          <LiveRoomCardSkeletonRail count={6} layout="grid" gridWidth={gridCardW} />
         </View>
       ) : null}
       {!showSkeleton && !liveEmpty && !filterEmpty && gridTiles.length > 0 ? (
@@ -304,12 +306,13 @@ export function LiveDiscoveryScreen() {
   );
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
+    <View style={[styles.screen, { paddingTop: insets.top + spacing.md, paddingHorizontal: gridPad }]}>
       <FlatList
         data={showSkeleton || liveEmpty || filterEmpty ? [] : gridTiles}
         keyExtractor={(item) => item.stream.id}
-        numColumns={GRID_COLS}
-        columnWrapperStyle={GRID_COLS > 1 ? styles.gridRow : undefined}
+        key={`live-grid-${gridCols}`}
+        numColumns={gridCols}
+        columnWrapperStyle={gridCols > 1 ? styles.gridRow : undefined}
         contentContainerStyle={styles.body}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={listHeader}
@@ -347,7 +350,6 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
-    paddingHorizontal: GRID_PAD,
   },
   body: {
     paddingBottom: spacing.xxl,
@@ -435,7 +437,7 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
   },
   gridRow: {
-    gap: GRID_GAP,
-    marginBottom: GRID_GAP,
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
   },
 });

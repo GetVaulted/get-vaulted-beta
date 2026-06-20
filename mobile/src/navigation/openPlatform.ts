@@ -36,6 +36,18 @@ export function openUserProfile(userId: string, navigation?: { navigate: RootNav
   if (rootNavigationRef.isReady()) rootNavigationRef.navigate('UserProfile', { userId });
 }
 
+export function openFollowersFollowing(
+  navigation?: { navigate: RootNav['navigate'] },
+  tab: 'followers' | 'following' = 'followers',
+) {
+  const params = { tab };
+  if (navigation) {
+    (navigation as RootNav).navigate('FollowersFollowing', params);
+    return;
+  }
+  if (rootNavigationRef.isReady()) rootNavigationRef.navigate('FollowersFollowing', params);
+}
+
 /** Open a live show host profile from buyer console (id preferred; username fallback). */
 export async function openLiveHostProfile(
   args: { hostUserId?: string; hostUsername?: string },

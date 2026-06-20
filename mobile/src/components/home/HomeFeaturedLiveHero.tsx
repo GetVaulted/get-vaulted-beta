@@ -143,11 +143,11 @@ function streamCategoryLine(stream: LiveStream) {
 const styles = StyleSheet.create({
   shell: {
     height: 200,
-    borderRadius: radii.lg,
+    borderRadius: 20,
     overflow: 'hidden',
-    marginBottom: spacing.md,
+    marginBottom: 0,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   upcomingShell: {
     borderColor: 'rgba(212,175,55,0.28)',

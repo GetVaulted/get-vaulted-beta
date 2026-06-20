@@ -33,6 +33,23 @@ export function liveRoomCompactScale(layoutWidth: number): number {
   return Math.min(1, Math.max(0.88, safeWidth / LIVE_ROOM_REF_WIDTH));
 }
 
+/** True on iPad-class widths where commerce HUD should scale up (not shrink). */
+export function isTabletLiveRoomLayout(layoutWidth: number): boolean {
+  return layoutWidth >= 600;
+}
+
+/**
+ * Buyer/seller commerce overlay scale — shrinks on small phones, grows on tablets
+ * so text and CTAs stay legible on wide screens.
+ */
+export function liveRoomHudScale(layoutWidth: number): number {
+  const safe = Math.max(1, layoutWidth);
+  if (safe < 400) return liveRoomCompactScale(safe);
+  if (safe >= 768) return Math.min(1.28, safe / LIVE_ROOM_REF_WIDTH);
+  if (safe >= 600) return Math.min(1.18, safe / LIVE_ROOM_REF_WIDTH);
+  return 1;
+}
+
 export function computeLiveRoomUiMetrics(
   layoutWidth: number,
   layoutHeight: number,

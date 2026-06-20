@@ -25,6 +25,7 @@ type Props = {
   accessToken?: string;
   isModerator: boolean;
   isHost?: boolean;
+  canModerate?: boolean;
   moderatorLevel: LiveModeratorLevel | null;
   allowedActions?: string[];
   messageId: string;
@@ -50,6 +51,7 @@ export function ModeratorActionSheet(props: Props) {
     accessToken,
     isModerator,
     isHost,
+    canModerate,
     moderatorLevel,
     allowedActions,
     messageId,
@@ -63,7 +65,7 @@ export function ModeratorActionSheet(props: Props) {
 
   const [reportOpen, setReportOpen] = useState(false);
   const isHostMessage = isProtectedShowHost({ hostUserId, targetUserId: senderId, messageIsHost });
-  const canMod = isModerator;
+  const canMod = isModerator || Boolean(canModerate);
 
   const runAction = async (actionType: string, metadata?: Record<string, unknown>) => {
     if (!accessToken || !senderId) return;
@@ -87,7 +89,7 @@ export function ModeratorActionSheet(props: Props) {
     if (!canMod || !accessToken || !senderId || isHostMessage) return [];
     const opts: { label: string; action: () => void; destructive?: boolean }[] = [];
     const can = (actionType: string) =>
-      canPerformModeratorAction({ actionType, isModerator, isHost, moderatorLevel, allowedActions });
+      canPerformModeratorAction({ actionType, isModerator, isHost, canModerate, moderatorLevel, allowedActions });
 
     if (can('delete_message')) {
       opts.push({
@@ -120,7 +122,7 @@ export function ModeratorActionSheet(props: Props) {
       });
     }
     return opts;
-  }, [canMod, accessToken, senderId, isHostMessage, isModerator, isHost, moderatorLevel, allowedActions]);
+  }, [canMod, accessToken, senderId, isHostMessage, isModerator, isHost, canModerate, moderatorLevel, allowedActions]);
 
   useEffect(() => {
     if (!visible) return;

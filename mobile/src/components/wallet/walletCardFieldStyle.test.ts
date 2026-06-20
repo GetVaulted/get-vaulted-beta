@@ -20,6 +20,7 @@ describe('walletCardFieldStyle', () => {
     expect(WALLET_CARD_FORM_STYLE.textColor).toBe('#111111');
     expect(WALLET_CARD_FORM_STYLE.backgroundColor).toBe('#FFFFFF');
     expect(WALLET_CARD_FORM_STYLE.textErrorColor).toBe('#DC2626');
+    expect(WALLET_CARD_FORM_STYLE.borderWidth).toBe(0);
   });
 
   it('uses multi-row CardForm sizing for manual fallback', () => {

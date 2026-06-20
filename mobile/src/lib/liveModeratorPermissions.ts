@@ -30,9 +30,20 @@ export function canPerformModeratorAction(args: {
   actionType: string;
   isModerator: boolean;
   isHost?: boolean;
+  canModerate?: boolean;
   moderatorLevel: LiveModeratorLevel | null;
   allowedActions?: string[];
 }): boolean {
+  const hostCanModerate = Boolean(args.isHost && args.canModerate);
+  if (hostCanModerate) {
+    const level: LiveModeratorLevel = 'head';
+    if (args.allowedActions?.length) {
+      return args.allowedActions.includes(args.actionType);
+    }
+    const required = ACTION_MIN_LEVEL[args.actionType];
+    if (!required) return true;
+    return LEVEL_RANK[level] >= LEVEL_RANK[required];
+  }
   if (!args.isModerator) return false;
   if (args.allowedActions?.length) {
     return args.allowedActions.includes(args.actionType);
@@ -71,9 +82,9 @@ export function resolveShowHostUserId(
   return sellerId?.trim() || fallbackHostUserId?.trim() || undefined;
 }
 
-/** Mod tools shield — explicit moderator assignment only (not host/seller/creator by default). */
-export function showModeratorTools(isModerator: boolean): boolean {
-  return isModerator;
+/** Mod tools shield — assigned moderators and hosts with moderation access. */
+export function showModeratorTools(isModerator: boolean, canModerate?: boolean): boolean {
+  return isModerator || Boolean(canModerate);
 }
 
 export const TIMEOUT_MINUTES = [5, 30, 60, 24 * 60] as const;

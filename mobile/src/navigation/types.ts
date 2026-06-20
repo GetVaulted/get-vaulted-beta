@@ -80,6 +80,7 @@ export type RootStackParamList = {
   OpenDispute: { contextType: DisputeContextType; referenceId?: string };
   DisputeDetail: { disputeId: string };
   UserProfile: { userId: string };
+  FollowersFollowing: { tab?: 'followers' | 'following' } | undefined;
   WriteReview: {
     reviewType: ReviewType;
     referenceId: string;

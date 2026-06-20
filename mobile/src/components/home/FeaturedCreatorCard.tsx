@@ -49,14 +49,14 @@ export function FeaturedCreatorCard({ creator, onFollow, onPress }: Props) {
 
 const styles = StyleSheet.create({
   card: {
-    width: 260,
-    marginRight: spacing.md,
-    padding: spacing.lg,
+    width: 220,
+    marginRight: 0,
+    padding: spacing.md,
     borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceElevated,
-    gap: spacing.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    gap: spacing.sm,
   },
   top: {
     flexDirection: 'row',

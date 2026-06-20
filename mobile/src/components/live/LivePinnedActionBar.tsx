@@ -50,7 +50,7 @@ import { syncedWallTimeMs } from '../../lib/serverClockSync';
 import {
   isCompactLiveRoomLayout,
   LIVE_ROOM_REF_WIDTH,
-  liveRoomCompactScale,
+  liveRoomHudScale,
 } from '../../lib/liveRoomUiScale';
 
 /** @deprecated Prefer measuring commerce HUD via `onLayout`; used as initial layout estimate only. */
@@ -112,8 +112,10 @@ export function LivePinnedActionBar({
   const stackNav = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const tabNav = stackNav.getParent<BottomTabNavigationProp<MainTabParamList>>();
   const stageWidth = layoutWidth ?? LIVE_ROOM_REF_WIDTH;
-  const hudScale = liveRoomCompactScale(stageWidth);
+  const hudScale = liveRoomHudScale(stageWidth);
   const compact = isCompactLiveRoomLayout(stageWidth);
+  const hudFs = (base: number) => Math.round(base * hudScale);
+  const hudPad = (base: number) => Math.round(base * hudScale);
   const [bidBusy, setBidBusy] = useState(false);
   const [walletSheetOpen, setWalletSheetOpen] = useState(false);
   const [walletOverlayActive, setWalletOverlayActive] = useState(false);
@@ -616,44 +618,49 @@ export function LivePinnedActionBar({
 
       <View style={[styles.hudInner, compact && styles.hudInnerCompact]}>
         <View style={styles.topBand}>
-          <LiveRoomText style={[styles.timer, compact && { fontSize: Math.round(13 * hudScale) }]}>
+          <LiveRoomText style={[styles.timer, { fontSize: hudFs(13) }]}>
             {m.timerMmSs}
           </LiveRoomText>
           <View style={styles.titleBlock}>
-            <LiveRoomText style={[styles.itemTitle, compact && { fontSize: 11 }]} numberOfLines={1}>
+            <LiveRoomText style={[styles.itemTitle, { fontSize: hudFs(compact ? 11 : 12) }]} numberOfLines={1}>
               {m.itemTitle}
             </LiveRoomText>
-            <LiveRoomText style={styles.categoryType} numberOfLines={1}>
+            <LiveRoomText style={[styles.categoryType, { fontSize: hudFs(10) }]} numberOfLines={1}>
               {m.categoryType}
             </LiveRoomText>
           </View>
           <View style={styles.priceBlock}>
-            <LiveRoomText style={styles.currentPrefix}>{m.currentPrefix}</LiveRoomText>
-            <LiveRoomText style={[styles.currentAmount, compact && { fontSize: Math.round(20 * hudScale) }]}>
+            <LiveRoomText style={[styles.currentPrefix, { fontSize: hudFs(9) }]}>{m.currentPrefix}</LiveRoomText>
+            <LiveRoomText style={[styles.currentAmount, { fontSize: hudFs(20) }]}>
               {m.currentAmount}
             </LiveRoomText>
           </View>
         </View>
 
         {metaLine ? (
-          <LiveRoomText style={styles.metaLine} numberOfLines={1}>
+          <LiveRoomText style={[styles.metaLine, { fontSize: hudFs(10) }]} numberOfLines={1}>
             {metaLine}
           </LiveRoomText>
         ) : null}
         {auctionLane && signedIn ? (
-          <LiveRoomText style={styles.syncLine} numberOfLines={compact ? 1 : 2}>
+          <LiveRoomText style={[styles.syncLine, { fontSize: hudFs(9) }]} numberOfLines={compact ? 1 : 2}>
             {syncStatusLine ?? 'Syncing auction state from the vault…'}
           </LiveRoomText>
         ) : null}
 
         <View style={[styles.ctaBand, compact && styles.ctaBandCompact]}>
           <Pressable
-            style={[styles.ctaGhost, compact && styles.ctaGhostCompact, secondaryDisabled && styles.ctaDisabled]}
+            style={[
+              styles.ctaGhost,
+              compact && styles.ctaGhostCompact,
+              { paddingVertical: hudPad(compact ? 7 : 8) },
+              secondaryDisabled && styles.ctaDisabled,
+            ]}
             onPress={onSecondary}
             disabled={secondaryDisabled}
           >
             <LiveRoomText
-              style={[styles.ctaGhostText, secondaryDisabled && styles.ctaDisabledText]}
+              style={[styles.ctaGhostText, { fontSize: hudFs(11) }, secondaryDisabled && styles.ctaDisabledText]}
               numberOfLines={1}
             >
               {m.bottomLeftLabel}
@@ -661,25 +668,29 @@ export function LivePinnedActionBar({
           </Pressable>
 
           {m.showShopButton ? (
-            <Pressable style={styles.ctaShop} onPress={onShop} accessibilityLabel={m.shopButtonLabel}>
-              <Ionicons name="bag-handle-outline" size={20} color="rgba(255,255,255,0.88)" />
+            <Pressable
+              style={[styles.ctaShop, { width: hudPad(40) }]}
+              onPress={onShop}
+              accessibilityLabel={m.shopButtonLabel}
+            >
+              <Ionicons name="bag-handle-outline" size={hudFs(20)} color="rgba(255,255,255,0.88)" />
             </Pressable>
           ) : null}
 
-          <View style={styles.ctaPrimaryWrap}>
+          <View style={[styles.ctaPrimaryWrap, { minHeight: hudPad(44) }]}>
             {useLiveAuctionBidFlow && !variantItemActive ? (
               <HoldToBidButton
                 label={m.bottomRightLabel}
                 disabled={primaryDisabled}
                 busy={bidBusy}
                 variant="auction"
-                compact={compact}
+                compact={compact && hudScale <= 1}
                 onHoldStart={onHoldStart}
                 onCommit={() => guard(() => runPrimaryLiveCommerceAction())}
               />
             ) : (
               <Pressable
-                style={[styles.ctaBidPressable, (primaryDisabled || bidBusy) && styles.ctaDisabled]}
+                style={[styles.ctaBidPressable, { minHeight: hudPad(44) }, (primaryDisabled || bidBusy) && styles.ctaDisabled]}
                 onPress={onPrimary}
                 disabled={primaryDisabled || bidBusy}
                 accessibilityRole="button"
@@ -689,13 +700,21 @@ export function LivePinnedActionBar({
                   colors={['#D946EF', '#8B5CF6', '#6366F1']}
                   start={{ x: 0, y: 0.5 }}
                   end={{ x: 1, y: 0.5 }}
-                  style={[styles.ctaBidGradient, compact && styles.ctaBidGradientCompact]}
+                  style={[
+                    styles.ctaBidGradient,
+                    compact && styles.ctaBidGradientCompact,
+                    { minHeight: hudPad(44), paddingVertical: hudPad(compact ? 8 : 10) },
+                  ]}
                 >
                   {bidBusy ? (
                     <ActivityIndicator color="#fff" size="small" />
                   ) : (
                     <LiveRoomText
-                      style={[styles.ctaBidText, (primaryDisabled || bidBusy) && styles.ctaDisabledText]}
+                      style={[
+                        styles.ctaBidText,
+                        { fontSize: hudFs(11) },
+                        (primaryDisabled || bidBusy) && styles.ctaDisabledText,
+                      ]}
                       numberOfLines={1}
                     >
                       {m.bottomRightLabel}

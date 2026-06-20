@@ -7,6 +7,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Modal,
   NativeScrollEvent,
@@ -53,7 +54,7 @@ import {
 import { alertGuestBuyRestricted } from '../navigation/guestExploreGuards';
 import { openMessageSellerForListing } from '../navigation/openMessages';
 import { openContactSupport, openDispute, openUserProfile } from '../navigation/openPlatform';
-import { isFollowing, toggleFollow } from '../platform/platformStore';
+import { fetchSellerFollowStatus, toggleSellerFollow } from '../api/sellerFollowRepository';
 import { useAuth } from '../auth/AuthContext';
 import type { Product } from '../types';
 import { colors, radii, spacing, typography } from '../theme';
@@ -179,9 +180,11 @@ export function ProductDetailScreen({ navigation, route }: Props) {
   const [sellerFollow, setSellerFollow] = useState(false);
 
   useEffect(() => {
-    if (!user?.id || !product?.seller.id) return;
-    void isFollowing(user.id, product.seller.id).then(setSellerFollow);
-  }, [user?.id, product?.seller.id]);
+    if (!product?.seller.id) return;
+    void fetchSellerFollowStatus(product.seller.id, session?.access_token).then((st) => {
+      setSellerFollow(Boolean(st?.following));
+    });
+  }, [product?.seller.id, session?.access_token]);
 
   const [zoomUri, setZoomUri] = useState<string | null>(null);
   const [offerSheetOpen, setOfferSheetOpen] = useState(false);
@@ -509,11 +512,22 @@ export function ProductDetailScreen({ navigation, route }: Props) {
                 host={product.seller}
                 following={sellerFollow}
                 onFollowPress={() => {
-                  if (!user?.id) {
+                  if (!user?.id || !session?.access_token) {
                     alertGuestBuyRestricted();
                     return;
                   }
-                  void toggleFollow(user.id, product.seller.id).then(setSellerFollow);
+                  const prev = sellerFollow;
+                  setSellerFollow(!prev);
+                  void toggleSellerFollow(product.seller.id, prev, session.access_token).then(
+                    ({ following, error }) => {
+                      if (error) {
+                        setSellerFollow(prev);
+                        Alert.alert('Follow', error);
+                        return;
+                      }
+                      setSellerFollow(following);
+                    },
+                  );
                 }}
               />
             </Pressable>

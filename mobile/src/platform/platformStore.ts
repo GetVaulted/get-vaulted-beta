@@ -178,6 +178,7 @@ export async function reviewStatsForUser(
   return { count: reviews.length, average: Math.round((sum / reviews.length) * 10) / 10 };
 }
 
+/** @deprecated Device-local follows — use sellerFollowRepository + /api/sellers/:id/follow instead. */
 export async function isFollowing(followerId: string, followingId: string): Promise<boolean> {
   const store = await load();
   return store.follows.some((f) => f.followerId === followerId && f.followingId === followingId);

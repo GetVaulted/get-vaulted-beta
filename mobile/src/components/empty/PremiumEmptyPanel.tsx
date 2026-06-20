@@ -54,13 +54,14 @@ export function PremiumEmptyPanel({ icon, title, subtitle, kicker, actions }: Pr
 const styles = StyleSheet.create({
   wrap: {
     borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    padding: spacing.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+    padding: spacing.lg,
     overflow: 'hidden',
     gap: spacing.sm,
-    minHeight: 148,
+    minHeight: 132,
     justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.03)',
   },
   iconRing: {
     width: 48,

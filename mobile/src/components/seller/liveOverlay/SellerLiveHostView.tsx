@@ -62,9 +62,11 @@ import {
   HostModeratorAssignButton,
   ModeratorToolsButton,
 } from '../../moderator/ModeratorFloatingButton';
+import { ModeratorActionSheet } from '../../moderator/ModeratorActionSheet';
 import { ModeratorDrawer } from '../../moderator/ModeratorDrawer';
 import { showModeratorTools } from '../../../lib/liveModeratorPermissions';
 import { colors, radii, spacing } from '../../../theme';
+import type { ChatMessage } from '../../../types';
 
 const CHAT_RIGHT_EDGE = 88;
 
@@ -132,6 +134,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   const chatComposerRef = useRef<MentionComposerInputHandle>(null);
   const [modDrawerOpen, setModDrawerOpen] = useState(false);
   const [modAssignOpen, setModAssignOpen] = useState(false);
+  const [modActionMessage, setModActionMessage] = useState<ChatMessage | null>(null);
   const [biddingUrgent, setBiddingUrgent] = useState(false);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
 
@@ -450,6 +453,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         accessToken={accessToken}
         canModerate={moderation.canModerate}
         isModerator={moderation.isModerator}
+        onLongPressMessage={(message) => setModActionMessage(message)}
         onModerationComplete={() => {
           void liveChat.reload();
           void moderation.reload();
@@ -528,7 +532,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         inputRef={chatComposerRef}
         leadingAccessory={
           <>
-            {showModeratorTools(moderation.isModerator) ? (
+            {showModeratorTools(moderation.isModerator, moderation.canModerate) ? (
               <ModeratorToolsButton onPress={() => setModDrawerOpen(true)} />
             ) : null}
             {moderation.isHost ? (
@@ -538,7 +542,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         }
       />
 
-      {showModeratorTools(moderation.isModerator) ? (
+      {showModeratorTools(moderation.isModerator, moderation.canModerate) ? (
         <ModeratorDrawer
           visible={modDrawerOpen}
           onClose={() => setModDrawerOpen(false)}
@@ -564,6 +568,32 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
           moderation={moderation}
           hostUserId={user?.id}
           onRefresh={() => void moderation.reload()}
+        />
+      ) : null}
+
+      {modActionMessage && moderation.canModerate ? (
+        <ModeratorActionSheet
+          visible={Boolean(modActionMessage)}
+          onClose={() => setModActionMessage(null)}
+          liveRoomId={roomId}
+          accessToken={accessToken}
+          isModerator={moderation.isModerator}
+          isHost={moderation.isHost}
+          canModerate={moderation.canModerate}
+          moderatorLevel={moderation.moderatorLevel}
+          allowedActions={moderation.allowedActions}
+          messageId={modActionMessage.id}
+          messageText={modActionMessage.text}
+          senderId={modActionMessage.senderId}
+          senderUsername={modActionMessage.user}
+          hostUserId={user?.id}
+          messageIsHost={modActionMessage.isHost}
+          onComplete={() => {
+            setModActionMessage(null);
+            void liveChat.reload();
+            void moderation.reload();
+            void console.refreshConsole();
+          }}
         />
       ) : null}
 

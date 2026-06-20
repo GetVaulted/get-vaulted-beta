@@ -14,23 +14,20 @@ import { fetchListingsBySeller } from '../../api/listingsFeedRepository';
 import { fetchLiveShowsByHostId } from '../../api/liveShowsDiscoveryRepository';
 import { fetchProfileById } from '../../api/profilesRepository';
 import { fetchCompletedTradesForUser } from '../../api/tradeOffersRepository';
+import { fetchSellerFollowStatus, fetchAccountFollows, toggleSellerFollow } from '../../api/sellerFollowRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { ReportSheet } from '../../components/trust/ReportSheet';
 import { UserAvatar } from '../../components/ui/UserAvatar';
 import { VaultImage } from '../../components/ui/VaultImage';
-import { openDispute } from '../../navigation/openPlatform';
+import { openDispute, openFollowersFollowing } from '../../navigation/openPlatform';
 import { openMessageSellerForListing } from '../../navigation/openMessages';
 import type { RootStackParamList } from '../../navigation/types';
 import { computeTrustProfile } from '../../platform/computeTrustProfile';
 import {
-  followerCount,
-  followingCount,
-  isFollowing,
   isUserDeleted,
   listReviewsForUser,
   reviewStatsForUser,
-  toggleFollow,
 } from '../../platform/platformStore';
 import type { TrustProfile } from '../../platform/trustTypes';
 import type { ProfileLite } from '../../types/tradeOffers';
@@ -77,17 +74,28 @@ export function UserProfileScreen({ navigation, route }: Props) {
     }
     const p = await fetchProfileById(userId);
     setProfile(p);
-    const [fc, fg, stats, revs, listed, shows, trades] = await Promise.all([
-      followerCount(userId),
-      followingCount(userId),
+    const [followStatus, stats, revs, listed, shows, trades] = await Promise.all([
+      fetchSellerFollowStatus(userId, session?.access_token),
       reviewStatsForUser(userId),
       listReviewsForUser(userId),
       fetchListingsBySeller({ sellerId: userId, limit: 12 }),
       fetchLiveShowsByHostId(userId),
       fetchCompletedTradesForUser(userId),
     ]);
-    setFollowers(fc);
-    setFollowing(fg);
+    const isSelf = user?.id === userId;
+    let followingTotal = 0;
+    if (isSelf && session?.access_token) {
+      const accountFollows = await fetchAccountFollows(session.access_token);
+      followingTotal = accountFollows?.following.length ?? 0;
+      if (accountFollows) {
+        setFollowers(accountFollows.followers.length);
+      } else {
+        setFollowers(followStatus?.followerCount ?? 0);
+      }
+    } else {
+      setFollowers(followStatus?.followerCount ?? 0);
+    }
+    setFollowing(followingTotal);
     setReviewCount(stats.count);
     setAvgRating(stats.average);
     setReviews(revs);
@@ -102,9 +110,9 @@ export function UserProfileScreen({ navigation, route }: Props) {
         completedSales: stats.count,
       }),
     );
-    if (user?.id) setFollowingUser(await isFollowing(user.id, userId));
+    if (user?.id) setFollowingUser(Boolean(followStatus?.following));
     setLoading(false);
-  }, [user?.id, userId]);
+  }, [session?.access_token, user?.id, userId]);
 
   useEffect(() => {
     void load();
@@ -113,14 +121,27 @@ export function UserProfileScreen({ navigation, route }: Props) {
   const displayName = profile?.display_name?.trim() || profile?.username?.trim() || 'Collector';
   const handle = profile?.username ? `@${profile.username}` : '@vaulted';
 
+  const isOwnProfile = user?.id === userId;
+
   const onFollow = async () => {
-    if (!user?.id) {
+    if (!user?.id || !session?.access_token) {
       Alert.alert('Sign in', 'Sign in to follow collectors and sellers.');
       return;
     }
-    const now = await toggleFollow(user.id, userId);
-    setFollowingUser(now);
-    setFollowers((c) => (now ? c + 1 : Math.max(0, c - 1)));
+    const prev = followingUser;
+    setFollowingUser(!prev);
+    const result = await toggleSellerFollow(userId, prev, session.access_token);
+    if (result.error) {
+      setFollowingUser(prev);
+      Alert.alert('Follow', result.error);
+      return;
+    }
+    setFollowingUser(result.following);
+    if (typeof result.followerCount === 'number') {
+      setFollowers(result.followerCount);
+    } else {
+      setFollowers((c) => (result.following ? c + 1 : Math.max(0, c - 1)));
+    }
   };
 
   const reportUser = () => setReportOpen(true);
@@ -180,8 +201,25 @@ export function UserProfileScreen({ navigation, route }: Props) {
         </View>
 
         <View style={styles.stats}>
-          <Stat label="Followers" value={String(followers)} />
-          <Stat label="Following" value={String(following)} />
+          {isOwnProfile ? (
+            <>
+              <Stat
+                label="Followers"
+                value={String(followers)}
+                onPress={() => openFollowersFollowing(navigation, 'followers')}
+              />
+              <Stat
+                label="Following"
+                value={String(following)}
+                onPress={() => openFollowersFollowing(navigation, 'following')}
+              />
+            </>
+          ) : (
+            <>
+              <Stat label="Followers" value={String(followers)} />
+              <Stat label="Following" value={String(following)} />
+            </>
+          )}
           <Stat label="Reviews" value={String(reviewCount)} />
           <Stat label="Rating" value={avgRating ? avgRating.toFixed(1) : '—'} />
         </View>
@@ -354,13 +392,29 @@ export function UserProfileScreen({ navigation, route }: Props) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.stat}>
-      <Text style={styles.statVal}>{value}</Text>
+function Stat({
+  label,
+  value,
+  onPress,
+}: {
+  label: string;
+  value: string;
+  onPress?: () => void;
+}) {
+  const content = (
+    <>
+      <Text style={[styles.statVal, onPress && styles.statValTappable]}>{value}</Text>
       <Text style={styles.statLbl}>{label}</Text>
-    </View>
+    </>
   );
+  if (onPress) {
+    return (
+      <Pressable style={styles.stat} onPress={onPress} accessibilityRole="button">
+        {content}
+      </Pressable>
+    );
+  }
+  return <View style={styles.stat}>{content}</View>;
 }
 
 const LISTING_THUMB = 120;
@@ -384,6 +438,7 @@ const styles = StyleSheet.create({
   stats: { flexDirection: 'row', justifyContent: 'space-between' },
   stat: { alignItems: 'center', flex: 1 },
   statVal: { fontSize: 16, fontWeight: '800', color: colors.textPrimary },
+  statValTappable: { color: colors.gold },
   statLbl: { fontSize: 11, color: colors.textMuted },
   actions: { flexDirection: 'row', gap: spacing.sm },
   btn: {

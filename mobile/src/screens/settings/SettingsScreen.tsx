@@ -17,6 +17,7 @@ import {
   openHelpCenter,
   openMyOrders,
   openNotificationInbox,
+  openFollowersFollowing,
   openUserProfile,
 } from '../../navigation/openPlatform';
 import { openSellerSetup } from '../../navigation/openSellerSetup';
@@ -133,10 +134,10 @@ export function SettingsScreen({ navigation }: Props) {
           onPress={() => navigation.navigate('MainTabs', { screen: 'Marketplace' })}
         />
         <SettingsRow
-          label="Following"
-          sub="Sellers and collectors you follow"
+          label="Followers & Following"
+          sub="See who follows you and who you follow"
           icon="people-outline"
-          onPress={() => user?.id && openUserProfile(user.id, navigation)}
+          onPress={() => openFollowersFollowing(navigation)}
         />
 
         <SettingsSectionHeader title="Legal & trust" />

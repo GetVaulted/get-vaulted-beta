@@ -6,16 +6,23 @@ type Props = {
   placeholder?: string;
   onPress?: () => void;
   compact?: boolean;
+  /** Polished home-screen search styling. */
+  home?: boolean;
 };
 
-export function SearchBar({ placeholder = 'Search live, sellers, grails…', onPress, compact }: Props) {
+export function SearchBar({
+  placeholder = 'Search live, sellers, grails…',
+  onPress,
+  compact,
+  home,
+}: Props) {
   const inner = (
     <>
-      <Ionicons name="search" size={18} color={colors.textMuted} />
+      <Ionicons name="search" size={home ? 17 : 18} color="rgba(255,255,255,0.38)" />
       <TextInput
         placeholder={placeholder}
-        placeholderTextColor={colors.textMuted}
-        style={[styles.input, compact && styles.inputCompact]}
+        placeholderTextColor="rgba(255,255,255,0.35)"
+        style={[styles.input, compact && styles.inputCompact, home && styles.inputHome]}
         allowFontScaling={false}
         editable={!onPress}
         pointerEvents={onPress ? 'none' : 'auto'}
@@ -25,13 +32,17 @@ export function SearchBar({ placeholder = 'Search live, sellers, grails…', onP
 
   if (onPress) {
     return (
-      <Pressable onPress={onPress} style={[styles.wrap, compact && styles.wrapCompact]} accessibilityRole="button">
+      <Pressable
+        onPress={onPress}
+        style={[styles.wrap, compact && styles.wrapCompact, home && styles.wrapHome]}
+        accessibilityRole="button"
+      >
         {inner}
       </Pressable>
     );
   }
 
-  return <View style={[styles.wrap, compact && styles.wrapCompact]}>{inner}</View>;
+  return <View style={[styles.wrap, compact && styles.wrapCompact, home && styles.wrapHome]}>{inner}</View>;
 }
 
 const styles = StyleSheet.create({
@@ -51,6 +62,14 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: spacing.sm,
   },
+  wrapHome: {
+    paddingVertical: 10,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderColor: 'rgba(255,255,255,0.08)',
+    marginBottom: spacing.sm,
+  },
   input: {
     flex: 1,
     flexShrink: 1,
@@ -61,5 +80,10 @@ const styles = StyleSheet.create({
   inputCompact: {
     fontSize: 14,
     paddingVertical: 2,
+  },
+  inputHome: {
+    fontSize: 14,
+    paddingVertical: 0,
+    fontWeight: '500',
   },
 });

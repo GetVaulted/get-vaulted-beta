@@ -512,10 +512,10 @@ const styles = StyleSheet.create({
   },
   listSeparator: { height: spacing.sm },
   empty: {
-    flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.xl,
+    justifyContent: 'flex-start',
+    paddingTop: spacing.xl * 2,
+    paddingBottom: spacing.xl,
     paddingHorizontal: spacing.lg,
     gap: spacing.sm,
   },

@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radii, spacing } from '../../theme';
 import { fetchLiveRoomPublicById } from '../../api/liveRoomsRepository';
 import { fetchLiveBuyerPaymentSession } from '../../api/liveBuyerPaymentRepository';
+import { fetchSellerFollowStatus, toggleSellerFollow } from '../../api/sellerFollowRepository';
 import type { LiveStream, ChatMessage } from '../../types';
 import type { LiveStackParamList } from '../../navigation/types';
 import { rootNavigationRef } from '../../navigation/rootNavigationRef';
@@ -168,6 +169,20 @@ function LiveSlide({
     () => resolveShowHostUserId(moderation.sellerId, stream.host.id),
     [moderation.sellerId, stream.host.id],
   );
+
+  useEffect(() => {
+    if (!isActive || !showHostUserId) {
+      setFollowing(false);
+      return;
+    }
+    void fetchSellerFollowStatus(showHostUserId, accessToken).then((st) => {
+      if (!st || st.isSelf) {
+        setFollowing(false);
+        return;
+      }
+      setFollowing(st.following);
+    });
+  }, [accessToken, isActive, showHostUserId]);
 
   const liveChat = useLiveRoomChat({
     roomId: stream.id,
@@ -577,24 +592,35 @@ function LiveSlide({
           },
         ]}
       >
-        <Pressable
-          style={styles.railBtn}
-          onPress={() => {
-            if (!signedIn) {
-              onRequireAuth?.();
-              return;
-            }
-            setFollowing((f) => !f);
-          }}
-          accessibilityLabel={following ? 'Unfollow host' : 'Follow host'}
-        >
-          <Ionicons
-            name={following ? 'checkmark-circle-outline' : 'person-add-outline'}
-            size={22}
-            color={following ? colors.gold : 'rgba(255,255,255,0.92)'}
-          />
-          <LiveRoomText style={styles.railLabel}>{following ? 'Following' : 'Follow'}</LiveRoomText>
-        </Pressable>
+        {!moderation.isHost ? (
+          <Pressable
+            style={styles.railBtn}
+            onPress={() => {
+              if (!signedIn || !accessToken) {
+                onRequireAuth?.();
+                return;
+              }
+              const prev = following;
+              setFollowing(!prev);
+              void toggleSellerFollow(showHostUserId ?? stream.host.id, prev, accessToken).then(({ following: next, error }) => {
+                if (error) {
+                  setFollowing(prev);
+                  Alert.alert('Follow', error);
+                  return;
+                }
+                setFollowing(next);
+              });
+            }}
+            accessibilityLabel={following ? 'Unfollow host' : 'Follow host'}
+          >
+            <Ionicons
+              name={following ? 'checkmark-circle-outline' : 'person-add-outline'}
+              size={22}
+              color={following ? colors.gold : 'rgba(255,255,255,0.92)'}
+            />
+            <LiveRoomText style={styles.railLabel}>{following ? 'Following' : 'Follow'}</LiveRoomText>
+          </Pressable>
+        ) : null}
         <Pressable
           style={styles.railBtn}
           onPress={() => {
@@ -727,7 +753,7 @@ function LiveSlide({
         </View>
       ) : null}
 
-      {showModeratorTools(moderation.isModerator) && accessToken ? (
+      {showModeratorTools(moderation.isModerator, moderation.canModerate) && accessToken ? (
         <ModeratorDrawer
           visible={modDrawerOpen}
           onClose={() => setModDrawerOpen(false)}
@@ -744,7 +770,7 @@ function LiveSlide({
         />
       ) : null}
 
-      {modActionMessage && moderation.isModerator ? (
+      {modActionMessage && (moderation.isModerator || moderation.canModerate) ? (
         <ModeratorActionSheet
           visible={Boolean(modActionMessage)}
           onClose={() => setModActionMessage(null)}
@@ -752,6 +778,7 @@ function LiveSlide({
           accessToken={accessToken}
           isModerator={moderation.isModerator}
           isHost={moderation.isHost}
+          canModerate={moderation.canModerate}
           moderatorLevel={moderation.moderatorLevel}
           allowedActions={moderation.allowedActions}
           messageId={modActionMessage.id}
@@ -801,7 +828,7 @@ function LiveSlide({
         accessToken={accessToken}
         inputRef={chatComposerRef}
         leadingAccessory={
-          showModeratorTools(moderation.isModerator) ? (
+          showModeratorTools(moderation.isModerator, moderation.canModerate) ? (
             <ModeratorToolsButton onPress={() => setModDrawerOpen(true)} />
           ) : null
         }

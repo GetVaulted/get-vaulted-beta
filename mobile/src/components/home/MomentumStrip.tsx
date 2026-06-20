@@ -1,27 +1,37 @@
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
-import { colors, radii, spacing, typography } from '../../theme';
-import { momentumSnapshot } from '../../data/mockData';
+import { colors, radii, spacing } from '../../theme';
 
-export function MomentumStrip() {
+type Props = {
+  liveCount?: number;
+  listingCount?: number;
+  scheduledCount?: number;
+};
+
+function formatStat(n: number, fallback: string): string {
+  if (n <= 0) return fallback;
+  return String(n);
+}
+
+export function MomentumStrip({ liveCount = 0, listingCount = 0, scheduledCount = 0 }: Props) {
   const items = [
     {
-      key: 'sold',
-      icon: 'trending-up' as const,
-      value: momentumSnapshot.soldToday,
-      sub: momentumSnapshot.soldTodaySub,
-    },
-    {
-      key: 'watch',
+      key: 'live',
       icon: 'radio' as const,
-      value: momentumSnapshot.watching,
-      sub: momentumSnapshot.watchingSub,
+      value: formatStat(liveCount, '—'),
+      sub: liveCount > 0 ? 'Live now' : 'Rooms open soon',
     },
     {
-      key: 'end',
-      icon: 'timer-outline' as const,
-      value: momentumSnapshot.ending,
-      sub: momentumSnapshot.endingSub,
+      key: 'vault',
+      icon: 'diamond-outline' as const,
+      value: formatStat(listingCount, '—'),
+      sub: listingCount > 0 ? 'In the vault' : 'Listings incoming',
+    },
+    {
+      key: 'drops',
+      icon: 'calendar-outline' as const,
+      value: formatStat(scheduledCount, '—'),
+      sub: scheduledCount > 0 ? 'Upcoming drops' : 'Events scheduling',
     },
   ];
 
@@ -29,7 +39,7 @@ export function MomentumStrip() {
     <View style={styles.wrap}>
       {items.map((item, i) => (
         <View key={item.key} style={[styles.cell, i < items.length - 1 && styles.cellBorder]}>
-          <Ionicons name={item.icon} size={16} color={colors.gold} />
+          <Ionicons name={item.icon} size={14} color="rgba(212,175,55,0.85)" />
           <Text style={styles.value}>{item.value}</Text>
           <Text style={styles.sub}>{item.sub}</Text>
         </View>
@@ -42,32 +52,32 @@ const styles = StyleSheet.create({
   wrap: {
     flexDirection: 'row',
     borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.surfaceElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.07)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
     overflow: 'hidden',
-    marginTop: spacing.lg,
+    marginTop: spacing.sm,
   },
   cell: {
     flex: 1,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.xs,
     alignItems: 'center',
-    gap: 4,
+    gap: 2,
   },
   cellBorder: {
     borderRightWidth: StyleSheet.hairlineWidth,
-    borderRightColor: colors.border,
+    borderRightColor: 'rgba(255,255,255,0.06)',
   },
   value: {
     color: colors.textPrimary,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
     letterSpacing: -0.3,
   },
   sub: {
-    ...typography.micro,
     fontSize: 9,
+    fontWeight: '600',
     color: colors.textMuted,
     textAlign: 'center',
   },

@@ -3,8 +3,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../../theme';
 
-const CHIPS = ['Live auctions', 'Verified inventory', 'Vault events'] as const;
-
 export function HomeCultureHero({
   onLiveHub,
   onVault,
@@ -13,50 +11,37 @@ export function HomeCultureHero({
   onVault: () => void;
 }) {
   return (
-    <View style={styles.shell} accessibilityRole="header">
-      <View style={styles.matte} pointerEvents="none" />
+    <View style={styles.shell}>
       <LinearGradient
-        colors={['rgba(212,175,55,0.1)', 'transparent']}
+        colors={['rgba(212,175,55,0.14)', 'rgba(8,8,10,0.98)', '#070708']}
         start={{ x: 0, y: 0 }}
-        end={{ x: 0.8, y: 1 }}
-        style={styles.edgeLight}
-        pointerEvents="none"
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
       />
+      <View style={styles.glowOrb} pointerEvents="none" />
       <LinearGradient
-        colors={['transparent', 'rgba(0,0,0,0.65)']}
+        colors={['transparent', 'rgba(0,0,0,0.55)']}
         style={styles.bottomFade}
         pointerEvents="none"
       />
 
       <View style={styles.inner}>
-        <Text style={styles.kicker}>Premium live collectible marketplace</Text>
+        <Text style={styles.kicker}>Live commerce for collectors</Text>
         <Text style={styles.title}>
-          Break.{' '}
-          <Text style={styles.titleEm}>Chase.</Text>
-          {'\n'}
-          Vault.
+          Break. <Text style={styles.titleEm}>Chase.</Text> Vault.
         </Text>
-        <Text style={styles.tagline}>Live rooms. Verified inventory. Collector commerce.</Text>
-        <Text style={styles.support}>
-          A premium live collectible network for auctions, drops, breaks, and collector-led selling.
+        <Text style={styles.tagline}>
+          Live auctions, breaks, verified inventory, and collector-led selling — all in one vault.
         </Text>
-
-        <View style={styles.chipRow}>
-          {CHIPS.map((c) => (
-            <View key={c} style={styles.chip}>
-              <Text style={styles.chipTxt}>{c}</Text>
-            </View>
-          ))}
-        </View>
 
         <View style={styles.ctaRow}>
           <Pressable style={styles.ctaPrimary} onPress={onLiveHub}>
-            <Ionicons name="radio" size={18} color="#0a0a0a" />
+            <Ionicons name="radio" size={16} color="#0a0a0a" />
             <Text style={styles.ctaPrimaryTxt}>Enter live</Text>
           </Pressable>
           <Pressable style={styles.ctaGhost} onPress={onVault}>
-            <Ionicons name="diamond-outline" size={18} color={colors.gold} />
-            <Text style={styles.ctaGhostTxt}>The Vault</Text>
+            <Text style={styles.ctaGhostTxt}>Browse vault</Text>
+            <Ionicons name="arrow-forward" size={14} color="rgba(255,255,255,0.65)" />
           </Pressable>
         </View>
       </View>
@@ -66,116 +51,87 @@ export function HomeCultureHero({
 
 const styles = StyleSheet.create({
   shell: {
-    marginTop: spacing.md,
-    marginBottom: spacing.lg,
-    borderRadius: radii.lg,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+    borderRadius: 20,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.08)',
-    minHeight: 240,
+    borderColor: 'rgba(255,255,255,0.07)',
+    minHeight: 148,
   },
-  matte: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#070708',
-  },
-  edgeLight: {
+  glowOrb: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '55%',
+    top: -40,
+    right: -20,
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: 'rgba(212,175,55,0.12)',
   },
   bottomFade: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    height: 80,
+    height: 48,
   },
   inner: {
-    padding: spacing.xl,
-    paddingTop: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
     zIndex: 1,
+    gap: 6,
   },
   kicker: {
     fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.6,
-    color: 'rgba(212,175,55,0.85)',
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    color: 'rgba(212,175,55,0.75)',
     textTransform: 'uppercase',
   },
   title: {
-    marginTop: spacing.sm,
-    fontSize: 38,
+    fontSize: 28,
     fontWeight: '300',
     color: colors.textPrimary,
-    letterSpacing: -1.2,
-    lineHeight: 42,
+    letterSpacing: -0.8,
+    lineHeight: 32,
   },
   titleEm: {
     fontWeight: '900',
     color: colors.gold,
   },
   tagline: {
-    marginTop: spacing.sm,
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    letterSpacing: -0.2,
-  },
-  support: {
-    marginTop: spacing.sm,
     fontSize: 13,
-    fontWeight: '600',
-    color: colors.textMuted,
-    lineHeight: 19,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: radii.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(212,175,55,0.25)',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-  },
-  chipTxt: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.75)',
-    letterSpacing: 0.3,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.55)',
+    lineHeight: 18,
+    maxWidth: 320,
   },
   ctaRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    alignItems: 'center',
     gap: spacing.sm,
-    marginTop: spacing.lg,
+    marginTop: spacing.sm,
   },
   ctaPrimary: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 13,
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
     borderRadius: radii.pill,
     backgroundColor: colors.gold,
   },
-  ctaPrimaryTxt: { fontSize: 15, fontWeight: '900', color: '#0a0a0a' },
+  ctaPrimaryTxt: { fontSize: 14, fontWeight: '900', color: '#0a0a0a' },
   ctaGhost: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 13,
+    gap: 4,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
     borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.4)',
-    backgroundColor: 'rgba(212,175,55,0.06)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
-  ctaGhostTxt: { fontSize: 15, fontWeight: '800', color: colors.gold },
+  ctaGhostTxt: { fontSize: 14, fontWeight: '700', color: 'rgba(255,255,255,0.82)' },
 });

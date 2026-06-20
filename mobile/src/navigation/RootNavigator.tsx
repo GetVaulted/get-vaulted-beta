@@ -59,6 +59,10 @@ const UserProfileScreen = lazyScreen(
   () => import('../screens/profile/UserProfileScreen'),
   (m) => m.UserProfileScreen,
 );
+const FollowersFollowingScreen = lazyScreen(
+  () => import('../screens/profile/FollowersFollowingScreen'),
+  (m) => m.FollowersFollowingScreen,
+);
 const WriteReviewScreen = lazyScreen(
   () => import('../screens/reviews/WriteReviewScreen'),
   (m) => m.WriteReviewScreen,
@@ -237,6 +241,7 @@ export function RootNavigator() {
           <Stack.Screen name="OpenDispute" component={OpenDisputeScreen} />
           <Stack.Screen name="DisputeDetail" component={DisputeDetailScreen} />
           <Stack.Screen name="UserProfile" component={UserProfileScreen} />
+          <Stack.Screen name="FollowersFollowing" component={FollowersFollowingScreen} />
           <Stack.Screen name="WriteReview" component={WriteReviewScreen} />
           <Stack.Screen name="NotificationInbox" component={NotificationInboxScreen} />
           <Stack.Screen name="VaultEventRecap" component={VaultEventRecapScreen} />

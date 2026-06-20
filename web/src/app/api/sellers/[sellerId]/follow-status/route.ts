@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { resolveOptionalSellerFollowUserId } from "@/lib/resolve-seller-follow-auth";
 import { resolveSellerFromApiParam } from "@/lib/resolve-seller-route-param";
 
-export async function GET(_req: Request, ctx: { params: Promise<{ sellerId: string }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ sellerId: string }> }) {
   const { sellerId: raw } = await ctx.params;
   const seller = await resolveSellerFromApiParam(raw);
   if (!seller) return NextResponse.json({ error: "Seller not found." }, { status: 404 });
 
-  const session = await getServerSessionSafe();
+  const viewerId = await resolveOptionalSellerFollowUserId(req);
   const followerCount = await prisma.sellerFollow.count({ where: { sellerId: seller.id } });
 
-  if (!session?.user?.id) {
+  if (!viewerId) {
     return NextResponse.json({
       following: false,
       followerCount,
@@ -19,10 +19,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ sellerId: stri
     });
   }
 
-  const isSelf = session.user.id === seller.id;
+  const isSelf = viewerId === seller.id;
   const row = await prisma.sellerFollow.findUnique({
     where: {
-      followerId_sellerId: { followerId: session.user.id, sellerId: seller.id },
+      followerId_sellerId: { followerId: viewerId, sellerId: seller.id },
     },
     select: { id: true },
   });

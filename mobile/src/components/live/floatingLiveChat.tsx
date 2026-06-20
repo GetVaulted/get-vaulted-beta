@@ -179,7 +179,7 @@ function FloatingChatRow({
     message.senderId &&
     !protectedHost;
   const showModLongPress =
-    Boolean(isModerator) &&
+    Boolean(isModerator || canModerate) &&
     message.messageType === 'chat' &&
     message.senderId &&
     !protectedHost;

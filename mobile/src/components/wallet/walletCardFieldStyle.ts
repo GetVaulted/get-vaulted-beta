@@ -10,14 +10,15 @@ export const WALLET_CARD_FIELD_STYLE = {
   cursorColor: '#111111',
 } as const;
 
+/** Borderless inside the polished white card shell — outer container handles framing. */
 export const WALLET_CARD_FORM_STYLE = {
   backgroundColor: '#FFFFFF',
   textColor: '#111111',
   placeholderColor: '#9CA3AF',
-  borderColor: '#D1D5DB',
-  borderWidth: 1,
-  borderRadius: 12,
-  fontSize: 17,
+  borderColor: 'transparent',
+  borderWidth: 0,
+  borderRadius: 10,
+  fontSize: 16,
   cursorColor: '#111111',
   textErrorColor: '#DC2626',
 } as const;

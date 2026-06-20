@@ -1,7 +1,8 @@
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Platform, StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
+import { liveRoomHudScale } from '../../../lib/liveRoomUiScale';
 import { VaultPinnedLotCard } from '../liveConsole/VaultPinnedLotCard';
 
 /** Active lot HUD — single seller commerce box (initial estimate before onLayout). */
@@ -43,6 +44,9 @@ export function SellerLivePinnedOverlay({
   queuePreview?: boolean;
   onLayoutHeight?: (height: number) => void;
 }) {
+  const { width: windowWidth } = useWindowDimensions();
+  const hudScale = liveRoomHudScale(windowWidth);
+
   return (
     <View
       style={[styles.host, { bottom, left, right }]}
@@ -65,6 +69,7 @@ export function SellerLivePinnedOverlay({
         <View style={styles.inner}>
           <VaultPinnedLotCard
             density="broadcast"
+            hudScale={hudScale}
             item={item}
             serverNowMs={serverNowMs}
             roomLive={roomLive}

@@ -100,6 +100,7 @@ export function ModeratorDrawer({
       actionType,
       isModerator: moderation.isModerator,
       isHost: moderation.isHost,
+      canModerate: moderation.canModerate,
       moderatorLevel: moderation.moderatorLevel,
       allowedActions: moderation.allowedActions,
     });

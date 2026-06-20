@@ -18,7 +18,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Switch,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,17 +35,24 @@ import {
 } from './walletCardFieldStyle';
 import { usePaymentFormLightAppearance } from './usePaymentFormLightAppearance';
 import { paymentMethodIdFromSetupIntent } from '../../lib/walletPaymentMethodFinalize';
-import {
-  WALLET_BILLING_COUNTRIES,
-  billingCountryLabel,
-} from './walletPaymentSetupCountries';
-import { WalletNativePayButton } from './WalletNativePayButton';
 import { walletPaymentSetupStyles as ps } from './walletPaymentSetupStyles';
 import {
   catalogEntryIcon,
   liveAcceptedWalletMethods,
   LIVE_PREMIUM_WALLET_TITLE,
 } from '../../lib/livePremiumWallet';
+
+const STRIPE_MERCHANT_IDENTIFIER = 'merchant.com.getvaulted.app';
+const STRIPE_URL_SCHEME = 'getvaulted';
+/** Matches app.json @stripe/stripe-react-native enableGooglePay. */
+const NATIVE_GOOGLE_PAY_ENABLED = false;
+
+/** CardForm inside a React Native Modal crashes on Android — use Stripe Payment Sheet instead. */
+function useAndroidPaymentSheetForCard(): boolean {
+  return Platform.OS === 'android';
+}
+
+const PAYMENT_SETUP_SUBTITLE = "You won't be charged until you win or buy.";
 
 type Props = {
   visible: boolean;
@@ -59,14 +65,18 @@ type Props = {
   embedded?: boolean;
 };
 
-/** Fixed header + scrollable body + sticky footer; single KeyboardAvoidingView (no manual keyboard inset). */
+/** Fixed header + scrollable body + sticky footer. */
 function PaymentSetupScreenShell({
-  onClose,
+  onBack,
+  backIcon = 'chevron-back',
+  title,
   footer,
   children,
   keyboardAware = true,
 }: {
-  onClose: () => void;
+  onBack: () => void;
+  backIcon?: 'chevron-back' | 'close';
+  title: string;
   footer: ReactNode;
   children: ReactNode;
   keyboardAware?: boolean;
@@ -91,7 +101,7 @@ function PaymentSetupScreenShell({
 
   return (
     <View style={ps.body}>
-      <PaymentSetupHeader onBack={onClose} />
+      <PaymentSetupHeader onBack={onBack} backIcon={backIcon} title={title} />
       {keyboardAware ? (
         <KeyboardAvoidingView
           style={ps.keyboardFrame}
@@ -107,55 +117,58 @@ function PaymentSetupScreenShell({
   );
 }
 
-function PaymentSetupHeader({ onBack }: { onBack: () => void }) {
+function PaymentSetupHeader({
+  onBack,
+  title,
+  backIcon = 'chevron-back',
+}: {
+  onBack: () => void;
+  title: string;
+  backIcon?: 'chevron-back' | 'close';
+}) {
   return (
-    <View style={ps.headerRow}>
-      <Pressable onPress={onBack} hitSlop={12} style={ps.headerSpacer}>
-        <Ionicons name="chevron-back" size={24} color="#18181B" />
-      </Pressable>
-      <LiveRoomText style={ps.headerTitle}>Add Payment Method</LiveRoomText>
-      <View style={ps.headerSpacer} />
+    <View style={ps.headerBlock}>
+      <View style={ps.headerRowDark}>
+        <Pressable onPress={onBack} hitSlop={12} style={ps.headerBackBtn}>
+          <Ionicons
+            name={backIcon}
+            size={backIcon === 'close' ? 22 : 24}
+            color="rgba(255,255,255,0.75)"
+          />
+        </Pressable>
+        <LiveRoomText style={ps.headerTitleDark}>{title}</LiveRoomText>
+        <View style={ps.headerSpacer} />
+      </View>
+      <LiveRoomText style={ps.headerSubtitle}>{PAYMENT_SETUP_SUBTITLE}</LiveRoomText>
     </View>
   );
 }
 
-function CountryPickerModal({
-  visible,
-  selectedCode,
-  onSelect,
-  onClose,
-}: {
-  visible: boolean;
-  selectedCode: string;
-  onSelect: (code: string) => void;
-  onClose: () => void;
-}) {
+function TrustCopyBlock() {
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={ps.countryPickerBackdrop} onPress={onClose}>
-        <Pressable style={ps.countryPickerSheet} onPress={() => undefined}>
-          <LiveRoomText style={ps.countryPickerTitle}>Country / region</LiveRoomText>
-          <ScrollView keyboardShouldPersistTaps="handled">
-            {WALLET_BILLING_COUNTRIES.map((country) => (
-              <Pressable
-                key={country.code}
-                style={[
-                  ps.countryOption,
-                  country.code === selectedCode && ps.countryOptionSelected,
-                ]}
-                onPress={() => {
-                  onSelect(country.code);
-                  onClose();
-                }}
-              >
-                <LiveRoomText style={ps.countryOptionText}>{country.label}</LiveRoomText>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </Pressable>
-      </Pressable>
-    </Modal>
+    <View style={ps.trustBlock}>
+      <View style={ps.trustRow}>
+        <Ionicons name="shield-checkmark-outline" size={18} color={colors.gold} />
+        <LiveRoomText style={ps.trustTitle}>Saved securely with Stripe</LiveRoomText>
+      </View>
+      <LiveRoomText style={ps.trustBody}>
+        Used for live bids, marketplace checkout, and auction wins.
+      </LiveRoomText>
+    </View>
   );
+}
+
+function methodPickerSubtitle(entryId: string): string {
+  switch (entryId) {
+    case 'apple_pay':
+      return 'One-tap checkout on this device';
+    case 'google_pay':
+      return 'One-tap checkout on this device';
+    case 'card':
+      return 'Visa, Mastercard, Amex, and more';
+    default:
+      return 'Instant checkout for live & marketplace';
+  }
 }
 
 function LivePaymentMethodPicker({
@@ -176,314 +189,150 @@ function LivePaymentMethodPicker({
     amazonPay: payload.amazonPayEnabled === true,
     paypal: false,
   };
-  const methods = liveAcceptedWalletMethods(platform, capabilities).filter(
-    (entry) => entry.id !== 'cash_app_pay' && entry.id !== 'amazon_pay' && entry.id !== 'link',
-  );
+  const methods = liveAcceptedWalletMethods(platform, capabilities)
+    .filter((entry) => {
+      if (entry.id === 'cash_app_pay' || entry.id === 'amazon_pay' || entry.id === 'link') return false;
+      if (entry.id === 'google_pay' && platform === 'android' && !NATIVE_GOOGLE_PAY_ENABLED) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (a.id === 'apple_pay' || a.id === 'google_pay') return -1;
+      if (b.id === 'apple_pay' || b.id === 'google_pay') return 1;
+      return 0;
+    });
 
   return (
     <View style={ps.body}>
-      <View style={ps.headerRowDark}>
-        <Pressable onPress={onClose} hitSlop={12} style={ps.headerSpacer}>
-          <Ionicons name="close" size={24} color="rgba(255,255,255,0.65)" />
-        </Pressable>
-        <LiveRoomText style={ps.headerTitleDark}>Add payment method</LiveRoomText>
-        <View style={ps.headerSpacer} />
-      </View>
-      <LiveRoomText style={ps.pickerSubtitle}>
-        You won&apos;t be charged until you win or buy on {LIVE_PREMIUM_WALLET_TITLE}.
-      </LiveRoomText>
-      <ScrollView style={ps.pickerList} showsVerticalScrollIndicator={false}>
-        {methods.map((entry, idx) => {
-          const isLast = idx === methods.length - 1;
+      <PaymentSetupHeader onBack={onClose} backIcon="close" title="Add payment method" />
+      <ScrollView
+        contentContainerStyle={ps.pickerScrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <LiveRoomText style={ps.sectionLabel}>Choose a method</LiveRoomText>
+        {methods.map((entry) => {
           const onPress =
             entry.id === 'card'
               ? onPickCard
               : entry.id === 'apple_pay' || entry.id === 'google_pay'
                 ? onPickWallet
                 : onPickWallet;
+          const showFastestBadge =
+            (entry.id === 'apple_pay' && platform === 'ios' && payload.applePayEnabled !== false) ||
+            (entry.id === 'google_pay' && platform === 'android' && NATIVE_GOOGLE_PAY_ENABLED);
           return (
             <Pressable
               key={entry.id}
-              style={[ps.pickerRow, isLast && ps.pickerRowLast]}
+              style={({ pressed }) => [ps.methodCard, pressed && ps.methodCardPressed]}
               onPress={onPress}
             >
-              <View style={ps.pickerIconWrap}>
-                <Ionicons name={catalogEntryIcon(entry.id)} size={22} color="#fff" />
+              <View style={ps.methodIconWrap}>
+                <Ionicons name={catalogEntryIcon(entry.id)} size={22} color={colors.gold} />
               </View>
-              <LiveRoomText style={ps.pickerRowTitle}>{entry.label}</LiveRoomText>
-              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.35)" />
+              <View style={ps.methodTextBlock}>
+                <LiveRoomText style={ps.methodTitle}>{entry.label}</LiveRoomText>
+                <LiveRoomText style={ps.methodSub}>{methodPickerSubtitle(entry.id)}</LiveRoomText>
+              </View>
+              {showFastestBadge ? (
+                <View style={ps.methodBadge}>
+                  <LiveRoomText style={ps.methodBadgeText}>Fastest</LiveRoomText>
+                </View>
+              ) : null}
+              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.28)" />
             </Pressable>
           );
         })}
+        <TrustCopyBlock />
       </ScrollView>
     </View>
-  );
-}
-
-function SupportedMethods({
-  applePayEnabled,
-  googlePayEnabled,
-  linkEnabled,
-  cashAppPayEnabled,
-  amazonPayEnabled,
-  paypalEnabled,
-}: {
-  applePayEnabled: boolean;
-  googlePayEnabled: boolean;
-  linkEnabled: boolean;
-  cashAppPayEnabled: boolean;
-  amazonPayEnabled: boolean;
-  paypalEnabled: boolean;
-}) {
-  return (
-    <View style={ps.sectionCard}>
-      <View style={ps.methodRow}>
-        <View style={ps.methodIconWrap}>
-          <Ionicons name="card-outline" size={22} color="#18181B" />
-        </View>
-        <View style={ps.methodTextBlock}>
-          <LiveRoomText style={ps.methodTitle}>Debit or credit card</LiveRoomText>
-          <LiveRoomText style={ps.methodSub}>Visa, Mastercard, Amex, and more</LiveRoomText>
-        </View>
-      </View>
-      {Platform.OS === 'ios' && applePayEnabled ? (
-        <View style={ps.methodRow}>
-          <View style={ps.methodIconWrap}>
-            <Ionicons name="logo-apple" size={22} color="#18181B" />
-          </View>
-          <View style={ps.methodTextBlock}>
-            <LiveRoomText style={ps.methodTitle}>Apple Pay</LiveRoomText>
-            <LiveRoomText style={ps.methodSub}>When available on your device</LiveRoomText>
-          </View>
-        </View>
-      ) : null}
-      {Platform.OS === 'android' && googlePayEnabled ? (
-        <View style={ps.methodRow}>
-          <View style={ps.methodIconWrap}>
-            <Ionicons name="logo-google" size={22} color="#18181B" />
-          </View>
-          <View style={ps.methodTextBlock}>
-            <LiveRoomText style={ps.methodTitle}>Google Pay</LiveRoomText>
-            <LiveRoomText style={ps.methodSub}>When available on your device</LiveRoomText>
-          </View>
-        </View>
-      ) : null}
-      {linkEnabled ? (
-        <View style={ps.methodRow}>
-          <View style={ps.methodIconWrap}>
-            <Ionicons name="link-outline" size={22} color="#18181B" />
-          </View>
-          <View style={ps.methodTextBlock}>
-            <LiveRoomText style={ps.methodTitle}>Link by Stripe</LiveRoomText>
-            <LiveRoomText style={ps.methodSub}>Fast checkout with Link</LiveRoomText>
-          </View>
-        </View>
-      ) : null}
-      {cashAppPayEnabled ? (
-        <View style={ps.methodRow}>
-          <View style={ps.methodIconWrap}>
-            <Ionicons name="cash-outline" size={22} color="#18181B" />
-          </View>
-          <View style={ps.methodTextBlock}>
-            <LiveRoomText style={ps.methodTitle}>Cash App Pay</LiveRoomText>
-            <LiveRoomText style={ps.methodSub}>Available for Live, Marketplace, and Trade</LiveRoomText>
-          </View>
-        </View>
-      ) : null}
-      {amazonPayEnabled ? (
-        <View style={ps.methodRow}>
-          <View style={ps.methodIconWrap}>
-            <Ionicons name="logo-amazon" size={22} color="#18181B" />
-          </View>
-          <View style={ps.methodTextBlock}>
-            <LiveRoomText style={ps.methodTitle}>Amazon Pay</LiveRoomText>
-            <LiveRoomText style={ps.methodSub}>When supported in Stripe checkout</LiveRoomText>
-          </View>
-        </View>
-      ) : null}
-      {paypalEnabled ? (
-        <View style={ps.methodRow}>
-          <View style={ps.methodIconWrap}>
-            <Ionicons name="logo-paypal" size={22} color="#18181B" />
-          </View>
-          <View style={ps.methodTextBlock}>
-            <LiveRoomText style={ps.methodTitle}>PayPal</LiveRoomText>
-            <LiveRoomText style={ps.methodSub}>Via Stripe when enabled in Dashboard</LiveRoomText>
-          </View>
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
-function PaymentSheetLauncher({
-  payload,
-  sheetReady,
-  busy,
-  initError,
-  onClose,
-  onPresent,
-}: {
-  payload: BuyerSetupIntentPayload;
-  sheetReady: boolean;
-  busy: boolean;
-  initError: string | null;
-  onClose: () => void;
-  onPresent: () => void;
-}) {
-  return (
-    <PaymentSetupScreenShell
-      onClose={onClose}
-      keyboardAware={false}
-      footer={
-        <Pressable
-          style={[ps.primaryBtn, (!sheetReady || busy) && ps.primaryBtnDisabled]}
-          onPress={onPresent}
-          disabled={!sheetReady || busy}
-        >
-          {busy || !sheetReady ? (
-            <ActivityIndicator color="#111111" />
-          ) : (
-            <LiveRoomText
-              style={[
-                ps.primaryBtnText,
-                (!sheetReady || busy) && ps.primaryBtnTextDisabled,
-              ]}
-            >
-              Continue with Stripe
-            </LiveRoomText>
-          )}
-        </Pressable>
-      }
-    >
-        <LiveRoomText style={ps.subtitle}>
-          You won&apos;t be charged until you win or buy on live. Saved securely with Stripe for your Vault Wallet.
-        </LiveRoomText>
-      <View style={ps.section}>
-        <LiveRoomText style={ps.sectionTitle}>Add with Apple Pay or Google Pay</LiveRoomText>
-        <WalletNativePayButton
-          publishableKey={payload.publishableKey}
-          onPress={onPresent}
-          appearance="light"
-        />
-      </View>
-      <View style={ps.section}>
-        <LiveRoomText style={ps.sectionTitle}>Supported methods</LiveRoomText>
-        <SupportedMethods
-          applePayEnabled={payload.applePayEnabled !== false}
-          googlePayEnabled={payload.googlePayEnabled !== false}
-          linkEnabled={payload.linkEnabled === true}
-          cashAppPayEnabled={payload.cashAppPayEnabled === true}
-          amazonPayEnabled={payload.amazonPayEnabled === true}
-          paypalEnabled={false}
-        />
-      </View>
-      <LiveRoomText style={ps.scanHint}>
-        Stripe checkout includes card scanning on supported devices. Everything stays in the app — no
-        browser.
-      </LiveRoomText>
-      {initError ? <LiveRoomText style={ps.errorText}>{initError}</LiveRoomText> : null}
-    </PaymentSetupScreenShell>
   );
 }
 
 function ManualCardEntry({
   initError,
   busy,
-  onClose,
+  saveSuccess,
+  onBack,
   onSave,
   stripeNativeReady,
 }: {
   initError: string | null;
   busy: boolean;
-  onClose: () => void;
+  saveSuccess: boolean;
+  onBack: () => void;
   onSave: () => void;
   stripeNativeReady: boolean;
 }) {
   const [cardComplete, setCardComplete] = useState(false);
-  const [billingCountry, setBillingCountry] = useState('US');
-  const [countryPickerOpen, setCountryPickerOpen] = useState(false);
+  const canSave = cardComplete && !busy && !saveSuccess;
 
   return (
-    <>
-      <PaymentSetupScreenShell
-        onClose={onClose}
-        footer={
-          <Pressable
-            style={[ps.primaryBtn, (!cardComplete || busy) && ps.primaryBtnDisabled]}
-            onPress={onSave}
-            disabled={!cardComplete || busy}
-          >
-            {busy ? (
-              <ActivityIndicator color="#111111" />
-            ) : (
-              <LiveRoomText
-                style={[
-                  ps.primaryBtnText,
-                  (!cardComplete || busy) && ps.primaryBtnTextDisabled,
-                ]}
-              >
-                Save payment method
+    <PaymentSetupScreenShell
+      onBack={onBack}
+      title="Add card"
+      footer={
+        <Pressable
+          style={[
+            ps.primaryBtn,
+            saveSuccess && ps.primaryBtnSuccess,
+            !canSave && !saveSuccess && ps.primaryBtnDisabled,
+          ]}
+          onPress={onSave}
+          disabled={!canSave}
+        >
+          {busy ? (
+            <>
+              <ActivityIndicator color="#111111" size="small" />
+              <LiveRoomText style={ps.primaryBtnText}>Saving…</LiveRoomText>
+            </>
+          ) : saveSuccess ? (
+            <>
+              <Ionicons name="checkmark-circle" size={20} color="#6ee7b7" />
+              <LiveRoomText style={[ps.primaryBtnText, ps.primaryBtnTextSuccess]}>
+                Card added successfully
               </LiveRoomText>
-            )}
-          </Pressable>
-        }
-      >
-        <LiveRoomText style={ps.subtitle}>
-          Cards are saved securely with Stripe for live bids and auction wins.
-        </LiveRoomText>
-        {initError ? <LiveRoomText style={ps.errorText}>{initError}</LiveRoomText> : null}
+            </>
+          ) : (
+            <LiveRoomText
+              style={[ps.primaryBtnText, !canSave && ps.primaryBtnTextDisabled]}
+            >
+              Save card
+            </LiveRoomText>
+          )}
+        </Pressable>
+      }
+    >
+      {saveSuccess ? (
+        <View style={ps.successBanner}>
+          <Ionicons name="checkmark-circle" size={22} color="#6ee7b7" />
+          <LiveRoomText style={ps.successBannerText}>Card added successfully</LiveRoomText>
+        </View>
+      ) : null}
 
-        <View style={ps.section}>
-          <LiveRoomText style={ps.sectionTitle}>Card information</LiveRoomText>
-          <View style={ps.cardFormWrap}>
+      <View style={ps.cardEntrySection}>
+        <LiveRoomText style={ps.sectionLabel}>Card details</LiveRoomText>
+        <View style={ps.stripeCardShell}>
+          <View style={ps.stripeCardInner}>
             {stripeNativeReady ? (
               <CardForm
-                key={billingCountry}
                 autofocus={false}
                 placeholders={WALLET_CARD_FIELD_PLACEHOLDERS}
                 cardStyle={WALLET_CARD_FORM_STYLE}
-                defaultValues={{ countryCode: billingCountry }}
+                defaultValues={{ countryCode: 'US' }}
                 style={ps.cardForm}
                 onFormComplete={(details) => setCardComplete(details.complete)}
               />
             ) : (
-              <View style={[ps.cardForm, ps.cardFormLoading]}>
+              <View style={ps.cardFormLoading}>
                 <ActivityIndicator color="#71717A" />
               </View>
             )}
           </View>
-          <LiveRoomText style={ps.hintText}>
-            Enter card number on the first row, expiry and CVC on the second, billing ZIP below.
-          </LiveRoomText>
         </View>
+        {initError ? <LiveRoomText style={ps.errorText}>{initError}</LiveRoomText> : null}
+      </View>
 
-        <View style={ps.section}>
-          <LiveRoomText style={ps.sectionTitle}>Billing</LiveRoomText>
-          <View style={ps.sectionCard}>
-            <LiveRoomText style={ps.fieldLabel}>Country / region</LiveRoomText>
-            <Pressable style={ps.fieldRow} onPress={() => setCountryPickerOpen(true)}>
-              <LiveRoomText style={ps.fieldValue}>{billingCountryLabel(billingCountry)}</LiveRoomText>
-              <Ionicons name="chevron-down" size={18} color="#71717A" />
-            </Pressable>
-            <View style={ps.switchRow}>
-              <View style={{ flex: 1, gap: 2 }}>
-                <LiveRoomText style={ps.switchLabel}>Use shipping address</LiveRoomText>
-                <LiveRoomText style={ps.switchHint}>Coming soon</LiveRoomText>
-              </View>
-              <Switch value={false} disabled trackColor={{ true: colors.gold, false: '#E4E4E7' }} />
-            </View>
-          </View>
-        </View>
-      </PaymentSetupScreenShell>
-
-      <CountryPickerModal
-        visible={countryPickerOpen}
-        selectedCode={billingCountry}
-        onSelect={setBillingCountry}
-        onClose={() => setCountryPickerOpen(false)}
-      />
-    </>
+      <TrustCopyBlock />
+    </PaymentSetupScreenShell>
   );
 }
 
@@ -502,15 +351,54 @@ function WalletPaymentSetupInner({
   stripeNativeReady: boolean;
   startWith?: 'picker' | 'card' | 'wallet';
 }) {
-  const { confirmSetupIntent, retrieveSetupIntent } = useStripe();
+  const androidPaymentSheet = useAndroidPaymentSheetForCard();
+  const { confirmSetupIntent, retrieveSetupIntent, initPaymentSheet, presentPaymentSheet } = useStripe();
   const { confirmPlatformPaySetupIntent } = usePlatformPay();
-  const [useManualCard, setUseManualCard] = useState(startWith === 'card');
-  const [showPicker, setShowPicker] = useState(startWith === 'picker');
+  const [useManualCard, setUseManualCard] = useState(startWith === 'card' && !androidPaymentSheet);
+  const [showPicker, setShowPicker] = useState(
+    startWith === 'picker' || (startWith === 'wallet' && androidPaymentSheet && !NATIVE_GOOGLE_PAY_ENABLED),
+  );
   const [initError, setInitError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const walletAutoPresentRef = useRef(startWith === 'wallet');
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const saveSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [androidSheetOpening, setAndroidSheetOpening] = useState(
+    startWith === 'card' && androidPaymentSheet,
+  );
+  const walletAutoPresentRef = useRef(
+    startWith === 'wallet' && !(androidPaymentSheet && !NATIVE_GOOGLE_PAY_ENABLED),
+  );
+  const androidCardSheetAutoRef = useRef(startWith === 'card' && androidPaymentSheet);
 
-  const completeSavedPaymentMethod = useCallback(async (paymentMethodId?: string | null) => {
+  useEffect(() => {
+    return () => {
+      if (saveSuccessTimerRef.current) clearTimeout(saveSuccessTimerRef.current);
+    };
+  }, []);
+
+  const finishSaved = useCallback(
+    (paymentMethodId: string) => {
+      setSaveSuccess(true);
+      if (saveSuccessTimerRef.current) clearTimeout(saveSuccessTimerRef.current);
+      saveSuccessTimerRef.current = setTimeout(() => {
+        onSaved(paymentMethodId);
+      }, 1400);
+    },
+    [onSaved],
+  );
+
+  const backToPicker = useCallback(() => {
+    if (saveSuccessTimerRef.current) clearTimeout(saveSuccessTimerRef.current);
+    setSaveSuccess(false);
+    setUseManualCard(false);
+    setShowPicker(true);
+    setInitError(null);
+  }, []);
+
+  const completeSavedPaymentMethod = useCallback(async (
+    paymentMethodId?: string | null,
+    options?: { animateSuccess?: boolean },
+  ) => {
     if (!accessToken?.trim()) {
       setInitError('Sign in to save your payment method.');
       console.log('[wallet] finalize payment method fail (no access token)');
@@ -543,8 +431,55 @@ function WalletPaymentSetupInner({
       console.log('[wallet] finalize payment method fail (missing paymentMethodId)');
       return;
     }
+    if (options?.animateSuccess) {
+      finishSaved(finalizedPaymentMethodId);
+      return;
+    }
     onSaved(finalizedPaymentMethodId);
-  }, [accessToken, onSaved, payload.clientSecret]);
+  }, [accessToken, finishSaved, onSaved, payload.clientSecret]);
+
+  const presentAndroidPaymentSheet = useCallback(async (): Promise<'saved' | 'cancelled' | 'failed'> => {
+    if (busy) return 'failed';
+    setBusy(true);
+    setInitError(null);
+    setAndroidSheetOpening(true);
+    try {
+      const { error: initSheetError } = await initPaymentSheet({
+        merchantDisplayName: LIVE_PREMIUM_WALLET_TITLE,
+        setupIntentClientSecret: payload.clientSecret,
+        returnURL: `${STRIPE_URL_SCHEME}://stripe-redirect`,
+        allowsDelayedPaymentMethods: false,
+      });
+      if (initSheetError) {
+        setInitError(mapLivePaymentFailureMessage(initSheetError.message, initSheetError.code));
+        return 'failed';
+      }
+      const { error: presentError } = await presentPaymentSheet();
+      if (presentError) {
+        if (presentError.code === 'Canceled') return 'cancelled';
+        setInitError(mapLivePaymentFailureMessage(presentError.message, presentError.code));
+        return 'failed';
+      }
+      const retrieved = await retrieveSetupIntent(payload.clientSecret);
+      if (retrieved.error) {
+        setInitError(mapLivePaymentFailureMessage(retrieved.error.message, retrieved.error.code));
+        return 'failed';
+      }
+      const paymentMethodId = paymentMethodIdFromSetupIntent(retrieved.setupIntent);
+      await completeSavedPaymentMethod(paymentMethodId);
+      return 'saved';
+    } finally {
+      setBusy(false);
+      setAndroidSheetOpening(false);
+    }
+  }, [
+    busy,
+    completeSavedPaymentMethod,
+    initPaymentSheet,
+    payload.clientSecret,
+    presentPaymentSheet,
+    retrieveSetupIntent,
+  ]);
 
   const confirmNativeWalletSetup = useCallback(async (): Promise<
     { outcome: 'saved'; paymentMethodId: string } | { outcome: 'cancelled' | 'failed' }
@@ -569,7 +504,9 @@ function WalletPaymentSetupInner({
               }
             : undefined,
         googlePay:
-          Platform.OS === 'android' && payload.googlePayEnabled !== false
+          Platform.OS === 'android' &&
+          NATIVE_GOOGLE_PAY_ENABLED &&
+          payload.googlePayEnabled !== false
             ? {
                 merchantCountryCode: payload.merchantCountryCode ?? 'US',
                 currencyCode: 'USD',
@@ -603,10 +540,25 @@ function WalletPaymentSetupInner({
   useEffect(() => {
     setInitError(null);
     setBusy(false);
-    setUseManualCard(startWith === 'card');
-    setShowPicker(startWith === 'picker');
-    walletAutoPresentRef.current = startWith === 'wallet';
-  }, [payload.clientSecret, startWith]);
+    setSaveSuccess(false);
+    if (saveSuccessTimerRef.current) clearTimeout(saveSuccessTimerRef.current);
+    setUseManualCard(startWith === 'card' && !androidPaymentSheet);
+    const walletUnavailableOnAndroid = androidPaymentSheet && !NATIVE_GOOGLE_PAY_ENABLED;
+    setShowPicker(startWith === 'picker' || (startWith === 'wallet' && walletUnavailableOnAndroid));
+    setAndroidSheetOpening(startWith === 'card' && androidPaymentSheet);
+    walletAutoPresentRef.current = startWith === 'wallet' && !walletUnavailableOnAndroid;
+    androidCardSheetAutoRef.current = startWith === 'card' && androidPaymentSheet;
+  }, [androidPaymentSheet, payload.clientSecret, startWith]);
+
+  useEffect(() => {
+    if (!androidCardSheetAutoRef.current || busy) return;
+    androidCardSheetAutoRef.current = false;
+    void (async () => {
+      const result = await presentAndroidPaymentSheet();
+      if (result === 'cancelled') onClose();
+      if (result === 'failed') setShowPicker(true);
+    })();
+  }, [busy, onClose, presentAndroidPaymentSheet]);
 
   useEffect(() => {
     if (!walletAutoPresentRef.current || busy || useManualCard || showPicker) return;
@@ -643,8 +595,16 @@ function WalletPaymentSetupInner({
   const openManualCard = useCallback(() => {
     setInitError(null);
     setShowPicker(false);
+    if (androidPaymentSheet) {
+      void (async () => {
+        const result = await presentAndroidPaymentSheet();
+        if (result === 'cancelled') setShowPicker(true);
+        if (result === 'failed') setShowPicker(true);
+      })();
+      return;
+    }
     setUseManualCard(true);
-  }, []);
+  }, [androidPaymentSheet, presentAndroidPaymentSheet]);
 
   const saveManualCard = async () => {
     if (busy) return;
@@ -663,7 +623,7 @@ function WalletPaymentSetupInner({
         return;
       }
       const paymentMethodId = paymentMethodIdFromSetupIntent(retrieved.setupIntent);
-      await completeSavedPaymentMethod(paymentMethodId);
+      await completeSavedPaymentMethod(paymentMethodId, { animateSuccess: true });
     } finally {
       setBusy(false);
     }
@@ -674,7 +634,8 @@ function WalletPaymentSetupInner({
       <ManualCardEntry
         initError={initError}
         busy={busy}
-        onClose={onClose}
+        saveSuccess={saveSuccess}
+        onBack={backToPicker}
         onSave={() => void saveManualCard()}
         stripeNativeReady={stripeNativeReady}
       />
@@ -696,7 +657,9 @@ function WalletPaymentSetupInner({
     return (
       <View style={ps.loadingBlock}>
         <ActivityIndicator color={colors.gold} size="large" />
-        <LiveRoomText style={ps.loadingText}>Opening Apple Pay…</LiveRoomText>
+        <LiveRoomText style={ps.loadingText}>
+          {androidSheetOpening ? 'Opening secure payment…' : 'Opening Apple Pay…'}
+        </LiveRoomText>
       </View>
     );
   }
@@ -707,7 +670,7 @@ function WalletPaymentSetupInner({
 function PaymentSetupLoader({ onClose }: { onClose: () => void }) {
   return (
     <View style={ps.body}>
-      <PaymentSetupHeader onBack={onClose} />
+      <PaymentSetupHeader onBack={onClose} backIcon="close" title="Add payment method" />
       <View style={ps.loadingBlock}>
         <ActivityIndicator color={colors.gold} size="large" />
         <LiveRoomText style={ps.loadingText}>Preparing secure payment…</LiveRoomText>
@@ -715,9 +678,6 @@ function PaymentSetupLoader({ onClose }: { onClose: () => void }) {
     </View>
   );
 }
-
-const STRIPE_MERCHANT_IDENTIFIER = 'merchant.com.getvaulted.app';
-const STRIPE_URL_SCHEME = 'getvaulted';
 
 function WalletPaymentSetupBody({
   active,
@@ -774,10 +734,12 @@ function WalletPaymentSetupBody({
           <PaymentSetupLoader onClose={onClose} />
         ) : error || !payload ? (
           <View style={ps.body}>
-            <PaymentSetupHeader onBack={onClose} />
-            <View style={ps.scrollContent}>
+            <PaymentSetupHeader onBack={onClose} backIcon="close" title="Add payment method" />
+            <View style={ps.errorStateBlock}>
+              <Ionicons name="alert-circle-outline" size={36} color="#fca5a5" />
+              <LiveRoomText style={ps.errorStateTitle}>Could not start card setup</LiveRoomText>
               <LiveRoomText style={ps.errorText}>
-                {error ?? 'Could not start card setup.'}
+                {error ?? 'Something went wrong. Try again in a moment.'}
               </LiveRoomText>
             </View>
           </View>
