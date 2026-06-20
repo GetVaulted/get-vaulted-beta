@@ -571,6 +571,15 @@ export function LiveAuctionRoom({
     !breakDisclaimerAccepted ||
     (!isHost && isLive && !buyerLiveWalletReady);
 
+  /** PYT checkout sheet — open even when wallet still needs setup (sheet + wallet hint handle that). */
+  const variantPickerDisabled =
+    !isLive ||
+    staffCommerceBlocked ||
+    busy ||
+    sessionBlocksBuyer ||
+    buyerClaimsBlocked ||
+    (activeVariantSpots?.available ?? 0) <= 0;
+
   const handleTeamPick = useCallback(
     async (teamAbbr: string) => {
       if (!breakDisclaimerAccepted && !isHost) {
@@ -914,7 +923,7 @@ export function LiveAuctionRoom({
             <button
               data-testid="live-bid-button"
               type="button"
-              disabled={actionsDisabled || (activeVariantSpots?.available ?? 0) <= 0}
+              disabled={variantPickerDisabled}
               onClick={() => setVariantSheetOpen(true)}
               className="min-h-10 min-w-[170px] rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-4 text-[11px] font-black uppercase tracking-wide text-zinc-950 shadow-[0_0_22px_-8px_rgba(212,175,55,0.55)] transition-[transform,opacity,filter] duration-[var(--live-duration-ui)] ease-[var(--live-ease)] active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-40"
             >
@@ -965,7 +974,7 @@ export function LiveAuctionRoom({
         <p className="mt-2 text-[10px] text-amber-200/90">Auction has not started yet</p>
       ) : null}
       <LiveBuyerWalletGateHint
-        hide={isHost || !isLive || activeHasVariants}
+        hide={isHost || !isLive || (activeHasVariants ? buyerLiveWalletReady : false)}
         paymentReady={payReady}
         shippingReady={shipReady}
       />
@@ -1151,7 +1160,7 @@ export function LiveAuctionRoom({
       {pytCommerceLive && activeDbItem ? (
         <button
           type="button"
-          disabled={actionsDisabled || (activeVariantSpots?.available ?? 0) <= 0}
+          disabled={variantPickerDisabled}
           onClick={() => setVariantSheetOpen(true)}
           className="mt-2 min-h-10 w-full rounded-full bg-gradient-to-r from-gold to-gold-bright text-[10px] font-black uppercase tracking-wide text-zinc-950 disabled:opacity-40 md:min-h-11 md:text-[11px]"
         >
@@ -1195,7 +1204,7 @@ export function LiveAuctionRoom({
           </button>
         </div>
       ) : null}
-      {overlayIsLive ? null : overlayTimerEndedUnsettled ? (
+      {pytCommerceLive ? null : overlayIsLive ? null : overlayTimerEndedUnsettled ? (
         <button
           type="button"
           disabled

@@ -496,22 +496,29 @@ export function LiveSaleRoom({
     roomType === "auction" && isLive && activeLotBidPhase === "timer_ended_unsettled";
   const guestNeedsAuth = status === "unauthenticated" && !isHost && isLive;
   const sessionBlocksBuyer = (status === "unauthenticated" || status === "loading") && !isHost && isLive;
+  const activeHasVariants = Boolean(
+    activeDb && isVariantSalesFormat(activeDb.salesFormat) && (activeDb.variants?.length ?? 0) > 0,
+  );
+  const activeVariantSpots = activeHasVariants ? summarizeVariantSpots(activeDb?.variants) : null;
+  const variantSelectLabel = variantBuyerSelectLabel(activeDb?.salesFormat);
   const actionsDisabled =
     !isLive ||
     staffCommerceBlocked ||
     busy ||
     bidFlight ||
     sessionBlocksBuyer ||
-    ((roomType === "auction" || roomType === "sale") && !isHost && isLive && !buyerLiveWalletReady);
+    ((roomType === "auction" || roomType === "sale") && !isHost && isLive && !buyerLiveWalletReady && !activeHasVariants);
+  const variantPickerDisabled =
+    !isLive ||
+    staffCommerceBlocked ||
+    busy ||
+    sessionBlocksBuyer ||
+    activeDb?.status !== "active" ||
+    (activeVariantSpots?.available ?? 0) <= 0;
   const buyerAuctionBidBlocked =
     roomType === "auction" && !isHost && isLive && activeLotBidPhase !== "bidding_open";
   const activeSaleMissingListing =
     roomType === "sale" && activeDb?.status === "active" && !activeDb.listingId;
-  const activeHasVariants = Boolean(
-    activeDb && isVariantSalesFormat(activeDb.salesFormat) && (activeDb.variants?.length ?? 0) > 0,
-  );
-  const activeVariantSpots = activeHasVariants ? summarizeVariantSpots(activeDb?.variants) : null;
-  const variantSelectLabel = variantBuyerSelectLabel(activeDb?.salesFormat);
 
   const redirectSignIn = (returnPath: string) => {
     router.push(`/signin?returnTo=${encodeURIComponent(returnPath)}`);
@@ -862,7 +869,7 @@ export function LiveSaleRoom({
         {roomType === "sale" && activeHasVariants ? (
           <button
             type="button"
-            disabled={actionsDisabled || activeDb?.status !== "active" || (activeVariantSpots?.available ?? 0) <= 0}
+            disabled={variantPickerDisabled}
             onClick={() => setVariantSheetOpen(true)}
             className="flex-1 min-h-10 rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-3 py-2.5 text-[11px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100"
           >
@@ -886,7 +893,7 @@ export function LiveSaleRoom({
         </p>
       ) : null}
       <LiveBuyerWalletGateHint
-        hide={isHost || !isLive || (roomType !== "auction" && roomType !== "sale") || activeHasVariants}
+        hide={isHost || !isLive || (activeHasVariants ? buyerLiveWalletReady : false)}
         paymentReady={payReady}
         shippingReady={shipReady}
       />
@@ -1104,7 +1111,7 @@ export function LiveSaleRoom({
       {roomType === "sale" && activeHasVariants ? (
         <button
           type="button"
-          disabled={actionsDisabled || activeDb?.status !== "active" || (activeVariantSpots?.available ?? 0) <= 0}
+          disabled={variantPickerDisabled}
           onClick={() => setVariantSheetOpen(true)}
           className="mt-2 min-h-10 w-full rounded-full bg-gradient-to-r from-gold to-gold-bright text-[10px] font-black uppercase tracking-wide text-zinc-950 transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] disabled:opacity-40 motion-reduce:active:scale-100 md:min-h-11 md:text-[11px]"
         >

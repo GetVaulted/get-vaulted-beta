@@ -76,6 +76,15 @@ export function HoldToBuyButton({
     }, HOLD_MS);
   }, [busy, disabled, onCommit, onHoldStart, tick]);
 
+  const onFinePointerClick = useCallback(() => {
+    if (disabled || busy) return;
+    if (typeof window !== "undefined" && window.matchMedia("(pointer: fine)").matches) {
+      const allowed = onHoldStart?.();
+      if (allowed === false) return;
+      onCommit();
+    }
+  }, [busy, disabled, onCommit, onHoldStart]);
+
   return (
     <button
       type="button"
@@ -85,6 +94,7 @@ export function HoldToBuyButton({
       onMouseLeave={clearHold}
       onTouchStart={beginHold}
       onTouchEnd={clearHold}
+      onClick={onFinePointerClick}
       className={`relative min-h-12 w-full overflow-hidden rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 text-sm font-black uppercase tracking-wide text-zinc-950 disabled:opacity-45 ${className}`}
     >
       <span

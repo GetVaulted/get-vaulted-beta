@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useStripe } from '@stripe/stripe-react-native';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { useEffect, useMemo, useState } from 'react';
@@ -11,8 +12,13 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LiveItemVariantSnapshot } from '../../api/liveRoomBuyerRepository';
-import { purchaseLiveItemVariant } from '../../api/liveVariantPurchaseRepository';
+import { fetchLiveBuyerPaymentSession } from '../../api/liveBuyerPaymentRepository';
+import {
+  purchaseLiveItemVariant,
+  syncLiveItemVariantPurchase,
+} from '../../api/liveVariantPurchaseRepository';
 import { isWalletIncompleteError } from '../../lib/buyerWalletErrors';
+import { mapLivePaymentFailureMessage } from '../../lib/livePaymentFailureCopy';
 import {
   sortVariantsForBuyerDisplay,
   summarizeVariantSpots,
@@ -65,6 +71,7 @@ export function LiveBreakSpotGridSheet({
   onPurchased,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { confirmPayment } = useStripe();
   const isDivisionBreak = salesFormat === 'team_break';
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
@@ -133,15 +140,24 @@ export function LiveBreakSpotGridSheet({
     setBusy(true);
     setError(null);
     try {
+      const paymentSession = accessToken?.trim()
+        ? await fetchLiveBuyerPaymentSession(accessToken, roomId)
+        : null;
       const res = await purchaseLiveItemVariant({
         accessToken,
         liveRoomId: roomId,
         itemId,
         variantId: selected.id,
         quantity,
+        paymentMethodId: paymentSession?.activePaymentMethodId ?? undefined,
       });
       if (!res.ok) {
-        setError(res.paymentFailed ? `${res.error} Spot was not sold.` : res.error);
+        setError(
+          mapLivePaymentFailureMessage(
+            res.error,
+            res.code,
+          ) + (res.paymentFailed ? ' Spot was not sold.' : ''),
+        );
         return;
       }
       if ('paid' in res) {
@@ -155,7 +171,33 @@ export function LiveBreakSpotGridSheet({
         return;
       }
       if ('requiresAction' in res) {
-        setError('Complete payment verification in your Wallet, then try again.');
+        const conf = await confirmPayment(res.clientSecret, { paymentMethodType: 'Card' });
+        if (conf.error) {
+          setError(mapLivePaymentFailureMessage(conf.error.message, conf.error.code));
+          return;
+        }
+        const synced = await syncLiveItemVariantPurchase({
+          accessToken,
+          liveRoomId: roomId,
+          itemId,
+          variantId: selected.id,
+          purchaseId: res.purchaseId,
+        });
+        if (synced.ok && 'paid' in synced) {
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+          onPurchased();
+          setSelectedId(null);
+          setQuantity(1);
+          if (spotSummary.available <= quantity) {
+            onClose();
+          }
+          return;
+        }
+        setError(
+          !synced.ok
+            ? mapLivePaymentFailureMessage(synced.error, synced.code)
+            : 'Payment is still processing — pull to refresh the room.',
+        );
         return;
       }
       if ('processing' in res) {
@@ -248,25 +290,36 @@ export function LiveBreakSpotGridSheet({
             <View style={styles.pickerSection}>
               <LiveRoomText style={styles.pickerTitle}>{pickerTitle}</LiveRoomText>
               <LiveRoomText style={styles.pickerHint}>
-                {selected
-                  ? `Confirm ${isDivisionBreak ? 'division' : 'team'} and hold to buy below`
-                  : `Tap ${isDivisionBreak ? 'a division' : 'a team'} to continue`}
+                {isRandom
+                  ? 'Hold to buy — the Vault wheel assigns your team from what’s left'
+                  : selected
+                    ? `Confirm ${isDivisionBreak ? 'division' : 'team'} and hold to buy below`
+                    : `Tap ${isDivisionBreak ? 'a division' : 'a team'} to continue`}
               </LiveRoomText>
-              <View style={styles.pillWrap}>
-                {sortedVariants.map((variant) => (
-                  <TeamPill
-                    key={variant.id}
-                    variant={variant}
-                    selected={selectedId === variant.id}
-                    onSelect={() => {
-                      if (!variantIsAvailable(variant)) return;
-                      void Haptics.selectionAsync().catch(() => {});
-                      setSelectedId(variant.id);
-                      setError(null);
-                    }}
-                  />
-                ))}
-              </View>
+              {isRandom ? (
+                <View style={styles.randomRevealCard}>
+                  <LiveRoomText style={styles.randomRevealKicker}>Vault Reveal</LiveRoomText>
+                  <LiveRoomText style={styles.randomRevealBody}>
+                    {spotSummary.available} {isDivisionBreak ? 'divisions' : 'teams'} left on the wheel
+                  </LiveRoomText>
+                </View>
+              ) : (
+                <View style={styles.pillWrap}>
+                  {sortedVariants.map((variant) => (
+                    <TeamPill
+                      key={variant.id}
+                      variant={variant}
+                      selected={selectedId === variant.id}
+                      onSelect={() => {
+                        if (!variantIsAvailable(variant)) return;
+                        void Haptics.selectionAsync().catch(() => {});
+                        setSelectedId(variant.id);
+                        setError(null);
+                      }}
+                    />
+                  ))}
+                </View>
+              )}
             </View>
 
             <View style={styles.summaryCard}>
@@ -293,7 +346,15 @@ export function LiveBreakSpotGridSheet({
             </View>
             <View style={styles.payCol}>
               <HoldToBidButton
-                label={selected ? `Hold to buy · ${fmtMoney(total)}` : 'Select a spot'}
+                label={
+                  selected
+                    ? isRandom
+                      ? `Hold to buy · wheel reveal · ${fmtMoney(total)}`
+                      : `Hold to buy · ${fmtMoney(total)}`
+                    : isRandom
+                      ? 'Hold to buy'
+                      : 'Select a spot'
+                }
                 disabled={!selected || allSold}
                 busy={busy}
                 onHoldStart={() => {
@@ -554,6 +615,30 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: 'rgba(255,255,255,0.42)',
+  },
+  randomRevealCard: {
+    marginTop: 4,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,190,40,0.25)',
+    backgroundColor: 'rgba(255,190,40,0.08)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  randomRevealKicker: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+    color: 'rgba(255,215,120,0.9)',
+  },
+  randomRevealBody: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#fff',
+    textAlign: 'center',
   },
   pillWrap: {
     flexDirection: 'row',
