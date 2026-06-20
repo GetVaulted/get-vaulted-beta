@@ -6,6 +6,7 @@ import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { colors, radii, spacing } from '../../../theme';
 import { SellerBroadcastControl } from './SellerBroadcastControl';
 import { SellerCameraFlipButton } from './SellerCameraFlipButton';
+import { SellerMicMuteButton } from './SellerMicMuteButton';
 
 const ACTION_MIN_H = 44;
 
@@ -31,6 +32,10 @@ type Props = {
   showCameraFlip?: boolean;
   cameraFlipDisabled?: boolean;
   onFlipCamera?: () => void;
+  showMicMute?: boolean;
+  micMuted?: boolean;
+  micMuteDisabled?: boolean;
+  onToggleMicMute?: () => void;
 };
 
 export function SellerConsoleActionBar({
@@ -55,6 +60,10 @@ export function SellerConsoleActionBar({
   showCameraFlip,
   cameraFlipDisabled,
   onFlipCamera,
+  showMicMute,
+  micMuted = false,
+  micMuteDisabled,
+  onToggleMicMute,
 }: Props) {
   return (
     <View style={[styles.host, { top }]} pointerEvents="box-none">
@@ -129,6 +138,14 @@ export function SellerConsoleActionBar({
           </ScrollView>
 
           <View style={styles.trailing}>
+            {showMicMute && onToggleMicMute ? (
+              <SellerMicMuteButton
+                visible
+                muted={micMuted}
+                disabled={micMuteDisabled}
+                onPress={onToggleMicMute}
+              />
+            ) : null}
             {showCameraFlip && onFlipCamera ? (
               <SellerCameraFlipButton
                 visible

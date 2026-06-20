@@ -8,6 +8,7 @@ import {
   joinStage,
   leaveStage,
   requestPermissions,
+  setMicrophoneMuted,
   setStreamsPublished,
   swapCamera,
 } from 'expo-realtime-ivs-broadcast';
@@ -62,6 +63,7 @@ export function useMobileStagePublish(args: {
   const [permissionState, setPermissionState] = useState<SellerCameraPermissionState>('idle');
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [cameraFacing, setCameraFacing] = useState<SellerCameraFacing>(SELLER_DEFAULT_CAMERA_FACING);
+  const [microphoneMuted, setMicrophoneMutedState] = useState(false);
 
   const cbRef = useRef(args);
   cbRef.current = args;
@@ -99,7 +101,13 @@ export function useMobileStagePublish(args: {
     rearDefaultAppliedRef.current = false;
     setLocalPreviewReady(false);
     setCameraFacing(SELLER_DEFAULT_CAMERA_FACING);
+    setMicrophoneMutedState(false);
     setPermissionState('idle');
+    try {
+      await setMicrophoneMuted(false);
+    } catch {
+      /* ignore */
+    }
   }, [teardownStageConnection]);
 
   const endServerSession = useCallback(async () => {
@@ -198,6 +206,17 @@ export function useMobileStagePublish(args: {
       setError(friendlyPublishError(err));
     }
   }, []);
+
+  const toggleMicrophoneMute = useCallback(async () => {
+    if (!localStreamsReadyRef.current) return;
+    const next = !microphoneMuted;
+    try {
+      await setMicrophoneMuted(next);
+      setMicrophoneMutedState(next);
+    } catch (err) {
+      setError(friendlyPublishError(err));
+    }
+  }, [microphoneMuted]);
 
   const start = useCallback(async () => {
     if (!isStageWebrtcEnabled()) {
@@ -337,6 +356,8 @@ export function useMobileStagePublish(args: {
     resume,
     releaseCamera,
     flipCamera,
+    toggleMicrophoneMute,
+    microphoneMuted,
     retryPreviewPermission,
     isPublishing: phase === 'live' || phase === 'starting' || phase === 'paused',
   };

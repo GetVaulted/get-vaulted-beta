@@ -97,6 +97,8 @@ type HostActions = {
   cameraPermissionRetrying: boolean;
   onRetryCameraPermission: () => void;
   onFlipCamera: () => void;
+  microphoneMuted: boolean;
+  onToggleMicMute: () => void;
   onStartBroadcast: () => void;
   onStopBroadcast: () => void;
   onPauseBroadcast: () => void;
@@ -429,6 +431,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         showCameraFlip={host.stageWebrtcEnabled && host.showCameraPreview}
         cameraFlipDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
         onFlipCamera={host.onFlipCamera}
+        showMicMute={host.stageWebrtcEnabled && host.showCameraPreview}
+        micMuted={host.microphoneMuted}
+        micMuteDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
+        onToggleMicMute={host.onToggleMicMute}
       />
 
       <FloatingLiveChat

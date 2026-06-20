@@ -319,6 +319,10 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     void stagePublish.flipCamera();
   };
 
+  const onToggleMicMute = () => {
+    void stagePublish.toggleMicrophoneMute();
+  };
+
   const serverUrl = ingestEndpoint ?? stream?.ingestEndpoint ?? null;
   const streamKey = oneTimeKey;
 
@@ -406,6 +410,8 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
           cameraPermissionRetrying,
           onRetryCameraPermission: () => void onRetryCameraPermission(),
           onFlipCamera,
+          microphoneMuted: stagePublish.microphoneMuted,
+          onToggleMicMute,
           onStartBroadcast: () => void onStartBroadcast(),
           onStopBroadcast: () => void onStopBroadcast(),
           onPauseBroadcast: () => void onPauseBroadcast(),

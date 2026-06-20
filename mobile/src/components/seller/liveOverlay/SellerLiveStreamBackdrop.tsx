@@ -1,8 +1,7 @@
 import { ActivityIndicator, Animated, Image, Platform, StyleSheet, Text, View } from 'react-native';
 import { useEffect, useRef } from 'react';
-import { OnAirPill } from './OnAirPill';
-import { SellerCameraPermissionGate } from './SellerCameraPermissionGate';
 import { StageHostPreviewVideo } from './StageHostPreviewVideo';
+import { SellerCameraPermissionGate } from './SellerCameraPermissionGate';
 import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
 import type { SellerCameraPermissionState } from '../../../hooks/useMobileStagePublish';
 import { colors } from '../../../theme';
@@ -90,14 +89,12 @@ export function SellerLiveStreamBackdrop({
           />
         </Animated.View>
       ) : null}
-      {roomLive ? (
-        <OnAirPill label={showLiveFeed && streamConnected ? 'LIVE' : 'ON AIR'} liveFeed={showLiveFeed && streamConnected} />
-      ) : useStageCamera && permissionState === 'requesting' ? (
+      {!roomLive && useStageCamera && permissionState === 'requesting' ? (
         <View style={styles.previewLane} pointerEvents="none">
           <ActivityIndicator color={colors.gold} size="small" />
           <Text style={styles.previewTxt}>Starting camera…</Text>
         </View>
-      ) : useStageCamera && showLiveFeed ? (
+      ) : !roomLive && useStageCamera && showLiveFeed ? (
         <View style={styles.previewLane} pointerEvents="none">
           <View style={styles.previewDot} />
           <Text style={styles.previewTxt}>Rear camera preview · tap Go live when ready</Text>
