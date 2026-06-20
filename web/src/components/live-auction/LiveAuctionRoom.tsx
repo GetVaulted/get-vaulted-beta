@@ -53,7 +53,8 @@ import {
 } from "@/lib/live-room-share-metadata";
 import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
-import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
+import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel } from "@/lib/live-item-variant-presets";
+import { resolvePinnedLotOverlayPrice } from "@/lib/live-auction-overlay-price";
 
 type SaleItem = {
   id: string;
@@ -80,6 +81,43 @@ function mapDbItem(i: LiveRoomItemDTO, roomIsLive: boolean, clockSkewMs = 0): Sa
     i.biddingOpen === true &&
     hasScheduledEnd &&
     endsMs > now - LIVE_AUCTION_CLIENT_END_GRACE_MS;
+
+  if (isVariantPurchaseItem(i)) {
+    const spotStats = summarizeVariantSpots(i.variants);
+    const price = resolvePinnedLotOverlayPrice({
+      salesFormat: i.salesFormat,
+      variants: i.variants,
+      status: i.status,
+    });
+    const fromUsd =
+      spotStats.fromPriceUsd ??
+      (price.amountUsd != null && Number.isFinite(price.amountUsd) ? price.amountUsd : null) ??
+      i.priceUsd ??
+      1;
+    const status: SaleItem["status"] =
+      i.status === "sold"
+        ? "sold"
+        : i.status === "skipped"
+          ? "skipped"
+          : i.status === "active"
+            ? roomIsLive
+              ? "live"
+              : "posted"
+            : "queued";
+    return {
+      id: i.id,
+      title: i.title,
+      displayTitle: i.displayTitle ?? i.title,
+      progressLabel: i.progressLabel ?? null,
+      quantity: spotStats.available,
+      imageUrl: i.imageUrl,
+      buyNow: fromUsd,
+      topBid: fromUsd,
+      bids: 0,
+      status,
+    };
+  }
+
   const status: SaleItem["status"] =
     i.status === "sold"
       ? "sold"
@@ -262,6 +300,11 @@ export function LiveAuctionRoom({
   const activeHasVariants = Boolean(
     activeDbItem && isVariantSalesFormat(activeDbItem.salesFormat) && (activeDbItem.variants?.length ?? 0) > 0,
   );
+  const activeVariantSpots = activeHasVariants ? summarizeVariantSpots(activeDbItem?.variants) : null;
+  const pytCommerceLive = Boolean(activeHasVariants && isLive && activeDbItem?.status === "active");
+  const variantPickLabel = activeDbItem
+    ? variantBuyerSelectLabel(activeDbItem.salesFormat, activeDbItem.variantAssignmentMode === "random")
+    : "Select spot";
   const [hostAuctionDurationSec, setHostAuctionDurationSec] = useState(5);
   const [hostClutchTimeEnabled, setHostClutchTimeEnabled] = useState(false);
   const [hostAuctionBusy, setHostAuctionBusy] = useState(false);
@@ -390,21 +433,26 @@ export function LiveAuctionRoom({
   )}`;
 
   const spotPriceUsd = selectedQueue?.buyNow ?? selectedQueue?.topBid ?? activeQueueItem?.buyNow ?? activeQueueItem?.topBid ?? 0;
+  const pytFromPriceUsd = activeVariantSpots?.fromPriceUsd ?? spotPriceUsd;
   /** Item chrome shows last agreed price; bid CTA uses next increment (see `minNextBidUsd`). */
-  const displayPrimaryUsd = overlayIsLive ? buyerCurrentHighUsd : spotPriceUsd;
+  const displayPrimaryUsd = activeHasVariants ? pytFromPriceUsd : overlayIsLive ? buyerCurrentHighUsd : spotPriceUsd;
   const displaySpotAmount = displayPrimaryUsd.toFixed(2);
-  const primaryActionLabel = overlayIsLive
-    ? `Place bid ${fmt(buyerNextBidUsd)}`
-    : `Claim spot ${fmt(spotPriceUsd)}`;
-  const primaryButtonLabel = !overlayIsLive && busy ? "Claiming…" : primaryActionLabel;
+  const primaryActionLabel = activeHasVariants
+    ? `${variantPickLabel} · ${fmt(pytFromPriceUsd)}`
+    : overlayIsLive
+      ? `Place bid ${fmt(buyerNextBidUsd)}`
+      : `Claim spot ${fmt(spotPriceUsd)}`;
+  const primaryButtonLabel = !overlayIsLive && busy && !activeHasVariants ? "Claiming…" : primaryActionLabel;
   const selectedQueueUnavailable = !selectedQueue || selectedQueue.status === "sold" || selectedQueue.status === "skipped";
   /** Bidding uses `activeDbItem`; selection can point at another row (sold/queued) and must not grey out the bid CTA. */
-  const bidActionLocked = overlayIsLive
+  const bidActionLocked = pytCommerceLive
     ? false
-    : overlayTimerEndedUnsettled ||
-      selectedQueueUnavailable ||
-      selectedQueue?.status === "queued" ||
-      selectedQueue?.status === "posted";
+    : overlayIsLive
+      ? false
+      : overlayTimerEndedUnsettled ||
+        selectedQueueUnavailable ||
+        selectedQueue?.status === "queued" ||
+        selectedQueue?.status === "posted";
   const isHost = Boolean(session?.user?.id && session.user.id === sellerId);
   const viewerModeration = useLiveRoomModerationState(liveRoomId, Boolean(liveRoomId));
   const staffCommerceBlocked = isHost || viewerModeration.isModerator;
@@ -424,8 +472,13 @@ export function LiveAuctionRoom({
       : activeLotBidPhase === "timer_ended_unsettled"
         ? "ended_pending"
         : queueStatusLabelRaw;
-  const queueStatusText =
-    queueStatusLabel === "live"
+  const queueStatusText = activeHasVariants
+    ? pytCommerceLive
+      ? `${activeVariantSpots?.available ?? 0} spot${activeVariantSpots?.available === 1 ? "" : "s"} open`
+      : !isLive
+        ? "Waiting for host to go live"
+        : "Up next"
+    : queueStatusLabel === "live"
       ? "Auction live — bidding open"
       : queueStatusLabel === "ended_pending"
         ? isHost
@@ -752,26 +805,39 @@ export function LiveAuctionRoom({
           </p>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
             <p className="font-black text-amber-100">${displaySpotAmount}</p>
-            <span className="text-zinc-400">•</span>
-            <p className="font-medium text-zinc-200">{selectedQueue?.bids ?? activeQueueItem?.bids ?? 0} bids</p>
+            {activeHasVariants ? (
+              <>
+                <span className="text-zinc-400">•</span>
+                <p className="font-medium text-zinc-200">
+                  {activeVariantSpots?.available ?? 0} spot{(activeVariantSpots?.available ?? 0) === 1 ? "" : "s"} open
+                </p>
+              </>
+            ) : (
+              <>
+                <span className="text-zinc-400">•</span>
+                <p className="font-medium text-zinc-200">{selectedQueue?.bids ?? activeQueueItem?.bids ?? 0} bids</p>
+              </>
+            )}
             <span className="text-zinc-400">•</span>
             <p className="text-zinc-300">{hostDisplayName}</p>
           </div>
           <p
             className={`mt-1 text-[10px] font-semibold uppercase tracking-wide ${
-              queueStatusLabel === "live"
+              activeHasVariants
                 ? "text-emerald-300"
-                : queueStatusLabel === "posted"
-                  ? "text-violet-200"
-                  : "text-amber-200"
+                : queueStatusLabel === "live"
+                  ? "text-emerald-300"
+                  : queueStatusLabel === "posted"
+                    ? "text-violet-200"
+                    : "text-amber-200"
             }`}
           >
             {queueStatusText}
           </p>
-          {auctionCountdownLabel ? (
+          {!activeHasVariants && auctionCountdownLabel ? (
             <p className="mt-2 text-[11px] font-black tabular-nums text-emerald-200">Time left {auctionCountdownLabel}</p>
           ) : null}
-          {isHost && activeDbItem?.status === "active" ? (
+          {isHost && activeDbItem?.status === "active" && !activeHasVariants ? (
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
               {!isLive ? (
                 <p className="text-[10px] text-amber-200/90">Go live first, then open bidding here.</p>
@@ -844,15 +910,27 @@ export function LiveAuctionRoom({
           ) : null}
         </div>
         <div className="flex min-w-[220px] shrink-0 items-center justify-end gap-2">
-          <button
-            data-testid="live-bid-button"
-            type="button"
-            disabled={actionsDisabled}
-            onClick={() => void handlePlaceBid()}
-            className="min-h-10 min-w-[170px] rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-4 text-[11px] font-black uppercase tracking-wide text-white shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)] transition-[transform,opacity,filter] duration-[var(--live-duration-ui)] ease-[var(--live-ease)] active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-40"
-          >
-            {primaryButtonLabel}
-          </button>
+          {activeHasVariants && activeDbItem ? (
+            <button
+              data-testid="live-bid-button"
+              type="button"
+              disabled={actionsDisabled || (activeVariantSpots?.available ?? 0) <= 0}
+              onClick={() => setVariantSheetOpen(true)}
+              className="min-h-10 min-w-[170px] rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-4 text-[11px] font-black uppercase tracking-wide text-zinc-950 shadow-[0_0_22px_-8px_rgba(212,175,55,0.55)] transition-[transform,opacity,filter] duration-[var(--live-duration-ui)] ease-[var(--live-ease)] active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-40"
+            >
+              {variantPickLabel}
+            </button>
+          ) : (
+            <button
+              data-testid="live-bid-button"
+              type="button"
+              disabled={actionsDisabled}
+              onClick={() => void handlePlaceBid()}
+              className="min-h-10 min-w-[170px] rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-4 text-[11px] font-black uppercase tracking-wide text-white shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)] transition-[transform,opacity,filter] duration-[var(--live-duration-ui)] ease-[var(--live-ease)] active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-40"
+            >
+              {primaryButtonLabel}
+            </button>
+          )}
         </div>
         {process.env.NODE_ENV === "development" ? (
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-zinc-950/75 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
@@ -867,13 +945,15 @@ export function LiveAuctionRoom({
           </div>
         ) : null}
       </div>
-      <LiveShippingIndicator
-        liveShowId={liveRoomId}
-        previewLiveRoomItemId={activeDbItem?.id}
-        pollMs={isLive ? 8000 : 0}
-        className="mt-3"
-      />
-      {selectedQueue?.status === "posted" ? (
+      {!activeHasVariants ? (
+        <LiveShippingIndicator
+          liveShowId={liveRoomId}
+          previewLiveRoomItemId={activeDbItem?.id}
+          pollMs={isLive ? 8000 : 0}
+          className="mt-3"
+        />
+      ) : null}
+      {!activeHasVariants && selectedQueue?.status === "posted" ? (
         <p className="mt-2 text-[10px] text-violet-200/90">
           {isLive
             ? isHost
@@ -881,11 +961,11 @@ export function LiveAuctionRoom({
               : "This lot is on display. The host will open bidding shortly."
             : "This lot is on display here. Bidding opens when the host goes live."}
         </p>
-      ) : !isLive ? (
+      ) : !activeHasVariants && !isLive ? (
         <p className="mt-2 text-[10px] text-amber-200/90">Auction has not started yet</p>
       ) : null}
       <LiveBuyerWalletGateHint
-        hide={isHost || !isLive}
+        hide={isHost || !isLive || activeHasVariants}
         paymentReady={payReady}
         shippingReady={shipReady}
       />
@@ -957,33 +1037,45 @@ export function LiveAuctionRoom({
           <p data-testid="live-active-item-title" className="line-clamp-1 text-[11px] font-semibold leading-tight text-zinc-100">
             {overlayItem ? overlayItem.displayTitle : "Current item"}
           </p>
-          <p className="line-clamp-1 text-[10px] text-zinc-400/90">{overlayItem?.description ?? "Premium break spot with live reveal."}</p>
-          <p className="mt-0.5 line-clamp-1 text-[9px] text-zinc-500">{overlayItem?.shippingLine ?? "Shipping + taxes calculated at checkout"}</p>
+          {!activeHasVariants ? (
+            <>
+              <p className="line-clamp-1 text-[10px] text-zinc-400/90">{overlayItem?.description ?? "Premium break spot with live reveal."}</p>
+              <p className="mt-0.5 line-clamp-1 text-[9px] text-zinc-500">{overlayItem?.shippingLine ?? "Shipping + taxes calculated at checkout"}</p>
+            </>
+          ) : (
+            <p className="mt-0.5 line-clamp-1 text-[10px] text-emerald-300/90">
+              {activeVariantSpots?.available ?? 0} spot{(activeVariantSpots?.available ?? 0) === 1 ? "" : "s"} open
+            </p>
+          )}
         </div>
         <div className="min-w-0 shrink-0 text-right">
           <p className="text-[13px] font-black tabular-nums tracking-tight text-gold-bright motion-safe:[animation:live-price-glow_3.2s_ease-in-out_infinite] motion-reduce:[animation:none]">
             {overlayItem
-              ? overlayIsLive
-                ? fmt(buyerCurrentHighUsd)
-                : fmt(overlayItem.buyNow ?? overlayItem.topBid)
+              ? activeHasVariants
+                ? fmt(pytFromPriceUsd)
+                : overlayIsLive
+                  ? fmt(buyerCurrentHighUsd)
+                  : fmt(overlayItem.buyNow ?? overlayItem.topBid)
               : "$0"}
           </p>
-          <p
-            className={`mt-1 inline-flex min-w-[3.25rem] justify-end rounded-full bg-black/35 px-2 py-0.5 text-[9px] font-bold tabular-nums ${
-              overlayIsLive
-                ? breakTimerFinal
-                  ? "text-rose-200/95 motion-safe:[animation:live-countdown-pulse_1.15s_ease-in-out_infinite] motion-reduce:[animation:none]"
-                  : breakTimerUrgent
-                    ? "text-amber-200/95"
-                    : "text-zinc-300"
-                : "text-zinc-500"
-            }`}
-          >
-            {overlayIsLive ? timerLabel : "--:--"}
-          </p>
+          {!activeHasVariants ? (
+            <p
+              className={`mt-1 inline-flex min-w-[3.25rem] justify-end rounded-full bg-black/35 px-2 py-0.5 text-[9px] font-bold tabular-nums ${
+                overlayIsLive
+                  ? breakTimerFinal
+                    ? "text-rose-200/95 motion-safe:[animation:live-countdown-pulse_1.15s_ease-in-out_infinite] motion-reduce:[animation:none]"
+                    : breakTimerUrgent
+                      ? "text-amber-200/95"
+                      : "text-zinc-300"
+                  : "text-zinc-500"
+              }`}
+            >
+              {overlayIsLive ? timerLabel : "--:--"}
+            </p>
+          ) : null}
         </div>
       </div>
-      {isHost && activeDbItem?.status === "active" ? (
+      {isHost && activeDbItem?.status === "active" && !activeHasVariants ? (
         <div className="mt-2 flex flex-wrap items-center justify-center gap-2 border-t border-white/10 pt-2">
           {!isLive ? (
             <p className="text-center text-[9px] text-amber-200/90">Go live, then open bidding here.</p>
@@ -1056,14 +1148,14 @@ export function LiveAuctionRoom({
       {overlayTimerEndedUnsettled && !isHost ? (
         <p className="mt-2 text-center text-[10px] font-medium text-amber-200/90">{LIVE_AUCTION_BUYER_TIMER_ENDED_COPY}</p>
       ) : null}
-      {overlayIsLive && activeHasVariants && activeDbItem ? (
+      {pytCommerceLive && activeDbItem ? (
         <button
           type="button"
-          disabled={actionsDisabled}
+          disabled={actionsDisabled || (activeVariantSpots?.available ?? 0) <= 0}
           onClick={() => setVariantSheetOpen(true)}
           className="mt-2 min-h-10 w-full rounded-full bg-gradient-to-r from-gold to-gold-bright text-[10px] font-black uppercase tracking-wide text-zinc-950 disabled:opacity-40 md:min-h-11 md:text-[11px]"
         >
-          Select spot
+          {variantPickLabel}
         </button>
       ) : null}
       {overlayIsLive && !activeHasVariants ? (

@@ -761,7 +761,7 @@ export function LiveSaleRoom({
           : "$0"}
       </p>
       <p className="mt-0.5 line-clamp-2 text-[11px] font-medium text-zinc-200">{priceLine}</p>
-      {!isHost && (roomType === "auction" || roomType === "sale") ? (
+      {!isHost && (roomType === "auction" || roomType === "sale") && !activeHasVariants ? (
         <LiveShippingIndicator
           liveShowId={liveRoomId}
           previewLiveRoomItemId={activeDb?.id}
@@ -886,7 +886,7 @@ export function LiveSaleRoom({
         </p>
       ) : null}
       <LiveBuyerWalletGateHint
-        hide={isHost || !isLive || (roomType !== "auction" && roomType !== "sale")}
+        hide={isHost || !isLive || (roomType !== "auction" && roomType !== "sale") || activeHasVariants}
         paymentReady={payReady}
         shippingReady={shipReady}
       />
@@ -981,7 +981,7 @@ export function LiveSaleRoom({
           </p>
         ) : null}
       </div>
-      {!isHost && (roomType === "auction" || roomType === "sale") ? (
+      {!isHost && (roomType === "auction" || roomType === "sale") && !activeHasVariants ? (
         <LiveShippingIndicator
           liveShowId={liveRoomId}
           previewLiveRoomItemId={activeDb?.id}
@@ -1125,7 +1125,7 @@ export function LiveSaleRoom({
         <p className="mt-1 text-[10px] font-medium text-amber-200/90">Checkout is not linked for this slot.</p>
       ) : null}
       <LiveBuyerWalletGateHint
-        hide={isHost || !isLive || (roomType !== "auction" && roomType !== "sale")}
+        hide={isHost || !isLive || (roomType !== "auction" && roomType !== "sale") || activeHasVariants}
         paymentReady={payReady}
         shippingReady={shipReady}
         className="mt-1 text-[10px] text-amber-200/90"
@@ -1329,7 +1329,7 @@ export function LiveSaleRoom({
                 />
               ) : null}
 
-              {!isHost && (roomType === "auction" || roomType === "sale") ? (
+              {!isHost && (roomType === "auction" || roomType === "sale") && !activeHasVariants ? (
                 <LiveShippingIndicator
           liveShowId={liveRoomId}
           previewLiveRoomItemId={activeDb?.id}
@@ -1351,7 +1351,7 @@ export function LiveSaleRoom({
         subtitle={`${buyerQueueRows.length} item${buyerQueueRows.length === 1 ? "" : "s"} in queue`}
         shopHref={shopHref}
         footer={
-          !isHost && (roomType === "auction" || roomType === "sale") ? (
+          !isHost && (roomType === "auction" || roomType === "sale") && !activeHasVariants ? (
             <LiveShippingIndicator
           liveShowId={liveRoomId}
           previewLiveRoomItemId={activeDb?.id}
