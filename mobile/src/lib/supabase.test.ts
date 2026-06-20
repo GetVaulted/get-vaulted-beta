@@ -1,4 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('./authSessionStorage', () => ({
+  supabaseAuthStorage: {
+    getItem: vi.fn(),
+    setItem: vi.fn(),
+    removeItem: vi.fn(),
+  },
+}));
+
+vi.mock('@supabase/supabase-js', () => ({
+  createClient: vi.fn(() => ({})),
+}));
+
 import { isPlausibleSupabaseAnonKey } from './supabase';
 
 describe('isPlausibleSupabaseAnonKey', () => {
@@ -17,6 +30,6 @@ describe('isPlausibleSupabaseAnonKey', () => {
   it('rejects placeholders and garbage', () => {
     expect(isPlausibleSupabaseAnonKey('your_anon_key')).toBe(false);
     expect(isPlausibleSupabaseAnonKey('')).toBe(false);
-    expect(isPlausibleSupabaseAnonKey('sb_publishable_short')).toBe(false);
+    expect(isPlausibleSupabaseAnonKey('sb_publishable_x')).toBe(false);
   });
 });

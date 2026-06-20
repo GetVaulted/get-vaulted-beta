@@ -234,6 +234,7 @@ export async function fetchLiveRoomBuyerSnapshot(
         lastHighBidderId?: string | null;
         lastHighBidderUsername?: string | null;
         auctionEndsAt?: string | null;
+        variantAssignmentMode?: 'pick' | 'random';
         variants?: unknown;
       } | null;
       break?: {
