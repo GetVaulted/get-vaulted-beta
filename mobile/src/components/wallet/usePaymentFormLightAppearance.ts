@@ -20,9 +20,11 @@ export function usePaymentFormLightAppearance(active: boolean): boolean {
 
     Appearance.setColorScheme('light');
     const frame = requestAnimationFrame(() => setNativeReady(true));
+    const fallback = setTimeout(() => setNativeReady(true), 120);
 
     return () => {
       cancelAnimationFrame(frame);
+      clearTimeout(fallback);
       setNativeReady(false);
       Appearance.setColorScheme(APP_COLOR_SCHEME);
     };

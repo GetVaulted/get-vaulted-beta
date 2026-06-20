@@ -11,6 +11,14 @@ export const walletPaymentSetupStyles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
   },
+  embeddedShell: {
+    flex: 1,
+    width: '100%',
+  },
+  embeddedPanel: {
+    flex: 1,
+    backgroundColor: '#F7F7F8',
+  },
   panel: {
     flex: 1,
     marginTop: spacing.md,

@@ -33,7 +33,7 @@ import type { BuyerWalletReadiness } from '../../lib/buyerWalletErrors';
 import { colors, spacing } from '../../theme';
 import { LiveRoomText } from '../live/LiveRoomText';
 import { logWalletSheet, useKeyboardInset } from './walletSheetKeyboard';
-import { WalletPaymentSetupModal } from './WalletPaymentSetupStep';
+import { WalletPaymentSetupPanel } from './WalletPaymentSetupStep';
 import { vaultWalletTheme as t } from './vaultWalletTheme';
 import {
   formatAddressBlock,
@@ -575,7 +575,7 @@ export function VaultWalletSheet({
     <>
       <SheetHeader title="Payment" onBack={goMain} />
       <ScrollView contentContainerStyle={t.scrollContent} showsVerticalScrollIndicator={false}>
-        {stripePublishableKey ? (
+        {Platform.OS === 'ios' || Platform.OS === 'android' ? (
           <WalletNativePayButton
             publishableKey={stripePublishableKey}
             onPress={() => openPaymentSetup('wallet')}
@@ -854,18 +854,47 @@ export function VaultWalletSheet({
   return (
     <>
       <Modal
-        visible={visible && !paymentSetupOpen}
+        visible={visible}
         animationType="slide"
         transparent
         onRequestClose={
           recoveryMode
             ? () => {}
-            : step === 'main'
-              ? onClose
-              : () => setStep(step === 'addressForm' ? addressFormReturnStep.current : 'main')
+            : paymentSetupOpen
+              ? () => {
+                  setPaymentSetupOpen(false);
+                  setPaymentSetupStartWith('picker');
+                }
+              : step === 'main'
+                ? onClose
+                : () => setStep(step === 'addressForm' ? addressFormReturnStep.current : 'main')
         }
         statusBarTranslucent
       >
+        {paymentSetupOpen ? (
+          <View style={[t.sheet, { flex: 1, paddingBottom: safeBottom, maxHeight: sheetMaxHeight }]}>
+            <WalletPaymentSetupPanel
+              active={paymentSetupOpen}
+              accessToken={accessToken}
+              startWith={paymentSetupStartWith}
+              onClose={() => {
+                if (recoveryMode) {
+                  onClose();
+                  return;
+                }
+                setPaymentSetupOpen(false);
+                setPaymentSetupStartWith('picker');
+              }}
+              onSaved={(paymentMethodId) => {
+                void loadWalletData();
+                setPaymentSetupOpen(false);
+                setPaymentSetupStartWith('picker');
+                setStep('payment');
+                onPaymentMethodSaved?.(paymentMethodId);
+              }}
+            />
+          </View>
+        ) : (
         <View style={t.backdrop}>
           <Pressable
             style={StyleSheet.absoluteFill}
@@ -882,27 +911,8 @@ export function VaultWalletSheet({
             </View>
           </KeyboardAvoidingView>
         </View>
+        )}
       </Modal>
-      <WalletPaymentSetupModal
-        visible={visible && paymentSetupOpen}
-        accessToken={accessToken}
-        startWith={paymentSetupStartWith}
-        onClose={() => {
-          if (recoveryMode) {
-            onClose();
-            return;
-          }
-          setPaymentSetupOpen(false);
-          setPaymentSetupStartWith('picker');
-        }}
-        onSaved={(paymentMethodId) => {
-          void loadWalletData();
-          setPaymentSetupOpen(false);
-          setPaymentSetupStartWith('picker');
-          setStep('payment');
-          onPaymentMethodSaved?.(paymentMethodId);
-        }}
-      />
     </>
   );
 }
