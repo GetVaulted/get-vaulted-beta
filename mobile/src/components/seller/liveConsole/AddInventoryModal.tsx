@@ -23,12 +23,13 @@ import {
   isBreakLotSaleType,
   isPickBreakLotSaleType,
   parseUsdInput,
+  syncPickBreakSpotDrafts,
   validateQuickLiveLot,
   type LiveLotSaleType,
   type QuickLiveLotInput,
   type QuickLiveLotValues,
 } from '../../../lib/liveAuctionPricing';
-import { buildPydVariants, buildPytVariants, type LiveBreakVariantDraft } from '../../../lib/liveBreakPresets';
+import type { LiveBreakVariantDraft } from '../../../lib/liveBreakPresets';
 import { useKeyboardInset } from '../../wallet/walletSheetKeyboard';
 import { colors, radii, spacing } from '../../../theme';
 import { BreakSpotSetupGrid } from './BreakSpotSetupGrid';
@@ -62,10 +63,12 @@ export function AddInventoryModal({
   const [imageUploading, setImageUploading] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const [spotDrafts, setSpotDrafts] = useState<LiveBreakVariantDraft[]>([]);
+  const [spotsCustomized, setSpotsCustomized] = useState(false);
 
   const resetDraft = () => {
     setDraft(emptyQuickLiveLotInput());
     setSpotDrafts([]);
+    setSpotsCustomized(false);
     setImageUri(null);
     setImageUrl(null);
     setImageUploading(false);
@@ -79,20 +82,35 @@ export function AddInventoryModal({
   useEffect(() => {
     if (!isPickBreakLotSaleType(draft.saleType)) {
       setSpotDrafts([]);
+      setSpotsCustomized(false);
       return;
     }
     const basePrice = parseUsdInput(draft.price);
-    const expected = breakSpotCountForSaleType(draft.saleType);
-    setSpotDrafts((prev) => {
-      if (prev.length === expected) return prev;
-      if (basePrice == null) return [];
-      return draft.saleType === 'pyt' ? buildPytVariants(basePrice) : buildPydVariants(basePrice);
-    });
-  }, [draft.saleType, draft.price]);
+    const saleType = draft.saleType;
+    if (saleType !== 'pyt' && saleType !== 'pyd') return;
+    setSpotDrafts((prev) =>
+      syncPickBreakSpotDrafts({
+        prev,
+        saleType,
+        basePrice,
+        spotsCustomized,
+      }),
+    );
+  }, [draft.saleType, draft.price, spotsCustomized]);
 
   const setSaleType = (saleType: LiveLotSaleType) => {
     setDraft((prev) => ({ ...prev, saleType }));
     setSpotDrafts([]);
+    setSpotsCustomized(false);
+  };
+
+  const handleSpotDraftsChange = (next: LiveBreakVariantDraft[]) => {
+    setSpotDrafts((prev) => {
+      if (prev.length === next.length && next.some((spot, index) => spot.priceUsd !== prev[index]?.priceUsd)) {
+        setSpotsCustomized(true);
+      }
+      return next;
+    });
   };
 
   const pickPhoto = async () => {
@@ -257,7 +275,7 @@ export function AddInventoryModal({
               <BreakSpotSetupGrid
                 saleType={draft.saleType}
                 spots={spotDrafts}
-                onChange={setSpotDrafts}
+                onChange={handleSpotDraftsChange}
                 disabled={busy}
               />
             ) : null}

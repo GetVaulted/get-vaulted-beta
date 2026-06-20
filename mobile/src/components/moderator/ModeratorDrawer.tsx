@@ -38,9 +38,10 @@ const PIN_EXPIRES_OPTIONS = [
   { minutes: 24 * 60, label: '24 hr' },
 ] as const;
 
-type TabId = 'queue' | 'viewers' | 'tips' | 'pinned' | 'announcements' | 'giveaway' | 'history';
+type TabId = 'tools' | 'queue' | 'viewers' | 'tips' | 'pinned' | 'announcements' | 'giveaway' | 'history';
 
 const TABS: { id: TabId; label: string }[] = [
+  { id: 'tools', label: 'Tools' },
   { id: 'queue', label: 'Mod Queue' },
   { id: 'viewers', label: 'Find user' },
   { id: 'tips', label: 'Tips' },
@@ -49,6 +50,8 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'giveaway', label: 'Giveaway' },
   { id: 'history', label: 'History' },
 ];
+
+const SLOW_MODE_PRESETS = [0, 5, 10, 30] as const;
 
 type Props = {
   visible: boolean;
@@ -74,7 +77,7 @@ export function ModeratorDrawer({
   onModerationPatch,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const [tab, setTab] = useState<TabId>('queue');
+  const [tab, setTab] = useState<TabId>('tools');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pinnedBody, setPinnedBody] = useState(moderation.pinnedModeratorMessage ?? '');
@@ -184,6 +187,16 @@ export function ModeratorDrawer({
 
   const tabContent = useMemo(() => {
     switch (tab) {
+      case 'tools':
+        return (
+          <RoomToolsTab
+            slowModeSeconds={moderation.slowModeSeconds ?? 0}
+            canSlowMode={can('slow_mode')}
+            busy={busy}
+            onSetSlowMode={(seconds) => void runAction({ actionType: 'slow_mode', metadata: { seconds } })}
+            onOpenFindUser={() => setTab('viewers')}
+          />
+        );
       case 'queue':
         return (
           <ModQueueList rows={moderation.modQueue} emptyLabel="No open reports for this show." />
@@ -270,6 +283,7 @@ export function ModeratorDrawer({
     hostUserId,
     viewerSearch,
     moderation.modQueue,
+    moderation.slowModeSeconds,
     moderation.tips,
     moderation.tipSummary,
     moderation.modHistory,
@@ -343,6 +357,7 @@ export function ModeratorDrawer({
           accessToken={accessToken}
           isModerator={moderation.isModerator}
           isHost={moderation.isHost}
+          canModerate={moderation.canModerate}
           moderatorLevel={moderation.moderatorLevel}
           allowedActions={moderation.allowedActions}
           userId={viewerAction.userId}
@@ -355,6 +370,60 @@ export function ModeratorDrawer({
         />
       ) : null}
     </>
+  );
+}
+
+function RoomToolsTab({
+  slowModeSeconds,
+  canSlowMode,
+  busy,
+  onSetSlowMode,
+  onOpenFindUser,
+}: {
+  slowModeSeconds: number;
+  canSlowMode: boolean;
+  busy: boolean;
+  onSetSlowMode: (seconds: number) => void;
+  onOpenFindUser: () => void;
+}) {
+  return (
+    <View style={styles.formBlock}>
+      <Text style={styles.sectionTitle}>Room controls</Text>
+      <Text style={styles.hint}>Slow mode limits how fast buyers can send chat messages.</Text>
+      <View style={styles.toolGrid}>
+        {SLOW_MODE_PRESETS.map((seconds) => {
+          const active = slowModeSeconds === seconds;
+          const label = seconds === 0 ? 'Slow off' : `${seconds}s`;
+          return (
+            <Pressable
+              key={seconds}
+              style={[styles.toolChip, active && styles.toolChipActive, (!canSlowMode || busy) && styles.toolChipDim]}
+              disabled={!canSlowMode || busy}
+              onPress={() => onSetSlowMode(seconds)}
+            >
+              <Text style={[styles.toolChipText, active && styles.toolChipTextActive]}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {!canSlowMode ? (
+        <Text style={styles.hint}>Show-level moderators can change slow mode.</Text>
+      ) : null}
+
+      <Text style={[styles.sectionTitle, { marginTop: spacing.md }]}>User actions</Text>
+      <Text style={styles.hint}>
+        Mute, timeout, kick, ban, block bidding, and delete messages are available from Find user or by long-pressing
+        chat.
+      </Text>
+      <Pressable style={styles.secondaryBtn} onPress={onOpenFindUser}>
+        <Text style={styles.secondaryBtnText}>Find user to moderate</Text>
+      </Pressable>
+
+      <Text style={[styles.sectionTitle, { marginTop: spacing.md }]}>More in this drawer</Text>
+      <Text style={styles.hint}>
+        Pin messages, post announcements, run giveaways, review reports, tips, and action history in the other tabs.
+      </Text>
+    </View>
   );
 }
 
@@ -752,6 +821,39 @@ const styles = StyleSheet.create({
   formBlock: {
     gap: spacing.sm,
     paddingBottom: spacing.lg,
+  },
+  sectionTitle: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  toolGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  toolChip: {
+    borderRadius: radii.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.14)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  toolChipActive: {
+    borderColor: 'rgba(255,215,128,0.45)',
+    backgroundColor: 'rgba(255,215,128,0.12)',
+  },
+  toolChipDim: {
+    opacity: 0.45,
+  },
+  toolChipText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  toolChipTextActive: {
+    color: colors.gold,
   },
   input: {
     minHeight: 88,

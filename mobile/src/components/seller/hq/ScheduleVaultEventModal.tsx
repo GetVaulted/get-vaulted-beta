@@ -54,6 +54,12 @@ function formatScheduledDate(d: Date): string {
   });
 }
 
+const BREAK_PRICING_MODES: { id: BreakPricingMode; label: string }[] = [
+  { id: 'fixed', label: 'Fixed price' },
+  { id: 'auction', label: 'Auction spots' },
+  { id: 'hybrid', label: 'Hybrid' },
+];
+
 const FORMATS: { id: 'auction' | 'break' | 'hybrid'; label: string }[] = [
   { id: 'break', label: 'Break' },
   { id: 'auction', label: 'Auction' },
@@ -478,24 +484,24 @@ export function ScheduleVaultEventModal({
               />
               <Text style={styles.label}>Pricing</Text>
               <View style={styles.segment}>
-                <Pressable
-                  style={[styles.segmentBtn, breakPricingMode === 'fixed' && styles.segmentBtnOn]}
-                  onPress={() => setBreakPricingMode('fixed')}
-                >
-                  <Text style={[styles.segmentTxt, breakPricingMode === 'fixed' && styles.segmentTxtOn]}>Fixed price</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.segmentBtn, breakPricingMode === 'auction' && styles.segmentBtnOn]}
-                  onPress={() => setBreakPricingMode('auction')}
-                >
-                  <Text style={[styles.segmentTxt, breakPricingMode === 'auction' && styles.segmentTxtOn]}>
-                    Auction spots
-                  </Text>
-                </Pressable>
+                {BREAK_PRICING_MODES.map((mode) => {
+                  const on = breakPricingMode === mode.id;
+                  return (
+                    <Pressable
+                      key={mode.id}
+                      style={[styles.segmentBtn, on && styles.segmentBtnOn]}
+                      onPress={() => setBreakPricingMode(mode.id)}
+                    >
+                      <Text style={[styles.segmentTxt, on && styles.segmentTxtOn]}>{mode.label}</Text>
+                    </Pressable>
+                  );
+                })}
               </View>
-              {breakPricingMode === 'fixed' ? (
+              {breakPricingMode === 'fixed' || breakPricingMode === 'hybrid' ? (
                 <>
-                  <Text style={styles.label}>Spot price (USD)</Text>
+                  <Text style={styles.label}>
+                    {breakPricingMode === 'hybrid' ? 'Default spot price (USD, optional)' : 'Spot price (USD)'}
+                  </Text>
                   <TextInput
                     value={breakSpotPrice}
                     onChangeText={setBreakSpotPrice}
@@ -505,9 +511,16 @@ export function ScheduleVaultEventModal({
                     style={styles.input}
                   />
                 </>
-              ) : (
+              ) : null}
+              {breakPricingMode === 'auction' ? (
                 <Text style={styles.helperTxt}>Spot prices can be set per claim during the show.</Text>
-              )}
+              ) : null}
+              {breakPricingMode === 'hybrid' ? (
+                <Text style={styles.helperTxt}>
+                  Run fixed-price team spots and auction lots in the same show. Optional default price applies to PYT tiles;
+                  auction lots keep their own bids.
+                </Text>
+              ) : null}
               <View style={styles.toggleRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.toggleTitle}>Team selection board</Text>

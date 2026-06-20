@@ -54,6 +54,7 @@ export function useLiveRoomModerationState(liveRoomId: string, enabled = true) {
     try {
       const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/moderation`, {
         cache: "no-store",
+        credentials: "include",
       });
       const j = (await res.json().catch(() => ({}))) as LiveRoomModerationState & { error?: string };
       if (!res.ok) return;

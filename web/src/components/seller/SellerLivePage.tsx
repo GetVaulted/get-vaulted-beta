@@ -27,7 +27,13 @@ import {
 import { useRequireSellerActivation } from "@/hooks/useRequireSellerActivation";
 
 type RoomTypeChoice = "auction" | "sale" | "break";
-type BreakPricingMode = "fixed" | "auction";
+type BreakPricingMode = "fixed" | "auction" | "hybrid";
+
+function breakPricingPreviewLabel(mode: BreakPricingMode): string {
+  if (mode === "auction") return "Auction spots";
+  if (mode === "hybrid") return "Hybrid";
+  return "Fixed price";
+}
 
 type LiveReadinessApi = LiveShowReadiness & { highValueCheckoutConfigured?: boolean };
 
@@ -546,11 +552,11 @@ export function SellerLivePage() {
           body.breakTotalSpots = spotsNum;
         }
         body.breakPricingMode = breakPricingMode;
-        if (breakPricingMode === "fixed") {
+        if (breakPricingMode === "auction") {
+          body.breakSpotPriceUsd = null;
+        } else {
           const px = Number(breakSpotPrice);
           body.breakSpotPriceUsd = Number.isFinite(px) && px > 0 ? px : null;
-        } else {
-          body.breakSpotPriceUsd = null;
         }
       }
       if (createTipModeratorId) {
@@ -1347,7 +1353,7 @@ export function SellerLivePage() {
                       <button
                         type="button"
                         onClick={() => setBreakPricingMode("fixed")}
-                        className={`flex-1 rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wide transition ${
+                        className={`flex-1 rounded-lg px-2 py-2 text-[10px] font-bold uppercase tracking-wide transition sm:px-3 sm:text-xs ${
                           breakPricingMode === "fixed" ? "bg-gold/20 text-gold-bright" : "text-zinc-500 hover:text-zinc-300"
                         }`}
                       >
@@ -1356,17 +1362,28 @@ export function SellerLivePage() {
                       <button
                         type="button"
                         onClick={() => setBreakPricingMode("auction")}
-                        className={`flex-1 rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wide transition ${
+                        className={`flex-1 rounded-lg px-2 py-2 text-[10px] font-bold uppercase tracking-wide transition sm:px-3 sm:text-xs ${
                           breakPricingMode === "auction" ? "bg-gold/20 text-gold-bright" : "text-zinc-500 hover:text-zinc-300"
                         }`}
                       >
                         Auction spots
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setBreakPricingMode("hybrid")}
+                        className={`flex-1 rounded-lg px-2 py-2 text-[10px] font-bold uppercase tracking-wide transition sm:px-3 sm:text-xs ${
+                          breakPricingMode === "hybrid" ? "bg-gold/20 text-gold-bright" : "text-zinc-500 hover:text-zinc-300"
+                        }`}
+                      >
+                        Hybrid
+                      </button>
                     </div>
                   </div>
-                  {breakPricingMode === "fixed" ? (
+                  {breakPricingMode === "fixed" || breakPricingMode === "hybrid" ? (
                     <label className="block sm:col-span-2">
-                      <span className="text-xs font-bold uppercase tracking-wide text-zinc-500">Spot price (USD)</span>
+                      <span className="text-xs font-bold uppercase tracking-wide text-zinc-500">
+                        {breakPricingMode === "hybrid" ? "Default spot price (USD, optional)" : "Spot price (USD)"}
+                      </span>
                       <input
                         value={breakSpotPrice}
                         onChange={(e) => setBreakSpotPrice(e.target.value)}
@@ -1374,11 +1391,17 @@ export function SellerLivePage() {
                         className="mt-2 w-full rounded-xl border border-white/[0.1] bg-black/50 px-4 py-3 text-sm text-white outline-none focus:border-gold/40 focus:ring-2 focus:ring-gold/15"
                       />
                     </label>
-                  ) : (
+                  ) : null}
+                  {breakPricingMode === "auction" ? (
                     <p className="text-sm text-zinc-500 sm:col-span-2">
-                      Spot prices can be set per claim during the show. Optional fixed price fields are hidden.
+                      Spot prices can be set per claim during the show.
                     </p>
-                  )}
+                  ) : null}
+                  {breakPricingMode === "hybrid" ? (
+                    <p className="text-sm text-zinc-500 sm:col-span-2">
+                      Run fixed-price team spots and auction lots in the same show. Optional default price applies to PYT tiles; auction lots keep their own bids.
+                    </p>
+                  ) : null}
                   <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-white/[0.08] bg-black/30 px-4 py-3 sm:col-span-2">
                     <div>
                       <p className="text-sm font-semibold text-zinc-200">Enable team selection board</p>
@@ -1525,7 +1548,7 @@ export function SellerLivePage() {
                       {roomType === "break" ? "Break" : roomType === "auction" ? "Auction" : "Sale"}
                       {roomType === "break" ? ` · ${createTeamBoardLeague.toUpperCase()}` : ""}
                       {roomType === "break"
-                        ? ` · ${breakPricingMode === "auction" ? "Auction spots" : "Fixed spots"}`
+                        ? ` · ${breakPricingPreviewLabel(breakPricingMode)}`
                         : ""}
                       {scheduleMode === "later" ? " · Scheduled start" : " · Start now"}
                     </p>
@@ -1546,7 +1569,7 @@ export function SellerLivePage() {
                     {roomType === "break" ? "Break" : roomType === "auction" ? "Auction" : "Sale"}
                     {roomType === "break" ? ` · ${createTeamBoardLeague.toUpperCase()}` : ""}
                     {roomType === "break"
-                      ? ` · ${breakPricingMode === "auction" ? "Auction spots" : "Fixed spots"}`
+                      ? ` · ${breakPricingPreviewLabel(breakPricingMode)}`
                       : ""}
                     {scheduleMode === "later" ? " · Scheduled" : " · Start now"}
                   </p>

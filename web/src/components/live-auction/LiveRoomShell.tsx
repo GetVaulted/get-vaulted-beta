@@ -38,7 +38,7 @@ type LiveRoomShellProps = {
 };
 
 export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<LiveRoomDetailDTO | null>(null);
   /** Set when the room snapshot API returns an error (404, 503, etc.) so viewers see a real message instead of a bare “not found”. */
@@ -217,7 +217,10 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const load = useCallback(async () => {
     try {
       const t0 = Date.now();
-      const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}`, { cache: "no-store" });
+      const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}`, {
+        cache: "no-store",
+        credentials: "include",
+      });
       const t1 = Date.now();
       if (res.status === 404) {
         const raw = await res.text();
@@ -338,6 +341,15 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     setMessages([]);
     void load();
   }, [roomId, load]);
+
+  const authEpochRef = useRef<string | null>(null);
+  useEffect(() => {
+    const epoch = status === "authenticated" ? session?.user?.id ?? "auth" : status;
+    if (authEpochRef.current !== null && authEpochRef.current !== epoch) {
+      void load();
+    }
+    authEpochRef.current = epoch;
+  }, [load, session?.user?.id, status]);
 
   useEffect(() => {
     return () => {
@@ -820,6 +832,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           buyerLiveBidPaymentReady={detail.buyerLiveBidPaymentReady}
           buyerLiveShippingReady={detail.buyerLiveShippingReady}
           giveaways={detail.giveaways ?? []}
+          onOpenWallet={() => setPremiumWalletOpen(true)}
         />
         <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
         <LiveSpotTakenCelebration celebration={spotCelebration} onDone={() => setSpotCelebration(null)} />
@@ -861,6 +874,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       buyerLiveBidPaymentReady={detail.buyerLiveBidPaymentReady}
       buyerLiveShippingReady={detail.buyerLiveShippingReady}
       giveaways={detail.giveaways ?? []}
+      onOpenWallet={() => setPremiumWalletOpen(true)}
     />
       <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
       <LiveSpotTakenCelebration celebration={spotCelebration} onDone={() => setSpotCelebration(null)} />

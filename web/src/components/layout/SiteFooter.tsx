@@ -24,6 +24,7 @@ function buildFooterCols(liveMarketplaceEnabled: boolean) {
       links: [
         { href: "/terms", label: "Terms of service" },
         { href: "/privacy", label: "Privacy policy" },
+        { href: "/account-deletion", label: "Account deletion" },
         { href: "/community-guidelines", label: "Community guidelines" },
         { href: "/reporting-safety", label: "Reporting & safety" },
         { href: "/terms#payments-stripe-connect", label: "Payments & Stripe" },
@@ -76,6 +77,9 @@ export function SiteFooter({ liveMarketplaceEnabled = true }: SiteFooterProps) {
             </Link>
             <Link href="/privacy" className="hover:text-foreground">
               Privacy
+            </Link>
+            <Link href="/account-deletion" className="hover:text-foreground">
+              Account deletion
             </Link>
             <Link href="/community-guidelines" className="hover:text-foreground">
               Guidelines

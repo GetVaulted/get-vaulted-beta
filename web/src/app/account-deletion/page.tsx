@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import { DeleteAccountPage } from "@/components/account/DeleteAccountPage";
 
 export const metadata: Metadata = {
-  title: "Delete Account — Get Vaulted",
-  description: "Permanently delete your Get Vaulted account. Signed-in users can confirm deletion here.",
+  title: "Account Deletion — Get Vaulted",
+  description: "How to permanently delete your Get Vaulted account on web or mobile.",
 };
 
+/** Public URL for App Store / Play account-deletion disclosure. */
 export default function Page() {
   return <DeleteAccountPage />;
 }

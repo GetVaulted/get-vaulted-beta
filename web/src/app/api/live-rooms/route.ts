@@ -202,7 +202,7 @@ type PostBody = {
   teamBoardLeague?: string;
   /** Break: number of spots (e.g. 30). */
   breakTotalSpots?: number | null;
-  /** Break: `fixed` or `auction` spot pricing intent. */
+  /** Break: `fixed`, `auction`, or `hybrid` spot pricing intent. */
   breakPricingMode?: string;
   /** Break: spot price when `breakPricingMode` is `fixed`. */
   breakSpotPriceUsd?: number | null;
@@ -335,10 +335,12 @@ export async function POST(req: Request) {
     const mode = typeof body.breakPricingMode === "string" ? body.breakPricingMode.trim().toLowerCase() : "fixed";
     if (mode === "auction") {
       breakSpotPriceUsd = null;
-    } else {
+    } else if (mode === "fixed" || mode === "hybrid") {
       const pr = body.breakSpotPriceUsd;
       const px = typeof pr === "number" && Number.isFinite(pr) ? pr : pr != null ? Number(pr) : NaN;
       breakSpotPriceUsd = Number.isFinite(px) && px > 0 ? px : null;
+    } else {
+      breakSpotPriceUsd = null;
     }
   }
 

@@ -11,7 +11,6 @@ import { LiveVariantSelectionSheet } from "@/components/live-auction/LiveVariant
 import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotBoard";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
 import { LiveTipSheet } from "@/components/live-auction/LiveTipSheet";
-import { LivePremiumWalletSheet } from "@/components/live-auction/LivePremiumWalletSheet";
 import { BuyerLiveDesktopShell } from "@/components/live-auction/buyer/BuyerLiveDesktopShell";
 import { BuyerLiveHostStrip } from "@/components/live-auction/buyer/BuyerLiveHostStrip";
 import { BuyerLiveItemBoard } from "@/components/live-auction/buyer/BuyerLiveItemBoard";
@@ -35,6 +34,10 @@ import { LIVE_AUCTION_CLIENT_END_GRACE_MS } from "@/lib/live-auction-bid-extensi
 import { projectBuyerQueueLineup, buyerQueueRowSelectable } from "@/lib/live-buyer-queue-projection";
 import { fetchLiveBuyerPaymentSession } from "@/lib/live-tip-client";
 import { createLiveBidIdempotencyKey, liveBidRequestHeaders } from "@/lib/live-bid-client";
+import {
+  LIVE_HOST_SELF_COMMERCE_ERROR,
+  LIVE_MODERATOR_COMMERCE_ERROR,
+} from "@/lib/live-room-commerce-guards";
 import {
   LIVE_AUCTION_BUYER_NOT_STARTED_COPY,
   LIVE_AUCTION_BUYER_TIMER_ENDED_COPY,
@@ -198,6 +201,7 @@ export type LiveSaleRoomProps = {
   buyerLiveBidPaymentReady?: boolean;
   buyerLiveShippingReady?: boolean;
   giveaways?: ViewerGiveawayDTO[];
+  onOpenWallet: () => void;
 };
 
 export function LiveSaleRoom({
@@ -224,6 +228,7 @@ export function LiveSaleRoom({
   buyerLiveBidPaymentReady,
   buyerLiveShippingReady,
   giveaways = [],
+  onOpenWallet,
 }: LiveSaleRoomProps) {
   const { data: session, status } = useSession();
   const shopHref =
@@ -267,7 +272,6 @@ export function LiveSaleRoom({
   const [buyerLineupOpen, setBuyerLineupOpen] = useState(false);
   const isBuyerDesktop = useBuyerLiveDesktop();
   const [tipOpen, setTipOpen] = useState(false);
-  const [premiumWalletOpen, setPremiumWalletOpen] = useState(false);
   const [roomPaymentMethodId, setRoomPaymentMethodId] = useState<string | null>(null);
   useLayoutEffect(() => {
     const mq = window.matchMedia("(min-width: 1280px)");
@@ -495,7 +499,8 @@ export function LiveSaleRoom({
   const hostTimerEndedUnsettled =
     roomType === "auction" && isLive && activeLotBidPhase === "timer_ended_unsettled";
   const guestNeedsAuth = status === "unauthenticated" && !isHost && isLive;
-  const sessionBlocksBuyer = (status === "unauthenticated" || status === "loading") && !isHost && isLive;
+  const sessionPending = status === "loading" && !isHost && isLive;
+  const sessionBlocksBuyer = status === "unauthenticated" && !isHost && isLive;
   const activeHasVariants = Boolean(
     activeDb && isVariantSalesFormat(activeDb.salesFormat) && (activeDb.variants?.length ?? 0) > 0,
   );
@@ -506,8 +511,16 @@ export function LiveSaleRoom({
     staffCommerceBlocked ||
     busy ||
     bidFlight ||
+    sessionPending ||
     sessionBlocksBuyer ||
     ((roomType === "auction" || roomType === "sale") && !isHost && isLive && !buyerLiveWalletReady && !activeHasVariants);
+  const staffCommerceHint = staffCommerceBlocked
+    ? isHost
+      ? LIVE_HOST_SELF_COMMERCE_ERROR
+      : viewerModeration.isModerator
+        ? LIVE_MODERATOR_COMMERCE_ERROR
+        : null
+    : null;
   const variantPickerDisabled =
     !isLive ||
     staffCommerceBlocked ||
@@ -596,6 +609,7 @@ export function LiveSaleRoom({
         {
           method: "POST",
           headers: liveBidRequestHeaders(idempotencyKey),
+          credentials: "include",
           body: JSON.stringify({ amountUsd: amount }),
         },
       );
@@ -723,8 +737,8 @@ export function LiveSaleRoom({
       redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
       return;
     }
-    setPremiumWalletOpen(true);
-  }, [liveRoomId, status]);
+    onOpenWallet();
+  }, [liveRoomId, onOpenWallet, status]);
 
   const handleTip = useCallback(() => {
     if (status !== "authenticated") {
@@ -896,6 +910,7 @@ export function LiveSaleRoom({
         hide={isHost || !isLive || (activeHasVariants ? buyerLiveWalletReady : false)}
         paymentReady={payReady}
         shippingReady={shipReady}
+        onOpenWallet={onOpenWallet}
       />
       {guestNeedsAuth ? (
         <p className="mt-2 text-[10px] text-zinc-400">
@@ -912,6 +927,9 @@ export function LiveSaleRoom({
         <p className="mt-2 text-[10px] font-medium text-amber-200/90">{LIVE_AUCTION_BUYER_TIMER_ENDED_COPY}</p>
       ) : null}
       {actionError ? <p className="mt-2 text-[10px] font-medium text-rose-300">{actionError}</p> : null}
+      {!actionError && staffCommerceHint ? (
+        <p className="mt-2 text-[10px] font-medium text-amber-200/90">{staffCommerceHint}</p>
+      ) : null}
     </div>
   );
 
@@ -1136,6 +1154,7 @@ export function LiveSaleRoom({
         paymentReady={payReady}
         shippingReady={shipReady}
         className="mt-1 text-[10px] text-amber-200/90"
+        onOpenWallet={onOpenWallet}
       />
       {guestNeedsAuth ? (
         <p className="mt-1 text-[10px] text-zinc-400">
@@ -1152,6 +1171,9 @@ export function LiveSaleRoom({
         <p className="mt-1 text-[10px] font-medium text-amber-200/90">{LIVE_AUCTION_BUYER_TIMER_ENDED_COPY}</p>
       ) : null}
       {actionError ? <p className="mt-1 text-[10px] text-rose-300">{actionError}</p> : null}
+      {!actionError && staffCommerceHint ? (
+        <p className="mt-1 text-[10px] font-medium text-amber-200/90">{staffCommerceHint}</p>
+      ) : null}
     </div>
   );
 
@@ -1390,7 +1412,10 @@ export function LiveSaleRoom({
           item={activeDb}
           liveRoomId={liveRoomId}
           walletReady={buyerLiveWalletReady}
-          onWalletRequired={() => setPremiumWalletOpen(true)}
+          onWalletRequired={() => {
+            setVariantSheetOpen(false);
+            onOpenWallet();
+          }}
           onPurchased={() => {
             setShipUxNonce((n) => n + 1);
             router.refresh();
@@ -1403,14 +1428,12 @@ export function LiveSaleRoom({
         liveRoomId={liveRoomId}
         paymentMethodId={roomPaymentMethodId}
         onPaymentMethodIdChange={setRoomPaymentMethodId}
+        onOpenWallet={() => {
+          setTipOpen(false);
+          onOpenWallet();
+        }}
         onSuccess={() => toast("Tip sent — thanks for supporting the show!")}
         onError={(msg) => toast(msg)}
-      />
-      <LivePremiumWalletSheet
-        open={premiumWalletOpen}
-        onClose={() => setPremiumWalletOpen(false)}
-        liveRoomId={liveRoomId}
-        onReadinessChange={() => void onRefetch?.()}
       />
     </div>
   );

@@ -65,7 +65,7 @@ export function ModeratorActionSheet(props: Props) {
 
   const [reportOpen, setReportOpen] = useState(false);
   const isHostMessage = isProtectedShowHost({ hostUserId, targetUserId: senderId, messageIsHost });
-  const canMod = isModerator || Boolean(canModerate);
+  const canMod = isModerator || Boolean(canModerate) || Boolean(isHost);
 
   const runAction = async (actionType: string, metadata?: Record<string, unknown>) => {
     if (!accessToken || !senderId) return;
@@ -107,6 +107,16 @@ export function ModeratorActionSheet(props: Props) {
       }
     }
     if (can('mute')) opts.push({ label: 'Mute user', action: () => void runAction('mute') });
+    if (can('unmute')) opts.push({ label: 'Unmute user', action: () => void runAction('unmute') });
+    if (can('block_bidding')) {
+      opts.push({ label: 'Block bidding', action: () => void runAction('block_bidding') });
+    }
+    if (can('unblock_bidding')) {
+      opts.push({ label: 'Unblock bidding', action: () => void runAction('unblock_bidding') });
+    }
+    if (can('kick')) {
+      opts.push({ label: 'Kick from stream', destructive: true, action: () => void runAction('kick') });
+    }
     if (can('room_ban')) {
       opts.push({
         label: 'Ban from this stream',
@@ -148,7 +158,10 @@ export function ModeratorActionSheet(props: Props) {
       () => undefined,
     ];
     const destructiveIndex = labels.findIndex(
-      (l) => l.startsWith('Delete') || l.startsWith('Ban from'),
+      (l) =>
+        l.startsWith('Delete') ||
+        l.startsWith('Ban from') ||
+        l.startsWith('Kick from'),
     );
 
     onClose();
@@ -177,7 +190,9 @@ export function ModeratorActionSheet(props: Props) {
           text: labels[i],
           onPress: handler,
           style:
-            labels[i].startsWith('Delete') || labels[i].startsWith('Ban from')
+            labels[i].startsWith('Delete') ||
+            labels[i].startsWith('Ban from') ||
+            labels[i].startsWith('Kick from')
               ? ('destructive' as const)
               : undefined,
         })),

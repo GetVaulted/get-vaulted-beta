@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { BuyerWalletSummaryDTO } from "@/lib/buyer-wallet";
 import {
@@ -10,21 +9,12 @@ import {
   liveAcceptedMethodsLabel,
   liveAcceptedWalletMethods,
 } from "@/lib/live-premium-wallet";
+import { WalletAddPaymentMethodForm } from "@/components/wallet/WalletAddPaymentMethodForm";
+import { WalletInlineShippingForm, type WalletShippingAddressRow } from "@/components/wallet/WalletInlineShippingForm";
 
-type Step = "main" | "shipping" | "payment" | "premium";
+type Step = "main" | "shipping" | "payment" | "add_card" | "add_shipping" | "premium";
 
-type AddrRow = {
-  id: string;
-  type?: string;
-  fullName: string;
-  line1: string;
-  line2: string | null;
-  city: string;
-  state: string;
-  postalCode: string;
-  country: string;
-  isDefault?: boolean;
-};
+type AddrRow = WalletShippingAddressRow & { name?: string };
 
 type PmRow = {
   id: string;
@@ -44,7 +34,7 @@ type Props = {
 
 function SheetHeader({ title, onBack }: { title: string; onBack?: () => void }) {
   return (
-    <div className="relative mb-3 flex min-h-9 items-center">
+    <div className="relative mb-3 flex min-h-9 shrink-0 items-center">
       {onBack ? (
         <button
           type="button"
@@ -95,14 +85,14 @@ function RowButton({
   );
 }
 
-export function LivePremiumWalletSheet({ open, onClose, liveRoomId, onReadinessChange }: Props) {
-  const router = useRouter();
+export function LivePremiumWalletSheet({ open, onClose, liveRoomId: _liveRoomId, onReadinessChange }: Props) {
   const [step, setStep] = useState<Step>("main");
   const [loading, setLoading] = useState(false);
   const [wallet, setWallet] = useState<BuyerWalletSummaryDTO | null>(null);
   const [addresses, setAddresses] = useState<AddrRow[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PmRow[]>([]);
   const [promoDraft, setPromoDraft] = useState("");
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
   const defaultAddress = useMemo(
     () => addresses.find((a) => a.isDefault) ?? addresses[0] ?? null,
@@ -120,9 +110,9 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId, onReadinessC
     setLoading(true);
     try {
       const [walletRes, addrRes, pmRes] = await Promise.all([
-        fetch("/api/account/wallet", { cache: "no-store", credentials: "same-origin" }),
-        fetch("/api/account/addresses", { cache: "no-store", credentials: "same-origin" }),
-        fetch("/api/account/payment-methods", { cache: "no-store", credentials: "same-origin" }),
+        fetch("/api/account/wallet", { cache: "no-store", credentials: "include" }),
+        fetch("/api/account/addresses", { cache: "no-store", credentials: "include" }),
+        fetch("/api/account/payment-methods", { cache: "no-store", credentials: "include" }),
       ]);
       const walletJson = (await walletRes.json().catch(() => ({}))) as { wallet?: BuyerWalletSummaryDTO };
       const addrJson = (await addrRes.json().catch(() => ({}))) as { addresses?: AddrRow[] };
@@ -144,42 +134,78 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId, onReadinessC
   useEffect(() => {
     if (!open) {
       setStep("main");
+      setSaveNotice(null);
       return;
     }
     void reload();
   }, [open, reload]);
 
-  const goAccountPayment = () => {
-    onClose();
-    router.push(`/account/payment-methods?return=${encodeURIComponent(`/live/${liveRoomId}`)}`);
+  useEffect(() => {
+    if (!open) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
+  const handleCardSaved = (pm: { id: string; brand: string; last4: string; expMonth: number; expYear: number }) => {
+    setPaymentMethods((prev) => {
+      if (prev.some((row) => row.id === pm.id)) return prev;
+      return [{ ...pm, isDefault: prev.length === 0 }, ...prev.map((row) => ({ ...row, isDefault: false }))];
+    });
+    setSaveNotice("Payment method saved.");
+    setStep("payment");
+    void reload();
   };
 
-  const goAccountShipping = () => {
-    onClose();
-    router.push("/account/payment-methods#wallet-shipping");
+  const handleAddressSaved = (address: WalletShippingAddressRow) => {
+    setAddresses((prev) => [{ ...address, isDefault: true }, ...prev.map((row) => ({ ...row, isDefault: false }))]);
+    setSaveNotice("Shipping address saved.");
+    setStep("shipping");
+    void reload();
   };
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/72">
-      <button type="button" className="absolute inset-0" aria-label="Close" onClick={onClose} />
-      <div className="relative max-h-[92vh] w-full max-w-lg overflow-hidden rounded-t-[22px] border border-amber-500/25 bg-[#0c0b10] shadow-[0_-4px_24px_rgba(201,162,39,0.12)]">
-        <div className="mx-auto mt-2 h-1 w-11 rounded-full bg-white/20" />
-        <div className="relative flex max-h-[calc(92vh-12px)] flex-col px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3">
+    <div className="fixed inset-0 z-[200] flex items-end justify-center sm:items-center">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/72"
+        aria-label="Close wallet"
+        onClick={onClose}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={LIVE_PREMIUM_WALLET_TITLE}
+        className="relative flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-[22px] border border-amber-500/25 bg-[#0c0b10] shadow-[0_-4px_24px_rgba(201,162,39,0.12)] sm:rounded-[22px]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto mt-2 h-1 w-11 shrink-0 rounded-full bg-white/20" />
+        <div className="flex min-h-0 flex-1 flex-col px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3">
+          {saveNotice ? (
+            <p className="mb-2 rounded-lg border border-emerald-500/25 bg-emerald-950/20 px-3 py-2 text-center text-xs font-semibold text-emerald-200">
+              {saveNotice}
+            </p>
+          ) : null}
+
           {step === "main" ? (
             <>
-              <button
-                type="button"
-                onClick={onClose}
-                className="absolute right-1 top-2 z-10 px-2 text-xl text-zinc-400 hover:text-zinc-200"
-                aria-label="Close"
-              >
-                ×
-              </button>
-              <SheetHeader title={LIVE_PREMIUM_WALLET_TITLE} />
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="absolute right-0 top-0 px-2 text-xl text-zinc-400 hover:text-zinc-200"
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+                <SheetHeader title={LIVE_PREMIUM_WALLET_TITLE} />
+              </div>
               <div
-                className={`mb-4 flex items-center justify-center gap-2 self-center rounded-full border px-3 py-1 text-[11px] font-extrabold uppercase tracking-wide ${
+                className={`mb-4 flex shrink-0 items-center justify-center gap-2 self-center rounded-full border px-3 py-1 text-[11px] font-extrabold uppercase tracking-wide ${
                   walletReady
                     ? "border-emerald-500/35 bg-emerald-950/20 text-emerald-300"
                     : "border-amber-500/35 bg-amber-950/15 text-amber-200"
@@ -187,12 +213,15 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId, onReadinessC
               >
                 {walletReady ? "Ready to bid & buy live" : "Complete setup to bid & buy"}
               </div>
-              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain">
                 <RowButton
                   icon="🚚"
                   title="Shipping"
                   subtitle={formatShipToLine(defaultAddress)}
-                  onClick={() => setStep("shipping")}
+                  onClick={() => {
+                    setSaveNotice(null);
+                    setStep("shipping");
+                  }}
                 />
                 <RowButton
                   icon="💳"
@@ -202,7 +231,10 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId, onReadinessC
                       ? formatPaymentSummary(defaultPm)
                       : liveAcceptedMethodsLabel(wallet?.capabilities ?? null)
                   }
-                  onClick={() => setStep("payment")}
+                  onClick={() => {
+                    setSaveNotice(null);
+                    setStep("payment");
+                  }}
                 />
                 <RowButton
                   icon="✦"
@@ -227,14 +259,15 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId, onReadinessC
                   </button>
                 </div>
                 <p className="text-[11px] leading-relaxed text-zinc-500">
-                  Live accepts {liveAcceptedMethodsLabel(wallet?.capabilities ?? null)}.
+                  Live accepts {liveAcceptedMethodsLabel(wallet?.capabilities ?? null)}. Everything saves here without
+                  leaving the show.
                 </p>
                 {loading ? <p className="text-center text-xs text-zinc-500">Refreshing…</p> : null}
               </div>
               <button
                 type="button"
                 onClick={walletReady ? onClose : () => setStep(!wallet?.shippingReady ? "shipping" : "payment")}
-                className="mt-4 w-full rounded-xl bg-amber-400 py-3.5 text-sm font-black text-zinc-950"
+                className="mt-4 w-full shrink-0 rounded-xl bg-amber-400 py-3.5 text-sm font-black text-zinc-950"
               >
                 {walletReady ? "Done" : "Finish setup"}
               </button>
@@ -244,7 +277,7 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId, onReadinessC
           {step === "shipping" ? (
             <>
               <SheetHeader title="Shipping" onBack={() => setStep("main")} />
-              <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
                 {defaultAddress ? (
                   <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                     <p className="font-extrabold text-zinc-50">{defaultAddress.fullName}</p>
@@ -264,26 +297,41 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId, onReadinessC
                 )}
                 <button
                   type="button"
-                  onClick={goAccountShipping}
-                  className="mt-4 text-sm font-extrabold text-amber-300 hover:underline"
+                  onClick={() => {
+                    setSaveNotice(null);
+                    setStep("add_shipping");
+                  }}
+                  className="mt-4 w-full rounded-xl border border-white/18 bg-white/[0.04] py-3 text-sm font-extrabold text-zinc-100"
                 >
-                  {addresses.length ? "Manage addresses" : "+ Add address"}
+                  {addresses.length ? "Add another address" : "+ Add shipping address"}
                 </button>
               </div>
               <button
                 type="button"
                 onClick={() => setStep("main")}
-                className="mt-4 w-full rounded-xl bg-amber-400 py-3.5 text-sm font-black text-zinc-950"
+                className="mt-4 w-full shrink-0 rounded-xl bg-amber-400 py-3.5 text-sm font-black text-zinc-950"
               >
                 Done
               </button>
             </>
           ) : null}
 
+          {step === "add_shipping" ? (
+            <>
+              <SheetHeader title="Add shipping" onBack={() => setStep("shipping")} />
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                <WalletInlineShippingForm
+                  onSaved={handleAddressSaved}
+                  onCancel={() => setStep("shipping")}
+                />
+              </div>
+            </>
+          ) : null}
+
           {step === "payment" ? (
             <>
               <SheetHeader title="Payment" onBack={() => setStep("main")} />
-              <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
                 <p className="mb-3 text-[11px] font-extrabold uppercase tracking-wide text-zinc-500">Saved</p>
                 {paymentMethods.length === 0 ? (
                   <p className="text-sm font-semibold text-amber-200">No saved payment method yet.</p>
@@ -292,9 +340,7 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId, onReadinessC
                     <div
                       key={pm.id}
                       className={`mb-2 flex items-center gap-3 rounded-xl border px-3 py-3 ${
-                        pm.isDefault
-                          ? "border-sky-500/80 bg-sky-950/20"
-                          : "border-white/12 bg-white/[0.03]"
+                        pm.isDefault ? "border-sky-500/80 bg-sky-950/20" : "border-white/12 bg-white/[0.03]"
                       }`}
                     >
                       <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/10 text-lg">
@@ -314,10 +360,13 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId, onReadinessC
                 </p>
                 <button
                   type="button"
-                  onClick={goAccountPayment}
+                  onClick={() => {
+                    setSaveNotice(null);
+                    setStep("add_card");
+                  }}
                   className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/18 bg-white/[0.04] py-3 text-sm font-extrabold text-zinc-100"
                 >
-                  New card
+                  Add card here
                 </button>
                 <p className="mb-2 mt-5 text-[11px] font-extrabold uppercase tracking-wide text-zinc-500">
                   Accepted on live
@@ -334,17 +383,30 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId, onReadinessC
               <button
                 type="button"
                 onClick={() => setStep("main")}
-                className="mt-4 w-full rounded-xl bg-amber-400 py-3.5 text-sm font-black text-zinc-950"
+                className="mt-4 w-full shrink-0 rounded-xl bg-amber-400 py-3.5 text-sm font-black text-zinc-950"
               >
                 Done
               </button>
             </>
           ) : null}
 
+          {step === "add_card" ? (
+            <>
+              <SheetHeader title="Add card" onBack={() => setStep("payment")} />
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                <WalletAddPaymentMethodForm
+                  active={step === "add_card"}
+                  onSaved={handleCardSaved}
+                  onCancel={() => setStep("payment")}
+                />
+              </div>
+            </>
+          ) : null}
+
           {step === "premium" ? (
             <>
               <SheetHeader title="Vault credits" onBack={() => setStep("main")} />
-              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain">
                 <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-center">
                   <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-amber-400 text-2xl text-zinc-950">
                     ✦
@@ -367,7 +429,7 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId, onReadinessC
               <button
                 type="button"
                 onClick={() => setStep("main")}
-                className="mt-4 w-full rounded-xl bg-amber-400 py-3.5 text-sm font-black text-zinc-950"
+                className="mt-4 w-full shrink-0 rounded-xl bg-amber-400 py-3.5 text-sm font-black text-zinc-950"
               >
                 Done
               </button>

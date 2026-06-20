@@ -64,4 +64,33 @@ describe('buildCreateLiveRoomPayload', () => {
       teamSelectionBoardEnabled: false,
     });
   });
+
+  it('matches web hybrid break pricing', () => {
+    expect(
+      buildCreateLiveRoomPayload({
+        title: 'Hybrid break',
+        roomType: 'break',
+        scheduleMode: 'now',
+        breakPricingMode: 'hybrid',
+        breakSpotPrice: '40',
+      }),
+    ).toMatchObject({
+      breakPricingMode: 'hybrid',
+      breakSpotPriceUsd: 40,
+    });
+  });
+
+  it('allows hybrid break without default spot price', () => {
+    expect(
+      buildCreateLiveRoomPayload({
+        title: 'Hybrid break',
+        roomType: 'break',
+        scheduleMode: 'now',
+        breakPricingMode: 'hybrid',
+      }),
+    ).toMatchObject({
+      breakPricingMode: 'hybrid',
+      breakSpotPriceUsd: null,
+    });
+  });
 });

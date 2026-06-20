@@ -138,7 +138,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
   const serverNowMs = Date.now();
   const detail = buildLiveRoomDetail(room);
-  if (!viewerId || isHost) {
+  if (isHost) {
     detail.buyerLiveBidPaymentReady = true;
     detail.buyerLiveShippingReady = true;
     detail.buyerLivePayment = {
@@ -149,7 +149,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       preauthorizationStatus: "none",
       paymentFailureState: null,
     };
-  } else {
+  } else if (viewerId) {
     const w = await getBuyerLiveWalletReadiness(viewerId);
     detail.buyerLiveBidPaymentReady = w.paymentReady;
     detail.buyerLiveShippingReady = w.shippingReady;
@@ -158,6 +158,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       liveRoomId: id,
     });
     detail.buyerUnresolvedPaymentFailure = await getUnresolvedPaymentFailureForBuyer(id, viewerId);
+  } else {
+    detail.buyerLiveBidPaymentReady = false;
+    detail.buyerLiveShippingReady = false;
   }
   if (isHost && viewerId) {
     detail.sellerUnresolvedPaymentFailures = await listUnresolvedPaymentFailuresForRoom(id);

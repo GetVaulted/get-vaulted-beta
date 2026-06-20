@@ -532,7 +532,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         inputRef={chatComposerRef}
         leadingAccessory={
           <>
-            {showModeratorTools(moderation.isModerator, moderation.canModerate) ? (
+            {showModeratorTools(moderation.isModerator, moderation.canModerate, moderation.isHost) ? (
               <ModeratorToolsButton onPress={() => setModDrawerOpen(true)} />
             ) : null}
             {moderation.isHost ? (
@@ -542,7 +542,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         }
       />
 
-      {showModeratorTools(moderation.isModerator, moderation.canModerate) ? (
+      {showModeratorTools(moderation.isModerator, moderation.canModerate, moderation.isHost) ? (
         <ModeratorDrawer
           visible={modDrawerOpen}
           onClose={() => setModDrawerOpen(false)}
@@ -571,7 +571,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         />
       ) : null}
 
-      {modActionMessage && moderation.canModerate ? (
+      {modActionMessage && showModeratorTools(moderation.isModerator, moderation.canModerate, moderation.isHost) ? (
         <ModeratorActionSheet
           visible={Boolean(modActionMessage)}
           onClose={() => setModActionMessage(null)}

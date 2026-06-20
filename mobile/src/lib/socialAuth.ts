@@ -10,6 +10,7 @@ import {
 } from './authProviderAvailability';
 import { provisionSocialAuthAccount } from './provisionSocialAuthAccount';
 import { ensureSupabaseReady, getSupabase, isSupabaseConfigured } from './supabase';
+import { runSupabaseAuthOp } from './supabaseAuthRetry';
 import { getWebApiBaseUrl } from './webApiBaseUrl';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -51,13 +52,17 @@ export async function signInWithGoogleOAuth(): Promise<SocialAuthResult> {
 
   const redirectTo = getMobileOAuthRedirectUrl();
   devAuthLog('start', { redirectTo });
-  const { data, error } = await sb.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo,
-      skipBrowserRedirect: true,
-      queryParams: { prompt: 'select_account' },
-    },
+  const { data, error } = await runSupabaseAuthOp(() => {
+    const sb = getSupabase();
+    if (!sb) throw new Error('Supabase client unavailable.');
+    return sb.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo,
+        skipBrowserRedirect: true,
+        queryParams: { prompt: 'select_account' },
+      },
+    });
   });
   if (error) {
     devAuthLog('oauth error', error.message);
@@ -120,11 +125,13 @@ export async function signInWithAppleOAuth(): Promise<SocialAuthResult> {
       throw new Error('Apple did not return a sign-in token.');
     }
 
-    const { error } = await sb.auth.signInWithIdToken({
-      provider: 'apple',
-      token: credential.identityToken,
-      nonce: appleNonce,
-    });
+    const { error } = await runSupabaseAuthOp(() =>
+      sb.auth.signInWithIdToken({
+        provider: 'apple',
+        token: credential.identityToken!,
+        nonce: appleNonce,
+      }),
+    );
     if (error) {
       if (isAppleProviderDisabledError(error.message)) {
         throw new Error('Apple Sign In is not configured yet. Use email or Google, or try again later.');

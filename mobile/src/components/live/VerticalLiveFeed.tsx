@@ -753,7 +753,7 @@ function LiveSlide({
         </View>
       ) : null}
 
-      {showModeratorTools(moderation.isModerator, moderation.canModerate) && accessToken ? (
+      {showModeratorTools(moderation.isModerator, moderation.canModerate, moderation.isHost) && accessToken ? (
         <ModeratorDrawer
           visible={modDrawerOpen}
           onClose={() => setModDrawerOpen(false)}
@@ -770,7 +770,7 @@ function LiveSlide({
         />
       ) : null}
 
-      {modActionMessage && (moderation.isModerator || moderation.canModerate) ? (
+      {modActionMessage && showModeratorTools(moderation.isModerator, moderation.canModerate, moderation.isHost) ? (
         <ModeratorActionSheet
           visible={Boolean(modActionMessage)}
           onClose={() => setModActionMessage(null)}
@@ -828,7 +828,7 @@ function LiveSlide({
         accessToken={accessToken}
         inputRef={chatComposerRef}
         leadingAccessory={
-          showModeratorTools(moderation.isModerator, moderation.canModerate) ? (
+          showModeratorTools(moderation.isModerator, moderation.canModerate, moderation.isHost) ? (
             <ModeratorToolsButton onPress={() => setModDrawerOpen(true)} />
           ) : null
         }

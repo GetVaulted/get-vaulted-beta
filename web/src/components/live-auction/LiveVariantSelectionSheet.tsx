@@ -289,6 +289,16 @@ export function LiveVariantSelectionSheet({
             <SummaryRow label="Taxes" value="Calculated at checkout" />
           </div>
 
+          {!walletReady ? (
+            <button
+              type="button"
+              onClick={onWalletRequired}
+              className="mt-3 w-full rounded-xl border border-amber-400/30 bg-amber-500/10 py-2.5 text-xs font-extrabold uppercase tracking-wide text-amber-200"
+            >
+              Set up wallet on this screen
+            </button>
+          ) : null}
+
           {error ? <p className="mt-3 text-center text-xs text-rose-300">{error}</p> : null}
         </div>
 

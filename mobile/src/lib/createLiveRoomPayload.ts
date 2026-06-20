@@ -1,4 +1,4 @@
-export type BreakPricingMode = 'fixed' | 'auction';
+export type BreakPricingMode = 'fixed' | 'auction' | 'hybrid';
 export type TeamBoardLeague = 'nfl' | 'nba' | 'mlb';
 export type CreateScheduleMode = 'now' | 'later';
 
@@ -53,11 +53,11 @@ export function buildCreateLiveRoomPayload(
     }
     const breakPricingMode = input.breakPricingMode ?? 'auction';
     body.breakPricingMode = breakPricingMode;
-    if (breakPricingMode === 'fixed') {
+    if (breakPricingMode === 'auction') {
+      body.breakSpotPriceUsd = null;
+    } else {
       const px = Number(input.breakSpotPrice);
       body.breakSpotPriceUsd = Number.isFinite(px) && px > 0 ? px : null;
-    } else {
-      body.breakSpotPriceUsd = null;
     }
   }
 

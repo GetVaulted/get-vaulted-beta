@@ -1,4 +1,5 @@
-import { validateAuctionPricing, validateQuickLiveLot } from './liveAuctionPricing';
+import { syncPickBreakSpotDrafts, validateAuctionPricing, validateQuickLiveLot } from './liveAuctionPricing';
+import { buildPytVariants } from './liveBreakPresets';
 
 describe('validateAuctionPricing', () => {
   it('accepts quantity and starting bid', () => {
@@ -124,5 +125,34 @@ describe('validateQuickLiveLot', () => {
       expect(r.values.variants?.length).toBe(8);
       expect(r.values.variants?.[0]?.label).toBe('AFC East');
     }
+  });
+});
+
+describe('syncPickBreakSpotDrafts', () => {
+  it('updates all team prices when price per team changes before manual edits', () => {
+    const initial = buildPytVariants(3);
+    const synced = syncPickBreakSpotDrafts({
+      prev: initial,
+      saleType: 'pyt',
+      basePrice: 30,
+      spotsCustomized: false,
+    });
+    expect(synced).toHaveLength(32);
+    expect(synced.every((spot) => spot.priceUsd === 30)).toBe(true);
+  });
+
+  it('keeps manual spot prices after customization', () => {
+    const initial = buildPytVariants(30);
+    const customized = initial.map((spot, index) =>
+      index === 0 ? { ...spot, priceUsd: 45 } : spot,
+    );
+    const synced = syncPickBreakSpotDrafts({
+      prev: customized,
+      saleType: 'pyt',
+      basePrice: 35,
+      spotsCustomized: true,
+    });
+    expect(synced[0]?.priceUsd).toBe(45);
+    expect(synced[1]?.priceUsd).toBe(30);
   });
 });

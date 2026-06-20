@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
   LIVE_TIP_MAX_USD,
@@ -20,6 +19,7 @@ type LiveTipSheetProps = {
   liveRoomId: string;
   paymentMethodId?: string | null;
   onPaymentMethodIdChange?: (id: string | null) => void;
+  onOpenWallet?: () => void;
   onSuccess?: () => void;
   onError?: (message: string) => void;
 };
@@ -30,6 +30,7 @@ export function LiveTipSheet({
   liveRoomId,
   paymentMethodId,
   onPaymentMethodIdChange,
+  onOpenWallet,
   onSuccess,
   onError,
 }: LiveTipSheetProps) {
@@ -164,11 +165,15 @@ export function LiveTipSheet({
               </span>
               {paymentMethods.length > 1 ? (
                 <span className="text-xs font-bold text-gold-bright">{pickerOpen ? "Done" : "Change"}</span>
-              ) : (
-                <Link href="/account/payment-methods" className="text-xs font-bold text-gold-bright hover:underline">
-                  Wallet
-                </Link>
-              )}
+              ) : onOpenWallet ? (
+                <button
+                  type="button"
+                  onClick={onOpenWallet}
+                  className="text-xs font-bold text-gold-bright hover:underline"
+                >
+                  Add card
+                </button>
+              ) : null}
             </button>
             {pickerOpen ? (
               <div className="mt-2 space-y-1.5">
@@ -187,12 +192,16 @@ export function LiveTipSheet({
                     {formatLiveTipPaymentMethodLabel(paymentMethods, pm.id)}
                   </button>
                 ))}
-                <Link
-                  href="/account/payment-methods"
-                  className="block rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 text-sm font-bold text-gold-bright hover:border-white/20"
-                >
-                  Manage in Vault Wallet
-                </Link>
+                {onOpenWallet ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={onOpenWallet}
+                    className="block w-full rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 text-left text-sm font-bold text-gold-bright hover:border-white/20 disabled:opacity-50"
+                  >
+                    Add card in wallet
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </div>

@@ -12,6 +12,7 @@ type Props = {
   accessToken?: string;
   isModerator: boolean;
   isHost?: boolean;
+  canModerate?: boolean;
   moderatorLevel: LiveModeratorLevel | null;
   allowedActions?: string[];
   userId: string;
@@ -33,6 +34,7 @@ export function ModeratorViewerActions({
   accessToken,
   isModerator,
   isHost: actorIsHost,
+  canModerate,
   moderatorLevel,
   allowedActions,
   userId,
@@ -69,6 +71,7 @@ export function ModeratorViewerActions({
         actionType,
         isModerator,
         isHost: actorIsHost,
+        canModerate,
         moderatorLevel,
         allowedActions,
       });
@@ -82,6 +85,13 @@ export function ModeratorViewerActions({
       }
     }
     if (can('mute')) opts.push({ label: 'Mute user', action: () => void runAction('mute') });
+    if (can('unmute')) opts.push({ label: 'Unmute user', action: () => void runAction('unmute') });
+    if (can('block_bidding')) {
+      opts.push({ label: 'Block bidding', action: () => void runAction('block_bidding') });
+    }
+    if (can('unblock_bidding')) {
+      opts.push({ label: 'Unblock bidding', action: () => void runAction('unblock_bidding') });
+    }
     if (can('kick')) {
       opts.push({ label: 'Kick from stream', destructive: true, action: () => void runAction('kick') });
     }
@@ -100,7 +110,7 @@ export function ModeratorViewerActions({
       });
     }
     return opts;
-  }, [isHost, userId, isModerator, actorIsHost, moderatorLevel, allowedActions]);
+  }, [isHost, userId, isModerator, actorIsHost, canModerate, moderatorLevel, allowedActions]);
 
   useEffect(() => {
     if (!visible) return;

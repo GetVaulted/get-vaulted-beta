@@ -12,3 +12,7 @@ export function liveBidRequestHeaders(idempotencyKey: string): HeadersInit {
     "Idempotency-Key": idempotencyKey,
   };
 }
+
+export const liveCommerceFetchInit: RequestInit = {
+  credentials: "include",
+};

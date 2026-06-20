@@ -42,6 +42,24 @@ export function breakSpotCountForSaleType(saleType: LiveLotSaleType): number {
   return 0;
 }
 
+/** Keep PYT/PYD spot rows aligned with the price-per-team field until the host edits individual spots. */
+export function syncPickBreakSpotDrafts(args: {
+  prev: LiveBreakVariantDraft[];
+  saleType: 'pyt' | 'pyd';
+  basePrice: number | null;
+  spotsCustomized: boolean;
+}): LiveBreakVariantDraft[] {
+  const expected = breakSpotCountForSaleType(args.saleType);
+  if (args.basePrice == null) return args.prev.length === expected ? args.prev : [];
+  if (args.prev.length !== expected) {
+    return args.saleType === 'pyt'
+      ? buildPytVariants(args.basePrice)
+      : buildPydVariants(args.basePrice);
+  }
+  if (args.spotsCustomized) return args.prev;
+  return args.prev.map((spot) => ({ ...spot, priceUsd: args.basePrice! }));
+}
+
 export function emptyQuickLiveLotInput(saleType: LiveLotSaleType = 'auction'): QuickLiveLotInput {
   return { title: '', saleType, price: '', quantity: '', reservePrice: '', buyNowPrice: '' };
 }

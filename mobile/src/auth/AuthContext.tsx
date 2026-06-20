@@ -3,12 +3,8 @@ import type { Session, User } from '@supabase/supabase-js';
 import { updateMyProfile } from '../api/profilesRepository';
 import { setKeepMeLoggedInPreference } from '../lib/authSessionStorage';
 import { resolveInitialAuthSession } from '../lib/recoverInvalidAuthSession';
-import {
-  ensureSupabaseReady,
-  getSupabase,
-  isSupabaseConfigured,
-  resetSupabaseBootstrap,
-} from '../lib/supabase';
+import { ensureSupabaseReady, getSupabase, isSupabaseConfigured, resetSupabaseBootstrap } from '../lib/supabase';
+import { runSupabaseAuthOp } from '../lib/supabaseAuthRetry';
 import { signInWithAppleOAuth, signInWithGoogleOAuth, type SocialAuthResult } from '../lib/socialAuth';
 
 type AuthCtx = {
@@ -83,11 +79,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithPassword = useCallback(async (email: string, password: string, opts?: { persistSession?: boolean }) => {
     await ensureSupabaseReady();
-    const sb = getSupabase();
-    if (!sb || !isSupabaseConfigured()) throw new Error('Supabase is not configured (EXPO_PUBLIC_SUPABASE_URL / ANON_KEY).');
     const persist = opts?.persistSession ?? true;
     await setKeepMeLoggedInPreference(persist);
-    const { error } = await sb.auth.signInWithPassword({ email: email.trim(), password });
+    const { error } = await runSupabaseAuthOp(() => {
+      const sb = getSupabase();
+      if (!sb || !isSupabaseConfigured()) {
+        throw new Error('Supabase is not configured (EXPO_PUBLIC_SUPABASE_URL / ANON_KEY).');
+      }
+      return sb.auth.signInWithPassword({ email: email.trim(), password });
+    });
     if (error) throw error;
   }, []);
 
@@ -153,7 +153,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const trimmed = email.trim();
     if (!trimmed) throw new Error('Enter your email address.');
-    const { error } = await sb.auth.resetPasswordForEmail(trimmed);
+    const { error } = await runSupabaseAuthOp(() => {
+      const sb = getSupabase();
+      if (!sb || !isSupabaseConfigured()) {
+        throw new Error('Supabase is not configured (EXPO_PUBLIC_SUPABASE_URL / ANON_KEY).');
+      }
+      return sb.auth.resetPasswordForEmail(trimmed);
+    });
     if (error) throw error;
   }, []);
 

@@ -13,7 +13,6 @@ import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotB
 import { LiveAuctionChat } from "@/components/live-auction/LiveAuctionChat";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
 import { LiveTipSheet } from "@/components/live-auction/LiveTipSheet";
-import { LivePremiumWalletSheet } from "@/components/live-auction/LivePremiumWalletSheet";
 import { BuyerLiveDesktopShell } from "@/components/live-auction/buyer/BuyerLiveDesktopShell";
 import { BuyerLiveHostStrip } from "@/components/live-auction/buyer/BuyerLiveHostStrip";
 import { BuyerLiveItemBoard } from "@/components/live-auction/buyer/BuyerLiveItemBoard";
@@ -39,6 +38,10 @@ import { LIVE_AUCTION_CLIENT_END_GRACE_MS } from "@/lib/live-auction-bid-extensi
 import { projectBuyerQueueLineup, buyerQueueRowSelectable } from "@/lib/live-buyer-queue-projection";
 import { fetchLiveBuyerPaymentSession } from "@/lib/live-tip-client";
 import { createLiveBidIdempotencyKey, liveBidRequestHeaders } from "@/lib/live-bid-client";
+import {
+  LIVE_HOST_SELF_COMMERCE_ERROR,
+  LIVE_MODERATOR_COMMERCE_ERROR,
+} from "@/lib/live-room-commerce-guards";
 import {
   LIVE_AUCTION_BUYER_TIMER_ENDED_COPY,
   LIVE_AUCTION_HOST_TIMER_ENDED_COPY,
@@ -189,6 +192,7 @@ export type LiveAuctionRoomProps = {
   /** When `false`, non-host buyers need a shipping address in Wallet (server enforces on POST). */
   buyerLiveShippingReady?: boolean;
   giveaways?: ViewerGiveawayDTO[];
+  onOpenWallet: () => void;
 };
 
 function fmt(n: number) {
@@ -260,6 +264,7 @@ export function LiveAuctionRoom({
   buyerLiveBidPaymentReady,
   buyerLiveShippingReady,
   giveaways = [],
+  onOpenWallet,
 }: LiveAuctionRoomProps) {
   const router = useRouter();
   const { data: session, status } = useSession();
@@ -271,7 +276,6 @@ export function LiveAuctionRoom({
   const [buyerLineupOpen, setBuyerLineupOpen] = useState(false);
   const isBuyerDesktop = useBuyerLiveDesktop();
   const [tipOpen, setTipOpen] = useState(false);
-  const [premiumWalletOpen, setPremiumWalletOpen] = useState(false);
   const [roomPaymentMethodId, setRoomPaymentMethodId] = useState<string | null>(null);
   useLayoutEffect(() => {
     const mq = window.matchMedia("(min-width: 1400px)");
@@ -514,7 +518,8 @@ export function LiveAuctionRoom({
   const hostStartEnabled = Boolean(isLive && activeDbItem?.status === "active" && activeLotBidPhase === "not_started");
   const hostTimerEndedUnsettled = isLive && activeLotBidPhase === "timer_ended_unsettled";
   const guestNeedsAuth = status === "unauthenticated" && !isHost && isLive;
-  const sessionBlocksBuyer = (status === "unauthenticated" || status === "loading") && !isHost && isLive;
+  const sessionPending = status === "loading" && !isHost && isLive;
+  const sessionBlocksBuyer = status === "unauthenticated" && !isHost && isLive;
   const buyerClaimsBlocked = Boolean(
     breakSnapshot && (breakSnapshot.breakPaused || breakSnapshot.lockPurchases || breakSnapshot.breakFull),
   );
@@ -565,11 +570,19 @@ export function LiveAuctionRoom({
     staffCommerceBlocked ||
     busy ||
     (overlayIsLive && bidFlight) ||
+    sessionPending ||
     sessionBlocksBuyer ||
     buyerClaimsBlocked ||
     bidActionLocked ||
     !breakDisclaimerAccepted ||
     (!isHost && isLive && !buyerLiveWalletReady);
+  const staffCommerceHint = staffCommerceBlocked
+    ? isHost
+      ? LIVE_HOST_SELF_COMMERCE_ERROR
+      : viewerModeration.isModerator
+        ? LIVE_MODERATOR_COMMERCE_ERROR
+        : null
+    : null;
 
   /** PYT checkout sheet — open even when wallet still needs setup (sheet + wallet hint handle that). */
   const variantPickerDisabled =
@@ -640,6 +653,7 @@ export function LiveAuctionRoom({
           {
             method: "POST",
             headers: liveBidRequestHeaders(idempotencyKey),
+            credentials: "include",
             body: JSON.stringify({ amountUsd: amount }),
           },
         );
@@ -688,6 +702,7 @@ export function LiveAuctionRoom({
       const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/break-spots`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ liveRoomItemId: selectedId }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string; signInUrl?: string };
@@ -790,8 +805,8 @@ export function LiveAuctionRoom({
       redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
       return;
     }
-    setPremiumWalletOpen(true);
-  }, [liveRoomId, status]);
+    onOpenWallet();
+  }, [liveRoomId, onOpenWallet, status]);
 
   const handleTip = useCallback(() => {
     if (status !== "authenticated") {
@@ -977,6 +992,7 @@ export function LiveAuctionRoom({
         hide={isHost || !isLive || (activeHasVariants ? buyerLiveWalletReady : false)}
         paymentReady={payReady}
         shippingReady={shipReady}
+        onOpenWallet={onOpenWallet}
       />
       {guestNeedsAuth ? (
         <p className="mt-2 text-[10px] text-zinc-400">
@@ -987,6 +1003,9 @@ export function LiveAuctionRoom({
         </p>
       ) : null}
       {actionError ? <p className="mt-2 text-[10px] font-medium text-rose-300">{actionError}</p> : null}
+      {!actionError && staffCommerceHint ? (
+        <p className="mt-2 text-[10px] font-medium text-amber-200/90">{staffCommerceHint}</p>
+      ) : null}
     </div>
   );
 
@@ -1511,7 +1530,10 @@ export function LiveAuctionRoom({
           item={activeDbItem}
           liveRoomId={liveRoomId}
           walletReady={buyerLiveWalletReady}
-          onWalletRequired={() => setPremiumWalletOpen(true)}
+          onWalletRequired={() => {
+            setVariantSheetOpen(false);
+            onOpenWallet();
+          }}
           onPurchased={() => void onRefetch?.()}
         />
       ) : null}
@@ -1521,14 +1543,12 @@ export function LiveAuctionRoom({
         liveRoomId={liveRoomId}
         paymentMethodId={roomPaymentMethodId}
         onPaymentMethodIdChange={setRoomPaymentMethodId}
+        onOpenWallet={() => {
+          setTipOpen(false);
+          onOpenWallet();
+        }}
         onSuccess={() => toast("Tip sent — thanks for supporting the show!")}
         onError={(msg) => toast(msg)}
-      />
-      <LivePremiumWalletSheet
-        open={premiumWalletOpen}
-        onClose={() => setPremiumWalletOpen(false)}
-        liveRoomId={liveRoomId}
-        onReadinessChange={() => void onRefetch?.()}
       />
     </div>
   );

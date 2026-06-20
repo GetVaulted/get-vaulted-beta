@@ -120,7 +120,11 @@ export default function PrivacyPage() {
           <h2 className="font-display text-lg font-semibold text-foreground">10. Your Rights</h2>
           <p className="mt-3 text-muted">
             Depending on your location, you may have rights to access, correct, delete, or limit certain processing.
-            Contact{" "}
+            You can{" "}
+            <Link href="/account-deletion" className="font-medium text-gold-bright hover:underline">
+              delete your account
+            </Link>{" "}
+            from the web or mobile app, or contact{" "}
             <a
               href="mailto:support@shopgetvaulted.com"
               className="font-medium text-gold-bright hover:underline"

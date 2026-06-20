@@ -86,6 +86,7 @@ export function AddQueueItemModal({
   const [openEntriesOnCreate, setOpenEntriesOnCreate] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
   const [spotVariants, setSpotVariants] = useState<VariantDraftInput[]>([]);
+  const [spotsCustomized, setSpotsCustomized] = useState(false);
   const wasOpenRef = useRef(false);
   const imageFileRef = useRef<HTMLInputElement>(null);
 
@@ -108,6 +109,7 @@ export function AddQueueItemModal({
       setOpenEntriesOnCreate(true);
       setFormError(null);
       setSpotVariants([]);
+      setSpotsCustomized(false);
     }
     wasOpenRef.current = open;
   }, [mode, open]);
@@ -120,11 +122,23 @@ export function AddQueueItemModal({
     const base = parseUsd(price);
     const expected = saleType === "pyt" ? 32 : 8;
     setSpotVariants((prev) => {
-      if (prev.length === expected) return prev;
-      if (base == null) return [];
-      return buildVariantsFromPreset(saleType === "pyt" ? "nfl_teams" : "nfl_divisions", base, 1);
+      if (base == null) return prev.length === expected ? prev : [];
+      if (prev.length !== expected) {
+        return buildVariantsFromPreset(saleType === "pyt" ? "nfl_teams" : "nfl_divisions", base, 1);
+      }
+      if (spotsCustomized) return prev;
+      return prev.map((spot) => ({ ...spot, priceUsd: base }));
     });
-  }, [price, saleType]);
+  }, [price, saleType, spotsCustomized]);
+
+  const handleSpotVariantsChange = useCallback((next: VariantDraftInput[]) => {
+    setSpotVariants((prev) => {
+      if (prev.length === next.length && next.some((spot, index) => spot.priceUsd !== prev[index]?.priceUsd)) {
+        setSpotsCustomized(true);
+      }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -526,7 +540,11 @@ export function AddQueueItemModal({
                 <button
                   key={type.id}
                   type="button"
-                  onClick={() => setSaleType(type.id)}
+                  onClick={() => {
+                    setSaleType(type.id);
+                    setSpotVariants([]);
+                    setSpotsCustomized(false);
+                  }}
                   className={`rounded-lg border px-3 py-2.5 text-left transition ${
                     active
                       ? "border-gold/45 bg-gold/15 text-gold-bright"
@@ -564,7 +582,7 @@ export function AddQueueItemModal({
                 onSalesFormatChange={() => {}}
                 defaultPriceUsd={price}
                 variants={spotVariants}
-                onVariantsChange={setSpotVariants}
+                onVariantsChange={handleSpotVariantsChange}
               />
             </div>
           ) : null}
