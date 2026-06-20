@@ -40,6 +40,7 @@ import {
   type LiveSpotTakenCelebration as SpotTakenCelebration,
 } from '../../../lib/liveSpotCelebration';
 import { isVariantSalesFormat } from '../../../lib/liveItemVariant';
+import { parseVariantPurchasedRandomClaim } from '../../../lib/liveVariantSpotBoard';
 import { useSellerLiveConsole } from '../../../hooks/useSellerLiveConsole';
 import { canonicalLiveShareUrl } from '../../../lib/liveShareUrl';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
@@ -258,6 +259,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
     onVariantPurchased: (payload) => {
       const taken = parseVariantPurchasedCelebration(payload);
       if (taken) setSpotCelebration(taken);
+      const randomClaim = parseVariantPurchasedRandomClaim(payload);
+      if (randomClaim) console.recordRandomSpotClaim(randomClaim.itemId, randomClaim.claim);
       console.syncQueue();
     },
     onPurchaseCompleted: (payload) => {

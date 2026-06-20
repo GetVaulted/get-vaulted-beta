@@ -13,6 +13,7 @@ import Svg, { G, Path, Text as SvgText } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   landingRotationDeg,
+  VAULT_REVEAL_RESULT_HOLD_MS,
   type VaultRevealSpinPayload,
 } from '../../lib/vaultRevealSpin';
 import { NFL_DIVISION_COLORS, NFL_TEAM_COLORS } from '../../lib/liveBreakPresets';
@@ -71,6 +72,8 @@ export function VaultRevealWheelOverlay({
   const [phase, setPhase] = useState<'idle' | 'spinning' | 'done'>('idle');
   const seenRef = useRef<string | null>(null);
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
 
   const segments = useMemo(() => {
     if (!spin?.labels.length) return [];
@@ -92,24 +95,30 @@ export function VaultRevealWheelOverlay({
       if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
       return;
     }
-    if (seenRef.current === spin.spinId) return;
-    seenRef.current = spin.spinId;
-    setPhase('spinning');
-    anim.setValue(0);
-    const target = landingRotationDeg(spin.winnerIndex, spin.labels.length, 6);
-    Animated.timing(anim, {
-      toValue: target,
-      duration: spin.durationMs,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (finished) setPhase('done');
-    });
-    dismissTimerRef.current = setTimeout(() => onDismiss(), spin.durationMs + 2200);
+    const alreadySeen = seenRef.current === spin.spinId;
+    if (!alreadySeen) {
+      seenRef.current = spin.spinId;
+      setPhase('spinning');
+      anim.setValue(0);
+      const target = landingRotationDeg(spin.winnerIndex, spin.labels.length, 6);
+      Animated.timing(anim, {
+        toValue: target,
+        duration: spin.durationMs,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) setPhase('done');
+      });
+    }
+    if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+    dismissTimerRef.current = setTimeout(
+      () => onDismissRef.current(),
+      spin.durationMs + VAULT_REVEAL_RESULT_HOLD_MS,
+    );
     return () => {
       if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
     };
-  }, [anim, onDismiss, spin]);
+  }, [anim, spin?.spinId, spin?.durationMs, spin?.winnerIndex, spin?.labels.length]);
 
   const spinInterpolate = anim.interpolate({
     inputRange: [0, 3600],

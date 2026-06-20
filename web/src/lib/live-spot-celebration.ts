@@ -42,3 +42,6 @@ export function parseAuctionWinSpotCelebration(payload: {
 export function spotCelebrationHeadline(kind: LiveSpotTakenCelebration["kind"]): string {
   return kind === "auction_win" ? "SOLD!" : "TAKEN!";
 }
+
+/** Full-screen spot celebration duration — matches Vault Reveal total display (~4s). */
+export const SPOT_CELEBRATION_DISPLAY_MS = 4000;

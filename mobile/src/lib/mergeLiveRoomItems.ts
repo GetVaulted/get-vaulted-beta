@@ -2,7 +2,23 @@ type QueueItemLike = {
   id: string;
   sortOrder?: number;
   itemVersion?: number;
+  randomSpotClaims?: { label: string; buyerUsername: string }[];
 };
+
+function mergeRandomSpotClaims(
+  prev?: { label: string; buyerUsername: string }[],
+  next?: { label: string; buyerUsername: string }[],
+): { label: string; buyerUsername: string }[] | undefined {
+  if (!prev?.length && !next?.length) return undefined;
+  const map = new Map<string, { label: string; buyerUsername: string }>();
+  for (const c of prev ?? []) {
+    map.set(c.label.trim().toLowerCase(), c);
+  }
+  for (const c of next ?? []) {
+    map.set(c.label.trim().toLowerCase(), c);
+  }
+  return [...map.values()];
+}
 
 /** Flat queue merge for mobile host console items. */
 export function mergeLiveRoomItemsById<TItem extends QueueItemLike>(
@@ -21,7 +37,10 @@ export function mergeLiveRoomItemsById<TItem extends QueueItemLike>(
     }
     const prevVer = existing.itemVersion ?? 0;
     const nextVer = item.itemVersion ?? 0;
-    map.set(item.id, nextVer >= prevVer ? item : existing);
+    const winner = nextVer >= prevVer ? item : existing;
+    const loser = winner === item ? existing : item;
+    const randomSpotClaims = mergeRandomSpotClaims(loser.randomSpotClaims, winner.randomSpotClaims);
+    map.set(item.id, randomSpotClaims ? { ...winner, randomSpotClaims } : winner);
   }
 
   return [...map.values()].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));

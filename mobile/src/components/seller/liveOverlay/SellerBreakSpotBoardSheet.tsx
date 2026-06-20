@@ -3,8 +3,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
-import { isLightSpotAccent, spotAccentColor, teamAbbrForVariant } from '../../../lib/liveBreakPresets';
 import { isVariantSalesFormat } from '../../../lib/liveItemVariant';
+import { buildVariantSpotDisplayRows } from '../../../lib/liveVariantSpotBoard';
+import { spotAccentColor, teamAbbrForVariant, isLightSpotAccent } from '../../../lib/liveBreakPresets';
 import { colors, radii, spacing } from '../../../theme';
 import { LiveRoomText } from '../../live/LiveRoomText';
 
@@ -23,9 +24,9 @@ export function SellerBreakSpotBoardSheet({ visible, onClose, item }: Props) {
   if (!item || !isVariantSalesFormat(item.salesFormat)) return null;
 
   const isDivisionBreak = item.salesFormat === 'team_break';
-  const variants = [...(item.variants ?? [])].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-  const soldCount = variants.filter((v) => v.quantityRemaining <= 0 || v.status === 'sold_out').length;
-  const openCount = variants.length - soldCount;
+  const rows = buildVariantSpotDisplayRows(item);
+  const soldCount = rows.filter((r) => r.sold).length;
+  const openCount = rows.length - soldCount;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -63,14 +64,14 @@ export function SellerBreakSpotBoardSheet({ visible, onClose, item }: Props) {
             ]}
             showsVerticalScrollIndicator={false}
           >
-            {variants.map((variant) => {
-              const sold = variant.quantityRemaining <= 0 || variant.status === 'sold_out';
-              const accent = spotAccentColor(variant.label ?? '', variant.color);
+            {rows.map((row) => {
+              const sold = row.sold;
+              const accent = spotAccentColor(row.label ?? '', row.color);
               const light = isLightSpotAccent(accent);
-              const abbr = teamAbbrForVariant(variant.label);
+              const abbr = teamAbbrForVariant(row.label);
               return (
                 <View
-                  key={variant.id}
+                  key={row.id}
                   style={[
                     styles.spotCell,
                     isDivisionBreak ? styles.spotCellDivision : styles.spotCellTeam,
@@ -81,7 +82,7 @@ export function SellerBreakSpotBoardSheet({ visible, onClose, item }: Props) {
                     colors={sold ? ['#1a1a22', '#121218'] : [accent, `${accent}cc`]}
                     style={styles.spotGradient}
                   >
-                    {variant.isHot && !sold ? (
+                    {row.isHot && !sold ? (
                       <LiveRoomText style={styles.hotTag}>HOT</LiveRoomText>
                     ) : null}
                     <LiveRoomText style={[styles.spotAbbr, light && !sold && styles.spotAbbrDark]}>
@@ -91,15 +92,15 @@ export function SellerBreakSpotBoardSheet({ visible, onClose, item }: Props) {
                       style={[styles.spotLabel, light && !sold && styles.spotLabelDark]}
                       numberOfLines={2}
                     >
-                      {variant.label}
+                      {row.label}
                     </LiveRoomText>
                     {sold ? (
                       <LiveRoomText style={styles.buyerTag} numberOfLines={1}>
-                        {variant.buyerUsername ? `@${variant.buyerUsername.replace(/^@+/, '')}` : 'SOLD'}
+                        {row.buyerUsername ? `@${row.buyerUsername.replace(/^@+/, '')}` : 'SOLD'}
                       </LiveRoomText>
                     ) : (
                       <LiveRoomText style={[styles.priceTag, light && styles.spotLabelDark]}>
-                        {fmtMoney(variant.priceUsd)}
+                        {fmtMoney(row.priceUsd)}
                       </LiveRoomText>
                     )}
                   </LinearGradient>

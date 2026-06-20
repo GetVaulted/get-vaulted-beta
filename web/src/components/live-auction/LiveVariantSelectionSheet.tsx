@@ -174,12 +174,19 @@ export function LiveVariantSelectionSheet({
   const allSold = spotSummary.available <= 0;
 
   return (
-    <div className="pointer-events-auto fixed inset-0 z-[55] flex items-end justify-center bg-black/48">
-      <button type="button" aria-label="Close checkout" className="absolute inset-0" onClick={onClose} />
+    <div className="pointer-events-none fixed inset-0 z-[55] flex items-end justify-center">
+      <button
+        type="button"
+        aria-label="Close checkout"
+        className="pointer-events-auto absolute inset-0 bg-black/48"
+        onClick={onClose}
+      />
       <div
         role="dialog"
         aria-label="Checkout"
-        className="relative z-10 flex max-h-[72vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-white/10 bg-[#0b0b10] shadow-2xl"
+        className="pointer-events-auto relative z-10 flex max-h-[72vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-white/10 bg-[#0b0b10] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-white/[0.06] px-4 pb-2 pt-3">
           <div>
@@ -340,8 +347,11 @@ function VariantPill({
     <button
       type="button"
       disabled={soldOut}
-      onClick={onSelect}
-      className={`relative min-w-[5.5rem] max-w-[48%] flex-grow rounded-full border px-3 py-2 text-left transition ${
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect();
+      }}
+      className={`relative min-w-[5.5rem] max-w-[48%] flex-grow cursor-pointer rounded-full border px-3 py-2 text-left transition ${
         soldOut
           ? "cursor-not-allowed border-dashed border-white/15 bg-white/[0.015] opacity-70"
           : selected

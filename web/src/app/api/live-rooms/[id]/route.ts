@@ -4,6 +4,7 @@ import { getServerSessionSafe } from "@/lib/auth";
 import { resolveLiveRoomsUserId, resolveOptionalLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { attachHighBidderUsernames } from "@/lib/live-room-high-bidder-enrich";
 import { buildLiveRoomDetail } from "@/lib/live-room-serialize";
+import { enrichLiveRoomDetailRandomClaims } from "@/lib/live-variant-random-claims";
 import { liveRoomItemsWithVariantsInclude } from "@/lib/live-item-variant-include";
 import { logLiveLoaderDebug, safeDecodeRouteSegment } from "@/lib/live-loader-debug";
 import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
@@ -163,26 +164,27 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   detail.items = await attachHighBidderUsernames(detail.items);
   const activeId = detail.activeItem?.id ?? null;
   detail.activeItem = activeId ? detail.items.find((i) => i.id === activeId) ?? null : null;
-  detail.giveaways = await listViewerGiveawaysForRoom(id, viewerId);
+  const enriched = await enrichLiveRoomDetailRandomClaims(detail);
+  enriched.giveaways = await listViewerGiveawaysForRoom(id, viewerId);
   logSellerRoomStateSnapshot({
     source: "buyer-room-get",
     roomId: id,
-    roomStatus: detail.status,
-    roomType: detail.roomType,
-    activeItem: detail.activeItem,
-    overlayItem: detail.activeItem,
+    roomStatus: enriched.status,
+    roomType: enriched.roomType,
+    activeItem: enriched.activeItem,
+    overlayItem: enriched.activeItem,
     breakPhase:
-      detail.roomType === "break" && detail.break
-        ? detail.break.phase
+      enriched.roomType === "break" && enriched.break
+        ? enriched.break.phase
         : room.roomType === "break"
           ? computeBreakBuyerPhase(room, room.breakSpots?.length ?? 0)
           : null,
-    lockPurchases: detail.break?.lockPurchases,
-    breakPaused: detail.break?.breakPaused,
+    lockPurchases: enriched.break?.lockPurchases,
+    breakPaused: enriched.break?.breakPaused,
     serverNowMs,
     extra: { viewerId: viewerId ?? null, isHost },
   });
-  return NextResponse.json({ room: detail, serverNowMs });
+  return NextResponse.json({ room: enriched, serverNowMs });
   } catch (e) {
     console.error("[api GET /api/live-rooms/[id]] failed", { liveRoomId: id, viewerId, e });
     return NextResponse.json(

@@ -77,6 +77,8 @@ export type LiveRoomItemDTO = {
   salesFormat: LiveItemSalesFormat;
   variantAssignmentMode: "pick" | "random";
   variants: LiveItemVariantDTO[];
+  /** Paid random-reveal assignments (team/division label → buyer). */
+  randomSpotClaims?: { label: string; buyerUsername: string }[];
   /** ISO when all variant spots sold (team break ready). */
   variantBreakReadyAt: string | null;
   /** ISO when host began the break. */

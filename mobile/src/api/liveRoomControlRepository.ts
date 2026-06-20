@@ -26,6 +26,7 @@ export type LiveRoomItemRow = {
   sortOrder: number;
   salesFormat?: 'auction' | 'buy_now' | 'variant_selection' | 'team_break';
   variantAssignmentMode?: 'pick' | 'random';
+  randomSpotClaims?: { label: string; buyerUsername: string }[];
   variants?: {
     id: string;
     label: string;

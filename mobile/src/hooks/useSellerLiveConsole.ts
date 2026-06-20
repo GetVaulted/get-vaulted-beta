@@ -18,6 +18,7 @@ import { logSellerQueue } from '../lib/logSellerQueue';
 import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
 import { mergeLiveRoomItemsById } from '../lib/mergeLiveRoomItems';
+import { mergeRandomSpotClaimIntoItem, type RandomSpotClaim } from '../lib/liveVariantSpotBoard';
 import { DEFAULT_AUCTION_SEC } from '../components/seller/liveConsole/VaultPinnedLotCard';
 import type { ChatMessage } from '../types';
 
@@ -60,7 +61,12 @@ export function useSellerLiveConsole({
     (data: Awaited<ReturnType<typeof fetchHostConsole>>) => {
       setItems((prev) => mergeLiveRoomItemsById(prev, data.items));
       setGiveaways(data.giveaways);
-      setActiveItem((prev) => data.activeItem ?? prev);
+      setActiveItem((prev) => {
+        const next = data.activeItem ?? prev;
+        if (!next) return null;
+        if (!prev) return next;
+        return mergeLiveRoomItemsById([prev], [next])[0] ?? next;
+      });
       logSellerQueue('queue_length', {
         total: data.items.length,
         queued: data.items.filter((i) => i.status === 'queued').length,
@@ -148,6 +154,15 @@ export function useSellerLiveConsole({
       /* keep last synced console state */
     }
   }, [reload]);
+
+  const recordRandomSpotClaim = useCallback((itemId: string, claim: RandomSpotClaim) => {
+    const apply = (item: LiveRoomItemRow | null) => {
+      if (!item || item.id !== itemId) return item;
+      return mergeRandomSpotClaimIntoItem(item, claim);
+    };
+    setItems((prev) => prev.map((item) => apply(item) ?? item));
+    setActiveItem((prev) => apply(prev));
+  }, []);
 
   const biddingUrgent = useMemo(() => {
     if (!activeItem?.biddingOpen || !activeItem.auctionEndsAt) return false;
@@ -363,6 +378,7 @@ export function useSellerLiveConsole({
     syncGiveaways: () => {
       void reload({ soft: true });
     },
+    recordRandomSpotClaim,
     onReorder,
     onStartBidding,
     onSold,

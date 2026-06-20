@@ -1,7 +1,8 @@
 "use client";
 
-import type { LiveItemVariantDTO, LiveRoomItemDTO } from "@/lib/live-room-serialize";
+import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { isVariantSalesFormat, variantBuyerSelectLabel } from "@/lib/live-item-variant-presets";
+import { buildVariantSpotDisplayRows } from "@/lib/live-variant-spot-board";
 
 type LiveVariantSpotBoardProps = {
   item: LiveRoomItemDTO | null;
@@ -32,8 +33,8 @@ export function LiveVariantSpotBoard({
 }: LiveVariantSpotBoardProps) {
   if (!item || !isVariantSalesFormat(item.salesFormat) || !item.variants?.length) return null;
 
-  const variants = [...item.variants].sort((a, b) => a.sortOrder - b.sortOrder);
-  const available = variants.filter((v) => v.quantityRemaining > 0 && v.status !== "sold_out").length;
+  const rows = buildVariantSpotDisplayRows(item, item.randomSpotClaims ?? []);
+  const available = rows.filter((r) => !r.sold).length;
   const boardLabel = variantBuyerSelectLabel(item.salesFormat);
 
   if (hostMode && minimized) {
@@ -42,7 +43,7 @@ export function LiveVariantSpotBoard({
         <div className="min-w-0 flex-1">
           <p className="truncate text-[10px] font-bold text-zinc-200">{item.title}</p>
           <p className="text-[9px] font-semibold text-emerald-300/90">
-            {available} open · {variants.length} spots
+            {available} open · {rows.length} spots
           </p>
         </div>
         {onAddSupplemental ? (
@@ -75,7 +76,7 @@ export function LiveVariantSpotBoard({
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-200/80">{boardLabel}</p>
           <p className="mt-0.5 truncate text-xs font-bold text-white">{item.title}</p>
           <p className="mt-0.5 text-[10px] font-semibold text-zinc-500">
-            {available} open · {variants.length - available} sold
+            {available} open · {rows.length - available} sold
           </p>
         </div>
         {hostMode ? (
@@ -114,47 +115,43 @@ export function LiveVariantSpotBoard({
       </div>
 
       <div className="mt-3 flex max-h-[min(36vh,280px)] flex-wrap gap-2 overflow-y-auto pr-0.5">
-        {variants.map((v) => {
-          const sold = v.quantityRemaining <= 0 || v.status === "sold_out";
-          return (
+        {rows.map((r) => (
             <div
-              key={v.id}
+              key={r.id}
               className={`relative min-w-[5.5rem] max-w-[48%] flex-grow rounded-full border px-3 py-2 ${
-                sold
+                r.sold
                   ? "border-dashed border-white/15 bg-white/[0.015] opacity-70"
-                  : v.isHot
+                  : r.isHot
                     ? "border-amber-400/40 bg-amber-500/10"
                     : "border-white/15 bg-white/[0.03]"
               }`}
             >
-              {v.isHot && !sold ? (
+              {r.isHot && !r.sold ? (
                 <span className="absolute -top-1.5 right-2 rounded-full border border-white/20 bg-red-600 px-1.5 py-0.5 text-[8px] font-black uppercase text-white">
                   Hot
                 </span>
               ) : null}
               <div className="flex items-start justify-between gap-1">
-                <p className={`text-xs font-bold ${sold ? "text-zinc-500 line-through" : "text-zinc-100"}`}>{v.label}</p>
-                {hostMode && onToggleHot ? (
+                <p className={`text-xs font-bold ${r.sold ? "text-zinc-500 line-through" : "text-zinc-100"}`}>{r.label}</p>
+                {hostMode && onToggleHot && r.variantId ? (
                   <button
                     type="button"
-                    onClick={() => onToggleHot(v.id, !v.isHot)}
+                    onClick={() => onToggleHot(r.variantId!, !r.isHot)}
                     className="text-[9px] text-zinc-500 hover:text-amber-300"
-                    aria-label={`Toggle hot for ${v.label}`}
+                    aria-label={`Toggle hot for ${r.label}`}
                   >
                     ★
                   </button>
                 ) : null}
               </div>
-              <p className={`mt-0.5 font-mono text-[10px] font-bold ${sold ? "text-zinc-600" : "text-zinc-500"}`}>
-                {sold ? "Sold" : fmtMoney(v.priceUsd)}
-                {!sold && v.buyerUsername ? ` · @${v.buyerUsername}` : ""}
+              <p className={`mt-0.5 font-mono text-[10px] font-bold ${r.sold ? "text-zinc-600" : "text-zinc-500"}`}>
+                {r.sold ? "Sold" : fmtMoney(r.priceUsd)}
               </p>
-              {sold && v.buyerUsername ? (
-                <p className="mt-0.5 truncate text-[9px] font-semibold text-emerald-300/80">@{v.buyerUsername}</p>
+              {r.sold && r.buyerUsername ? (
+                <p className="mt-0.5 truncate text-[9px] font-semibold text-emerald-300/80">@{r.buyerUsername}</p>
               ) : null}
             </div>
-          );
-        })}
+          ))}
       </div>
     </div>
   );

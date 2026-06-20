@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { segmentColorForLabel } from "@/lib/nfl-team-colors";
 import {
   landingRotationDeg,
+  VAULT_REVEAL_RESULT_HOLD_MS,
   type VaultRevealSpinPayload,
 } from "@/lib/vault-reveal-spin";
 
@@ -35,6 +36,8 @@ export function VaultRevealWheelOverlay({
   const [rotation, setRotation] = useState(0);
   const [phase, setPhase] = useState<"idle" | "spinning" | "done">("idle");
   const seenRef = useRef<string | null>(null);
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
 
   const segments = useMemo(() => {
     if (!spin?.labels.length) return [];
@@ -53,20 +56,21 @@ export function VaultRevealWheelOverlay({
       seenRef.current = null;
       return;
     }
-    if (seenRef.current === spin.spinId) return;
-    seenRef.current = spin.spinId;
-    setPhase("spinning");
-    setRotation(0);
-    const target = landingRotationDeg(spin.winnerIndex, spin.labels.length, 6);
-    const t1 = requestAnimationFrame(() => setRotation(target));
-    const t2 = window.setTimeout(() => setPhase("done"), spin.durationMs);
-    const t3 = window.setTimeout(() => onDismiss(), spin.durationMs + 2800);
-    return () => {
-      cancelAnimationFrame(t1);
-      window.clearTimeout(t2);
-      window.clearTimeout(t3);
-    };
-  }, [onDismiss, spin]);
+    const alreadySeen = seenRef.current === spin.spinId;
+    if (!alreadySeen) {
+      seenRef.current = spin.spinId;
+      setPhase("spinning");
+      setRotation(0);
+      const target = landingRotationDeg(spin.winnerIndex, spin.labels.length, 6);
+      requestAnimationFrame(() => setRotation(target));
+      window.setTimeout(() => setPhase("done"), spin.durationMs);
+    }
+    const dismissAt = window.setTimeout(
+      () => onDismissRef.current(),
+      spin.durationMs + VAULT_REVEAL_RESULT_HOLD_MS,
+    );
+    return () => window.clearTimeout(dismissAt);
+  }, [spin?.spinId, spin?.durationMs, spin?.winnerIndex, spin?.labels.length]);
 
   if (!spin) return null;
 

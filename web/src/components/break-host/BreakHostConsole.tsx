@@ -902,7 +902,17 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       if (!shouldProcessRealtimePayload("variant_purchased", payload)) return;
       const taken = parseVariantPurchasedCelebration(payload);
       if (taken) setSpotCelebration(taken);
-      flashHostNotice(`@${taken?.username ?? "buyer"} took ${taken?.label ?? "a spot"}`);
+      const buyer =
+        (typeof payload === "object" && payload && "buyerUsername" in payload
+          ? String((payload as { buyerUsername?: string }).buyerUsername ?? "")
+          : ""
+        ).replace(/^@+/, "") || taken?.username || "buyer";
+      const label =
+        (typeof payload === "object" && payload && "label" in payload
+          ? String((payload as { label?: string }).label ?? "")
+          : ""
+        ).trim() || taken?.label || "a spot";
+      flashHostNotice(`@${buyer} took ${label}`);
       void load();
     },
     onBreakSpotsChange: () => {

@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { formatAuctionMoneyUsd } from "@/lib/live-auction-winner-display";
 import {
   spotCelebrationHeadline,
+  SPOT_CELEBRATION_DISPLAY_MS,
   type LiveSpotTakenCelebration,
 } from "@/lib/live-spot-celebration";
 
@@ -12,7 +13,7 @@ type Props = {
   onDone: () => void;
 };
 
-const DISPLAY_MS = 2800;
+const DISPLAY_MS = SPOT_CELEBRATION_DISPLAY_MS;
 
 /** Full-screen PYT spot purchase / auction win announcement. */
 export function LiveSpotTakenCelebration({ celebration, onDone }: Props) {

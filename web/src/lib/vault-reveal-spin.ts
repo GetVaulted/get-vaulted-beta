@@ -18,7 +18,11 @@ export type VaultRevealSpinPayload = {
   buyerUsername?: string;
 };
 
-export const VAULT_REVEAL_DEFAULT_DURATION_MS = 4200;
+export const VAULT_REVEAL_DEFAULT_DURATION_MS = 2400;
+/** How long the winning result stays visible after the spin stops (~4s total with default spin). */
+export const VAULT_REVEAL_RESULT_HOLD_MS = 1600;
+export const VAULT_REVEAL_TOTAL_DISPLAY_MS =
+  VAULT_REVEAL_DEFAULT_DURATION_MS + VAULT_REVEAL_RESULT_HOLD_MS;
 
 export function landingRotationDeg(winnerIndex: number, total: number, extraSpins = 5): number {
   if (total <= 0) return 0;
