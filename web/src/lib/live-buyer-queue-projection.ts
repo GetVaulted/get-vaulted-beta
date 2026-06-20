@@ -130,3 +130,10 @@ export function projectBuyerQueueLineup(
   );
   return sorted.map((item) => buildBuyerQueueLineupRow(item, args));
 }
+
+/** Auction lots can be selected for pre-bid; PYT/PYD and buy-now rows are display-only in the shop queue. */
+export function buyerQueueRowSelectable(row: BuyerQueueLineupRow): boolean {
+  if (row.salesFormat === "buy_now") return false;
+  if (row.salesFormat === "variant_selection" || row.salesFormat === "team_break") return false;
+  return row.queueLane === "auction";
+}

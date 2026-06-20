@@ -36,7 +36,7 @@ import { parseTeamBoardPublicPayload, type TeamBoardPublicPayload } from "@/lib/
 import { liveAuctionMinBidUsd } from "@/lib/auction";
 import { liveAuctionDisplayBidUsd } from "@/lib/live-auction-overlay-price";
 import { LIVE_AUCTION_CLIENT_END_GRACE_MS } from "@/lib/live-auction-bid-extension";
-import { projectBuyerQueueLineup } from "@/lib/live-buyer-queue-projection";
+import { projectBuyerQueueLineup, buyerQueueRowSelectable } from "@/lib/live-buyer-queue-projection";
 import { fetchLiveBuyerPaymentSession } from "@/lib/live-tip-client";
 import { createLiveBidIdempotencyKey, liveBidRequestHeaders } from "@/lib/live-bid-client";
 import {
@@ -1409,11 +1409,11 @@ export function LiveAuctionRoom({
             itemBoard={
               !isHost ? (
                 <BuyerLiveItemBoard
-                  commerce={showFeaturedAuctionOverlay ? desktopVideoOverlay : null}
                   items={buyerQueueRows.map((item) => ({
                     id: item.id,
                     displayTitle: item.displayTitle,
                     metaLine: item.metaLine,
+                    selectable: buyerQueueRowSelectable(item),
                   }))}
                   selectedId={selectedId}
                   shopHref={shopHref}

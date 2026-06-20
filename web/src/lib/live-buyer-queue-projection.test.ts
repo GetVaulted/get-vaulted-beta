@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildBuyerQueueLineupRow,
+  buyerQueueRowSelectable,
   filterHostAlignedLineupItems,
   hostAuctionLaneItems,
   hostBinLaneItems,
@@ -125,5 +126,21 @@ describe("live-buyer-queue-projection", () => {
       { roomIsLive: true, nowMs: Date.now() },
     );
     expect(rows.map((r) => r.id)).toEqual(["first", "second"]);
+  });
+
+  it("allows pre-bid selection only for auction lots", () => {
+    const auction = buildBuyerQueueLineupRow(baseItem({ salesFormat: "auction", status: "active" }), {
+      roomIsLive: true,
+      nowMs: Date.now(),
+    });
+    const pyt = buildBuyerQueueLineupRow(
+      baseItem({
+        salesFormat: "variant_selection",
+        variants: [{ id: "v1", label: "ARI", priceUsd: 40, quantityRemaining: 1, isHot: false, status: "available", sortOrder: 0, buyerUsername: null }],
+      }),
+      { roomIsLive: true, nowMs: Date.now() },
+    );
+    expect(buyerQueueRowSelectable(auction)).toBe(true);
+    expect(buyerQueueRowSelectable(pyt)).toBe(false);
   });
 });
