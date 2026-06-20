@@ -28,7 +28,7 @@ import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
 import { finalizeLiveStreamReplay } from "@/lib/trust/live-replay-service";
 import { endHostStageSession } from "@/services/ivs";
 import { logSellerRoomStateSnapshot } from "@/lib/log-room-state-snapshot";
-import { computeBreakBuyerPhase } from "@/lib/live-room-break-public";
+import { apiErrorResponseFromUnknown } from "@/lib/prisma-api-error-response";
 
 const includeDetail = {
   seller: { select: { id: true, username: true } as const },
@@ -164,8 +164,18 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   detail.items = await attachHighBidderUsernames(detail.items);
   const activeId = detail.activeItem?.id ?? null;
   detail.activeItem = activeId ? detail.items.find((i) => i.id === activeId) ?? null : null;
-  const enriched = await enrichLiveRoomDetailRandomClaims(detail);
-  enriched.giveaways = await listViewerGiveawaysForRoom(id, viewerId);
+  let enriched = detail;
+  try {
+    enriched = await enrichLiveRoomDetailRandomClaims(detail);
+  } catch (e) {
+    console.error("[api/live-rooms/[id]] enrichLiveRoomDetailRandomClaims failed", { liveRoomId: id, e });
+  }
+  try {
+    enriched.giveaways = await listViewerGiveawaysForRoom(id, viewerId);
+  } catch (e) {
+    console.error("[api/live-rooms/[id]] listViewerGiveawaysForRoom failed", { liveRoomId: id, e });
+    enriched.giveaways = [];
+  }
   logSellerRoomStateSnapshot({
     source: "buyer-room-get",
     roomId: id,
@@ -187,10 +197,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   return NextResponse.json({ room: enriched, serverNowMs });
   } catch (e) {
     console.error("[api GET /api/live-rooms/[id]] failed", { liveRoomId: id, viewerId, e });
-    return NextResponse.json(
-      { error: "Could not load live room.", code: "LIVE_ROOM_GET_FAILED" },
-      { status: 500, headers: { "Cache-Control": "no-store" } },
-    );
+    return apiErrorResponseFromUnknown(e, {
+      error: "Could not load live room.",
+      code: "LIVE_ROOM_GET_FAILED",
+    });
   }
 }
 

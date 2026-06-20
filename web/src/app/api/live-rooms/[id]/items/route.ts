@@ -7,7 +7,7 @@ import { isVariantSalesFormat, normalizeVariantDrafts } from "@/lib/live-item-va
 import { parseLiveItemSalesFormat } from "@/lib/live-item-variant-serialize";
 import type { LiveItemVariantAssignmentMode } from "@/generated/prisma/client";
 import { validateLiveRoomItemThumbnail } from "@/lib/listing-photo-requirements";
-import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-shipping-profiles";
+import { apiErrorResponseFromUnknown } from "@/lib/prisma-api-error-response";
 
 type PostBody = {
   title?: string;
@@ -159,26 +159,28 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     requiresSeparatePackage: resolvedProfile?.requiresSeparatePackage ?? null,
   };
 
-  /** Turbopack / dev can keep an older bundled Prisma client that rejects `quantity` even after `prisma generate`. */
-  function isStaleClientUnknownQuantityArg(e: unknown): boolean {
+  /** Turbopack / dev can keep an older bundled Prisma client that rejects newer fields even after `prisma generate`. */
+  function isStaleClientUnknownFieldArg(e: unknown, field: string): boolean {
     if (!(e instanceof Error)) return false;
     if (e.name !== "PrismaClientValidationError") return false;
-    return /Unknown argument [`'"]?quantity[`'"]?/i.test(e.message);
+    return new RegExp(`Unknown argument [\`'"]?${field}[\`'"]?`, "i").test(e.message);
   }
 
-  /** Postgres 42703 / adapter "ColumnNotFound" on raw SQL — meta shape differs from P2022. */
-  function isMissingQuantityColumnError(e: unknown): boolean {
+  function isMissingSchemaColumnError(e: unknown): boolean {
     if (e instanceof Prisma.PrismaClientKnownRequestError) {
       if (e.code === "P2022") return true;
-      const msg = `${e.message}\n${JSON.stringify(e.meta ?? {})}`;
-      if (e.code === "P2010" && /quantity/i.test(msg) && /(42703|does not exist|ColumnNotFound)/i.test(msg)) {
+      const meta = e.meta as { column_name?: unknown } | undefined;
+      const col = typeof meta?.column_name === "string" ? meta.column_name : "";
+      if (col.includes("quantity") || col.includes("variantAssignmentMode") || col.includes("revealedLabel")) {
         return true;
       }
+      const msg = `${e.message}\n${JSON.stringify(e.meta ?? {})}`;
+      if (e.code === "P2010" && /(42703|does not exist|ColumnNotFound)/i.test(msg)) return true;
     }
     const msg = e instanceof Error ? e.message : String(e);
     return (
-      /column\s+[`"']?quantity[`"']?\s+of relation\s+[`"']?LiveRoomItem[`"']?\s+does not exist/i.test(msg) ||
-      (/42703/.test(msg) && /quantity/i.test(msg))
+      /column\s+[`"']?(quantity|variantAssignmentMode|revealedLabel)[`"']?\s+of relation/i.test(msg) ||
+      (/42703/.test(msg) && /(quantity|variantAssignmentMode|revealedLabel)/i.test(msg))
     );
   }
 
@@ -207,7 +209,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       return created;
     });
   } catch (e) {
-    if (isStaleClientUnknownQuantityArg(e)) {
+    if (isStaleClientUnknownFieldArg(e, "quantity")) {
       try {
         item = await prisma.liveRoomItem.create({
           data: baseCreate,
@@ -220,14 +222,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         } catch (rawErr) {
           console.error("[live-room items POST] quantity UPDATE failed (stale-client fallback)", rawErr);
           await prisma.liveRoomItem.delete({ where: { id: item.id } }).catch(() => {});
-          if (isMissingQuantityColumnError(rawErr)) {
-            return NextResponse.json(
-              {
-                error:
-                  "Database is out of date: the LiveRoomItem.quantity column is missing. From the project root run `npx prisma migrate deploy` (or `npm run db:migrate:deploy`) against this database, then add the item again.",
-              },
-              { status: 503 },
-            );
+          if (isMissingSchemaColumnError(rawErr)) {
+            return apiErrorResponseFromUnknown(rawErr, {
+              error: "Database is out of date for queue items.",
+              code: "LIVE_ITEM_SCHEMA_OUT_OF_DATE",
+            });
           }
           return NextResponse.json(
             {
@@ -239,45 +238,60 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         }
       } catch (e2) {
         console.error("[live-room items POST] create failed (stale-client fallback)", e2);
-        if (e2 instanceof Prisma.PrismaClientKnownRequestError) {
-          const meta = e2.meta as { column_name?: unknown } | undefined;
-          const col = typeof meta?.column_name === "string" ? meta.column_name : "";
-          if (e2.code === "P2022" || col.includes("quantity")) {
-            return NextResponse.json(
-              {
-                error:
-                  "Database is out of date: the LiveRoomItem.quantity column is missing. Run `npx prisma migrate deploy` (or `npx prisma migrate dev`) against this environment.",
-              },
-              { status: 503 },
-            );
-          }
+        if (isMissingSchemaColumnError(e2)) {
+          return apiErrorResponseFromUnknown(e2, {
+            error: "Database is out of date for queue items.",
+            code: "LIVE_ITEM_SCHEMA_OUT_OF_DATE",
+          });
+        }
+        return NextResponse.json({ error: "Could not create queue item." }, { status: 500 });
+      }
+    } else if (isStaleClientUnknownFieldArg(e, "variantAssignmentMode")) {
+      try {
+        const { variantAssignmentMode: _omit, ...createWithoutMode } = baseCreate;
+        item = await prisma.liveRoomItem.create({
+          data: createWithoutMode,
+          select: { id: true },
+        });
+        if (variantDrafts.length > 0) {
+          await prisma.liveItemVariant.createMany({
+            data: variantDrafts.map((v, i) => ({
+              liveRoomItemId: item.id,
+              label: v.label,
+              priceUsd: v.priceUsd,
+              quantityInitial: v.quantityInitial ?? 1,
+              quantityRemaining: v.quantityInitial ?? 1,
+              isHot: v.isHot === true,
+              imageUrl: v.imageUrl ?? "",
+              color: v.color ?? "",
+              sortOrder: v.sortOrder ?? i,
+            })),
+          });
+        }
+      } catch (e2) {
+        console.error("[live-room items POST] create failed (variantAssignmentMode fallback)", e2);
+        if (isMissingSchemaColumnError(e2)) {
+          return apiErrorResponseFromUnknown(e2, {
+            error: "Database is out of date for queue items.",
+            code: "LIVE_ITEM_SCHEMA_OUT_OF_DATE",
+          });
         }
         return NextResponse.json({ error: "Could not create queue item." }, { status: 500 });
       }
     } else {
       console.error("[live-room items POST] create failed", e);
-      if (e instanceof Prisma.PrismaClientKnownRequestError) {
-        const meta = e.meta as { column_name?: unknown } | undefined;
-        const col = typeof meta?.column_name === "string" ? meta.column_name : "";
-        if (e.code === "P2022" || col.includes("quantity")) {
-          return NextResponse.json(
-            {
-              error:
-                "Database is out of date: the LiveRoomItem.quantity column is missing. Run `npx prisma migrate deploy` (or `npx prisma migrate dev`) against this environment.",
-            },
-            { status: 503 },
-          );
-        }
+      if (isMissingSchemaColumnError(e)) {
+        return apiErrorResponseFromUnknown(e, {
+          error: "Database is out of date for queue items.",
+          code: "LIVE_ITEM_SCHEMA_OUT_OF_DATE",
+        });
       }
       const msg = e instanceof Error ? e.message : "";
-      if (/quantity|Unknown argument/i.test(msg)) {
-        return NextResponse.json(
-          {
-            error:
-              "Queue item storage failed (quantity field). Apply the latest Prisma migrations, then try again.",
-          },
-          { status: 503 },
-        );
+      if (/quantity|variantAssignmentMode|Unknown argument/i.test(msg)) {
+        return apiErrorResponseFromUnknown(e, {
+          error: "Queue item storage failed. Apply the latest Prisma migrations, then try again.",
+          code: "LIVE_ITEM_SCHEMA_OUT_OF_DATE",
+        });
       }
       return NextResponse.json({ error: "Could not create queue item." }, { status: 500 });
     }

@@ -11,7 +11,7 @@ import { attachHighBidderUsernames } from "@/lib/live-room-high-bidder-enrich";
 import { listUnresolvedPaymentFailuresForRoom } from "@/lib/live-room-payment-failure";
 import { serializeLiveRoomItem, serializeLiveRoomMessage } from "@/lib/live-room-serialize";
 import { liveRoomItemsWithVariantsInclude } from "@/lib/live-item-variant-include";
-import { prismaLiveRoomCreateHint, serializePrismaClientError } from "@/lib/prisma-client-error-serialize";
+import { apiErrorResponseFromUnknown } from "@/lib/prisma-api-error-response";
 import { logSellerRoomStateSnapshot } from "@/lib/log-room-state-snapshot";
 import { computeBreakBuyerPhase } from "@/lib/live-room-break-public";
 
@@ -236,23 +236,20 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       pickerMatches,
       recentSales,
       sellerUnresolvedPaymentFailures,
-      giveaways: await listLiveGiveawaysForRoom(liveRoomId, true),
+      giveaways: await (async () => {
+        try {
+          return await listLiveGiveawaysForRoom(liveRoomId, true);
+        } catch (e) {
+          console.error("[host-console] listLiveGiveawaysForRoom failed", { liveRoomId, e });
+          return [];
+        }
+      })(),
     });
   } catch (e) {
-    const prismaDto = serializePrismaClientError(e);
-    console.error("[api GET /api/live-rooms/[id]/host-console] failed", {
-      liveRoomId,
-      prisma: prismaDto,
-      raw: e,
+    console.error("[api GET /api/live-rooms/[id]/host-console] failed", { liveRoomId, raw: e });
+    return apiErrorResponseFromUnknown(e, {
+      error: "Could not load host console.",
+      code: "HOST_CONSOLE_FAILED",
     });
-    return NextResponse.json(
-      {
-        error: "Could not load host console.",
-        code: "HOST_CONSOLE_FAILED",
-        detail: prismaDto.message,
-        hint: prismaLiveRoomCreateHint(prismaDto),
-      },
-      { status: 500, headers: { "Cache-Control": "no-store" } },
-    );
   }
 }

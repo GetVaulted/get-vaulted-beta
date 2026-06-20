@@ -4,6 +4,7 @@ import {
   listLiveGiveawaysForRoom,
   parseCreateGiveawayBody,
 } from "@/lib/live-giveaway";
+import { apiErrorResponseFromUnknown } from "@/lib/prisma-api-error-response";
 import { requireLiveRoomHostUser } from "@/lib/resolve-live-room-host-user";
 import { emitLiveRoomGiveawaysChanged } from "@/lib/realtime-emit-server";
 
@@ -11,11 +12,19 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const { id: raw } = await ctx.params;
   const liveRoomId = decodeURIComponent(raw);
 
-  const hostAuth = await requireLiveRoomHostUser(liveRoomId, req);
-  const includeHostSecrets = !(hostAuth instanceof NextResponse);
+  try {
+    const hostAuth = await requireLiveRoomHostUser(liveRoomId, req);
+    const includeHostSecrets = !(hostAuth instanceof NextResponse);
 
-  const giveaways = await listLiveGiveawaysForRoom(liveRoomId, includeHostSecrets);
-  return NextResponse.json({ giveaways });
+    const giveaways = await listLiveGiveawaysForRoom(liveRoomId, includeHostSecrets);
+    return NextResponse.json({ giveaways });
+  } catch (e) {
+    console.error("[api GET /api/live-rooms/[id]/giveaways] failed", { liveRoomId, e });
+    return apiErrorResponseFromUnknown(e, {
+      error: "Could not load giveaways.",
+      code: "LIVE_GIVEAWAYS_GET_FAILED",
+    });
+  }
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {

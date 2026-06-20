@@ -120,21 +120,6 @@ export function useSellerLiveConsole({
     [accessToken, applyConsolePayload, roomId],
   );
 
-  useEffect(() => {
-    hydratedRef.current = false;
-    setLoading(true);
-    setConsoleError(null);
-    void reload().finally(() => setLoading(false));
-  }, [roomId, reload]);
-
-  useEffect(() => {
-    if (roomStatus !== 'live') return;
-    const id = setInterval(() => {
-      void reload({ soft: true });
-    }, 5000);
-    return () => clearInterval(id);
-  }, [reload, roomStatus]);
-
   const loadOnce = useCallback(async () => {
     setLoading(true);
     setConsoleError(null);
@@ -146,6 +131,21 @@ export function useSellerLiveConsole({
       setLoading(false);
     }
   }, [reload]);
+
+  useEffect(() => {
+    hydratedRef.current = false;
+    setLoading(true);
+    setConsoleError(null);
+    void loadOnce();
+  }, [roomId, loadOnce]);
+
+  useEffect(() => {
+    if (roomStatus !== 'live') return;
+    const id = setInterval(() => {
+      void reload({ soft: true });
+    }, 5000);
+    return () => clearInterval(id);
+  }, [reload, roomStatus]);
 
   const refreshConsole = useCallback(async () => {
     try {

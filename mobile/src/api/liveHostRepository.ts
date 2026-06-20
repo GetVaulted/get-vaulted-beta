@@ -1,7 +1,9 @@
 import type { LiveRoomItemRow } from './liveRoomControlRepository';
 import type { LiveGiveawayRow } from './liveGiveawayRepository';
+import { apiFailureErrorMessage } from '../lib/betaApiResponse';
 import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 import { logVaultCommandCenter, supabaseJwtSub } from '../lib/logVaultCommandCenterFlow';
+import { parseWebApiJsonBody, readWebApiResponseText } from '../lib/webApiResponse';
 
 export type LiveHostApiErrorBody = {
   error?: string;
@@ -14,6 +16,8 @@ export class LiveHostApiError extends Error {
   readonly status: number;
   readonly code?: string;
   readonly endpoint: string;
+  readonly detail?: string;
+  readonly hint?: string;
 
   constructor(endpoint: string, status: number, body: LiveHostApiErrorBody) {
     const base =
@@ -26,6 +30,8 @@ export class LiveHostApiError extends Error {
     this.status = status;
     this.code = body.code;
     this.endpoint = endpoint;
+    this.detail = typeof body.detail === 'string' ? body.detail : undefined;
+    this.hint = typeof body.hint === 'string' ? body.hint : undefined;
   }
 }
 
@@ -77,12 +83,20 @@ function apiErrorMessage(res: Response, body: unknown): string {
   return `Request failed (${res.status})`;
 }
 
-function throwHostApiError(endpoint: string, res: Response, body: unknown): never {
+function throwHostApiError(
+  endpoint: string,
+  res: Response,
+  body: LiveHostApiErrorBody,
+  bodyPreview?: string,
+): never {
   const parsed = parseApiBody(body);
-  if (parsed.code === 'LIVE_COMING_SOON' || res.status === 503) {
+  if (parsed.code === 'LIVE_COMING_SOON') {
     throw new Error(
       'Live is disabled on this server. Redeploy beta with the latest web build, or set LIVE_MARKETPLACE_ENABLED=1 in Netlify env (and clear LIVE_MARKETPLACE_COMING_SOON).',
     );
+  }
+  if (!(typeof parsed.error === 'string' && parsed.error.trim()) && bodyPreview) {
+    parsed.error = apiFailureErrorMessage(res, null, bodyPreview);
   }
   throw new LiveHostApiError(endpoint, res.status, parsed);
 }
@@ -91,22 +105,20 @@ async function hostFetchJson<T>(
   endpoint: string,
   accessToken: string,
   init?: RequestInit,
-): Promise<{ res: Response; json: T }> {
+): Promise<{ res: Response; json: T; bodyPreview: string }> {
   const res = await hostFetch(endpoint, accessToken, init);
-  let json = {} as T;
-  try {
-    json = (await res.json()) as T;
-  } catch {
-    /* ignore */
-  }
+  const bodyPreview = await readWebApiResponseText(res);
+  const parsed = parseWebApiJsonBody<LiveHostApiErrorBody & T>(bodyPreview);
+  const json = (parsed ?? {}) as T;
   logVaultCommandCenter('api_response', {
     endpoint,
     status: res.status,
     ok: res.ok,
     code: parseApiBody(json).code ?? null,
     error: parseApiBody(json).error?.slice(0, 160) ?? null,
+    bodyPreview: bodyPreview.slice(0, 120),
   });
-  return { res, json };
+  return { res, json, bodyPreview };
 }
 
 async function hostFetch(path: string, accessToken: string, init?: RequestInit): Promise<Response> {
@@ -125,11 +137,11 @@ export async function fetchLiveRoomForHost(
   roomId: string,
 ): Promise<LiveRoomHostDetail> {
   const endpoint = `/api/live-rooms/${encodeURIComponent(roomId)}`;
-  const { res, json: j } = await hostFetchJson<{ room?: LiveRoomHostDetail; error?: string; code?: string }>(
+  const { res, json: j, bodyPreview } = await hostFetchJson<{ room?: LiveRoomHostDetail; error?: string; code?: string }>(
     endpoint,
     accessToken,
   );
-  if (!res.ok) throwHostApiError(endpoint, res, j);
+  if (!res.ok) throwHostApiError(endpoint, res, j, bodyPreview);
   if (!j.room?.id) throw new Error('Room not found.');
   const room = j.room;
   return {
@@ -291,7 +303,7 @@ export type HostConsolePayload = {
 
 export async function fetchHostConsole(accessToken: string, roomId: string): Promise<HostConsolePayload> {
   const endpoint = `/api/live-rooms/${encodeURIComponent(roomId)}/host-console`;
-  const { res, json: j } = await hostFetchJson<{
+  const { res, json: j, bodyPreview } = await hostFetchJson<{
     serverNowMs?: number;
     room?: HostConsoleRoom & { viewerCount?: number };
     queueItems?: { item: LiveRoomItemRow }[];
@@ -302,7 +314,7 @@ export async function fetchHostConsole(accessToken: string, roomId: string): Pro
     code?: string;
     detail?: string;
   }>(endpoint, accessToken);
-  if (!res.ok) throwHostApiError(endpoint, res, j);
+  if (!res.ok) throwHostApiError(endpoint, res, j, bodyPreview);
   if (!j.room?.id) throw new Error('Host console unavailable.');
   logVaultCommandCenter('host_console_ok', {
     roomId: j.room.id,

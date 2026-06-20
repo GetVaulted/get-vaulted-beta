@@ -30,7 +30,13 @@ export function sanitizeLiveError(raw: unknown, context?: 'stream' | 'room' | 'c
     raw instanceof Error ? raw.message : typeof raw === 'string' ? raw : 'Something went wrong.';
   const apiMeta =
     raw instanceof LiveHostApiError
-      ? `${raw.endpoint} → HTTP ${raw.status}${raw.code ? ` (${raw.code})` : ''}`
+      ? [
+          `${raw.endpoint} → HTTP ${raw.status}${raw.code ? ` (${raw.code})` : ''}`,
+          raw.detail,
+          raw.hint,
+        ]
+          .filter(Boolean)
+          .join(' · ')
       : null;
   const devDetail = areDevToolsEnabled() ? [text, apiMeta].filter(Boolean).join(' · ') : null;
 
@@ -68,7 +74,10 @@ export function sanitizeLiveError(raw: unknown, context?: 'stream' | 'room' | 'c
 
   if (
     context === 'console' &&
-    (/host console|HOST_CONSOLE_FAILED|Could not load host console/i.test(text))
+    (/host console|HOST_CONSOLE_FAILED|Could not load host console|DATABASE_SCHEMA_OUT_OF_DATE|request failed \(50[03]\)/i.test(
+      text,
+    ) ||
+      /database schema is out of date|prisma migrate deploy/i.test(text))
   ) {
     return {
       userMessage: 'Vault sync hit a server error. Showing your last synced queue.',
@@ -77,7 +86,11 @@ export function sanitizeLiveError(raw: unknown, context?: 'stream' | 'room' | 'c
     };
   }
 
-  if (context === 'room' && /\b500\b/.test(text)) {
+  if (
+    context === 'room' &&
+    (/\b500\b/.test(text) ||
+      /LIVE_ROOM_GET_FAILED|DATABASE_SCHEMA_OUT_OF_DATE|database schema is out of date/i.test(text))
+  ) {
     return {
       userMessage: 'Could not load this vault event from the server. Try again in a moment.',
       devDetail,
