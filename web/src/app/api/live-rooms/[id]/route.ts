@@ -23,6 +23,7 @@ import {
   LIVE_AUCTION_AUTO_CLOSE_GRACE_MS,
 } from "@/lib/live-auction-finalize";
 import { emitAuctionEnded, emitAuctionStarted, emitLiveDiscoveryChanged, emitTeamBoardChanged } from "@/lib/realtime-emit-server";
+import { computeBreakBuyerPhase } from "@/lib/live-room-break-public";
 import { buildLiveTipRoomData } from "@/lib/live-tip-moderator";
 import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
 import { finalizeLiveStreamReplay } from "@/lib/trust/live-replay-service";

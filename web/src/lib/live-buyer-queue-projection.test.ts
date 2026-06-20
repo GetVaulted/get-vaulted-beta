@@ -136,7 +136,21 @@ describe("live-buyer-queue-projection", () => {
     const pyt = buildBuyerQueueLineupRow(
       baseItem({
         salesFormat: "variant_selection",
-        variants: [{ id: "v1", label: "ARI", priceUsd: 40, quantityRemaining: 1, isHot: false, status: "available", sortOrder: 0, buyerUsername: null }],
+        variants: [{
+          id: "v1",
+          liveRoomItemId: "item-1",
+          label: "ARI",
+          priceUsd: 40,
+          quantityInitial: 1,
+          quantityRemaining: 1,
+          soldCount: 0,
+          isHot: false,
+          status: "available",
+          sortOrder: 0,
+          buyerUsername: null,
+          imageUrl: "",
+          color: "",
+        }],
       }),
       { roomIsLive: true, nowMs: Date.now() },
     );

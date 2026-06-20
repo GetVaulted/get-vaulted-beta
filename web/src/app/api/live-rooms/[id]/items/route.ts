@@ -8,6 +8,7 @@ import { parseLiveItemSalesFormat } from "@/lib/live-item-variant-serialize";
 import type { LiveItemVariantAssignmentMode } from "@/generated/prisma/client";
 import { validateLiveRoomItemThumbnail } from "@/lib/listing-photo-requirements";
 import { apiErrorResponseFromUnknown } from "@/lib/prisma-api-error-response";
+import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-shipping-profiles";
 
 type PostBody = {
   title?: string;
