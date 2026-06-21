@@ -12,10 +12,8 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchMyLiveRooms, type LiveRoomApiRow } from '../../../api/liveRoomsRepository';
-import { mainTabBarClearance } from '../../../lib/mainTabBarMetrics';
 import type { LiveSalesGate } from '../../../lib/sellerLiveReadiness';
 import {
   bucketRooms,
@@ -26,7 +24,7 @@ import {
   vaultEventDisplayStatus,
   vaultEventSection,
 } from '../../../lib/vaultEventModel';
-import { logVaultEvents, vaultEventsFabMetrics } from '../../../lib/vaultEventsLayout';
+import { logVaultEvents } from '../../../lib/vaultEventsLayout';
 import type { SellerReloadOptions } from '../../../hooks/sellerReloadOptions';
 import { colors, radii, spacing } from '../../../theme';
 import { VaultEventCard } from './VaultEventCard';
@@ -66,7 +64,6 @@ export function VaultEventsHub({
   onScheduleNew,
   onBlockedSchedule,
   roomsRefreshKey = 0,
-  mainTabBarClearance: mainTabBarClearanceProp,
 }: {
   accessToken?: string;
   liveGate: LiveSalesGate;
@@ -76,7 +73,6 @@ export function VaultEventsHub({
   onScheduleNew: () => void;
   onBlockedSchedule?: () => void;
   roomsRefreshKey?: number;
-  mainTabBarClearance?: number;
 }) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -89,9 +85,7 @@ export function VaultEventsHub({
   const [contentAreaHeight, setContentAreaHeight] = useState(0);
   const requestRef = useRef(0);
   const loadedOnceRef = useRef(false);
-
-  const tabBarClearance = mainTabBarClearanceProp ?? mainTabBarClearance(insets.bottom);
-  const { fabBottom, contentPaddingBottom } = vaultEventsFabMetrics(tabBarClearance);
+  const autoSegmentRef = useRef(false);
 
   const liveBlocked = liveGate.blocked;
 
@@ -104,14 +98,15 @@ export function VaultEventsHub({
   }, [liveBlocked, onBlockedSchedule, onScheduleNew]);
 
   const load = useCallback(async (opts?: SellerReloadOptions) => {
-    if (!accessToken) {
-      requestRef.current += 1;
+    if (!accessToken?.trim()) {
       setRooms([]);
       setFetchError(null);
       setLoading(false);
       setRefreshing(false);
-      setLoadedOnce(false);
-      loadedOnceRef.current = false;
+      if (!loadedOnceRef.current) {
+        setLoadedOnce(true);
+        loadedOnceRef.current = true;
+      }
       logVaultEvents('filter', { reason: 'no_access_token', roomCount: 0 });
       return;
     }
@@ -122,7 +117,7 @@ export function VaultEventsHub({
     setFetchError(null);
 
     try {
-      const rows = await fetchMyLiveRooms(accessToken);
+      const rows = await fetchMyLiveRooms(accessToken, { force: opts?.force });
       if (requestId !== requestRef.current) return;
       setRooms(rows);
       setLoadedOnce(true);
@@ -138,27 +133,33 @@ export function VaultEventsHub({
       const msg = e instanceof Error ? e.message : String(e);
       if (!loadedOnceRef.current) setRooms([]);
       setFetchError(msg);
+      setLoadedOnce(true);
+      loadedOnceRef.current = true;
       logVaultEvents('filter', { http: 'error', error: msg.slice(0, 200), roomCount: 0 });
     } finally {
       if (requestId !== requestRef.current) return;
-      if (!silent) setLoading(false);
+      setLoading(false);
     }
   }, [accessToken]);
 
   useEffect(() => {
-    void load();
+    void load({ force: true });
   }, [load, roomsRefreshKey]);
 
-  useFocusEffect(
-    useCallback(() => {
-      void load({ silent: true });
-    }, [load]),
-  );
+  useEffect(() => {
+    if (!loadedOnce || autoSegmentRef.current || rooms.length === 0) return;
+    autoSegmentRef.current = true;
+    const b = bucketRooms(rooms);
+    if (b.live_now.length > 0) return;
+    if (b.upcoming.length > 0) setSegment('upcoming');
+    else if (b.drafts.length > 0) setSegment('drafts');
+    else if (b.past.length > 0) setSegment('past');
+  }, [loadedOnce, rooms]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await load({ silent: true });
+      await load({ silent: true, force: true });
     } finally {
       setRefreshing(false);
     }
@@ -210,8 +211,6 @@ export function VaultEventsHub({
       listCount: list.length,
       fetchError: fetchError?.slice(0, 120) ?? null,
       contentAreaHeight,
-      contentPaddingBottom,
-      fabBottom,
       windowWidth,
       windowHeight,
       bottomInset: insets.bottom,
@@ -223,8 +222,6 @@ export function VaultEventsHub({
     list.length,
     fetchError,
     contentAreaHeight,
-    contentPaddingBottom,
-    fabBottom,
     windowWidth,
     windowHeight,
     insets.bottom,
@@ -291,20 +288,10 @@ export function VaultEventsHub({
         contentAreaHeight: height,
         windowWidth,
         windowHeight,
-        tabBarClearance,
-        fabBottom,
-        contentPaddingBottom,
         bottomInset: insets.bottom,
       });
     },
-    [
-      windowWidth,
-      windowHeight,
-      tabBarClearance,
-      fabBottom,
-      contentPaddingBottom,
-      insets.bottom,
-    ],
+    [windowWidth, windowHeight, insets.bottom],
   );
 
   return (
@@ -324,7 +311,7 @@ export function VaultEventsHub({
         {fetchError ? (
           <View style={styles.errorBanner}>
             <Text style={styles.errorTxt}>{fetchError}</Text>
-            <Pressable onPress={() => void load()} hitSlop={8}>
+            <Pressable onPress={() => void load({ force: true })} hitSlop={8}>
               <Text style={styles.errorRetry}>Retry</Text>
             </Pressable>
           </View>
@@ -376,7 +363,7 @@ export function VaultEventsHub({
           contentContainerStyle={[
             styles.listScrollContent,
             {
-              paddingBottom: contentPaddingBottom,
+              paddingBottom: spacing.md,
               ...(showList
                 ? {}
                 : {
@@ -388,7 +375,7 @@ export function VaultEventsHub({
         />
       </View>
 
-      <View style={[styles.fabHost, { bottom: fabBottom }]} pointerEvents="box-none">
+      <View style={styles.fabFooter}>
         <Pressable
           style={styles.fab}
           onPress={trySchedule}
@@ -397,8 +384,7 @@ export function VaultEventsHub({
           accessibilityLabel="Schedule vault event"
         >
           <LinearGradient colors={['#F0D56A', colors.gold, '#9A7B2C']} style={StyleSheet.absoluteFill} />
-          <Ionicons name="add" size={22} color="#0a0a0a" />
-          <Text style={styles.fabTxt}>Schedule Vault Event</Text>
+          <Ionicons name="add" size={28} color="#0a0a0a" />
         </Pressable>
       </View>
     </View>
@@ -531,28 +517,23 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     maxWidth: 300,
   },
-  fabHost: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
+  fabFooter: {
+    flexShrink: 0,
     alignItems: 'flex-end',
-    paddingHorizontal: spacing.md,
-    zIndex: 8,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
   },
   fab: {
-    flexDirection: 'row',
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-    borderRadius: radii.pill,
+    justifyContent: 'center',
     overflow: 'hidden',
-    maxWidth: '100%',
     shadowColor: '#D4AF37',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.35,
     shadowRadius: 16,
     elevation: 10,
   },
-  fabTxt: { fontSize: 14, fontWeight: '900', color: '#0a0a0a' },
 });

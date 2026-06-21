@@ -20,7 +20,7 @@ import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader
 import { ReportSheet } from '../../components/trust/ReportSheet';
 import { UserAvatar } from '../../components/ui/UserAvatar';
 import { VaultImage } from '../../components/ui/VaultImage';
-import { openDispute, openFollowersFollowing } from '../../navigation/openPlatform';
+import { openDispute, openFollowersFollowing, openContactSupport } from '../../navigation/openPlatform';
 import { openMessageSellerForListing } from '../../navigation/openMessages';
 import type { RootStackParamList } from '../../navigation/types';
 import { computeTrustProfile } from '../../platform/computeTrustProfile';
@@ -240,8 +240,22 @@ export function UserProfileScreen({ navigation, route }: Props) {
             <Pressable
               style={styles.btnGhost}
               onPress={() => {
-                if (listings[0]) openMessageSellerForListing(navigation, { listingId: listings[0].id });
-                else Alert.alert('Message', 'Browse their listings to start a thread.');
+                if (listings[0]) {
+                  openMessageSellerForListing(navigation, { listingId: listings[0].id });
+                  return;
+                }
+                const liveRoomId = liveNow[0]?.id ?? pastShows[0]?.id;
+                if (liveRoomId) {
+                  navigation.navigate('MessageCompose', {
+                    liveRoomId,
+                    initialDraft: profile?.username ? `Hi @${profile.username}, ` : undefined,
+                  });
+                  return;
+                }
+                openContactSupport(
+                  { category: 'other', referenceType: 'profile', referenceId: userId },
+                  navigation,
+                );
               }}
             >
               <Text style={styles.btnGhostTxt}>Message</Text>

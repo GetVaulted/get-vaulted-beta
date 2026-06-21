@@ -28,12 +28,17 @@ function categoryIcon(cat: HotClip['category']): keyof typeof Ionicons.glyphMap 
 
 type Props = {
   clip: HotClip;
+  onOpen?: (roomId: string) => void;
 };
 
-export function HotClipCard({ clip }: Props) {
+export function HotClipCard({ clip, onOpen }: Props) {
   const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
 
-  const openLiveHub = () => {
+  const openClip = () => {
+    if (clip.roomId && onOpen) {
+      onOpen(clip.roomId);
+      return;
+    }
     navigation.navigate('Live', { screen: 'LiveDiscovery' });
   };
 
@@ -51,7 +56,7 @@ export function HotClipCard({ clip }: Props) {
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
-      onPress={openLiveHub}
+      onPress={openClip}
     >
       <View style={styles.thumb}>
         {clip.imageUrl ? (

@@ -28,6 +28,15 @@ export function openHelpCenter(navigation?: { navigate: RootNav['navigate'] }, f
   if (rootNavigationRef.isReady()) rootNavigationRef.navigate('HelpCenter', params);
 }
 
+export function openVaultSearch(navigation?: { navigate: RootNav['navigate'] }, initialQuery?: string) {
+  const params = initialQuery?.trim() ? { initialQuery: initialQuery.trim() } : undefined;
+  if (navigation) {
+    (navigation as RootNav).navigate('VaultSearch', params);
+    return;
+  }
+  if (rootNavigationRef.isReady()) rootNavigationRef.navigate('VaultSearch', params);
+}
+
 export function openUserProfile(userId: string, navigation?: { navigate: RootNav['navigate'] }) {
   if (navigation) {
     (navigation as RootNav).navigate('UserProfile', { userId });

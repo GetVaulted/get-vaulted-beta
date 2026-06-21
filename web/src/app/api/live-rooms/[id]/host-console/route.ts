@@ -59,6 +59,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     }
     const { userId: hostUserId, isAdmin } = hostAuth;
 
+    const isMobileClient = req.headers.get("x-gv-client") === "getvaulted-mobile";
+    const messageTake = isMobileClient ? 50 : 200;
+
     const room = await prisma.liveRoom.findUnique({
       where: { id: liveRoomId },
       include: {
@@ -70,7 +73,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
         messages: {
           where: { deletedAt: null },
           orderBy: { createdAt: "desc" },
-          take: 200,
+          take: messageTake,
           include: { sender: { select: { username: true, image: true } } },
         },
       },

@@ -3,6 +3,7 @@ import { BlurView } from 'expo-blur';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { MobileHostBroadcastPhase } from '../../../hooks/useMobileStagePublish';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
+import { confirmStartLive } from '../../../lib/sellerBroadcastConfirm';
 import { colors, radii, spacing } from '../../../theme';
 import { SellerBroadcastControl } from './SellerBroadcastControl';
 import { SellerCameraFlipButton } from './SellerCameraFlipButton';
@@ -27,8 +28,6 @@ type Props = {
   broadcastBusy: boolean;
   onGoLive: () => void;
   onStopStream: () => void;
-  onPauseStream?: () => void;
-  onResumeStream?: () => void;
   viewerCount?: number;
   showCameraFlip?: boolean;
   cameraFlipDisabled?: boolean;
@@ -56,8 +55,6 @@ export function SellerConsoleActionBar({
   broadcastBusy,
   onGoLive,
   onStopStream,
-  onPauseStream,
-  onResumeStream,
   viewerCount,
   showCameraFlip,
   cameraFlipDisabled,
@@ -164,19 +161,17 @@ export function SellerConsoleActionBar({
                 busy={broadcastBusy}
                 onStart={onGoLive}
                 onStop={onStopStream}
-                onPause={onPauseStream}
-                onResume={onResumeStream}
                 compact
               />
             ) : canStartRoom ? (
               <Pressable
                 style={[styles.goLive, broadcastBusy && styles.disabled]}
-                onPress={onGoLive}
+                onPress={() => confirmStartLive(onGoLive)}
                 disabled={broadcastBusy}
-                accessibilityLabel={SELLER_CONSOLE.goLive}
+                accessibilityLabel={SELLER_CONSOLE.startStream}
                 hitSlop={4}
               >
-                <Text style={styles.goLiveTxt}>{SELLER_CONSOLE.goLive}</Text>
+                <Ionicons name="play" size={18} color="#0a0a0a" />
               </Pressable>
             ) : null}
           </View>
@@ -260,12 +255,13 @@ const styles = StyleSheet.create({
   },
   goLive: {
     minHeight: ACTION_MIN_H,
+    minWidth: ACTION_MIN_H,
     justifyContent: 'center',
+    alignItems: 'center',
     borderRadius: radii.pill,
     backgroundColor: colors.gold,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  goLiveTxt: { fontSize: 11, fontWeight: '900', color: '#0a0a0a' },
   disabled: { opacity: 0.55 },
 });

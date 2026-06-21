@@ -29,6 +29,10 @@ import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
 import type { LiveRoomItemDTO, LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { liveAuctionMinBidUsd } from "@/lib/auction";
+import {
+  liveEventReminderSuccessMessage,
+  setLiveEventReminder,
+} from "@/lib/live-event-reminder";
 import { liveAuctionDisplayBidUsd, resolvePinnedLotOverlayPrice } from "@/lib/live-auction-overlay-price";
 import { LIVE_AUCTION_CLIENT_END_GRACE_MS } from "@/lib/live-auction-bid-extension";
 import { projectBuyerQueueLineup, buyerQueueRowSelectable } from "@/lib/live-buyer-queue-projection";
@@ -46,6 +50,8 @@ import {
 } from "@/lib/live-auction-lot-phase";
 import { patchLiveRoomItemStatus, startLiveRoomItemAuction } from "@/lib/live-room-control-client";
 import { syncedWallTimeMs } from "@/lib/server-clock-sync";
+import { liveBidMetaFallbackPollMs } from "@/lib/live-fallback-poll-intervals";
+import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 import { logAuctionTimer } from "@/lib/auction-timer-sync";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 import {
@@ -472,7 +478,9 @@ export function LiveSaleRoom({
     if (roomType !== "auction" || !isLive || isHost) return;
     if (!activeDb?.listingId) return;
     if (activeDb.status !== "active" || !activeDb.biddingOpen || !activeDb.auctionEndsAt) return;
-    const id = window.setInterval(() => void refetchBidMeta(), 850);
+    const hasRealtime = Boolean(getSupabaseBrowserClient());
+    const pollMs = liveBidMetaFallbackPollMs(hasRealtime);
+    const id = window.setInterval(() => void refetchBidMeta(), pollMs);
     return () => window.clearInterval(id);
   }, [roomType, isLive, isHost, activeDb?.listingId, activeDb?.status, activeDb?.biddingOpen, activeDb?.auctionEndsAt, refetchBidMeta]);
 
@@ -753,6 +761,29 @@ export function LiveSaleRoom({
   }, [isLive, liveRoomId, status, toast]);
 
   const streamTitle = liveTitle;
+
+  const handleNotifyMe = async () => {
+    if (status !== "authenticated") {
+      redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
+      return;
+    }
+    const result = await setLiveEventReminder({
+      liveRoomId,
+      roomTitle: streamTitle,
+      hostSellerId: sellerId,
+      hostName: hostDisplayName,
+    });
+    if (result.ok) {
+      toast(
+        liveEventReminderSuccessMessage(
+          { liveRoomId, roomTitle: streamTitle, hostSellerId: sellerId, hostName: hostDisplayName },
+          Boolean(result.alreadySet),
+        ),
+      );
+      return;
+    }
+    toast(result.error ?? "Could not set reminder.");
+  };
 
   const priceLine =
     roomType === "sale"
@@ -1252,7 +1283,7 @@ export function LiveSaleRoom({
     onBack: () => router.back(),
     centerOverlay:
       isHost && activeHasVariants && activeDb ? <LiveVariantSpotBoard item={activeDb} hostMode /> : undefined,
-    onNotifyMe: () => redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`),
+    onNotifyMe: () => void handleNotifyMe(),
     streamPlaybackRefreshNonce,
     viewerAuthenticated: status === "authenticated",
     scheduledStartAt,

@@ -42,7 +42,9 @@ import { colors, radii, spacing } from '../../theme';
 import type { LiveStream } from '../../types';
 import { HoldToBidButton } from './HoldToBidButton';
 import { resolveBuyerRoomKind, resolveLiveBuyerCommerceHud } from './liveActionModule';
+import { LiveCustomBidSheet } from './LiveCustomBidSheet';
 import { LiveBreakSpotGridSheet } from './LiveBreakSpotGridSheet';
+import type { LiveCustomBidPayload } from '../../lib/liveCustomBid';
 import { isActiveVariantBuyerItem } from '../../lib/liveItemVariant';
 import { reconcileBuyerSnapshotMonotonic } from '../../lib/liveRoomBuyerSnapshotMerge';
 import { computeAuctionRemainingMs, logAuctionTimer } from '../../lib/auctionTimerSync';
@@ -125,6 +127,7 @@ export function LivePinnedActionBar({
   const bidSafetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [walletReadiness, setWalletReadiness] = useState<BuyerWalletReadiness | null>(null);
   const [variantSheetOpen, setVariantSheetOpen] = useState(false);
+  const [customBidSheetOpen, setCustomBidSheetOpen] = useState(false);
   const [timerTick, setTimerTick] = useState(0);
   const [localRoomSnap, setLocalRoomSnap] = useState<LiveRoomBuyerSnapshot | null>(null);
   const [localSyncRefreshing, setLocalSyncRefreshing] = useState(false);
@@ -161,7 +164,11 @@ export function LivePinnedActionBar({
   }, [clockSkewMs, roomSnap?.auctionEndsAt, roomSnap?.lotBidPhase, roomSnap?.serverNowMs, timerTick]);
   const auctionLane = buyerKind === 'auction';
   const commerceBlocked =
-    walletOverlayActive || walletSheetOpen || variantSheetOpen || Boolean(roomSnap?.unresolvedPaymentFailure);
+    walletOverlayActive ||
+    walletSheetOpen ||
+    variantSheetOpen ||
+    customBidSheetOpen ||
+    Boolean(roomSnap?.unresolvedPaymentFailure);
   const primaryDisabled = m.buyerPrimaryDisabled === true || participationBlocked || commerceBlocked || staffCommerceBlocked;
   const secondaryDisabled = m.buyerSecondaryDisabled === true || participationBlocked || commerceBlocked || staffCommerceBlocked;
   const padBottom = 4 + Math.min(10, Math.round(bottomSafeInset * (compact ? 0.25 : 0.35)));
@@ -286,7 +293,7 @@ export function LivePinnedActionBar({
   useEffect(() => {
     if (usingExternalSync) return undefined;
     void refreshRoomSnapshot();
-    const pollMs = buyerKind === 'auction' ? 4000 : 12000;
+    const pollMs = buyerKind === 'auction' ? 12_000 : 20_000;
     const id = setInterval(() => {
       void refreshRoomSnapshot();
     }, pollMs);
@@ -339,7 +346,7 @@ export function LivePinnedActionBar({
     void openWebCommerceUrl(url);
   }, [stream.id]);
 
-  const tryPlaceLiveBid = useCallback(async () => {
+  const tryPlaceLiveBid = useCallback(async (bid?: LiveCustomBidPayload) => {
     const now = Date.now();
     if (now - lastBidAttemptMsRef.current < BID_THROTTLE_MS) {
       logBidControl('blocked', { reason: 'bid throttle', msSinceLast: now - lastBidAttemptMsRef.current });
@@ -424,28 +431,48 @@ export function LivePinnedActionBar({
         ]);
         return;
       }
-      const amount = snap.minNextBidUsd;
-      if (amount == null || !Number.isFinite(amount) || amount <= 0) {
-        logBidControl('blocked', { reason: 'invalid min bid', amount });
+      const minNext = snap.minNextBidUsd;
+      if (minNext == null || !Number.isFinite(minNext) || minNext <= 0) {
+        logBidControl('blocked', { reason: 'invalid min bid', amount: minNext });
         Alert.alert('Could not bid', 'Minimum bid is unavailable. Try the full live room.');
+        return;
+      }
+      const amountUsd = bid?.amountUsd ?? minNext;
+      const maxProxyUsd = bid?.maxProxyUsd;
+      if (amountUsd + 0.001 < minNext) {
+        logBidControl('blocked', { reason: 'below min bid', amountUsd, minNext });
+        Alert.alert('Could not bid', `Minimum bid is $${minNext.toFixed(2)}.`);
+        return;
+      }
+      if (maxProxyUsd != null && maxProxyUsd + 0.001 < amountUsd) {
+        logBidControl('blocked', { reason: 'max below bid', amountUsd, maxProxyUsd });
+        Alert.alert('Could not bid', 'Max bid must be at least your bid amount.');
         return;
       }
       logBidControl('commit', {
         roomId: stream.id,
         itemId: snap.activeItemId,
-        amountUsd: amount,
+        amountUsd,
+        maxProxyUsd: maxProxyUsd ?? null,
       });
       const ack = await placeLiveRoomBid({
         accessToken,
         roomId: stream.id,
         itemId: snap.activeItemId,
-        amountUsd: amount,
+        amountUsd,
+        maxProxyUsd,
         idempotencyKey: createLiveBidIdempotencyKey(),
       });
       mergeBidAck?.(ack);
-      console.info('[bid] submit success', { roomId: stream.id, itemId: snap.activeItemId, amountUsd: amount });
+      console.info('[bid] submit success', {
+        roomId: stream.id,
+        itemId: snap.activeItemId,
+        amountUsd,
+        maxProxyUsd: maxProxyUsd ?? null,
+      });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      onBidPlaced?.(amount);
+      onBidPlaced?.(maxProxyUsd ?? amountUsd);
+      setCustomBidSheetOpen(false);
       // The HTTP ACK already merged the new high bid + next min bid into the snapshot, so the
       // button can re-enable immediately. Refresh in the background for eventual consistency —
       // never block the pending state on the slow snapshot poll.
@@ -564,9 +591,19 @@ export function LivePinnedActionBar({
   const onSecondary = () => {
     if (secondaryDisabled) return;
     guard(() => {
-      // Stay in room — live commerce secondary never routes to Trade.
+      if (useLiveAuctionBidFlow && !variantItemActive && roomSnap?.lotBidPhase === 'bidding_open') {
+        setCustomBidSheetOpen(true);
+        return;
+      }
     });
   };
+
+  const submitCustomBid = useCallback(
+    async (payload: LiveCustomBidPayload) => {
+      await tryPlaceLiveBid(payload);
+    },
+    [tryPlaceLiveBid],
+  );
   const onHoldStart = () => {
     if (!signedIn) {
       onRequireAuth?.();
@@ -740,6 +777,18 @@ export function LivePinnedActionBar({
           }
         }}
       />
+
+      {useLiveAuctionBidFlow && roomSnap?.minNextBidUsd != null ? (
+        <LiveCustomBidSheet
+          visible={customBidSheetOpen}
+          onClose={() => setCustomBidSheetOpen(false)}
+          minNextBidUsd={roomSnap.minNextBidUsd}
+          currentBidUsd={roomSnap.currentBidUsd}
+          reserveSupported
+          busy={bidBusy}
+          onSubmit={submitCustomBid}
+        />
+      ) : null}
 
       {variantItemActive && roomSnap?.activeItemId ? (
         /* Sole buyer PYT/PYD checkout — compact bottom sheet, not a center board */

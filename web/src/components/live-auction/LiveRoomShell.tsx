@@ -18,6 +18,7 @@ import {
   mergeLiveRoomItemsForBidPlaced,
 } from "@/lib/live-room-realtime-merge";
 import { estimateClockSkewMs } from "@/lib/server-clock-sync";
+import { liveChatFallbackPollMs, liveRoomReconcilePollMs } from "@/lib/live-fallback-poll-intervals";
 import { parsePurchaseCompletedCelebration, type LiveAuctionCloseCelebration } from "@/lib/live-auction-winner-display";
 import {
   parseAuctionWinSpotCelebration,
@@ -368,8 +369,8 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     const openLot =
       detail?.activeItem?.status === "active" && detail.activeItem.biddingOpen === true;
     const wantsTightRoomPoll = liveStatus || openLot;
-    /** Tight while live or an active lot is taking bids so missed Supabase frames recover quickly. */
-    const fallbackMs = wantsTightRoomPoll ? (hasRealtime ? 350 : 450) : hasRealtime ? 15000 : 5000;
+    /** Realtime is primary; HTTP reconcile catches missed frames without hammering Netlify. */
+    const fallbackMs = liveRoomReconcilePollMs({ hasRealtime, wantsTightPoll: wantsTightRoomPoll });
     const id = window.setInterval(() => void load(), fallbackMs);
     return () => window.clearInterval(id);
   }, [load, detail?.status, detail?.activeItem?.id, detail?.activeItem?.status, detail?.activeItem?.biddingOpen]);
@@ -414,7 +415,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   useEffect(() => {
     if (!chatPollActive) return;
     const hasRealtime = Boolean(getSupabaseBrowserClient());
-    const pollMs = hasRealtime ? 1100 : 2000;
+    const pollMs = liveChatFallbackPollMs(hasRealtime);
     const id = window.setInterval(() => void mergeMessagesFromApi(), pollMs);
     return () => window.clearInterval(id);
   }, [chatPollActive, mergeMessagesFromApi]);

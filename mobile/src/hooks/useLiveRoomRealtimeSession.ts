@@ -352,21 +352,22 @@ export function useLiveRoomRealtimeSession(args: {
     guardRef.current = createRealtimeEventGuard();
     void fetchSnapshot();
     void refreshSkewFromTimeEndpoint();
-    const pollMs = isSupabaseConfigured() ? FALLBACK_POLL_CONNECTED_MS : FALLBACK_POLL_DISCONNECTED_MS;
-    const id = setInterval(() => {
+    const pollId = setInterval(() => {
       const disconnected = !realtimeConnectedRef.current || !isSupabaseConfigured();
-      if (disconnected) {
-        setConnectionState('polling');
-        void fetchSnapshot();
-      } else {
-        void fetchSnapshot();
-      }
-    }, pollMs);
+      if (!disconnected) return;
+      setConnectionState('polling');
+      void fetchSnapshot();
+    }, FALLBACK_POLL_DISCONNECTED_MS);
+    const reconcileId = setInterval(() => {
+      if (!realtimeConnectedRef.current || !isSupabaseConfigured()) return;
+      void fetchSnapshot();
+    }, FALLBACK_POLL_CONNECTED_MS);
     const skewId = setInterval(() => {
       void refreshSkewFromTimeEndpoint();
     }, SKEW_REFRESH_MS);
     return () => {
-      clearInterval(id);
+      clearInterval(pollId);
+      clearInterval(reconcileId);
       clearInterval(skewId);
     };
   }, [args.enabled, fetchSnapshot, refreshSkewFromTimeEndpoint]);

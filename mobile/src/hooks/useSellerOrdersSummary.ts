@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchSellerSalesOrders, type SellerSalesOrderRow } from '../api/sellerSalesRepository';
+import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
 import type { SellerReloadOptions } from './sellerReloadOptions';
 
 export type { SellerReloadOptions };
@@ -46,7 +47,10 @@ export function useSellerOrdersSummary(accessToken: string | undefined) {
   }, [accessToken]);
 
   useEffect(() => {
-    void reload();
+    const task = deferAfterFirstPaint(() => {
+      void reload();
+    }, 700);
+    return () => task.cancel();
   }, [reload]);
 
   return { orders, loading, refreshing, loadedOnce, reload };

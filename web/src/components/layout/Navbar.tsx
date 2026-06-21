@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useLiveMarketplaceEnabled } from "@/components/providers/LiveMarketplaceGateProvider";
 import { NavbarAccountMenu } from "@/components/layout/NavbarAccountMenu";
 import { NavbarNotificationsBell } from "@/components/layout/NavbarNotificationsBell";
+import { marketplaceSearchHref } from "@/lib/marketplace-search-url";
 
 const navLinks = [
   { href: "/marketplace", label: "Marketplace" },
@@ -48,6 +49,8 @@ function useBodyScrollLock(locked: boolean) {
 
 export function Navbar() {
   const [open, setOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchDraft, setSearchDraft] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [showPortal, setShowPortal] = useState(false);
   const [slidIn, setSlidIn] = useState(false);
@@ -55,6 +58,7 @@ export function Navbar() {
   const drawerPanelRef = useRef<HTMLElement>(null);
   const drawerTitleId = useId();
   const pathname = usePathname();
+  const router = useRouter();
   const isSellerOnboarding = pathname?.startsWith("/account/seller/setup") ?? false;
   const { data: session, status } = useSession();
   const hideOnMobileLiveRoom = /^\/live\/[^/]+/.test(pathname ?? "");
@@ -120,6 +124,16 @@ export function Navbar() {
       return next;
     });
   }, []);
+
+  const submitSearch = useCallback(
+    (raw?: string) => {
+      const q = (raw ?? searchDraft).trim();
+      setSearchOpen(false);
+      setOpen(false);
+      router.push(marketplaceSearchHref(q));
+    },
+    [router, searchDraft],
+  );
 
   const onBackdropPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -232,7 +246,7 @@ export function Navbar() {
     <>
       {mobileDrawer}
       <header
-        className={`sticky top-0 z-[70] w-full border-b border-border-subtle bg-background/90 pt-[env(safe-area-inset-top)] backdrop-blur-md ${
+        className={`relative sticky top-0 z-[70] w-full border-b border-border-subtle bg-background/90 pt-[env(safe-area-inset-top)] backdrop-blur-md ${
           hideOnMobileLiveRoom ? "hidden md:block" : ""
         }`}
       >
@@ -266,24 +280,72 @@ export function Navbar() {
           </nav>
 
           <div className={`mx-auto hidden min-w-0 max-w-md flex-1 md:block lg:max-w-lg ${isSellerOnboarding ? "!hidden" : ""}`}>
-            <label htmlFor="site-search" className="sr-only">
-              Search
-            </label>
-            <div className="relative">
-              <span className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-muted">
-                <SearchIcon className="size-3.5" aria-hidden />
-              </span>
-              <input
-                id="site-search"
-                type="search"
-                placeholder="Search listings, breaks, sellers…"
-                className="h-9 w-full rounded-full border border-border-subtle bg-surface pl-9 pr-3 text-xs text-foreground placeholder:text-muted outline-none ring-gold/30 transition-[border-color,box-shadow] focus:border-gold/40 focus:ring-2"
-              />
-            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const form = e.currentTarget;
+                const input = form.elements.namedItem("site-search") as HTMLInputElement | null;
+                submitSearch(input?.value ?? searchDraft);
+              }}
+            >
+              <label htmlFor="site-search" className="sr-only">
+                Search
+              </label>
+              <div className="relative">
+                <span className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-muted">
+                  <SearchIcon className="size-3.5" aria-hidden />
+                </span>
+                <input
+                  id="site-search"
+                  name="site-search"
+                  type="search"
+                  value={searchDraft}
+                  onChange={(e) => setSearchDraft(e.target.value)}
+                  placeholder="Search listings, breaks, sellers…"
+                  className="h-9 w-full rounded-full border border-border-subtle bg-surface pl-9 pr-3 text-xs text-foreground placeholder:text-muted outline-none ring-gold/30 transition-[border-color,box-shadow] focus:border-gold/40 focus:ring-2"
+                />
+              </div>
+            </form>
           </div>
 
+          {searchOpen && !isSellerOnboarding ? (
+            <form
+              className="absolute inset-x-3 top-[calc(100%+0.35rem)] z-30 md:hidden"
+              onSubmit={(e) => {
+                e.preventDefault();
+                submitSearch();
+              }}
+            >
+              <div className="relative rounded-full border border-border-subtle bg-[#0a0a0c] shadow-lg">
+                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-muted">
+                  <SearchIcon className="size-4" aria-hidden />
+                </span>
+                <input
+                  autoFocus
+                  type="search"
+                  value={searchDraft}
+                  onChange={(e) => setSearchDraft(e.target.value)}
+                  placeholder="Search listings, sellers…"
+                  className="h-11 w-full rounded-full bg-transparent pl-10 pr-20 text-sm text-foreground outline-none"
+                />
+                <button
+                  type="submit"
+                  className="absolute inset-y-1 right-1 rounded-full bg-gold px-3 text-xs font-bold text-background"
+                >
+                  Go
+                </button>
+              </div>
+            </form>
+          ) : null}
+
           <div className="ml-auto flex min-w-0 shrink-0 items-center gap-1 sm:gap-3 md:gap-3">
-            <button type="button" className={`${MOBILE_ICON_BTN} md:hidden ${isSellerOnboarding ? "hidden" : ""}`} aria-label="Open search">
+            <button
+              type="button"
+              className={`${MOBILE_ICON_BTN} md:hidden ${isSellerOnboarding ? "hidden" : ""}`}
+              aria-label={searchOpen ? "Close search" : "Open search"}
+              aria-expanded={searchOpen}
+              onClick={() => setSearchOpen((v) => !v)}
+            >
               <SearchIcon className="size-5" />
             </button>
             {status === "authenticated" && session?.user ? (

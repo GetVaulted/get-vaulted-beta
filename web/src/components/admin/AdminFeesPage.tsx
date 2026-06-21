@@ -67,7 +67,11 @@ export function AdminFeesPage() {
       {loading ? (
         <p className="text-sm text-zinc-500">Loading fee policy…</p>
       ) : data ? (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <>
+          <p className="mb-4 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-zinc-400">
+            This page is read-only. Fee constants are enforced in checkout, payouts, and layaway flows — not editable here yet.
+          </p>
+          <div className="grid gap-4 lg:grid-cols-2">
           <section className={`${adminPanelClassName} p-5`}>
             <h2 className="text-sm font-bold text-gold-bright">Marketplace</h2>
             <div className="mt-4">
@@ -127,6 +131,7 @@ export function AdminFeesPage() {
             </div>
           </section>
         </div>
+        </>
       ) : (
         <p className="text-sm text-rose-400">Could not load fee settings.</p>
       )}

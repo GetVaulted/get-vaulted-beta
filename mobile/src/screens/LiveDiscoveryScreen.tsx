@@ -46,10 +46,12 @@ import {
 } from '../lib/liveDiscoveryMeta';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { useAuth } from '../auth/AuthContext';
+import { useLiveEventReminders } from '../hooks/useLiveEventReminders';
+import { liveStreamReminderTarget } from '../lib/liveEventReminder';
 import { openSellerHQ } from '../navigation/openSellerHQ';
 import type { LiveStackParamList } from '../navigation/types';
 import { alertGuestLiveRestricted } from '../navigation/guestExploreGuards';
-import { openHelpCenter } from '../navigation/openPlatform';
+import { openVaultSearch } from '../navigation/openPlatform';
 import { computeLiveDiscoveryGrid } from '../lib/liveDiscoveryGrid';
 import { colors, radii, spacing } from '../theme';
 import type { LiveStream, ScheduledStream } from '../types';
@@ -119,6 +121,7 @@ export function LiveDiscoveryScreen() {
   } = useMemo(() => computeLiveDiscoveryGrid(windowWidth), [windowWidth]);
   const navigation = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const { guestExploreMode } = useAuth();
+  const { remind, isReminderSet } = useLiveEventReminders();
   const [chip, setChip] = useState<string>('All');
   const seed = initialDiscoveryState();
   const [initialLoad, setInitialLoad] = useState(() => seed.live.length === 0 && seed.scheduled.length === 0);
@@ -227,6 +230,10 @@ export function LiveDiscoveryScreen() {
     navigation.navigate('LiveRoom', { streamId });
   };
 
+  const handleRemind = (stream: LiveStream) => {
+    void remind(liveStreamReminderTarget(stream), () => alertGuestLiveRestricted());
+  };
+
   const liveEmpty = !initialLoad && liveAll.length === 0 && scheduledAll.length === 0 && !discoveryError;
   const filterEmpty =
     !initialLoad &&
@@ -242,13 +249,14 @@ export function LiveDiscoveryScreen() {
       layout="grid"
       gridWidth={gridCardW}
       onPress={() => openShow(item.stream.id)}
-      onRemind={item.kind === 'scheduled' ? () => {} : undefined}
+      onRemind={item.kind === 'scheduled' ? () => handleRemind(item.stream) : undefined}
+      reminderSet={item.kind === 'scheduled' ? isReminderSet(item.stream.id) : false}
     />
   );
 
   const listHeader = (
     <>
-      <SearchBar placeholder="Search sellers, live rooms, categories…" onPress={() => openHelpCenter(undefined, true)} />
+      <SearchBar placeholder="Search sellers, live rooms, categories…" onPress={() => openVaultSearch()} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
         {discoveryCategoryChips.map((c) => {
           const on = c === chip;

@@ -107,7 +107,7 @@ export function useLiveRoomChat(args: {
   useEffect(() => {
     if (!args.enabled) return undefined;
     void reload();
-    const pollMs = args.realtimePrimary ? 2000 : 4000;
+    const pollMs = args.realtimePrimary ? 30_000 : 4000;
     const id = setInterval(() => {
       void reload();
     }, pollMs);

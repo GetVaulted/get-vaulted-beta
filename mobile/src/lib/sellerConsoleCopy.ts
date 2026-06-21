@@ -10,6 +10,8 @@ export const SELLER_CONSOLE = {
   resumeStream: 'Resume',
   stopStream: 'Stop stream',
   endShow: 'End show',
+  clutchTime: 'Clutch Time',
+  clutchTimeHint: 'Sudden death — timer resets on every bid.',
   obsSetup: 'OBS / RTMP',
   camera: 'Camera',
   microphone: 'Microphone',

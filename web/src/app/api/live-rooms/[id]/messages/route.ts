@@ -9,6 +9,7 @@ import { emitLiveRoomMessageById } from "@/lib/realtime-emit-server";
 import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
 import {
   getLastChatAt,
+  getLiveRoomModeratorContext,
   getLiveRoomSlowModeSeconds,
   getLiveRoomUserRestrictions,
 } from "@/lib/trust/live-room-moderation";
@@ -76,9 +77,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const slowMode = await getLiveRoomSlowModeSeconds(liveRoomId);
   if (slowMode > 0) {
-    const lastChat = await getLastChatAt(liveRoomId, auth.userId);
-    if (lastChat && Date.now() - lastChat.getTime() < slowMode * 1000) {
-      return NextResponse.json({ error: `Slow mode — wait ${slowMode}s between messages.` }, { status: 429 });
+    const modCtx = await getLiveRoomModeratorContext({ liveRoomId, userId: auth.userId });
+    const slowModeExempt = modCtx.isHost || modCtx.isModerator;
+    if (!slowModeExempt) {
+      const lastChat = await getLastChatAt(liveRoomId, auth.userId);
+      if (lastChat && Date.now() - lastChat.getTime() < slowMode * 1000) {
+        const waitSeconds = Math.max(
+          1,
+          Math.ceil((slowMode * 1000 - (Date.now() - lastChat.getTime())) / 1000),
+        );
+        return NextResponse.json(
+          { error: `Slow mode — wait ${waitSeconds}s between messages.` },
+          { status: 429 },
+        );
+      }
     }
   }
 

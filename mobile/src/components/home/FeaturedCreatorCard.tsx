@@ -8,9 +8,11 @@ type Props = {
   creator: FeaturedCreator;
   onFollow: () => void;
   onPress?: () => void;
+  following?: boolean;
+  followBusy?: boolean;
 };
 
-export function FeaturedCreatorCard({ creator, onFollow, onPress }: Props) {
+export function FeaturedCreatorCard({ creator, onFollow, onPress, following = false, followBusy = false }: Props) {
   const { host, specialty, status, statusLabel } = creator;
   const live = status === 'live';
   const scheduled = status === 'scheduled';
@@ -40,8 +42,17 @@ export function FeaturedCreatorCard({ creator, onFollow, onPress }: Props) {
         <View style={[styles.statusDot, live && styles.statusDotOn]} />
         <Text style={[styles.statusText, live && styles.statusTextLive]}>{statusLabel}</Text>
       </View>
-      <Pressable style={styles.follow} onPress={onFollow}>
-        <Text style={styles.followText}>Follow</Text>
+      <Pressable
+        style={[styles.follow, following && styles.followOn, followBusy && styles.followBusy]}
+        onPress={(e) => {
+          e.stopPropagation?.();
+          onFollow();
+        }}
+        disabled={followBusy}
+      >
+        <Text style={[styles.followText, following && styles.followTextOn]}>
+          {followBusy ? '…' : following ? 'Following' : 'Follow'}
+        </Text>
       </Pressable>
     </Pressable>
   );
@@ -143,9 +154,20 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     alignItems: 'center',
   },
+  followOn: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.45)',
+  },
+  followBusy: {
+    opacity: 0.65,
+  },
   followText: {
     color: '#0a0a0a',
     fontWeight: '800',
     fontSize: 14,
+  },
+  followTextOn: {
+    color: colors.gold,
   },
 });

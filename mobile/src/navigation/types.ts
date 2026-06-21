@@ -97,4 +97,5 @@ export type RootStackParamList = {
   SellerLayawayDetail: { layawayId: string };
   SellerOrderDetail: { orderId: string };
   PromoEntry: { slug: string };
+  VaultSearch: { initialQuery?: string } | undefined;
 };

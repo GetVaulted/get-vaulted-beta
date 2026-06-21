@@ -4,6 +4,7 @@ import {
   type SellerLayawayCounts,
   type SellerLayawayRow,
 } from '../api/layawayRepository';
+import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
 import type { SellerReloadOptions } from './sellerReloadOptions';
 
 export function useSellerLayawaySummary(accessToken: string | undefined) {
@@ -61,7 +62,10 @@ export function useSellerLayawaySummary(accessToken: string | undefined) {
   }, [accessToken]);
 
   useEffect(() => {
-    void reload();
+    const task = deferAfterFirstPaint(() => {
+      void reload();
+    }, 800);
+    return () => task.cancel();
   }, [reload]);
 
   return { counts, layaways, recent, loading, refreshing, loadedOnce, hasLayaways, reload };

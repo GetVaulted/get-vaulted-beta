@@ -72,6 +72,14 @@ export function sanitizeLiveError(raw: unknown, context?: 'stream' | 'room' | 'c
     return { userMessage: 'This vault event could not be found.', devDetail, isNetwork: false };
   }
 
+  if (/\b500\b/.test(text) && /max clients|connection pool|timed out|ECONNRESET|too many connections/i.test(text)) {
+    return {
+      userMessage: 'Vault server is busy reconnecting. Wait a moment and tap Retry.',
+      devDetail,
+      isNetwork: true,
+    };
+  }
+
   if (
     context === 'console' &&
     (/host console|HOST_CONSOLE_FAILED|Could not load host console|DATABASE_SCHEMA_OUT_OF_DATE|request failed \(50[03]\)/i.test(
@@ -89,7 +97,9 @@ export function sanitizeLiveError(raw: unknown, context?: 'stream' | 'room' | 'c
   if (
     context === 'room' &&
     (/\b500\b/.test(text) ||
-      /LIVE_ROOM_GET_FAILED|DATABASE_SCHEMA_OUT_OF_DATE|database schema is out of date/i.test(text))
+      /LIVE_ROOM_GET_FAILED|HOST_CONSOLE_FAILED|host-console|host console|DATABASE_SCHEMA_OUT_OF_DATE|database schema is out of date/i.test(
+        text,
+      ))
   ) {
     return {
       userMessage: 'Could not load this vault event from the server. Try again in a moment.',

@@ -5,12 +5,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   fetchHostConsole,
   fetchHostStream,
-  fetchLiveRoomForHost,
   fetchSellerLiveReadiness,
+  hostConsoleRoomToDetail,
   patchLiveRoomAction,
   patchLiveRoomStreamPaused,
   provisionHostStream,
   rotateHostStreamKey,
+  type HostConsolePayload,
   type HostStreamPayload,
   type LiveRoomHostDetail,
 } from '../api/liveHostRepository';
@@ -38,6 +39,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   }, [roomId, token]);
 
   const [room, setRoom] = useState<LiveRoomHostDetail | null>(null);
+  const [initialConsole, setInitialConsole] = useState<HostConsolePayload | null>(null);
   const [stream, setStream] = useState<HostStreamPayload | null>(null);
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [oneTimeKey, setOneTimeKey] = useState<string | null>(null);
@@ -55,32 +57,21 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
 
   const reloadRoom = useCallback(async () => {
     if (!token) return null;
-    logVaultCommandCenter('room_fetch_start', { roomId, endpoint: 'GET /api/live-rooms/:id' });
-    try {
-      const r = await fetchLiveRoomForHost(token, roomId);
-      setRoom(r);
-      logVaultCommandCenter('room_fetch_ok', { roomId: r.id, status: r.status, roomType: r.roomType });
-      return r;
-    } catch (e) {
-      logVaultCommandCenter('room_fetch_failed', {
-        roomId,
-        error: e instanceof Error ? e.message : String(e),
-      });
-      throw e;
-    }
-  }, [roomId, token]);
-
-  const reloadConsoleMetrics = useCallback(async () => {
-    if (!token) return;
     logVaultCommandCenter('host_console_fetch_start', { roomId, endpoint: 'GET /api/live-rooms/:id/host-console' });
     try {
-      const c = await fetchHostConsole(token, roomId);
-      setThumbnailUrl(c.room.thumbnailUrl ?? null);
+      const consoleData = await fetchHostConsole(token, roomId, { force: true });
+      const detail = hostConsoleRoomToDetail(consoleData.room);
+      setRoom(detail);
+      setInitialConsole(consoleData);
+      setThumbnailUrl(consoleData.room.thumbnailUrl ?? null);
+      logVaultCommandCenter('room_fetch_ok', { roomId: detail.id, status: detail.status, roomType: detail.roomType });
+      return detail;
     } catch (e) {
       logVaultCommandCenter('host_console_fetch_failed', {
         roomId,
         error: e instanceof Error ? e.message : String(e),
       });
+      throw e;
     }
   }, [roomId, token]);
 
@@ -109,12 +100,11 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     try {
       await reloadRoom();
       await reloadStream(false);
-      await reloadConsoleMetrics();
     } catch (e) {
       setRoomError(sanitizeLiveError(e, 'room'));
       throw e;
     }
-  }, [reloadConsoleMetrics, reloadRoom, reloadStream, token]);
+  }, [reloadRoom, reloadStream, token]);
 
   const stagePublish = useMobileStagePublish({
     roomId,
@@ -144,31 +134,49 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
       setLoading(true);
       setRoomError(null);
       try {
-        await reloadRoom();
+        logVaultCommandCenter('room_fetch_start', { roomId, endpoint: 'GET /api/live-rooms/:id/host-console' });
+        const [consoleData, streamPack] = await Promise.all([
+          fetchHostConsole(token, roomId),
+          fetchHostStream(token, roomId, { sync: false }).catch((e) => {
+            if (!cancelled) {
+              setStream(null);
+              setStreamWarning(sanitizeLiveError(e, 'stream'));
+            }
+            return null;
+          }),
+        ]);
+        if (cancelled) return;
+        const detail = hostConsoleRoomToDetail(consoleData.room);
+        setRoom(detail);
+        setInitialConsole(consoleData);
+        setThumbnailUrl(consoleData.room.thumbnailUrl ?? null);
+        if (streamPack) {
+          setStream(streamPack.stream);
+          if (streamPack.stream.ingestEndpoint) setIngestEndpoint(streamPack.stream.ingestEndpoint);
+          setStreamWarning(null);
+        }
+        setLoading(false);
+        logVaultCommandCenter('room_fetch_ok', { roomId: detail.id, status: detail.status, roomType: detail.roomType });
+
+        void fetchSellerLiveReadiness(token)
+          .then((readiness) => {
+            if (cancelled) return;
+            setReadinessBlocked(readiness.canGoLive ? null : readiness.issues);
+          })
+          .catch(() => {
+            if (!cancelled) setReadinessBlocked(null);
+          });
       } catch (e) {
         if (!cancelled) {
           setRoomError(sanitizeLiveError(e, 'room'));
           setLoading(false);
         }
-        return;
       }
-      if (cancelled) return;
-      try {
-        const readiness = await fetchSellerLiveReadiness(token);
-        if (!cancelled) {
-          setReadinessBlocked(readiness.canGoLive ? null : readiness.issues);
-        }
-      } catch {
-        if (!cancelled) setReadinessBlocked(null);
-      }
-      if (!cancelled) await reloadStream(false);
-      if (!cancelled) await reloadConsoleMetrics();
-      if (!cancelled) setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [reloadConsoleMetrics, reloadRoom, reloadStream, token]);
+  }, [roomId, token]);
 
   const onProvision = async () => {
     if (!token) return;
@@ -227,14 +235,13 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     } finally {
       setBusy(null);
     }
-  }, [room, roomId, reload, stagePublish, token]);
+  }, [room, roomId, reload, stagePublish, token, reloadRoom]);
 
   const onStartBroadcast = async () => {
     if (!token) return;
     setBusy('start');
     setRoomError(null);
     try {
-      // Publish to IVS Stage first so streamHealth is live before buyers attach playback.
       if (stageWebrtcEnabled) {
         await stagePublish.start();
       }
@@ -287,7 +294,6 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   };
 
   const onStartShow = async () => {
-    /** OBS / RTMP hosts without on-device stage publish — room goes live without mobile camera. */
     if (!token || stageWebrtcEnabled) return;
     setBusy('start');
     setRoomError(null);
@@ -353,7 +359,10 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
             error={roomError}
             onRetry={() => {
               setRoomError(null);
-              void reload();
+              setLoading(true);
+              void reload()
+                .catch(() => undefined)
+                .finally(() => setLoading(false));
             }}
           />
         ) : (
@@ -381,6 +390,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
         navigation={navigation}
         roomId={roomId}
         accessToken={token}
+        initialConsole={initialConsole}
         host={{
           room,
           stream,

@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
+  Keyboard,
   Modal,
   Platform,
   Pressable,
@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,14 +21,10 @@ import {
   type LiveRoomModerationSnapshot,
   type LiveRoomTipRow,
   type LiveRoomTipSummary,
-  type LiveRoomViewerRow,
 } from '../../api/trustRepository';
-import type { MentionSearchUser } from '../../api/mentionSearchRepository';
-import { UsernameMentionPicker } from '../mentions/UsernameMentionPicker';
 import { canPerformModeratorAction, formatModActionLabel, formatModeratorLevelLabel } from '../../lib/liveModeratorPermissions';
 import { computePinExpiresIso } from '../../lib/pinnedMessageExpiry';
 import { colors, radii, spacing } from '../../theme';
-import { ModeratorViewerActions } from './ModeratorViewerActions';
 
 const PIN_EXPIRES_OPTIONS = [
   { minutes: 15, label: '15 min' },
@@ -38,12 +35,11 @@ const PIN_EXPIRES_OPTIONS = [
   { minutes: 24 * 60, label: '24 hr' },
 ] as const;
 
-type TabId = 'tools' | 'queue' | 'viewers' | 'tips' | 'pinned' | 'announcements' | 'giveaway' | 'history';
+type TabId = 'tools' | 'queue' | 'tips' | 'pinned' | 'announcements' | 'giveaway' | 'history';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'tools', label: 'Tools' },
   { id: 'queue', label: 'Queue' },
-  { id: 'viewers', label: 'Users' },
   { id: 'tips', label: 'Tips' },
   { id: 'pinned', label: 'Pinned' },
   { id: 'announcements', label: 'Post' },
@@ -57,7 +53,6 @@ type Props = {
   visible: boolean;
   onClose: () => void;
   liveRoomId: string;
-  hostUserId?: string;
   moderatorUserId?: string;
   accessToken?: string;
   moderation: LiveRoomModerationSnapshot & { pinnedMessageActive?: boolean };
@@ -69,7 +64,6 @@ export function ModeratorDrawer({
   visible,
   onClose,
   liveRoomId,
-  hostUserId,
   moderatorUserId,
   accessToken,
   moderation,
@@ -77,6 +71,9 @@ export function ModeratorDrawer({
   onModerationPatch,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const sheetHeight = Math.round(Math.min(windowHeight * 0.9, windowHeight - insets.top - 12));
+  const sheetTop = Math.max(insets.top, windowHeight - sheetHeight);
   const [tab, setTab] = useState<TabId>('tools');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,19 +81,36 @@ export function ModeratorDrawer({
   const [pinExpiresMinutes, setPinExpiresMinutes] = useState<number>(60);
   const [announcementBody, setAnnouncementBody] = useState('');
   const [giveawayTitle, setGiveawayTitle] = useState('');
-  const [viewerAction, setViewerAction] = useState<LiveRoomViewerRow | null>(null);
-  const [viewerSearch, setViewerSearch] = useState('');
+  const [keyboardInset, setKeyboardInset] = useState(0);
 
   useEffect(() => {
     if (!visible) {
-      setViewerSearch('');
-      setViewerAction(null);
+      setKeyboardInset(0);
+      return undefined;
     }
-  }, [visible]);
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      setKeyboardInset(Math.max(0, e.endCoordinates.height - insets.bottom));
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardInset(0);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [insets.bottom, visible]);
 
   useEffect(() => {
     setPinnedBody(moderation.pinnedModeratorMessage ?? '');
   }, [moderation.pinnedModeratorMessage, visible]);
+
+  useEffect(() => {
+    if (visible && tab === 'tips') {
+      onRefresh();
+    }
+  }, [visible, tab, onRefresh]);
 
   const can = (actionType: string) =>
     canPerformModeratorAction({
@@ -130,7 +144,10 @@ export function ModeratorDrawer({
     targetUserId?: string;
     metadata?: Record<string, unknown>;
   }) => {
-    if (!accessToken) return;
+    if (!accessToken) {
+      setError('Sign in again to run moderation actions.');
+      return;
+    }
     setBusy(true);
     setError(null);
     const result = await applyLiveModerationAction({
@@ -182,6 +199,13 @@ export function ModeratorDrawer({
       }
     }
 
+    if (args.actionType === 'slow_mode') {
+      const seconds = Math.round(Number(args.metadata?.seconds ?? 0));
+      if (Number.isFinite(seconds) && seconds >= 0) {
+        onModerationPatch?.({ slowModeSeconds: seconds });
+      }
+    }
+
     onRefresh();
   };
 
@@ -194,7 +218,6 @@ export function ModeratorDrawer({
             canSlowMode={can('slow_mode')}
             busy={busy}
             onSetSlowMode={(seconds) => void runAction({ actionType: 'slow_mode', metadata: { seconds } })}
-            onOpenFindUser={() => setTab('viewers')}
             onOpenQueue={() => setTab('queue')}
             onOpenAnnounce={() => setTab('announcements')}
             queueCount={moderation.modQueue.length}
@@ -203,24 +226,6 @@ export function ModeratorDrawer({
       case 'queue':
         return (
           <ModQueueList rows={moderation.modQueue} emptyLabel="No open reports for this show." />
-        );
-      case 'viewers':
-        return (
-          <ViewerSearchTab
-            accessToken={accessToken}
-            search={viewerSearch}
-            onChangeSearch={setViewerSearch}
-            hostUserId={hostUserId}
-            onSelectUser={(user) => {
-              setViewerSearch('');
-              setViewerAction({
-                userId: user.id,
-                username: user.username,
-                messageCount: 0,
-                lastSeenAt: new Date().toISOString(),
-              });
-            }}
-          />
         );
       case 'tips':
         return (
@@ -283,8 +288,6 @@ export function ModeratorDrawer({
   }, [
     tab,
     accessToken,
-    hostUserId,
-    viewerSearch,
     moderation.modQueue,
     moderation.slowModeSeconds,
     moderation.tips,
@@ -306,81 +309,85 @@ export function ModeratorDrawer({
 
   return (
     <>
-      <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-        <Pressable style={styles.backdrop} onPress={onClose}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            style={styles.keyboardAvoid}
+      <Modal
+        visible={visible}
+        animationType="slide"
+        transparent
+        statusBarTranslucent
+        presentationStyle="overFullScreen"
+        onRequestClose={onClose}
+      >
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.backdropFill} onPress={onClose} accessibilityRole="button" />
+          <View
+            style={[
+              styles.sheet,
+              {
+                top: sheetTop,
+                height: sheetHeight,
+                paddingBottom: insets.bottom + spacing.md,
+              },
+            ]}
           >
-            <Pressable
-              style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}
-              onPress={(e) => e.stopPropagation()}
-            >
-              <View style={styles.handle} />
-              <View style={styles.headerRow}>
-                <Text style={styles.title}>Moderator tools</Text>
-                <Pressable onPress={onClose} hitSlop={12}>
-                  <Ionicons name="close" size={22} color={colors.textSecondary} />
-                </Pressable>
-              </View>
-              <Text style={styles.subtitle}>
-                {moderation.isHost
-                  ? 'Host · full mod tools'
-                  : formatModeratorLevelLabel(moderation.moderatorLevel)
-                    ? `${formatModeratorLevelLabel(moderation.moderatorLevel)} tools`
-                    : 'Moderator tools'}
-              </Text>
+            <View style={styles.handle} />
+            <View style={styles.headerRow}>
+              <Text style={styles.title}>Moderator tools</Text>
+              <Pressable onPress={onClose} hitSlop={12}>
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
+              </Pressable>
+            </View>
+            <Text style={styles.subtitle}>
+              {moderation.isHost
+                ? 'Host · full mod tools'
+                : formatModeratorLevelLabel(moderation.moderatorLevel)
+                  ? `${formatModeratorLevelLabel(moderation.moderatorLevel)} tools`
+                  : 'Moderator tools'}
+            </Text>
 
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.tabRail}
-                contentContainerStyle={styles.tabRailContent}
-              >
-                {TABS.map((t) => (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.tabRail}
+              contentContainerStyle={styles.tabRailContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              {TABS.map((t) => {
+                const tipCount = t.id === 'tips' ? moderation.tipSummary?.paidCount ?? 0 : 0;
+                const on = tab === t.id;
+                return (
                   <Pressable
                     key={t.id}
-                    style={[styles.tabChip, tab === t.id && styles.tabChipActive]}
+                    style={[styles.tabChip, on && styles.tabChipActive]}
                     onPress={() => setTab(t.id)}
                   >
-                    <Text style={[styles.tabChipText, tab === t.id && styles.tabChipTextActive]}>{t.label}</Text>
+                    <Text style={[styles.tabChipText, on && styles.tabChipTextActive]}>{t.label}</Text>
+                    {tipCount > 0 ? (
+                      <View style={[styles.tabChipBadge, on && styles.tabChipBadgeActive]}>
+                        <Text style={[styles.tabChipBadgeText, on && styles.tabChipBadgeTextActive]}>{tipCount}</Text>
+                      </View>
+                    ) : null}
                   </Pressable>
-                ))}
-              </ScrollView>
+                );
+              })}
+            </ScrollView>
 
-              <ScrollView
-                style={styles.body}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="interactive"
-              >
-                {tabContent}
-                {error ? <Text style={styles.error}>{error}</Text> : null}
-              </ScrollView>
-            </Pressable>
-          </KeyboardAvoidingView>
-        </Pressable>
+            <ScrollView
+              style={styles.body}
+              contentContainerStyle={[
+                styles.bodyContent,
+                keyboardInset > 0 ? { paddingBottom: keyboardInset + spacing.lg } : null,
+              ]}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              nestedScrollEnabled
+              showsVerticalScrollIndicator
+            >
+              {tabContent}
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
-
-      {viewerAction ? (
-        <ModeratorViewerActions
-          visible={Boolean(viewerAction)}
-          onClose={() => setViewerAction(null)}
-          liveRoomId={liveRoomId}
-          accessToken={accessToken}
-          isModerator={moderation.isModerator}
-          isHost={moderation.isHost}
-          canModerate={moderation.canModerate}
-          moderatorLevel={moderation.moderatorLevel}
-          allowedActions={moderation.allowedActions}
-          userId={viewerAction.userId}
-          username={viewerAction.username}
-          hostUserId={hostUserId}
-          onComplete={() => {
-            setViewerAction(null);
-            onRefresh();
-          }}
-        />
-      ) : null}
     </>
   );
 }
@@ -390,7 +397,6 @@ function RoomToolsTab({
   canSlowMode,
   busy,
   onSetSlowMode,
-  onOpenFindUser,
   onOpenQueue,
   onOpenAnnounce,
   queueCount,
@@ -399,7 +405,6 @@ function RoomToolsTab({
   canSlowMode: boolean;
   busy: boolean;
   onSetSlowMode: (seconds: number) => void;
-  onOpenFindUser: () => void;
   onOpenQueue: () => void;
   onOpenAnnounce: () => void;
   queueCount: number;
@@ -430,9 +435,6 @@ function RoomToolsTab({
 
       <Text style={[styles.sectionTitle, { marginTop: spacing.md }]}>Quick actions</Text>
       <View style={styles.quickNavRow}>
-        <Pressable style={styles.quickNavBtn} onPress={onOpenFindUser}>
-          <Text style={styles.quickNavBtnText}>Find user</Text>
-        </Pressable>
         <Pressable style={styles.quickNavBtn} onPress={onOpenQueue}>
           <Text style={styles.quickNavBtnText}>
             Reports{queueCount > 0 ? ` (${queueCount})` : ''}
@@ -443,14 +445,10 @@ function RoomToolsTab({
         </Pressable>
       </View>
 
-      <Text style={[styles.sectionTitle, { marginTop: spacing.md }]}>User actions</Text>
+      <Text style={[styles.sectionTitle, { marginTop: spacing.md }]}>User moderation</Text>
       <Text style={styles.hint}>
-        Mute, timeout, kick, ban, block bidding, and delete messages are available from Find user or by long-pressing
-        chat.
+        Long-press a chat message to mute, timeout, kick, ban, block bidding, or delete.
       </Text>
-      <Pressable style={styles.secondaryBtn} onPress={onOpenFindUser}>
-        <Text style={styles.secondaryBtnText}>Find user to moderate</Text>
-      </Pressable>
 
       <Text style={[styles.sectionTitle, { marginTop: spacing.md }]}>More in this drawer</Text>
       <Text style={styles.hint}>
@@ -479,36 +477,6 @@ function ModQueueList({ rows, emptyLabel }: { rows: LiveRoomModQueueRow[]; empty
   );
 }
 
-function ViewerSearchTab({
-  accessToken,
-  search,
-  onChangeSearch,
-  hostUserId,
-  onSelectUser,
-}: {
-  accessToken?: string;
-  search: string;
-  onChangeSearch: (value: string) => void;
-  hostUserId?: string;
-  onSelectUser: (user: MentionSearchUser) => void;
-}) {
-  return (
-    <View style={styles.formBlock}>
-      <Text style={styles.hint}>Search @username like chat mentions. Tap a user to open moderation tools.</Text>
-      <UsernameMentionPicker
-        value={search}
-        onChangeText={onChangeSearch}
-        accessToken={accessToken}
-        onSelectUser={onSelectUser}
-        placeholder="@username"
-      />
-      {hostUserId ? (
-        <Text style={styles.hint}>Host accounts cannot be moderated from this panel.</Text>
-      ) : null}
-    </View>
-  );
-}
-
 function HistoryList({ rows }: { rows: LiveRoomModHistoryRow[] }) {
   if (rows.length === 0) return <Text style={styles.empty}>No moderation actions yet.</Text>;
   return (
@@ -532,12 +500,6 @@ function formatTipUsd(amount: number): string {
   return `$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function tipStatusLabel(status: LiveRoomTipRow['status']): string {
-  if (status === 'paid') return 'Paid';
-  if (status === 'pending') return 'Pending';
-  return 'Failed';
-}
-
 function TipsTab({ tips, summary }: { tips: LiveRoomTipRow[]; summary: LiveRoomTipSummary | null }) {
   if (!summary) {
     return <Text style={styles.empty}>Tip tracking unavailable.</Text>;
@@ -549,38 +511,34 @@ function TipsTab({ tips, summary }: { tips: LiveRoomTipRow[]; summary: LiveRoomT
 
   return (
     <View style={styles.formBlock}>
+      <Text style={styles.sectionTitle}>Show tips</Text>
+      <Text style={styles.hint}>
+        Tips are charged instantly from the viewer&apos;s Vault Wallet — separate from bids and buys. Only
+        completed tips appear here.
+      </Text>
+
       <View style={styles.tipSummaryCard}>
         <Text style={styles.tipSummaryTotal}>{formatTipUsd(summary.totalPaidUsd)}</Text>
-        <Text style={styles.tipSummaryLbl}>Paid tips this show</Text>
+        <Text style={styles.tipSummaryLbl}>Total received this show</Text>
         <Text style={styles.tipSummaryMeta}>
-          {summary.paidCount} paid
-          {summary.pendingCount > 0 ? ` · ${summary.pendingCount} pending` : ''}
-          {summary.failedCount > 0 ? ` · ${summary.failedCount} failed` : ''}
+          {summary.paidCount} tip{summary.paidCount === 1 ? '' : 's'} this show
         </Text>
         <Text style={styles.tipRouting}>{routingLabel}</Text>
       </View>
 
+      <Text style={[styles.sectionTitle, { marginTop: spacing.xs }]}>Tip feed</Text>
       {tips.length === 0 ? (
-        <Text style={styles.empty}>No tips yet this show.</Text>
+        <Text style={styles.empty}>No tips yet — they will show up here as viewers send them.</Text>
       ) : (
         tips.map((tip) => (
           <View key={tip.id} style={styles.card}>
-            <View style={styles.tipRowTop}>
-              <Text style={styles.cardTitle}>{formatTipUsd(tip.amountUsd)}</Text>
-              <Text
-                style={[
-                  styles.tipStatus,
-                  tip.status === 'paid' && styles.tipStatusPaid,
-                  tip.status === 'pending' && styles.tipStatusPending,
-                  tip.status === 'failed' && styles.tipStatusFailed,
-                ]}
-              >
-                {tipStatusLabel(tip.status)}
-              </Text>
-            </View>
+            <Text style={styles.cardTitle}>{formatTipUsd(tip.amountUsd)}</Text>
             <Text style={styles.cardMeta}>
               @{tip.senderUsername} → @{tip.recipientUsername} ·{' '}
-              {new Date(tip.paidAt ?? tip.createdAt).toLocaleTimeString()}
+              {new Date(tip.paidAt ?? tip.createdAt).toLocaleTimeString([], {
+                hour: 'numeric',
+                minute: '2-digit',
+              })}
             </Text>
             {tip.message.trim() ? <Text style={styles.cardBody}>{tip.message}</Text> : null}
           </View>
@@ -728,7 +686,9 @@ function GiveawayTab({
 }) {
   return (
     <View style={styles.formBlock}>
-      <Text style={styles.hint}>Log a giveaway run — winner selection hooks in separately.</Text>
+      <Text style={styles.hint}>
+        Record a giveaway for the moderation log. Hosts draw winners from the seller console.
+      </Text>
       <TextInput
         style={styles.input}
         value={value}
@@ -742,7 +702,7 @@ function GiveawayTab({
         disabled={!canRun || busy || !value.trim()}
         onPress={onRun}
       >
-        {busy ? <ActivityIndicator color="#111" /> : <Text style={styles.primaryBtnText}>Log giveaway</Text>}
+        {busy ? <ActivityIndicator color="#111" /> : <Text style={styles.primaryBtnText}>Record giveaway</Text>}
       </Pressable>
       {!canRun ? <Text style={styles.hint}>Show-level moderators can run giveaways.</Text> : null}
     </View>
@@ -750,20 +710,22 @@ function GiveawayTab({
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  modalRoot: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
   },
-  keyboardAvoid: {
-    width: '100%',
+  backdropFill: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
   sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
     backgroundColor: colors.surface,
     borderTopLeftRadius: radii.lg,
     borderTopRightRadius: radii.lg,
-    maxHeight: '58%',
     paddingTop: spacing.sm,
+    flexDirection: 'column',
   },
   handle: {
     alignSelf: 'center',
@@ -793,14 +755,18 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   tabRail: {
+    flexGrow: 0,
+    flexShrink: 0,
     marginBottom: spacing.sm,
-    maxHeight: 40,
   },
   tabRailContent: {
     paddingHorizontal: spacing.lg,
     paddingRight: spacing.xl,
   },
   tabChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: radii.pill,
@@ -821,9 +787,33 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontWeight: '800',
   },
+  tabChipBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  tabChipBadgeActive: {
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  tabChipBadgeText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: colors.textMuted,
+  },
+  tabChipBadgeTextActive: {
+    color: colors.gold,
+  },
   body: {
+    flex: 1,
+    minHeight: 0,
+  },
+  bodyContent: {
     paddingHorizontal: spacing.lg,
-    maxHeight: 320,
+    paddingBottom: spacing.xl,
   },
   card: {
     borderRadius: radii.lg,
@@ -973,7 +963,8 @@ const styles = StyleSheet.create({
   hint: {
     color: colors.textSecondary,
     fontSize: 12,
-    lineHeight: 17,
+    lineHeight: 18,
+    flexShrink: 1,
   },
   error: {
     color: '#f87171',
@@ -1012,27 +1003,5 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: spacing.sm,
     textAlign: 'center',
-  },
-  tipRowTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  tipStatus: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-    color: colors.textMuted,
-  },
-  tipStatusPaid: {
-    color: colors.gold,
-  },
-  tipStatusPending: {
-    color: '#fbbf24',
-  },
-  tipStatusFailed: {
-    color: '#f87171',
   },
 });

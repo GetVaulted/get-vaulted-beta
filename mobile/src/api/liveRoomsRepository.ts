@@ -9,6 +9,7 @@ import { logVaultCommandCenter, supabaseJwtSub } from '../lib/logVaultCommandCen
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { liveRoomCategoryTagsForRow } from '../lib/liveRoomDisplay';
 import { resolveLiveRoomMediaUrl, resolveLiveRoomPreviewImage, assertLivePreviewResolvable } from '../lib/liveRoomPreviewImage';
+import { readThroughSellerLiveRoomsCache } from '../lib/sellerLiveRoomsCache';
 import { mapListingCategoryToCategoryId } from './listingsFeedRepository';
 import type { CategoryId, Host, LiveStream, ScheduledStream } from '../types';
 
@@ -331,7 +332,7 @@ export async function fetchLiveRoomPublicById(roomId: string): Promise<LiveRoomA
   };
 }
 
-export async function fetchMyLiveRooms(accessToken: string): Promise<LiveRoomApiRow[]> {
+async function fetchMyLiveRoomsFromApi(accessToken: string): Promise<LiveRoomApiRow[]> {
   const path = '/api/live-rooms?mine=1&includeEnded=1&limit=40';
   const res = await fetchLiveRoomsApi(path, {
     method: 'GET',
@@ -364,6 +365,17 @@ export async function fetchMyLiveRooms(accessToken: string): Promise<LiveRoomApi
     );
   }
   return rooms;
+}
+
+export async function fetchMyLiveRooms(
+  accessToken: string,
+  options?: { force?: boolean },
+): Promise<LiveRoomApiRow[]> {
+  return readThroughSellerLiveRoomsCache(
+    accessToken,
+    () => fetchMyLiveRoomsFromApi(accessToken),
+    options,
+  );
 }
 
 function hostFromRow(row: LiveRoomApiRow): Host {

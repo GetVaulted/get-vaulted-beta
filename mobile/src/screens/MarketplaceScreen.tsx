@@ -28,10 +28,10 @@ import {
   sliceRail,
 } from '../lib/marketplaceCatalog';
 import { buildMarketplaceHeroSlides } from '../lib/marketplaceHero';
-import { hasWarmHomeFeedCache, subscribeHomeFeedInvalidation } from '../lib/homeFeedCache';
+import { hasWarmHomeFeedCache, getHomeFeedMemorySnapshot, subscribeHomeFeedInvalidation } from '../lib/homeFeedCache';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { openCreateListing } from '../navigation/openCreateListing';
-import { openHelpCenter } from '../navigation/openPlatform';
+import { openVaultSearch } from '../navigation/openPlatform';
 import type { MainTabParamList, RootStackParamList } from '../navigation/types';
 import { colors, spacing } from '../theme';
 import type { Product } from '../types';
@@ -49,8 +49,8 @@ export function MarketplaceScreen() {
   const [lane, setLane] = useState<MarketplaceLaneId>('all');
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [catalog, setCatalog] = useState<Product[]>([]);
-  const loadedOnceRef = useRef(false);
+  const [catalog, setCatalog] = useState<Product[]>(() => getHomeFeedMemorySnapshot()?.listings ?? []);
+  const loadedOnceRef = useRef(Boolean(getHomeFeedMemorySnapshot()?.listings.length));
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!isSupabaseConfigured()) {
@@ -150,7 +150,7 @@ export function MarketplaceScreen() {
         <MarketplaceVaultHeader />
         <SearchBar
           placeholder="Search the vault — cards, sneakers, watches…"
-          onPress={() => openHelpCenter(navigation, true)}
+          onPress={() => openVaultSearch(navigation)}
           compact={layout.compact}
         />
 

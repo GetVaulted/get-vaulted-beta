@@ -1,6 +1,6 @@
-import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchSellerInventoryFromWeb, type SellerInventorySnapshot } from '../api/sellerInventoryRepository';
+import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
 import { subscribeHomeFeedInvalidation } from '../lib/homeFeedCache';
 import { isSupabaseConfigured } from '../lib/supabase';
 import type { SellerReloadOptions } from './sellerReloadOptions';
@@ -50,7 +50,10 @@ export function useSellerInventory(accessToken: string | undefined, enabled: boo
   );
 
   useEffect(() => {
-    void reload();
+    const task = deferAfterFirstPaint(() => {
+      void reload();
+    }, 500);
+    return () => task.cancel();
   }, [reload]);
 
   useEffect(() => {

@@ -2,7 +2,7 @@ import type { NavigationProp, ParamListBase } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Keyboard, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { HostStreamPayload, LiveRoomHostDetail } from '../../../api/liveHostRepository';
+import type { HostStreamPayload, HostConsolePayload, LiveRoomHostDetail } from '../../../api/liveHostRepository';
 import { fetchProfileById } from '../../../api/profilesRepository';
 import { useAuth } from '../../../auth/AuthContext';
 import { KeyboardDismissStageShield } from '../../ui/KeyboardDismissStageShield';
@@ -64,7 +64,7 @@ import {
 } from '../../moderator/ModeratorFloatingButton';
 import { ModeratorActionSheet } from '../../moderator/ModeratorActionSheet';
 import { ModeratorDrawer } from '../../moderator/ModeratorDrawer';
-import { showModeratorTools } from '../../../lib/liveModeratorPermissions';
+import { showModeratorTools, resolveModerationActor } from '../../../lib/liveModeratorPermissions';
 import { colors, radii, spacing } from '../../../theme';
 import type { ChatMessage } from '../../../types';
 
@@ -112,9 +112,10 @@ type Props = {
   roomId: string;
   accessToken: string;
   host: HostActions;
+  initialConsole?: HostConsolePayload | null;
 };
 
-export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Props) {
+export function SellerLiveHostView({ navigation, roomId, accessToken, host, initialConsole }: Props) {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const [hostAvatarUrl, setHostAvatarUrl] = useState<string | null>(null);
@@ -147,6 +148,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
     navigation,
     onBiddingUrgentChange: setBiddingUrgent,
     onAfterAddLot: () => setQueueOpen(true),
+    initialConsole,
   });
 
   useEffect(() => {
@@ -229,19 +231,48 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   };
 
   const hostChatUsername = sellerUsername?.trim() || hostName;
-  const liveChat = useLiveRoomChat({
-    roomId,
-    hostUsername: hostChatUsername,
-    hostUserId: user?.id,
-    accessToken,
-    enabled: true,
-    realtimePrimary: true,
-  });
 
   const moderation = useLiveRoomModeration({
     roomId,
     accessToken,
     enabled: true,
+  });
+
+  const modActor = useMemo(
+    () =>
+      resolveModerationActor({
+        canModerate: moderation.canModerate,
+        isHost: moderation.isHost,
+        isModerator: moderation.isModerator,
+        viewerRole: moderation.viewerRole,
+        moderatorLevel: moderation.moderatorLevel,
+        allowedActions: moderation.allowedActions,
+        sellerId: moderation.sellerId,
+        userId: user?.id,
+        sellerIdHint: moderation.sellerId ?? user?.id,
+        hostUserIdHint: user?.id,
+      }),
+    [
+      moderation.allowedActions,
+      moderation.canModerate,
+      moderation.isHost,
+      moderation.isModerator,
+      moderation.moderatorLevel,
+      moderation.sellerId,
+      moderation.viewerRole,
+      user?.id,
+    ],
+  );
+
+  const showHostUserId = modActor.showHostUserId;
+
+  const liveChat = useLiveRoomChat({
+    roomId,
+    hostUsername: hostChatUsername,
+    hostUserId: showHostUserId ?? user?.id,
+    accessToken,
+    enabled: true,
+    realtimePrimary: true,
   });
 
   useRealtimeRoomSubscription({
@@ -434,8 +465,6 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         }
         onGoLive={onGoLive}
         onStopStream={host.onStopBroadcast}
-        onPauseStream={host.onPauseBroadcast}
-        onResumeStream={host.onResumeBroadcast}
         viewerCount={console.viewerCount}
         showCameraFlip={host.stageWebrtcEnabled && host.showCameraPreview}
         cameraFlipDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
@@ -455,10 +484,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         isActive
         streamKey={roomId}
         liveRoomId={roomId}
-        hostUserId={user?.id}
+        hostUserId={showHostUserId}
         accessToken={accessToken}
-        canModerate={moderation.canModerate}
-        isModerator={moderation.isModerator}
+        canModerate={modActor.canModerate}
+        isModerator={modActor.isModerator}
         onLongPressMessage={(message) => setModActionMessage(message)}
         onModerationComplete={() => {
           void liveChat.reload();
@@ -502,6 +531,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
             ? () => console.openPricingEditor(displayItem)
             : undefined
         }
+        clutchTimeEnabled={console.hostClutchTimeEnabled}
+        onToggleClutchTime={console.toggleHostClutchTime}
         hostOverlayMinimal
         queuePreview={queuePreview}
         onLayoutHeight={(h) => {
@@ -538,25 +569,32 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         inputRef={chatComposerRef}
         leadingAccessory={
           <>
-            {showModeratorTools(moderation.isModerator, moderation.canModerate, moderation.isHost) ? (
+            {showModeratorTools(modActor.isModerator, modActor.canModerate, modActor.isHost) ? (
               <ModeratorToolsButton onPress={() => setModDrawerOpen(true)} />
             ) : null}
-            {moderation.isHost ? (
+            {modActor.isHost ? (
               <HostModeratorAssignButton onPress={() => setModAssignOpen(true)} />
             ) : null}
           </>
         }
       />
 
-      {showModeratorTools(moderation.isModerator, moderation.canModerate, moderation.isHost) ? (
+      {showModeratorTools(modActor.isModerator, modActor.canModerate, modActor.isHost) ? (
         <ModeratorDrawer
           visible={modDrawerOpen}
           onClose={() => setModDrawerOpen(false)}
           liveRoomId={roomId}
-          hostUserId={user?.id}
           moderatorUserId={user?.id}
           accessToken={accessToken}
-          moderation={moderation}
+          moderation={{
+            ...moderation,
+            canModerate: modActor.canModerate,
+            isHost: modActor.isHost,
+            isModerator: modActor.isModerator,
+            viewerRole: modActor.viewerRole,
+            moderatorLevel: modActor.moderatorLevel,
+            allowedActions: modActor.allowedActions,
+          }}
           onModerationPatch={moderation.patch}
           onRefresh={() => {
             void moderation.reload();
@@ -565,34 +603,42 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         />
       ) : null}
 
-      {moderation.isHost ? (
+      {modActor.isHost ? (
         <HostModeratorAssignSheet
           visible={modAssignOpen}
           onClose={() => setModAssignOpen(false)}
           liveRoomId={roomId}
           accessToken={accessToken}
-          moderation={moderation}
-          hostUserId={user?.id}
+          moderation={{
+            ...moderation,
+            canModerate: modActor.canModerate,
+            isHost: modActor.isHost,
+            isModerator: modActor.isModerator,
+            viewerRole: modActor.viewerRole,
+            moderatorLevel: modActor.moderatorLevel,
+            allowedActions: modActor.allowedActions,
+          }}
+          hostUserId={showHostUserId}
           onRefresh={() => void moderation.reload()}
         />
       ) : null}
 
-      {modActionMessage && showModeratorTools(moderation.isModerator, moderation.canModerate, moderation.isHost) ? (
+      {modActionMessage && showModeratorTools(modActor.isModerator, modActor.canModerate, modActor.isHost) ? (
         <ModeratorActionSheet
           visible={Boolean(modActionMessage)}
           onClose={() => setModActionMessage(null)}
           liveRoomId={roomId}
           accessToken={accessToken}
-          isModerator={moderation.isModerator}
-          isHost={moderation.isHost}
-          canModerate={moderation.canModerate}
-          moderatorLevel={moderation.moderatorLevel}
-          allowedActions={moderation.allowedActions}
+          isModerator={modActor.isModerator}
+          isHost={modActor.isHost}
+          canModerate={modActor.canModerate}
+          moderatorLevel={modActor.moderatorLevel}
+          allowedActions={modActor.allowedActions}
           messageId={modActionMessage.id}
           messageText={modActionMessage.text}
           senderId={modActionMessage.senderId}
           senderUsername={modActionMessage.user}
-          hostUserId={user?.id}
+          hostUserId={showHostUserId}
           messageIsHost={modActionMessage.isHost}
           onComplete={() => {
             setModActionMessage(null);

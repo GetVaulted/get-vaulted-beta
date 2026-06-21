@@ -10,6 +10,7 @@ type Props = {
   event: ScheduledStream;
   onRemind: () => void;
   onPress?: () => void;
+  reminderSet?: boolean;
 };
 
 function formatInterested(n: number) {
@@ -17,7 +18,7 @@ function formatInterested(n: number) {
   return `${n} interested`;
 }
 
-export function VaultDropCard({ event, onRemind, onPress }: Props) {
+export function VaultDropCard({ event, onRemind, onPress, reminderSet = false }: Props) {
   const cat = categoryMeta[event.category].label;
 
   const card = (
@@ -62,9 +63,21 @@ export function VaultDropCard({ event, onRemind, onPress }: Props) {
             </Text>
           </View>
         </View>
-        <Pressable style={styles.remind} onPress={onRemind}>
-          <Ionicons name="notifications-outline" size={18} color={colors.gold} />
-          <Text style={styles.remindText}>Remind me</Text>
+        <Pressable
+          style={[styles.remind, reminderSet && styles.remindSet]}
+          onPress={(e) => {
+            e.stopPropagation?.();
+            onRemind();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={reminderSet ? 'Reminder set' : 'Remind me about this event'}
+        >
+          <Ionicons
+            name={reminderSet ? 'notifications' : 'notifications-outline'}
+            size={18}
+            color={colors.gold}
+          />
+          <Text style={styles.remindText}>{reminderSet ? 'Reminder set' : 'Remind me'}</Text>
         </Pressable>
       </View>
     </View>
@@ -189,6 +202,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.gold,
     backgroundColor: 'rgba(212, 175, 55, 0.08)',
+  },
+  remindSet: {
+    borderColor: 'rgba(212,175,55,0.75)',
+    backgroundColor: 'rgba(212,175,55,0.14)',
   },
   remindText: {
     color: colors.gold,

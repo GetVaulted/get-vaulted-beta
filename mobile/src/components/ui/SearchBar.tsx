@@ -8,6 +8,10 @@ type Props = {
   compact?: boolean;
   /** Polished home-screen search styling. */
   home?: boolean;
+  value?: string;
+  onChangeText?: (text: string) => void;
+  onSubmitEditing?: () => void;
+  autoFocus?: boolean;
 };
 
 export function SearchBar({
@@ -15,7 +19,12 @@ export function SearchBar({
   onPress,
   compact,
   home,
+  value,
+  onChangeText,
+  onSubmitEditing,
+  autoFocus,
 }: Props) {
+  const editable = onPress == null;
   const inner = (
     <>
       <Ionicons name="search" size={home ? 17 : 18} color="rgba(255,255,255,0.38)" />
@@ -24,8 +33,13 @@ export function SearchBar({
         placeholderTextColor="rgba(255,255,255,0.35)"
         style={[styles.input, compact && styles.inputCompact, home && styles.inputHome]}
         allowFontScaling={false}
-        editable={!onPress}
-        pointerEvents={onPress ? 'none' : 'auto'}
+        editable={editable}
+        pointerEvents={editable ? 'auto' : 'none'}
+        value={value}
+        onChangeText={onChangeText}
+        onSubmitEditing={onSubmitEditing}
+        autoFocus={autoFocus}
+        returnKeyType="search"
       />
     </>
   );

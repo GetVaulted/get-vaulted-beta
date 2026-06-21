@@ -317,6 +317,7 @@ export function LiveVideoStage({
               streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
               scheduledStartAt={scheduledStartAt}
               thumbnailUrl={thumbnailUrl}
+              onNotifyMe={onNotifyMe}
               fillPortraitFrame
             />
           ) : null}
@@ -327,8 +328,9 @@ export function LiveVideoStage({
                 <p className="mt-1 text-sm font-medium text-zinc-300">Stream preview will appear here</p>
                 <button
                   type="button"
-                  onClick={onNotifyMe}
-                  className="pointer-events-auto mt-3 min-h-10 rounded-full border border-gold/40 bg-gold/20 px-4 text-xs font-bold uppercase tracking-wide text-gold-bright transition hover:bg-gold/30"
+                  onClick={() => onNotifyMe?.()}
+                  disabled={!onNotifyMe}
+                  className="pointer-events-auto mt-3 min-h-10 rounded-full border border-gold/40 bg-gold/20 px-4 text-xs font-bold uppercase tracking-wide text-gold-bright transition hover:bg-gold/30 disabled:opacity-40"
                 >
                   Notify Me
                 </button>

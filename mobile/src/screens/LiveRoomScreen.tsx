@@ -1,11 +1,12 @@
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 import { fetchLiveShowsForDiscovery } from '../api/liveShowsDiscoveryRepository';
 import { fetchLiveRoomPublicById, liveRoomRowToLiveStream } from '../api/liveRoomsRepository';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { VerticalLiveFeed } from '../components/live/VerticalLiveFeed';
+import { getHomeFeedMemorySnapshot, loadHomeFeedCache } from '../lib/homeFeedCache';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from '../auth/AuthContext';
 import type { LiveStackParamList } from '../navigation/types';
@@ -14,13 +15,20 @@ import { navigateAuthLogin, navigateAuthSignUp } from '../navigation/rootNavigat
 import { colors } from '../theme';
 import type { LiveStream } from '../types';
 
+function seedStreamsFromCache(streamId: string): { streams: LiveStream[]; ready: boolean } {
+  const cached = getHomeFeedMemorySnapshot()?.live ?? [];
+  if (!cached.length) return { streams: [], ready: false };
+  return { streams: cached, ready: cached.some((s) => s.id === streamId) };
+}
+
 export function LiveRoomScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const route = useRoute<RouteProp<LiveStackParamList, 'LiveRoom'>>();
   const { streamId } = route.params;
   const { user, guestExploreMode, session } = useAuth();
-  const [streams, setStreams] = useState<LiveStream[]>([]);
-  const [loading, setLoading] = useState(true);
+  const seed = useMemo(() => seedStreamsFromCache(streamId), [streamId]);
+  const [streams, setStreams] = useState<LiveStream[]>(seed.streams);
+  const [loading, setLoading] = useState(!seed.ready);
 
   const blockGuestLive = guestExploreMode && !user;
 
@@ -38,9 +46,19 @@ export function LiveRoomScreen() {
     }
     let cancelled = false;
     (async () => {
-      setLoading(true);
+      const cache = getHomeFeedMemorySnapshot() ?? (await loadHomeFeedCache());
+      if (cancelled) return;
+
+      if (cache?.live.length) {
+        setStreams(cache.live);
+        if (cache.live.some((s) => s.id === streamId)) {
+          setLoading(false);
+        }
+      }
+
       try {
         const pack = await fetchLiveShowsForDiscovery();
+        if (cancelled) return;
         let next = pack.live;
         if (streamId && !next.some((s) => s.id === streamId)) {
           const row = await fetchLiveRoomPublicById(streamId);
@@ -48,7 +66,7 @@ export function LiveRoomScreen() {
             next = [liveRoomRowToLiveStream(row), ...next];
           }
         }
-        if (!cancelled) setStreams(next);
+        setStreams(next);
       } finally {
         if (!cancelled) setLoading(false);
       }

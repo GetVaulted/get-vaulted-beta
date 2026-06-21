@@ -26,6 +26,80 @@ const ACTION_MIN_LEVEL: Record<string, LiveModeratorLevel> = {
   seller_stream_ban: 'head',
 };
 
+export function effectiveModeratorLevel(args: {
+  isHost: boolean;
+  moderatorLevel: LiveModeratorLevel | null;
+  isModerator?: boolean;
+}): LiveModeratorLevel | null {
+  if (args.isHost) return 'head';
+  if (args.moderatorLevel) return args.moderatorLevel;
+  if (args.isModerator) return 'chat';
+  return null;
+}
+
+export function listAllowedModerationActions(args: {
+  isHost: boolean;
+  moderatorLevel: LiveModeratorLevel | null;
+  isModerator?: boolean;
+}): string[] {
+  const level = effectiveModeratorLevel(args);
+  if (!level) return [];
+  const rank = LEVEL_RANK[level];
+  return (Object.entries(ACTION_MIN_LEVEL) as [string, LiveModeratorLevel][])
+    .filter(([, minLevel]) => rank >= LEVEL_RANK[minLevel])
+    .map(([action]) => action);
+}
+
+export type ModerationActorContext = {
+  canModerate: boolean;
+  isHost: boolean;
+  isModerator: boolean;
+  viewerRole: LiveViewerRole;
+  moderatorLevel: LiveModeratorLevel | null;
+  allowedActions: string[];
+  showHostUserId: string | undefined;
+};
+
+/** Merge API moderation snapshot with local seller/host hints so tools stay available on the command center. */
+export function resolveModerationActor(args: {
+  canModerate: boolean;
+  isHost: boolean;
+  isModerator: boolean;
+  viewerRole: LiveViewerRole;
+  moderatorLevel: LiveModeratorLevel | null;
+  allowedActions: string[];
+  sellerId?: string;
+  userId?: string | null;
+  sellerIdHint?: string | null;
+  hostUserIdHint?: string | null;
+}): ModerationActorContext {
+  const sellerId = args.sellerId?.trim() || args.sellerIdHint?.trim() || undefined;
+  const userId = args.userId?.trim() || undefined;
+  const hostUserId = resolveShowHostUserId(sellerId, args.hostUserIdHint?.trim() || userId);
+  const localIsHost = Boolean(hostUserId && userId && hostUserId === userId);
+
+  const isHost = args.isHost || localIsHost;
+  const isModerator = args.isModerator;
+  const canModerate = args.canModerate || isHost || isModerator;
+  const moderatorLevel = isHost ? 'head' : args.moderatorLevel;
+  const viewerRole: LiveViewerRole = isHost ? 'host' : isModerator ? 'moderator' : args.viewerRole;
+  const effectiveLevel = effectiveModeratorLevel({ isHost, moderatorLevel, isModerator });
+  const allowedActions =
+    canModerate && args.allowedActions.length > 0
+      ? args.allowedActions
+      : listAllowedModerationActions({ isHost, moderatorLevel, isModerator });
+
+  return {
+    canModerate,
+    isHost,
+    isModerator,
+    viewerRole,
+    moderatorLevel: effectiveLevel,
+    allowedActions,
+    showHostUserId: hostUserId,
+  };
+}
+
 export function canPerformModeratorAction(args: {
   actionType: string;
   isModerator: boolean;
@@ -37,7 +111,11 @@ export function canPerformModeratorAction(args: {
   const mayModerate = Boolean(args.isHost) || Boolean(args.isModerator) || Boolean(args.canModerate);
   if (!mayModerate) return false;
 
-  const level: LiveModeratorLevel | null = args.isHost ? 'head' : args.moderatorLevel;
+  const level = effectiveModeratorLevel({
+    isHost: Boolean(args.isHost),
+    moderatorLevel: args.moderatorLevel,
+    isModerator: args.isModerator,
+  });
   if (!level) return false;
 
   if (args.allowedActions?.length) {

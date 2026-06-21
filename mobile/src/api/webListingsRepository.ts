@@ -1,5 +1,6 @@
 import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 import { getSupabase } from '../lib/supabase';
+import { readThroughPublishedListingsCache } from '../lib/publishedListingsCache';
 import type { WebMarketplaceListing } from './webListingsTypes';
 
 type ApiErrorBody = {
@@ -62,14 +63,16 @@ export async function getListingsAccessToken(): Promise<string> {
   return data.session.access_token;
 }
 
-export async function fetchPublishedListingsFromWeb(): Promise<WebMarketplaceListing[]> {
-  const res = await fetchWebApi('/api/listings?scope=published');
-  const body = (await res.json().catch(() => null)) as { listings?: WebMarketplaceListing[] } | null;
-  if (!res.ok) {
-    console.warn('[fetchPublishedListingsFromWeb]', fetchApiErrorMessage(res, body));
-    return [];
-  }
-  return Array.isArray(body?.listings) ? body!.listings! : [];
+export async function fetchPublishedListingsFromWeb(opts?: { force?: boolean }): Promise<WebMarketplaceListing[]> {
+  return readThroughPublishedListingsCache(async () => {
+    const res = await fetchWebApi('/api/listings?scope=published');
+    const body = (await res.json().catch(() => null)) as { listings?: WebMarketplaceListing[] } | null;
+    if (!res.ok) {
+      console.warn('[fetchPublishedListingsFromWeb]', fetchApiErrorMessage(res, body));
+      return [];
+    }
+    return Array.isArray(body?.listings) ? body!.listings! : [];
+  }, opts);
 }
 
 export async function fetchListingsByIdsFromWeb(ids: string[]): Promise<WebMarketplaceListing[]> {

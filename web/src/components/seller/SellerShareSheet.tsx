@@ -6,6 +6,7 @@ import {
   formatLiveRoomShareOgTitle,
   formatLiveRoomShareText,
 } from "@/lib/live-room-share-metadata";
+import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { SELLER_CONSOLE } from "@/lib/seller-console-copy";
 
 type SellerShareSheetProps = {
@@ -94,6 +95,31 @@ export function SellerShareSheet({ open, onClose, publicUrl, showTitle, hostUser
     }
   }, [copyLink, onClose, publicUrl, shareText, shareTitle]);
 
+  const inviteFollowers = useCallback(async () => {
+    const handle = hostUsername?.trim();
+    const profileUrl = handle
+      ? `${window.location.origin}${sellerProfilePath(handle)}`
+      : publicUrl;
+    const inviteText = handle
+      ? `Follow @${handle} on Get Vaulted for live shows, drops, and vault listings:\n${profileUrl}`
+      : `Join my live show on Get Vaulted:\n${publicUrl}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: handle ? `Follow @${handle} on Get Vaulted` : shareTitle,
+          text: inviteText,
+          url: profileUrl,
+        });
+        onClose();
+        return;
+      }
+      await navigator.clipboard.writeText(inviteText);
+      toast("Invite link copied.");
+    } catch {
+      /* dismissed */
+    }
+  }, [hostUsername, onClose, publicUrl, shareTitle, toast]);
+
   if (!open) return null;
 
   return (
@@ -149,12 +175,13 @@ export function SellerShareSheet({ open, onClose, publicUrl, showTitle, hostUser
           </div>
           <button
             type="button"
-            disabled
-            title="Coming soon"
-            className="w-full rounded-xl border border-dashed border-white/10 px-4 py-3 text-left text-sm font-semibold text-zinc-500"
+            onClick={() => void inviteFollowers()}
+            className="w-full rounded-xl border border-white/12 bg-white/[0.04] px-4 py-3 text-left text-sm font-bold text-zinc-100 hover:bg-white/[0.08]"
           >
             {SELLER_CONSOLE.inviteFollowers}
-            <span className="ml-2 text-[10px] uppercase tracking-wider text-zinc-600">Soon</span>
+            <span className="mt-0.5 block text-[11px] font-medium normal-case tracking-normal text-zinc-500">
+              Share your seller profile so buyers can follow for live alerts.
+            </span>
           </button>
         </div>
         <div className="border-t border-white/[0.06] p-3">

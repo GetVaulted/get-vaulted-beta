@@ -1,11 +1,9 @@
 /** iPhone 15 Pro Max portrait logical width — live-room overlay design baseline. */
-export const LIVE_ROOM_REF_WIDTH = 430;
+export { APP_REF_WIDTH as LIVE_ROOM_REF_WIDTH } from './appUiScale';
+import { APP_REF_WIDTH, APP_TEXT_PROPS, appUniformScale } from './appUiScale';
 
 /** Disable dynamic type inside live room only; app-wide accessibility stays unchanged. */
-export const LIVE_ROOM_TEXT_PROPS = {
-  allowFontScaling: false,
-  maxFontSizeMultiplier: 1,
-} as const;
+export const LIVE_ROOM_TEXT_PROPS = APP_TEXT_PROPS;
 
 export type LiveRoomDeviceMetrics = {
   fontScale: number;
@@ -29,8 +27,7 @@ export function isCompactLiveRoomLayout(layoutWidth: number): boolean {
 
 /** Uniform HUD scale vs 430pt Pro Max baseline; clamped so Hold to Bid stays ≥44pt. */
 export function liveRoomCompactScale(layoutWidth: number): number {
-  const safeWidth = Math.max(1, layoutWidth);
-  return Math.min(1, Math.max(0.88, safeWidth / LIVE_ROOM_REF_WIDTH));
+  return appUniformScale(layoutWidth);
 }
 
 /** True on iPad-class widths where commerce HUD should scale up (not shrink). */
@@ -45,8 +42,8 @@ export function isTabletLiveRoomLayout(layoutWidth: number): boolean {
 export function liveRoomHudScale(layoutWidth: number): number {
   const safe = Math.max(1, layoutWidth);
   if (safe < 400) return liveRoomCompactScale(safe);
-  if (safe >= 768) return Math.min(1.28, safe / LIVE_ROOM_REF_WIDTH);
-  if (safe >= 600) return Math.min(1.18, safe / LIVE_ROOM_REF_WIDTH);
+  if (safe >= 768) return Math.min(1.28, safe / APP_REF_WIDTH);
+  if (safe >= 600) return Math.min(1.18, safe / APP_REF_WIDTH);
   return 1;
 }
 
@@ -57,10 +54,10 @@ export function computeLiveRoomUiMetrics(
 ): LiveRoomUiMetrics {
   const safeWidth = Math.max(1, layoutWidth);
   const safeHeight = Math.max(1, layoutHeight);
-  const uniformScale = safeWidth / LIVE_ROOM_REF_WIDTH;
+  const uniformScale = safeWidth / APP_REF_WIDTH;
 
   return {
-    refWidth: LIVE_ROOM_REF_WIDTH,
+    refWidth: APP_REF_WIDTH,
     layoutWidth: safeWidth,
     layoutHeight: safeHeight,
     uniformScale,

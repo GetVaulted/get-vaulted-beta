@@ -5,6 +5,7 @@ import { liveTipApplicationFeeCents, resolveLiveTipRecipientUserId } from "@/lib
 import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId } from "@/lib/stripe-customer";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
+import { emitLiveRoomModerationChanged } from "@/lib/realtime-emit-server";
 import Stripe from "stripe";
 
 const PAYMENT_PENDING = "pending_payment";
@@ -392,6 +393,8 @@ export async function finalizeLiveTipPaid(args: {
       data: { roomVersion: { increment: 1 } },
     });
   });
+
+  emitLiveRoomModerationChanged(tip.liveRoomId);
 }
 
 export async function markLiveTipCheckoutFailed(liveTipId: string): Promise<void> {

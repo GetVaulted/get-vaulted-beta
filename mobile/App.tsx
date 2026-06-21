@@ -5,13 +5,16 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet } from 'react-native';
 import { AuthProvider } from './src/auth/AuthContext';
 import { loadHomeFeedCache } from './src/lib/homeFeedCache';
+import { configureGlobalTextScaling } from './src/lib/appUiScale';
 import {
   isInvalidRefreshTokenError,
   recoverFromStaleAuthSession,
 } from './src/lib/recoverInvalidAuthSession';
+import { AppLayoutProvider } from './src/layout/AppLayoutProvider';
 import { RootNavigator } from './src/navigation/RootNavigator';
 
 WebBrowser.maybeCompleteAuthSession();
+configureGlobalTextScaling();
 
 export default function App() {
   useEffect(() => {
@@ -30,9 +33,11 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={styles.root}>
-      <AuthProvider>
-        <RootNavigator />
-      </AuthProvider>
+      <AppLayoutProvider>
+        <AuthProvider>
+          <RootNavigator />
+        </AuthProvider>
+      </AppLayoutProvider>
       <StatusBar style="light" />
     </GestureHandlerRootView>
   );

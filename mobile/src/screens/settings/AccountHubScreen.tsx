@@ -1,7 +1,7 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthContext';
 import { SettingsSectionHeader } from '../../components/settings/SettingsSectionHeader';
@@ -84,7 +84,13 @@ export function AccountHubScreen({ navigation }: Props) {
           label="View Profile"
           sub="Your public storefront"
           icon="person-outline"
-          onPress={() => user?.id && openUserProfile(user.id, navigation)}
+          onPress={() => {
+            if (!user?.id) {
+              Alert.alert('Sign in required', 'Sign in to view your public profile.');
+              return;
+            }
+            openUserProfile(user.id, navigation);
+          }}
         />
         <SettingsRow
           label="Vault Wallet"

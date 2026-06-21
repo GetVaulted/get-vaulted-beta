@@ -30,7 +30,6 @@ export type LaunchVaultEventPanelProps = {
   sellerHandle: string;
   sellerAvatarUrl?: string | null;
   vaultListingCount: number;
-  mainTabBarClearance?: number;
 };
 
 /** Vault Events tab — event management hub (not the per-show command center). */
@@ -53,7 +52,6 @@ export function LaunchVaultEventPanel(props: LaunchVaultEventPanelProps) {
         onScheduleNew={() => setScheduleOpen(true)}
         onBlockedSchedule={props.onBlockedSchedule}
         roomsRefreshKey={roomsRefreshKey}
-        mainTabBarClearance={props.mainTabBarClearance}
       />
       <ScheduleVaultEventModal
         visible={scheduleOpen}

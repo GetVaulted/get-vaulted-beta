@@ -58,6 +58,8 @@ export function SellerLiveStreamBackdrop({
   }, [drift, ken, useStageCamera]);
 
   const showLiveFeed = showCameraPreview && permissionState === 'granted';
+  const mountPreviewSurface =
+    useStageCamera && permissionState !== 'denied' && permissionState !== 'unavailable';
   const permissionBlocked =
     useStageCamera && (permissionState === 'denied' || permissionState === 'unavailable');
   const thumb = thumbnailUrl?.trim();
@@ -66,7 +68,7 @@ export function SellerLiveStreamBackdrop({
   return (
     <View style={styles.root}>
       <StageHostPreviewVideo
-        active={showLiveFeed}
+        active={mountPreviewSurface}
         cameraFacing={cameraFacing}
         contentFit="cover"
       />
@@ -97,7 +99,7 @@ export function SellerLiveStreamBackdrop({
       ) : !roomLive && useStageCamera && showLiveFeed ? (
         <View style={styles.previewLane} pointerEvents="none">
           <View style={styles.previewDot} />
-          <Text style={styles.previewTxt}>Rear camera preview · tap Go live when ready</Text>
+          <Text style={styles.previewTxt}>Rear camera preview · tap play when ready</Text>
         </View>
       ) : null}
     </View>

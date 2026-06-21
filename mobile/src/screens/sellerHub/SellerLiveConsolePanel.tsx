@@ -62,6 +62,8 @@ export function SellerLiveConsolePanel({
           onSold={c.onSold}
           onSkip={c.onSkip}
           onExtend={c.onExtend}
+          clutchTimeEnabled={c.hostClutchTimeEnabled}
+          onToggleClutchTime={c.toggleHostClutchTime}
         />
       )}
     </View>

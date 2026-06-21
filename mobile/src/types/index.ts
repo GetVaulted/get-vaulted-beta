@@ -238,6 +238,8 @@ export type HotClip = {
   category: CategoryId;
   imageUrl?: string;
   heatTag?: string;
+  /** When set, opens this live room instead of the discovery hub. */
+  roomId?: string;
 };
 
 export type FeaturedCreator = {

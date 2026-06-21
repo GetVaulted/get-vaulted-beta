@@ -17,6 +17,7 @@ import { DeleteAccountScreen } from '../screens/settings/DeleteAccountScreen';
 import { CommunityGuidelinesScreen } from '../screens/settings/CommunityGuidelinesScreen';
 import { ReportingSafetyScreen } from '../screens/settings/ReportingSafetyScreen';
 import { HelpCenterScreen } from '../screens/help/HelpCenterScreen';
+import { VaultSearchScreen } from '../screens/VaultSearchScreen';
 import { HelpArticleScreen } from '../screens/help/HelpArticleScreen';
 import { ContactSupportScreen } from '../screens/support/ContactSupportScreen';
 import { SupportInboxScreen } from '../screens/support/SupportInboxScreen';
@@ -234,6 +235,14 @@ export function RootNavigator() {
           <Stack.Screen name="CommunityGuidelines" component={CommunityGuidelinesScreen} />
           <Stack.Screen name="ReportingSafety" component={ReportingSafetyScreen} />
           <Stack.Screen name="HelpCenter" component={HelpCenterScreen} />
+          <Stack.Screen
+            name="VaultSearch"
+            component={VaultSearchScreen}
+            options={{
+              presentation: 'modal',
+              animation: 'slide_from_bottom',
+            }}
+          />
           <Stack.Screen name="HelpArticle" component={HelpArticleScreen} />
           <Stack.Screen name="ContactSupport" component={ContactSupportScreen} />
           <Stack.Screen name="SupportInbox" component={SupportInboxScreen} />

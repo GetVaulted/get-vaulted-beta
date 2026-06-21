@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { fetchSellerWalletSummary, type SellerWalletSummary } from '../api/stripeConnectRepository';
+import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
 import type { SellerReloadOptions } from './sellerReloadOptions';
 
 export function useSellerWallet(accessToken: string | undefined) {
@@ -47,7 +48,10 @@ export function useSellerWallet(accessToken: string | undefined) {
   );
 
   useEffect(() => {
-    void refresh();
+    const task = deferAfterFirstPaint(() => {
+      void refresh();
+    }, 900);
+    return () => task.cancel();
   }, [refresh]);
 
   useEffect(() => {

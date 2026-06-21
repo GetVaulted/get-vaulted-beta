@@ -408,7 +408,7 @@ export function FloatingLiveChat({
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
       >
-        {history.map((m, idx) => (
+        {history.map((m) => (
           <FloatingChatRow
             key={`${streamKey}-${m.id}`}
             message={m}

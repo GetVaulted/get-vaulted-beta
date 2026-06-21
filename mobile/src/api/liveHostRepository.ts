@@ -2,6 +2,7 @@ import type { LiveRoomItemRow } from './liveRoomControlRepository';
 import type { LiveGiveawayRow } from './liveGiveawayRepository';
 import { apiFailureErrorMessage } from '../lib/betaApiResponse';
 import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
+import { readThroughHostConsoleCache } from '../lib/hostConsoleCache';
 import { logVaultCommandCenter, supabaseJwtSub } from '../lib/logVaultCommandCenterFlow';
 import { parseWebApiJsonBody, readWebApiResponseText } from '../lib/webApiResponse';
 
@@ -24,7 +25,12 @@ export class LiveHostApiError extends Error {
       typeof body.error === 'string' && body.error.trim()
         ? body.error.trim()
         : `Request failed (${status})`;
-    const withCode = body.code ? `${base} [${body.code}]` : base;
+    const detail = typeof body.detail === 'string' ? body.detail.trim() : '';
+    const withDetail =
+      detail && !base.includes(detail)
+        ? `${base}${detail.length > 160 ? `: ${detail.slice(0, 160)}…` : `: ${detail}`}`
+        : base;
+    const withCode = body.code ? `${withDetail} [${body.code}]` : withDetail;
     super(withCode);
     this.name = 'LiveHostApiError';
     this.status = status;
@@ -282,6 +288,19 @@ export type HostConsoleRoom = LiveRoomHostDetail & {
   category?: string;
 };
 
+export function hostConsoleRoomToDetail(room: HostConsoleRoom): LiveRoomHostDetail {
+  return {
+    id: room.id,
+    title: room.title,
+    status: room.status,
+    roomType: room.roomType,
+    description: room.description ?? null,
+    scheduledStartAt: room.scheduledStartAt ?? null,
+    startedAt: room.startedAt ?? null,
+    endedAt: room.endedAt ?? null,
+  };
+}
+
 export type HostConsoleMessage = {
   id: string;
   senderId?: string;
@@ -301,7 +320,15 @@ export type HostConsolePayload = {
   giveaways: LiveGiveawayRow[];
 };
 
-export async function fetchHostConsole(accessToken: string, roomId: string): Promise<HostConsolePayload> {
+export async function fetchHostConsole(
+  accessToken: string,
+  roomId: string,
+  options?: { force?: boolean },
+): Promise<HostConsolePayload> {
+  return readThroughHostConsoleCache(accessToken, roomId, () => fetchHostConsoleFromApi(accessToken, roomId), options);
+}
+
+async function fetchHostConsoleFromApi(accessToken: string, roomId: string): Promise<HostConsolePayload> {
   const endpoint = `/api/live-rooms/${encodeURIComponent(roomId)}/host-console`;
   const { res, json: j, bodyPreview } = await hostFetchJson<{
     serverNowMs?: number;

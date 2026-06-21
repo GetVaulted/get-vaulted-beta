@@ -454,16 +454,16 @@ export function VaultWalletSheet({
             value={promoDraft}
             onChangeText={setPromoDraft}
             autoCapitalize="characters"
+            editable={false}
           />
-          <Pressable
-            style={[t.promoApplyBtn, promoDraft.trim() && t.promoApplyBtnActive]}
-            disabled={!promoDraft.trim()}
-            onPress={() => Alert.alert('Coming soon', 'Promo codes will validate at checkout in an upcoming release.')}
-          >
-            <LiveRoomText style={[t.promoApplyText, promoDraft.trim() && t.promoApplyTextActive]}>Apply</LiveRoomText>
+          <Pressable style={[t.promoApplyBtn, t.promoApplyBtnDisabled]} disabled>
+            <LiveRoomText style={t.promoApplyText}>Apply</LiveRoomText>
           </Pressable>
         </View>
         <LiveRoomText style={[t.hintText, { marginTop: spacing.sm }]}>
+          Promo codes apply at checkout. In-wallet validation is coming soon.
+        </LiveRoomText>
+        <LiveRoomText style={[t.hintText, { marginTop: spacing.xs }]}>
           Live accepts {liveAcceptedMethodsLabel(walletPlatform, walletCapabilities)}.
         </LiveRoomText>
         {loading ? (
@@ -798,16 +798,13 @@ export function VaultWalletSheet({
           value={promoDraft}
           onChangeText={setPromoDraft}
           autoCapitalize="characters"
+          editable={false}
         />
         <LiveRoomText style={t.hintText}>
-          Promo validation at checkout is coming soon. Codes will apply to eligible orders in Vault Wallet.
+          Promo codes apply at checkout on eligible orders. Enter your code during checkout — in-wallet validation is coming soon.
         </LiveRoomText>
-        <Pressable
-          style={[t.primaryBtn, !promoDraft.trim() && t.primaryBtnDisabled]}
-          disabled={!promoDraft.trim()}
-          onPress={() => Alert.alert('Coming soon', 'Promo codes will validate at checkout in an upcoming release.')}
-        >
-          <LiveRoomText style={t.primaryBtnText}>Apply code</LiveRoomText>
+        <Pressable style={[t.primaryBtn, t.primaryBtnDisabled]} disabled>
+          <LiveRoomText style={t.primaryBtnText}>Apply at checkout</LiveRoomText>
         </Pressable>
       </ScrollView>
     </>

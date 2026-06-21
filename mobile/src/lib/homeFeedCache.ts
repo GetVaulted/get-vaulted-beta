@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
+import { invalidatePublishedListingsCache } from './publishedListingsCache';
 import type { LiveStream, Product, ScheduledStream } from '../types';
 
 const WEB_LS_KEY = 'gv_home_feed_v1';
@@ -90,6 +91,7 @@ export async function loadHomeFeedCache(): Promise<HomeFeedCache | null> {
 /** Drop cached Home feed so the next open refetches live discovery + listings snapshot. */
 export async function clearHomeFeedCache(opts?: HomeFeedInvalidationOpts): Promise<void> {
   memory = null;
+  invalidatePublishedListingsCache();
   emitHomeFeedInvalidation(opts);
   try {
     if (Platform.OS === 'web') {

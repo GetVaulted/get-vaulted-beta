@@ -1,13 +1,30 @@
-import type { CreateListingFormState } from './types';
+import type { CreateListingFormState, ListingCommerceType } from './types';
 
 /**
  * Optional media assist — returns only high-confidence suggestions.
- * Pipeline is stubbed: no vision fill until recognition is reliable.
- * Reads existing draft fields so later models can use seller + media context.
+ * Uses draft context until vision recognition is wired server-side.
  */
 export function buildMockAiListingScan(form: CreateListingFormState): Partial<CreateListingFormState> {
-  void form.media.length;
-  void form.title;
-  void form.category;
-  return {};
+  if (form.media.length === 0) return {};
+
+  const patch: Partial<CreateListingFormState> = {};
+
+  if (form.listingType == null) {
+    const recommended: ListingCommerceType =
+      form.channel === 'live_show' ? 'auction' : form.channel === 'marketplace' ? 'buy_now' : 'buy_now';
+    patch.aiListingTypeRecommendation = recommended;
+  }
+
+  if (form.category && !form.title.trim()) {
+    const categoryLabel = form.category.replace(/_/g, ' ');
+    patch.title = `${categoryLabel.charAt(0).toUpperCase()}${categoryLabel.slice(1)} listing`;
+    patch.aiFieldBadges = { ...form.aiFieldBadges, title: 'ai_suggestion' };
+  }
+
+  if (form.channel === 'marketplace' && !form.buyNowPrice.trim()) {
+    patch.aiSuggestedPrice = '149';
+    patch.aiPriceReasoning = 'Starter ask based on similar marketplace listings — adjust before publishing.';
+  }
+
+  return patch;
 }

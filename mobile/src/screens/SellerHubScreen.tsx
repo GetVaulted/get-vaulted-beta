@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -24,7 +24,6 @@ import {
   walletSnapshot,
 } from '../data/sellerHubMock';
 import { SellerHubTabBar } from '../components/seller/hq/SellerHubTabBar';
-import { mainTabBarClearance } from '../lib/mainTabBarMetrics';
 import { LaunchVaultEventPanel } from './sellerHub/LaunchVaultEventPanel';
 import { SellerSetupGatePanel } from '../components/seller/hq/SellerSetupGatePanel';
 import { useCreateListingDraft } from '../createListing/CreateListingDraftContext';
@@ -69,6 +68,7 @@ import {
   refreshSellerConnectAfterOnboarding,
 } from '../lib/openStripeConnectOnboarding';
 import { areDevToolsEnabled } from '../lib/devTools';
+import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
 
 function statusStyle(status: ListingPreview['status']) {
   switch (status) {
@@ -130,10 +130,16 @@ export function SellerHubScreen() {
     reloadConnect: sellerConnect.refresh,
     reloadLiveReadiness: cmdData.liveReadiness.refresh,
     reloadLiveOrders: liveRoom ? liveOrdersSummary.reload : undefined,
+    pollIntervalMs: 60_000,
+    refetchOnFocus: false,
   });
 
   useEffect(() => {
-    if (user?.id) void cmdData.reloadAnalytics(user.id);
+    if (!user?.id) return;
+    const task = deferAfterFirstPaint(() => {
+      void cmdData.reloadAnalytics(user.id);
+    }, 1200);
+    return () => task.cancel();
   }, [user?.id, cmdData.reloadAnalytics]);
   const [tab, setTab] = useState<SellerHubTabId>('overview');
   const [scheduleTitle, setScheduleTitle] = useState('');
@@ -153,12 +159,6 @@ export function SellerHubScreen() {
     if (pending) setTab(pending);
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      void sellerSetup.refetchSilent();
-    }, [sellerSetup.refetchSilent]),
-  );
-
   const pullRefresh = useCallback(async (...tasks: Array<() => void | Promise<unknown>>) => {
     setPullRefreshing(true);
     try {
@@ -175,9 +175,12 @@ export function SellerHubScreen() {
       setProfileAvatarUrl(null);
       return;
     }
-    void fetchProfileById(user.id).then((p) => {
-      setProfileAvatarUrl(p?.avatar_url?.trim() || null);
-    });
+    const task = deferAfterFirstPaint(() => {
+      void fetchProfileById(user.id).then((p) => {
+        setProfileAvatarUrl(p?.avatar_url?.trim() || null);
+      });
+    }, 400);
+    return () => task.cancel();
   }, [user?.id]);
 
   const sellerActivated = sellerSetup.displayActivated;
@@ -288,7 +291,6 @@ export function SellerHubScreen() {
     sellerHandle: sellerLaunchMeta.handle,
     sellerAvatarUrl: sellerLaunchMeta.avatar,
     vaultListingCount: userListings.length,
-    mainTabBarClearance: mainTabBarClearance(insets.bottom),
     onBrowseLive: () => navigation.navigate('Live', { screen: 'LiveDiscovery' }),
     onHostRoom: (roomId: string) => openSellerHostRoom(navigation, roomId),
     onViewRecap: (roomId: string) => {
@@ -426,8 +428,9 @@ export function SellerHubScreen() {
 
   if (sellerSetup.showInitialLoading) {
     return (
-      <View style={[styles.screen, { paddingTop: insets.top + spacing.xl, alignItems: 'center' }]}>
+      <View style={[styles.screen, { paddingTop: insets.top + spacing.xl, alignItems: 'center', gap: spacing.md }]}>
         <ActivityIndicator color={colors.gold} size="large" />
+        <Text style={styles.loadingHint}>Loading Seller HQ…</Text>
       </View>
     );
   }
@@ -454,6 +457,7 @@ export function SellerHubScreen() {
       ) : (
         <ScrollView
           ref={scrollRef}
+          style={styles.tabScroll}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
           refreshControl={
@@ -1081,8 +1085,16 @@ const styles = StyleSheet.create({
     minHeight: 0,
     overflow: 'hidden',
   },
+  tabScroll: {
+    flex: 1,
+  },
   tabBody: {
     marginTop: spacing.lg,
+  },
+  loadingHint: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
   },
   sectionLabel: {
     ...typography.micro,

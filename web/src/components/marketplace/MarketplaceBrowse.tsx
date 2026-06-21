@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { MarketplaceBrowseCard } from "@/components/marketplace/MarketplaceBrowseCard";
 import { MarketplaceHero } from "@/components/marketplace/MarketplaceHero";
 import {
@@ -36,6 +37,7 @@ function hasActiveRefine(priceMin: string, priceMax: string, condition: string) 
 }
 
 export function MarketplaceBrowse() {
+  const searchParams = useSearchParams();
   const [dbListings, setDbListings] = useState<MarketplaceListing[]>([]);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<(typeof sortOptions)[number]["value"]>("recent");
@@ -44,6 +46,11 @@ export function MarketplaceBrowse() {
   const [priceMax, setPriceMax] = useState("");
   const [condition, setCondition] = useState<string>("Any");
   const [refineOpen, setRefineOpen] = useState(false);
+
+  useEffect(() => {
+    const q = searchParams.get("q")?.trim();
+    if (q) setQuery(q);
+  }, [searchParams]);
 
   useEffect(() => {
     const load = async () => {

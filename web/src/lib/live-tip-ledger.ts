@@ -38,8 +38,8 @@ export async function listLiveRoomTipLedger(liveRoomId: string): Promise<{
       },
     }),
     prisma.liveTip.findMany({
-      where: { liveRoomId },
-      orderBy: { createdAt: "desc" },
+      where: { liveRoomId, status: "paid" },
+      orderBy: { paidAt: "desc" },
       take: 80,
       include: {
         sender: { select: { id: true, username: true } },
@@ -48,7 +48,7 @@ export async function listLiveRoomTipLedger(liveRoomId: string): Promise<{
     }),
     prisma.liveTip.groupBy({
       by: ["status"],
-      where: { liveRoomId },
+      where: { liveRoomId, status: "paid" },
       _sum: { amountUsd: true },
       _count: { _all: true },
     }),
@@ -59,19 +59,10 @@ export async function listLiveRoomTipLedger(liveRoomId: string): Promise<{
 
   let totalPaidUsd = 0;
   let paidCount = 0;
-  let pendingCount = 0;
-  let failedCount = 0;
   for (const g of statusGroups) {
-    const count = g._count._all;
-    const sum = g._sum.amountUsd ?? 0;
-    if (g.status === "paid") {
-      paidCount = count;
-      totalPaidUsd = sum;
-    } else if (g.status === "pending") {
-      pendingCount = count;
-    } else if (g.status === "failed") {
-      failedCount = count;
-    }
+    if (g.status !== "paid") continue;
+    paidCount = g._count._all;
+    totalPaidUsd = g._sum.amountUsd ?? 0;
   }
 
   return {
@@ -90,8 +81,8 @@ export async function listLiveRoomTipLedger(liveRoomId: string): Promise<{
     summary: {
       totalPaidUsd,
       paidCount,
-      pendingCount,
-      failedCount,
+      pendingCount: 0,
+      failedCount: 0,
       tipRecipientMode,
       tipsToModerator,
       tipModeratorUsername: room?.tipModerator?.username ?? null,

@@ -37,6 +37,7 @@ type Props = {
   layout?: 'rail' | 'grid';
   gridWidth?: number;
   onRemind?: () => void;
+  reminderSet?: boolean;
 };
 
 export function LiveNowPreviewCard({
@@ -46,6 +47,7 @@ export function LiveNowPreviewCard({
   layout = 'rail',
   gridWidth,
   onRemind,
+  reminderSet = false,
 }: Props) {
   const glow = useRef(new Animated.Value(0.35)).current;
   const isLive = stream.roomStatus === 'live';
@@ -120,11 +122,15 @@ export function LiveNowPreviewCard({
                   onRemind();
                 }}
                 hitSlop={8}
-                style={styles.remindBtn}
+                style={[styles.remindBtn, reminderSet && styles.remindBtnSet]}
                 accessibilityRole="button"
-                accessibilityLabel="Remind me about this event"
+                accessibilityLabel={reminderSet ? 'Reminder set' : 'Remind me about this event'}
               >
-                <Ionicons name="notifications-outline" size={14} color={colors.gold} />
+                <Ionicons
+                  name={reminderSet ? 'notifications' : 'notifications-outline'}
+                  size={14}
+                  color={colors.gold}
+                />
               </Pressable>
             ) : null}
           </View>
@@ -231,6 +237,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(212,175,55,0.1)',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(212,175,55,0.28)',
+  },
+  remindBtnSet: {
+    backgroundColor: 'rgba(212,175,55,0.2)',
+    borderColor: 'rgba(212,175,55,0.55)',
   },
   cover: {
     width: '100%',

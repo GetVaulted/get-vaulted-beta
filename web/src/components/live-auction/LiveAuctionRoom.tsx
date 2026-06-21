@@ -33,6 +33,10 @@ import type { LiveRoomBreakPublicDTO, LiveRoomItemDTO, LiveRoomMessageDTO } from
 import type { LiveRoomStatus } from "@/generated/prisma/client";
 import { parseTeamBoardPublicPayload, type TeamBoardPublicPayload } from "@/lib/team-board-public";
 import { liveAuctionMinBidUsd } from "@/lib/auction";
+import {
+  liveEventReminderSuccessMessage,
+  setLiveEventReminder,
+} from "@/lib/live-event-reminder";
 import { liveAuctionDisplayBidUsd } from "@/lib/live-auction-overlay-price";
 import { LIVE_AUCTION_CLIENT_END_GRACE_MS } from "@/lib/live-auction-bid-extension";
 import { projectBuyerQueueLineup, buyerQueueRowSelectable } from "@/lib/live-buyer-queue-projection";
@@ -58,6 +62,11 @@ import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel } from "@/lib/live-item-variant-presets";
 import { resolvePinnedLotOverlayPrice } from "@/lib/live-auction-overlay-price";
+import {
+  LIVE_CUSTOM_BID_MODE_COPY,
+  resolveLiveCustomBidPayload,
+  type LiveCustomBidMode,
+} from "@/lib/live-custom-bid";
 
 type SaleItem = {
   id: string;
@@ -320,6 +329,9 @@ export function LiveAuctionRoom({
   const [variantSheetOpen, setVariantSheetOpen] = useState(false);
   /** Blocks double-submit while bid POST is in flight. */
   const [bidFlight, setBidFlight] = useState(false);
+  const [customBidOpen, setCustomBidOpen] = useState(false);
+  const [customBidDraft, setCustomBidDraft] = useState("");
+  const [customBidMode, setCustomBidMode] = useState<LiveCustomBidMode>("exact");
   const [userHighBidUsd, setUserHighBidUsd] = useState<number | null>(null);
   const [showOutbidToast, setShowOutbidToast] = useState(false);
   const [teamBoardData, setTeamBoardData] = useState<TeamBoardPublicPayload | null>(null);
@@ -418,7 +430,14 @@ export function LiveAuctionRoom({
 
   useEffect(() => {
     setUserHighBidUsd(null);
+    setCustomBidOpen(false);
+    setCustomBidMode("exact");
   }, [activeDbItem?.id]);
+
+  useEffect(() => {
+    if (!customBidOpen) return;
+    setCustomBidDraft(String(buyerNextBidUsd));
+  }, [buyerNextBidUsd, customBidOpen, activeDbItem?.id]);
 
   useEffect(() => {
     const cur = buyerCurrentHighUsd;
@@ -629,7 +648,30 @@ export function LiveAuctionRoom({
     router.push(`/signin?returnTo=${encodeURIComponent(returnPath)}`);
   };
 
-  const handlePlaceBid = async () => {
+  const handleNotifyMe = async () => {
+    if (status !== "authenticated") {
+      redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
+      return;
+    }
+    const result = await setLiveEventReminder({
+      liveRoomId,
+      roomTitle: streamTitle,
+      hostSellerId: sellerId,
+      hostName: hostDisplayName,
+    });
+    if (result.ok) {
+      toast(liveEventReminderSuccessMessage(
+        { liveRoomId, roomTitle: streamTitle, hostSellerId: sellerId, hostName: hostDisplayName },
+        Boolean(result.alreadySet),
+      ));
+      return;
+    }
+    toast(result.error ?? "Could not set reminder.");
+  };
+
+  const customBidReserveSupported = !activeDbItem?.listingId;
+
+  const handlePlaceBid = async (opts?: { amountUsd?: number; maxProxyUsd?: number }) => {
     setActionError(null);
     if (status !== "authenticated") {
       redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
@@ -644,7 +686,38 @@ export function LiveAuctionRoom({
       return;
     }
     if (overlayIsLive && activeDbItem) {
-      const amount = buyerNextBidUsd;
+      let amountUsd: number;
+      let maxProxyUsd: number | undefined = opts?.maxProxyUsd;
+
+      if (opts?.amountUsd != null) {
+        amountUsd = opts.amountUsd;
+      } else if (customBidOpen) {
+        const entered = Number.parseFloat(customBidDraft);
+        try {
+          const payload = resolveLiveCustomBidPayload({
+            mode: customBidReserveSupported && customBidMode === "reserve" ? "reserve" : "exact",
+            enteredUsd: entered,
+            minNextBidUsd: buyerNextBidUsd,
+          });
+          amountUsd = payload.amountUsd;
+          maxProxyUsd = payload.maxProxyUsd;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Enter a valid bid amount.";
+          setActionError(msg);
+          return;
+        }
+      } else {
+        amountUsd = buyerNextBidUsd;
+      }
+
+      if (amountUsd + 0.001 < buyerNextBidUsd) {
+        setActionError(`Minimum bid is ${fmt(buyerNextBidUsd)}.`);
+        return;
+      }
+      if (maxProxyUsd != null && !customBidReserveSupported) {
+        setActionError("Max proxy bids are not supported for marketplace listing lots in this release.");
+        return;
+      }
       setBidFlight(true);
       const idempotencyKey = createLiveBidIdempotencyKey();
       try {
@@ -654,7 +727,10 @@ export function LiveAuctionRoom({
             method: "POST",
             headers: liveBidRequestHeaders(idempotencyKey),
             credentials: "include",
-            body: JSON.stringify({ amountUsd: amount }),
+            body: JSON.stringify({
+              amountUsd,
+              ...(maxProxyUsd != null ? { maxProxyUsd } : {}),
+            }),
           },
         );
         const data = (await res.json().catch(() => ({}))) as { error?: string; signInUrl?: string };
@@ -675,11 +751,12 @@ export function LiveAuctionRoom({
         onAuctionHttpAck?.(ack);
         const uid = session?.user?.id;
         if (uid && ack.item?.lastHighBidderId === uid) {
-          setUserHighBidUsd(ack.item.currentBidUsd ?? amount);
+          setUserHighBidUsd(ack.item.currentBidUsd ?? amountUsd);
         } else {
           setUserHighBidUsd(null);
         }
         toast("Bid placed.");
+        setCustomBidOpen(false);
         window.setTimeout(() => {
           void onRefetch?.();
           router.refresh();
@@ -900,6 +977,7 @@ export function LiveAuctionRoom({
                   <button
                     type="button"
                     aria-pressed={hostClutchTimeEnabled}
+                    title="Sudden death: the auction timer resets on every bid until bidding closes."
                     onClick={() => setHostClutchTimeEnabled((v) => !v)}
                     className={`group inline-flex items-center gap-2 rounded-full border px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wide transition ${
                       hostClutchTimeEnabled
@@ -1140,6 +1218,7 @@ export function LiveAuctionRoom({
               <button
                 type="button"
                 aria-pressed={hostClutchTimeEnabled}
+                title="Sudden death: the auction timer resets on every bid until bidding closes."
                 onClick={() => setHostClutchTimeEnabled((v) => !v)}
                 className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-wide transition ${
                   hostClutchTimeEnabled
@@ -1187,40 +1266,98 @@ export function LiveAuctionRoom({
         </button>
       ) : null}
       {overlayIsLive && !activeHasVariants ? (
-        <div className="mt-2 flex min-h-10 items-center gap-1.5 max-[380px]:gap-1 md:min-h-11">
-          <button
-            type="button"
-            className="min-h-10 shrink-0 rounded-full border border-[color:var(--live-border)] bg-white/[0.06] px-2.5 text-[10px] font-bold uppercase tracking-wide text-zinc-200 transition-[transform,background-color] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] motion-reduce:active:scale-100 max-[380px]:px-2 max-[380px]:text-[9px] md:min-h-11 md:px-3"
-          >
-            Custom
-          </button>
-          <button
-            data-testid="live-bid-button"
-            type="button"
-            disabled={actionsDisabled}
-            aria-label={
-              !overlayIsLive && busy
-                ? "Claiming spot"
-                : overlayIsLive
-                  ? `Place bid ${primaryOverlayMoneyLabel}`
-                  : `Claim spot ${primaryOverlayMoneyLabel}`
-            }
-            onClick={() => void handlePlaceBid()}
-            className={`flex min-h-10 min-w-0 flex-1 items-center justify-center rounded-full px-2 text-[11px] font-black uppercase tracking-wide text-white transition-[transform,box-shadow,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] disabled:opacity-50 motion-reduce:transition-none motion-reduce:active:scale-100 md:min-h-11 md:px-4 md:text-[12px] ${
-              !overlayIsLive && busy
-                ? "bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)]"
-                : "bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)]"
-            }`}
-          >
-            {!overlayIsLive && busy ? (
-              "Claiming…"
-            ) : (
-              <span className="min-w-0 truncate tabular-nums">
-                <span className="max-[380px]:hidden">{`${overlayIsLive ? "Place bid" : "Claim spot"} ${primaryOverlayMoneyLabel}`}</span>
-                <span className="hidden max-[380px]:inline">{`${overlayIsLive ? "Bid" : "Claim"} ${primaryOverlayMoneyLabel}`}</span>
-              </span>
-            )}
-          </button>
+        <div className="mt-2 flex min-h-10 flex-col gap-1.5">
+          {customBidOpen ? (
+            <div className="flex flex-col gap-1.5 rounded-2xl border border-[color:var(--live-border)] bg-black/40 p-2.5">
+              <label className="flex min-h-10 items-center gap-2 rounded-full border border-[color:var(--live-border)] bg-black/40 px-3">
+                <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-zinc-400">$</span>
+                <input
+                  type="number"
+                  min={buyerNextBidUsd}
+                  step="1"
+                  inputMode="decimal"
+                  value={customBidDraft}
+                  onChange={(e) => setCustomBidDraft(e.target.value)}
+                  className="min-w-0 flex-1 bg-transparent text-sm font-bold tabular-nums text-zinc-100 outline-none"
+                  aria-label="Custom bid amount"
+                />
+              </label>
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-white/8 bg-black/30 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold text-zinc-100">
+                    {customBidMode === "reserve"
+                      ? LIVE_CUSTOM_BID_MODE_COPY.reserve.label
+                      : LIVE_CUSTOM_BID_MODE_COPY.exact.label}
+                  </p>
+                  <p className="text-[10px] leading-snug text-zinc-400">
+                    {customBidMode === "reserve"
+                      ? LIVE_CUSTOM_BID_MODE_COPY.reserve.description
+                      : LIVE_CUSTOM_BID_MODE_COPY.exact.description}
+                  </p>
+                  {!customBidReserveSupported ? (
+                    <p className="mt-1 text-[10px] text-zinc-500">Max bid is not available for marketplace listing lots.</p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={customBidMode === "reserve"}
+                  disabled={!customBidReserveSupported}
+                  onClick={() => setCustomBidMode((m) => (m === "reserve" ? "exact" : "reserve"))}
+                  className={`relative h-7 w-12 shrink-0 rounded-full transition disabled:opacity-40 ${
+                    customBidMode === "reserve" ? "bg-gold/80" : "bg-white/15"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition ${
+                      customBidMode === "reserve" ? "left-[22px]" : "left-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+          ) : null}
+          <div className="flex min-h-10 items-center gap-1.5 max-[380px]:gap-1 md:min-h-11">
+            <button
+              type="button"
+              aria-pressed={customBidOpen}
+              onClick={() => setCustomBidOpen((v) => !v)}
+              className={`min-h-10 shrink-0 rounded-full border px-2.5 text-[10px] font-bold uppercase tracking-wide transition-[transform,background-color] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] motion-reduce:active:scale-100 max-[380px]:px-2 max-[380px]:text-[9px] md:min-h-11 md:px-3 ${
+                customBidOpen
+                  ? "border-gold/50 bg-gold/15 text-gold-bright"
+                  : "border-[color:var(--live-border)] bg-white/[0.06] text-zinc-200"
+              }`}
+            >
+              Custom
+            </button>
+            <button
+              data-testid="live-bid-button"
+              type="button"
+              disabled={actionsDisabled}
+              aria-label={
+                !overlayIsLive && busy
+                  ? "Claiming spot"
+                  : overlayIsLive
+                    ? `Place bid ${primaryOverlayMoneyLabel}`
+                    : `Claim spot ${primaryOverlayMoneyLabel}`
+              }
+              onClick={() => void handlePlaceBid()}
+              className={`flex min-h-10 min-w-0 flex-1 items-center justify-center rounded-full px-2 text-[11px] font-black uppercase tracking-wide text-white transition-[transform,box-shadow,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.97] disabled:opacity-50 motion-reduce:transition-none motion-reduce:active:scale-100 md:min-h-11 md:px-4 md:text-[12px] ${
+                !overlayIsLive && busy
+                  ? "bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)]"
+                  : "bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)]"
+              }`}
+            >
+              {!overlayIsLive && busy ? (
+                "Claiming…"
+              ) : (
+                <span className="min-w-0 truncate tabular-nums">
+                  <span className="max-[380px]:hidden">{`${overlayIsLive ? "Place bid" : "Claim spot"} ${primaryOverlayMoneyLabel}`}</span>
+                  <span className="hidden max-[380px]:inline">{`${overlayIsLive ? "Bid" : "Claim"} ${primaryOverlayMoneyLabel}`}</span>
+                </span>
+              )}
+            </button>
+          </div>
         </div>
       ) : null}
       {pytCommerceLive ? null : overlayIsLive ? null : overlayTimerEndedUnsettled ? (
@@ -1365,7 +1502,7 @@ export function LiveAuctionRoom({
     centerOverlay: videoStageCenterOverlay,
     centerOverlayOnTop: Boolean(teamBoardOverlay),
     stageBelowAudience: isBuyerDesktop ? undefined : stageBelowAudience,
-    onNotifyMe: () => redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`),
+    onNotifyMe: () => void handleNotifyMe(),
     streamPlaybackRefreshNonce,
     viewerAuthenticated: status === "authenticated",
     scheduledStartAt,

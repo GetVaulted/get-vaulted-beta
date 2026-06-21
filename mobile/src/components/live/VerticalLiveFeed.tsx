@@ -45,7 +45,10 @@ import { useLiveRoomRealtimeSession } from '../../hooks/useLiveRoomRealtimeSessi
 import { BreakDisclaimerModal, breakDisclaimerStorageKey, readBreakDisclaimerAccepted, writeBreakDisclaimerAccepted } from './BreakDisclaimerModal';
 import { resolvePinnedModeratorUsername } from '../../lib/resolvePinnedModeratorUsername';
 import { useLiveRoomModeration } from '../../hooks/useLiveRoomModeration';
-import { resolveShowHostUserId, showModeratorTools } from '../../lib/liveModeratorPermissions';
+import { useLiveChatSlowMode } from '../../hooks/useLiveChatSlowMode';
+import { slowModeComposerPlaceholder } from '../../lib/liveChatSlowMode';
+import { resolveModerationActor, showModeratorTools } from '../../lib/liveModeratorPermissions';
+import { LiveChatSlowModeTimer } from './LiveChatSlowModeTimer';
 import { ModeratorActionSheet } from '../moderator/ModeratorActionSheet';
 import { ModeratorDrawer } from '../moderator/ModeratorDrawer';
 import {
@@ -165,10 +168,32 @@ function LiveSlide({
     accessToken,
     enabled: isActive,
   });
-  const showHostUserId = useMemo(
-    () => resolveShowHostUserId(moderation.sellerId, stream.host.id),
-    [moderation.sellerId, stream.host.id],
+  const modActor = useMemo(
+    () =>
+      resolveModerationActor({
+        canModerate: moderation.canModerate,
+        isHost: moderation.isHost,
+        isModerator: moderation.isModerator,
+        viewerRole: moderation.viewerRole,
+        moderatorLevel: moderation.moderatorLevel,
+        allowedActions: moderation.allowedActions,
+        sellerId: moderation.sellerId,
+        userId,
+        hostUserIdHint: stream.host.id,
+      }),
+    [
+      moderation.allowedActions,
+      moderation.canModerate,
+      moderation.isHost,
+      moderation.isModerator,
+      moderation.moderatorLevel,
+      moderation.sellerId,
+      moderation.viewerRole,
+      stream.host.id,
+      userId,
+    ],
   );
+  const showHostUserId = modActor.showHostUserId;
 
   useEffect(() => {
     if (!isActive || !showHostUserId) {
@@ -191,6 +216,21 @@ function LiveSlide({
     accessToken,
     enabled: isActive,
     realtimePrimary: true,
+  });
+
+  const slowMode = useLiveChatSlowMode({
+    slowModeSeconds: moderation.slowModeSeconds ?? 0,
+    exempt: modActor.canModerate,
+    userId,
+    messages: liveChat.messages,
+    enabled: isActive && signedIn,
+  });
+
+  const chatComposerPlaceholder = slowModeComposerPlaceholder({
+    slowModeSeconds: moderation.slowModeSeconds ?? 0,
+    cooldownSeconds: slowMode.cooldownSeconds,
+    chatBlocked: slowMode.chatBlocked,
+    exempt: modActor.canModerate,
   });
 
   const liveSession = useLiveRoomRealtimeSession({
@@ -347,6 +387,7 @@ function LiveSlide({
     topReserve: computeLiveTopReserve(stageInsets.top, layoutWidth),
     chatBottom: bottomStack.chatBottom,
   });
+  const slowModeTimerBottom = bottomStack.composerBottom + COMPOSER_BAR_HEIGHT + 8;
 
   const tagUserInChat = useCallback((username: string) => {
     setChatDraft((prev) => appendMentionToDraft(prev, username));
@@ -374,22 +415,36 @@ function LiveSlide({
       Alert.alert('Accept notice', 'Accept the live break notice before chatting.');
       return;
     }
+    if (slowMode.chatBlocked) return;
     const t = chatDraft.trim();
     if (!t || liveChat.sending) return;
     chatComposerRef.current?.dismissSuggestions();
     try {
       const ok = await liveChat.send(t);
       if (ok) {
+        slowMode.recordSuccessfulSend();
         setChatDraft('');
         chatComposerRef.current?.blur();
         Keyboard.dismiss();
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      slowMode.syncFromSendError(msg);
       moderation.handleRestrictionError(msg);
       if (__DEV__) console.warn('[liveRoom chat] send failed', msg);
     }
-  }, [signedIn, onRequireAuth, breakParticipationBlocked, chatDraft, liveChat.sending, liveChat.send, moderation.handleRestrictionError]);
+  }, [
+    signedIn,
+    onRequireAuth,
+    breakParticipationBlocked,
+    slowMode.chatBlocked,
+    slowMode.recordSuccessfulSend,
+    slowMode.syncFromSendError,
+    chatDraft,
+    liveChat.sending,
+    liveChat.send,
+    moderation.handleRestrictionError,
+  ]);
 
   const openHostProfile = useCallback(() => {
     void openLiveHostProfile({
@@ -726,9 +781,9 @@ function LiveSlide({
         streamKey={stream.id}
         liveRoomId={stream.id}
         accessToken={accessToken}
-        canModerate={moderation.canModerate}
-        isModerator={moderation.isModerator}
-        viewerRole={moderation.viewerRole}
+        canModerate={modActor.canModerate}
+        isModerator={modActor.isModerator}
+        viewerRole={modActor.viewerRole}
         onLongPressMessage={(message) => setModActionMessage(message)}
         onModerationComplete={() => {
           void liveChat.reload();
@@ -753,15 +808,22 @@ function LiveSlide({
         </View>
       ) : null}
 
-      {showModeratorTools(moderation.isModerator, moderation.canModerate, moderation.isHost) && accessToken ? (
+      {showModeratorTools(modActor.isModerator, modActor.canModerate, modActor.isHost) && accessToken ? (
         <ModeratorDrawer
           visible={modDrawerOpen}
           onClose={() => setModDrawerOpen(false)}
           liveRoomId={stream.id}
-          hostUserId={showHostUserId}
           moderatorUserId={userId}
           accessToken={accessToken}
-          moderation={moderation}
+          moderation={{
+            ...moderation,
+            canModerate: modActor.canModerate,
+            isHost: modActor.isHost,
+            isModerator: modActor.isModerator,
+            viewerRole: modActor.viewerRole,
+            moderatorLevel: modActor.moderatorLevel,
+            allowedActions: modActor.allowedActions,
+          }}
           onModerationPatch={moderation.patch}
           onRefresh={() => {
             void moderation.reload();
@@ -770,17 +832,17 @@ function LiveSlide({
         />
       ) : null}
 
-      {modActionMessage && showModeratorTools(moderation.isModerator, moderation.canModerate, moderation.isHost) ? (
+      {modActionMessage && showModeratorTools(modActor.isModerator, modActor.canModerate, modActor.isHost) ? (
         <ModeratorActionSheet
           visible={Boolean(modActionMessage)}
           onClose={() => setModActionMessage(null)}
           liveRoomId={stream.id}
           accessToken={accessToken}
-          isModerator={moderation.isModerator}
-          isHost={moderation.isHost}
-          canModerate={moderation.canModerate}
-          moderatorLevel={moderation.moderatorLevel}
-          allowedActions={moderation.allowedActions}
+          isModerator={modActor.isModerator}
+          isHost={modActor.isHost}
+          canModerate={modActor.canModerate}
+          moderatorLevel={modActor.moderatorLevel}
+          allowedActions={modActor.allowedActions}
           messageId={modActionMessage.id}
           messageText={modActionMessage.text}
           senderId={modActionMessage.senderId}
@@ -817,6 +879,17 @@ function LiveSlide({
         </View>
       ) : null}
 
+      {slowMode.slowModeActive ? (
+        <LiveChatSlowModeTimer
+          bottom={slowModeTimerBottom}
+          left={spacing.lg}
+          right={chatRightEdge}
+          slowModeSeconds={moderation.slowModeSeconds ?? 0}
+          cooldownSeconds={slowMode.cooldownSeconds}
+          chatBlocked={slowMode.chatBlocked}
+        />
+      ) : null}
+
       <FloatingChatComposer
         bottom={bottomStack.composerBottom}
         left={spacing.lg}
@@ -824,11 +897,16 @@ function LiveSlide({
         value={chatDraft}
         onChangeText={setChatDraft}
         onSend={sendFloatingChat}
-        sendDisabled={liveChat.sending || breakParticipationBlocked}
+        placeholder={chatComposerPlaceholder}
+        inputDisabled={
+          slowMode.chatBlocked ||
+          Boolean(moderation.myRestrictions?.muted || liveChat.error?.includes('muted'))
+        }
+        sendDisabled={liveChat.sending || breakParticipationBlocked || slowMode.chatBlocked}
         accessToken={accessToken}
         inputRef={chatComposerRef}
         leadingAccessory={
-          showModeratorTools(moderation.isModerator, moderation.canModerate, moderation.isHost) ? (
+          showModeratorTools(modActor.isModerator, modActor.canModerate, modActor.isHost) ? (
             <ModeratorToolsButton onPress={() => setModDrawerOpen(true)} />
           ) : null
         }

@@ -157,7 +157,7 @@ export function BuyerWalletScreen({ navigation }: Props) {
         <SectionCard
           icon="pricetag-outline"
           title="Promo Code"
-          subtitle={summary?.promoCodeApplied ? `Applied: ${summary.promoCodeApplied}` : 'Add a promo code'}
+          subtitle={summary?.promoCodeApplied ? `Applied: ${summary.promoCodeApplied}` : 'Promo codes coming soon'}
           onPress={() => {
             setSheetStep('promo');
             setSheetOpen(true);
@@ -205,7 +205,7 @@ export function BuyerWalletScreen({ navigation }: Props) {
               {sheetStep === 'credits'
                 ? `Available balance: ${formatUsd(creditsUsd)}. Credits apply at checkout when eligible.`
                 : sheetStep === 'promo'
-                  ? 'Promo validation at checkout is coming soon.'
+                  ? 'Promo codes are not available in Vault Wallet yet. Checkout promo support is coming in a future update.'
                   : `Referral credit: ${formatUsd(referralUsd)}. Invite friends to earn more.`}
             </Text>
             <Pressable style={t.primaryBtn} onPress={() => setSheetOpen(false)}>

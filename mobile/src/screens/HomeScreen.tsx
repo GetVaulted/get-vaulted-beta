@@ -5,11 +5,12 @@ import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchLiveShowsForDiscovery } from '../api/liveShowsDiscoveryRepository';
 import { fetchMarketplaceListings } from '../api/listingsFeedRepository';
 import { fetchMyLiveRooms, type LiveRoomApiRow } from '../api/liveRoomsRepository';
+import { fetchSellerFollowStatus, toggleSellerFollow } from '../api/sellerFollowRepository';
 import { PremiumEmptyPanel } from '../components/empty/PremiumEmptyPanel';
 import { FeaturedCreatorCard } from '../components/home/FeaturedCreatorCard';
 import { HomeCompactHeader } from '../components/home/HomeCompactHeader';
@@ -42,6 +43,7 @@ import {
   deriveVerifiedSellers,
   placeholderCommunitySales,
 } from '../lib/homeFeedDerivations';
+import { deriveHotClipsFromLive } from '../lib/hotClips';
 import {
   markLiveDiscoveryFetchAttempt,
   markLiveDiscoveryFetchResult,
@@ -49,6 +51,7 @@ import {
 } from '../lib/liveDiscoveryFetchPolicy';
 import { openCreateListing } from '../navigation/openCreateListing';
 import { useLiveDiscoverySync } from '../hooks/useLiveDiscoverySync';
+import { useLiveEventReminders } from '../hooks/useLiveEventReminders';
 import {
   getHomeFeedMemorySnapshot,
   hasWarmHomeFeedCache,
@@ -56,6 +59,7 @@ import {
   saveHomeFeedCache,
 } from '../lib/homeFeedCache';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { scheduledStreamReminderTarget } from '../lib/liveEventReminder';
 import type { MainTabParamList, RootStackParamList } from '../navigation/types';
 import { alertGuestLiveRestricted } from '../navigation/guestExploreGuards';
 import { useAuth } from '../auth/AuthContext';
@@ -63,7 +67,7 @@ import { useSellerSetupState } from '../hooks/useSellerSetupState';
 import { openMessagesInbox } from '../navigation/openMessages';
 import { useNotificationBadge } from '../hooks/useNotificationBadge';
 import {
-  openHelpCenter,
+  openVaultSearch,
   openMyOrders,
   openNotificationInbox,
   openSettings,
@@ -75,7 +79,7 @@ import { openSellerHQ } from '../navigation/openSellerHQ';
 import { openSellerSetup } from '../navigation/openSellerSetup';
 import { navigateAuthSignUp } from '../navigation/rootNavigationRef';
 import { colors, radii, spacing } from '../theme';
-import type { HotClip, LiveStream, Product, ScheduledStream } from '../types';
+import type { FeaturedCreator, HotClip, LiveStream, Product, ScheduledStream } from '../types';
 
 type Nav = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList>,
@@ -98,6 +102,9 @@ export function HomeScreen() {
   const { user, guestExploreMode, session } = useAuth();
   const { count: notificationCount } = useNotificationBadge(user?.id);
   const sellerSetup = useSellerSetupState(session?.access_token, Boolean(user?.id));
+  const { remind, isReminderSet } = useLiveEventReminders();
+  const [followBySeller, setFollowBySeller] = useState<Record<string, boolean>>({});
+  const [followBusyId, setFollowBusyId] = useState<string | null>(null);
 
   const seed = useMemo(() => initialFeedState(), []);
   const [initialLoad, setInitialLoad] = useState(!seed.hasCache);
@@ -149,14 +156,9 @@ export function HomeScreen() {
     if (opts?.hadCachedLive || opts?.hadCachedListings) setRefreshing(true);
 
     try {
-      const sellerFetch =
-        sellerActivated && session?.access_token
-          ? fetchMyLiveRooms(session.access_token).catch(() => [] as LiveRoomApiRow[])
-          : Promise.resolve([] as LiveRoomApiRow[]);
-
       if (!skipDiscovery) markLiveDiscoveryFetchAttempt();
 
-      const [products, livePack, myRooms] = await Promise.all([
+      const [products, livePack] = await Promise.all([
         fetchMarketplaceListings({ limit: 24 }),
         skipDiscovery
           ? Promise.resolve({
@@ -165,7 +167,6 @@ export function HomeScreen() {
               meta: { success: false, error: null, source: 'none' as const, fetchedAt: Date.now(), apiBaseUrl: null },
             })
           : fetchLiveShowsForDiscovery(),
-        sellerFetch,
       ]);
 
       if (!skipDiscovery) {
@@ -173,22 +174,13 @@ export function HomeScreen() {
           markLiveDiscoveryFetchResult(true);
           setLiveRows(livePack.live);
           setScheduledRows(livePack.scheduled);
+          setClips(deriveHotClipsFromLive(livePack.live));
         } else {
           markLiveDiscoveryFetchResult(false, livePack.meta.error);
         }
       }
 
-      setClips([]);
       setListings(products);
-
-      const upcoming = myRooms
-        .filter((r) => r.status === 'scheduled' && r.scheduledStartAt)
-        .sort((a, b) => {
-          const ta = new Date(a.scheduledStartAt!).getTime();
-          const tb = new Date(b.scheduledStartAt!).getTime();
-          return ta - tb;
-        })[0];
-      setSellerNextRoom(upcoming ?? null);
 
       if (!skipDiscovery && livePack.meta.success) {
         void saveHomeFeedCache({
@@ -208,6 +200,30 @@ export function HomeScreen() {
       setInitialLoad(false);
       setRefreshing(false);
     }
+  }, []);
+
+  useEffect(() => {
+    if (!sellerActivated || !session?.access_token) {
+      setSellerNextRoom(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchMyLiveRooms(session.access_token)
+      .catch(() => [] as LiveRoomApiRow[])
+      .then((myRooms) => {
+        if (cancelled) return;
+        const upcoming = myRooms
+          .filter((r) => r.status === 'scheduled' && r.scheduledStartAt)
+          .sort((a, b) => {
+            const ta = new Date(a.scheduledStartAt!).getTime();
+            const tb = new Date(b.scheduledStartAt!).getTime();
+            return ta - tb;
+          })[0];
+        setSellerNextRoom(upcoming ?? null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [sellerActivated, session?.access_token]);
 
   useEffect(() => {
@@ -278,6 +294,60 @@ export function HomeScreen() {
     navigation.navigate('ProductDetail', { productId: product.id });
   };
 
+  useEffect(() => {
+    if (!session?.access_token || verifiedSellers.length === 0) {
+      setFollowBySeller({});
+      return;
+    }
+    let cancelled = false;
+    const task = deferAfterFirstPaint(() => {
+      void (async () => {
+        const next: Record<string, boolean> = {};
+        await Promise.all(
+          verifiedSellers.map(async (creator) => {
+            const status = await fetchSellerFollowStatus(creator.host.id, session.access_token);
+            if (status) next[creator.host.id] = status.following;
+          }),
+        );
+        if (!cancelled) setFollowBySeller(next);
+      })();
+    }, 900);
+    return () => {
+      cancelled = true;
+      task.cancel();
+    };
+  }, [session?.access_token, verifiedSellers]);
+
+  const requireAuthForHomeAction = () => {
+    if (guestExploreMode || !session?.access_token) {
+      navigateAuthSignUp();
+    }
+  };
+
+  const handleEventRemind = (event: ScheduledStream) => {
+    void remind(scheduledStreamReminderTarget(event), requireAuthForHomeAction);
+  };
+
+  const handleFollowCreator = (creator: FeaturedCreator) => {
+    if (!session?.access_token) {
+      navigateAuthSignUp();
+      return;
+    }
+    const sellerId = creator.host.id;
+    const prev = followBySeller[sellerId] ?? false;
+    setFollowBusyId(sellerId);
+    setFollowBySeller((current) => ({ ...current, [sellerId]: !prev }));
+    void toggleSellerFollow(sellerId, prev, session.access_token).then((result) => {
+      setFollowBusyId(null);
+      if (result.error) {
+        setFollowBySeller((current) => ({ ...current, [sellerId]: prev }));
+        Alert.alert('Follow', result.error);
+        return;
+      }
+      setFollowBySeller((current) => ({ ...current, [sellerId]: result.following }));
+    });
+  };
+
   const sellerEventForBanner = useMemo((): ScheduledStream | null => {
     if (!sellerNextRoom?.scheduledStartAt) return null;
     return {
@@ -332,7 +402,7 @@ export function HomeScreen() {
         <SearchBar
           home
           placeholder="Search live rooms, sellers, grails…"
-          onPress={() => openHelpCenter(navigation, true)}
+          onPress={() => openVaultSearch(navigation)}
         />
 
         <HomeCultureHero onLiveHub={goLive} onVault={goMarketplace} />
@@ -377,6 +447,10 @@ export function HomeScreen() {
             upcomingEvent={featuredUpcoming}
             onPressLive={() => featuredLive && openLiveShow(featuredLive.id)}
             onPressUpcoming={() => featuredUpcoming && openLiveShow(featuredUpcoming.id)}
+            onPressRemind={
+              featuredUpcoming ? () => handleEventRemind(featuredUpcoming) : undefined
+            }
+            reminderSet={featuredUpcoming ? isReminderSet(featuredUpcoming.id) : false}
             onPressExplore={goLive}
           />
         </HomeFeedSection>
@@ -463,7 +537,13 @@ export function HomeScreen() {
           {scheduledRows.length ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
               {scheduledRows.map((s) => (
-                <VaultDropCard key={s.id} event={s} onRemind={() => {}} onPress={() => openLiveShow(s.id)} />
+                <VaultDropCard
+                  key={s.id}
+                  event={s}
+                  onRemind={() => handleEventRemind(s)}
+                  reminderSet={isReminderSet(s.id)}
+                  onPress={() => openLiveShow(s.id)}
+                />
               ))}
             </ScrollView>
           ) : (
@@ -489,7 +569,9 @@ export function HomeScreen() {
                 <FeaturedCreatorCard
                   key={creator.host.id}
                   creator={creator}
-                  onFollow={() => openUserProfile(creator.host.id, navigation)}
+                  following={followBySeller[creator.host.id] ?? false}
+                  followBusy={followBusyId === creator.host.id}
+                  onFollow={() => handleFollowCreator(creator)}
                   onPress={() => openUserProfile(creator.host.id, navigation)}
                 />
               ))}
@@ -519,7 +601,7 @@ export function HomeScreen() {
           <HomeFeedSection eyebrow="Highlights" title="Hit clips" actionLabel="Live" onAction={goLive}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
               {clips.map((clip) => (
-                <HotClipCard key={clip.id} clip={clip} />
+                <HotClipCard key={clip.id} clip={clip} onOpen={openLiveShow} />
               ))}
             </ScrollView>
           </HomeFeedSection>

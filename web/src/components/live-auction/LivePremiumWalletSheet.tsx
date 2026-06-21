@@ -246,18 +246,21 @@ export function LivePremiumWalletSheet({ open, onClose, liveRoomId: _liveRoomId,
                 <div className="mt-4 flex gap-2 border-t border-white/[0.08] pt-4">
                   <input
                     value={promoDraft}
-                    onChange={(e) => setPromoDraft(e.target.value)}
+                    readOnly
                     placeholder="Promo Code"
-                    className="min-w-0 flex-1 rounded-lg border border-white/12 bg-black/40 px-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none focus:border-amber-400/40"
+                    className="min-w-0 flex-1 rounded-lg border border-white/12 bg-black/40 px-3 py-2.5 text-sm text-zinc-500 placeholder:text-zinc-600 outline-none"
                   />
                   <button
                     type="button"
-                    disabled={!promoDraft.trim()}
-                    className="rounded-lg px-4 text-sm font-extrabold text-zinc-400 disabled:opacity-40 enabled:bg-amber-400 enabled:text-zinc-950"
+                    disabled
+                    className="rounded-lg bg-white/[0.08] px-4 text-sm font-extrabold text-zinc-500 opacity-60"
                   >
                     Apply
                   </button>
                 </div>
+                <p className="text-[11px] leading-relaxed text-zinc-500">
+                  Promo codes apply at checkout on eligible orders. In-wallet validation is coming soon.
+                </p>
                 <p className="text-[11px] leading-relaxed text-zinc-500">
                   Live accepts {liveAcceptedMethodsLabel(wallet?.capabilities ?? null)}. Everything saves here without
                   leaving the show.

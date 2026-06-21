@@ -45,6 +45,16 @@ describe('resolveWizardCompleteFromSources', () => {
     expect(r.serverWizardConfirmed).toBe(false);
   });
 
+  it('uses local wizard cache when the server did not respond', () => {
+    const r = resolveWizardCompleteFromSources({
+      localWizardComplete: true,
+      stickyServerConfirmed: false,
+      serverResponded: false,
+    });
+    expect(r.wizardComplete).toBe(true);
+    expect(r.serverWizardConfirmed).toBe(false);
+  });
+
   it('uses setupWizardComplete boolean when timestamp omitted', () => {
     const r = resolveWizardCompleteFromSources({
       setupWizardComplete: true,

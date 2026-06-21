@@ -1,7 +1,9 @@
 import type { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import { fetchMyLiveRooms, type LiveRoomApiRow } from '../api/liveRoomsRepository';
 import { fetchSellerAnalytics, type SellerAnalyticsSnapshot } from '../api/sellerAnalyticsRepository';
+import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
 import { useSellerStripeConnect } from './useSellerStripeConnect';
 import { useSellerLiveReadiness } from './useSellerLiveReadiness';
 import { useSellerWallet } from './useSellerWallet';
@@ -55,7 +57,7 @@ export function useSellerCommandCenterData(
     if (!silent) setRoomsLoading(true);
 
     try {
-      const rows = await fetchMyLiveRooms(accessToken);
+      const rows = await fetchMyLiveRooms(accessToken, { force: opts?.force });
       if (requestId !== roomsRequestRef.current) return;
       setRooms(rows);
       setRoomsLoadedOnce(true);
@@ -82,7 +84,10 @@ export function useSellerCommandCenterData(
   );
 
   useEffect(() => {
-    void reloadRooms();
+    const task = deferAfterFirstPaint(() => {
+      void reloadRooms();
+    }, 300);
+    return () => task.cancel();
   }, [reloadRooms]);
 
   const liveRoom = useMemo(() => rooms.find((r) => r.status === 'live') ?? null, [rooms]);

@@ -60,7 +60,7 @@ export function useSellerLiveOrdersSummary(
     canonicalUserId: opts?.canonicalUserId,
     supabaseUserId: opts?.supabaseUserId,
     refetch: () => reload({ silent: true }),
-    pollIntervalMs: 4_000,
+    pollIntervalMs: 15_000,
     refetchOnFocus: true,
   });
 

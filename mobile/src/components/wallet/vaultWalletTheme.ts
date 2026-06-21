@@ -378,6 +378,9 @@ export const vaultWalletTheme = StyleSheet.create({
   promoApplyBtnActive: {
     backgroundColor: colors.gold,
   },
+  promoApplyBtnDisabled: {
+    opacity: 0.55,
+  },
   promoApplyText: {
     color: 'rgba(255,255,255,0.45)',
     fontSize: 13,

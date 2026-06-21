@@ -66,7 +66,9 @@ export async function GET(req: Request) {
     }
 
     const ownerListingEnded =
-      Boolean(sellerId) && includeEnded && session?.user?.id === sellerId;
+      Boolean(sellerId) &&
+      includeEnded &&
+      (session?.user?.id === sellerId || bearerUserId === sellerId);
 
     const viewingOwnSellerRooms = Boolean(
       sellerId && (session?.user?.id === sellerId || bearerUserId === sellerId),

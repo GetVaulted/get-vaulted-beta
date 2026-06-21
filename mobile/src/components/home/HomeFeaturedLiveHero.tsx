@@ -31,13 +31,17 @@ export function HomeFeaturedLiveHero({
   upcomingEvent,
   onPressLive,
   onPressUpcoming,
+  onPressRemind,
   onPressExplore,
+  reminderSet = false,
 }: {
   liveStream: LiveStream | null;
   upcomingEvent: ScheduledStream | null;
   onPressLive: () => void;
   onPressUpcoming: () => void;
+  onPressRemind?: () => void;
   onPressExplore: () => void;
+  reminderSet?: boolean;
 }) {
   if (liveStream) {
     return (
@@ -103,10 +107,25 @@ export function HomeFeaturedLiveHero({
             <Text style={styles.host} numberOfLines={1}>
               {upcomingEvent.host.name} · {upcomingEvent.interestedCount} interested
             </Text>
-            <View style={[styles.cta, styles.ctaSecondary]}>
-              <Text style={[styles.ctaTxt, styles.ctaTxtSecondary]}>Set reminder</Text>
-              <Ionicons name="notifications-outline" size={16} color={colors.gold} />
-            </View>
+            <Pressable
+              style={[styles.cta, styles.ctaSecondary, reminderSet && styles.ctaReminderSet]}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                onPressRemind?.();
+              }}
+              disabled={!onPressRemind}
+              accessibilityRole="button"
+              accessibilityLabel={reminderSet ? 'Reminder set for this event' : 'Set reminder for this event'}
+            >
+              <Text style={[styles.ctaTxt, styles.ctaTxtSecondary]}>
+                {reminderSet ? 'Reminder set' : 'Set reminder'}
+              </Text>
+              <Ionicons
+                name={reminderSet ? 'notifications' : 'notifications-outline'}
+                size={16}
+                color={colors.gold}
+              />
+            </Pressable>
           </View>
         </Pressable>
       );
@@ -218,6 +237,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: 'rgba(212,175,55,0.45)',
+  },
+  ctaReminderSet: {
+    borderColor: 'rgba(212,175,55,0.75)',
+    backgroundColor: 'rgba(212,175,55,0.08)',
   },
   ctaTxt: { fontSize: 13, fontWeight: '800', color: '#0a0a0a' },
   ctaTxtSecondary: { color: colors.gold },

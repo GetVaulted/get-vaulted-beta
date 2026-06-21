@@ -1,10 +1,16 @@
-/** Design baseline — Pro Max-class portrait width where marketplace density was tuned. */
-export const MARKETPLACE_REF_WIDTH = 430;
+import { spacing } from '../theme';
+import {
+  APP_REF_WIDTH,
+  APP_TEXT_PROPS,
+  appFontSize,
+  appUniformScale,
+  isCompactAppLayout,
+} from './appUiScale';
 
-export const MARKETPLACE_TEXT_PROPS = {
-  allowFontScaling: false,
-  maxFontSizeMultiplier: 1,
-} as const;
+/** Design baseline — Pro Max-class portrait width where marketplace density was tuned. */
+export const MARKETPLACE_REF_WIDTH = APP_REF_WIDTH;
+
+export const MARKETPLACE_TEXT_PROPS = APP_TEXT_PROPS;
 
 export type MarketplaceLayoutMetrics = {
   windowWidth: number;
@@ -22,17 +28,16 @@ export type MarketplaceLayoutMetrics = {
 };
 
 export function isCompactMarketplaceLayout(windowWidth: number, windowHeight: number): boolean {
-  return windowWidth < 410 || windowHeight < 860;
+  return isCompactAppLayout(windowWidth, windowHeight);
 }
 
 /** Normalize typography and spacing to window width — no device model checks. */
 export function marketplaceUiScale(windowWidth: number): number {
-  const safe = Math.max(1, windowWidth);
-  return Math.min(1, Math.max(0.86, safe / MARKETPLACE_REF_WIDTH));
+  return appUniformScale(windowWidth);
 }
 
 export function marketplaceFontSize(base: number, scale: number): number {
-  return Math.max(1, Math.round(base * scale));
+  return appFontSize(base, scale);
 }
 
 export function computeMarketplaceLayoutMetrics(

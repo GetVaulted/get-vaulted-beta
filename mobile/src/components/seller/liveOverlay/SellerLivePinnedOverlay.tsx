@@ -26,6 +26,8 @@ export function SellerLivePinnedOverlay({
   hostOverlayMinimal = true,
   queuePreview = false,
   onLayoutHeight,
+  clutchTimeEnabled,
+  onToggleClutchTime,
 }: {
   bottom: number;
   left: number;
@@ -43,6 +45,8 @@ export function SellerLivePinnedOverlay({
   hostOverlayMinimal?: boolean;
   queuePreview?: boolean;
   onLayoutHeight?: (height: number) => void;
+  clutchTimeEnabled?: boolean;
+  onToggleClutchTime?: () => void;
 }) {
   const { width: windowWidth } = useWindowDimensions();
   const hudScale = liveRoomHudScale(windowWidth);
@@ -82,6 +86,8 @@ export function SellerLivePinnedOverlay({
             hostOverlayMinimal={hostOverlayMinimal}
             queuePreview={queuePreview}
             onEditSpots={onEditSpots}
+            clutchTimeEnabled={clutchTimeEnabled}
+            onToggleClutchTime={onToggleClutchTime}
           />
         </View>
       </View>

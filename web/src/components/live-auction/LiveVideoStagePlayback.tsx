@@ -33,6 +33,7 @@ type LiveVideoStagePlaybackProps = {
   scheduledStartAt?: string | null;
   /** Host-uploaded thumbnail. Shown as background placeholder until live video starts playing. */
   thumbnailUrl?: string | null;
+  onNotifyMe?: () => void;
   /** Fill the stage edge-to-edge instead of nested 9:16 letterbox plate. */
   fillPortraitFrame?: boolean;
 };
@@ -174,6 +175,7 @@ export function LiveVideoStagePlayback({
   streamPlaybackRefreshNonce,
   scheduledStartAt = null,
   thumbnailUrl = null,
+  onNotifyMe,
   fillPortraitFrame = false,
 }: LiveVideoStagePlaybackProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -787,6 +789,15 @@ export function LiveVideoStagePlayback({
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">This show goes live on</p>
               <p className="text-lg font-semibold leading-snug text-zinc-50 sm:text-xl">{formatScheduledStartLong(scheduledStartAt)}</p>
               <p className="text-sm leading-relaxed text-zinc-500">Check back closer to showtime.</p>
+              {onNotifyMe ? (
+                <button
+                  type="button"
+                  onClick={onNotifyMe}
+                  className="min-h-10 rounded-full border border-gold/40 bg-gold/20 px-4 text-xs font-bold uppercase tracking-wide text-gold-bright transition hover:bg-gold/30"
+                >
+                  Notify me
+                </button>
+              ) : null}
             </div>
           ) : scheduledPhase === "countdown" && scheduledStartMs != null ? (
             <div className="max-w-md space-y-5">
@@ -824,6 +835,15 @@ export function LiveVideoStagePlayback({
                   </div>
                 );
               })()}
+              {onNotifyMe ? (
+                <button
+                  type="button"
+                  onClick={onNotifyMe}
+                  className="min-h-10 rounded-full border border-gold/40 bg-gold/20 px-4 text-xs font-bold uppercase tracking-wide text-gold-bright transition hover:bg-gold/30"
+                >
+                  Notify me
+                </button>
+              ) : null}
             </div>
           ) : scheduledPhase === "post_start" ? (
             <div className="max-w-md space-y-3">
@@ -832,6 +852,15 @@ export function LiveVideoStagePlayback({
               <p className="text-sm leading-relaxed text-zinc-500">
                 The show is scheduled to start now. We&apos;re waiting for the host to go live.
               </p>
+              {onNotifyMe ? (
+                <button
+                  type="button"
+                  onClick={onNotifyMe}
+                  className="min-h-10 rounded-full border border-gold/40 bg-gold/20 px-4 text-xs font-bold uppercase tracking-wide text-gold-bright transition hover:bg-gold/30"
+                >
+                  Notify me
+                </button>
+              ) : null}
             </div>
           ) : (
             <div className="max-w-md space-y-3">

@@ -54,6 +54,11 @@ export function prepareChatMessageHistory(messages: ChatMessage[]): ChatMessage[
   return sortChatMessagesByTime(dedupeViewerEventMessages(dedupeChatMessagesById(messages)));
 }
 
+/** Newest-first window for inverted live chat lists (newest sits above the composer). */
+export function prepareFloatingChatDisplay(messages: ChatMessage[], maxVisible = 80): ChatMessage[] {
+  return prepareChatMessageHistory(messages).slice(-maxVisible).reverse();
+}
+
 export function sortChatMessagesByTime(messages: ChatMessage[]): ChatMessage[] {
   return [...messages].sort((a, b) => {
     const ta = a.createdAt ? Date.parse(a.createdAt) : 0;

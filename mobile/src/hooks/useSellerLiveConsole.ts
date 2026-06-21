@@ -2,7 +2,7 @@ import type { NavigationProp, ParamListBase } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import type { LiveGiveawayRow } from '../api/liveGiveawayRepository';
-import { fetchHostConsole } from '../api/liveHostRepository';
+import { fetchHostConsole, type HostConsolePayload } from '../api/liveHostRepository';
 import {
   createLiveRoomQueueItem,
   deleteLiveRoomQueueItem,
@@ -31,6 +31,7 @@ export function useSellerLiveConsole({
   navigation,
   onBiddingUrgentChange,
   onAfterAddLot,
+  initialConsole,
 }: {
   accessToken: string;
   roomId: string;
@@ -40,6 +41,8 @@ export function useSellerLiveConsole({
   navigation: NavigationProp<ParamListBase>;
   onBiddingUrgentChange?: (urgent: boolean) => void;
   onAfterAddLot?: () => void;
+  /** When provided on first mount, skips duplicate host-console fetch. */
+  initialConsole?: HostConsolePayload | null;
 }) {
   const [items, setItems] = useState<LiveRoomItemRow[]>([]);
   const [giveaways, setGiveaways] = useState<LiveGiveawayRow[]>([]);
@@ -49,6 +52,7 @@ export function useSellerLiveConsole({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [startingAuction, setStartingAuction] = useState(false);
+  const [hostClutchTimeEnabled, setHostClutchTimeEnabled] = useState(false);
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [pricingEditItem, setPricingEditItem] = useState<LiveRoomItemRow | null>(null);
   const [consoleError, setConsoleError] = useState<SanitizedLiveError | null>(null);
@@ -97,9 +101,11 @@ export function useSellerLiveConsole({
   );
 
   const reload = useCallback(
-    async (opts?: { soft?: boolean }) => {
+    async (opts?: { soft?: boolean; force?: boolean }) => {
       try {
-        const data = await fetchHostConsole(accessToken, roomId);
+        const data = await fetchHostConsole(accessToken, roomId, {
+          force: opts?.force ?? !opts?.soft,
+        });
         applyConsolePayload(data);
         return data;
       } catch (e) {
@@ -132,18 +138,30 @@ export function useSellerLiveConsole({
     }
   }, [reload]);
 
+  const seededConsoleRoomRef = useRef<string | null>(null);
+
   useEffect(() => {
+    setConsoleError(null);
+    if (initialConsole?.room?.id === roomId) {
+      if (seededConsoleRoomRef.current !== roomId) {
+        seededConsoleRoomRef.current = roomId;
+        hydratedRef.current = false;
+        applyConsolePayload(initialConsole);
+      }
+      setLoading(false);
+      return;
+    }
+    seededConsoleRoomRef.current = null;
     hydratedRef.current = false;
     setLoading(true);
-    setConsoleError(null);
     void loadOnce();
-  }, [roomId, loadOnce]);
+  }, [applyConsolePayload, initialConsole, loadOnce, roomId]);
 
   useEffect(() => {
     if (roomStatus !== 'live') return;
     const id = setInterval(() => {
       void reload({ soft: true });
-    }, 5000);
+    }, 25_000);
     return () => clearInterval(id);
   }, [reload, roomStatus]);
 
@@ -180,7 +198,7 @@ export function useSellerLiveConsole({
     setConsoleError(null);
     try {
       await fn();
-      await reload();
+      await reload({ force: true });
     } catch (e) {
       const sanitized = sanitizeLiveError(e, 'console');
       setConsoleError(sanitized);
@@ -216,7 +234,7 @@ export function useSellerLiveConsole({
           reservePriceUsd: payload.reservePriceUsd,
           priceUsd: payload.priceUsd,
         });
-        await reload();
+        await reload({ force: true });
         if (!options?.addAnother) setInventoryOpen(false);
         onAfterAddLot?.();
       } catch (e) {
@@ -282,7 +300,7 @@ export function useSellerLiveConsole({
         await patchLiveRoomItem(accessToken, roomId, activeItem.id, {
           action: 'startAuction',
           auctionDurationSec: DEFAULT_AUCTION_SEC,
-          clutchTimeEnabled: false,
+          clutchTimeEnabled: hostClutchTimeEnabled,
         });
       } finally {
         setStartingAuction(false);
@@ -322,7 +340,7 @@ export function useSellerLiveConsole({
         await patchLiveRoomItem(accessToken, roomId, item.id, {
           action: 'startAuction',
           auctionDurationSec: DEFAULT_AUCTION_SEC,
-          clutchTimeEnabled: false,
+          clutchTimeEnabled: hostClutchTimeEnabled,
         });
       } finally {
         setStartingAuction(false);
@@ -359,6 +377,8 @@ export function useSellerLiveConsole({
     loading,
     busy,
     startingAuction,
+    hostClutchTimeEnabled,
+    toggleHostClutchTime: () => setHostClutchTimeEnabled((v) => !v),
     inventoryOpen,
     setInventoryOpen,
     pricingEditItem,

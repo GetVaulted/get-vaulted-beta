@@ -21,7 +21,9 @@ import {
 } from '../lib/seller-setup-state';
 import {
   clearSellerWizardComplete,
+  markSellerHqActivatedLocal,
   markSellerWizardCompleteLocal,
+  readSellerHqActivated,
   readSellerWizardComplete,
 } from '../lib/sellerWizardStorage';
 
@@ -32,6 +34,7 @@ const DEFAULT_CHECKS: SellerReadinessChecks = {
 };
 
 const GATE_DEBOUNCE_MS = 450;
+const LOAD_TIMEOUT_MS = 15_000;
 
 type SellerSetupStore = {
   phase: SellerSetupPhase;
@@ -101,6 +104,8 @@ export function isSellerSetupUnlocked(s: SellerSetupStore = store): boolean {
 
 function computeShowSetupGate(s: SellerSetupStore): boolean {
   if (displayActivated(s)) return false;
+  if (isSellerSetupUnlocked(s)) return false;
+  if (s.wizardComplete) return false;
   if (!s.hasLoaded) return false;
   if (s.isRefreshing && s.wasEverActivated) return false;
   if (s.phase === 'loading' && s.wasEverActivated) return false;
@@ -225,6 +230,7 @@ function applyServerPayload(payload: SellerAccountResponse, localWizard: boolean
   });
 
   publish(next, 'server');
+  if (next.activated) void markSellerHqActivatedLocal();
   return nextChecks;
 }
 
@@ -236,13 +242,29 @@ async function runLoad(
   const silent = opts?.silent === true;
   const requestToken = accessToken ?? null;
 
-  if (!enabled || !accessToken) {
+  if (!enabled) {
     activeAccessToken = null;
     publish({ ...EMPTY_STORE }, 'cache');
     return null;
   }
+  if (!accessToken) {
+    return store.checks;
+  }
 
   activeAccessToken = requestToken;
+
+  const [localWizard, hqActivated] = await Promise.all([
+    readSellerWizardComplete(),
+    readSellerHqActivated(),
+  ]);
+  if ((localWizard || hqActivated) && !store.wasEverActivated) {
+    store = {
+      ...store,
+      wasEverActivated: true,
+      wizardComplete: store.wizardComplete || localWizard,
+    };
+    emit();
+  }
 
   if (!silent && !store.hasLoaded && !store.wasEverActivated) {
     publish(
@@ -261,18 +283,26 @@ async function runLoad(
       }),
       'loading',
     );
+  } else if (!silent && !store.hasLoaded && store.wasEverActivated) {
+    publish({ ...store, isRefreshing: true, phase: 'ready' }, 'cache');
   } else if (silent) {
     publish({ ...store, isRefreshing: true }, 'cache');
   }
 
   try {
-    const localWizard = await readSellerWizardComplete();
-    const payload = await fetchSellerAccount(accessToken);
+    const payload = await Promise.race([
+      fetchSellerAccount(accessToken),
+      new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new Error('Seller setup timed out. Check your connection and pull to refresh.')),
+          LOAD_TIMEOUT_MS,
+        );
+      }),
+    ]);
     if (activeAccessToken !== requestToken) return store.checks;
     return applyServerPayload(payload, localWizard);
   } catch {
     if (activeAccessToken !== requestToken) return store.checks;
-    const localWizard = await readSellerWizardComplete();
     const wizardResolved = resolveWizardCompleteFromSources({
       localWizardComplete: localWizard,
       stickyServerConfirmed: store.serverWizardConfirmed,
@@ -288,7 +318,12 @@ async function runLoad(
       seller: store.seller,
       stripePlatformConfigured: store.stripePlatformConfigured,
       isRefreshing: false,
-      hasLoaded: store.hasLoaded,
+      hasLoaded:
+        store.hasLoaded ||
+        store.wasEverActivated ||
+        store.serverWizardConfirmed ||
+        wizardResolved.wizardComplete ||
+        localWizard,
     });
     publish(next, 'error');
     return next.checks;
@@ -320,11 +355,12 @@ export function useSellerSetupState(accessToken: string | undefined, enabled: bo
   );
 
   useEffect(() => {
-    if (!enabled || !accessToken) {
+    if (!enabled) {
       subscribedAccessToken = null;
       publish({ ...EMPTY_STORE }, 'cache');
       return;
     }
+    if (!accessToken) return;
     const tokenChanged = Boolean(subscribedAccessToken && subscribedAccessToken !== accessToken);
     subscribedAccessToken = accessToken;
     void requestLoad(accessToken, enabled, {

@@ -370,9 +370,14 @@ export async function placeLiveRoomBid(args: {
   roomId: string;
   itemId: string;
   amountUsd: number;
+  maxProxyUsd?: number;
   idempotencyKey: string;
 }): Promise<LiveBidHttpAck> {
   const clientStart = Date.now();
+  const body: { amountUsd: number; maxProxyUsd?: number } = { amountUsd: args.amountUsd };
+  if (args.maxProxyUsd != null && Number.isFinite(args.maxProxyUsd)) {
+    body.maxProxyUsd = args.maxProxyUsd;
+  }
   const res = await fetchWebApiMobile(
     `/api/live-rooms/${encodeURIComponent(args.roomId)}/items/${encodeURIComponent(args.itemId)}/bid`,
     {
@@ -382,7 +387,7 @@ export async function placeLiveRoomBid(args: {
         Authorization: `Bearer ${args.accessToken}`,
         'Idempotency-Key': args.idempotencyKey,
       },
-      body: JSON.stringify({ amountUsd: args.amountUsd }),
+      body: JSON.stringify(body),
     },
   );
   let j: LiveBidHttpAck & {

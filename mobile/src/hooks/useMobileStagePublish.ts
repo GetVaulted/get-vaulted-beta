@@ -174,7 +174,10 @@ export function useMobileStagePublish(args: {
 
   useEffect(() => {
     if (!args.previewEnabled) return;
-    void ensureLocalPreview();
+    const frame = requestAnimationFrame(() => {
+      void ensureLocalPreview();
+    });
+    return () => cancelAnimationFrame(frame);
   }, [args.previewEnabled, ensureLocalPreview]);
 
   useEffect(() => {

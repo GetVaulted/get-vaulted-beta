@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, Image, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { LIVE_AUCTION_HOST_TIMER_ENDED_COPY, resolveLiveAuctionLotBidPhase } from '../../../lib/liveAuctionLotPhase';
 import { resolvePinnedLotOverlayPrice } from '../../../lib/liveAuctionOverlayPrice';
 import { isVariantPurchaseItem, summarizeVariantSpots } from '../../../lib/liveItemVariant';
+import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { colors, radii, spacing } from '../../../theme';
 import { lc } from './liveConsoleTheme';
 
@@ -75,6 +76,8 @@ export function VaultPinnedLotCard({
   queuePreview = false,
   onEditSpots,
   hudScale = 1,
+  clutchTimeEnabled = false,
+  onToggleClutchTime,
 }: {
   item: LiveRoomItemRow | null;
   serverNowMs: number;
@@ -98,6 +101,8 @@ export function VaultPinnedLotCard({
   onEditSpots?: () => void;
   /** Tablet scale for broadcast overlay typography (default 1). */
   hudScale?: number;
+  clutchTimeEnabled?: boolean;
+  onToggleClutchTime?: () => void;
 }) {
   const compact = density === 'broadcast';
   const scale = compact ? (hudScale ?? 1) : 1;
@@ -447,7 +452,28 @@ export function VaultPinnedLotCard({
       ) : null}
 
       {showStartAuction ? (
-        <Pressable
+        <>
+          {onToggleClutchTime ? (
+            <View style={[styles.clutchRow, compact && styles.clutchRowCompact]}>
+              <View style={styles.clutchCopy}>
+                <Text style={[styles.clutchLabel, compact && styles.clutchLabelCompact]}>
+                  {SELLER_CONSOLE.clutchTime}
+                </Text>
+                {!compact ? (
+                  <Text style={styles.clutchHint}>{SELLER_CONSOLE.clutchTimeHint}</Text>
+                ) : null}
+              </View>
+              <Switch
+                value={clutchTimeEnabled}
+                onValueChange={onToggleClutchTime}
+                disabled={busy || startingAuction}
+                trackColor={{ false: 'rgba(255,255,255,0.15)', true: colors.gold }}
+                thumbColor="#fff"
+                accessibilityLabel={SELLER_CONSOLE.clutchTime}
+              />
+            </View>
+          ) : null}
+          <Pressable
           style={[
             styles.startAuctionPrimary,
             compact && styles.startAuctionPrimaryCompact,
@@ -472,6 +498,7 @@ export function VaultPinnedLotCard({
             </Text>
           )}
         </Pressable>
+        </>
       ) : null}
 
       {showSecondaryActions ? (
@@ -682,6 +709,35 @@ const styles = StyleSheet.create({
   },
   startAuctionPrimaryCompact: {
     minHeight: 32,
+  },
+  clutchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  clutchRowCompact: {
+    marginBottom: 6,
+  },
+  clutchCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  clutchLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  clutchLabelCompact: {
+    fontSize: 10,
+  },
+  clutchHint: {
+    marginTop: 2,
+    fontSize: 10,
+    lineHeight: 13,
+    color: colors.textMuted,
   },
   startAuctionPrimaryTxt: {
     fontWeight: '900',
