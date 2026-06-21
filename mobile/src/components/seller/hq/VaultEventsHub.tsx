@@ -312,10 +312,7 @@ export function VaultEventsHub({
       <View style={styles.header}>
         <Text style={styles.eyebrow}>Event management</Text>
         <Text style={styles.title}>Vault Events</Text>
-        <Text style={styles.sub}>
-          Show manager — tap an event to open its command center (livestream, queue, moderation). Seller Studio
-          handles business ops; this tab handles shows.
-        </Text>
+        <Text style={styles.sub}>Tap a show to open its command center — livestream, queue, and moderation.</Text>
 
         {liveBlocked && liveGate.bannerMessage ? (
           <View style={styles.blockBanner}>
@@ -380,8 +377,12 @@ export function VaultEventsHub({
             styles.listScrollContent,
             {
               paddingBottom: contentPaddingBottom,
-              flexGrow: 1,
-              minHeight: contentAreaHeight > 0 ? contentAreaHeight : undefined,
+              ...(showList
+                ? {}
+                : {
+                    flexGrow: 1,
+                    minHeight: contentAreaHeight > 0 ? contentAreaHeight : undefined,
+                  }),
             },
           ]}
         />

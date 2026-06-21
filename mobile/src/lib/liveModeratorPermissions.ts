@@ -75,6 +75,17 @@ export function resolveShowHostUserId(
   return sellerId?.trim() || fallbackHostUserId?.trim() || undefined;
 }
 
+export function formatModeratorLevelLabel(level: LiveModeratorLevel | null | undefined): string | null {
+  if (!level) return null;
+  const labels: Record<LiveModeratorLevel, string> = {
+    chat: 'Chat mod',
+    show: 'Show mod',
+    break: 'Break mod',
+    head: 'Head mod',
+  };
+  return labels[level] ?? null;
+}
+
 /** Mod tools shield — assigned moderators and hosts with moderation access. */
 export function showModeratorTools(
   isModerator: boolean,

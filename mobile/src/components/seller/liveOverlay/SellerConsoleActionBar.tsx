@@ -19,7 +19,8 @@ type Props = {
   onTeams?: () => void;
   showTeamsBoard?: boolean;
   broadcastPhase: MobileHostBroadcastPhase;
-  roomLive: boolean;
+  roomStatus: 'scheduled' | 'live' | 'ended';
+  streamOnAir?: boolean;
   canStartRoom: boolean;
   stageEnabled: boolean;
   cameraReady: boolean;
@@ -47,7 +48,8 @@ export function SellerConsoleActionBar({
   onTeams,
   showTeamsBoard = false,
   broadcastPhase,
-  roomLive,
+  roomStatus,
+  streamOnAir = false,
   canStartRoom,
   stageEnabled,
   cameraReady,
@@ -128,7 +130,7 @@ export function SellerConsoleActionBar({
             >
               <Text style={styles.obsTxt}>{SELLER_CONSOLE.obsSetup}</Text>
             </Pressable>
-            {typeof viewerCount === 'number' && roomLive ? (
+            {typeof viewerCount === 'number' && streamOnAir ? (
               <View style={styles.viewersWrap}>
                 <Text style={styles.viewers}>
                   {SELLER_CONSOLE.viewers} {viewerCount}
@@ -156,8 +158,7 @@ export function SellerConsoleActionBar({
             {stageEnabled ? (
               <SellerBroadcastControl
                 phase={broadcastPhase}
-                roomLive={roomLive}
-                canStartRoom={canStartRoom}
+                roomStatus={roomStatus}
                 stageEnabled={stageEnabled}
                 cameraReady={cameraReady}
                 busy={broadcastBusy}
@@ -200,7 +201,7 @@ const styles = StyleSheet.create({
   },
   androidFill: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(8,8,8,0.82)',
+    backgroundColor: 'rgba(0,0,0,0.78)',
   },
   row: {
     flexDirection: 'row',
@@ -229,12 +230,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: radii.pill,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
   },
   shareBtn: {
-    borderColor: 'rgba(212,175,55,0.35)',
-    backgroundColor: 'rgba(212,175,55,0.12)',
+    borderColor: 'rgba(212,175,55,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.62)',
   },
   shareTxt: { fontSize: 11, fontWeight: '800', color: colors.gold },
   addTxt: { fontSize: 11, fontWeight: '800', color: 'rgba(255,255,255,0.92)' },

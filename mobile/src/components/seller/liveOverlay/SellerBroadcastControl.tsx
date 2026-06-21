@@ -5,8 +5,7 @@ import { colors, radii } from '../../../theme';
 
 type Props = {
   phase: MobileHostBroadcastPhase;
-  roomLive: boolean;
-  canStartRoom: boolean;
+  roomStatus: 'scheduled' | 'live' | 'ended';
   stageEnabled: boolean;
   cameraReady: boolean;
   busy: boolean;
@@ -17,11 +16,10 @@ type Props = {
   compact?: boolean;
 };
 
-/** Go Live / Pause / Resume / Stop Stream — mirrors web VaultBroadcastControl. */
+/** Start stream opens the show; stop stream ends it for everyone. */
 export function SellerBroadcastControl({
   phase,
-  roomLive,
-  canStartRoom,
+  roomStatus,
   stageEnabled,
   cameraReady,
   busy,
@@ -35,8 +33,9 @@ export function SellerBroadcastControl({
 
   const isBroadcasting = phase === 'live' || phase === 'paused' || phase === 'stopping';
   const stopping = phase === 'stopping';
-  const showStart = (canStartRoom || (roomLive && phase === 'idle')) && cameraReady;
-  const idleLabel = roomLive ? SELLER_CONSOLE.startStream : SELLER_CONSOLE.goLive;
+  const roomEnded = roomStatus === 'ended';
+  const showStart = !roomEnded && (phase === 'idle' || phase === 'starting') && cameraReady;
+  const idleLabel = SELLER_CONSOLE.startStream;
 
   if (phase === 'paused') {
     return (
@@ -98,12 +97,12 @@ export function SellerBroadcastControl({
 
   return (
     <Pressable
-      style={[compact ? styles.startCompact : styles.start, (phase === 'starting' || busy) && styles.disabled]}
+      style={[compact ? styles.startCompact : styles.start, busy && styles.disabled]}
       onPress={onStart}
-      disabled={phase === 'starting' || busy}
+      disabled={busy}
       accessibilityLabel={idleLabel}
     >
-      {phase === 'starting' || busy ? (
+      {busy ? (
         <ActivityIndicator color="#0a0a0a" size="small" />
       ) : (
         <Text style={compact ? styles.startCompactTxt : styles.startTxt}>{idleLabel}</Text>

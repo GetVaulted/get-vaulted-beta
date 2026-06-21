@@ -162,6 +162,11 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
   }, [user?.id]);
 
   const roomLive = host.room?.status === 'live';
+  const roomStatus = host.room?.status ?? 'scheduled';
+  const streamOnAir =
+    host.broadcastPhase === 'live' ||
+    host.broadcastPhase === 'paused' ||
+    host.broadcastPhase === 'starting';
   const roomChatOpen = liveRoomChatOpen(host.room?.status);
   const canHostChat = roomChatOpen || host.broadcastPhase === 'live' || host.streamConnected;
   const canStart = host.room?.status === 'scheduled';
@@ -400,11 +405,11 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         hostAvatarUrl={hostAvatarUrl}
         streamTitle={streamTitle}
         viewerCount={console.viewerCount}
-        roomLive={roomLive}
+        streamOnAir={streamOnAir}
         onBack={() => navigation.goBack()}
         onBroadcastSettings={() => setBroadcastOpen(true)}
-        onEndShow={() => host.onEndShow()}
-        canEnd={canEnd}
+        onEndShow={host.stageWebrtcEnabled ? undefined : () => host.onEndShow()}
+        canEnd={canEnd && !host.stageWebrtcEnabled}
         endBusy={host.busy === 'end'}
       />
 
@@ -417,7 +422,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host }: Pr
         showTeamsBoard={showTeamsBoard}
         onTeams={() => setTeamsBoardOpen(true)}
         broadcastPhase={host.broadcastPhase}
-        roomLive={roomLive}
+        roomStatus={roomStatus}
+        streamOnAir={streamOnAir}
         canStartRoom={canStart}
         stageEnabled={host.stageWebrtcEnabled}
         cameraReady={host.cameraPermissionState === 'granted'}

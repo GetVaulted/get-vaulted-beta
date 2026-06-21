@@ -210,6 +210,25 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
     await patchLiveRoomAction(token, roomId, 'start');
   }, [room, roomId, token, reloadRoom]);
 
+  const endShow = useCallback(async () => {
+    if (!token) return;
+    setBusy('end');
+    setRoomError(null);
+    try {
+      await stagePublish.releaseCamera();
+      const current = room ?? (await reloadRoom());
+      if (current?.status === 'live') {
+        await patchLiveRoomAction(token, roomId, 'end');
+      }
+      await notifyLiveDiscoveryChanged();
+      await reload();
+    } catch (e) {
+      setRoomError(sanitizeLiveError(e, 'room'));
+    } finally {
+      setBusy(null);
+    }
+  }, [room, roomId, reload, stagePublish, token]);
+
   const onStartBroadcast = async () => {
     if (!token) return;
     setBusy('start');
@@ -236,16 +255,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   };
 
   const onStopBroadcast = async () => {
-    if (!token) return;
-    setBusy('refresh');
-    try {
-      await stagePublish.stop();
-      await reloadStream(true);
-    } catch (e) {
-      setStreamWarning(sanitizeLiveError(e, 'stream'));
-    } finally {
-      setBusy(null);
-    }
+    await endShow();
   };
 
   const onPauseBroadcast = async () => {
@@ -277,7 +287,8 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   };
 
   const onStartShow = async () => {
-    if (!token) return;
+    /** OBS / RTMP hosts without on-device stage publish — room goes live without mobile camera. */
+    if (!token || stageWebrtcEnabled) return;
     setBusy('start');
     setRoomError(null);
     try {
@@ -292,18 +303,7 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   };
 
   const onEndShow = async () => {
-    if (!token) return;
-    setBusy('end');
-    try {
-      await stagePublish.releaseCamera();
-      await patchLiveRoomAction(token, roomId, 'end');
-      await notifyLiveDiscoveryChanged();
-      await reload();
-    } catch (e) {
-      setRoomError(sanitizeLiveError(e, 'room'));
-    } finally {
-      setBusy(null);
-    }
+    await endShow();
   };
 
   const onRetryCameraPermission = async () => {

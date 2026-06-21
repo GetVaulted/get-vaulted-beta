@@ -24,7 +24,7 @@ import {
 } from '../../api/trustRepository';
 import type { MentionSearchUser } from '../../api/mentionSearchRepository';
 import { UsernameMentionPicker } from '../mentions/UsernameMentionPicker';
-import { canPerformModeratorAction, formatModActionLabel } from '../../lib/liveModeratorPermissions';
+import { canPerformModeratorAction, formatModActionLabel, formatModeratorLevelLabel } from '../../lib/liveModeratorPermissions';
 import { computePinExpiresIso } from '../../lib/pinnedMessageExpiry';
 import { colors, radii, spacing } from '../../theme';
 import { ModeratorViewerActions } from './ModeratorViewerActions';
@@ -42,13 +42,13 @@ type TabId = 'tools' | 'queue' | 'viewers' | 'tips' | 'pinned' | 'announcements'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'tools', label: 'Tools' },
-  { id: 'queue', label: 'Mod Queue' },
-  { id: 'viewers', label: 'Find user' },
+  { id: 'queue', label: 'Queue' },
+  { id: 'viewers', label: 'Users' },
   { id: 'tips', label: 'Tips' },
   { id: 'pinned', label: 'Pinned' },
-  { id: 'announcements', label: 'Announce' },
-  { id: 'giveaway', label: 'Giveaway' },
-  { id: 'history', label: 'History' },
+  { id: 'announcements', label: 'Post' },
+  { id: 'giveaway', label: 'Prize' },
+  { id: 'history', label: 'Log' },
 ];
 
 const SLOW_MODE_PRESETS = [0, 5, 10, 30] as const;
@@ -195,6 +195,9 @@ export function ModeratorDrawer({
             busy={busy}
             onSetSlowMode={(seconds) => void runAction({ actionType: 'slow_mode', metadata: { seconds } })}
             onOpenFindUser={() => setTab('viewers')}
+            onOpenQueue={() => setTab('queue')}
+            onOpenAnnounce={() => setTab('announcements')}
+            queueCount={moderation.modQueue.length}
           />
         );
       case 'queue':
@@ -321,10 +324,19 @@ export function ModeratorDrawer({
                 </Pressable>
               </View>
               <Text style={styles.subtitle}>
-                Moderator{moderation.moderatorLevel ? ` · ${moderation.moderatorLevel}` : ''}
+                {moderation.isHost
+                  ? 'Host · full mod tools'
+                  : formatModeratorLevelLabel(moderation.moderatorLevel)
+                    ? `${formatModeratorLevelLabel(moderation.moderatorLevel)} tools`
+                    : 'Moderator tools'}
               </Text>
 
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabRail}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.tabRail}
+                contentContainerStyle={styles.tabRailContent}
+              >
                 {TABS.map((t) => (
                   <Pressable
                     key={t.id}
@@ -379,12 +391,18 @@ function RoomToolsTab({
   busy,
   onSetSlowMode,
   onOpenFindUser,
+  onOpenQueue,
+  onOpenAnnounce,
+  queueCount,
 }: {
   slowModeSeconds: number;
   canSlowMode: boolean;
   busy: boolean;
   onSetSlowMode: (seconds: number) => void;
   onOpenFindUser: () => void;
+  onOpenQueue: () => void;
+  onOpenAnnounce: () => void;
+  queueCount: number;
 }) {
   return (
     <View style={styles.formBlock}>
@@ -409,6 +427,21 @@ function RoomToolsTab({
       {!canSlowMode ? (
         <Text style={styles.hint}>Show-level moderators can change slow mode.</Text>
       ) : null}
+
+      <Text style={[styles.sectionTitle, { marginTop: spacing.md }]}>Quick actions</Text>
+      <View style={styles.quickNavRow}>
+        <Pressable style={styles.quickNavBtn} onPress={onOpenFindUser}>
+          <Text style={styles.quickNavBtnText}>Find user</Text>
+        </Pressable>
+        <Pressable style={styles.quickNavBtn} onPress={onOpenQueue}>
+          <Text style={styles.quickNavBtnText}>
+            Reports{queueCount > 0 ? ` (${queueCount})` : ''}
+          </Text>
+        </Pressable>
+        <Pressable style={styles.quickNavBtn} onPress={onOpenAnnounce}>
+          <Text style={styles.quickNavBtnText}>Post update</Text>
+        </Pressable>
+      </View>
 
       <Text style={[styles.sectionTitle, { marginTop: spacing.md }]}>User actions</Text>
       <Text style={styles.hint}>
@@ -729,7 +762,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderTopLeftRadius: radii.lg,
     borderTopRightRadius: radii.lg,
-    maxHeight: '82%',
+    maxHeight: '58%',
     paddingTop: spacing.sm,
   },
   handle: {
@@ -758,12 +791,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     marginTop: 4,
     marginBottom: spacing.sm,
-    textTransform: 'capitalize',
   },
   tabRail: {
-    paddingHorizontal: spacing.md,
     marginBottom: spacing.sm,
     maxHeight: 40,
+  },
+  tabRailContent: {
+    paddingHorizontal: spacing.lg,
+    paddingRight: spacing.xl,
   },
   tabChip: {
     paddingHorizontal: spacing.md,
@@ -773,9 +808,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.06)',
   },
   tabChipActive: {
-    backgroundColor: 'rgba(255,215,128,0.18)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,215,128,0.35)',
+    backgroundColor: 'rgba(255,215,128,0.22)',
+    borderWidth: 1,
+    borderColor: colors.gold,
   },
   tabChipText: {
     color: colors.textSecondary,
@@ -783,11 +818,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   tabChipTextActive: {
-    color: colors.gold,
+    color: colors.textPrimary,
+    fontWeight: '800',
   },
   body: {
     paddingHorizontal: spacing.lg,
-    minHeight: 220,
+    maxHeight: 320,
   },
   card: {
     borderRadius: radii.lg,
@@ -841,8 +877,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.04)',
   },
   toolChipActive: {
-    borderColor: 'rgba(255,215,128,0.45)',
-    backgroundColor: 'rgba(255,215,128,0.12)',
+    borderColor: colors.gold,
+    backgroundColor: 'rgba(255,215,128,0.18)',
   },
   toolChipDim: {
     opacity: 0.45,
@@ -853,7 +889,26 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   toolChipTextActive: {
-    color: colors.gold,
+    color: colors.textPrimary,
+    fontWeight: '800',
+  },
+  quickNavRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  quickNavBtn: {
+    borderRadius: radii.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+  },
+  quickNavBtnText: {
+    color: colors.textPrimary,
+    fontSize: 12,
+    fontWeight: '800',
   },
   input: {
     minHeight: 88,

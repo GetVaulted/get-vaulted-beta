@@ -17,7 +17,7 @@ export function SellerLiveOverlayHeader({
   hostAvatarUrl,
   streamTitle,
   viewerCount,
-  roomLive,
+  streamOnAir = false,
   onBack,
   onBroadcastSettings,
   onEndShow,
@@ -29,7 +29,8 @@ export function SellerLiveOverlayHeader({
   hostAvatarUrl: string | null;
   streamTitle: string;
   viewerCount: number;
-  roomLive: boolean;
+  /** True when the host camera / IVS publish is on air — same moment the show is live for buyers. */
+  streamOnAir?: boolean;
   onBack: () => void;
   onBroadcastSettings: () => void;
   onEndShow?: () => void;
@@ -40,8 +41,10 @@ export function SellerLiveOverlayHeader({
   const viewerPop = useRef(new Animated.Value(1)).current;
   const prevViewers = useRef(viewerCount);
 
+  const showLiveBadge = streamOnAir;
+
   useEffect(() => {
-    if (!roomLive) return;
+    if (!showLiveBadge) return;
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(ringPulse, { toValue: 1, duration: 1600, useNativeDriver: true }),
@@ -50,7 +53,7 @@ export function SellerLiveOverlayHeader({
     );
     loop.start();
     return () => loop.stop();
-  }, [ringPulse, roomLive]);
+  }, [ringPulse, showLiveBadge]);
 
   useEffect(() => {
     if (viewerCount === prevViewers.current) return;
@@ -73,7 +76,7 @@ export function SellerLiveOverlayHeader({
           </Pressable>
           <View style={styles.identity}>
             <View style={styles.avatarWrap}>
-              {roomLive ? (
+              {showLiveBadge ? (
                 <Animated.View
                   style={[
                     styles.avatarRing,
@@ -94,7 +97,7 @@ export function SellerLiveOverlayHeader({
           </View>
         </View>
         <View style={styles.right}>
-          {roomLive ? (
+          {showLiveBadge ? (
             <View style={styles.liveCluster}>
               <LiveBadge compact pulse />
               <Animated.Text style={[styles.viewers, { transform: [{ scale: viewerPop }] }]}>
