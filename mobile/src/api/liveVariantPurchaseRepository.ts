@@ -1,4 +1,4 @@
-import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
+import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 import { WalletIncompleteError } from '../lib/buyerWalletErrors';
 
 export function createLiveVariantPurchaseIdempotencyKey(variantId: string): string {
@@ -22,6 +22,7 @@ export type LiveVariantPurchaseResult =
       error: string;
       status: number;
       signInUrl?: string;
+      walletIncomplete?: boolean;
       paymentFailed?: boolean;
       code?: string;
     };
@@ -33,6 +34,10 @@ type PurchasePayload = {
   signInUrl?: string;
   code?: string;
   paymentFailed?: boolean;
+  paymentReady?: boolean;
+  shippingReady?: boolean;
+  addPaymentMethodsUrl?: string;
+  addShippingUrl?: string;
   requiresAction?: boolean;
   clientSecret?: string;
   paymentIntentId?: string;
@@ -41,8 +46,17 @@ type PurchasePayload = {
 };
 
 function mapPurchaseResponse(res: Response, payload: PurchasePayload): LiveVariantPurchaseResult {
-  if (res.status === 402) {
+  if (res.status === 402 && payload.code === 'LIVE_BUYER_WALLET_INCOMPLETE') {
     throw new WalletIncompleteError(payload);
+  }
+  if (res.status === 402) {
+    return {
+      ok: false,
+      error: typeof payload.error === 'string' ? payload.error : 'Payment failed.',
+      status: 402,
+      paymentFailed: payload.paymentFailed === true,
+      code: payload.code,
+    };
   }
   if (res.status === 401) {
     return {
@@ -95,17 +109,13 @@ export async function purchaseLiveItemVariant(args: {
   idempotencyKey?: string;
   paymentMethodId?: string;
 }): Promise<LiveVariantPurchaseResult> {
-  const base = getWebApiBaseUrl();
-  if (!base) throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
-
-  const res = await fetch(
-    `${base}/api/live-rooms/${encodeURIComponent(args.liveRoomId)}/items/${encodeURIComponent(args.itemId)}/variants/${encodeURIComponent(args.variantId)}/purchase`,
+  const res = await fetchWebApiMobile(
+    `/api/live-rooms/${encodeURIComponent(args.liveRoomId)}/items/${encodeURIComponent(args.itemId)}/variants/${encodeURIComponent(args.variantId)}/purchase`,
     {
       method: 'POST',
       headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
         Authorization: `Bearer ${args.accessToken}`,
+        'Content-Type': 'application/json',
         'Idempotency-Key': args.idempotencyKey ?? createLiveVariantPurchaseIdempotencyKey(args.variantId),
       },
       body: JSON.stringify({
@@ -132,17 +142,13 @@ export async function syncLiveItemVariantPurchase(args: {
   variantId: string;
   purchaseId: string;
 }): Promise<LiveVariantPurchaseResult> {
-  const base = getWebApiBaseUrl();
-  if (!base) throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
-
-  const res = await fetch(
-    `${base}/api/live-rooms/${encodeURIComponent(args.liveRoomId)}/items/${encodeURIComponent(args.itemId)}/variants/${encodeURIComponent(args.variantId)}/purchase`,
+  const res = await fetchWebApiMobile(
+    `/api/live-rooms/${encodeURIComponent(args.liveRoomId)}/items/${encodeURIComponent(args.itemId)}/variants/${encodeURIComponent(args.variantId)}/purchase`,
     {
       method: 'POST',
       headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
         Authorization: `Bearer ${args.accessToken}`,
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({ action: 'sync', purchaseId: args.purchaseId }),
     },

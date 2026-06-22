@@ -204,6 +204,21 @@ describe('resolveLiveBuyerCommerceHud', () => {
     expect(hud.bottomRightLabel).not.toBe('Claim Team');
   });
 
+  it('shows Buy Now for sale room with linked listing', () => {
+    const snap = {
+      roomType: 'sale',
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemListingId: 'listing-1',
+      priceUsd: 125,
+      fetchedAtMs: Date.now(),
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.bottomRightLabel).toBe('Buy Now $125.00');
+    expect(hud.currentPrefix).toBe('Price');
+    expect(hud.buyerPrimaryDisabled).toBe(false);
+  });
+
   it('shows Select Division for active team break variant item', () => {
     const snap = {
       roomType: 'sale',

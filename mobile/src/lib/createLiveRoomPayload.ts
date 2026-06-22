@@ -23,6 +23,8 @@ export type BuildCreateLiveRoomPayloadInput = {
   shippingCapCents?: number | null;
   freeShippingEnabled?: boolean;
   sellerPaysOverCap?: boolean;
+  /** Weekly recurrence through 30 days — requires scheduleMode `later`. */
+  recurringEnabled?: boolean;
 };
 
 export function buildCreateLiveRoomPayload(
@@ -80,6 +82,10 @@ export function buildCreateLiveRoomPayload(
   }
   if (typeof input.sellerPaysOverCap === 'boolean') {
     body.sellerPaysOverCap = input.sellerPaysOverCap;
+  }
+
+  if (input.recurringEnabled && input.scheduleMode === 'later') {
+    body.recurringEnabled = true;
   }
 
   return body;

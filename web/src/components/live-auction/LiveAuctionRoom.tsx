@@ -45,7 +45,7 @@ import { createLiveBidIdempotencyKey, liveBidRequestHeaders } from "@/lib/live-b
 import {
   LIVE_HOST_SELF_COMMERCE_ERROR,
   LIVE_MODERATOR_COMMERCE_ERROR,
-} from "@/lib/live-room-commerce-guards";
+} from "@/lib/live-room-commerce-messages";
 import {
   LIVE_AUCTION_BUYER_TIMER_ENDED_COPY,
   LIVE_AUCTION_HOST_TIMER_ENDED_COPY,
@@ -53,11 +53,7 @@ import {
 } from "@/lib/live-auction-lot-phase";
 import { patchLiveRoomItemStatus, startLiveRoomItemAuction } from "@/lib/live-room-control-client";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
-import {
-  buildLiveRoomShareTitle,
-  canonicalLiveRoomUrl,
-  formatLiveRoomShareText,
-} from "@/lib/live-room-share-metadata";
+import { shareLiveRoomNative } from "@/lib/share-live-room-native";
 import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel } from "@/lib/live-item-variant-presets";
@@ -844,34 +840,14 @@ export function LiveAuctionRoom({
 
   const handleShare = useCallback(async () => {
     const showTitle = streamTitle;
-    const shareUrl = canonicalLiveRoomUrl(liveRoomId);
-    const shareTitle = buildLiveRoomShareTitle({
-      id: liveRoomId,
-      title: showTitle,
-      category: roomCategory,
-      sellerUsername: sellerShopUsername ?? hostDisplayName.replace(/^@+/, ""),
-    });
-    const shareText = formatLiveRoomShareText({
-      hostUsername: sellerShopUsername ?? hostDisplayName.replace(/^@+/, ""),
-      showTitle,
-      url: shareUrl,
-    });
     try {
-      if (typeof navigator !== "undefined" && navigator.share) {
-        await navigator.share({
-          title: shareTitle,
-          text: shareText,
-          url: shareUrl,
-        });
-        toast("Shared.");
-        return;
-      }
-      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(shareText);
-        toast("Link copied.");
-        return;
-      }
-      toast("Share is not supported on this device.");
+      const ok = await shareLiveRoomNative({
+        roomId: liveRoomId,
+        showTitle,
+        hostUsername: sellerShopUsername ?? hostDisplayName.replace(/^@+/, ""),
+        category: roomCategory,
+      });
+      if (ok) toast("Shared.");
     } catch {
       toast("Could not share right now.");
     }

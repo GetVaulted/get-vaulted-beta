@@ -73,6 +73,11 @@ export function statusLabel(status: VaultEventDisplayStatus): string {
   }
 }
 
+/** Scheduled and live shows can be cancelled from Seller HQ (PATCH action: cancel). */
+export function canCancelVaultEvent(room: LiveRoomApiRow): boolean {
+  return room.status === 'scheduled' || room.status === 'live';
+}
+
 export function primaryCta(status: VaultEventDisplayStatus): { label: string; action: 'console' | 'setup' | 'recap' } {
   switch (status) {
     case 'draft':

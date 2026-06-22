@@ -29,7 +29,7 @@ import { LiveAuctionSoldCelebration } from "@/components/live-auction/LiveAuctio
 import { LiveSpotTakenCelebration } from "@/components/live-auction/LiveSpotTakenCelebration";
 import { LivePaymentFailureBlocker } from "@/components/live-auction/LivePaymentFailureBlocker";
 import { LivePremiumWalletSheet } from "@/components/live-auction/LivePremiumWalletSheet";
-import { VaultRevealWheelOverlay } from "@/components/live-auction/VaultRevealWheelOverlay";
+import { VaultRevealOverlay } from "@/components/live-auction/VaultRevealOverlay";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from "@/lib/vault-reveal-spin";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
@@ -131,7 +131,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           typeof seqRaw === "number" && Number.isFinite(seqRaw) ? Math.floor(seqRaw) : null;
         if (seq != null) {
           const last = lastAuctionSeqRef.current;
-          if (seq < last) return false;
+          if (seq <= last) return false;
           if (seq > last + 1) scheduleFallbackRefresh("bid_placed_auction_seq_gap", 90);
           if (seq > last) lastAuctionSeqRef.current = seq;
         }
@@ -837,7 +837,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         />
         <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
         <LiveSpotTakenCelebration celebration={spotCelebration} onDone={() => setSpotCelebration(null)} />
-        <VaultRevealWheelOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
+        <VaultRevealOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
         {paymentBlocker}
         <LivePremiumWalletSheet
           open={premiumWalletOpen}
@@ -879,7 +879,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     />
       <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
       <LiveSpotTakenCelebration celebration={spotCelebration} onDone={() => setSpotCelebration(null)} />
-      <VaultRevealWheelOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
+      <VaultRevealOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
       {paymentBlocker}
       <LivePremiumWalletSheet
         open={premiumWalletOpen}

@@ -13,8 +13,8 @@ const ACTION_MIN_H = 44;
 
 type Props = {
   top: number;
-  onShare: () => void;
-  onAddItem: () => void;
+  onSales: () => void;
+  salesAttentionCount?: number;
   onGiveaways: () => void;
   onObs: () => void;
   onTeams?: () => void;
@@ -40,8 +40,8 @@ type Props = {
 
 export function SellerConsoleActionBar({
   top,
-  onShare,
-  onAddItem,
+  onSales,
+  salesAttentionCount = 0,
   onGiveaways,
   onObs,
   onTeams,
@@ -82,22 +82,18 @@ export function SellerConsoleActionBar({
             keyboardShouldPersistTaps="handled"
           >
             <Pressable
-              style={[styles.actionBtn, styles.shareBtn]}
-              onPress={onShare}
-              accessibilityLabel={SELLER_CONSOLE.shareShow}
+              style={[styles.actionBtn, salesAttentionCount > 0 && styles.salesAttentionBtn]}
+              onPress={onSales}
+              accessibilityLabel={SELLER_CONSOLE.sales}
               hitSlop={4}
             >
-              <Ionicons name="share-outline" size={14} color={colors.gold} />
-              <Text style={styles.shareTxt}>{SELLER_CONSOLE.shareShow}</Text>
-            </Pressable>
-            <Pressable
-              style={styles.actionBtn}
-              onPress={onAddItem}
-              accessibilityLabel={SELLER_CONSOLE.addItem}
-              hitSlop={4}
-            >
-              <Ionicons name="add" size={16} color="rgba(255,255,255,0.92)" />
-              <Text style={styles.addTxt}>{SELLER_CONSOLE.addItem}</Text>
+              <Ionicons name="receipt-outline" size={15} color="rgba(255,255,255,0.92)" />
+              <Text style={styles.addTxt}>{SELLER_CONSOLE.sales}</Text>
+              {salesAttentionCount > 0 ? (
+                <View style={styles.attentionDot}>
+                  <Text style={styles.attentionDotTxt}>{salesAttentionCount > 9 ? '9+' : salesAttentionCount}</Text>
+                </View>
+              ) : null}
             </Pressable>
             <Pressable
               style={styles.actionBtn}
@@ -231,6 +227,23 @@ const styles = StyleSheet.create({
   shareBtn: {
     borderColor: 'rgba(212,175,55,0.45)',
     backgroundColor: 'rgba(0,0,0,0.62)',
+  },
+  salesAttentionBtn: {
+    borderColor: 'rgba(244,63,94,0.45)',
+  },
+  attentionDot: {
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(244,63,94,0.85)',
+  },
+  attentionDotTxt: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#fff',
   },
   shareTxt: { fontSize: 11, fontWeight: '800', color: colors.gold },
   addTxt: { fontSize: 11, fontWeight: '800', color: 'rgba(255,255,255,0.92)' },

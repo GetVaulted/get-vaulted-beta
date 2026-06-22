@@ -127,7 +127,7 @@ export function VaultSearchScreen({ navigation, route }: Props) {
               <Text style={styles.sectionTitle}>Live now</Text>
               {filteredLive.map((stream) => (
                 <Pressable key={stream.id} style={styles.row} onPress={() => openLiveRoom(stream.id)}>
-                  <VaultImage uri={stream.previewImageUrl} style={styles.thumb} />
+                  <VaultImage uri={stream.previewImageUrl} width={52} height={52} borderRadius={radii.md} />
                   <View style={styles.rowCopy}>
                     <Text style={styles.rowTitle} numberOfLines={2}>
                       {stream.title}
@@ -149,7 +149,7 @@ export function VaultSearchScreen({ navigation, route }: Props) {
               <Text style={styles.sectionTitle}>Upcoming shows</Text>
               {filteredScheduled.map((stream) => (
                 <Pressable key={stream.id} style={styles.row} onPress={() => openLiveRoom(stream.id)}>
-                  <VaultImage uri={stream.previewImageUrl} style={styles.thumb} />
+                  <VaultImage uri={stream.previewImageUrl} width={52} height={52} borderRadius={radii.md} />
                   <View style={styles.rowCopy}>
                     <Text style={styles.rowTitle} numberOfLines={2}>
                       {stream.title}
@@ -168,7 +168,7 @@ export function VaultSearchScreen({ navigation, route }: Props) {
               <Text style={styles.sectionTitle}>Marketplace</Text>
               {filteredListings.map((product) => (
                 <Pressable key={product.id} style={styles.row} onPress={() => openProduct(product.id)}>
-                  <VaultImage uri={product.imageUrl} style={styles.thumb} />
+                  <VaultImage uri={product.imageUrl} width={52} height={52} borderRadius={radii.md} />
                   <View style={styles.rowCopy}>
                     <Text style={styles.rowTitle} numberOfLines={2}>
                       {product.title}

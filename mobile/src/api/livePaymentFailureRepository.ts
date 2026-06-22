@@ -77,6 +77,31 @@ export async function retryLivePaymentFailure(args: {
   };
 }
 
+export async function cancelHostPaymentFailure(args: {
+  accessToken: string;
+  roomId: string;
+  failureId: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const base = getWebApiBaseUrl();
+  if (!base) return { ok: false, error: 'API host not configured.' };
+  const res = await fetch(`${base}/api/live-rooms/${encodeURIComponent(args.roomId)}/payment-failure/cancel`, {
+    method: 'POST',
+    headers: authHeaders(args.accessToken),
+    body: JSON.stringify({ failureId: args.failureId }),
+  });
+  let payload: { error?: string } = {};
+  try {
+    payload = (await res.json()) as typeof payload;
+  } catch {
+    /* ignore */
+  }
+  if (res.ok) return { ok: true };
+  return {
+    ok: false,
+    error: typeof payload.error === 'string' ? payload.error : 'Could not cancel payment retry.',
+  };
+}
+
 function parseFailure(raw: unknown): LiveBuyerPaymentFailureSnapshot | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;

@@ -2,7 +2,7 @@ import type { NavigationProp, ParamListBase } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import type { LiveGiveawayRow } from '../api/liveGiveawayRepository';
-import { fetchHostConsole, type HostConsolePayload } from '../api/liveHostRepository';
+import { fetchHostConsole, type HostConsolePayload, type HostPaymentFailureRow, type HostRecentSaleRow } from '../api/liveHostRepository';
 import {
   createLiveRoomQueueItem,
   deleteLiveRoomQueueItem,
@@ -17,6 +17,7 @@ import { isVariantSalesFormat } from '../lib/liveItemVariant';
 import { logSellerQueue } from '../lib/logSellerQueue';
 import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
+import { invalidateHostConsoleCache } from '../lib/hostConsoleCache';
 import { mergeLiveRoomItemsById } from '../lib/mergeLiveRoomItems';
 import { mergeRandomSpotClaimIntoItem, type RandomSpotClaim } from '../lib/liveVariantSpotBoard';
 import { DEFAULT_AUCTION_SEC } from '../components/seller/liveConsole/VaultPinnedLotCard';
@@ -46,6 +47,8 @@ export function useSellerLiveConsole({
 }) {
   const [items, setItems] = useState<LiveRoomItemRow[]>([]);
   const [giveaways, setGiveaways] = useState<LiveGiveawayRow[]>([]);
+  const [recentSales, setRecentSales] = useState<HostRecentSaleRow[]>([]);
+  const [paymentFailures, setPaymentFailures] = useState<HostPaymentFailureRow[]>([]);
   const [activeItem, setActiveItem] = useState<LiveRoomItemRow | null>(null);
   const [viewerCount, setViewerCount] = useState(0);
   const [serverNowMs, setServerNowMs] = useState(Date.now());
@@ -65,6 +68,8 @@ export function useSellerLiveConsole({
     (data: Awaited<ReturnType<typeof fetchHostConsole>>) => {
       setItems((prev) => mergeLiveRoomItemsById(prev, data.items));
       setGiveaways(data.giveaways);
+      setRecentSales(data.recentSales);
+      setPaymentFailures(data.paymentFailures);
       setActiveItem((prev) => {
         const next = data.activeItem ?? prev;
         if (!next) return null;
@@ -209,12 +214,19 @@ export function useSellerLiveConsole({
   };
 
   const onQuickAddLot = (payload: QuickLiveLotSubmitPayload, options?: QuickLiveLotSubmitOptions) => {
-    if (busy || roomStatus === 'ended') return;
+    if (busy) {
+      Alert.alert('Add to show', 'Still saving the previous change. Try again in a moment.');
+      return;
+    }
+    if (roomStatus === 'ended') {
+      Alert.alert('Add to show', 'This show has ended. You cannot add queue items.');
+      return;
+    }
     setBusy(true);
     setConsoleError(null);
     void (async () => {
       try {
-        await createLiveRoomQueueItem(accessToken, roomId, {
+        const newItemId = await createLiveRoomQueueItem(accessToken, roomId, {
           title: payload.title,
           imageUrl: payload.imageUrl,
           salesFormat: payload.salesFormat,
@@ -225,7 +237,37 @@ export function useSellerLiveConsole({
           variants: payload.variants,
           variantAssignmentMode: payload.variantAssignmentMode,
         });
+        setItems((prev) => {
+          const sortOrder = prev.reduce((max, item) => Math.max(max, item.sortOrder ?? 0), -1) + 1;
+          const optimistic: LiveRoomItemRow = {
+            id: newItemId,
+            title: payload.title,
+            displayTitle: payload.title,
+            status: 'queued',
+            imageUrl: payload.imageUrl,
+            quantity: payload.quantity,
+            quantityInitial: payload.quantity,
+            remainingQuantity: payload.quantity,
+            startingBidUsd: payload.startingBidUsd,
+            reservePriceUsd: payload.reservePriceUsd,
+            priceUsd: payload.priceUsd,
+            currentBidUsd: null,
+            biddingOpen: false,
+            auctionEndsAt: null,
+            sortOrder,
+            salesFormat: payload.salesFormat,
+            variantAssignmentMode: payload.variantAssignmentMode,
+            variants: payload.variants?.map((variant, index) => ({
+              id: `pending-${newItemId}-${index}`,
+              label: variant.label,
+              priceUsd: variant.priceUsd,
+              quantityRemaining: variant.quantityInitial ?? 1,
+            })),
+          };
+          return mergeLiveRoomItemsById(prev, [optimistic]);
+        });
         logSellerQueue('add_item_success', {
+          itemId: newItemId,
           title: payload.title.slice(0, 80),
           quantity: payload.quantity,
           salesFormat: payload.salesFormat,
@@ -234,6 +276,7 @@ export function useSellerLiveConsole({
           reservePriceUsd: payload.reservePriceUsd,
           priceUsd: payload.priceUsd,
         });
+        invalidateHostConsoleCache(roomId);
         await reload({ force: true });
         if (!options?.addAnother) setInventoryOpen(false);
         onAfterAddLot?.();
@@ -393,11 +436,14 @@ export function useSellerLiveConsole({
     loadOnce,
     refreshConsole,
     syncQueue: () => {
-      void reload({ soft: true });
+      void reload({ soft: true, force: true });
     },
     syncGiveaways: () => {
-      void reload({ soft: true });
+      void reload({ soft: true, force: true });
     },
+    syncSales: () => reload({ soft: true, force: true }),
+    recentSales,
+    paymentFailures,
     recordRandomSpotClaim,
     onReorder,
     onStartBidding,

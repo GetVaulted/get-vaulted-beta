@@ -20,6 +20,7 @@ export const SELLER_CONSOLE = {
   nativeShare: 'Share…',
   inviteFollowers: 'Invite followers',
   stats: 'Show stats',
+  sales: 'Sales',
   chat: 'Chat',
   viewers: 'Viewers',
   scheduled: 'Scheduled',

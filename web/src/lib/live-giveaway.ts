@@ -8,9 +8,10 @@ import type {
   User,
 } from "@/generated/prisma/client";
 import { scheduledGiveawayEntryCloseAt } from "@/lib/giveaway-countdown";
+import { createOrderFromGiveawayWinTx } from "@/lib/live-giveaway-fulfillment";
 import { prisma } from "@/lib/prisma";
-import { emitLiveRoomGiveawaysChanged, emitVaultRevealSpin } from "@/lib/realtime-emit-server";
-import { VAULT_REVEAL_DEFAULT_DURATION_MS } from "@/lib/vault-reveal-spin";
+import { emitLiveRoomGiveawaysChanged, emitPurchaseCompleted, emitVaultRevealSpin } from "@/lib/realtime-emit-server";
+import { VAULT_SEAL_TOTAL_MS } from "@/lib/vault-reveal-spin";
 
 export { LIVE_GIVEAWAY_DEFAULT_ENTRY_DURATION_MS } from "@/lib/giveaway-countdown";
 
@@ -270,16 +271,44 @@ async function executeGiveawayDraw(
   const pick = hash.readUInt32BE(0) % entries.length;
   const winnerUserId = entries[pick]!.userId;
 
-  const updated = await prisma.liveGiveaway.update({
-    where: { id: row.id },
-    data: {
-      status: "drawn",
-      drawnAt: new Date(),
-      drawSeed,
-      winnerUserId,
-      entryCloseAt: row.entryCloseAt ?? new Date(),
-    },
-    include: { winnerUser: { select: { id: true, username: true } } },
+  const { updated, orderId } = await prisma.$transaction(async (tx) => {
+    const room = await tx.liveRoom.findUnique({
+      where: { id: liveRoomId },
+      select: { sellerId: true },
+    });
+    if (!room) throw new Error("Room not found.");
+
+    const updatedGiveaway = await tx.liveGiveaway.update({
+      where: { id: row.id },
+      data: {
+        status: "drawn",
+        drawnAt: new Date(),
+        drawSeed,
+        winnerUserId,
+        entryCloseAt: row.entryCloseAt ?? new Date(),
+      },
+      include: { winnerUser: { select: { id: true, username: true } } },
+    });
+
+    let fulfillmentOrderId = updatedGiveaway.fulfillmentOrderId;
+    const winnerId = updatedGiveaway.winnerUserId;
+    if (!fulfillmentOrderId && winnerId) {
+      fulfillmentOrderId = await createOrderFromGiveawayWinTx(tx, {
+        giveaway: {
+          id: updatedGiveaway.id,
+          liveRoomId: updatedGiveaway.liveRoomId,
+          title: updatedGiveaway.title,
+          prizeDescription: updatedGiveaway.prizeDescription,
+          imageUrl: updatedGiveaway.imageUrl,
+          fulfillmentOrderId: updatedGiveaway.fulfillmentOrderId,
+          winnerUserId: winnerId,
+          winnerUser: updatedGiveaway.winnerUser,
+        },
+        sellerId: room.sellerId,
+      });
+    }
+
+    return { updated: updatedGiveaway, orderId: fulfillmentOrderId };
   });
 
   const labels = entries.map((e) => e.user.username?.trim() || "entrant");
@@ -292,9 +321,25 @@ async function executeGiveawayDraw(
     labels,
     winnerIndex: Math.max(0, winnerIndex),
     winnerLabel,
-    durationMs: VAULT_REVEAL_DEFAULT_DURATION_MS,
+    durationMs: VAULT_SEAL_TOTAL_MS,
     referenceId: row.id,
   });
+
+  if (orderId && updated.winnerUserId) {
+    const roomNext = await prisma.liveRoom.findUnique({
+      where: { id: liveRoomId },
+      select: { roomVersion: true },
+    });
+    emitPurchaseCompleted(liveRoomId, `giveaway:${row.id}`, {
+      roomVersion: roomNext?.roomVersion ?? undefined,
+      winnerUsername: updated.winnerUser?.username ?? null,
+      winnerId: updated.winnerUserId,
+      winningAmountUsd: 0,
+      itemTitle: row.title,
+      orderId,
+      paymentStatus: "paid",
+    });
+  }
 
   return serializeLiveGiveaway(updated, { includeHostSecrets: true });
 }

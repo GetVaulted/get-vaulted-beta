@@ -9,6 +9,7 @@ import { LiveChatMessageRowActions } from "@/components/trust/LiveChatMessageRow
 import { LiveChatAvatar } from "@/components/live-auction/LiveChatAvatar";
 import { MentionComposer } from "@/components/mentions/MentionComposer";
 import { MentionText } from "@/components/mentions/MentionText";
+import { isInlineViewerEventBody } from "@/lib/live-room-viewer-events";
 
 const PALETTE = ["text-sky-300", "text-emerald-300", "text-violet-300", "text-amber-300", "text-rose-300", "text-cyan-300"] as const;
 
@@ -47,6 +48,10 @@ function chatLabelClassForMessage(
 
 function shouldShowChatAvatar(m: LiveRoomMessageDTO) {
   return m.messageType === "chat" || isNamedSystemMessage(m);
+}
+
+function isInlineViewerEventMessage(m: LiveRoomMessageDTO) {
+  return m.messageType === "system" && isInlineViewerEventBody(m.body);
 }
 
 type VaultHostLiveChatPanelProps = {
@@ -163,6 +168,7 @@ export function VaultHostLiveChatPanel({
                 const label = chatLabelForMessage(m);
                 const labelClass = chatLabelClassForMessage(m, hostUserId, mod.moderators);
                 const isSystem = m.messageType === "system";
+                const inlineEvent = isInlineViewerEventMessage(m);
                 const isBid = m.messageType === "bid";
                 const isPurchase = m.messageType === "purchase";
                 const isHost = m.senderId === hostUserId && m.messageType === "chat";
@@ -197,10 +203,18 @@ export function VaultHostLiveChatPanel({
                           MOD
                         </span>
                       ) : null}
-                      <span className="text-zinc-500">: </span>
-                      <span className={`ml-1 ${isSystem || isBid ? "font-semibold text-amber-50" : isPurchase ? "font-semibold text-emerald-100" : "text-zinc-100"}`}>
-                        <MentionText body={m.body} mentions={m.mentions} />
-                      </span>
+                      {inlineEvent ? (
+                        <span className={`ml-1 ${isSystem || isBid ? "font-semibold text-amber-50" : isPurchase ? "font-semibold text-emerald-100" : "text-zinc-100"}`}>
+                          <MentionText body={m.body} mentions={m.mentions} />
+                        </span>
+                      ) : (
+                        <>
+                          <span className="text-zinc-500">: </span>
+                          <span className={`ml-1 ${isSystem || isBid ? "font-semibold text-amber-50" : isPurchase ? "font-semibold text-emerald-100" : "text-zinc-100"}`}>
+                            <MentionText body={m.body} mentions={m.mentions} />
+                          </span>
+                        </>
+                      )}
                       {m.messageType === "chat" && m.senderId !== hostUserId ? (
                         <LiveChatMessageRowActions
                           liveRoomId={liveRoomId}

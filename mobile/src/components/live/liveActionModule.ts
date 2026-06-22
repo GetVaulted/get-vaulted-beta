@@ -93,6 +93,40 @@ function resolveBuyerVariantItemHud(
   };
 }
 
+function resolveBuyerBuyNowItemHud(
+  stream: LiveStream,
+  snap: LiveRoomBuyerSnapshot,
+  base: LiveCommerceHudModel,
+): LiveCommerceHudModel {
+  const itemTitle =
+    snap.activeItemTitle?.trim() ||
+    stream.currentItem?.trim() ||
+    stream.pinnedProductLabel?.trim() ||
+    stream.title?.trim() ||
+    'Live item';
+  const price = snap.priceUsd ?? stream.buyNowPrice ?? 0;
+  const checkoutReady = Boolean(snap.activeItemListingId?.trim());
+
+  return {
+    ...base,
+    format: 'shop',
+    hybridFocus: null,
+    timerMmSs: '—',
+    itemTitle,
+    currentPrefix: 'Price',
+    currentAmount: price > 0 ? formatBidMoney(price) : '—',
+    winningLine: '',
+    stateLine: checkoutReady
+      ? 'Tap Buy Now to checkout with your saved card.'
+      : 'Checkout is not linked for this item yet — ask the host in chat.',
+    bottomLeftLabel: 'Custom',
+    bottomRightLabel: price > 0 ? `Buy Now ${formatBidMoney(price)}` : 'Buy Now',
+    bottomRightIsSlide: false,
+    buyerPrimaryDisabled: !checkoutReady || price <= 0 || snap.status !== 'live',
+    buyerSecondaryDisabled: true,
+  };
+}
+
 function resolveBuyerAuctionItemHud(
   stream: LiveStream,
   snap: LiveRoomBuyerSnapshot,
@@ -475,6 +509,14 @@ export function resolveLiveBuyerCommerceHud(
 
   if (isActiveVariantBuyerItem(effectiveSnap)) {
     return resolveBuyerVariantItemHud(stream, effectiveSnap, base);
+  }
+
+  if (
+    effectiveSnap.roomType === 'sale' &&
+    effectiveSnap.activeItemId &&
+    !isActiveVariantBuyerItem(effectiveSnap)
+  ) {
+    return resolveBuyerBuyNowItemHud(stream, effectiveSnap, base);
   }
 
   if (kind === 'auction' || effectiveSnap.roomType === 'auction' || effectiveSnap.roomType === 'sale') {

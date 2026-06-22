@@ -1,4 +1,4 @@
-import type { BreakSpot, Order, User } from "@/generated/prisma/client";
+import type { BreakSpot, Listing, Order, User } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   PAYMENT_EXPIRED,
@@ -36,10 +36,17 @@ function toneFromBreakPaymentStatus(ps: string): { paymentTone: HostRecentSaleRo
   return { paymentTone: "pending", statusLabel: ps };
 }
 
-type OrderWithBuyer = Order & { buyer: Pick<User, "username"> };
+type OrderWithBuyer = Order & {
+  buyer: Pick<User, "username">;
+  listing?: Pick<Listing, "title"> | null;
+};
 
 function mapOrder(o: OrderWithBuyer): HostRecentSaleRowDTO {
-  const { paymentTone, statusLabel } = toneFromOrderPaymentStatus(o.paymentStatus);
+  const { paymentTone, statusLabel } =
+    o.paymentLabel === "giveaway"
+      ? ({ paymentTone: "paid" as const, statusLabel: "Giveaway" })
+      : toneFromOrderPaymentStatus(o.paymentStatus);
+  const prizeTitle = o.listing?.title?.trim();
   return {
     id: `order:${o.id}`,
     kind: "order",
@@ -48,6 +55,7 @@ function mapOrder(o: OrderWithBuyer): HostRecentSaleRowDTO {
     paymentTone,
     statusLabel,
     occurredAt: o.updatedAt.toISOString(),
+    spotLabel: o.paymentLabel === "giveaway" ? prizeTitle ?? "Giveaway prize" : null,
   };
 }
 
@@ -81,7 +89,10 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
     listingIds.length
       ? prisma.order.findMany({
           where: { sellerId, listingId: { in: listingIds } },
-          include: { buyer: { select: { username: true } } },
+          include: {
+            buyer: { select: { username: true } },
+            listing: { select: { title: true } },
+          },
           orderBy: { updatedAt: "desc" },
           take: 50,
         })
@@ -91,7 +102,10 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
         sellerId,
         liveShippingSession: { is: { liveShowId: liveRoomId } },
       },
-      include: { buyer: { select: { username: true } } },
+      include: {
+        buyer: { select: { username: true } },
+        listing: { select: { title: true } },
+      },
       orderBy: { updatedAt: "desc" },
       take: 50,
     }),

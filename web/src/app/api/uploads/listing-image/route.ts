@@ -22,6 +22,27 @@ const ALLOWED = new Map<string, string>([
 
 const MAX_BYTES = 8 * 1024 * 1024;
 
+function mimeFromFilename(name: string): string | null {
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  return null;
+}
+
+/** React Native multipart uploads may arrive as Blob (not File) with an empty or generic MIME type. */
+function readUploadedImage(form: FormData): { blob: Blob; mime: string; size: number } | null {
+  const raw = form.get("file");
+  if (!(raw instanceof Blob)) return null;
+  const filename = raw instanceof File && raw.name.trim() ? raw.name.trim() : "upload.jpg";
+  let mime = raw.type?.trim() ?? "";
+  if (!mime || mime === "application/octet-stream") {
+    mime = mimeFromFilename(filename) ?? "";
+  }
+  if (!ALLOWED.has(mime)) return null;
+  return { blob: raw, mime, size: raw.size };
+}
+
 function magicMatches(buf: Buffer, mime: string): boolean {
   if (buf.length < 12) return false;
   if (mime === "image/jpeg") return buf[0] === 0xff && buf[1] === 0xd8;
@@ -45,29 +66,29 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
   }
 
-  const file = form.get("file");
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: "Missing file" }, { status: 400 });
+  const file = readUploadedImage(form);
+  if (!file) {
+    return NextResponse.json(
+      { error: "Missing file or invalid type. Use JPG, PNG, or WebP." },
+      { status: 400 },
+    );
   }
 
-  const ext = ALLOWED.get(file.type);
-  if (!ext) {
-    return NextResponse.json({ error: "Invalid file type. Use JPG, PNG, or WebP." }, { status: 400 });
-  }
+  const ext = ALLOWED.get(file.mime)!;
 
   if (file.size > MAX_BYTES) {
     return NextResponse.json({ error: "File must be 8MB or smaller." }, { status: 400 });
   }
 
-  const buf = Buffer.from(await file.arrayBuffer());
-  if (!magicMatches(buf, file.type)) {
+  const buf = Buffer.from(await file.blob.arrayBuffer());
+  if (!magicMatches(buf, file.mime)) {
     return NextResponse.json({ error: "File does not match its type." }, { status: 400 });
   }
 
   const name = `${randomUUID()}.${ext}`;
 
   if (isSupabaseListingImageStorageConfigured()) {
-    const uploaded = await uploadListingImageToSupabase(name, buf, file.type);
+    const uploaded = await uploadListingImageToSupabase(name, buf, file.mime);
     if (!uploaded.ok) {
       return NextResponse.json({ error: uploaded.message }, { status: 502 });
     }

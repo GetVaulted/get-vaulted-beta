@@ -32,7 +32,7 @@ import { resolvePinnedModeratorUsername } from '../../../lib/resolvePinnedModera
 import { useLiveRoomModeration } from '../../../hooks/useLiveRoomModeration';
 import { useRealtimeRoomSubscription } from '../../../hooks/useRealtimeRoomSubscription';
 import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from '../../../lib/vaultRevealSpin';
-import { VaultRevealWheelOverlay } from '../../live/VaultRevealWheelOverlay';
+import { VaultRevealOverlay } from '../../live/VaultRevealOverlay';
 import { LiveSpotTakenCelebration } from '../../live/LiveSpotTakenCelebration';
 import {
   parseAuctionWinSpotCelebration,
@@ -42,7 +42,7 @@ import {
 import { isVariantSalesFormat } from '../../../lib/liveItemVariant';
 import { parseVariantPurchasedRandomClaim } from '../../../lib/liveVariantSpotBoard';
 import { useSellerLiveConsole } from '../../../hooks/useSellerLiveConsole';
-import { canonicalLiveShareUrl } from '../../../lib/liveShareUrl';
+import { shareLiveRoomNative } from '../../../lib/shareLiveRoomNative';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { SellerLiveBroadcastSheet } from './SellerLiveBroadcastSheet';
 import { SellerLiveOverlayHeader } from './SellerLiveOverlayHeader';
@@ -55,8 +55,9 @@ import { SellerLiveQueueSheet } from './SellerLiveQueueSheet';
 import { SellerNextUpRail, SELLER_NEXT_UP_RAIL_HEIGHT } from './SellerNextUpRail';
 import { SellerLiveGiveawaySheet } from './SellerLiveGiveawaySheet';
 import { SellerConsoleActionBar } from './SellerConsoleActionBar';
+import { SellerHostSideRail } from './SellerHostSideRail';
+import { SellerLiveSalesSheet } from './SellerLiveSalesSheet';
 import { SellerBreakSpotBoardSheet } from './SellerBreakSpotBoardSheet';
-import { SellerShareSheet } from './SellerShareSheet';
 import { HostModeratorAssignSheet } from '../../moderator/HostModeratorAssignSheet';
 import {
   HostModeratorAssignButton,
@@ -129,7 +130,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const [teamsBoardOpen, setTeamsBoardOpen] = useState(false);
   const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
   const [broadcastOpen, setBroadcastOpen] = useState(false);
-  const [shareOpen, setShareOpen] = useState(false);
+  const [salesOpen, setSalesOpen] = useState(false);
   const [shareToast, setShareToast] = useState<string | null>(null);
   const [chatDraft, setChatDraft] = useState('');
   const chatComposerRef = useRef<MentionComposerInputHandle>(null);
@@ -174,15 +175,33 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const canStart = host.room?.status === 'scheduled';
   const canEnd = host.room?.status === 'live';
   const streamTitle = host.room?.title ?? 'Live show';
-  const publicUrl = canonicalLiveShareUrl(roomId) ?? '';
   const actionBarTop = insets.top + 56;
   const actionBarHeight = 56;
+
+  const handleShare = useCallback(async () => {
+    const shared = await shareLiveRoomNative({
+      roomId,
+      showTitle: streamTitle,
+      hostUsername: sellerUsername ?? user?.email?.split('@')[0] ?? 'Host',
+      isLive: roomLive,
+    });
+    if (shared) {
+      setShareToast('Shared.');
+      setTimeout(() => setShareToast(null), 2200);
+    }
+  }, [roomId, roomLive, sellerUsername, streamTitle, user?.email]);
 
   const commerceBottom = Math.max(insets.bottom, spacing.xs);
   const nextQueued = console.items.find((i) => i.status === 'queued') ?? null;
   const queuePreview = !console.activeItem && Boolean(nextQueued) && !console.roomEnded;
   const displayItem = console.activeItem ?? (queuePreview ? nextQueued : null);
   const showTeamsBoard = Boolean(displayItem && isVariantSalesFormat(displayItem.salesFormat) && (displayItem.variants?.length ?? 0) > 0);
+  const salesAttentionCount = useMemo(() => {
+    const pendingSales = console.recentSales.filter(
+      (r) => r.paymentTone === 'retry' || r.paymentTone === 'pending',
+    ).length;
+    return console.paymentFailures.length + pendingSales;
+  }, [console.paymentFailures.length, console.recentSales]);
   const pinnedOverlayEstimate =
     displayItem || queuePreview ? SELLER_PINNED_OVERLAY_HEIGHT : SELLER_PINNED_EMPTY_HEIGHT;
   const [commerceHeight, setCommerceHeight] = useState(pinnedOverlayEstimate);
@@ -273,6 +292,9 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     accessToken,
     enabled: true,
     realtimePrimary: true,
+    senderUserId: user?.id,
+    senderUsername: sellerUsername ?? hostName,
+    senderAvatarUrl: hostAvatarUrl,
   });
 
   useRealtimeRoomSubscription({
@@ -303,11 +325,13 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       const randomClaim = parseVariantPurchasedRandomClaim(payload);
       if (randomClaim) console.recordRandomSpotClaim(randomClaim.itemId, randomClaim.claim);
       console.syncQueue();
+      console.syncSales();
     },
     onPurchaseCompleted: (payload) => {
       const taken = parseAuctionWinSpotCelebration(payload);
       if (taken) setSpotCelebration(taken);
       console.syncQueue();
+      console.syncSales();
     },
   });
 
@@ -372,14 +396,15 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       return;
     }
     chatComposerRef.current?.dismissSuggestions();
+    setChatDraft('');
     try {
       const ok = await liveChat.send(text);
       if (ok) {
-        setChatDraft('');
         chatComposerRef.current?.blur();
         Keyboard.dismiss();
       }
     } catch (e) {
+      setChatDraft(text);
       const msg = e instanceof Error ? e.message : String(e);
       Alert.alert('Chat', msg);
     }
@@ -446,8 +471,11 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
 
       <SellerConsoleActionBar
         top={actionBarTop}
-        onShare={() => setShareOpen(true)}
-        onAddItem={() => console.setInventoryOpen(true)}
+        onSales={() => {
+          setSalesOpen(true);
+          void console.syncSales();
+        }}
+        salesAttentionCount={salesAttentionCount}
         onGiveaways={() => setGiveawayOpen(true)}
         onObs={() => setBroadcastOpen(true)}
         showTeamsBoard={showTeamsBoard}
@@ -473,6 +501,11 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         micMuted={host.microphoneMuted}
         micMuteDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
         onToggleMicMute={host.onToggleMicMute}
+      />
+
+      <SellerHostSideRail
+        bottom={sellerComposerBottom + COMPOSER_BAR_HEIGHT + spacing.sm}
+        onShare={() => void handleShare()}
       />
 
       <FloatingLiveChat
@@ -692,7 +725,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         onRemove={console.onRemove}
         onReorder={console.onReorder}
         onEditPricing={(item) => console.openPricingEditor(item)}
-        onAddItem={() => console.setInventoryOpen(true)}
+        onAddItem={() => {
+          setQueueOpen(false);
+          console.setInventoryOpen(true);
+        }}
       />
 
       <SellerLiveGiveawaySheet
@@ -706,6 +742,22 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
           await console.refreshConsole();
         }}
         onBusyChange={setGiveawayBusy}
+        onToast={(msg) => {
+          setShareToast(msg);
+          setTimeout(() => setShareToast(null), 2200);
+        }}
+      />
+
+      <SellerLiveSalesSheet
+        visible={salesOpen}
+        onClose={() => setSalesOpen(false)}
+        accessToken={accessToken}
+        roomId={roomId}
+        recentSales={console.recentSales}
+        paymentFailures={console.paymentFailures}
+        onRefresh={async () => {
+          await console.syncSales();
+        }}
         onToast={(msg) => {
           setShareToast(msg);
           setTimeout(() => setShareToast(null), 2200);
@@ -729,19 +781,6 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         hasIngest={Boolean(host.serverUrl)}
       />
 
-      <SellerShareSheet
-        visible={shareOpen}
-        onClose={() => setShareOpen(false)}
-        publicUrl={publicUrl}
-        showTitle={streamTitle}
-        hostUsername={sellerUsername ?? undefined}
-        isLive={roomLive}
-        onToast={(msg) => {
-          setShareToast(msg);
-          setTimeout(() => setShareToast(null), 2200);
-        }}
-      />
-
       <AddInventoryModal
         visible={console.inventoryOpen}
         accessToken={accessToken}
@@ -761,7 +800,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         onClose={() => console.setPricingEditItem(null)}
         onSave={console.onSaveBreakSpots}
       />
-      <VaultRevealWheelOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
+      <VaultRevealOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
       <LiveSpotTakenCelebration celebration={spotCelebration} onDone={() => setSpotCelebration(null)} />
       <SellerBreakSpotBoardSheet
         visible={teamsBoardOpen}

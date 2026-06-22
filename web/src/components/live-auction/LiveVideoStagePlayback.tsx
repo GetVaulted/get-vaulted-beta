@@ -13,6 +13,7 @@ import {
 import { isLiveDebugEnabled, logLiveDebugEvent } from "@/lib/live-debug";
 import { logIvsWeb } from "@/lib/ivs-web-broadcast-log";
 import { isStageWebrtcEnabled, isWebRtcPlaybackSupported, useStageSubscribe } from "@/hooks/useStageSubscribe";
+import type { LiveRoomStatus } from "@/generated/prisma/client";
 import {
   formatScheduledStartLong,
   getCountdownParts,
@@ -25,6 +26,8 @@ type LiveVideoStagePlaybackProps = {
   liveRoomId: string;
   /** Room lifecycle from app (scheduled vs live) — copy only; stream health drives video. */
   roomLifecycleLive: boolean;
+  /** DB room status — keeps pre-live countdown visible before the host goes live. */
+  roomStatus?: LiveRoomStatus;
   /** Signed-in viewer — guests skip WebRTC and use HLS fallback immediately. */
   viewerAuthenticated?: boolean;
   /** Incremented on `stream_status` / reconnect so the player refetches buyer-safe stream info. */
@@ -171,6 +174,7 @@ const PORTRAIT_LIVE_PLATE =
 export function LiveVideoStagePlayback({
   liveRoomId,
   roomLifecycleLive,
+  roomStatus,
   viewerAuthenticated = false,
   streamPlaybackRefreshNonce,
   scheduledStartAt = null,
@@ -668,7 +672,14 @@ export function LiveVideoStagePlayback({
 
   const showVideoLayer = transport === "webrtc" || Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
   const showPlaybackErrorCenter = surface === "error" && roomLifecycleLive;
-  const showStandbyCenter = streamPaused && roomLifecycleLive || !showVideoLayer || showPlaybackErrorCenter;
+  /** Match mobile LiveStagePlayback: scheduled rooms always show countdown/date overlay, even when a stale HLS URL exists. */
+  const showPreLiveScheduleOverlay = !roomLifecycleLive && roomStatus !== "ended";
+  const showStandbyCenter =
+    (streamPaused && roomLifecycleLive) ||
+    !showVideoLayer ||
+    showPlaybackErrorCenter ||
+    showPreLiveScheduleOverlay ||
+    roomStatus === "ended";
   /**
    * Show the host-uploaded thumbnail as a placeholder behind the standby/countdown
    * content whenever the live video isn't actually painting frames yet (pre-live,
@@ -755,8 +766,14 @@ export function LiveVideoStagePlayback({
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-black/25" aria-hidden />
 
       {showStandbyCenter ? (
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-4 text-center sm:px-8">
-          {showPlaybackErrorCenter ? (
+        <div className="pointer-events-none absolute inset-0 z-[3] flex flex-col items-center justify-center bg-black/35 px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-4 text-center sm:px-8">
+          {roomStatus === "ended" ? (
+            <div className="max-w-md space-y-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.28em] text-gold-bright/90">Vaulted Live</p>
+              <p className="text-base font-semibold tracking-tight text-zinc-100">Show ended</p>
+              <p className="text-sm leading-relaxed text-zinc-500">This live show has ended.</p>
+            </div>
+          ) : showPlaybackErrorCenter ? (
             <div className="max-w-md space-y-3">
               <p className="text-[10px] font-black uppercase tracking-[0.28em] text-gold-bright/90">Vaulted Live</p>
               <p className="text-base font-semibold tracking-tight text-zinc-100">We couldn’t load the stream right now.</p>

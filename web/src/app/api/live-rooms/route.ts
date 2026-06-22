@@ -19,6 +19,7 @@ import {
   seedPlatformShippingProfiles,
 } from "@/services/shipping/platform-shipping-profiles";
 import { isPublicDiscoveryLiveRoom } from "@/lib/live-room-public-discovery";
+import { buildWeeklyRecurringScheduleDates } from "@/lib/live-room-recurring-schedule";
 
 const ROOM_TYPES: LiveRoomType[] = ["auction", "sale", "break"];
 
@@ -218,6 +219,8 @@ type PostBody = {
   shippingCapCents?: number | null;
   freeShippingEnabled?: boolean;
   sellerPaysOverCap?: boolean;
+  /** When true with scheduledStartAt, creates weekly shows through 30 days. */
+  recurringEnabled?: boolean;
 };
 
 function peekBearerJwtSub(req: Request): string | null {
@@ -451,34 +454,108 @@ export async function POST(req: Request) {
   }
   logCreate("preflight_ok", { sellerUserId: sellerRow.id, sellerEmailDomain: sellerRow.email?.split("@")[1] ?? null });
 
-  try {
-    if (rt === "break") {
-      const created = await prisma.$transaction(async (tx) => {
-        const r = await tx.liveRoom.create({
-          data: roomData,
-          select: { id: true },
-        });
-        await tx.liveRoomTeamBoard.create({
-          data: {
-            liveRoomId: r.id,
-            league: teamBoardLeague,
-            visible: teamSelectionBoardEnabled,
-          },
-        });
-        return r;
-      });
-      logCreate("created_break", { id: created.id });
-      emitLiveDiscoveryChanged({ roomId: created.id, status: "scheduled", reason: "created" });
-      return NextResponse.json({ id: created.id });
+  const recurringEnabled = body.recurringEnabled === true;
+
+  if (recurringEnabled && !scheduledStartAt) {
+    return NextResponse.json(
+      { error: "Recurring shows require a scheduled start date and time.", code: "RECURRING_REQUIRES_SCHEDULE" },
+      { status: 400 },
+    );
+  }
+
+  if (!recurringEnabled) {
+    const recentDuplicate = await prisma.liveRoom.findFirst({
+      where: {
+        sellerId,
+        title: title.slice(0, 200),
+        createdAt: { gte: new Date(Date.now() - 120_000) },
+      },
+      select: { id: true },
+      orderBy: { createdAt: "desc" },
+    });
+    if (recentDuplicate) {
+      return NextResponse.json({ id: recentDuplicate.id, duplicate: true });
     }
 
-    const room = await prisma.liveRoom.create({
-      data: roomData,
-      select: { id: true },
+    const activeCount = await prisma.liveRoom.count({
+      where: { sellerId, status: { in: ["scheduled", "live"] } },
     });
-    logCreate("created", { id: room.id });
-    emitLiveDiscoveryChanged({ roomId: room.id, status: "scheduled", reason: "created" });
-    return NextResponse.json({ id: room.id });
+    if (activeCount >= 1) {
+      return NextResponse.json(
+        {
+          error:
+            "You already have an upcoming or live show. Finish or end it before creating another—or turn on Repeat weekly when scheduling.",
+          code: "LIVE_ROOM_LIMIT",
+        },
+        { status: 409 },
+      );
+    }
+  } else {
+    const activeCount = await prisma.liveRoom.count({
+      where: { sellerId, status: { in: ["scheduled", "live"] } },
+    });
+    if (activeCount >= 1) {
+      return NextResponse.json(
+        {
+          error: "Finish your current upcoming or live show before creating a recurring series.",
+          code: "LIVE_ROOM_LIMIT",
+        },
+        { status: 409 },
+      );
+    }
+  }
+
+  const scheduleSlots: (Date | null)[] =
+    recurringEnabled && scheduledStartAt
+      ? buildWeeklyRecurringScheduleDates(scheduledStartAt)
+      : [scheduledStartAt];
+
+  if (recurringEnabled && scheduleSlots.length === 0) {
+    return NextResponse.json(
+      { error: "No recurring dates fall within the next month.", code: "RECURRING_EMPTY" },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const createdIds: string[] = [];
+
+    for (const slot of scheduleSlots) {
+      const slotRoomData = { ...roomData, scheduledStartAt: slot };
+
+      if (rt === "break") {
+        const created = await prisma.$transaction(async (tx) => {
+          const r = await tx.liveRoom.create({
+            data: slotRoomData,
+            select: { id: true },
+          });
+          await tx.liveRoomTeamBoard.create({
+            data: {
+              liveRoomId: r.id,
+              league: teamBoardLeague,
+              visible: teamSelectionBoardEnabled,
+            },
+          });
+          return r;
+        });
+        createdIds.push(created.id);
+        emitLiveDiscoveryChanged({ roomId: created.id, status: "scheduled", reason: "created" });
+        logCreate("created_break", { id: created.id, recurring: recurringEnabled });
+      } else {
+        const room = await prisma.liveRoom.create({
+          data: slotRoomData,
+          select: { id: true },
+        });
+        createdIds.push(room.id);
+        emitLiveDiscoveryChanged({ roomId: room.id, status: "scheduled", reason: "created" });
+        logCreate("created", { id: room.id, recurring: recurringEnabled });
+      }
+    }
+
+    return NextResponse.json({
+      id: createdIds[0],
+      ...(createdIds.length > 1 ? { recurringCount: createdIds.length, recurringIds: createdIds } : {}),
+    });
   } catch (e) {
     const prismaDto = serializePrismaClientError(e);
     const hint = prismaLiveRoomCreateHint(prismaDto);

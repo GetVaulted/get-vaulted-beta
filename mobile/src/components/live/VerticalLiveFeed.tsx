@@ -21,6 +21,7 @@ import PagerView from 'react-native-pager-view';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radii, spacing } from '../../theme';
 import { fetchLiveRoomPublicById } from '../../api/liveRoomsRepository';
+import { fetchProfileById } from '../../api/profilesRepository';
 import { fetchLiveBuyerPaymentSession } from '../../api/liveBuyerPaymentRepository';
 import { fetchSellerFollowStatus, toggleSellerFollow } from '../../api/sellerFollowRepository';
 import type { LiveStream, ChatMessage } from '../../types';
@@ -30,7 +31,7 @@ import { openLiveHostProfile, openUserProfile } from '../../navigation/openPlatf
 import { UserAvatar } from '../ui/UserAvatar';
 import { LiveAuctionSoldCelebration } from './LiveAuctionSoldCelebration';
 import { LiveSpotTakenCelebration } from './LiveSpotTakenCelebration';
-import { VaultRevealWheelOverlay } from './VaultRevealWheelOverlay';
+import { VaultRevealOverlay } from './VaultRevealOverlay';
 import { LiveGiveawaySideTab } from './LiveGiveawaySideTab';
 import {
   CHAT_ABOVE_COMPOSER_GAP,
@@ -83,7 +84,7 @@ import {
   type LiveStageContainer,
 } from '../../lib/liveRoomViewport';
 import { isCompactLiveRoomLayout } from '../../lib/liveRoomUiScale';
-import { buildLiveRoomShareMessage } from '../../lib/liveRoomShare';
+import { shareLiveStreamNative } from '../../lib/shareLiveRoomNative';
 
 function chatRightEdgeForWidth(layoutWidth: number): number {
   return isCompactLiveRoomLayout(layoutWidth) ? 84 : 92;
@@ -153,6 +154,7 @@ function LiveSlide({
   const [paymentRecoveryToast, setPaymentRecoveryToast] = useState<string | null>(null);
   const [modDrawerOpen, setModDrawerOpen] = useState(false);
   const [modActionMessage, setModActionMessage] = useState<ChatMessage | null>(null);
+  const [myChatSender, setMyChatSender] = useState<{ username?: string; avatarUrl?: string | null }>({});
   const chatComposerRef = useRef<MentionComposerInputHandle>(null);
 
   const leaveRoomSafely = useCallback(() => {
@@ -209,6 +211,20 @@ function LiveSlide({
     });
   }, [accessToken, isActive, showHostUserId]);
 
+  useEffect(() => {
+    if (!isActive || !userId) {
+      setMyChatSender({});
+      return;
+    }
+    void fetchProfileById(userId).then((profile) => {
+      if (!profile) return;
+      setMyChatSender({
+        username: profile.username?.trim() || profile.display_name?.trim() || undefined,
+        avatarUrl: profile.avatar_url ?? null,
+      });
+    });
+  }, [isActive, userId]);
+
   const liveChat = useLiveRoomChat({
     roomId: stream.id,
     hostUsername: stream.host.handle.replace(/^@/, '') || stream.host.name,
@@ -216,6 +232,9 @@ function LiveSlide({
     accessToken,
     enabled: isActive,
     realtimePrimary: true,
+    senderUserId: userId,
+    senderUsername: myChatSender.username,
+    senderAvatarUrl: myChatSender.avatarUrl,
   });
 
   const slowMode = useLiveChatSlowMode({
@@ -419,15 +438,16 @@ function LiveSlide({
     const t = chatDraft.trim();
     if (!t || liveChat.sending) return;
     chatComposerRef.current?.dismissSuggestions();
+    setChatDraft('');
     try {
       const ok = await liveChat.send(t);
       if (ok) {
         slowMode.recordSuccessfulSend();
-        setChatDraft('');
         chatComposerRef.current?.blur();
         Keyboard.dismiss();
       }
     } catch (e) {
+      setChatDraft(t);
       const msg = e instanceof Error ? e.message : String(e);
       slowMode.syncFromSendError(msg);
       moderation.handleRestrictionError(msg);
@@ -458,14 +478,9 @@ function LiveSlide({
   };
 
   const shareRoom = async () => {
-    const { title, message, url } = buildLiveRoomShareMessage(stream);
     try {
-      await Share.share({
-        title,
-        message,
-        url: Platform.OS === 'ios' && url ? url : undefined,
-      });
-      if (signedIn && accessToken) {
+      const shared = await shareLiveStreamNative(stream);
+      if (shared && signedIn && accessToken) {
         void liveChat.announceShare();
       }
     } catch {
@@ -508,7 +523,7 @@ function LiveSlide({
         celebration={liveSession.spotCelebration}
         onDone={liveSession.clearSpotCelebration}
       />
-      <VaultRevealWheelOverlay
+      <VaultRevealOverlay
         spin={liveSession.vaultRevealSpin}
         onDismiss={liveSession.clearVaultRevealSpin}
       />

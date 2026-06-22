@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import {
   Image,
   Platform,
@@ -8,8 +8,6 @@ import {
   StyleSheet,
   Text,
   View,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
 } from 'react-native';
 import { colors, radii, spacing } from '../../theme';
 import {
@@ -20,7 +18,7 @@ import {
   formatChatDisplayName,
   formatViewerEventName,
   isViewerEventMessage,
-  prepareChatMessageHistory,
+  prepareFloatingChatDisplay,
 } from '../../lib/liveRoomChatMessages';
 import { liveChatUsernameInitial } from '../../lib/liveChatAvatar';
 import { isProtectedShowHost } from '../../lib/liveModeratorPermissions';
@@ -153,19 +151,8 @@ function FloatingChatRow({
   moderatorUserIds?: ReadonlySet<string>;
 }) {
   const isModSender = isModeratorSender(message, hostUserId, moderatorUserIds);
-  if (isViewerEventMessage(message)) {
-    const name = formatViewerEventName(message.user);
-    return (
-      <View style={[styles.eventRow]}>
-        <LiveRoomText style={styles.inlineLine} numberOfLines={2}>
-          <LiveRoomText style={[styles.username, message.isHost && styles.usernameGold]}>{name}</LiveRoomText>
-          <LiveRoomText style={styles.messageBody}> {message.text}</LiveRoomText>
-        </LiveRoomText>
-      </View>
-    );
-  }
-
-  const name = formatChatDisplayName(message.user);
+  const isEvent = isViewerEventMessage(message);
+  const name = isEvent ? formatViewerEventName(message.user) : formatChatDisplayName(message.user);
   const chatUser = { username: message.user, userId: message.senderId };
   const protectedHost = isProtectedShowHost({
     hostUserId,
@@ -197,7 +184,10 @@ function FloatingChatRow({
         isModeratorSender={isModSender}
       />
       <View style={styles.chatTextWrap}>
-        <LiveRoomText style={[styles.inlineLine, compact && styles.inlineLineCompact]} numberOfLines={3}>
+        <LiveRoomText
+          style={[styles.inlineLine, compact && styles.inlineLineCompact]}
+          numberOfLines={3}
+        >
           <LiveRoomText
             style={[
               styles.username,
@@ -210,18 +200,25 @@ function FloatingChatRow({
           </LiveRoomText>
           {message.isHost ? <LiveRoomText style={styles.hostBadgeInline}> HOST</LiveRoomText> : null}
           {isModSender ? <LiveRoomText style={styles.modBadgeInline}> MOD</LiveRoomText> : null}
-          <LiveRoomText style={styles.messageSep}>: </LiveRoomText>
-          <MentionText
-            inline
-            body={message.text}
-            mentions={message.mentions}
-            style={styles.messageBody}
-            onPressUser={
-              onPressChatUser
-                ? (userId, username) => onPressChatUser({ userId: userId || undefined, username })
-                : undefined
-            }
-          />
+          {isEvent ? (
+            <LiveRoomText style={styles.messageBody}> {message.text}</LiveRoomText>
+          ) : (
+            <>
+              <LiveRoomText style={styles.messageSep}>: </LiveRoomText>
+              <MentionText
+                inline
+                body={message.text}
+                mentions={message.mentions}
+                style={styles.messageBody}
+                mentionStyle={styles.messageMention}
+                onPressUser={
+                  onPressChatUser
+                    ? (userId, username) => onPressChatUser({ userId: userId || undefined, username })
+                    : undefined
+                }
+              />
+            </>
+          )}
         </LiveRoomText>
       </View>
       {showBuyerActions ? (
@@ -349,47 +346,30 @@ export function FloatingLiveChat({
   onPressChatUser?: (user: { username: string; userId?: string }) => void;
   moderatorUserIds?: string[];
 }) {
-  const history = useMemo(() => prepareChatMessageHistory(pool), [pool]);
+  const history = useMemo(() => prepareFloatingChatDisplay(pool, maxRows), [pool, maxRows]);
   const moderatorIdSet = useMemo(() => new Set(moderatorUserIds ?? []), [moderatorUserIds]);
   const scrollRef = useRef<ScrollView>(null);
-  const [pinnedToBottom, setPinnedToBottom] = useState(true);
+  const lastMessageId = history[history.length - 1]?.id;
 
   const rowHeight = compact ? ROW_HEIGHT_COMPACT : ROW_HEIGHT_ESTIMATE;
   const viewportHeight = Math.min(maxHeight, maxRows * rowHeight + 12);
-
-  const scrollToBottom = useCallback(
-    (animated = false) => {
-      scrollRef.current?.scrollToEnd({ animated });
-    },
-    [],
-  );
+  const scrollMaxHeight = Math.max(48, viewportHeight);
 
   useEffect(() => {
-    if (!isActive || !pinnedToBottom) return;
-    const frame = requestAnimationFrame(() => scrollToBottom(false));
+    if (!lastMessageId) return;
+    const frame = requestAnimationFrame(() => {
+      scrollRef.current?.scrollToEnd({ animated: false });
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollToEnd({ animated: false });
+      });
+    });
     return () => cancelAnimationFrame(frame);
-  }, [history.length, isActive, pinnedToBottom, scrollToBottom, streamKey]);
-
-  const onContentSizeChange = () => {
-    if (pinnedToBottom) scrollToBottom(false);
-  };
-
-  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-    const distFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
-    setPinnedToBottom(distFromBottom < 32);
-  };
+  }, [lastMessageId, streamKey]);
 
   if (!isActive) return null;
 
   const hasChat = history.length > 0;
   if (!hasChat) return null;
-
-  const scrollMaxHeight = Math.max(48, viewportHeight);
-
-  const onScrollLayout = () => {
-    if (pinnedToBottom) scrollToBottom(false);
-  };
 
   return (
     <View
@@ -398,15 +378,18 @@ export function FloatingLiveChat({
     >
       <ScrollView
         ref={scrollRef}
-        style={[styles.scrollViewport, { maxHeight: scrollMaxHeight }]}
-        contentContainerStyle={[styles.stackInner, { minHeight: scrollMaxHeight }]}
-        onScroll={onScroll}
-        onContentSizeChange={onContentSizeChange}
-        onLayout={onScrollLayout}
+        style={[styles.scrollViewport, { height: scrollMaxHeight }]}
+        contentContainerStyle={[styles.stackBottomAnchored, { minHeight: scrollMaxHeight }]}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
+        onContentSizeChange={() => {
+          scrollRef.current?.scrollToEnd({ animated: false });
+        }}
+        onLayout={() => {
+          scrollRef.current?.scrollToEnd({ animated: false });
+        }}
       >
         {history.map((m) => (
           <FloatingChatRow
@@ -530,7 +513,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     justifyContent: 'flex-end',
     alignItems: 'flex-start',
-    zIndex: 16,
+    zIndex: 18,
+    elevation: 18,
   },
   pinnedRowShell: {
     width: '100%',
@@ -609,14 +593,13 @@ const styles = StyleSheet.create({
   },
   scrollViewport: {
     width: '100%',
-    flexGrow: 0,
   },
-  stackInner: {
+  stackBottomAnchored: {
     width: '100%',
     flexGrow: 1,
     justifyContent: 'flex-end',
     alignItems: 'flex-start',
-    paddingTop: 4,
+    paddingBottom: 4,
   },
   chatRow: {
     flexDirection: 'row',
@@ -647,11 +630,11 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   inlineLine: {
-    flex: 1,
     flexShrink: 1,
     minWidth: 0,
     fontSize: 13,
     lineHeight: 17,
+    color: 'rgba(255,255,255,0.94)',
     ...TEXT_SHADOW,
   },
   inlineLineCompact: {
@@ -681,17 +664,17 @@ const styles = StyleSheet.create({
     color: colors.mod,
   },
   messageBody: {
-    fontWeight: '500',
-    color: 'rgba(255,255,255,0.92)',
-    marginLeft: 4,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    ...TEXT_SHADOW,
+  },
+  messageMention: {
+    color: colors.mention,
+    fontWeight: '800',
   },
   messageSep: {
     fontWeight: '500',
     color: 'rgba(255,255,255,0.55)',
-  },
-  eventRow: {
-    marginBottom: 6,
-    maxWidth: '100%',
   },
   composerWrap: {
     position: 'absolute',

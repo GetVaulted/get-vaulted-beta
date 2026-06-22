@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveRoomApiRow } from '../api/liveRoomsRepository';
-import { vaultEventDisplayStatus, vaultEventSection } from './vaultEventModel';
+import { vaultEventDisplayStatus, vaultEventSection, canCancelVaultEvent } from './vaultEventModel';
 
 function room(overrides: Partial<LiveRoomApiRow> = {}): LiveRoomApiRow {
   return {
@@ -45,5 +45,11 @@ describe('vaultEventModel', () => {
     const r = room({ status: 'live', viewerCount: 12 });
     expect(vaultEventDisplayStatus(r)).toBe('live');
     expect(vaultEventSection(r)).toBe('live_now');
+  });
+
+  it('allows cancel for scheduled and live API statuses only', () => {
+    expect(canCancelVaultEvent(room({ status: 'scheduled' }))).toBe(true);
+    expect(canCancelVaultEvent(room({ status: 'live' }))).toBe(true);
+    expect(canCancelVaultEvent(room({ status: 'ended' }))).toBe(false);
   });
 });

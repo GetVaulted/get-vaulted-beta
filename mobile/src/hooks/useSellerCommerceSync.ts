@@ -19,6 +19,7 @@ type Options = {
   reloadLiveReadiness?: ReloadFn;
   reloadLiveOrders?: ReloadFn;
   pollIntervalMs?: number;
+  refetchOnFocus?: boolean;
 };
 
 const REFETCH_DEBOUNCE_MS = 300;
@@ -39,6 +40,7 @@ export function useSellerHQSync({
   reloadLiveReadiness,
   reloadLiveOrders,
   pollIntervalMs,
+  refetchOnFocus = true,
 }: Options): void {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -75,7 +77,7 @@ export function useSellerHQSync({
     supabaseUserId,
     refetch: refetchAll,
     pollIntervalMs,
-    refetchOnFocus: true,
+    refetchOnFocus,
   });
 }
 

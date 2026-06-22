@@ -40,10 +40,13 @@ export async function readThroughHostConsoleCache<T>(
   const key = cacheKey(accessToken, roomId);
   if (!accessToken.trim() || !roomId.trim()) return fetchFresh();
 
-  const warm = getHostConsoleMemorySnapshot<T>(accessToken, roomId);
-  if (!opts?.force && warm) return warm;
-
-  if (inflight && inflightKey === key) return inflight as Promise<T>;
+  if (opts?.force) {
+    if (cached?.key === key) cached = null;
+  } else {
+    const warm = getHostConsoleMemorySnapshot<T>(accessToken, roomId);
+    if (warm) return warm;
+    if (inflight && inflightKey === key) return inflight as Promise<T>;
+  }
 
   inflightKey = key;
   inflight = (async () => {

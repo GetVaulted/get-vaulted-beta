@@ -21,6 +21,11 @@ export const VAULT_REVEAL_RESULT_HOLD_MS = 1600;
 export const VAULT_REVEAL_TOTAL_DISPLAY_MS =
   VAULT_REVEAL_DEFAULT_DURATION_MS + VAULT_REVEAL_RESULT_HOLD_MS;
 
+export const VAULT_SEAL_GLOW_MS = 400;
+export const VAULT_SEAL_BREAK_MS = 600;
+export const VAULT_SEAL_WINNER_HOLD_MS = 1600;
+export const VAULT_SEAL_TOTAL_MS = VAULT_SEAL_GLOW_MS + VAULT_SEAL_BREAK_MS + VAULT_SEAL_WINNER_HOLD_MS;
+
 export function landingRotationDeg(winnerIndex: number, total: number, extraSpins = 5): number {
   if (total <= 0) return 0;
   const idx = Math.max(0, Math.min(winnerIndex, total - 1));

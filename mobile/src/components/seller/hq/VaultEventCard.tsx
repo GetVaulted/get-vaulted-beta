@@ -7,6 +7,7 @@ import type { LiveRoomApiRow } from '../../../api/liveRoomsRepository';
 import { mapListingCategoryToCategoryId } from '../../../api/listingsFeedRepository';
 import { formatLiveRoomCategoryLabel } from '../../../lib/liveRoomDisplay';
 import {
+  canCancelVaultEvent,
   formatEventWhen,
   primaryCta,
   statusLabel,
@@ -27,16 +28,21 @@ export function VaultEventCard({
   sellerAvatarUrl,
   onPress,
   onPrimaryAction,
+  onCancel,
+  cancelBusy,
 }: {
   room: LiveRoomApiRow;
   displayStatus: VaultEventDisplayStatus;
   sellerAvatarUrl?: string | null;
   onPress: () => void;
   onPrimaryAction: () => void;
+  onCancel?: () => void;
+  cancelBusy?: boolean;
 }) {
   const pulse = useRef(new Animated.Value(0.4)).current;
   const isLive = displayStatus === 'live';
   const cta = primaryCta(displayStatus);
+  const showCancel = Boolean(onCancel && canCancelVaultEvent(room));
   const cover = room.thumbnailUrl?.trim() || FALLBACK_COVER;
   const categoryLabel = formatLiveRoomCategoryLabel(
     room.category,
@@ -114,16 +120,32 @@ export function VaultEventCard({
         ) : (
           <View style={styles.ctaAndroid} />
         )}
-        <Pressable
-          style={styles.ctaBtn}
-          onPress={(e) => {
-            e.stopPropagation?.();
-            onPrimaryAction();
-          }}
-        >
-          <Text style={styles.ctaTxt}>{cta.label}</Text>
-          <Ionicons name="chevron-forward" size={16} color={colors.gold} />
-        </Pressable>
+        <View style={styles.ctaBtnRow}>
+          <Pressable
+            style={[styles.ctaBtn, showCancel && styles.ctaBtnSplit]}
+            onPress={(e) => {
+              e.stopPropagation?.();
+              onPrimaryAction();
+            }}
+          >
+            <Text style={styles.ctaTxt}>{cta.label}</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.gold} />
+          </Pressable>
+          {showCancel ? (
+            <Pressable
+              style={[styles.cancelBtn, cancelBusy && styles.cancelBtnBusy]}
+              disabled={cancelBusy}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                onCancel?.();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={isLive ? 'End show' : 'Cancel show'}
+            >
+              <Text style={styles.cancelTxt}>{isLive ? 'End show' : 'Cancel'}</Text>
+            </Pressable>
+          ) : null}
+        </View>
       </View>
     </Pressable>
   );
@@ -232,13 +254,31 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(212,175,55,0.35)',
   },
   ctaAndroid: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(8,8,10,0.88)' },
+  ctaBtnRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    zIndex: 1,
+  },
   ctaBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 11,
-    zIndex: 1,
+  },
+  ctaBtnSplit: {
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderRightColor: 'rgba(212,175,55,0.25)',
   },
   ctaTxt: { fontSize: 13, fontWeight: '800', color: colors.gold },
+  cancelBtn: {
+    minWidth: 88,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+  cancelBtnBusy: { opacity: 0.45 },
+  cancelTxt: { fontSize: 12, fontWeight: '800', color: '#fca5a5' },
 });

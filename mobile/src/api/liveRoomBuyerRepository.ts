@@ -50,6 +50,7 @@ export type LiveRoomBuyerSnapshot = {
   activeItemTitle?: string | null;
   activeItemImageUrl?: string | null;
   activeItemSalesFormat?: LiveItemSalesFormat | null;
+  activeItemListingId?: string | null;
   activeItemVariantAssignmentMode?: 'pick' | 'random' | null;
   activeItemVariants?: LiveItemVariantSnapshot[];
   biddingOpen: boolean;
@@ -61,6 +62,8 @@ export type LiveRoomBuyerSnapshot = {
   fetchedAtMs: number;
   /** Server time from GET response (timer sync). */
   serverNowMs?: number;
+  /** Monotonic auction event counter from GET (bid_placed dedupe seed). */
+  auctionEventSeq?: number;
   /** Break rooms — from API `room.break` when present. */
   breakPhase?: 'not_started' | 'filling' | 'randomizing' | 'ready' | 'in_progress' | 'complete' | null;
   breakLockPurchases?: boolean;
@@ -217,6 +220,7 @@ export async function fetchLiveRoomBuyerSnapshot(
     room?: {
       status?: string;
       roomType?: string;
+      auctionEventSeq?: number;
       buyerLiveBidPaymentReady?: boolean;
       buyerLiveShippingReady?: boolean;
       buyerUnresolvedPaymentFailure?: unknown;
@@ -226,6 +230,7 @@ export async function fetchLiveRoomBuyerSnapshot(
         displayTitle?: string;
         imageUrl?: string | null;
         salesFormat?: string;
+        listingId?: string | null;
         status?: string;
         biddingOpen?: boolean;
         currentBidUsd?: number | null;
@@ -317,6 +322,7 @@ export async function fetchLiveRoomBuyerSnapshot(
     activeItemTitle: activeTitle,
     activeItemImageUrl: typeof active?.imageUrl === 'string' ? active.imageUrl : null,
     activeItemSalesFormat: activeSalesFormat,
+    activeItemListingId: typeof active?.listingId === 'string' ? active.listingId.trim() || null : null,
     activeItemVariantAssignmentMode:
       active?.variantAssignmentMode === 'random' ? 'random' : active ? 'pick' : null,
     activeItemVariants: activeVariants.length > 0 ? activeVariants : undefined,
@@ -340,6 +346,10 @@ export async function fetchLiveRoomBuyerSnapshot(
     unresolvedPaymentFailure: parsePaymentFailure(detail?.buyerUnresolvedPaymentFailure),
     giveaways: parseViewerGiveaways(detail?.giveaways),
     lineupItems,
+    auctionEventSeq:
+      typeof detail?.auctionEventSeq === 'number' && Number.isFinite(detail.auctionEventSeq)
+        ? Math.max(0, Math.floor(detail.auctionEventSeq))
+        : undefined,
   };
   logBuyerRoomStateSnapshot('fetch', snapshot);
   return snapshot;

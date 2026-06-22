@@ -2,6 +2,7 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { useStripe } from '@stripe/stripe-react-native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -22,6 +23,8 @@ import {
   placeLiveRoomBid,
   type LiveRoomBuyerSnapshot,
 } from '../../api/liveRoomBuyerRepository';
+import { fetchLiveBuyerPaymentSession } from '../../api/liveBuyerPaymentRepository';
+import { purchaseLiveBuyNow, syncLiveBuyNowPurchase } from '../../api/liveBuyNowRepository';
 import {
   isWalletIncompleteError,
   isWalletIncompleteReadiness,
@@ -32,7 +35,8 @@ import {
   LIVE_AUCTION_BUYER_NOT_STARTED_COPY,
   LIVE_AUCTION_BUYER_TIMER_ENDED_COPY,
 } from '../../lib/liveAuctionLotPhase';
-import { logLiveBidButtonPress, mustUseLiveBidFlow } from '../../lib/liveCommerceRouting';
+import { logLiveBidButtonPress, mustUseLiveBidFlow, isActiveBuyNowBuyerItem } from '../../lib/liveCommerceRouting';
+import { mapLivePaymentFailureMessage } from '../../lib/livePaymentFailureCopy';
 import { logBidControl } from '../../lib/bidControlLog';
 import { openWebCommerceUrl, webLiveRoomUrl } from '../../lib/openWebCommerce';
 import { logLiveBidBlocked, logWalletSheet } from '../wallet/walletSheetKeyboard';
@@ -259,7 +263,9 @@ export function LivePinnedActionBar({
     bottomRightIsSlide: m.bottomRightIsSlide,
     bottomRightLabel: m.bottomRightLabel,
   });
+  const useLiveBuyNowFlow = isActiveBuyNowBuyerItem(roomSnap);
   const variantItemActive = isActiveVariantBuyerItem(roomSnap);
+  const { confirmPayment } = useStripe();
   const walletReady = useMemo(() => {
     const fromSnap = walletReadinessFromSnapshot(roomSnap);
     const r = walletReadiness ?? fromSnap;
@@ -532,6 +538,139 @@ export function LivePinnedActionBar({
     mergeBidAck,
   ]);
 
+  const tryPurchaseLiveBuyNow = useCallback(async () => {
+    if (!accessToken) {
+      onRequireAuth?.();
+      return;
+    }
+    if (participationBlocked) {
+      Alert.alert('Accept notice', 'Accept the live break notice before buying.');
+      return;
+    }
+    if (bidInFlightRef.current || bidBusy) return;
+
+    bidInFlightRef.current = true;
+    setBidBusy(true);
+    let openedWallet = false;
+    try {
+      const snap = roomSnap ?? (await refreshRoomSnapshot());
+      if (!snap?.activeItemId) {
+        Alert.alert('Nothing to buy', 'No item is live right now.');
+        return;
+      }
+      if (snap.roomType !== 'sale') {
+        Alert.alert('Not available', 'Buy now is only available in sale rooms.');
+        return;
+      }
+      if (snap.status !== 'live') {
+        Alert.alert('Not live', 'This show is not live yet.');
+        return;
+      }
+      if (!snap.activeItemListingId?.trim()) {
+        Alert.alert(
+          'Checkout unavailable',
+          'This item is not linked to checkout yet. Ask the host in chat or open the live room in your browser.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open live room', onPress: openFullLiveRoom },
+          ],
+        );
+        return;
+      }
+      const walletFromSnap = walletReadinessFromSnapshot(snap);
+      if (walletFromSnap && isWalletIncompleteReadiness(walletFromSnap)) {
+        openedWallet = openWalletSetup('precheck_incomplete', walletFromSnap);
+        return;
+      }
+      const paymentSession = await fetchLiveBuyerPaymentSession(accessToken, stream.id);
+      const res = await purchaseLiveBuyNow({
+        accessToken,
+        liveRoomId: stream.id,
+        itemId: snap.activeItemId,
+        paymentMethodId: paymentSession?.activePaymentMethodId ?? undefined,
+      });
+      if (!res.ok) {
+        if (res.walletIncomplete) {
+          if (!walletOverlayOpenRef.current && !walletSheetOpen) {
+            openedWallet = openWalletSetup('api_402');
+          }
+          return;
+        }
+        Alert.alert(
+          'Could not complete purchase',
+          mapLivePaymentFailureMessage(res.error, res.code) + (res.paymentFailed ? ' Item was not sold.' : ''),
+        );
+        if (res.paymentFailed) void refreshRoomSnapshot();
+        return;
+      }
+      if ('paid' in res) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        void refreshRoomSnapshot();
+        return;
+      }
+      if ('requiresAction' in res) {
+        const conf = await confirmPayment(res.clientSecret, { paymentMethodType: 'Card' });
+        if (conf.error) {
+          Alert.alert('Payment verification failed', mapLivePaymentFailureMessage(conf.error.message, conf.error.code));
+          return;
+        }
+        const synced = await syncLiveBuyNowPurchase({
+          accessToken,
+          liveRoomId: stream.id,
+          itemId: snap.activeItemId,
+          orderId: res.orderId,
+        });
+        if (synced.ok && 'paid' in synced) {
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+          void refreshRoomSnapshot();
+          return;
+        }
+        Alert.alert(
+          'Payment processing',
+          !synced.ok
+            ? mapLivePaymentFailureMessage(synced.error, synced.code)
+            : 'Payment is still processing — pull to refresh the room.',
+        );
+        return;
+      }
+      if ('processing' in res) {
+        Alert.alert('Payment processing', 'Your payment is processing — pull to refresh the room.');
+        void refreshRoomSnapshot();
+      }
+    } catch (e) {
+      if (isWalletIncompleteError(e)) {
+        if (!walletOverlayOpenRef.current && !walletSheetOpen) {
+          openedWallet = openWalletSetup('api_402', {
+            paymentReady: e.paymentReady,
+            shippingReady: e.shippingReady,
+          });
+        }
+        return;
+      }
+      Alert.alert('Could not complete purchase', e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      if (!openedWallet && !walletOverlayOpenRef.current) {
+        resetBidControl('buy_now_complete');
+      } else if (openedWallet) {
+        bidInFlightRef.current = false;
+        setBidBusy(false);
+      }
+    }
+  }, [
+    accessToken,
+    bidBusy,
+    confirmPayment,
+    onRequireAuth,
+    openFullLiveRoom,
+    openWalletSetup,
+    participationBlocked,
+    refreshRoomSnapshot,
+    resetBidControl,
+    roomSnap,
+    stream.id,
+    walletSheetOpen,
+  ]);
+
   const runPrimaryLiveCommerceAction = useCallback(() => {
     if (staffCommerceBlocked) {
       Alert.alert(
@@ -562,6 +701,11 @@ export function LivePinnedActionBar({
       return;
     }
 
+    if (useLiveBuyNowFlow) {
+      void tryPurchaseLiveBuyNow();
+      return;
+    }
+
     if (useLiveAuctionBidFlow) {
       void tryPlaceLiveBid();
       return;
@@ -582,6 +726,8 @@ export function LivePinnedActionBar({
     stream.id,
     staffCommerceBlocked,
     tryPlaceLiveBid,
+    tryPurchaseLiveBuyNow,
+    useLiveBuyNowFlow,
     variantItemActive,
     useLiveAuctionBidFlow,
     walletSheetOpen,
@@ -734,7 +880,11 @@ export function LivePinnedActionBar({
                 accessibilityLabel={m.bottomRightLabel}
               >
                 <LinearGradient
-                  colors={['#D946EF', '#8B5CF6', '#6366F1']}
+                  colors={
+                    useLiveBuyNowFlow
+                      ? ['#E8C872', '#D4AF37', '#B8860B']
+                      : ['#D946EF', '#8B5CF6', '#6366F1']
+                  }
                   start={{ x: 0, y: 0.5 }}
                   end={{ x: 1, y: 0.5 }}
                   style={[
@@ -750,6 +900,7 @@ export function LivePinnedActionBar({
                       style={[
                         styles.ctaBidText,
                         { fontSize: hudFs(11) },
+                        useLiveBuyNowFlow && styles.ctaBuyNowText,
                         (primaryDisabled || bidBusy) && styles.ctaDisabledText,
                       ]}
                       numberOfLines={1}
@@ -976,6 +1127,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 0.4,
     textTransform: 'uppercase',
+  },
+  ctaBuyNowText: {
+    color: '#18181b',
   },
   ctaGold: {
     flex: 1,

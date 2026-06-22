@@ -60,6 +60,17 @@ describe('mustUseLiveBidFlow', () => {
     );
   });
 
+  it('false when sale room has plain buy-now item', () => {
+    const snap = {
+      roomType: 'sale',
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemListingId: 'listing-1',
+      priceUsd: 99,
+    } as LiveRoomBuyerSnapshot;
+    expect(mustUseLiveBidFlow(stream(), snap)).toBe(false);
+  });
+
   it('false when active item is variant/team break spot selection', () => {
     const snap = {
       roomType: 'sale',

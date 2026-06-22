@@ -10,7 +10,7 @@ import { TeamBoardOverlay } from "@/components/team-board/TeamBoardOverlay";
 import { LiveSellerCommandCenter } from "@/components/break-host/LiveSellerCommandCenter";
 import { LiveAuctionSoldCelebration } from "@/components/live-auction/LiveAuctionSoldCelebration";
 import { LiveSpotTakenCelebration } from "@/components/live-auction/LiveSpotTakenCelebration";
-import { VaultRevealWheelOverlay } from "@/components/live-auction/VaultRevealWheelOverlay";
+import { VaultRevealOverlay } from "@/components/live-auction/VaultRevealOverlay";
 import { VaultHostAnnouncements } from "@/components/break-host/vault/VaultHostAnnouncements";
 import { VaultHostLiveChatPanel } from "@/components/break-host/vault/VaultHostLiveChatPanel";
 import { VaultHostStageEdgeRail } from "@/components/break-host/vault/VaultHostStageEdgeRail";
@@ -59,7 +59,7 @@ import { SellerConsoleActionBar } from "@/components/seller/SellerConsoleActionB
 import { SellerConsoleInventoryRail } from "@/components/seller/SellerConsoleInventoryRail";
 import { SellerConsoleStatsPanel } from "@/components/seller/SellerConsoleStatsPanel";
 import { SellerGoLiveSetupPanel } from "@/components/seller/SellerGoLiveSetupPanel";
-import { SellerShareSheet } from "@/components/seller/SellerShareSheet";
+import { shareLiveRoomNative } from "@/lib/share-live-room-native";
 import { useHostStagePublish } from "@/hooks/useHostStagePublish";
 import { logIvsWeb } from "@/lib/ivs-web-broadcast-log";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
@@ -238,7 +238,6 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
   const [queueAddModal, setQueueAddModal] = useState<SellerQueueAddModalMode>(null);
   const [obsSetupModalOpen, setObsSetupModalOpen] = useState(false);
-  const [shareSheetOpen, setShareSheetOpen] = useState(false);
 
   const [teamBoardData, setTeamBoardData] = useState<TeamBoardPublicPayload | null>(null);
   const [teamBoardBusy, setTeamBoardBusy] = useState(false);
@@ -1411,6 +1410,27 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     }
   };
 
+  const handleShareRoom = useCallback(async () => {
+    if (!data?.room) return;
+    const showTitle = data.room.breakDisplayTitle || data.room.title;
+    const hostUsername =
+      session?.user?.username?.trim() ||
+      session?.user?.name?.trim() ||
+      session?.user?.email?.split("@")[0]?.trim() ||
+      "Host";
+    try {
+      const ok = await shareLiveRoomNative({
+        roomId,
+        showTitle,
+        hostUsername,
+        isLive: data.room.status === "live",
+      });
+      if (ok) setToast("Shared.");
+    } catch {
+      setToast("Could not share right now.");
+    }
+  }, [data, roomId, session?.user?.email, session?.user?.name, session?.user?.username]);
+
   const toggleStreamPreviewMute = useCallback(() => {
     setStreamPreviewMuted((prev) => {
       const next = !prev;
@@ -1472,7 +1492,6 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
    */
   const handleGoLive = useCallback(() => {
     setVaultCommandOpen(false);
-    setShareSheetOpen(false);
     goLivePatchRequestedRef.current = true;
     void webcamBroadcast.start();
     void patchRoom("start");
@@ -2110,7 +2129,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         disabled={busy}
         muted={streamPreviewMuted}
         onToggleMute={toggleStreamPreviewMute}
-        onShare={() => void copyPublic()}
+        onShare={() => void handleShareRoom()}
         onOpenCommandCenter={() => setVaultCommandOpen(true)}
         onOpenObs={() => setObsSetupModalOpen(true)}
       />
@@ -2214,7 +2233,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         {/* Desktop — 3-column command center (lineup | 9:16 stage | stats + chat) */}
         <div className="relative hidden min-h-0 flex-1 flex-col overflow-hidden min-[1400px]:flex">
           <SellerConsoleActionBar
-            onShare={() => setShareSheetOpen(true)}
+            onShare={() => void handleShareRoom()}
             onAddItem={() => setQueueAddModal("auction")}
             onObs={() => setObsSetupModalOpen(true)}
             broadcastPhase={webcamBroadcast.phase}
@@ -2281,7 +2300,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         {/* Mobile / tablet — stage + floating controls */}
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-950/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[1400px]:hidden">
           <SellerConsoleActionBar
-            onShare={() => setShareSheetOpen(true)}
+            onShare={() => void handleShareRoom()}
             onAddItem={() => setQueueAddModal("auction")}
             onOpenLineup={() => setHostLineupOpen((open) => !open)}
             lineupCount={lineupCount}
@@ -2389,16 +2408,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
       <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
       <LiveSpotTakenCelebration celebration={spotCelebration} onDone={() => setSpotCelebration(null)} />
-      <VaultRevealWheelOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
-
-      <SellerShareSheet
-        open={shareSheetOpen}
-        onClose={() => setShareSheetOpen(false)}
-        publicUrl={publicUrl}
-        showTitle={streamTitle}
-        hostUsername={hostUsername}
-        onToast={(msg) => setToast(msg)}
-      />
+      <VaultRevealOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
 
       {obsSetupModalOpen ? (
         <div

@@ -139,13 +139,14 @@ export type CreateLiveRoomInput = {
   shippingCapCents?: number | null;
   freeShippingEnabled?: boolean;
   sellerPaysOverCap?: boolean;
+  recurringEnabled?: boolean;
 };
 
 export async function createLiveRoom(
   accessToken: string,
   input: CreateLiveRoomInput,
   logContext?: { sellerUserId?: string | null },
-): Promise<{ id: string }> {
+): Promise<{ id: string; recurringCount?: number }> {
   const body = buildCreateLiveRoomPayload({
     ...input,
     category: input.category?.trim() || 'Other',
@@ -177,7 +178,7 @@ export async function createLiveRoom(
   });
 
   const rawText = await res.text();
-  let j: { id?: string; error?: string; code?: string; issues?: string[]; detail?: string } = {};
+  let j: { id?: string; error?: string; code?: string; issues?: string[]; detail?: string; recurringCount?: number } = {};
   if (rawText) {
     try {
       j = JSON.parse(rawText) as typeof j;
@@ -238,7 +239,7 @@ export async function createLiveRoom(
     sellerId,
     userId: sellerId,
   });
-  return { id: j.id };
+  return { id: j.id, recurringCount: typeof j.recurringCount === 'number' ? j.recurringCount : undefined };
 }
 
 export async function fetchLiveRoomsPublic(limit = 80): Promise<LiveRoomApiRow[]> {

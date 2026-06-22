@@ -182,6 +182,8 @@ export function SellerLivePage() {
   const [breakSpotPrice, setBreakSpotPrice] = useState("");
   const [teamBoardEnabled, setTeamBoardEnabled] = useState(true);
   const [scheduleMode, setScheduleMode] = useState<"now" | "later">("now");
+  const [recurringWeekly, setRecurringWeekly] = useState(false);
+  const createSubmittingRef = useRef(false);
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleHour, setScheduleHour] = useState("");
   const [scheduleMinute, setScheduleMinute] = useState("");
@@ -508,10 +510,12 @@ export function SellerLivePage() {
 
   const createRoom = async () => {
     logCreateLiveRoom("submit clicked", { scheduleMode, roomType, titleLen: title.trim().length });
+    if (createSubmittingRef.current || busy) return;
     if (!title.trim()) {
       setCreateError("Enter a show title before creating a room.");
       return;
     }
+    createSubmittingRef.current = true;
     setCreateError(null);
     setBusy(true);
     try {
@@ -570,6 +574,9 @@ export function SellerLivePage() {
       body.shippingCapCents = createShipping.shippingCapCents;
       body.freeShippingEnabled = createShipping.freeShippingEnabled;
       body.sellerPaysOverCap = createShipping.sellerPaysOverCap;
+      if (scheduleMode === "later" && recurringWeekly) {
+        body.recurringEnabled = true;
+      }
 
       logCreateLiveRoom("POST /api/live-rooms payload", { body });
 
@@ -586,6 +593,7 @@ export function SellerLivePage() {
         code?: string;
         detail?: string;
         hint?: string;
+        recurringCount?: number;
         prisma?: { name: string; code?: string; message: string; meta?: unknown };
       } = {};
       try {
@@ -632,7 +640,12 @@ export function SellerLivePage() {
 
       const goLater = Boolean(scheduledStartAtIso);
       const sellerConsolePath = `/seller/live/${encodeURIComponent(j.id)}/console`;
-      logCreateLiveRoom("created", { id: j.id, goLater, routerPush: goLater ? null : sellerConsolePath });
+      logCreateLiveRoom("created", {
+        id: j.id,
+        goLater,
+        recurringCount: j.recurringCount ?? null,
+        routerPush: goLater ? null : sellerConsolePath,
+      });
 
       setTitle("");
       setDescription("");
@@ -642,6 +655,7 @@ export function SellerLivePage() {
       setBreakSpotPrice("");
       setTeamBoardEnabled(true);
       setScheduleMode("now");
+      setRecurringWeekly(false);
       setScheduleDate("");
       setScheduleHour("");
       setScheduleMinute("");
@@ -661,6 +675,7 @@ export function SellerLivePage() {
         router.push(sellerConsolePath);
       }
     } finally {
+      createSubmittingRef.current = false;
       setBusy(false);
     }
   };
@@ -1299,6 +1314,23 @@ export function SellerLivePage() {
                         Start times are limited to 15-minute slots. Your room stays scheduled until you start it from
                         Manage below.
                       </p>
+                      <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-white/[0.08] bg-black/30 p-4">
+                        <input
+                          type="checkbox"
+                          checked={recurringWeekly}
+                          onChange={(e) => {
+                            setCreateError(null);
+                            setRecurringWeekly(e.target.checked);
+                          }}
+                          className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/50 accent-[#facc15]"
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold text-zinc-200">Repeat weekly</span>
+                          <span className="mt-1 block text-xs leading-relaxed text-zinc-500">
+                            Schedule the same show every week for up to one month.
+                          </span>
+                        </span>
+                      </label>
                     </div>
                   ) : (
                     <p className="mt-3 text-sm text-zinc-500">

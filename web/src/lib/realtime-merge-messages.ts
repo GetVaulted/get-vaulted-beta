@@ -18,5 +18,12 @@ export function appendLiveRoomMessageDedupe(
   next: LiveRoomMessageDTO,
 ): LiveRoomMessageDTO[] {
   if (prev.some((m) => m.id === next.id)) return prev;
-  return [...prev, next].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const createdAt =
+    next.createdAt?.trim() ||
+    prev.find((m) => m.id === next.id)?.createdAt ||
+    new Date().toISOString();
+  const normalized = createdAt === next.createdAt ? next : { ...next, createdAt };
+  return dedupeViewerJoinChatMessages(
+    [...prev, normalized].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+  );
 }

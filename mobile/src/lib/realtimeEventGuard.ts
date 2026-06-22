@@ -24,11 +24,23 @@ function pruneSeen(state: GuardState, now: number) {
   }
 }
 
+export function syncAuctionSeqGuard(state: GuardState, seq: number | null | undefined): void {
+  if (typeof seq !== 'number' || !Number.isFinite(seq)) return;
+  state.lastAuctionSeq = Math.max(state.lastAuctionSeq, Math.floor(seq));
+}
+
+/** True when auctionSeq jumped — caller should reconcile snapshot. */
+export function auctionSeqGapDetected(state: GuardState, seq: number): boolean {
+  const next = Math.floor(seq);
+  return next > state.lastAuctionSeq + 1;
+}
+
 /** Returns false when the event should be ignored (duplicate or stale). */
 export function shouldProcessRealtimeEvent(
   state: GuardState,
   type: string,
   payload: RoomBroadcastPayload | undefined,
+  opts?: { onAuctionSeqGap?: () => void },
 ): boolean {
   const now = Date.now();
   pruneSeen(state, now);
@@ -41,8 +53,10 @@ export function shouldProcessRealtimeEvent(
   }
 
   if (type === 'bid_placed' && typeof payload?.auctionSeq === 'number') {
-    if (payload.auctionSeq <= state.lastAuctionSeq) return false;
-    state.lastAuctionSeq = payload.auctionSeq;
+    const seq = Math.floor(payload.auctionSeq);
+    if (seq <= state.lastAuctionSeq) return false;
+    if (auctionSeqGapDetected(state, seq)) opts?.onAuctionSeqGap?.();
+    state.lastAuctionSeq = seq;
     return true;
   }
 

@@ -28,4 +28,21 @@ describe('hostConsoleCache', () => {
     await readThroughHostConsoleCache(TOKEN, ROOM, fetchFresh);
     expect(fetchFresh).toHaveBeenCalledTimes(1);
   });
+
+  it('force refresh bypasses warm snapshot and in-flight dedupe', async () => {
+    invalidateHostConsoleCache();
+    let releaseSlow: (() => void) | undefined;
+    const slowGate = new Promise<void>((resolve) => {
+      releaseSlow = resolve;
+    });
+    const fetchFresh = vi.fn(async () => {
+      await slowGate;
+      return { room: { id: ROOM }, items: [] };
+    });
+    const slow = readThroughHostConsoleCache(TOKEN, ROOM, fetchFresh);
+    const forced = readThroughHostConsoleCache(TOKEN, ROOM, fetchFresh, { force: true });
+    releaseSlow?.();
+    await Promise.all([slow, forced]);
+    expect(fetchFresh).toHaveBeenCalledTimes(2);
+  });
 });

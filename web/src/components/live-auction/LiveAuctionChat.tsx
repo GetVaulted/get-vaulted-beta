@@ -5,12 +5,21 @@ import { useCallback, useMemo, useState } from "react";
 import { useChatScrollToBottom } from "@/hooks/useChatScrollToBottom";
 import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { appendLiveRoomMessageDedupe } from "@/lib/realtime-merge-messages";
+import { isInlineViewerEventBody } from "@/lib/live-room-viewer-events";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
 import { LiveChatMessageRowActions } from "@/components/trust/LiveChatMessageRowActions";
 import { LiveChatAvatar } from "@/components/live-auction/LiveChatAvatar";
 import { MentionComposer } from "@/components/mentions/MentionComposer";
 import { resolvePinnedModeratorUsername } from "@/lib/trust/resolve-pinned-moderator-username";
 import { MentionText } from "@/components/mentions/MentionText";
+
+/** Oldest at top, newest at bottom — matches bottom-anchored scroll (newest near composer). */
+function overlayChatRowOpacity(index: number, total: number): number {
+  if (total <= 1) return 1;
+  const min = 0.58;
+  const span = 0.42;
+  return min + (index / (total - 1)) * span;
+}
 
 function PinnedChatBar({
   message,
@@ -76,6 +85,10 @@ function chatLabelForMessage(m: LiveRoomMessageDTO) {
   if (m.messageType === "system") return "System";
   if (m.messageType === "purchase") return "Event";
   return m.senderUsername ?? "User";
+}
+
+function isInlineViewerEventMessage(m: LiveRoomMessageDTO) {
+  return m.messageType === "system" && isInlineViewerEventBody(m.body);
 }
 
 function chatLabelClassForMessage(
@@ -160,9 +173,24 @@ export function LiveAuctionChat({
 
   const send = useCallback(async () => {
     const text = draft.trim();
-    if (!text || status !== "authenticated") return;
+    if (!text || status !== "authenticated" || !session?.user?.id) return;
+    const pendingId = `pending:${Date.now()}`;
+    const senderUsername = session.user.username?.trim() || session.user.name?.trim() || "You";
+    const optimistic: LiveRoomMessageDTO = {
+      id: pendingId,
+      liveRoomId,
+      senderId: session.user.id,
+      senderUsername,
+      senderAvatarUrl: null,
+      body: text,
+      messageType: "chat",
+      createdAt: new Date().toISOString(),
+      mentions: [],
+    };
     setSending(true);
     setSendError(null);
+    setDraft("");
+    onMessagesChange((prev) => appendLiveRoomMessageDedupe(prev, optimistic));
     try {
       const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/messages`, {
         method: "POST",
@@ -174,18 +202,28 @@ export function LiveAuctionChat({
         const err = typeof j.error === "string" ? j.error : "Message could not be sent.";
         setSendError(err);
         mod.handleRestrictionError(err);
+        onMessagesChange((prev) => prev.filter((m) => m.id !== pendingId));
+        setDraft(text);
         return;
       }
       if (j.message) {
-        onMessagesChange((prev) => appendLiveRoomMessageDedupe(prev, j.message!));
-        setDraft("");
+        onMessagesChange((prev) => {
+          const stripped = prev.filter((m) => {
+            if (m.id === pendingId) return false;
+            if (!m.id.startsWith("pending:")) return true;
+            return !(m.senderId === j.message!.senderId && m.body.trim() === j.message!.body.trim());
+          });
+          return appendLiveRoomMessageDedupe(stripped, j.message!);
+        });
       } else {
+        onMessagesChange((prev) => prev.filter((m) => m.id !== pendingId));
         setSendError("Message could not be sent.");
+        setDraft(text);
       }
     } finally {
       setSending(false);
     }
-  }, [draft, liveRoomId, mod, onMessagesChange, status]);
+  }, [draft, liveRoomId, mod, onMessagesChange, session?.user, status]);
 
   const renderMessageActions = (m: LiveRoomMessageDTO) => {
     if (m.messageType !== "chat") return null;
@@ -234,7 +272,7 @@ export function LiveAuctionChat({
             ref={overlayScroll.ref}
             onScroll={overlayScroll.onScroll}
             data-testid="live-chat-messages"
-            className="chat-messages min-h-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden overscroll-contain bg-transparent px-1 py-1 [-webkit-overflow-scrolling:touch] touch-pan-y"
+            className="chat-messages flex min-h-0 flex-1 flex-col justify-end gap-2 overflow-y-auto overflow-x-hidden overscroll-contain bg-transparent px-1 py-1 [-webkit-overflow-scrolling:touch] touch-pan-y"
           >
             {overlayList.length === 0 ? (
               <div className="space-y-2 pt-1 opacity-40">
@@ -244,6 +282,7 @@ export function LiveAuctionChat({
             ) : null}
             {overlayList.map((m, idx, arr) => {
               const isSystem = m.messageType === "system";
+              const inlineEvent = isInlineViewerEventMessage(m);
               const label = chatLabelForMessage(m);
               const labelClass = chatLabelClassForMessage(m, true, hostUserId, mod.moderators);
               const isNewest = idx === arr.length - 1;
@@ -258,7 +297,7 @@ export function LiveAuctionChat({
                       ? "motion-safe:animate-[live-chat-slide_var(--live-duration-enter)_var(--live-ease)_both]"
                       : "animate-[chat-rise_var(--live-duration-enter)_var(--live-ease)]"
                   }`}
-                  style={{ opacity: 0.2 + (idx / Math.max(1, arr.length - 1)) * 0.74 }}
+                  style={{ opacity: overlayChatRowOpacity(idx, arr.length) }}
                 >
                   {showAvatar ? (
                     <LiveChatAvatar
@@ -282,10 +321,18 @@ export function LiveAuctionChat({
                         MOD
                       </span>
                     ) : null}
-                    <span className="text-zinc-400">: </span>
-                    <span className={`ml-1 ${isSystem ? "text-zinc-100" : "text-zinc-50"}`}>
-                      <MentionText body={m.body} mentions={m.mentions} />
-                    </span>
+                    {inlineEvent ? (
+                      <span className={`ml-1 ${isSystem ? "text-zinc-100" : "text-zinc-50"}`}>
+                        <MentionText body={m.body} mentions={m.mentions} />
+                      </span>
+                    ) : (
+                      <>
+                        <span className="text-zinc-400">: </span>
+                        <span className={`ml-1 ${isSystem ? "text-zinc-100" : "text-zinc-50"}`}>
+                          <MentionText body={m.body} mentions={m.mentions} />
+                        </span>
+                      </>
+                    )}
                     {renderMessageActions(m)}
                   </span>
                 </div>
@@ -376,6 +423,7 @@ export function LiveAuctionChat({
           panelMessages.map((m, idx, arr) => {
             const isSystem = m.messageType === "system";
             const isPurchase = m.messageType === "purchase";
+            const inlineEvent = isInlineViewerEventMessage(m);
             const label = chatLabelForMessage(m);
             const labelClass = chatLabelClassForMessage(m, false, hostUserId, mod.moderators);
             const showAvatar = shouldShowChatAvatar(m);
@@ -409,10 +457,18 @@ export function LiveAuctionChat({
                       MOD
                     </span>
                   ) : null}
-                  <span className="text-zinc-600">: </span>
-                  <span className={`ml-1 ${isSystem ? "text-zinc-200" : "text-zinc-300"}`}>
-                    <MentionText body={m.body} mentions={m.mentions} />
-                  </span>
+                  {inlineEvent ? (
+                    <span className={`ml-1 ${isSystem ? "text-zinc-200" : "text-zinc-300"}`}>
+                      <MentionText body={m.body} mentions={m.mentions} />
+                    </span>
+                  ) : (
+                    <>
+                      <span className="text-zinc-600">: </span>
+                      <span className={`ml-1 ${isSystem ? "text-zinc-200" : "text-zinc-300"}`}>
+                        <MentionText body={m.body} mentions={m.mentions} />
+                      </span>
+                    </>
+                  )}
                   {renderMessageActions(m)}
                   {m.messageType !== "chat" && !isSystem && !isPurchase ? (
                     <span className="ml-2 text-[10px] uppercase tracking-wide text-zinc-600">({m.messageType})</span>

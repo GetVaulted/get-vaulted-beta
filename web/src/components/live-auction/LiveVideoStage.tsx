@@ -313,6 +313,7 @@ export function LiveVideoStage({
             <LiveVideoStagePlayback
               liveRoomId={liveRoomId}
               roomLifecycleLive={isLive}
+              roomStatus={roomStatus}
               viewerAuthenticated={viewerAuthenticated}
               streamPlaybackRefreshNonce={streamPlaybackRefreshNonce}
               scheduledStartAt={scheduledStartAt}

@@ -76,12 +76,12 @@ describe("live-room-share-metadata", () => {
     });
     expect(meta.title).toBe("seller1 is LIVE on Get Vaulted");
     expect(meta.description).toBe("Vault Drop • Join the live auction now");
-    expect(meta.image).toContain("https://beta.shopgetvaulted.com/api/og/live/room1");
+    expect(meta.image).toContain("https://shopgetvaulted.com/api/og/live/room1");
     expect(meta.url).toBe("https://shopgetvaulted.com/live/room1");
   });
 
-  it("defaults og image host to beta when canonical share site is apex static", () => {
-    expect(liveRoomOgImageUrl("room1")).toBe("https://beta.shopgetvaulted.com/api/og/live/room1");
+  it("defaults og image host to the canonical share site", () => {
+    expect(liveRoomOgImageUrl("room1")).toBe("https://shopgetvaulted.com/api/og/live/room1");
   });
 
   it("formats native share text with url", () => {

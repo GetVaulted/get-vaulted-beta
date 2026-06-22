@@ -4,6 +4,15 @@ import type { LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
 import type { LiveStream } from '../types';
 import { isActiveVariantBuyerItem } from './liveItemVariant';
 
+/** Plain fixed-price buy now in a sale room (not PYT/PYD variant checkout). */
+export function isActiveBuyNowBuyerItem(
+  roomSnap: LiveRoomBuyerSnapshot | null | undefined,
+): boolean {
+  if (!roomSnap?.activeItemId || roomSnap.status !== 'live') return false;
+  if (isActiveVariantBuyerItem(roomSnap)) return false;
+  return roomSnap.roomType === 'sale';
+}
+
 /** True when HUD primary action is auction bid (slide or Bid label). */
 export function isLiveBidCommerceUi(args: {
   bottomRightIsSlide?: boolean;
@@ -23,8 +32,10 @@ export function mustUseLiveBidFlow(
   hud?: { bottomRightIsSlide?: boolean; bottomRightLabel?: string },
 ): boolean {
   if (isActiveVariantBuyerItem(roomSnap)) return false;
+  if (isActiveBuyNowBuyerItem(roomSnap)) return false;
 
   if (hud?.bottomRightLabel && /select (spot|team)/i.test(hud.bottomRightLabel)) return false;
+  if (hud?.bottomRightLabel && /\bbuy now\b/i.test(hud.bottomRightLabel)) return false;
 
   if (roomSnap?.activeItemId) return true;
   if (roomSnap?.roomType === 'auction' || roomSnap?.roomType === 'sale') return true;

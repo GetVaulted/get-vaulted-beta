@@ -1,4 +1,4 @@
-import { ActivityIndicator, Animated, Image, Platform, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useEffect, useRef } from 'react';
 import { StageHostPreviewVideo } from './StageHostPreviewVideo';
 import { SellerCameraPermissionGate } from './SellerCameraPermissionGate';
@@ -68,7 +68,7 @@ export function SellerLiveStreamBackdrop({
   return (
     <View style={styles.root}>
       <StageHostPreviewVideo
-        active={mountPreviewSurface}
+        active={mountPreviewSurface && showLiveFeed}
         cameraFacing={cameraFacing}
         contentFit="cover"
       />
@@ -95,6 +95,14 @@ export function SellerLiveStreamBackdrop({
         <View style={styles.previewLane} pointerEvents="none">
           <ActivityIndicator color={colors.gold} size="small" />
           <Text style={styles.previewTxt}>Starting camera…</Text>
+        </View>
+      ) : useStageCamera && permissionState === 'granted' && !showLiveFeed ? (
+        <View style={styles.previewLane} pointerEvents="box-none">
+          <ActivityIndicator color={colors.gold} size="small" />
+          <Text style={styles.previewTxt}>Starting camera…</Text>
+          <Pressable style={styles.previewRetry} onPress={onRetryCameraPermission} disabled={permissionRetrying}>
+            <Text style={styles.previewRetryTxt}>{permissionRetrying ? 'Retrying…' : 'Retry camera'}</Text>
+          </Pressable>
         </View>
       ) : !roomLive && useStageCamera && showLiveFeed ? (
         <View style={styles.previewLane} pointerEvents="none">
@@ -136,5 +144,19 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.3,
+  },
+  previewRetry: {
+    marginLeft: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(212,175,55,0.55)',
+    backgroundColor: 'rgba(212,175,55,0.12)',
+  },
+  previewRetryTxt: {
+    color: colors.gold,
+    fontSize: 10,
+    fontWeight: '800',
   },
 });

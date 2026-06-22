@@ -144,7 +144,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ error: "Could not send message." }, { status: 500 });
   }
 
-  const mentions = await processMessageMentions({
+  void processMessageMentions({
     db: prisma,
     sourceType: "live_room_message",
     sourceId: row.id,
@@ -158,5 +158,5 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   void emitLiveRoomMessageById(row.id);
 
-  return NextResponse.json({ message: serializeLiveRoomMessage(row, mentions) });
+  return NextResponse.json({ message: serializeLiveRoomMessage(row, []) });
 }

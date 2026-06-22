@@ -41,7 +41,7 @@ import { createLiveBidIdempotencyKey, liveBidRequestHeaders } from "@/lib/live-b
 import {
   LIVE_HOST_SELF_COMMERCE_ERROR,
   LIVE_MODERATOR_COMMERCE_ERROR,
-} from "@/lib/live-room-commerce-guards";
+} from "@/lib/live-room-commerce-messages";
 import {
   LIVE_AUCTION_BUYER_NOT_STARTED_COPY,
   LIVE_AUCTION_BUYER_TIMER_ENDED_COPY,
@@ -54,11 +54,7 @@ import { liveBidMetaFallbackPollMs } from "@/lib/live-fallback-poll-intervals";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 import { logAuctionTimer } from "@/lib/auction-timer-sync";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
-import {
-  buildLiveRoomShareTitle,
-  canonicalLiveRoomUrl,
-  formatLiveRoomShareText,
-} from "@/lib/live-room-share-metadata";
+import { shareLiveRoomNative } from "@/lib/share-live-room-native";
 import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
 import { isVariantSalesFormat, summarizeVariantSpots, variantBuyerSelectLabel } from "@/lib/live-item-variant-presets";
 import { purchaseLiveBuyNowWithSca } from "@/lib/live-buy-now-client";
@@ -310,9 +306,19 @@ export function LiveSaleRoom({
     setUserHighBidUsd(null);
   }, [activeDb?.id]);
 
+  const buyerCurrentHighUsd = useMemo(() => {
+    if (roomType !== "auction" || !activeDb) return null;
+    return liveAuctionDisplayBidUsd({
+      currentBidUsd: activeDb.currentBidUsd,
+      startingBidUsd: activeDb.startingBidUsd,
+      lastHighBidderId: activeDb.lastHighBidderId,
+      lastHighBidderUsername: activeDb.lastHighBidderUsername,
+    });
+  }, [roomType, activeDb]);
+
   useEffect(() => {
     if (roomType !== "auction") return;
-    const cur = bidMeta?.currentBidUsd;
+    const cur = buyerCurrentHighUsd ?? bidMeta?.currentBidUsd;
     const mine = userHighBidUsd;
     if (mine == null || cur == null) return;
     if (cur > mine + 0.01) {
@@ -321,7 +327,7 @@ export function LiveSaleRoom({
       const t = window.setTimeout(() => setShowOutbidToast(false), 3200);
       return () => window.clearTimeout(t);
     }
-  }, [roomType, bidMeta?.currentBidUsd, userHighBidUsd]);
+  }, [roomType, buyerCurrentHighUsd, bidMeta?.currentBidUsd, userHighBidUsd]);
 
   useEffect(() => {
     if (!bidMeta?.auctionEndsAt || bidMeta.auctionEnded) return;
@@ -439,9 +445,9 @@ export function LiveSaleRoom({
   const isWinning =
     roomType === "auction" &&
     userHighBidUsd != null &&
-    bidMeta?.currentBidUsd != null &&
-    !bidMeta.auctionEnded &&
-    Math.abs(bidMeta.currentBidUsd - userHighBidUsd) < 0.02;
+    (buyerCurrentHighUsd ?? bidMeta?.currentBidUsd) != null &&
+    !bidMeta?.auctionEnded &&
+    Math.abs((buyerCurrentHighUsd ?? bidMeta?.currentBidUsd)! - userHighBidUsd) < 0.02;
 
   const queue = items.filter((i) => i.status !== "sold" && i.status !== "skipped");
   const buyerQueueRows = useMemo(
@@ -707,34 +713,14 @@ export function LiveSaleRoom({
 
   const handleShare = useCallback(async () => {
     const showTitle = roomTitle?.trim() || liveTitle;
-    const shareUrl = canonicalLiveRoomUrl(liveRoomId);
-    const shareTitle = buildLiveRoomShareTitle({
-      id: liveRoomId,
-      title: showTitle,
-      category: roomCategory,
-      sellerUsername: sellerShopUsername ?? hostDisplayName.replace(/^@+/, ""),
-    });
-    const shareText = formatLiveRoomShareText({
-      hostUsername: sellerShopUsername ?? hostDisplayName.replace(/^@+/, ""),
-      showTitle,
-      url: shareUrl,
-    });
     try {
-      if (typeof navigator !== "undefined" && navigator.share) {
-        await navigator.share({
-          title: shareTitle,
-          text: shareText,
-          url: shareUrl,
-        });
-        toast("Shared.");
-        return;
-      }
-      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(shareText);
-        toast("Link copied.");
-        return;
-      }
-      toast("Share is not supported on this device.");
+      const ok = await shareLiveRoomNative({
+        roomId: liveRoomId,
+        showTitle,
+        hostUsername: sellerShopUsername ?? hostDisplayName.replace(/^@+/, ""),
+        category: roomCategory,
+      });
+      if (ok) toast("Shared.");
     } catch {
       toast("Could not share right now.");
     }

@@ -110,7 +110,7 @@ export async function createLiveRoomQueueItem(
     }>;
     variantAssignmentMode?: 'pick' | 'random';
   },
-): Promise<void> {
+): Promise<string> {
   const body: Record<string, unknown> = {
     title: input.title.trim(),
     imageUrl: input.imageUrl.trim(),
@@ -138,6 +138,9 @@ export async function createLiveRoomQueueItem(
     /* ignore */
   }
   if (!res.ok) throw new Error(apiErrorMessage(res, j));
+  const id = (j as { id?: string } | null)?.id?.trim();
+  if (!id) throw new Error('Queue item saved but the server did not return an id. Pull to refresh.');
+  return id;
 }
 
 export async function patchLiveRoomItem(

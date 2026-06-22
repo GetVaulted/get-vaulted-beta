@@ -61,16 +61,18 @@ describe('liveRoomChatMessages', () => {
         user: 'alice',
         text: 'joined 👋',
         messageType: 'system' as const,
+        createdAt: '2026-01-01T00:00:00.000Z',
       },
       {
         id: '2',
         user: 'Alice',
         text: VIEWER_EVENT_JOIN_BODY,
         messageType: 'system' as const,
+        createdAt: '2026-01-01T00:01:00.000Z',
       },
-      msg('3', 'hi there'),
+      msg('3', 'hi there', { createdAt: '2026-01-01T00:02:00.000Z' }),
     ];
-    expect(dedupeViewerEventMessages(input).map((m) => m.id)).toEqual(['1', '3']);
+    expect(dedupeViewerEventMessages(input).map((m) => m.id)).toEqual(['2', '3']);
   });
 
   it('formats viewer event names without @ prefix', () => {
@@ -78,16 +80,16 @@ describe('liveRoomChatMessages', () => {
     expect(formatViewerEventName('bob')).toBe('bob');
   });
 
-  it('prepares floating chat newest-first for bottom-anchored feed', () => {
+  it('prepares floating chat oldest-to-newest for bottom-anchored feed', () => {
     const input = [
       msg('1', 'old', { createdAt: '2026-01-01T00:00:00.000Z' }),
       msg('2', 'mid', { createdAt: '2026-01-01T00:01:00.000Z' }),
       msg('3', 'new', { createdAt: '2026-01-01T00:02:00.000Z' }),
     ];
-    expect(prepareFloatingChatDisplay(input).map((m) => m.id)).toEqual(['3', '2', '1']);
+    expect(prepareFloatingChatDisplay(input).map((m) => m.id)).toEqual(['1', '2', '3']);
   });
 
-  it('keeps join events above older chat in floating display order', () => {
+  it('keeps join events inline with chat in floating display order', () => {
     const input = [
       msg('1', 'hello', { createdAt: '2026-01-01T00:01:00.000Z' }),
       {
@@ -98,6 +100,27 @@ describe('liveRoomChatMessages', () => {
         createdAt: '2026-01-01T00:02:00.000Z',
       },
     ];
-    expect(prepareFloatingChatDisplay(input).map((m) => m.id)).toEqual(['2', '1']);
+    expect(prepareFloatingChatDisplay(input).map((m) => m.id)).toEqual(['1', '2']);
+  });
+
+  it('places a re-join after chat that arrived in between', () => {
+    const input = [
+      {
+        id: '1',
+        user: 'alice',
+        text: VIEWER_EVENT_JOIN_BODY,
+        messageType: 'system' as const,
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+      msg('2', 'between', { createdAt: '2026-01-01T00:01:00.000Z' }),
+      {
+        id: '3',
+        user: 'alice',
+        text: VIEWER_EVENT_JOIN_BODY,
+        messageType: 'system' as const,
+        createdAt: '2026-01-01T00:02:00.000Z',
+      },
+    ];
+    expect(prepareFloatingChatDisplay(input).map((m) => m.id)).toEqual(['2', '3']);
   });
 });

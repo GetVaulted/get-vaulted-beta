@@ -28,7 +28,7 @@ import {
   parseVariantPurchasedCelebration,
   type LiveSpotTakenCelebration,
 } from '../lib/liveSpotCelebration';
-import { createRealtimeEventGuard, shouldProcessRealtimeEvent } from '../lib/realtimeEventGuard';
+import { createRealtimeEventGuard, shouldProcessRealtimeEvent, syncAuctionSeqGuard } from '../lib/realtimeEventGuard';
 import type { RoomBroadcastPayload } from '../lib/realtimeChannels';
 import { estimateClockSkewMs, syncedWallTimeMs } from '../lib/serverClockSync';
 import { isSupabaseConfigured } from '../lib/supabase';
@@ -123,6 +123,9 @@ export function useLiveRoomRealtimeSession(args: {
           reconciledActiveItemId: reconciled.activeItemId,
         });
         logBuyerRoomStateSnapshot('reconcile', reconciled, { lotChanged, staleIgnored, advanced });
+        if (typeof snap.auctionEventSeq === 'number') {
+          syncAuctionSeqGuard(guardRef.current, snap.auctionEventSeq);
+        }
         return reconciled;
       });
       return snap;
@@ -170,11 +173,12 @@ export function useLiveRoomRealtimeSession(args: {
 
   const maybeShowOutbid = useCallback(
     (payload: RoomBroadcastPayload, snap: LiveRoomBuyerSnapshot | null) => {
-      if (!args.userId || myHighBidUsd == null || !snap) return;
+      const mine = myHighBidUsdRef.current;
+      if (!args.userId || mine == null || !snap) return;
       const leader = payload.leadingBidderId ?? payload.bidderId;
       if (leader === args.userId) return;
       const high = payload.amountUsd ?? snap.currentBidUsd;
-      if (high == null || high <= myHighBidUsd + 0.01) return;
+      if (high == null || high <= mine + 0.01) return;
       setShowOutbidToast(true);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
       if (outbidTimerRef.current) clearTimeout(outbidTimerRef.current);
@@ -185,7 +189,13 @@ export function useLiveRoomRealtimeSession(args: {
 
   const onBidPlaced = useCallback(
     (payload: RoomBroadcastPayload) => {
-      if (!shouldProcessRealtimeEvent(guardRef.current, 'bid_placed', payload)) return;
+      if (
+        !shouldProcessRealtimeEvent(guardRef.current, 'bid_placed', payload, {
+          onAuctionSeqGap: () => scheduleReconcile(90),
+        })
+      ) {
+        return;
+      }
       refreshSkewFromRealtime(payload.serverNowMs);
       const wallNow = syncedWallTimeMs(
         typeof payload.serverNowMs === 'number'
@@ -411,6 +421,7 @@ export function useLiveRoomRealtimeSession(args: {
     syncedNowMs: () => syncedWallTimeMs(clockSkewMs),
     mergeBidAck: (ack: LiveBidHttpAck) => {
       refreshSkewFromRealtime(ack.serverNowMs);
+      syncAuctionSeqGuard(guardRef.current, ack.auctionSeq);
       const wallNow = syncedWallTimeMs(
         typeof ack.serverNowMs === 'number'
           ? estimateClockSkewMs(Date.now(), Date.now(), ack.serverNowMs)

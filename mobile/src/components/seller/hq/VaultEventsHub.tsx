@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   RefreshControl,
@@ -13,10 +14,12 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { patchLiveRoomAction } from '../../../api/liveHostRepository';
 import { fetchMyLiveRooms, type LiveRoomApiRow } from '../../../api/liveRoomsRepository';
 import type { LiveSalesGate } from '../../../lib/sellerLiveReadiness';
 import {
   bucketRooms,
+  canCancelVaultEvent,
   primaryCta,
   type VaultEventBucket,
   type VaultEventDisplayStatus,
@@ -25,6 +28,7 @@ import {
   vaultEventSection,
 } from '../../../lib/vaultEventModel';
 import { logVaultEvents } from '../../../lib/vaultEventsLayout';
+import { notifyLiveDiscoveryChanged } from '../../../lib/notifyLiveDiscoveryChanged';
 import type { SellerReloadOptions } from '../../../hooks/sellerReloadOptions';
 import { colors, radii, spacing } from '../../../theme';
 import { VaultEventCard } from './VaultEventCard';
@@ -83,6 +87,7 @@ export function VaultEventsHub({
   const [loadedOnce, setLoadedOnce] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [contentAreaHeight, setContentAreaHeight] = useState(0);
+  const [cancellingRoomId, setCancellingRoomId] = useState<string | null>(null);
   const requestRef = useRef(0);
   const loadedOnceRef = useRef(false);
   const autoSegmentRef = useRef(false);
@@ -236,6 +241,42 @@ export function VaultEventsHub({
     [onHostRoom, onViewRecap],
   );
 
+  const onCancelRoom = useCallback(
+    (room: LiveRoomApiRow, displayStatus: VaultEventDisplayStatus) => {
+      if (!accessToken?.trim() || !canCancelVaultEvent(room) || cancellingRoomId) return;
+
+      const isLive = displayStatus === 'live';
+      Alert.alert(
+        isLive ? 'End this show?' : 'Cancel this show?',
+        isLive
+          ? 'The stream will stop and this show will be removed from Live & Upcoming.'
+          : 'This show will be removed from Live & Upcoming.',
+        [
+          { text: 'Keep show', style: 'cancel' },
+          {
+            text: isLive ? 'End show' : 'Cancel show',
+            style: 'destructive',
+            onPress: () => {
+              void (async () => {
+                setCancellingRoomId(room.id);
+                try {
+                  await patchLiveRoomAction(accessToken, room.id, 'cancel');
+                  await notifyLiveDiscoveryChanged();
+                  await load({ silent: true, force: true });
+                } catch (e) {
+                  Alert.alert('Could not cancel show', e instanceof Error ? e.message : 'Try again.');
+                } finally {
+                  setCancellingRoomId(null);
+                }
+              })();
+            },
+          },
+        ],
+      );
+    },
+    [accessToken, cancellingRoomId, load],
+  );
+
   const showLoader = loading && !loadedOnce && rooms.length === 0;
   const showEmpty = loadedOnce && !loading && list.length === 0;
   const showList = list.length > 0;
@@ -248,9 +289,15 @@ export function VaultEventsHub({
         sellerAvatarUrl={sellerAvatarUrl}
         onPress={() => onCardAction(room, displayStatus)}
         onPrimaryAction={() => onCardAction(room, displayStatus)}
+        onCancel={
+          canCancelVaultEvent(room)
+            ? () => onCancelRoom(room, displayStatus)
+            : undefined
+        }
+        cancelBusy={cancellingRoomId === room.id}
       />
     ),
-    [onCardAction, sellerAvatarUrl],
+    [cancellingRoomId, onCancelRoom, onCardAction, sellerAvatarUrl],
   );
 
   const listEmpty = useMemo(() => {

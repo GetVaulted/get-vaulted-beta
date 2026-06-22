@@ -282,7 +282,25 @@ export async function addOrderToLiveShippingSessionTx(
               },
               orderBy: { updatedAt: "desc" },
             });
-    if (!liveItem) throw new Error("LIVE_SHIPPING_NOT_APPLICABLE");
+
+    const showOnly =
+      !liveItem && opts?.liveShowId
+        ? await tx.liveRoom.findFirst({
+            where: { id: opts.liveShowId, sellerId: order.sellerId },
+            select: {
+              id: true,
+              defaultShippingProfileId: true,
+              category: true,
+              shippingCapEnabled: true,
+              shippingCapCents: true,
+              freeShippingEnabled: true,
+            },
+          })
+        : null;
+
+    if (!liveItem && !showOnly) throw new Error("LIVE_SHIPPING_NOT_APPLICABLE");
+
+    const liveRoomId = liveItem?.liveRoomId ?? showOnly!.id;
 
     const defaults = defaultWeightsForCategory(listing.shippingCategory);
     const baseWeightOz = Number.isFinite(listing.shippingBaseWeightOz) && listing.shippingBaseWeightOz > 0 ? listing.shippingBaseWeightOz : defaults.base;
@@ -295,19 +313,20 @@ export async function addOrderToLiveShippingSessionTx(
   const session = await findOrCreateLiveShippingSessionTx(tx, {
     buyerId: order.buyerId,
     sellerId: order.sellerId,
-    liveShowId: liveItem.liveRoomId,
+    liveShowId: liveRoomId,
     destinationAddressId: shipAloneAddressKey,
   });
 
   if (session.shippingCapCents == null) {
-    const show = await tx.liveRoom.findUnique({
-      where: { id: liveItem.liveRoomId },
-      select: {
-        shippingCapEnabled: true,
-        shippingCapCents: true,
-        freeShippingEnabled: true,
-      },
-    });
+    const show = showOnly
+      ?? (await tx.liveRoom.findUnique({
+        where: { id: liveRoomId },
+        select: {
+          shippingCapEnabled: true,
+          shippingCapCents: true,
+          freeShippingEnabled: true,
+        },
+      }));
     if (show) {
       await tx.liveShippingSession.update({
         where: { id: session.id },
@@ -319,10 +338,12 @@ export async function addOrderToLiveShippingSessionTx(
     }
   }
 
-  const showCap = await tx.liveRoom.findUnique({
-    where: { id: liveItem.liveRoomId },
-    select: { shippingCapEnabled: true, shippingCapCents: true, freeShippingEnabled: true },
-  });
+  const showCap =
+    showOnly ??
+    (await tx.liveRoom.findUnique({
+      where: { id: liveRoomId },
+      select: { shippingCapEnabled: true, shippingCapCents: true, freeShippingEnabled: true },
+    }));
   const effectiveCapCents =
     showCap?.freeShippingEnabled
       ? 0
@@ -336,14 +357,14 @@ export async function addOrderToLiveShippingSessionTx(
     if (liveItem?.shippingProfile) {
       const resolved = resolveShippingProfileDimensions(liveItem.shippingProfile, liveItem);
       appliedWeightOz = itemCount === 0 ? resolved.weightOz : Math.max(1, resolved.weightOz * 0.25);
-    } else if (liveItem) {
+    } else {
       const fallbackProfile = await resolveDefaultProfileForLiveShow({
-        showDefaultProfileId: liveItem.liveRoom.defaultShippingProfileId,
-        category: liveItem.liveRoom.category,
+        showDefaultProfileId: liveItem?.liveRoom.defaultShippingProfileId ?? showOnly?.defaultShippingProfileId ?? null,
+        category: liveItem?.liveRoom.category ?? showOnly?.category ?? null,
         db: tx,
       });
       if (fallbackProfile) {
-        const resolved = resolveShippingProfileDimensions(fallbackProfile, liveItem);
+        const resolved = resolveShippingProfileDimensions(fallbackProfile, liveItem ?? undefined);
         appliedWeightOz = itemCount === 0 ? resolved.weightOz : Math.max(1, resolved.weightOz * 0.25);
       }
     }

@@ -44,6 +44,19 @@ function mapRows(rows: LiveRoomChatMessageRow[], hostUsername: string, hostUserI
   return out;
 }
 
+function stripMatchingPendingMessages(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+  if (incoming.length === 0) return prev;
+  return prev.filter((m) => {
+    if (!m.id.startsWith('pending:')) return true;
+    return !incoming.some(
+      (row) =>
+        row.senderId &&
+        m.senderId === row.senderId &&
+        m.text.trim() === row.text.trim(),
+    );
+  });
+}
+
 export function useLiveRoomChat(args: {
   roomId: string;
   hostUsername: string;
@@ -52,6 +65,9 @@ export function useLiveRoomChat(args: {
   enabled: boolean;
   /** When true, rely on Supabase chat events; poll slowly as fallback. */
   realtimePrimary?: boolean;
+  senderUserId?: string;
+  senderUsername?: string;
+  senderAvatarUrl?: string | null;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -66,7 +82,7 @@ export function useLiveRoomChat(args: {
   const appendRows = useCallback((rows: LiveRoomChatMessageRow[]) => {
     const mapped = mapRows(rows, args.hostUsername, args.hostUserId);
     if (mapped.length === 0) return;
-    setMessages((prev) => mergeChatMessagesById(prev, mapped));
+    setMessages((prev) => mergeChatMessagesById(stripMatchingPendingMessages(prev, mapped), mapped));
   }, [args.hostUserId, args.hostUsername]);
 
   const reload = useCallback(async () => {
@@ -165,6 +181,18 @@ export function useLiveRoomChat(args: {
       sendLockRef.current = true;
       setSending(true);
       const clientMessageId = `cm-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+      const pendingId = `pending:${clientMessageId}`;
+      const optimistic: ChatMessage = {
+        id: pendingId,
+        user: args.senderUsername?.trim() || 'You',
+        text: body,
+        senderId: args.senderUserId,
+        senderAvatarUrl: args.senderAvatarUrl ?? null,
+        isHost: Boolean(args.hostUserId && args.senderUserId && args.senderUserId === args.hostUserId),
+        messageType: 'chat',
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((prev) => mergeChatMessagesById(prev, [optimistic]));
 
       try {
         const row = await sendLiveRoomChatMessage({
@@ -174,12 +202,15 @@ export function useLiveRoomChat(args: {
           clientMessageId,
         });
         const next = mapRow(row, args.hostUsername, args.hostUserId);
-        if (next) {
-          setMessages((prev) => mergeChatMessagesById(prev, [next]));
-        }
+        setMessages((prev) => {
+          const stripped = stripMatchingPendingMessages(prev, next ? [next] : []);
+          if (!next) return stripped.filter((m) => m.id !== pendingId);
+          return mergeChatMessagesById(stripped, [next]);
+        });
         setError(null);
         return true;
       } catch (e) {
+        setMessages((prev) => prev.filter((m) => m.id !== pendingId));
         const msg = e instanceof Error ? e.message : String(e);
         setError(msg);
         throw e;
@@ -188,7 +219,15 @@ export function useLiveRoomChat(args: {
         setSending(false);
       }
     },
-    [args.accessToken, args.hostUserId, args.hostUsername, args.roomId],
+    [
+      args.accessToken,
+      args.hostUserId,
+      args.hostUsername,
+      args.roomId,
+      args.senderAvatarUrl,
+      args.senderUserId,
+      args.senderUsername,
+    ],
   );
 
   return { messages, send, sending, error, reload, announceJoin, announceShare, appendBroadcast };

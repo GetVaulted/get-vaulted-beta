@@ -9,11 +9,6 @@ export const DEFAULT_LIVE_SHARE_OG_IMAGE =
 
 export const CANONICAL_SHARE_SITE_FALLBACK = "https://shopgetvaulted.com";
 
-/** Host where the Next.js app (live pages + OG API) is deployed today. */
-export const LIVE_WEB_APP_ORIGIN_FALLBACK = "https://beta.shopgetvaulted.com";
-
-const APEX_STATIC_SHARE_HOSTS = new Set(["shopgetvaulted.com", "www.shopgetvaulted.com"]);
-
 const CATEGORY_LABEL_ALIASES: Record<string, string> = {
   cards: "Sports Cards",
   card: "Sports Cards",
@@ -77,29 +72,12 @@ export function canonicalShareSiteUrl(): string {
   return withProto.replace(/\/$/, "");
 }
 
-function liveWebAppOrigin(): string {
-  const raw =
-    process.env.NEXT_PUBLIC_LIVE_WEB_APP_URL?.trim() ||
-    process.env.NEXT_PUBLIC_OG_IMAGE_SITE_URL?.trim() ||
-    LIVE_WEB_APP_ORIGIN_FALLBACK;
-  const withProto = raw.includes("://") ? raw : `https://${raw}`;
-  return withProto.replace(/\/$/, "");
-}
-
-/** Host that serves dynamic OG images and live pages when apex is static-only. */
+/** Host for dynamic OG images — same public domain as share links (apex proxies /api/og/live to the app). */
 export function ogImageSiteUrl(): string {
   const explicit = process.env.NEXT_PUBLIC_OG_IMAGE_SITE_URL?.trim();
   if (explicit) {
     const withProto = explicit.includes("://") ? explicit : `https://${explicit}`;
     return withProto.replace(/\/$/, "");
-  }
-  try {
-    const canonicalHost = new URL(canonicalShareSiteUrl()).hostname;
-    if (APEX_STATIC_SHARE_HOSTS.has(canonicalHost)) {
-      return liveWebAppOrigin();
-    }
-  } catch {
-    /* ignore */
   }
   return canonicalShareSiteUrl();
 }

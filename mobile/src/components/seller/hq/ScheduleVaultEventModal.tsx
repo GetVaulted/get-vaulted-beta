@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -120,6 +120,8 @@ export function ScheduleVaultEventModal({
   const [tipModeratorUsername, setTipModeratorUsername] = useState('');
   const [tipsToModerator, setTipsToModerator] = useState(false);
   const [modalReadinessBusy, setModalReadinessBusy] = useState(false);
+  const [recurringWeekly, setRecurringWeekly] = useState(false);
+  const submittingRef = useRef(false);
 
   const titleComplete = scheduleTitle.trim().length > 0;
   const readinessOk = readiness?.canGoLive === true;
@@ -180,6 +182,7 @@ export function ScheduleVaultEventModal({
   }, [accessToken]);
 
   const submit = useCallback(async () => {
+    if (submittingRef.current || busy) return;
     if (liveGate.blocked) {
       Alert.alert(liveGate.alertTitle, liveGate.alertBody);
       return;
@@ -241,9 +244,10 @@ export function ScheduleVaultEventModal({
     }
 
     setBusy(true);
+    submittingRef.current = true;
     setSubmitError(null);
     try {
-      const { id } = await createLiveRoom(
+      const { id, recurringCount } = await createLiveRoom(
         token,
         {
           title,
@@ -264,6 +268,7 @@ export function ScheduleVaultEventModal({
           shippingCapCents: 1199,
           freeShippingEnabled: false,
           sellerPaysOverCap: true,
+          recurringEnabled: scheduleMode === 'later' && recurringWeekly,
         },
         { sellerUserId: freshReadiness.sellerUserId ?? null },
       );
@@ -275,9 +280,13 @@ export function ScheduleVaultEventModal({
         onCreated(id);
         return;
       }
+      const recurringNote =
+        recurringCount && recurringCount > 1
+          ? ` ${recurringCount} weekly shows were scheduled through the next month.`
+          : '';
       Alert.alert(
         'Vault event scheduled',
-        `Your show is set for ${formatScheduledDate(scheduledDate)}. Go live from that event's command center when you are ready.`,
+        `Your show is set for ${formatScheduledDate(scheduledDate)}.${recurringNote} Go live from that event's command center when you are ready.`,
         [
           { text: 'Stay on events', style: 'cancel' },
           { text: 'Enter command center', onPress: () => onCreated(id) },
@@ -305,6 +314,7 @@ export function ScheduleVaultEventModal({
                 : 'Could not create event';
       Alert.alert(title, msg);
     } finally {
+      submittingRef.current = false;
       setBusy(false);
     }
   }, [
@@ -312,6 +322,7 @@ export function ScheduleVaultEventModal({
     breakPricingMode,
     breakSpotPrice,
     breakSpotsCount,
+    busy,
     isBreak,
     liveGate.alertBody,
     liveGate.alertTitle,
@@ -320,6 +331,7 @@ export function ScheduleVaultEventModal({
     onCreated,
     onRefreshReadiness,
     onScheduled,
+    recurringWeekly,
     scheduleCategory,
     scheduleMode,
     scheduleTitle,
@@ -579,6 +591,18 @@ export function ScheduleVaultEventModal({
                 </Pressable>
               ) : null}
               <Text style={styles.helperTxt}>Start times snap to 15-minute increments.</Text>
+              <View style={styles.toggleRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.toggleTitle}>Repeat weekly</Text>
+                  <Text style={styles.helperTxt}>Schedule the same show every week for up to one month.</Text>
+                </View>
+                <Switch
+                  value={recurringWeekly}
+                  onValueChange={setRecurringWeekly}
+                  trackColor={{ false: 'rgba(255,255,255,0.12)', true: 'rgba(212,175,55,0.45)' }}
+                  thumbColor={recurringWeekly ? colors.gold : '#f4f3f4'}
+                />
+              </View>
             </>
           ) : (
             <Text style={styles.helperTxt}>

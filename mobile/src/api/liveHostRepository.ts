@@ -215,7 +215,7 @@ export async function fetchSellerLiveReadiness(accessToken: string): Promise<Sel
 export async function patchLiveRoomAction(
   accessToken: string,
   roomId: string,
-  action: 'start' | 'end',
+  action: 'start' | 'end' | 'cancel',
 ): Promise<void> {
   const res = await hostFetch(`/api/live-rooms/${encodeURIComponent(roomId)}`, accessToken, {
     method: 'PATCH',
@@ -310,12 +310,74 @@ export type HostConsoleMessage = {
   createdAt: string;
 };
 
+export type HostRecentSaleRow = {
+  id: string;
+  kind: 'order' | 'break_spot' | 'variant_purchase';
+  buyerUsername: string;
+  amountUsd: number;
+  paymentTone: 'paid' | 'retry' | 'pending';
+  statusLabel: string;
+  occurredAt: string;
+  spotLabel?: string | null;
+};
+
+export type HostPaymentFailureRow = {
+  id: string;
+  kind: string;
+  buyerId: string;
+  buyerUsername: string | null;
+  amountUsd: number;
+  status: 'payment_failed' | 'recovery_pending';
+  failureReason: string | null;
+  failedAt: string;
+  itemTitle: string | null;
+};
+
+function parseRecentSaleRow(raw: unknown): HostRecentSaleRow | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const id = typeof o.id === 'string' ? o.id.trim() : '';
+  if (!id) return null;
+  const kindRaw = o.kind;
+  const kind =
+    kindRaw === 'order' || kindRaw === 'break_spot' || kindRaw === 'variant_purchase' ? kindRaw : 'order';
+  const buyerUsername = typeof o.buyerUsername === 'string' ? o.buyerUsername.trim() : 'buyer';
+  const amountUsd = typeof o.amountUsd === 'number' && Number.isFinite(o.amountUsd) ? o.amountUsd : 0;
+  const toneRaw = o.paymentTone;
+  const paymentTone = toneRaw === 'paid' || toneRaw === 'retry' || toneRaw === 'pending' ? toneRaw : 'pending';
+  const statusLabel = typeof o.statusLabel === 'string' ? o.statusLabel : paymentTone;
+  const occurredAt = typeof o.occurredAt === 'string' ? o.occurredAt : new Date().toISOString();
+  const spotLabel = typeof o.spotLabel === 'string' ? o.spotLabel : null;
+  return { id, kind, buyerUsername, amountUsd, paymentTone, statusLabel, occurredAt, spotLabel };
+}
+
+function parsePaymentFailureRow(raw: unknown): HostPaymentFailureRow | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const id = typeof o.id === 'string' ? o.id.trim() : '';
+  const buyerId = typeof o.buyerId === 'string' ? o.buyerId.trim() : '';
+  if (!id || !buyerId) return null;
+  return {
+    id,
+    kind: typeof o.kind === 'string' ? o.kind : 'auction_win',
+    buyerId,
+    buyerUsername: typeof o.buyerUsername === 'string' ? o.buyerUsername : null,
+    amountUsd: typeof o.amountUsd === 'number' && Number.isFinite(o.amountUsd) ? o.amountUsd : 0,
+    status: o.status === 'recovery_pending' ? 'recovery_pending' : 'payment_failed',
+    failureReason: typeof o.failureReason === 'string' ? o.failureReason : null,
+    failedAt: typeof o.failedAt === 'string' ? o.failedAt : new Date().toISOString(),
+    itemTitle: typeof o.itemTitle === 'string' ? o.itemTitle : null,
+  };
+}
+
 export type HostConsolePayload = {
   serverNowMs: number;
   room: HostConsoleRoom;
   items: LiveRoomItemRow[];
   activeItem: LiveRoomItemRow | null;
   recentSalesTotalUsd: number;
+  recentSales: HostRecentSaleRow[];
+  paymentFailures: HostPaymentFailureRow[];
   messages: HostConsoleMessage[];
   giveaways: LiveGiveawayRow[];
 };
@@ -335,7 +397,8 @@ async function fetchHostConsoleFromApi(accessToken: string, roomId: string): Pro
     room?: HostConsoleRoom & { viewerCount?: number };
     queueItems?: { item: LiveRoomItemRow }[];
     messages?: HostConsoleMessage[];
-    recentSales?: { amountUsd?: number }[];
+    recentSales?: unknown[];
+    sellerUnresolvedPaymentFailures?: unknown[];
     giveaways?: LiveGiveawayRow[];
     error?: string;
     code?: string;
@@ -350,10 +413,13 @@ async function fetchHostConsoleFromApi(accessToken: string, roomId: string): Pro
   });
   const items = (j.queueItems ?? []).map((q) => q.item).filter(Boolean);
   const activeItem = items.find((i) => i.status === 'active') ?? null;
-  const recentSalesTotalUsd = (j.recentSales ?? []).reduce((sum, s) => {
-    const n = typeof s.amountUsd === 'number' ? s.amountUsd : 0;
-    return sum + (Number.isFinite(n) ? n : 0);
-  }, 0);
+  const recentSales = (j.recentSales ?? [])
+    .map(parseRecentSaleRow)
+    .filter((r): r is HostRecentSaleRow => r != null);
+  const recentSalesTotalUsd = recentSales.reduce((sum, s) => sum + s.amountUsd, 0);
+  const paymentFailures = (j.sellerUnresolvedPaymentFailures ?? [])
+    .map(parsePaymentFailureRow)
+    .filter((r): r is HostPaymentFailureRow => r != null);
   const messages = Array.isArray(j.messages) ? j.messages : [];
   const giveaways = Array.isArray(j.giveaways) ? j.giveaways : [];
   return {
@@ -362,6 +428,8 @@ async function fetchHostConsoleFromApi(accessToken: string, roomId: string): Pro
     items,
     activeItem,
     recentSalesTotalUsd,
+    recentSales,
+    paymentFailures,
     messages,
     giveaways,
   };

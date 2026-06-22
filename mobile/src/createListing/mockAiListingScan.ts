@@ -11,7 +11,7 @@ export function buildMockAiListingScan(form: CreateListingFormState): Partial<Cr
 
   if (form.listingType == null) {
     const recommended: ListingCommerceType =
-      form.channel === 'live_show' ? 'auction' : form.channel === 'marketplace' ? 'buy_now' : 'buy_now';
+      form.listingChannel === 'live_show' ? 'auction' : form.listingChannel === 'marketplace' ? 'buy_now' : 'buy_now';
     patch.aiListingTypeRecommendation = recommended;
   }
 
@@ -21,7 +21,7 @@ export function buildMockAiListingScan(form: CreateListingFormState): Partial<Cr
     patch.aiFieldBadges = { ...form.aiFieldBadges, title: 'ai_suggestion' };
   }
 
-  if (form.channel === 'marketplace' && !form.buyNowPrice.trim()) {
+  if (form.listingChannel === 'marketplace' && !form.buyNowPrice.trim()) {
     patch.aiSuggestedPrice = '149';
     patch.aiPriceReasoning = 'Starter ask based on similar marketplace listings — adjust before publishing.';
   }

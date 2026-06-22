@@ -26,23 +26,31 @@ export function isViewerEventMessage(m: ChatMessage): boolean {
   return isJoinEventBody(m.text) || m.text === VIEWER_EVENT_SHARE_BODY;
 }
 
-/** Collapse duplicate join/share lines in the visible window. */
+/** Collapse duplicate join/share lines (keeps the newest per user, sorted in time with chat). */
 export function dedupeViewerEventMessages(messages: ChatMessage[]): ChatMessage[] {
-  const seen = new Set<string>();
-  const out: ChatMessage[] = [];
-  for (const m of messages) {
+  const sorted = sortChatMessagesByTime(messages);
+  const latestJoinByUser = new Map<string, ChatMessage>();
+  const latestShareByUser = new Map<string, ChatMessage>();
+  const chatRows: ChatMessage[] = [];
+
+  for (const m of sorted) {
     if (!isViewerEventMessage(m)) {
-      out.push(m);
+      chatRows.push(m);
       continue;
     }
-    const key = isJoinEventBody(m.text)
-      ? `join:${m.user.trim().toLowerCase()}`
-      : `${m.text}:${m.user.trim().toLowerCase()}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(m);
+    const userKey = m.user.trim().toLowerCase() || m.id;
+    if (isJoinEventBody(m.text)) {
+      latestJoinByUser.set(userKey, m);
+    } else {
+      latestShareByUser.set(userKey, m);
+    }
   }
-  return out;
+
+  return sortChatMessagesByTime([
+    ...chatRows,
+    ...latestJoinByUser.values(),
+    ...latestShareByUser.values(),
+  ]);
 }
 
 export function tailUniqueChatMessages(messages: ChatMessage[], max: number): ChatMessage[] {
@@ -54,9 +62,9 @@ export function prepareChatMessageHistory(messages: ChatMessage[]): ChatMessage[
   return sortChatMessagesByTime(dedupeViewerEventMessages(dedupeChatMessagesById(messages)));
 }
 
-/** Newest-first window for inverted live chat lists (newest sits above the composer). */
+/** Chronological window for bottom-anchored live chat (oldest → newest). */
 export function prepareFloatingChatDisplay(messages: ChatMessage[], maxVisible = 80): ChatMessage[] {
-  return prepareChatMessageHistory(messages).slice(-maxVisible).reverse();
+  return prepareChatMessageHistory(messages).slice(-maxVisible);
 }
 
 export function sortChatMessagesByTime(messages: ChatMessage[]): ChatMessage[] {
@@ -68,10 +76,23 @@ export function sortChatMessagesByTime(messages: ChatMessage[]): ChatMessage[] {
   });
 }
 
+function messageTimeMs(m: ChatMessage): number {
+  if (!m.createdAt) return 0;
+  const parsed = Date.parse(m.createdAt);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export function mergeChatMessagesById(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
   const byId = new Map<string, ChatMessage>();
   for (const m of prev) byId.set(m.id, m);
-  for (const m of incoming) byId.set(m.id, m);
+  for (const m of incoming) {
+    const prior = byId.get(m.id);
+    if (prior && messageTimeMs(m) === 0 && messageTimeMs(prior) > 0) {
+      byId.set(m.id, { ...m, createdAt: prior.createdAt });
+    } else {
+      byId.set(m.id, m);
+    }
+  }
   return sortChatMessagesByTime([...byId.values()]).slice(-80);
 }
 

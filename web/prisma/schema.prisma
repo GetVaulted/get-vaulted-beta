@@ -1912,6 +1912,8 @@ model LiveGiveaway {
   drawnAt          DateTime?
   winnerUserId     String?
   winnerUser       User?              @relation("LiveGiveawayWinner", fields: [winnerUserId], references: [id], onDelete: SetNull)
+  /// Paid $0 order for shipping label / seller Sales after draw.
+  fulfillmentOrderId String?          @unique
   drawSeed         String?
   entryCount       Int                @default(0)
   sortOrder        Int                @default(0)
