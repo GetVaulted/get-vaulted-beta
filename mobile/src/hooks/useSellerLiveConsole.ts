@@ -262,6 +262,11 @@ export function useSellerLiveConsole({
               label: variant.label,
               priceUsd: variant.priceUsd,
               quantityRemaining: variant.quantityInitial ?? 1,
+              isHot: variant.isHot ?? false,
+              status: 'available',
+              buyerUsername: null,
+              color: variant.color ?? null,
+              sortOrder: variant.sortOrder ?? index,
             })),
           };
           return mergeLiveRoomItemsById(prev, [optimistic]);
