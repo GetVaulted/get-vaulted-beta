@@ -22,6 +22,8 @@ function buildFooterCols(liveMarketplaceEnabled: boolean) {
     {
       title: "Legal",
       links: [
+        { href: "/app", label: "Get the app" },
+        { href: "/support", label: "Support" },
         { href: "/terms", label: "Terms of service" },
         { href: "/privacy", label: "Privacy policy" },
         { href: "/account-deletion", label: "Account deletion" },
@@ -72,6 +74,9 @@ export function SiteFooter({ liveMarketplaceEnabled = true }: SiteFooterProps) {
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-6 text-[11px] text-muted">
           <p>© {new Date().getFullYear()} Get Vaulted. All rights reserved.</p>
           <div className="flex flex-wrap gap-4">
+            <Link href="/support" className="hover:text-foreground">
+              Support
+            </Link>
             <Link href="/terms" className="hover:text-foreground">
               Terms
             </Link>
