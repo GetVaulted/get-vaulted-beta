@@ -64,6 +64,8 @@ export function SellerConsoleInventoryRail({
   roomLive = false,
   hasActiveLot = false,
 }: SellerConsoleInventoryRailProps) {
+  const waitingLots = rows.filter((r) => r.item.status !== "sold" && r.item.status !== "skipped").length;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/[0.06] px-3 py-2">
@@ -77,10 +79,10 @@ export function SellerConsoleInventoryRail({
         </button>
       </div>
       <div className="shrink-0 space-y-2 px-3 py-2">
-        {!hasActiveLot ? (
+        {!hasActiveLot && waitingLots === 0 ? (
           <p className="rounded-lg border border-amber-400/20 bg-amber-500/10 px-2.5 py-1.5 text-[10px] leading-snug text-amber-100/90">
             {roomLive
-              ? "Select a lot in the lineup, then Pin lot to put it on the block."
+              ? "Add a lot to the lineup, then pin it to put it on the block."
               : "Add lots to the lineup, go live, then pin one to start auctioning."}
           </p>
         ) : null}

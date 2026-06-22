@@ -6,6 +6,7 @@ import {
   createViewerStageToken,
   endHostStageSession,
   prepareHostStageSession,
+  refreshHostStageToken,
 } from "@/services/ivs";
 import { errorResponse, getStreamRow, requireHostAccess, toHostStreamPayload } from "../_shared";
 
@@ -93,6 +94,42 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     });
   } catch (error) {
     logIvsOpsServer("ivs_stage_token_viewer_failure", {
+      roomId: id,
+      errorName: error instanceof Error ? error.name : "unknown",
+    });
+    return errorResponse(error);
+  }
+}
+
+/**
+ * PATCH — host only. Mint a fresh publish token for an in-progress Stage broadcast without ending
+ * the session. Used when the host's WebRTC connection drops mid-show.
+ */
+export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const { id: raw } = await ctx.params;
+  const id = decodeURIComponent(raw);
+
+  if (!stageEnabled()) {
+    return NextResponse.json({ error: "Real-Time streaming is disabled." }, { status: 503 });
+  }
+
+  const auth = await requireHostAccess(id, req);
+  if (!auth.ok) return auth.response;
+
+  try {
+    const token = await refreshHostStageToken(id, auth.userId);
+    logIvsOpsServer("ivs_stage_token_host_refresh", { roomId: id });
+    return NextResponse.json({
+      ok: true,
+      stage: {
+        token: token.token,
+        participantId: token.participantId,
+        stageArn: token.stageArn,
+        expiresInSeconds: token.expiresInSeconds,
+      },
+    });
+  } catch (error) {
+    logIvsOpsServer("ivs_stage_token_host_refresh_failure", {
       roomId: id,
       errorName: error instanceof Error ? error.name : "unknown",
     });

@@ -30,11 +30,34 @@ import {
   type QuickLiveLotValues,
 } from '../../../lib/liveAuctionPricing';
 import type { LiveBreakVariantDraft } from '../../../lib/liveBreakPresets';
+import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { useKeyboardInset } from '../../wallet/walletSheetKeyboard';
 import { colors, radii, spacing } from '../../../theme';
 import { BreakSpotSetupGrid } from './BreakSpotSetupGrid';
 
 const THUMBNAIL_MAX_BYTES = 20 * 1024 * 1024;
+
+type SaleCategory = 'teams_divisions' | 'auction' | 'buy_now';
+type BreakSaleType = 'pyt' | 'pyd' | 'random_pyt' | 'random_pyd';
+
+const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
+  { id: 'teams_divisions', label: SELLER_CONSOLE.saleCategoryTeamsDivisions, sub: 'Pick or random spots' },
+  { id: 'auction', label: SELLER_CONSOLE.saleCategoryAuction, sub: 'Timed bidding' },
+  { id: 'buy_now', label: SELLER_CONSOLE.saleCategoryBuyNow, sub: 'Fixed price' },
+];
+
+const BREAK_VARIANTS: { id: BreakSaleType; label: string; sub: string }[] = [
+  { id: 'pyt', label: 'PYT', sub: 'Pick your team' },
+  { id: 'pyd', label: 'PYD', sub: 'Pick division' },
+  { id: 'random_pyt', label: 'Random Teams', sub: '32 · wheel' },
+  { id: 'random_pyd', label: 'Random Divisions', sub: '8 · wheel' },
+];
+
+function saleCategoryForType(saleType: LiveLotSaleType): SaleCategory {
+  if (saleType === 'buy_now') return 'buy_now';
+  if (saleType === 'auction') return 'auction';
+  return 'teams_divisions';
+}
 
 export type QuickLiveLotSubmitPayload = QuickLiveLotValues & { imageUrl: string };
 
@@ -102,6 +125,15 @@ export function AddInventoryModal({
     setDraft((prev) => ({ ...prev, saleType }));
     setSpotDrafts([]);
     setSpotsCustomized(false);
+  };
+
+  const saleCategory = saleCategoryForType(draft.saleType);
+  const breakSaleType: BreakSaleType = isBreakLotSaleType(draft.saleType) ? draft.saleType : 'pyt';
+
+  const setSaleCategory = (category: SaleCategory) => {
+    if (category === 'auction') setSaleType('auction');
+    else if (category === 'buy_now') setSaleType('buy_now');
+    else setSaleType(breakSaleType);
   };
 
   const handleSpotDraftsChange = (next: LiveBreakVariantDraft[]) => {
@@ -225,31 +257,41 @@ export function AddInventoryModal({
             />
 
             <Text style={styles.fieldLbl}>Sale type</Text>
-            <View style={styles.saleTypeGrid}>
-              {(
-                [
-                  { id: 'auction', label: 'Auction', sub: 'Timed bidding' },
-                  { id: 'buy_now', label: 'Buy It Now', sub: 'Fixed price' },
-                  { id: 'pyt', label: 'PYT', sub: 'Pick your team' },
-                  { id: 'pyd', label: 'PYD', sub: 'Pick division' },
-                  { id: 'random_pyt', label: 'Random Teams', sub: '32 · wheel' },
-                  { id: 'random_pyd', label: 'Random Divisions', sub: '8 · wheel' },
-                ] as const
-              ).map((type) => {
-                const active = draft.saleType === type.id;
+            <View style={styles.saleCategoryRow}>
+              {SALE_CATEGORIES.map((type) => {
+                const active = saleCategory === type.id;
                 return (
                   <Pressable
                     key={type.id}
-                    style={[styles.saleTypeCard, active && styles.saleTypeCardActive]}
-                    onPress={() => setSaleType(type.id)}
+                    style={[styles.saleCategoryCard, active && styles.saleTypeCardActive]}
+                    onPress={() => setSaleCategory(type.id)}
                     disabled={busy}
                   >
-                    <Text style={[styles.saleTypeLabel, active && styles.saleTypeLabelActive]}>{type.label}</Text>
+                    <Text style={[styles.saleCategoryLabel, active && styles.saleTypeLabelActive]}>{type.label}</Text>
                     <Text style={[styles.saleTypeSub, active && styles.saleTypeSubActive]}>{type.sub}</Text>
                   </Pressable>
                 );
               })}
             </View>
+
+            {saleCategory === 'teams_divisions' ? (
+              <View style={styles.saleTypeGrid}>
+                {BREAK_VARIANTS.map((type) => {
+                  const active = draft.saleType === type.id;
+                  return (
+                    <Pressable
+                      key={type.id}
+                      style={[styles.saleTypeCard, active && styles.saleTypeCardActive]}
+                      onPress={() => setSaleType(type.id)}
+                      disabled={busy}
+                    >
+                      <Text style={[styles.saleTypeLabel, active && styles.saleTypeLabelActive]}>{type.label}</Text>
+                      <Text style={[styles.saleTypeSub, active && styles.saleTypeSubActive]}>{type.sub}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
 
             {isBreakLotSaleType(draft.saleType) ? (
               <View style={styles.breakHint}>
@@ -403,6 +445,19 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   inputDisabled: { opacity: 0.45 },
+  saleCategoryRow: { flexDirection: 'row', gap: spacing.sm },
+  saleCategoryCard: {
+    flex: 1,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    minHeight: 64,
+    justifyContent: 'center',
+  },
+  saleCategoryLabel: { fontSize: 12, fontWeight: '900', color: colors.textMuted },
   saleTypeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   saleTypeCard: {
     width: '47%',

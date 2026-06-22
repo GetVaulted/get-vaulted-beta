@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import { fetchBuyerLiveStream } from '../api/liveRoomStreamRepository';
+import {
+  getBuyerLiveStreamCached,
+  peekCachedBuyerLiveStream,
+} from '../lib/liveStreamPrefetchCache';
 import {
   MAX_PLAYER_RETRIES,
   PLAYER_BACKOFF_BASE_MS,
@@ -12,16 +15,55 @@ import {
   type LivePlaybackTransport,
 } from '../lib/liveStreamPlayback';
 
+export type LivePlaybackMode = 'active' | 'prefetch' | 'off';
+
+const PREFETCH_POLL_MS = 10_000;
+
+function applyStreamToTransport(args: {
+  safe: BuyerSafeStreamFields;
+  accessToken?: string;
+  webrtcFailed: boolean;
+  lastAttachKeyRef: React.MutableRefObject<string>;
+  applyTransport: (next: LivePlaybackTransport) => void;
+  setPlayerFatal: (v: boolean) => void;
+  setVideoHasData: (v: boolean) => void;
+}) {
+  const wantWebrtc = shouldUseStageWebrtcPlayback(args.safe, args.webrtcFailed, args.accessToken);
+  if (wantWebrtc) {
+    args.applyTransport('webrtc');
+    args.lastAttachKeyRef.current = '';
+    args.setPlayerFatal(false);
+    return;
+  }
+
+  const attachKey = `${args.safe.playbackUrl ?? ''}|${args.safe.streamHealth}`;
+  if (shouldAttachHlsPlayback(args.safe.streamHealth, args.safe.playbackUrl)) {
+    args.applyTransport('hls');
+    if (args.lastAttachKeyRef.current !== attachKey) {
+      args.lastAttachKeyRef.current = attachKey;
+      args.setVideoHasData(false);
+      args.setPlayerFatal(false);
+    }
+  } else {
+    args.applyTransport(isLiveStreamSignal(args.safe.streamHealth) ? 'waiting' : 'none');
+    args.lastAttachKeyRef.current = '';
+    args.setVideoHasData(false);
+  }
+}
+
 export function useLiveStagePlayback(args: {
   roomId: string;
-  enabled: boolean;
+  /** `prefetch` keeps the next/prev show warm while off-screen; `off` tears down. */
+  playbackMode: LivePlaybackMode;
   accessToken?: string;
   refreshNonce?: number;
 }) {
   const [loading, setLoading] = useState(true);
   const [fetchFailed, setFetchFailed] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
-  const [stream, setStream] = useState<BuyerSafeStreamFields | null>(null);
+  const [stream, setStream] = useState<BuyerSafeStreamFields | null>(() =>
+    peekCachedBuyerLiveStream(args.roomId),
+  );
   const [transport, setTransport] = useState<LivePlaybackTransport>('none');
   const [videoHasData, setVideoHasData] = useState(false);
   const [playerFatal, setPlayerFatal] = useState(false);
@@ -32,7 +74,9 @@ export function useLiveStagePlayback(args: {
   const lastAttachKeyRef = useRef('');
   const transportRef = useRef<LivePlaybackTransport>('none');
   const webrtcFailedRef = useRef(false);
-  const webrtcRetryCountRef = useRef(0);
+  const webrtcFailoverCountRef = useRef(0);
+  const playbackModeRef = useRef(args.playbackMode);
+  const [webrtcSubscribeEpoch, setWebrtcSubscribeEpoch] = useState(0);
 
   const clearBackoff = useCallback(() => {
     if (backoffTimerRef.current != null) {
@@ -51,9 +95,10 @@ export function useLiveStagePlayback(args: {
   }, []);
 
   const fetchStream = useCallback(async () => {
-    if (!args.enabled || !args.roomId) return;
+    if (args.playbackMode === 'off' || !args.roomId) return;
+
     try {
-      const safe = await fetchBuyerLiveStream(args.roomId, args.accessToken);
+      const safe = await getBuyerLiveStreamCached(args.roomId, args.accessToken);
       if (!safe) {
         setFetchFailed(true);
         setLoading(false);
@@ -68,62 +113,78 @@ export function useLiveStagePlayback(args: {
 
       if (!isLiveStreamSignal(safe.streamHealth)) {
         webrtcFailedRef.current = false;
-        webrtcRetryCountRef.current = 0;
+        webrtcFailoverCountRef.current = 0;
       }
 
-      const wantWebrtc = shouldUseStageWebrtcPlayback(safe, webrtcFailedRef.current, args.accessToken);
-      if (wantWebrtc) {
-        applyTransport('webrtc');
-        lastAttachKeyRef.current = '';
-        setPlayerFatal(false);
-        return;
-      }
-
-      const attachKey = `${safe.playbackUrl ?? ''}|${safe.streamHealth}`;
-      if (shouldAttachHlsPlayback(safe.streamHealth, safe.playbackUrl)) {
-        applyTransport('hls');
-        if (lastAttachKeyRef.current !== attachKey) {
-          lastAttachKeyRef.current = attachKey;
-          setVideoHasData(false);
-          setPlayerFatal(false);
-        }
-      } else {
-        applyTransport(isLiveStreamSignal(safe.streamHealth) ? 'waiting' : 'none');
-        lastAttachKeyRef.current = '';
-        setVideoHasData(false);
-      }
+      applyStreamToTransport({
+        safe,
+        accessToken: args.accessToken,
+        webrtcFailed: webrtcFailedRef.current,
+        lastAttachKeyRef,
+        applyTransport,
+        setPlayerFatal,
+        setVideoHasData,
+      });
     } catch {
       setFetchFailed(true);
       setLoading(false);
       applyTransport('none');
     }
-  }, [applyTransport, args.accessToken, args.enabled, args.roomId]);
+  }, [applyTransport, args.accessToken, args.playbackMode, args.roomId]);
 
   useEffect(() => {
-    if (!args.enabled) {
-      applyTransport('none');
-      webrtcFailedRef.current = false;
-      webrtcRetryCountRef.current = 0;
+    const prevMode = playbackModeRef.current;
+    playbackModeRef.current = args.playbackMode;
+
+    if (args.playbackMode === 'off') {
+      if (prevMode !== 'off') {
+        applyTransport('none');
+        webrtcFailedRef.current = false;
+        webrtcFailoverCountRef.current = 0;
+        setWebrtcSubscribeEpoch(0);
+      }
       return undefined;
     }
+
+    if (prevMode === 'off') {
+      const cached = peekCachedBuyerLiveStream(args.roomId);
+      if (cached) {
+        setStream(cached);
+        setLoading(false);
+        applyStreamToTransport({
+          safe: cached,
+          accessToken: args.accessToken,
+          webrtcFailed: webrtcFailedRef.current,
+          lastAttachKeyRef,
+          applyTransport,
+          setPlayerFatal,
+          setVideoHasData,
+        });
+      }
+    }
+
     void fetchStream();
-    const id = setInterval(() => void fetchStream(), STREAM_POLL_MS);
+    const pollMs = args.playbackMode === 'prefetch' ? PREFETCH_POLL_MS : STREAM_POLL_MS;
+    const id = setInterval(() => void fetchStream(), pollMs);
     return () => clearInterval(id);
-  }, [applyTransport, args.enabled, fetchStream]);
+  }, [applyTransport, args.accessToken, args.playbackMode, args.roomId, fetchStream]);
 
   useEffect(() => {
-    if (!args.enabled || args.refreshNonce == null || args.refreshNonce < 1) return;
+    if (args.playbackMode === 'off' || args.refreshNonce == null || args.refreshNonce < 1) return;
     clearBackoff();
     retryRef.current = 0;
     lastAttachKeyRef.current = '';
     setPlayerFatal(false);
     setPlayerRetryCount(0);
-    setVideoHasData(false);
+    if (args.playbackMode === 'active') {
+      setVideoHasData(false);
+    }
+    setWebrtcSubscribeEpoch((n) => n + 1);
     void fetchStream();
-  }, [args.refreshNonce, args.enabled, clearBackoff, fetchStream]);
+  }, [args.refreshNonce, args.playbackMode, clearBackoff, fetchStream]);
 
   useEffect(() => {
-    if (!args.enabled) return undefined;
+    if (args.playbackMode !== 'active') return undefined;
     const onAppState = (next: AppStateStatus) => {
       if (next !== 'active') {
         clearBackoff();
@@ -131,20 +192,23 @@ export function useLiveStagePlayback(args: {
       }
       lastAttachKeyRef.current = '';
       setReconnecting(true);
+      if (transportRef.current === 'webrtc') {
+        setWebrtcSubscribeEpoch((n) => n + 1);
+      }
       void fetchStream().finally(() => {
         setTimeout(() => setReconnecting(false), 600);
       });
     };
     const sub = AppState.addEventListener('change', onAppState);
     return () => sub.remove();
-  }, [args.enabled, clearBackoff, fetchStream]);
+  }, [args.playbackMode, clearBackoff, fetchStream]);
 
   const onVideoReady = useCallback(() => {
     setVideoHasData(true);
     setPlayerFatal(false);
     retryRef.current = 0;
     setPlayerRetryCount(0);
-    webrtcRetryCountRef.current = 0;
+    webrtcFailoverCountRef.current = 0;
   }, []);
 
   const onVideoError = useCallback(() => {
@@ -167,29 +231,30 @@ export function useLiveStagePlayback(args: {
   const onWebrtcFailed = useCallback(
     (reason: string) => {
       if (__DEV__) {
-        console.log('[LiveStagePlayback] WebRTC subscribe failed, falling back to HLS', { reason });
+        console.log('[LiveStagePlayback] WebRTC subscribe failed', { reason });
       }
-      webrtcRetryCountRef.current += 1;
-      if (webrtcRetryCountRef.current >= 2) {
-        webrtcFailedRef.current = true;
-      }
-      applyTransport('waiting');
-      lastAttachKeyRef.current = '';
+      webrtcFailoverCountRef.current += 1;
       setVideoHasData(false);
-      void fetchStream();
+      setReconnecting(false);
+      if (webrtcFailoverCountRef.current >= 2) {
+        webrtcFailedRef.current = true;
+        applyTransport('waiting');
+        lastAttachKeyRef.current = '';
+        void fetchStream();
+        return;
+      }
+      applyTransport('webrtc');
+      setWebrtcSubscribeEpoch((n) => n + 1);
+      setReconnecting(true);
+      setTimeout(() => setReconnecting(false), 800);
     },
     [applyTransport, fetchStream],
   );
 
   const onWebrtcDisconnected = useCallback(() => {
-    webrtcRetryCountRef.current += 1;
-    if (webrtcRetryCountRef.current >= 2) {
-      webrtcFailedRef.current = true;
-    }
     setVideoHasData(false);
-    applyTransport('waiting');
-    void fetchStream();
-  }, [applyTransport, fetchStream]);
+    setReconnecting(true);
+  }, []);
 
   useEffect(() => () => clearBackoff(), [clearBackoff]);
 
@@ -206,6 +271,7 @@ export function useLiveStagePlayback(args: {
     onVideoError,
     onWebrtcFailed,
     onWebrtcDisconnected,
+    webrtcSubscribeEpoch,
     refetch: fetchStream,
   };
 }

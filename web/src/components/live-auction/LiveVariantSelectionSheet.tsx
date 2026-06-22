@@ -19,7 +19,13 @@ type LiveVariantSelectionSheetProps = {
   liveRoomId: string;
   walletReady: boolean;
   onWalletRequired: () => void;
-  onPurchased?: () => void;
+  onPurchased?: (payload: {
+    itemId: string;
+    variantId: string;
+    quantity: number;
+    label: string;
+    amountUsd: number;
+  }) => void;
 };
 
 function fmtMoney(n: number) {
@@ -126,7 +132,13 @@ export function LiveVariantSelectionSheet({
         return;
       }
       if (res.ok && "paid" in res && res.paid) {
-        onPurchased?.();
+        onPurchased?.({
+          itemId: item.id,
+          variantId: selected.id,
+          quantity,
+          label: selected.label,
+          amountUsd: selected.priceUsd * quantity,
+        });
         onClose();
         return;
       }
@@ -152,7 +164,13 @@ export function LiveVariantSelectionSheet({
           purchaseId: res.purchaseId,
         });
         if (synced.ok && "paid" in synced && synced.paid) {
-          onPurchased?.();
+          onPurchased?.({
+            itemId: item.id,
+            variantId: selected.id,
+            quantity,
+            label: selected.label,
+            amountUsd: selected.priceUsd * quantity,
+          });
           onClose();
           return;
         }

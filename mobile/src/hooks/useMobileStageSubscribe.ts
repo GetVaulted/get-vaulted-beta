@@ -6,13 +6,17 @@ import {
   leaveStage,
   useStageParticipants,
 } from 'expo-realtime-ivs-broadcast';
-import { fetchViewerStageToken } from '../api/liveRoomStreamRepository';
+import { resolveViewerStageToken } from '../lib/liveStreamPrefetchCache';
 import { ensureStageSdkInitialized } from '../lib/stageSdk';
 
-/** If no remote media arrives within this window, fail over to HLS. */
-const CONNECT_TIMEOUT_MS = 7_000;
+/** If no remote media arrives within this window, retry before failing over to HLS. */
+const CONNECT_TIMEOUT_MS = 12_000;
 /** When signed out, do not block on WebRTC forever — fail over to HLS for guests. */
 const AUTH_WAIT_MS = 1_500;
+/** Max automatic rejoin attempts inside the hook before reporting failure upstream. */
+const MAX_REJOIN_ATTEMPTS = 4;
+/** Proactive token refresh before the 20-minute viewer TTL expires. */
+const TOKEN_REFRESH_MS = 17 * 60 * 1000;
 
 export type MobileStageRemoteTarget = {
   participantId: string;
@@ -31,6 +35,7 @@ export function useMobileStageSubscribe(args: {
   accessToken?: string;
   active: boolean;
   refreshNonce?: number;
+  subscribeEpoch?: number;
   onConnected: () => void;
   onFailed: (reason: string) => void;
   onDisconnected: () => void;
@@ -74,11 +79,34 @@ export function useMobileStageSubscribe(args: {
     }
 
     let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    connectedRef.current = false;
+    let connectTimeoutId: ReturnType<typeof setTimeout> | null = null;
+    let tokenRefreshId: ReturnType<typeof setTimeout> | null = null;
+    let rejoinAttempts = 0;
+    let rejoinInFlight = false;
+    let connSub: { remove: () => void } | null = null;
+    let errSub: { remove: () => void } | null = null;
+
+    const clearTimers = () => {
+      if (connectTimeoutId != null) {
+        clearTimeout(connectTimeoutId);
+        connectTimeoutId = null;
+      }
+      if (tokenRefreshId != null) {
+        clearTimeout(tokenRefreshId);
+        tokenRefreshId = null;
+      }
+    };
+
+    const teardownListeners = () => {
+      connSub?.remove();
+      errSub?.remove();
+      connSub = null;
+      errSub = null;
+    };
 
     const fail = (reason: string) => {
-      if (cancelled || connectedRef.current) return;
+      if (cancelled) return;
+      connectedRef.current = false;
       setPhase('failed');
       setConnectionState('disconnected');
       void leaveStage().catch(() => {
@@ -87,49 +115,92 @@ export function useMobileStageSubscribe(args: {
       cbRef.current.onFailed(reason);
     };
 
-    if (!args.accessToken?.trim()) {
-      setPhase('idle');
-      timeoutId = setTimeout(() => fail('auth_required'), AUTH_WAIT_MS);
-      return () => {
-        cancelled = true;
-        if (timeoutId != null) clearTimeout(timeoutId);
-      };
-    }
+    const scheduleTokenRefresh = () => {
+      if (tokenRefreshId != null) clearTimeout(tokenRefreshId);
+      tokenRefreshId = setTimeout(() => {
+        if (cancelled || !connectedRef.current) return;
+        void attemptRejoin('token_refresh');
+      }, TOKEN_REFRESH_MS);
+    };
 
-    setPhase('connecting');
-    setConnectionState('connecting');
-
-    const connSub = addOnStageConnectionStateChangedListener((evt) => {
+    const attemptRejoin = async (trigger: string) => {
+      if (cancelled || rejoinInFlight) return;
+      if (rejoinAttempts >= MAX_REJOIN_ATTEMPTS) {
+        fail(`rejoin_exhausted_${trigger}`);
+        return;
+      }
+      rejoinAttempts += 1;
+      rejoinInFlight = true;
+      connectedRef.current = false;
+      setPhase('connecting');
+      setConnectionState('connecting');
+      cbRef.current.onDisconnected();
+      clearTimers();
+      teardownListeners();
+      try {
+        await leaveStage().catch(() => {
+          /* ignore */
+        });
+      } finally {
+        rejoinInFlight = false;
+      }
       if (cancelled) return;
-      setConnectionState(evt.state);
-      if (evt.state === 'disconnected') {
-        connectedRef.current = false;
+      void joinOnce();
+    };
+
+    const joinOnce = async () => {
+      if (cancelled) return;
+
+      if (!args.accessToken?.trim()) {
         setPhase('idle');
-        cbRef.current.onDisconnected();
+        connectTimeoutId = setTimeout(() => fail('auth_required'), AUTH_WAIT_MS);
+        return;
       }
-      if (evt.state === 'connected' && evt.error) {
-        fail(evt.error);
-      }
-    });
 
-    const errSub = addOnStageErrorListener((evt) => {
-      if (cancelled || !evt.isFatal) return;
-      fail(evt.description || `stage_error_${evt.code}`);
-    });
+      setPhase('connecting');
+      setConnectionState('connecting');
 
-    void (async () => {
+      connSub = addOnStageConnectionStateChangedListener((evt) => {
+        if (cancelled) return;
+        setConnectionState(evt.state);
+        if (evt.state === 'connected' && !evt.error) {
+          rejoinAttempts = 0;
+          scheduleTokenRefresh();
+          return;
+        }
+        if (evt.state === 'disconnected' && connectedRef.current) {
+          connectedRef.current = false;
+          setPhase('connecting');
+          void attemptRejoin('connection_disconnected');
+          return;
+        }
+        if (evt.state === 'connected' && evt.error) {
+          void attemptRejoin(`connection_error_${evt.error}`);
+        }
+      });
+
+      errSub = addOnStageErrorListener((evt) => {
+        if (cancelled) return;
+        if (!evt.isFatal) return;
+        if (connectedRef.current) {
+          void attemptRejoin(evt.description || `stage_error_${evt.code}`);
+        } else {
+          fail(evt.description || `stage_error_${evt.code}`);
+        }
+      });
+
       try {
         await ensureStageSdkInitialized();
         if (cancelled) return;
 
-        const tokenPayload = await fetchViewerStageToken(args.roomId, args.accessToken!);
-        if (!tokenPayload?.token) {
+        const token = await resolveViewerStageToken(args.roomId, args.accessToken!);
+        if (!token) {
           fail('token_missing');
           return;
         }
         if (cancelled) return;
 
-        await joinStage(tokenPayload.token);
+        await joinStage(token);
         if (cancelled) {
           await leaveStage().catch(() => {
             /* ignore */
@@ -137,19 +208,24 @@ export function useMobileStageSubscribe(args: {
           return;
         }
 
-        timeoutId = setTimeout(() => {
-          if (!connectedRef.current) fail('connect_timeout');
+        connectTimeoutId = setTimeout(() => {
+          if (!connectedRef.current) void attemptRejoin('connect_timeout');
         }, CONNECT_TIMEOUT_MS);
       } catch (err) {
-        fail(err instanceof Error ? err.message : 'subscribe_throw');
+        if (connectedRef.current) {
+          void attemptRejoin(err instanceof Error ? err.message : 'subscribe_throw');
+        } else {
+          fail(err instanceof Error ? err.message : 'subscribe_throw');
+        }
       }
-    })();
+    };
+
+    void joinOnce();
 
     return () => {
       cancelled = true;
-      if (timeoutId != null) clearTimeout(timeoutId);
-      connSub.remove();
-      errSub.remove();
+      clearTimers();
+      teardownListeners();
       connectedRef.current = false;
       setPhase('idle');
       setConnectionState('disconnected');
@@ -157,7 +233,7 @@ export function useMobileStageSubscribe(args: {
         /* ignore */
       });
     };
-  }, [args.active, args.accessToken, args.roomId, args.refreshNonce]);
+  }, [args.active, args.accessToken, args.roomId, args.refreshNonce, args.subscribeEpoch]);
 
   return { phase, connectionState, remoteVideo };
 }

@@ -6,6 +6,7 @@ import { compressImageFileToBlob } from "@/lib/listing-image-compress";
 import { uploadListingImageBlob } from "@/lib/upload-listing-image-client";
 import { buildRandomVariantsFromPreset, buildVariantsFromPreset, type VariantDraftInput } from "@/lib/live-item-variant-presets";
 import { LiveItemVariantBuilder } from "@/components/live-auction/LiveItemVariantBuilder";
+import { SELLER_CONSOLE } from "@/lib/seller-console-copy";
 
 export type AddQueueItemCloseReason = "cancel" | "success" | "escape";
 
@@ -47,6 +48,29 @@ const ALLOWED_CLOSE: AddQueueItemCloseReason[] = ["cancel", "success", "escape"]
 const THUMBNAIL_UPLOAD_ALLOWED = new Set(["image/jpeg", "image/png", "image/webp"]);
 const THUMBNAIL_MAX_FILE_BYTES = 20 * 1024 * 1024;
 
+type SaleCategory = "teams_divisions" | "auction" | "buy_now";
+type BreakSaleType = "pyt" | "pyd" | "random_pyt" | "random_pyd";
+type SaleType = "auction" | "buy_now" | BreakSaleType;
+
+const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
+  { id: "teams_divisions", label: SELLER_CONSOLE.saleCategoryTeamsDivisions, sub: "Pick or random spots" },
+  { id: "auction", label: SELLER_CONSOLE.saleCategoryAuction, sub: "Timed bidding" },
+  { id: "buy_now", label: SELLER_CONSOLE.saleCategoryBuyNow, sub: "Fixed price" },
+];
+
+const BREAK_VARIANTS: { id: BreakSaleType; label: string; sub: string }[] = [
+  { id: "pyt", label: "PYT", sub: "Pick your team" },
+  { id: "pyd", label: "PYD", sub: "Pick division" },
+  { id: "random_pyt", label: "Random Teams", sub: "32 · wheel reveal" },
+  { id: "random_pyd", label: "Random Divisions", sub: "8 · wheel reveal" },
+];
+
+function saleTypeForCategory(category: SaleCategory, breakVariant: BreakSaleType): SaleType {
+  if (category === "auction") return "auction";
+  if (category === "buy_now") return "buy_now";
+  return breakVariant;
+}
+
 function requestClose(reason: string, onRequestClose: (reason: AddQueueItemCloseReason) => void) {
   const allowed = ALLOWED_CLOSE.includes(reason as AddQueueItemCloseReason);
   if (!allowed) return;
@@ -75,9 +99,9 @@ export function AddQueueItemModal({
   const [imageUrl, setImageUrl] = useState("");
   const [imageUploading, setImageUploading] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
-  const [saleType, setSaleType] = useState<
-    "auction" | "buy_now" | "pyt" | "pyd" | "random_pyt" | "random_pyd"
-  >("auction");
+  const [saleCategory, setSaleCategory] = useState<SaleCategory>("auction");
+  const [breakSaleType, setBreakSaleType] = useState<BreakSaleType>("pyt");
+  const saleType = saleTypeForCategory(saleCategory, breakSaleType);
   const [price, setPrice] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [queueDraftMisc, setQueueDraftMisc] = useState(false);
@@ -100,7 +124,8 @@ export function AddQueueItemModal({
       setImageUrl("");
       setImageUploading(false);
       setImageError(null);
-      setSaleType(mode === "bin" ? "buy_now" : "auction");
+      setSaleCategory(mode === "bin" ? "buy_now" : "auction");
+      setBreakSaleType("pyt");
       setPrice("");
       setQuantity("1");
       setQueueDraftMisc(false);
@@ -524,26 +549,19 @@ export function AddQueueItemModal({
           />
 
           <span className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Sale type</span>
-          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {(
-              [
-                { id: "auction", label: "Auction", sub: "Timed bidding" },
-                { id: "buy_now", label: "Buy It Now", sub: "Fixed price" },
-                { id: "pyt", label: "PYT", sub: "Pick your team" },
-                { id: "pyd", label: "PYD", sub: "Pick division" },
-                { id: "random_pyt", label: "Random Teams", sub: "32 · wheel reveal" },
-                { id: "random_pyd", label: "Random Divisions", sub: "8 · wheel reveal" },
-              ] as const
-            ).map((type) => {
-              const active = saleType === type.id;
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            {SALE_CATEGORIES.map((type) => {
+              const active = saleCategory === type.id;
               return (
                 <button
                   key={type.id}
                   type="button"
                   onClick={() => {
-                    setSaleType(type.id);
-                    setSpotVariants([]);
-                    setSpotsCustomized(false);
+                    setSaleCategory(type.id);
+                    if (type.id === "teams_divisions") {
+                      setSpotVariants([]);
+                      setSpotsCustomized(false);
+                    }
                   }}
                   className={`rounded-lg border px-3 py-2.5 text-left transition ${
                     active
@@ -557,6 +575,33 @@ export function AddQueueItemModal({
               );
             })}
           </div>
+
+          {saleCategory === "teams_divisions" ? (
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {BREAK_VARIANTS.map((type) => {
+                const active = breakSaleType === type.id;
+                return (
+                  <button
+                    key={type.id}
+                    type="button"
+                    onClick={() => {
+                      setBreakSaleType(type.id);
+                      setSpotVariants([]);
+                      setSpotsCustomized(false);
+                    }}
+                    className={`rounded-lg border px-3 py-2.5 text-left transition ${
+                      active
+                        ? "border-gold/45 bg-gold/15 text-gold-bright"
+                        : "border-white/12 bg-[#0c0c10] text-zinc-400 hover:bg-white/[0.04]"
+                    }`}
+                  >
+                    <span className="block text-sm font-bold">{type.label}</span>
+                    <span className="mt-0.5 block text-[11px] font-medium opacity-80">{type.sub}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
 
           {isBreakSale ? (
             <p className="mt-3 rounded-lg border border-gold/20 bg-gold/5 px-3 py-2 text-xs text-zinc-300">

@@ -4,7 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { useLiveStagePlayback } from '../../hooks/useLiveStagePlayback';
+import { useLiveStagePlayback, type LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
 import { useHlsLiveEdgeSeek } from '../../hooks/useHlsLiveEdgeSeek';
 import {
   resolveLivePlaybackSurfaceState,
@@ -27,7 +27,9 @@ type Props = {
   roomStatus: 'scheduled' | 'live' | 'ended';
   scheduledStartAtIso?: string | null;
   thumbnailUrl: string;
-  enabled: boolean;
+  /** When omitted, falls back to legacy `enabled` boolean. */
+  playbackMode?: LivePlaybackMode;
+  enabled?: boolean;
   accessToken?: string;
   refreshNonce?: number;
   muted: boolean;
@@ -110,14 +112,17 @@ export function LiveStagePlayback({
   roomStatus,
   scheduledStartAtIso,
   thumbnailUrl,
-  enabled,
+  playbackMode,
+  enabled = true,
   accessToken,
   refreshNonce,
   muted,
   onMutedChange,
   contentFit = 'cover',
 }: Props) {
-  const playback = useLiveStagePlayback({ roomId, enabled, accessToken, refreshNonce });
+  const mode: LivePlaybackMode = playbackMode ?? (enabled ? 'active' : 'off');
+  const isForeground = mode === 'active';
+  const playback = useLiveStagePlayback({ roomId, playbackMode: mode, accessToken, refreshNonce });
 
   const playbackUrl = playback.stream?.playbackUrl ?? null;
   const streamHealth = playback.stream?.streamHealth ?? 'offline';
@@ -179,11 +184,13 @@ export function LiveStagePlayback({
 
   const surface =
     useWebrtc
-      ? playback.videoHasData
-        ? 'live'
-        : roomLifecycleLive
-          ? 'connecting'
-          : 'offline'
+      ? playback.reconnecting
+        ? 'reconnecting'
+        : playback.videoHasData
+          ? 'live'
+          : roomLifecycleLive
+            ? 'connecting'
+            : 'offline'
       : hlsSurface;
 
   const scheduledStartMs = useMemo(
@@ -211,13 +218,14 @@ export function LiveStagePlayback({
     Boolean(thumbnailUrl) &&
     (!showVideoLayer || (!playback.videoHasData && !streamAttaching) || surface === 'offline');
   const showStandby =
-    (streamPaused && roomLifecycleLive) ||
-    surface === 'offline' ||
-    surface === 'loading' ||
-    surface === 'reconnecting' ||
-    surface === 'error' ||
-    (!roomLifecycleLive && roomStatus !== 'ended') ||
-    (roomLifecycleLive && !playback.videoHasData && !streamAttaching);
+    isForeground &&
+    ((streamPaused && roomLifecycleLive) ||
+      surface === 'offline' ||
+      surface === 'loading' ||
+      surface === 'reconnecting' ||
+      surface === 'error' ||
+      (!roomLifecycleLive && roomStatus !== 'ended') ||
+      (roomLifecycleLive && !playback.videoHasData && !streamAttaching));
 
   const standbyContent = (() => {
     if (streamPaused && roomLifecycleLive) {
@@ -297,6 +305,7 @@ export function LiveStagePlayback({
           accessToken={accessToken}
           active={useWebrtc}
           refreshNonce={refreshNonce}
+          subscribeEpoch={playback.webrtcSubscribeEpoch}
           contentFit={contentFit}
           onConnected={playback.onVideoReady}
           onFailed={playback.onWebrtcFailed}

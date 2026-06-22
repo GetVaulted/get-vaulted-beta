@@ -1,5 +1,8 @@
 import type { ChatMessage } from '../types';
 
+/** Max chat rows kept client-side (newest window) — aligned with web GET /messages. */
+export const LIVE_ROOM_CHAT_HISTORY_MAX = 300;
+
 /** System bodies persisted by POST /api/live-rooms/:id/viewer-event */
 export const VIEWER_EVENT_JOIN_BODY = 'joined 🔥';
 export const VIEWER_EVENT_JOIN_BODY_LEGACY = 'joined 👋';
@@ -63,8 +66,10 @@ export function prepareChatMessageHistory(messages: ChatMessage[]): ChatMessage[
 }
 
 /** Chronological window for bottom-anchored live chat (oldest → newest). */
-export function prepareFloatingChatDisplay(messages: ChatMessage[], maxVisible = 80): ChatMessage[] {
-  return prepareChatMessageHistory(messages).slice(-maxVisible);
+export function prepareFloatingChatDisplay(messages: ChatMessage[], maxVisible = LIVE_ROOM_CHAT_HISTORY_MAX): ChatMessage[] {
+  const history = prepareChatMessageHistory(messages);
+  if (history.length <= maxVisible) return history;
+  return history.slice(-maxVisible);
 }
 
 export function sortChatMessagesByTime(messages: ChatMessage[]): ChatMessage[] {
@@ -93,7 +98,7 @@ export function mergeChatMessagesById(prev: ChatMessage[], incoming: ChatMessage
       byId.set(m.id, m);
     }
   }
-  return sortChatMessagesByTime([...byId.values()]).slice(-80);
+  return sortChatMessagesByTime([...byId.values()]).slice(-LIVE_ROOM_CHAT_HISTORY_MAX);
 }
 
 /** Client-side cooldown before re-announcing a room join (leave + return). */

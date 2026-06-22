@@ -85,6 +85,8 @@ import {
 } from '../../lib/liveRoomViewport';
 import { isCompactLiveRoomLayout } from '../../lib/liveRoomUiScale';
 import { shareLiveStreamNative } from '../../lib/shareLiveRoomNative';
+import { prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
+import type { LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
 
 function chatRightEdgeForWidth(layoutWidth: number): number {
   return isCompactLiveRoomLayout(layoutWidth) ? 84 : 92;
@@ -109,6 +111,7 @@ function formatViewers(n: number) {
 function LiveSlide({
   stream,
   isActive,
+  playbackMode,
   stageContainer,
   screenHeight,
   onBack,
@@ -121,6 +124,7 @@ function LiveSlide({
 }: {
   stream: LiveStream;
   isActive: boolean;
+  playbackMode: LivePlaybackMode;
   stageContainer: LiveStageContainer;
   screenHeight: number;
   onBack?: () => void;
@@ -537,10 +541,10 @@ function LiveSlide({
                 roomStatus={roomStatus}
                 scheduledStartAtIso={stream.scheduledStartAtIso}
                 thumbnailUrl={stream.previewImageUrl}
-                enabled={isActive}
+                playbackMode={playbackMode}
                 accessToken={accessToken}
                 refreshNonce={streamRefreshNonce}
-                muted={streamMuted}
+                muted={isActive ? streamMuted : true}
                 onMutedChange={setStreamMuted}
               />
               <LinearGradient
@@ -1076,8 +1080,36 @@ export function VerticalLiveFeed({
   }, [initialStreamId, streams]);
 
   const [page, setPage] = useState(startIndex);
+  const [peekPage, setPeekPage] = useState<number | null>(null);
   const [walletOverlayActive, setWalletOverlayActive] = useState(false);
   const [paymentBlockerActive, setPaymentBlockerActive] = useState(false);
+
+  const warmPageIndices = useMemo(() => {
+    const indices = new Set<number>([page]);
+    if (page > 0) indices.add(page - 1);
+    if (page < streams.length - 1) indices.add(page + 1);
+    if (peekPage != null && peekPage >= 0 && peekPage < streams.length) {
+      indices.add(peekPage);
+    }
+    return indices;
+  }, [page, peekPage, streams.length]);
+
+  useEffect(() => {
+    if (!streams.length) return;
+    const roomIds = [...warmPageIndices]
+      .map((index) => streams[index]?.id)
+      .filter((id): id is string => Boolean(id));
+    prefetchLiveStreamRooms(roomIds, accessToken);
+  }, [accessToken, streams, warmPageIndices]);
+
+  const resolvePlaybackMode = useCallback(
+    (index: number): LivePlaybackMode => {
+      if (index === page) return 'active';
+      if (warmPageIndices.has(index)) return 'prefetch';
+      return 'off';
+    },
+    [page, warmPageIndices],
+  );
 
   useEffect(() => {
     setPage(startIndex);
@@ -1140,13 +1172,27 @@ export function VerticalLiveFeed({
         initialPage={startIndex}
         orientation="vertical"
         scrollEnabled={!walletOverlayActive && !paymentBlockerActive}
-        onPageSelected={(e) => setPage(e.nativeEvent.position)}
+        onPageScroll={(e) => {
+          const { position, offset } = e.nativeEvent;
+          if (offset > 0.06 && position + 1 < streams.length) {
+            setPeekPage(position + 1);
+          } else if (offset < -0.06 && position > 0) {
+            setPeekPage(position - 1);
+          } else {
+            setPeekPage(null);
+          }
+        }}
+        onPageSelected={(e) => {
+          setPage(e.nativeEvent.position);
+          setPeekPage(null);
+        }}
       >
         {streams.map((stream, index) => (
           <View key={stream.id} style={styles.page} collapsable={false}>
             <LiveSlide
               stream={stream}
               isActive={index === page}
+              playbackMode={resolvePlaybackMode(index)}
               stageContainer={stageContainer}
               screenHeight={viewportHeight}
               onBack={onBack}

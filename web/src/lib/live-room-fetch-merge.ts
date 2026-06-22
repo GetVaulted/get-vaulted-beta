@@ -1,4 +1,5 @@
 import type { LiveRoomDetailDTO, LiveRoomItemDTO } from "@/lib/live-room-serialize";
+import { pickNewerVariantAwareLiveRoomItem } from "@/lib/live-room-variant-merge";
 
 /**
  * When merging a full-room GET with in-memory detail, prefer the row that reflects newer auction state.
@@ -10,14 +11,7 @@ function pickNewerLiveRoomItem(prev: LiveRoomItemDTO, incoming: LiveRoomItemDTO)
   const iv = incoming.itemVersion ?? 0;
   if (pv > iv) return prev;
   if (iv > pv) return incoming;
-  if (prev.biddingOpen === true && incoming.biddingOpen !== true) return prev;
-  if (incoming.biddingOpen === true && prev.biddingOpen !== true) return incoming;
-  if (prev.biddingOpen && incoming.biddingOpen) {
-    const pe = prev.auctionEndsAt ?? "";
-    const ie = incoming.auctionEndsAt ?? "";
-    if (pe && ie) return pe > ie ? prev : incoming;
-  }
-  return incoming;
+  return pickNewerVariantAwareLiveRoomItem(prev, incoming);
 }
 
 export function mergeLiveRoomDetailFromFetch(prev: LiveRoomDetailDTO, incoming: LiveRoomDetailDTO): LiveRoomDetailDTO {

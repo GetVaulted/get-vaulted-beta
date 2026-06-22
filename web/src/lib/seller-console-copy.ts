@@ -19,4 +19,8 @@ export const SELLER_CONSOLE = {
   chat: 'Chat',
   viewers: 'Viewers',
   scheduled: 'Scheduled',
+  /** Add-item modal — top-level sale categories */
+  saleCategoryTeamsDivisions: 'Teams/Divisions',
+  saleCategoryAuction: 'Auction',
+  saleCategoryBuyNow: 'Buy Now',
 } as const;

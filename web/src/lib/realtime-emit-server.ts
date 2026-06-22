@@ -87,6 +87,7 @@ export function emitVariantPurchased(
     buyerUsername: string;
     amountUsd?: number;
     itemVersion: number;
+    quantity?: number;
     randomReveal?: boolean;
   },
 ): void {

@@ -3,6 +3,7 @@
 import { useSession } from "next-auth/react";
 import { useCallback, useMemo, useState } from "react";
 import { useChatScrollToBottom } from "@/hooks/useChatScrollToBottom";
+import { LIVE_ROOM_CHAT_HISTORY_MAX } from "@/lib/live-room-chat-policy";
 import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { appendLiveRoomMessageDedupe } from "@/lib/realtime-merge-messages";
 import { isInlineViewerEventBody } from "@/lib/live-room-viewer-events";
@@ -14,11 +15,9 @@ import { resolvePinnedModeratorUsername } from "@/lib/trust/resolve-pinned-moder
 import { MentionText } from "@/components/mentions/MentionText";
 
 /** Oldest at top, newest at bottom — matches bottom-anchored scroll (newest near composer). */
-function overlayChatRowOpacity(index: number, total: number): number {
-  if (total <= 1) return 1;
-  const min = 0.58;
-  const span = 0.42;
-  return min + (index / (total - 1)) * span;
+function tailChatHistory<T>(messages: T[]): T[] {
+  if (messages.length <= LIVE_ROOM_CHAT_HISTORY_MAX) return messages;
+  return messages.slice(-LIVE_ROOM_CHAT_HISTORY_MAX);
 }
 
 function PinnedChatBar({
@@ -255,13 +254,10 @@ export function LiveAuctionChat({
       </div>
     ) : null;
 
-  const panelMessages = useMemo(
-    () => (scrollMessages ? chatMessages.slice(-33) : chatMessages.slice(-500)),
-    [chatMessages, scrollMessages],
-  );
+  const panelMessages = useMemo(() => tailChatHistory(chatMessages), [chatMessages]);
 
   if (overlayMode) {
-    const overlayList = chatMessages.slice(-120);
+    const overlayList = panelMessages;
     const lineShadow =
       "[text-shadow:0_1px_2px_rgba(0,0,0,0.95),0_0_14px_rgba(0,0,0,0.55)]";
     return (
@@ -297,7 +293,6 @@ export function LiveAuctionChat({
                       ? "motion-safe:animate-[live-chat-slide_var(--live-duration-enter)_var(--live-ease)_both]"
                       : "animate-[chat-rise_var(--live-duration-enter)_var(--live-ease)]"
                   }`}
-                  style={{ opacity: overlayChatRowOpacity(idx, arr.length) }}
                 >
                   {showAvatar ? (
                     <LiveChatAvatar

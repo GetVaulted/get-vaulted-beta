@@ -18,7 +18,7 @@ import {
   formatChatDisplayName,
   formatViewerEventName,
   isViewerEventMessage,
-  prepareFloatingChatDisplay,
+  prepareChatMessageHistory,
 } from '../../lib/liveRoomChatMessages';
 import { liveChatUsernameInitial } from '../../lib/liveChatAvatar';
 import { isProtectedShowHost } from '../../lib/liveModeratorPermissions';
@@ -38,8 +38,9 @@ export const CHAT_STACK_RESERVE = 248;
 
 const COMPOSER_PLACEHOLDER = 'Say something';
 
-/** TikTok/Whatnot-style overlay: ~6 visible lines; scroll up for history. */
+/** TikTok/Whatnot-style overlay: ~6 lines visible; scroll up for full session history. */
 export const MAX_FLOATING_CHAT = 6;
+export const FLOATING_CHAT_SCROLL_NEAR_BOTTOM_PX = 48;
 
 /** Whatnot-style pinned mod row (avatar + username + Mod pill + body). */
 export type PinnedModeratorChat = {
@@ -346,22 +347,25 @@ export function FloatingLiveChat({
   onPressChatUser?: (user: { username: string; userId?: string }) => void;
   moderatorUserIds?: string[];
 }) {
-  const history = useMemo(() => prepareFloatingChatDisplay(pool, maxRows), [pool, maxRows]);
+  const history = useMemo(() => prepareChatMessageHistory(pool), [pool]);
   const moderatorIdSet = useMemo(() => new Set(moderatorUserIds ?? []), [moderatorUserIds]);
   const scrollRef = useRef<ScrollView>(null);
+  const pinnedToBottomRef = useRef(true);
   const lastMessageId = history[history.length - 1]?.id;
 
   const rowHeight = compact ? ROW_HEIGHT_COMPACT : ROW_HEIGHT_ESTIMATE;
   const viewportHeight = Math.min(maxHeight, maxRows * rowHeight + 12);
   const scrollMaxHeight = Math.max(48, viewportHeight);
 
+  const scrollToBottom = () => {
+    scrollRef.current?.scrollToEnd({ animated: false });
+  };
+
   useEffect(() => {
-    if (!lastMessageId) return;
+    if (!lastMessageId || !pinnedToBottomRef.current) return;
     const frame = requestAnimationFrame(() => {
-      scrollRef.current?.scrollToEnd({ animated: false });
-      requestAnimationFrame(() => {
-        scrollRef.current?.scrollToEnd({ animated: false });
-      });
+      scrollToBottom();
+      requestAnimationFrame(scrollToBottom);
     });
     return () => cancelAnimationFrame(frame);
   }, [lastMessageId, streamKey]);
@@ -384,11 +388,16 @@ export function FloatingLiveChat({
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
+        onScroll={(e) => {
+          const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+          const distFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
+          pinnedToBottomRef.current = distFromBottom < FLOATING_CHAT_SCROLL_NEAR_BOTTOM_PX;
+        }}
         onContentSizeChange={() => {
-          scrollRef.current?.scrollToEnd({ animated: false });
+          if (pinnedToBottomRef.current) scrollToBottom();
         }}
         onLayout={() => {
-          scrollRef.current?.scrollToEnd({ animated: false });
+          if (pinnedToBottomRef.current) scrollToBottom();
         }}
       >
         {history.map((m) => (

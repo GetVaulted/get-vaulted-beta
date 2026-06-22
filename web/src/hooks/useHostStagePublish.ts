@@ -43,6 +43,11 @@ function friendlyMediaError(err: unknown): string {
   return "Could not access camera or microphone.";
 }
 
+/** Max automatic publish rejoin attempts before surfacing an error to the host. */
+const HOST_MAX_REJOIN_ATTEMPTS = 5;
+/** Proactive host token refresh before the 60-minute TTL expires. */
+const HOST_TOKEN_REFRESH_MS = 50 * 60 * 1000;
+
 function mediaConstraints(videoDeviceId?: string, audioDeviceId?: string): MediaStreamConstraints {
   return {
     video: videoDeviceId
@@ -76,6 +81,12 @@ export function useHostStagePublish({
   const startInFlightRef = useRef(false);
   const wentLiveRef = useRef(false);
   const previewOnlyRef = useRef(false);
+  const reconnectInFlightRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
+  const intentionalStopRef = useRef(false);
+  const tokenRefreshTimerRef = useRef<number | null>(null);
+  const ivsModuleRef = useRef<Awaited<typeof import("amazon-ivs-web-broadcast")> | null>(null);
+  const reconnectPublishRef = useRef<(trigger: string) => void>(() => {});
   const [phase, setPhase] = useState<HostBroadcastPhase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
@@ -96,6 +107,10 @@ export function useHostStagePublish({
   }, []);
 
   const cleanupStage = useCallback(() => {
+    if (tokenRefreshTimerRef.current != null) {
+      window.clearTimeout(tokenRefreshTimerRef.current);
+      tokenRefreshTimerRef.current = null;
+    }
     try {
       stageRef.current?.leave();
     } catch {
@@ -194,6 +209,121 @@ export function useHostStagePublish({
     }
   }, [roomId]);
 
+  const refreshHostToken = useCallback(async (): Promise<string> => {
+    const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/stream/stage-token`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+    });
+    const body = (await res.json().catch(() => ({}))) as StageTokenResponse;
+    if (!res.ok) {
+      throw new Error(typeof body.error === "string" ? body.error : "Could not refresh the live broadcast.");
+    }
+    const token = body.stage?.token?.trim();
+    if (!token) throw new Error("Stage credentials were incomplete.");
+    return token;
+  }, [roomId]);
+
+  const joinPublishStage = useCallback(
+    async (token: string, ivs: Awaited<typeof import("amazon-ivs-web-broadcast")>) => {
+      const strategy: StageStrategy = {
+        stageStreamsToPublish: () => localStreamsRef.current,
+        shouldPublishParticipant: () => true,
+        shouldSubscribeToParticipant: () => ivs.SubscribeType.NONE,
+      };
+
+      const stage = new ivs.Stage(token, strategy);
+      stageRef.current = stage;
+
+      stage.on(ivs.StageEvents.STAGE_CONNECTION_STATE_CHANGED, (state: StageConnectionStateType) => {
+        if (state === ivs.StageConnectionState.CONNECTED) {
+          reconnectAttemptsRef.current = 0;
+          if (!wentLiveRef.current) {
+            wentLiveRef.current = true;
+            setPhase("live");
+            void callbacksRef.current.onBroadcastStarted?.();
+            callbacksRef.current.onStreamRefresh?.();
+            callbacksRef.current.onLive?.();
+          }
+          if (tokenRefreshTimerRef.current != null) window.clearTimeout(tokenRefreshTimerRef.current);
+          tokenRefreshTimerRef.current = window.setTimeout(() => {
+            if (!wentLiveRef.current || intentionalStopRef.current) return;
+            reconnectPublishRef.current("token_refresh");
+          }, HOST_TOKEN_REFRESH_MS);
+          return;
+        }
+        if (
+          (state === ivs.StageConnectionState.DISCONNECTED || state === ivs.StageConnectionState.ERRORED) &&
+          wentLiveRef.current &&
+          !intentionalStopRef.current
+        ) {
+          reconnectPublishRef.current(`connection_${state}`);
+        }
+      });
+
+      stage.on(ivs.StageEvents.ERROR, (err: StageError) => {
+        logIvsWeb("stage publish error", { roomId, message: err?.message, code: err?.code });
+        if (wentLiveRef.current && !intentionalStopRef.current) {
+          reconnectPublishRef.current(`stage_error_${err?.code ?? "unknown"}`);
+        }
+      });
+
+      await stage.join();
+    },
+    [roomId],
+  );
+
+  const reconnectPublish = useCallback(
+    async (trigger: string) => {
+      if (reconnectInFlightRef.current || intentionalStopRef.current || !wentLiveRef.current) return;
+      if (reconnectAttemptsRef.current >= HOST_MAX_REJOIN_ATTEMPTS) {
+        setError("Live connection lost. End the show and go live again, or refresh the page.");
+        return;
+      }
+      reconnectInFlightRef.current = true;
+      reconnectAttemptsRef.current += 1;
+      logIvsWeb("stage publish rejoin", { roomId, trigger, attempt: reconnectAttemptsRef.current });
+      try {
+        try {
+          stageRef.current?.leave();
+        } catch {
+          /* ignore */
+        }
+        stageRef.current = null;
+        const ivs = ivsModuleRef.current ?? (await import("amazon-ivs-web-broadcast"));
+        ivsModuleRef.current = ivs;
+        const token = await refreshHostToken();
+        await joinPublishStage(token, ivs);
+        callbacksRef.current.onStreamRefresh?.();
+      } catch (err) {
+        logIvsWeb("stage publish rejoin failed", {
+          roomId,
+          message: err instanceof Error ? err.message : "rejoin_failed",
+        });
+        if (reconnectAttemptsRef.current >= HOST_MAX_REJOIN_ATTEMPTS) {
+          setError("Live connection lost. End the show and go live again, or refresh the page.");
+        }
+      } finally {
+        reconnectInFlightRef.current = false;
+      }
+    },
+    [joinPublishStage, refreshHostToken, roomId],
+  );
+
+  reconnectPublishRef.current = (trigger: string) => {
+    void reconnectPublish(trigger);
+  };
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      if (wentLiveRef.current && !intentionalStopRef.current && phase === "live") {
+        void reconnectPublish("visibility_resume");
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [phase, reconnectPublish]);
+
   const start = useCallback(async () => {
     if (startInFlightRef.current || stageRef.current) return;
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -203,6 +333,8 @@ export function useHostStagePublish({
 
     startInFlightRef.current = true;
     wentLiveRef.current = false;
+    intentionalStopRef.current = false;
+    reconnectAttemptsRef.current = 0;
     setPhase("starting");
     setError(null);
 
@@ -227,6 +359,7 @@ export function useHostStagePublish({
       }
 
       const ivs = await import("amazon-ivs-web-broadcast");
+      ivsModuleRef.current = ivs;
       const videoTrack = media.getVideoTracks()[0];
       const audioTrack = media.getAudioTracks()[0];
       const localStreams: LocalStageStream[] = [];
@@ -234,29 +367,7 @@ export function useHostStagePublish({
       if (audioTrack) localStreams.push(new ivs.LocalStageStream(audioTrack));
       localStreamsRef.current = localStreams;
 
-      const strategy: StageStrategy = {
-        stageStreamsToPublish: () => localStreamsRef.current,
-        shouldPublishParticipant: () => true,
-        shouldSubscribeToParticipant: () => ivs.SubscribeType.NONE,
-      };
-
-      const stage = new ivs.Stage(token, strategy);
-      stageRef.current = stage;
-
-      stage.on(ivs.StageEvents.STAGE_CONNECTION_STATE_CHANGED, (state: StageConnectionStateType) => {
-        if (state === ivs.StageConnectionState.CONNECTED && !wentLiveRef.current) {
-          wentLiveRef.current = true;
-          setPhase("live");
-          void callbacksRef.current.onBroadcastStarted?.();
-          callbacksRef.current.onStreamRefresh?.();
-          callbacksRef.current.onLive?.();
-        }
-      });
-      stage.on(ivs.StageEvents.ERROR, (err: StageError) => {
-        logIvsWeb("stage publish error", { roomId, message: err?.message });
-      });
-
-      await stage.join();
+      await joinPublishStage(token, ivs);
     } catch (err) {
       cleanupStage();
       void endServerSession();
@@ -265,9 +376,10 @@ export function useHostStagePublish({
     } finally {
       startInFlightRef.current = false;
     }
-  }, [acquireMedia, cleanupStage, endServerSession, previewStream, roomId]);
+  }, [acquireMedia, cleanupStage, endServerSession, joinPublishStage, previewStream, roomId]);
 
   const stop = useCallback(async () => {
+    intentionalStopRef.current = true;
     setPhase((prev) => (prev === "live" || prev === "starting" || prev === "paused" ? "stopping" : prev));
     if (!stageRef.current && phase !== "live" && phase !== "starting" && phase !== "paused") return;
     setError(null);
@@ -278,6 +390,8 @@ export function useHostStagePublish({
     } catch (err) {
       setError(friendlyMediaError(err));
     } finally {
+      wentLiveRef.current = false;
+      reconnectAttemptsRef.current = 0;
       previewOnlyRef.current = true;
       setPhase(mediaStreamRef.current ? "preview" : "idle");
     }

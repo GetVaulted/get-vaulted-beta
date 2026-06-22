@@ -51,6 +51,7 @@ function isUsableThumbnail(value: string | null | undefined): value is string {
 
 const POLL_MS = 5_000;
 const MAX_PLAYER_RETRIES = 5;
+const MAX_WEBRTC_FAILOVERS = 2;
 const BACKOFF_BASE_MS = 900;
 
 /** Shared low-latency HLS.js tuning — used by both the seller center stage and buyer room. */
@@ -200,6 +201,7 @@ export function LiveVideoStagePlayback({
   const transportRef = useRef<"none" | "webrtc" | "hls">("none");
   /** Set once WebRTC subscribe has failed for this signal, so we don't loop and stick to HLS. */
   const webrtcFailedRef = useRef(false);
+  const webrtcFailoverCountRef = useRef(0);
 
   const [loading, setLoading] = useState(true);
   const [fetchFailed, setFetchFailed] = useState(false);
@@ -221,6 +223,8 @@ export function LiveVideoStagePlayback({
   const [streamMode, setStreamMode] = useState<string>("channel_hls");
   const [stageAvailable, setStageAvailable] = useState(false);
   const [transport, setTransport] = useState<"none" | "webrtc" | "hls">("none");
+  /** Forces useStageSubscribe to leave + rejoin (visibility resume, recoverable disconnect). */
+  const [webrtcSubscribeEpoch, setWebrtcSubscribeEpoch] = useState(0);
   mutedRef.current = muted;
 
   const scheduledStartMs = useMemo(() => parseScheduledStartMs(scheduledStartAt), [scheduledStartAt]);
@@ -470,7 +474,10 @@ export function LiveVideoStagePlayback({
 
       const signalLive = isLiveStreamSignal(safe.streamHealth);
       // A fresh live signal resets the one-shot WebRTC failover guard so a new Go Live retries WebRTC.
-      if (!signalLive) webrtcFailedRef.current = false;
+      if (!signalLive) {
+        webrtcFailedRef.current = false;
+        webrtcFailoverCountRef.current = 0;
+      }
 
       const wantWebrtc =
         viewerAuthenticated &&
@@ -548,6 +555,7 @@ export function LiveVideoStagePlayback({
     lastAttachedKeyRef.current = "";
     transportRef.current = "none";
     setTransport("none");
+    setWebrtcSubscribeEpoch((n) => n + 1);
     setPlayerFatal(false);
     setHlsFatalRetries(0);
     logLiveDebugEvent({
@@ -561,17 +569,39 @@ export function LiveVideoStagePlayback({
   const handleWebrtcConnected = useCallback(() => {
     setVideoHasData(true);
     setReconnecting(false);
+    webrtcFailoverCountRef.current = 0;
     logIvsWeb("buyer playback connected", { roomId: liveRoomId, transport: "webrtc" });
+  }, [liveRoomId]);
+
+  const handleWebrtcDisconnected = useCallback(() => {
+    setVideoHasData(false);
+    setReconnecting(true);
+    logLiveDebugEvent({ event: "playback_webrtc_disconnected", roomId: liveRoomId, extra: {} });
   }, [liveRoomId]);
 
   const handleWebrtcFailed = useCallback(
     (reason: string) => {
-      webrtcFailedRef.current = true;
-      transportRef.current = "none";
-      lastAttachedKeyRef.current = "";
+      webrtcFailoverCountRef.current += 1;
       setVideoHasData(false);
-      logIvsWeb("buyer playback error", { roomId: liveRoomId, reason: `webrtc_${reason}`, fallback: "hls" });
-      void fetchStream();
+      setReconnecting(false);
+      logIvsWeb("buyer playback error", {
+        roomId: liveRoomId,
+        reason: `webrtc_${reason}`,
+        failoverAttempt: webrtcFailoverCountRef.current,
+      });
+      if (webrtcFailoverCountRef.current >= MAX_WEBRTC_FAILOVERS) {
+        webrtcFailedRef.current = true;
+        transportRef.current = "none";
+        lastAttachedKeyRef.current = "";
+        logIvsWeb("buyer playback error", { roomId: liveRoomId, reason: "webrtc_failover_hls", fallback: "hls" });
+        void fetchStream();
+        return;
+      }
+      transportRef.current = "webrtc";
+      setTransport("webrtc");
+      setWebrtcSubscribeEpoch((n) => n + 1);
+      setReconnecting(true);
+      window.setTimeout(() => setReconnecting(false), 800);
     },
     [fetchStream, liveRoomId],
   );
@@ -581,8 +611,11 @@ export function LiveVideoStagePlayback({
     videoRef,
     active: transport === "webrtc",
     muted,
+    refreshNonce: streamPlaybackRefreshNonce,
+    subscribeEpoch: webrtcSubscribeEpoch,
     onConnected: handleWebrtcConnected,
     onFailed: handleWebrtcFailed,
+    onDisconnected: handleWebrtcDisconnected,
   });
 
   useEffect(() => {
@@ -597,6 +630,12 @@ export function LiveVideoStagePlayback({
       if (document.visibilityState !== "visible") return;
       lastAttachedKeyRef.current = "";
       setReconnecting(true);
+      if (transportRef.current === "webrtc") {
+        setWebrtcSubscribeEpoch((n) => n + 1);
+      } else {
+        transportRef.current = "none";
+        setTransport("none");
+      }
       logLiveDebugEvent({ event: "playback_visibility_resume", roomId: liveRoomId, extra: {} });
       void fetchStream().finally(() => {
         window.setTimeout(() => setReconnecting(false), 600);
@@ -663,11 +702,13 @@ export function LiveVideoStagePlayback({
   // off connection state (videoHasData) instead.
   const surface =
     transport === "webrtc"
-      ? videoHasData
-        ? "live"
-        : roomLifecycleLive
-          ? "connecting"
-          : "offline"
+      ? reconnecting
+        ? "reconnecting"
+        : videoHasData
+          ? "live"
+          : roomLifecycleLive
+            ? "connecting"
+            : "offline"
       : hlsSurface;
 
   const showVideoLayer = transport === "webrtc" || Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));

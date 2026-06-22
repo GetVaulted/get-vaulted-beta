@@ -12,6 +12,13 @@ import { logIvsWeb } from "@/lib/ivs-web-broadcast-log";
 
 /** If no remote media arrives within this window, fail over to HLS. */
 const CONNECT_TIMEOUT_MS = 12_000;
+/** Proactive token refresh before the 20-minute viewer TTL expires. */
+const TOKEN_REFRESH_MS = 17 * 60 * 1000;
+/** Max automatic WebRTC rejoin attempts before reporting failure to the player. */
+const MAX_REJOIN_ATTEMPTS = 4;
+/** No new video frames for this long while "connected" triggers a rejoin. */
+const STALE_FRAME_MS = 8_000;
+const STALE_CHECK_INTERVAL_MS = 3_000;
 
 /** True when the browser can subscribe to a WebRTC Stage (RTCPeerConnection available). */
 export function isWebRtcPlaybackSupported(): boolean {
@@ -23,36 +30,53 @@ export function isStageWebrtcEnabled(): boolean {
   return process.env.NEXT_PUBLIC_LIVE_STAGE_ENABLED !== "false";
 }
 
+async function fetchViewerStageToken(roomId: string): Promise<string | null> {
+  const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/stream/stage-token`, {
+    cache: "no-store",
+    credentials: "same-origin",
+  });
+  if (!res.ok) return null;
+  const body = (await res.json().catch(() => ({}))) as { stage?: { token?: string } };
+  return body.stage?.token?.trim() ?? null;
+}
+
 /**
  * Buyer-side WebRTC subscriber. When `active`, fetches a subscribe-only participant token, joins the
  * room's IVS Real-Time Stage, and attaches the host participant's remote tracks to `videoRef`.
  *
- * On any failure (no token / guest / unsupported / timeout / connection error) it calls `onFailed`
- * so the player can fall back to HLS. Leaving the stage + detaching tracks happens on cleanup.
+ * Automatically rejoins on mid-session disconnect, stale frames, and token expiry. After exhausting
+ * retries it calls `onFailed` so the player can fall back to HLS.
  */
 export function useStageSubscribe({
   roomId,
   videoRef,
   active,
   muted,
+  refreshNonce,
+  subscribeEpoch,
   onConnected,
   onFailed,
+  onDisconnected,
 }: {
   roomId: string;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   active: boolean;
   muted: boolean;
+  /** Bumped on stream_status / Supabase reconnect — forces a clean rejoin. */
+  refreshNonce?: number;
+  /** Bumped by the player on visibility resume or recoverable disconnect. */
+  subscribeEpoch?: number;
   onConnected: () => void;
   onFailed: (reason: string) => void;
+  onDisconnected?: () => void;
 }) {
   const stageRef = useRef<Stage | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const mutedRef = useRef(muted);
   mutedRef.current = muted;
-  const cbRef = useRef({ onConnected, onFailed });
-  cbRef.current = { onConnected, onFailed };
+  const cbRef = useRef({ onConnected, onFailed, onDisconnected });
+  cbRef.current = { onConnected, onFailed, onDisconnected };
 
-  // Keep the attached element's muted state in sync without re-joining the stage.
   useEffect(() => {
     const el = videoRef.current;
     if (el && streamRef.current && el.srcObject === streamRef.current) {
@@ -64,15 +88,40 @@ export function useStageSubscribe({
     if (!active) return;
     let cancelled = false;
     let connected = false;
-    let timeoutId: number | null = null;
+    let connectTimeoutId: number | null = null;
+    let tokenRefreshId: number | null = null;
+    let staleCheckId: number | null = null;
+    let lastFrameAt = Date.now();
+    let frameCallbackId: number | null = null;
+    let rejoinAttempts = 0;
+    let rejoinInFlight = false;
 
     const stream = new MediaStream();
     streamRef.current = stream;
 
-    const fail = (reason: string) => {
-      if (cancelled) return;
-      logIvsWeb("stage subscribe failed", { roomId, reason });
-      cbRef.current.onFailed(reason);
+    const clearTimers = () => {
+      if (connectTimeoutId != null) {
+        window.clearTimeout(connectTimeoutId);
+        connectTimeoutId = null;
+      }
+      if (tokenRefreshId != null) {
+        window.clearTimeout(tokenRefreshId);
+        tokenRefreshId = null;
+      }
+      if (staleCheckId != null) {
+        window.clearInterval(staleCheckId);
+        staleCheckId = null;
+      }
+      if (frameCallbackId != null && videoRef.current && "cancelVideoFrameCallback" in videoRef.current) {
+        try {
+          (videoRef.current as HTMLVideoElement & { cancelVideoFrameCallback: (id: number) => void }).cancelVideoFrameCallback(
+            frameCallbackId,
+          );
+        } catch {
+          /* ignore */
+        }
+        frameCallbackId = null;
+      }
     };
 
     const attach = () => {
@@ -85,18 +134,95 @@ export function useStageSubscribe({
       });
     };
 
-    void (async () => {
-      try {
-        const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/stream/stage-token`, {
-          cache: "no-store",
-          credentials: "same-origin",
-        });
-        if (!res.ok) {
-          fail(`token_http_${res.status}`);
+    const fail = (reason: string) => {
+      if (cancelled) return;
+      logIvsWeb("stage subscribe failed", { roomId, reason, rejoinAttempts });
+      cbRef.current.onFailed(reason);
+    };
+
+    const hasLiveVideoTrack = () =>
+      stream.getVideoTracks().some((t) => t.readyState === "live" && !t.muted);
+
+    const scheduleTokenRefresh = () => {
+      if (tokenRefreshId != null) window.clearTimeout(tokenRefreshId);
+      tokenRefreshId = window.setTimeout(() => {
+        if (cancelled || !connected) return;
+        logIvsWeb("stage subscribe token refresh", { roomId });
+        void attemptRejoin("token_refresh");
+      }, TOKEN_REFRESH_MS);
+    };
+
+    const startStaleWatch = () => {
+      const el = videoRef.current;
+      lastFrameAt = Date.now();
+
+      const onFrame = () => {
+        if (cancelled || !connected) return;
+        lastFrameAt = Date.now();
+        if (el && "requestVideoFrameCallback" in el) {
+          frameCallbackId = (el as HTMLVideoElement & { requestVideoFrameCallback: (cb: () => void) => number }).requestVideoFrameCallback(
+            onFrame,
+          );
+        }
+      };
+
+      if (el && "requestVideoFrameCallback" in el) {
+        frameCallbackId = (el as HTMLVideoElement & { requestVideoFrameCallback: (cb: () => void) => number }).requestVideoFrameCallback(
+          onFrame,
+        );
+      }
+
+      staleCheckId = window.setInterval(() => {
+        if (cancelled || !connected) return;
+        const tracks = stream.getVideoTracks();
+        if (tracks.length === 0 || tracks.every((t) => t.readyState === "ended")) {
+          void attemptRejoin("tracks_ended");
           return;
         }
-        const body = (await res.json().catch(() => ({}))) as { stage?: { token?: string } };
-        const token = body.stage?.token?.trim();
+        if ("requestVideoFrameCallback" in (videoRef.current ?? {}) && Date.now() - lastFrameAt > STALE_FRAME_MS) {
+          void attemptRejoin("stale_frames");
+        }
+      }, STALE_CHECK_INTERVAL_MS);
+    };
+
+    const teardownStage = async () => {
+      clearTimers();
+      connected = false;
+      try {
+        stageRef.current?.leave();
+      } catch {
+        /* ignore */
+      }
+      stageRef.current = null;
+    };
+
+    const attemptRejoin = async (trigger: string) => {
+      if (cancelled || rejoinInFlight) return;
+      if (rejoinAttempts >= MAX_REJOIN_ATTEMPTS) {
+        fail(`rejoin_exhausted_${trigger}`);
+        return;
+      }
+      rejoinAttempts += 1;
+      rejoinInFlight = true;
+      logIvsWeb("stage subscribe rejoin", { roomId, trigger, attempt: rejoinAttempts });
+      cbRef.current.onDisconnected?.();
+      await teardownStage();
+      for (const track of stream.getTracks()) {
+        try {
+          stream.removeTrack(track);
+        } catch {
+          /* ignore */
+        }
+      }
+      rejoinInFlight = false;
+      if (cancelled) return;
+      void joinStage();
+    };
+
+    const joinStage = async () => {
+      if (cancelled) return;
+      try {
+        const token = await fetchViewerStageToken(roomId);
         if (!token) {
           fail("token_missing");
           return;
@@ -117,7 +243,7 @@ export function useStageSubscribe({
         stage.on(
           ivs.StageEvents.STAGE_PARTICIPANT_STREAMS_ADDED,
           (participant: StageParticipantInfo, streams: StageStream[]) => {
-            if (participant.isLocal) return;
+            if (participant.isLocal || cancelled) return;
             for (const s of streams) {
               try {
                 stream.addTrack(s.mediaStreamTrack);
@@ -128,19 +254,23 @@ export function useStageSubscribe({
             attach();
             if (!connected) {
               connected = true;
-              if (timeoutId != null) {
-                window.clearTimeout(timeoutId);
-                timeoutId = null;
+              rejoinAttempts = 0;
+              if (connectTimeoutId != null) {
+                window.clearTimeout(connectTimeoutId);
+                connectTimeoutId = null;
               }
               logIvsWeb("stage subscribe connected", { roomId });
               cbRef.current.onConnected();
+              scheduleTokenRefresh();
+              startStaleWatch();
             }
           },
         );
+
         stage.on(
           ivs.StageEvents.STAGE_PARTICIPANT_STREAMS_REMOVED,
           (participant: StageParticipantInfo, streams: StageStream[]) => {
-            if (participant.isLocal) return;
+            if (participant.isLocal || cancelled) return;
             for (const s of streams) {
               try {
                 stream.removeTrack(s.mediaStreamTrack);
@@ -148,12 +278,23 @@ export function useStageSubscribe({
                 /* already removed */
               }
             }
+            if (!hasLiveVideoTrack() && connected) {
+              void attemptRejoin("streams_removed");
+            }
           },
         );
+
         stage.on(ivs.StageEvents.STAGE_CONNECTION_STATE_CHANGED, (state: StageConnectionStateType) => {
           logIvsWeb("stage subscribe state", { roomId, state });
-          if (state === ivs.StageConnectionState.ERRORED) fail("connection_errored");
+          if (state === ivs.StageConnectionState.ERRORED) {
+            void attemptRejoin("connection_errored");
+            return;
+          }
+          if (state === ivs.StageConnectionState.DISCONNECTED && connected) {
+            void attemptRejoin("connection_disconnected");
+          }
         });
+
         stage.on(ivs.StageEvents.ERROR, (err: StageError) => {
           logIvsWeb("stage subscribe error", {
             roomId,
@@ -162,26 +303,36 @@ export function useStageSubscribe({
             category: err?.category,
             message: err?.message,
           });
+          if (connected) {
+            void attemptRejoin(`stage_error_${err?.code ?? "unknown"}`);
+          } else {
+            fail(`stage_error_${err?.code ?? "unknown"}`);
+          }
         });
 
         await stage.join();
-        timeoutId = window.setTimeout(() => {
-          if (!connected) fail("connect_timeout");
+        if (cancelled) {
+          await teardownStage();
+          return;
+        }
+        connectTimeoutId = window.setTimeout(() => {
+          if (!connected) void attemptRejoin("connect_timeout");
         }, CONNECT_TIMEOUT_MS);
       } catch (err) {
-        fail(err instanceof Error ? err.message : "subscribe_throw");
+        if (connected) {
+          void attemptRejoin(err instanceof Error ? err.message : "subscribe_throw");
+        } else {
+          fail(err instanceof Error ? err.message : "subscribe_throw");
+        }
       }
-    })();
+    };
+
+    void joinStage();
 
     return () => {
       cancelled = true;
-      if (timeoutId != null) window.clearTimeout(timeoutId);
-      try {
-        stageRef.current?.leave();
-      } catch {
-        /* ignore */
-      }
-      stageRef.current = null;
+      clearTimers();
+      void teardownStage();
       const el = videoRef.current;
       if (el && el.srcObject === streamRef.current) {
         el.srcObject = null;
@@ -195,5 +346,5 @@ export function useStageSubscribe({
       }
       streamRef.current = null;
     };
-  }, [active, roomId, videoRef]);
+  }, [active, roomId, videoRef, refreshNonce, subscribeEpoch]);
 }

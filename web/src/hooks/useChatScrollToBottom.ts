@@ -14,9 +14,10 @@ export function useChatScrollToBottom(messageCount: number, enabled = true) {
   }, []);
 
   useEffect(() => {
-    if (!enabled) return;
-    pinnedRef.current = true;
-  }, [enabled, messageCount]);
+    if (!enabled) {
+      pinnedRef.current = true;
+    }
+  }, [enabled]);
 
   useEffect(() => {
     if (!enabled) return;

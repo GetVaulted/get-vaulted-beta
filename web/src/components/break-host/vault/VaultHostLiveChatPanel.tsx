@@ -9,6 +9,7 @@ import { LiveChatMessageRowActions } from "@/components/trust/LiveChatMessageRow
 import { LiveChatAvatar } from "@/components/live-auction/LiveChatAvatar";
 import { MentionComposer } from "@/components/mentions/MentionComposer";
 import { MentionText } from "@/components/mentions/MentionText";
+import { LIVE_ROOM_CHAT_HISTORY_MAX } from "@/lib/live-room-chat-policy";
 import { isInlineViewerEventBody } from "@/lib/live-room-viewer-events";
 
 const PALETTE = ["text-sky-300", "text-emerald-300", "text-violet-300", "text-amber-300", "text-rose-300", "text-cyan-300"] as const;
@@ -93,7 +94,10 @@ export function VaultHostLiveChatPanel({
   const pinnedIsHost = Boolean(
     hostUserId && mod.pinnedModeratorUserId && mod.pinnedModeratorUserId === hostUserId,
   );
-  const visibleMessages = useMemo(() => messages.slice(-120), [messages]);
+  const visibleMessages = useMemo(() => {
+    if (messages.length <= LIVE_ROOM_CHAT_HISTORY_MAX) return messages;
+    return messages.slice(-LIVE_ROOM_CHAT_HISTORY_MAX);
+  }, [messages]);
   const chatScroll = useChatScrollToBottom(visibleMessages.length, tab === "chat");
 
   const recentChatters = useMemo(() => {

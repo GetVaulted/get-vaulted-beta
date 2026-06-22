@@ -665,6 +665,28 @@ export async function createHostStageToken(roomId: string, userId: string): Prom
   );
 }
 
+/** Fresh host publish token for an active Stage session (mid-show reconnect). Does not reset stream health. */
+export async function refreshHostStageToken(roomId: string, userId: string): Promise<StageToken> {
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: { ivsStageArn: true, streamMode: true, streamHealth: true, status: true },
+  });
+  if (!room?.ivsStageArn) {
+    throw new Error("This room is not streaming over WebRTC.");
+  }
+  if (room.streamMode !== "stage_webrtc") {
+    throw new Error("Room is not in WebRTC stage mode.");
+  }
+  const liveish =
+    room.streamHealth === "live" ||
+    room.streamHealth === "connecting" ||
+    room.status === "live";
+  if (!liveish) {
+    throw new Error("Stream is not active.");
+  }
+  return createHostStageToken(roomId, userId);
+}
+
 /** Buyer subscribe-only token. Cannot publish (no camera/mic into the stage). */
 export async function createViewerStageToken(roomId: string, userId: string): Promise<StageToken> {
   return createStageToken(
@@ -750,6 +772,13 @@ export async function prepareHostStageSession(roomId: string, userId: string): P
   }
   const token = await createHostStageToken(roomId, userId);
   const now = new Date();
+  // Best-effort: start the HLS mirror before buyers fail over from WebRTC (composition takes ~5–15s).
+  await Promise.race([
+    startStageHlsComposition(roomId),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, 10_000);
+    }),
+  ]);
   await prisma.liveRoom.update({
     where: { id: roomId },
     data: {
@@ -762,7 +791,6 @@ export async function prepareHostStageSession(roomId: string, userId: string): P
       lastIvsError: null,
     },
   });
-  void startStageHlsComposition(roomId);
   logIvsOpsServer("ivs_stage_broadcast_start", { roomId });
   return token;
 }

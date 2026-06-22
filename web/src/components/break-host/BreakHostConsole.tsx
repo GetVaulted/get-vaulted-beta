@@ -1323,8 +1323,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         }
         await load();
         router.refresh();
-        setHostLineupOpen(true);
-        setToast("Added to lineup — tap Pin lot when ready.");
+        setToast("Added to lineup — pin from the queue when ready.");
         return true;
       } catch (err) {
         const msg = err instanceof Error ? err.message.trim() : "";
@@ -2088,8 +2087,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     thumbnailUrl: room.thumbnailUrl ?? null,
     hostSellerId: room.sellerId,
     onBack: () => router.push("/seller/live"),
-    actionOverlay: hostDesktopItemOverlay,
-    mobileActionOverlay: hostMobileItemOverlay,
+    actionOverlay: activeBoardRow ? hostDesktopItemOverlay : null,
+    mobileActionOverlay: activeBoardRow ? hostMobileItemOverlay : null,
     compactActionOverlay: false,
     cinematicActionOverlay: false,
     // Keep the auction control bar a compact card centered under the 9:16 video instead of a
@@ -2110,10 +2109,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         />
         <HostVariantCommerceStage
           activeBoardRow={activeBoardRow}
-          previewQueueRow={previewQueueRow}
-          overlayDiffersFromActive={overlayDiffersFromActive}
           busy={busy}
-          onPushSelected={handleHostPinSelected}
           commerceMinimized={hostCommerceMinimized}
           onToggleCommerceMinimized={toggleHostCommerceMinimized}
           onAddSupplemental={() => setSupplementalModalOpen(true)}

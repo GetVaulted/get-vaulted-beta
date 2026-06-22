@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { formatAuctionMoneyUsd } from "@/lib/live-auction-winner-display";
 import {
   spotCelebrationHeadline,
@@ -17,17 +18,23 @@ const DISPLAY_MS = SPOT_CELEBRATION_DISPLAY_MS;
 
 /** Full-screen PYT spot purchase / auction win announcement. */
 export function LiveSpotTakenCelebration({ celebration, onDone }: Props) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   useEffect(() => {
     if (!celebration) return undefined;
     const id = window.setTimeout(onDone, DISPLAY_MS);
     return () => window.clearTimeout(id);
   }, [celebration, onDone]);
 
-  if (!celebration) return null;
+  if (!celebration || !mounted) return null;
 
-  return (
+  return createPortal(
     <div
-      className="pointer-events-none fixed inset-0 z-[81] flex items-center justify-center bg-black/55 px-6 backdrop-blur-[2px]"
+      className="pointer-events-none fixed inset-0 z-[130] flex items-center justify-center bg-black/55 px-6 backdrop-blur-[2px]"
       role="status"
       aria-live="assertive"
     >
@@ -45,6 +52,7 @@ export function LiveSpotTakenCelebration({ celebration, onDone }: Props) {
           </p>
         ) : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

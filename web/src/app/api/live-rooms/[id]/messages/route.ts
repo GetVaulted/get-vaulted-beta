@@ -6,7 +6,7 @@ import { serializeLiveRoomMessage } from "@/lib/live-room-serialize";
 import { prisma } from "@/lib/prisma";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { emitLiveRoomMessageById } from "@/lib/realtime-emit-server";
-import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
+import { LIVE_ROOM_CHAT_HISTORY_MAX, liveRoomChatOpen } from "@/lib/live-room-chat-policy";
 import {
   getLastChatAt,
   getLiveRoomModeratorContext,
@@ -23,10 +23,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const rows = await prisma.liveRoomMessage.findMany({
     where: { liveRoomId, deletedAt: null },
-    orderBy: { createdAt: "asc" },
-    take: 300,
+    orderBy: { createdAt: "desc" },
+    take: LIVE_ROOM_CHAT_HISTORY_MAX,
     include: { sender: { select: { username: true, image: true } } },
   });
+  rows.reverse();
 
   const mentionMap = await loadMentionsForSources(
     "live_room_message",

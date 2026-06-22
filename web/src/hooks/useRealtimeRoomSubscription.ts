@@ -22,6 +22,8 @@ export function useRealtimeRoomSubscription(opts: {
     amountUsd?: number;
     itemId?: string;
     variantId?: string;
+    itemVersion?: number;
+    quantity?: number;
   }) => void | Promise<void>;
   onBreakSpotsChange: () => void | Promise<void>;
   onListingBid: (listingId: string) => void | Promise<void>;

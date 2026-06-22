@@ -27,6 +27,7 @@ import {
 } from "@/lib/live-spot-celebration";
 import { LiveAuctionSoldCelebration } from "@/components/live-auction/LiveAuctionSoldCelebration";
 import { LiveSpotTakenCelebration } from "@/components/live-auction/LiveSpotTakenCelebration";
+import { mergeVariantPurchasedIntoItems, type VariantPurchasedMergePayload } from "@/lib/live-room-variant-merge";
 import { LivePaymentFailureBlocker } from "@/components/live-auction/LivePaymentFailureBlocker";
 import { LivePremiumWalletSheet } from "@/components/live-auction/LivePremiumWalletSheet";
 import { VaultRevealOverlay } from "@/components/live-auction/VaultRevealOverlay";
@@ -79,7 +80,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         createdAt: new Date().toISOString(),
         mentions: [],
       };
-      return [...prev.slice(-199), next];
+      return appendLiveRoomMessageDedupe(prev, next);
     });
   }, [roomId]);
 
@@ -215,6 +216,18 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     [refreshSkewFromRealtimePayload],
   );
 
+  const applyVariantPurchase = useCallback((payload: VariantPurchasedMergePayload) => {
+    setDetail((prev) => {
+      if (!prev) return prev;
+      const items = mergeVariantPurchasedIntoItems(prev.items, payload);
+      const activeItem =
+        prev.activeItem?.id === payload.itemId
+          ? items.find((it) => it.id === payload.itemId) ?? prev.activeItem
+          : prev.activeItem;
+      return { ...prev, items, activeItem };
+    });
+  }, []);
+
   const load = useCallback(async () => {
     try {
       const t0 = Date.now();
@@ -300,6 +313,23 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       }
     }
   }, [roomId]);
+
+  const handleBuyerVariantPurchased = useCallback(
+    (payload: VariantPurchasedMergePayload & { label?: string; amountUsd?: number }) => {
+      applyVariantPurchase(payload);
+      const username = session?.user?.username ?? session?.user?.name ?? "";
+      if (username.trim() && payload.label?.trim()) {
+        setSpotCelebration({
+          username: username.trim().replace(/^@+/, ""),
+          label: payload.label.trim(),
+          amountUsd: typeof payload.amountUsd === "number" && Number.isFinite(payload.amountUsd) ? payload.amountUsd : 0,
+          kind: "purchase",
+        });
+      }
+      void load();
+    },
+    [applyVariantPurchase, load, session?.user?.name, session?.user?.username],
+  );
 
   /** Full GET snapshot when queue/break/listing events fire — covers missed typed payloads (host Start, claims, etc.). */
   const roomSnapshotFlushRef = useRef<number | null>(null);
@@ -521,6 +551,21 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       if (!shouldProcessRealtimePayload("variant_purchased", payload)) return;
       const taken = parseVariantPurchasedCelebration(payload);
       if (taken) setSpotCelebration(taken);
+      const itemId = typeof payload.itemId === "string" ? payload.itemId : null;
+      const variantId = typeof payload.variantId === "string" ? payload.variantId : null;
+      if (itemId && variantId) {
+        setDetail((prev) => {
+          if (!prev) return prev;
+          const items = mergeVariantPurchasedIntoItems(prev.items, {
+            itemId,
+            variantId,
+            itemVersion: typeof payload.itemVersion === "number" ? payload.itemVersion : undefined,
+            quantity: typeof payload.quantity === "number" ? payload.quantity : undefined,
+          });
+          return { ...prev, items, activeItem: prev.activeItem?.id === itemId ? items.find((it) => it.id === itemId) ?? prev.activeItem : prev.activeItem };
+        });
+      }
+      void load();
       scheduleFallbackRefresh("variant_purchased", 250);
     },
     onListingBid: () => {
@@ -834,6 +879,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           buyerLiveShippingReady={detail.buyerLiveShippingReady}
           giveaways={detail.giveaways ?? []}
           onOpenWallet={() => setPremiumWalletOpen(true)}
+          onApplyVariantPurchase={handleBuyerVariantPurchased}
         />
         <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
         <LiveSpotTakenCelebration celebration={spotCelebration} onDone={() => setSpotCelebration(null)} />
@@ -876,6 +922,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       buyerLiveShippingReady={detail.buyerLiveShippingReady}
       giveaways={detail.giveaways ?? []}
       onOpenWallet={() => setPremiumWalletOpen(true)}
+      onApplyVariantPurchase={handleBuyerVariantPurchased}
     />
       <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
       <LiveSpotTakenCelebration celebration={spotCelebration} onDone={() => setSpotCelebration(null)} />

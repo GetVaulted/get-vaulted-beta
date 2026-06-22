@@ -7,6 +7,7 @@ type Props = {
   accessToken?: string;
   active: boolean;
   refreshNonce?: number;
+  subscribeEpoch?: number;
   contentFit?: 'cover' | 'contain';
   onConnected: () => void;
   onFailed: (reason: string) => void;
@@ -19,6 +20,7 @@ export function StageSubscriberVideo({
   accessToken,
   active,
   refreshNonce,
+  subscribeEpoch,
   contentFit = 'cover',
   onConnected,
   onFailed,
@@ -29,6 +31,7 @@ export function StageSubscriberVideo({
     accessToken,
     active,
     refreshNonce,
+    subscribeEpoch,
     onConnected,
     onFailed,
     onDisconnected,

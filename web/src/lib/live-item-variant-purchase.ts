@@ -76,11 +76,11 @@ export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, st
     }
   }
 
-  const item = await prisma.liveRoomItem.update({
+  const item = await prisma.liveRoomItem.findUnique({
     where: { id: purchase.liveRoomItemId },
-    data: { itemVersion: { increment: 1 } },
     select: { itemVersion: true },
   });
+  if (!item) return;
 
   emitVariantPurchased(purchase.liveRoomId, {
     itemId: purchase.liveRoomItemId,
@@ -90,6 +90,7 @@ export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, st
     buyerUsername: purchase.buyer.username,
     amountUsd: purchase.totalUsd,
     itemVersion: item.itemVersion,
+    quantity: purchase.quantity,
     randomReveal,
   });
   emitLiveRoomMessagesRefetch(purchase.liveRoomId);

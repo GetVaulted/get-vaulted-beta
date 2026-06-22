@@ -15,8 +15,10 @@ import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingInd
 import { LiveTipSheet } from "@/components/live-auction/LiveTipSheet";
 import { BuyerLiveDesktopShell } from "@/components/live-auction/buyer/BuyerLiveDesktopShell";
 import { BuyerLiveHostStrip } from "@/components/live-auction/buyer/BuyerLiveHostStrip";
+import { BuyerLiveDesktopCommerce } from "@/components/live-auction/buyer/BuyerLiveDesktopCommerce";
 import { BuyerLiveItemBoard } from "@/components/live-auction/buyer/BuyerLiveItemBoard";
 import { BuyerLiveItemBoardOverlay } from "@/components/live-auction/buyer/BuyerLiveItemBoardOverlay";
+import { BuyerVariantClaimCta } from "@/components/live-auction/buyer/BuyerVariantClaimCta";
 import { BuyerLiveNextUpRail } from "@/components/live-auction/buyer/BuyerLiveNextUpRail";
 import { BuyerLiveQueueList } from "@/components/live-auction/buyer/BuyerLiveQueueList";
 import { BuyerLiveQueueSheet } from "@/components/live-auction/buyer/BuyerLiveQueueSheet";
@@ -30,6 +32,7 @@ import type { ViewerGiveawayDTO } from "@/lib/live-giveaway";
 import { TeamBoardChromeButton } from "@/components/team-board/TeamBoardChromeButton";
 import { TeamBoardOverlay } from "@/components/team-board/TeamBoardOverlay";
 import type { LiveRoomBreakPublicDTO, LiveRoomItemDTO, LiveRoomMessageDTO } from "@/lib/live-room-serialize";
+import type { VariantPurchasedMergePayload } from "@/lib/live-room-variant-merge";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
 import { parseTeamBoardPublicPayload, type TeamBoardPublicPayload } from "@/lib/team-board-public";
 import { liveAuctionMinBidUsd } from "@/lib/auction";
@@ -198,6 +201,8 @@ export type LiveAuctionRoomProps = {
   buyerLiveShippingReady?: boolean;
   giveaways?: ViewerGiveawayDTO[];
   onOpenWallet: () => void;
+  /** Instant PYT spot inventory merge after buyer checkout (before realtime round-trip). */
+  onApplyVariantPurchase?: (payload: VariantPurchasedMergePayload & { label?: string; amountUsd?: number }) => void;
 };
 
 function fmt(n: number) {
@@ -270,6 +275,7 @@ export function LiveAuctionRoom({
   buyerLiveShippingReady,
   giveaways = [],
   onOpenWallet,
+  onApplyVariantPurchase,
 }: LiveAuctionRoomProps) {
   const router = useRouter();
   const { data: session, status } = useSession();
@@ -398,7 +404,9 @@ export function LiveAuctionRoom({
     queueItems.find((i) => i.status === "posted") ??
     (roomStatus === "live" ? buyerLineupItems[0] ?? null : null);
   const showFeaturedAuctionOverlay =
-    roomStatus !== "ended" && Boolean(activeQueueItem) && (roomStatus === "scheduled" || roomStatus === "live");
+    roomStatus !== "ended" &&
+    (Boolean(activeQueueItem) || Boolean(activeDbItem?.status === "active" && activeHasVariants)) &&
+    (roomStatus === "scheduled" || roomStatus === "live");
   const overlayItem = selectedQueue ?? activeQueueItem;
   const nowWall = syncedWallTimeMs(clockSkewMs);
   const activeLotBidPhase = useMemo(
@@ -1367,10 +1375,17 @@ export function LiveAuctionRoom({
   );
 
   /** Desktop video overlay — same mobile glass sheet + bid buttons; actions on the stage rail. */
+  const buyerDesktopCommerceOverlay =
+    isBuyerDesktop && activeHasVariants && !isHost ? (
+      <BuyerLiveDesktopCommerce>{mobileVideoOverlay}</BuyerLiveDesktopCommerce>
+    ) : (
+      desktopVideoOverlay
+    );
+
   const desktopItemBoardCommerce =
     showFeaturedAuctionOverlay
       ? isBuyerDesktop
-        ? desktopVideoOverlay
+        ? buyerDesktopCommerceOverlay
         : mobileVideoOverlay
       : roomStatus !== "ended"
         ? (
@@ -1379,6 +1394,15 @@ export function LiveAuctionRoom({
             </div>
           )
         : null;
+
+  const buyerVariantClaimActions =
+    pytCommerceLive && !isHost ? (
+      <BuyerVariantClaimCta
+        label={variantPickLabel}
+        disabled={variantPickerDisabled}
+        onClick={() => setVariantSheetOpen(true)}
+      />
+    ) : undefined;
 
   const desktopItemBoardOverlay = desktopItemBoardCommerce ? (
     <BuyerLiveItemBoardOverlay commerce={desktopItemBoardCommerce} />
@@ -1559,6 +1583,7 @@ export function LiveAuctionRoom({
                   selectedId={selectedId}
                   shopHref={shopHref}
                   onSelect={setSelectedId}
+                  actions={buyerVariantClaimActions}
                 />
               ) : undefined
             }
@@ -1647,7 +1672,9 @@ export function LiveAuctionRoom({
             setVariantSheetOpen(false);
             onOpenWallet();
           }}
-          onPurchased={() => void onRefetch?.()}
+          onPurchased={(payload) => {
+            onApplyVariantPurchase?.(payload);
+          }}
         />
       ) : null}
       <LiveTipSheet
