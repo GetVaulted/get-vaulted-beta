@@ -4,6 +4,7 @@ import { VaultQueueCarousel, type VaultQueueRow } from "@/components/break-host/
 import { SELLER_CONSOLE } from "@/lib/seller-console-copy";
 import type { LiveGiveawayDTO } from "@/lib/live-giveaway";
 import { isGiveawayTab, type SellerQueueTab } from "@/lib/seller-queue-tabs";
+import { hostQueueSwitchPinState } from "@/lib/host-queue-selection";
 
 type SellerConsoleInventoryRailProps = {
   tab: SellerQueueTab;
@@ -29,6 +30,7 @@ type SellerConsoleInventoryRailProps = {
   onNextItem: () => void;
   onStartAuction?: () => void;
   pinDisabled?: boolean;
+  pinBlockedReason?: string;
   startAuctionEnabled?: boolean;
   startAuctionBusy?: boolean;
   roomLive?: boolean;
@@ -59,12 +61,17 @@ export function SellerConsoleInventoryRail({
   onNextItem,
   onStartAuction,
   pinDisabled,
+  pinBlockedReason,
   startAuctionEnabled = false,
   startAuctionBusy = false,
   roomLive = false,
   hasActiveLot = false,
 }: SellerConsoleInventoryRailProps) {
   const waitingLots = rows.filter((r) => r.item.status !== "sold" && r.item.status !== "skipped").length;
+  const activeRow = rows.find((r) => r.item.status.toLowerCase() === "active") ?? null;
+  const selectedRow = rows.find((r) => r.item.id === selectedId) ?? null;
+  const switchPin = hostQueueSwitchPinState({ activeRow, previewRow: selectedRow });
+  const selectionDiffersFromActive = switchPin.switchAwaitingPin;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -84,6 +91,16 @@ export function SellerConsoleInventoryRail({
             {roomLive
               ? "Add a lot to the lineup, then pin it to put it on the block."
               : "Add lots to the lineup, go live, then pin one to start auctioning."}
+          </p>
+        ) : null}
+        {selectionDiffersFromActive ? (
+          <p className="rounded-lg border border-amber-400/20 bg-amber-500/10 px-2.5 py-1.5 text-[10px] leading-snug text-amber-100/90">
+            Pin the selected lot to switch what&apos;s on stage.
+          </p>
+        ) : null}
+        {pinBlockedReason ? (
+          <p className="rounded-lg border border-rose-400/20 bg-rose-500/10 px-2.5 py-1.5 text-[10px] leading-snug text-rose-100/90">
+            {pinBlockedReason}
           </p>
         ) : null}
         <div className="flex gap-2">
@@ -126,6 +143,7 @@ export function SellerConsoleInventoryRail({
           viewerCount={viewerCount}
           busy={busy}
           onPost={onPost}
+          postDisabled={Boolean(pinBlockedReason)}
           onSkip={onSkip}
           onDelete={onDelete}
           onAddAuction={onAddItem}

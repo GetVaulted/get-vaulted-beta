@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
-import { Modal, StyleSheet, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { AppState, Modal, StyleSheet, View, type AppStateStatus } from 'react-native';
 import { formatAuctionMoneyUsd } from '../../lib/liveAuctionWinnerDisplay';
 import {
+  spotCelebrationDismissKey,
   spotCelebrationHeadline,
   SPOT_CELEBRATION_DISPLAY_MS,
   type LiveSpotTakenCelebration,
@@ -17,11 +18,37 @@ type Props = {
 const DISPLAY_MS = SPOT_CELEBRATION_DISPLAY_MS;
 
 export function LiveSpotTakenCelebration({ celebration, onDone }: Props) {
+  const onDoneRef = useRef(onDone);
+  const shownAtRef = useRef<number | null>(null);
+
   useEffect(() => {
-    if (!celebration) return undefined;
-    const id = setTimeout(onDone, DISPLAY_MS);
-    return () => clearTimeout(id);
-  }, [celebration, onDone]);
+    onDoneRef.current = onDone;
+  }, [onDone]);
+
+  const dismissKey = celebration ? spotCelebrationDismissKey(celebration) : null;
+
+  useEffect(() => {
+    if (!dismissKey) {
+      shownAtRef.current = null;
+      return undefined;
+    }
+
+    shownAtRef.current = Date.now();
+    const id = setTimeout(() => onDoneRef.current(), DISPLAY_MS);
+
+    const onAppState = (next: AppStateStatus) => {
+      if (next !== 'active' || shownAtRef.current == null) return;
+      if (Date.now() - shownAtRef.current >= DISPLAY_MS) {
+        onDoneRef.current();
+      }
+    };
+    const sub = AppState.addEventListener('change', onAppState);
+
+    return () => {
+      clearTimeout(id);
+      sub.remove();
+    };
+  }, [dismissKey]);
 
   if (!celebration) return null;
 

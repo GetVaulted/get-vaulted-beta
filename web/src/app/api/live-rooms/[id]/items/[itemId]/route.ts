@@ -307,6 +307,20 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
 
   if (status === "active") {
     try {
+      const currentActive = await prisma.liveRoomItem.findFirst({
+        where: { liveRoomId, status: "active", id: { not: itemId } },
+        select: { id: true, salesFormat: true, biddingOpen: true },
+      });
+      if (
+        currentActive?.biddingOpen === true &&
+        !isVariantSalesFormat(currentActive.salesFormat)
+      ) {
+        return NextResponse.json(
+          { error: "End the live auction before pinning another lot." },
+          { status: 409 },
+        );
+      }
+
       const switched = await prisma.$transaction(async (tx) => {
         await tx.liveRoomItem.updateMany({
           where: { liveRoomId, id: { not: itemId }, status: "active" },

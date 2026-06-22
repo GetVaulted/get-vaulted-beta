@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatAuctionMoneyUsd } from "@/lib/live-auction-winner-display";
 import {
+  spotCelebrationDismissKey,
   spotCelebrationHeadline,
   SPOT_CELEBRATION_DISPLAY_MS,
   type LiveSpotTakenCelebration,
@@ -19,16 +20,41 @@ const DISPLAY_MS = SPOT_CELEBRATION_DISPLAY_MS;
 /** Full-screen PYT spot purchase / auction win announcement. */
 export function LiveSpotTakenCelebration({ celebration, onDone }: Props) {
   const [mounted, setMounted] = useState(false);
+  const onDoneRef = useRef(onDone);
+  const shownAtRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    onDoneRef.current = onDone;
+  }, [onDone]);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  const dismissKey = celebration ? spotCelebrationDismissKey(celebration) : null;
+
   useEffect(() => {
-    if (!celebration) return undefined;
-    const id = window.setTimeout(onDone, DISPLAY_MS);
-    return () => window.clearTimeout(id);
-  }, [celebration, onDone]);
+    if (!dismissKey) {
+      shownAtRef.current = null;
+      return undefined;
+    }
+
+    shownAtRef.current = Date.now();
+    const id = window.setTimeout(() => onDoneRef.current(), DISPLAY_MS);
+
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible" || shownAtRef.current == null) return;
+      if (Date.now() - shownAtRef.current >= DISPLAY_MS) {
+        onDoneRef.current();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      window.clearTimeout(id);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [dismissKey]);
 
   if (!celebration || !mounted) return null;
 

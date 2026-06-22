@@ -23,6 +23,8 @@ import { parsePurchaseCompletedCelebration, type LiveAuctionCloseCelebration } f
 import {
   parseAuctionWinSpotCelebration,
   parseVariantPurchasedCelebration,
+  spotCelebrationDismissKey,
+  SPOT_CELEBRATION_DISPLAY_MS,
   type LiveSpotTakenCelebration as LiveSpotTakenCelebrationPayload,
 } from "@/lib/live-spot-celebration";
 import { LiveAuctionSoldCelebration } from "@/components/live-auction/LiveAuctionSoldCelebration";
@@ -67,6 +69,19 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
   const [premiumWalletOpen, setPremiumWalletOpen] = useState(false);
   const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
+  const seenSpotCelebrationKeysRef = useRef<Set<string>>(new Set());
+
+  const showSpotCelebration = useCallback((taken: LiveSpotTakenCelebrationPayload) => {
+    const key = spotCelebrationDismissKey(taken);
+    if (seenSpotCelebrationKeysRef.current.has(key)) return;
+    seenSpotCelebrationKeysRef.current.add(key);
+    setSpotCelebration(taken);
+    window.setTimeout(() => {
+      seenSpotCelebrationKeysRef.current.delete(key);
+    }, SPOT_CELEBRATION_DISPLAY_MS + 1000);
+  }, []);
+
+  const clearSpotCelebration = useCallback(() => setSpotCelebration(null), []);
   const appendSystemMessage = useCallback((body: string, chatLabel = "System") => {
     setMessages((prev) => {
       const next: LiveRoomMessageDTO = {
@@ -550,7 +565,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     onVariantPurchased: (payload) => {
       if (!shouldProcessRealtimePayload("variant_purchased", payload)) return;
       const taken = parseVariantPurchasedCelebration(payload);
-      if (taken) setSpotCelebration(taken);
+      if (taken) showSpotCelebration(taken);
       const itemId = typeof payload.itemId === "string" ? payload.itemId : null;
       const variantId = typeof payload.variantId === "string" ? payload.variantId : null;
       if (itemId && variantId) {
@@ -721,7 +736,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
               noBids: false,
             })
           : null;
-      if (spotTaken) setSpotCelebration(spotTaken);
+      if (spotTaken) showSpotCelebration(spotTaken);
       if (celebration) setSoldCelebration(celebration);
       if (
         payload.paymentStatus === "payment_failed" &&
@@ -798,7 +813,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   if (loading) {
     return (
       <div className="fixed inset-x-0 bottom-0 top-0 z-40 flex flex-col bg-black md:top-[var(--site-header-offset)]">
-        <div className="relative h-[100dvh] min-h-[100dvh] w-full md:aspect-video md:h-auto md:min-h-[min(56vw,420px)] md:rounded-2xl md:border md:border-zinc-800">
+        <div className="relative h-[100dvh] min-h-[100dvh] w-full md:h-[min(100dvh,calc(100vw*16/9))] md:min-h-0 md:max-h-[calc(100dvh-var(--site-header-offset,0px))] md:rounded-2xl md:border md:border-zinc-800">
           <div className="pointer-events-none absolute inset-0 animate-pulse motion-reduce:animate-none">
             <div className="absolute inset-0 bg-gradient-to-br from-zinc-900 via-zinc-950 to-black" />
             <div className="absolute inset-x-4 top-[max(0.75rem,env(safe-area-inset-top))] flex items-center gap-2">
@@ -882,7 +897,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           onApplyVariantPurchase={handleBuyerVariantPurchased}
         />
         <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
-        <LiveSpotTakenCelebration celebration={spotCelebration} onDone={() => setSpotCelebration(null)} />
+        <LiveSpotTakenCelebration celebration={spotCelebration} onDone={clearSpotCelebration} />
         <VaultRevealOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
         {paymentBlocker}
         <LivePremiumWalletSheet
@@ -925,7 +940,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       onApplyVariantPurchase={handleBuyerVariantPurchased}
     />
       <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
-      <LiveSpotTakenCelebration celebration={spotCelebration} onDone={() => setSpotCelebration(null)} />
+      <LiveSpotTakenCelebration celebration={spotCelebration} onDone={clearSpotCelebration} />
       <VaultRevealOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
       {paymentBlocker}
       <LivePremiumWalletSheet

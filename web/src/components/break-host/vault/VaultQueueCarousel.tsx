@@ -32,6 +32,8 @@ type VaultQueueCarouselProps = {
   viewerCount: number;
   busy: boolean;
   onPost: (id: string) => void;
+  /** Block per-item Pin while a timed auction has bidding open. */
+  postDisabled?: boolean;
   onSkip?: (id: string) => void;
   onDelete: (id: string) => void;
   onAddAuction: () => void;
@@ -58,6 +60,7 @@ export function VaultQueueCarousel({
   viewerCount,
   busy,
   onPost,
+  postDisabled = false,
   onSkip,
   onDelete,
   onAddAuction,
@@ -254,7 +257,7 @@ export function VaultQueueCarousel({
                   {item.status !== "active" && item.status !== "sold" && item.status !== "skipped" ? (
                     <button
                       type="button"
-                      disabled={busy}
+                      disabled={busy || postDisabled}
                       onClick={() => onPost(item.id)}
                       className="rounded-md px-2 py-1 text-[8px] font-black uppercase tracking-wide text-violet-200/90 hover:bg-violet-500/15"
                     >
@@ -326,7 +329,7 @@ export function VaultQueueCarousel({
                     {item.status !== "active" && item.status !== "sold" && item.status !== "skipped" ? (
                       <button
                         type="button"
-                        disabled={busy}
+                        disabled={busy || postDisabled}
                         onClick={() => onPost(item.id)}
                         className="min-h-8 flex-1 rounded-lg border border-violet-400/30 bg-violet-500/15 text-[10px] font-black uppercase tracking-wide text-violet-100 hover:bg-violet-500/25"
                       >

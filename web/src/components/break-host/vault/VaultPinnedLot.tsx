@@ -4,6 +4,7 @@ import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { formatAuctionLeaderLine, formatAuctionMoneyUsd } from "@/lib/live-auction-winner-display";
 import { resolveLiveItemOverlayPrice } from "@/lib/live-auction-overlay-price";
 import { isVariantPurchaseItem, summarizeVariantSpots } from "@/lib/live-item-variant-presets";
+import { hostQueueSwitchPinState } from "@/lib/host-queue-selection";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { VAULT_MODE_META } from "@/components/break-host/vault/vault-modes";
 import { LiveAuctionHud, type LiveStageMotionBurst } from "@/components/live-stage/LiveAuctionHud";
@@ -54,6 +55,7 @@ type VaultPinnedLotProps = {
   onToggleClutch: () => void;
   hostStartLiveAuctionEnabled: boolean;
   hostLiveItemAuctionBusy: boolean;
+  hostPinLotEnabled?: boolean;
   onStartAuction: () => void;
   onBeginTeamBreak?: () => void;
   teamBreakBusy?: boolean;
@@ -120,6 +122,7 @@ export function VaultPinnedLot({
   onToggleClutch,
   hostStartLiveAuctionEnabled,
   hostLiveItemAuctionBusy,
+  hostPinLotEnabled = true,
   onStartAuction,
   onBeginTeamBreak,
   teamBreakBusy,
@@ -145,6 +148,7 @@ export function VaultPinnedLot({
     previewQueueRow.item.status !== "skipped"
       ? previewQueueRow.item
       : null;
+  const switchPin = hostQueueSwitchPinState({ activeRow: activeBoardRow, previewRow: previewQueueRow });
   const item = activeBoardRow?.item ?? previewItem ?? overlayQueueRow?.item ?? null;
   const boardItem = activeBoardRow?.item;
   const commerceItem = boardItem ?? null;
@@ -176,6 +180,7 @@ export function VaultPinnedLot({
         onToggleClutch={onToggleClutch}
         hostStartLiveAuctionEnabled={hostStartLiveAuctionEnabled}
         hostLiveItemAuctionBusy={hostLiveItemAuctionBusy}
+        hostPinLotEnabled={hostPinLotEnabled}
         onStartAuction={onStartAuction}
         onBeginTeamBreak={onBeginTeamBreak}
         teamBreakBusy={teamBreakBusy}
@@ -351,25 +356,42 @@ export function VaultPinnedLot({
             ) : activeBoardRow.item.status === "skipped" ? (
               <p className="text-center text-[11px] font-bold uppercase tracking-wide text-zinc-400">Lot skipped</p>
             ) : isVariantItem ? (
-              <div className={`flex flex-wrap items-center gap-2 ${isMobile ? "justify-center" : "justify-between"}`}>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/15 px-2.5 py-1 text-[9px] font-black uppercase tracking-wide text-emerald-100">
-                  <span className="size-1.5 animate-pulse rounded-full bg-emerald-300" aria-hidden />
-                  {roomStatusLive ? "Spot board live" : "Go live for spots"}
-                </span>
-                {spotStats ? (
-                  <span className="text-[10px] font-bold tabular-nums text-amber-100">
-                    {spotStats.available} open · {spotStats.sold} sold
+              <div className={`flex flex-col gap-2 ${isMobile ? "items-stretch" : ""}`}>
+                <div className={`flex flex-wrap items-center gap-2 ${isMobile ? "justify-center" : "justify-between"}`}>
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/15 px-2.5 py-1 text-[9px] font-black uppercase tracking-wide text-emerald-100">
+                    <span className="size-1.5 animate-pulse rounded-full bg-emerald-300" aria-hidden />
+                    {roomStatusLive ? "Spot board live" : "Go live for spots"}
                   </span>
-                ) : null}
-                {onNextItem ? (
-                  <button
-                    type="button"
-                    disabled={hostBusy}
-                    onClick={onNextItem}
-                    className="rounded-full border border-white/15 bg-black/55 px-3 py-1 text-[9px] font-black uppercase tracking-wide text-zinc-100 disabled:opacity-40"
-                  >
-                    Next item
-                  </button>
+                  {spotStats ? (
+                    <span className="text-[10px] font-bold tabular-nums text-amber-100">
+                      {spotStats.available} open · {spotStats.sold} sold
+                    </span>
+                  ) : null}
+                  {onNextItem ? (
+                    <button
+                      type="button"
+                      disabled={hostBusy}
+                      onClick={onNextItem}
+                      className="rounded-full border border-white/15 bg-black/55 px-3 py-1 text-[9px] font-black uppercase tracking-wide text-zinc-100 disabled:opacity-40"
+                    >
+                      Next item
+                    </button>
+                  ) : null}
+                </div>
+                {switchPin.switchAwaitingPin && previewItem && onPinSelected ? (
+                  <div className="rounded-lg border border-amber-400/25 bg-amber-500/10 px-2.5 py-2">
+                    <p className="text-center text-[10px] font-semibold text-amber-100/95">
+                      Selected: {hostQueueTitleLine(previewItem)}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={hostBusy || !roomStatusLive || !hostPinLotEnabled}
+                      onClick={onPinSelected}
+                      className={`mt-2 w-full rounded-full border border-amber-300/40 bg-gradient-to-r from-amber-500/30 to-yellow-300/20 px-4 py-2 text-[11px] font-black uppercase tracking-wide text-amber-50 disabled:opacity-40 ${isMobile ? "py-2" : ""}`}
+                    >
+                      Pin lot
+                    </button>
+                  </div>
                 ) : null}
               </div>
             ) : biddingWindowOpen ? (
@@ -435,7 +457,7 @@ export function VaultPinnedLot({
             </p>
             <button
               type="button"
-              disabled={hostBusy || !roomStatusLive}
+              disabled={hostBusy || !roomStatusLive || !hostPinLotEnabled}
               onClick={onPinSelected}
               className={`mt-2 w-full rounded-full border border-amber-300/40 bg-gradient-to-r from-amber-500/30 to-yellow-300/20 px-4 py-2.5 text-[11px] font-black uppercase tracking-wide text-amber-50 disabled:opacity-40 ${isMobile ? "py-2" : ""}`}
             >

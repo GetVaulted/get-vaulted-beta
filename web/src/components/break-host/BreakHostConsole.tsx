@@ -30,6 +30,7 @@ import { HostVariantCommerceStage } from "@/components/break-host/HostVariantCom
 import { HostAddSupplementalModal } from "@/components/break-host/HostAddSupplementalModal";
 import { HostEditBreakSpotsModal, variantItemForSpotEditor } from "@/components/break-host/HostEditBreakSpotsModal";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
+import { HOST_PIN_BLOCKED_AUCTION_LIVE_MSG, hostPinLotBlocked } from "@/lib/host-queue-selection";
 import { canonicalLiveRoomUrl } from "@/lib/live-room-share-metadata";
 import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
 import {
@@ -839,11 +840,11 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       return;
     }
     setSelectedQueueItemId((prev) => {
+      if (prev && data.queueItems.some((q) => q.item.id === prev)) return prev;
       const active = data.queueItems.find((q) => q.item.status === "active");
       if (active) return active.item.id;
-      if (prev && data.queueItems.some((q) => q.item.id === prev)) return prev;
       const queued = data.queueItems.find((q) => q.item.status === "queued");
-      return (active ?? queued ?? data.queueItems[0]).item.id;
+      return (queued ?? data.queueItems[0]).item.id;
     });
   }, [data]);
 
@@ -1263,13 +1264,6 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
   const handleSelectQueueItem = (itemId: string) => {
     setSelectedQueueItemId(itemId);
-    const host = hostDataRef.current;
-    const row = host?.queueItems.find((q) => q.item.id === itemId);
-    if (!row || host?.room.status !== "live") return;
-    const isActive = row.item.status.toLowerCase() === "active";
-    if (isVariantSalesFormat(row.item.salesFormat) && !isActive) {
-      patchItem(itemId, "active");
-    }
   };
 
   const deleteQueueItem = (itemId: string) =>
@@ -1549,11 +1543,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     const selected =
       data.queueItems.find((q) => q.item.id === selectedQueueItemId) ?? data.queueItems[0] ?? null;
     const active = data.queueItems.find((q) => q.item.status.toLowerCase() === "active") ?? null;
-    return Boolean(
-      selected &&
-        active?.item.id !== selected.item.id &&
-        isVariantSalesFormat(selected.item.salesFormat),
-    );
+    return Boolean(selected && active && active.item.id !== selected.item.id);
   }, [data, selectedQueueItemId]);
 
   useEffect(() => {
@@ -1739,6 +1729,24 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     !activeBoardRow.item.biddingOpen &&
     !isVariantSalesFormat(activeBoardRow.item.salesFormat);
 
+  const hostPinLotEnabled = !hostPinLotBlocked(activeBoardRow);
+
+  const handleHostPostItem = (itemId: string) => {
+    if (hostPinLotBlocked(activeBoardRow)) {
+      setToast(HOST_PIN_BLOCKED_AUCTION_LIVE_MSG);
+      return;
+    }
+    void patchItem(itemId, "active");
+  };
+
+  const handleHostPinSelected = () => {
+    if (hostPinLotBlocked(activeBoardRow)) {
+      setToast(HOST_PIN_BLOCKED_AUCTION_LIVE_MSG);
+      return;
+    }
+    if (selectedQueueItemId) void patchItem(selectedQueueItemId, "active");
+  };
+
   const lineupCount = data.queueItems.filter((q) => q.item.status !== "sold" && q.item.status !== "skipped").length;
 
   const recentChatCount = (() => {
@@ -1789,12 +1797,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         }
       }
       const next = hostDataRef.current?.queueItems.find((q) => q.item.status === "queued");
-      if (next) patchItem(next.item.id, "active");
+      if (next) handleHostPostItem(next.item.id);
     })();
-  };
-
-  const handleHostPinSelected = () => {
-    if (selectedQueueItemId) patchItem(selectedQueueItemId, "active");
   };
 
   const hostInventoryRail = (
@@ -1807,7 +1811,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       onSelect={handleSelectQueueItem}
       viewerCount={room.viewerCount}
       busy={busy}
-      onPost={(id) => void patchItem(id, "active")}
+      onPost={handleHostPostItem}
       onSkip={(id) => void patchItem(id, "skipped")}
       onDelete={(id) => void deleteQueueItem(id)}
       onAddItem={() => setQueueAddModal("auction")}
@@ -1821,7 +1825,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       onPinSelected={handleHostPinSelected}
       onNextItem={handleHostNextItem}
       onStartAuction={() => void handleHostStartLiveItemAuction()}
-      pinDisabled={busy || !selectedQueueItemId}
+      pinDisabled={busy || !selectedQueueItemId || !hostPinLotEnabled}
+      pinBlockedReason={!hostPinLotEnabled ? HOST_PIN_BLOCKED_AUCTION_LIVE_MSG : undefined}
       startAuctionEnabled={hostStartLiveAuctionEnabled}
       startAuctionBusy={hostLiveItemAuctionBusy}
       roomLive={room.status === "live"}
@@ -1896,6 +1901,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     biddingWindowOpen: biddingWindowStillRunningHost,
     hostStartLiveAuctionEnabled,
     hostLiveItemAuctionBusy,
+    hostPinLotEnabled,
     onPatchRoom: patchRoom,
     onStartAuction: () => void handleHostStartLiveItemAuction(),
     onEndAuction: handleHostEndAuction,
@@ -1906,7 +1912,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     queueRows: data.queueItems,
     selectedQueueItemId,
     onSelectQueueItem: handleSelectQueueItem,
-    onPostItem: (id: string) => void patchItem(id, "active"),
+    onPostItem: handleHostPostItem,
     onSkipItem: (id: string) => void patchItem(id, "skipped"),
     onDeleteItem: (id: string) => void deleteQueueItem(id),
     onAddAuction: () => {
@@ -1972,6 +1978,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       onToggleClutch={() => setHostClutchTimeEnabled((v) => !v)}
       hostStartLiveAuctionEnabled={hostStartLiveAuctionEnabled}
       hostLiveItemAuctionBusy={hostLiveItemAuctionBusy}
+      hostPinLotEnabled={hostPinLotEnabled}
       onStartAuction={() => void handleHostStartLiveItemAuction()}
       onBeginTeamBreak={() => void handleBeginTeamBreak()}
       teamBreakBusy={teamBreakBusy}
@@ -2006,6 +2013,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       onToggleClutch={() => setHostClutchTimeEnabled((v) => !v)}
       hostStartLiveAuctionEnabled={hostStartLiveAuctionEnabled}
       hostLiveItemAuctionBusy={hostLiveItemAuctionBusy}
+      hostPinLotEnabled={hostPinLotEnabled}
       onStartAuction={() => void handleHostStartLiveItemAuction()}
       onPinSelected={handleHostPinSelected}
       hostClockSkewMs={hostClockSkewMs}

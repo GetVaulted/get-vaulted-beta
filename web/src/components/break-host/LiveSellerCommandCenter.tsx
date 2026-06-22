@@ -14,6 +14,7 @@ import type { LiveGiveawayDTO } from "@/lib/live-giveaway";
 import type { SellerQueueTab } from "@/lib/seller-queue-tabs";
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { isVariantPurchaseItem, summarizeVariantSpots } from "@/lib/live-item-variant-presets";
+import { HOST_PIN_BLOCKED_AUCTION_LIVE_MSG } from "@/lib/host-queue-selection";
 import type { VaultMode } from "@/components/break-host/vault/vault-modes";
 import { VAULT_MODE_META } from "@/components/break-host/vault/vault-modes";
 import { LiveRoomEnergyMeter } from "@/components/live-stage/LiveRoomEnergyMeter";
@@ -40,6 +41,7 @@ export type LiveSellerCommandCenterProps = {
   biddingWindowOpen: boolean;
   hostStartLiveAuctionEnabled: boolean;
   hostLiveItemAuctionBusy: boolean;
+  hostPinLotEnabled?: boolean;
   onPatchRoom: (action: "start" | "end") => void;
   onStartAuction: () => void;
   onEndAuction: () => void;
@@ -179,6 +181,7 @@ export function LiveSellerCommandCenter({
   biddingWindowOpen,
   hostStartLiveAuctionEnabled,
   hostLiveItemAuctionBusy,
+  hostPinLotEnabled = true,
   onPatchRoom,
   onStartAuction,
   onEndAuction,
@@ -237,7 +240,7 @@ export function LiveSellerCommandCenter({
           priceUsd: item.priceUsd,
         })
     : overlayDiffersFromActive && previewItem
-      ? "Push item to open spots for buyers"
+      ? "Pin selected lot to put it on the block"
       : "No lot pinned";
 
   const shellClass =
@@ -329,7 +332,7 @@ export function LiveSellerCommandCenter({
           </button>
 
           <div className="grid grid-cols-3 gap-1">
-            <PrimaryBtn compact onClick={onPinSelected} disabled={!selectedQueueItemId || busy} tone="ghost">
+            <PrimaryBtn compact onClick={onPinSelected} disabled={!selectedQueueItemId || busy || !hostPinLotEnabled} tone="ghost">
               Pin
             </PrimaryBtn>
             <PrimaryBtn compact onClick={onEndAuction} disabled={busy || !canEndAuction} tone="danger">
@@ -499,7 +502,7 @@ export function LiveSellerCommandCenter({
           </p>
           <p className={`font-semibold text-zinc-300 ${isDesktopPanel ? "mt-0.5 text-[10px]" : "mt-1 text-xs"}`}>
             {overlayDiffersFromActive
-              ? "Selected in queue — push item to go live for buyers"
+              ? "Selected in queue — pin it to switch what's on stage"
               : isVariantItem
                 ? live
                   ? "Spot board live — buyers pick spots on stage"
@@ -508,7 +511,7 @@ export function LiveSellerCommandCenter({
           </p>
           {overlayDiffersFromActive ? (
             <p className="mt-1.5 inline-flex rounded-full border border-amber-400/35 bg-amber-500/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-amber-100">
-              Push item
+              Pin to switch
             </p>
           ) : isVariantItem && live ? (
             <p className="mt-1.5 inline-flex rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-100">
@@ -534,9 +537,18 @@ export function LiveSellerCommandCenter({
             <p className="mt-0.5 font-mono text-sm font-black tabular-nums text-amber-100/90">{item ? itemMoney(item) : "—"}</p>
           )}
 
+          {!hostPinLotEnabled ? (
+            <p className="mt-1.5 text-[10px] font-semibold text-amber-200/90">{HOST_PIN_BLOCKED_AUCTION_LIVE_MSG}</p>
+          ) : null}
+
           {isDesktopPanel ? (
             <div className={`flex gap-1.5 ${isCompactRail ? "mt-1" : "mt-2"}`}>
-              <PrimaryBtn compact onClick={onPinSelected} disabled={!selectedQueueItemId || busy} tone="ghost">
+              <PrimaryBtn
+                compact
+                onClick={onPinSelected}
+                disabled={!selectedQueueItemId || busy || !hostPinLotEnabled}
+                tone="ghost"
+              >
                 Pin
               </PrimaryBtn>
             </div>
@@ -545,7 +557,7 @@ export function LiveSellerCommandCenter({
               <PrimaryBtn onClick={onNextItem} disabled={busy || !queueRows.some((r) => r.item.status === "queued")}>
                 Next item
               </PrimaryBtn>
-              <PrimaryBtn onClick={onPinSelected} disabled={!selectedQueueItemId || busy} tone="ghost">
+              <PrimaryBtn onClick={onPinSelected} disabled={!selectedQueueItemId || busy || !hostPinLotEnabled} tone="ghost">
                 Pin item
               </PrimaryBtn>
             </div>
@@ -560,7 +572,7 @@ export function LiveSellerCommandCenter({
               <PrimaryBtn onClick={onEndAuction} disabled={!item || busy} tone="ghost">
                 End auction
               </PrimaryBtn>
-              <PrimaryBtn onClick={onPinSelected} disabled={!selectedQueueItemId || busy}>
+              <PrimaryBtn onClick={onPinSelected} disabled={!selectedQueueItemId || busy || !hostPinLotEnabled}>
                 Pin item
               </PrimaryBtn>
               <PrimaryBtn onClick={onNextItem} disabled={busy || !queueRows.some((r) => r.item.status === "queued")}>
@@ -583,6 +595,7 @@ export function LiveSellerCommandCenter({
             viewerCount={viewerCount}
             busy={busy}
             onPost={onPostItem}
+            postDisabled={!hostPinLotEnabled}
             onSkip={onSkipItem}
             onDelete={onDeleteItem}
             onAddAuction={onAddAuction}

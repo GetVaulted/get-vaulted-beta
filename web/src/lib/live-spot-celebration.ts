@@ -43,5 +43,10 @@ export function spotCelebrationHeadline(kind: LiveSpotTakenCelebration["kind"]):
   return kind === "auction_win" ? "SOLD!" : "TAKEN!";
 }
 
+/** Stable key for dismiss timers — avoids resetting when parent re-renders. */
+export function spotCelebrationDismissKey(c: LiveSpotTakenCelebration): string {
+  return `${c.kind}|${c.username}|${c.label}|${c.amountUsd}`;
+}
+
 /** Full-screen spot celebration duration — matches Vault Reveal total display (~4s). */
 export const SPOT_CELEBRATION_DISPLAY_MS = 4000;
