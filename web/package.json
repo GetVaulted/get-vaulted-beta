@@ -31,6 +31,8 @@
     "test:e2e:live": "playwright test tests/e2e/vaulted-live-reliability.spec.ts",
     "qa:seed-live-auction": "tsx scripts/seed-live-auction-qa.ts",
     "qa:seed-beta-accounts": "tsx scripts/seed-beta-qa-accounts.ts",
+    "qa:seed-screenshots": "tsx scripts/seed-screenshot-demo.ts",
+    "qa:purge-screenshots": "tsx scripts/purge-screenshot-demo.ts",
     "qa:reset-beta-environment": "tsx scripts/reset-beta-qa-environment.ts",
     "qa:wipe-beta-full": "tsx scripts/wipe-beta-full-environment.ts",
     "qa:wipe-beta-empty": "tsx scripts/wipe-beta-empty-environment.ts",

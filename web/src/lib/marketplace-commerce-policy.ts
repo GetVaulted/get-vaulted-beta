@@ -35,4 +35,5 @@ export const PUBLIC_MARKETPLACE_LISTING_WHERE = {
   buyingFormat: "buy_now" as const,
   moderationRemovedAt: null,
   isCompanyListing: false,
+  id: { not: { startsWith: "shot_" } },
 };

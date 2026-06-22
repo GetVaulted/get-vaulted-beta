@@ -88,7 +88,10 @@ export async function GET(req: Request) {
               ],
             }),
       ...(!viewingOwnSellerRooms
-        ? { seller: prismaSellerVisibleOnPublicMarketplace() }
+        ? {
+            seller: prismaSellerVisibleOnPublicMarketplace(),
+            id: { not: { startsWith: "shot_lr_" } },
+          }
         : {}),
     };
 

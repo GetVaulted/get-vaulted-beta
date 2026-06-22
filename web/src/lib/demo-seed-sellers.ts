@@ -1,10 +1,12 @@
 import type { Prisma } from "@/generated/prisma/client";
+import { isScreenshotDemoSellerEmail } from "@/lib/screenshot-demo-seed";
 
 /**
  * Hidden from public buyer surfaces (browse, featured, trade picker, live directory):
  * - Prisma seed: `seed+*@getvaulted.internal`
  * - QA live seed: `qa_live_seller_*@test.internal`
  * - Vitest integration tests: `*@test.internal` (e.g. sellerlr → "Integration listing")
+ * - Screenshot demo: `screenshots.*@getvaultedtest.com`
  */
 
 export const DEMO_SEED_SELLER_EMAIL_SUFFIX = "@getvaulted.internal";
@@ -31,7 +33,8 @@ export function isHiddenFixtureSellerEmail(email: string | null | undefined): bo
   return (
     isDemoSeedSellerEmail(email) ||
     isIntegrationTestSellerEmail(email) ||
-    isQaLiveAuctionSeedSellerEmail(email)
+    isQaLiveAuctionSeedSellerEmail(email) ||
+    isScreenshotDemoSellerEmail(email)
   );
 }
 
@@ -41,6 +44,7 @@ export function prismaSellerVisibleOnPublicMarketplace(): Prisma.UserWhereInput 
     AND: [
       { email: { not: { endsWith: DEMO_SEED_SELLER_EMAIL_SUFFIX } } },
       { email: { not: { endsWith: INTEGRATION_TEST_EMAIL_SUFFIX } } },
+      { email: { not: { startsWith: "screenshots." } } },
     ],
   };
 }
