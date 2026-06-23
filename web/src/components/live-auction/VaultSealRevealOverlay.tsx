@@ -2,17 +2,21 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  isVaultSealRevealKind,
   VAULT_SEAL_BREAK_MS,
   VAULT_SEAL_GLOW_MS,
   VAULT_SEAL_TOTAL_MS,
+  vaultSealMetaLine,
+  vaultSealWinnerCopy,
   type VaultRevealSpinPayload,
 } from "@/lib/vault-reveal-spin";
 
 type SealPhase = "idle" | "glow" | "break" | "winner";
 
-function formatWinnerHandle(label: string): string {
-  const bare = label.trim().replace(/^@/, "");
-  return bare ? `@${bare}` : "@winner";
+function ariaLabelForKind(kind: VaultRevealSpinPayload["kind"]): string {
+  if (kind === "giveaway") return "Giveaway winner reveal";
+  if (kind === "random_reveal") return "Random team reveal";
+  return "Break randomizer reveal";
 }
 
 export function VaultSealRevealOverlay({
@@ -28,7 +32,7 @@ export function VaultSealRevealOverlay({
   onDismissRef.current = onDismiss;
 
   useEffect(() => {
-    if (!spin || spin.kind !== "giveaway") {
+    if (!spin || !isVaultSealRevealKind(spin.kind)) {
       setPhase("idle");
       seenRef.current = null;
       return;
@@ -48,10 +52,9 @@ export function VaultSealRevealOverlay({
     };
   }, [spin]);
 
-  if (!spin || spin.kind !== "giveaway") return null;
+  if (!spin || !isVaultSealRevealKind(spin.kind)) return null;
 
-  const winnerHandle = formatWinnerHandle(spin.winnerLabel);
-  const entryCount = spin.labels.length;
+  const winner = vaultSealWinnerCopy(spin);
   const showWinner = phase === "winner";
   const sealBreaking = phase === "break" || showWinner;
 
@@ -60,7 +63,7 @@ export function VaultSealRevealOverlay({
       className="fixed inset-0 z-[120] flex items-center justify-center bg-black/45 px-4 backdrop-blur-sm"
       role="dialog"
       aria-live="polite"
-      aria-label="Giveaway winner reveal"
+      aria-label={ariaLabelForKind(spin.kind)}
       onClick={() => onDismissRef.current()}
     >
       <div
@@ -79,9 +82,7 @@ export function VaultSealRevealOverlay({
           Vaulted Live
         </p>
         <h2 className="relative mt-2 text-center text-lg font-bold leading-snug text-zinc-50">{spin.title}</h2>
-        <p className="relative mt-1 text-center text-[11px] font-semibold text-zinc-500">
-          {entryCount} {entryCount === 1 ? "entry" : "entries"} · verified draw
-        </p>
+        <p className="relative mt-1 text-center text-[11px] font-semibold text-zinc-500">{vaultSealMetaLine(spin)}</p>
 
         <div className="relative mx-auto mt-6 flex h-28 w-full max-w-[220px] items-center justify-center">
           {!showWinner ? (
@@ -119,10 +120,12 @@ export function VaultSealRevealOverlay({
 
           {showWinner ? (
             <div className="vault-reveal-winner-pop w-full text-center">
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-amber-200/90">Winner</p>
-              <p className="mt-2 text-3xl font-black tracking-tight text-white">{winnerHandle}</p>
-              <p className="mt-2 text-sm font-medium text-zinc-400">Takes home</p>
-              <p className="mt-0.5 text-base font-bold text-amber-100/90">{spin.title}</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-amber-200/90">{winner.kicker}</p>
+              <p className="mt-2 text-3xl font-black tracking-tight text-white">{winner.primary}</p>
+              {winner.sub ? <p className="mt-2 text-sm font-medium text-zinc-400">{winner.sub}</p> : null}
+              {winner.detail ? (
+                <p className="mt-0.5 text-base font-bold text-amber-100/90">{winner.detail}</p>
+              ) : null}
             </div>
           ) : (
             <p className="absolute bottom-0 text-center text-xs font-semibold tracking-wide text-amber-100/80">

@@ -64,9 +64,9 @@ export function isIosLikePlaybackClient(): boolean {
   );
 }
 
-/** Prefer IVS Real-Time Stage WebRTC when available; HLS is the failover path. */
+/** Buyers watch IVS Low-Latency HLS — reliable for multi-hour shows. Host still publishes via WebRTC Stage. */
 export function preferHlsOverWebrtcOnClient(): boolean {
-  return false;
+  return true;
 }
 
 /** iOS must use native `<video src="*.m3u8">` — hls.js MSE path stalls or shows a blank frame. */

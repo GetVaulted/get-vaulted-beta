@@ -104,6 +104,11 @@ export async function getBuyerLiveStreamCached(
   return warmStream(roomId, accessToken);
 }
 
+export function invalidateViewerStageToken(roomId: string): void {
+  tokenCache.delete(roomId);
+  tokenInflight.delete(roomId);
+}
+
 /** Stage subscribe hook — returns a prefetched token when still valid. */
 export async function resolveViewerStageToken(
   roomId: string,

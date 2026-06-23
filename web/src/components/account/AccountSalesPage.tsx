@@ -38,6 +38,27 @@ type SaleRow = {
   buyer: { username: string };
   listing: { id: string; title: string; status?: string; images: { url: string }[] };
 };
+function formatBundledLabelError(error: string | undefined, code: string | undefined): string {
+  if (code === "SHIPPO_NOT_CONFIGURED") {
+    return "Shippo is not configured on this server. Add SHIPPO_API_TOKEN (your shippo_test_ key) in Netlify env vars and redeploy.";
+  }
+  if (code === "SELLER_SHIP_FROM_INCOMPLETE") {
+    return "Complete your ship-from address under Account → Seller before creating labels.";
+  }
+  if (code === "NO_ELIGIBLE_ORDERS") {
+    return "No paid, unlabeled orders in this bundle. Wait for buyer payment or use per-order labels for ship-alone items.";
+  }
+  if (code === "NOT_A_COMBINED_BUNDLE_SESSION") {
+    return "This session is ship-alone only — use Create label on each order in the table below.";
+  }
+  if (error?.includes("No Shippo rates")) {
+    return "Shippo returned no USPS/UPS rates. Check seller ship-from, buyer address, and your Shippo test token.";
+  }
+  return error ?? "Bundled label creation failed.";
+}
+
+type BundledSessionFeedback = { tone: "error" | "success" | "warning"; message: string };
+
 function formatMoney(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 }
@@ -169,6 +190,7 @@ export function AccountSalesPage() {
   const [labelBusyId, setLabelBusyId] = useState<string | null>(null);
   const [bundledBusySessionId, setBundledBusySessionId] = useState<string | null>(null);
   const [labelError, setLabelError] = useState<string | null>(null);
+  const [bundledSessionFeedback, setBundledSessionFeedback] = useState<Record<string, BundledSessionFeedback>>({});
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -243,18 +265,46 @@ export function AccountSalesPage() {
 
   const createBundledLabel = async (sessionId: string) => {
     setLabelError(null);
+    setBundledSessionFeedback((prev) => {
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
     setBundledBusySessionId(sessionId);
     try {
       const res = await fetch(`/api/account/live-shipping/${encodeURIComponent(sessionId)}/create-label`, {
         method: "POST",
       });
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+        warning?: string;
+        labelUrl?: string | null;
+        alreadyExisted?: boolean;
+      };
       if (!res.ok) {
-        setLabelError(j.error ?? "Bundled label creation failed.");
+        const msg = formatBundledLabelError(j.error, j.code);
+        setLabelError(msg);
+        setBundledSessionFeedback((prev) => ({ ...prev, [sessionId]: { tone: "error", message: msg } }));
         return;
       }
-      setLabelError(null);
+      if (typeof j.warning === "string" && j.warning.trim()) {
+        setLabelError(j.warning);
+        setBundledSessionFeedback((prev) => ({ ...prev, [sessionId]: { tone: "warning", message: j.warning! } }));
+      } else if (j.alreadyExisted) {
+        const msg = "Bundled label already exists for this session.";
+        setBundledSessionFeedback((prev) => ({ ...prev, [sessionId]: { tone: "success", message: msg } }));
+      } else {
+        const msg = j.labelUrl
+          ? "Bundled label created — open View label below."
+          : "Label purchase recorded. Refresh if the PDF link does not appear.";
+        setBundledSessionFeedback((prev) => ({ ...prev, [sessionId]: { tone: "success", message: msg } }));
+      }
       await load();
+    } catch {
+      const msg = "Network error — could not reach the server. Try again.";
+      setLabelError(msg);
+      setBundledSessionFeedback((prev) => ({ ...prev, [sessionId]: { tone: "error", message: msg } }));
     } finally {
       setBundledBusySessionId(null);
     }
@@ -359,6 +409,7 @@ export function AccountSalesPage() {
               loading={liveShippingLoading}
               labelBusyId={labelBusyId}
               bundledBusySessionId={bundledBusySessionId}
+              bundledSessionFeedback={bundledSessionFeedback}
               onCreateLabel={(orderId) => void createLabel(orderId)}
               onCreateBundledLabel={(sid) => void createBundledLabel(sid)}
             />

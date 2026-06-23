@@ -18,6 +18,8 @@ import {
 export type LivePlaybackMode = 'active' | 'prefetch' | 'off';
 
 const PREFETCH_POLL_MS = 10_000;
+const LIVE_PLAYBACK_HEALTH_MS = 15_000;
+const NO_VIDEO_RECOVER_MS = 12_000;
 
 function applyStreamToTransport(args: {
   safe: BuyerSafeStreamFields;
@@ -75,6 +77,7 @@ export function useLiveStagePlayback(args: {
   const transportRef = useRef<LivePlaybackTransport>('none');
   const webrtcFailedRef = useRef(false);
   const webrtcFailoverCountRef = useRef(0);
+  const noVideoSinceRef = useRef<number | null>(null);
   const playbackModeRef = useRef(args.playbackMode);
   const [webrtcSubscribeEpoch, setWebrtcSubscribeEpoch] = useState(0);
 
@@ -174,6 +177,9 @@ export function useLiveStagePlayback(args: {
     clearBackoff();
     retryRef.current = 0;
     lastAttachKeyRef.current = '';
+    webrtcFailedRef.current = false;
+    webrtcFailoverCountRef.current = 0;
+    noVideoSinceRef.current = null;
     setPlayerFatal(false);
     setPlayerRetryCount(0);
     if (args.playbackMode === 'active') {
@@ -191,9 +197,15 @@ export function useLiveStagePlayback(args: {
         return;
       }
       lastAttachKeyRef.current = '';
+      webrtcFailedRef.current = false;
+      webrtcFailoverCountRef.current = 0;
+      noVideoSinceRef.current = null;
       setReconnecting(true);
       if (transportRef.current === 'webrtc') {
         setWebrtcSubscribeEpoch((n) => n + 1);
+      } else {
+        transportRef.current = 'none';
+        applyTransport('none');
       }
       void fetchStream().finally(() => {
         setTimeout(() => setReconnecting(false), 600);
@@ -201,14 +213,51 @@ export function useLiveStagePlayback(args: {
     };
     const sub = AppState.addEventListener('change', onAppState);
     return () => sub.remove();
-  }, [args.playbackMode, clearBackoff, fetchStream]);
+  }, [applyTransport, args.playbackMode, clearBackoff, fetchStream]);
+
+  useEffect(() => {
+    if (args.playbackMode !== 'active') {
+      noVideoSinceRef.current = null;
+      return;
+    }
+    if (videoHasData || !stream || !isLiveStreamSignal(stream.streamHealth)) {
+      noVideoSinceRef.current = null;
+      return;
+    }
+    if (noVideoSinceRef.current == null) noVideoSinceRef.current = Date.now();
+  }, [args.playbackMode, stream, videoHasData]);
+
+  useEffect(() => {
+    if (args.playbackMode !== 'active' || !stream || !isLiveStreamSignal(stream.streamHealth)) return undefined;
+    const id = setInterval(() => {
+      if (videoHasData) return;
+      const since = noVideoSinceRef.current;
+      if (since == null || Date.now() - since < NO_VIDEO_RECOVER_MS) return;
+      noVideoSinceRef.current = Date.now();
+      webrtcFailedRef.current = false;
+      webrtcFailoverCountRef.current = 0;
+      lastAttachKeyRef.current = '';
+      setPlayerFatal(false);
+      setPlayerRetryCount(0);
+      if (transportRef.current === 'webrtc') {
+        setWebrtcSubscribeEpoch((n) => n + 1);
+      } else {
+        transportRef.current = 'none';
+        applyTransport('none');
+      }
+      void fetchStream();
+    }, LIVE_PLAYBACK_HEALTH_MS);
+    return () => clearInterval(id);
+  }, [applyTransport, args.playbackMode, fetchStream, stream, videoHasData]);
 
   const onVideoReady = useCallback(() => {
     setVideoHasData(true);
     setPlayerFatal(false);
+    noVideoSinceRef.current = null;
     retryRef.current = 0;
     setPlayerRetryCount(0);
     webrtcFailoverCountRef.current = 0;
+    webrtcFailedRef.current = false;
   }, []);
 
   const onVideoError = useCallback(() => {
@@ -238,8 +287,9 @@ export function useLiveStagePlayback(args: {
       setReconnecting(false);
       if (webrtcFailoverCountRef.current >= 2) {
         webrtcFailedRef.current = true;
-        applyTransport('waiting');
+        applyTransport('hls');
         lastAttachKeyRef.current = '';
+        setVideoHasData(false);
         void fetchStream();
         return;
       }
@@ -254,6 +304,7 @@ export function useLiveStagePlayback(args: {
   const onWebrtcDisconnected = useCallback(() => {
     setVideoHasData(false);
     setReconnecting(true);
+    if (noVideoSinceRef.current == null) noVideoSinceRef.current = Date.now();
   }, []);
 
   useEffect(() => () => clearBackoff(), [clearBackoff]);

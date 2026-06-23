@@ -174,14 +174,13 @@ export function mergeBuyerSnapshotForBidAck(
   };
 }
 
-/** Optimistic merge when host opens bidding or timer extends via active_item_changed. */
+/** Optimistic merge when host pins a lot or opens bidding via active_item_changed. */
 export function mergeBuyerSnapshotForActiveItemChanged(
   snap: LiveRoomBuyerSnapshot,
   payload: RoomBroadcastPayload,
   wallNowMs: number,
 ): LiveRoomBuyerSnapshot | null {
   if (!payload.itemId) return null;
-  if (snap.activeItemId && snap.activeItemId !== payload.itemId) return null;
 
   const auctionEndsAt =
     payload.auctionEndsAt !== undefined ? payload.auctionEndsAt : snap.auctionEndsAt;
@@ -195,6 +194,37 @@ export function mergeBuyerSnapshotForActiveItemChanged(
     },
     wallNowMs,
   );
+
+  const lotChanged = (snap.activeItemId ?? null) !== payload.itemId;
+
+  if (lotChanged) {
+    // Drop prior-lot bid state immediately — a delayed GET must not show the last winning bid as the opening price.
+    return {
+      ...snap,
+      activeItemId: payload.itemId,
+      activeItemTitle: null,
+      activeItemImageUrl: null,
+      activeItemSalesFormat: null,
+      activeItemListingId: null,
+      activeItemVariantAssignmentMode: null,
+      activeItemVariants: undefined,
+      currentBidUsd: null,
+      minNextBidUsd: liveAuctionMinBidUsd({
+        currentBidUsd: null,
+        startingBidUsd: 1,
+        priceUsd: null,
+        lastHighBidderId: null,
+      }),
+      lastHighBidderId: null,
+      lastHighBidderUsername: null,
+      startingBidUsd: null,
+      priceUsd: null,
+      auctionEndsAt: payload.auctionEndsAt !== undefined ? payload.auctionEndsAt : null,
+      biddingOpen: lotBidPhase === 'bidding_open',
+      lotBidPhase,
+      fetchedAtMs: wallNowMs,
+    };
+  }
 
   return {
     ...snap,

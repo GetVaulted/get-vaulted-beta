@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 import { roomChannel, RT_EVENT } from "@/lib/realtime-channels";
+import type { LiveRoomModeratorLevel } from "@/generated/prisma/enums";
 import { isPinnedMessageActive, msUntilPinnedMessageExpires } from "@/lib/trust/pinned-message-expiry";
 
 export type LiveRoomModeratorRow = {
@@ -14,6 +15,8 @@ export type LiveRoomModerationState = {
   canModerate: boolean;
   isHost: boolean;
   isModerator: boolean;
+  moderatorLevel: LiveRoomModeratorLevel | null;
+  allowedActions: string[];
   slowModeSeconds: number;
   pinnedModeratorMessage: string | null;
   pinnedModeratorMessageAt: string | null;
@@ -27,6 +30,7 @@ export type LiveRoomModerationState = {
     roomBanned: boolean;
     bidBlocked: boolean;
     kickedUntil: string | null;
+    sellerStreamBanned?: boolean;
   } | null;
 };
 
@@ -34,6 +38,8 @@ const EMPTY: LiveRoomModerationState = {
   canModerate: false,
   isHost: false,
   isModerator: false,
+  moderatorLevel: null,
+  allowedActions: [],
   slowModeSeconds: 0,
   pinnedModeratorMessage: null,
   pinnedModeratorMessageAt: null,
@@ -62,6 +68,8 @@ export function useLiveRoomModerationState(liveRoomId: string, enabled = true) {
         canModerate: Boolean(j.canModerate),
         isHost: Boolean(j.isHost),
         isModerator: Boolean(j.isModerator),
+        moderatorLevel: j.moderatorLevel ?? null,
+        allowedActions: Array.isArray(j.allowedActions) ? j.allowedActions : [],
         slowModeSeconds: j.slowModeSeconds ?? 0,
         pinnedModeratorMessage: j.pinnedModeratorMessage ?? null,
         pinnedModeratorMessageAt: j.pinnedModeratorMessageAt ?? null,
@@ -78,7 +86,7 @@ export function useLiveRoomModerationState(liveRoomId: string, enabled = true) {
         myRestrictions: j.myRestrictions ?? null,
       });
       const r = j.myRestrictions;
-      if (r?.roomBanned || r?.kickedUntil) {
+      if (r?.roomBanned || r?.kickedUntil || r?.sellerStreamBanned) {
         setRoomBlocked(true);
       }
     } catch {

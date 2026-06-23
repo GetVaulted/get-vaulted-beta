@@ -90,7 +90,7 @@ export type RootStackParamList = {
   NotificationInbox: undefined;
   VaultEventRecap: { roomId: string };
   VaultComms: undefined;
-  BuyerOrders: undefined;
+  BuyerOrders: { source?: 'marketplace' | 'live' } | undefined;
   BuyerOrderDetail: { orderId: string };
   BuyerLayaways: undefined;
   SellerLayaways: { filter?: 'active' | 'ready' | 'overdue' } | undefined;

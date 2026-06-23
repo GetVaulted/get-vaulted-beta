@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -29,6 +30,7 @@ import {
 } from '../../../lib/vaultEventModel';
 import { logVaultEvents } from '../../../lib/vaultEventsLayout';
 import { notifyLiveDiscoveryChanged } from '../../../lib/notifyLiveDiscoveryChanged';
+import { subscribeHomeFeedInvalidation } from '../../../lib/homeFeedCache';
 import type { SellerReloadOptions } from '../../../hooks/sellerReloadOptions';
 import { colors, radii, spacing } from '../../../theme';
 import { VaultEventCard } from './VaultEventCard';
@@ -150,6 +152,18 @@ export function VaultEventsHub({
   useEffect(() => {
     void load({ force: true });
   }, [load, roomsRefreshKey]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load({ silent: true, force: true });
+    }, [load]),
+  );
+
+  useEffect(() => {
+    return subscribeHomeFeedInvalidation(() => {
+      void load({ silent: true, force: true });
+    });
+  }, [load]);
 
   useEffect(() => {
     if (!loadedOnce || autoSegmentRef.current || rooms.length === 0) return;

@@ -97,7 +97,7 @@ export function formatEventWhen(room: LiveRoomApiRow, displayStatus: VaultEventD
   if (displayStatus === 'live') {
     return room.viewerCount > 0 ? `${room.viewerCount} watching` : 'On air now';
   }
-  if (!room.scheduledStartAt) return 'Schedule when ready';
+  if (!room.scheduledStartAt) return 'Starting now';
   try {
     const d = new Date(room.scheduledStartAt);
     const diff = d.getTime() - Date.now();

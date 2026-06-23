@@ -1,8 +1,7 @@
 import type { VaultRevealSpinPayload } from '../../lib/vaultRevealSpin';
-import { VaultRevealWheelOverlay } from './VaultRevealWheelOverlay';
 import { VaultSealRevealOverlay } from './VaultSealRevealOverlay';
 
-/** Routes giveaway draws to Vault Seal; break randomizers keep the wheel. */
+/** Giveaways, PYT randomizer, and per-spot random reveals all use the Vault Seal. */
 export function VaultRevealOverlay({
   spin,
   onDismiss,
@@ -10,8 +9,5 @@ export function VaultRevealOverlay({
   spin: VaultRevealSpinPayload | null;
   onDismiss: () => void;
 }) {
-  if (spin?.kind === 'giveaway') {
-    return <VaultSealRevealOverlay spin={spin} onDismiss={onDismiss} />;
-  }
-  return <VaultRevealWheelOverlay spin={spin} onDismiss={onDismiss} />;
+  return <VaultSealRevealOverlay spin={spin} onDismiss={onDismiss} />;
 }

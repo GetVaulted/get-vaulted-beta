@@ -27,11 +27,14 @@ export function LiveGiveawaySideTab({
   const [open, setOpen] = useState(false);
 
   const visible = useMemo(
-    () => giveaways.filter((g) => g.kind === 'open' && g.status === 'entries_open' && g.canEnter !== false),
+    () => giveaways.filter((g) => g.kind === 'open' && g.status === 'entries_open'),
     [giveaways],
   );
 
   const needsEntry = visible.some((g) => !g.viewerEntered);
+  const primary = visible[0];
+  const entryLabel =
+    primary && primary.entryCount > 0 ? `${primary.entryCount} Entries` : null;
 
   useEffect(() => {
     if (visible.length === 0) setOpen(false);
@@ -50,6 +53,7 @@ export function LiveGiveawaySideTab({
       >
         <Text style={styles.tabEmoji}>🎁</Text>
         <Text style={styles.tabLabel}>Givvy</Text>
+        {!open && entryLabel ? <Text style={styles.tabEntries}>{entryLabel}</Text> : null}
         {needsEntry ? <View style={styles.dot} /> : null}
       </Pressable>
 
@@ -108,6 +112,13 @@ const styles = StyleSheet.create({
     color: '#ecfdf5',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
+  },
+  tabEntries: {
+    marginTop: 2,
+    fontSize: 7,
+    fontWeight: '700',
+    color: 'rgba(167,243,208,0.75)',
+    textAlign: 'center',
   },
   dot: {
     position: 'absolute',

@@ -8,7 +8,7 @@ import { LiveSaleRoom } from "@/components/live-auction/LiveSaleRoom";
 import { useRealtimeRoomPresence } from "@/hooks/useRealtimeRoomPresence";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
 import { logLiveDebugEvent } from "@/lib/live-debug";
-import { announceLiveRoomJoin } from "@/lib/live-room-viewer-event-client";
+import { announceLiveRoomJoin, announceLiveRoomLeave } from "@/lib/live-room-viewer-event-client";
 import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
 import { appendLiveRoomMessageDedupe, mergeLiveRoomMessagesById } from "@/lib/realtime-merge-messages";
 import type { LiveRoomDetailDTO, LiveRoomItemDTO, LiveRoomMessageDTO } from "@/lib/live-room-serialize";
@@ -64,6 +64,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   /** Monotonic `auctionSeq` from bid HTTP ACK + `bid_placed` realtime (canonical ordering). */
   const lastAuctionSeqRef = useRef(0);
   const prevRoomLifecycleRef = useRef<LiveRoomStatus | null>(null);
+  const activeItemIdRef = useRef<string | null>(null);
   const [soldCelebration, setSoldCelebration] = useState<LiveAuctionCloseCelebration | null>(null);
   const [spotCelebration, setSpotCelebration] = useState<LiveSpotTakenCelebrationPayload | null>(null);
   const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
@@ -118,6 +119,10 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   /** Latest room id for rejecting stale async `load()` responses after navigation. */
   const roomIdRef = useRef(roomId);
   roomIdRef.current = roomId;
+
+  useEffect(() => {
+    activeItemIdRef.current = detail?.activeItem?.id ?? null;
+  }, [detail?.activeItem?.id]);
 
   const scheduleFallbackRefresh = useCallback(
     (reason: string, delayMs = 700) => {
@@ -486,6 +491,14 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     void announceLiveRoomJoin(roomId);
   }, [detail?.status, roomId, session?.user?.id]);
 
+  /** Pause open-entry giveaway rows when navigating away from the room. */
+  useEffect(() => {
+    return () => {
+      if (!session?.user?.id) return;
+      announceLiveRoomLeave(roomId);
+    };
+  }, [roomId, session?.user?.id]);
+
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
@@ -660,6 +673,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         scheduleFallbackRefresh("active_item_changed_missing_item", 450);
         return;
       }
+      const lotChanged = activeItemIdRef.current !== payload.itemId;
       setDetail((prev) => {
         if (!prev) return prev;
         const items = mergeLiveRoomItemsForActiveItemEvent(prev.items, payload);
@@ -668,7 +682,11 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         return { ...prev, roomVersion, items, activeItem };
       });
       refreshSkewFromRealtimePayload(payload.serverNowMs);
-      scheduleFallbackRefresh("active_item_changed", 40);
+      if (lotChanged) {
+        setRefreshNonce((n) => n + 1);
+      } else {
+        scheduleFallbackRefresh("active_item_changed", 40);
+      }
     },
     onAuctionStarted: (payload) => {
       logLiveDebugEvent({

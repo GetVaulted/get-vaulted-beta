@@ -36,6 +36,7 @@ import { estimateClockSkewMs, syncedWallTimeMs } from '../lib/serverClockSync';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from '../lib/vaultRevealSpin';
 import { useRealtimeRoomSubscription, type LiveRoomChatBroadcastMessage } from './useRealtimeRoomSubscription';
+import { useRealtimeRoomPresence } from './useRealtimeRoomPresence';
 
 const FALLBACK_POLL_CONNECTED_MS = 30_000;
 const FALLBACK_POLL_DISCONNECTED_MS = 5000;
@@ -67,6 +68,13 @@ export function useLiveRoomRealtimeSession(args: {
   const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
   const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
   const seenSpotCelebrationKeysRef = useRef<Set<string>>(new Set());
+
+  const viewerCount = useRealtimeRoomPresence({
+    liveRoomId: args.roomId,
+    enabled: args.enabled,
+    userId: args.userId ?? null,
+    trackSelf: true,
+  });
 
   const showSpotCelebration = useCallback((taken: LiveSpotTakenCelebration) => {
     const key = spotCelebrationDismissKey(taken);
@@ -256,8 +264,10 @@ export function useLiveRoomRealtimeSession(args: {
       refreshSkewFromRealtime(payload.serverNowMs);
       const wallNow = syncedWallTimeMs(clockSkewMs);
       setMyHighBidUsd(null);
+      let lotChanged = false;
       setRoomSnap((prev) => {
         if (!prev) return prev;
+        lotChanged = Boolean(payload.itemId && (prev.activeItemId ?? null) !== payload.itemId);
         const merged = mergeBuyerSnapshotForActiveItemChanged(prev, payload, wallNow);
         if (merged) {
           logAuctionTimer({
@@ -272,9 +282,13 @@ export function useLiveRoomRealtimeSession(args: {
         }
         return merged ?? prev;
       });
-      scheduleReconcile(40);
+      if (lotChanged) {
+        void fetchSnapshot();
+      } else {
+        scheduleReconcile(40);
+      }
     },
-    [clockSkewMs, refreshSkewFromRealtime, scheduleReconcile],
+    [clockSkewMs, fetchSnapshot, refreshSkewFromRealtime, scheduleReconcile],
   );
 
   useRealtimeRoomSubscription({
@@ -357,6 +371,7 @@ export function useLiveRoomRealtimeSession(args: {
     onReconnect: () => {
       setConnectionBanner('Live connection restored');
       setTimeout(() => setConnectionBanner(null), 2400);
+      args.onStreamRefresh?.();
       scheduleReconcile(120);
     },
     onConnectionStateChange: ({ status, reconnectCount }) => {
@@ -470,5 +485,6 @@ export function useLiveRoomRealtimeSession(args: {
         return merged ?? prev;
       });
     },
+    viewerCount,
   };
 }

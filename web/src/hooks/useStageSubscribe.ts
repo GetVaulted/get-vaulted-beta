@@ -15,7 +15,7 @@ const CONNECT_TIMEOUT_MS = 12_000;
 /** Proactive token refresh before the 20-minute viewer TTL expires. */
 const TOKEN_REFRESH_MS = 17 * 60 * 1000;
 /** Max automatic WebRTC rejoin attempts before reporting failure to the player. */
-const MAX_REJOIN_ATTEMPTS = 4;
+const MAX_REJOIN_ATTEMPTS = 12;
 /** No new video frames for this long while "connected" triggers a rejoin. */
 const STALE_FRAME_MS = 8_000;
 const STALE_CHECK_INTERVAL_MS = 3_000;
@@ -92,6 +92,8 @@ export function useStageSubscribe({
     let tokenRefreshId: number | null = null;
     let staleCheckId: number | null = null;
     let lastFrameAt = Date.now();
+    let lastVideoTime = -1;
+    let lastVideoProgressAt = Date.now();
     let frameCallbackId: number | null = null;
     let rejoinAttempts = 0;
     let rejoinInFlight = false;
@@ -179,7 +181,18 @@ export function useStageSubscribe({
           void attemptRejoin("tracks_ended");
           return;
         }
-        if ("requestVideoFrameCallback" in (videoRef.current ?? {}) && Date.now() - lastFrameAt > STALE_FRAME_MS) {
+        const el = videoRef.current;
+        if (el && el.readyState >= 2 && Number.isFinite(el.currentTime)) {
+          if (el.currentTime !== lastVideoTime) {
+            lastVideoTime = el.currentTime;
+            lastVideoProgressAt = Date.now();
+            lastFrameAt = Date.now();
+          } else if (Date.now() - lastVideoProgressAt > STALE_FRAME_MS) {
+            void attemptRejoin("stale_playback");
+            return;
+          }
+        }
+        if ("requestVideoFrameCallback" in (el ?? {}) && Date.now() - lastFrameAt > STALE_FRAME_MS) {
           void attemptRejoin("stale_frames");
         }
       }, STALE_CHECK_INTERVAL_MS);
@@ -205,18 +218,23 @@ export function useStageSubscribe({
       rejoinAttempts += 1;
       rejoinInFlight = true;
       logIvsWeb("stage subscribe rejoin", { roomId, trigger, attempt: rejoinAttempts });
-      cbRef.current.onDisconnected?.();
-      await teardownStage();
-      for (const track of stream.getTracks()) {
-        try {
-          stream.removeTrack(track);
-        } catch {
-          /* ignore */
+      try {
+        cbRef.current.onDisconnected?.();
+        await teardownStage();
+        for (const track of stream.getTracks()) {
+          try {
+            stream.removeTrack(track);
+          } catch {
+            /* ignore */
+          }
         }
+        if (cancelled) return;
+        lastVideoTime = -1;
+        lastVideoProgressAt = Date.now();
+        await joinStage();
+      } finally {
+        rejoinInFlight = false;
       }
-      rejoinInFlight = false;
-      if (cancelled) return;
-      void joinStage();
     };
 
     const joinStage = async () => {

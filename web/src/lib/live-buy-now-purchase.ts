@@ -386,7 +386,7 @@ export async function finalizeBreakSpotPaid(args: {
     type: "break_spot_paid",
     title: "Spot paid",
     body: `Payment confirmed for ${spot.spotLabel}.`,
-    href: `/live/${encodeURIComponent(spot.liveRoomId)}`,
+    href: `/account/orders?view=live`,
   });
 
   return {

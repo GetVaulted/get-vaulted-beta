@@ -9,6 +9,10 @@ import type {
 } from "@/generated/prisma/client";
 import { scheduledGiveawayEntryCloseAt } from "@/lib/giveaway-countdown";
 import { createOrderFromGiveawayWinTx } from "@/lib/live-giveaway-fulfillment";
+import {
+  isGiveawayEntryEligibleForDraw,
+  isWatchEnterGiveawayMethod,
+} from "@/lib/live-giveaway-presence";
 import { prisma } from "@/lib/prisma";
 import { emitLiveRoomGiveawaysChanged, emitPurchaseCompleted, emitVaultRevealSpin } from "@/lib/realtime-emit-server";
 import { VAULT_SEAL_TOTAL_MS } from "@/lib/vault-reveal-spin";
@@ -51,6 +55,8 @@ export type ViewerGiveawayDTO = {
   /** Scheduled draw time while entries are open (5 min default). */
   entryCloseAt: string | null;
   viewerEntered: boolean;
+  /** True when this viewer is currently in the active drawing pool (present in room). */
+  viewerActiveInDrawing: boolean;
   canEnter: boolean;
 };
 
@@ -122,28 +128,36 @@ export async function listViewerGiveawaysForRoom(liveRoomId: string, viewerUserI
   });
   if (rows.length === 0) return [];
 
-  let enteredIds = new Set<string>();
+  let enteredByGiveaway = new Map<string, { activeInRoom: boolean }>();
   if (viewerUserId) {
     const entries = await prisma.liveGiveawayEntry.findMany({
       where: { userId: viewerUserId, giveawayId: { in: rows.map((r) => r.id) } },
-      select: { giveawayId: true },
+      select: { giveawayId: true, activeInRoom: true },
     });
-    enteredIds = new Set(entries.map((e) => e.giveawayId));
+    enteredByGiveaway = new Map(entries.map((e) => [e.giveawayId, { activeInRoom: e.activeInRoom }]));
   }
 
   return rows.map(
-    (r): ViewerGiveawayDTO => ({
-      id: r.id,
-      kind: r.kind,
-      title: r.title,
-      prizeDescription: r.prizeDescription,
-      imageUrl: r.imageUrl,
-      status: r.status,
-      entryCount: r.entryCount,
-      entryCloseAt: r.entryCloseAt?.toISOString() ?? null,
-      viewerEntered: enteredIds.has(r.id),
-      canEnter: !enteredIds.has(r.id),
-    }),
+    (r): ViewerGiveawayDTO => {
+      const entry = enteredByGiveaway.get(r.id);
+      const viewerEntered = Boolean(entry);
+      const viewerActiveInDrawing = viewerEntered
+        ? entry!.activeInRoom
+        : false;
+      return {
+        id: r.id,
+        kind: r.kind,
+        title: r.title,
+        prizeDescription: r.prizeDescription,
+        imageUrl: r.imageUrl,
+        status: r.status,
+        entryCount: r.entryCount,
+        entryCloseAt: r.entryCloseAt?.toISOString() ?? null,
+        viewerEntered,
+        viewerActiveInDrawing,
+        canEnter: !viewerEntered,
+      };
+    },
   );
 }
 
@@ -251,14 +265,22 @@ export async function createLiveGiveaway(input: {
 type GiveawayDrawEntry = {
   userId: string;
   user: { username: string | null };
+  method: LiveGiveawayEntryMethod;
+  activeInRoom: boolean;
 };
 
 async function loadGiveawayDrawEntries(giveawayId: string): Promise<GiveawayDrawEntry[]> {
-  return prisma.liveGiveawayEntry.findMany({
+  const rows = await prisma.liveGiveawayEntry.findMany({
     where: { giveawayId },
-    select: { userId: true, user: { select: { username: true } } },
+    select: {
+      userId: true,
+      method: true,
+      activeInRoom: true,
+      user: { select: { username: true } },
+    },
     orderBy: { createdAt: "asc" },
   });
+  return rows.filter(isGiveawayEntryEligibleForDraw);
 }
 
 async function executeGiveawayDraw(
@@ -485,6 +507,87 @@ export async function listLiveGiveawayEntriesForHost(giveawayId: string, liveRoo
   };
 }
 
+export async function pauseOpenGiveawayPresence(
+  liveRoomId: string,
+  userId: string,
+): Promise<{ paused: number }> {
+  await processExpiredLiveGiveaways(liveRoomId);
+
+  const openGiveaways = await prisma.liveGiveaway.findMany({
+    where: { liveRoomId, kind: "open", status: "entries_open" },
+    select: { id: true },
+  });
+  if (openGiveaways.length === 0) return { paused: 0 };
+
+  let paused = 0;
+  for (const giveaway of openGiveaways) {
+    const entry = await prisma.liveGiveawayEntry.findUnique({
+      where: { giveawayId_userId: { giveawayId: giveaway.id, userId } },
+      select: { id: true, method: true, activeInRoom: true },
+    });
+    if (!entry || !isWatchEnterGiveawayMethod(entry.method) || !entry.activeInRoom) continue;
+
+    const didPause = await prisma.$transaction(async (tx) => {
+      const updated = await tx.liveGiveawayEntry.updateMany({
+        where: { id: entry.id, activeInRoom: true },
+        data: { activeInRoom: false },
+      });
+      if (updated.count === 0) return false;
+      await tx.liveGiveaway.update({
+        where: { id: giveaway.id },
+        data: { entryCount: { decrement: 1 } },
+      });
+      return true;
+    });
+    if (didPause) paused++;
+  }
+
+  if (paused > 0) emitLiveRoomGiveawaysChanged(liveRoomId);
+  return { paused };
+}
+
+export async function resumeOpenGiveawayPresence(
+  liveRoomId: string,
+  userId: string,
+): Promise<{ resumed: number }> {
+  await processExpiredLiveGiveaways(liveRoomId);
+
+  const openGiveaways = await prisma.liveGiveaway.findMany({
+    where: { liveRoomId, kind: "open", status: "entries_open" },
+    select: { id: true, entryCloseAt: true },
+  });
+  if (openGiveaways.length === 0) return { resumed: 0 };
+
+  const now = new Date();
+  let resumed = 0;
+  for (const giveaway of openGiveaways) {
+    if (giveaway.entryCloseAt && giveaway.entryCloseAt <= now) continue;
+
+    const entry = await prisma.liveGiveawayEntry.findUnique({
+      where: { giveawayId_userId: { giveawayId: giveaway.id, userId } },
+      select: { id: true, method: true, activeInRoom: true },
+    });
+    if (!entry || !isWatchEnterGiveawayMethod(entry.method) || entry.activeInRoom) continue;
+
+    const didResume = await prisma.$transaction(async (tx) => {
+      const updated = await tx.liveGiveawayEntry.updateMany({
+        where: { id: entry.id, activeInRoom: false },
+        data: { activeInRoom: true },
+      });
+      if (updated.count === 0) return false;
+      await tx.liveGiveaway.update({
+        where: { id: giveaway.id },
+        data: { entryCount: { increment: 1 } },
+      });
+      return true;
+    });
+    if (didResume) resumed++;
+  }
+
+  if (resumed > 0) emitLiveRoomGiveawaysChanged(liveRoomId);
+  return { resumed };
+}
+
 export async function enterOpenGiveaway(giveawayId: string, liveRoomId: string, userId: string) {
   await processExpiredLiveGiveaways(liveRoomId);
 
@@ -496,6 +599,32 @@ export async function enterOpenGiveaway(giveawayId: string, liveRoomId: string, 
     return { ok: false as const, error: "Entry window has ended." };
   }
 
+  const existing = await prisma.liveGiveawayEntry.findUnique({
+    where: { giveawayId_userId: { giveawayId: row.id, userId } },
+    select: { id: true, method: true, activeInRoom: true },
+  });
+  if (existing) {
+    if (!isWatchEnterGiveawayMethod(existing.method)) {
+      return { ok: false as const, error: "You are already entered." };
+    }
+    if (existing.activeInRoom) {
+      return { ok: false as const, error: "You are already entered." };
+    }
+    await prisma.$transaction(async (tx) => {
+      const updated = await tx.liveGiveawayEntry.updateMany({
+        where: { id: existing.id, activeInRoom: false },
+        data: { activeInRoom: true },
+      });
+      if (updated.count === 0) return;
+      await tx.liveGiveaway.update({
+        where: { id: row.id },
+        data: { entryCount: { increment: 1 } },
+      });
+    });
+    emitLiveRoomGiveawaysChanged(liveRoomId);
+    return { ok: true as const };
+  }
+
   try {
     await prisma.$transaction(async (tx) => {
       await tx.liveGiveawayEntry.create({
@@ -503,6 +632,7 @@ export async function enterOpenGiveaway(giveawayId: string, liveRoomId: string, 
           giveawayId: row.id,
           userId,
           method: "watch_enter",
+          activeInRoom: true,
         },
       });
       await tx.liveGiveaway.update({
@@ -510,6 +640,7 @@ export async function enterOpenGiveaway(giveawayId: string, liveRoomId: string, 
         data: { entryCount: { increment: 1 } },
       });
     });
+    emitLiveRoomGiveawaysChanged(liveRoomId);
     return { ok: true as const };
   } catch (e) {
     if (e && typeof e === "object" && "code" in e && (e as { code: string }).code === "P2002") {

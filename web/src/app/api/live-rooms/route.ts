@@ -82,10 +82,7 @@ export async function GET(req: Request) {
         : viewingOwnSellerRooms
           ? { status: { in: ["live", "scheduled"] } }
           : {
-              OR: [
-                { status: "live" },
-                { status: "scheduled", scheduledStartAt: { not: null } },
-              ],
+              status: { in: ["live", "scheduled"] },
             }),
       ...(!viewingOwnSellerRooms
         ? {
@@ -315,6 +312,10 @@ export async function POST(req: Request) {
   if (body.scheduledStartAt) {
     const d = new Date(body.scheduledStartAt);
     if (!Number.isNaN(d.getTime())) scheduledStartAt = d;
+  }
+  // "Go live now" events omit a schedule — anchor them in discovery/upcoming lists immediately.
+  if (!scheduledStartAt) {
+    scheduledStartAt = new Date();
   }
 
   const rt = roomType as LiveRoomType;

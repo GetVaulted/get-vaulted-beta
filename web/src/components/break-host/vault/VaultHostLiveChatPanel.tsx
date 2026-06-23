@@ -1,14 +1,21 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useChatScrollToBottom } from "@/hooks/useChatScrollToBottom";
 import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { resolvePinnedModeratorUsername } from "@/lib/trust/resolve-pinned-moderator-username";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
 import { LiveChatMessageRowActions } from "@/components/trust/LiveChatMessageRowActions";
+import {
+  LiveChatUserActionMenu,
+  type LiveChatUserActionTarget,
+} from "@/components/trust/LiveChatUserActionMenu";
+import { LiveChatUsernameButton } from "@/components/trust/LiveChatUsernameButton";
 import { LiveChatAvatar } from "@/components/live-auction/LiveChatAvatar";
 import { MentionComposer } from "@/components/mentions/MentionComposer";
 import { MentionText } from "@/components/mentions/MentionText";
+import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { LIVE_ROOM_CHAT_HISTORY_MAX } from "@/lib/live-room-chat-policy";
 import { isInlineViewerEventBody } from "@/lib/live-room-viewer-events";
 
@@ -83,7 +90,9 @@ export function VaultHostLiveChatPanel({
   variant = "overlay",
   uiDimmed = false,
 }: VaultHostLiveChatPanelProps) {
+  const router = useRouter();
   const [tab, setTab] = useState<"chat" | "watching">("chat");
+  const [userActionTarget, setUserActionTarget] = useState<LiveChatUserActionTarget | null>(null);
   const mod = useLiveRoomModerationState(liveRoomId, Boolean(liveRoomId));
   const pinnedModeratorUsername =
     resolvePinnedModeratorUsername({
@@ -121,6 +130,26 @@ export function VaultHostLiveChatPanel({
   const showTabs = variant === "sidebar";
   const msgClass = variant === "sidebar" ? "text-[12px] leading-snug" : "text-[13px] leading-snug max-[380px]:text-[12px]";
   const msgListClass = variant === "sidebar" ? "space-y-1 px-1.5 py-1.5" : "space-y-2 px-3 py-2";
+
+  const userActionMenu = (
+    <LiveChatUserActionMenu
+      liveRoomId={liveRoomId}
+      hostUserId={hostUserId}
+      isHost={mod.isHost}
+      canModerate
+      moderatorLevel={mod.moderatorLevel}
+      allowedActions={mod.allowedActions}
+      target={userActionTarget}
+      onClose={() => setUserActionTarget(null)}
+      onTag={() => {}}
+      onViewProfile={(userId) => {
+        const username = userActionTarget?.username?.trim();
+        if (username) router.push(sellerProfilePath(username));
+        else if (userId) router.push(sellerProfilePath(userId));
+      }}
+      onModerationComplete={() => onMessagesRefresh?.()}
+    />
+  );
 
   return (
     <div className={shellClass}>
@@ -196,7 +225,12 @@ export function VaultHostLiveChatPanel({
                       />
                     ) : null}
                     <div className="min-w-0 flex-1">
-                      <span className={labelClass}>{label}</span>
+                      <LiveChatUsernameButton
+                        label={label}
+                        className={labelClass}
+                        message={m}
+                        onOpen={setUserActionTarget}
+                      />
                       {isHost ? (
                         <span className="ml-1 text-[9px] font-black uppercase tracking-wide text-amber-300/90">
                           HOST
@@ -278,6 +312,7 @@ export function VaultHostLiveChatPanel({
           <div className={`shrink-0 ${variant === "sidebar" ? "p-1.5" : "border-t border-white/[0.06] bg-zinc-900/50 p-3"}`}>
             <div className={variant === "sidebar" ? "live-stage-chat-input-tray p-1.5" : ""}>
             <MentionComposer
+              liveRoomId={liveRoomId}
               value={systemMsg}
               onChange={onSystemMsgChange}
               placeholder="Send to chat…"
@@ -325,6 +360,7 @@ export function VaultHostLiveChatPanel({
           )}
         </div>
       ) : null}
+      {userActionMenu}
     </div>
   );
 }

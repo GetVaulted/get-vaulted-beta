@@ -53,6 +53,9 @@ const POLL_MS = 5_000;
 const MAX_PLAYER_RETRIES = 5;
 const MAX_WEBRTC_FAILOVERS = 2;
 const BACKOFF_BASE_MS = 900;
+/** While the room is live, re-probe playback if video stays blank this long. */
+const LIVE_PLAYBACK_HEALTH_MS = 15_000;
+const NO_VIDEO_RECOVER_MS = 12_000;
 
 /** Shared low-latency HLS.js tuning — used by both the seller center stage and buyer room. */
 const HLS_LOW_LATENCY_CONFIG = {
@@ -202,6 +205,7 @@ export function LiveVideoStagePlayback({
   /** Set once WebRTC subscribe has failed for this signal, so we don't loop and stick to HLS. */
   const webrtcFailedRef = useRef(false);
   const webrtcFailoverCountRef = useRef(0);
+  const noVideoSinceRef = useRef<number | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [fetchFailed, setFetchFailed] = useState(false);
@@ -553,6 +557,9 @@ export function LiveVideoStagePlayback({
     attachEpochRef.current += 1;
     retryRef.current = 0;
     lastAttachedKeyRef.current = "";
+    webrtcFailedRef.current = false;
+    webrtcFailoverCountRef.current = 0;
+    noVideoSinceRef.current = null;
     transportRef.current = "none";
     setTransport("none");
     setWebrtcSubscribeEpoch((n) => n + 1);
@@ -569,13 +576,16 @@ export function LiveVideoStagePlayback({
   const handleWebrtcConnected = useCallback(() => {
     setVideoHasData(true);
     setReconnecting(false);
+    noVideoSinceRef.current = null;
     webrtcFailoverCountRef.current = 0;
+    webrtcFailedRef.current = false;
     logIvsWeb("buyer playback connected", { roomId: liveRoomId, transport: "webrtc" });
   }, [liveRoomId]);
 
   const handleWebrtcDisconnected = useCallback(() => {
     setVideoHasData(false);
     setReconnecting(true);
+    if (noVideoSinceRef.current == null) noVideoSinceRef.current = Date.now();
     logLiveDebugEvent({ event: "playback_webrtc_disconnected", roomId: liveRoomId, extra: {} });
   }, [liveRoomId]);
 
@@ -591,8 +601,10 @@ export function LiveVideoStagePlayback({
       });
       if (webrtcFailoverCountRef.current >= MAX_WEBRTC_FAILOVERS) {
         webrtcFailedRef.current = true;
-        transportRef.current = "none";
+        transportRef.current = "hls";
+        setTransport("hls");
         lastAttachedKeyRef.current = "";
+        setVideoHasData(false);
         logIvsWeb("buyer playback error", { roomId: liveRoomId, reason: "webrtc_failover_hls", fallback: "hls" });
         void fetchStream();
         return;
@@ -629,6 +641,9 @@ export function LiveVideoStagePlayback({
       }
       if (document.visibilityState !== "visible") return;
       lastAttachedKeyRef.current = "";
+      webrtcFailedRef.current = false;
+      webrtcFailoverCountRef.current = 0;
+      noVideoSinceRef.current = null;
       setReconnecting(true);
       if (transportRef.current === "webrtc") {
         setWebrtcSubscribeEpoch((n) => n + 1);
@@ -644,6 +659,38 @@ export function LiveVideoStagePlayback({
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [fetchStream, liveRoomId]);
+
+  useEffect(() => {
+    if (videoHasData || !isLiveStreamSignal(streamHealth) || !roomLifecycleLive) {
+      noVideoSinceRef.current = null;
+      return;
+    }
+    if (noVideoSinceRef.current == null) noVideoSinceRef.current = Date.now();
+  }, [videoHasData, streamHealth, roomLifecycleLive]);
+
+  useEffect(() => {
+    if (!isLiveStreamSignal(streamHealth) || !roomLifecycleLive) return;
+    const id = window.setInterval(() => {
+      if (videoHasData) return;
+      const since = noVideoSinceRef.current;
+      if (since == null || Date.now() - since < NO_VIDEO_RECOVER_MS) return;
+      noVideoSinceRef.current = Date.now();
+      webrtcFailedRef.current = false;
+      webrtcFailoverCountRef.current = 0;
+      lastAttachedKeyRef.current = "";
+      setPlayerFatal(false);
+      setHlsFatalRetries(0);
+      logIvsWeb("buyer playback health recover", { roomId: liveRoomId, transport: transportRef.current });
+      if (transportRef.current === "webrtc") {
+        setWebrtcSubscribeEpoch((n) => n + 1);
+      } else {
+        transportRef.current = "none";
+        setTransport("none");
+      }
+      void fetchStream();
+    }, LIVE_PLAYBACK_HEALTH_MS);
+    return () => window.clearInterval(id);
+  }, [streamHealth, roomLifecycleLive, videoHasData, fetchStream, liveRoomId]);
 
   useEffect(() => {
     const el = videoRef.current;

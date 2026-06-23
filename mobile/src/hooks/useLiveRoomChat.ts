@@ -153,6 +153,19 @@ export function useLiveRoomChat(args: {
     }
   }, [appendRows, args.accessToken, args.enabled, args.roomId]);
 
+  const announceLeave = useCallback(async (): Promise<void> => {
+    if (!args.accessToken || !args.enabled) return;
+    try {
+      await announceLiveRoomViewerEvent({
+        accessToken: args.accessToken,
+        roomId: args.roomId,
+        kind: 'leave',
+      });
+    } catch {
+      /* best-effort when swiping away or closing the room */
+    }
+  }, [args.accessToken, args.enabled, args.roomId]);
+
   const announceShare = useCallback(async (): Promise<boolean> => {
     if (!args.accessToken) return false;
     try {
@@ -230,5 +243,5 @@ export function useLiveRoomChat(args: {
     ],
   );
 
-  return { messages, send, sending, error, reload, announceJoin, announceShare, appendBroadcast };
+  return { messages, send, sending, error, reload, announceJoin, announceLeave, announceShare, appendBroadcast };
 }

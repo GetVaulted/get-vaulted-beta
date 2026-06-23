@@ -366,7 +366,10 @@ export async function getLiveRoomUserRestrictions(args: {
     if (a.actionType === "mute" || a.actionType === "timeout") muted = true;
     if (a.actionType === "room_ban") roomBanned = true;
     if (a.actionType === "block_bidding") bidBlocked = true;
-    if (a.actionType === "kick") kickedUntil = a.expiresAt?.toISOString() ?? null;
+    if (a.actionType === "kick") {
+      if (!a.expiresAt) roomBanned = true;
+      else kickedUntil = a.expiresAt.toISOString();
+    }
     seen.add(a.actionType);
   }
 

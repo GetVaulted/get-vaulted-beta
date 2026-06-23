@@ -53,4 +53,12 @@ export type SellerLiveShippingDashboard = {
     marginNegative: boolean;
   };
   sessions: SellerLiveShippingSessionRow[];
+  /** Runtime label prerequisites — helps distinguish env vs ship-from vs Shippo API issues. */
+  labelSetup?: {
+    shippoTokenPresent: boolean;
+    shippoTokenKind: "test" | "live" | "missing" | "unknown";
+    shippoApiOk: boolean;
+    shippoApiError: string | null;
+    shipFromComplete: boolean;
+  };
 };

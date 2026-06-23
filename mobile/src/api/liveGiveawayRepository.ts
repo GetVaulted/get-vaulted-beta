@@ -10,6 +10,7 @@ export type ViewerGiveawayRow = {
   entryCount: number;
   entryCloseAt?: string | null;
   viewerEntered: boolean;
+  viewerActiveInDrawing?: boolean;
   canEnter: boolean;
 };
 

@@ -62,6 +62,7 @@ import { SellerConsoleStatsPanel } from "@/components/seller/SellerConsoleStatsP
 import { SellerGoLiveSetupPanel } from "@/components/seller/SellerGoLiveSetupPanel";
 import { shareLiveRoomNative } from "@/lib/share-live-room-native";
 import { useHostStagePublish } from "@/hooks/useHostStagePublish";
+import { useRealtimeRoomPresence } from "@/hooks/useRealtimeRoomPresence";
 import { logIvsWeb } from "@/lib/ivs-web-broadcast-log";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
@@ -223,6 +224,11 @@ function formatLiveDurationHms(startedAtIso: string, nowMs: number) {
 export function BreakHostConsole({ roomId }: { roomId: string }) {
   const router = useRouter();
   const { data: session } = useSession();
+  const liveViewerCount = useRealtimeRoomPresence({
+    liveRoomId: roomId,
+    enabled: Boolean(roomId),
+    trackSelf: false,
+  });
   const [data, setData] = useState<HostPayload | null>(null);
   const hostDataRef = useRef<HostPayload | null>(null);
   hostDataRef.current = data;
@@ -1635,6 +1641,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   }
 
   const { room } = data;
+  const viewerCount = liveViewerCount ?? room.viewerCount;
   const roomStatusKey = room.status.toLowerCase();
 
   const hostUsername =
@@ -1759,7 +1766,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   })();
 
   const roomEnergy = computeLiveRoomEnergy({
-    viewerCount: room.viewerCount,
+    viewerCount,
     recentMessageCount: recentChatCount,
     bidsLastMinute,
     auctionLive: biddingWindowStillRunningHost,
@@ -1809,7 +1816,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       giveaways={data.giveaways ?? []}
       selectedId={selectedQueueItemId}
       onSelect={handleSelectQueueItem}
-      viewerCount={room.viewerCount}
+      viewerCount={viewerCount}
       busy={busy}
       onPost={handleHostPostItem}
       onSkip={(id) => void patchItem(id, "skipped")}
@@ -1888,7 +1895,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const commandCenterProps = {
     roomTitle: streamTitle,
     roomStatus: room.status,
-    viewerCount: room.viewerCount,
+    viewerCount,
     streamTimerDisplay,
     connectionLabel: realtimeConnectionStatus,
     connectionOk: realtimeConnectionStatus === "Connected",
@@ -1969,7 +1976,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       activeBoardRow={activeBoardRow}
       previewQueueRow={previewQueueRow}
       roomStatusLive={room.status === "live"}
-      viewerCount={room.viewerCount}
+      viewerCount={viewerCount}
       hostAuctionCountdownLabel={hostAuctionCountdownLabel}
       biddingWindowOpen={biddingWindowStillRunningHost}
       hostAuctionDurationSec={hostAuctionDurationSec}
@@ -2004,7 +2011,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       activeBoardRow={activeBoardRow}
       previewQueueRow={previewQueueRow}
       roomStatusLive={room.status === "live"}
-      viewerCount={room.viewerCount}
+      viewerCount={viewerCount}
       hostAuctionCountdownLabel={hostAuctionCountdownLabel}
       biddingWindowOpen={biddingWindowStillRunningHost}
       hostAuctionDurationSec={hostAuctionDurationSec}
@@ -2054,7 +2061,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       onSystemMsgChange={setSystemMsg}
       onSendSystem={() => void sendSystem()}
       busy={busy}
-      viewerCount={room.viewerCount}
+      viewerCount={viewerCount}
       onMessagesRefresh={() => void mergeHostMessagesFromApi()}
       variant="sidebar"
       uiDimmed={false}
@@ -2084,7 +2091,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const hostStageProps = {
     layout: "fillHeight" as const,
     overlayMessage: stageOverlayMessage,
-    viewers: room.viewerCount,
+    viewers: viewerCount,
     hostName: `@${hostUsername}`,
     streamTitle,
     isLive: roomStatusKey === "live",
@@ -2245,7 +2252,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
             onGoLive={handleGoLive}
             onStopStream={() => void webcamBroadcast.stop()}
             streamTimerDisplay={streamTimerDisplay}
-            viewerCount={room.viewerCount}
+            viewerCount={viewerCount}
           />
           <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,22vw)_minmax(0,1fr)_minmax(280px,20vw)]">
             <aside className="flex min-h-0 flex-col border-r border-white/[0.08] bg-zinc-950/95">
@@ -2287,7 +2294,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
 
             <aside className="flex min-h-0 flex-col border-l border-white/[0.08] bg-zinc-950/95">
               <SellerConsoleStatsPanel
-                viewerCount={room.viewerCount}
+                viewerCount={viewerCount}
                 streamTimerDisplay={streamTimerDisplay}
                 connectionLabel={realtimeConnectionStatus}
                 connectionOk={realtimeConnectionStatus === "Connected"}
@@ -2315,7 +2322,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
             onGoLive={handleGoLive}
             onStopStream={() => void webcamBroadcast.stop()}
             streamTimerDisplay={streamTimerDisplay}
-            viewerCount={room.viewerCount}
+            viewerCount={viewerCount}
           />
           <VaultHostAnnouncements variant="mobileOverlay" />
           <div className="relative min-h-0 flex-1">

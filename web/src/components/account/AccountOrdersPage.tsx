@@ -4,8 +4,12 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { AccountLiveOrdersSection } from "@/components/account/AccountLiveOrdersSection";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
+import type { BuyerLiveOrderRow } from "@/lib/buyer-live-orders";
 import { orderStatusLabel, orderStatusTone } from "@/lib/order-status";
+
+type OrdersView = "marketplace" | "live";
 
 type OrderRow = {
   id: string;
@@ -32,8 +36,12 @@ export function AccountOrdersPage() {
   const { status } = useSession();
   const searchParams = useSearchParams();
   const checkoutSessionId = searchParams.get("session_id")?.trim() ?? "";
+  const initialView: OrdersView = searchParams.get("view") === "live" ? "live" : "marketplace";
+  const [view, setView] = useState<OrdersView>(initialView);
   const [rows, setRows] = useState<OrderRow[] | null>(null);
+  const [liveRows, setLiveRows] = useState<BuyerLiveOrderRow[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [liveLoadError, setLiveLoadError] = useState<string | null>(null);
   const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -47,6 +55,25 @@ export function AccountOrdersPage() {
     const data = (await res.json()) as { orders?: OrderRow[] };
     setRows(Array.isArray(data.orders) ? data.orders : []);
   }, []);
+
+  const loadLive = useCallback(async () => {
+    setLiveLoadError(null);
+    const res = await fetch("/api/account/live-orders");
+    if (!res.ok) {
+      setLiveRows([]);
+      setLiveLoadError(res.status === 401 ? "Please sign in again." : "Could not load live purchases. Try again.");
+      return;
+    }
+    const data = (await res.json()) as { orders?: BuyerLiveOrderRow[] };
+    setLiveRows(Array.isArray(data.orders) ? data.orders : []);
+  }, []);
+
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    if (view === "live") {
+      void loadLive();
+    }
+  }, [loadLive, status, view]);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -87,7 +114,13 @@ export function AccountOrdersPage() {
     };
   }, [checkoutSessionId, load, status]);
 
-  if (status === "loading" || rows === null) {
+  useEffect(() => {
+    setView(searchParams.get("view") === "live" ? "live" : "marketplace");
+  }, [searchParams]);
+
+  const loading = view === "live" ? liveRows === null : rows === null;
+
+  if (status === "loading" || loading) {
     return (
       <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
         <div className="mx-auto max-w-[1920px] px-4 py-24 text-center text-sm text-zinc-500">Loading…</div>
@@ -105,19 +138,58 @@ export function AccountOrdersPage() {
         <header className="border-b border-white/[0.07] pb-5">
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Account</p>
           <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">Your orders</h1>
-          <p className="mt-1.5 text-sm text-zinc-500">Purchases you have made on Get Vaulted.</p>
+          <p className="mt-1.5 text-sm text-zinc-500">
+            {view === "live"
+              ? "Spots, teams, and purchases from live shows."
+              : "Marketplace purchases — auctions, buy now, and layaway checkouts."}
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setView("marketplace")}
+              className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide transition ${
+                view === "marketplace"
+                  ? "border-gold/45 bg-gold/12 text-gold-bright"
+                  : "border-white/10 bg-white/[0.02] text-zinc-500 hover:border-white/18 hover:text-zinc-300"
+              }`}
+            >
+              Marketplace
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setView("live");
+                if (liveRows === null) void loadLive();
+              }}
+              className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide transition ${
+                view === "live"
+                  ? "border-gold/45 bg-gold/12 text-gold-bright"
+                  : "border-white/10 bg-white/[0.02] text-zinc-500 hover:border-white/18 hover:text-zinc-300"
+              }`}
+            >
+              Live shows
+            </button>
+          </div>
           <div className="mt-4">
             <AccountOrdersNav active="orders" />
           </div>
         </header>
 
-        {confirmMessage ? (
+        {view === "live" ? (
+          <AccountLiveOrdersSection
+            rows={liveRows ?? []}
+            loadError={liveLoadError}
+            onRetry={() => void loadLive()}
+          />
+        ) : null}
+
+        {view === "marketplace" && confirmMessage ? (
           <div className="mt-6 rounded-2xl border border-emerald-500/25 bg-emerald-950/20 px-5 py-4 text-sm text-emerald-100">
             {confirmMessage}
           </div>
         ) : null}
 
-        {loadError ? (
+        {view === "marketplace" && loadError ? (
           <div className="mt-8 rounded-2xl border border-rose-500/25 bg-rose-950/25 px-6 py-10 text-center">
             <p className="text-sm font-medium text-rose-100">{loadError}</p>
             <button
@@ -131,7 +203,7 @@ export function AccountOrdersPage() {
               Browse marketplace
             </Link>
           </div>
-        ) : rows.length === 0 ? (
+        ) : view === "marketplace" && rows.length === 0 ? (
           <div className="mt-10 rounded-2xl border border-white/[0.08] bg-[#0a0a0d]/80 px-6 py-16 text-center">
             <p className="font-display text-lg font-semibold text-foreground">You haven&apos;t purchased anything yet.</p>
             <p className="mt-2 text-sm text-zinc-500">
@@ -148,7 +220,7 @@ export function AccountOrdersPage() {
               Browse marketplace
             </Link>
           </div>
-        ) : (
+        ) : view === "marketplace" ? (
           <>
             <div className="mt-8 hidden overflow-hidden rounded-xl border border-white/[0.08] bg-[#08080a] md:block">
               <table className="w-full min-w-[720px] border-collapse text-left text-sm">
@@ -245,7 +317,7 @@ export function AccountOrdersPage() {
               })}
             </div>
           </>
-        )}
+        ) : null}
       </div>
     </main>
   );

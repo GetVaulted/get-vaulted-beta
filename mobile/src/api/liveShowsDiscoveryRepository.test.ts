@@ -70,9 +70,25 @@ describe('fetchLiveShowsForDiscovery', () => {
         activeItemTitle: null,
         description: null,
       },
+      {
+        id: 'now-1',
+        title: 'Go live now',
+        status: 'scheduled',
+        category: 'Other',
+        roomType: 'auction',
+        thumbnailUrl: '',
+        viewerCount: 0,
+        scheduledStartAt: null,
+        startedAt: null,
+        endedAt: null,
+        sellerUsername: 'sellerqa',
+        itemCount: 0,
+        activeItemTitle: null,
+        description: null,
+      },
     ]);
     const pack = await fetchLiveShowsForDiscovery();
     expect(pack.live).toHaveLength(1);
-    expect(pack.scheduled).toHaveLength(1);
+    expect(pack.scheduled).toHaveLength(2);
   });
 });

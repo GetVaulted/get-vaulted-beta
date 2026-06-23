@@ -40,7 +40,7 @@ export function LiveGiveawayEnterChip({
   const [error, setError] = useState<string | null>(null);
 
   const visible = giveaways.filter(
-    (g) => g.kind === 'open' && g.status === 'entries_open' && g.canEnter !== false,
+    (g) => g.kind === 'open' && g.status === 'entries_open',
   );
   if (visible.length === 0) return null;
 
@@ -82,14 +82,16 @@ export function LiveGiveawayEnterChip({
                 </Text>
               ) : null}
               <View style={styles.metaRow}>
-                <Text style={styles.meta}>{g.entryCount} entered</Text>
+                <Text style={styles.meta}>{g.entryCount} entries</Text>
                 {g.entryCloseAt ? (
                   <GiveawayCountdownText entryCloseAt={g.entryCloseAt} onExpired={onTimerExpired} />
                 ) : null}
               </View>
             </View>
             {entered ? (
-              <Text style={styles.entered}>Entered</Text>
+              <Text style={styles.entered}>
+                {g.viewerActiveInDrawing === false ? 'Entered · return to stay in' : 'Entered'}
+              </Text>
             ) : (
               <Pressable
                 style={styles.btn}

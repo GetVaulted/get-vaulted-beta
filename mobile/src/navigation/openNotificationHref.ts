@@ -78,6 +78,12 @@ export function openNotificationHref(
     return true;
   }
 
+  if (path.startsWith('/account/orders')) {
+    const liveTab = href.includes('view=live');
+    n.navigate('BuyerOrders', liveTab ? { source: 'live' } : undefined);
+    return true;
+  }
+
   if (path.startsWith('/account/offers') || ctx?.type?.includes('offer')) {
     n.navigate('MainTabs', { screen: 'Marketplace' });
     return true;

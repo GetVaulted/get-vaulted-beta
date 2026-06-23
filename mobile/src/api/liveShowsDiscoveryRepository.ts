@@ -221,7 +221,7 @@ export async function fetchLiveShowsForDiscovery(): Promise<LiveDiscoveryFetchRe
   const scheduled: ScheduledStream[] = [];
   for (const r of rows) {
     if (r.status === 'live') live.push(showToLiveStream(r, profiles.get(r.host_id)));
-    else if (r.status === 'scheduled' && r.scheduled_start) {
+    else if (r.status === 'scheduled') {
       scheduled.push(showToScheduledStream(r, profiles.get(r.host_id)));
     }
   }
@@ -257,7 +257,7 @@ export async function fetchLiveShowsByHostId(
   const scheduled: ScheduledStream[] = [];
   for (const r of rows) {
     if (r.status === 'live') live.push(showToLiveStream(r, host));
-    else if (r.status === 'scheduled' && r.scheduled_start) {
+    else if (r.status === 'scheduled') {
       scheduled.push(showToScheduledStream(r, host));
     }
     else ended.push(showToLiveStream(r, host));

@@ -17,6 +17,7 @@ export function SellerLiveComposer({
   sendDisabled,
   inputDisabled,
   accessToken,
+  liveRoomId,
   leadingAccessory,
   placeholder,
   inputRef,
@@ -30,6 +31,7 @@ export function SellerLiveComposer({
   sendDisabled?: boolean;
   inputDisabled?: boolean;
   accessToken?: string;
+  liveRoomId?: string;
   leadingAccessory?: ReactNode;
   placeholder?: string;
   inputRef?: RefObject<MentionComposerInputHandle | null>;
@@ -80,6 +82,7 @@ export function SellerLiveComposer({
           inputDisabled={inputDisabled}
           placeholder={placeholder}
           accessToken={accessToken}
+          liveRoomId={liveRoomId}
           leadingAccessory={leadingAccessory}
           inputRef={inputRef}
         />

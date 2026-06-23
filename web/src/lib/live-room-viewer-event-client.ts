@@ -1,11 +1,3 @@
-const JOIN_COOLDOWN_MS = 30_000;
-
-const joinInFlightByRoom = new Map<string, Promise<void>>();
-
-function joinCooldownKey(roomId: string): string {
-  return `gv-live-join-${roomId}`;
-}
-
 /** Persisted join announcement with 30s client cooldown (matches server dedupe). */
 export async function announceLiveRoomJoin(roomId: string): Promise<void> {
   if (typeof window === "undefined") return;
@@ -42,4 +34,20 @@ export async function announceLiveRoomJoin(roomId: string): Promise<void> {
       joinInFlightByRoom.delete(roomId);
     }
   }
+}
+
+/** Pause open-entry giveaway rows when the viewer leaves the live room. */
+export function announceLiveRoomLeave(roomId: string): void {
+  if (typeof window === "undefined") return;
+  const url = `/api/live-rooms/${encodeURIComponent(roomId)}/viewer-event`;
+  const body = JSON.stringify({ kind: "leave" });
+  void fetch(url, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body,
+    keepalive: true,
+  }).catch(() => {
+    /* best-effort on tab close / navigation */
+  });
 }

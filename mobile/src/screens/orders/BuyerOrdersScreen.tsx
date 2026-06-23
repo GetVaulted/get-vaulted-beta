@@ -5,15 +5,18 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { BuyerOrderBucket } from '../../api/ordersRepository';
 import { isOrderCompleteForReview } from '../../api/ordersRepository';
+import { BuyerLiveOrderCard } from '../../components/orders/BuyerLiveOrderCard';
 import { BuyerOrderCard } from '../../components/orders/BuyerOrderCard';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { useAuth } from '../../auth/AuthContext';
+import { useBuyerLiveOrders } from '../../hooks/useBuyerLiveOrders';
 import { useBuyerOrders } from '../../hooks/useBuyerOrders';
 import { openWriteReview } from '../../navigation/openPlatform';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BuyerOrders'>;
+type OrdersSource = 'marketplace' | 'live';
 
 const SEGMENTS: { key: BuyerOrderBucket; label: string }[] = [
   { key: 'active', label: 'Active' },
@@ -22,16 +25,24 @@ const SEGMENTS: { key: BuyerOrderBucket; label: string }[] = [
   { key: 'canceled', label: 'Canceled' },
 ];
 
-export function BuyerOrdersScreen({ navigation }: Props) {
+export function BuyerOrdersScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const initialSource: OrdersSource = route.params?.source === 'live' ? 'live' : 'marketplace';
+  const [source, setSource] = useState<OrdersSource>(initialSource);
   const [segment, setSegment] = useState<BuyerOrderBucket>('active');
   const { byBucket, reviewedMap, loading, refresh } = useBuyerOrders(user?.id);
+  const {
+    orders: liveOrders,
+    loading: liveLoading,
+    refresh: refreshLive,
+  } = useBuyerLiveOrders();
 
   useFocusEffect(
     useCallback(() => {
-      void refresh();
-    }, [refresh]),
+      if (source === 'live') void refreshLive();
+      else void refresh();
+    }, [refresh, refreshLive, source]),
   );
 
   const rows = useMemo(() => byBucket(segment), [byBucket, segment]);
@@ -40,31 +51,83 @@ export function BuyerOrdersScreen({ navigation }: Props) {
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
       <PlatformFlowHeader
         title="My orders"
-        subtitle="Vault purchases · tracking · protection"
+        subtitle={source === 'live' ? 'Live show purchases' : 'Vault purchases · tracking · protection'}
         onBack={() => navigation.goBack()}
       />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.segments}>
-        {SEGMENTS.map((s) => {
-          const active = segment === s.key;
-          const count = byBucket(s.key).length;
-          return (
-            <Pressable
-              key={s.key}
-              onPress={() => setSegment(s.key)}
-              style={[styles.segment, active && styles.segmentActive]}
-            >
-              <Text style={[styles.segmentLabel, active && styles.segmentLabelActive]}>{s.label}</Text>
-              {count > 0 ? (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{count}</Text>
-                </View>
-              ) : null}
-            </Pressable>
-          );
-        })}
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sourceTabs}>
+        <Pressable
+          onPress={() => setSource('marketplace')}
+          style={[styles.sourceTab, source === 'marketplace' && styles.sourceTabActive]}
+        >
+          <Text style={[styles.sourceTabTxt, source === 'marketplace' && styles.sourceTabTxtActive]}>Marketplace</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => setSource('live')}
+          style={[styles.sourceTab, source === 'live' && styles.sourceTabActive]}
+        >
+          <Text style={[styles.sourceTabTxt, source === 'live' && styles.sourceTabTxtActive]}>Live shows</Text>
+        </Pressable>
       </ScrollView>
 
-      {loading ? (
+      {source === 'marketplace' ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.segments}>
+          {SEGMENTS.map((s) => {
+            const active = segment === s.key;
+            const count = byBucket(s.key).length;
+            return (
+              <Pressable
+                key={s.key}
+                onPress={() => setSegment(s.key)}
+                style={[styles.segment, active && styles.segmentActive]}
+              >
+                <Text style={[styles.segmentLabel, active && styles.segmentLabelActive]}>{s.label}</Text>
+                {count > 0 ? (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{count}</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+
+      {source === 'live' ? (
+        liveLoading ? (
+          <ActivityIndicator color={colors.gold} style={styles.loader} />
+        ) : liveOrders.length === 0 ? (
+          <View style={styles.empty}>
+            <Text style={styles.emptyTitle}>No live purchases yet</Text>
+            <Text style={styles.emptySub}>
+              PYT/PYD spots, break claims, and live buy-now orders from shows appear here.
+            </Text>
+          </View>
+        ) : (
+          <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+            {liveOrders.map((order) => (
+              <BuyerLiveOrderCard
+                key={order.id}
+                order={order}
+                onPress={() => {
+                  if (order.orderId) {
+                    navigation.navigate('BuyerOrderDetail', { orderId: order.orderId });
+                    return;
+                  }
+                  if (order.kind === 'giveaway') {
+                    navigation.navigate('BuyerWallet');
+                    return;
+                  }
+                  navigation.navigate('MainTabs', {
+                    screen: 'Live',
+                    params: { screen: 'LiveRoom', params: { streamId: order.liveRoomId } },
+                  });
+                }}
+              />
+            ))}
+          </ScrollView>
+        )
+      ) : loading ? (
         <ActivityIndicator color={colors.gold} style={styles.loader} />
       ) : rows.length === 0 ? (
         <View style={styles.empty}>
@@ -106,6 +169,18 @@ export function BuyerOrdersScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, paddingHorizontal: spacing.lg },
+  sourceTabs: { gap: spacing.sm, paddingBottom: spacing.sm },
+  sourceTab: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: radii.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  sourceTabActive: { borderColor: colors.gold, backgroundColor: 'rgba(212,175,55,0.1)' },
+  sourceTabTxt: { fontSize: 12, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase' },
+  sourceTabTxtActive: { color: colors.gold },
   segments: { gap: spacing.sm, paddingBottom: spacing.md },
   segment: {
     flexDirection: 'row',

@@ -8,7 +8,8 @@ import { useAuth } from '../../../auth/AuthContext';
 import { KeyboardDismissStageShield } from '../../ui/KeyboardDismissStageShield';
 import { FloatingLiveChat, PinnedModeratorBar } from '../../live/floatingLiveChat';
 import type { MentionComposerInputHandle } from '../../mentions/MentionComposerInput';
-import { appendMentionToDraft, promptLiveChatUserAction } from '../../../lib/liveChatUserActions';
+import { appendMentionToDraft, canShowLiveChatBanOption, canShowLiveChatKickOption, promptLiveChatUserAction } from '../../../lib/liveChatUserActions';
+import { applyLiveModerationAction } from '../../../api/trustRepository';
 import { openUserProfile } from '../../../navigation/openPlatform';
 import {
   computeLiveRoomBottomStack,
@@ -376,16 +377,66 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     requestAnimationFrame(() => chatComposerRef.current?.focus());
   }, []);
 
+  const applyChatUserModeration = useCallback(
+    async (actionType: 'room_ban' | 'seller_stream_ban', targetUserId: string, username: string) => {
+      const label = actionType === 'room_ban' ? 'Kicked from show' : 'Banned from seller shows';
+      const result = await applyLiveModerationAction({
+        accessToken,
+        roomId,
+        actionType,
+        targetUserId,
+        reason: `${label} (@${username})`,
+        metadata: { source: 'username_menu' },
+      });
+      if (!result.ok) {
+        Alert.alert('Moderation failed', result.error ?? 'Action could not be completed.');
+        return;
+      }
+      void moderation.reload();
+    },
+    [accessToken, moderation, roomId],
+  );
+
   const onPressChatUser = useCallback(
     (user: { username: string; userId?: string }) => {
+      const targetUserId = user.userId?.trim();
+      const canKick =
+        modActor.canModerate &&
+        canShowLiveChatKickOption({
+          targetUserId,
+          hostUserId: showHostUserId,
+          allowedActions: modActor.allowedActions,
+        });
+      const canBan =
+        modActor.canModerate &&
+        canShowLiveChatBanOption({
+          targetUserId,
+          hostUserId: showHostUserId,
+          isHost: modActor.isHost,
+          allowedActions: modActor.allowedActions,
+        });
+
       promptLiveChatUserAction({
         username: user.username,
-        userId: user.userId,
+        userId: targetUserId,
         onTag: tagUserInChat,
-        onViewProfile: user.userId ? (userId) => openUserProfile(userId) : undefined,
+        onViewProfile: targetUserId ? (userId) => openUserProfile(userId) : undefined,
+        moderation:
+          canKick || canBan
+            ? {
+                canKickFromShow: canKick,
+                canBanFromSeller: canBan,
+                onKickFromShow: () => {
+                  if (targetUserId) void applyChatUserModeration('room_ban', targetUserId, user.username);
+                },
+                onBanFromSeller: () => {
+                  if (targetUserId) void applyChatUserModeration('seller_stream_ban', targetUserId, user.username);
+                },
+              }
+            : undefined,
       });
     },
-    [tagUserInChat],
+    [applyChatUserModeration, modActor.allowedActions, modActor.canModerate, modActor.isHost, showHostUserId, tagUserInChat],
   );
 
   const sendHostChat = useCallback(async () => {
@@ -599,6 +650,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         inputDisabled={host.room?.status === 'ended'}
         placeholder={canHostChat ? 'Say something' : 'Chat unavailable'}
         accessToken={accessToken}
+        liveRoomId={roomId}
         inputRef={chatComposerRef}
         leadingAccessory={
           <>

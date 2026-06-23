@@ -433,6 +433,7 @@ export function FloatingChatComposer({
   sendDisabled,
   inputDisabled,
   accessToken,
+  liveRoomId,
   leadingAccessory,
   placeholder = COMPOSER_PLACEHOLDER,
   inputRef,
@@ -447,6 +448,7 @@ export function FloatingChatComposer({
   /** When true, blocks focus/typing only (send can still be gated separately). */
   inputDisabled?: boolean;
   accessToken?: string;
+  liveRoomId?: string;
   leadingAccessory?: ReactNode;
   placeholder?: string;
   inputRef?: RefObject<MentionComposerInputHandle | null>;
@@ -488,6 +490,7 @@ export function FloatingChatComposer({
             value={value}
             onChangeText={onChangeText}
             accessToken={accessToken}
+            liveRoomId={liveRoomId}
             placeholder={placeholder}
             placeholderTextColor="rgba(255,255,255,0.48)"
             returnKeyType="send"

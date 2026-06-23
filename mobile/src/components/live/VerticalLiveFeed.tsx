@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radii, spacing } from '../../theme';
 import { fetchLiveRoomPublicById } from '../../api/liveRoomsRepository';
 import { fetchProfileById } from '../../api/profilesRepository';
+import { applyLiveModerationAction } from '../../api/trustRepository';
 import { fetchLiveBuyerPaymentSession } from '../../api/liveBuyerPaymentRepository';
 import { fetchSellerFollowStatus, toggleSellerFollow } from '../../api/sellerFollowRepository';
 import type { LiveStream, ChatMessage } from '../../types';
@@ -62,7 +63,7 @@ import {
   PinnedModeratorBar,
 } from './floatingLiveChat';
 import type { MentionComposerInputHandle } from '../mentions/MentionComposerInput';
-import { appendMentionToDraft, promptLiveChatUserAction } from '../../lib/liveChatUserActions';
+import { appendMentionToDraft, canShowLiveChatBanOption, canShowLiveChatKickOption, promptLiveChatUserAction } from '../../lib/liveChatUserActions';
 import { LiveBuyerShopSheet } from './LiveBuyerShopSheet';
 import { LiveTipSheet } from './LiveTipSheet';
 import { LivePinnedActionBar } from './LivePinnedActionBar';
@@ -360,6 +361,20 @@ function LiveSlide({
     });
   }, [isActive, signedIn, accessToken, roomStatus, liveChat.announceJoin, moderation.handleRestrictionError]);
 
+  useEffect(() => {
+    if (isActive) return undefined;
+    if (!signedIn || !accessToken) return undefined;
+    void liveChat.announceLeave();
+    return undefined;
+  }, [isActive, signedIn, accessToken, liveChat.announceLeave]);
+
+  useEffect(() => {
+    return () => {
+      if (!signedIn || !accessToken) return;
+      void liveChat.announceLeave();
+    };
+  }, [signedIn, accessToken, liveChat.announceLeave]);
+
   const chatPool = liveChat.messages;
 
   const pinnedModerator = useMemo(() => {
@@ -417,16 +432,67 @@ function LiveSlide({
     requestAnimationFrame(() => chatComposerRef.current?.focus());
   }, []);
 
+  const applyChatUserModeration = useCallback(
+    async (actionType: 'room_ban' | 'seller_stream_ban', targetUserId: string, username: string) => {
+      if (!accessToken?.trim()) return;
+      const label = actionType === 'room_ban' ? 'Kicked from show' : 'Banned from seller shows';
+      const result = await applyLiveModerationAction({
+        accessToken,
+        roomId: stream.id,
+        actionType,
+        targetUserId,
+        reason: `${label} (@${username})`,
+        metadata: { source: 'username_menu' },
+      });
+      if (!result.ok) {
+        Alert.alert('Moderation failed', result.error ?? 'Action could not be completed.');
+        return;
+      }
+      void moderation.reload();
+    },
+    [accessToken, moderation, stream.id],
+  );
+
   const onPressChatUser = useCallback(
     (user: { username: string; userId?: string }) => {
+      const targetUserId = user.userId?.trim();
+      const canKick =
+        modActor.canModerate &&
+        canShowLiveChatKickOption({
+          targetUserId,
+          hostUserId: showHostUserId,
+          allowedActions: modActor.allowedActions,
+        });
+      const canBan =
+        modActor.canModerate &&
+        canShowLiveChatBanOption({
+          targetUserId,
+          hostUserId: showHostUserId,
+          isHost: modActor.isHost,
+          allowedActions: modActor.allowedActions,
+        });
+
       promptLiveChatUserAction({
         username: user.username,
-        userId: user.userId,
+        userId: targetUserId,
         onTag: tagUserInChat,
-        onViewProfile: user.userId ? (userId) => openUserProfile(userId) : undefined,
+        onViewProfile: targetUserId ? (userId) => openUserProfile(userId) : undefined,
+        moderation:
+          canKick || canBan
+            ? {
+                canKickFromShow: canKick,
+                canBanFromSeller: canBan,
+                onKickFromShow: () => {
+                  if (targetUserId) void applyChatUserModeration('room_ban', targetUserId, user.username);
+                },
+                onBanFromSeller: () => {
+                  if (targetUserId) void applyChatUserModeration('seller_stream_ban', targetUserId, user.username);
+                },
+              }
+            : undefined,
       });
     },
-    [tagUserInChat],
+    [applyChatUserModeration, modActor.allowedActions, modActor.canModerate, modActor.isHost, showHostUserId, tagUserInChat],
   );
 
   const sendFloatingChat = useCallback(async () => {
@@ -618,7 +684,7 @@ function LiveSlide({
                 <LiveRoomText style={styles.endedBadge}>ENDED</LiveRoomText>
               )}
               <LiveRoomText style={[styles.viewersTopRight, compact && styles.viewersTopRightCompact]}>
-                {formatViewers(stream.viewers)}
+                {formatViewers(liveSession.viewerCount ?? stream.viewers)}
               </LiveRoomText>
             </View>
             <Pressable
@@ -923,6 +989,7 @@ function LiveSlide({
         }
         sendDisabled={liveChat.sending || breakParticipationBlocked || slowMode.chatBlocked}
         accessToken={accessToken}
+        liveRoomId={stream.id}
         inputRef={chatComposerRef}
         leadingAccessory={
           showModeratorTools(modActor.isModerator, modActor.canModerate, modActor.isHost) ? (

@@ -2,19 +2,17 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+  isVaultSealRevealKind,
   VAULT_SEAL_BREAK_MS,
   VAULT_SEAL_GLOW_MS,
   VAULT_SEAL_TOTAL_MS,
+  vaultSealMetaLine,
+  vaultSealWinnerCopy,
   type VaultRevealSpinPayload,
 } from '../../lib/vaultRevealSpin';
 import { colors, radii, spacing } from '../../theme';
 
 type SealPhase = 'idle' | 'glow' | 'break' | 'winner';
-
-function formatWinnerHandle(label: string): string {
-  const bare = label.trim().replace(/^@/, '');
-  return bare ? `@${bare}` : '@winner';
-}
 
 export function VaultSealRevealOverlay({
   spin,
@@ -35,7 +33,7 @@ export function VaultSealRevealOverlay({
   const winnerOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (!spin || spin.kind !== 'giveaway') {
+    if (!spin || !isVaultSealRevealKind(spin.kind)) {
       setPhase('idle');
       seenRef.current = null;
       sealGlow.setValue(0);
@@ -97,10 +95,9 @@ export function VaultSealRevealOverlay({
     };
   }, [sealGlow, sealLeft, sealRight, spin, winnerOpacity]);
 
-  if (!spin || spin.kind !== 'giveaway') return null;
+  if (!spin || !isVaultSealRevealKind(spin.kind)) return null;
 
-  const winnerHandle = formatWinnerHandle(spin.winnerLabel);
-  const entryCount = spin.labels.length;
+  const winner = vaultSealWinnerCopy(spin);
   const showWinner = phase === 'winner';
   const sealBreaking = phase === 'break' || showWinner;
 
@@ -125,9 +122,7 @@ export function VaultSealRevealOverlay({
           <Text style={styles.title} numberOfLines={2}>
             {spin.title}
           </Text>
-          <Text style={styles.meta}>
-            {entryCount} {entryCount === 1 ? 'entry' : 'entries'} · verified draw
-          </Text>
+          <Text style={styles.meta}>{vaultSealMetaLine(spin)}</Text>
 
           <View style={styles.stage}>
             {!showWinner ? (
@@ -165,10 +160,10 @@ export function VaultSealRevealOverlay({
 
             {showWinner ? (
               <Animated.View style={[styles.winnerBlock, { opacity: winnerOpacity }]}>
-                <Text style={styles.winnerKicker}>Winner</Text>
-                <Text style={styles.winnerName}>{winnerHandle}</Text>
-                <Text style={styles.winnerSub}>Takes home</Text>
-                <Text style={styles.prizeName}>{spin.title}</Text>
+                <Text style={styles.winnerKicker}>{winner.kicker}</Text>
+                <Text style={styles.winnerName}>{winner.primary}</Text>
+                {winner.sub ? <Text style={styles.winnerSub}>{winner.sub}</Text> : null}
+                {winner.detail ? <Text style={styles.prizeName}>{winner.detail}</Text> : null}
               </Animated.View>
             ) : null}
           </View>
@@ -300,6 +295,7 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '900',
     color: colors.textPrimary,
+    textAlign: 'center',
   },
   winnerSub: {
     marginTop: spacing.sm,

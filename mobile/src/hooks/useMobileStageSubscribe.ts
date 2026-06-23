@@ -6,7 +6,7 @@ import {
   leaveStage,
   useStageParticipants,
 } from 'expo-realtime-ivs-broadcast';
-import { resolveViewerStageToken } from '../lib/liveStreamPrefetchCache';
+import { invalidateViewerStageToken, resolveViewerStageToken } from '../lib/liveStreamPrefetchCache';
 import { ensureStageSdkInitialized } from '../lib/stageSdk';
 
 /** If no remote media arrives within this window, retry before failing over to HLS. */
@@ -14,9 +14,12 @@ const CONNECT_TIMEOUT_MS = 12_000;
 /** When signed out, do not block on WebRTC forever — fail over to HLS for guests. */
 const AUTH_WAIT_MS = 1_500;
 /** Max automatic rejoin attempts inside the hook before reporting failure upstream. */
-const MAX_REJOIN_ATTEMPTS = 4;
+const MAX_REJOIN_ATTEMPTS = 12;
 /** Proactive token refresh before the 20-minute viewer TTL expires. */
 const TOKEN_REFRESH_MS = 17 * 60 * 1000;
+/** Remote video missing this long while still "connected" triggers a rejoin. */
+const REMOTE_VIDEO_LOST_MS = 5_000;
+const REMOTE_VIDEO_CHECK_MS = 2_000;
 
 export type MobileStageRemoteTarget = {
   participantId: string;
@@ -45,6 +48,7 @@ export function useMobileStageSubscribe(args: {
     'disconnected',
   );
   const connectedRef = useRef(false);
+  const rejoinRef = useRef<(trigger: string) => void>(() => {});
   const cbRef = useRef(args);
   cbRef.current = args;
   const { participants } = useStageParticipants();
@@ -66,6 +70,24 @@ export function useMobileStageSubscribe(args: {
       cbRef.current.onConnected();
     }
   }, [remoteVideo, connectionState]);
+
+  useEffect(() => {
+    if (!args.active || !connectedRef.current) return undefined;
+    let lostSince: number | null = remoteVideo ? null : Date.now();
+    const id = setInterval(() => {
+      if (!connectedRef.current) return;
+      if (remoteVideo) {
+        lostSince = null;
+        return;
+      }
+      if (lostSince == null) lostSince = Date.now();
+      else if (Date.now() - lostSince >= REMOTE_VIDEO_LOST_MS) {
+        lostSince = null;
+        rejoinRef.current('remote_video_lost');
+      }
+    }, REMOTE_VIDEO_CHECK_MS);
+    return () => clearInterval(id);
+  }, [remoteVideo, args.active]);
 
   useEffect(() => {
     if (!args.active) {
@@ -131,6 +153,7 @@ export function useMobileStageSubscribe(args: {
       }
       rejoinAttempts += 1;
       rejoinInFlight = true;
+      invalidateViewerStageToken(args.roomId);
       connectedRef.current = false;
       setPhase('connecting');
       setConnectionState('connecting');
@@ -141,11 +164,15 @@ export function useMobileStageSubscribe(args: {
         await leaveStage().catch(() => {
           /* ignore */
         });
+        if (cancelled) return;
+        await joinOnce();
       } finally {
         rejoinInFlight = false;
       }
-      if (cancelled) return;
-      void joinOnce();
+    };
+
+    rejoinRef.current = (trigger: string) => {
+      void attemptRejoin(trigger);
     };
 
     const joinOnce = async () => {
@@ -224,6 +251,7 @@ export function useMobileStageSubscribe(args: {
 
     return () => {
       cancelled = true;
+      rejoinRef.current = () => {};
       clearTimers();
       teardownListeners();
       connectedRef.current = false;

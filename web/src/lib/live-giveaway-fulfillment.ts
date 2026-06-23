@@ -142,7 +142,7 @@ export async function createOrderFromGiveawayWinTx(
     body: shipping
       ? `You won “${titleShort}”. We'll ship it after the show — track it in your orders.`
       : `You won “${titleShort}”. Add a shipping address in Wallet so the host can ship your prize.`,
-    href: `/orders/${encodeURIComponent(order.id)}`,
+    href: `/account/orders?view=live`,
   });
   await createNotification(tx, {
     userId: args.sellerId,

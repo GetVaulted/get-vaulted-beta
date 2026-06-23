@@ -6,7 +6,8 @@ export function isPublicDiscoveryLiveRoom(row: {
   if (row.status === "live") return true;
   if (row.status === "scheduled") {
     const raw = row.scheduledStartAt;
-    if (raw == null) return false;
+    // Go-live-now rooms may omit a future schedule until the host is on air.
+    if (raw == null) return true;
     if (raw instanceof Date) return !Number.isNaN(raw.getTime());
     return Boolean(String(raw).trim());
   }

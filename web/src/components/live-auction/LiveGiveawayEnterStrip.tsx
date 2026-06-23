@@ -74,7 +74,7 @@ export function LiveGiveawayEnterStrip({
                 <p className="truncate text-[10px] text-emerald-100/70">{g.prizeDescription}</p>
               ) : null}
               <p className="mt-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-200/60">
-                {g.entryCount} entered
+                {g.entryCount} entries
                 {g.entryCloseAt ? (
                   <>
                     {" · "}
@@ -89,7 +89,7 @@ export function LiveGiveawayEnterStrip({
             </div>
             {entered ? (
               <span className="shrink-0 rounded-full border border-emerald-300/30 bg-emerald-400/15 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-emerald-100">
-                Entered
+                {g.viewerActiveInDrawing === false ? "Entered · return to stay in" : "Entered"}
               </span>
             ) : (
               <button

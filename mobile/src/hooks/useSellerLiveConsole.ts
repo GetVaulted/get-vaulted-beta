@@ -20,6 +20,7 @@ import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller
 import { invalidateHostConsoleCache } from '../lib/hostConsoleCache';
 import { mergeLiveRoomItemsById } from '../lib/mergeLiveRoomItems';
 import { mergeRandomSpotClaimIntoItem, type RandomSpotClaim } from '../lib/liveVariantSpotBoard';
+import { useRealtimeRoomPresence } from './useRealtimeRoomPresence';
 import { DEFAULT_AUCTION_SEC } from '../components/seller/liveConsole/VaultPinnedLotCard';
 import type { ChatMessage } from '../types';
 
@@ -50,7 +51,13 @@ export function useSellerLiveConsole({
   const [recentSales, setRecentSales] = useState<HostRecentSaleRow[]>([]);
   const [paymentFailures, setPaymentFailures] = useState<HostPaymentFailureRow[]>([]);
   const [activeItem, setActiveItem] = useState<LiveRoomItemRow | null>(null);
-  const [viewerCount, setViewerCount] = useState(0);
+  const [dbViewerCount, setDbViewerCount] = useState(0);
+  const liveViewerCount = useRealtimeRoomPresence({
+    liveRoomId: roomId,
+    enabled: roomStatus !== 'ended',
+    trackSelf: false,
+  });
+  const viewerCount = liveViewerCount ?? dbViewerCount;
   const [serverNowMs, setServerNowMs] = useState(Date.now());
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -84,7 +91,7 @@ export function useSellerLiveConsole({
         id: data.activeItem?.id ?? null,
         status: data.activeItem?.status ?? null,
       });
-      setViewerCount(data.room.viewerCount);
+      setDbViewerCount(data.room.viewerCount);
       setServerNowMs(data.serverNowMs);
       const hostUser = sellerUsernameRef.current?.trim().toLowerCase() ?? '';
       setChatMessages(

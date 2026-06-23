@@ -36,6 +36,7 @@ function SessionCard({
   onToggle,
   labelBusyId,
   bundledBusySessionId,
+  bundledSessionFeedback,
   onCreateLabel,
   onCreateBundledLabel,
 }: {
@@ -44,6 +45,7 @@ function SessionCard({
   onToggle: () => void;
   labelBusyId: string | null;
   bundledBusySessionId: string | null;
+  bundledSessionFeedback?: { tone: "error" | "success" | "warning"; message: string };
   onCreateLabel: (orderId: string) => void;
   onCreateBundledLabel: (sessionId: string) => void;
 }) {
@@ -114,6 +116,20 @@ function SessionCard({
           >
             {bundledBusySessionId === s.sessionId ? "Creating…" : "Create bundled label"}
           </button>
+          {bundledSessionFeedback ? (
+            <p
+              className={`mt-2 rounded-md border px-2.5 py-2 text-[11px] leading-snug ${
+                bundledSessionFeedback.tone === "error"
+                  ? "border-rose-500/35 bg-rose-950/35 text-rose-100"
+                  : bundledSessionFeedback.tone === "warning"
+                    ? "border-amber-500/35 bg-amber-950/30 text-amber-100"
+                    : "border-emerald-500/35 bg-emerald-950/25 text-emerald-100"
+              }`}
+              role="status"
+            >
+              {bundledSessionFeedback.message}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -218,6 +234,7 @@ type Props = {
   loading: boolean;
   labelBusyId: string | null;
   bundledBusySessionId: string | null;
+  bundledSessionFeedback?: Record<string, { tone: "error" | "success" | "warning"; message: string }>;
   onCreateLabel: (orderId: string) => void;
   onCreateBundledLabel: (sessionId: string) => void;
 };
@@ -227,6 +244,7 @@ export function AccountLiveShipmentsSection({
   loading,
   labelBusyId,
   bundledBusySessionId,
+  bundledSessionFeedback,
   onCreateLabel,
   onCreateBundledLabel,
 }: Props) {
@@ -293,6 +311,45 @@ export function AccountLiveShipmentsSection({
             Review rates and Shippo costs.
           </p>
         ) : null}
+        {data.labelSetup &&
+        (!data.labelSetup.shippoApiOk || !data.labelSetup.shipFromComplete || !data.labelSetup.shippoTokenPresent) ? (
+          <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-950/25 px-3 py-2 text-xs text-amber-100">
+            <p className="font-semibold text-amber-50">Label setup</p>
+            <ul className="mt-1.5 list-inside list-disc space-y-1 text-[11px]">
+              {!data.labelSetup.shippoTokenPresent ? (
+                <li>
+                  Shippo token not visible to the server — redeploy after adding <code className="text-amber-200">SHIPPO_API_TOKEN</code>{" "}
+                  in Netlify (Production scope, no quotes around the value).
+                </li>
+              ) : !data.labelSetup.shippoApiOk ? (
+                <li>
+                  Shippo rejected the token ({data.labelSetup.shippoTokenKind} key):{" "}
+                  {data.labelSetup.shippoApiError ?? "unknown error"}. Copy a fresh test key from Shippo → Settings →
+                  API.
+                </li>
+              ) : (
+                <li>
+                  Shippo connected ({data.labelSetup.shippoTokenKind} key). Test labels only appear in your Shippo test
+                  dashboard — they are not valid for USPS pickup.
+                </li>
+              )}
+              {!data.labelSetup.shipFromComplete ? (
+                <li>
+                  Ship-from address incomplete — add it under{" "}
+                  <Link href="/account/seller" className="font-semibold text-gold-bright/90 hover:underline">
+                    Account → Seller
+                  </Link>{" "}
+                  before creating labels.
+                </li>
+              ) : null}
+            </ul>
+          </div>
+        ) : data.labelSetup?.shippoApiOk && data.labelSetup.shipFromComplete ? (
+          <p className="mt-3 text-[11px] text-zinc-500">
+            Shippo ready ({data.labelSetup.shippoTokenKind} key). If bundled label fails, expand the session and check
+            the error under the button — common causes are invalid buyer addresses or no USPS/UPS rates.
+          </p>
+        ) : null}
       </div>
 
       {grouped.map(([showId, list]) => (
@@ -309,6 +366,7 @@ export function AccountLiveShipmentsSection({
                 onToggle={() => setOpenId((prev) => (prev === s.sessionId ? null : s.sessionId))}
                 labelBusyId={labelBusyId}
                 bundledBusySessionId={bundledBusySessionId}
+                bundledSessionFeedback={bundledSessionFeedback?.[s.sessionId]}
                 onCreateLabel={onCreateLabel}
                 onCreateBundledLabel={onCreateBundledLabel}
               />

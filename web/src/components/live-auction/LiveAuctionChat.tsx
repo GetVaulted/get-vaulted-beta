@@ -1,6 +1,7 @@
 "use client";
 
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { useChatScrollToBottom } from "@/hooks/useChatScrollToBottom";
 import { LIVE_ROOM_CHAT_HISTORY_MAX } from "@/lib/live-room-chat-policy";
@@ -9,10 +10,17 @@ import { appendLiveRoomMessageDedupe } from "@/lib/realtime-merge-messages";
 import { isInlineViewerEventBody } from "@/lib/live-room-viewer-events";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
 import { LiveChatMessageRowActions } from "@/components/trust/LiveChatMessageRowActions";
+import {
+  LiveChatUserActionMenu,
+  type LiveChatUserActionTarget,
+} from "@/components/trust/LiveChatUserActionMenu";
+import { LiveChatUsernameButton } from "@/components/trust/LiveChatUsernameButton";
 import { LiveChatAvatar } from "@/components/live-auction/LiveChatAvatar";
 import { MentionComposer } from "@/components/mentions/MentionComposer";
 import { resolvePinnedModeratorUsername } from "@/lib/trust/resolve-pinned-moderator-username";
+import { appendMentionToDraft } from "@/lib/trust/live-chat-user-actions";
 import { MentionText } from "@/components/mentions/MentionText";
+import { sellerProfilePath } from "@/lib/seller-profile-url";
 
 /** Oldest at top, newest at bottom — matches bottom-anchored scroll (newest near composer). */
 function tailChatHistory<T>(messages: T[]): T[] {
@@ -152,7 +160,9 @@ export function LiveAuctionChat({
   onMessagesRefresh,
 }: LiveAuctionChatProps) {
   const { data: session, status } = useSession();
+  const router = useRouter();
   const mod = useLiveRoomModerationState(liveRoomId, Boolean(liveRoomId));
+  const [userActionTarget, setUserActionTarget] = useState<LiveChatUserActionTarget | null>(null);
   const pinnedModeratorUsername =
     resolvePinnedModeratorUsername({
       pinnedModeratorUsername: mod.pinnedModeratorUsername,
@@ -167,6 +177,33 @@ export function LiveAuctionChat({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+
+  const tagUserInChat = useCallback((username: string) => {
+    setDraft((prev) => appendMentionToDraft(prev, username));
+  }, []);
+
+  const userActionMenu = (
+    <LiveChatUserActionMenu
+      liveRoomId={liveRoomId}
+      hostUserId={hostUserId}
+      isHost={mod.isHost}
+      canModerate={mod.canModerate}
+      moderatorLevel={mod.moderatorLevel}
+      allowedActions={mod.allowedActions}
+      target={userActionTarget}
+      onClose={() => setUserActionTarget(null)}
+      onTag={tagUserInChat}
+      onViewProfile={(userId) => {
+        const username = userActionTarget?.username?.trim();
+        if (username) router.push(sellerProfilePath(username));
+        else if (userId) router.push(sellerProfilePath(userId));
+      }}
+      onModerationComplete={() => {
+        void mod.reload();
+        onMessagesRefresh?.();
+      }}
+    />
+  );
   const overlayScroll = useChatScrollToBottom(chatMessages.length, overlayMode);
   const panelScroll = useChatScrollToBottom(chatMessages.length, scrollMessages && !overlayMode);
 
@@ -244,7 +281,10 @@ export function LiveAuctionChat({
   };
 
   const blockedBanner =
-    mod.roomBlocked || mod.myRestrictions?.roomBanned || mod.myRestrictions?.kickedUntil ? (
+    mod.roomBlocked ||
+    mod.myRestrictions?.roomBanned ||
+    mod.myRestrictions?.kickedUntil ||
+    mod.myRestrictions?.sellerStreamBanned ? (
       <div className="shrink-0 border-b border-rose-500/30 bg-rose-950/40 px-3 py-2 text-center text-[11px] text-rose-200">
         You cannot participate in this room. Return to{" "}
         <a href="/live" className="font-semibold underline">
@@ -305,7 +345,12 @@ export function LiveAuctionChat({
                     />
                   ) : null}
                   <span className={`inline-block min-w-0 flex-1 ${lineShadow}`}>
-                    <span className={labelClass}>{label}</span>
+                    <LiveChatUsernameButton
+                      label={label}
+                      className={labelClass}
+                      message={m}
+                      onOpen={setUserActionTarget}
+                    />
                     {isHost ? (
                       <span className="ml-1 text-[9px] font-black uppercase tracking-wide text-amber-300/90">
                         HOST
@@ -350,6 +395,7 @@ export function LiveAuctionChat({
                   <MentionComposer
                     data-testid="live-chat-input"
                     singleLine
+                    liveRoomId={liveRoomId}
                     value={draft}
                     onChange={(v) => {
                       setDraft(v);
@@ -381,11 +427,13 @@ export function LiveAuctionChat({
             {sendError ? <p className="mt-1.5 text-center text-[11px] text-rose-300">{sendError}</p> : null}
           </div>
         </div>
+        {userActionMenu}
       </div>
     );
   }
 
   return (
+    <>
     <div
       className={
         embedded
@@ -441,7 +489,12 @@ export function LiveAuctionChat({
                   />
                 ) : null}
                 <div className="min-w-0 flex-1">
-                  <span className={labelClass}>{label}</span>
+                  <LiveChatUsernameButton
+                    label={label}
+                    className={labelClass}
+                    message={m}
+                    onOpen={setUserActionTarget}
+                  />
                   {isHost ? (
                     <span className="ml-1.5 text-[10px] font-black uppercase tracking-wide text-amber-300/90">
                       HOST
@@ -498,6 +551,7 @@ export function LiveAuctionChat({
               <MentionComposer
                 data-testid="live-chat-input"
                 singleLine
+                liveRoomId={liveRoomId}
                 value={draft}
                 onChange={(v) => {
                   setDraft(v);
@@ -525,5 +579,7 @@ export function LiveAuctionChat({
         )}
       </div>
     </div>
+    {userActionMenu}
+    </>
   );
 }

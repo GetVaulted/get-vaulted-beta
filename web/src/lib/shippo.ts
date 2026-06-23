@@ -11,6 +11,28 @@ export function isShippoConfigured(): boolean {
   return Boolean(process.env.SHIPPO_API_TOKEN && process.env.SHIPPO_API_TOKEN.length > 5);
 }
 
+export function shippoTokenKind(): "test" | "live" | "missing" | "unknown" {
+  const t = process.env.SHIPPO_API_TOKEN?.trim() ?? "";
+  if (!t) return "missing";
+  if (t.startsWith("shippo_test_")) return "test";
+  if (t.startsWith("shippo_live_")) return "live";
+  return "unknown";
+}
+
+/** Lightweight API ping — verifies the runtime token is accepted by Shippo (not just present in env). */
+export async function probeShippoApi(): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!isShippoConfigured()) {
+    return { ok: false, error: "SHIPPO_API_TOKEN is not set in this server runtime." };
+  }
+  try {
+    await shippoFetch("/addresses/?results=1");
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg };
+  }
+}
+
 function token(): string {
   const t = process.env.SHIPPO_API_TOKEN;
   if (!t) throw new Error("SHIPPO_API_TOKEN is not set");

@@ -15,9 +15,9 @@ describe("isPublicDiscoveryLiveRoom", () => {
     ).toBe(true);
   });
 
-  it("excludes go-live-now rooms until the host starts", () => {
-    expect(isPublicDiscoveryLiveRoom({ status: "scheduled", scheduledStartAt: null })).toBe(false);
-    expect(isPublicDiscoveryLiveRoom({ status: "scheduled" })).toBe(false);
+  it("includes go-live-now scheduled rooms before the host is on air", () => {
+    expect(isPublicDiscoveryLiveRoom({ status: "scheduled", scheduledStartAt: null })).toBe(true);
+    expect(isPublicDiscoveryLiveRoom({ status: "scheduled" })).toBe(true);
   });
 
   it("excludes ended rooms", () => {

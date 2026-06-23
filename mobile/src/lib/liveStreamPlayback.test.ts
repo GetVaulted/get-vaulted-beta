@@ -38,18 +38,18 @@ describe('liveStreamPlayback', () => {
     expect(parsed?.stageAvailable).toBe(false);
   });
 
-  it('preferHlsOverWebrtcOnClient is false on native mobile (WebRTC primary)', () => {
-    expect(preferHlsOverWebrtcOnClient()).toBe(false);
+  it('preferHlsOverWebrtcOnClient is true (HLS primary for buyers)', () => {
+    expect(preferHlsOverWebrtcOnClient()).toBe(true);
   });
 
-  it('shouldUseStageWebrtcPlayback requires token + stage_webrtc + stageAvailable + live signal', () => {
+  it('shouldUseStageWebrtcPlayback is false when HLS is preferred', () => {
     expect(
       shouldUseStageWebrtcPlayback(
         { streamMode: 'stage_webrtc', stageAvailable: true, streamHealth: 'live' },
         false,
         'supabase-jwt',
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldUseStageWebrtcPlayback(
         { streamMode: 'stage_webrtc', stageAvailable: true, streamHealth: 'live' },

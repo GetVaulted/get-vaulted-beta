@@ -6,6 +6,7 @@ import {
   getActiveMentionQuery,
   insertMentionAtQuery,
 } from "@/lib/mentions/parse-mentions";
+import { MentionPickerStrip } from "@/components/mentions/MentionPickerStrip";
 
 type Props = {
   value: string;
@@ -17,6 +18,8 @@ type Props = {
   className?: string;
   maxLength?: number;
   singleLine?: boolean;
+  /** Live room id — enables horizontal avatar strip + recent chatters on bare `@`. */
+  liveRoomId?: string;
   /** When set, picking a user from @ search calls this instead of inserting into the field. */
   onPickUser?: (user: MentionSearchUser) => void;
   "data-testid"?: string;
@@ -32,6 +35,7 @@ export function MentionComposer({
   className,
   maxLength,
   singleLine = false,
+  liveRoomId,
   onPickUser,
   "data-testid": testId,
 }: Props) {
@@ -42,16 +46,25 @@ export function MentionComposer({
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const active = getActiveMentionQuery(value, cursor);
+  const useStripPicker = Boolean(liveRoomId?.trim());
 
   useEffect(() => {
-    if (!active || active.query.length < 1) {
+    if (!active) {
+      setResults([]);
+      setOpen(false);
+      return;
+    }
+    if (!useStripPicker && active.query.length < 1) {
       setResults([]);
       setOpen(false);
       return;
     }
     let cancelled = false;
     const t = window.setTimeout(() => {
-      void fetch(`/api/users/mention-search?q=${encodeURIComponent(active.query)}`, { cache: "no-store" })
+      const url = useStripPicker
+        ? `/api/live-rooms/${encodeURIComponent(liveRoomId!)}/mention-search?q=${encodeURIComponent(active.query)}`
+        : `/api/users/mention-search?q=${encodeURIComponent(active.query)}`;
+      void fetch(url, { cache: "no-store", credentials: "include" })
         .then((r) => (r.ok ? r.json() : { users: [] }))
         .then((j: { users?: MentionSearchUser[] }) => {
           if (cancelled) return;
@@ -71,7 +84,7 @@ export function MentionComposer({
       cancelled = true;
       window.clearTimeout(t);
     };
-  }, [active?.query, active?.start, active?.end]);
+  }, [active?.query, active?.start, active?.end, liveRoomId, useStripPicker]);
 
   const pick = useCallback(
     (user: MentionSearchUser) => {
@@ -98,12 +111,12 @@ export function MentionComposer({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>) => {
     if (open && results.length > 0) {
-      if (e.key === "ArrowDown") {
+      if (e.key === "ArrowDown" || (useStripPicker && e.key === "ArrowRight")) {
         e.preventDefault();
         setHighlight((h) => (h + 1) % results.length);
         return;
       }
-      if (e.key === "ArrowUp") {
+      if (e.key === "ArrowUp" || (useStripPicker && e.key === "ArrowLeft")) {
         e.preventDefault();
         setHighlight((h) => (h - 1 + results.length) % results.length);
         return;
@@ -123,7 +136,9 @@ export function MentionComposer({
 
   return (
     <div className="relative min-w-0 flex-1">
-      {open ? (
+      {open && useStripPicker ? (
+        <MentionPickerStrip users={results} highlightIndex={highlight} onPick={pick} />
+      ) : open ? (
         <ul className="absolute bottom-full z-20 mb-1 max-h-44 w-full min-w-[12rem] overflow-y-auto rounded-xl border border-white/10 bg-[#0c0c10] py-1 shadow-xl">
           {results.map((u, idx) => (
             <li key={u.id}>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { countRoomPresenceViewers } from "@/lib/live-room-presence-count";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 import { roomChannel, RT_EVENT } from "@/lib/realtime-channels";
 
@@ -40,12 +41,22 @@ export function useRealtimeRoomPresence(opts: {
   liveRoomId: string | null;
   enabled?: boolean;
   userId?: string | null;
+  /** When false, observe presence only (host console — do not count yourself). Default true. */
+  trackSelf?: boolean;
   /** Shown in chat when another viewer joins (leave events are not surfaced to chat). */
   viewerDisplayName?: string | null;
   onViewerEvent?: (event: ViewerPresenceChatEvent) => void;
   onPresenceStateChange?: (state: { status: string; reconnectCount: number }) => void;
 }): number | null {
-  const { liveRoomId, enabled = true, userId = null, viewerDisplayName = null, onViewerEvent, onPresenceStateChange } = opts;
+  const {
+    liveRoomId,
+    enabled = true,
+    userId = null,
+    trackSelf = true,
+    viewerDisplayName = null,
+    onViewerEvent,
+    onPresenceStateChange,
+  } = opts;
   const [viewerCount, setViewerCount] = useState<number | null>(null);
 
   const onViewerEventRef = useRef(onViewerEvent);
@@ -58,10 +69,11 @@ export function useRealtimeRoomPresence(opts: {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
 
-    const presenceSlot = stablePresenceKey(liveRoomId, userId);
-    const channel = supabase.channel(roomChannel(liveRoomId), {
-      config: { presence: { key: presenceSlot } },
-    });
+    const presenceSlot = trackSelf ? stablePresenceKey(liveRoomId, userId) : "";
+    const channel = supabase.channel(
+      roomChannel(liveRoomId),
+      trackSelf ? { config: { presence: { key: presenceSlot } } } : undefined,
+    );
     let reconnectCount = 0;
     let heartbeatId: number | null = null;
     /** Cleared on matching presence `leave` so that viewer can get one join line again later. */
@@ -69,7 +81,7 @@ export function useRealtimeRoomPresence(opts: {
 
     const updateCount = () => {
       const state = channel.presenceState<Record<string, unknown>[]>();
-      setViewerCount(Object.keys(state).length);
+      setViewerCount(countRoomPresenceViewers(state));
     };
 
     const trackPresence = async () => {
@@ -105,31 +117,37 @@ export function useRealtimeRoomPresence(opts: {
       });
 
     const onVisible = () => {
-      if (document.visibilityState !== "visible") return;
+      if (!trackSelf || document.visibilityState !== "visible") return;
       void trackPresence();
     };
-    document.addEventListener("visibilitychange", onVisible);
+    if (trackSelf) document.addEventListener("visibilitychange", onVisible);
 
     void channel.subscribe(async (status) => {
       onPresenceStateChangeRef.current?.({ status, reconnectCount });
       if (status !== "SUBSCRIBED") return;
       reconnectCount += 1;
-      await trackPresence();
-      if (reconnectCount === 1) {
-        await channel.send({ type: "broadcast", event: RT_EVENT.viewerJoined, payload: { liveRoomId } });
+      if (trackSelf) {
+        await trackPresence();
+        if (reconnectCount === 1) {
+          await channel.send({ type: "broadcast", event: RT_EVENT.viewerJoined, payload: { liveRoomId } });
+        }
+        if (heartbeatId != null) window.clearInterval(heartbeatId);
+        heartbeatId = window.setInterval(() => void trackPresence(), 25000);
+      } else {
+        updateCount();
       }
-      if (heartbeatId != null) window.clearInterval(heartbeatId);
-      heartbeatId = window.setInterval(() => void trackPresence(), 25000);
     });
 
     return () => {
-      document.removeEventListener("visibilitychange", onVisible);
+      if (trackSelf) document.removeEventListener("visibilitychange", onVisible);
       if (heartbeatId != null) window.clearInterval(heartbeatId);
-      void channel.send({ type: "broadcast", event: RT_EVENT.viewerLeft, payload: { liveRoomId } });
-      void channel.untrack();
+      if (trackSelf) {
+        void channel.send({ type: "broadcast", event: RT_EVENT.viewerLeft, payload: { liveRoomId } });
+        void channel.untrack();
+      }
       void supabase.removeChannel(channel);
     };
-  }, [enabled, liveRoomId, userId, viewerDisplayName]);
+  }, [enabled, liveRoomId, trackSelf, userId, viewerDisplayName]);
 
   return viewerCount;
 }

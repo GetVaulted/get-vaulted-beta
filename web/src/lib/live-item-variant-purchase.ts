@@ -113,7 +113,7 @@ export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, st
     body: randomReveal
       ? `You got ${displayLabel}!`
       : `Payment confirmed for ${displayLabel}.`,
-    href: `/live/${encodeURIComponent(purchase.liveRoomId)}`,
+    href: `/account/orders?view=live`,
   });
 }
 

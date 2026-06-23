@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
-import { reconcileBuyerSnapshotMonotonic } from './liveRoomBuyerSnapshotMerge';
+import {
+  mergeBuyerSnapshotForActiveItemChanged,
+  reconcileBuyerSnapshotMonotonic,
+} from './liveRoomBuyerSnapshotMerge';
 
 function snap(overrides: Partial<LiveRoomBuyerSnapshot> = {}): LiveRoomBuyerSnapshot {
   return {
@@ -149,5 +152,52 @@ describe('reconcileBuyerSnapshotMonotonic', () => {
     const r = reconcileBuyerSnapshotMonotonic(prev, incoming);
 
     expect(r.snap.breakPhase).toBe('in_progress');
+  });
+});
+
+describe('mergeBuyerSnapshotForActiveItemChanged', () => {
+  it('clears prior-lot bid state when the host pins a new active item', () => {
+    const prev = snap({
+      activeItemId: 'item-won',
+      currentBidUsd: 21,
+      minNextBidUsd: 22,
+      lastHighBidderId: 'buyer-1',
+      lastHighBidderUsername: 'winner',
+      startingBidUsd: 1,
+    });
+
+    const merged = mergeBuyerSnapshotForActiveItemChanged(
+      prev,
+      { itemId: 'item-next', biddingOpen: false, auctionEndsAt: null },
+      5_000,
+    );
+
+    expect(merged?.activeItemId).toBe('item-next');
+    expect(merged?.currentBidUsd).toBeNull();
+    expect(merged?.lastHighBidderId).toBeNull();
+    expect(merged?.minNextBidUsd).toBe(1);
+  });
+
+  it('updates timer fields on the same active lot', () => {
+    const prev = snap({
+      activeItemId: 'item-1',
+      lotBidPhase: 'not_started',
+      biddingOpen: false,
+      auctionEndsAt: null,
+    });
+
+    const merged = mergeBuyerSnapshotForActiveItemChanged(
+      prev,
+      {
+        itemId: 'item-1',
+        biddingOpen: true,
+        auctionEndsAt: '2026-01-01T00:00:30.000Z',
+      },
+      Date.parse('2026-01-01T00:00:00.000Z'),
+    );
+
+    expect(merged?.activeItemId).toBe('item-1');
+    expect(merged?.biddingOpen).toBe(true);
+    expect(merged?.auctionEndsAt).toBe('2026-01-01T00:00:30.000Z');
   });
 });

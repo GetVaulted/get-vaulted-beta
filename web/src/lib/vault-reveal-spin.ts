@@ -30,6 +30,64 @@ export const VAULT_SEAL_BREAK_MS = 600;
 export const VAULT_SEAL_WINNER_HOLD_MS = 1600;
 export const VAULT_SEAL_TOTAL_MS = VAULT_SEAL_GLOW_MS + VAULT_SEAL_BREAK_MS + VAULT_SEAL_WINNER_HOLD_MS;
 
+export function isVaultSealRevealKind(kind: VaultRevealSpinKind): boolean {
+  return kind === "giveaway" || kind === "break_pyt" || kind === "random_reveal";
+}
+
+export function vaultSealMetaLine(spin: VaultRevealSpinPayload): string {
+  const n = spin.labels.length;
+  if (spin.kind === "giveaway") {
+    return `${n} ${n === 1 ? "entry" : "entries"} · verified draw`;
+  }
+  if (spin.kind === "random_reveal") {
+    return `${n} remaining · verified reveal`;
+  }
+  return `${n} ${n === 1 ? "spot" : "spots"} · verified randomizer`;
+}
+
+export type VaultSealWinnerCopy = {
+  kicker: string;
+  primary: string;
+  sub?: string;
+  detail?: string;
+};
+
+function formatWinnerHandle(label: string): string {
+  const bare = label.trim().replace(/^@/, "");
+  return bare ? `@${bare}` : "@winner";
+}
+
+export function vaultSealWinnerCopy(spin: VaultRevealSpinPayload): VaultSealWinnerCopy {
+  const winner = spin.winnerLabel.trim();
+  const buyer = spin.buyerUsername?.trim().replace(/^@/, "");
+
+  if (spin.kind === "giveaway") {
+    return {
+      kicker: "Winner",
+      primary: formatWinnerHandle(spin.winnerLabel),
+      sub: "Takes home",
+      detail: spin.title,
+    };
+  }
+  if (spin.kind === "random_reveal") {
+    const left = Math.max(0, spin.labels.length - 1);
+    return {
+      kicker: "Your team",
+      primary: winner || "—",
+      sub: buyer ? `@${buyer}` : undefined,
+      detail:
+        left > 0
+          ? `${left} ${left === 1 ? "spot" : "spots"} left in the pool`
+          : "Final spot revealed",
+    };
+  }
+  return {
+    kicker: "First pick",
+    primary: winner || "—",
+    sub: spin.assignments?.length ? `${spin.assignments.length} spots randomized` : "Assignments locked",
+  };
+}
+
 export function landingRotationDeg(winnerIndex: number, total: number, extraSpins = 5): number {
   if (total <= 0) return 0;
   const idx = Math.max(0, Math.min(winnerIndex, total - 1));

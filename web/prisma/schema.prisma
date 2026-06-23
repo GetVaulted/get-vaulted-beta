@@ -1936,6 +1936,8 @@ model LiveGiveawayEntry {
   method      LiveGiveawayEntryMethod
   purchaseRef String?
   amoeMeta    Json?
+  /// For watch_enter rows: false when the viewer left the room (paused in drawing pool).
+  activeInRoom Boolean                @default(true)
   createdAt   DateTime                @default(now())
 
   @@unique([giveawayId, userId])

@@ -13,6 +13,7 @@ import { prisma } from "@/lib/prisma";
 import {
   isShippoConfigured,
   shippoCreateShipment,
+  shippoGetTransaction,
   shippoListRates,
   shippoPurchaseRate,
   type ShippoAddress,
@@ -328,10 +329,24 @@ export async function generateBundledShippoLabelForSession(
       };
 
       const transactionId = tx.object_id ?? cheapest.object_id;
+      let labelUrlForPackage = tx.label_url?.trim() || null;
+      if (!labelUrlForPackage && transactionId) {
+        try {
+          const fetched = await shippoGetTransaction(transactionId);
+          labelUrlForPackage = fetched.label_url?.trim() || null;
+        } catch (fetchErr) {
+          console.warn("[shippo] bundled post-purchase label fetch failed", {
+            sessionId,
+            transactionId,
+            error: fetchErr instanceof Error ? fetchErr.message : String(fetchErr),
+          });
+        }
+      }
+
       if (group.packageIndex === 0) {
         primaryShipmentId = sid;
         primaryTxIds.push(transactionId ?? "");
-        primaryLabelUrls.push(tx.label_url ?? "");
+        primaryLabelUrls.push(labelUrlForPackage ?? "");
         primaryTracking = tx.tracking_number ?? null;
         primaryTrackingUrl = tx.tracking_url_provider ?? null;
         primaryCarrier = cheapest.provider ?? null;
@@ -352,7 +367,7 @@ export async function generateBundledShippoLabelForSession(
           carrier: cheapest.provider ?? null,
           serviceLevel: cheapest.servicelevel?.name ?? null,
           trackingNumber: tx.tracking_number ?? null,
-          labelUrl: tx.label_url ?? null,
+          labelUrl: labelUrlForPackage,
           labelCostCents: packageCostCents,
           status: "label_created",
         },
@@ -364,12 +379,12 @@ export async function generateBundledShippoLabelForSession(
     const remainder = shippingLabelCostCentsTotal - baseEach * n;
 
     const transactionId = primaryTxIds[0] ?? null;
-    const labelUrl = primaryLabelUrls[0] ?? null;
+    const labelUrl = primaryLabelUrls[0]?.trim() || null;
     const trackingNumber = primaryTracking;
     const trackingUrl = primaryTrackingUrl;
     const carrier = primaryCarrier;
     const service = primaryService;
-    const shippingStatus = "SUCCESS";
+    const shippingStatus = labelUrl ? "SUCCESS" : "label_pending";
 
     await prisma.$transaction(
       eligible.map((o, idx) =>
@@ -384,7 +399,7 @@ export async function generateBundledShippoLabelForSession(
             trackingUrl,
             labelUrl,
             shippingStatus,
-            fulfillmentStatus: "label_created",
+            fulfillmentStatus: labelUrl ? "label_created" : "exception",
             shippingLabelCostCents: baseEach + (idx === 0 ? remainder : 0),
           },
         }),

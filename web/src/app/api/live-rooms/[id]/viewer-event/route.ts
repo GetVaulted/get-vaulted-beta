@@ -3,6 +3,10 @@ import { serializeLiveRoomMessage } from "@/lib/live-room-serialize";
 import { prisma } from "@/lib/prisma";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { emitLiveRoomMessageById } from "@/lib/realtime-emit-server";
+import {
+  pauseOpenGiveawayPresence,
+  resumeOpenGiveawayPresence,
+} from "@/lib/live-giveaway";
 
 import {
   VIEWER_EVENT_JOIN_BODY,
@@ -36,14 +40,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (room.status === "ended") {
     return NextResponse.json({ error: "Room has ended." }, { status: 409 });
   }
-  if (!liveRoomChatOpen(room.status)) {
-    return NextResponse.json({ error: "Room is not open for chat." }, { status: 409 });
-  }
-
-  const restrictions = await getLiveRoomUserRestrictions({ liveRoomId, userId: auth.userId });
-  if (restrictions.roomBanned || restrictions.kickedUntil || restrictions.sellerStreamBanned) {
-    return NextResponse.json({ error: "You cannot join this room." }, { status: 403 });
-  }
 
   let body: PostBody;
   try {
@@ -53,8 +49,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const kind = typeof body.kind === "string" ? body.kind.trim().toLowerCase() : "";
-  if (kind !== "join" && kind !== "share") {
-    return NextResponse.json({ error: "kind must be join or share." }, { status: 400 });
+  if (kind !== "join" && kind !== "share" && kind !== "leave") {
+    return NextResponse.json({ error: "kind must be join, share, or leave." }, { status: 400 });
+  }
+
+  if (kind === "leave") {
+    const paused = await pauseOpenGiveawayPresence(liveRoomId, auth.userId);
+    return NextResponse.json({ ok: true, paused: paused.paused });
+  }
+
+  if (!liveRoomChatOpen(room.status)) {
+    return NextResponse.json({ error: "Room is not open for chat." }, { status: 409 });
+  }
+
+  const restrictions = await getLiveRoomUserRestrictions({ liveRoomId, userId: auth.userId });
+  if (restrictions.roomBanned || restrictions.kickedUntil || restrictions.sellerStreamBanned) {
+    return NextResponse.json({ error: "You cannot join this room." }, { status: 403 });
+  }
+
+  if (kind === "join") {
+    void resumeOpenGiveawayPresence(liveRoomId, auth.userId);
   }
 
   const text = kind === "join" ? VIEWER_EVENT_JOIN_BODY : VIEWER_EVENT_SHARE_BODY;

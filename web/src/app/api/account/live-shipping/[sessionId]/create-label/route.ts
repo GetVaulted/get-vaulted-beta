@@ -18,6 +18,13 @@ export async function POST(_req: Request, ctx: { params: Promise<{ sessionId: st
 
   try {
     const result = await generateBundledShippoLabelForSession(sessionId, session.user.id);
+    if (!result.labelUrl && !result.alreadyExisted) {
+      return NextResponse.json({
+        ...result,
+        warning:
+          "Shippo accepted the purchase but no PDF label URL was returned. Confirm SHIPPO_API_TOKEN (test or live), ship-from address, and buyer ship-to — then use Repair label on the order if needed.",
+      });
+    }
     return NextResponse.json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

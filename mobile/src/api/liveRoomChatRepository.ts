@@ -60,7 +60,7 @@ export async function sendLiveRoomChatMessage(args: {
   return j.message;
 }
 
-export type ViewerEventKind = 'join' | 'share';
+export type ViewerEventKind = 'join' | 'share' | 'leave';
 
 export async function announceLiveRoomViewerEvent(args: {
   accessToken: string;
