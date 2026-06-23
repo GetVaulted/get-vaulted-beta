@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TradeCenterHero } from '../../components/trade/TradeCenterHero';
@@ -11,6 +11,8 @@ import { TradePulseStrip } from '../../components/trade/TradePulseStrip';
 import { TradeSectionBlock } from '../../components/trade/TradeSectionBlock';
 import { TradeStartDealCta } from '../../components/trade/TradeStartDealCta';
 import { TradeTrustStrip } from '../../components/trade/TradeTrustStrip';
+import { TradeBlockPanel } from '../../components/trade/TradeBlockPanel';
+import { TradeCenterDeskTabs, type TradeCenterDeskTab } from '../../components/trade/TradeCenterDeskTabs';
 import { useTradeCenterFeed } from '../../hooks/useTradeCenterFeed';
 import { areDevToolsEnabled } from '../../lib/devTools';
 import { isSupabaseConfigured } from '../../lib/supabase';
@@ -22,6 +24,12 @@ import type { TradeOfferVM } from '../../types/tradeOffers';
 import { colors, radii, spacing } from '../../theme';
 
 type Nav = NativeStackNavigationProp<TradeCenterStackParamList>;
+
+const START_STEPS = [
+  'Pick your card from the vault',
+  'Choose what you want in return',
+  'Send a protected offer',
+] as const;
 
 function profileHandle(p: { username: string | null; display_name: string | null }): string {
   if (p.username) return `@${p.username}`;
@@ -40,6 +48,8 @@ export function TradeCenterHomeScreen() {
     onAfterRefresh: onFeedRefreshed,
   });
   const uid = user?.id;
+  const initialTabSet = useRef(false);
+  const [deskTab, setDeskTab] = useState<TradeCenterDeskTab>('start');
 
   const goReview = (offerId: string) => navigation.navigate('ReviewOffer', { offerId });
   const goTradeDetail = (tradeId: string) => navigation.navigate('TradeDetail', { tradeId });
@@ -54,6 +64,14 @@ export function TradeCenterHomeScreen() {
     sections.active.length +
     sections.completed.length;
   const showDealsEmpty = showDesk && !loading && dealCount === 0;
+
+  useEffect(() => {
+    if (!showDesk || loading || initialTabSet.current) return;
+    if (dealCount > 0 || sections.incoming.length > 0) {
+      setDeskTab('block');
+    }
+    initialTabSet.current = true;
+  }, [dealCount, loading, sections.incoming.length, showDesk]);
 
   const renderOffer = (offer: TradeOfferVM, viewerId: string) => {
     const partner = offer.recipient_id === viewerId ? offer.sender : offer.recipient;
@@ -131,94 +149,121 @@ export function TradeCenterHomeScreen() {
               <Text style={styles.syncHint}>Connecting to your trade desk…</Text>
             )}
 
-            <TradeStartDealCta onPress={startTrade} />
+            <TradeCenterDeskTabs tab={deskTab} onTabChange={setDeskTab} blockCount={dealCount} />
 
-            {firstIncoming ? (
-              <Pressable style={styles.incomingBanner} onPress={() => goReview(firstIncoming.id)}>
-                <View style={styles.incomingIcon}>
-                  <Ionicons name="mail-unread-outline" size={20} color={colors.gold} />
+            {deskTab === 'start' ? (
+              <View style={styles.startPanel}>
+                <TradeStartDealCta onPress={startTrade} />
+                <TradeTrustStrip />
+                <View style={styles.stepsCard}>
+                  <Text style={styles.stepsTitle}>How it works</Text>
+                  {START_STEPS.map((step, idx) => (
+                    <View key={step} style={styles.stepRow}>
+                      <View style={styles.stepNum}>
+                        <Text style={styles.stepNumTxt}>{idx + 1}</Text>
+                      </View>
+                      <Text style={styles.stepTxt}>{step}</Text>
+                    </View>
+                  ))}
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.incomingTitle}>Incoming offer</Text>
-                  <Text style={styles.incomingBody} numberOfLines={1}>
-                    {profileHandle(firstIncoming.sender)} wants to negotiate
+                {dealCount > 0 ? (
+                  <Pressable style={styles.viewBlockLink} onPress={() => setDeskTab('block')}>
+                    <Text style={styles.viewBlockLinkTxt}>
+                      View trade block ({dealCount} {dealCount === 1 ? 'deal' : 'deals'})
+                    </Text>
+                    <Ionicons name="arrow-forward" size={16} color={colors.gold} />
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : (
+              <TradeBlockPanel>
+                {firstIncoming ? (
+                  <Pressable style={styles.incomingBanner} onPress={() => goReview(firstIncoming.id)}>
+                    <View style={styles.incomingIcon}>
+                      <Ionicons name="mail-unread-outline" size={20} color={colors.gold} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.incomingTitle}>Incoming offer</Text>
+                      <Text style={styles.incomingBody} numberOfLines={1}>
+                        {profileHandle(firstIncoming.sender)} wants to negotiate
+                      </Text>
+                    </View>
+                    <Text style={styles.incomingCta}>Review</Text>
+                  </Pressable>
+                ) : null}
+
+                <TradePulseStrip
+                  items={[
+                    { label: 'Incoming', value: sections.incoming.length, accent: sections.incoming.length > 0 },
+                    { label: 'Active', value: sections.active.length, accent: sections.active.length > 0 },
+                    { label: 'Sent', value: sections.sent.length },
+                    { label: 'Done', value: sections.completed.length },
+                  ]}
+                />
+
+                {showDealsEmpty ? (
+                  <PremiumEmptyPanel
+                    icon="swap-horizontal-outline"
+                    title="No active collector deals."
+                    subtitle="Send a protected offer from Start a trade — negotiations and shipping labels sync here."
+                    actions={[{ label: 'Start a trade', onPress: () => setDeskTab('start') }]}
+                  />
+                ) : null}
+
+                {loading && !sections.incoming.length && !sections.active.length ? (
+                  <Text style={styles.syncHint}>Loading your deals…</Text>
+                ) : null}
+
+                <TradeSectionBlock
+                  title="Incoming offers"
+                  count={sections.incoming.length}
+                  emptyTitle="No incoming offers yet."
+                  emptyHint="Protected offers from collectors appear here."
+                >
+                  {uid ? sections.incoming.map((o) => renderOffer(o, uid)) : null}
+                </TradeSectionBlock>
+
+                <TradeSectionBlock
+                  title="Counter offers"
+                  count={sections.counters.length}
+                  emptyTitle="No active negotiations."
+                >
+                  {uid ? sections.counters.map((o) => renderOffer(o, uid)) : null}
+                </TradeSectionBlock>
+
+                <TradeSectionBlock
+                  title="Sent offers"
+                  count={sections.sent.length}
+                  emptyTitle="No sent offers yet."
+                >
+                  {uid ? sections.sent.map((o) => renderOffer(o, uid)) : null}
+                </TradeSectionBlock>
+
+                <TradeSectionBlock
+                  title="Active trades"
+                  count={sections.active.length}
+                  emptyTitle="No active deals."
+                >
+                  {uid ? sections.active.map((o) => renderActiveTrade(o, uid)) : null}
+                </TradeSectionBlock>
+
+                <TradeSectionBlock
+                  title="Completed trades"
+                  count={sections.completed.length}
+                  emptyTitle="Your collector reputation builds here."
+                >
+                  {uid ? sections.completed.map((o) => renderActiveTrade(o, uid)) : null}
+                </TradeSectionBlock>
+
+                <View style={styles.inboxNote}>
+                  <Ionicons name="chatbubbles-outline" size={18} color={colors.gold} />
+                  <Text style={styles.inboxNoteTxt}>
+                    Offers and negotiation threads live in your trade block — your private collector inbox for protected
+                    trades.
                   </Text>
                 </View>
-                <Text style={styles.incomingCta}>Review</Text>
-              </Pressable>
-            ) : null}
-
-            <TradePulseStrip
-              items={[
-                { label: 'Incoming', value: sections.incoming.length, accent: sections.incoming.length > 0 },
-                { label: 'Active', value: sections.active.length, accent: sections.active.length > 0 },
-                { label: 'Sent', value: sections.sent.length },
-                { label: 'Done', value: sections.completed.length },
-              ]}
-            />
-
-            <TradeTrustStrip />
-
-            {showDealsEmpty ? (
-              <PremiumEmptyPanel
-                icon="swap-horizontal-outline"
-                title="No active collector deals."
-                subtitle="Send a protected offer or start a vault trade — negotiations and shipping labels sync here."
-                actions={[{ label: 'Start a trade', onPress: startTrade }]}
-              />
-            ) : null}
-
-            {loading && !sections.incoming.length && !sections.active.length ? (
-              <Text style={styles.syncHint}>Loading your deals…</Text>
-            ) : null}
-
-            <TradeSectionBlock
-              title="Incoming offers"
-              count={sections.incoming.length}
-              emptyTitle="No incoming offers yet."
-              emptyHint="Protected offers from collectors appear here."
-            >
-              {uid ? sections.incoming.map((o) => renderOffer(o, uid)) : null}
-            </TradeSectionBlock>
-
-            <TradeSectionBlock
-              title="Counter offers"
-              count={sections.counters.length}
-              emptyTitle="No active negotiations."
-            >
-              {uid ? sections.counters.map((o) => renderOffer(o, uid)) : null}
-            </TradeSectionBlock>
-
-            <TradeSectionBlock
-              title="Sent offers"
-              count={sections.sent.length}
-              emptyTitle="No sent offers yet."
-            >
-              {uid ? sections.sent.map((o) => renderOffer(o, uid)) : null}
-            </TradeSectionBlock>
-
-            <TradeSectionBlock
-              title="Active trades"
-              count={sections.active.length}
-              emptyTitle="No active deals."
-            >
-              {uid ? sections.active.map((o) => renderActiveTrade(o, uid)) : null}
-            </TradeSectionBlock>
-
-            <TradeSectionBlock
-              title="Completed trades"
-              count={sections.completed.length}
-              emptyTitle="Your collector reputation builds here."
-            >
-              {uid ? sections.completed.map((o) => renderActiveTrade(o, uid)) : null}
-            </TradeSectionBlock>
-
-            <View style={styles.inboxNote}>
-              <Ionicons name="chatbubbles-outline" size={18} color={colors.gold} />
-              <Text style={styles.inboxNoteTxt}>
-                Offers and negotiation threads will live here — your private collector inbox for protected trades.
-              </Text>
-            </View>
+              </TradeBlockPanel>
+            )}
           </>
         ) : null}
 
@@ -244,6 +289,65 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     letterSpacing: 0.2,
     marginTop: -spacing.sm,
+  },
+  startPanel: {
+    gap: spacing.lg,
+  },
+  stepsCard: {
+    padding: spacing.lg,
+    borderRadius: radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surfaceElevated,
+    gap: spacing.md,
+  },
+  stepsTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  stepNum: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(212,175,55,0.35)',
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepNumTxt: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.gold,
+  },
+  stepTxt: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  viewBlockLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(212,175,55,0.28)',
+    backgroundColor: 'rgba(212,175,55,0.06)',
+  },
+  viewBlockLinkTxt: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.gold,
   },
   warnCard: {
     padding: spacing.lg,

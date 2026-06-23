@@ -1,6 +1,6 @@
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Keyboard, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Keyboard, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { HostStreamPayload, HostConsolePayload, LiveRoomHostDetail } from '../../../api/liveHostRepository';
 import { fetchProfileById } from '../../../api/profilesRepository';
@@ -13,10 +13,9 @@ import { applyLiveModerationAction } from '../../../api/trustRepository';
 import { openUserProfile } from '../../../navigation/openPlatform';
 import {
   computeLiveRoomBottomStack,
-  COMPOSER_BAR_HEIGHT,
-  PINNED_ABOVE_COMPOSER_GAP,
-  PINNED_MODERATOR_ROW_HEIGHT,
+  scaledComposerBarHeight,
 } from '../../../lib/liveRoomBottomLayout';
+import { liveRoomHudScale, liveRoomOverlayScale } from '../../../lib/liveRoomUiScale';
 import { SellerLiveComposer } from './SellerLiveComposer';
 import { SellerLiveGestureLayer } from './SellerLiveGestureLayer';
 import { AddInventoryModal } from '../liveConsole/AddInventoryModal';
@@ -119,6 +118,10 @@ type Props = {
 
 export function SellerLiveHostView({ navigation, roomId, accessToken, host, initialConsole }: Props) {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const overlayScale = liveRoomOverlayScale(windowWidth);
+  const hudScale = liveRoomHudScale(windowWidth);
+  const composerBarHeight = scaledComposerBarHeight(overlayScale);
   const { user } = useAuth();
   const [hostAvatarUrl, setHostAvatarUrl] = useState<string | null>(null);
   const [hostName, setHostName] = useState('You');
@@ -232,9 +235,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         dockPaddingBottom: commerceBottom,
         commerceHeight,
         keyboardOffset,
-        compact: true,
+        compact: overlayScale <= 1,
+        overlayScale,
       }),
-    [commerceBottom, commerceHeight, keyboardOffset],
+    [commerceBottom, commerceHeight, keyboardOffset, overlayScale],
   );
 
   const nextUpRailBottom = bottomStack.commerceTop + 6;
@@ -366,11 +370,11 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     user?.id,
   ]);
 
-  const sellerPinnedBarBottom = sellerComposerBottom + COMPOSER_BAR_HEIGHT + PINNED_ABOVE_COMPOSER_GAP;
+  const sellerPinnedBarBottom = sellerComposerBottom + composerBarHeight + Math.round(6 * overlayScale);
   const sellerPinnedReserve = pinnedModerator
-    ? PINNED_MODERATOR_ROW_HEIGHT + PINNED_ABOVE_COMPOSER_GAP
+    ? Math.round(62 * overlayScale) + Math.round(6 * overlayScale)
     : 0;
-  const sellerChatBottom = sellerComposerBottom + COMPOSER_BAR_HEIGHT + 12 + sellerPinnedReserve;
+  const sellerChatBottom = sellerComposerBottom + composerBarHeight + Math.round(12 * overlayScale) + sellerPinnedReserve;
 
   const tagUserInChat = useCallback((username: string) => {
     setChatDraft((prev) => appendMentionToDraft(prev, username));
@@ -552,10 +556,11 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         micMuted={host.microphoneMuted}
         micMuteDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
         onToggleMicMute={host.onToggleMicMute}
+        hudScale={hudScale}
       />
 
       <SellerHostSideRail
-        bottom={sellerComposerBottom + COMPOSER_BAR_HEIGHT + spacing.sm}
+        bottom={sellerComposerBottom + composerBarHeight + spacing.sm}
         onShare={() => void handleShare()}
       />
 
@@ -580,6 +585,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         }}
         onPressChatUser={onPressChatUser}
         moderatorUserIds={moderation.moderators.map((m) => m.userId)}
+        overlayScale={overlayScale}
       />
 
       {pinnedModerator ? (
@@ -593,7 +599,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
           }}
           pointerEvents="none"
         >
-          <PinnedModeratorBar pinned={pinnedModerator} compact />
+          <PinnedModeratorBar pinned={pinnedModerator} compact overlayScale={overlayScale} />
         </View>
       ) : null}
 
@@ -652,6 +658,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         accessToken={accessToken}
         liveRoomId={roomId}
         inputRef={chatComposerRef}
+        overlayScale={overlayScale}
         leadingAccessory={
           <>
             {showModeratorTools(modActor.isModerator, modActor.canModerate, modActor.isHost) ? (

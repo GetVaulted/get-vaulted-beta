@@ -9,6 +9,7 @@ type Props = {
   slowModeSeconds: number;
   cooldownSeconds: number;
   chatBlocked: boolean;
+  overlayScale?: number;
 };
 
 export function LiveChatSlowModeTimer({
@@ -18,17 +19,36 @@ export function LiveChatSlowModeTimer({
   slowModeSeconds,
   cooldownSeconds,
   chatBlocked,
+  overlayScale = 1,
 }: Props) {
   if (slowModeSeconds <= 0) return null;
 
+  const scale = overlayScale > 1 ? overlayScale : 1;
   const label = chatBlocked
     ? `Chat in ${cooldownSeconds}s`
     : `Slow mode · ${slowModeSeconds}s between messages`;
 
   return (
     <View style={[styles.wrap, { bottom, left, right }]} pointerEvents="none">
-      <View style={[styles.chip, chatBlocked && styles.chipActive]}>
-        <LiveRoomText style={[styles.text, chatBlocked && styles.textActive]}>{label}</LiveRoomText>
+      <View
+        style={[
+          styles.chip,
+          chatBlocked && styles.chipActive,
+          scale > 1 && {
+            paddingHorizontal: Math.round(8 * scale),
+            paddingVertical: Math.round(5 * scale),
+          },
+        ]}
+      >
+        <LiveRoomText
+          style={[
+            styles.text,
+            chatBlocked && styles.textActive,
+            scale > 1 && { fontSize: Math.round(11 * scale) },
+          ]}
+        >
+          {label}
+        </LiveRoomText>
       </View>
     </View>
   );

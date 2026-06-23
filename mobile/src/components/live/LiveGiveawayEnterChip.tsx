@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { enterOpenGiveaway, type ViewerGiveawayRow } from '../../api/liveGiveawayRepository';
 import { useGiveawayCountdown } from '../../hooks/useGiveawayCountdown';
-import { colors, radii, spacing } from '../../theme';
+import { radii, spacing } from '../../theme';
 
 function GiveawayCountdownText({
   entryCloseAt,
@@ -73,11 +73,11 @@ export function LiveGiveawayEnterChip({
           <View key={g.id} style={styles.card}>
             <View style={styles.copy}>
               <Text style={styles.kicker}>Giveaway</Text>
-              <Text style={styles.title} numberOfLines={1}>
+              <Text style={styles.title} numberOfLines={2}>
                 {g.title}
               </Text>
               {g.prizeDescription ? (
-                <Text style={styles.prize} numberOfLines={1}>
+                <Text style={styles.prize} numberOfLines={2}>
                   {g.prizeDescription}
                 </Text>
               ) : null}
@@ -99,7 +99,7 @@ export function LiveGiveawayEnterChip({
                 onPress={() => void handleEnter(g.id)}
               >
                 {busyId === g.id ? (
-                  <ActivityIndicator color="#111" size="small" />
+                  <ActivityIndicator color="#052e26" size="small" />
                 ) : (
                   <Text style={styles.btnTxt}>Enter</Text>
                 )}
@@ -114,45 +114,54 @@ export function LiveGiveawayEnterChip({
 }
 
 const styles = StyleSheet.create({
-  wrap: { gap: spacing.xs },
+  wrap: { gap: spacing.sm },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    borderRadius: radii.md,
+    gap: spacing.md,
+    borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: 'rgba(52,211,153,0.35)',
-    backgroundColor: 'rgba(16,185,129,0.18)',
+    backgroundColor: 'rgba(16,185,129,0.14)',
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.md,
   },
   copy: { flex: 1, minWidth: 0 },
   kicker: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '800',
-    color: 'rgba(167,243,208,0.85)',
+    color: 'rgba(167,243,208,0.9)',
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    letterSpacing: 0.9,
   },
-  title: { fontSize: 12, fontWeight: '700', color: '#ecfdf5' },
-  prize: { fontSize: 10, color: 'rgba(167,243,208,0.7)', marginTop: 1 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
-  meta: { fontSize: 9, fontWeight: '600', color: 'rgba(167,243,208,0.55)', textTransform: 'uppercase' },
-  timer: { fontSize: 9, fontWeight: '700', color: '#c4b5fd', fontVariant: ['tabular-nums'] },
+  title: { fontSize: 14, fontWeight: '800', color: '#ecfdf5', marginTop: 2 },
+  prize: { fontSize: 11, color: 'rgba(167,243,208,0.75)', marginTop: 2, lineHeight: 15 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4 },
+  meta: { fontSize: 10, fontWeight: '700', color: 'rgba(167,243,208,0.65)', textTransform: 'uppercase' },
+  timer: { fontSize: 10, fontWeight: '800', color: '#c4b5fd', fontVariant: ['tabular-nums'] },
   btn: {
     borderRadius: radii.pill,
-    backgroundColor: '#6ee7b7',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    minWidth: 64,
+    backgroundColor: '#34d399',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm + 2,
+    minWidth: 72,
+    minHeight: 36,
     alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#10b981',
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
-  btnTxt: { fontSize: 11, fontWeight: '900', color: '#111' },
+  btnTxt: { fontSize: 12, fontWeight: '900', color: '#052e26', letterSpacing: 0.4 },
   entered: {
     fontSize: 10,
     fontWeight: '800',
     color: '#a7f3d0',
     textTransform: 'uppercase',
+    textAlign: 'center',
+    maxWidth: 88,
   },
   error: { fontSize: 10, color: '#fca5a5' },
 });

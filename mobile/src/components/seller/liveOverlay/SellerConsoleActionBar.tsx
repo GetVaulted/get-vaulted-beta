@@ -36,6 +36,7 @@ type Props = {
   micMuted?: boolean;
   micMuteDisabled?: boolean;
   onToggleMicMute?: () => void;
+  hudScale?: number;
 };
 
 export function SellerConsoleActionBar({
@@ -63,7 +64,12 @@ export function SellerConsoleActionBar({
   micMuted = false,
   micMuteDisabled,
   onToggleMicMute,
+  hudScale = 1,
 }: Props) {
+  const scale = hudScale > 1 ? hudScale : 1;
+  const iconSize = Math.round(15 * scale);
+  const labelSize = Math.round(11 * scale);
+  const actionMinH = Math.round(ACTION_MIN_H * scale);
   return (
     <View style={[styles.host, { top }]} pointerEvents="box-none">
       <View style={styles.bar}>
@@ -82,13 +88,13 @@ export function SellerConsoleActionBar({
             keyboardShouldPersistTaps="handled"
           >
             <Pressable
-              style={[styles.actionBtn, salesAttentionCount > 0 && styles.salesAttentionBtn]}
+              style={[styles.actionBtn, { minHeight: actionMinH }, salesAttentionCount > 0 && styles.salesAttentionBtn]}
               onPress={onSales}
               accessibilityLabel={SELLER_CONSOLE.sales}
               hitSlop={4}
             >
-              <Ionicons name="receipt-outline" size={15} color="rgba(255,255,255,0.92)" />
-              <Text style={styles.addTxt}>{SELLER_CONSOLE.sales}</Text>
+              <Ionicons name="receipt-outline" size={iconSize} color="rgba(255,255,255,0.92)" />
+              <Text style={[styles.addTxt, { fontSize: labelSize }]}>{SELLER_CONSOLE.sales}</Text>
               {salesAttentionCount > 0 ? (
                 <View style={styles.attentionDot}>
                   <Text style={styles.attentionDotTxt}>{salesAttentionCount > 9 ? '9+' : salesAttentionCount}</Text>
@@ -96,23 +102,23 @@ export function SellerConsoleActionBar({
               ) : null}
             </Pressable>
             <Pressable
-              style={styles.actionBtn}
+              style={[styles.actionBtn, { minHeight: actionMinH }]}
               onPress={onGiveaways}
               accessibilityLabel="Giveaways"
               hitSlop={4}
             >
-              <Ionicons name="gift-outline" size={15} color="rgba(255,255,255,0.92)" />
-              <Text style={styles.addTxt}>Givvys</Text>
+              <Ionicons name="gift-outline" size={iconSize} color="#6ee7b7" />
+              <Text style={[styles.addTxt, styles.givvyTxt, { fontSize: labelSize }]}>Givvys</Text>
             </Pressable>
             {showTeamsBoard && onTeams ? (
               <Pressable
-                style={styles.actionBtn}
+                style={[styles.actionBtn, { minHeight: actionMinH }]}
                 onPress={onTeams}
                 accessibilityLabel="View team board"
                 hitSlop={4}
               >
-                <Ionicons name="grid-outline" size={15} color="rgba(255,255,255,0.92)" />
-                <Text style={styles.addTxt}>Teams</Text>
+                <Ionicons name="grid-outline" size={iconSize} color="rgba(255,255,255,0.92)" />
+                <Text style={[styles.addTxt, { fontSize: labelSize }]}>Teams</Text>
               </Pressable>
             ) : null}
             <Pressable
@@ -247,6 +253,7 @@ const styles = StyleSheet.create({
   },
   shareTxt: { fontSize: 11, fontWeight: '800', color: colors.gold },
   addTxt: { fontSize: 11, fontWeight: '800', color: 'rgba(255,255,255,0.92)' },
+  givvyTxt: { color: '#a7f3d0' },
   obsTxt: { fontSize: 10, fontWeight: '800', color: 'rgba(255,255,255,0.72)' },
   viewersWrap: {
     minHeight: ACTION_MIN_H,

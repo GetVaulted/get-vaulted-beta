@@ -84,12 +84,14 @@ import {
   logLiveStageLayoutDebug,
   type LiveStageContainer,
 } from '../../lib/liveRoomViewport';
-import { isCompactLiveRoomLayout } from '../../lib/liveRoomUiScale';
+import { isCompactLiveRoomLayout, liveRoomOverlayScale } from '../../lib/liveRoomUiScale';
+import { scaledComposerBarHeight } from '../../lib/liveRoomBottomLayout';
 import { shareLiveStreamNative } from '../../lib/shareLiveRoomNative';
 import { prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
 import type { LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
 
 function chatRightEdgeForWidth(layoutWidth: number): number {
+  if (layoutWidth >= 768) return Math.round(92 * liveRoomOverlayScale(layoutWidth));
   return isCompactLiveRoomLayout(layoutWidth) ? 84 : 92;
 }
 
@@ -142,6 +144,9 @@ function LiveSlide({
   const openWalletRef = useRef<(reason?: string) => void>(() => {});
   const layoutWidth = stageContainer.designWidth;
   const compact = isCompactLiveRoomLayout(layoutWidth);
+  const overlayScale = liveRoomOverlayScale(layoutWidth);
+  const railIconSize = overlayScale > 1 ? Math.round(22 * overlayScale) : 22;
+  const railLabelSize = overlayScale > 1 ? Math.round(9 * overlayScale) : 9;
   const chatRightEdge = chatRightEdgeForWidth(layoutWidth);
   const [following, setFollowing] = useState(false);
   const [shopOpen, setShopOpen] = useState(false);
@@ -419,13 +424,16 @@ function LiveSlide({
     keyboardOffset: keyboardOffset / Math.max(0.001, stageContainer.uniformScale),
     compact,
     pinnedModeratorActive: Boolean(pinnedModerator),
+    overlayScale,
   });
   const chatMaxHeight = computeChatStackMaxHeight({
     slideHeight: stageContainer.designHeight,
     topReserve: computeLiveTopReserve(stageInsets.top, layoutWidth),
     chatBottom: bottomStack.chatBottom,
+    overlayScale,
   });
-  const slowModeTimerBottom = bottomStack.composerBottom + COMPOSER_BAR_HEIGHT + 8;
+  const composerBarHeight = scaledComposerBarHeight(overlayScale);
+  const slowModeTimerBottom = bottomStack.composerBottom + composerBarHeight + 8;
 
   const tagUserInChat = useCallback((username: string) => {
     setChatDraft((prev) => appendMentionToDraft(prev, username));
@@ -755,10 +763,12 @@ function LiveSlide({
           >
             <Ionicons
               name={following ? 'checkmark-circle-outline' : 'person-add-outline'}
-              size={22}
+              size={railIconSize}
               color={following ? colors.gold : 'rgba(255,255,255,0.92)'}
             />
-            <LiveRoomText style={styles.railLabel}>{following ? 'Following' : 'Follow'}</LiveRoomText>
+            <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize }]}>
+              {following ? 'Following' : 'Follow'}
+            </LiveRoomText>
           </Pressable>
         ) : null}
         <Pressable
@@ -774,8 +784,10 @@ function LiveSlide({
           }}
           accessibilityLabel="Message seller privately"
         >
-          <Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.gold} />
-          <LiveRoomText style={[styles.railLabel, { color: colors.gold }]}>Message</LiveRoomText>
+          <Ionicons name="chatbubble-ellipses-outline" size={railIconSize} color={colors.gold} />
+          <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize, color: colors.gold }]}>
+            Message
+          </LiveRoomText>
         </Pressable>
         {!moderation.isHost ? (
           <Pressable
@@ -793,8 +805,10 @@ function LiveSlide({
             }}
             accessibilityLabel="Send a tip"
           >
-            <Ionicons name="cash-outline" size={22} color={colors.gold} />
-            <LiveRoomText style={[styles.railLabel, { color: colors.gold }]}>Tip</LiveRoomText>
+            <Ionicons name="cash-outline" size={railIconSize} color={colors.gold} />
+            <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize, color: colors.gold }]}>
+              Tip
+            </LiveRoomText>
           </Pressable>
         ) : null}
         <Pressable
@@ -808,8 +822,12 @@ function LiveSlide({
           }}
           accessibilityLabel="Vault Wallet"
         >
-          <Ionicons name="wallet-outline" size={compact ? 20 : 22} color="rgba(255,255,255,0.92)" />
-          <LiveRoomText style={styles.railLabel}>Wallet</LiveRoomText>
+          <Ionicons
+            name="wallet-outline"
+            size={compact ? Math.max(20, railIconSize - 2) : railIconSize}
+            color="rgba(255,255,255,0.92)"
+          />
+          <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize }]}>Wallet</LiveRoomText>
         </Pressable>
         <Pressable
           style={styles.railBtn}
@@ -822,8 +840,8 @@ function LiveSlide({
           }}
           accessibilityLabel="Shop this room"
         >
-          <Ionicons name="bag-handle-outline" size={22} color="rgba(255,255,255,0.92)" />
-          <LiveRoomText style={styles.railLabel}>Shop</LiveRoomText>
+          <Ionicons name="bag-handle-outline" size={railIconSize} color="rgba(255,255,255,0.92)" />
+          <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize }]}>Shop</LiveRoomText>
         </Pressable>
         <Pressable
           style={styles.railBtn}
@@ -835,8 +853,8 @@ function LiveSlide({
             void shareClipFromRoom();
           }}
         >
-          <Ionicons name="cut-outline" size={22} color="rgba(255,255,255,0.92)" />
-          <LiveRoomText style={styles.railLabel}>Clip</LiveRoomText>
+          <Ionicons name="cut-outline" size={railIconSize} color="rgba(255,255,255,0.92)" />
+          <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize }]}>Clip</LiveRoomText>
         </Pressable>
         <Pressable
           style={styles.railBtn}
@@ -848,8 +866,8 @@ function LiveSlide({
             void shareRoom();
           }}
         >
-          <Ionicons name="share-outline" size={22} color="rgba(255,255,255,0.92)" />
-          <LiveRoomText style={styles.railLabel}>Share</LiveRoomText>
+          <Ionicons name="share-outline" size={railIconSize} color="rgba(255,255,255,0.92)" />
+          <LiveRoomText style={[styles.railLabel, { fontSize: railLabelSize }]}>Share</LiveRoomText>
         </Pressable>
       </View>
 
@@ -862,6 +880,7 @@ function LiveSlide({
         rightEdge={chatRightEdge}
         maxHeight={chatMaxHeight}
         compact={compact}
+        overlayScale={overlayScale}
         isActive={isActive}
         streamKey={stream.id}
         liveRoomId={stream.id}
@@ -889,7 +908,7 @@ function LiveSlide({
           }}
           pointerEvents="none"
         >
-          <PinnedModeratorBar pinned={pinnedModerator} compact={compact} />
+          <PinnedModeratorBar pinned={pinnedModerator} compact={compact} overlayScale={overlayScale} />
         </View>
       ) : null}
 
@@ -972,6 +991,7 @@ function LiveSlide({
           slowModeSeconds={moderation.slowModeSeconds ?? 0}
           cooldownSeconds={slowMode.cooldownSeconds}
           chatBlocked={slowMode.chatBlocked}
+          overlayScale={overlayScale}
         />
       ) : null}
 
@@ -991,6 +1011,7 @@ function LiveSlide({
         accessToken={accessToken}
         liveRoomId={stream.id}
         inputRef={chatComposerRef}
+        overlayScale={overlayScale}
         leadingAccessory={
           showModeratorTools(modActor.isModerator, modActor.canModerate, modActor.isHost) ? (
             <ModeratorToolsButton onPress={() => setModDrawerOpen(true)} />
@@ -1003,7 +1024,8 @@ function LiveSlide({
           style={{
             position: 'absolute',
             left: 0,
-            top: '38%',
+            top: '50%',
+            transform: [{ translateY: -48 }],
             zIndex: 15,
           }}
           pointerEvents="box-none"

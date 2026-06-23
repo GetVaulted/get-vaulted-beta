@@ -10,12 +10,20 @@ describe("live-coming-soon", () => {
     vi.unstubAllEnvs();
   });
 
-  it("blocks when no flags and not a beta deploy host", () => {
+  it("blocks when no flags and host is not production or beta", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("LIVE_MARKETPLACE_ENABLED", "");
+    vi.stubEnv("URL", "https://preview.example.com");
+    expect(isLiveMarketplacePubliclyAvailable()).toBe(false);
+    expect(isLiveMarketplaceBlocked()).toBe(true);
+  });
+
+  it("allows shopgetvaulted.com production deploy via URL", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("LIVE_MARKETPLACE_ENABLED", "");
     vi.stubEnv("URL", "https://shopgetvaulted.com");
-    expect(isLiveMarketplacePubliclyAvailable()).toBe(false);
-    expect(isLiveMarketplaceBlocked()).toBe(true);
+    expect(isLiveMarketplaceBetaDeploy()).toBe(true);
+    expect(isLiveMarketplacePubliclyAvailable()).toBe(true);
   });
 
   it("allows when LIVE_MARKETPLACE_ENABLED is set", () => {

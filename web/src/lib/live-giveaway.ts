@@ -15,7 +15,7 @@ import {
 } from "@/lib/live-giveaway-presence";
 import { prisma } from "@/lib/prisma";
 import { emitLiveRoomGiveawaysChanged, emitPurchaseCompleted, emitVaultRevealSpin } from "@/lib/realtime-emit-server";
-import { VAULT_SEAL_TOTAL_MS } from "@/lib/vault-reveal-spin";
+import { VAULT_REVEAL_DEFAULT_DURATION_MS } from "@/lib/vault-reveal-spin";
 
 export { LIVE_GIVEAWAY_DEFAULT_ENTRY_DURATION_MS } from "@/lib/giveaway-countdown";
 
@@ -343,7 +343,7 @@ async function executeGiveawayDraw(
     labels,
     winnerIndex: Math.max(0, winnerIndex),
     winnerLabel,
-    durationMs: VAULT_SEAL_TOTAL_MS,
+    durationMs: VAULT_REVEAL_DEFAULT_DURATION_MS,
     referenceId: row.id,
   });
 

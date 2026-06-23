@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Animated,
   Easing,
   Modal,
@@ -9,11 +8,13 @@ import {
   Text,
   View,
 } from 'react-native';
-import Svg, { G, Path, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, G, Path, Text as SvgText } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   landingRotationDeg,
   VAULT_REVEAL_RESULT_HOLD_MS,
+  vaultSealMetaLine,
+  vaultSealWinnerCopy,
   type VaultRevealSpinPayload,
 } from '../../lib/vaultRevealSpin';
 import { NFL_DIVISION_COLORS, NFL_TEAM_COLORS } from '../../lib/liveBreakPresets';
@@ -23,6 +24,7 @@ const WHEEL_SIZE = 300;
 const CX = WHEEL_SIZE / 2;
 const CY = WHEEL_SIZE / 2;
 const R = WHEEL_SIZE / 2 - 4;
+const PEG_COUNT = 32;
 const SEGMENT_COLORS = ['#047857', '#059669', '#10b981', '#34d399', '#065f46', '#0d9488'];
 
 function segmentColor(label: string, abbr?: string) {
@@ -100,7 +102,8 @@ export function VaultRevealWheelOverlay({
       seenRef.current = spin.spinId;
       setPhase('spinning');
       anim.setValue(0);
-      const target = landingRotationDeg(spin.winnerIndex, spin.labels.length, 6);
+      const extraSpins = spin.labels.length > 20 ? 7 : spin.labels.length > 10 ? 6 : 5;
+      const target = landingRotationDeg(spin.winnerIndex, spin.labels.length, extraSpins);
       Animated.timing(anim, {
         toValue: target,
         duration: spin.durationMs,
@@ -128,8 +131,7 @@ export function VaultRevealWheelOverlay({
 
   if (!spin) return null;
 
-  const winner = spin.winnerLabel.replace(/^@/, '');
-  const buyer = spin.buyerUsername?.replace(/^@/, '');
+  const winner = vaultSealWinnerCopy(spin);
 
   return (
     <Modal visible animationType="fade" transparent statusBarTranslucent onRequestClose={onDismiss}>
@@ -137,19 +139,34 @@ export function VaultRevealWheelOverlay({
         <View style={styles.header}>
           <Text style={styles.kicker}>{spinKindCopy(spin.kind)}</Text>
           <Pressable onPress={onDismiss} hitSlop={12}>
-            <Text style={styles.close}>Close</Text>
+            <Text style={styles.close}>{phase === 'done' ? 'Continue' : 'Skip'}</Text>
           </Pressable>
         </View>
         <Text style={styles.title} numberOfLines={2}>
           {spin.title}
         </Text>
-        <Text style={styles.meta}>
-          {spin.labels.length} remaining · premium wheel
-        </Text>
+        <Text style={styles.meta}>{vaultSealMetaLine(spin)}</Text>
 
         <View style={styles.wheelGlow} />
         <View style={styles.wheelWrap}>
           <View style={styles.pointer} />
+          <Svg width={WHEEL_SIZE + 24} height={WHEEL_SIZE + 24} style={styles.pegRing}>
+            {Array.from({ length: PEG_COUNT }, (_, i) => {
+              const angle = (i / PEG_COUNT) * 360 - 90;
+              const rad = (angle * Math.PI) / 180;
+              const pegR = R + 10;
+              return (
+                <Circle
+                  key={i}
+                  cx={CX + 12 + pegR * Math.cos(rad)}
+                  cy={CY + 12 + pegR * Math.sin(rad)}
+                  r={i % 2 === 0 ? 3 : 2.2}
+                  fill={i % 2 === 0 ? '#fcd34d' : '#d4af37'}
+                  opacity={0.75}
+                />
+              );
+            })}
+          </Svg>
           <Animated.View style={{ transform: [{ rotate: spinInterpolate }] }}>
             <Svg width={WHEEL_SIZE} height={WHEEL_SIZE}>
               {segments.map((seg, i) => (
@@ -177,26 +194,13 @@ export function VaultRevealWheelOverlay({
 
         {phase === 'done' ? (
           <View style={styles.winnerBox}>
-            <Text style={styles.winnerKicker}>
-              {spin.kind === 'random_reveal' ? 'Your team' : spin.kind === 'break_pyt' ? 'First pick' : 'Winner'}
-            </Text>
-            <Text style={styles.winnerName}>{winner}</Text>
-            {buyer ? <Text style={styles.buyerName}>@{buyer}</Text> : spin.kind === 'giveaway' ? (
-              <Text style={styles.buyerName}>@{winner}</Text>
-            ) : null}
-            {spin.kind === 'random_reveal' ? (
-              <Text style={styles.assignMeta}>
-                Removed from wheel · {Math.max(0, spin.labels.length - 1)} left
-              </Text>
-            ) : spin.kind === 'break_pyt' && spin.assignments?.length ? (
-              <Text style={styles.assignMeta}>Full order locked · {spin.assignments.length} spots</Text>
-            ) : null}
+            <Text style={styles.winnerKicker}>{winner.kicker}</Text>
+            <Text style={styles.winnerName}>{winner.primary}</Text>
+            {winner.sub ? <Text style={styles.winnerSub}>{winner.sub}</Text> : null}
+            {winner.detail ? <Text style={styles.winnerDetail}>{winner.detail}</Text> : null}
           </View>
         ) : (
-          <View style={styles.spinningRow}>
-            <ActivityIndicator color={colors.gold} size="small" />
-            <Text style={styles.spinningTxt}>Spinning…</Text>
-          </View>
+          <Text style={styles.spinningTxt}>Spinning…</Text>
         )}
       </View>
     </Modal>
@@ -206,7 +210,7 @@ export function VaultRevealWheelOverlay({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.92)',
+    backgroundColor: 'rgba(3,3,5,0.96)',
     paddingHorizontal: spacing.lg,
     alignItems: 'center',
   },
@@ -235,67 +239,74 @@ const styles = StyleSheet.create({
   meta: { fontSize: 12, color: colors.textMuted, marginBottom: spacing.lg },
   wheelGlow: {
     position: 'absolute',
-    width: WHEEL_SIZE + 48,
-    height: WHEEL_SIZE + 48,
-    borderRadius: (WHEEL_SIZE + 48) / 2,
-    backgroundColor: 'rgba(212,175,55,0.12)',
-    top: '38%',
+    width: WHEEL_SIZE + 56,
+    height: WHEEL_SIZE + 56,
+    borderRadius: (WHEEL_SIZE + 56) / 2,
+    backgroundColor: 'rgba(212,175,55,0.16)',
+    top: '36%',
   },
   wheelWrap: {
-    width: WHEEL_SIZE,
-    height: WHEEL_SIZE,
+    width: WHEEL_SIZE + 24,
+    height: WHEEL_SIZE + 24,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.lg,
-    borderWidth: 3,
-    borderColor: 'rgba(212,175,55,0.45)',
-    borderRadius: WHEEL_SIZE / 2,
+  },
+  pegRing: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
   },
   pointer: {
     position: 'absolute',
-    top: -6,
+    top: 2,
     zIndex: 3,
     width: 0,
     height: 0,
-    borderLeftWidth: 12,
-    borderRightWidth: 12,
-    borderBottomWidth: 22,
+    borderLeftWidth: 14,
+    borderRightWidth: 14,
+    borderBottomWidth: 24,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
     borderBottomColor: colors.gold,
   },
   hub: {
     position: 'absolute',
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: '#111',
     borderWidth: 2,
     borderColor: colors.gold,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 2,
+    shadowColor: colors.gold,
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
   },
-  hubTxt: { fontSize: 12, fontWeight: '900', color: colors.gold },
+  hubTxt: { fontSize: 13, fontWeight: '900', color: colors.gold },
   winnerBox: {
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: 'rgba(16,185,129,0.45)',
-    backgroundColor: 'rgba(16,185,129,0.15)',
+    borderColor: 'rgba(212,175,55,0.45)',
+    backgroundColor: 'rgba(212,175,55,0.12)',
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.md,
     alignItems: 'center',
+    width: '100%',
+    maxWidth: 360,
   },
   winnerKicker: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#6ee7b7',
+    color: '#fcd34d',
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
-  winnerName: { fontSize: 24, fontWeight: '900', color: '#ecfdf5', marginTop: 4 },
-  buyerName: { fontSize: 14, fontWeight: '700', color: '#6ee7b7', marginTop: 4 },
-  assignMeta: { fontSize: 10, color: '#a7f3d0', marginTop: 4 },
-  spinningRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  spinningTxt: { fontSize: 14, fontWeight: '600', color: colors.textSecondary },
+  winnerName: { fontSize: 28, fontWeight: '900', color: '#fafafa', marginTop: 6 },
+  winnerSub: { fontSize: 14, fontWeight: '600', color: '#d4d4d8', marginTop: 6 },
+  winnerDetail: { fontSize: 16, fontWeight: '700', color: '#fde68a', marginTop: 4, textAlign: 'center' },
+  spinningTxt: { fontSize: 14, fontWeight: '700', color: colors.gold, letterSpacing: 1.2 },
 });

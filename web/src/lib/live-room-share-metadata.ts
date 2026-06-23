@@ -57,7 +57,7 @@ export function publicSiteBaseUrl(): string {
     process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
     process.env.NEXTAUTH_URL?.trim() ||
     process.env.URL?.trim() ||
-    "https://beta.shopgetvaulted.com";
+    CANONICAL_SHARE_SITE_FALLBACK;
   const withProto = raw.includes("://") ? raw : `https://${raw}`;
   return withProto.replace(/\/$/, "");
 }

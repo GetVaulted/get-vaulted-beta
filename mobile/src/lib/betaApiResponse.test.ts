@@ -22,7 +22,7 @@ describe('betaApiResponse', () => {
     const res = new Response('', { status: 404, headers: { 'content-type': 'text/html' } });
     const preview = '<!DOCTYPE html><html><title>Page not found</title>';
     expect(classifyApiResponse(res, preview)).toBe('html_edge');
-    expect(apiFailureErrorMessage(res, null, preview)).toContain('beta.shopgetvaulted.com');
+    expect(apiFailureErrorMessage(res, null, preview)).toContain('shopgetvaulted.com');
   });
 
   it('classifies app JSON 401', () => {

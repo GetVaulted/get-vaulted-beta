@@ -2,7 +2,7 @@
 
 export function getSiteBaseUrl(): string {
   const raw = process.env.EXPO_PUBLIC_SITE_URL?.trim();
-  return (raw?.replace(/\/$/, '') || 'https://beta.shopgetvaulted.com');
+  return (raw?.replace(/\/$/, '') || 'https://shopgetvaulted.com');
 }
 
 export const siteUrls = {
@@ -11,6 +11,6 @@ export const siteUrls = {
   termsSellerObligations: () => `${getSiteBaseUrl()}/terms#seller-obligations`,
   communityGuidelines: () => `${getSiteBaseUrl()}/community-guidelines`,
   reportingSafety: () => `${getSiteBaseUrl()}/reporting-safety`,
-  support: () => `${getSiteBaseUrl()}/support.html`,
+  support: () => `${getSiteBaseUrl()}/support`,
   home: () => `${getSiteBaseUrl()}/`,
 };

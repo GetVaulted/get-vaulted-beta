@@ -58,7 +58,6 @@ export function LiveVariantSelectionSheet({
   onPurchased,
 }: LiveVariantSelectionSheetProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [quantity, setQuantity] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,7 +68,7 @@ export function LiveVariantSelectionSheet({
   const pickerBase = variantBuyerSelectLabel(item.salesFormat, isRandom);
   const pickerTitle = selected ? `${pickerBase}: ${selected.label}` : pickerBase;
   const unitPrice = selected?.priceUsd ?? spotSummary.fromPrice ?? 0;
-  const maxQty = selected ? Math.max(1, selected.quantityRemaining) : 1;
+  const quantity = 1;
 
   const total = useMemo(() => {
     if (!selected) return 0;
@@ -79,7 +78,6 @@ export function LiveVariantSelectionSheet({
   useEffect(() => {
     if (!open) {
       setSelectedId(null);
-      setQuantity(1);
       setError(null);
       setBusy(false);
       return;
@@ -89,10 +87,6 @@ export function LiveVariantSelectionSheet({
       if (available) setSelectedId(available.id);
     }
   }, [open, isRandom, variants]);
-
-  useEffect(() => {
-    setQuantity(1);
-  }, [selectedId]);
 
   if (!open || !isVariantSalesFormat(item.salesFormat) || variants.length === 0) return null;
 
@@ -242,28 +236,6 @@ export function LiveVariantSelectionSheet({
                   ? "All spots sold"
                   : `${spotSummary.available} spot${spotSummary.available === 1 ? "" : "s"} remaining`}
               </p>
-            </div>
-            <div className="flex flex-col items-center gap-1">
-              <span className="text-[9px] font-extrabold uppercase tracking-wide text-zinc-500">Qty</span>
-              <div className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-black/35 px-1 py-1">
-                <button
-                  type="button"
-                  disabled={quantity <= 1 || !selected}
-                  onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                  className="size-7 rounded-md bg-white/[0.06] text-sm font-bold text-white disabled:opacity-35"
-                >
-                  −
-                </button>
-                <span className="min-w-[1.25rem] text-center font-mono text-sm font-black text-white">{quantity}</span>
-                <button
-                  type="button"
-                  disabled={!selected || quantity >= maxQty}
-                  onClick={() => setQuantity((q) => Math.min(maxQty, q + 1))}
-                  className="size-7 rounded-md bg-white/[0.06] text-sm font-bold text-white disabled:opacity-35"
-                >
-                  +
-                </button>
-              </div>
             </div>
           </div>
 

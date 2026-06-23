@@ -74,7 +74,6 @@ export function LiveBreakSpotGridSheet({
   const { confirmPayment } = useStripe();
   const isDivisionBreak = salesFormat === 'team_break';
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [quantity, setQuantity] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,7 +84,7 @@ export function LiveBreakSpotGridSheet({
   const pickerBaseLabel = variantSelectSpotLabel(salesFormat, isRandom);
 
   const unitPrice = selected?.priceUsd ?? spotSummary.fromPriceUsd ?? 0;
-  const maxQty = selected ? Math.max(1, selected.quantityRemaining) : 1;
+  const quantity = 1;
 
   const total = useMemo(() => {
     if (!selected) return 0;
@@ -95,7 +94,6 @@ export function LiveBreakSpotGridSheet({
   useEffect(() => {
     if (!visible) {
       setSelectedId(null);
-      setQuantity(1);
       setError(null);
       setBusy(false);
       return;
@@ -106,13 +104,8 @@ export function LiveBreakSpotGridSheet({
     }
     if (selectedId && !sortedVariants.some((v) => v.id === selectedId && variantIsAvailable(v))) {
       setSelectedId(null);
-      setQuantity(1);
     }
   }, [isRandom, selectedId, sortedVariants, visible]);
-
-  useEffect(() => {
-    setQuantity(1);
-  }, [selectedId]);
 
   const pickerTitle = selected
     ? `${pickerBaseLabel}: ${selected.label}`
@@ -164,7 +157,6 @@ export function LiveBreakSpotGridSheet({
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         onPurchased();
         setSelectedId(null);
-        setQuantity(1);
         if (spotSummary.available <= quantity) {
           onClose();
         }
@@ -187,7 +179,6 @@ export function LiveBreakSpotGridSheet({
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
           onPurchased();
           setSelectedId(null);
-          setQuantity(1);
           if (spotSummary.available <= quantity) {
             onClose();
           }
@@ -264,26 +255,6 @@ export function LiveBreakSpotGridSheet({
                     ? 'All spots sold'
                     : `${spotSummary.available} spot${spotSummary.available === 1 ? '' : 's'} remaining`}
                 </LiveRoomText>
-              </View>
-              <View style={styles.qtyCol}>
-                <LiveRoomText style={styles.qtyLabel}>Qty</LiveRoomText>
-                <View style={styles.qtyControl}>
-                  <Pressable
-                    style={[styles.qtyBtn, quantity <= 1 && styles.qtyBtnDisabled]}
-                    disabled={quantity <= 1 || !selected}
-                    onPress={() => setQuantity((q) => Math.max(1, q - 1))}
-                  >
-                    <LiveRoomText style={styles.qtyBtnText}>−</LiveRoomText>
-                  </Pressable>
-                  <LiveRoomText style={styles.qtyValue}>{quantity}</LiveRoomText>
-                  <Pressable
-                    style={[styles.qtyBtn, (!selected || quantity >= maxQty) && styles.qtyBtnDisabled]}
-                    disabled={!selected || quantity >= maxQty}
-                    onPress={() => setQuantity((q) => Math.min(maxQty, q + 1))}
-                  >
-                    <LiveRoomText style={styles.qtyBtnText}>+</LiveRoomText>
-                  </Pressable>
-                </View>
               </View>
             </View>
 

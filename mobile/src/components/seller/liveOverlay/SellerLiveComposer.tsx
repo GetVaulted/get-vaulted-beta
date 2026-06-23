@@ -1,9 +1,9 @@
 import { useRef, type ReactNode, type RefObject } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import {
-  COMPOSER_BAR_H,
   FloatingChatComposer,
 } from '../../live/floatingLiveChat';
+import { scaledComposerBarHeight } from '../../../lib/liveRoomBottomLayout';
 import type { MentionComposerInputHandle } from '../../mentions/MentionComposerInput';
 import { colors } from '../../../theme';
 
@@ -21,6 +21,7 @@ export function SellerLiveComposer({
   leadingAccessory,
   placeholder,
   inputRef,
+  overlayScale = 1,
 }: {
   bottom: number;
   left: number;
@@ -35,9 +36,11 @@ export function SellerLiveComposer({
   leadingAccessory?: ReactNode;
   placeholder?: string;
   inputRef?: RefObject<MentionComposerInputHandle | null>;
+  overlayScale?: number;
 }) {
   const glow = useRef(new Animated.Value(0)).current;
   const active = value.trim().length > 0;
+  const barHeight = scaledComposerBarHeight(overlayScale ?? 1);
 
   return (
     <Animated.View
@@ -47,7 +50,7 @@ export function SellerLiveComposer({
           bottom,
           left,
           right: rightEdge,
-          height: COMPOSER_BAR_H,
+          height: barHeight,
           shadowOpacity: active ? 0.55 : 0.28,
         },
       ]}
@@ -85,6 +88,7 @@ export function SellerLiveComposer({
           liveRoomId={liveRoomId}
           leadingAccessory={leadingAccessory}
           inputRef={inputRef}
+          overlayScale={overlayScale}
         />
       </View>
     </Animated.View>

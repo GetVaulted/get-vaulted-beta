@@ -1,9 +1,9 @@
 "use client";
 
 import type { VaultRevealSpinPayload } from "@/lib/vault-reveal-spin";
-import { VaultSealRevealOverlay } from "@/components/live-auction/VaultSealRevealOverlay";
+import { VaultRevealWheelOverlay } from "@/components/live-auction/VaultRevealWheelOverlay";
 
-/** Giveaways, PYT randomizer, and per-spot random reveals all use the Vault Seal. */
+/** Giveaways, PYT randomizer, and per-spot random reveals all use the premium wheel. */
 export function VaultRevealOverlay({
   spin,
   onDismiss,
@@ -11,5 +11,5 @@ export function VaultRevealOverlay({
   spin: VaultRevealSpinPayload | null;
   onDismiss: () => void;
 }) {
-  return <VaultSealRevealOverlay spin={spin} onDismiss={onDismiss} />;
+  return <VaultRevealWheelOverlay spin={spin} onDismiss={onDismiss} />;
 }

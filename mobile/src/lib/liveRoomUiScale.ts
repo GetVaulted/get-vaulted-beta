@@ -35,16 +35,27 @@ export function isTabletLiveRoomLayout(layoutWidth: number): boolean {
   return layoutWidth >= 600;
 }
 
+/** Large tablet / iPad landscape — overlay typography and controls scale up here only. */
+export function isIpadLiveRoomLayout(layoutWidth: number): boolean {
+  return layoutWidth >= 768;
+}
+
 /**
- * Buyer/seller commerce overlay scale — shrinks on small phones, grows on tablets
- * so text and CTAs stay legible on wide screens.
+ * Buyer/seller commerce overlay scale — shrinks on small phones, grows on iPad
+ * so chat, timers, item boxes, and CTAs stay legible on wide screens.
  */
 export function liveRoomHudScale(layoutWidth: number): number {
   const safe = Math.max(1, layoutWidth);
   if (safe < 400) return liveRoomCompactScale(safe);
-  if (safe >= 768) return Math.min(1.28, safe / APP_REF_WIDTH);
-  if (safe >= 600) return Math.min(1.18, safe / APP_REF_WIDTH);
+  if (safe >= 1024) return 1.72;
+  if (safe >= 768) return 1.65;
+  if (safe >= 600) return Math.min(1.12, safe / APP_REF_WIDTH);
   return 1;
+}
+
+/** Alias — chat/composer overlays use the same scale as the commerce HUD. */
+export function liveRoomOverlayScale(layoutWidth: number): number {
+  return isIpadLiveRoomLayout(layoutWidth) ? liveRoomHudScale(layoutWidth) : 1;
 }
 
 export function computeLiveRoomUiMetrics(

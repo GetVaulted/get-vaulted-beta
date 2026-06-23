@@ -133,7 +133,7 @@ export function LiveDiscoveryScreen() {
 
   const load = useCallback(async (opts?: { hadCache?: boolean; bustCache?: boolean; force?: boolean }) => {
     if (!isSupabaseConfigured() && !getWebApiBaseUrl()) {
-      setDiscoveryError('Set EXPO_PUBLIC_SITE_URL to https://beta.shopgetvaulted.com for live discovery.');
+      setDiscoveryError('Set EXPO_PUBLIC_SITE_URL to https://shopgetvaulted.com for live discovery.');
       setInitialLoad(false);
       return;
     }

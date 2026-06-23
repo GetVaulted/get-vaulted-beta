@@ -14,7 +14,7 @@ function signupRedirectUrl(): string {
   const base =
     process.env.NEXTAUTH_URL?.trim() ||
     process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    "https://beta.shopgetvaulted.com";
+    "https://shopgetvaulted.com";
   return `${base.replace(/\/+$/, "")}/signin`;
 }
 

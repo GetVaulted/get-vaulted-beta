@@ -24,7 +24,7 @@ export const VAULT_REVEAL_RESULT_HOLD_MS = 1600;
 export const VAULT_REVEAL_TOTAL_DISPLAY_MS =
   VAULT_REVEAL_DEFAULT_DURATION_MS + VAULT_REVEAL_RESULT_HOLD_MS;
 
-/** Giveaway Vault Seal reveal (replaces wheel for kind === "giveaway"). */
+/** Giveaway Vault Seal reveal (legacy — wheel is used for all kinds in the UI). */
 export const VAULT_SEAL_GLOW_MS = 400;
 export const VAULT_SEAL_BREAK_MS = 600;
 export const VAULT_SEAL_WINNER_HOLD_MS = 1600;

@@ -36,9 +36,12 @@ export const SUPABASE_OAUTH_REDIRECT_ALLOWLIST = [
   "https://beta.shopgetvaulted.com/auth/callback",
   "https://beta.shopgetvaulted.com/auth/callback/**",
   "https://shopgetvaulted.com/auth/callback",
+  "https://shopgetvaulted.com/auth/callback/**",
   "https://www.shopgetvaulted.com/auth/callback",
+  "https://www.shopgetvaulted.com/auth/callback/**",
   "http://localhost:3000/mobile/auth/callback",
   "https://beta.shopgetvaulted.com/mobile/auth/callback",
   "https://shopgetvaulted.com/mobile/auth/callback",
+  "https://www.shopgetvaulted.com/mobile/auth/callback",
   "getvaulted://auth/callback",
 ] as const;

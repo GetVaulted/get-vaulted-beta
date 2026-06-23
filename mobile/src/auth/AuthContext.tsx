@@ -119,7 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             },
             emailRedirectTo:
               process.env.EXPO_PUBLIC_SITE_URL?.trim()?.replace(/\/+$/, '') ||
-              'https://beta.shopgetvaulted.com',
+              'https://shopgetvaulted.com',
           },
         });
       };

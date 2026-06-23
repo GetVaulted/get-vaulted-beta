@@ -71,7 +71,7 @@ function apiErrorMessage(res: Response, body: unknown, apiBase?: string): string
   if (code === "LIVE_COMING_SOON" || status === 503) {
     return (
       errText ??
-      'Live is disabled on this server. Use https://beta.shopgetvaulted.com or set LIVE_MARKETPLACE_ENABLED=1 on the API host.'
+      'Live is disabled on this server. Use https://shopgetvaulted.com or set LIVE_MARKETPLACE_ENABLED=1 on the API host.'
     );
   }
   if (code === "LIVE_ROOMS_LIST_FAILED" || status === 500) {

@@ -55,9 +55,9 @@ export function apiFailureErrorMessage(
   switch (kind) {
     case 'html_edge':
       if (res.status === 404) {
-        return 'API returned HTML 404 — set EXPO_PUBLIC_SITE_URL to https://beta.shopgetvaulted.com (not shopgetvaulted.com).';
+        return 'API returned HTML 404 — verify EXPO_PUBLIC_SITE_URL is your Next.js host (https://shopgetvaulted.com).';
       }
-      return 'Edge/WAF returned HTML instead of JSON — verify EXPO_PUBLIC_SITE_URL is https://beta.shopgetvaulted.com.';
+      return 'Edge/WAF returned HTML instead of JSON — verify EXPO_PUBLIC_SITE_URL matches your deployed API host.';
     case 'app_auth':
       return err || 'Unauthorized — sign in again or ensure the API route accepts mobile Bearer auth.';
     case 'api_forbidden':

@@ -2,7 +2,7 @@
 /terms /terms.html 200
 /support /support.html 200
 
-# Live show share links (apex marketing site → Next.js app on beta until apex runs the app)
-/live/*  https://beta.shopgetvaulted.com/live/:splat  200!
-/api/og/live/*  https://beta.shopgetvaulted.com/api/og/live/:splat  200!
-/api/live-rooms/*/share-meta  https://beta.shopgetvaulted.com/api/live-rooms/:splat/share-meta  200!
+# After production cutover: remove shopgetvaulted.com / www from THIS static Netlify site.
+# The Next.js app on Netlify serves shopgetvaulted.com directly (live, API, OG previews).
+# Until domains are moved, forward all other paths to production:
+/*  https://shopgetvaulted.com/:splat  301!

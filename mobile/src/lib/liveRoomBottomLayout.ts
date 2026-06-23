@@ -32,17 +32,25 @@ export function computeLiveRoomBottomStack(args: {
   keyboardOffset?: number;
   compact?: boolean;
   pinnedModeratorActive?: boolean;
+  /** iPad overlay scale — enlarges composer + spacing only on tablet. */
+  overlayScale?: number;
 }): LiveRoomBottomStack {
+  const overlayScale = args.overlayScale && args.overlayScale > 1 ? args.overlayScale : 1;
+  const composerHeight = Math.round(COMPOSER_BAR_HEIGHT * overlayScale);
   const keyboardOffset = Math.max(0, args.keyboardOffset ?? 0);
-  const composerGap = args.compact ? COMPACT_COMPOSER_ABOVE_HUD_GAP : COMPOSER_ABOVE_HUD_GAP;
-  const chatGap = args.compact ? COMPACT_CHAT_ABOVE_COMPOSER_GAP : CHAT_ABOVE_COMPOSER_GAP;
+  const composerGap = Math.round(
+    (args.compact ? COMPACT_COMPOSER_ABOVE_HUD_GAP : COMPOSER_ABOVE_HUD_GAP) * overlayScale,
+  );
+  const chatGap = Math.round(
+    (args.compact ? COMPACT_CHAT_ABOVE_COMPOSER_GAP : CHAT_ABOVE_COMPOSER_GAP) * overlayScale,
+  );
+  const pinnedRowHeight = Math.round(PINNED_MODERATOR_ROW_HEIGHT * overlayScale);
+  const pinnedGap = Math.round(PINNED_ABOVE_COMPOSER_GAP * overlayScale);
   const commerceBottom = args.dockPaddingBottom + keyboardOffset;
   const composerBottom = commerceBottom + args.commerceHeight + composerGap;
-  const pinnedBarBottom = composerBottom + COMPOSER_BAR_HEIGHT + PINNED_ABOVE_COMPOSER_GAP;
-  const pinnedReserve = args.pinnedModeratorActive
-    ? PINNED_MODERATOR_ROW_HEIGHT + PINNED_ABOVE_COMPOSER_GAP
-    : 0;
-  const chatBottom = composerBottom + COMPOSER_BAR_HEIGHT + chatGap + pinnedReserve;
+  const pinnedBarBottom = composerBottom + composerHeight + pinnedGap;
+  const pinnedReserve = args.pinnedModeratorActive ? pinnedRowHeight + pinnedGap : 0;
+  const chatBottom = composerBottom + composerHeight + chatGap + pinnedReserve;
   return {
     commerceBottom,
     composerBottom,
@@ -52,13 +60,22 @@ export function computeLiveRoomBottomStack(args: {
   };
 }
 
+/** Composer bar height after optional iPad overlay scale. */
+export function scaledComposerBarHeight(overlayScale = 1): number {
+  return Math.round(COMPOSER_BAR_HEIGHT * (overlayScale > 1 ? overlayScale : 1));
+}
+
 /** Cap chat stack height on small screens while preserving separation from commerce HUD. */
 export function computeChatStackMaxHeight(args: {
   slideHeight: number;
   topReserve: number;
   chatBottom: number;
+  overlayScale?: number;
 }): number {
+  const overlayScale = args.overlayScale && args.overlayScale > 1 ? args.overlayScale : 1;
   const available = args.slideHeight - args.topReserve - args.chatBottom - 12;
-  const scaled = Math.floor(available * 0.42);
-  return Math.min(248, Math.max(108, scaled));
+  const scaled = Math.floor(available * (overlayScale > 1 ? 0.48 : 0.42));
+  const cap = Math.round(248 * overlayScale);
+  const floor = Math.round(108 * overlayScale);
+  return Math.min(cap, Math.max(floor, scaled));
 }

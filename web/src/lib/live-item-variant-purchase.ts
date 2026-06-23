@@ -4,7 +4,7 @@ import { stripeCheckoutSessionPaymentOptions } from "@/lib/stripe-payment-method
 import { buildCheckoutTaxSessionFields, STRIPE_TAX_CODE_TANGIBLE, stripeLineItemProductData } from "@/lib/stripe-tax";
 import { recordLiveShowCompletedSaleTx, resolveCheckoutApplicationFeeCents } from "@/lib/live-show-gmv";
 
-import { emitLiveRoomMessagesRefetch, emitVariantPurchased } from "@/lib/realtime-emit-server";
+import { emitLiveRoomMessageById, emitLiveRoomMessagesRefetch, emitVariantPurchased } from "@/lib/realtime-emit-server";
 import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
 import { createNotification } from "@/lib/notifications";
 import { maybeMarkVariantBreakReady } from "@/lib/live-item-variant-break";
@@ -93,15 +93,30 @@ export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, st
     quantity: purchase.quantity,
     randomReveal,
   });
-  emitLiveRoomMessagesRefetch(purchase.liveRoomId);
-  void recordBuyerGiveawayPurchaseEntries(purchase.liveRoomId, purchase.buyerId, purchase.id).catch((e) => {
-    console.error("[variant purchase] buyers giveaway entry", e);
-  });
 
   const room = await prisma.liveRoom.findUnique({
     where: { id: purchase.liveRoomId },
     select: { sellerId: true },
   });
+
+  if (randomReveal && room?.sellerId && displayLabel.trim()) {
+    const username = purchase.buyer.username.replace(/^@+/, "").trim() || "Buyer";
+    const revealMsg = await prisma.liveRoomMessage.create({
+      data: {
+        liveRoomId: purchase.liveRoomId,
+        senderId: room.sellerId,
+        body: `@${username} got ${displayLabel.trim()}`,
+        messageType: "system",
+      },
+    });
+    await emitLiveRoomMessageById(revealMsg.id);
+  }
+
+  emitLiveRoomMessagesRefetch(purchase.liveRoomId);
+  void recordBuyerGiveawayPurchaseEntries(purchase.liveRoomId, purchase.buyerId, purchase.id).catch((e) => {
+    console.error("[variant purchase] buyers giveaway entry", e);
+  });
+
   if (room?.sellerId) {
     await maybeMarkVariantBreakReady(purchase.liveRoomItemId, purchase.liveRoomId, room.sellerId);
   }

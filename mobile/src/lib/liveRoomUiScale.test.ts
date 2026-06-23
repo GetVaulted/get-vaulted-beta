@@ -3,6 +3,7 @@ import {
   computeLiveRoomCanvasStyle,
   computeLiveRoomUiMetrics,
   liveRoomCanvasInsets,
+  liveRoomHudScale,
   LIVE_ROOM_REF_WIDTH,
 } from './liveRoomUiScale';
 
@@ -35,6 +36,14 @@ describe('liveRoomCanvasInsets', () => {
     const insets = liveRoomCanvasInsets(metrics, { top: 59, bottom: 34 });
     expect(insets.top).toBeCloseTo(59 / metrics.uniformScale, 5);
     expect(insets.bottom).toBeCloseTo(34 / metrics.uniformScale, 5);
+  });
+});
+
+describe('liveRoomHudScale', () => {
+  it('scales up overlays on iPad widths only', () => {
+    expect(liveRoomHudScale(390)).toBeLessThanOrEqual(1);
+    expect(liveRoomHudScale(768)).toBeGreaterThan(1.6);
+    expect(liveRoomHudScale(1024)).toBeGreaterThan(1.7);
   });
 });
 

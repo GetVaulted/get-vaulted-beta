@@ -5,6 +5,8 @@ import { segmentColorForLabel } from "@/lib/nfl-team-colors";
 import {
   landingRotationDeg,
   VAULT_REVEAL_RESULT_HOLD_MS,
+  vaultSealMetaLine,
+  vaultSealWinnerCopy,
   type VaultRevealSpinPayload,
 } from "@/lib/vault-reveal-spin";
 
@@ -20,11 +22,7 @@ function spinKindCopy(kind: VaultRevealSpinPayload["kind"]) {
   return "Giveaway";
 }
 
-function winnerHeadline(spin: VaultRevealSpinPayload) {
-  if (spin.kind === "random_reveal") return "Your team";
-  if (spin.kind === "break_pyt") return "First pick";
-  return "Winner";
-}
+const WHEEL_PEG_COUNT = 32;
 
 export function VaultRevealWheelOverlay({
   spin,
@@ -61,7 +59,8 @@ export function VaultRevealWheelOverlay({
       seenRef.current = spin.spinId;
       setPhase("spinning");
       setRotation(0);
-      const target = landingRotationDeg(spin.winnerIndex, spin.labels.length, 6);
+      const extraSpins = spin.labels.length > 20 ? 7 : spin.labels.length > 10 ? 6 : 5;
+      const target = landingRotationDeg(spin.winnerIndex, spin.labels.length, extraSpins);
       requestAnimationFrame(() => setRotation(target));
       window.setTimeout(() => setPhase("done"), spin.durationMs);
     }
@@ -74,44 +73,92 @@ export function VaultRevealWheelOverlay({
 
   if (!spin) return null;
 
-  const winner = spin.winnerLabel.replace(/^@/, "");
-  const buyer = spin.buyerUsername?.replace(/^@/, "");
+  const winner = vaultSealWinnerCopy(spin);
+  const pegs = Array.from({ length: WHEEL_PEG_COUNT }, (_, i) => i);
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center overflow-hidden bg-[#030305]/95 px-4 backdrop-blur-md">
+    <div
+      className="fixed inset-0 z-[120] flex items-center justify-center overflow-hidden bg-[#030305]/96 px-4 backdrop-blur-md"
+      role="dialog"
+      aria-live="polite"
+      aria-label={`${spinKindCopy(spin.kind)} reveal`}
+    >
       <div
-        className="pointer-events-none absolute inset-0 opacity-60"
+        className="pointer-events-none absolute inset-0 opacity-70"
         style={{
           background:
-            "radial-gradient(circle at 50% 42%, rgba(212,175,55,0.22) 0%, rgba(212,175,55,0.04) 38%, transparent 68%)",
+            "radial-gradient(circle at 50% 42%, rgba(212,175,55,0.28) 0%, rgba(212,175,55,0.06) 42%, transparent 72%)",
         }}
       />
+      {phase === "spinning" ? (
+        <div
+          className="pointer-events-none absolute inset-0 motion-safe:animate-[vault-reveal-wheel-shimmer_1.2s_ease-in-out_infinite]"
+          style={{
+            background:
+              "conic-gradient(from 0deg at 50% 50%, transparent 0deg, rgba(212,175,55,0.08) 60deg, transparent 120deg)",
+          }}
+        />
+      ) : null}
+
       <div className="relative flex w-full max-w-md flex-col items-center gap-5">
         <div className="text-center">
           <p className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-300/95">
             {spinKindCopy(spin.kind)}
           </p>
           <h2 className="mt-1 text-center text-xl font-black text-white">{spin.title}</h2>
-          <p className="mt-1 text-xs font-semibold text-zinc-500">
-            {spin.labels.length} remaining · premium wheel
-          </p>
+          <p className="mt-1 text-xs font-semibold text-zinc-500">{vaultSealMetaLine(spin)}</p>
         </div>
 
         <div className="relative flex h-[min(72vw,320px)] w-[min(72vw,320px)] items-center justify-center">
           <div
-            className={`absolute inset-[-8%] rounded-full blur-2xl transition-opacity duration-700 ${
-              phase === "spinning" ? "opacity-90 motion-safe:animate-pulse" : "opacity-50"
+            className={`absolute inset-[-14%] rounded-full blur-3xl transition-opacity duration-700 ${
+              phase === "spinning" ? "opacity-100 motion-safe:animate-pulse" : phase === "done" ? "opacity-80" : "opacity-50"
             }`}
             style={{
-              background: "radial-gradient(circle, rgba(212,175,55,0.35) 0%, rgba(212,175,55,0) 70%)",
+              background: "radial-gradient(circle, rgba(212,175,55,0.4) 0%, rgba(212,175,55,0) 70%)",
             }}
           />
+
+          <svg
+            viewBox="0 0 340 340"
+            className="pointer-events-none absolute inset-[-3%] h-[106%] w-[106%] text-amber-400/70"
+            aria-hidden
+          >
+            <circle
+              cx="170"
+              cy="170"
+              r="162"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeDasharray="4 8"
+              opacity="0.45"
+            />
+            {pegs.map((i) => {
+              const angle = (i / WHEEL_PEG_COUNT) * 360 - 90;
+              const rad = (angle * Math.PI) / 180;
+              const cx = 170 + 162 * Math.cos(rad);
+              const cy = 170 + 162 * Math.sin(rad);
+              return (
+                <circle
+                  key={i}
+                  cx={cx}
+                  cy={cy}
+                  r={phase === "spinning" && i % 2 === 0 ? 3.2 : 2.4}
+                  fill={i % 2 === 0 ? "#fcd34d" : "#d4af37"}
+                  opacity={phase === "done" && i === spin.winnerIndex % WHEEL_PEG_COUNT ? 1 : 0.65}
+                />
+              );
+            })}
+          </svg>
+
           <div className="absolute -top-2 z-30 flex flex-col items-center">
             <div className="h-0 w-0 border-x-[14px] border-b-[26px] border-x-transparent border-b-amber-300 drop-shadow-[0_0_12px_rgba(252,211,77,0.9)]" />
             <div className="mt-0.5 h-2 w-2 rounded-full bg-amber-200 shadow-[0_0_10px_rgba(252,211,77,0.9)]" />
           </div>
+
           <div
-            className="relative h-full w-full rounded-full border-[3px] border-amber-400/50 shadow-[0_0_40px_-8px_rgba(212,175,55,0.65),inset_0_0_30px_rgba(0,0,0,0.5)] transition-transform ease-[cubic-bezier(0.12,0.8,0.22,1)]"
+            className="relative h-full w-full rounded-full border-[3px] border-amber-400/55 shadow-[0_0_48px_-6px_rgba(212,175,55,0.75),inset_0_0_36px_rgba(0,0,0,0.55)] transition-transform ease-[cubic-bezier(0.08,0.82,0.17,1)]"
             style={{
               transform: `rotate(${rotation}deg)`,
               transitionDuration: phase === "spinning" ? `${spin.durationMs}ms` : "0ms",
@@ -122,6 +169,10 @@ export function VaultRevealWheelOverlay({
                 <filter id="wheel-inner-shadow">
                   <feDropShadow dx="0" dy="1" stdDeviation="1" floodOpacity="0.35" />
                 </filter>
+                <radialGradient id="wheel-hub-glow" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stopColor="#1a1a1f" />
+                  <stop offset="100%" stopColor="#050505" />
+                </radialGradient>
               </defs>
               {segments.map((seg, i) => {
                 const slice = 360 / spin.labels.length;
@@ -166,31 +217,32 @@ export function VaultRevealWheelOverlay({
               })}
             </svg>
           </div>
-          <div className="pointer-events-none absolute z-20 flex h-16 w-16 items-center justify-center rounded-full border-[2px] border-amber-300/80 bg-gradient-to-br from-zinc-900 to-black text-sm font-black text-amber-200 shadow-[0_0_24px_rgba(212,175,55,0.45)]">
+
+          <div className="pointer-events-none absolute z-20 flex h-[4.25rem] w-[4.25rem] items-center justify-center rounded-full border-[2px] border-amber-300/85 bg-gradient-to-br from-zinc-900 to-black text-sm font-black text-amber-200 shadow-[0_0_28px_rgba(212,175,55,0.55)]">
             GV
           </div>
         </div>
 
         {phase === "done" ? (
-          <div className="vault-reveal-winner-pop w-full max-w-sm rounded-2xl border border-amber-400/40 bg-gradient-to-b from-amber-500/20 to-zinc-950/90 px-6 py-4 text-center shadow-[0_24px_60px_-20px_rgba(212,175,55,0.45)]">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-200/90">
-              {winnerHeadline(spin)}
-            </p>
-            <p className="mt-1 text-3xl font-black text-white">{winner}</p>
-            {buyer ? (
-              <p className="mt-1 text-sm font-semibold text-emerald-200/90">@{buyer}</p>
-            ) : spin.kind === "giveaway" ? (
-              <p className="mt-1 text-2xl font-black text-emerald-50">@{winner}</p>
-            ) : null}
-            {spin.kind === "random_reveal" ? (
-              <p className="mt-2 text-[10px] font-semibold text-zinc-400">
-                Removed from the wheel · {Math.max(0, spin.labels.length - 1)} left
-              </p>
+          <div className="vault-reveal-winner-pop w-full max-w-sm rounded-2xl border border-amber-400/45 bg-gradient-to-b from-amber-500/25 to-zinc-950/95 px-6 py-5 text-center shadow-[0_24px_60px_-20px_rgba(212,175,55,0.55)]">
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-amber-200/90">{winner.kicker}</p>
+            <p className="mt-2 text-3xl font-black tracking-tight text-white">{winner.primary}</p>
+            {winner.sub ? <p className="mt-2 text-sm font-semibold text-zinc-300">{winner.sub}</p> : null}
+            {winner.detail ? (
+              <p className="mt-1 text-base font-bold text-amber-100/95">{winner.detail}</p>
             ) : null}
           </div>
         ) : (
-          <p className="text-sm font-bold tracking-wide text-amber-100/90 motion-safe:animate-pulse">Spinning…</p>
+          <p className="text-sm font-bold tracking-[0.12em] text-amber-100/90 motion-safe:animate-pulse">Spinning…</p>
         )}
+
+        <button
+          type="button"
+          onClick={() => onDismissRef.current()}
+          className="rounded-full border border-white/10 px-8 py-2 text-xs font-bold uppercase tracking-wide text-zinc-400 transition hover:border-amber-400/35 hover:text-zinc-200"
+        >
+          {phase === "done" ? "Continue" : "Skip"}
+        </button>
       </div>
     </div>
   );

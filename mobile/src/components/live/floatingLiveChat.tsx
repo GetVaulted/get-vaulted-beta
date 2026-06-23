@@ -23,6 +23,7 @@ import {
 import { liveChatUsernameInitial } from '../../lib/liveChatAvatar';
 import { isProtectedShowHost } from '../../lib/liveModeratorPermissions';
 import { LIVE_ROOM_TEXT_PROPS } from '../../lib/liveRoomUiScale';
+import { scaledComposerBarHeight } from '../../lib/liveRoomBottomLayout';
 import { MentionComposerInput, type MentionComposerInputHandle } from '../mentions/MentionComposerInput';
 import { MentionText } from '../mentions/MentionText';
 import { LiveRoomText } from './LiveRoomText';
@@ -83,14 +84,17 @@ function ChatAvatarBubble({
   hostAvatarUrl,
   compact,
   isModeratorSender: isMod,
+  overlayScale = 1,
 }: {
   message: ChatMessage;
   hostAvatarUrl?: string | null;
   compact?: boolean;
   isModeratorSender?: boolean;
+  overlayScale?: number;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
-  const size = compact ? 22 : 24;
+  const scale = overlayScale > 1 ? overlayScale : 1;
+  const size = Math.round((compact ? 22 : 24) * scale);
   const uri = chatAvatarUri(message, hostAvatarUrl);
   const ringColor = message.isHost ? colors.gold : isMod ? colors.mod : 'rgba(255,255,255,0.28)';
   const ringWidth = message.isHost || isMod ? 1.5 : StyleSheet.hairlineWidth;
@@ -115,7 +119,7 @@ function ChatAvatarBubble({
         { width: size, height: size, borderRadius: size / 2, borderColor: ringColor, borderWidth: ringWidth },
       ]}
     >
-      <Text style={[styles.chatAvatarInitial, { fontSize: compact ? 10 : 11 }]}>
+      <Text style={[styles.chatAvatarInitial, { fontSize: Math.round((compact ? 10 : 11) * scale) }]}>
         {liveChatUsernameInitial(message.user)}
       </Text>
     </View>
@@ -136,6 +140,7 @@ function FloatingChatRow({
   compact,
   onPressChatUser,
   moderatorUserIds,
+  overlayScale = 1,
 }: {
   message: ChatMessage;
   hostAvatarUrl?: string | null;
@@ -150,7 +155,9 @@ function FloatingChatRow({
   compact?: boolean;
   onPressChatUser?: (user: { username: string; userId?: string }) => void;
   moderatorUserIds?: ReadonlySet<string>;
+  overlayScale?: number;
 }) {
+  const scale = overlayScale > 1 ? overlayScale : 1;
   const isModSender = isModeratorSender(message, hostUserId, moderatorUserIds);
   const isEvent = isViewerEventMessage(message);
   const name = isEvent ? formatViewerEventName(message.user) : formatChatDisplayName(message.user);
@@ -183,10 +190,18 @@ function FloatingChatRow({
         hostAvatarUrl={hostAvatarUrl}
         compact={compact}
         isModeratorSender={isModSender}
+        overlayScale={scale}
       />
       <View style={styles.chatTextWrap}>
         <LiveRoomText
-          style={[styles.inlineLine, compact && styles.inlineLineCompact]}
+          style={[
+            styles.inlineLine,
+            compact && styles.inlineLineCompact,
+            scale > 1 && {
+              fontSize: Math.round((compact ? 12 : 13) * scale),
+              lineHeight: Math.round((compact ? 15 : 17) * scale),
+            },
+          ]}
           numberOfLines={3}
         >
           <LiveRoomText
@@ -240,12 +255,15 @@ function FloatingChatRow({
 export function PinnedModeratorBar({
   pinned,
   compact,
+  overlayScale = 1,
 }: {
   pinned: PinnedModeratorChat;
   compact?: boolean;
+  overlayScale?: number;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
-  const size = compact ? 22 : 24;
+  const scale = overlayScale > 1 ? overlayScale : 1;
+  const size = Math.round((compact ? 22 : 24) * scale);
   const uri = pinned.avatarUrl?.trim() || null;
   const username = pinned.username.trim();
   const isHost = Boolean(pinned.isHost);
@@ -271,7 +289,7 @@ export function PinnedModeratorBar({
               { width: size, height: size, borderRadius: size / 2, borderColor: ringColor, borderWidth: ringWidth },
             ]}
           >
-            <Text style={[styles.chatAvatarInitial, { fontSize: compact ? 10 : 11 }]}>
+            <Text style={[styles.chatAvatarInitial, { fontSize: Math.round((compact ? 10 : 11) * scale) }]}>
               {username ? liveChatUsernameInitial(username) : isHost ? 'H' : 'M'}
             </Text>
           </View>
@@ -295,7 +313,14 @@ export function PinnedModeratorBar({
               </View>
             )}
           </View>
-          <LiveRoomText style={[styles.pinnedBody, compact && styles.inlineLineCompact]} numberOfLines={2}>
+          <LiveRoomText
+            style={[
+              styles.pinnedBody,
+              compact && styles.inlineLineCompact,
+              scale > 1 && { fontSize: Math.round(13 * scale), lineHeight: Math.round(17 * scale) },
+            ]}
+            numberOfLines={2}
+          >
             {pinned.body.trim()}
           </LiveRoomText>
         </View>
@@ -325,6 +350,7 @@ export function FloatingLiveChat({
   compact = false,
   onPressChatUser,
   moderatorUserIds,
+  overlayScale = 1,
 }: {
   pool: ChatMessage[];
   hostAvatarUrl?: string | null;
@@ -414,6 +440,7 @@ export function FloatingLiveChat({
             onLongPressMessage={onLongPressMessage}
             onModerationComplete={onModerationComplete}
             compact={compact}
+            overlayScale={scale}
             onPressChatUser={onPressChatUser}
             moderatorUserIds={moderatorIdSet}
           />
@@ -437,6 +464,7 @@ export function FloatingChatComposer({
   leadingAccessory,
   placeholder = COMPOSER_PLACEHOLDER,
   inputRef,
+  overlayScale = 1,
 }: {
   bottom: number;
   left: number;
@@ -452,7 +480,10 @@ export function FloatingChatComposer({
   leadingAccessory?: ReactNode;
   placeholder?: string;
   inputRef?: RefObject<MentionComposerInputHandle | null>;
+  overlayScale?: number;
 }) {
+  const scale = overlayScale > 1 ? overlayScale : 1;
+  const barHeight = scaledComposerBarHeight(scale);
   const submitLockRef = useRef(false);
   const localInputRef = useRef<MentionComposerInputHandle>(null);
   const composerRef = inputRef ?? localInputRef;
@@ -472,7 +503,7 @@ export function FloatingChatComposer({
 
   return (
     <View
-      style={[styles.composerWrap, { bottom, left, right: rightEdge, height: COMPOSER_BAR_HEIGHT }]}
+      style={[styles.composerWrap, { bottom, left, right: rightEdge, height: barHeight }]}
       pointerEvents="box-none"
     >
       {leadingAccessory}
@@ -483,10 +514,16 @@ export function FloatingChatComposer({
         style={styles.composerScroll}
         contentContainerStyle={styles.composerPillFlex}
       >
-        <View style={[styles.composerPill, leadingAccessory ? styles.composerPillWithLeading : null]}>
+        <View
+          style={[
+            styles.composerPill,
+            leadingAccessory ? styles.composerPillWithLeading : null,
+            scale > 1 && { minHeight: barHeight - 4, paddingLeft: Math.round(spacing.md * scale) },
+          ]}
+        >
           <MentionComposerInput
             ref={composerRef}
-            style={styles.composerInput}
+            style={[styles.composerInput, scale > 1 && { fontSize: Math.round(14 * scale) }]}
             value={value}
             onChangeText={onChangeText}
             accessToken={accessToken}
@@ -510,7 +547,7 @@ export function FloatingChatComposer({
           >
             <Ionicons
               name="send"
-              size={16}
+              size={Math.round(16 * scale)}
               color={canSend ? colors.gold : 'rgba(255,255,255,0.28)'}
             />
           </Pressable>

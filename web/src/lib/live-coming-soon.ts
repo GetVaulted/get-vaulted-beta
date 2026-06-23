@@ -5,9 +5,9 @@
  *
  * **Allow paths**
  * - `LIVE_MARKETPLACE_ENABLED=1` (or `true` / `yes`) — any environment
- * - Deploy host is a configured beta host (default `beta.shopgetvaulted.com`) from Netlify `URL` /
+ * - Deploy host is a configured production or beta host from Netlify `URL` /
  *   `DEPLOY_PRIME_URL`, `NEXTAUTH_URL`, `NEXT_PUBLIC_SITE_URL`, or `SITE_URL`
- * - `LIVE_MARKETPLACE_BETA=1` — force beta-style allow without hostname match
+ * - `LIVE_MARKETPLACE_BETA=1` — force allow without hostname match
  *
  * **Vitest (`NODE_ENV === "test"`):** live is treated as **on** unless `LIVE_MARKETPLACE_COMING_SOON=1`.
  *
@@ -19,6 +19,7 @@
  */
 
 const DEFAULT_BETA_LIVE_HOSTS = ["beta.shopgetvaulted.com"];
+const DEFAULT_PRODUCTION_LIVE_HOSTS = ["shopgetvaulted.com", "www.shopgetvaulted.com"];
 
 function envTruthy(v: string | undefined): boolean {
   const t = v?.trim().toLowerCase();
@@ -36,17 +37,21 @@ function hostFromDeployEnvUrl(raw: string | undefined): string | null {
   }
 }
 
-function betaLiveHosts(): Set<string> {
+function liveMarketplaceAllowedHosts(): Set<string> {
   const fromEnv = process.env.LIVE_MARKETPLACE_BETA_HOSTS?.split(",")
     .map((h) => h.trim().toLowerCase())
     .filter(Boolean);
-  return new Set([...DEFAULT_BETA_LIVE_HOSTS, ...(fromEnv ?? [])]);
+  return new Set([
+    ...DEFAULT_BETA_LIVE_HOSTS,
+    ...DEFAULT_PRODUCTION_LIVE_HOSTS,
+    ...(fromEnv ?? []),
+  ]);
 }
 
-/** Netlify beta (and similar) without requiring a separate ENABLED flag on that site. */
+/** Netlify beta or production deploy without requiring a separate ENABLED flag. */
 export function isLiveMarketplaceBetaDeploy(): boolean {
   if (envTruthy(process.env.LIVE_MARKETPLACE_BETA)) return true;
-  const allowed = betaLiveHosts();
+  const allowed = liveMarketplaceAllowedHosts();
   const deployHosts = [
     process.env.URL,
     process.env.DEPLOY_PRIME_URL,
