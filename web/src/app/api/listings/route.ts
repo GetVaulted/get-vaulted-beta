@@ -207,9 +207,7 @@ export async function GET(req: Request) {
     if (!ids.length) return NextResponse.json({ listings: [] });
     const rows = await prisma.listing.findMany({
       where: {
-        id: { in: ids },
-        ...PUBLIC_MARKETPLACE_LISTING_WHERE,
-        isCompanyListing: false,
+        AND: [{ id: { in: ids } }, PUBLIC_MARKETPLACE_LISTING_WHERE],
       },
       include: listingInclude,
     });

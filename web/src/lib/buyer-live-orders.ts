@@ -65,13 +65,11 @@ type OrderRow = Order & {
 
 type BreakSpotRow = BreakSpot & {
   liveRoom: { id: string; title: string | null; seller: { username: string | null } };
-  liveRoomItem: { title: string } | null;
 };
 
 type VariantPurchaseRow = LiveItemVariantPurchase & {
   variant: { label: string };
   liveRoom: { id: string; title: string | null; seller: { username: string | null } };
-  liveRoomItem: { title: string } | null;
 };
 
 type GiveawayWinRow = LiveGiveaway & {
@@ -127,7 +125,7 @@ function mapLiveOrder(o: OrderRow): BuyerLiveOrderRow | null {
 
 function mapBreakSpot(s: BreakSpotRow): BuyerLiveOrderRow {
   const { paymentTone, statusLabel } = toneFromBreakPaymentStatus(s.breakPaymentStatus);
-  const itemTitle = s.liveRoomItem?.title?.trim() || "Break spot";
+  const itemTitle = "Break spot";
   return {
     id: `break_spot:${s.id}`,
     kind: "break_spot",
@@ -151,7 +149,7 @@ function mapVariantPurchase(vp: VariantPurchaseRow): BuyerLiveOrderRow {
   const { paymentTone, statusLabel: baseStatus } = toneFromVariantPaymentStatus(vp.paymentStatus);
   const statusLabel =
     vp.paymentStatus === "paid" && vp.revealedLabel ? "Team revealed" : baseStatus;
-  const itemTitle = vp.liveRoomItem?.title?.trim() || "Live spot";
+  const itemTitle = vp.variant.label.trim() || "Live spot";
   return {
     id: `variant_purchase:${vp.id}`,
     kind: "variant_purchase",
@@ -206,7 +204,6 @@ export async function fetchBuyerLiveOrders(buyerId: string): Promise<BuyerLiveOr
             seller: { select: { username: true } },
           },
         },
-        liveRoomItem: { select: { title: true } },
       },
       orderBy: { createdAt: "desc" },
       take: 100,
@@ -222,7 +219,6 @@ export async function fetchBuyerLiveOrders(buyerId: string): Promise<BuyerLiveOr
             seller: { select: { username: true } },
           },
         },
-        liveRoomItem: { select: { title: true } },
       },
       orderBy: { createdAt: "desc" },
       take: 100,

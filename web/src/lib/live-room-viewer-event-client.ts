@@ -1,3 +1,12 @@
+import { VIEWER_JOIN_DEDUPE_WINDOW_MS } from "@/lib/live-room-viewer-events";
+
+const JOIN_COOLDOWN_MS = VIEWER_JOIN_DEDUPE_WINDOW_MS;
+const joinInFlightByRoom = new Map<string, Promise<void>>();
+
+function joinCooldownKey(roomId: string): string {
+  return `gv:live-room-join:${roomId}`;
+}
+
 /** Persisted join announcement with 30s client cooldown (matches server dedupe). */
 export async function announceLiveRoomJoin(roomId: string): Promise<void> {
   if (typeof window === "undefined") return;

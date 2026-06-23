@@ -128,6 +128,8 @@ export function AccountOrdersPage() {
     );
   }
 
+  const marketplaceRows = rows ?? [];
+
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
       <div
@@ -203,7 +205,7 @@ export function AccountOrdersPage() {
               Browse marketplace
             </Link>
           </div>
-        ) : view === "marketplace" && rows.length === 0 ? (
+        ) : view === "marketplace" && marketplaceRows.length === 0 ? (
           <div className="mt-10 rounded-2xl border border-white/[0.08] bg-[#0a0a0d]/80 px-6 py-16 text-center">
             <p className="font-display text-lg font-semibold text-foreground">You haven&apos;t purchased anything yet.</p>
             <p className="mt-2 text-sm text-zinc-500">
@@ -235,7 +237,7 @@ export function AccountOrdersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((o) => {
+                  {marketplaceRows.map((o) => {
                     const thumb = o.listing.images[0]?.url;
                     return (
                       <tr key={o.id} className="border-b border-white/[0.05] last:border-0 hover:bg-white/[0.02]">
@@ -278,7 +280,7 @@ export function AccountOrdersPage() {
             </div>
 
             <div className="mt-6 space-y-3 md:hidden">
-              {rows.map((o) => {
+              {marketplaceRows.map((o) => {
                 const thumb = o.listing.images[0]?.url;
                 return (
                   <div key={o.id} className="rounded-xl border border-white/[0.08] bg-[#0a0a0d] p-3.5">
