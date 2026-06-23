@@ -36,10 +36,11 @@ describe('liveStreamPrefetchCache', () => {
     });
   });
 
-  it('prefetches viewer stage tokens for webrtc rooms when authed', async () => {
+  it('skips stage token prefetch when buyers use HLS playback', async () => {
     prefetchLiveStreamRooms(['room_b'], 'token');
     await vi.waitFor(() => {
-      expect(peekPrefetchedViewerStageToken('room_b')).toBe('viewer-token');
+      expect(peekCachedBuyerLiveStream('room_b')?.streamHealth).toBe('live');
     });
+    expect(peekPrefetchedViewerStageToken('room_b')).toBeNull();
   });
 });
