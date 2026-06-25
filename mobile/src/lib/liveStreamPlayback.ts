@@ -69,9 +69,9 @@ export function isStageWebrtcEnabled(): boolean {
   return process.env.EXPO_PUBLIC_LIVE_STAGE_ENABLED !== 'false';
 }
 
-/** Buyers watch IVS Low-Latency HLS — reliable for multi-hour shows. Host still publishes via WebRTC Stage. */
+/** Stage sellers publish WebRTC — buyers subscribe to the same Stage for sub-second video; HLS is failover for guests/OBS. */
 export function preferHlsOverWebrtcOnClient(): boolean {
-  return true;
+  return false;
 }
 
 /** Whether the buyer should attempt IVS Real-Time Stage subscribe (before one-shot HLS failover). */

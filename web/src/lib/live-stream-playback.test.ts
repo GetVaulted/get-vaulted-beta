@@ -64,8 +64,8 @@ describe("live-stream-playback", () => {
     Object.defineProperty(navigator, "userAgent", { configurable: true, value: original });
   });
 
-  it("preferHlsOverWebrtcOnClient is true (HLS primary for buyers)", () => {
-    expect(preferHlsOverWebrtcOnClient()).toBe(true);
+  it("preferHlsOverWebrtcOnClient is false (WebRTC primary for stage sellers)", () => {
+    expect(preferHlsOverWebrtcOnClient()).toBe(false);
   });
 
   it("shouldAttachHlsPlayback is true only for live/connecting with URL", () => {

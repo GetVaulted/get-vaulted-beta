@@ -38,15 +38,25 @@ describe('liveStreamPlayback', () => {
     expect(parsed?.stageAvailable).toBe(false);
   });
 
-  it('preferHlsOverWebrtcOnClient is true (HLS primary for buyers)', () => {
-    expect(preferHlsOverWebrtcOnClient()).toBe(true);
+  it('preferHlsOverWebrtcOnClient is false (WebRTC primary for stage sellers)', () => {
+    expect(preferHlsOverWebrtcOnClient()).toBe(false);
   });
 
-  it('shouldUseStageWebrtcPlayback is false when HLS is preferred', () => {
+  it('shouldUseStageWebrtcPlayback is true for live stage rooms when signed in', () => {
     expect(
       shouldUseStageWebrtcPlayback(
         { streamMode: 'stage_webrtc', stageAvailable: true, streamHealth: 'live' },
         false,
+        'supabase-jwt',
+      ),
+    ).toBe(true);
+  });
+
+  it('shouldUseStageWebrtcPlayback is false when HLS failover already failed twice', () => {
+    expect(
+      shouldUseStageWebrtcPlayback(
+        { streamMode: 'stage_webrtc', stageAvailable: true, streamHealth: 'live' },
+        true,
         'supabase-jwt',
       ),
     ).toBe(false);
@@ -60,24 +70,21 @@ describe('liveStreamPlayback', () => {
       shouldUseStageWebrtcPlayback(
         { streamMode: 'channel_hls', stageAvailable: true, streamHealth: 'live' },
         false,
+        'supabase-jwt',
       ),
     ).toBe(false);
     expect(
       shouldUseStageWebrtcPlayback(
         { streamMode: 'stage_webrtc', stageAvailable: false, streamHealth: 'live' },
         false,
+        'supabase-jwt',
       ),
     ).toBe(false);
     expect(
       shouldUseStageWebrtcPlayback(
         { streamMode: 'stage_webrtc', stageAvailable: true, streamHealth: 'offline' },
         false,
-      ),
-    ).toBe(false);
-    expect(
-      shouldUseStageWebrtcPlayback(
-        { streamMode: 'stage_webrtc', stageAvailable: true, streamHealth: 'live' },
-        true,
+        'supabase-jwt',
       ),
     ).toBe(false);
   });

@@ -593,13 +593,12 @@ function createStageName(roomId: string): string {
   return `vaulted-stage-${sanitized}-${Date.now()}`;
 }
 
-/** Whether the stage->channel HLS composition (overflow/replay mirror) is enabled via env. */
+/** Whether the stage->channel HLS composition (guest HLS / failover mirror) is enabled via env. */
 function stageCompositionEnabled(): boolean {
   const raw = process.env.LIVE_STAGE_COMPOSITION_ENABLED?.trim().toLowerCase();
   if (raw === "false") return false;
-  if (raw === "true") return true;
-  // Default on when encoder ARN is configured so guest HLS fallback can attach.
-  return Boolean(process.env.LIVE_STAGE_ENCODER_CONFIG_ARN?.trim());
+  // Default on: mirror Stage → IVS channel so guest HLS and WebRTC→HLS failover have segments.
+  return true;
 }
 
 /** Idempotently create (and persist) the room's IVS Real-Time Stage. */
