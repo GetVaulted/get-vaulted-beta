@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { fetchBuyerLiveStream } from '../api/liveRoomStreamRepository';
 import {
   peekCachedBuyerLiveStream,
   prefetchLiveStreamRooms,
@@ -37,6 +38,16 @@ describe('liveStreamPrefetchCache', () => {
   });
 
   it('skips stage token prefetch when buyers use HLS playback', async () => {
+    vi.mocked(fetchBuyerLiveStream).mockResolvedValueOnce({
+      playbackUrl: 'https://example.com/room_b.m3u8',
+      streamHealth: 'live',
+      streamPaused: false,
+      streamStartedAt: null,
+      streamEndedAt: null,
+      lastStatusSyncAt: null,
+      streamMode: 'channel_hls',
+      stageAvailable: false,
+    });
     prefetchLiveStreamRooms(['room_b'], 'token');
     await vi.waitFor(() => {
       expect(peekCachedBuyerLiveStream('room_b')?.streamHealth).toBe('live');
