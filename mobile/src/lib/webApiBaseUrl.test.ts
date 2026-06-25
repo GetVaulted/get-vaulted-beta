@@ -13,10 +13,8 @@ describe('webApiBaseUrl', () => {
     expect(built.url).toBe('https://beta.shopgetvaulted.com/api/account/sales/layaways');
   });
 
-  it('warns on static marketing host', () => {
-    expect(misconfiguredWebApiHostWarning('https://www.shopgetvaulted.com')).toContain(
-      'beta.shopgetvaulted.com',
-    );
+  it('does not warn on production www host', () => {
+    expect(misconfiguredWebApiHostWarning('https://www.shopgetvaulted.com')).toBeNull();
   });
 
   it('warns when origin includes a path suffix', () => {
