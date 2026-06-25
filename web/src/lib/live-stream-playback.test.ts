@@ -32,6 +32,7 @@ describe("live-stream-playback", () => {
       latencyMode: null,
       streamMode: "stage_webrtc",
       stageAvailable: true,
+      streamPaused: false,
     });
   });
 
