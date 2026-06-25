@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isAppleOAuthProviderEnabled, isGoogleOAuthProviderEnabled } from "@/lib/auth-provider-availability";
 import { supabaseProjectRefFromUrl } from "@/lib/resolve-database-url";
 import { webSignupVerificationMethod } from "@/lib/is-beta-deployment";
+import { getStripePublishableKey, isStripeConfigured } from "@/lib/stripe";
 
 /**
  * Public read-only check that beta web Supabase env is present and which project ref it targets.
@@ -33,5 +34,7 @@ export async function GET() {
       google: isGoogleOAuthProviderEnabled(),
       apple: isAppleOAuthProviderEnabled(),
     },
+    stripeConfigured: isStripeConfigured(),
+    stripePublishableKey: isStripeConfigured() ? getStripePublishableKey().trim() || null : null,
   });
 }

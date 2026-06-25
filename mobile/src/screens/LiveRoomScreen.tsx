@@ -5,6 +5,7 @@ import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 import { fetchLiveShowsForDiscovery } from '../api/liveShowsDiscoveryRepository';
 import { fetchLiveRoomPublicById, liveRoomRowToLiveStream } from '../api/liveRoomsRepository';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
+import { LiveStripeProvider } from '../components/live/LiveStripeProvider';
 import { VerticalLiveFeed } from '../components/live/VerticalLiveFeed';
 import { prefetchLiveStreamRooms } from '../lib/liveStreamPrefetchCache';
 import { getHomeFeedMemorySnapshot, loadHomeFeedCache } from '../lib/homeFeedCache';
@@ -105,17 +106,19 @@ export function LiveRoomScreen() {
   }
 
   return (
-    <View style={styles.screen}>
-      <VerticalLiveFeed
-        streams={streams}
-        initialStreamId={streamId}
-        onBack={() => navigation.goBack()}
-        signedIn={Boolean(user)}
-        onRequireAuth={onRequireAuth}
-        accessToken={session?.access_token}
-        userId={user?.id}
-      />
-    </View>
+    <LiveStripeProvider accessToken={session?.access_token}>
+      <View style={styles.screen}>
+        <VerticalLiveFeed
+          streams={streams}
+          initialStreamId={streamId}
+          onBack={() => navigation.goBack()}
+          signedIn={Boolean(user)}
+          onRequireAuth={onRequireAuth}
+          accessToken={session?.access_token}
+          userId={user?.id}
+        />
+      </View>
+    </LiveStripeProvider>
   );
 }
 

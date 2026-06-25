@@ -372,12 +372,14 @@ export function FloatingLiveChat({
   compact?: boolean;
   onPressChatUser?: (user: { username: string; userId?: string }) => void;
   moderatorUserIds?: string[];
+  overlayScale?: number;
 }) {
   const history = useMemo(() => prepareChatMessageHistory(pool), [pool]);
   const moderatorIdSet = useMemo(() => new Set(moderatorUserIds ?? []), [moderatorUserIds]);
   const scrollRef = useRef<ScrollView>(null);
   const pinnedToBottomRef = useRef(true);
   const lastMessageId = history[history.length - 1]?.id;
+  const scale = overlayScale > 1 ? overlayScale : 1;
 
   const rowHeight = compact ? ROW_HEIGHT_COMPACT : ROW_HEIGHT_ESTIMATE;
   const viewportHeight = Math.min(maxHeight, maxRows * rowHeight + 12);
