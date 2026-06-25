@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const hoisted = vi.hoisted(() => ({
   findMany: vi.fn(),
+  findUnique: vi.fn(),
   findFirst: vi.fn(),
+  layawayFindFirst: vi.fn(),
+  orderFindUnique: vi.fn(),
   tradeOfferCreate: vi.fn(),
   tradeOfferItemCreateMany: vi.fn(),
   tradeOfferEventCreate: vi.fn(),
@@ -23,7 +26,9 @@ vi.mock("@/lib/auth", async (importOriginal) => {
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    listing: { findMany: hoisted.findMany },
+    listing: { findMany: hoisted.findMany, findUnique: hoisted.findUnique },
+    layaway: { findFirst: hoisted.layawayFindFirst },
+    order: { findUnique: hoisted.orderFindUnique },
     tradeOffer: { findFirst: hoisted.findFirst },
     $transaction: hoisted.transaction,
   },
@@ -38,6 +43,33 @@ function buildReq(body: unknown) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+  });
+}
+
+type MockListingRow = {
+  id: string;
+  sellerId: string;
+  status: string;
+  acceptTradeOffers?: boolean;
+  [key: string]: unknown;
+};
+
+function mockListingRows(rows: MockListingRow[]) {
+  hoisted.findMany.mockResolvedValue(rows);
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  hoisted.findUnique.mockImplementation(async (args: { where: { id: string } }) => {
+    const row = byId.get(args.where.id);
+    if (!row) return null;
+    return {
+      id: row.id,
+      sellerId: row.sellerId,
+      status: row.status,
+      buyingFormat: "buy_now",
+      moderationRemovedAt: null,
+      allowOffers: true,
+      acceptTradeOffers: row.acceptTradeOffers ?? true,
+      allowLayaway: false,
+    };
   });
 }
 
@@ -57,10 +89,12 @@ describe("POST /api/trade/offers", () => {
     hoisted.tradeOfferItemCreateMany.mockResolvedValue({ count: 2 });
     hoisted.tradeOfferEventCreate.mockResolvedValue({ id: "evt_1" });
     hoisted.findFirst.mockResolvedValue(null);
+    hoisted.layawayFindFirst.mockResolvedValue(null);
+    hoisted.orderFindUnique.mockResolvedValue(null);
   });
 
   it("creates offer + snapshots + created event", async () => {
-    hoisted.findMany.mockResolvedValue([
+    mockListingRows([
       {
         id: "req_1",
         title: "Requested",
@@ -209,7 +243,7 @@ describe("POST /api/trade/offers", () => {
   });
 
   it("blocks unavailable requested listings", async () => {
-    hoisted.findMany.mockResolvedValue([
+    mockListingRows([
       {
         id: "req_1",
         title: "Req sold",
@@ -236,7 +270,7 @@ describe("POST /api/trade/offers", () => {
       },
     ]);
     const res = await POST(buildReq({ requestedListingIds: ["req_1"], offeredListingIds: ["off_1"] }));
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(409);
   });
 
   it("blocks more than 5 items per side", async () => {
@@ -247,7 +281,7 @@ describe("POST /api/trade/offers", () => {
   });
 
   it("blocks duplicate active trade context", async () => {
-    hoisted.findMany.mockResolvedValue([
+    mockListingRows([
       {
         id: "req_1",
         title: "Requested",
@@ -279,7 +313,7 @@ describe("POST /api/trade/offers", () => {
   });
 
   it("rate limits rapid offer creation", async () => {
-    hoisted.findMany.mockResolvedValue([
+    mockListingRows([
       {
         id: "req_1",
         title: "Requested",
