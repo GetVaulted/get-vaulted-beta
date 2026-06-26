@@ -11,6 +11,10 @@ import {
   pinnedVariantBuyerPrimaryLabel,
   variantSelectSpotLabel,
 } from '../../lib/liveItemVariant';
+import {
+  isVariantSpotAuctionLive,
+  pinnedVariantAuctionPrimaryLabel,
+} from '../../lib/liveVariantSpotCommerce';
 import { pickVaultWaitingMessage } from '../../lib/liveAuctionBuyerVaultCopy';
 import type { CategoryId, HybridFocus, LiveCommerceMode, LiveRoomFormat, LiveStream } from '../../types';
 
@@ -98,6 +102,39 @@ function resolveBuyerVariantItemHud(
   const pinned = hostPinnedBuyerVariant(variants, snap.activeItemVariantAssignmentMode);
   if (pinned) {
     const divisionBreak = snap.activeItemSalesFormat === 'team_break';
+    if (isVariantSpotAuctionLive(snap)) {
+      const hasBid = Boolean(snap.lastHighBidderId?.trim() || snap.lastHighBidderUsername?.trim());
+      const opening = snap.startingBidUsd ?? pinned.priceUsd ?? 1;
+      const displayAmount = hasBid ? (snap.currentBidUsd ?? opening) : opening;
+      const next = snap.minNextBidUsd ?? displayAmount;
+      const biddingOpen = snap.lotBidPhase === 'bidding_open';
+      return {
+        ...base,
+        format: 'auction',
+        hybridFocus: null,
+        timerMmSs: biddingOpen && snap.auctionEndsAt ? auctionCountdownMmSs(snap.auctionEndsAt, snap.fetchedAtMs) : '—',
+        itemTitle: pinned.label,
+        currentPrefix: hasBid ? 'Current' : 'Opening',
+        currentAmount: formatMoney(displayAmount),
+        winningLine: formatAuctionLeaderLine({
+          lastHighBidderUsername: snap.lastHighBidderUsername,
+          lastHighBidderId: snap.lastHighBidderId,
+          currentBidUsd: snap.currentBidUsd,
+          startingBidUsd: snap.startingBidUsd,
+        }),
+        stateLine: biddingOpen
+          ? 'Spot auction live — place the next bid.'
+          : 'Spot auction ended — waiting for host.',
+        bottomLeftLabel: 'Custom',
+        bottomRightLabel: biddingOpen
+          ? pinnedVariantAuctionPrimaryLabel(snap.activeItemSalesFormat, next)
+          : 'Waiting for host',
+        bottomRightIsSlide: biddingOpen,
+        buyerPrimaryDisabled: !biddingOpen,
+        buyerSecondaryDisabled: !biddingOpen,
+        buyerPinnedVariantId: pinned.id,
+      };
+    }
     return {
       ...base,
       format: 'shop',

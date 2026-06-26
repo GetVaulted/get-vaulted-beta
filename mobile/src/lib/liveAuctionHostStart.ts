@@ -42,10 +42,20 @@ export function liveAuctionHasPendingWinner(
 
 export function canHostStartLiveAuction(
   item: LiveAuctionHostStartItem | null | undefined,
-  args: { roomLive: boolean; lotBidPhase: LiveAuctionLotBidPhase; isVariantItem?: boolean },
+  args: {
+    roomLive: boolean;
+    lotBidPhase: LiveAuctionLotBidPhase;
+    isVariantItem?: boolean;
+    hasPinnedVariant?: boolean;
+  },
 ): boolean {
-  if (!item || args.isVariantItem) return false;
-  if (!args.roomLive || item.status !== 'active') return false;
+  if (!item || !args.roomLive || item.status !== 'active') return false;
+  if (args.isVariantItem) {
+    if (!args.hasPinnedVariant) return false;
+    if (args.lotBidPhase === 'bidding_open') return false;
+    if (liveAuctionUnitsRemaining(item) <= 0) return false;
+    return args.lotBidPhase === 'not_started';
+  }
   if (liveAuctionUnitsRemaining(item) <= 0) return false;
   if (args.lotBidPhase === 'bidding_open') return false;
   if (liveAuctionHasPendingWinner(item, args.lotBidPhase)) return false;

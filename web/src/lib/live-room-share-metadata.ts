@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { iosAppStoreId } from "@/lib/app-store-links";
 
 export const LIVE_SHARE_DESCRIPTION = "Join the live auction now";
 export const UPCOMING_LIVE_SHARE_DESCRIPTION = "Join when we go live";
@@ -191,9 +192,14 @@ export function buildLiveRoomShareMetadata(input: LiveRoomShareMetaInput) {
 
 export function liveRoomShareMetadataToNext(input: LiveRoomShareMetaInput): Metadata {
   const meta = buildLiveRoomShareMetadata(input);
+  const appId = iosAppStoreId();
   return {
     title: meta.title,
     description: meta.description,
+    itunes: {
+      appId,
+      appArgument: meta.url,
+    },
     openGraph: {
       title: meta.title,
       description: meta.description,

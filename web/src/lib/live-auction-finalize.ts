@@ -15,7 +15,10 @@ import {
   emitPurchaseCompleted,
 } from "@/lib/realtime-emit-server";
 import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
-import { isMultiQuantityLiveAuctionItem } from "@/lib/live-auction-host-start";
+import {
+  resetVariantSpotAuctionNoBids,
+  settleVariantSpotAuctionWinner,
+} from "@/lib/live-variant-spot-auction-settle";
 
 /**
  * Grace after `auctionEndsAt` before the server force-finalizes an overdue lot. Kept small so the
@@ -442,7 +445,7 @@ export async function finalizeOverdueLiveAuctionLotsForRoom(args: {
   trigger: FinalizeTrigger;
 }): Promise<OverdueFinalizeSummary> {
   const { liveRoomId, room, trigger } = args;
-  if (room.roomType !== "auction" && room.roomType !== "break") {
+  if (room.roomType !== "auction" && room.roomType !== "break" && room.roomType !== "sale") {
     return { finalized: 0, results: [] };
   }
   const cutoff = new Date((args.nowMs ?? Date.now()) - LIVE_AUCTION_AUTO_CLOSE_GRACE_MS);
@@ -453,7 +456,7 @@ export async function finalizeOverdueLiveAuctionLotsForRoom(args: {
       biddingOpen: true,
       auctionEndsAt: { not: null, lte: cutoff },
     },
-    select: { id: true, lastHighBidderId: true, auctionEndsAt: true },
+    select: { id: true, lastHighBidderId: true, auctionEndsAt: true, auctionVariantId: true },
   });
   if (overdue.length === 0) return { finalized: 0, results: [] };
 
@@ -467,6 +470,20 @@ export async function finalizeOverdueLiveAuctionLotsForRoom(args: {
       hasWinner: Boolean(lot.lastHighBidderId?.trim()),
     });
     try {
+      if (lot.auctionVariantId?.trim()) {
+        if (lot.lastHighBidderId?.trim()) {
+          const r = await settleVariantSpotAuctionWinner({ liveRoomId, itemId: lot.id, trigger });
+          if (r.settled) {
+            summary.finalized += 1;
+            summary.results.push({ itemId: lot.id, outcome: "sold", orderId: r.purchaseId ?? null });
+          }
+        } else {
+          const c = await resetVariantSpotAuctionNoBids({ liveRoomId, itemId: lot.id, trigger });
+          if (c.reset) summary.finalized += 1;
+          summary.results.push({ itemId: lot.id, outcome: "unsold" });
+        }
+        continue;
+      }
       if (lot.lastHighBidderId?.trim()) {
         if (room.roomType === "auction") {
           const c = await closeLiveAuctionLotPendingWinner({ liveRoomId, itemId: lot.id, trigger });

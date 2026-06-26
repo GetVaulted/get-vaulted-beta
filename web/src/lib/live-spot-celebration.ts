@@ -43,6 +43,10 @@ export function spotCelebrationHeadline(kind: LiveSpotTakenCelebration["kind"]):
   return kind === "auction_win" ? "SOLD!" : "TAKEN!";
 }
 
+export function formatSpotWinnerAnnouncement(celebration: LiveSpotTakenCelebration): string {
+  return `@${celebration.username} won (${celebration.label})`;
+}
+
 /** Stable key for dismiss timers — avoids resetting when parent re-renders. */
 export function spotCelebrationDismissKey(c: LiveSpotTakenCelebration): string {
   return `${c.kind}|${c.username}|${c.label}|${c.amountUsd}`;

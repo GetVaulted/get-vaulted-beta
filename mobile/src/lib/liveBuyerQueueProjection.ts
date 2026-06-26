@@ -13,6 +13,12 @@ export type LiveRoomLineupItemSnapshot = {
   status: string;
   isPinned: boolean;
   isLiveBidding: boolean;
+  listingId: string | null;
+  queueAction: 'pre_bid' | 'buy_now' | 'none';
+  startingBidUsd: number | null;
+  currentBidUsd: number | null;
+  lastHighBidderId: string | null;
+  biddingOpen: boolean;
 };
 
 type LineupItemInput = {
@@ -32,8 +38,25 @@ type LineupItemInput = {
   auctionEndsAt?: string | null;
   salesFormat?: string;
   variants?: LiveItemVariantSnapshot[];
+  listingId?: string | null;
   createdAt?: string;
 };
+
+function isPreBidEligible(item: LineupItemInput): boolean {
+  const salesFormat = item.salesFormat ?? 'auction';
+  if (salesFormat === 'buy_now' || salesFormat === 'variant_selection' || salesFormat === 'team_break') {
+    return false;
+  }
+  if (item.listingId?.trim()) return false;
+  if (item.biddingOpen) return false;
+  return item.status === 'active' || item.status === 'queued';
+}
+
+function queueActionForItem(item: LineupItemInput): LiveRoomLineupItemSnapshot['queueAction'] {
+  if ((item.salesFormat ?? 'auction') === 'buy_now') return 'buy_now';
+  if (isPreBidEligible(item)) return 'pre_bid';
+  return 'none';
+}
 
 function displayTitle(item: LineupItemInput): string {
   const base =
@@ -59,6 +82,9 @@ export function buildBuyerQueueLineupRow(
     args.nowMs,
   );
   const isLiveBidding = bidPhase === 'bidding_open';
+  const listingId = item.listingId?.trim() || null;
+  const queueAction = queueActionForItem(item);
+  const biddingOpen = item.biddingOpen === true;
 
   if (salesFormat === 'buy_now') {
     const price = resolvePinnedLotOverlayPrice({ commerceMode: 'buy_now', priceUsd: item.priceUsd });
@@ -72,6 +98,12 @@ export function buildBuyerQueueLineupRow(
       status: item.status ?? 'queued',
       isPinned,
       isLiveBidding: false,
+      listingId,
+      queueAction,
+      startingBidUsd: typeof item.startingBidUsd === 'number' ? item.startingBidUsd : null,
+      currentBidUsd: typeof item.currentBidUsd === 'number' ? item.currentBidUsd : null,
+      lastHighBidderId: item.lastHighBidderId?.trim() || null,
+      biddingOpen,
     };
   }
 
@@ -104,6 +136,12 @@ export function buildBuyerQueueLineupRow(
       status: item.status ?? 'queued',
       isPinned,
       isLiveBidding: false,
+      listingId,
+      queueAction: 'none',
+      startingBidUsd: typeof item.startingBidUsd === 'number' ? item.startingBidUsd : null,
+      currentBidUsd: typeof item.currentBidUsd === 'number' ? item.currentBidUsd : null,
+      lastHighBidderId: item.lastHighBidderId?.trim() || null,
+      biddingOpen,
     };
   }
 
@@ -134,6 +172,12 @@ export function buildBuyerQueueLineupRow(
     status: item.status ?? 'queued',
     isPinned,
     isLiveBidding,
+    listingId,
+    queueAction,
+    startingBidUsd: typeof item.startingBidUsd === 'number' ? item.startingBidUsd : null,
+    currentBidUsd: typeof item.currentBidUsd === 'number' ? item.currentBidUsd : null,
+    lastHighBidderId: item.lastHighBidderId?.trim() || null,
+    biddingOpen,
   };
 }
 

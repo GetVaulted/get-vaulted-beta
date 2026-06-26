@@ -10,9 +10,16 @@ import { getLiveRoomItemSnapshotDto } from "@/lib/live-room-item-snapshot-server
 import { prisma } from "@/lib/prisma";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import { beginVariantTeamBreak } from "@/lib/live-item-variant-break";
+import {
+  defaultActiveSpotModeForPin,
+  idleVariantSpotCommerceReset,
+  resolvePinnedVariantForAuction,
+} from "@/lib/live-variant-spot-commerce";
+import { parseLiveItemSalesFormat } from "@/lib/live-item-variant-serialize";
 import { settleAndChargeLiveAuctionLot, resetLiveAuctionLotAfterNoBids } from "@/lib/live-auction-finalize";
 import { isMultiQuantityLiveAuctionItem } from "@/lib/live-auction-host-start";
 import { resolveUnpinnedActiveItemStatus } from "@/lib/resolve-unpinned-active-item-status";
+import { applyHighestPreBidToLiveItem } from "@/lib/live-auction-pre-bid";
 import {
   emitActiveItemChanged,
   emitActiveItemChangedAwait,
@@ -47,7 +54,9 @@ type PatchBody = {
   /** When `startAuction`, set with `auctionDurationSec` to open timed bidding on the active lot. */
   action?: string;
   auctionDurationSec?: number | string;
-  clutchTimeEnabled?: boolean;
+  /** `setCommerceFormat` — switch buy_now ↔ auction when lot is idle (non-variant items). */
+  salesFormat?: string;
+  activeSpotCommerceMode?: string;
 };
 
 function describeItemPatchFailure(e: unknown): string {
@@ -117,6 +126,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       salesFormat: true,
       quantity: true,
       quantityInitial: true,
+      variantSpotCommerceDefault: true,
+      activeSpotCommerceMode: true,
+      auctionVariantId: true,
+      variantAssignmentMode: true,
+      variants: {
+        where: { quantityRemaining: { gt: 0 }, status: { not: "sold_out" } },
+        select: { id: true, isHot: true, quantityRemaining: true, status: true, priceUsd: true },
+      },
     },
   });
   if (!item) return NextResponse.json({ error: "Item not found" }, { status: 404 });
@@ -139,6 +156,50 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
     return NextResponse.json({ ok: true, itemVersion: result.itemVersion, item: itemDto });
   }
 
+  if (action === "setCommerceFormat") {
+    if (item.biddingOpen) {
+      return NextResponse.json({ error: "End the live round before switching sale mode." }, { status: 409 });
+    }
+    if (isVariantSalesFormat(item.salesFormat)) {
+      return NextResponse.json({ error: "Use spot commerce controls on PYT/PYD boards." }, { status: 400 });
+    }
+    const nextFormat = parseLiveItemSalesFormat(body.salesFormat);
+    if (nextFormat !== "buy_now" && nextFormat !== "auction") {
+      return NextResponse.json({ error: "salesFormat must be buy_now or auction." }, { status: 400 });
+    }
+    await prisma.liveRoomItem.update({
+      where: { id: itemId },
+      data: {
+        salesFormat: nextFormat,
+        biddingOpen: false,
+        auctionEndsAt: null,
+        currentBidUsd: null,
+        lastHighBidderId: null,
+        itemVersion: { increment: 1 },
+      },
+    });
+    emitLiveRoomQueueItemsChanged(liveRoomId);
+    const itemDto = await getLiveRoomItemSnapshotDto(itemId);
+    return NextResponse.json({ ok: true, item: itemDto });
+  }
+
+  if (action === "setActiveSpotCommerceMode") {
+    if (!isVariantSalesFormat(item.salesFormat)) {
+      return NextResponse.json({ error: "Spot commerce mode applies to PYT/PYD items only." }, { status: 400 });
+    }
+    if (item.biddingOpen) {
+      return NextResponse.json({ error: "End the live auction before switching spot mode." }, { status: 409 });
+    }
+    const mode = body.activeSpotCommerceMode === "auction" ? "auction" : "fixed";
+    await prisma.liveRoomItem.update({
+      where: { id: itemId },
+      data: { activeSpotCommerceMode: mode, itemVersion: { increment: 1 } },
+    });
+    emitLiveRoomQueueItemsChanged(liveRoomId);
+    const itemDto = await getLiveRoomItemSnapshotDto(itemId);
+    return NextResponse.json({ ok: true, item: itemDto });
+  }
+
   if (action === "startAuction") {
     const rawDur = body.auctionDurationSec;
     const n =
@@ -157,10 +218,78 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       return NextResponse.json({ error: "Post this lot first, then start bidding." }, { status: 409 });
     }
     if (isVariantSalesFormat(item.salesFormat)) {
-      return NextResponse.json(
-        { error: "Spot-sale breaks open for purchase when pinned — no timed auction start." },
-        { status: 409 },
-      );
+      const pinned = resolvePinnedVariantForAuction({
+        salesFormat: item.salesFormat,
+        variantAssignmentMode: item.variantAssignmentMode,
+        variants: item.variants,
+      });
+      if (!pinned) {
+        return NextResponse.json(
+          { error: "Pin a team or division on the board before starting an auction." },
+          { status: 409 },
+        );
+      }
+      const clutchTimeEnabled = body.clutchTimeEnabled === true;
+      const now = new Date();
+      const ends = new Date(now.getTime() + n * 1000);
+      const openingBid = pinned.priceUsd > 0 ? pinned.priceUsd : 1;
+      try {
+        const next = await prisma.$transaction(async (tx) => {
+          const u = await tx.liveRoomItem.updateMany({
+            where: { id: itemId, liveRoomId, status: "active", biddingOpen: false },
+            data: {
+              biddingOpen: true,
+              auctionEndsAt: ends,
+              clutchTimeEnabled,
+              activeSpotCommerceMode: "auction",
+              auctionVariantId: pinned.id,
+              startingBidUsd: openingBid,
+              currentBidUsd: null,
+              lastHighBidderId: null,
+              itemVersion: { increment: 1 },
+            },
+          });
+          if (u.count === 0) throw new Error("START_AUCTION_CONFLICT");
+          const roomNext = await tx.liveRoom.update({
+            where: { id: liveRoomId },
+            data: { roomVersion: { increment: 1 } },
+            select: { roomVersion: true },
+          });
+          const itemNext = await tx.liveRoomItem.findUnique({ where: { id: itemId }, select: { itemVersion: true } });
+          return {
+            roomVersion: roomNext.roomVersion,
+            itemVersion: itemNext?.itemVersion ?? item.itemVersion + 1,
+          };
+        }, START_BIDDING_TX_OPTS);
+
+        const [, itemDto] = await Promise.all([
+          emitActiveItemChangedAwait(liveRoomId, itemId, {
+            roomVersion: next.roomVersion,
+            itemVersion: next.itemVersion,
+            biddingOpen: true,
+            auctionEndsAt: ends.toISOString(),
+          }).catch(() => null),
+          getLiveRoomItemSnapshotDto(itemId),
+        ]);
+
+        return NextResponse.json({
+          ok: true,
+          auctionEndsAt: ends.toISOString(),
+          serverNowMs: Date.now(),
+          roomVersion: next.roomVersion,
+          itemVersion: next.itemVersion,
+          biddingOpen: true,
+          clutchTimeEnabled,
+          item: itemDto,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "";
+        if (msg === "START_AUCTION_CONFLICT") {
+          return NextResponse.json({ error: "Could not start bidding (lot changed). Refresh and try again." }, { status: 409 });
+        }
+        console.error("[live-room item PATCH startAuction variant]", e);
+        return NextResponse.json({ error: describeStartAuctionFailure(e) }, { status: 500 });
+      }
     }
     const clutchTimeEnabled = body.clutchTimeEnabled === true;
     const now = new Date();
@@ -247,6 +376,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       const tOpen0 = Date.now();
       const next = await prisma.$transaction(
         async (tx) => {
+          await applyHighestPreBidToLiveItem(tx, { liveRoomId, itemId });
           const u = await tx.liveRoomItem.updateMany({
             where: { id: itemId, liveRoomId, status: "active" },
             data: { biddingOpen: true, auctionEndsAt: ends, clutchTimeEnabled, itemVersion: { increment: 1 } },
@@ -363,6 +493,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
           },
         });
         if (target.count === 0) throw new Error("ACTIVE_SWITCH_CONFLICT");
+        await applyHighestPreBidToLiveItem(tx, { liveRoomId, itemId });
         const roomNext = await tx.liveRoom.update({
           where: { id: liveRoomId },
           data: { roomVersion: { increment: 1 } },

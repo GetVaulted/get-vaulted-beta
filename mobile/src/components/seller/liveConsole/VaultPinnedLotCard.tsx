@@ -6,7 +6,7 @@ import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { LIVE_AUCTION_HOST_TIMER_ENDED_COPY, resolveLiveAuctionLotBidPhase } from '../../../lib/liveAuctionLotPhase';
 import { canHostStartLiveAuction, isMultiQuantityLiveAuctionItem } from '../../../lib/liveAuctionHostStart';
 import { resolvePinnedLotOverlayPrice } from '../../../lib/liveAuctionOverlayPrice';
-import { isVariantPurchaseItem, summarizeVariantSpots } from '../../../lib/liveItemVariant';
+import { isVariantPurchaseItem, summarizeVariantSpots, hostPinnedBuyerVariant } from '../../../lib/liveItemVariant';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { colors, radii, spacing } from '../../../theme';
 import { lc } from './liveConsoleTheme';
@@ -288,7 +288,15 @@ export function VaultPinnedLotCard({
   const hudPhase = resolveHostLotHudPhase({ item, roomLive, lotBidPhase, queuePreview });
   const showStartAuction =
     (queuePreview && hudPhase === 'ready' && !isVariantItem) ||
-    canHostStartLiveAuction(item, { roomLive, lotBidPhase, isVariantItem });
+    canHostStartLiveAuction(item, {
+      roomLive,
+      lotBidPhase,
+      isVariantItem,
+      hasPinnedVariant: Boolean(
+        isVariantItem &&
+          hostPinnedBuyerVariant(item.variants, item.variantAssignmentMode),
+      ),
+    });
   const showRunningStrip = !hostOverlayMinimal && hudPhase === 'running';
   const showEndedActions = hudPhase === 'ended';
   const showSecondaryActions =

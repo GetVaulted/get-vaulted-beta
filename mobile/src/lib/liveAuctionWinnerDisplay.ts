@@ -30,6 +30,7 @@ export type LiveAuctionCloseCelebration =
       winningAmountUsd: number;
       itemId: string;
       winnerId: string | null;
+      itemTitle?: string | null;
       /** True when the local viewer is the winning bidder (drives "Winner" vs "Auction ended" copy). */
       viewerIsWinner: boolean;
       /** True when the viewer placed a bid on this lot (outbid copy vs passive "Sold to"). */
@@ -37,12 +38,20 @@ export type LiveAuctionCloseCelebration =
     }
   | { kind: 'no_bids'; itemId: string };
 
+/** Room-wide winner flash — e.g. "@vaultking won (Prizm Blaster)". */
+export function formatLiveWinnerAnnouncement(username: string, itemLabel: string): string {
+  const handle = username.trim().replace(/^@+/, '') || 'buyer';
+  const label = itemLabel.trim() || 'Item';
+  return `@${handle} won (${label})`;
+}
+
 export function parsePurchaseCompletedCelebration(
   payload: {
     itemId?: string;
     winnerUsername?: string | null;
     winningAmountUsd?: number | null;
     winnerId?: string | null;
+    itemTitle?: string | null;
     noBids?: boolean;
   },
   viewerId?: string | null,
@@ -54,7 +63,15 @@ export function parsePurchaseCompletedCelebration(
   if (winnerUsername && typeof payload.winningAmountUsd === 'number' && Number.isFinite(payload.winningAmountUsd)) {
     const winnerId = payload.winnerId?.trim() || null;
     const viewerIsWinner = Boolean(winnerId && viewerId && winnerId === viewerId);
-    return { kind: 'sold', itemId, winnerUsername, winningAmountUsd: payload.winningAmountUsd, winnerId, viewerIsWinner };
+    return {
+      kind: 'sold',
+      itemId,
+      winnerUsername,
+      winningAmountUsd: payload.winningAmountUsd,
+      winnerId,
+      viewerIsWinner,
+      itemTitle: payload.itemTitle?.trim() || null,
+    };
   }
   return null;
 }

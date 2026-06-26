@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireLiveRoomHostUser } from "@/lib/resolve-live-room-host-user";
 import { isVariantSalesFormat, normalizeVariantDrafts } from "@/lib/live-item-variant-presets";
+import {
+  defaultActiveSpotModeForPin,
+  idleVariantSpotCommerceReset,
+} from "@/lib/live-variant-spot-commerce";
 import { getLiveRoomItemSnapshotDto } from "@/lib/live-room-item-snapshot-server";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
 
@@ -201,6 +205,20 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       await tx.liveItemVariant.updateMany({
         where: { liveRoomItemId: itemId },
         data: { isHot: false },
+      });
+      const itemDefaults = await tx.liveRoomItem.findUnique({
+        where: { id: itemId },
+        select: { variantSpotCommerceDefault: true, biddingOpen: true },
+      });
+      const pinReset = idleVariantSpotCommerceReset();
+      await tx.liveRoomItem.updateMany({
+        where: { id: itemId, liveRoomId },
+        data: {
+          ...(itemDefaults?.biddingOpen ? pinReset : {}),
+          activeSpotCommerceMode: defaultActiveSpotModeForPin(itemDefaults?.variantSpotCommerceDefault),
+          auctionVariantId: null,
+          itemVersion: { increment: 1 },
+        },
       });
     }
     for (const row of updates) {

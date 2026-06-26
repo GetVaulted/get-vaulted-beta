@@ -32,6 +32,7 @@ import { LiveSpotTakenCelebration } from "@/components/live-auction/LiveSpotTake
 import { mergeVariantPurchasedIntoItems, type VariantPurchasedMergePayload } from "@/lib/live-room-variant-merge";
 import { LivePaymentFailureBlocker } from "@/components/live-auction/LivePaymentFailureBlocker";
 import { LivePremiumWalletSheet } from "@/components/live-auction/LivePremiumWalletSheet";
+import { LiveOpenInAppBanner } from "@/components/live-auction/LiveOpenInAppBanner";
 import { VaultRevealOverlay } from "@/components/live-auction/VaultRevealOverlay";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from "@/lib/vault-reveal-spin";
@@ -753,20 +754,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       });
       if (!shouldProcessRealtimePayload("purchase_completed", payload)) return;
       const celebration = parsePurchaseCompletedCelebration(payload, session?.user?.id);
-      const spotTaken =
-        celebration?.kind === "sold" && celebration.viewerIsWinner
-          ? parseAuctionWinSpotCelebration({
-              winnerUsername: celebration.winnerUsername,
-              winningAmountUsd: celebration.winningAmountUsd,
-              itemTitle:
-                detail?.items.find((it) => it.id === celebration.itemId)?.displayTitle ??
-                detail?.items.find((it) => it.id === celebration.itemId)?.title ??
-                null,
-              noBids: false,
-            })
-          : null;
-      if (spotTaken) showSpotCelebration(spotTaken);
-      if (celebration) setSoldCelebration(celebration);
+      if (celebration?.kind === "sold") setSoldCelebration(celebration);
       if (
         payload.paymentStatus === "payment_failed" &&
         payload.winnerId &&
@@ -879,6 +867,8 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
 
   if (loading) {
     return (
+      <>
+        <LiveOpenInAppBanner roomId={roomId} />
       <div className="fixed inset-x-0 bottom-0 top-0 z-40 flex flex-col bg-black md:top-[var(--site-header-offset)]">
         <div className="relative h-[100dvh] min-h-[100dvh] w-full md:h-[min(100dvh,calc(100vw*16/9))] md:min-h-0 md:max-h-[calc(100dvh-var(--site-header-offset,0px))] md:rounded-2xl md:border md:border-zinc-800">
           <div className="pointer-events-none absolute inset-0 animate-pulse motion-reduce:animate-none">
@@ -898,11 +888,14 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         </div>
         <p className="sr-only">Loading live room</p>
       </div>
+      </>
     );
   }
 
   if (detail === null) {
     return (
+      <>
+        <LiveOpenInAppBanner roomId={roomId} />
       <div className="mx-auto max-w-lg px-4 py-24 text-center">
         <p className="font-display text-lg font-bold text-foreground">Could not open this live room</p>
         <p className="mt-3 text-sm leading-relaxed text-zinc-400">
@@ -913,6 +906,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           ← Browse live rooms
         </Link>
       </div>
+      </>
     );
   }
 
@@ -935,6 +929,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   if (detail.roomType === "break") {
     return (
       <>
+        <LiveOpenInAppBanner roomId={roomId} />
         <LiveAuctionRoom
           breakId={detail.id}
           roomTitle={detail.title}
@@ -979,6 +974,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
 
   return (
     <>
+      <LiveOpenInAppBanner roomId={roomId} />
       <LiveSaleRoom
       roomId={detail.id}
       roomTitle={detail.title}

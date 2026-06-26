@@ -1,5 +1,3 @@
-import { LIVE_ROOM_REF_WIDTH, isIpadLiveRoomLayout } from './liveRoomUiScale';
-
 /** Portrait live stage aspect (width / height). */
 export const LIVE_STAGE_ASPECT = 9 / 16;
 
@@ -7,7 +5,7 @@ export const LIVE_STAGE_ASPECT = 9 / 16;
 export const LIVE_STAGE_CONTENT_FIT = 'cover' as const;
 
 export type LiveStageContainer = {
-  /** Unscaled 9:16 frame width (screen width on phone; capped reference width on iPad). */
+  /** Unscaled 9:16 frame width (always matches viewport width). */
   designWidth: number;
   /** Unscaled 9:16 frame height (= designWidth × 16/9). */
   designHeight: number;
@@ -24,7 +22,7 @@ export type LiveStageContainer = {
 };
 
 /**
- * True 9:16 live stage: full width on phones, phone-width column centered on iPad.
+ * True 9:16 live stage at full viewport width on every device.
  * Letterbox vertically when the viewport is taller; scale uniformly when shorter.
  */
 export function computeLiveStageContainer(
@@ -33,21 +31,6 @@ export function computeLiveStageContainer(
 ): LiveStageContainer {
   const sw = Math.max(1, screenWidth);
   const sh = Math.max(1, screenHeight);
-
-  // iPad: match iPhone Pro Max live framing (430pt wide 9:16) — avoid full-width cover zoom.
-  if (isIpadLiveRoomLayout(sw)) {
-    const designWidth = LIVE_ROOM_REF_WIDTH;
-    const designHeight = designWidth / LIVE_STAGE_ASPECT;
-    return {
-      designWidth,
-      designHeight,
-      uniformScale: 1,
-      layoutWidth: designWidth,
-      layoutHeight: designHeight,
-      offsetLeft: (sw - designWidth) / 2,
-      offsetTop: (sh - designHeight) / 2,
-    };
-  }
 
   const designWidth = sw;
   const designHeight = designWidth / LIVE_STAGE_ASPECT;

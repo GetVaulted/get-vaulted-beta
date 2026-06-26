@@ -53,6 +53,9 @@ export type LiveRoomBuyerSnapshot = {
   activeItemListingId?: string | null;
   activeItemVariantAssignmentMode?: 'pick' | 'random' | null;
   activeItemVariants?: LiveItemVariantSnapshot[];
+  /** PYT/PYD pinned spot mode (`fixed` = hold to buy, `auction` = timed bids). */
+  activeSpotCommerceMode?: 'fixed' | 'auction' | null;
+  auctionVariantId?: string | null;
   biddingOpen: boolean;
   currentBidUsd: number | null;
   minNextBidUsd: number | null;
@@ -200,6 +203,7 @@ function parseRoomLineupItems(raw: unknown): Parameters<typeof projectBuyerQueue
       biddingOpen: o.biddingOpen === true,
       auctionEndsAt: typeof o.auctionEndsAt === 'string' ? o.auctionEndsAt : null,
       salesFormat: typeof o.salesFormat === 'string' ? o.salesFormat : 'auction',
+      listingId: typeof o.listingId === 'string' ? o.listingId : null,
       variants: parseVariantSnapshots(o.variants),
       createdAt: typeof o.createdAt === 'string' ? o.createdAt : undefined,
     });
@@ -326,6 +330,14 @@ export async function fetchLiveRoomBuyerSnapshot(
     activeItemVariantAssignmentMode:
       active?.variantAssignmentMode === 'random' ? 'random' : active ? 'pick' : null,
     activeItemVariants: activeVariants.length > 0 ? activeVariants : undefined,
+    activeSpotCommerceMode:
+      active?.activeSpotCommerceMode === 'auction' || active?.activeSpotCommerceMode === 'fixed'
+        ? active.activeSpotCommerceMode
+        : null,
+    auctionVariantId:
+      typeof active?.auctionVariantId === 'string' && active.auctionVariantId.trim()
+        ? active.auctionVariantId.trim()
+        : null,
     biddingOpen: lotBidPhase === 'bidding_open',
     currentBidUsd: typeof current === 'number' ? current : null,
     minNextBidUsd: minNext,
@@ -433,6 +445,38 @@ export async function placeLiveRoomBid(args: {
     auctionSeq: j.auctionSeq,
     item: j.item,
   };
+}
+
+export async function placeLiveRoomPreBid(args: {
+  accessToken: string;
+  roomId: string;
+  itemId: string;
+  amountUsd: number;
+}): Promise<{ ok: true } | { ok: false; error: string; walletIncomplete?: boolean }> {
+  const res = await fetchWebApiMobile(
+    `/api/live-rooms/${encodeURIComponent(args.roomId)}/items/${encodeURIComponent(args.itemId)}/pre-bid`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${args.accessToken}`,
+      },
+      body: JSON.stringify({ amountUsd: args.amountUsd }),
+    },
+  );
+  let j: { error?: string } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (res.status === 402) {
+    return { ok: false, error: j.error ?? 'Complete wallet setup to pre-bid.', walletIncomplete: true };
+  }
+  if (!res.ok) {
+    return { ok: false, error: j.error ?? 'Could not place pre-bid.' };
+  }
+  return { ok: true };
 }
 
 /**

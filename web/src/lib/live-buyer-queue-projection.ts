@@ -1,4 +1,5 @@
 import { resolveLiveAuctionLotBidPhase } from "@/lib/live-auction-lot-phase";
+import { isLiveAuctionPreBidEligible } from "@/lib/live-auction-pre-bid";
 import { resolvePinnedLotOverlayPrice } from "@/lib/live-auction-overlay-price";
 import { isVariantPurchaseItem, summarizeVariantSpots } from "@/lib/live-item-variant-presets";
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
@@ -15,6 +16,8 @@ export type BuyerQueueLineupRow = {
   queueLane: "auction" | "bin";
   isPinned: boolean;
   isLiveBidding: boolean;
+  listingId: string | null;
+  queueAction: "pre_bid" | "buy_now" | "none";
 };
 
 /** Same inventory the host sees across auction + buy-now lanes (excludes sold/skipped). */
@@ -39,17 +42,41 @@ function queueLaneForItem(item: LiveRoomItemDTO): "auction" | "bin" {
   return item.salesFormat === "buy_now" ? "bin" : "auction";
 }
 
-/** Buyer-facing meta line aligned with host queue pricing semantics. */
-export function buildBuyerQueueLineupRow(
-  item: LiveRoomItemDTO,
-  args: { roomIsLive: boolean; clockSkewMs?: number; nowMs?: number },
-): BuyerQueueLineupRow {
+function queueActionForItem(item: LiveRoomItemDTO): BuyerQueueLineupRow["queueAction"] {
+  if (item.salesFormat === "buy_now") return "buy_now";
+  if (isLiveAuctionPreBidEligible({
+    id: item.id,
+    status: item.status,
+    salesFormat: item.salesFormat,
+    listingId: item.listingId ?? null,
+    biddingOpen: item.biddingOpen,
+    startingBidUsd: item.startingBidUsd,
+    currentBidUsd: item.currentBidUsd,
+    lastHighBidderId: item.lastHighBidderId,
+  })) {
+    return "pre_bid";
+  }
+  return "none";
+}
+
+function rowBase(item: LiveRoomItemDTO, args: { roomIsLive: boolean; clockSkewMs?: number; nowMs?: number }) {
   const nowMs = args.nowMs ?? syncedWallTimeMs(args.clockSkewMs ?? 0);
   const title = displayTitle(item);
   const lane = queueLaneForItem(item);
   const isPinned = item.status === "active";
   const bidPhase = resolveLiveAuctionLotBidPhase(item, nowMs);
   const isLiveBidding = bidPhase === "bidding_open";
+  const listingId = item.listingId?.trim() || null;
+  const queueAction = queueActionForItem(item);
+  return { title, lane, isPinned, isLiveBidding, listingId, queueAction };
+}
+
+/** Buyer-facing meta line aligned with host queue pricing semantics. */
+export function buildBuyerQueueLineupRow(
+  item: LiveRoomItemDTO,
+  args: { roomIsLive: boolean; clockSkewMs?: number; nowMs?: number },
+): BuyerQueueLineupRow {
+  const { title, lane, isPinned, isLiveBidding, listingId, queueAction } = rowBase(item, args);
 
   if (item.salesFormat === "buy_now") {
     const price = resolvePinnedLotOverlayPrice({ commerceMode: "buy_now", priceUsd: item.priceUsd });
@@ -63,6 +90,8 @@ export function buildBuyerQueueLineupRow(
       queueLane: lane,
       isPinned,
       isLiveBidding: false,
+      listingId,
+      queueAction,
     };
   }
 
@@ -88,6 +117,8 @@ export function buildBuyerQueueLineupRow(
       queueLane: lane,
       isPinned,
       isLiveBidding: false,
+      listingId,
+      queueAction: "none",
     };
   }
 
@@ -118,6 +149,8 @@ export function buildBuyerQueueLineupRow(
     queueLane: lane,
     isPinned,
     isLiveBidding,
+    listingId,
+    queueAction,
   };
 }
 
@@ -131,9 +164,7 @@ export function projectBuyerQueueLineup(
   return sorted.map((item) => buildBuyerQueueLineupRow(item, args));
 }
 
-/** Auction lots can be selected for pre-bid; PYT/PYD and buy-now rows are display-only in the shop queue. */
+/** Auction lots can be selected for pre-bid; buy-now rows open checkout when pinned. */
 export function buyerQueueRowSelectable(row: BuyerQueueLineupRow): boolean {
-  if (row.salesFormat === "buy_now") return false;
-  if (row.salesFormat === "variant_selection" || row.salesFormat === "team_break") return false;
-  return row.queueLane === "auction";
+  return row.queueAction === "pre_bid" || row.queueAction === "buy_now";
 }

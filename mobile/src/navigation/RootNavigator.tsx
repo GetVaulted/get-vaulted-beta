@@ -33,6 +33,7 @@ import type { RootStackParamList } from './types';
 import { colors } from '../theme';
 import { rootNavigationRef } from './rootNavigationRef';
 import { AuthSessionRoutingEffect } from './AuthSessionRoutingEffect';
+import { navigationLinking } from './linkingConfig';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -147,7 +148,7 @@ const stackScreenOptions = {
 
 export function RootNavigator() {
   return (
-    <NavigationContainer ref={rootNavigationRef} theme={theme}>
+    <NavigationContainer ref={rootNavigationRef} theme={theme} linking={navigationLinking}>
       <AuthSessionRoutingEffect />
       <MarketplaceReviewPromptEffect />
       <PushRegistrationEffect />

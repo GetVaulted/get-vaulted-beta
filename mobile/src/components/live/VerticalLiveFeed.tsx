@@ -18,6 +18,8 @@ import {
   View,
 } from 'react-native';
 import PagerView from 'react-native-pager-view';
+import { GestureDetector } from 'react-native-gesture-handler';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radii, spacing } from '../../theme';
 import { fetchLiveRoomPublicById } from '../../api/liveRoomsRepository';
@@ -34,11 +36,14 @@ import { LiveAuctionSoldCelebration } from './LiveAuctionSoldCelebration';
 import { LiveSpotTakenCelebration } from './LiveSpotTakenCelebration';
 import { VaultRevealOverlay } from './VaultRevealOverlay';
 import { LiveGiveawaySideTab } from './LiveGiveawaySideTab';
+import { LiveImmersiveRestoreHint } from './LiveImmersiveRestoreHint';
+import { useLiveImmersiveChrome } from '../../hooks/useLiveImmersiveChrome';
 import {
   CHAT_ABOVE_COMPOSER_GAP,
   COMPOSER_BAR_HEIGHT,
   computeChatStackMaxHeight,
   computeLiveRoomBottomStack,
+  computeGiveawaySideTabBottom,
   DEFAULT_COMMERCE_OVERLAY_HEIGHT,
 } from '../../lib/liveRoomBottomLayout';
 import { useLiveRoomChat } from '../../hooks/useLiveRoomChat';
@@ -65,6 +70,7 @@ import {
 import type { MentionComposerInputHandle } from '../mentions/MentionComposerInput';
 import { appendMentionToDraft, canShowLiveChatBanOption, canShowLiveChatKickOption, promptLiveChatUserAction } from '../../lib/liveChatUserActions';
 import { LiveBuyerShopSheet } from './LiveBuyerShopSheet';
+import { LiveCustomBidSheet } from './LiveCustomBidSheet';
 import { LiveTipSheet } from './LiveTipSheet';
 import { LivePinnedActionBar } from './LivePinnedActionBar';
 import { LivePaymentFailureModal } from './LivePaymentFailureModal';
@@ -89,6 +95,11 @@ import { scaledComposerBarHeight } from '../../lib/liveRoomBottomLayout';
 import { shareLiveStreamNative } from '../../lib/shareLiveRoomNative';
 import { prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
 import type { LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
+import type { LiveRoomLineupItemSnapshot } from '../../lib/liveBuyerQueueProjection';
+import { liveAuctionMinBidUsd } from '../../lib/liveAuctionPricing';
+import { placeLiveRoomPreBid } from '../../api/liveRoomBuyerRepository';
+import { purchaseLiveBuyNow, syncLiveBuyNowPurchase } from '../../api/liveBuyNowRepository';
+import { mapLivePaymentFailureMessage } from '../../lib/livePaymentFailureCopy';
 
 function chatRightEdgeForWidth(layoutWidth: number): number {
   if (layoutWidth >= 768) return Math.round(92 * liveRoomOverlayScale(layoutWidth));
@@ -150,6 +161,8 @@ function LiveSlide({
   const chatRightEdge = chatRightEdgeForWidth(layoutWidth);
   const [following, setFollowing] = useState(false);
   const [shopOpen, setShopOpen] = useState(false);
+  const [preBidItem, setPreBidItem] = useState<LiveRoomLineupItemSnapshot | null>(null);
+  const [preBidBusy, setPreBidBusy] = useState(false);
   const [tipOpen, setTipOpen] = useState(false);
   const [roomPaymentMethodId, setRoomPaymentMethodId] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
@@ -432,8 +445,33 @@ function LiveSlide({
     chatBottom: bottomStack.chatBottom,
     overlayScale,
   });
+  const giveawayTabBottom = computeGiveawaySideTabBottom({
+    chatBottom: bottomStack.chatBottom,
+    chatMaxHeight,
+  });
   const composerBarHeight = scaledComposerBarHeight(overlayScale);
   const slowModeTimerBottom = bottomStack.composerBottom + composerBarHeight + 8;
+
+  const immersiveGestureEnabled =
+    isActive &&
+    !shopOpen &&
+    !tipOpen &&
+    !modDrawerOpen &&
+    !reportOpen &&
+    !modActionMessage &&
+    !preBidItem &&
+    keyboardOffset <= 0 &&
+    breakDisclaimerAccepted &&
+    !(liveSession.unresolvedPaymentFailure && signedIn && accessToken);
+
+  const immersiveChrome = useLiveImmersiveChrome({
+    stageWidth: layoutWidth,
+    enabled: immersiveGestureEnabled,
+  });
+
+  useEffect(() => {
+    if (!isActive) immersiveChrome.restore();
+  }, [isActive, immersiveChrome.restore]);
 
   const tagUserInChat = useCallback((username: string) => {
     setChatDraft((prev) => appendMentionToDraft(prev, username));
@@ -566,6 +604,77 @@ function LiveSlide({
     }
   };
 
+  const handleShopItemPress = useCallback(
+    async (item: LiveRoomLineupItemSnapshot) => {
+      setShopOpen(false);
+      if (!signedIn || !accessToken) {
+        onRequireAuth?.();
+        return;
+      }
+      if (item.queueAction === 'pre_bid') {
+        setPreBidItem(item);
+        return;
+      }
+      if (item.queueAction === 'buy_now') {
+        if (!item.isPinned || liveSession.roomSnap?.activeItemId !== item.id) {
+          Alert.alert('Not on screen yet', 'Buy now unlocks when the host shows this item live.');
+          return;
+        }
+        if (liveSession.roomSnap?.roomType !== 'sale') {
+          Alert.alert('Not available', 'Buy now is only available in sale rooms.');
+          return;
+        }
+        if (!item.listingId) {
+          Alert.alert('Checkout unavailable', 'This item is not linked to checkout yet.');
+          return;
+        }
+        try {
+          const paymentSession = await fetchLiveBuyerPaymentSession(accessToken, stream.id);
+          const res = await purchaseLiveBuyNow({
+            accessToken,
+            liveRoomId: stream.id,
+            itemId: item.id,
+            paymentMethodId: paymentSession?.activePaymentMethodId ?? undefined,
+          });
+          if (!res.ok) {
+            if (res.walletIncomplete) {
+              openWalletRef.current('shop_buy_now');
+              return;
+            }
+            Alert.alert('Could not buy', mapLivePaymentFailureMessage(res.error, res.code));
+            return;
+          }
+          if (res.requiresAction && res.clientSecret && res.orderId && res.paymentIntentId) {
+            const synced = await syncLiveBuyNowPurchase({
+              accessToken,
+              liveRoomId: stream.id,
+              itemId: item.id,
+              orderId: res.orderId,
+            });
+            if (!synced.ok) {
+              Alert.alert('Payment incomplete', mapLivePaymentFailureMessage(synced.error, synced.code));
+              return;
+            }
+          }
+          void liveSession.fetchSnapshot();
+          Alert.alert('Purchased', 'Your buy-now order is confirmed.');
+        } catch (e) {
+          Alert.alert('Could not buy', e instanceof Error ? e.message : 'Try again.');
+        }
+      }
+    },
+    [accessToken, liveSession, onRequireAuth, signedIn, stream.id],
+  );
+
+  const preBidMinUsd = useMemo(() => {
+    if (!preBidItem) return 1;
+    return liveAuctionMinBidUsd({
+      currentBidUsd: preBidItem.currentBidUsd,
+      startingBidUsd: preBidItem.startingBidUsd,
+      lastHighBidderId: preBidItem.lastHighBidderId,
+    });
+  }, [preBidItem]);
+
   const shareClipFromRoom = async () => {
     try {
       await Share.share({
@@ -608,7 +717,8 @@ function LiveSlide({
       <View style={styles.slide}>
         <KeyboardDismissStageShield active={keyboardOffset > 0} />
         <View style={computeLiveStageHostStyle(stageContainer)}>
-          <View style={[styles.stageRoot, computeLiveStageRootStyle(stageContainer)]}>
+          <GestureDetector gesture={immersiveChrome.pan}>
+            <Animated.View style={[styles.stageRoot, computeLiveStageRootStyle(stageContainer)]}>
             <View style={styles.stageVideoFrame}>
               <LiveStagePlayback
                 roomId={stream.id}
@@ -629,6 +739,20 @@ function LiveSlide({
                 pointerEvents="none"
               />
             </View>
+
+            {immersiveChrome.immersive ? (
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPress={immersiveChrome.restore}
+                accessibilityRole="button"
+                accessibilityLabel="Show live controls"
+              />
+            ) : null}
+
+            <Animated.View
+              style={[styles.chromeLayer, immersiveChrome.chromeStyle]}
+              pointerEvents={immersiveChrome.immersive ? 'none' : 'box-none'}
+            >
 
             {/* TOP — header overlays the 9:16 stage */}
             <View
@@ -1024,9 +1148,8 @@ function LiveSlide({
           style={{
             position: 'absolute',
             left: 0,
-            top: '50%',
-            transform: [{ translateY: -48 }],
-            zIndex: 15,
+            bottom: giveawayTabBottom,
+            zIndex: 22,
           }}
           pointerEvents="box-none"
         >
@@ -1070,7 +1193,14 @@ function LiveSlide({
           mergeBidAck={liveSession.mergeBidAck}
           onBidPlaced={(amount) => liveSession.setMyHighBidUsd(amount)}
           participationBlocked={breakParticipationBlocked || Boolean(liveSession.unresolvedPaymentFailure)}
-          onWalletOverlayChange={isActive ? onWalletOverlayChange : undefined}
+          onWalletOverlayChange={
+            isActive
+              ? (active) => {
+                  if (active) immersiveChrome.restore();
+                  onWalletOverlayChange?.(active);
+                }
+              : undefined
+          }
           layoutWidth={layoutWidth}
           onRegisterOpenWallet={(open) => {
             openWalletRef.current = open;
@@ -1078,6 +1208,14 @@ function LiveSlide({
           staffCommerceBlocked={staffCommerceBlocked}
         />
       </View>
+            </Animated.View>
+
+            <LiveImmersiveRestoreHint
+              visible={immersiveChrome.immersive}
+              onPress={immersiveChrome.restore}
+              topInset={stageInsets.top}
+            />
+
       {liveSession.unresolvedPaymentFailure && signedIn && accessToken ? (
         <LivePaymentFailureModal
           visible
@@ -1090,11 +1228,19 @@ function LiveSlide({
             setTimeout(() => setPaymentRecoveryToast(null), 3600);
           }}
           onLeaveRoom={leaveRoomSafely}
-          onWalletOverlayChange={isActive ? onWalletOverlayChange : undefined}
+          onWalletOverlayChange={
+            isActive
+              ? (active) => {
+                  if (active) immersiveChrome.restore();
+                  onWalletOverlayChange?.(active);
+                }
+              : undefined
+          }
           onBlockerActiveChange={isActive ? onPaymentBlockerChange : undefined}
         />
       ) : null}
-          </View>
+            </Animated.View>
+          </GestureDetector>
         </View>
       </View>
 
@@ -1103,7 +1249,42 @@ function LiveSlide({
         onClose={() => setShopOpen(false)}
         lineupItems={liveSession.roomSnap?.lineupItems ?? []}
         activeItemId={liveSession.roomSnap?.activeItemId ?? null}
+        onItemPress={(item) => void handleShopItemPress(item)}
       />
+      {accessToken && preBidItem ? (
+        <LiveCustomBidSheet
+          visible
+          onClose={() => setPreBidItem(null)}
+          minNextBidUsd={preBidMinUsd}
+          currentBidUsd={preBidItem.currentBidUsd}
+          reserveSupported={false}
+          busy={preBidBusy}
+          onSubmit={async (payload) => {
+            setPreBidBusy(true);
+            try {
+              const res = await placeLiveRoomPreBid({
+                accessToken,
+                roomId: stream.id,
+                itemId: preBidItem.id,
+                amountUsd: payload.amountUsd,
+              });
+              if (!res.ok) {
+                if (res.walletIncomplete) {
+                  openWalletRef.current('shop_pre_bid');
+                  return;
+                }
+                Alert.alert('Pre-bid failed', res.error);
+                return;
+              }
+              setPreBidItem(null);
+              void liveSession.fetchSnapshot();
+              Alert.alert('Pre-bid set', `You are set at $${payload.amountUsd.toFixed(2)} when bidding opens.`);
+            } finally {
+              setPreBidBusy(false);
+            }
+          }}
+        />
+      ) : null}
       {accessToken ? (
         <LiveTipSheet
           visible={tipOpen}
@@ -1356,6 +1537,10 @@ const styles = StyleSheet.create({
   recoveryToastTxt: { color: colors.gold, fontSize: 12, fontWeight: '700', textAlign: 'center' },
   stageRoot: {
     backgroundColor: '#000',
+  },
+  chromeLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
   },
   stageVideoFrame: {
     ...StyleSheet.absoluteFillObject,

@@ -59,7 +59,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     };
   }
 
-  const moderators = modCtx.canModerate ? await listLiveRoomModerators(liveRoomId) : [];
+  // All viewers need the mod roster for chat badges (purple MOD label); staff get full rows.
+  const moderatorRows = await listLiveRoomModerators(liveRoomId);
+  const moderators = modCtx.canModerate
+    ? moderatorRows
+    : moderatorRows.map(({ userId, username }) => ({ userId, username }));
 
   let myRestrictions = null;
   if (!(auth instanceof NextResponse)) {

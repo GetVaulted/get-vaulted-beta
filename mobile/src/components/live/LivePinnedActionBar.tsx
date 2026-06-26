@@ -54,6 +54,7 @@ import { LiveCustomBidSheet } from './LiveCustomBidSheet';
 import { LiveBreakSpotGridSheet } from './LiveBreakSpotGridSheet';
 import type { LiveCustomBidPayload } from '../../lib/liveCustomBid';
 import { isActiveVariantBuyerItem, isRandomVariantAssignment } from '../../lib/liveItemVariant';
+import { isVariantSpotAuctionLive } from '../../lib/liveVariantSpotCommerce';
 import { reconcileBuyerSnapshotMonotonic } from '../../lib/liveRoomBuyerSnapshotMerge';
 import { computeAuctionRemainingMs, logAuctionTimer } from '../../lib/auctionTimerSync';
 import { syncedWallTimeMs } from '../../lib/serverClockSync';
@@ -813,6 +814,12 @@ export function LivePinnedActionBar({
     });
 
     if (variantItemActive) {
+      if (isVariantSpotAuctionLive(roomSnap)) {
+        if (useLiveAuctionBidFlow) {
+          void tryPlaceLiveBid();
+        }
+        return;
+      }
       if (m.buyerPinnedVariantId) {
         void tryPurchasePinnedVariant();
         return;

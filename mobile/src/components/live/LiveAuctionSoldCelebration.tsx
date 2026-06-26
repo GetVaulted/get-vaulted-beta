@@ -1,115 +1,56 @@
 import { useEffect } from 'react';
 import { Modal, StyleSheet, View } from 'react-native';
-import { formatAuctionMoneyUsd, type LiveAuctionCloseCelebration } from '../../lib/liveAuctionWinnerDisplay';
+import {
+  formatLiveWinnerAnnouncement,
+  type LiveAuctionCloseCelebration,
+} from '../../lib/liveAuctionWinnerDisplay';
 import { colors, spacing } from '../../theme';
 import { LiveRoomText } from './LiveRoomText';
 
 type Props = {
   celebration: LiveAuctionCloseCelebration | null;
   onDone: () => void;
-  /** Buyer sees Winner/Outbid framing; seller keeps the "SOLD!" framing. */
   viewerRole?: 'buyer' | 'seller';
 };
 
 const DISPLAY_MS = 2800;
 
-export function LiveAuctionSoldCelebration({ celebration, onDone, viewerRole = 'buyer' }: Props) {
+/** Minimal winner flash — no backdrop card, room-wide "@user won (item)". */
+export function LiveAuctionSoldCelebration({ celebration, onDone }: Props) {
   useEffect(() => {
-    if (!celebration) return undefined;
-    if (celebration.kind === 'sold') {
-      console.info('[auction close ui] buyer result shown', {
-        itemId: celebration.itemId,
-        viewerIsWinner: celebration.viewerIsWinner,
-        viewerRole,
-      });
-    }
+    if (!celebration || celebration.kind !== 'sold') return undefined;
     const id = setTimeout(onDone, DISPLAY_MS);
     return () => clearTimeout(id);
-  }, [celebration, onDone, viewerRole]);
+  }, [celebration, onDone]);
 
-  if (!celebration) return null;
+  if (!celebration || celebration.kind !== 'sold') return null;
 
-  const sold = celebration.kind === 'sold';
-  const viewerIsWinner = sold && celebration.viewerIsWinner;
-  const viewerWasBidder = sold && celebration.viewerWasBidder === true;
-  const title = !sold
-    ? 'Auction ended'
-    : viewerRole === 'seller'
-      ? 'SOLD!'
-      : viewerIsWinner
-        ? 'WINNER!'
-        : 'Auction ended';
+  const label = celebration.itemTitle?.trim() || 'Item';
+  const line = formatLiveWinnerAnnouncement(celebration.winnerUsername, label);
 
   return (
-    <Modal visible transparent animationType="fade" statusBarTranslucent>
-      <View style={styles.backdrop}>
-        <View style={styles.card}>
-          <LiveRoomText style={styles.title}>{title}</LiveRoomText>
-          {sold ? (
-            <>
-              <LiveRoomText style={styles.winner}>
-                {viewerRole === 'buyer' && !viewerIsWinner
-                  ? viewerWasBidder
-                    ? `Outbid · Winner @${celebration.winnerUsername}`
-                    : `Sold to @${celebration.winnerUsername}`
-                  : `Winner: @${celebration.winnerUsername}`}
-              </LiveRoomText>
-              {viewerIsWinner || viewerRole === 'seller' ? (
-                <LiveRoomText style={styles.amount}>
-                  {formatAuctionMoneyUsd(celebration.winningAmountUsd)}
-                </LiveRoomText>
-              ) : null}
-            </>
-          ) : (
-            <LiveRoomText style={styles.sub}>No bids</LiveRoomText>
-          )}
-        </View>
+    <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onDone}>
+      <View style={styles.host} pointerEvents="none">
+        <LiveRoomText style={styles.line}>{line}</LiveRoomText>
       </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  host: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: spacing.lg,
-  },
-  card: {
-    width: '100%',
-    maxWidth: 360,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.45)',
-    backgroundColor: '#111015',
-    paddingVertical: spacing.xl,
     paddingHorizontal: spacing.lg,
-    alignItems: 'center',
-    gap: spacing.sm,
   },
-  title: {
+  line: {
     color: colors.gold,
-    fontSize: 36,
+    fontSize: 22,
     fontWeight: '900',
-    letterSpacing: 1,
-  },
-  winner: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
-    marginTop: spacing.sm,
-  },
-  amount: {
-    color: '#86EFAC',
-    fontSize: 28,
-    fontWeight: '900',
-  },
-  sub: {
-    color: '#D4D4D8',
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: spacing.sm,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.85)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
   },
 });

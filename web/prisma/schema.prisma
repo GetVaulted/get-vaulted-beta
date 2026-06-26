@@ -95,6 +95,19 @@ enum LiveItemSalesFormat {
   team_break
 }
 
+/// PYT/PYD spot board default — hybrid lets host run fixed checkout or timed auction per pin.
+enum LiveVariantSpotCommerceDefault {
+  fixed
+  auction
+  hybrid
+}
+
+/// Runtime commerce mode for the host-pinned spot (fixed = hold to buy; auction = timed bids).
+enum LiveActiveSpotCommerceMode {
+  fixed
+  auction
+}
+
 enum LiveItemVariantAssignmentMode {
   pick
   random
@@ -1169,6 +1182,13 @@ model LiveRoomItem {
   variantBreakReadyAt DateTime?
   /// Host clicked Begin Break — broadcast to all viewers.
   variantBreakBeganAt DateTime?
+  /// PYT/PYD default spot commerce (`hybrid` = fixed or auction per pin when not live).
+  variantSpotCommerceDefault LiveVariantSpotCommerceDefault @default(hybrid)
+  /// Active commerce mode for the currently pinned spot (`null` when no pin / idle).
+  activeSpotCommerceMode LiveActiveSpotCommerceMode?
+  /// When set, timed bidding applies to this variant row only (must match pinned `isHot` variant).
+  auctionVariantId String?
+  auctionVariant   LiveItemVariant? @relation("LiveRoomItemAuctionVariant", fields: [auctionVariantId], references: [id], onDelete: SetNull)
   /// Platform shipping profile for this queue row (inherits show default on create).
   shippingProfileId String?
   shippingProfile   PlatformShippingProfile? @relation(fields: [shippingProfileId], references: [id], onDelete: SetNull)
@@ -1209,6 +1229,7 @@ model LiveItemVariant {
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
   purchases         LiveItemVariantPurchase[]
+  auctionForItems   LiveRoomItem[] @relation("LiveRoomItemAuctionVariant")
 
   @@unique([liveRoomItemId, label])
   @@index([liveRoomItemId, sortOrder])

@@ -363,10 +363,10 @@ export function LiveVideoStage({
 
             {giveawaySideTab ? (
               <div
-                className={`pointer-events-none absolute left-0 z-[15] ${
+                className={`pointer-events-none absolute left-0 z-[22] ${
                   hasMobileItemSheet
-                    ? "top-[max(5.5rem,calc(env(safe-area-inset-top)+4.5rem))]"
-                    : "top-1/2 -translate-y-1/2"
+                    ? "bottom-[calc(max(8.25rem,calc(env(safe-area-inset-bottom)+7.5rem))+min(46dvh,24rem)+0.75rem)]"
+                    : "bottom-[calc(max(6rem,calc(env(safe-area-inset-bottom)+5rem))+min(54dvh,28rem)+0.75rem)]"
                 }`}
               >
                 {giveawaySideTab}
@@ -443,7 +443,9 @@ export function LiveVideoStage({
         {chatOverlay ? <div className={`pointer-events-auto ${desktopChatClass}`}>{chatOverlay}</div> : null}
 
         {giveawaySideTab ? (
-          <div className="pointer-events-none absolute left-0 top-1/2 z-[15] -translate-y-1/2">{giveawaySideTab}</div>
+          <div className="pointer-events-none absolute bottom-[calc(1.75rem+min(70vh,32rem)+1rem)] left-0 z-[22]">
+            {giveawaySideTab}
+          </div>
         ) : null}
 
         {stageEdgeRail ? (

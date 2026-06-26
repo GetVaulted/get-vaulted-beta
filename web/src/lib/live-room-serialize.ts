@@ -83,6 +83,12 @@ export type LiveRoomItemDTO = {
   variantBreakReadyAt: string | null;
   /** ISO when host began the break. */
   variantBreakBeganAt: string | null;
+  /** PYT/PYD default spot commerce (`hybrid` = fixed or auction per pin). */
+  variantSpotCommerceDefault: "fixed" | "auction" | "hybrid";
+  /** Runtime mode for the pinned spot (`null` when idle). */
+  activeSpotCommerceMode: "fixed" | "auction" | null;
+  /** Variant id when timed bidding is scoped to one PYT/PYD spot. */
+  auctionVariantId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -208,6 +214,9 @@ export function serializeLiveRoomItem(
     variants?: LiveRoomItemVariantRow[];
     variantBreakReadyAt?: Date | null;
     variantBreakBeganAt?: Date | null;
+    variantSpotCommerceDefault?: "fixed" | "auction" | "hybrid";
+    activeSpotCommerceMode?: "fixed" | "auction" | null;
+    auctionVariantId?: string | null;
   };
   const biddingOpen = ext.biddingOpen === true;
   const auctionEndsAt =
@@ -258,6 +267,9 @@ export function serializeLiveRoomItem(
     variants,
     variantBreakReadyAt,
     variantBreakBeganAt,
+    variantSpotCommerceDefault: ext.variantSpotCommerceDefault ?? "hybrid",
+    activeSpotCommerceMode: ext.activeSpotCommerceMode ?? null,
+    auctionVariantId: typeof ext.auctionVariantId === "string" ? ext.auctionVariantId.trim() || null : null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

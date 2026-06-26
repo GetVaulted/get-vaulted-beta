@@ -354,19 +354,7 @@ export function useLiveRoomRealtimeSession(args: {
       const parsed = parsePurchaseCompletedCelebration(payload, args.userId);
       const celebration =
         parsed?.kind === 'sold' ? { ...parsed, viewerWasBidder } : parsed;
-      // Auction-win spot overlay is winner-only — losers must never see SOLD!/charge-style amount UI.
-      const spotTaken =
-        celebration?.kind === 'sold' && celebration.viewerIsWinner
-          ? parseAuctionWinSpotCelebration(payload)
-          : null;
-      if (spotTaken) showSpotCelebration(spotTaken);
-      if (
-        celebration &&
-        (celebration.kind === 'no_bids' ||
-          (celebration.kind === 'sold' && (celebration.viewerIsWinner || celebration.viewerWasBidder)))
-      ) {
-        setSoldCelebration(celebration);
-      }
+      if (celebration?.kind === 'sold') setSoldCelebration(celebration);
       logAuctionTimer({
         source: 'purchase_completed',
         serverNowMs: payload.serverNowMs,

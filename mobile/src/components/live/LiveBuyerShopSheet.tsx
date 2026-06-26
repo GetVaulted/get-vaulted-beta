@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { LiveRoomLineupItemSnapshot } from '../../api/liveRoomBuyerRepository';
+import type { LiveRoomLineupItemSnapshot } from '../../lib/liveBuyerQueueProjection';
 import { colors, radii, spacing } from '../../theme';
 
 type Props = {
@@ -10,15 +10,21 @@ type Props = {
   onClose: () => void;
   lineupItems: LiveRoomLineupItemSnapshot[];
   activeItemId?: string | null;
-  onSelectItem?: (itemId: string) => void;
+  onItemPress?: (item: LiveRoomLineupItemSnapshot) => void;
 };
+
+function actionLabel(item: LiveRoomLineupItemSnapshot): string | null {
+  if (item.queueAction === 'pre_bid') return 'Pre-bid';
+  if (item.queueAction === 'buy_now') return item.isPinned ? 'Buy now' : 'On screen soon';
+  return null;
+}
 
 export function LiveBuyerShopSheet({
   visible,
   onClose,
   lineupItems,
   activeItemId,
-  onSelectItem,
+  onItemPress,
 }: Props) {
   const insets = useSafeAreaInsets();
 
@@ -31,7 +37,7 @@ export function LiveBuyerShopSheet({
             <View style={styles.headerCopy}>
               <Text style={styles.title}>Shop this room</Text>
               <Text style={styles.subtitle}>
-                {lineupItems.length} item{lineupItems.length === 1 ? '' : 's'} in host queue
+                Pre-bid auctions or buy fixed-price lots when they are on screen
               </Text>
             </View>
             <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close">
@@ -44,18 +50,20 @@ export function LiveBuyerShopSheet({
               <View style={styles.emptyCard}>
                 <Ionicons name="bag-handle-outline" size={28} color={colors.gold} />
                 <Text style={styles.emptyTitle}>Nothing in the lineup yet</Text>
-                <Text style={styles.emptyHint}>Items the host adds to auction, buy-now, and spot boards will show here.</Text>
+                <Text style={styles.emptyHint}>Auction lots and buy-now items from the host will show here.</Text>
               </View>
             ) : (
               lineupItems.map((item) => {
                 const selected = item.id === activeItemId || (item.isPinned && !activeItemId);
+                const cta = actionLabel(item);
+                const tappable = item.queueAction !== 'none';
                 return (
                   <Pressable
                     key={item.id}
-                    style={[styles.row, selected && styles.rowSelected]}
+                    style={[styles.row, selected && styles.rowSelected, !tappable && styles.rowStatic]}
+                    disabled={!tappable}
                     onPress={() => {
-                      onSelectItem?.(item.id);
-                      onClose();
+                      onItemPress?.(item);
                     }}
                   >
                     <View style={styles.thumbWrap}>
@@ -84,7 +92,13 @@ export function LiveBuyerShopSheet({
                         {item.metaLine}
                       </Text>
                     </View>
-                    <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                    {cta ? (
+                      <View style={styles.ctaPill}>
+                        <Text style={styles.ctaPillTxt}>{cta}</Text>
+                      </View>
+                    ) : (
+                      <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                    )}
                   </Pressable>
                 );
               })
@@ -119,7 +133,7 @@ const styles = StyleSheet.create({
   },
   headerCopy: { flex: 1, paddingRight: spacing.sm },
   title: { fontSize: 17, fontWeight: '800', color: colors.textPrimary },
-  subtitle: { marginTop: 2, fontSize: 12, color: colors.textSecondary },
+  subtitle: { marginTop: 2, fontSize: 12, lineHeight: 16, color: colors.textSecondary },
   scroll: { maxHeight: 520 },
   scrollContent: { padding: spacing.md, gap: spacing.sm },
   emptyCard: {
@@ -143,6 +157,7 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     backgroundColor: 'rgba(0,0,0,0.25)',
   },
+  rowStatic: { opacity: 0.88 },
   rowSelected: { borderColor: 'rgba(212,175,55,0.45)', backgroundColor: 'rgba(212,175,55,0.08)' },
   thumbWrap: { width: 52, height: 52, borderRadius: radii.sm, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.06)' },
   thumb: { width: '100%', height: '100%' },
@@ -169,4 +184,13 @@ const styles = StyleSheet.create({
   rowCopy: { flex: 1, minWidth: 0 },
   rowTitle: { fontSize: 13, fontWeight: '800', color: colors.textPrimary },
   rowMeta: { marginTop: 2, fontSize: 11, lineHeight: 15, color: colors.textSecondary },
+  ctaPill: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.45)',
+    backgroundColor: 'rgba(212,175,55,0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  ctaPillTxt: { fontSize: 10, fontWeight: '800', color: colors.gold, textTransform: 'uppercase' },
 });

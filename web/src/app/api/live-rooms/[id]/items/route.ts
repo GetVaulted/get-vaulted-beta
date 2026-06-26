@@ -156,6 +156,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     quantityInitial: isVariantSalesFormat(salesFormat) ? 1 : quantity,
     salesFormat,
     variantAssignmentMode,
+    variantSpotCommerceDefault: isVariantSalesFormat(salesFormat) ? ("hybrid" as const) : undefined,
     shippingProfileId: resolvedProfile?.id ?? null,
     requiresSeparatePackage: resolvedProfile?.requiresSeparatePackage ?? null,
   };

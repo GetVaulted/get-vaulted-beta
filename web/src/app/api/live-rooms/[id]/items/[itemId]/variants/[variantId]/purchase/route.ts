@@ -175,6 +175,8 @@ export async function POST(
               status: true,
               salesFormat: true,
               title: true,
+              biddingOpen: true,
+              auctionVariantId: true,
             },
           },
         },
@@ -186,6 +188,9 @@ export async function POST(
       }
       if (item.status !== "active" && item.status !== "queued") {
         throw Object.assign(new Error("ITEM_UNAVAILABLE"), { code: "ITEM_UNAVAILABLE" });
+      }
+      if (item.biddingOpen && item.auctionVariantId) {
+        throw Object.assign(new Error("SPOT_AUCTION_LIVE"), { code: "SPOT_AUCTION_LIVE" });
       }
 
       const updated = await tx.liveItemVariant.updateMany({
@@ -290,6 +295,9 @@ export async function POST(
       return NextResponse.json({ error: "This item does not support spot selection." }, { status: 400 });
     }
     if (code === "ITEM_UNAVAILABLE") return NextResponse.json({ error: "This item is not available." }, { status: 409 });
+    if (code === "SPOT_AUCTION_LIVE") {
+      return NextResponse.json({ error: "This spot is in a live auction — place a bid instead." }, { status: 409 });
+    }
     if (code === "SOLD_OUT") return NextResponse.json({ error: "That option is sold out." }, { status: 409 });
     console.error("[variant purchase POST]", e);
     return NextResponse.json({ error: "Could not complete purchase." }, { status: 500 });

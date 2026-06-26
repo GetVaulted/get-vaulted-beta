@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeChatStackMaxHeight,
+  computeGiveawaySideTabBottom,
   computeLiveRoomBottomStack,
   DEFAULT_COMMERCE_OVERLAY_HEIGHT,
+  GIVEAWAY_ABOVE_CHAT_GAP,
   PINNED_ABOVE_COMPOSER_GAP,
   PINNED_MODERATOR_ROW_HEIGHT,
 } from './liveRoomBottomLayout';
@@ -65,5 +67,15 @@ describe('computeChatStackMaxHeight', () => {
     expect(small).toBeGreaterThanOrEqual(96);
     expect(small).toBeLessThan(large);
     expect(large).toBeLessThanOrEqual(248);
+  });
+});
+
+describe('computeGiveawaySideTabBottom', () => {
+  it('sits above the chat stack with a fixed gap', () => {
+    const chatBottom = 280;
+    const chatMaxHeight = 200;
+    expect(
+      computeGiveawaySideTabBottom({ chatBottom, chatMaxHeight }),
+    ).toBe(chatBottom + chatMaxHeight + GIVEAWAY_ABOVE_CHAT_GAP);
   });
 });

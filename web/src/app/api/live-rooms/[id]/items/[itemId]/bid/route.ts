@@ -84,18 +84,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
         auctionEndsAt: true,
         clutchTimeEnabled: true,
         lastHighBidderId: true,
+        auctionVariantId: true,
       },
     }),
   ]);
   if (!room) return NextResponse.json({ error: "Room not found." }, { status: 404 });
-  if (room.roomType !== "auction" && room.roomType !== "break") {
+  if (!item) return NextResponse.json({ error: "Item not found." }, { status: 404 });
+  const variantSpotAuction = Boolean(item.auctionVariantId?.trim());
+  if (room.roomType !== "auction" && room.roomType !== "break" && !(room.roomType === "sale" && variantSpotAuction)) {
     return NextResponse.json({ error: "Bidding is only available in auction or break live shows." }, { status: 400 });
   }
   if (room.status !== "live") {
     return NextResponse.json({ error: "This room is not live." }, { status: 409 });
   }
 
-  if (!item) return NextResponse.json({ error: "Item not found." }, { status: 404 });
   if (item.status !== "active") {
     return NextResponse.json({ error: "Bidding is only open on the active item." }, { status: 409 });
   }

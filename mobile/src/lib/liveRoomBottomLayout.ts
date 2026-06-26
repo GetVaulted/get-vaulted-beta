@@ -16,6 +16,12 @@ export const COMPACT_CHAT_ABOVE_COMPOSER_GAP = 12;
 export const PINNED_MODERATOR_ROW_HEIGHT = 62;
 export const PINNED_ABOVE_COMPOSER_GAP = 6;
 
+/** Estimated collapsed giveaway rail height (mobile side tab). */
+export const GIVEAWAY_TAB_HEIGHT_ESTIMATE = 96;
+
+/** Gap between chat stack top edge and giveaway tab bottom edge. */
+export const GIVEAWAY_ABOVE_CHAT_GAP = 12;
+
 export type LiveRoomBottomStack = {
   commerceBottom: number;
   composerBottom: number;
@@ -78,4 +84,12 @@ export function computeChatStackMaxHeight(args: {
   const cap = Math.round(248 * overlayScale);
   const floor = Math.round(108 * overlayScale);
   return Math.min(cap, Math.max(floor, scaled));
+}
+
+/** Left-edge giveaway tab sits above the chat column (not centered over it). */
+export function computeGiveawaySideTabBottom(args: {
+  chatBottom: number;
+  chatMaxHeight: number;
+}): number {
+  return args.chatBottom + args.chatMaxHeight + GIVEAWAY_ABOVE_CHAT_GAP;
 }

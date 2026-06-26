@@ -3,6 +3,7 @@ import { Dimensions, Platform } from 'react-native';
 import type { LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
 import type { LiveStream } from '../types';
 import { isActiveVariantBuyerItem } from './liveItemVariant';
+import { isVariantSpotAuctionLive, isVariantSpotFixedCheckoutLive } from './liveVariantSpotCommerce';
 
 /** Plain fixed-price buy now in a sale room (not PYT/PYD variant checkout). */
 export function isActiveBuyNowBuyerItem(
@@ -31,6 +32,7 @@ export function mustUseLiveBidFlow(
   roomSnap: LiveRoomBuyerSnapshot | null | undefined,
   hud?: { bottomRightIsSlide?: boolean; bottomRightLabel?: string },
 ): boolean {
+  if (isVariantSpotAuctionLive(roomSnap)) return true;
   if (isActiveVariantBuyerItem(roomSnap)) return false;
   if (isActiveBuyNowBuyerItem(roomSnap)) return false;
 

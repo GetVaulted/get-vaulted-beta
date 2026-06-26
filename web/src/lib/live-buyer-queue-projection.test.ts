@@ -128,8 +128,12 @@ describe("live-buyer-queue-projection", () => {
     expect(rows.map((r) => r.id)).toEqual(["first", "second"]);
   });
 
-  it("allows pre-bid selection only for auction lots", () => {
+  it("allows pre-bid and buy-now shop actions", () => {
     const auction = buildBuyerQueueLineupRow(baseItem({ salesFormat: "auction", status: "active" }), {
+      roomIsLive: true,
+      nowMs: Date.now(),
+    });
+    const bin = buildBuyerQueueLineupRow(baseItem({ salesFormat: "buy_now", status: "active", priceUsd: 25 }), {
       roomIsLive: true,
       nowMs: Date.now(),
     });
@@ -155,6 +159,9 @@ describe("live-buyer-queue-projection", () => {
       { roomIsLive: true, nowMs: Date.now() },
     );
     expect(buyerQueueRowSelectable(auction)).toBe(true);
+    expect(auction.queueAction).toBe("pre_bid");
+    expect(buyerQueueRowSelectable(bin)).toBe(true);
+    expect(bin.queueAction).toBe("buy_now");
     expect(buyerQueueRowSelectable(pyt)).toBe(false);
   });
 });

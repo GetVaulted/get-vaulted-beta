@@ -39,15 +39,25 @@ describe('computeLiveStageContainer', () => {
     expect(a.designWidth / a.designHeight).toBeCloseTo(b.designWidth / b.designHeight, 5);
   });
 
-  it('centers a phone-width 9:16 column on iPad instead of full-width cover', () => {
+  it('uses full viewport width on iPad and scales when the 9:16 frame exceeds height', () => {
     const stage = computeLiveStageContainer(820, 1180);
-    expect(stage.designWidth).toBe(430);
-    expect(stage.designHeight).toBeCloseTo(430 / LIVE_STAGE_ASPECT, 3);
-    expect(stage.uniformScale).toBe(1);
-    expect(stage.layoutWidth).toBe(430);
-    expect(stage.offsetLeft).toBe(195);
-    expect(stage.offsetTop).toBeGreaterThan(0);
+    expect(stage.designWidth).toBe(820);
+    expect(stage.designHeight).toBeCloseTo(820 / LIVE_STAGE_ASPECT, 3);
+    expect(stage.uniformScale).toBeCloseTo(1180 / stage.designHeight, 5);
+    expect(stage.layoutHeight).toBe(1180);
+    expect(stage.layoutWidth).toBeCloseTo(820 * stage.uniformScale, 3);
+    expect(stage.offsetTop).toBe(0);
+    expect(stage.offsetLeft).toBeGreaterThan(0);
     expect(stage.designWidth / stage.designHeight).toBeCloseTo(LIVE_STAGE_ASPECT, 5);
+  });
+
+  it('letterboxes vertically on tall iPad viewports when 9:16 fits', () => {
+    const stage = computeLiveStageContainer(820, 1600);
+    expect(stage.designWidth).toBe(820);
+    expect(stage.uniformScale).toBe(1);
+    expect(stage.layoutWidth).toBe(820);
+    expect(stage.offsetLeft).toBe(0);
+    expect(stage.offsetTop).toBeGreaterThan(0);
   });
 });
 
