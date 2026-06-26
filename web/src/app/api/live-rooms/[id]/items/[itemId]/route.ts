@@ -12,6 +12,7 @@ import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import { beginVariantTeamBreak } from "@/lib/live-item-variant-break";
 import { settleAndChargeLiveAuctionLot, resetLiveAuctionLotAfterNoBids } from "@/lib/live-auction-finalize";
 import { isMultiQuantityLiveAuctionItem } from "@/lib/live-auction-host-start";
+import { resolveUnpinnedActiveItemStatus } from "@/lib/resolve-unpinned-active-item-status";
 import {
   emitActiveItemChanged,
   emitActiveItemChangedAwait,
@@ -325,10 +326,30 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       }
 
       const switched = await prisma.$transaction(async (tx) => {
-        await tx.liveRoomItem.updateMany({
+        const priorActiveRows = await tx.liveRoomItem.findMany({
           where: { liveRoomId, id: { not: itemId }, status: "active" },
-          data: { status: "queued", biddingOpen: false, auctionEndsAt: null, itemVersion: { increment: 1 } },
+          select: {
+            id: true,
+            title: true,
+            salesFormat: true,
+            quantity: true,
+            quantityInitial: true,
+            status: true,
+            variants: { select: { quantityRemaining: true, status: true } },
+          },
         });
+        for (const prior of priorActiveRows) {
+          const nextStatus = resolveUnpinnedActiveItemStatus(prior);
+          await tx.liveRoomItem.updateMany({
+            where: { id: prior.id, liveRoomId, status: "active" },
+            data: {
+              status: nextStatus,
+              biddingOpen: false,
+              auctionEndsAt: null,
+              itemVersion: { increment: 1 },
+            },
+          });
+        }
         const target = await tx.liveRoomItem.updateMany({
           where: { id: itemId, liveRoomId, status: { in: ["queued", "active"] } },
           data: {
@@ -358,6 +379,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
         biddingOpen: false,
         auctionEndsAt: null,
       });
+      emitLiveRoomQueueItemsChanged(liveRoomId);
       return NextResponse.json({ ok: true });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "";

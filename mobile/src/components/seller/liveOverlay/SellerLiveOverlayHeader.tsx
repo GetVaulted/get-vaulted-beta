@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { LiveBadge } from '../../ui/LiveBadge';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
+import { formatLiveDurationHms } from '../../../lib/formatLiveDurationHms';
 import { colors, spacing } from '../../../theme';
 
 function formatViewers(n: number) {
@@ -18,6 +19,7 @@ export function SellerLiveOverlayHeader({
   streamTitle,
   viewerCount,
   streamOnAir = false,
+  liveStartedAt = null,
   onBack,
   onBroadcastSettings,
   onEndShow,
@@ -31,6 +33,8 @@ export function SellerLiveOverlayHeader({
   viewerCount: number;
   /** True when the host camera / IVS publish is on air — same moment the show is live for buyers. */
   streamOnAir?: boolean;
+  /** Room `startedAt` — drives the on-air elapsed timer. */
+  liveStartedAt?: string | null;
   onBack: () => void;
   onBroadcastSettings: () => void;
   onEndShow?: () => void;
@@ -66,6 +70,17 @@ export function SellerLiveOverlayHeader({
 
   const ringOpacity = ringPulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.85] });
   const ringScale = ringPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] });
+  const [nowMs, setNowMs] = useState(Date.now());
+  const timerActive = Boolean(liveStartedAt);
+
+  useEffect(() => {
+    if (!timerActive) return;
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [timerActive, liveStartedAt]);
+
+  const liveTimerDisplay =
+    timerActive && liveStartedAt ? formatLiveDurationHms(liveStartedAt, nowMs) : null;
 
   return (
     <View style={[styles.wrap, { paddingTop, paddingHorizontal: spacing.md }]}>
@@ -100,10 +115,13 @@ export function SellerLiveOverlayHeader({
           {showLiveBadge ? (
             <View style={styles.liveCluster}>
               <LiveBadge compact pulse />
+              {liveTimerDisplay ? <Text style={styles.liveTimer}>{liveTimerDisplay}</Text> : null}
               <Animated.Text style={[styles.viewers, { transform: [{ scale: viewerPop }] }]}>
                 {formatViewers(viewerCount)}
               </Animated.Text>
             </View>
+          ) : liveTimerDisplay ? (
+            <Text style={styles.liveTimer}>{liveTimerDisplay}</Text>
           ) : (
             <Text style={styles.scheduled}>{SELLER_CONSOLE.scheduled}</Text>
           )}
@@ -205,6 +223,12 @@ const styles = StyleSheet.create({
     paddingTop: 2,
   },
   liveCluster: { flexDirection: 'row', alignItems: 'center', gap: 8, marginRight: 2 },
+  liveTimer: {
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 12,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
   viewers: {
     color: 'rgba(255,255,255,0.92)',
     fontSize: 13,

@@ -540,6 +540,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         streamTitle={streamTitle}
         viewerCount={console.viewerCount}
         streamOnAir={streamOnAir}
+        liveStartedAt={roomLive ? host.room?.startedAt ?? null : null}
         onBack={() => navigation.goBack()}
         onBroadcastSettings={() => setBroadcastOpen(true)}
         onEndShow={host.stageWebrtcEnabled ? undefined : () => host.onEndShow()}

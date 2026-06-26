@@ -331,6 +331,9 @@ export function useLiveRoomRealtimeSession(args: {
     },
     onAuctionEnded: (payload) => {
       if (!shouldProcessRealtimeEvent(guardRef.current, 'auction_ended', payload)) return;
+      setConnectionBanner('Host is ending the live.');
+      setTimeout(() => setConnectionBanner(null), 6000);
+      setRoomSnap((prev) => (prev ? { ...prev, status: 'ended' } : prev));
       scheduleReconcile(1000);
     },
     onPurchaseCompleted: (payload) => {

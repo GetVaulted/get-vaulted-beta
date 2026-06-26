@@ -7,6 +7,11 @@ export const LIVE_ROOM_CHAT_HISTORY_MAX = 300;
 export const VIEWER_EVENT_JOIN_BODY = 'joined 🔥';
 export const VIEWER_EVENT_JOIN_BODY_LEGACY = 'joined 👋';
 export const VIEWER_EVENT_SHARE_BODY = 'shared this show ✉️';
+export const HOST_ENDING_LIVE_BODY = 'Host is ending the live.';
+
+export function isHostEndingLiveBody(text: string): boolean {
+  return text.trim() === HOST_ENDING_LIVE_BODY;
+}
 
 export function isJoinEventBody(text: string): boolean {
   return text === VIEWER_EVENT_JOIN_BODY || text === VIEWER_EVENT_JOIN_BODY_LEGACY;
@@ -26,7 +31,7 @@ export function dedupeChatMessagesById(messages: ChatMessage[]): ChatMessage[] {
 
 export function isViewerEventMessage(m: ChatMessage): boolean {
   if (m.messageType !== 'system') return false;
-  return isJoinEventBody(m.text) || m.text === VIEWER_EVENT_SHARE_BODY;
+  return isJoinEventBody(m.text) || m.text === VIEWER_EVENT_SHARE_BODY || isHostEndingLiveBody(m.text);
 }
 
 /** Collapse duplicate join/share lines (keeps the newest per user, sorted in time with chat). */

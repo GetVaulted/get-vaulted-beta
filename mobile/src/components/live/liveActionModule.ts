@@ -552,7 +552,7 @@ export function resolveLiveBuyerCommerceHud(
 
   if (effectiveSnap.status === 'ended') {
     return buildBuyerWaitingHud(base, stream.id, {
-      stateLine: 'This show has ended.',
+      stateLine: 'Host is ending the live.',
       rightLabel: 'Show ended',
     });
   }

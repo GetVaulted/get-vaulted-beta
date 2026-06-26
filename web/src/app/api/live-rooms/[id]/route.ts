@@ -23,6 +23,7 @@ import {
   LIVE_AUCTION_AUTO_CLOSE_GRACE_MS,
 } from "@/lib/live-auction-finalize";
 import { emitAuctionEnded, emitAuctionStarted, emitLiveDiscoveryChanged, emitTeamBoardChanged } from "@/lib/realtime-emit-server";
+import { postHostEndingLiveChatMessage } from "@/lib/live-room-show-events";
 import { computeBreakBuyerPhase } from "@/lib/live-room-break-public";
 import { buildLiveTipRoomData } from "@/lib/live-tip-moderator";
 import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
@@ -323,6 +324,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       return NextResponse.json({ error: "Room state changed. Refresh and try again." }, { status: 409 });
     }
     const roomNow = await prisma.liveRoom.findUnique({ where: { id }, select: { roomVersion: true } });
+    void postHostEndingLiveChatMessage(id, existing.sellerId).catch((e) =>
+      console.error("[live-room end] host ending chat message", e),
+    );
     emitAuctionEnded(id, roomNow?.roomVersion);
     emitLiveDiscoveryChanged({ roomId: id, status: "ended", reason: "ended" });
     // Tear down the WebRTC Stage HLS mirror + mark stream ended so composition cost stops with the show.
@@ -350,6 +354,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     }
     const roomNow = await prisma.liveRoom.findUnique({ where: { id }, select: { roomVersion: true } });
     if (existing.status === "live") {
+      void postHostEndingLiveChatMessage(id, existing.sellerId).catch((e) =>
+        console.error("[live-room cancel] host ending chat message", e),
+      );
       emitAuctionEnded(id, roomNow?.roomVersion);
     }
     emitLiveDiscoveryChanged({ roomId: id, status: "ended", reason: "cancelled" });

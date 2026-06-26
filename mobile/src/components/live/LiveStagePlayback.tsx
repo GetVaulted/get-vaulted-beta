@@ -250,7 +250,7 @@ export function LiveStagePlayback({
       );
     }
     if (roomStatus === 'ended') {
-      return <StandbyOverlay title="Show ended" body="This live show has ended." />;
+      return <StandbyOverlay title="Show ended" body="Host is ending the live." />;
     }
     if (roomLifecycleLive && (surface === 'connecting' || surface === 'loading' || !playback.videoHasData)) {
       return (

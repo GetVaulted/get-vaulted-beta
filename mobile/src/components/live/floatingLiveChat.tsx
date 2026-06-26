@@ -17,6 +17,7 @@ import {
 import {
   formatChatDisplayName,
   formatViewerEventName,
+  isHostEndingLiveBody,
   isViewerEventMessage,
   prepareChatMessageHistory,
 } from '../../lib/liveRoomChatMessages';
@@ -159,6 +160,7 @@ function FloatingChatRow({
 }) {
   const scale = overlayScale > 1 ? overlayScale : 1;
   const isModSender = isModeratorSender(message, hostUserId, moderatorUserIds);
+  const isHostEnding = isHostEndingLiveBody(message.text);
   const isEvent = isViewerEventMessage(message);
   const name = isEvent ? formatViewerEventName(message.user) : formatChatDisplayName(message.user);
   const chatUser = { username: message.user, userId: message.senderId };
@@ -181,10 +183,21 @@ function FloatingChatRow({
 
   return (
     <Pressable
-      style={[styles.chatRow, compact && styles.chatRowCompact]}
+      style={[styles.chatRow, compact && styles.chatRowCompact, isHostEnding && styles.lifecycleRow]}
       onLongPress={showModLongPress ? () => onLongPressMessage?.(message) : undefined}
       delayLongPress={350}
     >
+      {isHostEnding ? (
+        <LiveRoomText
+          style={[
+            styles.lifecycleEvent,
+            scale > 1 && { fontSize: Math.round(13 * scale), lineHeight: Math.round(17 * scale) },
+          ]}
+        >
+          {message.text}
+        </LiveRoomText>
+      ) : (
+        <>
       <ChatAvatarBubble
         message={message}
         hostAvatarUrl={hostAvatarUrl}
@@ -248,6 +261,8 @@ function FloatingChatRow({
           onComplete={onModerationComplete}
         />
       ) : null}
+        </>
+      )}
     </Pressable>
   );
 }
@@ -662,6 +677,17 @@ const styles = StyleSheet.create({
   chatRowCompact: {
     gap: 6,
     marginBottom: 5,
+  },
+  lifecycleRow: {
+    justifyContent: 'center',
+    paddingVertical: 2,
+  },
+  lifecycleEvent: {
+    color: colors.gold,
+    fontWeight: '800',
+    fontSize: 13,
+    lineHeight: 17,
+    ...TEXT_SHADOW,
   },
   chatAvatar: {
     flexShrink: 0,
