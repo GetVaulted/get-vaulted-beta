@@ -267,10 +267,8 @@ export function useLiveRoomRealtimeSession(args: {
       refreshSkewFromRealtime(payload.serverNowMs);
       const wallNow = syncedWallTimeMs(clockSkewMs);
       setMyHighBidUsd(null);
-      let lotChanged = false;
       setRoomSnap((prev) => {
         if (!prev) return prev;
-        lotChanged = Boolean(payload.itemId && (prev.activeItemId ?? null) !== payload.itemId);
         const merged = mergeBuyerSnapshotForActiveItemChanged(prev, payload, wallNow);
         if (merged) {
           logAuctionTimer({
@@ -285,13 +283,11 @@ export function useLiveRoomRealtimeSession(args: {
         }
         return merged ?? prev;
       });
-      if (lotChanged) {
-        void fetchSnapshot();
-      } else {
-        scheduleReconcile(40);
-      }
+      // Always refetch on active_item_changed — variant team pins and spot commerce mode
+      // updates are not fully represented in the broadcast payload.
+      void fetchSnapshot();
     },
-    [clockSkewMs, fetchSnapshot, refreshSkewFromRealtime, scheduleReconcile],
+    [clockSkewMs, fetchSnapshot, refreshSkewFromRealtime],
   );
 
   useRealtimeRoomSubscription({
@@ -301,7 +297,7 @@ export function useLiveRoomRealtimeSession(args: {
       args.onChatBroadcast?.(message);
     },
     onMessagesRefreshMerge: () => args.onChatBroadcast?.({ id: '', body: '', messageType: '__refresh__' }),
-    onQueueItemsChange: () => scheduleReconcile(350),
+    onQueueItemsChange: () => scheduleReconcile(120),
     onTeamBreakReady: () => scheduleReconcile(200),
     onTeamBreakBegan: () => scheduleReconcile(200),
     onGiveawaysChange: () => scheduleReconcile(250),

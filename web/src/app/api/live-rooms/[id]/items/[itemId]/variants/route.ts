@@ -7,7 +7,7 @@ import {
   idleVariantSpotCommerceReset,
 } from "@/lib/live-variant-spot-commerce";
 import { getLiveRoomItemSnapshotDto } from "@/lib/live-room-item-snapshot-server";
-import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
+import { emitActiveItemChangedAwait, emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
 
 type PostBody = {
   variants?: unknown;
@@ -145,6 +145,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
     });
   });
 
+  const itemNext = await prisma.liveRoomItem.findUnique({
+    where: { id: itemId },
+    select: { itemVersion: true, status: true },
+  });
+  const roomNext = await prisma.liveRoom.findUnique({
+    where: { id: liveRoomId },
+    select: { roomVersion: true },
+  });
+  if (itemNext?.status === "active" && roomNext) {
+    await emitActiveItemChangedAwait(liveRoomId, itemId, {
+      roomVersion: roomNext.roomVersion,
+      itemVersion: itemNext.itemVersion,
+      biddingOpen: false,
+      auctionEndsAt: null,
+    }).catch(() => null);
+  }
   emitLiveRoomQueueItemsChanged(liveRoomId);
   const itemDto = await getLiveRoomItemSnapshotDto(itemId);
   return NextResponse.json({ ok: true, added: toCreate.length, item: itemDto });
@@ -273,6 +289,25 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
     return NextResponse.json({ error: "No valid spot updates." }, { status: 400 });
   }
 
+  let syncVersions: { roomVersion: number; itemVersion: number } | null = null;
+  if (pinVariantIds.length > 0) {
+    const [roomNext, itemNext] = await Promise.all([
+      prisma.liveRoom.findUnique({ where: { id: liveRoomId }, select: { roomVersion: true } }),
+      prisma.liveRoomItem.findUnique({ where: { id: itemId }, select: { itemVersion: true } }),
+    ]);
+    if (roomNext && itemNext) {
+      syncVersions = { roomVersion: roomNext.roomVersion, itemVersion: itemNext.itemVersion };
+    }
+  }
+
+  if (pinVariantIds.length > 0 && syncVersions) {
+    await emitActiveItemChangedAwait(liveRoomId, itemId, {
+      roomVersion: syncVersions.roomVersion,
+      itemVersion: syncVersions.itemVersion,
+      biddingOpen: false,
+      auctionEndsAt: null,
+    }).catch(() => null);
+  }
   emitLiveRoomQueueItemsChanged(liveRoomId);
   const itemDto = await getLiveRoomItemSnapshotDto(itemId);
   return NextResponse.json({ ok: true, updated: changed, item: itemDto });

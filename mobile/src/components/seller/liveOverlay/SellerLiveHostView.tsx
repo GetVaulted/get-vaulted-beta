@@ -357,6 +357,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     },
     onActiveItemChanged: () => {
       console.syncQueue();
+      void console.syncSales();
     },
     onAuctionStarted: () => {
       console.syncQueue();

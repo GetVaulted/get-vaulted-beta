@@ -19,7 +19,7 @@ import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
 import { invalidateHostConsoleCache } from '../lib/hostConsoleCache';
 import { buildExclusiveHostPinUpdates } from '../lib/liveItemVariant';
-import { mergeLiveRoomItemsById } from '../lib/mergeLiveRoomItems';
+import { mergeLiveRoomItemsById, reconcileHostActiveItem } from '../lib/mergeLiveRoomItems';
 import { mergeRandomSpotClaimIntoItem, type RandomSpotClaim } from '../lib/liveVariantSpotBoard';
 import { useRealtimeRoomPresence } from './useRealtimeRoomPresence';
 import { DEFAULT_AUCTION_SEC } from '../components/seller/liveConsole/VaultPinnedLotCard';
@@ -79,12 +79,7 @@ export function useSellerLiveConsole({
       setGiveaways(data.giveaways);
       setRecentSales(data.recentSales);
       setPaymentFailures(data.paymentFailures);
-      setActiveItem((prev) => {
-        const next = data.activeItem ?? prev;
-        if (!next) return null;
-        if (!prev) return next;
-        return mergeLiveRoomItemsById([prev], [next])[0] ?? next;
-      });
+      setActiveItem((prev) => reconcileHostActiveItem(prev, data.activeItem ?? null));
       logSellerQueue('queue_length', {
         total: data.items.length,
         queued: data.items.filter((i) => i.status === 'queued').length,

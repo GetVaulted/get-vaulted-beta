@@ -45,3 +45,13 @@ export function mergeLiveRoomItemsById<TItem extends QueueItemLike>(
 
   return [...map.values()].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 }
+
+/** Host active lot — replace entirely when the pinned item changes; merge only same lot. */
+export function reconcileHostActiveItem<TItem extends QueueItemLike>(
+  prev: TItem | null,
+  next: TItem | null,
+): TItem | null {
+  if (!next) return null;
+  if (!prev || prev.id !== next.id) return next;
+  return mergeLiveRoomItemsById([prev], [next])[0] ?? next;
+}

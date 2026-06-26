@@ -30,7 +30,7 @@ import { HostVariantCommerceStage } from "@/components/break-host/HostVariantCom
 import { ExternalFulfillmentNotice } from "@/components/shipping/ExternalFulfillmentNotice";
 import { HostAddSupplementalModal } from "@/components/break-host/HostAddSupplementalModal";
 import { HostEditBreakSpotsModal, variantItemForSpotEditor } from "@/components/break-host/HostEditBreakSpotsModal";
-import { buildExclusiveHostPinUpdates, isVariantSalesFormat } from "@/lib/live-item-variant-presets";
+import { buildExclusiveHostPinUpdates, hostPinnedBuyerVariant, isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import { HOST_PIN_BLOCKED_AUCTION_LIVE_MSG, hostPinLotBlocked } from "@/lib/host-queue-selection";
 import {
   canHostStartLiveAuction,
@@ -295,6 +295,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const lastRoomVersionRef = useRef(0);
   const autoCloseNudgedItemRef = useRef<Set<string>>(new Set());
   const lastItemVersionRef = useRef<Record<string, number>>({});
+  const trackedActiveItemIdRef = useRef<string | null>(null);
   const lastEventAtByTypeRef = useRef<Record<string, number>>({});
   const seenEventIdsRef = useRef<Set<string>>(new Set());
   const [streamPlaybackRefreshNonce, setStreamPlaybackRefreshNonce] = useState(0);
@@ -473,10 +474,6 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     });
     if (!row || !targetItem) {
       setToast("Pin a lot first, then start bidding.");
-      return;
-    }
-    if (isVariantSalesFormat(targetItem.salesFormat)) {
-      setToast("Spot-sale breaks open for purchase when pinned — no auction start.");
       return;
     }
     setHostLiveItemAuctionBusy(true);
@@ -851,12 +848,22 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   useEffect(() => {
     if (!data?.queueItems?.length) {
       setSelectedQueueItemId("");
+      trackedActiveItemIdRef.current = null;
       return;
     }
+    const active = data.queueItems.find((q) => q.item.status === "active") ?? null;
+    const activeId = active?.item.id ?? null;
     setSelectedQueueItemId((prev) => {
+      if (activeId && activeId !== trackedActiveItemIdRef.current) {
+        trackedActiveItemIdRef.current = activeId;
+        return activeId;
+      }
       if (prev && data.queueItems.some((q) => q.item.id === prev)) return prev;
-      const active = data.queueItems.find((q) => q.item.status === "active");
-      if (active) return active.item.id;
+      if (activeId) {
+        trackedActiveItemIdRef.current = activeId;
+        return activeId;
+      }
+      trackedActiveItemIdRef.current = null;
       const queued = data.queueItems.find((q) => q.item.status === "queued");
       return (queued ?? data.queueItems[0]).item.id;
     });
@@ -1043,6 +1050,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         setHostClockSkewMs(estimateClockSkewMs(t, t, snActive));
       }
       scheduleFallbackRefresh("active_item_changed_reconcile", 120);
+      void load();
     },
     onAuctionStarted: (payload) => {
       logLiveDebugEvent({
@@ -1754,14 +1762,20 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           return formatHostAuctionCountdownMs(ends - syncedWallTimeMs(hostClockSkewMs));
         })()
       : null;
-  const hostActiveLotBidPhase =
-    activeBoardRow != null && !isVariantSalesFormat(activeBoardRow.item.salesFormat)
-      ? resolveLiveAuctionHostStartLotPhase(activeBoardRow.item, syncedWallTimeMs(hostClockSkewMs))
-      : "inactive";
+  const hostActiveLotBidPhase = resolveLiveAuctionHostStartLotPhase(
+    activeBoardRow?.item ?? null,
+    syncedWallTimeMs(hostClockSkewMs),
+  );
+  const hostPinnedVariant = useMemo(() => {
+    const item = activeBoardRow?.item;
+    if (!item?.variants?.length) return null;
+    return hostPinnedBuyerVariant(item.variants, item.variantAssignmentMode);
+  }, [activeBoardRow?.item]);
   const hostStartLiveAuctionEnabled = canHostStartLiveAuction(activeBoardRow?.item ?? null, {
     roomLive: room.status === "live",
     lotBidPhase: hostActiveLotBidPhase,
     isVariantItem: activeBoardRow != null && isVariantSalesFormat(activeBoardRow.item.salesFormat),
+    hasPinnedVariant: Boolean(hostPinnedVariant),
   });
 
   const hostPinLotEnabled = !hostPinLotBlocked(activeBoardRow);
@@ -1940,6 +1954,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       }
       await load();
       router.refresh();
+      setToast("Team open for buyers — they can claim or buy now.");
     } finally {
       setPinVariantBusy(false);
     }
