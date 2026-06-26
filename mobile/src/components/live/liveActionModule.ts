@@ -4,8 +4,11 @@ import { LIVE_AUCTION_BUYER_TIMER_ENDED_COPY } from '../../lib/liveAuctionLotPha
 import { formatAuctionLeaderLine } from '../../lib/liveAuctionWinnerDisplay';
 import {
   availableVariantCount,
+  hostPinnedBuyerVariant,
   isActiveVariantBuyerItem,
+  isRandomVariantAssignment,
   lowestAvailableVariantPrice,
+  pinnedVariantBuyerPrimaryLabel,
   variantSelectSpotLabel,
 } from '../../lib/liveItemVariant';
 import { pickVaultWaitingMessage } from '../../lib/liveAuctionBuyerVaultCopy';
@@ -60,35 +63,80 @@ function resolveBuyerVariantItemHud(
   base: LiveCommerceHudModel,
 ): LiveCommerceHudModel {
   const variants = snap.activeItemVariants ?? [];
-  const available = availableVariantCount(variants);
-  const fromPrice = lowestAvailableVariantPrice(variants) ?? snap.priceUsd ?? snap.startingBidUsd ?? 0;
-  const itemTitle =
+  const isRandom = isRandomVariantAssignment(snap.activeItemVariantAssignmentMode);
+  const itemTitleFallback =
     snap.activeItemTitle?.trim() ||
     stream.currentItem?.trim() ||
     stream.pinnedProductLabel?.trim() ||
     stream.title?.trim() ||
     'Live spot board';
 
+  if (isRandom) {
+    const available = availableVariantCount(variants);
+    const fromPrice = lowestAvailableVariantPrice(variants) ?? snap.priceUsd ?? snap.startingBidUsd ?? 0;
+    return {
+      ...base,
+      format: 'shop',
+      hybridFocus: null,
+      timerMmSs: '—',
+      itemTitle: itemTitleFallback,
+      currentPrefix: available > 0 ? 'From' : 'Status',
+      currentAmount: available > 0 ? formatMoney(fromPrice) : 'Sold out',
+      winningLine: '',
+      stateLine:
+        available > 0
+          ? `${available} spot${available === 1 ? '' : 's'} available — tap to spin the wheel.`
+          : 'All spots are sold or unavailable.',
+      bottomLeftLabel: 'Custom',
+      bottomRightLabel: variantSelectSpotLabel(snap.activeItemSalesFormat, true),
+      bottomRightIsSlide: false,
+      buyerPrimaryDisabled: available <= 0,
+      buyerSecondaryDisabled: true,
+    };
+  }
+
+  const pinned = hostPinnedBuyerVariant(variants, snap.activeItemVariantAssignmentMode);
+  if (pinned) {
+    const divisionBreak = snap.activeItemSalesFormat === 'team_break';
+    return {
+      ...base,
+      format: 'shop',
+      hybridFocus: null,
+      timerMmSs: '—',
+      itemTitle: pinned.label,
+      currentPrefix: 'Price',
+      currentAmount: formatMoney(pinned.priceUsd),
+      winningLine: '',
+      stateLine: divisionBreak
+        ? 'This division is live — tap Claim Team to checkout.'
+        : 'This team is live — tap Buy Now to checkout.',
+      bottomLeftLabel: 'Custom',
+      bottomRightLabel: pinnedVariantBuyerPrimaryLabel(snap.activeItemSalesFormat, pinned.priceUsd),
+      bottomRightIsSlide: false,
+      buyerPrimaryDisabled: false,
+      buyerSecondaryDisabled: true,
+      buyerPinnedVariantId: pinned.id,
+    };
+  }
+
+  const available = availableVariantCount(variants);
   return {
     ...base,
     format: 'shop',
     hybridFocus: null,
     timerMmSs: '—',
-    itemTitle,
-    currentPrefix: available > 0 ? 'From' : 'Status',
-    currentAmount: available > 0 ? formatMoney(fromPrice) : 'Sold out',
+    itemTitle: itemTitleFallback,
+    currentPrefix: 'Status',
+    currentAmount: available > 0 ? 'Waiting' : 'Sold out',
     winningLine: '',
     stateLine:
       available > 0
-        ? `${available} spot${available === 1 ? '' : 's'} available — tap to choose yours.`
+        ? 'Host is picking the next team — stay locked in.'
         : 'All spots are sold or unavailable.',
     bottomLeftLabel: 'Custom',
-    bottomRightLabel: variantSelectSpotLabel(
-      snap.activeItemSalesFormat,
-      snap.activeItemVariantAssignmentMode === 'random',
-    ),
+    bottomRightLabel: available > 0 ? 'Waiting for team' : 'Sold out',
     bottomRightIsSlide: false,
-    buyerPrimaryDisabled: available <= 0,
+    buyerPrimaryDisabled: true,
     buyerSecondaryDisabled: true,
   };
 }
@@ -359,6 +407,8 @@ export type LiveCommerceHudModel = {
   buyerPrimaryDisabled?: boolean;
   /** Secondary ghost CTA (Custom) — disabled while waiting for host lot. */
   buyerSecondaryDisabled?: boolean;
+  /** Host-pinned PYT/PYD spot — buyer checks out this variant directly. */
+  buyerPinnedVariantId?: string;
 };
 
 /** Two-row live commerce tile: title + bidder/amount; custom CTA + bid/slide. */

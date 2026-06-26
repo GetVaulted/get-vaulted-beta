@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Image, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { LIVE_AUCTION_HOST_TIMER_ENDED_COPY, resolveLiveAuctionLotBidPhase } from '../../../lib/liveAuctionLotPhase';
+import { canHostStartLiveAuction, isMultiQuantityLiveAuctionItem } from '../../../lib/liveAuctionHostStart';
 import { resolvePinnedLotOverlayPrice } from '../../../lib/liveAuctionOverlayPrice';
 import { isVariantPurchaseItem, summarizeVariantSpots } from '../../../lib/liveItemVariant';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
@@ -36,7 +37,10 @@ function resolveHostLotHudPhase(args: {
   if (item.status === 'skipped') return 'skipped';
   if (!roomLive) return 'prelive';
   if (lotBidPhase === 'bidding_open') return 'running';
-  if (lotBidPhase === 'timer_ended_unsettled') return 'ended';
+  if (lotBidPhase === 'timer_ended_unsettled') {
+    if (isMultiQuantityLiveAuctionItem(item) && !item.lastHighBidderId?.trim()) return 'ready';
+    return 'ended';
+  }
   if (item.status === 'active' && lotBidPhase === 'not_started') return 'ready';
   return 'prelive';
 }
@@ -282,7 +286,9 @@ export function VaultPinnedLotCard({
     item.priceUsd != null && item.currentBidUsd != null && item.currentBidUsd >= item.priceUsd;
   const closingSoon = countdown != null && countdown.progress <= 0.28;
   const hudPhase = resolveHostLotHudPhase({ item, roomLive, lotBidPhase, queuePreview });
-  const showStartAuction = hudPhase === 'ready' && !isVariantItem;
+  const showStartAuction =
+    (queuePreview && hudPhase === 'ready' && !isVariantItem) ||
+    canHostStartLiveAuction(item, { roomLive, lotBidPhase, isVariantItem });
   const showRunningStrip = !hostOverlayMinimal && hudPhase === 'running';
   const showEndedActions = hudPhase === 'ended';
   const showSecondaryActions =

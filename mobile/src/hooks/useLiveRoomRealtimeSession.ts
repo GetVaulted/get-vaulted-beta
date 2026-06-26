@@ -52,6 +52,9 @@ export function useLiveRoomRealtimeSession(args: {
   enabled: boolean;
   hostUsername: string;
   onChatBroadcast?: (message: LiveRoomChatBroadcastMessage) => void;
+  /** Hard playback reset (WebRTC rejoin). Use only for go-live / ended transitions. */
+  onStreamHardRefresh?: () => void;
+  /** @deprecated Prefer onStreamHardRefresh — kept for callers that only need metadata. */
   onStreamRefresh?: () => void;
 }) {
   const [roomSnap, setRoomSnap] = useState<LiveRoomBuyerSnapshot | null>(null);
@@ -323,7 +326,7 @@ export function useLiveRoomRealtimeSession(args: {
     onAuctionStarted: (payload) => {
       if (!shouldProcessRealtimeEvent(guardRef.current, 'auction_started', payload)) return;
       refreshSkewFromRealtime(payload.serverNowMs);
-      args.onStreamRefresh?.();
+      args.onStreamHardRefresh?.() ?? args.onStreamRefresh?.();
       scheduleReconcile(80);
     },
     onAuctionEnded: (payload) => {
@@ -337,9 +340,12 @@ export function useLiveRoomRealtimeSession(args: {
         void fetchSnapshot();
       }
       const wallNow = syncedWallTimeMs(clockSkewMs);
+      setMyHighBidUsd(null);
       setRoomSnap((prev) => {
         if (!prev) return prev;
-        return applyBuyerSnapshotPurchaseCompleted(prev, payload.itemId, wallNow);
+        const noBids = payload.noBids === true;
+        const itemSoldOut = payload.itemSoldOut !== false;
+        return applyBuyerSnapshotPurchaseCompleted(prev, payload.itemId, wallNow, { noBids, itemSoldOut });
       });
       const celebration = parsePurchaseCompletedCelebration(payload, args.userId);
       const spotTaken = parseAuctionWinSpotCelebration(payload);
@@ -366,12 +372,11 @@ export function useLiveRoomRealtimeSession(args: {
         void fetchSnapshot();
       }
     },
-    onStreamStatusChange: () => args.onStreamRefresh?.(),
+    onStreamStatusChange: () => scheduleReconcile(200),
     onRoomStateEvent: () => scheduleReconcile(600),
     onReconnect: () => {
       setConnectionBanner('Live connection restored');
       setTimeout(() => setConnectionBanner(null), 2400);
-      args.onStreamRefresh?.();
       scheduleReconcile(120);
     },
     onConnectionStateChange: ({ status, reconnectCount }) => {

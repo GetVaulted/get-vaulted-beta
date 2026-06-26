@@ -35,4 +35,14 @@ describe('liveBuyerSnapshotClock', () => {
     expect(next.auctionEndsAt).toBeNull();
     expect(next.biddingOpen).toBe(false);
   });
+
+  it('keeps lot ready after multi-qty no-bid round', () => {
+    const next = applyBuyerSnapshotPurchaseCompleted(snap(), 'item-1', Date.now(), {
+      noBids: true,
+      itemSoldOut: false,
+    });
+    expect(next.lotBidPhase).toBe('not_started');
+    expect(next.activeItemId).toBe('item-1');
+    expect(next.currentBidUsd).toBeNull();
+  });
 });

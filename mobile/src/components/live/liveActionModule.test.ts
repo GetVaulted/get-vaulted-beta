@@ -219,7 +219,7 @@ describe('resolveLiveBuyerCommerceHud', () => {
     expect(hud.buyerPrimaryDisabled).toBe(false);
   });
 
-  it('shows Select Division for active team break variant item', () => {
+  it('shows pinned division checkout CTA when host pinned a team_break spot', () => {
     const snap = {
       roomType: 'sale',
       status: 'live',
@@ -241,14 +241,13 @@ describe('resolveLiveBuyerCommerceHud', () => {
       fetchedAtMs: Date.now(),
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
-    expect(hud.bottomRightLabel).toBe('Pick Your Division');
-    expect(hud.bottomRightLabel).not.toMatch(/bid/i);
-    expect(hud.currentPrefix).toBe('From');
+    expect(hud.bottomRightLabel).toBe('Claim Team $35.00');
+    expect(hud.itemTitle).toBe('AFC East');
     expect(hud.buyerPrimaryDisabled).toBe(false);
-    expect(hud.stateLine).toMatch(/1 spot available/i);
+    expect(hud.buyerPinnedVariantId).toBe('v1');
   });
 
-  it('shows Select Spot for variant_selection item', () => {
+  it('waits for host pin on pick-mode variant item without hot spot', () => {
     const snap = {
       roomType: 'auction',
       status: 'live',
@@ -269,7 +268,8 @@ describe('resolveLiveBuyerCommerceHud', () => {
       fetchedAtMs: Date.now(),
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
-    expect(hud.bottomRightLabel).toBe('Pick Your Team');
+    expect(hud.bottomRightLabel).toBe('Waiting for team');
+    expect(hud.buyerPrimaryDisabled).toBe(true);
   });
 });
 

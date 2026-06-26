@@ -225,7 +225,7 @@ export async function POST(
       if (remaining && remaining.quantityRemaining <= 0) {
         await tx.liveItemVariant.update({
           where: { id: variantId },
-          data: { status: "sold_out" },
+          data: { status: "sold_out", isHot: false },
         });
       }
 

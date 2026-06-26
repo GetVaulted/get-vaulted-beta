@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { BreakBuyerOverview } from "@/components/live-auction/BreakBuyerOverview";
@@ -54,12 +54,15 @@ import {
   LIVE_AUCTION_HOST_TIMER_ENDED_COPY,
   resolveLiveAuctionLotBidPhase,
 } from "@/lib/live-auction-lot-phase";
-import { patchLiveRoomItemStatus, startLiveRoomItemAuction } from "@/lib/live-room-control-client";
+import { canHostStartLiveAuction } from "@/lib/live-auction-host-start";
+import { finalizeOverdueLiveAuctions, patchLiveRoomItemStatus, patchLiveItemVariants, startLiveRoomItemAuction } from "@/lib/live-room-control-client";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { shareLiveRoomNative } from "@/lib/share-live-room-native";
 import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
-import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel } from "@/lib/live-item-variant-presets";
+import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel, hostPinnedBuyerVariant, pinnedVariantBuyerPrimaryLabel, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
+import { createLiveVariantPurchaseIdempotencyKey, purchaseLiveItemVariant, syncLiveItemVariantPurchase } from "@/lib/live-variant-purchase-client";
+import { loadStripe } from "@stripe/stripe-js";
 import { resolvePinnedLotOverlayPrice } from "@/lib/live-auction-overlay-price";
 import {
   LIVE_CUSTOM_BID_MODE_COPY,
@@ -307,6 +310,18 @@ export function LiveAuctionRoom({
     return () => window.clearInterval(id);
   }, [dbItems]);
 
+  const autoCloseNudgedItemRef = useRef<string | null>(null);
+  useEffect(() => {
+    const active = dbItems.find((x) => x.status === "active");
+    if (!active?.biddingOpen || !active.auctionEndsAt) return;
+    const endsMs = Date.parse(active.auctionEndsAt);
+    if (!Number.isFinite(endsMs)) return;
+    if (syncedWallTimeMs(clockSkewMs) < endsMs + 1500) return;
+    if (autoCloseNudgedItemRef.current === active.id) return;
+    autoCloseNudgedItemRef.current = active.id;
+    void finalizeOverdueLiveAuctions(liveRoomId).then(() => onRefetch?.());
+  }, [clockSkewMs, dbItems, auctionResolutionTick, liveRoomId, onRefetch]);
+
   const mappedDb = useMemo(
     () => dbItems.map((i) => mapDbItem(i, isLive, clockSkewMs)),
     [dbItems, isLive, auctionResolutionTick, clockSkewMs],
@@ -317,12 +332,22 @@ export function LiveAuctionRoom({
   );
   const activeVariantSpots = activeHasVariants ? summarizeVariantSpots(activeDbItem?.variants) : null;
   const pytCommerceLive = Boolean(activeHasVariants && isLive && activeDbItem?.status === "active");
+  const buyerPinnedVariant = useMemo(() => {
+    if (!activeDbItem?.variants?.length) return null;
+    if (isRandomVariantAssignment(activeDbItem.variantAssignmentMode)) return null;
+    return hostPinnedBuyerVariant(activeDbItem.variants, activeDbItem.variantAssignmentMode);
+  }, [activeDbItem]);
   const variantPickLabel = activeDbItem
-    ? variantBuyerSelectLabel(activeDbItem.salesFormat, activeDbItem.variantAssignmentMode === "random")
+    ? buyerPinnedVariant
+      ? pinnedVariantBuyerPrimaryLabel(activeDbItem.salesFormat, buyerPinnedVariant.priceUsd)
+      : isRandomVariantAssignment(activeDbItem.variantAssignmentMode)
+        ? variantBuyerSelectLabel(activeDbItem.salesFormat, true)
+        : "Waiting for team"
     : "Select spot";
   const [hostAuctionDurationSec, setHostAuctionDurationSec] = useState(5);
   const [hostClutchTimeEnabled, setHostClutchTimeEnabled] = useState(false);
   const [hostAuctionBusy, setHostAuctionBusy] = useState(false);
+  const [pinVariantBusy, setPinVariantBusy] = useState(false);
   const [hostMarkSoldBusy, setHostMarkSoldBusy] = useState(false);
   const [queueItems, setQueueItems] = useState<SaleItem[]>(mappedDb);
   const [selectedId, setSelectedId] = useState("");
@@ -460,7 +485,7 @@ export function LiveAuctionRoom({
   )}`;
 
   const spotPriceUsd = selectedQueue?.buyNow ?? selectedQueue?.topBid ?? activeQueueItem?.buyNow ?? activeQueueItem?.topBid ?? 0;
-  const pytFromPriceUsd = activeVariantSpots?.fromPriceUsd ?? spotPriceUsd;
+  const pytFromPriceUsd = buyerPinnedVariant?.priceUsd ?? activeVariantSpots?.fromPriceUsd ?? spotPriceUsd;
   /** Item chrome shows last agreed price; bid CTA uses next increment (see `minNextBidUsd`). */
   const displayPrimaryUsd = activeHasVariants ? pytFromPriceUsd : overlayIsLive ? buyerCurrentHighUsd : spotPriceUsd;
   const displaySpotAmount = displayPrimaryUsd.toFixed(2);
@@ -538,7 +563,11 @@ export function LiveAuctionRoom({
     biddingWindowStillRunning && activeDbItem?.auctionEndsAt && auctionRemainingMs != null
       ? formatCountdownMs(auctionRemainingMs)
       : null;
-  const hostStartEnabled = Boolean(isLive && activeDbItem?.status === "active" && activeLotBidPhase === "not_started");
+  const hostStartEnabled = canHostStartLiveAuction(activeDbItem, {
+    roomLive: isLive,
+    lotBidPhase: activeLotBidPhase,
+    isVariantItem: activeHasVariants,
+  });
   const hostTimerEndedUnsettled = isLive && activeLotBidPhase === "timer_ended_unsettled";
   const guestNeedsAuth = status === "unauthenticated" && !isHost && isLive;
   const sessionPending = status === "loading" && !isHost && isLive;
@@ -607,14 +636,102 @@ export function LiveAuctionRoom({
         : null
     : null;
 
-  /** PYT checkout sheet — open even when wallet still needs setup (sheet + wallet hint handle that). */
+  /** PYT checkout — random opens sheet; host-pinned pick mode checks out directly. */
   const variantPickerDisabled =
     !isLive ||
     staffCommerceBlocked ||
     busy ||
     sessionBlocksBuyer ||
     buyerClaimsBlocked ||
-    (activeVariantSpots?.available ?? 0) <= 0;
+    (activeVariantSpots?.available ?? 0) <= 0 ||
+    Boolean(
+      activeDbItem &&
+        !isRandomVariantAssignment(activeDbItem.variantAssignmentMode) &&
+        !buyerPinnedVariant,
+    );
+
+  const handleBuyerVariantCommerce = useCallback(async () => {
+    if (!activeDbItem || !pytCommerceLive) return;
+    if (isRandomVariantAssignment(activeDbItem.variantAssignmentMode)) {
+      setVariantSheetOpen(true);
+      return;
+    }
+    const pinned = hostPinnedBuyerVariant(activeDbItem.variants, activeDbItem.variantAssignmentMode);
+    if (!pinned) {
+      setActionError("Host is picking the next team — check back in a moment.");
+      return;
+    }
+    if (!buyerLiveWalletReady) {
+      onOpenWallet?.();
+      return;
+    }
+    setBusy(true);
+    setActionError(null);
+    try {
+      const res = await purchaseLiveItemVariant({
+        liveRoomId,
+        itemId: activeDbItem.id,
+        variantId: pinned.id,
+        quantity: 1,
+        idempotencyKey: createLiveVariantPurchaseIdempotencyKey(pinned.id),
+      });
+      if (!res.ok) {
+        if (res.status === 401 && res.signInUrl) {
+          window.location.href = res.signInUrl;
+          return;
+        }
+        if (res.walletIncomplete) {
+          onOpenWallet?.();
+          return;
+        }
+        setActionError(res.error);
+        return;
+      }
+      if (res.ok && "paid" in res && res.paid) {
+        toast(`Claimed ${pinned.label}`);
+        await onRefetch?.();
+        return;
+      }
+      if (res.ok && "requiresAction" in res && res.requiresAction) {
+        const pk =
+          res.publishableKey?.trim() ||
+          process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() ||
+          "";
+        const stripe = pk ? await loadStripe(pk) : null;
+        if (!stripe) {
+          setActionError("Complete payment verification in your Wallet, then try again.");
+          return;
+        }
+        const conf = await stripe.confirmCardPayment(res.clientSecret);
+        if (conf.error) {
+          setActionError(conf.error.message ?? "Payment authentication failed.");
+          return;
+        }
+        const synced = await syncLiveItemVariantPurchase({
+          liveRoomId,
+          itemId: activeDbItem.id,
+          variantId: pinned.id,
+          purchaseId: res.purchaseId,
+        });
+        if (synced.ok && "paid" in synced && synced.paid) {
+          toast(`Claimed ${pinned.label}`);
+          await onRefetch?.();
+        } else {
+          setActionError("Payment is still processing — refresh the room.");
+        }
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [
+    activeDbItem,
+    buyerLiveWalletReady,
+    liveRoomId,
+    onOpenWallet,
+    onRefetch,
+    pytCommerceLive,
+    toast,
+  ]);
 
   const handleTeamPick = useCallback(
     async (teamAbbr: string) => {
@@ -806,6 +923,28 @@ export function LiveAuctionRoom({
       setBusy(false);
     }
   };
+
+  const handleHostPinLiveVariant = useCallback(
+    async (variantId: string) => {
+      if (!activeDbItem?.variants?.length) return;
+      setPinVariantBusy(true);
+      setActionError(null);
+      try {
+        const updates = buildExclusiveHostPinUpdates(activeDbItem.variants, variantId);
+        const res = await patchLiveItemVariants(liveRoomId, activeDbItem.id, updates);
+        if (!res.ok) {
+          setActionError(res.error);
+          toast(res.error);
+          return;
+        }
+        await onRefetch?.();
+        router.refresh();
+      } finally {
+        setPinVariantBusy(false);
+      }
+    },
+    [activeDbItem, liveRoomId, onRefetch, router, toast],
+  );
 
   const handleHostMarkSold = useCallback(async () => {
     if (!activeDbItem || activeLotBidPhase !== "timer_ended_unsettled") return;
@@ -1001,7 +1140,7 @@ export function LiveAuctionRoom({
               data-testid="live-bid-button"
               type="button"
               disabled={variantPickerDisabled}
-              onClick={() => setVariantSheetOpen(true)}
+              onClick={() => void handleBuyerVariantCommerce()}
               className="min-h-10 min-w-[170px] rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-4 text-[11px] font-black uppercase tracking-wide text-zinc-950 shadow-[0_0_22px_-8px_rgba(212,175,55,0.55)] transition-[transform,opacity,filter] duration-[var(--live-duration-ui)] ease-[var(--live-ease)] active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-40"
             >
               {variantPickLabel}
@@ -1243,7 +1382,7 @@ export function LiveAuctionRoom({
         <button
           type="button"
           disabled={variantPickerDisabled}
-          onClick={() => setVariantSheetOpen(true)}
+          onClick={() => void handleBuyerVariantCommerce()}
           className="mt-2 min-h-10 w-full rounded-full bg-gradient-to-r from-gold to-gold-bright text-[10px] font-black uppercase tracking-wide text-zinc-950 disabled:opacity-40 md:min-h-11 md:text-[11px]"
         >
           {variantPickLabel}
@@ -1400,7 +1539,7 @@ export function LiveAuctionRoom({
       <BuyerVariantClaimCta
         label={variantPickLabel}
         disabled={variantPickerDisabled}
-        onClick={() => setVariantSheetOpen(true)}
+        onClick={() => void handleBuyerVariantCommerce()}
       />
     ) : undefined;
 
@@ -1474,7 +1613,16 @@ export function LiveAuctionRoom({
   const videoStageCenterOverlay =
     teamBoardOverlay ??
     (isHost && activeHasVariants && activeDbItem ? (
-      <LiveVariantSpotBoard item={activeDbItem} hostMode />
+      <LiveVariantSpotBoard
+        item={activeDbItem}
+        hostMode
+        onPinVariant={
+          activeDbItem.status === "active" && !isRandomVariantAssignment(activeDbItem.variantAssignmentMode)
+            ? handleHostPinLiveVariant
+            : undefined
+        }
+        pinBusy={pinVariantBusy}
+      />
     ) : null);
 
   const giveawaySideTab =
@@ -1661,7 +1809,7 @@ export function LiveAuctionRoom({
           }}
         />
       </BuyerLiveQueueSheet>
-      {activeDbItem && activeHasVariants ? (
+      {activeDbItem && activeHasVariants && isRandomVariantAssignment(activeDbItem.variantAssignmentMode) ? (
         <LiveVariantSelectionSheet
           open={variantSheetOpen}
           onClose={() => setVariantSheetOpen(false)}

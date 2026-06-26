@@ -3,6 +3,7 @@ import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { stripeCheckoutSessionPaymentOptions } from "@/lib/stripe-payment-method-config";
 import { buildCheckoutTaxSessionFields, STRIPE_TAX_CODE_TANGIBLE, stripeLineItemProductData } from "@/lib/stripe-tax";
 import { recordLiveShowCompletedSaleTx, resolveCheckoutApplicationFeeCents } from "@/lib/live-show-gmv";
+import { assertSellerStripeCollectReadyFromUser, sellerStripeCollectSelect } from "@/lib/seller-stripe-collect-ready";
 
 import { emitLiveRoomMessageById, emitLiveRoomMessagesRefetch, emitVariantPurchased } from "@/lib/realtime-emit-server";
 import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
@@ -12,6 +13,7 @@ import {
   executeRandomVariantRevealOnPurchase,
   isRandomVariantAssignment,
 } from "@/lib/live-item-variant-random-reveal";
+import { markVariantPurchaseExternalFulfillmentRequired } from "@/services/shipping/break-pyt-fulfillment-bridge";
 
 function siteUrl(): string {
   return (process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");
@@ -43,7 +45,7 @@ export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, st
   if (variant && variant.quantityRemaining <= 0) {
     await prisma.liveItemVariant.update({
       where: { id: purchase.variantId },
-      data: { status: "sold_out" },
+      data: { status: "sold_out", isHot: false },
     });
   }
 
@@ -52,6 +54,8 @@ export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, st
       await recordLiveShowCompletedSaleTx(tx, purchase.liveRoomId, purchase.totalUsd);
     });
   }
+
+  await markVariantPurchaseExternalFulfillmentRequired(purchaseId);
 
   const itemRow = await prisma.liveRoomItem.findUnique({
     where: { id: purchase.liveRoomItemId },
@@ -186,9 +190,9 @@ export async function createLiveItemVariantCheckoutSession(args: {
 
   const seller = await prisma.user.findUnique({
     where: { id: purchase.liveRoom.sellerId },
-    select: { stripeAccountId: true, stripeOnboardingComplete: true },
+    select: sellerStripeCollectSelect,
   });
-  if (!seller?.stripeAccountId || !seller.stripeOnboardingComplete) throw new Error("SELLER_NOT_READY");
+  assertSellerStripeCollectReadyFromUser(seller);
 
   const feeCents = await resolveCheckoutApplicationFeeCents({
     saleAmountUsd: purchase.totalUsd,

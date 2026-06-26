@@ -10,7 +10,8 @@ import { getLiveRoomItemSnapshotDto } from "@/lib/live-room-item-snapshot-server
 import { prisma } from "@/lib/prisma";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import { beginVariantTeamBreak } from "@/lib/live-item-variant-break";
-import { settleAndChargeLiveAuctionLot } from "@/lib/live-auction-finalize";
+import { settleAndChargeLiveAuctionLot, resetLiveAuctionLotAfterNoBids } from "@/lib/live-auction-finalize";
+import { isMultiQuantityLiveAuctionItem } from "@/lib/live-auction-host-start";
 import {
   emitActiveItemChanged,
   emitActiveItemChangedAwait,
@@ -113,6 +114,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       auctionEndsAt: true,
       lastHighBidderId: true,
       salesFormat: true,
+      quantity: true,
+      quantityInitial: true,
     },
   });
   if (!item) return NextResponse.json({ error: "Item not found" }, { status: 404 });
@@ -422,6 +425,23 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
 
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: "No updates." }, { status: 400 });
+  }
+
+  if (
+    data.status === "skipped" &&
+    item.status === "active" &&
+    !item.lastHighBidderId?.trim() &&
+    isMultiQuantityLiveAuctionItem(item) &&
+    (item.biddingOpen || item.auctionEndsAt != null)
+  ) {
+    const reset = await resetLiveAuctionLotAfterNoBids({
+      liveRoomId,
+      itemId,
+      trigger: "manual",
+    });
+    if (reset.reset) {
+      return NextResponse.json({ ok: true, itemSoldOut: false, resetAuction: true });
+    }
   }
 
   if (data.status === "sold" && (room.roomType === "auction" || room.roomType === "break")) {

@@ -159,6 +159,32 @@ export function isRandomVariantAssignment(mode: string | null | undefined): bool
   return mode === 'random';
 }
 
+/** Host-pinned spot shown to buyers (exclusive `isHot` on an available variant). */
+export function hostPinnedBuyerVariant(
+  variants: LiveItemVariantSnapshot[] | undefined,
+  assignmentMode?: string | null,
+): LiveItemVariantSnapshot | null {
+  if (!variants?.length || isRandomVariantAssignment(assignmentMode)) return null;
+  const pinned = variants.filter((v) => v.isHot && variantIsAvailable(v));
+  return pinned[0] ?? null;
+}
+
+export function buildExclusiveHostPinUpdates(
+  variants: Array<{ id: string }>,
+  pinnedVariantId: string,
+): Array<{ id: string; isHot: boolean }> {
+  return variants.map((v) => ({ id: v.id, isHot: v.id === pinnedVariantId }));
+}
+
+export function pinnedVariantBuyerPrimaryLabel(
+  format: LiveItemSalesFormat | null | undefined,
+  priceUsd: number,
+): string {
+  const money = `$${priceUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (format === 'team_break') return `Claim Team ${money}`;
+  return `Buy Now ${money}`;
+}
+
 export function variantSelectSpotLabel(
   format: LiveItemSalesFormat | null | undefined,
   random = false,

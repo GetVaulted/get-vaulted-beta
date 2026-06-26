@@ -25,8 +25,15 @@ export function mergeVariantPurchasedIntoItems(
       if (v.id !== payload.variantId) return v;
       const quantityRemaining = Math.max(0, v.quantityRemaining - qty);
       const soldCount = Math.max(0, (v.soldCount ?? 0) + qty);
-      const status: LiveItemVariantStatus = quantityRemaining <= 0 ? "sold_out" : v.status === "sold_out" ? "available" : v.status;
-      return { ...v, quantityRemaining, soldCount, status };
+      const soldOut = quantityRemaining <= 0;
+      const status: LiveItemVariantStatus = soldOut ? "sold_out" : v.status === "sold_out" ? "available" : v.status;
+      return {
+        ...v,
+        quantityRemaining,
+        soldCount,
+        status,
+        ...(soldOut ? { isHot: false } : {}),
+      };
     });
     return { ...it, variants, itemVersion };
   });

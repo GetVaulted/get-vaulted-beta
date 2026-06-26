@@ -175,6 +175,53 @@ export function allVariantSpotsSold(variants: VariantSpotRow[] | undefined | nul
   return variants.every((v) => v.quantityRemaining <= 0 || v.status === "sold_out");
 }
 
+export type VariantPinRow = {
+  id: string;
+  label: string;
+  priceUsd: number;
+  quantityRemaining: number;
+  soldCount?: number;
+  status: string;
+  isHot: boolean;
+};
+
+export function variantIsAvailable(v: { quantityRemaining: number; status: string }): boolean {
+  return v.quantityRemaining > 0 && v.status !== "sold_out";
+}
+
+export function hostSpotBoardPinEnabled(args: {
+  hostMode: boolean;
+  hasPinHandler: boolean;
+  variantId?: string | null;
+  sold: boolean;
+}): boolean {
+  return Boolean(args.hostMode && args.hasPinHandler && args.variantId && !args.sold);
+}
+
+
+/** Host-pinned spot shown to buyers (exclusive `isHot` on an available variant). */
+export function hostPinnedBuyerVariant(
+  variants: VariantPinRow[] | undefined | null,
+  assignmentMode?: string | null,
+): VariantPinRow | null {
+  if (!variants?.length || isRandomVariantAssignment(assignmentMode)) return null;
+  const pinned = variants.filter((v) => v.isHot && variantIsAvailable(v));
+  return pinned[0] ?? null;
+}
+
+export function buildExclusiveHostPinUpdates(
+  variants: Array<{ id: string }>,
+  pinnedVariantId: string,
+): Array<{ id: string; isHot: boolean }> {
+  return variants.map((v) => ({ id: v.id, isHot: v.id === pinnedVariantId }));
+}
+
+export function pinnedVariantBuyerPrimaryLabel(format: string | null | undefined, priceUsd: number): string {
+  const money = `$${priceUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (format === "team_break") return `Claim Team ${money}`;
+  return `Buy Now ${money}`;
+}
+
 export function variantBuyerSelectLabel(format: string | null | undefined, random = false): string {
   if (random) {
     if (format === "team_break") return "Random Division";

@@ -696,8 +696,22 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         extra: { type: "auction_started" },
       });
       if (!shouldProcessRealtimePayload("auction_started", payload)) return;
-      setDetail((prev) =>
-        prev
+      refreshSkewFromRealtimePayload(payload.serverNowMs);
+      setDetail((prev) => {
+        const wasLive = prev?.status === "live";
+        if (wasLive) {
+          scheduleFallbackRefresh("auction_started", 80);
+          return prev
+            ? {
+                ...prev,
+                roomVersion:
+                  typeof payload.roomVersion === "number" ? Math.max(prev.roomVersion, payload.roomVersion) : prev.roomVersion,
+              }
+            : prev;
+        }
+        setStreamPlaybackRefreshNonce((n) => n + 1);
+        scheduleFallbackRefresh("auction_started", 80);
+        return prev
           ? {
               ...prev,
               status: "live",
@@ -706,11 +720,8 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
               roomVersion:
                 typeof payload.roomVersion === "number" ? Math.max(prev.roomVersion, payload.roomVersion) : prev.roomVersion,
             }
-          : prev,
-      );
-      refreshSkewFromRealtimePayload(payload.serverNowMs);
-      setStreamPlaybackRefreshNonce((n) => n + 1);
-      scheduleFallbackRefresh("auction_started", 80);
+          : prev;
+      });
     },
     onAuctionEnded: (payload) => {
       logLiveDebugEvent({
@@ -767,20 +778,59 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       if (payload.itemId) {
         setDetail((prev) => {
           if (!prev) return prev;
+          const noBids = payload.noBids === true;
+          const itemSoldOut = payload.itemSoldOut !== false;
           const items = prev.items.map((it) => {
             if (it.id !== payload.itemId) return it;
-            const status: LiveRoomItemDTO["status"] = "sold";
             const itemVersion =
               typeof payload.itemVersion === "number" ? Math.max(it.itemVersion, payload.itemVersion) : it.itemVersion;
-            return { ...it, status, itemVersion };
+            if (noBids) {
+              if (payload.itemSoldOut === false) {
+                return {
+                  ...it,
+                  status: "active" as LiveRoomItemDTO["status"],
+                  biddingOpen: false,
+                  auctionEndsAt: null,
+                  currentBidUsd: null,
+                  lastHighBidderId: null,
+                  lastHighBidderUsername: null,
+                  itemVersion,
+                };
+              }
+              return {
+                ...it,
+                status: "skipped" as LiveRoomItemDTO["status"],
+                biddingOpen: false,
+                auctionEndsAt: null,
+                itemVersion,
+              };
+            }
+            if (!itemSoldOut) {
+              return {
+                ...it,
+                status: "active" as LiveRoomItemDTO["status"],
+                biddingOpen: false,
+                auctionEndsAt: null,
+                currentBidUsd: null,
+                lastHighBidderId: null,
+                lastHighBidderUsername: null,
+                itemVersion,
+              };
+            }
+            return { ...it, status: "sold" as LiveRoomItemDTO["status"], biddingOpen: false, auctionEndsAt: null, itemVersion };
           });
           const roomVersion =
             typeof payload.roomVersion === "number" ? Math.max(prev.roomVersion, payload.roomVersion) : prev.roomVersion;
+          const clearActive = prev.activeItem?.id === payload.itemId && itemSoldOut;
+          const keepActive =
+            prev.activeItem?.id === payload.itemId && !itemSoldOut
+              ? items.find((it) => it.id === payload.itemId) ?? prev.activeItem
+              : prev.activeItem;
           return {
             ...prev,
             roomVersion,
             items,
-            activeItem: prev.activeItem?.id === payload.itemId ? null : prev.activeItem,
+            activeItem: clearActive ? null : keepActive,
           };
         });
       }
@@ -804,7 +854,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         lastRefreshAtMs: lastRefreshAtRef.current,
         extra: { type: "stream_status" },
       });
-      setStreamPlaybackRefreshNonce((n) => n + 1);
+      scheduleFallbackRefresh("stream_status", 200);
     },
     onReconnect: () => {
       reconnectCountRef.current += 1;
@@ -814,7 +864,6 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         lastRefreshAtMs: lastRefreshAtRef.current,
         extra: { reconnectCount: reconnectCountRef.current },
       });
-      setStreamPlaybackRefreshNonce((n) => n + 1);
       scheduleFallbackRefresh("reconnect", 120);
     },
     onConnectionStateChange: ({ status, reconnectCount }) => {
