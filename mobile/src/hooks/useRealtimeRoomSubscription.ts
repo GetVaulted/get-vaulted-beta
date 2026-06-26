@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import { getSupabase, isSupabaseConfigured } from '../lib/supabase';
-import { roomChannel, RT_EVENT, RT_EVENT_ALIASES, type RoomBroadcastPayload } from '../lib/realtimeChannels';
+import { buildPresenceChannelKey } from '../lib/liveRoomPresenceKey';
+import { releaseLiveRoomChannel, retainLiveRoomChannel, subscribeLiveRoomChannel } from '../lib/liveRoomSharedChannel';
+import { ensureSupabaseReady, getSupabase, isSupabaseConfigured } from '../lib/supabase';
+import { RT_EVENT, RT_EVENT_ALIASES, type RoomBroadcastPayload } from '../lib/realtimeChannels';
 
 export type LiveRoomChatBroadcastMessage = {
   id: string;
@@ -46,94 +48,117 @@ export function useRealtimeRoomSubscription(opts: {
 
   useEffect(() => {
     if (!opts.enabled || !opts.liveRoomId || !isSupabaseConfigured()) return undefined;
-    const supabase = getSupabase();
-    if (!supabase) return undefined;
 
-    const name = roomChannel(opts.liveRoomId);
-    const channel = supabase.channel(name);
+    let cancelled = false;
+    let channel: ReturnType<typeof retainLiveRoomChannel> | null = null;
+    let supabase = getSupabase();
+    let unsubscribeStatus: (() => void) | null = null;
+    const liveRoomId = opts.liveRoomId;
+    const fallbackPresenceKey = buildPresenceChannelKey(liveRoomId, null, false);
 
-    const chatEvents = [RT_EVENT.chatMessage, ...(RT_EVENT_ALIASES.chatMessage ?? [])];
-    for (const eventName of chatEvents) {
-      channel.on('broadcast', { event: eventName }, ({ payload }) => {
-        const m = (payload as { message?: LiveRoomChatBroadcastMessage } | null)?.message;
-        if (m && typeof m.id === 'string') refs.current.onLiveRoomMessage(m);
-      });
-    }
+    const wire = () => {
+      if (cancelled || !supabase) return;
+      channel = retainLiveRoomChannel(supabase, liveRoomId, fallbackPresenceKey);
 
-    channel
-      .on('broadcast', { event: RT_EVENT.messagesRefresh }, () => void refs.current.onMessagesRefreshMerge())
-      .on('broadcast', { event: RT_EVENT.auctionStarted }, ({ payload }) => {
-        const p = (payload as RoomBroadcastPayload | null) ?? {};
-        if (refs.current.onAuctionStarted) void refs.current.onAuctionStarted(p);
-        else void refs.current.onRoomStateEvent?.();
-      })
-      .on('broadcast', { event: RT_EVENT.auctionEnded }, ({ payload }) => {
-        const p = (payload as RoomBroadcastPayload | null) ?? {};
-        if (refs.current.onAuctionEnded) void refs.current.onAuctionEnded(p);
-        else void refs.current.onRoomStateEvent?.();
-      })
-      .on('broadcast', { event: RT_EVENT.activeItemChanged }, ({ payload }) => {
-        const p = (payload as RoomBroadcastPayload | null) ?? {};
-        if (refs.current.onActiveItemChanged) void refs.current.onActiveItemChanged(p);
-        else void refs.current.onRoomStateEvent?.();
-      })
-      .on('broadcast', { event: RT_EVENT.purchaseCompleted }, ({ payload }) => {
-        const p = (payload as RoomBroadcastPayload | null) ?? {};
-        if (refs.current.onPurchaseCompleted) void refs.current.onPurchaseCompleted(p);
-        else void refs.current.onRoomStateEvent?.();
-      })
-      .on('broadcast', { event: RT_EVENT.paymentFailed }, ({ payload }) => {
-        const p = (payload as RoomBroadcastPayload | null) ?? {};
-        if (refs.current.onPaymentFailed) void refs.current.onPaymentFailed(p);
-      })
-      .on('broadcast', { event: RT_EVENT.paymentRecovered }, ({ payload }) => {
-        const p = (payload as RoomBroadcastPayload | null) ?? {};
-        if (refs.current.onPaymentRecovered) void refs.current.onPaymentRecovered(p);
-      })
-      .on('broadcast', { event: RT_EVENT.bidPlaced }, ({ payload }) => {
-        const p = (payload as RoomBroadcastPayload | null) ?? {};
-        if (refs.current.onBidPlaced) void refs.current.onBidPlaced(p);
-        else void refs.current.onRoomStateEvent?.();
-      })
-      .on('broadcast', { event: RT_EVENT.queueItems }, () => void refs.current.onQueueItemsChange?.())
-      .on('broadcast', { event: RT_EVENT.giveawaysChanged }, () => void refs.current.onGiveawaysChange?.())
-      .on('broadcast', { event: RT_EVENT.vaultRevealSpin }, ({ payload }) => {
-        const p = (payload as Record<string, unknown> | null) ?? {};
-        void refs.current.onVaultRevealSpin?.(p);
-      })
-      .on('broadcast', { event: RT_EVENT.variantPurchased }, ({ payload }) => {
-        const p = (payload as RoomBroadcastPayload | null) ?? {};
-        if (refs.current.onVariantPurchased) void refs.current.onVariantPurchased(p);
-        else void refs.current.onQueueItemsChange?.();
-      })
-      .on('broadcast', { event: RT_EVENT.teamBreakReady }, () => void refs.current.onTeamBreakReady?.())
-      .on('broadcast', { event: RT_EVENT.teamBreakBegan }, () => void refs.current.onTeamBreakBegan?.())
-      .on('broadcast', { event: RT_EVENT.breakSpots }, () => void refs.current.onBreakSpotsChange?.())
-      .on('broadcast', { event: RT_EVENT.listingBid }, ({ payload }) => {
-        const listingId = (payload as { listingId?: string } | null)?.listingId;
-        if (typeof listingId === 'string') void refs.current.onListingBid?.(listingId);
-      })
-      .on('broadcast', { event: RT_EVENT.teamBoard }, () => void refs.current.onTeamBoardChange?.());
-
-    const streamEvents = [RT_EVENT.streamStatus, ...(RT_EVENT_ALIASES.streamStatus ?? [])];
-    for (const eventName of streamEvents) {
-      channel.on('broadcast', { event: eventName }, ({ payload }) => {
-        void refs.current.onStreamStatusChange?.((payload as RoomBroadcastPayload | null) ?? {});
-      });
-    }
-
-    let reconnectCount = 0;
-    void channel.subscribe((status) => {
-      refs.current.onConnectionStateChange?.({ status, reconnectCount });
-      if (status === 'SUBSCRIBED') {
-        void refs.current.onMessagesRefreshMerge?.();
-        reconnectCount += 1;
-        if (reconnectCount > 1) void refs.current.onReconnect?.();
+      const chatEvents = [RT_EVENT.chatMessage, ...(RT_EVENT_ALIASES.chatMessage ?? [])];
+      for (const eventName of chatEvents) {
+        channel.on('broadcast', { event: eventName }, ({ payload }) => {
+          const m = (payload as { message?: LiveRoomChatBroadcastMessage } | null)?.message;
+          if (m && typeof m.id === 'string') refs.current.onLiveRoomMessage(m);
+        });
       }
-    });
+
+      channel
+        .on('broadcast', { event: RT_EVENT.messagesRefresh }, () => void refs.current.onMessagesRefreshMerge())
+        .on('broadcast', { event: RT_EVENT.auctionStarted }, ({ payload }) => {
+          const p = (payload as RoomBroadcastPayload | null) ?? {};
+          if (refs.current.onAuctionStarted) void refs.current.onAuctionStarted(p);
+          else void refs.current.onRoomStateEvent?.();
+        })
+        .on('broadcast', { event: RT_EVENT.auctionEnded }, ({ payload }) => {
+          const p = (payload as RoomBroadcastPayload | null) ?? {};
+          if (refs.current.onAuctionEnded) void refs.current.onAuctionEnded(p);
+          else void refs.current.onRoomStateEvent?.();
+        })
+        .on('broadcast', { event: RT_EVENT.activeItemChanged }, ({ payload }) => {
+          const p = (payload as RoomBroadcastPayload | null) ?? {};
+          if (refs.current.onActiveItemChanged) void refs.current.onActiveItemChanged(p);
+          else void refs.current.onRoomStateEvent?.();
+        })
+        .on('broadcast', { event: RT_EVENT.purchaseCompleted }, ({ payload }) => {
+          const p = (payload as RoomBroadcastPayload | null) ?? {};
+          if (refs.current.onPurchaseCompleted) void refs.current.onPurchaseCompleted(p);
+          else void refs.current.onRoomStateEvent?.();
+        })
+        .on('broadcast', { event: RT_EVENT.paymentFailed }, ({ payload }) => {
+          const p = (payload as RoomBroadcastPayload | null) ?? {};
+          if (refs.current.onPaymentFailed) void refs.current.onPaymentFailed(p);
+        })
+        .on('broadcast', { event: RT_EVENT.paymentRecovered }, ({ payload }) => {
+          const p = (payload as RoomBroadcastPayload | null) ?? {};
+          if (refs.current.onPaymentRecovered) void refs.current.onPaymentRecovered(p);
+        })
+        .on('broadcast', { event: RT_EVENT.bidPlaced }, ({ payload }) => {
+          const p = (payload as RoomBroadcastPayload | null) ?? {};
+          if (refs.current.onBidPlaced) void refs.current.onBidPlaced(p);
+          else void refs.current.onRoomStateEvent?.();
+        })
+        .on('broadcast', { event: RT_EVENT.queueItems }, () => void refs.current.onQueueItemsChange?.())
+        .on('broadcast', { event: RT_EVENT.giveawaysChanged }, () => void refs.current.onGiveawaysChange?.())
+        .on('broadcast', { event: RT_EVENT.vaultRevealSpin }, ({ payload }) => {
+          const p = (payload as Record<string, unknown> | null) ?? {};
+          void refs.current.onVaultRevealSpin?.(p);
+        })
+        .on('broadcast', { event: RT_EVENT.variantPurchased }, ({ payload }) => {
+          const p = (payload as RoomBroadcastPayload | null) ?? {};
+          if (refs.current.onVariantPurchased) void refs.current.onVariantPurchased(p);
+          else void refs.current.onQueueItemsChange?.();
+        })
+        .on('broadcast', { event: RT_EVENT.teamBreakReady }, () => void refs.current.onTeamBreakReady?.())
+        .on('broadcast', { event: RT_EVENT.teamBreakBegan }, () => void refs.current.onTeamBreakBegan?.())
+        .on('broadcast', { event: RT_EVENT.breakSpots }, () => void refs.current.onBreakSpotsChange?.())
+        .on('broadcast', { event: RT_EVENT.listingBid }, ({ payload }) => {
+          const listingId = (payload as { listingId?: string } | null)?.listingId;
+          if (typeof listingId === 'string') void refs.current.onListingBid?.(listingId);
+        })
+        .on('broadcast', { event: RT_EVENT.teamBoard }, () => void refs.current.onTeamBoardChange?.());
+
+      const streamEvents = [RT_EVENT.streamStatus, ...(RT_EVENT_ALIASES.streamStatus ?? [])];
+      for (const eventName of streamEvents) {
+        channel.on('broadcast', { event: eventName }, ({ payload }) => {
+          void refs.current.onStreamStatusChange?.((payload as RoomBroadcastPayload | null) ?? {});
+        });
+      }
+
+      let reconnectCount = 0;
+      unsubscribeStatus = subscribeLiveRoomChannel(liveRoomId, (status) => {
+        refs.current.onConnectionStateChange?.({ status, reconnectCount });
+        if (status === 'SUBSCRIBED') {
+          void refs.current.onMessagesRefreshMerge?.();
+          reconnectCount += 1;
+          if (reconnectCount > 1) void refs.current.onReconnect?.();
+        }
+      });
+    };
+
+    void (async () => {
+      await ensureSupabaseReady();
+      if (cancelled) return;
+      // Defer one frame so the presence hook (declared first) retains the channel with presence enabled.
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
+      if (cancelled) return;
+      supabase = getSupabase();
+      wire();
+    })();
 
     return () => {
-      void supabase.removeChannel(channel);
+      cancelled = true;
+      unsubscribeStatus?.();
+      if (supabase && liveRoomId) {
+        releaseLiveRoomChannel(supabase, liveRoomId);
+      }
     };
   }, [opts.enabled, opts.liveRoomId]);
 }

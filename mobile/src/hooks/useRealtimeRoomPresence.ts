@@ -1,19 +1,9 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { countRoomPresenceViewers } from '../lib/liveRoomPresenceCount';
-import { roomChannel } from '../lib/realtimeChannels';
+import { buildPresenceChannelKey } from '../lib/liveRoomPresenceKey';
+import { releaseLiveRoomChannel, retainLiveRoomChannel, subscribeLiveRoomChannel } from '../lib/liveRoomSharedChannel';
 import { ensureSupabaseReady, getSupabase, isSupabaseConfigured } from '../lib/supabase';
-
-async function stablePresenceKey(liveRoomId: string, userId: string | null): Promise<string> {
-  const base = userId ? `u:${userId}` : 'guest';
-  const storageKey = `gv-presence:${base}`;
-  const existing = await AsyncStorage.getItem(storageKey);
-  if (existing) return `${liveRoomId}:${existing}`;
-  const created = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  await AsyncStorage.setItem(storageKey, created);
-  return `${liveRoomId}:${created}`;
-}
 
 /**
  * Supabase Realtime presence for live rooms — same channel as web (`gv-room-{id}`).
@@ -37,30 +27,35 @@ export function useRealtimeRoomPresence(opts: {
   const viewerDisplayNameRef = useRef(viewerDisplayName);
   viewerDisplayNameRef.current = viewerDisplayName;
 
+  const presenceKeyRef = useRef<string>('');
+
+  useLayoutEffect(() => {
+    presenceKeyRef.current =
+      liveRoomId && enabled
+        ? buildPresenceChannelKey(liveRoomId, userId ?? null, trackSelf)
+        : '';
+  }, [enabled, liveRoomId, trackSelf, userId]);
+
   useEffect(() => {
     if (!enabled || !liveRoomId || !isSupabaseConfigured()) return undefined;
 
+    const presenceKey = presenceKeyRef.current;
+    if (!presenceKey) return undefined;
+
     let cancelled = false;
-    let channel: ReturnType<NonNullable<ReturnType<typeof getSupabase>>['channel']> | null = null;
     let heartbeatId: ReturnType<typeof setInterval> | null = null;
     let appStateSub: { remove: () => void } | null = null;
+    let channel: ReturnType<typeof retainLiveRoomChannel> | null = null;
+    let supabase = getSupabase();
+    let unsubscribeStatus: (() => void) | null = null;
 
-    const setup = async () => {
-      await ensureSupabaseReady();
-      if (cancelled) return;
-      const supabase = getSupabase();
-      if (!supabase) return;
-
-      const presenceSlot = trackSelf ? await stablePresenceKey(liveRoomId, userId ?? null) : '';
-      channel = supabase.channel(
-        roomChannel(liveRoomId),
-        trackSelf ? { config: { presence: { key: presenceSlot } } } : undefined,
-      );
+    const wire = () => {
+      if (cancelled || !supabase) return;
+      channel = retainLiveRoomChannel(supabase, liveRoomId, presenceKey);
 
       const updateCount = () => {
         if (!channel) return;
-        const state = channel.presenceState();
-        setViewerCount(countRoomPresenceViewers(state));
+        setViewerCount(countRoomPresenceViewers(channel.presenceState()));
       };
 
       const trackPresence = async () => {
@@ -72,7 +67,7 @@ export function useRealtimeRoomPresence(opts: {
               ? 'Member'
               : 'Guest';
         await channel.track({
-          tabKey: presenceSlot,
+          tabKey: presenceKey,
           userId,
           username,
           liveRoomId,
@@ -92,7 +87,7 @@ export function useRealtimeRoomPresence(opts: {
         });
       }
 
-      void channel.subscribe(async (status) => {
+      unsubscribeStatus = subscribeLiveRoomChannel(liveRoomId, async (status) => {
         if (status !== 'SUBSCRIBED') return;
         if (trackSelf) {
           await trackPresence();
@@ -104,16 +99,21 @@ export function useRealtimeRoomPresence(opts: {
       });
     };
 
-    void setup();
+    void (async () => {
+      await ensureSupabaseReady();
+      if (cancelled) return;
+      supabase = getSupabase();
+      wire();
+    })();
 
     return () => {
       cancelled = true;
       if (appStateSub) appStateSub.remove();
       if (heartbeatId != null) clearInterval(heartbeatId);
-      if (channel) {
+      unsubscribeStatus?.();
+      if (channel && supabase) {
         if (trackSelf) void channel.untrack();
-        const supabase = getSupabase();
-        if (supabase) void supabase.removeChannel(channel);
+        releaseLiveRoomChannel(supabase, liveRoomId);
       }
     };
   }, [enabled, liveRoomId, trackSelf, userId]);
