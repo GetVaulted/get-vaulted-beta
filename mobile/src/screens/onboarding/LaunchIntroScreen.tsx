@@ -1,4 +1,5 @@
 import * as Haptics from 'expo-haptics';
+import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -38,6 +39,12 @@ import { SocialAuthButtons, socialAuthErrorMessage } from '../../components/auth
 import { BrandLogo } from '../../components/ui/BrandLogo';
 import { useAuth } from '../../auth/AuthContext';
 import { AUTH_USER_MESSAGES } from '../../lib/authUserMessages';
+import {
+  getRememberMePreference,
+  loadRememberedCredentials,
+  persistRememberMeCredentials,
+} from '../../lib/rememberMeCredentials';
+import { getKeepMeLoggedInPreference } from '../../lib/authSessionStorage';
 import { enterGuestExploreAndOpenHome } from '../../navigation/enterGuestExploreFlow';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
@@ -415,12 +422,27 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [busy, setBusy] = useState(false);
   const [socialBusy, setSocialBusy] = useState<'google' | 'apple' | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotBusy, setForgotBusy] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      const saved = await loadRememberedCredentials();
+      if (saved) {
+        setEmail(saved.email);
+        setPassword(saved.password);
+        setRememberMe(true);
+        return;
+      }
+      const rememberPref = await getRememberMePreference();
+      setRememberMe(rememberPref || (await getKeepMeLoggedInPreference()));
+    })();
+  }, []);
 
   const waitForAuth = useCallback(async () => {
     const start = Date.now();
@@ -642,7 +664,8 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
     setErr(null);
     setBusy(true);
     try {
-      await signInWithPassword(email, password);
+      await signInWithPassword(email, password, { persistSession: rememberMe });
+      await persistRememberMeCredentials(rememberMe, email, password);
       navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Sign-in failed');
@@ -657,8 +680,8 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
     try {
       const result =
         provider === 'google'
-          ? await signInWithGoogle({ persistSession: true })
-          : await signInWithApple({ persistSession: true });
+          ? await signInWithGoogle({ persistSession: rememberMe })
+          : await signInWithApple({ persistSession: rememberMe });
       if (result === 'success') {
         navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
       } else if (result === 'error') {
@@ -766,6 +789,21 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
                 autoComplete="password"
                 containerStyle={styles.introPasswordRow}
               />
+
+              <Pressable
+                style={styles.rememberRow}
+                onPress={() => setRememberMe((v) => !v)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: rememberMe }}
+                accessibilityLabel="Remember me"
+              >
+                <Ionicons
+                  name={rememberMe ? 'checkbox' : 'square-outline'}
+                  size={22}
+                  color={rememberMe ? colors.gold : colors.textMuted}
+                />
+                <Text style={styles.rememberLabel}>Remember me</Text>
+              </Pressable>
 
               <Pressable style={styles.forgotWrap} onPress={() => { setForgotEmail(email); setForgotOpen(true); }}>
                 <Text style={styles.forgotTxt}>Forgot password?</Text>
@@ -970,6 +1008,14 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.12)',
     backgroundColor: 'rgba(255,255,255,0.05)',
   },
+  rememberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+    alignSelf: 'flex-start',
+  },
+  rememberLabel: { color: colors.textSecondary, fontSize: 15, fontWeight: '600', flexShrink: 1 },
   forgotWrap: { alignSelf: 'flex-end', paddingVertical: spacing.xs },
   forgotTxt: { color: colors.gold, fontSize: 14, fontWeight: '600' },
   err: { color: '#f0a8a8', fontSize: 13 },

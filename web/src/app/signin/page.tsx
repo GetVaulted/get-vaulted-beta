@@ -5,6 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { signIn, useSession } from "next-auth/react";
 import { Suspense, useEffect, useState } from "react";
 import { safeReturnTo } from "@/lib/safe-return-to";
+import {
+  loadRememberedCredentials,
+  loadRememberMePreference,
+  persistRememberMeCredentials,
+} from "@/lib/remember-me-credentials";
 import { AUTH_USER_MESSAGES } from "@/lib/unified-auth";
 import { SocialAuthButtons } from "@/components/auth/SocialAuthButtons";
 import { PasswordInput } from "@/components/auth/PasswordInput";
@@ -16,6 +21,7 @@ function SignInForm() {
   const returnTo = safeReturnTo(searchParams.get("returnTo") || searchParams.get("callbackUrl"));
   const registered = searchParams.get("registered");
   const confirm = searchParams.get("confirm");
+  const reset = searchParams.get("reset") === "1";
   const suspended = searchParams.get("suspended") === "1";
   const oauthErrorRaw = searchParams.get("oauthError");
   const emailFromQuery = searchParams.get("email")?.trim().toLowerCase() ?? "";
@@ -43,10 +49,22 @@ function SignInForm() {
 
   const [email, setEmail] = useState(() => emailFromQuery);
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState<string | null>(() =>
     oauthErrorRaw ? decodeURIComponent(oauthErrorRaw.replace(/\+/g, " ")) : null,
   );
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const saved = loadRememberedCredentials();
+    if (saved) {
+      setEmail((current) => current || saved.email);
+      setPassword(saved.password);
+      setRememberMe(true);
+      return;
+    }
+    setRememberMe(loadRememberMePreference());
+  }, []);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,6 +80,7 @@ function SignInForm() {
         setError(AUTH_USER_MESSAGES.signInInvalidCredentials);
         return;
       }
+      persistRememberMeCredentials(rememberMe, email, password);
       const next = returnTo.startsWith("/") ? returnTo : "/marketplace";
       router.replace(next);
       router.refresh();
@@ -78,6 +97,8 @@ function SignInForm() {
       <p className="mt-2 text-center text-sm text-zinc-500 sm:text-left">
         {confirm === "1" ? (
           <span className="text-emerald-200/90">{AUTH_USER_MESSAGES.signInConfirmEmail}</span>
+        ) : reset ? (
+          <span className="text-emerald-200/90">{AUTH_USER_MESSAGES.passwordResetComplete}</span>
         ) : registered === "1" ? (
           <span className="text-emerald-200/90">{AUTH_USER_MESSAGES.signInReady}</span>
         ) : (
@@ -118,9 +139,17 @@ function SignInForm() {
           />
         </div>
         <div className="space-y-1.5">
-          <label htmlFor="signin-password" className="text-xs font-medium text-zinc-300">
-            Password
-          </label>
+          <div className="flex items-center justify-between gap-2">
+            <label htmlFor="signin-password" className="text-xs font-medium text-zinc-300">
+              Password
+            </label>
+            <Link
+              href={email.trim() ? `/forgot-password?email=${encodeURIComponent(email.trim().toLowerCase())}` : "/forgot-password"}
+              className="text-[11px] font-semibold text-gold-bright/90 hover:text-gold-bright hover:underline"
+            >
+              Forgot password?
+            </Link>
+          </div>
           <PasswordInput
             id="signin-password"
             name="password"
@@ -135,6 +164,16 @@ function SignInForm() {
             minLength={8}
           />
         </div>
+        <label className="flex cursor-pointer items-center gap-3">
+          <input
+            type="checkbox"
+            name="rememberMe"
+            checked={rememberMe}
+            onChange={(e) => setRememberMe(e.target.checked)}
+            className="size-4 shrink-0 rounded border-white/20 bg-[#0c0c10] accent-gold focus:ring-2 focus:ring-gold/35 focus:ring-offset-0 focus:ring-offset-[#0a0a0d]"
+          />
+          <span className="text-[13px] font-medium text-zinc-400">Remember me</span>
+        </label>
         {error && !oauthErrorRaw ? <p className="text-xs font-medium text-rose-300">{error}</p> : null}
         <button
           type="submit"

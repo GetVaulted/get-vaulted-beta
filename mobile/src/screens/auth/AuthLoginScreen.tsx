@@ -20,6 +20,11 @@ import { SocialAuthButtons, socialAuthErrorMessage } from '../../components/auth
 import { GetVaultedBrandMark } from '../../components/branding/GetVaultedBrandMark';
 import { useAuth } from '../../auth/AuthContext';
 import { AUTH_USER_MESSAGES } from '../../lib/authUserMessages';
+import {
+  getRememberMePreference,
+  loadRememberedCredentials,
+  persistRememberMeCredentials,
+} from '../../lib/rememberMeCredentials';
 import { getKeepMeLoggedInPreference } from '../../lib/authSessionStorage';
 import { enterGuestExploreAndOpenHome } from '../../navigation/enterGuestExploreFlow';
 import type { RootStackParamList } from '../../navigation/types';
@@ -33,7 +38,7 @@ export function AuthLoginScreen({ navigation }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
-  const [keepLoggedIn, setKeepLoggedIn] = useState(true);
+  const [rememberMe, setRememberMe] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [forgotOpen, setForgotOpen] = useState(false);
@@ -42,7 +47,17 @@ export function AuthLoginScreen({ navigation }: Props) {
   const [socialBusy, setSocialBusy] = useState<'google' | 'apple' | null>(null);
 
   useEffect(() => {
-    void getKeepMeLoggedInPreference().then(setKeepLoggedIn);
+    void (async () => {
+      const saved = await loadRememberedCredentials();
+      if (saved) {
+        setEmail(saved.email);
+        setPassword(saved.password);
+        setRememberMe(true);
+        return;
+      }
+      const rememberPref = await getRememberMePreference();
+      setRememberMe(rememberPref || (await getKeepMeLoggedInPreference()));
+    })();
   }, []);
 
   const goBack = () => {
@@ -64,8 +79,8 @@ export function AuthLoginScreen({ navigation }: Props) {
     try {
       const result =
         provider === 'google'
-          ? await signInWithGoogle({ persistSession: keepLoggedIn })
-          : await signInWithApple({ persistSession: keepLoggedIn });
+          ? await signInWithGoogle({ persistSession: rememberMe })
+          : await signInWithApple({ persistSession: rememberMe });
       if (result === 'success') finishAuth();
       else if (result === 'error') setErr(AUTH_USER_MESSAGES.socialSignInFailed);
     } catch (e) {
@@ -79,7 +94,8 @@ export function AuthLoginScreen({ navigation }: Props) {
     setErr(null);
     setBusy(true);
     try {
-      await signInWithPassword(email, password, { persistSession: keepLoggedIn });
+      await signInWithPassword(email, password, { persistSession: rememberMe });
+      await persistRememberMeCredentials(rememberMe, email, password);
       finishAuth();
     } catch (e) {
       setErr(e instanceof Error ? e.message : AUTH_USER_MESSAGES.signInInvalidCredentials);
@@ -144,17 +160,17 @@ export function AuthLoginScreen({ navigation }: Props) {
 
         <Pressable
           style={styles.keepRow}
-          onPress={() => setKeepLoggedIn((v) => !v)}
+          onPress={() => setRememberMe((v) => !v)}
           accessibilityRole="checkbox"
-          accessibilityState={{ checked: keepLoggedIn }}
-          accessibilityLabel="Keep me logged in"
+          accessibilityState={{ checked: rememberMe }}
+          accessibilityLabel="Remember me"
         >
           <Ionicons
-            name={keepLoggedIn ? 'checkbox' : 'square-outline'}
+            name={rememberMe ? 'checkbox' : 'square-outline'}
             size={22}
-            color={keepLoggedIn ? colors.gold : colors.textMuted}
+            color={rememberMe ? colors.gold : colors.textMuted}
           />
-          <Text style={styles.keepLabel}>Keep me logged in</Text>
+          <Text style={styles.keepLabel}>Remember me</Text>
         </Pressable>
 
         <Pressable style={styles.forgotWrap} onPress={() => { setForgotEmail(email); setForgotOpen(true); }}>
