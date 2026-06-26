@@ -25,6 +25,11 @@ describe("getActiveMentionQuery", () => {
   it("returns null after space following @", () => {
     expect(getActiveMentionQuery("hi @done ", 9)).toBeNull();
   });
+
+  it("normalizes uppercase partial queries", () => {
+    const text = "hello @Bry";
+    expect(getActiveMentionQuery(text, text.length)).toEqual({ query: "bry", start: 6, end: 10 });
+  });
 });
 
 describe("insertMentionAtQuery", () => {

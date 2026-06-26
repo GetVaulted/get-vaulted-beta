@@ -390,7 +390,7 @@ export function LiveSellerCommandCenter({
             </button>
             {roomGovernance ? (
               <div className="mt-2">
-                <LiveHostRoomGovernance {...roomGovernance} />
+                <LiveHostRoomGovernance {...roomGovernance} liveRoomId={liveRoomId} />
               </div>
             ) : null}
           </CollapsibleSection>
@@ -664,7 +664,7 @@ export function LiveSellerCommandCenter({
             </div>
             {roomGovernance ? (
               <div className="mt-2">
-                <LiveHostRoomGovernance {...roomGovernance} />
+                <LiveHostRoomGovernance {...roomGovernance} liveRoomId={liveRoomId} />
               </div>
             ) : null}
           </CollapsibleSection>

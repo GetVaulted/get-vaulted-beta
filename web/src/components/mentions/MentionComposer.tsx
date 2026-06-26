@@ -22,6 +22,8 @@ type Props = {
   liveRoomId?: string;
   /** When set, picking a user from @ search calls this instead of inserting into the field. */
   onPickUser?: (user: MentionSearchUser) => void;
+  /** Allow typing a username without a leading @ (moderator assign). */
+  plainUsernameSearch?: boolean;
   "data-testid"?: string;
 };
 
@@ -37,6 +39,7 @@ export function MentionComposer({
   singleLine = false,
   liveRoomId,
   onPickUser,
+  plainUsernameSearch = false,
   "data-testid": testId,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -47,14 +50,19 @@ export function MentionComposer({
   const [highlight, setHighlight] = useState(0);
   const active = getActiveMentionQuery(value, cursor);
   const useStripPicker = Boolean(liveRoomId?.trim());
+  const plainQuery =
+    plainUsernameSearch && !active
+      ? value.trim().replace(/^@+/, "").toLowerCase()
+      : null;
+  const searchQuery = active?.query ?? (plainQuery && /^[a-z0-9_]{1,20}$/.test(plainQuery) ? plainQuery : null);
 
   useEffect(() => {
-    if (!active) {
+    if (!searchQuery) {
       setResults([]);
       setOpen(false);
       return;
     }
-    if (!useStripPicker && active.query.length < 1) {
+    if (!useStripPicker && searchQuery.length < 1) {
       setResults([]);
       setOpen(false);
       return;
@@ -62,8 +70,8 @@ export function MentionComposer({
     let cancelled = false;
     const t = window.setTimeout(() => {
       const url = useStripPicker
-        ? `/api/live-rooms/${encodeURIComponent(liveRoomId!)}/mention-search?q=${encodeURIComponent(active.query)}`
-        : `/api/users/mention-search?q=${encodeURIComponent(active.query)}`;
+        ? `/api/live-rooms/${encodeURIComponent(liveRoomId!)}/mention-search?q=${encodeURIComponent(searchQuery)}`
+        : `/api/users/mention-search?q=${encodeURIComponent(searchQuery)}`;
       void fetch(url, { cache: "no-store", credentials: "include" })
         .then((r) => (r.ok ? r.json() : { users: [] }))
         .then((j: { users?: MentionSearchUser[] }) => {
@@ -84,7 +92,7 @@ export function MentionComposer({
       cancelled = true;
       window.clearTimeout(t);
     };
-  }, [active?.query, active?.start, active?.end, liveRoomId, useStripPicker]);
+  }, [searchQuery, liveRoomId, useStripPicker]);
 
   const pick = useCallback(
     (user: MentionSearchUser) => {

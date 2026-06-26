@@ -8,6 +8,7 @@ import { MentionComposer } from "@/components/mentions/MentionComposer";
 const SLOW_MODE_PRESETS = [0, 5, 10, 30] as const;
 
 type Props = {
+  liveRoomId?: string;
   slowModeSeconds: number;
   moderators: LiveRoomModeratorRow[];
   busy: boolean;
@@ -45,6 +46,7 @@ function GhostButton({
 }
 
 export function LiveHostRoomGovernance({
+  liveRoomId,
   slowModeSeconds,
   moderators,
   busy,
@@ -107,15 +109,17 @@ export function LiveHostRoomGovernance({
         )}
         <div className="mt-3">
           <p className="mb-2 text-[11px] text-zinc-500">
-            Type @username like chat mentions and tap a match to assign. Their mod tools appear on their device.
+            Type a username (with or without @) and tap a match to assign. Their mod tools appear on their device.
           </p>
           <MentionComposer
             singleLine
             value={modSearch}
             onChange={setModSearch}
             onPickUser={pickModerator}
+            liveRoomId={liveRoomId}
+            plainUsernameSearch
             disabled={busy}
-            placeholder="@username"
+            placeholder="username or @username"
             className="w-full rounded-lg border border-white/10 bg-black/50 px-2.5 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-amber-400/35"
           />
         </div>

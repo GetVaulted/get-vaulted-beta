@@ -111,8 +111,27 @@ export function HostModeratorAssignSheet({
           <View style={styles.handle} />
           <Text style={styles.title}>Assign moderator</Text>
           <Text style={styles.subtitle}>
-            Type @username like chat mentions, tap a match, and their mod tools will appear on their device.
+            Type a username (with or without @), tap a match, and their mod tools will appear on their device.
           </Text>
+
+          <View style={styles.searchBlock}>
+            <UsernameMentionPicker
+              value={search}
+              onChangeText={setSearch}
+              accessToken={accessToken}
+              liveRoomId={liveRoomId}
+              plainUsernameSearch
+              onSelectUser={(user) => void assignUser(user)}
+              placeholder="username or @username"
+              editable={!busyUserId}
+            />
+            {busyUserId ? (
+              <View style={styles.assigningRow}>
+                <ActivityIndicator color={colors.gold} size="small" />
+                <Text style={styles.assigningTxt}>Assigning moderator…</Text>
+              </View>
+            ) : null}
+          </View>
 
           <ScrollView
             style={styles.body}
@@ -120,23 +139,6 @@ export function HostModeratorAssignSheet({
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            <View style={styles.searchBlock}>
-              <UsernameMentionPicker
-                value={search}
-                onChangeText={setSearch}
-                accessToken={accessToken}
-                onSelectUser={(user) => void assignUser(user)}
-                placeholder="@username"
-                editable={!busyUserId}
-              />
-              {busyUserId ? (
-                <View style={styles.assigningRow}>
-                  <ActivityIndicator color={colors.gold} size="small" />
-                  <Text style={styles.assigningTxt}>Assigning moderator…</Text>
-                </View>
-              ) : null}
-            </View>
-
             <Text style={styles.sectionLabel}>Current moderators</Text>
             {moderation.moderators.length === 0 ? (
               <Text style={styles.empty}>No moderators assigned yet.</Text>

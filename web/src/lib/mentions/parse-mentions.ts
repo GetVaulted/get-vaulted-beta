@@ -35,7 +35,7 @@ export function getActiveMentionQuery(text: string, cursor: number): ActiveMenti
   if (at < 0) return null;
   const prev = at > 0 ? before[at - 1] : " ";
   if (prev && !/[\s([{]/.test(prev)) return null;
-  const query = before.slice(at + 1);
+  const query = before.slice(at + 1).toLowerCase();
   if (!MENTION_QUERY_PATTERN.test(query)) return null;
   if (/\s/.test(query)) return null;
   return { query, start: at, end: safeCursor };
