@@ -736,6 +736,7 @@ export function LivePinnedActionBar({
           accessToken,
           liveRoomId: stream.id,
           itemId: snap.activeItemId,
+          variantId: pinnedVariantId,
           purchaseId: res.purchaseId,
         });
         if (synced.ok && 'paid' in synced) {

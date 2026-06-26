@@ -644,7 +644,7 @@ function LiveSlide({
             Alert.alert('Could not buy', mapLivePaymentFailureMessage(res.error, res.code));
             return;
           }
-          if (res.requiresAction && res.clientSecret && res.orderId && res.paymentIntentId) {
+          if ('requiresAction' in res && res.requiresAction && res.clientSecret && res.orderId) {
             const synced = await syncLiveBuyNowPurchase({
               accessToken,
               liveRoomId: stream.id,

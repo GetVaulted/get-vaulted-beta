@@ -18,6 +18,7 @@ describe('liveItemVariant host pin helpers', () => {
           isHot: true,
           status: 'available',
           buyerUsername: null,
+          sortOrder: 0,
         },
         {
           id: 'b',
@@ -28,6 +29,7 @@ describe('liveItemVariant host pin helpers', () => {
           isHot: false,
           status: 'available',
           buyerUsername: null,
+          sortOrder: 1,
         },
       ],
       'pick',
@@ -60,6 +62,7 @@ describe('liveItemVariant host pin helpers', () => {
             isHot: true,
             status: 'sold_out',
             buyerUsername: '@buyer',
+            sortOrder: 0,
           },
         ],
         'pick',

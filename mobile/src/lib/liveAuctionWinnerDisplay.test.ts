@@ -49,6 +49,6 @@ describe('liveAuctionWinnerDisplay', () => {
     };
     expect(outbid.kind).toBe('sold');
     expect(outbid.viewerWasBidder).toBe(true);
-    expect(outbid.viewerIsWinner).toBe(false);
+    if (outbid.kind === 'sold') expect(outbid.viewerIsWinner).toBe(false);
   });
 });

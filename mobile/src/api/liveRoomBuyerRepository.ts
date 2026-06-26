@@ -245,6 +245,8 @@ export async function fetchLiveRoomBuyerSnapshot(
         auctionEndsAt?: string | null;
         variantAssignmentMode?: 'pick' | 'random';
         variants?: unknown;
+        activeSpotCommerceMode?: 'fixed' | 'auction' | null;
+        auctionVariantId?: string | null;
       } | null;
       break?: {
         phase?: string;

@@ -294,7 +294,14 @@ export function VaultPinnedLotCard({
       isVariantItem,
       hasPinnedVariant: Boolean(
         isVariantItem &&
-          hostPinnedBuyerVariant(item.variants, item.variantAssignmentMode),
+          hostPinnedBuyerVariant(
+            item.variants?.map((v) => ({
+              ...v,
+              soldCount: v.soldCount ?? 0,
+              sortOrder: v.sortOrder ?? 0,
+            })),
+            item.variantAssignmentMode,
+          ),
       ),
     });
   const showRunningStrip = !hostOverlayMinimal && hudPhase === 'running';

@@ -54,6 +54,7 @@ export type RoomBroadcastPayload = {
   winnerId?: string | null;
   winningAmountUsd?: number | null;
   noBids?: boolean;
+  itemSoldOut?: boolean;
   paymentStatus?: string | null;
   buyerId?: string;
   failureId?: string;
