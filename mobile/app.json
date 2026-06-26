@@ -18,10 +18,6 @@
       "usesAppleSignIn": true,
       "bundleIdentifier": "com.getvaulted.app",
       "buildNumber": "53",
-      "associatedDomains": [
-        "applinks:shopgetvaulted.com",
-        "applinks:www.shopgetvaulted.com"
-      ],
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Get Vaulted uses your photo library for profile photos and listing images.",
         "NSCameraUsageDescription": "Get Vaulted uses the camera for live broadcasts, profile photos, and listing images.",
@@ -32,28 +28,6 @@
     "android": {
       "package": "com.getvaulted.app",
       "versionCode": 53,
-      "intentFilters": [
-        {
-          "action": "VIEW",
-          "autoVerify": true,
-          "data": [
-            {
-              "scheme": "https",
-              "host": "shopgetvaulted.com",
-              "pathPrefix": "/live"
-            },
-            {
-              "scheme": "https",
-              "host": "www.shopgetvaulted.com",
-              "pathPrefix": "/live"
-            }
-          ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
-        }
-      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#050505"
