@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSupabaseBearerJwt } from "@/lib/mobile-supabase-bearer";
+import { reassignExpoPushTokenToUser, revokeExpoPushTokensForUser } from "@/lib/push/push-device-token";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 
@@ -40,6 +41,12 @@ export async function POST(req: Request) {
     ? await resolveSupabaseAuthUserIdFromJwt(req)
     : null;
 
+  await reassignExpoPushTokenToUser({
+    userId: auth.userId,
+    expoPushToken: token,
+    supabaseAuthUserId,
+  });
+
   await prisma.pushDeviceToken.upsert({
     where: {
       userId_expoPushToken: { userId: auth.userId, expoPushToken: token },
@@ -73,6 +80,33 @@ export async function POST(req: Request) {
       );
     }
   }
+
+  return NextResponse.json({ ok: true });
+}
+
+/** Unregister Expo push token(s) for the signed-in user (logout / account switch). */
+export async function DELETE(req: Request) {
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
+
+  let body: Body = {};
+  try {
+    const raw = await req.text();
+    if (raw.trim()) body = JSON.parse(raw) as Body;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const token = typeof body.token === "string" ? body.token.trim() : "";
+  const supabaseAuthUserId = getSupabaseBearerJwt(req)
+    ? await resolveSupabaseAuthUserIdFromJwt(req)
+    : null;
+
+  await revokeExpoPushTokensForUser({
+    userId: auth.userId,
+    expoPushToken: token || null,
+    supabaseAuthUserId,
+  });
 
   return NextResponse.json({ ok: true });
 }

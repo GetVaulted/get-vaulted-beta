@@ -2482,7 +2482,11 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         </div>
       ) : null}
 
-      <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
+      <LiveAuctionSoldCelebration
+        celebration={soldCelebration}
+        onDone={() => setSoldCelebration(null)}
+        viewerRole="seller"
+      />
       <LiveSpotTakenCelebration celebration={spotCelebration} onDone={() => setSpotCelebration(null)} />
       <VaultRevealOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
 

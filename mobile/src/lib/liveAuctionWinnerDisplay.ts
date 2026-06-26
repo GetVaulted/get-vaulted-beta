@@ -32,6 +32,8 @@ export type LiveAuctionCloseCelebration =
       winnerId: string | null;
       /** True when the local viewer is the winning bidder (drives "Winner" vs "Auction ended" copy). */
       viewerIsWinner: boolean;
+      /** True when the viewer placed a bid on this lot (outbid copy vs passive "Sold to"). */
+      viewerWasBidder?: boolean;
     }
   | { kind: 'no_bids'; itemId: string };
 

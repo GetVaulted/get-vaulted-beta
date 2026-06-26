@@ -31,6 +31,7 @@ export function LiveAuctionSoldCelebration({ celebration, onDone, viewerRole = '
 
   const sold = celebration.kind === 'sold';
   const viewerIsWinner = sold && celebration.viewerIsWinner;
+  const viewerWasBidder = sold && celebration.viewerWasBidder === true;
   const title = !sold
     ? 'Auction ended'
     : viewerRole === 'seller'
@@ -48,10 +49,16 @@ export function LiveAuctionSoldCelebration({ celebration, onDone, viewerRole = '
             <>
               <LiveRoomText style={styles.winner}>
                 {viewerRole === 'buyer' && !viewerIsWinner
-                  ? `Outbid · Winner @${celebration.winnerUsername}`
+                  ? viewerWasBidder
+                    ? `Outbid · Winner @${celebration.winnerUsername}`
+                    : `Sold to @${celebration.winnerUsername}`
                   : `Winner: @${celebration.winnerUsername}`}
               </LiveRoomText>
-              <LiveRoomText style={styles.amount}>{formatAuctionMoneyUsd(celebration.winningAmountUsd)}</LiveRoomText>
+              {viewerIsWinner || viewerRole === 'seller' ? (
+                <LiveRoomText style={styles.amount}>
+                  {formatAuctionMoneyUsd(celebration.winningAmountUsd)}
+                </LiveRoomText>
+              ) : null}
             </>
           ) : (
             <LiveRoomText style={styles.sub}>No bids</LiveRoomText>

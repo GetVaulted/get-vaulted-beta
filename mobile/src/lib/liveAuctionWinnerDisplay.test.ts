@@ -38,4 +38,17 @@ describe('liveAuctionWinnerDisplay', () => {
     });
     expect(noViewer?.kind === 'sold' && noViewer.viewerIsWinner).toBe(false);
   });
+
+  it('supports viewerWasBidder for outbid vs passive copy', () => {
+    const outbid = {
+      ...parsePurchaseCompletedCelebration(
+        { itemId: 'x', winnerUsername: 'them', winningAmountUsd: 20, winnerId: 'user_2' },
+        'user_1',
+      )!,
+      viewerWasBidder: true,
+    };
+    expect(outbid.kind).toBe('sold');
+    expect(outbid.viewerWasBidder).toBe(true);
+    expect(outbid.viewerIsWinner).toBe(false);
+  });
 });

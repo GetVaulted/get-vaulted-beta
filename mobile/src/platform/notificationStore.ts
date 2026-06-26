@@ -76,6 +76,23 @@ export async function pushNotification(
   return row;
 }
 
+export async function clearNotificationStore(): Promise<void> {
+  memory = defaultStore();
+  try {
+    if (Platform.OS === 'web') {
+      globalThis.localStorage?.removeItem(WEB_KEY);
+      return;
+    }
+    const p = path();
+    if (p) {
+      const info = await FileSystem.getInfoAsync(p);
+      if (info.exists) await FileSystem.deleteAsync(p, { idempotent: true });
+    }
+  } catch {
+    /* best-effort */
+  }
+}
+
 export async function listNotifications(userId: string): Promise<AppNotification[]> {
   const store = await load();
   return store.notifications.filter((n) => n.userId === userId);

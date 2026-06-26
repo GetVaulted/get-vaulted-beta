@@ -10,7 +10,7 @@ import { useNotificationBadge } from '../../hooks/useNotificationBadge';
 import { useSellerSetupState } from '../../hooks/useSellerSetupState';
 import { areDevToolsEnabled } from '../../lib/devTools';
 import { openLegalUrl } from '../../lib/openLegalUrl';
-import { performSignOut } from '../../lib/signOutSession';
+import { performSignOut, signOutSessionOptions } from '../../lib/signOutSession';
 import { sellerSetupMenuLabel } from '../../lib/seller-setup-state';
 import {
   openContactSupport,
@@ -39,6 +39,7 @@ export function SettingsScreen({ navigation }: Props) {
   const activated = setup.activated;
   const setupPhase = setup.phase === 'loading' ? 'not_started' : setup.phase;
   const setupLabel = sellerSetupMenuLabel(setupPhase);
+  const signOutOpts = signOutSessionOptions(user, session);
   const [pushBusy, setPushBusy] = useState(false);
 
   const enablePushNotifications = async () => {
@@ -200,7 +201,7 @@ export function SettingsScreen({ navigation }: Props) {
           icon="log-out-outline"
           destructive
           onPress={() => {
-            void performSignOut(signOut);
+            void performSignOut(signOut, signOutOpts);
           }}
           chevron={false}
         />

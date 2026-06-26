@@ -2,7 +2,7 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Alert, Linking, Platform } from 'react-native';
-import { registerPushTokenWithWebApi } from '../api/pushTokenRepository';
+import { registerPushTokenWithWebApi, unregisterPushTokenWithWebApi } from '../api/pushTokenRepository';
 import { getSupabase } from '../lib/supabase';
 import { resolveEasProjectId } from './resolveEasProjectId';
 
@@ -179,6 +179,28 @@ export async function persistPushToken(
     return { ok: false, reason: 'Could not save push token locally.' };
   }
   return { ok: true };
+}
+
+/** Remove server + Supabase push registration for the current session (sign-out / account switch). */
+export async function revokePushRegistrationForSession(args: {
+  accessToken: string;
+  supabaseUserId: string;
+  expoPushToken?: string | null;
+}): Promise<void> {
+  await unregisterPushTokenWithWebApi(args.accessToken, args.expoPushToken ?? undefined);
+
+  const sb = getSupabase();
+  if (!sb) return;
+  const token = args.expoPushToken?.trim();
+  if (token) {
+    await sb
+      .from('push_device_tokens')
+      .delete()
+      .eq('user_id', args.supabaseUserId)
+      .eq('expo_push_token', token);
+  } else {
+    await sb.from('push_device_tokens').delete().eq('user_id', args.supabaseUserId);
+  }
 }
 
 export function addNotificationReceivedListener(

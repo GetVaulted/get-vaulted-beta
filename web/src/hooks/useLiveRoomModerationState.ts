@@ -11,6 +11,16 @@ export type LiveRoomModeratorRow = {
   username: string;
 };
 
+export type LiveRoomModQueueRow = {
+  id: string;
+  targetType: string;
+  targetId: string;
+  reason: string;
+  description: string;
+  reporterUsername: string | null;
+  createdAt: string;
+};
+
 export type LiveRoomModerationState = {
   canModerate: boolean;
   isHost: boolean;
@@ -25,6 +35,7 @@ export type LiveRoomModerationState = {
   pinnedModeratorUsername: string | null;
   pinnedModeratorAvatarUrl: string | null;
   moderators: LiveRoomModeratorRow[];
+  modQueue: LiveRoomModQueueRow[];
   myRestrictions: {
     muted: boolean;
     roomBanned: boolean;
@@ -48,6 +59,7 @@ const EMPTY: LiveRoomModerationState = {
   pinnedModeratorUsername: null,
   pinnedModeratorAvatarUrl: null,
   moderators: [],
+  modQueue: [],
   myRestrictions: null,
 };
 
@@ -81,6 +93,17 @@ export function useLiveRoomModerationState(liveRoomId: string, enabled = true) {
           ? j.moderators.map((m) => ({
               userId: m.userId,
               username: m.username,
+            }))
+          : [],
+        modQueue: Array.isArray(j.modQueue)
+          ? j.modQueue.map((row) => ({
+              id: row.id,
+              targetType: row.targetType,
+              targetId: row.targetId,
+              reason: row.reason,
+              description: row.description,
+              reporterUsername: row.reporterUsername ?? null,
+              createdAt: row.createdAt,
             }))
           : [],
         myRestrictions: j.myRestrictions ?? null,

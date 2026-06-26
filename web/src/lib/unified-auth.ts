@@ -24,6 +24,7 @@ export const AUTH_USER_MESSAGES = {
     "We sent a confirmation link. After you confirm, return here and sign in.",
   passwordResetSent:
     "If an account exists for that address, you will receive a reset link shortly.",
+  passwordResetComplete: "Your password was updated. Sign in with your new password.",
   passwordResetBody: "We will email you a link to choose a new password.",
   socialNotConfigured: "Social sign-in is not configured on this site.",
   socialSignInFailed: "Could not complete social sign-in. Try again or use email and password.",

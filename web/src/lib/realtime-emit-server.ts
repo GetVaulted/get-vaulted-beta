@@ -225,6 +225,8 @@ export type PurchaseCompletedEmitOpts = {
   paymentStatus?: string | null;
   /** Active lot closed with zero bids — show no-winner UX (not a sale). */
   noBids?: boolean;
+  /** False when a multi-qty lot resets for another auction round. */
+  itemSoldOut?: boolean;
 };
 
 export function emitPurchaseCompleted(
@@ -243,6 +245,7 @@ export function emitPurchaseCompleted(
     orderId: opts?.orderId ?? null,
     paymentStatus: opts?.paymentStatus ?? null,
     noBids: opts?.noBids === true,
+    itemSoldOut: opts?.itemSoldOut !== false,
   });
 }
 

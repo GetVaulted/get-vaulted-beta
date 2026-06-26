@@ -1,4 +1,4 @@
-import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
+import { fetchWebApiMobileWithSellerAuth } from '../lib/resolveSellerAccessToken';
 import type { LiveRoomHostDetail } from './liveHostRepository';
 
 export type LiveRoomItemRow = {
@@ -56,14 +56,7 @@ async function controlFetch(
   accessToken: string,
   init?: RequestInit,
 ): Promise<Response> {
-  return fetchWebApiMobile(path, {
-    ...init,
-    headers: {
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-      Authorization: `Bearer ${accessToken}`,
-      ...init?.headers,
-    },
-  });
+  return fetchWebApiMobileWithSellerAuth(path, accessToken, init);
 }
 
 export async function fetchLiveRoomDetailWithItems(

@@ -17,6 +17,22 @@ export async function registerPushTokenWithWebApi(
   return true;
 }
 
+/** Drop this device's token (or all tokens) from the signed-in account — call before sign-out. */
+export async function unregisterPushTokenWithWebApi(
+  accessToken: string,
+  token?: string,
+): Promise<void> {
+  const res = await fetchWebApiAuthed('/api/account/push-token', accessToken, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(token?.trim() ? { token: token.trim() } : {}),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    console.warn('[push] unregisterPushTokenWithWebApi failed', res.status, body.slice(0, 200));
+  }
+}
+
 export async function markVaultNotificationRead(accessToken: string, notificationId: string): Promise<void> {
   await fetchWebApiAuthed(
     `/api/notifications/${encodeURIComponent(notificationId)}/read`,

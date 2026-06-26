@@ -64,6 +64,14 @@ export function sanitizeLiveError(raw: unknown, context?: 'stream' | 'room' | 'c
     };
   }
 
+  if (/invalid or expired session/i.test(text)) {
+    return {
+      userMessage: 'Your session expired. Sign out and sign back in, then try again.',
+      devDetail,
+      isNetwork: false,
+    };
+  }
+
   if (/sign in|unauthorized|401/i.test(text)) {
     return { userMessage: 'Sign in to continue hosting.', devDetail, isNetwork: false };
   }

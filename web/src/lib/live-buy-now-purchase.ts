@@ -22,6 +22,7 @@ import { resolveLiveBuyNowUnitSale } from "@/lib/live-room-item-quantity-display
 import { createNotification } from "@/lib/notifications";
 import { captureLiveRoomItemShippingSnapshotTx } from "@/services/shipping/live-item-shipping-snapshot";
 import { assertSellerStripeCollectReadyFromUser, sellerStripeCollectSelect } from "@/lib/seller-stripe-collect-ready";
+import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
 
 export type BuyerShippingSnapshot = {
   shipRecipientName: string;

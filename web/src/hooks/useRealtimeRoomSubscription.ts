@@ -85,6 +85,8 @@ export function useRealtimeRoomSubscription(opts: {
     emittedAt?: string;
     paymentStatus?: string | null;
     winnerId?: string | null;
+    noBids?: boolean;
+    itemSoldOut?: boolean;
   }) => void | Promise<void>;
   onPaymentFailed?: (payload: {
     buyerId?: string;

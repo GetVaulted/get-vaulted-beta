@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '../../auth/AuthContext';
-import { confirmAndSignOut, performSignOut } from '../../lib/signOutSession';
+import { confirmAndSignOut, performSignOut, signOutSessionOptions } from '../../lib/signOutSession';
 import { openSettings } from '../../navigation/openPlatform';
 import { colors, radii, spacing } from '../../theme';
 
@@ -17,8 +17,10 @@ type Props = {
  * Independent of seller payout / HQ approval state.
  */
 export function AccountAccessBar({ variant = 'inline', hideSettings = false }: Props) {
-  const { user, signOut } = useAuth();
+  const { user, session, signOut } = useAuth();
   if (!user) return null;
+
+  const signOutOpts = signOutSessionOptions(user, session);
 
   const isFooter = variant === 'footer';
 
@@ -40,7 +42,9 @@ export function AccountAccessBar({ variant = 'inline', hideSettings = false }: P
       ) : null}
       <Pressable
         style={({ pressed }) => [styles.btn, styles.btnSignOut, pressed && styles.btnPressed]}
-        onPress={() => (isFooter ? confirmAndSignOut(signOut) : void performSignOut(signOut))}
+        onPress={() =>
+          isFooter ? confirmAndSignOut(signOut, signOutOpts) : void performSignOut(signOut, signOutOpts)
+        }
         accessibilityRole="button"
         accessibilityLabel="Sign out"
       >

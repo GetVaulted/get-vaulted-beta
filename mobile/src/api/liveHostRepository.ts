@@ -1,7 +1,7 @@
 import type { LiveRoomItemRow } from './liveRoomControlRepository';
 import type { LiveGiveawayRow } from './liveGiveawayRepository';
 import { apiFailureErrorMessage } from '../lib/betaApiResponse';
-import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
+import { fetchWebApiMobileWithSellerAuth } from '../lib/resolveSellerAccessToken';
 import { readThroughHostConsoleCache } from '../lib/hostConsoleCache';
 import { logVaultCommandCenter, supabaseJwtSub } from '../lib/logVaultCommandCenterFlow';
 import { parseWebApiJsonBody, readWebApiResponseText } from '../lib/webApiResponse';
@@ -128,14 +128,7 @@ async function hostFetchJson<T>(
 }
 
 async function hostFetch(path: string, accessToken: string, init?: RequestInit): Promise<Response> {
-  return fetchWebApiMobile(path, {
-    ...init,
-    headers: {
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-      Authorization: `Bearer ${accessToken}`,
-      ...init?.headers,
-    },
-  });
+  return fetchWebApiMobileWithSellerAuth(path, accessToken, init);
 }
 
 export async function fetchLiveRoomForHost(

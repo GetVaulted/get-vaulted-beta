@@ -18,12 +18,42 @@ describe("live-auction-winner-display", () => {
 
   it("parses sold and no-bid celebration payloads", () => {
     expect(
-      parsePurchaseCompletedCelebration({
-        itemId: "item-1",
-        winnerUsername: "vault_fan",
-        winningAmountUsd: 55,
-      }),
-    ).toEqual({ kind: "sold", itemId: "item-1", winnerUsername: "vault_fan", winningAmountUsd: 55 });
+      parsePurchaseCompletedCelebration(
+        {
+          itemId: "item-1",
+          winnerUsername: "vault_fan",
+          winningAmountUsd: 55,
+          winnerId: "user-winner",
+        },
+        "user-winner",
+      ),
+    ).toEqual({
+      kind: "sold",
+      itemId: "item-1",
+      winnerUsername: "vault_fan",
+      winningAmountUsd: 55,
+      winnerId: "user-winner",
+      viewerIsWinner: true,
+    });
+
+    expect(
+      parsePurchaseCompletedCelebration(
+        {
+          itemId: "item-1",
+          winnerUsername: "vault_fan",
+          winningAmountUsd: 55,
+          winnerId: "user-winner",
+        },
+        "user-loser",
+      ),
+    ).toEqual({
+      kind: "sold",
+      itemId: "item-1",
+      winnerUsername: "vault_fan",
+      winningAmountUsd: 55,
+      winnerId: "user-winner",
+      viewerIsWinner: false,
+    });
 
     expect(parsePurchaseCompletedCelebration({ itemId: "item-2", noBids: true })).toEqual({
       kind: "no_bids",

@@ -752,9 +752,9 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         extra: { type: "purchase_completed", hasItem: Boolean(payload.itemId) },
       });
       if (!shouldProcessRealtimePayload("purchase_completed", payload)) return;
-      const celebration = parsePurchaseCompletedCelebration(payload);
+      const celebration = parsePurchaseCompletedCelebration(payload, session?.user?.id);
       const spotTaken =
-        celebration?.kind === "sold"
+        celebration?.kind === "sold" && celebration.viewerIsWinner
           ? parseAuctionWinSpotCelebration({
               winnerUsername: celebration.winnerUsername,
               winningAmountUsd: celebration.winningAmountUsd,

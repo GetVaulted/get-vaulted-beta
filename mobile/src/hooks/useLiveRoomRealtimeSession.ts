@@ -343,6 +343,7 @@ export function useLiveRoomRealtimeSession(args: {
         void fetchSnapshot();
       }
       const wallNow = syncedWallTimeMs(clockSkewMs);
+      const viewerWasBidder = myHighBidUsdRef.current != null;
       setMyHighBidUsd(null);
       setRoomSnap((prev) => {
         if (!prev) return prev;
@@ -350,10 +351,22 @@ export function useLiveRoomRealtimeSession(args: {
         const itemSoldOut = payload.itemSoldOut !== false;
         return applyBuyerSnapshotPurchaseCompleted(prev, payload.itemId, wallNow, { noBids, itemSoldOut });
       });
-      const celebration = parsePurchaseCompletedCelebration(payload, args.userId);
-      const spotTaken = parseAuctionWinSpotCelebration(payload);
+      const parsed = parsePurchaseCompletedCelebration(payload, args.userId);
+      const celebration =
+        parsed?.kind === 'sold' ? { ...parsed, viewerWasBidder } : parsed;
+      // Auction-win spot overlay is winner-only — losers must never see SOLD!/charge-style amount UI.
+      const spotTaken =
+        celebration?.kind === 'sold' && celebration.viewerIsWinner
+          ? parseAuctionWinSpotCelebration(payload)
+          : null;
       if (spotTaken) showSpotCelebration(spotTaken);
-      if (celebration) setSoldCelebration(celebration);
+      if (
+        celebration &&
+        (celebration.kind === 'no_bids' ||
+          (celebration.kind === 'sold' && (celebration.viewerIsWinner || celebration.viewerWasBidder)))
+      ) {
+        setSoldCelebration(celebration);
+      }
       logAuctionTimer({
         source: 'purchase_completed',
         serverNowMs: payload.serverNowMs,

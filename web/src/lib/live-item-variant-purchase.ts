@@ -193,6 +193,8 @@ export async function createLiveItemVariantCheckoutSession(args: {
     select: sellerStripeCollectSelect,
   });
   assertSellerStripeCollectReadyFromUser(seller);
+  const stripeAccountId = seller?.stripeAccountId?.trim();
+  if (!stripeAccountId) throw new Error("STRIPE_ONBOARDING_REQUIRED");
 
   const feeCents = await resolveCheckoutApplicationFeeCents({
     saleAmountUsd: purchase.totalUsd,
@@ -221,7 +223,7 @@ export async function createLiveItemVariantCheckoutSession(args: {
       },
       payment_intent_data: {
         application_fee_amount: feeCents,
-        transfer_data: { destination: seller.stripeAccountId },
+        transfer_data: { destination: stripeAccountId },
         metadata: { purchaseId: purchase.id, kind: "variant_purchase" },
       },
       line_items: [

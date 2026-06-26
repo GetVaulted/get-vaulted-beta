@@ -38,6 +38,17 @@ describe('computeLiveStageContainer', () => {
     expect(b.uniformScale).toBe(1);
     expect(a.designWidth / a.designHeight).toBeCloseTo(b.designWidth / b.designHeight, 5);
   });
+
+  it('centers a phone-width 9:16 column on iPad instead of full-width cover', () => {
+    const stage = computeLiveStageContainer(820, 1180);
+    expect(stage.designWidth).toBe(430);
+    expect(stage.designHeight).toBeCloseTo(430 / LIVE_STAGE_ASPECT, 3);
+    expect(stage.uniformScale).toBe(1);
+    expect(stage.layoutWidth).toBe(430);
+    expect(stage.offsetLeft).toBe(195);
+    expect(stage.offsetTop).toBeGreaterThan(0);
+    expect(stage.designWidth / stage.designHeight).toBeCloseTo(LIVE_STAGE_ASPECT, 5);
+  });
 });
 
 describe('computeLiveStageRootStyle', () => {

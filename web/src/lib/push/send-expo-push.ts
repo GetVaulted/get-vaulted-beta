@@ -21,7 +21,7 @@ export type ExpoPushPayload = {
 
 async function loadExpoPushTokens(userId: string): Promise<string[]> {
   const tokens = new Set<string>();
-  const authUserIds = new Set<string>([userId]);
+  const supabaseAuthIds = new Set<string>();
 
   const rows = await prisma.pushDeviceToken.findMany({
     where: { userId },
@@ -29,12 +29,13 @@ async function loadExpoPushTokens(userId: string): Promise<string[]> {
   });
   for (const row of rows) {
     if (row.expoPushToken) tokens.add(row.expoPushToken);
-    if (row.supabaseAuthUserId) authUserIds.add(row.supabaseAuthUserId);
+    const authId = row.supabaseAuthUserId?.trim();
+    if (authId) supabaseAuthIds.add(authId);
   }
 
   const admin = getSupabaseAdminClient();
   if (admin) {
-    for (const authUserId of authUserIds) {
+    for (const authUserId of supabaseAuthIds) {
       const { data } = await admin
         .from("push_device_tokens")
         .select("expo_push_token")

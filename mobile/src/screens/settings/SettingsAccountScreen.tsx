@@ -5,7 +5,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
 import { SettingsRow } from '../../components/platform/SettingsRow';
 import { openLegalUrl } from '../../lib/openLegalUrl';
-import { performSignOut } from '../../lib/signOutSession';
+import { performSignOut, signOutSessionOptions } from '../../lib/signOutSession';
 import type { RootStackParamList } from '../../navigation/types';
 import { spacing } from '../../theme';
 
@@ -13,7 +13,8 @@ type Props = NativeStackScreenProps<RootStackParamList, 'SettingsAccount'>;
 
 export function SettingsAccountScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { signOut } = useAuth();
+  const { signOut, user, session } = useAuth();
+  const signOutOpts = signOutSessionOptions(user, session);
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
@@ -35,7 +36,7 @@ export function SettingsAccountScreen({ navigation }: Props) {
           icon="log-out-outline"
           destructive
           onPress={() => {
-            void performSignOut(signOut);
+            void performSignOut(signOut, signOutOpts);
           }}
           chevron={false}
         />
