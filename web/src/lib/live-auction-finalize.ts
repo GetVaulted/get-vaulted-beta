@@ -19,6 +19,7 @@ import {
   resetVariantSpotAuctionNoBids,
   settleVariantSpotAuctionWinner,
 } from "@/lib/live-variant-spot-auction-settle";
+import { isMultiQuantityLiveAuctionItem } from "@/lib/live-auction-host-start";
 
 /**
  * Grace after `auctionEndsAt` before the server force-finalizes an overdue lot. Kept small so the

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { canonicalLiveRoomUrl } from "@/lib/live-room-share-metadata";
+import { appStoreUrlForPlatform } from "@/lib/app-store-links";
 import { isMobileWebUserAgent, mobileWebPlatform } from "@/lib/mobile-browser-detect";
 import { liveRoomCustomSchemeUrl } from "@/lib/universal-app-links";
 

@@ -177,7 +177,7 @@ export function allVariantSpotsSold(variants: VariantSpotRow[] | undefined | nul
 
 export type VariantPinRow = {
   id: string;
-  label: string;
+  label?: string;
   priceUsd: number;
   quantityRemaining: number;
   soldCount?: number;

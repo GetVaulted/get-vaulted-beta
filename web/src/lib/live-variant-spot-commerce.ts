@@ -1,10 +1,8 @@
 import type {
   LiveActiveSpotCommerceMode,
-  LiveItemVariant,
   LiveVariantSpotCommerceDefault,
 } from "@/generated/prisma/client";
-import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
-import { hostPinnedBuyerVariant, variantIsAvailable } from "@/lib/live-item-variant-presets";
+import { isVariantSalesFormat, hostPinnedBuyerVariant, variantIsAvailable, type VariantPinRow } from "@/lib/live-item-variant-presets";
 
 export type VariantSpotCommerceDefault = LiveVariantSpotCommerceDefault;
 export type ActiveSpotCommerceMode = LiveActiveSpotCommerceMode;
@@ -18,8 +16,6 @@ export function parseActiveSpotCommerceMode(raw: unknown): ActiveSpotCommerceMod
   if (raw === "fixed" || raw === "auction") return raw;
   return null;
 }
-
-type VariantPinRow = Pick<LiveItemVariant, "id" | "isHot" | "quantityRemaining" | "status">;
 
 type ItemSpotCommerceRow = {
   salesFormat: string;

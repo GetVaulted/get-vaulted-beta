@@ -54,6 +54,7 @@ type PatchBody = {
   /** When `startAuction`, set with `auctionDurationSec` to open timed bidding on the active lot. */
   action?: string;
   auctionDurationSec?: number | string;
+  clutchTimeEnabled?: boolean;
   /** `setCommerceFormat` — switch buy_now ↔ auction when lot is idle (non-variant items). */
   salesFormat?: string;
   activeSpotCommerceMode?: string;
