@@ -18,9 +18,10 @@ import {
   PAYMENT_PENDING,
 } from "@/services/payments";
 import { emitLiveRoomMessagesRefetch, emitPurchaseCompleted } from "@/lib/realtime-emit-server";
-import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
+import { resolveLiveBuyNowUnitSale } from "@/lib/live-room-item-quantity-display";
 import { createNotification } from "@/lib/notifications";
 import { captureLiveRoomItemShippingSnapshotTx } from "@/services/shipping/live-item-shipping-snapshot";
+import { assertSellerStripeCollectReadyFromUser, sellerStripeCollectSelect } from "@/lib/seller-stripe-collect-ready";
 
 export type BuyerShippingSnapshot = {
   shipRecipientName: string;
@@ -104,7 +105,7 @@ export async function createLiveBuyNowOrder(args: {
           shipFromAddressId: true,
           moderationRemovedAt: true,
           isCompanyListing: true,
-          seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true } },
+          seller: { select: sellerStripeCollectSelect },
         },
       });
       if (!listingRow || listingRow.buyingFormat !== "buy_now") {
@@ -116,9 +117,7 @@ export async function createLiveBuyNowOrder(args: {
       if (listingRow.sellerId === args.buyerId) {
         throw Object.assign(new Error("OWN_LISTING"), { code: "OWN_LISTING" });
       }
-      if (!listingRow.seller.stripeAccountId || !listingRow.seller.stripeOnboardingComplete) {
-        throw Object.assign(new Error("SELLER_NOT_READY"), { code: "SELLER_NOT_READY" });
-      }
+      assertSellerStripeCollectReadyFromUser(listingRow.seller);
 
       const itemPriceUsd = listingRow.priceUsd;
       const taxUsd = 0;
@@ -273,19 +272,39 @@ export async function finalizeLiveBuyNowPurchaseComplete(args: {
 
   const item = await prisma.liveRoomItem.findFirst({
     where: { id: args.liveRoomItemId, liveRoomId: args.liveRoomId },
-    select: { id: true, status: true, itemVersion: true, liveRoomId: true },
+    select: {
+      id: true,
+      status: true,
+      title: true,
+      quantity: true,
+      quantityInitial: true,
+      itemVersion: true,
+      liveRoomId: true,
+    },
   });
   if (!item) return;
 
   let roomVersion = 0;
   let itemVersion = item.itemVersion ?? 0;
+  let itemSoldOut = item.status === "sold";
   if (item.status !== "sold") {
     await prisma.$transaction(async (tx) => {
       await captureLiveRoomItemShippingSnapshotTx(tx, item.id);
     });
+    const sale = resolveLiveBuyNowUnitSale({
+      title: item.title,
+      quantity: item.quantity,
+      quantityInitial: item.quantityInitial,
+      status: item.status,
+    });
+    itemSoldOut = sale.itemSoldOut;
     const changed = await prisma.liveRoomItem.updateMany({
       where: { id: item.id, status: { not: "sold" } },
-      data: { status: "sold", itemVersion: { increment: 1 } },
+      data: {
+        quantity: sale.quantity,
+        status: sale.status,
+        itemVersion: { increment: 1 },
+      },
     });
     if (changed.count > 0) {
       const itemNext = await prisma.liveRoomItem.findUnique({
@@ -317,6 +336,7 @@ export async function finalizeLiveBuyNowPurchaseComplete(args: {
     winningAmountUsd: order.itemPriceUsd,
     orderId: order.id,
     paymentStatus: "paid",
+    itemSoldOut,
   });
   void recordBuyerGiveawayPurchaseEntries(args.liveRoomId, order.buyerId, order.id).catch((e) => {
     console.error("[live-buy-now] buyers giveaway entry", e);
@@ -369,6 +389,11 @@ export async function finalizeBreakSpotPaid(args: {
       stripeCheckoutSessionId: null,
     },
   });
+
+  const { markBreakSpotExternalFulfillmentRequired } = await import(
+    "@/services/shipping/break-pyt-fulfillment-bridge"
+  );
+  await markBreakSpotExternalFulfillmentRequired(spot.id);
 
   if (Number.isFinite(spot.priceUsd) && spot.priceUsd > 0) {
     await prisma.$transaction(async (tx) => {

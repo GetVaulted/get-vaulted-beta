@@ -13,13 +13,24 @@ type Props = {
   visible: boolean;
   onClose: () => void;
   item: LiveRoomItemRow | null;
+  /** When true, host can tap an open team to pin it for buyers. */
+  canPinTeams?: boolean;
+  pinningVariantId?: string | null;
+  onPinTeam?: (variantId: string) => void;
 };
 
 function fmtMoney(n: number) {
   return `$${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
-export function SellerBreakSpotBoardSheet({ visible, onClose, item }: Props) {
+export function SellerBreakSpotBoardSheet({
+  visible,
+  onClose,
+  item,
+  canPinTeams = false,
+  pinningVariantId = null,
+  onPinTeam,
+}: Props) {
   const insets = useSafeAreaInsets();
   if (!item || !isVariantSalesFormat(item.salesFormat)) return null;
 
@@ -49,6 +60,7 @@ export function SellerBreakSpotBoardSheet({ visible, onClose, item }: Props) {
               </LiveRoomText>
               <LiveRoomText style={styles.spotsMeta}>
                 {openCount} open · {soldCount} sold
+                {canPinTeams ? ' · tap a team to pin for buyers' : ''}
               </LiveRoomText>
             </View>
             <Pressable style={styles.closeBtn} onPress={onClose} hitSlop={10}>
@@ -66,9 +78,42 @@ export function SellerBreakSpotBoardSheet({ visible, onClose, item }: Props) {
           >
             {rows.map((row) => {
               const sold = row.sold;
+              const pinned = row.isHot && !sold;
+              const pinBusy = pinningVariantId === row.variantId;
+              const canPin = Boolean(canPinTeams && onPinTeam && row.variantId && !sold);
               const accent = spotAccentColor(row.label ?? '', row.color);
               const light = isLightSpotAccent(accent);
               const abbr = teamAbbrForVariant(row.label);
+              const cellBody = (
+                <LinearGradient
+                  colors={sold ? ['#1a1a22', '#121218'] : [accent, `${accent}cc`]}
+                  style={styles.spotGradient}
+                >
+                  {pinned ? (
+                    <LiveRoomText style={styles.pinnedTag}>PINNED</LiveRoomText>
+                  ) : row.isHot && !sold ? (
+                    <LiveRoomText style={styles.hotTag}>HOT</LiveRoomText>
+                  ) : null}
+                  <LiveRoomText style={[styles.spotAbbr, light && !sold && styles.spotAbbrDark]}>
+                    {abbr}
+                  </LiveRoomText>
+                  <LiveRoomText
+                    style={[styles.spotLabel, light && !sold && styles.spotLabelDark]}
+                    numberOfLines={2}
+                  >
+                    {row.label}
+                  </LiveRoomText>
+                  {sold ? (
+                    <LiveRoomText style={styles.buyerTag} numberOfLines={1}>
+                      {row.buyerUsername ? `@${row.buyerUsername.replace(/^@+/, '')}` : 'SOLD'}
+                    </LiveRoomText>
+                  ) : (
+                    <LiveRoomText style={[styles.priceTag, light && styles.spotLabelDark]}>
+                      {fmtMoney(row.priceUsd)}
+                    </LiveRoomText>
+                  )}
+                </LinearGradient>
+              );
               return (
                 <View
                   key={row.id}
@@ -76,34 +121,21 @@ export function SellerBreakSpotBoardSheet({ visible, onClose, item }: Props) {
                     styles.spotCell,
                     isDivisionBreak ? styles.spotCellDivision : styles.spotCellTeam,
                     sold && styles.spotCellSold,
+                    pinned && styles.spotCellPinned,
                   ]}
                 >
-                  <LinearGradient
-                    colors={sold ? ['#1a1a22', '#121218'] : [accent, `${accent}cc`]}
-                    style={styles.spotGradient}
-                  >
-                    {row.isHot && !sold ? (
-                      <LiveRoomText style={styles.hotTag}>HOT</LiveRoomText>
-                    ) : null}
-                    <LiveRoomText style={[styles.spotAbbr, light && !sold && styles.spotAbbrDark]}>
-                      {abbr}
-                    </LiveRoomText>
-                    <LiveRoomText
-                      style={[styles.spotLabel, light && !sold && styles.spotLabelDark]}
-                      numberOfLines={2}
+                  {canPin ? (
+                    <Pressable
+                      style={styles.spotPressable}
+                      onPress={() => onPinTeam?.(row.variantId!)}
+                      disabled={Boolean(pinningVariantId)}
+                      accessibilityLabel={`Pin ${row.label} for buyers`}
                     >
-                      {row.label}
-                    </LiveRoomText>
-                    {sold ? (
-                      <LiveRoomText style={styles.buyerTag} numberOfLines={1}>
-                        {row.buyerUsername ? `@${row.buyerUsername.replace(/^@+/, '')}` : 'SOLD'}
-                      </LiveRoomText>
-                    ) : (
-                      <LiveRoomText style={[styles.priceTag, light && styles.spotLabelDark]}>
-                        {fmtMoney(row.priceUsd)}
-                      </LiveRoomText>
-                    )}
-                  </LinearGradient>
+                      {cellBody}
+                    </Pressable>
+                  ) : (
+                    cellBody
+                  )}
                 </View>
               );
             })}
@@ -214,6 +246,15 @@ const styles = StyleSheet.create({
   spotCellSold: {
     opacity: 0.88,
   },
+  spotCellPinned: {
+    borderWidth: 2,
+    borderColor: colors.gold,
+  },
+  spotPressable: {
+    flex: 1,
+    borderRadius: radii.md,
+    overflow: 'hidden',
+  },
   spotGradient: {
     flex: 1,
     paddingHorizontal: 8,
@@ -229,6 +270,20 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: colors.gold,
     letterSpacing: 0.6,
+  },
+  pinnedTag: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    fontSize: 7,
+    fontWeight: '900',
+    color: '#111',
+    letterSpacing: 0.5,
+    backgroundColor: colors.gold,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: 'hidden',
   },
   spotAbbr: {
     fontSize: 16,

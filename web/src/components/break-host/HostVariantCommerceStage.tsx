@@ -1,6 +1,7 @@
 "use client";
 
 import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotBoard";
+import { ExternalFulfillmentNotice } from "@/components/shipping/ExternalFulfillmentNotice";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 
@@ -13,6 +14,8 @@ type Props = {
   onToggleCommerceMinimized?: () => void;
   onAddSupplemental?: () => void;
   onEditSpots?: () => void;
+  onPinVariant?: (variantId: string) => void;
+  pinVariantBusy?: boolean;
 };
 
 /**
@@ -26,13 +29,18 @@ export function HostVariantCommerceStage({
   onToggleCommerceMinimized,
   onAddSupplemental,
   onEditSpots,
+  onPinVariant,
+  pinVariantBusy = false,
 }: Props) {
   const activeVariant =
     activeBoardRow != null && isVariantSalesFormat(activeBoardRow.item.salesFormat);
 
   if (activeVariant) {
     return (
-      <div className="pointer-events-none absolute inset-x-0 bottom-28 z-[14] hidden justify-center px-4 min-[1400px]:flex">
+      <div className="pointer-events-none absolute inset-x-0 bottom-28 z-[14] flex flex-col items-center gap-2 px-4">
+        <div className="pointer-events-auto w-full max-w-lg">
+          <ExternalFulfillmentNotice audience="host" compact />
+        </div>
         <LiveVariantSpotBoard
           item={activeBoardRow.item}
           hostMode
@@ -41,6 +49,12 @@ export function HostVariantCommerceStage({
           onAddSupplemental={onAddSupplemental}
           hostBusy={busy}
           onEditSpots={onEditSpots}
+          onPinVariant={
+            activeBoardRow.item.status === "active" && activeBoardRow.item.variantAssignmentMode !== "random"
+              ? onPinVariant
+              : undefined
+          }
+          pinBusy={pinVariantBusy}
         />
       </div>
     );

@@ -200,6 +200,20 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const queuePreview = !console.activeItem && Boolean(nextQueued) && !console.roomEnded;
   const displayItem = console.activeItem ?? (queuePreview ? nextQueued : null);
   const showTeamsBoard = Boolean(displayItem && isVariantSalesFormat(displayItem.salesFormat) && (displayItem.variants?.length ?? 0) > 0);
+  const prevActiveVariantItemRef = useRef<string | null>(null);
+  useEffect(() => {
+    const item = console.activeItem;
+    if (
+      item?.id &&
+      item.id !== prevActiveVariantItemRef.current &&
+      isVariantSalesFormat(item.salesFormat) &&
+      (item.variants?.length ?? 0) > 0 &&
+      item.variantAssignmentMode !== 'random'
+    ) {
+      setTeamsBoardOpen(true);
+    }
+    prevActiveVariantItemRef.current = item?.id ?? null;
+  }, [console.activeItem]);
   const salesAttentionCount = useMemo(() => {
     const pendingSales = console.recentSales.filter(
       (r) => r.paymentTone === 'retry' || r.paymentTone === 'pending',
@@ -337,6 +351,15 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       if (taken) setSpotCelebration(taken);
       console.syncQueue();
       console.syncSales();
+    },
+    onBidPlaced: () => {
+      console.syncQueue();
+    },
+    onActiveItemChanged: () => {
+      console.syncQueue();
+    },
+    onAuctionStarted: () => {
+      console.syncQueue();
     },
   });
 
@@ -865,6 +888,22 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         visible={teamsBoardOpen}
         onClose={() => setTeamsBoardOpen(false)}
         item={displayItem}
+        canPinTeams={Boolean(
+          displayItem?.status === 'active' &&
+            displayItem.variantAssignmentMode !== 'random' &&
+            isVariantSalesFormat(displayItem.salesFormat),
+        )}
+        pinningVariantId={console.pinningVariantId}
+        onPinTeam={
+          displayItem?.variants?.length
+            ? (variantId) =>
+                console.onPinLiveTeam(
+                  displayItem.id,
+                  variantId,
+                  displayItem.variants!.map((v) => ({ id: v.id })),
+                )
+            : undefined
+        }
       />
     </View>
     </SellerLiveGestureLayer>

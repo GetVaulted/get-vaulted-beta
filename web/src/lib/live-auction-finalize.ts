@@ -15,6 +15,7 @@ import {
   emitPurchaseCompleted,
 } from "@/lib/realtime-emit-server";
 import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
+import { isMultiQuantityLiveAuctionItem } from "@/lib/live-auction-host-start";
 
 /**
  * Grace after `auctionEndsAt` before the server force-finalizes an overdue lot. Kept small so the
@@ -191,6 +192,7 @@ export async function settleAndChargeLiveAuctionLot(args: {
       itemTitle: settled.listingTitle ?? null,
       orderId: settled.orderId,
       paymentStatus,
+      itemSoldOut: settled.itemSoldOut,
     });
     if (settled.sellerId && settled.listingTitle && settled.itemPriceUsd != null) {
       try {
@@ -247,6 +249,7 @@ export async function settleAndChargeLiveAuctionLot(args: {
       winningAmountUsd: settled.itemPriceUsd,
       orderId: settled.orderId ?? null,
       paymentStatus: "pending",
+      itemSoldOut: settled.itemSoldOut,
     });
   }
 
@@ -259,11 +262,63 @@ export async function settleAndChargeLiveAuctionLot(args: {
 }
 
 /**
- * Close an overdue auction lot that has no winning bidder: mark it skipped, clear bid state, and
- * emit so both seller and buyer move off the lot. No order is created and no one is charged.
- * Idempotent via the `status === "active"` guard in the update.
+ * Multi-unit lot ended with no bids: clear the round and keep the row active for another start.
  */
-export async function closeLiveAuctionLotNoWinner(args: {
+export async function resetLiveAuctionLotAfterNoBids(args: {
+  liveRoomId: string;
+  itemId: string;
+  trigger: FinalizeTrigger;
+}): Promise<{ reset: boolean }> {
+  const { liveRoomId, itemId, trigger } = args;
+  const next = await prisma.$transaction(async (tx) => {
+    const row = await tx.liveRoomItem.findFirst({
+      where: { id: itemId, liveRoomId, status: "active" },
+      select: { id: true, quantity: true, quantityInitial: true },
+    });
+    if (!row) return null;
+    if (!isMultiQuantityLiveAuctionItem(row)) return null;
+
+    const updated = await tx.liveRoomItem.updateMany({
+      where: { id: itemId, liveRoomId, status: "active" },
+      data: {
+        biddingOpen: false,
+        auctionEndsAt: null,
+        clutchTimeEnabled: false,
+        currentBidUsd: null,
+        lastHighBidderId: null,
+        itemVersion: { increment: 1 },
+      },
+    });
+    if (updated.count === 0) return null;
+
+    const roomNext = await tx.liveRoom.update({
+      where: { id: liveRoomId },
+      data: { roomVersion: { increment: 1 } },
+      select: { roomVersion: true },
+    });
+    const itemNext = await tx.liveRoomItem.findUnique({ where: { id: itemId }, select: { itemVersion: true } });
+    return { roomVersion: roomNext.roomVersion, itemVersion: itemNext?.itemVersion ?? 0 };
+  });
+  if (!next) return { reset: false };
+
+  emitPurchaseCompleted(liveRoomId, itemId, {
+    roomVersion: next.roomVersion,
+    itemVersion: next.itemVersion,
+    noBids: true,
+    itemSoldOut: false,
+  });
+  emitActiveItemChanged(liveRoomId, itemId, {
+    roomVersion: next.roomVersion,
+    itemVersion: next.itemVersion,
+    biddingOpen: false,
+    auctionEndsAt: null,
+  });
+  emitLiveRoomQueueItemsChanged(liveRoomId);
+  console.info("[auction close] no bids, reset for next round", { trigger, liveRoomId, itemId });
+  return { reset: true };
+}
+
+async function skipLiveAuctionLotNoWinner(args: {
   liveRoomId: string;
   itemId: string;
   room: RoomCtx;
@@ -289,6 +344,7 @@ export async function closeLiveAuctionLotNoWinner(args: {
     roomVersion: next.roomVersion,
     itemVersion: next.itemVersion,
     noBids: true,
+    itemSoldOut: true,
   });
   emitActiveItemChanged(liveRoomId, itemId, {
     roomVersion: next.roomVersion,
@@ -299,6 +355,68 @@ export async function closeLiveAuctionLotNoWinner(args: {
   emitLiveRoomQueueItemsChanged(liveRoomId);
   console.info("[auction close] no bids, closed unsold", { trigger, liveRoomId, itemId });
   return { closed: true };
+}
+
+/** Timer elapsed with a winner — close bidding; host marks sold to settle. */
+async function closeLiveAuctionLotPendingWinner(args: {
+  liveRoomId: string;
+  itemId: string;
+  trigger: FinalizeTrigger;
+}): Promise<{ closed: boolean }> {
+  const { liveRoomId, itemId, trigger } = args;
+  const next = await prisma.$transaction(async (tx) => {
+    const updated = await tx.liveRoomItem.updateMany({
+      where: { id: itemId, liveRoomId, status: "active", biddingOpen: true },
+      data: { biddingOpen: false, itemVersion: { increment: 1 } },
+    });
+    if (updated.count === 0) return null;
+    const roomNext = await tx.liveRoom.update({
+      where: { id: liveRoomId },
+      data: { roomVersion: { increment: 1 } },
+      select: { roomVersion: true },
+    });
+    const itemNext = await tx.liveRoomItem.findUnique({
+      where: { id: itemId },
+      select: { itemVersion: true, auctionEndsAt: true },
+    });
+    return {
+      roomVersion: roomNext.roomVersion,
+      itemVersion: itemNext?.itemVersion ?? 0,
+      auctionEndsAt: itemNext?.auctionEndsAt?.toISOString() ?? null,
+    };
+  });
+  if (!next) return { closed: false };
+  emitActiveItemChanged(liveRoomId, itemId, {
+    roomVersion: next.roomVersion,
+    itemVersion: next.itemVersion,
+    biddingOpen: false,
+    auctionEndsAt: next.auctionEndsAt,
+  });
+  emitLiveRoomQueueItemsChanged(liveRoomId);
+  console.info("[auction close] timer ended, winner pending host mark sold", { trigger, liveRoomId, itemId });
+  return { closed: true };
+}
+
+/**
+ * Close an overdue auction lot that has no winning bidder.
+ * Multi-quantity lots reset for another round; single-quantity lots are skipped.
+ */
+export async function closeLiveAuctionLotNoWinner(args: {
+  liveRoomId: string;
+  itemId: string;
+  room: RoomCtx;
+  trigger: FinalizeTrigger;
+}): Promise<{ closed: boolean }> {
+  const { liveRoomId, itemId, trigger } = args;
+  const row = await prisma.liveRoomItem.findFirst({
+    where: { id: itemId, liveRoomId, status: "active" },
+    select: { quantity: true, quantityInitial: true },
+  });
+  if (row && isMultiQuantityLiveAuctionItem(row)) {
+    const reset = await resetLiveAuctionLotAfterNoBids({ liveRoomId, itemId, trigger });
+    return { closed: reset.reset };
+  }
+  return skipLiveAuctionLotNoWinner(args);
 }
 
 export type OverdueFinalizeSummary = {
@@ -345,9 +463,15 @@ export async function finalizeOverdueLiveAuctionLotsForRoom(args: {
     });
     try {
       if (lot.lastHighBidderId?.trim()) {
-        const r = await settleAndChargeLiveAuctionLot({ liveRoomId, itemId: lot.id, room, trigger });
-        summary.finalized += 1;
-        summary.results.push({ itemId: lot.id, outcome: "sold", orderId: r.orderId });
+        if (room.roomType === "auction") {
+          const c = await closeLiveAuctionLotPendingWinner({ liveRoomId, itemId: lot.id, trigger });
+          if (c.closed) summary.finalized += 1;
+          summary.results.push({ itemId: lot.id, outcome: "unsold" });
+        } else {
+          const r = await settleAndChargeLiveAuctionLot({ liveRoomId, itemId: lot.id, room, trigger });
+          summary.finalized += 1;
+          summary.results.push({ itemId: lot.id, outcome: "sold", orderId: r.orderId });
+        }
       } else {
         const c = await closeLiveAuctionLotNoWinner({ liveRoomId, itemId: lot.id, room, trigger });
         if (c.closed) summary.finalized += 1;

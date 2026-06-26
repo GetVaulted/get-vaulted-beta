@@ -18,6 +18,7 @@ import { logSellerQueue } from '../lib/logSellerQueue';
 import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
 import { invalidateHostConsoleCache } from '../lib/hostConsoleCache';
+import { buildExclusiveHostPinUpdates } from '../lib/liveItemVariant';
 import { mergeLiveRoomItemsById } from '../lib/mergeLiveRoomItems';
 import { mergeRandomSpotClaimIntoItem, type RandomSpotClaim } from '../lib/liveVariantSpotBoard';
 import { useRealtimeRoomPresence } from './useRealtimeRoomPresence';
@@ -65,6 +66,7 @@ export function useSellerLiveConsole({
   const [hostClutchTimeEnabled, setHostClutchTimeEnabled] = useState(false);
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [pricingEditItem, setPricingEditItem] = useState<LiveRoomItemRow | null>(null);
+  const [pinningVariantId, setPinningVariantId] = useState<string | null>(null);
   const [consoleError, setConsoleError] = useState<SanitizedLiveError | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const hydratedRef = useRef(false);
@@ -333,6 +335,20 @@ export function useSellerLiveConsole({
     });
   };
 
+  const onPinLiveTeam = (itemId: string, variantId: string, variants: Array<{ id: string }>) => {
+    void run(async () => {
+      setPinningVariantId(variantId);
+      try {
+        const updates = buildExclusiveHostPinUpdates(variants, variantId);
+        await patchLiveItemVariants(accessToken, roomId, itemId, updates);
+        invalidateHostConsoleCache(roomId);
+        await reload({ force: true });
+      } finally {
+        setPinningVariantId(null);
+      }
+    });
+  };
+
   const openPricingEditor = (item: LiveRoomItemRow) => {
     setPricingEditItem(item);
   };
@@ -442,6 +458,8 @@ export function useSellerLiveConsole({
     openPricingEditor,
     onSaveQueuePricing,
     onSaveBreakSpots,
+    onPinLiveTeam,
+    pinningVariantId,
     onQuickAddLot,
     consoleError,
     chatMessages,

@@ -192,7 +192,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
   const byId = new Map(variantRows.map((v) => [v.id, v]));
   let changed = 0;
 
+  const pinVariantIds = updates
+    .filter((row) => row.isHot === true && typeof row.id === "string" && row.id.trim())
+    .map((row) => row.id!.trim());
+
   await prisma.$transaction(async (tx) => {
+    if (pinVariantIds.length > 0) {
+      await tx.liveItemVariant.updateMany({
+        where: { liveRoomItemId: itemId },
+        data: { isHot: false },
+      });
+    }
     for (const row of updates) {
       const id = typeof row.id === "string" ? row.id.trim() : "";
       if (!id) continue;
@@ -200,7 +210,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       if (!existing) continue;
 
       const data: { priceUsd?: number; isHot?: boolean } = {};
-      if (typeof row.isHot === "boolean") data.isHot = row.isHot;
+      if (typeof row.isHot === "boolean") {
+        if (row.isHot && (existing.quantityRemaining <= 0 || existing.status === "sold_out")) continue;
+        data.isHot = row.isHot;
+      }
       if (typeof row.priceUsd === "number" && Number.isFinite(row.priceUsd) && row.priceUsd >= 0) {
         if (existing.quantityRemaining <= 0 || existing.status === "sold_out") continue;
         data.priceUsd = Math.round(row.priceUsd * 100) / 100;

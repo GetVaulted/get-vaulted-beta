@@ -27,10 +27,15 @@ import {
 import { AddQueueItemModal, type AddQueueItemAuctionPayload, type AddQueueItemCloseReason, type AddQueueItemGiveawayPayload } from "@/components/break-host/AddQueueItemModal";
 import { VaultQueueDrawer } from "@/components/break-host/vault/VaultQueueDrawer";
 import { HostVariantCommerceStage } from "@/components/break-host/HostVariantCommerceStage";
+import { ExternalFulfillmentNotice } from "@/components/shipping/ExternalFulfillmentNotice";
 import { HostAddSupplementalModal } from "@/components/break-host/HostAddSupplementalModal";
 import { HostEditBreakSpotsModal, variantItemForSpotEditor } from "@/components/break-host/HostEditBreakSpotsModal";
-import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
+import { buildExclusiveHostPinUpdates, isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import { HOST_PIN_BLOCKED_AUCTION_LIVE_MSG, hostPinLotBlocked } from "@/lib/host-queue-selection";
+import {
+  canHostStartLiveAuction,
+  resolveLiveAuctionHostStartLotPhase,
+} from "@/lib/live-auction-host-start";
 import { canonicalLiveRoomUrl } from "@/lib/live-room-share-metadata";
 import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
 import {
@@ -167,6 +172,8 @@ type HostPayload = {
   recentSales?: HostRecentSaleRowDTO[];
   feeTier?: LiveShowFeeTierSnapshot | null;
   sellerUnresolvedPaymentFailures?: SellerPaymentFailureDTO[];
+  externalFulfillmentPaidCount?: number;
+  variantExternalFulfillmentCount?: number;
   giveaways?: LiveGiveawayDTO[];
 };
 
@@ -266,6 +273,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const [hostCommerceMinimized, setHostCommerceMinimized] = useState(false);
   const [supplementalModalOpen, setSupplementalModalOpen] = useState(false);
   const [variantSpotEditOpen, setVariantSpotEditOpen] = useState(false);
+  const [pinVariantBusy, setPinVariantBusy] = useState(false);
   const [stageMotionBurst, setStageMotionBurst] = useState<LiveStageMotionBurst>(null);
   const [bidsLastMinute, setBidsLastMinute] = useState(0);
   const [lotTransitionPhase, setLotTransitionPhase] = useState<LiveLotTransitionPhase>("idle");
@@ -1126,8 +1134,10 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         const who =
           celebration?.kind === "sold" ? celebration.winnerUsername ?? "buyer" : "buyer";
         flashHostNotice(`Payment failed · @${who.replace(/^@/, "")} — awaiting recovery`);
-      } else {
+      } else if (celebration?.kind === "sold") {
         flashHostNotice("Item sold · syncing");
+      } else if (celebration?.kind === "no_bids" && payload.itemSoldOut !== false) {
+        flashHostNotice("No bids · lot skipped");
       }
       scheduleFallbackRefresh("purchase_completed", 40);
     },
@@ -1711,6 +1721,21 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     [activeBoardRow, previewQueueRow],
   );
 
+  const prevActiveVariantItemRef = useRef<string | null>(null);
+  useEffect(() => {
+    const item = activeBoardRow?.item;
+    if (
+      item?.id &&
+      item.id !== prevActiveVariantItemRef.current &&
+      isVariantSalesFormat(item.salesFormat) &&
+      (item.variants?.length ?? 0) > 0 &&
+      item.variantAssignmentMode !== "random"
+    ) {
+      setHostCommerceMinimized(false);
+    }
+    prevActiveVariantItemRef.current = item?.id ?? null;
+  }, [activeBoardRow?.item]);
+
   const biddingWindowStillRunningHost = Boolean(
     activeBoardRow?.item.biddingOpen &&
       !isVariantSalesFormat(activeBoardRow.item.salesFormat) &&
@@ -1729,12 +1754,15 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           return formatHostAuctionCountdownMs(ends - syncedWallTimeMs(hostClockSkewMs));
         })()
       : null;
-  const hostStartLiveAuctionEnabled =
-    room.status === "live" &&
-    activeBoardRow != null &&
-    activeBoardRow.item.status === "active" &&
-    !activeBoardRow.item.biddingOpen &&
-    !isVariantSalesFormat(activeBoardRow.item.salesFormat);
+  const hostActiveLotBidPhase =
+    activeBoardRow != null && !isVariantSalesFormat(activeBoardRow.item.salesFormat)
+      ? resolveLiveAuctionHostStartLotPhase(activeBoardRow.item, syncedWallTimeMs(hostClockSkewMs))
+      : "inactive";
+  const hostStartLiveAuctionEnabled = canHostStartLiveAuction(activeBoardRow?.item ?? null, {
+    roomLive: room.status === "live",
+    lotBidPhase: hostActiveLotBidPhase,
+    isVariantItem: activeBoardRow != null && isVariantSalesFormat(activeBoardRow.item.salesFormat),
+  });
 
   const hostPinLotEnabled = !hostPinLotBlocked(activeBoardRow);
 
@@ -1790,6 +1818,11 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           const res = await patchLiveRoomItemStatus(roomId, active.id, status);
           if (!res.ok) {
             setToast(res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error);
+            return;
+          }
+          if (res.data?.resetAuction === true) {
+            await load();
+            router.refresh();
             return;
           }
           const itemSoldOut = res.data?.itemSoldOut !== false;
@@ -1892,6 +1925,26 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     }
   };
 
+  const handlePinLiveVariant = async (variantId: string) => {
+    const itemId = activeBoardRow?.item.id;
+    const variants = activeBoardRow?.item.variants;
+    if (!itemId || !variants?.length) return;
+    setPinVariantBusy(true);
+    setToast(null);
+    try {
+      const updates = buildExclusiveHostPinUpdates(variants, variantId);
+      const res = await patchLiveItemVariants(roomId, itemId, updates);
+      if (!res.ok) {
+        setToast(res.issues.length ? `${res.error}\n\n${res.issues.join("\n")}` : res.error);
+        return;
+      }
+      await load();
+      router.refresh();
+    } finally {
+      setPinVariantBusy(false);
+    }
+  };
+
   const commandCenterProps = {
     roomTitle: streamTitle,
     roomStatus: room.status,
@@ -1954,6 +2007,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     roomGovernance: {
       slowModeSeconds: hostModeration.slowModeSeconds,
       moderators: hostModeration.moderators,
+      modQueue: hostModeration.modQueue,
       busy: modBusy,
       error: modError,
       onSetSlowMode: (seconds: number) => void runHostModeration("slow_mode", { metadata: { seconds } }),
@@ -2129,6 +2183,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           onToggleCommerceMinimized={toggleHostCommerceMinimized}
           onAddSupplemental={() => setSupplementalModalOpen(true)}
           onEditSpots={variantSpotEditItem ? handleOpenVariantSpotEditor : undefined}
+          onPinVariant={handlePinLiveVariant}
+          pinVariantBusy={pinVariantBusy}
         />
       </>
     ),
@@ -2167,6 +2223,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   };
 
   const hostPaymentFailures = data?.sellerUnresolvedPaymentFailures ?? [];
+  const showExternalFulfillmentHostNotice =
+    (data?.externalFulfillmentPaidCount ?? 0) > 0 || (data?.variantExternalFulfillmentCount ?? 0) > 0;
 
   return (
     <div
@@ -2191,6 +2249,13 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
                 </button>
               </div>
             ))}
+          </div>
+        </div>
+      ) : null}
+      {showExternalFulfillmentHostNotice ? (
+        <div className="pointer-events-none fixed left-1/2 top-[calc(var(--site-header-offset)+0.5rem)] z-[60] w-[min(92vw,28rem)] -translate-x-1/2 px-2">
+          <div className="pointer-events-auto">
+            <ExternalFulfillmentNotice audience="host" compact />
           </div>
         </div>
       ) : null}

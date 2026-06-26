@@ -49,6 +49,7 @@ describe("live-room-variant-merge", () => {
     expect(next[0]?.variants?.[0]?.quantityRemaining).toBe(0);
     expect(next[0]?.variants?.[0]?.soldCount).toBe(1);
     expect(next[0]?.variants?.[0]?.status).toBe("sold_out");
+    expect(next[0]?.variants?.[0]?.isHot).toBe(false);
     expect(next[0]?.itemVersion).toBe(1);
   });
 

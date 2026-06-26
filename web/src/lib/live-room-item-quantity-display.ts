@@ -114,3 +114,43 @@ export function resolveClosingUnitNumber(row: {
   const remaining = Math.max(0, Math.floor(row.quantity));
   return Math.min(total, total - remaining + 1);
 }
+
+export type LiveBuyNowUnitSaleResult = {
+  quantity: number;
+  status: "active" | "sold";
+  itemSoldOut: boolean;
+  soldQuantity: number;
+  remainingQuantity: number;
+};
+
+/** Apply one buy-now unit sale to a live queue row (decrements remaining quantity). */
+export function resolveLiveBuyNowUnitSale(args: {
+  title: string;
+  quantity: number;
+  quantityInitial?: number | null;
+  status: string;
+  unitsPurchased?: number;
+}): LiveBuyNowUnitSaleResult {
+  const unitsPurchased = Math.max(1, Math.floor(args.unitsPurchased ?? 1));
+  const totalQuantity = normalizeQuantityInitial(args);
+  const currentRemaining =
+    typeof args.quantity === "number" && Number.isFinite(args.quantity)
+      ? Math.max(0, Math.floor(args.quantity))
+      : totalQuantity;
+  const nextRemaining = Math.max(0, currentRemaining - unitsPurchased);
+  const itemSoldOut = totalQuantity <= 1 || nextRemaining < 1;
+  const nextStatus: "active" | "sold" = itemSoldOut ? "sold" : "active";
+  const qtyState = resolveLiveRoomItemQuantityState({
+    title: args.title,
+    quantity: itemSoldOut ? 0 : nextRemaining,
+    quantityInitial: args.quantityInitial ?? totalQuantity,
+    status: nextStatus,
+  });
+  return {
+    quantity: itemSoldOut ? 0 : nextRemaining,
+    status: nextStatus,
+    itemSoldOut,
+    soldQuantity: qtyState.soldQuantity,
+    remainingQuantity: qtyState.remainingQuantity,
+  };
+}

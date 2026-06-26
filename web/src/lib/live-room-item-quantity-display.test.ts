@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatLiveQueueItemUnitTitle,
   resolveClosingUnitNumber,
+  resolveLiveBuyNowUnitSale,
   resolveLiveRoomItemQuantityState,
 } from "@/lib/live-room-item-quantity-display";
 
@@ -63,6 +64,45 @@ describe("resolveLiveRoomItemQuantityState", () => {
     expect(state.soldQuantity).toBe(3);
     expect(state.remainingQuantity).toBe(0);
     expect(state.progressLabel).toBe("3 / 3 sold");
+  });
+});
+
+describe("resolveLiveBuyNowUnitSale", () => {
+  it("increments soldQuantity by one per purchase and solds out only when exhausted", () => {
+    const row = {
+      title: "Slab lot",
+      quantity: 3,
+      quantityInitial: 3,
+      status: "active" as const,
+    };
+
+    const afterFirst = resolveLiveBuyNowUnitSale(row);
+    expect(afterFirst.soldQuantity).toBe(1);
+    expect(afterFirst.remainingQuantity).toBe(2);
+    expect(afterFirst.quantity).toBe(2);
+    expect(afterFirst.status).toBe("active");
+    expect(afterFirst.itemSoldOut).toBe(false);
+
+    const afterSecond = resolveLiveBuyNowUnitSale({
+      ...row,
+      quantity: afterFirst.quantity,
+      status: afterFirst.status,
+    });
+    expect(afterSecond.soldQuantity).toBe(2);
+    expect(afterSecond.remainingQuantity).toBe(1);
+    expect(afterSecond.status).toBe("active");
+    expect(afterSecond.itemSoldOut).toBe(false);
+
+    const afterThird = resolveLiveBuyNowUnitSale({
+      ...row,
+      quantity: afterSecond.quantity,
+      status: afterSecond.status,
+    });
+    expect(afterThird.soldQuantity).toBe(3);
+    expect(afterThird.remainingQuantity).toBe(0);
+    expect(afterThird.quantity).toBe(0);
+    expect(afterThird.status).toBe("sold");
+    expect(afterThird.itemSoldOut).toBe(true);
   });
 });
 
