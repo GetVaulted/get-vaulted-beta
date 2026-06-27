@@ -20,7 +20,10 @@ function safeStr(v: string | null | undefined, fallback = ""): string {
 
 export function getStreamTypeBadge(room: LiveNowRoom): string {
   if (room.formatBadge === "Auction") return "Auction";
-  if (room.roomKind === "break_room") return "Break";
+  if (room.roomKind === "break_room") {
+    if (room.breakVaultCategory) return `Break - ${room.breakVaultCategory}`;
+    return "Break";
+  }
   if (room.formatBadge === "Buy Now") return "Buy";
   const title = safeStr(room.title).toLowerCase();
   if (title.includes("replay") || title.includes("hit")) return "Replay";

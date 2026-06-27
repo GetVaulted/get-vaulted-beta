@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
 import { validateAddressPatchInput, type AddressInput } from "@/lib/address-book";
+import { verifyAddressPatchData } from "@/lib/apply-address-verification";
 import type { AddressType } from "@/generated/prisma/enums";
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -20,7 +21,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
   const parsed = validateAddressPatchInput(body);
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
-  const patch = parsed.data;
+  const verified = await verifyAddressPatchData({ existing, patch: parsed.data });
+  if (!verified.ok) {
+    return NextResponse.json(verified.body, { status: verified.status });
+  }
+  const patch = verified.patch;
   const nextType = (patch.type as AddressType | undefined) ?? existing.type;
   const nextDefault = typeof patch.isDefault === "boolean" ? patch.isDefault : existing.isDefault;
   const address = await prisma.$transaction(async (tx) => {
@@ -35,7 +40,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       data: patch,
     });
   });
-  return NextResponse.json({ address });
+  return NextResponse.json({
+    address,
+    verified: typeof patch.isVerified === "boolean" ? patch.isVerified : existing.isVerified,
+    corrected: verified.corrected,
+  });
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {

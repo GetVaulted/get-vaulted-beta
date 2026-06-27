@@ -12,6 +12,7 @@ export type LiveNowFilter = (typeof liveNowFilters)[number];
 export type LiveRoomKind = "break_room" | "live_sale_room";
 export type LiveRoomFormatBadge = "PYT Break" | "Random Break" | "Live Sale" | "Auction" | "Buy Now";
 export type LiveShowStatus = "live_now" | "scheduled";
+export type VaultBreakCategory = "Cards" | "Helmets";
 
 type LiveNowRoomBase = {
   id: string;
@@ -19,6 +20,8 @@ type LiveNowRoomBase = {
   roomKind: LiveRoomKind;
   formatBadge: LiveRoomFormatBadge;
   category: Exclude<LiveNowFilter, "All">;
+  /** When set, break tiles show "Break - Cards" / "Break - Helmets". */
+  breakVaultCategory?: VaultBreakCategory;
   status: LiveShowStatus;
   scheduledFor?: string;
   viewers: number;

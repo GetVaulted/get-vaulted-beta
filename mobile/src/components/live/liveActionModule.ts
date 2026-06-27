@@ -8,7 +8,7 @@ import {
   isActiveVariantBuyerItem,
   isRandomVariantAssignment,
   lowestAvailableVariantPrice,
-  pinnedVariantBuyerPrimaryLabel,
+  variantClaimPrimaryLabel,
   variantSelectSpotLabel,
 } from '../../lib/liveItemVariant';
 import {
@@ -100,80 +100,59 @@ function resolveBuyerVariantItemHud(
   }
 
   const pinned = hostPinnedBuyerVariant(variants, snap.activeItemVariantAssignmentMode);
-  if (pinned) {
-    const divisionBreak = snap.activeItemSalesFormat === 'team_break';
-    if (isVariantSpotAuctionLive(snap)) {
-      const hasBid = Boolean(snap.lastHighBidderId?.trim() || snap.lastHighBidderUsername?.trim());
-      const opening = snap.startingBidUsd ?? pinned.priceUsd ?? 1;
-      const displayAmount = hasBid ? (snap.currentBidUsd ?? opening) : opening;
-      const next = snap.minNextBidUsd ?? displayAmount;
-      const biddingOpen = snap.lotBidPhase === 'bidding_open';
-      return {
-        ...base,
-        format: 'auction',
-        hybridFocus: null,
-        timerMmSs: biddingOpen && snap.auctionEndsAt ? auctionCountdownMmSs(snap.auctionEndsAt, snap.fetchedAtMs) : '—',
-        itemTitle: pinned.label,
-        currentPrefix: hasBid ? 'Current' : 'Opening',
-        currentAmount: formatMoney(displayAmount),
-        winningLine: formatAuctionLeaderLine({
-          lastHighBidderUsername: snap.lastHighBidderUsername,
-          lastHighBidderId: snap.lastHighBidderId,
-          currentBidUsd: snap.currentBidUsd,
-          startingBidUsd: snap.startingBidUsd,
-        }),
-        stateLine: biddingOpen
-          ? 'Spot auction live — place the next bid.'
-          : 'Spot auction ended — waiting for host.',
-        bottomLeftLabel: 'Custom',
-        bottomRightLabel: biddingOpen
-          ? pinnedVariantAuctionPrimaryLabel(snap.activeItemSalesFormat, next)
-          : 'Waiting for host',
-        bottomRightIsSlide: biddingOpen,
-        buyerPrimaryDisabled: !biddingOpen,
-        buyerSecondaryDisabled: !biddingOpen,
-        buyerPinnedVariantId: pinned.id,
-      };
-    }
+  if (pinned && isVariantSpotAuctionLive(snap)) {
+    const hasBid = Boolean(snap.lastHighBidderId?.trim() || snap.lastHighBidderUsername?.trim());
+    const opening = snap.startingBidUsd ?? pinned.priceUsd ?? 1;
+    const displayAmount = hasBid ? (snap.currentBidUsd ?? opening) : opening;
+    const next = snap.minNextBidUsd ?? displayAmount;
+    const biddingOpen = snap.lotBidPhase === 'bidding_open';
     return {
       ...base,
-      format: 'shop',
+      format: 'auction',
       hybridFocus: null,
-      timerMmSs: '—',
+      timerMmSs: biddingOpen && snap.auctionEndsAt ? auctionCountdownMmSs(snap.auctionEndsAt, snap.fetchedAtMs) : '—',
       itemTitle: pinned.label,
-      currentPrefix: 'Price',
-      currentAmount: formatMoney(pinned.priceUsd),
-      winningLine: '',
-      stateLine: divisionBreak
-        ? 'This division is live — tap Claim Team to checkout.'
-        : 'This team is live — tap Buy Now to checkout.',
+      currentPrefix: hasBid ? 'Current' : 'Opening',
+      currentAmount: formatMoney(displayAmount),
+      winningLine: formatAuctionLeaderLine({
+        lastHighBidderUsername: snap.lastHighBidderUsername,
+        lastHighBidderId: snap.lastHighBidderId,
+        currentBidUsd: snap.currentBidUsd,
+        startingBidUsd: snap.startingBidUsd,
+      }),
+      stateLine: biddingOpen
+        ? 'Spot auction live — place the next bid.'
+        : 'Spot auction ended — waiting for host.',
       bottomLeftLabel: 'Custom',
-      bottomRightLabel: pinnedVariantBuyerPrimaryLabel(snap.activeItemSalesFormat, pinned.priceUsd),
-      bottomRightIsSlide: false,
-      buyerPrimaryDisabled: false,
-      buyerSecondaryDisabled: true,
+      bottomRightLabel: biddingOpen
+        ? pinnedVariantAuctionPrimaryLabel(snap.activeItemSalesFormat, next)
+        : 'Waiting for host',
+      bottomRightIsSlide: biddingOpen,
+      buyerPrimaryDisabled: !biddingOpen,
+      buyerSecondaryDisabled: !biddingOpen,
       buyerPinnedVariantId: pinned.id,
     };
   }
 
   const available = availableVariantCount(variants);
+  const fromPrice = lowestAvailableVariantPrice(variants) ?? snap.priceUsd ?? snap.startingBidUsd ?? 0;
   return {
     ...base,
     format: 'shop',
     hybridFocus: null,
     timerMmSs: '—',
     itemTitle: itemTitleFallback,
-    currentPrefix: 'Status',
-    currentAmount: available > 0 ? 'Waiting' : 'Sold out',
+    currentPrefix: available > 0 ? 'From' : 'Status',
+    currentAmount: available > 0 ? formatMoney(fromPrice) : 'Sold out',
     winningLine: '',
     stateLine:
       available > 0
-        ? 'Host is picking the next team — stay locked in.'
+        ? `${available} spot${available === 1 ? '' : 's'} available — tap to claim yours.`
         : 'All spots are sold or unavailable.',
     bottomLeftLabel: 'Custom',
-    bottomRightLabel: available > 0 ? 'Waiting for team' : 'Sold out',
+    bottomRightLabel: available > 0 ? variantClaimPrimaryLabel(snap.activeItemSalesFormat) : 'Sold out',
     bottomRightIsSlide: false,
-    buyerPrimaryDisabled: true,
+    buyerPrimaryDisabled: available <= 0,
     buyerSecondaryDisabled: true,
   };
 }

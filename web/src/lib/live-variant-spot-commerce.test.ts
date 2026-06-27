@@ -41,6 +41,24 @@ describe("live-variant-spot-commerce", () => {
         auctionVariantId: null,
       }),
     ).toBe(true);
+    expect(
+      isVariantSpotFixedCheckoutLive({
+        salesFormat: "variant_selection",
+        variantAssignmentMode: "pick",
+        biddingOpen: false,
+        variants: [
+          {
+            id: "v1",
+            label: "Chiefs",
+            priceUsd: 40,
+            quantityRemaining: 1,
+            soldCount: 0,
+            isHot: false,
+            status: "available",
+          },
+        ],
+      }),
+    ).toBe(true);
   });
 
   it("pin switch reset clears auction fields", () => {

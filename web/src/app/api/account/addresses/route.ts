@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
 import { validateAddressCreateInput, type AddressInput } from "@/lib/address-book";
+import { verifyAddressCreateData } from "@/lib/apply-address-verification";
 
 export async function GET(req: Request) {
   const auth = await resolveAccountUserId(req);
@@ -24,7 +25,11 @@ export async function POST(req: Request) {
   }
   const parsed = validateAddressCreateInput(body);
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
-  const data = parsed.data;
+  const verified = await verifyAddressCreateData(parsed.data);
+  if (!verified.ok) {
+    return NextResponse.json(verified.body, { status: verified.status });
+  }
+  const data = verified.data;
   const address = await prisma.$transaction(async (tx) => {
     if (data.isDefault) {
       await tx.address.updateMany({
@@ -39,5 +44,12 @@ export async function POST(req: Request) {
       },
     });
   });
-  return NextResponse.json({ address }, { status: 201 });
+  return NextResponse.json(
+    {
+      address,
+      verified: data.isVerified,
+      corrected: verified.corrected,
+    },
+    { status: 201 },
+  );
 }

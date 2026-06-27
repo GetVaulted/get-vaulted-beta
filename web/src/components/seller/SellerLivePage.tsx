@@ -174,10 +174,9 @@ export function SellerLivePage() {
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [vaultCategory, setVaultCategory] = useState<"Cards" | "Helmets">("Cards");
   const [roomType, setRoomType] = useState<RoomTypeChoice>("break");
-  const [createTeamBoardLeague, setCreateTeamBoardLeague] = useState<"nfl" | "nba" | "mlb">("nfl");
   const [thumb, setThumb] = useState("");
-  const [breakSpotsCount, setBreakSpotsCount] = useState("32");
   const [breakPricingMode, setBreakPricingMode] = useState<BreakPricingMode>("auction");
   const [breakSpotPrice, setBreakSpotPrice] = useState("");
   const [teamBoardEnabled, setTeamBoardEnabled] = useState(true);
@@ -541,7 +540,6 @@ export function SellerLivePage() {
         scheduledStartAtIso = at.toISOString();
       }
 
-      const spotsNum = Math.floor(Number(breakSpotsCount));
       const body: Record<string, unknown> = {
         title: title.trim(),
         description: description.trim(),
@@ -550,11 +548,9 @@ export function SellerLivePage() {
         ...(scheduledStartAtIso ? { scheduledStartAt: scheduledStartAtIso } : {}),
       };
       if (roomType === "break") {
-        body.teamBoardLeague = createTeamBoardLeague;
+        body.category = vaultCategory;
+        body.teamBoardLeague = "nfl";
         body.teamSelectionBoardEnabled = teamBoardEnabled;
-        if (Number.isFinite(spotsNum) && spotsNum >= 1 && spotsNum <= 512) {
-          body.breakTotalSpots = spotsNum;
-        }
         body.breakPricingMode = breakPricingMode;
         if (breakPricingMode === "auction") {
           body.breakSpotPriceUsd = null;
@@ -651,7 +647,6 @@ export function SellerLivePage() {
       setDescription("");
       setThumb("");
       setThumbFileName("");
-      setBreakSpotsCount("32");
       setBreakSpotPrice("");
       setTeamBoardEnabled(true);
       setScheduleMode("now");
@@ -1349,37 +1344,30 @@ export function SellerLivePage() {
                   <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-zinc-500">Break setup</h2>
                 </div>
                 <div className="mt-4 grid gap-6 sm:grid-cols-2">
-                  <label className="block sm:col-span-2">
-                    <span className="text-xs font-bold uppercase tracking-wide text-zinc-500">League</span>
+                  <div className="block sm:col-span-2">
+                    <span className="text-xs font-bold uppercase tracking-wide text-zinc-500">Break category</span>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      {(["nfl", "nba", "mlb"] as const).map((lg) => (
-                        <button
-                          key={lg}
-                          type="button"
-                          onClick={() => setCreateTeamBoardLeague(lg)}
-                          className={`rounded-xl border px-4 py-2.5 text-sm font-bold uppercase tracking-wide transition ${
-                            createTeamBoardLeague === lg
-                              ? "border-gold/50 bg-gold/15 text-gold-bright shadow-[0_0_24px_-8px_rgba(250,204,21,0.4)]"
-                              : "border-white/10 bg-black/40 text-zinc-400 hover:border-white/20 hover:text-zinc-200"
-                          }`}
-                        >
-                          {lg}
-                        </button>
-                      ))}
+                      {(["Cards", "Helmets"] as const).map((option) => {
+                        const active = vaultCategory === option;
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() => setVaultCategory(option)}
+                            className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                              active
+                                ? "border-gold/45 bg-gold/15 text-gold-bright"
+                                : "border-white/10 bg-black/40 text-zinc-300 hover:border-white/20"
+                            }`}
+                          >
+                            {option}
+                          </button>
+                        );
+                      })}
                     </div>
-                  </label>
-                  <label className="block">
-                    <span className="text-xs font-bold uppercase tracking-wide text-zinc-500">Number of spots</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={512}
-                      value={breakSpotsCount}
-                      onChange={(e) => setBreakSpotsCount(e.target.value)}
-                      className="mt-2 w-full rounded-xl border border-white/[0.1] bg-black/50 px-4 py-3 text-sm text-white outline-none focus:border-gold/40 focus:ring-2 focus:ring-gold/15"
-                    />
-                  </label>
-                  <div className="block">
+                    <p className="mt-2 text-xs text-zinc-500">Shows on live tiles as Break - Cards or Break - Helmets.</p>
+                  </div>
+                  <div className="block sm:col-span-2">
                     <span className="text-xs font-bold uppercase tracking-wide text-zinc-500">Pricing</span>
                     <div className="mt-2 flex rounded-xl border border-white/10 bg-black/40 p-1">
                       <button
@@ -1578,7 +1566,6 @@ export function SellerLivePage() {
                     </p>
                     <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-400 drop-shadow">
                       {roomType === "break" ? "Break" : roomType === "auction" ? "Auction" : "Sale"}
-                      {roomType === "break" ? ` · ${createTeamBoardLeague.toUpperCase()}` : ""}
                       {roomType === "break"
                         ? ` · ${breakPricingPreviewLabel(breakPricingMode)}`
                         : ""}
@@ -1599,7 +1586,6 @@ export function SellerLivePage() {
                   <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Preview</p>
                   <p className="mt-1 truncate text-xs text-zinc-400">
                     {roomType === "break" ? "Break" : roomType === "auction" ? "Auction" : "Sale"}
-                    {roomType === "break" ? ` · ${createTeamBoardLeague.toUpperCase()}` : ""}
                     {roomType === "break"
                       ? ` · ${breakPricingPreviewLabel(breakPricingMode)}`
                       : ""}

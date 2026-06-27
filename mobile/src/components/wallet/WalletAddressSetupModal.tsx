@@ -21,6 +21,7 @@ import { colors, spacing } from '../../theme';
 import { LiveRoomText } from '../live/LiveRoomText';
 import { useKeyboardInset } from './walletSheetKeyboard';
 import { walletAddressSetupStyles as s } from './walletAddressSetupStyles';
+import { AddressAutocompleteFields } from '../address/AddressAutocompleteFields';
 
 type Props = {
   visible: boolean;
@@ -142,17 +143,32 @@ export function WalletAddressSetupModal({
                 showsVerticalScrollIndicator={false}
               >
                 <LiveRoomText style={s.subtitle}>
-                  Shipping addresses are used for live auction wins and vault deliveries.
+                  Shipping addresses are used for live auction wins and vault deliveries. We verify addresses with the
+                  carrier before saving so labels do not fail later.
                 </LiveRoomText>
                 {error ? <LiveRoomText style={s.errorText}>{error}</LiveRoomText> : null}
                 <AddressInput label="Label" value={draft.name} onChange={(v) => setDraft((d) => ({ ...d, name: v }))} placeholder="Shipping" />
                 <AddressInput label="Full name" value={draft.fullName} onChange={(v) => setDraft((d) => ({ ...d, fullName: v }))} placeholder="Jane Collector" />
-                <AddressInput label="Address line 1" value={draft.line1} onChange={(v) => setDraft((d) => ({ ...d, line1: v }))} placeholder="123 Main St" />
-                <AddressInput label="Address line 2 (optional)" value={draft.line2 ?? ''} onChange={(v) => setDraft((d) => ({ ...d, line2: v }))} placeholder="Apt 4" />
-                <AddressInput label="City" value={draft.city} onChange={(v) => setDraft((d) => ({ ...d, city: v }))} placeholder="City" />
-                <AddressInput label="State / region" value={draft.state} onChange={(v) => setDraft((d) => ({ ...d, state: v }))} placeholder="CA" />
-                <AddressInput label="Postal code" value={draft.postalCode} onChange={(v) => setDraft((d) => ({ ...d, postalCode: v }))} placeholder="90210" keyboardType="number-pad" />
-                <AddressInput label="Country (ISO)" value={draft.country} onChange={(v) => setDraft((d) => ({ ...d, country: v.toUpperCase().slice(0, 2) }))} placeholder="US" autoCapitalize="characters" />
+                <AddressAutocompleteFields
+                  accessToken={accessToken}
+                  values={{
+                    line1: draft.line1,
+                    line2: draft.line2 ?? '',
+                    city: draft.city,
+                    state: draft.state,
+                    postalCode: draft.postalCode,
+                    country: draft.country,
+                  }}
+                  onChange={(field, value) =>
+                    setDraft((d) => ({
+                      ...d,
+                      [field]:
+                        field === 'country' ? value.toUpperCase().slice(0, 2) : field === 'line2' ? value : value,
+                    }))
+                  }
+                  inputStyle={s.input}
+                  labelStyle={s.fieldLabel}
+                />
                 <View style={s.switchRow}>
                   <LiveRoomText style={s.switchLabel}>Set as default shipping address</LiveRoomText>
                   <Switch value={draft.isDefault !== false} onValueChange={(v) => setDraft((d) => ({ ...d, isDefault: v }))} trackColor={{ true: colors.gold }} />

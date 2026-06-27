@@ -56,7 +56,6 @@ export type RootStackParamList = {
   };
   CreateListingFlow: NavigatorScreenParams<CreateListingStackParamList> | undefined;
   Settings: undefined;
-  AccountHub: undefined;
   BuyerWallet: undefined;
   SellerSetupWizard: undefined;
   QaEnvironmentDiagnostics: undefined;
@@ -93,6 +92,7 @@ export type RootStackParamList = {
   BuyerOrders: { source?: 'marketplace' | 'live' } | undefined;
   BuyerOrderDetail: { orderId: string };
   BuyerLayaways: undefined;
+  Watchlist: undefined;
   SellerLayaways: { filter?: 'active' | 'ready' | 'overdue' } | undefined;
   SellerLayawayDetail: { layawayId: string };
   SellerOrderDetail: { orderId: string };

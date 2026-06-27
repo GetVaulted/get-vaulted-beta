@@ -2,11 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { CheckoutListingSnapshot } from "@/components/checkout/BuyNowCheckoutForm";
+import { AddressAutocompleteFields } from "@/components/address/AddressAutocompleteFields";
 import { LAYAWAY_TERMS_COPY } from "@/lib/layaway/constants";
 import { layawayDepositUsd, layawayRemainingBalanceUsd } from "@/lib/layaway/math";
 
 function formatMoney(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+}
+
+function combineAddressLine(line1: string, line2: string): string {
+  return [line1, line2].filter(Boolean).join(" ");
 }
 
 type PlanType = "thirty_day" | "sixty_day";
@@ -15,7 +20,8 @@ export function LayawayCheckoutForm({ listing }: { listing: CheckoutListingSnaps
   const [planType, setPlanType] = useState<PlanType>("thirty_day");
   const [termsAcknowledged, setTermsAcknowledged] = useState(false);
   const [name, setName] = useState("");
-  const [address, setAddress] = useState("");
+  const [line1, setLine1] = useState("");
+  const [line2, setLine2] = useState("");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
   const [zip, setZip] = useState("");
@@ -58,7 +64,8 @@ export function LayawayCheckoutForm({ listing }: { listing: CheckoutListingSnaps
       if (preferred) {
         setBuyerAddressId(preferred.id);
         setName(preferred.fullName ?? "");
-        setAddress([preferred.line1, preferred.line2].filter(Boolean).join(" "));
+        setLine1(preferred.line1 ?? "");
+        setLine2(preferred.line2 ?? "");
         setCity(preferred.city ?? "");
         setState(preferred.state ?? "");
         setZip(preferred.postalCode ?? "");
@@ -100,7 +107,7 @@ export function LayawayCheckoutForm({ listing }: { listing: CheckoutListingSnaps
           shipping: {
             buyerAddressId: buyerAddressId || undefined,
             shipRecipientName: name,
-            shipAddress: address,
+            shipAddress: combineAddressLine(line1, line2),
             shipCity: city,
             shipState: state,
             shipZip: zip,
@@ -217,7 +224,8 @@ export function LayawayCheckoutForm({ listing }: { listing: CheckoutListingSnaps
                   const selected = savedAddresses.find((a) => a.id === id);
                   if (!selected) return;
                   setName(selected.fullName ?? "");
-                  setAddress([selected.line1, selected.line2].filter(Boolean).join(" "));
+                  setLine1(selected.line1 ?? "");
+                  setLine2(selected.line2 ?? "");
                   setCity(selected.city ?? "");
                   setState(selected.state ?? "");
                   setZip(selected.postalCode ?? "");
@@ -239,26 +247,24 @@ export function LayawayCheckoutForm({ listing }: { listing: CheckoutListingSnaps
               <span className="mb-1 block text-xs font-medium text-zinc-400">Full name</span>
               <input required value={name} onChange={(e) => setName(e.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#0c0c10] px-3 text-sm outline-none focus:border-gold/40" />
             </label>
-            <label className="sm:col-span-2">
-              <span className="mb-1 block text-xs font-medium text-zinc-400">Street address</span>
-              <input required value={address} onChange={(e) => setAddress(e.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#0c0c10] px-3 text-sm outline-none focus:border-gold/40" />
-            </label>
-            <label>
-              <span className="mb-1 block text-xs font-medium text-zinc-400">City</span>
-              <input required value={city} onChange={(e) => setCity(e.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#0c0c10] px-3 text-sm outline-none focus:border-gold/40" />
-            </label>
-            <label>
-              <span className="mb-1 block text-xs font-medium text-zinc-400">State</span>
-              <input required value={state} onChange={(e) => setState(e.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#0c0c10] px-3 text-sm outline-none focus:border-gold/40" />
-            </label>
-            <label>
-              <span className="mb-1 block text-xs font-medium text-zinc-400">ZIP</span>
-              <input required value={zip} onChange={(e) => setZip(e.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#0c0c10] px-3 text-sm outline-none focus:border-gold/40" />
-            </label>
-            <label>
-              <span className="mb-1 block text-xs font-medium text-zinc-400">Country</span>
-              <input required value={country} onChange={(e) => setCountry(e.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#0c0c10] px-3 text-sm outline-none focus:border-gold/40" />
-            </label>
+            <AddressAutocompleteFields
+              values={{ line1, line2, city, state, postalCode: zip, country }}
+              onChange={(field, value) => {
+                if (field === "line1") setLine1(value);
+                if (field === "line2") setLine2(value);
+                if (field === "city") setCity(value);
+                if (field === "state") setState(value);
+                if (field === "postalCode") setZip(value);
+                if (field === "country") setCountry(value);
+              }}
+              line1Label="Street address"
+              className="contents sm:contents"
+              labelClassName="mb-1 block text-xs font-medium text-zinc-400 sm:col-span-2"
+              inputClassName="mt-1 h-11 w-full rounded-xl border border-white/10 bg-[#0c0c10] px-3 text-sm outline-none focus:border-gold/40"
+            />
+            <p className="sm:col-span-2 text-[11px] leading-snug text-zinc-500">
+              Start typing your street address for suggestions. Pick a match so city, state, and ZIP fill in automatically.
+            </p>
           </div>
         </div>
 

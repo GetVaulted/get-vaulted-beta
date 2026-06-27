@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { fetchSellerAccount, patchSellerShipFrom } from '../../../api/sellerAccountRepository';
+import { AddressAutocompleteFields } from '../../address/AddressAutocompleteFields';
 import {
   formatSellerShipFromSummary,
   hasCompleteSellerShipFrom,
@@ -144,47 +145,36 @@ export function SellerShipFromSetupCard({
         placeholderTextColor={colors.textMuted}
         style={styles.input}
       />
-      <TextInput
-        value={street}
-        onChangeText={setStreet}
-        placeholder="Street address"
-        placeholderTextColor={colors.textMuted}
-        style={styles.input}
+      <AddressAutocompleteFields
+        accessToken={accessToken}
+        values={{
+          line1: street,
+          line2: '',
+          city,
+          state,
+          postalCode: zip,
+          country,
+        }}
+        onChange={(field, value) => {
+          if (field === 'line1') setStreet(value);
+          if (field === 'city') setCity(value);
+          if (field === 'state') setState(value);
+          if (field === 'postalCode') setZip(value);
+        }}
+        onResolved={(resolved) => {
+          setStreet(resolved.line2 ? `${resolved.line1} ${resolved.line2}`.trim() : resolved.line1);
+          setCity(resolved.city);
+          setState(resolved.state);
+          setZip(resolved.postalCode);
+          setCountry(resolved.country);
+        }}
+        line1Label="Street address"
+        showLine2={false}
+        showCountry
+        countryReadOnly
+        inputStyle={styles.input}
+        labelStyle={styles.formTitle}
       />
-      <View style={styles.row}>
-        <TextInput
-          value={city}
-          onChangeText={setCity}
-          placeholder="City"
-          placeholderTextColor={colors.textMuted}
-          style={[styles.input, styles.flex]}
-        />
-        <TextInput
-          value={state}
-          onChangeText={setState}
-          placeholder="State"
-          placeholderTextColor={colors.textMuted}
-          style={[styles.input, styles.state]}
-        />
-      </View>
-      <View style={styles.row}>
-        <TextInput
-          value={zip}
-          onChangeText={setZip}
-          placeholder="ZIP"
-          placeholderTextColor={colors.textMuted}
-          keyboardType="number-pad"
-          style={[styles.input, styles.flex]}
-        />
-        <TextInput
-          value={country}
-          onChangeText={setCountry}
-          placeholder="Country"
-          placeholderTextColor={colors.textMuted}
-          autoCapitalize="characters"
-          style={[styles.input, styles.state]}
-        />
-      </View>
       <View style={styles.formActions}>
         {addressComplete ? (
           <Pressable style={styles.cancelBtn} onPress={() => setEditing(false)} disabled={busy}>

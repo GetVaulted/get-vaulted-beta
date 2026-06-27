@@ -32,6 +32,7 @@ import {
 import type { BuyerWalletReadiness } from '../../lib/buyerWalletErrors';
 import { colors, spacing } from '../../theme';
 import { LiveRoomText } from '../live/LiveRoomText';
+import { AddressAutocompleteFields } from '../address/AddressAutocompleteFields';
 import { logWalletSheet, useKeyboardInset } from './walletSheetKeyboard';
 import { WalletPaymentSetupPanel } from './WalletPaymentSetupStep';
 import { vaultWalletTheme as t } from './vaultWalletTheme';
@@ -712,41 +713,50 @@ export function VaultWalletSheet({
       />
       <ScrollView contentContainerStyle={t.scrollContent} keyboardShouldPersistTaps="handled">
         <LiveRoomText style={t.hintText}>Used for live wins, PYT/PYD spots, and vault deliveries.</LiveRoomText>
-        {(
-          [
-            ['Label', 'name', 'Shipping'],
-            ['Full name', 'fullName', 'Jane Collector'],
-            ['Address line 1', 'line1', '123 Main St'],
-            ['Address line 2 (optional)', 'line2', 'Apt 4'],
-            ['City', 'city', 'City'],
-            ['State / region', 'state', 'CA'],
-            ['Postal code', 'postalCode', '90210'],
-            ['Country (ISO)', 'country', 'US'],
-          ] as const
-        ).map(([label, key, placeholder]) => (
-          <View key={key} style={{ gap: 4 }}>
-            <LiveRoomText style={t.fieldLabel}>{label}</LiveRoomText>
-            <TextInput
-              value={key === 'line2' ? addressFormDraft.line2 ?? '' : String(addressFormDraft[key] ?? '')}
-              onChangeText={(text) =>
-                setAddressFormDraft((prev) => ({
-                  ...prev,
-                  [key]:
-                    key === 'line2'
-                      ? text
-                      : key === 'country'
-                        ? text.toUpperCase().slice(0, 2)
-                        : text,
-                }))
-              }
-              placeholder={placeholder}
-              placeholderTextColor="rgba(255,255,255,0.35)"
-              style={t.formInput}
-              autoCapitalize={key === 'country' ? 'characters' : 'words'}
-              keyboardType={key === 'postalCode' ? 'number-pad' : 'default'}
-            />
-          </View>
-        ))}
+        <View style={{ gap: 4 }}>
+          <LiveRoomText style={t.fieldLabel}>Label</LiveRoomText>
+          <TextInput
+            value={addressFormDraft.name}
+            onChangeText={(text) => setAddressFormDraft((prev) => ({ ...prev, name: text }))}
+            placeholder="Shipping"
+            placeholderTextColor="rgba(255,255,255,0.35)"
+            style={t.formInput}
+          />
+        </View>
+        <View style={{ gap: 4 }}>
+          <LiveRoomText style={t.fieldLabel}>Full name</LiveRoomText>
+          <TextInput
+            value={addressFormDraft.fullName}
+            onChangeText={(text) => setAddressFormDraft((prev) => ({ ...prev, fullName: text }))}
+            placeholder="Jane Collector"
+            placeholderTextColor="rgba(255,255,255,0.35)"
+            style={t.formInput}
+          />
+        </View>
+        <AddressAutocompleteFields
+          accessToken={accessToken}
+          values={{
+            line1: addressFormDraft.line1,
+            line2: addressFormDraft.line2 ?? '',
+            city: addressFormDraft.city,
+            state: addressFormDraft.state,
+            postalCode: addressFormDraft.postalCode,
+            country: addressFormDraft.country,
+          }}
+          onChange={(field, value) =>
+            setAddressFormDraft((prev) => ({
+              ...prev,
+              [field]:
+                field === 'country'
+                  ? value.toUpperCase().slice(0, 2)
+                  : field === 'line2'
+                    ? value
+                    : value,
+            }))
+          }
+          inputStyle={t.formInput}
+          labelStyle={t.fieldLabel}
+        />
         <View style={t.switchRow}>
           <LiveRoomText style={t.switchLabel}>Default shipping address</LiveRoomText>
           <Switch

@@ -8,6 +8,7 @@ import {
   NFL_DIVISIONS_PRESET,
   summarizeVariantSpots,
   variantBuyerSelectLabel,
+  variantClaimPrimaryLabel,
 } from "@/lib/live-item-variant-presets";
 
 describe("live-item-variant-presets", () => {
@@ -72,5 +73,10 @@ describe("live-item-variant-presets", () => {
   it("variantBuyerSelectLabel uses division wording for team breaks", () => {
     expect(variantBuyerSelectLabel("team_break")).toBe("Pick Your Division");
     expect(variantBuyerSelectLabel("variant_selection")).toBe("Pick Your Team");
+  });
+
+  it("variantClaimPrimaryLabel uses claim wording for pinned breaks", () => {
+    expect(variantClaimPrimaryLabel("team_break")).toBe("Claim Division");
+    expect(variantClaimPrimaryLabel("variant_selection")).toBe("Claim Team");
   });
 });

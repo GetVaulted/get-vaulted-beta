@@ -1,6 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import {
+  buildShippingAddressPayload,
+  formatAddressApiError,
+  validateShippingAddress,
+  type AddressValidateResponse,
+} from "@/lib/address-api-client";
+import { AddressAutocompleteFields } from "@/components/address/AddressAutocompleteFields";
 
 type AddrRow = {
   id: string;
@@ -14,6 +21,7 @@ type AddrRow = {
   postalCode: string;
   country: string;
   isDefault?: boolean;
+  isVerified?: boolean;
 };
 
 export function AccountWalletShippingSection() {
@@ -31,6 +39,55 @@ export function AccountWalletShippingSection() {
   const [postalCode, setPostalCode] = useState("");
   const [country, setCountry] = useState("US");
   const [isDefault, setIsDefault] = useState(true);
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [verifyNote, setVerifyNote] = useState<string | null>(null);
+  const [verifiedReady, setVerifiedReady] = useState(false);
+
+  const formPayload = () =>
+    buildShippingAddressPayload({
+      name,
+      fullName,
+      line1,
+      line2,
+      city,
+      state,
+      postalCode,
+      country,
+      isDefault,
+    });
+
+  const applySuggested = (suggested: NonNullable<AddressValidateResponse["suggested"]>) => {
+    setFullName(suggested.fullName);
+    setLine1(suggested.line1);
+    setLine2(suggested.line2 ?? "");
+    setCity(suggested.city);
+    setState(suggested.state);
+    setPostalCode(suggested.postalCode);
+    setCountry(suggested.country);
+  };
+
+  const verify = async () => {
+    setVerifyBusy(true);
+    setErr(null);
+    setVerifyNote(null);
+    setVerifiedReady(false);
+    try {
+      const result = await validateShippingAddress(formPayload());
+      if (result.suggested) applySuggested(result.suggested);
+      if (result.corrected) {
+        setVerifyNote("We updated your address to the carrier-verified format.");
+      } else if (result.skipped) {
+        setVerifyNote(result.message ?? "Address format looks complete.");
+      } else {
+        setVerifyNote("Address verified — ready to save.");
+      }
+      setVerifiedReady(true);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Address could not be verified.");
+    } finally {
+      setVerifyBusy(false);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -64,26 +121,21 @@ export function AccountWalletShippingSection() {
       const res = await fetch("/api/account/addresses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "shipping",
-          name,
-          fullName,
-          line1,
-          line2: line2.trim() ? line2.trim() : null,
-          city,
-          state,
-          postalCode,
-          country: country.trim().toUpperCase().slice(0, 2) || "US",
-          isDefault,
-          isVerified: false,
-        }),
+        body: JSON.stringify(formPayload()),
       });
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        messages?: string[];
+        corrected?: boolean;
+      };
       if (!res.ok) {
-        setErr(typeof j.error === "string" ? j.error : "Could not save address.");
+        setErr(formatAddressApiError(j));
+        setVerifiedReady(false);
         return;
       }
       setFormOpen(false);
+      setVerifyNote(null);
+      setVerifiedReady(false);
       setFullName("");
       setLine1("");
       setLine2("");
@@ -124,6 +176,11 @@ export function AccountWalletShippingSection() {
                     Default
                   </span>
                 ) : null}
+                {a.isVerified ? (
+                  <span className="ml-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-200">
+                    Verified
+                  </span>
+                ) : null}
               </p>
             </li>
           ))}
@@ -154,7 +211,11 @@ export function AccountWalletShippingSection() {
               Cancel
             </button>
           </div>
-          {err ? <p className="mt-2 text-xs font-medium text-rose-300">{err}</p> : null}
+          {err ? <p className="mt-2 whitespace-pre-line text-xs font-medium text-rose-300">{err}</p> : null}
+          {verifyNote ? <p className="mt-2 text-xs font-medium text-emerald-200">{verifyNote}</p> : null}
+          <p className="mt-2 text-[11px] text-zinc-500">
+            Start typing your street address for suggestions, then verify before saving so labels do not fail at fulfillment.
+          </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="block text-[11px] font-semibold text-zinc-400">
               Label
@@ -172,68 +233,43 @@ export function AccountWalletShippingSection() {
                 className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100"
               />
             </label>
-            <label className="block text-[11px] font-semibold text-zinc-400 sm:col-span-2">
-              Address line 1
-              <input
-                value={line1}
-                onChange={(e) => setLine1(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100"
-              />
-            </label>
-            <label className="block text-[11px] font-semibold text-zinc-400 sm:col-span-2">
-              Address line 2 (optional)
-              <input
-                value={line2}
-                onChange={(e) => setLine2(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100"
-              />
-            </label>
-            <label className="block text-[11px] font-semibold text-zinc-400">
-              City
-              <input
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100"
-              />
-            </label>
-            <label className="block text-[11px] font-semibold text-zinc-400">
-              State / region
-              <input
-                value={state}
-                onChange={(e) => setState(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100"
-              />
-            </label>
-            <label className="block text-[11px] font-semibold text-zinc-400">
-              Postal code
-              <input
-                value={postalCode}
-                onChange={(e) => setPostalCode(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100"
-              />
-            </label>
-            <label className="block text-[11px] font-semibold text-zinc-400">
-              Country (ISO)
-              <input
-                value={country}
-                onChange={(e) => setCountry(e.target.value)}
-                maxLength={2}
-                className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100"
-              />
-            </label>
+            <AddressAutocompleteFields
+              values={{ line1, line2, city, state, postalCode, country }}
+              onChange={(field, value) => {
+                if (field === "line1") setLine1(value);
+                if (field === "line2") setLine2(value);
+                if (field === "city") setCity(value);
+                if (field === "state") setState(value);
+                if (field === "postalCode") setPostalCode(value);
+                if (field === "country") setCountry(value);
+                setVerifiedReady(false);
+              }}
+              inputClassName="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100"
+              labelClassName="block text-[11px] font-semibold text-zinc-400"
+            />
             <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-300 sm:col-span-2">
               <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
               Set as default shipping address
             </label>
           </div>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void submit()}
-            className="mt-4 flex h-11 w-full max-w-sm items-center justify-center rounded-full bg-gradient-to-r from-gold to-gold-bright text-sm font-bold text-zinc-950 disabled:opacity-60"
-          >
-            {busy ? "Saving…" : "Save address"}
-          </button>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              type="button"
+              disabled={verifyBusy || busy}
+              onClick={() => void verify()}
+              className="inline-flex h-11 items-center justify-center rounded-full border border-white/15 px-5 text-sm font-bold text-zinc-100 transition hover:border-gold/35 hover:text-gold-bright disabled:opacity-60"
+            >
+              {verifyBusy ? "Verifying…" : "Verify address"}
+            </button>
+            <button
+              type="button"
+              disabled={busy || verifyBusy}
+              onClick={() => void submit()}
+              className="inline-flex h-11 min-w-[10rem] items-center justify-center rounded-full bg-gradient-to-r from-gold to-gold-bright px-6 text-sm font-bold text-zinc-950 disabled:opacity-60"
+            >
+              {busy ? "Saving…" : verifiedReady ? "Save verified address" : "Save address"}
+            </button>
+          </div>
         </div>
       )}
     </section>

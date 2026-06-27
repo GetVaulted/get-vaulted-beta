@@ -57,6 +57,7 @@ export function formatLiveRoomCategoryLabel(
   categoryId: CategoryId,
 ): string {
   const trimmed = (raw ?? '').trim();
+  if (trimmed === 'Cards' || trimmed === 'Helmets') return trimmed;
   if (trimmed) {
     const key = normalizeKey(trimmed);
     if (LABEL_ALIASES[key]) return LABEL_ALIASES[key];

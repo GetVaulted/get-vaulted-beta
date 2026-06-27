@@ -25,6 +25,8 @@ const SEGMENTS: { key: BuyerOrderBucket; label: string }[] = [
   { key: 'canceled', label: 'Canceled' },
 ];
 
+const TAB_BAR_HEIGHT = 44;
+
 export function BuyerOrdersScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
@@ -49,147 +51,201 @@ export function BuyerOrdersScreen({ navigation, route }: Props) {
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
-      <PlatformFlowHeader
-        title="My orders"
-        subtitle={source === 'live' ? 'Live show purchases' : 'Vault purchases · tracking · protection'}
-        onBack={() => navigation.goBack()}
-      />
+      <View style={styles.headerWrap}>
+        <PlatformFlowHeader
+          title="My orders"
+          subtitle={source === 'live' ? 'Live show purchases' : 'Vault purchases · tracking · protection'}
+          onBack={() => navigation.goBack()}
+        />
+      </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sourceTabs}>
-        <Pressable
-          onPress={() => setSource('marketplace')}
-          style={[styles.sourceTab, source === 'marketplace' && styles.sourceTabActive]}
-        >
-          <Text style={[styles.sourceTabTxt, source === 'marketplace' && styles.sourceTabTxtActive]}>Marketplace</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => setSource('live')}
-          style={[styles.sourceTab, source === 'live' && styles.sourceTabActive]}
-        >
-          <Text style={[styles.sourceTabTxt, source === 'live' && styles.sourceTabTxtActive]}>Live shows</Text>
-        </Pressable>
-      </ScrollView>
+      <View style={styles.tabsWrap}>
+        <View style={styles.sourceTabRow}>
+          <Pressable
+            onPress={() => setSource('marketplace')}
+            style={[styles.sourceTab, source === 'marketplace' && styles.sourceTabActive]}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: source === 'marketplace' }}
+          >
+            <Text
+              style={[styles.sourceTabTxt, source === 'marketplace' && styles.sourceTabTxtActive]}
+              numberOfLines={1}
+            >
+              Marketplace
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setSource('live')}
+            style={[styles.sourceTab, source === 'live' && styles.sourceTabActive]}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: source === 'live' }}
+          >
+            <Text style={[styles.sourceTabTxt, source === 'live' && styles.sourceTabTxtActive]} numberOfLines={1}>
+              Live shows
+            </Text>
+          </Pressable>
+        </View>
 
-      {source === 'marketplace' ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.segments}>
-          {SEGMENTS.map((s) => {
-            const active = segment === s.key;
-            const count = byBucket(s.key).length;
-            return (
-              <Pressable
-                key={s.key}
-                onPress={() => setSegment(s.key)}
-                style={[styles.segment, active && styles.segmentActive]}
-              >
-                <Text style={[styles.segmentLabel, active && styles.segmentLabelActive]}>{s.label}</Text>
-                {count > 0 ? (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{count}</Text>
-                  </View>
-                ) : null}
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      ) : null}
+        {source === 'marketplace' ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.segmentScroll}
+            contentContainerStyle={styles.segmentRow}
+            keyboardShouldPersistTaps="handled"
+          >
+            {SEGMENTS.map((s) => {
+              const active = segment === s.key;
+              const count = byBucket(s.key).length;
+              return (
+                <Pressable
+                  key={s.key}
+                  onPress={() => setSegment(s.key)}
+                  style={[styles.segment, active && styles.segmentActive]}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                >
+                  <Text style={[styles.segmentLabel, active && styles.segmentLabelActive]} numberOfLines={1}>
+                    {s.label}
+                  </Text>
+                  {count > 0 ? (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{count}</Text>
+                    </View>
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        ) : null}
+      </View>
 
-      {source === 'live' ? (
-        liveLoading ? (
+      <View style={styles.contentArea}>
+        {source === 'live' ? (
+          liveLoading ? (
+            <ActivityIndicator color={colors.gold} style={styles.loader} />
+          ) : liveOrders.length === 0 ? (
+            <View style={styles.empty}>
+              <Text style={styles.emptyTitle}>No live purchases yet</Text>
+              <Text style={styles.emptySub}>
+                PYT/PYD spots, break claims, and live buy-now orders from shows appear here.
+              </Text>
+            </View>
+          ) : (
+            <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+              {liveOrders.map((order) => (
+                <BuyerLiveOrderCard
+                  key={order.id}
+                  order={order}
+                  onPress={() => {
+                    if (order.orderId) {
+                      navigation.navigate('BuyerOrderDetail', { orderId: order.orderId });
+                      return;
+                    }
+                    if (order.kind === 'giveaway') {
+                      navigation.navigate('BuyerWallet');
+                      return;
+                    }
+                    navigation.navigate('MainTabs', {
+                      screen: 'Live',
+                      params: { screen: 'LiveRoom', params: { streamId: order.liveRoomId } },
+                    });
+                  }}
+                />
+              ))}
+            </ScrollView>
+          )
+        ) : loading ? (
           <ActivityIndicator color={colors.gold} style={styles.loader} />
-        ) : liveOrders.length === 0 ? (
+        ) : rows.length === 0 ? (
           <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>No live purchases yet</Text>
+            <Text style={styles.emptyTitle}>No {segment} orders</Text>
             <Text style={styles.emptySub}>
-              PYT/PYD spots, break claims, and live buy-now orders from shows appear here.
+              {segment === 'active'
+                ? 'When you buy from the vault, live tracking and protection status appear here.'
+                : 'Completed vault transactions show here with review and dispute shortcuts.'}
             </Text>
           </View>
         ) : (
           <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-            {liveOrders.map((order) => (
-              <BuyerLiveOrderCard
+            {rows.map((order) => (
+              <BuyerOrderCard
                 key={order.id}
                 order={order}
-                onPress={() => {
-                  if (order.orderId) {
-                    navigation.navigate('BuyerOrderDetail', { orderId: order.orderId });
-                    return;
-                  }
-                  if (order.kind === 'giveaway') {
-                    navigation.navigate('BuyerWallet');
-                    return;
-                  }
-                  navigation.navigate('MainTabs', {
-                    screen: 'Live',
-                    params: { screen: 'LiveRoom', params: { streamId: order.liveRoomId } },
-                  });
-                }}
+                reviewed={Boolean(reviewedMap[order.id])}
+                showReviewCta={isOrderCompleteForReview(order.status)}
+                onPress={() => navigation.navigate('BuyerOrderDetail', { orderId: order.id })}
+                onLeaveReview={() =>
+                  openWriteReview(
+                    {
+                      reviewType: 'buyer_to_seller',
+                      referenceId: order.id,
+                      subjectUserId: order.sellerId,
+                      subjectDisplayName: order.sellerUsername ?? undefined,
+                    },
+                    navigation,
+                  )
+                }
               />
             ))}
+            <Text style={styles.tradeNote}>Trade orders will appear in a dedicated lane soon.</Text>
           </ScrollView>
-        )
-      ) : loading ? (
-        <ActivityIndicator color={colors.gold} style={styles.loader} />
-      ) : rows.length === 0 ? (
-        <View style={styles.empty}>
-          <Text style={styles.emptyTitle}>No {segment} orders</Text>
-          <Text style={styles.emptySub}>
-            {segment === 'active'
-              ? 'When you buy from the vault, live tracking and protection status appear here.'
-              : 'Completed vault transactions show here with review and dispute shortcuts.'}
-          </Text>
-        </View>
-      ) : (
-        <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-          {rows.map((order) => (
-            <BuyerOrderCard
-              key={order.id}
-              order={order}
-              reviewed={Boolean(reviewedMap[order.id])}
-              showReviewCta={isOrderCompleteForReview(order.status)}
-              onPress={() => navigation.navigate('BuyerOrderDetail', { orderId: order.id })}
-              onLeaveReview={() =>
-                openWriteReview(
-                  {
-                    reviewType: 'buyer_to_seller',
-                    referenceId: order.id,
-                    subjectUserId: order.sellerId,
-                    subjectDisplayName: order.sellerUsername ?? undefined,
-                  },
-                  navigation,
-                )
-              }
-            />
-          ))}
-          <Text style={styles.tradeNote}>Trade orders will appear in a dedicated lane soon.</Text>
-        </ScrollView>
-      )}
+        )}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, paddingHorizontal: spacing.lg },
-  sourceTabs: { gap: spacing.sm, paddingBottom: spacing.sm },
+  screen: { flex: 1, backgroundColor: colors.background },
+  headerWrap: { flexShrink: 0, paddingHorizontal: spacing.lg },
+  tabsWrap: {
+    flexShrink: 0,
+    paddingHorizontal: spacing.lg,
+    gap: spacing.sm,
+    paddingBottom: spacing.sm,
+  },
+  sourceTabRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
   sourceTab: {
-    paddingHorizontal: 14,
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.md,
     paddingVertical: 8,
+    minHeight: 36,
+    justifyContent: 'center',
     borderRadius: radii.pill,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
   sourceTabActive: { borderColor: colors.gold, backgroundColor: 'rgba(212,175,55,0.1)' },
   sourceTabTxt: { fontSize: 12, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase' },
   sourceTabTxtActive: { color: colors.gold },
-  segments: { gap: spacing.sm, paddingBottom: spacing.md },
+  segmentScroll: {
+    flexGrow: 0,
+    height: TAB_BAR_HEIGHT,
+  },
+  segmentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: TAB_BAR_HEIGHT,
+    paddingRight: spacing.sm,
+  },
   segment: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'center',
     gap: 6,
-    paddingHorizontal: 14,
+    paddingHorizontal: spacing.md,
     paddingVertical: 8,
+    minHeight: 36,
     borderRadius: radii.pill,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
@@ -206,6 +262,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   badgeText: { fontSize: 10, fontWeight: '900', color: '#0a0a0a' },
+  contentArea: {
+    flex: 1,
+    minHeight: 0,
+    paddingHorizontal: spacing.lg,
+  },
   loader: { marginTop: spacing.xl },
   list: { gap: spacing.md, paddingBottom: spacing.xxxl },
   empty: {

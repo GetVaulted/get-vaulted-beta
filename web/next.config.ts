@@ -61,10 +61,13 @@ function devAllowedOrigins(): string[] {
   return [...new Set(base)];
 }
 
+const repoRoot = path.resolve(__dirname, "..");
+
 const nextConfig: NextConfig = {
   allowedDevOrigins: devAllowedOrigins(),
   turbopack: {
-    root: path.resolve(process.cwd()),
+    // Help Center + other packages import from ../shared at repo root.
+    root: repoRoot,
   },
   webpack: (config, { dev }) => {
     // OneDrive/Windows can lock webpack cache artifacts, causing random 500s in dev.

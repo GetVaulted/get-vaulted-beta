@@ -18,7 +18,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  streamCategories,
   type SellerHubTabId,
   vaultWins,
   walletSnapshot,
@@ -143,7 +142,7 @@ export function SellerHubScreen() {
   }, [user?.id, cmdData.reloadAnalytics]);
   const [tab, setTab] = useState<SellerHubTabId>('overview');
   const [scheduleTitle, setScheduleTitle] = useState('');
-  const [scheduleCategory, setScheduleCategory] = useState('Other');
+  const [scheduleCategory, setScheduleCategory] = useState('Cards');
   const [streamFormat, setStreamFormat] = useState<'auction' | 'break' | 'hybrid'>('hybrid');
   const [preloadInventory, setPreloadInventory] = useState(true);
   const [giveaways, setGiveaways] = useState(true);

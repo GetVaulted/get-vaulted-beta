@@ -68,11 +68,48 @@ async function shippoFetch<T>(path: string, init?: RequestInit): Promise<T> {
 export type ShippoAddress = {
   name: string;
   street1: string;
+  street2?: string;
   city: string;
   state: string;
   zip: string;
   country: string;
 };
+
+export type ShippoValidatedAddressResponse = ShippoAddress & {
+  object_state?: string;
+  validation_results?: {
+    is_valid?: boolean;
+    messages?: Array<{ text?: string; code?: string; type?: string; source?: string }>;
+  };
+};
+
+export async function shippoValidateAddress(body: ShippoAddress): Promise<ShippoValidatedAddressResponse> {
+  return shippoFetch("/addresses/", {
+    method: "POST",
+    body: JSON.stringify({ ...body, validate: true }),
+  });
+}
+
+export async function shippoAutocompleteFind(args: {
+  address: string;
+  countryCode: string;
+  container?: string;
+  limit?: number;
+}): Promise<unknown> {
+  const params = new URLSearchParams({
+    address: args.address,
+    country_code: args.countryCode,
+    offset: "0",
+    limit: String(args.limit ?? 8),
+  });
+  if (args.container?.trim()) params.set("container", args.container.trim());
+  return shippoFetch(`/v2/addresses/autocomplete/find?${params.toString()}`);
+}
+
+export async function shippoAutocompleteRetrieve(id: string): Promise<unknown> {
+  const params = new URLSearchParams({ id: id.trim() });
+  return shippoFetch(`/v2/addresses/autocomplete/retrieve?${params.toString()}`);
+}
 
 export type ShippoParcel = {
   length: string;

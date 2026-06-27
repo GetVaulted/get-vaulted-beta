@@ -1,5 +1,9 @@
 import type { LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
-import { hostPinnedBuyerVariant, isActiveVariantBuyerItem, isRandomVariantAssignment } from './liveItemVariant';
+import {
+  availableVariantCount,
+  hostPinnedBuyerVariant,
+  isActiveVariantBuyerItem,
+} from './liveItemVariant';
 
 export type ActiveSpotCommerceMode = 'fixed' | 'auction';
 
@@ -16,8 +20,7 @@ export function isVariantSpotFixedCheckoutLive(
 ): boolean {
   if (!snap || !isActiveVariantBuyerItem(snap)) return false;
   if (isVariantSpotAuctionLive(snap)) return false;
-  if (isRandomVariantAssignment(snap.activeItemVariantAssignmentMode)) return false;
-  return Boolean(hostPinnedBuyerVariant(snap.activeItemVariants, snap.activeItemVariantAssignmentMode));
+  return availableVariantCount(snap.activeItemVariants) > 0;
 }
 
 export function pinnedVariantAuctionPrimaryLabel(

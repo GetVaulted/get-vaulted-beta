@@ -10,14 +10,37 @@ export type StreamCategoryOption = {
   categoryId: CategoryId;
 };
 
+/** Vault event wizard — persisted on the room as `category`. */
+export const VAULT_EVENT_CATEGORY_OPTIONS = ['Cards', 'Helmets'] as const;
+export type VaultEventCategory = (typeof VAULT_EVENT_CATEGORY_OPTIONS)[number];
+
 /** Labels match web discovery filters (`web/src/content/live-rooms.ts`) and API category strings. */
-export const STREAM_CATEGORY_OPTIONS: StreamCategoryOption[] = [
-  { label: 'Trading Cards', categoryId: 'cards' },
-  { label: 'Memorabilia', categoryId: 'memorabilia' },
-  { label: 'Watches', categoryId: 'watches' },
-  { label: 'Sneakers', categoryId: 'sneakers' },
-  { label: 'Other', categoryId: 'other' },
-];
+export const STREAM_CATEGORY_OPTIONS: StreamCategoryOption[] = VAULT_EVENT_CATEGORY_OPTIONS.map((label) => ({
+  label,
+  categoryId: label === 'Cards' ? 'cards' : 'memorabilia',
+}));
+
+export function isVaultEventCategory(raw: string | null | undefined): raw is VaultEventCategory {
+  const trimmed = (raw ?? '').trim();
+  return trimmed === 'Cards' || trimmed === 'Helmets';
+}
+
+function isBreakFormatStream(stream: LiveStream): boolean {
+  return (
+    stream.liveRoomFormat === 'break' ||
+    stream.hybridFocus === 'break' ||
+    stream.liveCommerceMode === 'break'
+  );
+}
+
+/** Live Shows tile line for break rooms — e.g. "Break - Cards". */
+export function formatBreakRoomTileCategoryLine(
+  rawCategory: string | null | undefined,
+  isBreakRoom: boolean,
+): string | null {
+  if (!isBreakRoom || !isVaultEventCategory(rawCategory)) return null;
+  return `Break - ${rawCategory.trim()}`;
+}
 
 const GENERIC_ENGAGEMENT = new Set(['live now', 'live', 'on air', 'breaking now']);
 
@@ -26,6 +49,10 @@ function normalizeKey(raw: string): string {
 }
 
 export function liveRoomCategoryLine(stream: LiveStream): string {
+  const rawCategory = stream.categoryTags[0] ?? null;
+  const breakLine = formatBreakRoomTileCategoryLine(rawCategory, isBreakFormatStream(stream));
+  if (breakLine) return breakLine;
+
   const fromTags = stream.categoryTags
     .map((t) => formatLiveRoomCategoryLabel(t, stream.category))
     .filter((t, i, arr) => t && arr.indexOf(t) === i);
@@ -116,6 +143,7 @@ export function liveRoomCategoryTagsForRow(
   rawCategory: string | null | undefined,
   categoryId: CategoryId,
 ): string[] {
+  if (isVaultEventCategory(rawCategory)) return [rawCategory.trim()];
   const label = formatLiveRoomCategoryLabel(rawCategory, categoryId);
   return label ? [label] : [];
 }

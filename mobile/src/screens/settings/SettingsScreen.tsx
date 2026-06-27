@@ -1,13 +1,16 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthContext';
 import { SettingsSectionHeader } from '../../components/settings/SettingsSectionHeader';
 import { SettingsRow } from '../../components/platform/SettingsRow';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
+import { useBuyerWalletReadiness } from '../../hooks/useBuyerWalletReadiness';
 import { useNotificationBadge } from '../../hooks/useNotificationBadge';
 import { useSellerSetupState } from '../../hooks/useSellerSetupState';
+import { buyerWalletStatusLabel } from '../../lib/buyerWalletReadinessDisplay';
 import { areDevToolsEnabled } from '../../lib/devTools';
 import { openLegalUrl } from '../../lib/openLegalUrl';
 import { performSignOut, signOutSessionOptions } from '../../lib/signOutSession';
@@ -20,6 +23,7 @@ import {
   openFollowersFollowing,
   openUserProfile,
 } from '../../navigation/openPlatform';
+import { openSellerHQ } from '../../navigation/openSellerHQ';
 import { openSellerSetup } from '../../navigation/openSellerSetup';
 import {
   alertPushRegistrationResult,
@@ -39,8 +43,17 @@ export function SettingsScreen({ navigation }: Props) {
   const activated = setup.activated;
   const setupPhase = setup.phase === 'loading' ? 'not_started' : setup.phase;
   const setupLabel = sellerSetupMenuLabel(setupPhase);
+  const wallet = useBuyerWalletReadiness(session?.access_token, Boolean(session?.access_token));
   const signOutOpts = signOutSessionOptions(user, session);
   const [pushBusy, setPushBusy] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (session?.access_token) void wallet.refresh();
+    }, [session?.access_token, wallet.refresh]),
+  );
+
+  const walletSub = wallet.loading ? 'Checking wallet…' : buyerWalletStatusLabel(wallet);
 
   const enablePushNotifications = async () => {
     if (!user?.id || pushBusy) return;
@@ -79,26 +92,31 @@ export function SettingsScreen({ navigation }: Props) {
           }}
         />
         <SettingsRow
-          label="My Account"
-          sub="Purchases, wallet, messages, seller tools"
-          icon="grid-outline"
-          onPress={() => navigation.navigate('AccountHub')}
-        />
-        <SettingsRow
           label="Vault Wallet"
-          sub="Shipping + payment for live and checkout"
+          sub={walletSub}
           icon="wallet-outline"
           onPress={() => navigation.navigate('BuyerWallet')}
         />
 
         <SettingsSectionHeader title="Selling" />
         {activated ? (
-          <SettingsRow
-            label="Seller HQ"
-            sub="You are already in Seller HQ on mobile — use the tab bar for Inventory, Events, and Fulfillment"
-            icon="briefcase-outline"
-            onPress={() => navigation.goBack()}
-          />
+          <>
+            <SettingsRow
+              label="Seller HQ"
+              sub="Return to Studio — seller tools live in the HQ tab bar"
+              icon="briefcase-outline"
+              onPress={() => {
+                navigation.goBack();
+                openSellerHQ();
+              }}
+            />
+            <SettingsRow
+              label="Sales layaways"
+              sub="Reserved items — ship when paid in full"
+              icon="time-outline"
+              onPress={() => navigation.navigate('SellerLayaways')}
+            />
+          </>
         ) : (
           <SettingsRow
             label={setupLabel}
@@ -135,10 +153,16 @@ export function SettingsScreen({ navigation }: Props) {
           onPress={() => openMyOrders(navigation)}
         />
         <SettingsRow
+          label="Layaways"
+          sub="Reserve items with a deposit"
+          icon="calendar-outline"
+          onPress={() => navigation.navigate('BuyerLayaways')}
+        />
+        <SettingsRow
           label="Watchlist"
           sub="Saved listings and auctions"
           icon="heart-outline"
-          onPress={() => navigation.navigate('MainTabs', { screen: 'Marketplace' })}
+          onPress={() => navigation.navigate('Watchlist')}
         />
         <SettingsRow
           label="Followers & Following"

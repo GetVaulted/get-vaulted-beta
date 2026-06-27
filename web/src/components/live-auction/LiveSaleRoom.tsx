@@ -59,9 +59,8 @@ import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { shareLiveRoomNative } from "@/lib/share-live-room-native";
 import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
 import type { VariantPurchasedMergePayload } from "@/lib/live-room-variant-merge";
-import { isVariantSalesFormat, summarizeVariantSpots, variantBuyerSelectLabel, hostPinnedBuyerVariant, pinnedVariantBuyerPrimaryLabel, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
-import { createLiveVariantPurchaseIdempotencyKey, purchaseLiveItemVariant, syncLiveItemVariantPurchase } from "@/lib/live-variant-purchase-client";
-import { loadStripe } from "@stripe/stripe-js";
+import { isVariantSalesFormat, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
+import { isVariantSpotAuctionLive, pinnedVariantAuctionPrimaryLabel } from "@/lib/live-variant-spot-commerce";
 import { purchaseLiveBuyNowWithSca } from "@/lib/live-buy-now-client";
 
 type SaleItem = {
@@ -546,11 +545,18 @@ export function LiveSaleRoom({
     if (isRandomVariantAssignment(activeDb.variantAssignmentMode)) return null;
     return hostPinnedBuyerVariant(activeDb.variants, activeDb.variantAssignmentMode);
   }, [activeDb]);
-  const variantSelectLabel = buyerPinnedVariant
-    ? pinnedVariantBuyerPrimaryLabel(activeDb?.salesFormat, buyerPinnedVariant.priceUsd)
-    : activeDb && !isRandomVariantAssignment(activeDb.variantAssignmentMode)
-      ? "Waiting for team"
-      : variantBuyerSelectLabel(activeDb?.salesFormat, activeDb?.variantAssignmentMode === "random");
+  const variantSelectLabel = activeDb
+    ? isVariantSpotAuctionLive(activeDb)
+      ? pinnedVariantAuctionPrimaryLabel(
+          activeDb.salesFormat,
+          liveAuctionMinBidUsd(activeDb) ?? activeDb.currentBidUsd ?? activeDb.startingBidUsd ?? buyerPinnedVariant?.priceUsd ?? 1,
+        )
+      : isRandomVariantAssignment(activeDb.variantAssignmentMode)
+        ? variantBuyerSelectLabel(activeDb.salesFormat, true)
+        : (activeVariantSpots?.available ?? 0) > 0
+          ? variantClaimPrimaryLabel(activeDb.salesFormat)
+          : "Sold out"
+    : "Select spot";
   const actionsDisabled =
     !isLive ||
     staffCommerceBlocked ||
@@ -573,86 +579,7 @@ export function LiveSaleRoom({
     sessionBlocksBuyer ||
     activeDb?.status !== "active" ||
     (activeVariantSpots?.available ?? 0) <= 0 ||
-    Boolean(
-      activeDb &&
-        !isRandomVariantAssignment(activeDb.variantAssignmentMode) &&
-        !buyerPinnedVariant,
-    );
-
-  const handleBuyerVariantCommerce = useCallback(async () => {
-    if (!activeDb || !pytCommerceLive) return;
-    if (isRandomVariantAssignment(activeDb.variantAssignmentMode)) {
-      setVariantSheetOpen(true);
-      return;
-    }
-    const pinned = hostPinnedBuyerVariant(activeDb.variants, activeDb.variantAssignmentMode);
-    if (!pinned) {
-      setActionError("Host is picking the next team — check back in a moment.");
-      return;
-    }
-    if (!buyerLiveWalletReady) {
-      onOpenWallet();
-      return;
-    }
-    setBusy(true);
-    setActionError(null);
-    try {
-      const res = await purchaseLiveItemVariant({
-        liveRoomId,
-        itemId: activeDb.id,
-        variantId: pinned.id,
-        quantity: 1,
-        idempotencyKey: createLiveVariantPurchaseIdempotencyKey(pinned.id),
-      });
-      if (!res.ok) {
-        if (res.status === 401 && res.signInUrl) {
-          window.location.href = res.signInUrl;
-          return;
-        }
-        if (res.walletIncomplete) {
-          onOpenWallet();
-          return;
-        }
-        setActionError(res.error);
-        return;
-      }
-      if (res.ok && "paid" in res && res.paid) {
-        toast(`Claimed ${pinned.label}`);
-        await onRefetch?.();
-        return;
-      }
-      if (res.ok && "requiresAction" in res && res.requiresAction) {
-        const pk =
-          res.publishableKey?.trim() ||
-          process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() ||
-          "";
-        const stripe = pk ? await loadStripe(pk) : null;
-        if (!stripe) {
-          setActionError("Complete payment verification in your Wallet, then try again.");
-          return;
-        }
-        const conf = await stripe.confirmCardPayment(res.clientSecret);
-        if (conf.error) {
-          setActionError(conf.error.message ?? "Payment authentication failed.");
-          return;
-        }
-        const synced = await syncLiveItemVariantPurchase({
-          liveRoomId,
-          itemId: activeDb.id,
-          variantId: pinned.id,
-          purchaseId: res.purchaseId,
-        });
-        if (synced.ok && "paid" in synced && synced.paid) {
-          toast(`Claimed ${pinned.label}`);
-          await onRefetch?.();
-        } else {
-          setActionError("Payment is still processing — refresh the room.");
-        }
-      }
-    } finally {
-      setBusy(false);
-    }
-  }, [activeDb, buyerLiveWalletReady, liveRoomId, onOpenWallet, onRefetch, pytCommerceLive, toast]);
+    Boolean(activeDb && isVariantSpotAuctionLive(activeDb) && activeLotBidPhase !== "bidding_open");
 
   const handleHostPinLiveVariant = useCallback(
     async (variantId: string) => {
@@ -728,7 +655,11 @@ export function LiveSaleRoom({
 
   const handlePlaceBid = async () => {
     setActionError(null);
-    if (roomType !== "auction" || !activeDb) {
+    if (!activeDb) {
+      setActionError("Nothing is live to bid on yet.");
+      return;
+    }
+    if (roomType !== "auction" && !isVariantSpotAuctionLive(activeDb)) {
       setActionError("Nothing is live to bid on yet.");
       return;
     }
@@ -795,6 +726,15 @@ export function LiveSaleRoom({
       setBidFlight(false);
     }
   };
+
+  const handleBuyerVariantCommerce = useCallback(async () => {
+    if (!activeDb || !pytCommerceLive) return;
+    if (isVariantSpotAuctionLive(activeDb)) {
+      await handlePlaceBid();
+      return;
+    }
+    setVariantSheetOpen(true);
+  }, [activeDb, handlePlaceBid, pytCommerceLive]);
 
   const handleHostMarkSold = useCallback(async () => {
     if (!activeDb || activeLotBidPhase !== "timer_ended_unsettled") return;
@@ -1584,7 +1524,7 @@ export function LiveSaleRoom({
           emptyHint="Items added by the host will appear here."
         />
       </BuyerLiveQueueSheet>
-      {activeDb && activeHasVariants && isRandomVariantAssignment(activeDb.variantAssignmentMode) ? (
+      {activeDb && activeHasVariants ? (
         <LiveVariantSelectionSheet
           open={variantSheetOpen}
           onClose={() => setVariantSheetOpen(false)}

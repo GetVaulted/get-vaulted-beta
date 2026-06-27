@@ -38,6 +38,7 @@ export function mustUseLiveBidFlow(
 
   if (hud?.bottomRightLabel && /select (spot|team)/i.test(hud.bottomRightLabel)) return false;
   if (hud?.bottomRightLabel && /\bbuy now\b/i.test(hud.bottomRightLabel)) return false;
+  if (hud?.bottomRightLabel && /\bclaim (team|division|spot)\b/i.test(hud.bottomRightLabel)) return false;
 
   if (roomSnap?.activeItemId) return true;
   if (roomSnap?.roomType === 'auction' || roomSnap?.roomType === 'sale') return true;

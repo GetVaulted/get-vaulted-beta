@@ -28,17 +28,15 @@ import {
   isQuarterHourSchedule,
   type BreakPricingMode,
   type CreateScheduleMode,
-  type TeamBoardLeague,
 } from '../../../lib/createLiveRoomPayload';
 import { CreateVaultEventReadinessChecklist } from './CreateVaultEventReadinessChecklist';
 import { LiveShowTipModeratorFields } from './LiveShowTipModeratorFields';
 import { notifyLiveDiscoveryChanged } from '../../../lib/notifyLiveDiscoveryChanged';
 import type { LiveSalesGate } from '../../../lib/sellerLiveReadiness';
-import { streamCategories } from '../../../data/sellerHubMock';
+import { VAULT_EVENT_CATEGORY_OPTIONS } from '../../../lib/liveRoomDisplay';
 import { colors, radii, spacing } from '../../../theme';
 
 const THUMBNAIL_MAX_BYTES = 20 * 1024 * 1024;
-const LEAGUES: TeamBoardLeague[] = ['nfl', 'nba', 'mlb'];
 
 function defaultScheduledDate(): Date {
   return alignScheduleToQuarterHour(new Date(Date.now() + 60 * 60 * 1000));
@@ -111,8 +109,6 @@ export function ScheduleVaultEventModal({
   const [thumbUrl, setThumbUrl] = useState('');
   const [thumbUploading, setThumbUploading] = useState(false);
   const [thumbError, setThumbError] = useState<string | null>(null);
-  const [teamBoardLeague, setTeamBoardLeague] = useState<TeamBoardLeague>('nfl');
-  const [breakSpotsCount, setBreakSpotsCount] = useState('32');
   const [breakPricingMode, setBreakPricingMode] = useState<BreakPricingMode>('auction');
   const [breakSpotPrice, setBreakSpotPrice] = useState('');
   const [teamBoardEnabled, setTeamBoardEnabled] = useState(true);
@@ -252,13 +248,12 @@ export function ScheduleVaultEventModal({
         {
           title,
           description: tagline.trim() || undefined,
-          category: scheduleCategory.trim() || 'Other',
+          ...(isBreak ? { category: scheduleCategory.trim() || 'Cards' } : {}),
           roomType: streamFormatToRoomType(streamFormat),
           scheduleMode,
           scheduledStartAt,
           thumbnailUrl: thumbUrl.trim() || undefined,
-          teamBoardLeague: isBreak ? teamBoardLeague : undefined,
-          breakTotalSpots: isBreak ? breakSpotsCount : undefined,
+          teamBoardLeague: isBreak ? 'nfl' : undefined,
           breakPricingMode: isBreak ? breakPricingMode : undefined,
           breakSpotPrice: isBreak ? breakSpotPrice : undefined,
           teamSelectionBoardEnabled: isBreak ? teamBoardEnabled : undefined,
@@ -321,7 +316,6 @@ export function ScheduleVaultEventModal({
     accessToken,
     breakPricingMode,
     breakSpotPrice,
-    breakSpotsCount,
     busy,
     isBreak,
     liveGate.alertBody,
@@ -339,7 +333,6 @@ export function ScheduleVaultEventModal({
     streamFormat,
     tagline,
     teamBoardEnabled,
-    teamBoardLeague,
     thumbUploading,
     thumbUrl,
     tipModeratorId,
@@ -439,22 +432,6 @@ export function ScheduleVaultEventModal({
             {thumbError ? <Text style={styles.fieldError}>{thumbError}</Text> : null}
           </View>
 
-          <Text style={styles.label}>Category</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-            {streamCategories.map((c) => {
-              const on = scheduleCategory === c.label;
-              return (
-                <Pressable
-                  key={c.label}
-                  onPress={() => setScheduleCategory(c.label)}
-                  style={[styles.chip, on && styles.chipOn]}
-                >
-                  <Text style={[styles.chipTxt, on && styles.chipTxtOn]}>{c.label}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-
           <Text style={styles.label}>Format</Text>
           <View style={styles.chips}>
             {FORMATS.map((f) => {
@@ -470,30 +447,21 @@ export function ScheduleVaultEventModal({
           {isBreak ? (
             <View style={styles.breakCard}>
               <Text style={styles.sectionTitle}>Break setup</Text>
-              <Text style={styles.label}>League</Text>
+              <Text style={styles.label}>Break category</Text>
               <View style={styles.chips}>
-                {LEAGUES.map((lg) => {
-                  const on = teamBoardLeague === lg;
+                {VAULT_EVENT_CATEGORY_OPTIONS.map((label) => {
+                  const on = scheduleCategory === label;
                   return (
                     <Pressable
-                      key={lg}
-                      onPress={() => setTeamBoardLeague(lg)}
+                      key={label}
+                      onPress={() => setScheduleCategory(label)}
                       style={[styles.chip, on && styles.chipOn]}
                     >
-                      <Text style={[styles.chipTxt, on && styles.chipTxtOn]}>{lg.toUpperCase()}</Text>
+                      <Text style={[styles.chipTxt, on && styles.chipTxtOn]}>{label}</Text>
                     </Pressable>
                   );
                 })}
               </View>
-              <Text style={styles.label}>Total spots</Text>
-              <TextInput
-                value={breakSpotsCount}
-                onChangeText={setBreakSpotsCount}
-                keyboardType="number-pad"
-                placeholder="32"
-                placeholderTextColor={colors.textMuted}
-                style={styles.input}
-              />
               <Text style={styles.label}>Pricing</Text>
               <View style={styles.segment}>
                 {BREAK_PRICING_MODES.map((mode) => {
@@ -536,7 +504,7 @@ export function ScheduleVaultEventModal({
               <View style={styles.toggleRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.toggleTitle}>Team selection board</Text>
-                  <Text style={styles.helperTxt}>PYT tiles for your league — on by default for breaks.</Text>
+                  <Text style={styles.helperTxt}>PYT/PYD spot board — on by default for breaks.</Text>
                 </View>
                 <Switch
                   value={teamBoardEnabled}

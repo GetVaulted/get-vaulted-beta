@@ -46,6 +46,7 @@ import {
 import { openStripeConnectOnboarding } from '../../lib/openStripeConnectOnboarding';
 import { useSellerStripeConnect } from '../../hooks/useSellerStripeConnect';
 import { openSellerHQ } from '../../navigation/openSellerHQ';
+import { AddressAutocompleteFields } from '../../components/address/AddressAutocompleteFields';
 import type { RootStackParamList } from '../../navigation/types';
 import { siteUrls } from '../../lib/siteUrls';
 import { colors, radii, spacing, typography } from '../../theme';
@@ -555,29 +556,36 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
               ) : (
                 <>
                   <Field label="Name / company" value={shipName} onChangeText={setShipName} />
-                  <Field label="Street" value={shipStreet} onChangeText={setShipStreet} required />
-                  <View style={styles.row}>
-                    <View style={styles.half}>
-                      <Field label="City" value={shipCity} onChangeText={setShipCity} required />
-                    </View>
-                    <View style={styles.half}>
-                      <Field label="State" value={shipState} onChangeText={setShipState} required />
-                    </View>
-                  </View>
-                  <View style={styles.row}>
-                    <View style={styles.half}>
-                      <Field label="ZIP" value={shipZip} onChangeText={setShipZip} required />
-                    </View>
-                    <View style={styles.half}>
-                      <Text style={styles.fieldLabel}>Country</Text>
-                      <View style={styles.readOnlyField}>
-                        <Text style={styles.readOnlyText}>
-                          {SELLER_SHIP_FROM_COUNTRY_LABEL} ({SELLER_SHIP_FROM_COUNTRY})
-                        </Text>
-                      </View>
-                      <Text style={styles.fieldHint}>US-only selling during launch.</Text>
-                    </View>
-                  </View>
+                  <AddressAutocompleteFields
+                    accessToken={token}
+                    values={{
+                      line1: shipStreet,
+                      line2: '',
+                      city: shipCity,
+                      state: shipState,
+                      postalCode: shipZip,
+                      country: SELLER_SHIP_FROM_COUNTRY,
+                    }}
+                    onChange={(field, value) => {
+                      if (field === 'line1') setShipStreet(value);
+                      if (field === 'city') setShipCity(value);
+                      if (field === 'state') setShipState(value);
+                      if (field === 'postalCode') setShipZip(value);
+                    }}
+                    onResolved={(resolved) => {
+                      setShipStreet(resolved.line2 ? `${resolved.line1} ${resolved.line2}`.trim() : resolved.line1);
+                      setShipCity(resolved.city);
+                      setShipState(resolved.state);
+                      setShipZip(resolved.postalCode);
+                    }}
+                    line1Label="Street"
+                    showLine2={false}
+                    showCountry
+                    countryReadOnly
+                    inputStyle={styles.input}
+                    labelStyle={styles.fieldLabel}
+                  />
+                  <Text style={styles.fieldHint}>US-only selling during launch ({SELLER_SHIP_FROM_COUNTRY_LABEL}).</Text>
                   <StepActions
                     showBack
                     onBack={goBack}

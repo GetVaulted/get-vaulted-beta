@@ -89,6 +89,10 @@ const BuyerLayawaysScreen = lazyScreen(
   () => import('../screens/account/BuyerLayawaysScreen'),
   (m) => m.BuyerLayawaysScreen,
 );
+const WatchlistScreen = lazyScreen(
+  () => import('../screens/account/WatchlistScreen'),
+  (m) => m.WatchlistScreen,
+);
 const MarketplaceCheckoutScreen = lazyScreen(
   () => import('../screens/marketplace/MarketplaceCheckoutScreen'),
   (m) => m.MarketplaceCheckoutScreen,
@@ -112,10 +116,6 @@ const SellerListingManagementScreen = lazyScreen(
 const SellerSetupWizardScreen = lazyScreen(
   () => import('../screens/sellerSetup/SellerSetupWizardScreen'),
   (m) => m.SellerSetupWizardScreen,
-);
-const AccountHubScreen = lazyScreen(
-  () => import('../screens/settings/AccountHubScreen'),
-  (m) => m.AccountHubScreen,
 );
 const BuyerWalletScreen = lazyScreen(
   () => import('../screens/account/BuyerWalletScreen'),
@@ -218,7 +218,6 @@ export function RootNavigator() {
             }}
           />
           <Stack.Screen name="Settings" component={SettingsScreen} />
-          <Stack.Screen name="AccountHub" component={AccountHubScreen} />
           <Stack.Screen name="BuyerWallet" component={BuyerWalletScreen} />
           <Stack.Screen
             name="SellerSetupWizard"
@@ -259,6 +258,7 @@ export function RootNavigator() {
           <Stack.Screen name="BuyerOrders" component={BuyerOrdersScreen} />
           <Stack.Screen name="BuyerOrderDetail" component={BuyerOrderDetailScreen} />
           <Stack.Screen name="BuyerLayaways" component={BuyerLayawaysScreen} />
+          <Stack.Screen name="Watchlist" component={WatchlistScreen} />
           <Stack.Screen name="SellerLayaways" component={SellerLayawaysScreen} />
           <Stack.Screen name="SellerLayawayDetail" component={SellerLayawayDetailScreen} />
           <Stack.Screen name="SellerOrderDetail" component={SellerOrderDetailScreen} />

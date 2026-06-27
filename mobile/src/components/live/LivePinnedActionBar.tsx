@@ -26,10 +26,6 @@ import {
 import { fetchLiveBuyerPaymentSession } from '../../api/liveBuyerPaymentRepository';
 import { purchaseLiveBuyNow, syncLiveBuyNowPurchase } from '../../api/liveBuyNowRepository';
 import {
-  purchaseLiveItemVariant,
-  syncLiveItemVariantPurchase,
-} from '../../api/liveVariantPurchaseRepository';
-import {
   isWalletIncompleteError,
   isWalletIncompleteReadiness,
   walletReadinessFromSnapshot,
@@ -53,7 +49,7 @@ import { resolveBuyerRoomKind, resolveLiveBuyerCommerceHud } from './liveActionM
 import { LiveCustomBidSheet } from './LiveCustomBidSheet';
 import { LiveBreakSpotGridSheet } from './LiveBreakSpotGridSheet';
 import type { LiveCustomBidPayload } from '../../lib/liveCustomBid';
-import { isActiveVariantBuyerItem, isRandomVariantAssignment } from '../../lib/liveItemVariant';
+import { isActiveVariantBuyerItem } from '../../lib/liveItemVariant';
 import { isVariantSpotAuctionLive } from '../../lib/liveVariantSpotCommerce';
 import { reconcileBuyerSnapshotMonotonic } from '../../lib/liveRoomBuyerSnapshotMerge';
 import { computeAuctionRemainingMs, logAuctionTimer } from '../../lib/auctionTimerSync';
@@ -676,119 +672,6 @@ export function LivePinnedActionBar({
     walletSheetOpen,
   ]);
 
-  const tryPurchasePinnedVariant = useCallback(async () => {
-    if (!accessToken?.trim() || bidInFlightRef.current || bidBusy) return;
-    const pinnedVariantId = m.buyerPinnedVariantId;
-    if (!pinnedVariantId) return;
-
-    bidInFlightRef.current = true;
-    setBidBusy(true);
-    let openedWallet = false;
-    try {
-      const snap = roomSnap ?? (await refreshRoomSnapshot());
-      if (!snap?.activeItemId) {
-        Alert.alert('Nothing to buy', 'No team is pinned right now.');
-        return;
-      }
-      if (snap.status !== 'live') {
-        Alert.alert('Not live', 'This show is not live yet.');
-        return;
-      }
-      if (!walletReady) {
-        openedWallet = openWalletSetup('variant_checkout_wallet', walletReadinessFromSnapshot(snap));
-        return;
-      }
-      const paymentSession = await fetchLiveBuyerPaymentSession(accessToken, stream.id);
-      const res = await purchaseLiveItemVariant({
-        accessToken,
-        liveRoomId: stream.id,
-        itemId: snap.activeItemId,
-        variantId: pinnedVariantId,
-        quantity: 1,
-        paymentMethodId: paymentSession?.activePaymentMethodId ?? undefined,
-      });
-      if (!res.ok) {
-        if (res.walletIncomplete) {
-          if (!walletOverlayOpenRef.current && !walletSheetOpen) {
-            openedWallet = openWalletSetup('api_402');
-          }
-          return;
-        }
-        Alert.alert(
-          'Could not complete purchase',
-          mapLivePaymentFailureMessage(res.error, res.code) + (res.paymentFailed ? ' That spot was not sold.' : ''),
-        );
-        if (res.paymentFailed) void refreshRoomSnapshot();
-        return;
-      }
-      if ('paid' in res) {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        void refreshRoomSnapshot();
-        return;
-      }
-      if ('requiresAction' in res) {
-        const conf = await confirmPayment(res.clientSecret, { paymentMethodType: 'Card' });
-        if (conf.error) {
-          Alert.alert('Payment verification failed', mapLivePaymentFailureMessage(conf.error.message, conf.error.code));
-          return;
-        }
-        const synced = await syncLiveItemVariantPurchase({
-          accessToken,
-          liveRoomId: stream.id,
-          itemId: snap.activeItemId,
-          variantId: pinnedVariantId,
-          purchaseId: res.purchaseId,
-        });
-        if (synced.ok && 'paid' in synced) {
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-          void refreshRoomSnapshot();
-          return;
-        }
-        Alert.alert(
-          'Payment processing',
-          !synced.ok
-            ? mapLivePaymentFailureMessage(synced.error, synced.code)
-            : 'Payment is still processing — pull to refresh the room.',
-        );
-        return;
-      }
-      if ('processing' in res) {
-        Alert.alert('Payment processing', 'Your payment is processing — pull to refresh the room.');
-        void refreshRoomSnapshot();
-      }
-    } catch (e) {
-      if (isWalletIncompleteError(e)) {
-        if (!walletOverlayOpenRef.current && !walletSheetOpen) {
-          openedWallet = openWalletSetup('api_402', {
-            paymentReady: e.paymentReady,
-            shippingReady: e.shippingReady,
-          });
-        }
-        return;
-      }
-      Alert.alert('Could not complete purchase', e instanceof Error ? e.message : 'Unknown error');
-    } finally {
-      if (!openedWallet && !walletOverlayOpenRef.current) {
-        resetBidControl('pinned_variant_complete');
-      } else if (openedWallet) {
-        bidInFlightRef.current = false;
-        setBidBusy(false);
-      }
-    }
-  }, [
-    accessToken,
-    bidBusy,
-    confirmPayment,
-    m.buyerPinnedVariantId,
-    openWalletSetup,
-    refreshRoomSnapshot,
-    resetBidControl,
-    roomSnap,
-    stream.id,
-    walletReady,
-    walletSheetOpen,
-  ]);
-
   const runPrimaryLiveCommerceAction = useCallback(() => {
     if (staffCommerceBlocked) {
       Alert.alert(
@@ -821,14 +704,7 @@ export function LivePinnedActionBar({
         }
         return;
       }
-      if (m.buyerPinnedVariantId) {
-        void tryPurchasePinnedVariant();
-        return;
-      }
-      if (isRandomVariantAssignment(roomSnap?.activeItemVariantAssignmentMode)) {
-        setVariantSheetOpen(true);
-        return;
-      }
+      setVariantSheetOpen(true);
       return;
     }
 
@@ -858,7 +734,6 @@ export function LivePinnedActionBar({
     staffCommerceBlocked,
     tryPlaceLiveBid,
     tryPurchaseLiveBuyNow,
-    tryPurchasePinnedVariant,
     useLiveBuyNowFlow,
     variantItemActive,
     useLiveAuctionBidFlow,
@@ -1075,8 +950,8 @@ export function LivePinnedActionBar({
 
       {variantItemActive &&
       roomSnap?.activeItemId &&
-      isRandomVariantAssignment(roomSnap.activeItemVariantAssignmentMode) ? (
-        /* Sole buyer PYT/PYD checkout — compact bottom sheet, not a center board */
+      !isVariantSpotAuctionLive(roomSnap) ? (
+        /* Buyer PYT/PYD checkout — compact bottom sheet, not a center board */
         <LiveBreakSpotGridSheet
           visible={variantSheetOpen}
           onClose={() => setVariantSheetOpen(false)}

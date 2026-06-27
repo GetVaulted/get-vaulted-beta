@@ -55,8 +55,8 @@ export function LiveNowRoomCard({ room, featured = false, dynamicSignals, muted 
 
         <div className="absolute left-2 top-2 z-[2] inline-flex items-center gap-1.5">
           <span
-            className={`inline-flex h-6 items-center rounded-md border px-2.5 text-[9px] font-black uppercase tracking-wide shadow-[0_4px_18px_rgba(0,0,0,0.35)] ${
-              tagTone[tag] ?? tagTone.Sale
+            className={`inline-flex h-6 max-w-[calc(100%-0.5rem)] items-center rounded-md border px-2 text-[8px] font-black uppercase tracking-wide shadow-[0_4px_18px_rgba(0,0,0,0.35)] sm:px-2.5 sm:text-[9px] ${
+              tagTone[tag.split(" - ")[0] ?? tag] ?? tagTone.Sale
             }`}
           >
             {tag}

@@ -1,4 +1,4 @@
-import type { LiveNowFilter, LiveNowRoom, LiveRoomFormatBadge, LiveRoomKind, LiveShowStatus } from "@/content/live-rooms";
+import type { LiveNowFilter, LiveNowRoom, LiveRoomFormatBadge, LiveRoomKind, LiveShowStatus, VaultBreakCategory } from "@/content/live-rooms";
 
 const CATEGORIES: Exclude<LiveNowFilter, "All">[] = [
   "Breaks",
@@ -9,8 +9,15 @@ const CATEGORIES: Exclude<LiveNowFilter, "All">[] = [
   "Other",
 ];
 
+function parseVaultBreakCategory(raw: string): VaultBreakCategory | undefined {
+  const t = raw.trim();
+  if (t === "Cards" || t === "Helmets") return t;
+  return undefined;
+}
+
 function normalizeCategory(raw: string): Exclude<LiveNowFilter, "All"> {
   const t = raw.trim();
+  if (parseVaultBreakCategory(t)) return "Breaks";
   if (CATEGORIES.includes(t as Exclude<LiveNowFilter, "All">)) return t as Exclude<LiveNowFilter, "All">;
   return "Other";
 }
@@ -55,6 +62,7 @@ function formatSchedule(iso: string | null): string | undefined {
 
 /** Map API list row to legacy card + signals shape */
 export function mapApiRowToLiveNowRoom(row: LiveRoomListApiRow): LiveNowRoom {
+  const breakVaultCategory = parseVaultBreakCategory(row.category);
   const category = normalizeCategory(row.category);
   const { roomKind, formatBadge } = roomKindAndBadge(row.roomType);
   const showStatus: LiveShowStatus = row.status === "live" ? "live_now" : "scheduled";
@@ -71,6 +79,7 @@ export function mapApiRowToLiveNowRoom(row: LiveRoomListApiRow): LiveNowRoom {
       roomKind: "break_room",
       formatBadge,
       category,
+      breakVaultCategory,
       status: showStatus,
       scheduledFor,
       viewers: row.viewerCount,

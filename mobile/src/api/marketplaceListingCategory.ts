@@ -6,6 +6,8 @@ export function mapListingCategoryToCategoryId(raw: string | null | undefined): 
   if (normalized) return normalized;
 
   const s = (raw ?? '').toLowerCase();
+  if (s === 'cards') return 'cards';
+  if (s === 'helmets') return 'memorabilia';
   if (s.includes('trading card')) return 'cards';
   if (s.includes('other collectible')) return 'other';
   if (s.includes('apparel') || s.includes('fashion')) return 'other';

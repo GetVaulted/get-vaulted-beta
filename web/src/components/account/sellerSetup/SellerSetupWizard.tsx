@@ -271,9 +271,13 @@ export function SellerSetupWizard() {
           shipFromCountry: SELLER_SHIP_FROM_COUNTRY,
         }),
       });
-      const j = (await res.json().catch(() => ({}))) as { error?: string; readiness?: LiveReadiness };
+      const j = (await res.json().catch(() => ({}))) as { error?: string; messages?: string[]; readiness?: LiveReadiness };
       if (!res.ok) {
-        setSaveError(j.error ?? "Could not save your address.");
+        const primary = j.error ?? "Could not save your address.";
+        const extra = Array.isArray(j.messages)
+          ? j.messages.filter((m) => m.trim() && m.trim() !== primary)
+          : [];
+        setSaveError(extra.length ? `${primary}\n${extra.join("\n")}` : primary);
         return;
       }
       if (j.readiness) setReadiness(j.readiness);

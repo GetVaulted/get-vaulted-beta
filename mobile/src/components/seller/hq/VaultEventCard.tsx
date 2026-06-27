@@ -5,7 +5,7 @@ import { useEffect, useRef } from 'react';
 import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LiveRoomApiRow } from '../../../api/liveRoomsRepository';
 import { mapListingCategoryToCategoryId } from '../../../api/listingsFeedRepository';
-import { formatLiveRoomCategoryLabel } from '../../../lib/liveRoomDisplay';
+import { formatBreakRoomTileCategoryLine, formatLiveRoomCategoryLabel } from '../../../lib/liveRoomDisplay';
 import {
   canCancelVaultEvent,
   formatEventWhen,
@@ -44,10 +44,9 @@ export function VaultEventCard({
   const cta = primaryCta(displayStatus);
   const showCancel = Boolean(onCancel && canCancelVaultEvent(room));
   const cover = room.thumbnailUrl?.trim() || FALLBACK_COVER;
-  const categoryLabel = formatLiveRoomCategoryLabel(
-    room.category,
-    mapListingCategoryToCategoryId(room.category),
-  );
+  const categoryLabel =
+    formatBreakRoomTileCategoryLine(room.category, room.roomType === 'break') ??
+    formatLiveRoomCategoryLabel(room.category, mapListingCategoryToCategoryId(room.category));
 
   useEffect(() => {
     if (!isLive) return;

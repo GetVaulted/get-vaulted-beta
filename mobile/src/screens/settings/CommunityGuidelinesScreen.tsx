@@ -2,44 +2,76 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
+import { openHelpArticle } from '../../navigation/openPlatform';
 import { siteUrls } from '../../lib/siteUrls';
 import type { RootStackParamList } from '../../navigation/types';
-import { colors, radii, spacing } from '../../theme';
+import { colors, spacing } from '../../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CommunityGuidelines'>;
 
 const SECTIONS = [
   {
-    title: 'Be respectful',
+    title: '1. Be respectful',
     bullets: [
-      'Do not harass, threaten, dox, or discriminate against others.',
-      'Keep chat and messages appropriate for a public marketplace.',
-      'Do not spam, brigade, or manipulate engagement metrics.',
+      'No harassment, threats, hate speech, doxing, or discrimination.',
+      'No spam, brigading, or impersonation of staff or other users.',
+      'Keep live chat and messages appropriate for a public marketplace.',
     ],
   },
   {
-    title: 'Sell and buy honestly',
+    title: '2. Buy honestly',
     bullets: [
-      'List only authentic, legal items with accurate photos and descriptions.',
-      'Disclose damage, alterations, restoration, and grading limitations.',
-      'Honor published break rules, auction terms, and shipping timelines.',
+      'Bid and buy only when you intend to pay — keep your Vault Wallet ready.',
+      'Use accurate shipping addresses; do not abuse chargebacks or disputes.',
+      'Never ask sellers to accept off-platform payment.',
     ],
   },
   {
-    title: 'Livestream conduct',
+    title: '3. Sell and list honestly',
     bullets: [
-      'Hosts must clearly explain break formats, odds, and fulfillment before sales.',
-      'No misleading guaranteed-hit claims unless expressly disclosed.',
-      'Follow moderator instructions and platform safety tools during live events.',
+      'Authentic items only — accurate photos, condition, and grading claims.',
+      'Ship on time; use platform labels when provided.',
+      'Do not ship layaway orders until paid in full.',
+      'See Terms → Seller Responsibility for full seller rules.',
     ],
   },
   {
-    title: 'Prohibited content',
+    title: '4. Live shows & breaks',
     bullets: [
-      'Counterfeit, stolen, or infringing goods.',
-      'Illegal drugs, weapons, or restricted regulated items.',
-      'Sexually explicit content, hate speech, or glorification of violence.',
-      'Scams, phishing, off-platform payment solicitation, or identity fraud.',
+      'Disclose PYT, PYD, random spots, Cards/Helmets format, and pricing before selling.',
+      'No false guaranteed-hit claims; honor sold spots and live wins.',
+      'Fulfill live sales like marketplace orders.',
+    ],
+  },
+  {
+    title: '5. Auctions, trades & layaway',
+    bullets: [
+      'No shill bidding or auction manipulation.',
+      'Honor accepted trades and layaway reservations.',
+      'No off-platform deals to evade fees or protections.',
+    ],
+  },
+  {
+    title: '6. Payments',
+    bullets: [
+      'Pay through Get Vaulted checkout and live wallet only.',
+      'No PayPal/Venmo/wire/crypto requests unless we authorize in writing.',
+      'No phishing or payment fraud.',
+    ],
+  },
+  {
+    title: '7. Prohibited content',
+    bullets: [
+      'Counterfeit, stolen, or illegal goods.',
+      'Sexual content involving minors (zero tolerance).',
+      'Hate, violence, scams, and infringing material.',
+    ],
+  },
+  {
+    title: '8. Moderators & hosts',
+    bullets: [
+      'Use mute/kick/ban tools fairly — not to retaliate or silence legitimate feedback.',
+      'Abuse of moderation may cost hosting or mod privileges.',
     ],
   },
 ] as const;
@@ -52,8 +84,8 @@ export function CommunityGuidelinesScreen({ navigation }: Props) {
       <PlatformFlowHeader title="Community Guidelines" subtitle="Standards for everyone" onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={styles.lead}>
-          Get Vaulted is built for collectors who want fair markets, transparent live selling, and respectful
-          communities. These guidelines apply to buyers, sellers, hosts, and moderators.
+          These guidelines apply to buyers, sellers, hosts, and moderators across The Vault, live shows, trades, and
+          chat. They work together with our Terms of Service.
         </Text>
         {SECTIONS.map((section) => (
           <View key={section.title} style={styles.section}>
@@ -65,16 +97,26 @@ export function CommunityGuidelinesScreen({ navigation }: Props) {
             ))}
           </View>
         ))}
-        <Text style={styles.sectionTitle}>Enforcement</Text>
+        <Text style={styles.sectionTitle}>9. Enforcement</Text>
         <Text style={styles.body}>
-          We may remove content, mute or ban users, withhold payouts, cancel listings, or suspend accounts when these
-          guidelines or our Terms of Service are violated.
+          We may warn, remove content, mute or ban from live rooms, restrict selling, hold payouts, or suspend accounts.
+          Severe or repeat violations may result in permanent removal.
         </Text>
-        <Pressable onPress={() => void Linking.openURL(siteUrls.terms())}>
-          <Text style={styles.link}>Read Terms of Service</Text>
+        <Text style={styles.sectionTitle}>10. Reporting</Text>
+        <Text style={styles.body}>
+          Report violations from profiles, listings, live rooms, chat, or orders. See Reporting & Safety for details.
+        </Text>
+        <Pressable onPress={() => void Linking.openURL(siteUrls.communityGuidelines())}>
+          <Text style={styles.link}>Full guidelines on web →</Text>
         </Pressable>
         <Pressable onPress={() => navigation.navigate('ReportingSafety')}>
-          <Text style={styles.link}>Reporting & Safety</Text>
+          <Text style={styles.link}>Reporting & Safety →</Text>
+        </Pressable>
+        <Pressable onPress={() => void Linking.openURL(siteUrls.terms())}>
+          <Text style={styles.link}>Terms of Service →</Text>
+        </Pressable>
+        <Pressable onPress={() => openHelpArticle('sell-obligations', navigation)}>
+          <Text style={styles.link}>Help: Seller obligations →</Text>
         </Pressable>
       </ScrollView>
     </View>

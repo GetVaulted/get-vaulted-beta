@@ -216,10 +216,17 @@ export function buildExclusiveHostPinUpdates(
   return variants.map((v) => ({ id: v.id, isHot: v.id === pinnedVariantId }));
 }
 
+/** Buyer CTA on pinned PYT/PYD break — opens the team/division picker sheet. */
+export function variantClaimPrimaryLabel(format: string | null | undefined): string {
+  if (format === "team_break") return "Claim Division";
+  if (format === "variant_selection") return "Claim Team";
+  return "Claim Spot";
+}
+
 export function pinnedVariantBuyerPrimaryLabel(format: string | null | undefined, priceUsd: number): string {
   const money = `$${priceUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  if (format === "team_break") return `Claim Team ${money}`;
-  return `Buy Now ${money}`;
+  if (format === "team_break") return `Bid ${money}`;
+  return `Place bid ${money}`;
 }
 
 export function variantBuyerSelectLabel(format: string | null | undefined, random = false): string {

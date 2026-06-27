@@ -241,8 +241,14 @@ export async function updateBuyerShippingAddress(
       isDefault: input.isDefault !== false,
     }),
   });
-  const j = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) throw new Error(typeof j.error === 'string' ? j.error : 'Could not update address.');
+  const j = (await res.json().catch(() => ({}))) as { error?: string; messages?: string[] };
+  if (!res.ok) {
+    const primary = typeof j.error === 'string' ? j.error : 'Could not update address.';
+    const extra = Array.isArray(j.messages)
+      ? j.messages.filter((m) => m.trim() && m.trim() !== primary)
+      : [];
+    throw new Error(extra.length ? `${primary}\n${extra.join('\n')}` : primary);
+  }
 }
 
 export async function deleteBuyerShippingAddress(
@@ -349,8 +355,12 @@ export async function createBuyerShippingAddress(
       isVerified: false,
     }),
   });
-  const j = (await res.json().catch(() => ({}))) as { error?: string };
+  const j = (await res.json().catch(() => ({}))) as { error?: string; messages?: string[] };
   if (!res.ok) {
-    throw new Error(typeof j.error === 'string' ? j.error : 'Could not save address.');
+    const primary = typeof j.error === 'string' ? j.error : 'Could not save address.';
+    const extra = Array.isArray(j.messages)
+      ? j.messages.filter((m) => m.trim() && m.trim() !== primary)
+      : [];
+    throw new Error(extra.length ? `${primary}\n${extra.join('\n')}` : primary);
   }
 }

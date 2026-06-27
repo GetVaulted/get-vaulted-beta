@@ -34,12 +34,12 @@ export function isVariantSpotAuctionLive(item: ItemSpotCommerceRow | null | unde
   return item.activeSpotCommerceMode === "auction";
 }
 
-/** Buyers checkout pinned spot at fixed price (hold to buy). */
+/** Buyers claim spots via picker sheet (fixed checkout — not spot auction). */
 export function isVariantSpotFixedCheckoutLive(item: ItemSpotCommerceRow | null | undefined): boolean {
   if (!item || !isVariantSalesFormat(item.salesFormat)) return false;
   if (isVariantSpotAuctionLive(item)) return false;
-  const pinned = hostPinnedBuyerVariant(item.variants ?? [], item.variantAssignmentMode);
-  return Boolean(pinned);
+  const variants = item.variants ?? [];
+  return variants.some((v) => variantIsAvailable(v));
 }
 
 /** Host may switch fixed ↔ auction or plain buy_now ↔ auction when commerce is idle. */

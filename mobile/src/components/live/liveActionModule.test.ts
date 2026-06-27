@@ -219,17 +219,51 @@ describe('resolveLiveBuyerCommerceHud', () => {
     expect(hud.buyerPrimaryDisabled).toBe(false);
   });
 
-  it('shows pinned division checkout CTA when host pinned a team_break spot', () => {
+  it('shows Claim Division CTA when PYD break is pinned without host spot pin', () => {
     const snap = {
       roomType: 'sale',
       status: 'live',
       activeItemId: 'item-1',
-      activeItemTitle: 'PYT 1 Box Break',
+      activeItemTitle: 'PYD 1 Box Break',
       activeItemSalesFormat: 'team_break',
       activeItemVariants: [
         {
           id: 'v1',
           label: 'AFC East',
+          priceUsd: 35,
+          quantityRemaining: 1,
+          soldCount: 0,
+          isHot: false,
+          status: 'available',
+          buyerUsername: null,
+        },
+      ],
+      fetchedAtMs: Date.now(),
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.bottomRightLabel).toBe('Claim Division');
+    expect(hud.itemTitle).toBe('PYD 1 Box Break');
+    expect(hud.buyerPrimaryDisabled).toBe(false);
+    expect(hud.buyerPinnedVariantId).toBeUndefined();
+  });
+
+  it('shows spot auction bid CTA when host pinned spot is in timed auction', () => {
+    const snap = {
+      roomType: 'sale',
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemTitle: 'PYT 1 Box Break',
+      activeItemSalesFormat: 'variant_selection',
+      activeItemVariantAssignmentMode: 'pick',
+      activeSpotCommerceMode: 'auction',
+      auctionVariantId: 'v1',
+      biddingOpen: true,
+      lotBidPhase: 'bidding_open',
+      minNextBidUsd: 40,
+      activeItemVariants: [
+        {
+          id: 'v1',
+          label: 'Chiefs',
           priceUsd: 35,
           quantityRemaining: 1,
           soldCount: 0,
@@ -241,13 +275,13 @@ describe('resolveLiveBuyerCommerceHud', () => {
       fetchedAtMs: Date.now(),
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
-    expect(hud.bottomRightLabel).toBe('Claim Team $35.00');
-    expect(hud.itemTitle).toBe('AFC East');
+    expect(hud.bottomRightLabel).toBe('Place bid $40.00');
+    expect(hud.itemTitle).toBe('Chiefs');
     expect(hud.buyerPrimaryDisabled).toBe(false);
     expect(hud.buyerPinnedVariantId).toBe('v1');
   });
 
-  it('waits for host pin on pick-mode variant item without hot spot', () => {
+  it('shows Claim Team when PYT break is pinned without host spot pin', () => {
     const snap = {
       roomType: 'auction',
       status: 'live',
@@ -256,7 +290,7 @@ describe('resolveLiveBuyerCommerceHud', () => {
       activeItemVariants: [
         {
           id: 'v2',
-          label: 'Size M',
+          label: 'Ravens',
           priceUsd: 24.99,
           quantityRemaining: 3,
           soldCount: 0,
@@ -268,8 +302,8 @@ describe('resolveLiveBuyerCommerceHud', () => {
       fetchedAtMs: Date.now(),
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
-    expect(hud.bottomRightLabel).toBe('Waiting for team');
-    expect(hud.buyerPrimaryDisabled).toBe(true);
+    expect(hud.bottomRightLabel).toBe('Claim Team');
+    expect(hud.buyerPrimaryDisabled).toBe(false);
   });
 });
 

@@ -3,6 +3,7 @@ import {
   buildExclusiveHostPinUpdates,
   hostPinnedBuyerVariant,
   pinnedVariantBuyerPrimaryLabel,
+  variantClaimPrimaryLabel,
 } from './liveItemVariant';
 
 describe('liveItemVariant host pin helpers', () => {
@@ -44,9 +45,14 @@ describe('liveItemVariant host pin helpers', () => {
     ]);
   });
 
-  it('formats buyer CTA labels', () => {
-    expect(pinnedVariantBuyerPrimaryLabel('variant_selection', 49)).toBe('Buy Now $49.00');
-    expect(pinnedVariantBuyerPrimaryLabel('team_break', 35)).toBe('Claim Team $35.00');
+  it('formats spot auction bid labels', () => {
+    expect(pinnedVariantBuyerPrimaryLabel('variant_selection', 49)).toBe('Place bid $49.00');
+    expect(pinnedVariantBuyerPrimaryLabel('team_break', 35)).toBe('Bid $35.00');
+  });
+
+  it('formats self-serve claim labels', () => {
+    expect(variantClaimPrimaryLabel('variant_selection')).toBe('Claim Team');
+    expect(variantClaimPrimaryLabel('team_break')).toBe('Claim Division');
   });
 
   it('ignores sold hot variant for buyer pin', () => {

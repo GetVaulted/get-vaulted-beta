@@ -29,8 +29,7 @@ describe('buyer break checkout routing', () => {
 
     const bar = readComponent('LivePinnedActionBar.tsx');
     expect(bar).toContain('LiveBreakSpotGridSheet');
-    expect(bar).toContain('tryPurchasePinnedVariant');
-    expect(bar).toContain('isRandomVariantAssignment');
+    expect(bar).toContain('setVariantSheetOpen(true)');
     expect(bar).not.toContain('SellerBreakSpotBoardSheet');
   });
 

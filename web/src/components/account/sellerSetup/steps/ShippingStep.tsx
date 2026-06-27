@@ -1,9 +1,17 @@
 import { WizardCard, WizardPrimaryButton, WizardStepActions } from "@/components/account/sellerSetup/WizardShell";
+import { AddressAutocompleteFields } from "@/components/address/AddressAutocompleteFields";
 
 import {
   SELLER_SHIP_FROM_COUNTRY,
   SELLER_SHIP_FROM_COUNTRY_LABEL,
 } from "@/lib/seller-shipping-readiness";
+
+function combineStreet(line1: string, line2: string): string {
+  const a = line1.trim();
+  const b = line2.trim();
+  if (!b) return a;
+  return `${a} ${b}`;
+}
 
 export function ShippingStep({
   shipName,
@@ -78,63 +86,43 @@ export function ShippingStep({
                 autoComplete="name"
               />
             </label>
-            <label>
-              <span className="mb-1 block text-xs font-medium text-zinc-400">Street</span>
-              <input
-                value={shipStreet}
-                onChange={(e) => onChange("street", e.target.value)}
-                className={inputClass}
-                autoComplete="street-address"
-                required
-              />
-            </label>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label>
-                <span className="mb-1 block text-xs font-medium text-zinc-400">City</span>
-                <input
-                  value={shipCity}
-                  onChange={(e) => onChange("city", e.target.value)}
-                  className={inputClass}
-                  autoComplete="address-level2"
-                  required
-                />
-              </label>
-              <label>
-                <span className="mb-1 block text-xs font-medium text-zinc-400">State</span>
-                <input
-                  value={shipState}
-                  onChange={(e) => onChange("state", e.target.value)}
-                  className={inputClass}
-                  autoComplete="address-level1"
-                  required
-                />
-              </label>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label>
-                <span className="mb-1 block text-xs font-medium text-zinc-400">ZIP</span>
-                <input
-                  value={shipZip}
-                  onChange={(e) => onChange("zip", e.target.value)}
-                  className={inputClass}
-                  autoComplete="postal-code"
-                  required
-                />
-              </label>
-              <label>
-                <span className="mb-1 block text-xs font-medium text-zinc-400">Country</span>
-                <input
-                  value={`${SELLER_SHIP_FROM_COUNTRY_LABEL} (${SELLER_SHIP_FROM_COUNTRY})`}
-                  readOnly
-                  tabIndex={-1}
-                  aria-readonly
-                  className={readOnlyClass}
-                />
-                <p className="mt-1 text-[11px] text-zinc-600">US-only selling during launch.</p>
-              </label>
-            </div>
+            <AddressAutocompleteFields
+              values={{
+                line1: shipStreet,
+                line2: "",
+                city: shipCity,
+                state: shipState,
+                postalCode: shipZip,
+                country: SELLER_SHIP_FROM_COUNTRY,
+              }}
+              onChange={(field, value) => {
+                if (field === "line1") onChange("street", value);
+                if (field === "city") onChange("city", value);
+                if (field === "state") onChange("state", value);
+                if (field === "postalCode") onChange("zip", value);
+              }}
+              onResolved={(resolved) => {
+                onChange("street", combineStreet(resolved.line1, resolved.line2));
+                onChange("city", resolved.city);
+                onChange("state", resolved.state);
+                onChange("zip", resolved.postalCode);
+              }}
+              line1Label="Street"
+              showLine2={false}
+              showCountry
+              countryReadOnly
+              className="grid gap-3"
+              inputClassName={inputClass}
+              labelClassName="block text-xs font-medium text-zinc-400"
+            />
+            <p className="text-[11px] text-zinc-600">US-only selling during launch ({SELLER_SHIP_FROM_COUNTRY_LABEL}).</p>
           </div>
-          {saveError ? <p className="mt-3 text-sm font-medium text-amber-200">{saveError}</p> : null}
+          <p className="text-xs text-zinc-500">
+            We verify ship-from addresses with the carrier when you save so shipping labels do not fail at fulfillment.
+          </p>
+          {saveError ? (
+            <p className="mt-3 whitespace-pre-line text-sm font-medium text-amber-200">{saveError}</p>
+          ) : null}
           <WizardStepActions
             onBack={onBack}
             backDisabled={saveBusy}

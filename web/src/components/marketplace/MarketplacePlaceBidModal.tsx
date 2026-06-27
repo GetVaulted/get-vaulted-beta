@@ -2,7 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useId, useState } from "react";
+import { AddressAutocompleteFields } from "@/components/address/AddressAutocompleteFields";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
+
+function combineAddressLine(line1: string, line2: string): string {
+  return [line1, line2].filter(Boolean).join(" ");
+}
 
 type ApiPaymentMethod = { id: string; brand: string; last4: string; expMonth: number; expYear: number };
 
@@ -55,7 +60,8 @@ export function MarketplacePlaceBidModal({
 
   const [maxBid, setMaxBid] = useState("");
   const [shipRecipientName, setShipRecipientName] = useState("");
-  const [shipAddress, setShipAddress] = useState("");
+  const [shipLine1, setShipLine1] = useState("");
+  const [shipLine2, setShipLine2] = useState("");
   const [shipCity, setShipCity] = useState("");
   const [shipState, setShipState] = useState("");
   const [shipZip, setShipZip] = useState("");
@@ -104,7 +110,8 @@ export function MarketplacePlaceBidModal({
       if (!preferred) return;
       setBuyerAddressId(preferred.id);
       setShipRecipientName(preferred.fullName ?? "");
-      setShipAddress([preferred.line1, preferred.line2].filter(Boolean).join(" "));
+      setShipLine1(preferred.line1 ?? "");
+      setShipLine2(preferred.line2 ?? "");
       setShipCity(preferred.city ?? "");
       setShipState(preferred.state ?? "");
       setShipZip(preferred.postalCode ?? "");
@@ -119,7 +126,8 @@ export function MarketplacePlaceBidModal({
     if (!open) {
       setMaxBid("");
       setShipRecipientName("");
-      setShipAddress("");
+      setShipLine1("");
+      setShipLine2("");
       setShipCity("");
       setShipState("");
       setShipZip("");
@@ -222,7 +230,7 @@ export function MarketplacePlaceBidModal({
     }
     if (
       !shipRecipientName.trim() ||
-      !shipAddress.trim() ||
+      !shipLine1.trim() ||
       !shipCity.trim() ||
       !shipState.trim() ||
       !shipZip.trim() ||
@@ -250,7 +258,7 @@ export function MarketplacePlaceBidModal({
           maxBidUsd: n,
           checkout: {
             shipRecipientName: shipRecipientName.trim(),
-            shipAddress: shipAddress.trim(),
+            shipAddress: combineAddressLine(shipLine1, shipLine2).trim(),
             shipCity: shipCity.trim(),
             shipState: shipState.trim(),
             shipZip: shipZip.trim(),
@@ -459,7 +467,8 @@ export function MarketplacePlaceBidModal({
                       const selected = savedAddresses.find((a) => a.id === id);
                       if (!selected) return;
                       setShipRecipientName(selected.fullName ?? "");
-                      setShipAddress([selected.line1, selected.line2].filter(Boolean).join(" "));
+                      setShipLine1(selected.line1 ?? "");
+                      setShipLine2(selected.line2 ?? "");
                       setShipCity(selected.city ?? "");
                       setShipState(selected.state ?? "");
                       setShipZip(selected.postalCode ?? "");
@@ -486,62 +495,32 @@ export function MarketplacePlaceBidModal({
                   autoComplete="shipping name"
                 />
               </label>
-              <label className="col-span-2">
-                <span className="mb-0.5 block text-[10px] font-medium uppercase tracking-wide text-zinc-500">
-                  Street
-                </span>
-                <input
-                  value={shipAddress}
-                  disabled={submitting}
-                  onChange={(e) => setShipAddress(e.target.value)}
-                  className={inputClass}
-                  autoComplete="shipping street-address"
-                />
-              </label>
-              <label className="col-span-2 sm:col-span-1">
-                <span className="mb-0.5 block text-[10px] font-medium uppercase tracking-wide text-zinc-500">City</span>
-                <input
-                  value={shipCity}
-                  disabled={submitting}
-                  onChange={(e) => setShipCity(e.target.value)}
-                  className={inputClass}
-                  autoComplete="shipping address-level2"
-                />
-              </label>
-              <label className="col-span-2 sm:col-span-1">
-                <span className="mb-0.5 block text-[10px] font-medium uppercase tracking-wide text-zinc-500">
-                  State
-                </span>
-                <input
-                  value={shipState}
-                  disabled={submitting}
-                  onChange={(e) => setShipState(e.target.value)}
-                  className={inputClass}
-                  autoComplete="shipping address-level1"
-                />
-              </label>
-              <label className="col-span-2 sm:col-span-1">
-                <span className="mb-0.5 block text-[10px] font-medium uppercase tracking-wide text-zinc-500">ZIP</span>
-                <input
-                  value={shipZip}
-                  disabled={submitting}
-                  onChange={(e) => setShipZip(e.target.value)}
-                  className={inputClass}
-                  autoComplete="shipping postal-code"
-                />
-              </label>
-              <label className="col-span-2 sm:col-span-1">
-                <span className="mb-0.5 block text-[10px] font-medium uppercase tracking-wide text-zinc-500">
-                  Country
-                </span>
-                <input
-                  value={shipCountry}
-                  disabled={submitting}
-                  onChange={(e) => setShipCountry(e.target.value)}
-                  className={inputClass}
-                  autoComplete="shipping country"
-                />
-              </label>
+              <AddressAutocompleteFields
+                values={{
+                  line1: shipLine1,
+                  line2: shipLine2,
+                  city: shipCity,
+                  state: shipState,
+                  postalCode: shipZip,
+                  country: shipCountry || "US",
+                }}
+                disabled={submitting}
+                onChange={(field, value) => {
+                  if (field === "line1") setShipLine1(value);
+                  if (field === "line2") setShipLine2(value);
+                  if (field === "city") setShipCity(value);
+                  if (field === "state") setShipState(value);
+                  if (field === "postalCode") setShipZip(value);
+                  if (field === "country") setShipCountry(value);
+                }}
+                line1Label="Street"
+                className="contents sm:contents"
+                labelClassName="col-span-2 mb-0.5 block text-[10px] font-medium uppercase tracking-wide text-zinc-500"
+                inputClassName={inputClass}
+              />
+              <p className="col-span-2 text-[11px] leading-snug text-zinc-500">
+                Start typing your street address for suggestions. Pick a match so city, state, and ZIP fill in automatically.
+              </p>
               <div className="col-span-2 space-y-2">
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Secure checkout</p>

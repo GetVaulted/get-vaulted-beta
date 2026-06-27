@@ -70,7 +70,7 @@ describe("PYT team pinning", () => {
       "pick",
     );
     expect(pinned?.id).toBe("chiefs");
-    expect(pinnedVariantBuyerPrimaryLabel("variant_selection", 40)).toBe("Buy Now $40.00");
+    expect(pinnedVariantBuyerPrimaryLabel("variant_selection", 40)).toBe("Place bid $40.00");
   });
 
   it("buyer cannot pin teams", () => {

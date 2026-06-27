@@ -34,12 +34,16 @@ export function HelpCenterScreen({ navigation, route }: Props) {
       </View>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {query.trim() ? (
-          results.map((a) => (
-            <Pressable key={a.id} style={styles.article} onPress={() => openHelpArticle(a.id, navigation)}>
-              <Text style={styles.articleTitle}>{a.title}</Text>
-              <Text style={styles.articleSub}>{a.summary}</Text>
-            </Pressable>
-          ))
+          results.length ? (
+            results.map((a) => (
+              <Pressable key={a.id} style={styles.article} onPress={() => openHelpArticle(a.id, navigation)}>
+                <Text style={styles.articleTitle}>{a.title}</Text>
+                <Text style={styles.articleSub}>{a.summary}</Text>
+              </Pressable>
+            ))
+          ) : (
+            <Text style={styles.empty}>No articles match your search. Try different keywords or browse by category below.</Text>
+          )
         ) : (
           HELP_SECTIONS.map((section) => {
             const articles = HELP_ARTICLES.filter((a) => a.sectionId === section.id);
@@ -90,4 +94,5 @@ const styles = StyleSheet.create({
   },
   articleTitle: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
   articleSub: { fontSize: 13, color: colors.textMuted, lineHeight: 18 },
+  empty: { fontSize: 14, color: colors.textMuted, lineHeight: 20, paddingVertical: spacing.md },
 });
