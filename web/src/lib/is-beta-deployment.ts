@@ -1,5 +1,5 @@
 import { EXPECTED_BETA_PROJECT_REF } from "@/lib/beta-qa-scope";
-import { supabaseProjectRefFromUrl } from "@/lib/resolve-database-url";
+import { supabaseProjectRefFromUrl } from "@/lib/supabase-project-ref";
 
 /** True when this deploy targets the beta Supabase project (xkaaicokjgmpbctfermj). */
 export function isBetaDeployment(): boolean {
