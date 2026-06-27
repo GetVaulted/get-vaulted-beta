@@ -1,5 +1,6 @@
 import type { ReportStatus } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
+import { emitLiveRoomModerationChanged } from "@/lib/realtime-emit-server";
 import { logReportAudit } from "@/lib/trust/moderation-audit-log";
 import type { CreateReportInput } from "@/lib/trust/report-types";
 import { isReportReason, isReportTargetType } from "@/lib/trust/report-types";
@@ -75,6 +76,10 @@ export async function createReport(input: CreateReportInput) {
     action: "created",
     detail: `${input.targetType}:${input.targetId}`,
   });
+
+  if (liveRoomId) {
+    emitLiveRoomModerationChanged(liveRoomId);
+  }
 
   return report;
 }

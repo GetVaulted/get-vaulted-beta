@@ -67,7 +67,10 @@ export function tailUniqueChatMessages(messages: ChatMessage[], max: number): Ch
 
 /** Full deduped history for scrollable overlay (newest last). */
 export function prepareChatMessageHistory(messages: ChatMessage[]): ChatMessage[] {
-  return sortChatMessagesByTime(dedupeViewerEventMessages(dedupeChatMessagesById(messages)));
+  const withoutHostEnding = messages.filter(
+    (m) => !(m.messageType === 'system' && isHostEndingLiveBody(m.text)),
+  );
+  return sortChatMessagesByTime(dedupeViewerEventMessages(dedupeChatMessagesById(withoutHostEnding)));
 }
 
 /** Chronological window for bottom-anchored live chat (oldest → newest). */

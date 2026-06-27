@@ -8,7 +8,11 @@ import { PrismaClient } from "@/generated/prisma/client";
 import { EXPECTED_BETA_PROJECT_REF } from "@/lib/beta-qa-scope";
 import { createPostgresPrismaClient } from "@/lib/prisma-pg-factory";
 import { setIntegrationPrismaClient } from "@/lib/prisma";
-import { supabaseProjectRefFromUrl } from "@/lib/resolve-database-url";
+import {
+  assertSupabaseIntegrationProjectReachable,
+  normalizeIntegrationDatabaseUrl,
+  supabaseProjectRefFromUrl,
+} from "@/lib/resolve-database-url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const INTEGRATION_PROJECT_ROOT = join(__dirname, "..", "..");
@@ -16,7 +20,8 @@ export const INTEGRATION_PROJECT_ROOT = join(__dirname, "..", "..");
 let sharedClient: PrismaClient | null = null;
 
 function integrationDatabaseUrl(): string {
-  const url = process.env.INTEGRATION_DATABASE_URL?.trim() ?? process.env.DATABASE_URL?.trim() ?? "";
+  const explicitIntegration = process.env.INTEGRATION_DATABASE_URL?.trim() ?? "";
+  const url = explicitIntegration || process.env.DATABASE_URL?.trim() || "";
   if (!url) {
     throw new Error(
       "Set INTEGRATION_DATABASE_URL (preferred) or DATABASE_URL to a disposable PostgreSQL URL before running integration tests. See .env.example.",
@@ -29,15 +34,16 @@ function integrationDatabaseUrl(): string {
   if (ref === EXPECTED_BETA_PROJECT_REF) {
     throw new Error(
       `Refusing integration tests against beta Supabase (${EXPECTED_BETA_PROJECT_REF}). ` +
-        "Use a disposable local/integration Postgres — never beta DATABASE_URL.",
+        "Set INTEGRATION_DATABASE_URL to a disposable Postgres project — never beta DATABASE_URL.",
     );
   }
-  return url;
+  return normalizeIntegrationDatabaseUrl(url);
 }
 
 /** Apply migrations (`migrate deploy`) and return a connected Prisma client bound as the integration override. */
 export async function bootstrapIntegrationPrisma(): Promise<PrismaClient> {
   const dbUrl = integrationDatabaseUrl();
+  await assertSupabaseIntegrationProjectReachable(dbUrl);
   execSync("npx prisma migrate deploy", {
     cwd: INTEGRATION_PROJECT_ROOT,
     stdio: "pipe",

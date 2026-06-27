@@ -52,6 +52,7 @@ export type RootStackParamList = {
   MessageCompose: {
     listingId?: string;
     liveRoomId?: string;
+    sellerUsername?: string;
     initialDraft?: string;
   };
   CreateListingFlow: NavigatorScreenParams<CreateListingStackParamList> | undefined;

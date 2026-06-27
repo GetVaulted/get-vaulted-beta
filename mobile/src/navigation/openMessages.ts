@@ -34,7 +34,11 @@ export function openMessageSellerForListing(
   (navigation as RootNav).navigate('MessageCompose', params);
 }
 
-export function openMessageSellerFromLive(params: { liveRoomId: string; listingId?: string }) {
+export function openMessageSellerFromLive(params: {
+  liveRoomId: string;
+  listingId?: string;
+  sellerUsername?: string;
+}) {
   if (rootNavigationRef.isReady()) {
     rootNavigationRef.navigate('MessageCompose', params);
   }

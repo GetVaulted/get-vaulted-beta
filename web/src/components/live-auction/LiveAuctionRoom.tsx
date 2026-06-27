@@ -11,6 +11,7 @@ import { LiveBuyerWalletGateHint } from "@/components/live-auction/LiveBuyerWall
 import { LiveVariantSelectionSheet } from "@/components/live-auction/LiveVariantSelectionSheet";
 import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotBoard";
 import { LiveAuctionChat } from "@/components/live-auction/LiveAuctionChat";
+import { ExpandableLiveChatOverlay } from "@/components/live-auction/ExpandableLiveChatOverlay";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
 import { LiveTipSheet } from "@/components/live-auction/LiveTipSheet";
 import { BuyerLiveDesktopShell } from "@/components/live-auction/buyer/BuyerLiveDesktopShell";
@@ -1476,7 +1477,7 @@ export function LiveAuctionRoom({
   ) : null;
 
   const floatingChatOverlay = (
-    <div className="flex h-[min(42vh,19rem)] max-h-[min(50dvh,22rem)] max-[380px]:h-[min(32vh,14rem)] min-[768px]:h-[min(48vh,24rem)] min-h-0 w-full min-w-0 flex-col">
+    <ExpandableLiveChatOverlay>
       <LiveAuctionChat
         liveRoomId={liveRoomId}
         messages={messages}
@@ -1487,7 +1488,7 @@ export function LiveAuctionRoom({
         hostUserId={sellerId}
         onMessagesRefresh={() => void onRefetch?.()}
       />
-    </div>
+    </ExpandableLiveChatOverlay>
   );
 
   /** Team list from API while the break is live (same for host/buyer on the public /live page). */

@@ -568,8 +568,8 @@ export function resolveLiveBuyerCommerceHud(
 
   if (effectiveSnap.status === 'ended') {
     return buildBuyerWaitingHud(base, stream.id, {
-      stateLine: 'Host is ending the live.',
-      rightLabel: 'Show ended',
+      stateLine: '',
+      rightLabel: '—',
     });
   }
 

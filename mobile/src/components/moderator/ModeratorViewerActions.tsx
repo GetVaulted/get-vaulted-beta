@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { ActionSheetIOS, Alert, Platform } from 'react-native';
 import { applyLiveModerationAction } from '../../api/trustRepository';
 import type { LiveModeratorLevel } from '../../api/trustRepository';
@@ -43,9 +43,13 @@ export function ModeratorViewerActions({
   onComplete,
 }: Props) {
   const isHost = isLiveRoomHostUser(hostUserId, userId);
+  const openedRef = useRef(false);
 
   const runAction = async (actionType: string, metadata?: Record<string, unknown>) => {
-    if (!accessToken) return;
+    if (!accessToken) {
+      Alert.alert('Moderation', 'Sign in required to moderate.');
+      return;
+    }
     const result = await applyLiveModerationAction({
       accessToken,
       roomId: liveRoomId,
@@ -57,6 +61,9 @@ export function ModeratorViewerActions({
     if (!result.ok) {
       Alert.alert('Moderation', result.error ?? 'Action failed.');
       return;
+    }
+    if (actionType === 'kick' || actionType === 'room_ban') {
+      Alert.alert('Removed', `@${username} was removed from this show.`);
     }
     onComplete?.();
   };
@@ -110,15 +117,31 @@ export function ModeratorViewerActions({
       });
     }
     return opts;
-  }, [isHost, userId, isModerator, actorIsHost, canModerate, moderatorLevel, allowedActions]);
+  }, [
+    isHost,
+    userId,
+    username,
+    isModerator,
+    actorIsHost,
+    canModerate,
+    moderatorLevel,
+    allowedActions,
+    accessToken,
+    liveRoomId,
+    onComplete,
+  ]);
 
   useEffect(() => {
-    if (!visible) return;
-    const labels = [...options.map((o) => o.label), 'Cancel'];
-    const handlers = [...options.map((o) => o.action), () => undefined];
-    const destructiveIndex = labels.findIndex((l) => l.startsWith('Ban') || l.startsWith('Kick'));
+    if (!visible) {
+      openedRef.current = false;
+      return;
+    }
+    if (openedRef.current) return;
+    openedRef.current = true;
 
-    onClose();
+    const labels = [...options.map((o) => o.label), 'Cancel'];
+    const handlers = [...options.map((o) => o.action), onClose];
+    const destructiveIndex = labels.findIndex((l) => l.startsWith('Ban') || l.startsWith('Kick'));
 
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
@@ -129,7 +152,10 @@ export function ModeratorViewerActions({
           title: `@${username}`,
         },
         (idx) => {
-          if (idx == null || idx >= handlers.length) return;
+          if (idx == null || idx >= handlers.length) {
+            onClose();
+            return;
+          }
           handlers[idx]?.();
         },
       );
@@ -140,18 +166,19 @@ export function ModeratorViewerActions({
       `@${username}`,
       undefined,
       [
-        ...handlers.slice(0, -1).map((handler, i) => ({
+        ...options.map((opt, i) => ({
           text: labels[i],
-          onPress: handler,
+          onPress: opt.action,
           style:
             labels[i].startsWith('Ban') || labels[i].startsWith('Kick')
               ? ('destructive' as const)
               : undefined,
         })),
-        { text: 'Cancel', style: 'cancel' },
+        { text: 'Cancel', style: 'cancel', onPress: onClose },
       ],
+      { cancelable: true, onDismiss: onClose },
     );
-  }, [visible]);
+  }, [visible, options, onClose, username]);
 
   return null;
 }

@@ -858,8 +858,7 @@ export function LiveVideoStagePlayback({
           {roomStatus === "ended" ? (
             <div className="max-w-md space-y-3">
               <p className="text-[10px] font-black uppercase tracking-[0.28em] text-gold-bright/90">Vaulted Live</p>
-              <p className="text-base font-semibold tracking-tight text-zinc-100">Show ended</p>
-              <p className="text-sm leading-relaxed text-zinc-500">Host is ending the live.</p>
+              <p className="text-base font-semibold tracking-tight text-zinc-100">Live has Ended</p>
             </div>
           ) : showPlaybackErrorCenter ? (
             <div className="max-w-md space-y-3">

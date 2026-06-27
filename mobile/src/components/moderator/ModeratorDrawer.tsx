@@ -22,9 +22,17 @@ import {
   type LiveRoomTipRow,
   type LiveRoomTipSummary,
 } from '../../api/trustRepository';
-import { canPerformModeratorAction, formatModActionLabel, formatModeratorLevelLabel } from '../../lib/liveModeratorPermissions';
+import { useLiveRoomPresenceUsers } from '../../hooks/useLiveRoomPresenceUsers';
+import {
+  canPerformModeratorAction,
+  formatModActionLabel,
+  formatModeratorLevelLabel,
+  isLiveRoomHostUser,
+} from '../../lib/liveModeratorPermissions';
+import { mergeModeratorRoomUsers, type ModeratorRoomUserRow } from '../../lib/mergeModeratorRoomUsers';
 import { computePinExpiresIso } from '../../lib/pinnedMessageExpiry';
 import { colors, radii, spacing } from '../../theme';
+import { ModeratorViewerActions } from './ModeratorViewerActions';
 
 const PIN_EXPIRES_OPTIONS = [
   { minutes: 15, label: '15 min' },
@@ -35,10 +43,11 @@ const PIN_EXPIRES_OPTIONS = [
   { minutes: 24 * 60, label: '24 hr' },
 ] as const;
 
-type TabId = 'tools' | 'queue' | 'tips' | 'pinned' | 'announcements' | 'giveaway' | 'history';
+type TabId = 'tools' | 'users' | 'queue' | 'tips' | 'pinned' | 'announcements' | 'giveaway' | 'history';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'tools', label: 'Tools' },
+  { id: 'users', label: 'Users' },
   { id: 'queue', label: 'Queue' },
   { id: 'tips', label: 'Tips' },
   { id: 'pinned', label: 'Pinned' },
@@ -82,6 +91,17 @@ export function ModeratorDrawer({
   const [announcementBody, setAnnouncementBody] = useState('');
   const [giveawayTitle, setGiveawayTitle] = useState('');
   const [keyboardInset, setKeyboardInset] = useState(0);
+  const [selectedUser, setSelectedUser] = useState<ModeratorRoomUserRow | null>(null);
+
+  const presenceUsers = useLiveRoomPresenceUsers(liveRoomId, visible && tab === 'users');
+  const roomUsers = useMemo(
+    () => mergeModeratorRoomUsers({ presence: presenceUsers, viewers: moderation.viewers ?? [] }),
+    [presenceUsers, moderation.viewers],
+  );
+  const moderatorIdSet = useMemo(
+    () => new Set(moderation.moderators.map((m) => m.userId)),
+    [moderation.moderators],
+  );
 
   useEffect(() => {
     if (!visible) {
@@ -107,7 +127,7 @@ export function ModeratorDrawer({
   }, [moderation.pinnedModeratorMessage, visible]);
 
   useEffect(() => {
-    if (visible && tab === 'tips') {
+    if (visible && (tab === 'tips' || tab === 'users')) {
       onRefresh();
     }
   }, [visible, tab, onRefresh]);
@@ -219,8 +239,21 @@ export function ModeratorDrawer({
             busy={busy}
             onSetSlowMode={(seconds) => void runAction({ actionType: 'slow_mode', metadata: { seconds } })}
             onOpenQueue={() => setTab('queue')}
+            onOpenUsers={() => setTab('users')}
             onOpenAnnounce={() => setTab('announcements')}
             queueCount={moderation.modQueue.length}
+            userCount={roomUsers.length}
+          />
+        );
+      case 'users':
+        return (
+          <UsersTab
+            rows={roomUsers}
+            hostUserId={moderation.sellerId}
+            moderatorIds={moderatorIdSet}
+            onSelect={(row) => {
+              if (row.userId && !row.isGuest) setSelectedUser(row);
+            }}
           />
         );
       case 'queue':
@@ -289,6 +322,11 @@ export function ModeratorDrawer({
     tab,
     accessToken,
     moderation.modQueue,
+    moderation.viewers,
+    moderation.sellerId,
+    moderation.moderators,
+    roomUsers,
+    moderatorIdSet,
     moderation.slowModeSeconds,
     moderation.tips,
     moderation.tipSummary,
@@ -353,6 +391,7 @@ export function ModeratorDrawer({
             >
               {TABS.map((t) => {
                 const tipCount = t.id === 'tips' ? moderation.tipSummary?.paidCount ?? 0 : 0;
+                const userCount = t.id === 'users' ? roomUsers.length : 0;
                 const on = tab === t.id;
                 return (
                   <Pressable
@@ -364,6 +403,11 @@ export function ModeratorDrawer({
                     {tipCount > 0 ? (
                       <View style={[styles.tabChipBadge, on && styles.tabChipBadgeActive]}>
                         <Text style={[styles.tabChipBadgeText, on && styles.tabChipBadgeTextActive]}>{tipCount}</Text>
+                      </View>
+                    ) : null}
+                    {userCount > 0 && t.id === 'users' ? (
+                      <View style={[styles.tabChipBadge, on && styles.tabChipBadgeActive]}>
+                        <Text style={[styles.tabChipBadgeText, on && styles.tabChipBadgeTextActive]}>{userCount}</Text>
                       </View>
                     ) : null}
                   </Pressable>
@@ -388,6 +432,26 @@ export function ModeratorDrawer({
           </View>
         </View>
       </Modal>
+      {selectedUser?.userId ? (
+        <ModeratorViewerActions
+          visible={Boolean(selectedUser)}
+          onClose={() => setSelectedUser(null)}
+          liveRoomId={liveRoomId}
+          accessToken={accessToken}
+          isModerator={moderation.isModerator}
+          isHost={moderation.isHost}
+          canModerate={moderation.canModerate}
+          moderatorLevel={moderation.moderatorLevel}
+          allowedActions={moderation.allowedActions}
+          userId={selectedUser.userId}
+          username={selectedUser.username}
+          hostUserId={moderation.sellerId}
+          onComplete={() => {
+            setSelectedUser(null);
+            onRefresh();
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -398,16 +462,20 @@ function RoomToolsTab({
   busy,
   onSetSlowMode,
   onOpenQueue,
+  onOpenUsers,
   onOpenAnnounce,
   queueCount,
+  userCount,
 }: {
   slowModeSeconds: number;
   canSlowMode: boolean;
   busy: boolean;
   onSetSlowMode: (seconds: number) => void;
   onOpenQueue: () => void;
+  onOpenUsers: () => void;
   onOpenAnnounce: () => void;
   queueCount: number;
+  userCount: number;
 }) {
   return (
     <View style={styles.formBlock}>
@@ -435,6 +503,11 @@ function RoomToolsTab({
 
       <Text style={[styles.sectionTitle, { marginTop: spacing.md }]}>Quick actions</Text>
       <View style={styles.quickNavRow}>
+        <Pressable style={styles.quickNavBtn} onPress={onOpenUsers}>
+          <Text style={styles.quickNavBtnText}>
+            Users{userCount > 0 ? ` (${userCount})` : ''}
+          </Text>
+        </Pressable>
         <Pressable style={styles.quickNavBtn} onPress={onOpenQueue}>
           <Text style={styles.quickNavBtnText}>
             Reports{queueCount > 0 ? ` (${queueCount})` : ''}
@@ -454,6 +527,67 @@ function RoomToolsTab({
       <Text style={styles.hint}>
         Pin messages, post announcements, run giveaways, review reports, tips, and action history in the other tabs.
       </Text>
+    </View>
+  );
+}
+
+function UsersTab({
+  rows,
+  hostUserId,
+  moderatorIds,
+  onSelect,
+}: {
+  rows: ModeratorRoomUserRow[];
+  hostUserId?: string;
+  moderatorIds: Set<string>;
+  onSelect: (row: ModeratorRoomUserRow) => void;
+}) {
+  if (rows.length === 0) {
+    return (
+      <View style={styles.formBlock}>
+        <Text style={styles.sectionTitle}>In this room</Text>
+        <Text style={styles.empty}>No viewers detected yet. People appear here when they join the show or chat.</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.formBlock}>
+      <Text style={styles.sectionTitle}>In this room</Text>
+      <Text style={styles.hint}>
+        Live viewers from the room connection, plus recent chatters. Tap a member for moderation actions.
+      </Text>
+      {rows.map((row) => {
+        const isHost = row.userId ? isLiveRoomHostUser(hostUserId, row.userId) : false;
+        const isMod = row.userId ? moderatorIds.has(row.userId) : false;
+        const subtitle = row.inRoom
+          ? row.messageCount
+            ? `In room · ${row.messageCount} chat message${row.messageCount === 1 ? '' : 's'}`
+            : 'In room now'
+          : row.messageCount
+            ? `${row.messageCount} chat message${row.messageCount === 1 ? '' : 's'} recently`
+            : 'Chatted recently';
+        const canModerateRow = Boolean(row.userId && !row.isGuest && !isHost);
+
+        return (
+          <Pressable
+            key={row.key}
+            style={[styles.userRow, !canModerateRow && styles.userRowStatic]}
+            disabled={!canModerateRow}
+            onPress={() => onSelect(row)}
+          >
+            <View style={styles.userRowMain}>
+              <Text style={styles.userRowName}>@{row.username}</Text>
+              <Text style={styles.userRowMeta}>{subtitle}</Text>
+            </View>
+            <View style={styles.userRowBadges}>
+              {isHost ? <Text style={styles.userBadgeHost}>HOST</Text> : null}
+              {isMod ? <Text style={styles.userBadgeMod}>MOD</Text> : null}
+              {row.isGuest ? <Text style={styles.userBadgeGuest}>GUEST</Text> : null}
+            </View>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -1003,5 +1137,59 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: spacing.sm,
     textAlign: 'center',
+  },
+  userRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    borderRadius: radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(0,0,0,0.22)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  userRowStatic: {
+    opacity: 0.85,
+  },
+  userRowMain: {
+    flex: 1,
+    minWidth: 0,
+  },
+  userRowName: {
+    color: colors.textPrimary,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  userRowMeta: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  userRowBadges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    justifyContent: 'flex-end',
+  },
+  userBadgeHost: {
+    color: colors.gold,
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  userBadgeMod: {
+    color: '#c4b5fd',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  userBadgeGuest: {
+    color: colors.textMuted,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.6,
   },
 });

@@ -1,3 +1,5 @@
+import { lookup } from "node:dns/promises";
+
 /** Extract Supabase project ref from Postgres URI or Supabase HTTPS URL (no secrets). */
 export function supabaseProjectRefFromUrl(url: string): string | null {
   const u = url.trim();
@@ -110,4 +112,52 @@ export function resolveDatabaseUrl(): string {
     throw new Error("DATABASE_URL must be a postgres:// or postgresql:// URI.");
   }
   return normalizeDatabaseUrlForServerlessRuntime(url);
+}
+
+/**
+ * Prefer direct Supabase Postgres (db.{ref}.supabase.co:5432) for Prisma migrate + Vitest.
+ * Session pooler URIs are rewritten; transaction pooler (:6543) is rejected for integration.
+ */
+export function normalizeIntegrationDatabaseUrl(url: string): string {
+  const trimmed = url.trim();
+  const ref = supabaseProjectRefFromUrl(trimmed);
+  if (!ref) return trimmed;
+
+  try {
+    const scheme = trimmed.startsWith("postgresql:") ? "postgresql:" : "postgres:";
+    const parsed = new URL(trimmed.replace(/^postgresql:/, "http:").replace(/^postgres:/, "http:"));
+    const port = parsed.port || "5432";
+    if (parsed.hostname.includes(".pooler.supabase.com") && port === "6543") {
+      throw new Error(
+        "INTEGRATION_DATABASE_URL must use Supabase Session mode (pooler port 5432) or direct db.{ref}.supabase.co — not the transaction pooler (:6543).",
+      );
+    }
+    if (parsed.hostname.includes(".pooler.supabase.com")) {
+      parsed.hostname = `db.${ref}.supabase.co`;
+      parsed.port = "5432";
+      parsed.username = "postgres";
+      parsed.search = "";
+    }
+    return parsed.toString().replace(/^http:/, scheme);
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("INTEGRATION_DATABASE_URL")) throw e;
+    return trimmed;
+  }
+}
+
+/** Fail fast when a Supabase integration project ref no longer exists (deleted project). */
+export async function assertSupabaseIntegrationProjectReachable(url: string): Promise<void> {
+  const ref = supabaseProjectRefFromUrl(url);
+  if (!ref) return;
+  const host = `db.${ref}.supabase.co`;
+  try {
+    await lookup(host);
+  } catch {
+    throw new Error(
+      `INTEGRATION_DATABASE_URL references Supabase project "${ref}" but ${host} does not resolve. ` +
+        "That project was deleted or the ref is wrong. Create a disposable Supabase Postgres project " +
+        "(free tier) for integration tests and set INTEGRATION_DATABASE_URL to its Session pooler URI (port 5432). " +
+        "Do not reuse beta/production DATABASE_URL — integration tests run migrate deploy and full database reset.",
+    );
+  }
 }

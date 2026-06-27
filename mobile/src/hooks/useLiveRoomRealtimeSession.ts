@@ -56,6 +56,7 @@ export function useLiveRoomRealtimeSession(args: {
   onStreamHardRefresh?: () => void;
   /** @deprecated Prefer onStreamHardRefresh — kept for callers that only need metadata. */
   onStreamRefresh?: () => void;
+  onModerationChanged?: () => void;
 }) {
   const [roomSnap, setRoomSnap] = useState<LiveRoomBuyerSnapshot | null>(null);
   const [syncRefreshing, setSyncRefreshing] = useState(false);
@@ -300,6 +301,7 @@ export function useLiveRoomRealtimeSession(args: {
     onQueueItemsChange: () => scheduleReconcile(120),
     onTeamBreakReady: () => scheduleReconcile(200),
     onTeamBreakBegan: () => scheduleReconcile(200),
+    onModerationChanged: () => void args.onModerationChanged?.(),
     onGiveawaysChange: () => scheduleReconcile(250),
     onVaultRevealSpin: (payload) => {
       const spin = parseVaultRevealSpinPayload(payload);
@@ -327,8 +329,6 @@ export function useLiveRoomRealtimeSession(args: {
     },
     onAuctionEnded: (payload) => {
       if (!shouldProcessRealtimeEvent(guardRef.current, 'auction_ended', payload)) return;
-      setConnectionBanner('Host is ending the live.');
-      setTimeout(() => setConnectionBanner(null), 6000);
       setRoomSnap((prev) => (prev ? { ...prev, status: 'ended' } : prev));
       scheduleReconcile(1000);
     },

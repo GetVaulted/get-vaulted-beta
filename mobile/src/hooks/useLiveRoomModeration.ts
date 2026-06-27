@@ -4,8 +4,9 @@ import {
   type LiveRoomModerationSnapshot,
   type LiveViewerRole,
 } from '../api/trustRepository';
-import { getSupabase, isSupabaseConfigured } from '../lib/supabase';
-import { roomChannel, RT_EVENT } from '../lib/realtimeChannels';
+import { peekLiveRoomChannel } from '../lib/liveRoomSharedChannel';
+import { RT_EVENT } from '../lib/realtimeChannels';
+import { isSupabaseConfigured } from '../lib/supabase';
 import { isPinnedMessageActive, msUntilPinnedMessageExpires } from '../lib/pinnedMessageExpiry';
 
 const EMPTY: LiveRoomModerationSnapshot = {
@@ -98,18 +99,28 @@ export function useLiveRoomModeration(args: {
 
   useEffect(() => {
     if (args.enabled === false || !args.roomId || !isSupabaseConfigured()) return undefined;
-    const supabase = getSupabase();
-    if (!supabase) return undefined;
 
-    const channel = supabase
-      .channel(`${roomChannel(args.roomId)}:moderation`)
-      .on('broadcast', { event: RT_EVENT.moderationChanged }, () => {
-        void reload();
-      })
-      .subscribe();
+    let cancelled = false;
+    let detach: (() => void) | undefined;
+
+    const attach = () => {
+      if (cancelled || detach) return;
+      const channel = peekLiveRoomChannel(args.roomId);
+      if (!channel) return;
+      const handler = () => void reload();
+      channel.on('broadcast', { event: RT_EVENT.moderationChanged }, handler);
+      detach = () => {
+        channel.off('broadcast', { event: RT_EVENT.moderationChanged }, handler);
+      };
+    };
+
+    attach();
+    const retry = setInterval(attach, 400);
 
     return () => {
-      void supabase.removeChannel(channel);
+      cancelled = true;
+      clearInterval(retry);
+      detach?.();
     };
   }, [args.enabled, args.roomId, reload]);
 

@@ -42,6 +42,7 @@ const COMPOSER_PLACEHOLDER = 'Say something';
 
 /** TikTok/Whatnot-style overlay: ~6 lines visible; scroll up for full session history. */
 export const MAX_FLOATING_CHAT = 6;
+export const MAX_FLOATING_CHAT_EXPANDED = 14;
 export const FLOATING_CHAT_SCROLL_NEAR_BOTTOM_PX = 48;
 
 /** Whatnot-style pinned mod row (avatar + username + Mod pill + body). */
@@ -366,6 +367,8 @@ export function FloatingLiveChat({
   onPressChatUser,
   moderatorUserIds,
   overlayScale = 1,
+  expanded = false,
+  onToggleExpanded,
 }: {
   pool: ChatMessage[];
   hostAvatarUrl?: string | null;
@@ -388,6 +391,8 @@ export function FloatingLiveChat({
   onPressChatUser?: (user: { username: string; userId?: string }) => void;
   moderatorUserIds?: string[];
   overlayScale?: number;
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
 }) {
   const history = useMemo(() => prepareChatMessageHistory(pool), [pool]);
   const moderatorIdSet = useMemo(() => new Set(moderatorUserIds ?? []), [moderatorUserIds]);
@@ -397,7 +402,8 @@ export function FloatingLiveChat({
   const scale = overlayScale > 1 ? overlayScale : 1;
 
   const rowHeight = compact ? ROW_HEIGHT_COMPACT : ROW_HEIGHT_ESTIMATE;
-  const viewportHeight = Math.min(maxHeight, maxRows * rowHeight + 12);
+  const visibleRowCap = expanded ? MAX_FLOATING_CHAT_EXPANDED : maxRows;
+  const viewportHeight = Math.min(maxHeight, visibleRowCap * rowHeight + 12);
   const scrollMaxHeight = Math.max(48, viewportHeight);
 
   const scrollToBottom = () => {
@@ -412,6 +418,12 @@ export function FloatingLiveChat({
     });
     return () => cancelAnimationFrame(frame);
   }, [lastMessageId, streamKey]);
+
+  useEffect(() => {
+    if (!pinnedToBottomRef.current) return;
+    const frame = requestAnimationFrame(scrollToBottom);
+    return () => cancelAnimationFrame(frame);
+  }, [expanded, scrollMaxHeight]);
 
   if (!isActive) return null;
 
@@ -463,6 +475,21 @@ export function FloatingLiveChat({
           />
         ))}
       </ScrollView>
+      {onToggleExpanded ? (
+        <Pressable
+          style={[styles.chatExpandToggle, scale > 1 && { paddingHorizontal: Math.round(10 * scale) }]}
+          onPress={onToggleExpanded}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={expanded ? 'Collapse chat' : 'Expand chat'}
+        >
+          <Ionicons
+            name={expanded ? 'chevron-down' : 'chevron-up'}
+            size={Math.round(16 * scale)}
+            color="rgba(255,255,255,0.92)"
+          />
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -656,6 +683,16 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     color: 'rgba(255,255,255,0.94)',
     ...TEXT_SHADOW,
+  },
+  chatExpandToggle: {
+    alignSelf: 'flex-end',
+    marginBottom: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(0,0,0,0.48)',
   },
   scrollViewport: {
     width: '100%',

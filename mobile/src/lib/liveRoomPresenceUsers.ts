@@ -5,16 +5,11 @@ export type RoomPresenceUser = {
 };
 
 function normalizePresenceUsername(username: unknown, userId: string | null): string {
-  if (typeof username === "string" && username.trim()) {
-    return username.trim().replace(/^@/, "");
+  if (typeof username === 'string' && username.trim()) {
+    return username.trim().replace(/^@/, '');
   }
-  if (userId) return "Member";
-  return "Guest";
-}
-
-/** Count unique viewers from Supabase Realtime presence (dedupes signed-in users across tabs). */
-export function countRoomPresenceViewers(state: Record<string, unknown>): number {
-  return parseRoomPresenceUsers(state).length;
+  if (userId) return 'Member';
+  return 'Guest';
 }
 
 /** Parse Supabase Realtime presence state into deduped viewer rows. */
@@ -24,10 +19,10 @@ export function parseRoomPresenceUsers(state: Record<string, unknown>): RoomPres
   for (const entries of Object.values(state)) {
     const list = Array.isArray(entries) ? entries : entries != null ? [entries] : [];
     for (const raw of list) {
-      if (!raw || typeof raw !== "object") continue;
+      if (!raw || typeof raw !== 'object') continue;
       const p = raw as Record<string, unknown>;
-      const userId = typeof p.userId === "string" && p.userId.trim() ? p.userId.trim() : null;
-      const tabKey = typeof p.tabKey === "string" && p.tabKey.trim() ? p.tabKey.trim() : undefined;
+      const userId = typeof p.userId === 'string' && p.userId.trim() ? p.userId.trim() : null;
+      const tabKey = typeof p.tabKey === 'string' && p.tabKey.trim() ? p.tabKey.trim() : undefined;
       const username = normalizePresenceUsername(p.username, userId);
       const key = userId ?? tabKey ?? `guest:${username.toLowerCase()}`;
       if (!byKey.has(key)) {
@@ -36,7 +31,5 @@ export function parseRoomPresenceUsers(state: Record<string, unknown>): RoomPres
     }
   }
 
-  return [...byKey.values()].sort((a, b) =>
-    a.username.localeCompare(b.username, undefined, { sensitivity: "base" }),
-  );
+  return [...byKey.values()].sort((a, b) => a.username.localeCompare(b.username, undefined, { sensitivity: 'base' }));
 }

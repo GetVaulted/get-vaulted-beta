@@ -1,8 +1,8 @@
 import type { LiveGiveaway, User } from "@/generated/prisma/client";
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
+import { buildGiveawayShippingTermsSnapshot } from "@/lib/live-giveaway-shipping";
 import { resolveBuyerDefaultShippingForOrder } from "@/lib/live-buy-now-purchase";
 import { createNotification } from "@/lib/notifications";
-import { addOrderToLiveShippingSessionTx } from "@/services/shipping/live-shipping-pricing";
 import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-shipping-profiles";
 import { resolveShippingProfileDimensions } from "@/lib/unified-shipping-engine";
 import { PAYMENT_PAID } from "@/services/payments";
@@ -37,6 +37,14 @@ export async function createOrderFromGiveawayWinTx(
       id: true,
       defaultShippingProfileId: true,
       category: true,
+      shippingMode: true,
+      shippingCapEnabled: true,
+      shippingCapCents: true,
+      freeShippingEnabled: true,
+      sellerPaysOverCap: true,
+      carrierPreference: true,
+      bundleEligiblePurchases: true,
+      shippingTermsVersion: true,
     },
   });
   if (!show) throw new Error("GIVEAWAY_ROOM_NOT_FOUND");
@@ -127,7 +135,33 @@ export async function createOrderFromGiveawayWinTx(
     select: { id: true },
   });
 
-  await addOrderToLiveShippingSessionTx(tx, order.id, { liveShowId: args.giveaway.liveRoomId });
+  const buyerSession = await tx.liveShippingSession.findFirst({
+    where: {
+      buyerId: winnerId,
+      sellerId: args.sellerId,
+      liveShowId: args.giveaway.liveRoomId,
+    },
+    select: { shippingChargedCents: true },
+  });
+
+  const giveawaySnapshot = buildGiveawayShippingTermsSnapshot({
+    orderId: order.id,
+    liveShowId: args.giveaway.liveRoomId,
+    sellerId: args.sellerId,
+    buyerId: winnerId,
+    show,
+    buyerSessionShippingChargedCents: buyerSession?.shippingChargedCents ?? 0,
+  });
+
+  await tx.order.update({
+    where: { id: order.id },
+    data: {
+      shippingChargedCents: 0,
+      freeShippingApplied: true,
+      shippingTermsVersion: giveawaySnapshot.shippingTermsVersion,
+      shippingTermsSnapshotJson: giveawaySnapshot,
+    },
+  });
 
   await tx.liveGiveaway.update({
     where: { id: args.giveaway.id },

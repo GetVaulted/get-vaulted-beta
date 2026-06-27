@@ -68,6 +68,22 @@ describe('computeChatStackMaxHeight', () => {
     expect(small).toBeLessThan(large);
     expect(large).toBeLessThanOrEqual(248);
   });
+
+  it('uses a taller stack when expanded', () => {
+    const collapsed = computeChatStackMaxHeight({
+      slideHeight: 932,
+      topReserve: 100,
+      chatBottom: 260,
+    });
+    const expanded = computeChatStackMaxHeight({
+      slideHeight: 932,
+      topReserve: 100,
+      chatBottom: 260,
+      expanded: true,
+    });
+    expect(expanded).toBeGreaterThan(collapsed);
+    expect(expanded).toBeLessThanOrEqual(420);
+  });
 });
 
 describe('computeGiveawaySideTabBottom', () => {

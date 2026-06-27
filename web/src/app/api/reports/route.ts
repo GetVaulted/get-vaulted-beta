@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServerSessionSafe } from "@/lib/auth";
+import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { createReport } from "@/lib/trust/report-service";
 import { isReportReason, isReportTargetType } from "@/lib/trust/report-types";
 
@@ -12,10 +12,8 @@ type Body = {
 };
 
 export async function POST(req: Request) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Sign in to submit a report." }, { status: 401 });
-  }
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
 
   let body: Body;
   try {
@@ -40,7 +38,7 @@ export async function POST(req: Request) {
 
   try {
     const report = await createReport({
-      reporterUserId: session.user.id,
+      reporterUserId: auth.userId,
       targetType,
       targetId,
       reason,

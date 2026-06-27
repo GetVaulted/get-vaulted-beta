@@ -6,6 +6,7 @@ import { useRealtimeListingBidsSubscription } from "@/hooks/useRealtimeListingBi
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { LiveAuctionChat } from "@/components/live-auction/LiveAuctionChat";
+import { ExpandableLiveChatOverlay } from "@/components/live-auction/ExpandableLiveChatOverlay";
 import { LiveBuyerWalletGateHint } from "@/components/live-auction/LiveBuyerWalletGateHint";
 import { LiveVariantSelectionSheet } from "@/components/live-auction/LiveVariantSelectionSheet";
 import { LiveVariantSpotBoard } from "@/components/live-auction/LiveVariantSpotBoard";
@@ -1302,7 +1303,7 @@ export function LiveSaleRoom({
   ) : null;
 
   const floatingChatOverlay = (
-    <div className="flex h-[min(42vh,19rem)] max-h-[min(50dvh,22rem)] max-[380px]:h-[min(32vh,14rem)] min-[768px]:h-[min(48vh,24rem)] min-h-0 w-full min-w-0 flex-col">
+    <ExpandableLiveChatOverlay>
       <LiveAuctionChat
         liveRoomId={liveRoomId}
         messages={messages}
@@ -1313,7 +1314,7 @@ export function LiveSaleRoom({
         hostUserId={sellerId}
         onMessagesRefresh={() => void onRefetch?.()}
       />
-    </div>
+    </ExpandableLiveChatOverlay>
   );
 
   const embeddedDesktopChat = (

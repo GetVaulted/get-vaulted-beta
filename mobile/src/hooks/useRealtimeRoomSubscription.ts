@@ -37,6 +37,7 @@ export function useRealtimeRoomSubscription(opts: {
   onStreamStatusChange?: (payload: RoomBroadcastPayload) => void | Promise<void>;
   onTeamBreakReady?: () => void | Promise<void>;
   onTeamBreakBegan?: () => void | Promise<void>;
+  onModerationChanged?: () => void | Promise<void>;
   onVariantPurchased?: (payload: RoomBroadcastPayload) => void | Promise<void>;
   onReconnect?: () => void | Promise<void>;
   onConnectionStateChange?: (state: { status: string; reconnectCount: number }) => void;
@@ -116,6 +117,7 @@ export function useRealtimeRoomSubscription(opts: {
         })
         .on('broadcast', { event: RT_EVENT.teamBreakReady }, () => void refs.current.onTeamBreakReady?.())
         .on('broadcast', { event: RT_EVENT.teamBreakBegan }, () => void refs.current.onTeamBreakBegan?.())
+        .on('broadcast', { event: RT_EVENT.moderationChanged }, () => void refs.current.onModerationChanged?.())
         .on('broadcast', { event: RT_EVENT.breakSpots }, () => void refs.current.onBreakSpotsChange?.())
         .on('broadcast', { event: RT_EVENT.listingBid }, ({ payload }) => {
           const listingId = (payload as { listingId?: string } | null)?.listingId;

@@ -15,7 +15,7 @@ export function canShowLiveChatKickOption(args: {
 }): boolean {
   if (!args.targetUserId?.trim()) return false;
   if (args.hostUserId && args.targetUserId === args.hostUserId) return false;
-  return args.allowedActions.includes('room_ban');
+  return args.allowedActions.includes('kick');
 }
 
 export function canShowLiveChatBanOption(args: {

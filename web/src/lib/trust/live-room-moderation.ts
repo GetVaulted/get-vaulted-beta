@@ -788,7 +788,7 @@ export type LiveRoomViewerRow = {
   messageCount: number;
 };
 
-export async function listLiveRoomRecentViewers(liveRoomId: string, take = 40): Promise<LiveRoomViewerRow[]> {
+export async function listLiveRoomRecentViewers(liveRoomId: string, take = 100): Promise<LiveRoomViewerRow[]> {
   const since = new Date(Date.now() - 3 * 60 * 60 * 1000);
   const rows = await prisma.liveRoomMessage.findMany({
     where: {

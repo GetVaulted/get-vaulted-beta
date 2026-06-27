@@ -130,7 +130,7 @@ export function useLiveRoomModerationState(liveRoomId: string, enabled = true) {
     if (!supabase) return undefined;
 
     const channel = supabase
-      .channel(`${roomChannel(liveRoomId)}:moderation-ui`)
+      .channel(roomChannel(liveRoomId))
       .on("broadcast", { event: RT_EVENT.moderationChanged }, () => {
         void reload();
       })

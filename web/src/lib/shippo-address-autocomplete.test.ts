@@ -13,7 +13,7 @@ vi.mock("@/lib/shippo", () => ({
 import { isShippoConfigured, shippoAutocompleteFind, shippoAutocompleteRetrieve } from "@/lib/shippo";
 
 describe("shippo-address-autocomplete", () => {
-  it("maps find results", async () => {
+  it("maps find results with text field", async () => {
     vi.mocked(isShippoConfigured).mockReturnValue(true);
     vi.mocked(shippoAutocompleteFind).mockResolvedValue({
       results: [{ id: "abc", text: "100 Main St, Austin, TX" }],
@@ -24,6 +24,53 @@ describe("shippo-address-autocomplete", () => {
       countryCode: "US",
     });
     expect(rows).toEqual([{ id: "abc", label: "100 Main St, Austin, TX", isContainer: false }]);
+  });
+
+  it("maps find results with nested complete_address", async () => {
+    vi.mocked(isShippoConfigured).mockReturnValue(true);
+    vi.mocked(shippoAutocompleteFind).mockResolvedValue({
+      results: [
+        {
+          id: "abc",
+          address: {
+            complete_address: "100 Main St; Austin TX 78701; US",
+          },
+        },
+      ],
+    });
+
+    const rows = await searchShippoAddressAutocomplete({
+      query: "100 Main",
+      countryCode: "US",
+    });
+    expect(rows).toEqual([
+      { id: "abc", label: "100 Main St, Austin TX 78701, US", isContainer: false },
+    ]);
+  });
+
+  it("maps find results from nested address lines", async () => {
+    vi.mocked(isShippoConfigured).mockReturnValue(true);
+    vi.mocked(shippoAutocompleteFind).mockResolvedValue({
+      results: [
+        {
+          id: "abc",
+          address: {
+            address_line_1: "100 Main St",
+            city_locality: "Austin",
+            state_province: "TX",
+            postal_code: "78701",
+          },
+        },
+      ],
+    });
+
+    const rows = await searchShippoAddressAutocomplete({
+      query: "100 Main",
+      countryCode: "US",
+    });
+    expect(rows).toEqual([
+      { id: "abc", label: "100 Main St, Austin, TX, 78701", isContainer: false },
+    ]);
   });
 
   it("maps retrieve results to form fields", async () => {

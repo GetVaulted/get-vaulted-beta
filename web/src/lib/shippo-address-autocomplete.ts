@@ -46,6 +46,44 @@ function mapV2Address(raw: Record<string, unknown>): ResolvedAutocompleteAddress
   };
 }
 
+function formatCompleteAddressLabel(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return trimmed;
+  if (trimmed.includes(";")) {
+    return trimmed
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join(", ");
+  }
+  return trimmed;
+}
+
+function labelFromAddressObject(obj: Record<string, unknown>): string | null {
+  const complete = pickString(obj, [
+    "complete_address",
+    "completeAddress",
+    "formatted_address",
+    "formatted",
+    "text",
+    "description",
+    "label",
+    "address_text",
+    "display_text",
+  ]);
+  if (complete) return formatCompleteAddressLabel(complete);
+
+  const parts = [
+    pickString(obj, ["address_line_1", "street1", "line1"]),
+    pickString(obj, ["address_line_2", "street2", "line2"]),
+    pickString(obj, ["city_locality", "city"]),
+    pickString(obj, ["state_province", "state"]),
+    pickString(obj, ["postal_code", "zip", "postalCode"]),
+  ].filter(Boolean);
+  if (parts.length) return parts.join(", ");
+  return null;
+}
+
 function suggestionLabel(row: Record<string, unknown>): string {
   const direct = pickString(row, [
     "text",
@@ -54,22 +92,28 @@ function suggestionLabel(row: Record<string, unknown>): string {
     "label",
     "address_text",
     "display_text",
+    "formatted_address",
+    "formatted",
   ]);
-  if (direct) return direct;
+  if (direct) return formatCompleteAddressLabel(direct);
 
-  const nested = asRecord(row.address) ?? asRecord(row.matched_address);
-  if (nested) {
-    const parts = [
-      pickString(nested, ["address_line_1", "street1"]),
-      pickString(nested, ["city_locality", "city"]),
-      pickString(nested, ["state_province", "state"]),
-      pickString(nested, ["postal_code", "zip"]),
-    ].filter(Boolean);
-    if (parts.length) return parts.join(", ");
+  for (const key of [
+    "address",
+    "matched_address",
+    "complete_address",
+    "recommended_address",
+    "original_address",
+  ]) {
+    const nested = asRecord(row[key]);
+    if (nested) {
+      const label = labelFromAddressObject(nested);
+      if (label) return label;
+    }
   }
 
-  const line1 = pickString(row, ["address_line_1", "street1"]);
-  if (line1) return line1;
+  const composed = labelFromAddressObject(row);
+  if (composed) return composed;
+
   return "Address suggestion";
 }
 

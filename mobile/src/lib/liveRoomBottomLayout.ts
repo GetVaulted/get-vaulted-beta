@@ -77,12 +77,19 @@ export function computeChatStackMaxHeight(args: {
   topReserve: number;
   chatBottom: number;
   overlayScale?: number;
+  /** Taller chat column when the viewer expands the overlay chat stack. */
+  expanded?: boolean;
 }): number {
   const overlayScale = args.overlayScale && args.overlayScale > 1 ? args.overlayScale : 1;
   const available = args.slideHeight - args.topReserve - args.chatBottom - 12;
+  const floor = Math.round(108 * overlayScale);
+  if (args.expanded) {
+    const scaled = Math.floor(available * (overlayScale > 1 ? 0.72 : 0.65));
+    const cap = Math.round(420 * overlayScale);
+    return Math.min(cap, Math.max(floor, scaled));
+  }
   const scaled = Math.floor(available * (overlayScale > 1 ? 0.48 : 0.42));
   const cap = Math.round(248 * overlayScale);
-  const floor = Math.round(108 * overlayScale);
   return Math.min(cap, Math.max(floor, scaled));
 }
 

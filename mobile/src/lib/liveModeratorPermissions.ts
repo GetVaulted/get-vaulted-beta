@@ -20,7 +20,7 @@ const ACTION_MIN_LEVEL: Record<string, LiveModeratorLevel> = {
   slow_mode: 'show',
   block_bidding: 'break',
   unblock_bidding: 'break',
-  kick: 'head',
+  kick: 'show',
   room_ban: 'head',
   unban: 'head',
   seller_stream_ban: 'head',

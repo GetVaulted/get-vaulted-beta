@@ -43,14 +43,14 @@ function StandbyOverlay({
   kicker = 'Vaulted Live',
 }: {
   title: string;
-  body: string;
+  body?: string;
   kicker?: string;
 }) {
   return (
     <View style={styles.standbyCenter} pointerEvents="none">
       <LiveRoomText style={styles.standbyKicker}>{kicker}</LiveRoomText>
       <LiveRoomText style={styles.standbyTitle}>{title}</LiveRoomText>
-      <LiveRoomText style={styles.standbyBody}>{body}</LiveRoomText>
+      {body ? <LiveRoomText style={styles.standbyBody}>{body}</LiveRoomText> : null}
     </View>
   );
 }
@@ -241,7 +241,8 @@ export function LiveStagePlayback({
     (!showVideoLayer || (!playback.videoHasData && !streamAttaching) || surface === 'offline');
   const showStandby =
     isForeground &&
-    ((streamPaused && roomLifecycleLive) ||
+    (roomStatus === 'ended' ||
+      (streamPaused && roomLifecycleLive) ||
       surface === 'offline' ||
       surface === 'loading' ||
       surface === 'reconnecting' ||
@@ -272,7 +273,7 @@ export function LiveStagePlayback({
       );
     }
     if (roomStatus === 'ended') {
-      return <StandbyOverlay title="Show ended" body="Host is ending the live." />;
+      return <StandbyOverlay title="Live has Ended" />;
     }
     if (roomLifecycleLive && (surface === 'connecting' || surface === 'loading' || !playback.videoHasData)) {
       return (

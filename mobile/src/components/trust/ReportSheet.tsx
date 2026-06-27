@@ -58,6 +58,10 @@ export function ReportSheet({
   };
 
   const submit = async () => {
+    if (!accessToken?.trim()) {
+      setError('Sign in to submit a report.');
+      return;
+    }
     setBusy(true);
     setError(null);
     const result = await submitReport({

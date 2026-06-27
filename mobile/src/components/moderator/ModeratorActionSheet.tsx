@@ -155,7 +155,7 @@ export function ModeratorActionSheet(props: Props) {
       },
       () => setReportOpen(true),
       ...modOptions.map((o) => o.action),
-      () => undefined,
+      onClose,
     ];
     const destructiveIndex = labels.findIndex(
       (l) =>
@@ -163,8 +163,6 @@ export function ModeratorActionSheet(props: Props) {
         l.startsWith('Ban from') ||
         l.startsWith('Kick from'),
     );
-
-    onClose();
 
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
@@ -175,7 +173,10 @@ export function ModeratorActionSheet(props: Props) {
           title: `@${senderUsername}`,
         },
         (idx) => {
-          if (idx == null || idx >= handlers.length) return;
+          if (idx == null || idx >= handlers.length) {
+            onClose();
+            return;
+          }
           handlers[idx]?.();
         },
       );
@@ -186,20 +187,24 @@ export function ModeratorActionSheet(props: Props) {
       `@${senderUsername}`,
       undefined,
       [
-        ...handlers.slice(0, -1).map((handler, i) => ({
-          text: labels[i],
-          onPress: handler,
+        { text: 'View profile', onPress: handlers[0] },
+        { text: 'Copy message', onPress: handlers[1] },
+        { text: 'Report message', onPress: handlers[2] },
+        ...modOptions.map((opt, i) => ({
+          text: modOptions[i].label,
+          onPress: opt.action,
           style:
-            labels[i].startsWith('Delete') ||
-            labels[i].startsWith('Ban from') ||
-            labels[i].startsWith('Kick from')
+            modOptions[i].label.startsWith('Delete') ||
+            modOptions[i].label.startsWith('Ban from') ||
+            modOptions[i].label.startsWith('Kick from')
               ? ('destructive' as const)
               : undefined,
         })),
-        { text: 'Cancel', style: 'cancel' },
+        { text: 'Cancel', style: 'cancel', onPress: onClose },
       ],
+      { cancelable: true, onDismiss: onClose },
     );
-  }, [visible]);
+  }, [visible, modOptions, messageText, onClose, senderId, senderUsername]);
 
   return (
     <ReportSheet

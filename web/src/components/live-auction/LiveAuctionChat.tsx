@@ -7,7 +7,7 @@ import { useChatScrollToBottom } from "@/hooks/useChatScrollToBottom";
 import { LIVE_ROOM_CHAT_HISTORY_MAX } from "@/lib/live-room-chat-policy";
 import type { LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { appendLiveRoomMessageDedupe } from "@/lib/realtime-merge-messages";
-import { isInlineViewerEventBody } from "@/lib/live-room-viewer-events";
+import { isHostEndingLiveBody, isInlineViewerEventBody } from "@/lib/live-room-viewer-events";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
 import { LiveChatMessageRowActions } from "@/components/trust/LiveChatMessageRowActions";
 import {
@@ -173,7 +173,13 @@ export function LiveAuctionChat({
     hostUserId && mod.pinnedModeratorUserId && mod.pinnedModeratorUserId === hostUserId,
   );
   /** Bid lines are not shown in arena chat (bids surface via realtime / UI elsewhere). */
-  const chatMessages = useMemo(() => messages.filter((m) => m.messageType !== "bid"), [messages]);
+  const chatMessages = useMemo(
+    () =>
+      messages.filter(
+        (m) => m.messageType !== "bid" && !(m.messageType === "system" && isHostEndingLiveBody(m.body)),
+      ),
+    [messages],
+  );
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);

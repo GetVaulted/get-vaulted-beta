@@ -33,10 +33,10 @@ function canKickFromShow(args: {
 }) {
   if (args.hostUserId && args.targetUserId === args.hostUserId) return false;
   if (args.allowedActions.length) {
-    return args.allowedActions.includes("room_ban");
+    return args.allowedActions.includes("kick");
   }
   return canModeratorPerformAction({
-    actionType: "room_ban",
+    actionType: "kick",
     isHost: args.isHost,
     moderatorLevel: args.moderatorLevel,
   });
@@ -86,12 +86,14 @@ export function LiveChatUserActionMenu({
   }, [target]);
 
   const applyAction = useCallback(
-    async (actionType: "room_ban" | "seller_stream_ban", label: string) => {
+    async (actionType: "kick" | "room_ban" | "seller_stream_ban", label: string) => {
       if (!target || busy) return;
       const confirmed = window.confirm(
-        actionType === "room_ban"
-          ? `${target.username} will be removed and cannot return to this show.`
-          : `${target.username} will be blocked from every show hosted by this seller.`,
+        actionType === "kick"
+          ? `${target.username} will be removed from this show for several hours.`
+          : actionType === "room_ban"
+            ? `${target.username} will be removed and cannot return to this show.`
+            : `${target.username} will be blocked from every show hosted by this seller.`,
       );
       if (!confirmed) return;
 
@@ -190,7 +192,7 @@ export function LiveChatUserActionMenu({
               type="button"
               disabled={busy}
               className="rounded-lg px-3 py-2.5 text-left text-sm text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
-              onClick={() => void applyAction("room_ban", "Kicked from show")}
+              onClick={() => void applyAction("kick", "Kicked from show")}
             >
               Kick from show
             </button>

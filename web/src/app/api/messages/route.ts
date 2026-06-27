@@ -99,13 +99,13 @@ export async function POST(req: Request) {
         }
         if (!resolvedListingId) {
           const fallback = await tx.listing.findFirst({
-            where: { sellerId, status: { in: ["active", "auction_live"] } },
+            where: { sellerId },
             orderBy: { updatedAt: "desc" },
             select: { id: true, title: true },
           });
           if (!fallback) throw new Error("NO_LISTING");
           resolvedListingId = fallback.id;
-          listingTitle = fallback.title;
+          if (!listingTitle) listingTitle = fallback.title;
         }
       } else {
         const listing = await tx.listing.findUnique({
@@ -205,7 +205,15 @@ export async function POST(req: Request) {
     if (code === "NOT_FOUND") return NextResponse.json({ error: "Not found." }, { status: 404 });
     if (code === "SELF") return NextResponse.json({ error: "You cannot message yourself." }, { status: 400 });
     if (code === "NOT_PUBLIC" || code === "NO_LISTING") {
-      return NextResponse.json({ error: "This listing is not available." }, { status: 409 });
+      return NextResponse.json(
+        {
+          error:
+            code === "NO_LISTING"
+              ? "This seller does not have a listing to attach yet. Try again after they add inventory."
+              : "This listing is not available.",
+        },
+        { status: 409 },
+      );
     }
     console.error(e);
     return NextResponse.json({ error: "Could not send message." }, { status: 500 });

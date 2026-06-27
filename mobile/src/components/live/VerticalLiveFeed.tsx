@@ -176,6 +176,7 @@ function LiveSlide({
   const [breakDisclaimerReady, setBreakDisclaimerReady] = useState(false);
   const [paymentRecoveryToast, setPaymentRecoveryToast] = useState<string | null>(null);
   const [modDrawerOpen, setModDrawerOpen] = useState(false);
+  const [chatExpanded, setChatExpanded] = useState(false);
   const [modActionMessage, setModActionMessage] = useState<ChatMessage | null>(null);
   const [myChatSender, setMyChatSender] = useState<{ username?: string; avatarUrl?: string | null }>({});
   const chatComposerRef = useRef<MentionComposerInputHandle>(null);
@@ -281,6 +282,7 @@ function LiveSlide({
     userId,
     enabled: isActive,
     hostUsername: stream.host.handle.replace(/^@/, '') || stream.host.name,
+    onModerationChanged: () => void moderation.reload(),
     onChatBroadcast: (message) => {
       if (!message.id) {
         void liveChat.reload();
@@ -315,6 +317,14 @@ function LiveSlide({
   useEffect(() => {
     setRoomStatus(stream.roomStatus);
   }, [stream.id, stream.roomStatus]);
+
+  useEffect(() => {
+    if (liveSession.roomSnap?.status === 'ended') setRoomStatus('ended');
+  }, [liveSession.roomSnap?.status]);
+
+  useEffect(() => {
+    if (roomStatus === 'ended') setCommerceHeight(0);
+  }, [roomStatus]);
 
   useEffect(() => {
     if (!isActive || roomStatus === 'live' || roomStatus === 'ended') return undefined;
@@ -444,6 +454,7 @@ function LiveSlide({
     topReserve: computeLiveTopReserve(stageInsets.top, layoutWidth),
     chatBottom: bottomStack.chatBottom,
     overlayScale,
+    expanded: chatExpanded,
   });
   const giveawayTabBottom = computeGiveawaySideTabBottom({
     chatBottom: bottomStack.chatBottom,
@@ -473,15 +484,43 @@ function LiveSlide({
     if (!isActive) immersiveChrome.restore();
   }, [isActive, immersiveChrome.restore]);
 
+  useEffect(() => {
+    setChatExpanded(false);
+  }, [stream.id]);
+
+  const removedFromShow =
+    moderation.roomBlocked ||
+    Boolean(moderation.myRestrictions?.roomBanned) ||
+    Boolean(moderation.myRestrictions?.kickedUntil) ||
+    Boolean(moderation.myRestrictions?.sellerStreamBanned);
+  const removedNoticeShownRef = useRef(false);
+
+  useEffect(() => {
+    if (!removedFromShow) {
+      removedNoticeShownRef.current = false;
+      return;
+    }
+    if (removedNoticeShownRef.current) return;
+    removedNoticeShownRef.current = true;
+    Alert.alert('Removed from show', 'You were removed from this live show.', [
+      { text: 'Leave', onPress: () => leaveRoomSafely() },
+    ]);
+  }, [leaveRoomSafely, removedFromShow]);
+
   const tagUserInChat = useCallback((username: string) => {
     setChatDraft((prev) => appendMentionToDraft(prev, username));
     requestAnimationFrame(() => chatComposerRef.current?.focus());
   }, []);
 
   const applyChatUserModeration = useCallback(
-    async (actionType: 'room_ban' | 'seller_stream_ban', targetUserId: string, username: string) => {
+    async (actionType: 'kick' | 'room_ban' | 'seller_stream_ban', targetUserId: string, username: string) => {
       if (!accessToken?.trim()) return;
-      const label = actionType === 'room_ban' ? 'Kicked from show' : 'Banned from seller shows';
+      const label =
+        actionType === 'kick'
+          ? 'Kicked from show'
+          : actionType === 'room_ban'
+            ? 'Banned from show'
+            : 'Banned from seller shows';
       const result = await applyLiveModerationAction({
         accessToken,
         roomId: stream.id,
@@ -529,7 +568,7 @@ function LiveSlide({
                 canKickFromShow: canKick,
                 canBanFromSeller: canBan,
                 onKickFromShow: () => {
-                  if (targetUserId) void applyChatUserModeration('room_ban', targetUserId, user.username);
+                  if (targetUserId) void applyChatUserModeration('kick', targetUserId, user.username);
                 },
                 onBanFromSeller: () => {
                   if (targetUserId) void applyChatUserModeration('seller_stream_ban', targetUserId, user.username);
@@ -816,7 +855,7 @@ function LiveSlide({
                 <LiveRoomText style={styles.endedBadge}>ENDED</LiveRoomText>
               )}
               <LiveRoomText style={[styles.viewersTopRight, compact && styles.viewersTopRightCompact]}>
-                {formatViewers(liveSession.viewerCount ?? stream.viewers)}
+                {formatViewers(liveSession.viewerCount ?? 0)}
               </LiveRoomText>
             </View>
             <Pressable
@@ -903,7 +942,10 @@ function LiveSlide({
               return;
             }
             if (rootNavigationRef.isReady()) {
-              rootNavigationRef.navigate('MessageCompose', { liveRoomId: stream.id });
+              rootNavigationRef.navigate('MessageCompose', {
+                liveRoomId: stream.id,
+                sellerUsername: stream.host.handle || stream.host.name,
+              });
             }
           }}
           accessibilityLabel="Message seller privately"
@@ -1019,6 +1061,8 @@ function LiveSlide({
         }}
         onPressChatUser={onPressChatUser}
         moderatorUserIds={moderation.moderators.map((m) => m.userId)}
+        expanded={chatExpanded}
+        onToggleExpanded={() => setChatExpanded((prev) => !prev)}
       />
 
       {pinnedModerator ? (
@@ -1165,6 +1209,7 @@ function LiveSlide({
         </View>
       ) : null}
 
+      {roomStatus !== 'ended' ? (
       <View
         style={[
           styles.commerceOverlayHost,
@@ -1208,6 +1253,7 @@ function LiveSlide({
           staffCommerceBlocked={staffCommerceBlocked}
         />
       </View>
+      ) : null}
             </Animated.View>
 
             <LiveImmersiveRestoreHint

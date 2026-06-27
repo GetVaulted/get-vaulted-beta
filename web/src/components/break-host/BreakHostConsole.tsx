@@ -1659,7 +1659,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   }
 
   const { room } = data;
-  const viewerCount = liveViewerCount ?? room.viewerCount;
+  const viewerCount = liveViewerCount ?? 0;
   const roomStatusKey = room.status.toLowerCase();
 
   const hostUsername =

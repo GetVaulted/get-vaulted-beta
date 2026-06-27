@@ -52,13 +52,12 @@ export function useSellerLiveConsole({
   const [recentSales, setRecentSales] = useState<HostRecentSaleRow[]>([]);
   const [paymentFailures, setPaymentFailures] = useState<HostPaymentFailureRow[]>([]);
   const [activeItem, setActiveItem] = useState<LiveRoomItemRow | null>(null);
-  const [dbViewerCount, setDbViewerCount] = useState(0);
   const liveViewerCount = useRealtimeRoomPresence({
     liveRoomId: roomId,
     enabled: roomStatus !== 'ended',
     trackSelf: false,
   });
-  const viewerCount = liveViewerCount ?? dbViewerCount;
+  const viewerCount = liveViewerCount ?? 0;
   const [serverNowMs, setServerNowMs] = useState(Date.now());
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -88,7 +87,6 @@ export function useSellerLiveConsole({
         id: data.activeItem?.id ?? null,
         status: data.activeItem?.status ?? null,
       });
-      setDbViewerCount(data.room.viewerCount);
       setServerNowMs(data.serverNowMs);
       const hostUser = sellerUsernameRef.current?.trim().toLowerCase() ?? '';
       setChatMessages(

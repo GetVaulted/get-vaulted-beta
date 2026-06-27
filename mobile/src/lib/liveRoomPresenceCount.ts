@@ -1,4 +1,6 @@
-/** Count distinct presence slots on a Supabase Realtime room channel. */
+import { parseRoomPresenceUsers } from './liveRoomPresenceUsers';
+
+/** Count unique viewers from Supabase Realtime presence (dedupes signed-in users across tabs). */
 export function countRoomPresenceViewers(state: Record<string, unknown>): number {
-  return Object.keys(state).length;
+  return parseRoomPresenceUsers(state).length;
 }

@@ -4,12 +4,13 @@ import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,7 +18,6 @@ import { MentionComposerInput } from '../../components/mentions/MentionComposerI
 import { startConversation } from '../../api/messagesRepository';
 import { useAuth } from '../../auth/AuthContext';
 import type { RootStackParamList } from '../../navigation/types';
-import { openMessageThread } from '../../navigation/openMessages';
 import { colors, radii, spacing } from '../../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MessageCompose'>;
@@ -28,6 +28,10 @@ export function MessageComposeScreen({ navigation, route }: Props) {
   const token = session?.access_token;
   const [draft, setDraft] = useState(route.params.initialDraft ?? '');
   const [busy, setBusy] = useState(false);
+
+  const sellerLabel = route.params.sellerUsername?.trim();
+  const title = sellerLabel ? `Message @${sellerLabel.replace(/^@/, '')}` : 'Message seller';
+  const fromLive = Boolean(route.params.liveRoomId);
 
   const onSend = async () => {
     const text = draft.trim();
@@ -45,15 +49,18 @@ export function MessageComposeScreen({ navigation, route }: Props) {
         listingId: route.params.listingId,
         liveRoomId: route.params.liveRoomId,
         body: text,
-        conversationKind: route.params.liveRoomId ? 'live_networking' : 'buyer_seller',
+        conversationKind: fromLive ? 'live_networking' : 'buyer_seller',
       });
+      Keyboard.dismiss();
       if (inbox === 'request') {
         Alert.alert(
           'Request sent',
           'Your message is in the seller’s requests until they accept.',
+          [{ text: 'OK', onPress: () => navigation.replace('MessageThread', { threadId }) }],
         );
+        return;
       }
-      openMessageThread(navigation, threadId);
+      navigation.replace('MessageThread', { threadId });
     } catch (e) {
       Alert.alert('Could not send', e instanceof Error ? e.message : 'Try again.');
     } finally {
@@ -64,55 +71,81 @@ export function MessageComposeScreen({ navigation, route }: Props) {
   return (
     <KeyboardAvoidingView
       style={[styles.root, { paddingTop: insets.top }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 6 : 0}
     >
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+        <Pressable onPress={() => navigation.goBack()} hitSlop={12} accessibilityLabel="Close">
           <Ionicons name="close" size={24} color={colors.textSecondary} />
         </Pressable>
-        <Text style={styles.title}>Message seller</Text>
+        <Text style={styles.title} numberOfLines={1}>
+          {title}
+        </Text>
         <View style={{ width: 24 }} />
       </View>
-      <Text style={styles.hint}>
-        {route.params.liveRoomId
-          ? 'Private message — stays off the live chat.'
-          : 'Ask about condition, shipping, or make an offer.'}
-      </Text>
-      <MentionComposerInput
-        style={styles.input}
-        value={draft}
-        onChangeText={setDraft}
-        accessToken={token}
-        placeholder="Hi — I'm interested in this piece…"
-        placeholderTextColor={colors.textMuted}
-        multiline
-        autoFocus
-        maxLength={2000}
-      />
-      <Pressable style={styles.send} onPress={() => void onSend()} disabled={busy}>
-        {busy ? (
-          <ActivityIndicator color="#0a0a0a" />
-        ) : (
-          <Text style={styles.sendTxt}>Send message</Text>
-        )}
-      </Pressable>
+
+      <ScrollView
+        style={styles.body}
+        contentContainerStyle={styles.bodyContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+      >
+        <Text style={styles.hint}>
+          {fromLive
+            ? 'Private message — stays off the live chat.'
+            : 'Ask about condition, shipping, or make an offer.'}
+        </Text>
+        <MentionComposerInput
+          style={styles.input}
+          value={draft}
+          onChangeText={setDraft}
+          accessToken={token}
+          placeholder="Hi — I'm interested in this piece…"
+          placeholderTextColor={colors.textMuted}
+          multiline
+          autoFocus
+          maxLength={2000}
+        />
+      </ScrollView>
+
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
+        <Pressable
+          style={[styles.send, (!draft.trim() || busy) && styles.sendDim]}
+          onPress={() => void onSend()}
+          disabled={busy || !draft.trim()}
+          accessibilityLabel="Send message"
+        >
+          {busy ? (
+            <ActivityIndicator color="#0a0a0a" />
+          ) : (
+            <Text style={styles.sendTxt}>Send message</Text>
+          )}
+        </Pressable>
+      </View>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.background, paddingHorizontal: spacing.lg },
+  root: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.md,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
   },
-  title: { fontSize: 17, fontWeight: '800', color: colors.textPrimary },
+  title: { flex: 1, fontSize: 17, fontWeight: '800', color: colors.textPrimary, textAlign: 'center' },
+  body: { flex: 1 },
+  bodyContent: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+    flexGrow: 1,
+  },
   hint: { fontSize: 13, color: colors.textMuted, lineHeight: 18, marginBottom: spacing.md },
   input: {
-    flex: 1,
-    minHeight: 140,
+    minHeight: 160,
+    maxHeight: 240,
     borderRadius: radii.md,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(212,175,55,0.35)',
@@ -122,13 +155,19 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlignVertical: 'top',
   },
+  footer: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    backgroundColor: 'rgba(8,8,10,0.98)',
+  },
   send: {
-    marginTop: spacing.md,
-    marginBottom: spacing.xl,
     paddingVertical: 14,
     borderRadius: radii.pill,
     backgroundColor: colors.gold,
     alignItems: 'center',
   },
+  sendDim: { opacity: 0.45 },
   sendTxt: { fontWeight: '900', fontSize: 15, color: '#0a0a0a' },
 });
