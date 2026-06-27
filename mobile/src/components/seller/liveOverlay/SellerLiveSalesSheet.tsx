@@ -124,7 +124,10 @@ export function SellerLiveSalesSheet({
           >
             {paymentFailures.length > 0 ? (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Payment blocked</Text>
+                <Text style={styles.sectionTitle}>Show paused — payment due</Text>
+                <Text style={styles.sectionHint}>
+                  Start the next auction or buy now after the buyer fixes payment, or cancel the retry.
+                </Text>
                 {paymentFailures.map((f) => (
                   <View key={f.id} style={styles.failureRow}>
                     <View style={styles.failureBody}>
@@ -273,6 +276,13 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.45)',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
+  },
+  sectionHint: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.55)',
+    lineHeight: 17,
+    marginTop: 4,
+    marginBottom: spacing.sm,
   },
   sectionMeta: {
     fontSize: 9,

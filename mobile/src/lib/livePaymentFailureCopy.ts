@@ -90,4 +90,4 @@ export function recoveryStatusMessage(status: number | null | undefined): string
 export const PAYMENT_RECOVERY_SUCCESS_TOAST = "Payment successful — you're back in the room.";
 
 export const PAYMENT_RECOVERY_SUBTITLE =
-  'Your payment method must be updated to continue participating in live purchases.';
+  'Update your payment method to continue. The show waits until payment clears before the next auction or buy now.';

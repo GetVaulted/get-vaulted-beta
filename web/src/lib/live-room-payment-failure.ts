@@ -139,6 +139,27 @@ export async function listUnresolvedPaymentFailuresForRoom(
     .filter((r): r is SellerPaymentFailureDTO => r != null);
 }
 
+/** Blocks host from starting the next auction / buy-now lot while any buyer payment is unresolved. */
+export async function liveRoomHostCommerceBlockResponse(
+  liveRoomId: string,
+): Promise<NextResponse | null> {
+  const failures = await listUnresolvedPaymentFailuresForRoom(liveRoomId);
+  if (failures.length === 0) return null;
+  const pending = failures[0]!;
+  return NextResponse.json(
+    {
+      error:
+        "A buyer must fix their payment before you start the next auction or buy now. Check Sales for pending payment recovery.",
+      code: "LIVE_HOST_PAYMENT_BLOCKED",
+      paymentFailures: failures,
+      pendingBuyerUsername: pending.buyerUsername,
+      pendingItemTitle: pending.itemTitle,
+      pendingAmountUsd: pending.amountUsd,
+    },
+    { status: 409 },
+  );
+}
+
 export async function liveRoomPaymentBlockResponse(
   liveRoomId: string,
   buyerId: string,

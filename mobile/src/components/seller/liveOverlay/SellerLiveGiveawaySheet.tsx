@@ -248,6 +248,7 @@ export function SellerLiveGiveawaySheet({
           <View style={styles.tabs}>
             {(['open', 'buyers'] as const).map((t) => {
               const active = lane === t;
+              const label = t === 'open' ? 'Giveaway' : 'Buyers givvy';
               return (
                 <Pressable
                   key={t}
@@ -255,10 +256,10 @@ export function SellerLiveGiveawaySheet({
                     setLane(t);
                     resetForm();
                   }}
-                  style={[styles.tab, active && styles.tabActive]}
+                  style={[styles.tab, t === 'buyers' && styles.tabWide, active && styles.tabActive]}
                 >
-                  <Text style={[styles.tabTxt, active && styles.tabTxtActive]}>
-                    {t === 'open' ? 'Giveaway' : 'Buyers givvy'}
+                  <Text style={[styles.tabTxt, active && styles.tabTxtActive]} numberOfLines={2}>
+                    {label}
                   </Text>
                 </Pressable>
               );
@@ -460,14 +461,21 @@ const styles = StyleSheet.create({
   tabs: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.lg, marginBottom: spacing.sm },
   tab: {
     flex: 1,
+    minHeight: 44,
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: colors.border,
+    paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabWide: {
+    flex: 1.35,
+    paddingHorizontal: spacing.md,
   },
   tabActive: { borderColor: colors.gold, backgroundColor: 'rgba(212,175,55,0.12)' },
-  tabTxt: { fontSize: 12, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase' },
+  tabTxt: { fontSize: 12, fontWeight: '700', color: colors.textSecondary, textAlign: 'center', lineHeight: 16 },
   tabTxtActive: { color: colors.gold },
   scroll: { flexGrow: 0 },
   scrollContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, gap: spacing.md },
@@ -480,7 +488,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     alignItems: 'center',
   },
-  createBtnTxt: { fontSize: 12, fontWeight: '800', color: '#6ee7b7', textTransform: 'uppercase' },
+  createBtnTxt: { fontSize: 12, fontWeight: '800', color: '#6ee7b7', textAlign: 'center', lineHeight: 16 },
   empty: { textAlign: 'center', color: colors.textMuted, fontSize: 13, paddingVertical: spacing.lg },
   card: {
     borderRadius: radii.md,

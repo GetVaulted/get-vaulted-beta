@@ -17,7 +17,7 @@
       "supportsTablet": true,
       "usesAppleSignIn": true,
       "bundleIdentifier": "com.getvaulted.app",
-      "buildNumber": "55",
+      "buildNumber": "56",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Get Vaulted uses your photo library for profile photos and listing images.",
         "NSCameraUsageDescription": "Get Vaulted uses the camera for live broadcasts, profile photos, and listing images.",
@@ -27,7 +27,7 @@
     },
     "android": {
       "package": "com.getvaulted.app",
-      "versionCode": 55,
+      "versionCode": 56,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#050505"
@@ -60,7 +60,13 @@
       ],
       "expo-web-browser",
       "expo-apple-authentication",
-      "expo-video",
+      [
+        "expo-video",
+        {
+          "supportsPictureInPicture": true,
+          "supportsBackgroundPlayback": true
+        }
+      ],
       [
         "@stripe/stripe-react-native",
         {

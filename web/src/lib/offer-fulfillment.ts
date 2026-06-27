@@ -253,7 +253,10 @@ export async function createOrderFromAuctionWin(
   const shipZip = hasShip ? params.shipZip! : "00000";
   const shipCountry = hasShip ? params.shipCountry! : "US";
   const paymentLabel = (params.paymentLabel && params.paymentLabel.trim()) || "auction";
-  const paymentDeadlineAt = new Date(Date.now() + AUCTION_WINNER_PAYMENT_WINDOW_MS);
+  /** Live-show wins stay open until the buyer recovers in-room — no timed expiry during the broadcast. */
+  const paymentDeadlineAt = hasLiveAuctionContext
+    ? null
+    : new Date(Date.now() + AUCTION_WINNER_PAYMENT_WINDOW_MS);
 
   await reserveListingInventoryHoldTx(tx, {
     listingId: params.listingId,
@@ -312,7 +315,11 @@ export async function createOrderFromAuctionWin(
         }
         await tx.order.updateMany({
           where: { id: recovered.id, paymentDeadlineAt: null, paymentStatus: "pending_payment" },
-          data: { paymentDeadlineAt: new Date(Date.now() + AUCTION_WINNER_PAYMENT_WINDOW_MS) },
+          data: {
+            paymentDeadlineAt: hasLiveAuctionContext
+              ? null
+              : new Date(Date.now() + AUCTION_WINNER_PAYMENT_WINDOW_MS),
+          },
         });
         await tx.listing.updateMany({
           where: {
@@ -349,11 +356,15 @@ export async function createOrderFromAuctionWin(
   const buyerTitle = params.notify?.buyerTitle ?? "You won the auction";
   const buyerBody =
     params.notify?.buyerBody ??
-    `You won “${titleShort}” at ${priceStr}. You have 30 minutes to pay — open your order and use Pay now.`;
+    (hasLiveAuctionContext
+      ? `You won “${titleShort}” at ${priceStr}. Update your payment method in the show to continue.`
+      : `You won “${titleShort}” at ${priceStr}. You have 30 minutes to pay — open your order and use Pay now.`);
   const sellerTitle = params.notify?.sellerTitle ?? "Auction ended — payment pending";
   const sellerBody =
     params.notify?.sellerBody ??
-    `Winner has 30 minutes to pay for “${titleShort}”. You will be notified when payment clears.`;
+    (hasLiveAuctionContext
+      ? `Payment pending for “${titleShort}”. The show waits until the winner updates payment.`
+      : `Winner has 30 minutes to pay for “${titleShort}”. You will be notified when payment clears.`);
   if (!params.skipWinNotifications) {
     await createNotification(tx, {
       userId: params.buyerId,

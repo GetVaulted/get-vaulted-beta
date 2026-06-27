@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
-import { useVideoPlayer, VideoView } from 'expo-video';
+import { useVideoPlayer, VideoView, type VideoPlayer } from 'expo-video';
 import { useLiveStagePlayback, type LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
 import { useHlsLiveEdgeSeek } from '../../hooks/useHlsLiveEdgeSeek';
 import {
@@ -135,8 +135,14 @@ export function LiveStagePlayback({
 
   const useWebrtc = transport === 'webrtc' && enabled;
   const attachHls = transport === 'hls' && Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
+  /** WebRTC is foreground-only; keep a hidden HLS player so system PiP works when the app backgrounds. */
+  const attachHlsPip =
+    useWebrtc &&
+    isForeground &&
+    roomLifecycleLive &&
+    Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
 
-  const player = useVideoPlayer(attachHls ? playbackUrl : null, (p) => {
+  const hlsPlayerSetup = (p: VideoPlayer) => {
     p.loop = false;
     p.muted = muted;
     p.bufferOptions = {
@@ -145,9 +151,14 @@ export function LiveStagePlayback({
       minBufferForPlayback: 1,
     };
     p.play();
-  });
+  };
+
+  const player = useVideoPlayer(attachHls ? playbackUrl : null, hlsPlayerSetup);
+
+  const pipPlayer = useVideoPlayer(attachHlsPip ? playbackUrl : null, hlsPlayerSetup);
 
   useHlsLiveEdgeSeek(player, attachHls && playback.videoHasData);
+  useHlsLiveEdgeSeek(pipPlayer, attachHlsPip);
 
   useEffect(() => {
     if (!attachHls) return;
@@ -155,10 +166,21 @@ export function LiveStagePlayback({
   }, [attachHls, muted, player]);
 
   useEffect(() => {
+    if (!attachHlsPip) return;
+    pipPlayer.muted = muted;
+  }, [attachHlsPip, muted, pipPlayer]);
+
+  useEffect(() => {
     if (!attachHls || !playbackUrl) return;
     player.replace(playbackUrl);
     player.play();
   }, [attachHls, playbackUrl, player]);
+
+  useEffect(() => {
+    if (!attachHlsPip || !playbackUrl) return;
+    pipPlayer.replace(playbackUrl);
+    pipPlayer.play();
+  }, [attachHlsPip, playbackUrl, pipPlayer]);
 
   useEffect(() => {
     if (!attachHls) return;
@@ -319,7 +341,19 @@ export function LiveStagePlayback({
           style={styles.video}
           contentFit={contentFit}
           nativeControls={false}
-          allowsPictureInPicture={false}
+          allowsPictureInPicture
+          startsPictureInPictureAutomatically
+        />
+      ) : null}
+
+      {attachHlsPip ? (
+        <VideoView
+          player={pipPlayer}
+          style={styles.pipHidden}
+          contentFit={contentFit}
+          nativeControls={false}
+          allowsPictureInPicture
+          startsPictureInPictureAutomatically
         />
       ) : null}
 
@@ -368,6 +402,10 @@ const styles = StyleSheet.create({
   },
   video: {
     ...StyleSheet.absoluteFillObject,
+  },
+  pipHidden: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0,
   },
   standbyWrap: {
     ...StyleSheet.absoluteFillObject,

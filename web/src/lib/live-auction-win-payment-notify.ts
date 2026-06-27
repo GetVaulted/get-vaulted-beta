@@ -26,8 +26,8 @@ export async function notifyLiveAuctionWinPaymentOutcome(args: {
   const buyerBody = paid
     ? `You won "${titleShort}" at ${priceStr}. Your saved card was charged. Open your order for details.`
     : needsAuth
-      ? `You won "${titleShort}" at ${priceStr}. Complete payment on your order — your bank may require an extra step.`
-      : `You won "${titleShort}" at ${priceStr}. We could not charge your card automatically. Open your order and pay within 30 minutes.`;
+      ? `You won "${titleShort}" at ${priceStr}. Complete payment in the show — your bank may require an extra step.`
+      : `You won "${titleShort}" at ${priceStr}. We could not charge your card. Update your payment method in the show before the host continues.`;
 
   const sellerTitle = paid
     ? "Auction ended — paid"
@@ -37,10 +37,10 @@ export async function notifyLiveAuctionWinPaymentOutcome(args: {
   const sellerBody = paid
     ? `Payment received for "${titleShort}".`
     : paymentFailed
-      ? `Auto-charge failed for "${titleShort}". The winner can retry payment on their order — you will be notified when it clears.`
+      ? `Auto-charge failed for "${titleShort}". The winner must update payment before you start the next lot.`
       : needsAuth
         ? `The winner may need to complete authentication for "${titleShort}".`
-        : `Winner has 30 minutes to pay for "${titleShort}". You will be notified when payment clears.`;
+        : `Winner must update payment for "${titleShort}" before the show continues.`;
 
   await createNotification(prisma, {
     userId: args.buyerId,

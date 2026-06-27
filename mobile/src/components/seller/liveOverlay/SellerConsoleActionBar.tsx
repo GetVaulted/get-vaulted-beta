@@ -102,13 +102,15 @@ export function SellerConsoleActionBar({
               ) : null}
             </Pressable>
             <Pressable
-              style={[styles.actionBtn, { minHeight: actionMinH }]}
+              style={[styles.actionBtn, styles.givvyBtn, { minHeight: actionMinH }]}
               onPress={onGiveaways}
               accessibilityLabel="Giveaways"
               hitSlop={4}
             >
               <Ionicons name="gift-outline" size={iconSize} color="#6ee7b7" />
-              <Text style={[styles.addTxt, styles.givvyTxt, { fontSize: labelSize }]}>Givvys</Text>
+              <Text style={[styles.addTxt, styles.givvyTxt, { fontSize: labelSize }]} numberOfLines={1}>
+                Givvys
+              </Text>
             </Pressable>
             {showTeamsBoard && onTeams ? (
               <Pressable
@@ -236,6 +238,10 @@ const styles = StyleSheet.create({
   },
   salesAttentionBtn: {
     borderColor: 'rgba(244,63,94,0.45)',
+  },
+  givvyBtn: {
+    paddingHorizontal: 14,
+    minWidth: 86,
   },
   attentionDot: {
     minWidth: 16,

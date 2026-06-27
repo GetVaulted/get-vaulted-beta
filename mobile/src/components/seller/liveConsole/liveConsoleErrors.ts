@@ -76,6 +76,15 @@ export function sanitizeLiveError(raw: unknown, context?: 'stream' | 'room' | 'c
     return { userMessage: 'Sign in to continue hosting.', devDetail, isNetwork: false };
   }
 
+  if (/LIVE_HOST_PAYMENT_BLOCKED|before you start the next auction/i.test(text)) {
+    return {
+      userMessage:
+        'A buyer must fix their payment before you start the next auction or buy now. Check Sales.',
+      devDetail,
+      isNetwork: false,
+    };
+  }
+
   if (/not found|404/i.test(text)) {
     return { userMessage: 'This vault event could not be found.', devDetail, isNetwork: false };
   }

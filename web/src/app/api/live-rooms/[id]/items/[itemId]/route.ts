@@ -17,6 +17,7 @@ import {
 } from "@/lib/live-variant-spot-commerce";
 import { parseLiveItemSalesFormat } from "@/lib/live-item-variant-serialize";
 import { settleAndChargeLiveAuctionLot, resetLiveAuctionLotAfterNoBids } from "@/lib/live-auction-finalize";
+import { liveRoomHostCommerceBlockResponse } from "@/lib/live-room-payment-failure";
 import { isMultiQuantityLiveAuctionItem } from "@/lib/live-auction-host-start";
 import { resolveUnpinnedActiveItemStatus } from "@/lib/resolve-unpinned-active-item-status";
 import { applyHighestPreBidToLiveItem } from "@/lib/live-auction-pre-bid";
@@ -147,6 +148,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
   }
 
   const action = typeof body.action === "string" ? body.action.trim() : "";
+
+  const status = typeof body.status === "string" ? body.status.trim() : "";
+  const hostCommerceBlocked =
+    action === "beginTeamBreak" ||
+    action === "setCommerceFormat" ||
+    action === "setActiveSpotCommerceMode" ||
+    action === "startAuction" ||
+    status === "active";
+  if (hostCommerceBlocked) {
+    const block = await liveRoomHostCommerceBlockResponse(liveRoomId);
+    if (block) return block;
+  }
 
   if (action === "beginTeamBreak") {
     const result = await beginVariantTeamBreak(liveRoomId, itemId, room.sellerId);
@@ -435,7 +448,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
     }
   }
 
-  const status = typeof body.status === "string" ? body.status.trim() : "";
   if (status && !STATUSES.includes(status as LiveRoomItemStatus)) {
     return NextResponse.json({ error: "Invalid status." }, { status: 400 });
   }

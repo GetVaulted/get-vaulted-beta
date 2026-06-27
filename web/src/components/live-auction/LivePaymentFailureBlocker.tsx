@@ -96,7 +96,7 @@ export function LivePaymentFailureBlocker({ liveRoomId, failure, onResolved, onO
         <h2 className="mt-2 text-lg font-bold text-white">
           {success
             ? "Payment successful. You're all set."
-            : "Payment failed for your winning bid. Please update your payment method to continue."}
+            : "Payment failed. Update your card to continue in this show."}
         </h2>
         {failure.itemTitle ? (
           <p className="mt-2 text-sm text-zinc-400">

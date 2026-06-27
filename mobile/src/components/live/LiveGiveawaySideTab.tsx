@@ -192,7 +192,9 @@ export function LiveGiveawaySideTab({
 
           <View style={styles.tabInner}>
 
-            <Text style={styles.tabTitle}>Giveaway</Text>
+            <Text style={styles.tabTitle} numberOfLines={2}>
+              Giveaway
+            </Text>
 
             <View style={styles.tabMeta}>
 
@@ -365,9 +367,7 @@ const styles = StyleSheet.create({
   },
 
   tab: {
-
-    width: 58,
-
+    width: 74,
     minHeight: 96,
 
     borderTopRightRadius: radii.lg,
@@ -421,15 +421,11 @@ const styles = StyleSheet.create({
   },
 
   tabTitle: {
-
     fontSize: 11,
-
     fontWeight: '700',
-
     color: '#fafafa',
-
     letterSpacing: -0.2,
-
+    lineHeight: 13,
   },
 
   tabMeta: {
@@ -491,15 +487,11 @@ const styles = StyleSheet.create({
   },
 
   entryLabel: {
-
-    fontSize: 10,
-
+    fontSize: 9,
     fontWeight: '600',
-
     color: 'rgba(250,250,250,0.72)',
-
     marginTop: -1,
-
+    lineHeight: 11,
   },
 
   panel: {

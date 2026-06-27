@@ -214,8 +214,8 @@ export async function sendBreakAuctionWinNotificationsDeferred(
   const buyerBody = paid
     ? `You won “${titleShort}” at ${priceStr}. Your saved card was charged. Open your order for details.`
     : needsAuth
-      ? `You won “${titleShort}” at ${priceStr}. Complete payment on your order — your bank may require an extra step.`
-      : `You won “${titleShort}” at ${priceStr}. We could not charge your card automatically. Open your order and pay within 30 minutes.`;
+      ? `You won “${titleShort}” at ${priceStr}. Complete payment in the show — your bank may require an extra step.`
+      : `You won “${titleShort}” at ${priceStr}. We could not charge your card. Update your payment method in the show before the host continues.`;
 
   const sellerTitle = paid ? "Auction ended — paid" : paymentFailed ? "Auction ended — payment failed" : "Auction ended — payment pending";
   const sellerBody = paid
@@ -223,10 +223,10 @@ export async function sendBreakAuctionWinNotificationsDeferred(
     : paymentFailed
       ? `Payment failed for @${(
           await prisma.user.findUnique({ where: { id: pending.buyerId }, select: { username: true } })
-        )?.username ?? "buyer"} on "${titleShort}" — ${priceStr}. They must update payment to continue in the room.`
+        )?.username ?? "buyer"} on "${titleShort}" — ${priceStr}. They must update payment before you start the next lot.`
       : needsAuth
       ? `The winner may need to complete authentication for “${titleShort}”.`
-      : `Winner has 30 minutes to pay for “${titleShort}”. You will be notified when payment clears.`;
+      : `Winner must update payment for “${titleShort}” before the show continues.`;
 
   await createNotification(prisma, {
     userId: pending.buyerId,
