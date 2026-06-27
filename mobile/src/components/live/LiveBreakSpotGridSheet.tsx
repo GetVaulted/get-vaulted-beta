@@ -49,6 +49,8 @@ type Props = {
   walletReady: boolean;
   onWalletRequired: () => void;
   onPurchased: () => void;
+  /** Refetch room snapshot after failed checkout so released spots reappear. */
+  onRoomRefresh?: () => void;
 };
 
 function fmtMoney(n: number) {
@@ -69,6 +71,7 @@ export function LiveBreakSpotGridSheet({
   walletReady,
   onWalletRequired,
   onPurchased,
+  onRoomRefresh,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { confirmPayment } = useStripe();
@@ -151,6 +154,7 @@ export function LiveBreakSpotGridSheet({
             res.code,
           ) + (res.paymentFailed ? ' Spot was not sold.' : ''),
         );
+        if (res.paymentFailed) onRoomRefresh?.();
         return;
       }
       if ('paid' in res) {
@@ -166,6 +170,14 @@ export function LiveBreakSpotGridSheet({
         const conf = await confirmPayment(res.clientSecret, { paymentMethodType: 'Card' });
         if (conf.error) {
           setError(mapLivePaymentFailureMessage(conf.error.message, conf.error.code));
+          const synced = await syncLiveItemVariantPurchase({
+            accessToken,
+            liveRoomId: roomId,
+            itemId,
+            variantId: selected.id,
+            purchaseId: res.purchaseId,
+          });
+          if (!synced.ok && synced.paymentFailed) onRoomRefresh?.();
           return;
         }
         const synced = await syncLiveItemVariantPurchase({
@@ -186,9 +198,11 @@ export function LiveBreakSpotGridSheet({
         }
         setError(
           !synced.ok
-            ? mapLivePaymentFailureMessage(synced.error, synced.code)
+            ? mapLivePaymentFailureMessage(synced.error, synced.code) +
+                (synced.paymentFailed ? ' Spot was not sold.' : '')
             : 'Payment is still processing — pull to refresh the room.',
         );
+        if (!synced.ok && synced.paymentFailed) onRoomRefresh?.();
         return;
       }
       if ('processing' in res) {
@@ -196,6 +210,7 @@ export function LiveBreakSpotGridSheet({
         return;
       }
       setError('Purchase could not complete.');
+      onRoomRefresh?.();
     } catch (e) {
       if (isWalletIncompleteError(e)) {
         onWalletRequired();

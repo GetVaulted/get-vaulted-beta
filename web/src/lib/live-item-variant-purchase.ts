@@ -5,7 +5,12 @@ import { buildCheckoutTaxSessionFields, STRIPE_TAX_CODE_TANGIBLE, stripeLineItem
 import { recordLiveShowCompletedSaleTx, resolveCheckoutApplicationFeeCents } from "@/lib/live-show-gmv";
 import { assertSellerStripeCollectReadyFromUser, sellerStripeCollectSelect } from "@/lib/seller-stripe-collect-ready";
 
-import { emitLiveRoomMessageById, emitLiveRoomMessagesRefetch, emitVariantPurchased } from "@/lib/realtime-emit-server";
+import {
+  emitLiveRoomMessageById,
+  emitLiveRoomMessagesRefetch,
+  emitLiveRoomQueueItemsChanged,
+  emitVariantPurchased,
+} from "@/lib/realtime-emit-server";
 import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
 import { createNotification } from "@/lib/notifications";
 import { maybeMarkVariantBreakReady } from "@/lib/live-item-variant-break";
@@ -139,7 +144,14 @@ export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, st
 export async function releaseVariantPurchaseOnCheckoutExpired(purchaseId: string) {
   const purchase = await prisma.liveItemVariantPurchase.findUnique({
     where: { id: purchaseId },
-    select: { id: true, paymentStatus: true, variantId: true, quantity: true },
+    select: {
+      id: true,
+      paymentStatus: true,
+      variantId: true,
+      quantity: true,
+      liveRoomId: true,
+      liveRoomItemId: true,
+    },
   });
   if (!purchase || purchase.paymentStatus !== "pending_payment") return;
 
@@ -163,7 +175,13 @@ export async function releaseVariantPurchaseOnCheckoutExpired(purchaseId: string
         status: restoredQty > 0 ? "available" : "sold_out",
       },
     });
+    await tx.liveRoomItem.update({
+      where: { id: purchase.liveRoomItemId },
+      data: { itemVersion: { increment: 1 } },
+    });
   });
+
+  emitLiveRoomQueueItemsChanged(purchase.liveRoomId);
 }
 
 /** @deprecated Live variant purchases use saved-card instant charge — kept for legacy Checkout session webhook cleanup. */

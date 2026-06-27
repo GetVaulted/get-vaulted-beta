@@ -193,7 +193,16 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
     return { outcome: "error", code: "BUYER_STRIPE_CUSTOMER_MISSING", message: "Wallet is not linked to Stripe." };
   }
 
-  const fulfillment = await ensureVariantPurchaseFulfillmentOrder(purchase.id);
+  let fulfillment: { orderId: string; chargeTotalUsd: number };
+  try {
+    fulfillment = await ensureVariantPurchaseFulfillmentOrder(purchase.id);
+  } catch {
+    return {
+      outcome: "error",
+      code: "FULFILLMENT_ORDER_FAILED",
+      message: "Could not prepare checkout.",
+    };
+  }
   const amountCents = Math.round(Math.max(0, fulfillment.chargeTotalUsd) * 100);
   if (amountCents < 50) {
     return { outcome: "error", code: "INVALID_AMOUNT", message: "Purchase amount is too small to charge." };
@@ -278,7 +287,14 @@ export async function syncLiveItemVariantPurchasePaymentIntent(args: {
   const stripe = getStripe();
   const pi = await stripe.paymentIntents.retrieve(purchase.stripePaymentIntentId);
   const mapped = mapPaymentIntentOutcome(pi);
-  if (!mapped) return { outcome: "error", code: "PAYMENT_INTENT_NOT_COMPLETED" };
+  if (!mapped || mapped.outcome === "error") {
+    await releaseVariantPurchaseOnCheckoutExpired(purchase.id);
+    return {
+      outcome: "error",
+      code: mapped?.code ?? "PAYMENT_INTENT_NOT_COMPLETED",
+      message: mapped?.message ?? "Payment did not complete.",
+    };
+  }
 
   if (mapped.outcome === "paid") {
     await finalizeLiveItemVariantPurchasePaid(purchase.id, mapped.paymentIntentId);
@@ -353,7 +369,6 @@ export async function settleLiveItemVariantPurchase(args: {
       };
     }
     await releaseVariantPurchaseOnCheckoutExpired(args.purchaseId);
-    emitLiveRoomQueueItemsChanged(purchaseMeta.liveRoomId);
     return {
       ok: false,
       purchaseId: args.purchaseId,
@@ -383,6 +398,7 @@ export async function settleLiveItemVariantPurchase(args: {
     };
   }
 
+  await releaseVariantPurchaseOnCheckoutExpired(args.purchaseId);
   return {
     ok: false,
     purchaseId: args.purchaseId,

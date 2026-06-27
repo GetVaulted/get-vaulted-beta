@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
-import { finalizeLiveItemVariantPurchasePaid } from "@/lib/live-item-variant-purchase";
+import { finalizeLiveItemVariantPurchasePaid, releaseVariantPurchaseOnCheckoutExpired } from "@/lib/live-item-variant-purchase";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import {
   getLiveBuyerPaymentSessionState,
@@ -248,11 +248,21 @@ export async function POST(
       return NextResponse.json({ purchaseId: result.id, paid: true });
     }
 
-    const settled = await settleLiveItemVariantPurchase({
-      buyerId: userId,
-      purchaseId: result.id,
-      paymentMethodId,
-    });
+    let settled;
+    try {
+      settled = await settleLiveItemVariantPurchase({
+        buyerId: userId,
+        purchaseId: result.id,
+        paymentMethodId,
+      });
+    } catch (settleErr) {
+      console.error("[variant purchase POST] settle failed", settleErr);
+      await releaseVariantPurchaseOnCheckoutExpired(result.id);
+      return NextResponse.json(
+        { error: "Could not complete purchase.", paymentFailed: true, purchaseId: result.id },
+        { status: 500 },
+      );
+    }
 
     if (settled.ok && "paid" in settled && settled.paid) {
       return NextResponse.json({ purchaseId: settled.purchaseId, paid: true });

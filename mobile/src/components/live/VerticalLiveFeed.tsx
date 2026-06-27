@@ -471,6 +471,7 @@ function LiveSlide({
     !reportOpen &&
     !modActionMessage &&
     !preBidItem &&
+    !chatExpanded &&
     keyboardOffset <= 0 &&
     breakDisclaimerAccepted &&
     !(liveSession.unresolvedPaymentFailure && signedIn && accessToken);
@@ -487,6 +488,10 @@ function LiveSlide({
   useEffect(() => {
     setChatExpanded(false);
   }, [stream.id]);
+
+  useEffect(() => {
+    if (chatExpanded) immersiveChrome.restore();
+  }, [chatExpanded, immersiveChrome.restore]);
 
   const removedFromShow =
     moderation.roomBlocked ||
@@ -756,9 +761,8 @@ function LiveSlide({
       <View style={styles.slide}>
         <KeyboardDismissStageShield active={keyboardOffset > 0} />
         <View style={computeLiveStageHostStyle(stageContainer)}>
-          <GestureDetector gesture={immersiveChrome.pan}>
-            <Animated.View style={[styles.stageRoot, computeLiveStageRootStyle(stageContainer)]}>
-            <View style={styles.stageVideoFrame}>
+          <View style={[styles.stageRoot, computeLiveStageRootStyle(stageContainer)]}>
+            <View style={styles.stageVideoFrame} pointerEvents="box-none">
               <LiveStagePlayback
                 roomId={stream.id}
                 roomStatus={roomStatus}
@@ -779,19 +783,30 @@ function LiveSlide({
               />
             </View>
 
-            {immersiveChrome.immersive ? (
-              <Pressable
-                style={StyleSheet.absoluteFill}
-                onPress={immersiveChrome.restore}
-                accessibilityRole="button"
-                accessibilityLabel="Show live controls"
-              />
-            ) : null}
+            <GestureDetector gesture={immersiveChrome.pan}>
+              <Animated.View style={styles.chromeGestureHost} pointerEvents="box-none">
+                {!immersiveChrome.immersive ? (
+                  <Animated.View
+                    style={styles.chromePanCapture}
+                    pointerEvents="auto"
+                    importantForAccessibility="no-hide-descendants"
+                    accessibilityElementsHidden
+                  />
+                ) : null}
 
-            <Animated.View
-              style={[styles.chromeLayer, immersiveChrome.chromeStyle]}
-              pointerEvents={immersiveChrome.immersive ? 'none' : 'box-none'}
-            >
+                {immersiveChrome.immersive ? (
+                  <Pressable
+                    style={StyleSheet.absoluteFill}
+                    onPress={immersiveChrome.restore}
+                    accessibilityRole="button"
+                    accessibilityLabel="Show live controls"
+                  />
+                ) : null}
+
+                <Animated.View
+                  style={[styles.chromeLayer, immersiveChrome.chromeStyle]}
+                  pointerEvents={immersiveChrome.immersive ? 'none' : 'box-none'}
+                >
 
             {/* TOP — header overlays the 9:16 stage */}
             <View
@@ -1254,7 +1269,9 @@ function LiveSlide({
         />
       </View>
       ) : null}
-            </Animated.View>
+                </Animated.View>
+              </Animated.View>
+            </GestureDetector>
 
             <LiveImmersiveRestoreHint
               visible={immersiveChrome.immersive}
@@ -1285,8 +1302,7 @@ function LiveSlide({
           onBlockerActiveChange={isActive ? onPaymentBlockerChange : undefined}
         />
       ) : null}
-            </Animated.View>
-          </GestureDetector>
+          </View>
         </View>
       </View>
 
@@ -1583,6 +1599,13 @@ const styles = StyleSheet.create({
   recoveryToastTxt: { color: colors.gold, fontSize: 12, fontWeight: '700', textAlign: 'center' },
   stageRoot: {
     backgroundColor: '#000',
+  },
+  chromeGestureHost: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 8,
+  },
+  chromePanCapture: {
+    ...StyleSheet.absoluteFillObject,
   },
   chromeLayer: {
     ...StyleSheet.absoluteFillObject,

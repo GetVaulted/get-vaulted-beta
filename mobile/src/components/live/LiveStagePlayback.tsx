@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { AppState, ActivityIndicator, Pressable, StyleSheet, View, type AppStateStatus } from 'react-native';
 import { useVideoPlayer, VideoView, type VideoPlayer } from 'expo-video';
 import { useLiveStagePlayback, type LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
 import { useHlsLiveEdgeSeek } from '../../hooks/useHlsLiveEdgeSeek';
@@ -122,6 +122,7 @@ export function LiveStagePlayback({
 }: Props) {
   const mode: LivePlaybackMode = playbackMode ?? (enabled ? 'active' : 'off');
   const isForeground = mode === 'active';
+  const [appState, setAppState] = useState<AppStateStatus>(() => AppState.currentState);
   const playback = useLiveStagePlayback({ roomId, playbackMode: mode, accessToken, refreshNonce });
 
   const playbackUrl = playback.stream?.playbackUrl ?? null;
@@ -138,9 +139,15 @@ export function LiveStagePlayback({
   /** WebRTC is foreground-only; keep a hidden HLS player so system PiP works when the app backgrounds. */
   const attachHlsPip =
     useWebrtc &&
-    isForeground &&
+    (isForeground || appState !== 'active') &&
     roomLifecycleLive &&
     Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
+  const appIsActive = appState === 'active';
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', setAppState);
+    return () => sub.remove();
+  }, []);
 
   const hlsPlayerSetup = (p: VideoPlayer) => {
     p.loop = false;
@@ -177,10 +184,10 @@ export function LiveStagePlayback({
   }, [attachHls, playbackUrl, player]);
 
   useEffect(() => {
-    if (!attachHlsPip || !playbackUrl) return;
+    if (!attachHlsPip || !playbackUrl || !appIsActive) return;
     pipPlayer.replace(playbackUrl);
     pipPlayer.play();
-  }, [attachHlsPip, playbackUrl, pipPlayer]);
+  }, [appIsActive, attachHlsPip, playbackUrl, pipPlayer]);
 
   useEffect(() => {
     if (!attachHls) return;
@@ -405,8 +412,12 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
   pipHidden: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0,
+    position: 'absolute',
+    top: -120,
+    left: -120,
+    width: 2,
+    height: 2,
+    opacity: 0.01,
   },
   standbyWrap: {
     ...StyleSheet.absoluteFillObject,
