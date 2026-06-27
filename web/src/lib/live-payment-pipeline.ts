@@ -23,6 +23,10 @@ import {
   finalizeBreakSpotPaid,
 } from "@/lib/live-buy-now-purchase";
 import { resolveCheckoutApplicationFeeCents } from "@/lib/live-show-gmv";
+import {
+  ensureBreakSpotFulfillmentOrder,
+  ensureVariantPurchaseFulfillmentOrder,
+} from "@/services/shipping/live-commerce-fulfillment-order";
 import { prisma } from "@/lib/prisma";
 import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId } from "@/lib/stripe-customer";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
@@ -189,7 +193,8 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
     return { outcome: "error", code: "BUYER_STRIPE_CUSTOMER_MISSING", message: "Wallet is not linked to Stripe." };
   }
 
-  const amountCents = Math.round(Math.max(0, purchase.totalUsd) * 100);
+  const fulfillment = await ensureVariantPurchaseFulfillmentOrder(purchase.id);
+  const amountCents = Math.round(Math.max(0, fulfillment.chargeTotalUsd) * 100);
   if (amountCents < 50) {
     return { outcome: "error", code: "INVALID_AMOUNT", message: "Purchase amount is too small to charge." };
   }
@@ -441,7 +446,8 @@ export async function chargeBreakSpotWithSavedCard(args: {
     return { outcome: "error", code: "BUYER_STRIPE_CUSTOMER_MISSING", message: "Wallet is not linked to Stripe." };
   }
 
-  const amountCents = Math.round(Math.max(0, spot.priceUsd) * 100);
+  const fulfillment = await ensureBreakSpotFulfillmentOrder(spot.id);
+  const amountCents = Math.round(Math.max(0, fulfillment.chargeTotalUsd) * 100);
   if (amountCents < 50) {
     return { outcome: "error", code: "INVALID_AMOUNT", message: "Spot price is too small to charge." };
   }

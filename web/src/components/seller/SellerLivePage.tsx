@@ -21,8 +21,10 @@ import {
 import { LiveShowTipModeratorSettings, patchLiveRoomTipSettings } from "@/components/seller/LiveShowTipModeratorSettings";
 import {
   LiveShowShippingSettingsFields,
+  defaultLiveShowShippingSettingsValue,
   type LiveShowShippingSettingsValue,
   type PlatformShippingProfileOption,
+  type SellerShippingProfileOption,
 } from "@/components/shipping/LiveShowShippingSettingsFields";
 import { useRequireSellerActivation } from "@/hooks/useRequireSellerActivation";
 
@@ -196,13 +198,10 @@ export function SellerLivePage() {
   const [createTipModeratorUsername, setCreateTipModeratorUsername] = useState("");
   const [createTipsToModerator, setCreateTipsToModerator] = useState(false);
   const [shippingProfiles, setShippingProfiles] = useState<PlatformShippingProfileOption[]>([]);
-  const [createShipping, setCreateShipping] = useState<LiveShowShippingSettingsValue>({
-    defaultShippingProfileId: "",
-    shippingCapEnabled: true,
-    shippingCapCents: 1199,
-    freeShippingEnabled: false,
-    sellerPaysOverCap: true,
-  });
+  const [sellerShippingProfiles, setSellerShippingProfiles] = useState<SellerShippingProfileOption[]>([]);
+  const [createShipping, setCreateShipping] = useState<LiveShowShippingSettingsValue>(
+    defaultLiveShowShippingSettingsValue(),
+  );
   const [editTipModeratorId, setEditTipModeratorId] = useState<string | null>(null);
   const [editTipModeratorUsername, setEditTipModeratorUsername] = useState("");
   const [editTipsToModerator, setEditTipsToModerator] = useState(false);
@@ -399,10 +398,29 @@ export function SellerLivePage() {
     if (status !== "authenticated") return;
     void (async () => {
       try {
-        const res = await fetch("/api/shipping/profiles", { cache: "no-store" });
-        if (!res.ok) return;
-        const j = (await res.json()) as { profiles?: PlatformShippingProfileOption[] };
-        setShippingProfiles(Array.isArray(j.profiles) ? j.profiles : []);
+        const [platformRes, sellerRes] = await Promise.all([
+          fetch("/api/shipping/profiles", { cache: "no-store" }),
+          fetch("/api/account/seller/shipping-profiles", { cache: "no-store" }),
+        ]);
+        if (platformRes.ok) {
+          const j = (await platformRes.json()) as { profiles?: PlatformShippingProfileOption[] };
+          setShippingProfiles(Array.isArray(j.profiles) ? j.profiles : []);
+        }
+        if (sellerRes.ok) {
+          const j = (await sellerRes.json()) as {
+            profiles?: Array<{ id: string; sourceSlug: string; name: string; isDefault?: boolean }>;
+          };
+          const rows = Array.isArray(j.profiles) ? j.profiles : [];
+          setSellerShippingProfiles(rows);
+          const defaultProfile = rows.find((p) => p.isDefault) ?? rows[0];
+          if (defaultProfile) {
+            setCreateShipping((prev) =>
+              prev.defaultSellerShippingProfileId
+                ? prev
+                : { ...prev, defaultSellerShippingProfileId: defaultProfile.id },
+            );
+          }
+        }
       } catch {
         /* optional */
       }
@@ -563,7 +581,12 @@ export function SellerLivePage() {
         body.tipModeratorId = createTipModeratorId;
         body.tipsToModerator = createTipsToModerator;
       }
-      if (createShipping.defaultShippingProfileId.trim()) {
+      body.shippingMode = createShipping.shippingMode;
+      body.carrierPreference = createShipping.carrierPreference;
+      body.bundleEligiblePurchases = createShipping.bundleEligiblePurchases;
+      if (createShipping.defaultSellerShippingProfileId.trim()) {
+        body.defaultSellerShippingProfileId = createShipping.defaultSellerShippingProfileId.trim();
+      } else if (createShipping.defaultShippingProfileId.trim()) {
         body.defaultShippingProfileId = createShipping.defaultShippingProfileId.trim();
       }
       body.shippingCapEnabled = createShipping.shippingCapEnabled;
@@ -1455,7 +1478,8 @@ export function SellerLivePage() {
                 <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-zinc-500">Shipping</h2>
               </div>
               <LiveShowShippingSettingsFields
-                profiles={shippingProfiles}
+                sellerProfiles={sellerShippingProfiles}
+                platformProfiles={shippingProfiles}
                 value={createShipping}
                 onChange={setCreateShipping}
                 disabled={busy}

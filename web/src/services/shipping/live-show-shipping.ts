@@ -1,13 +1,16 @@
 import type { PrismaClient } from "@/generated/prisma/client";
+import type { LiveShowCarrierPreference, LiveShowShippingMode } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import {
   computeShowShippingLiability,
   groupItemsIntoPackages,
   resolveShippingProfileDimensions,
   shipmentProfileEditLocked,
-  type LiveShowShippingConfig,
 } from "@/lib/unified-shipping-engine";
+import { liveRoomShippingPatchFromMode, shippingModeFromRoomFlags } from "@/lib/live-show-shipping-terms";
+import { liveShowShippingConfigFromRoom } from "@/services/shipping/live-shipping-pool";
 import { getActivePlatformShippingProfiles } from "@/services/shipping/platform-shipping-profiles";
+import { getActiveSellerShippingProfiles, sellerProfileToProfileInput } from "@/services/shipping/seller-shipping-profiles";
 
 type Db = Pick<
   PrismaClient,
@@ -16,22 +19,11 @@ type Db = Pick<
   | "liveShippingSession"
   | "shipmentPackage"
   | "platformShippingProfile"
+  | "sellerShippingProfile"
   | "order"
 >;
 
-export function liveShowShippingConfigFromRoom(room: {
-  shippingCapEnabled: boolean;
-  shippingCapCents: number | null;
-  freeShippingEnabled: boolean;
-  sellerPaysOverCap: boolean;
-}): LiveShowShippingConfig {
-  return {
-    shippingCapEnabled: room.shippingCapEnabled,
-    shippingCapCents: room.shippingCapCents,
-    freeShippingEnabled: room.freeShippingEnabled,
-    sellerPaysOverCap: room.sellerPaysOverCap,
-  };
-}
+export { liveShowShippingConfigFromRoom };
 
 export async function getLiveShowShippingDashboard(liveRoomId: string, db: Db = prisma) {
   const room = await db.liveRoom.findUnique({
@@ -41,7 +33,13 @@ export async function getLiveShowShippingDashboard(liveRoomId: string, db: Db = 
       title: true,
       category: true,
       status: true,
+      sellerId: true,
       defaultShippingProfileId: true,
+      defaultSellerShippingProfileId: true,
+      shippingMode: true,
+      carrierPreference: true,
+      bundleEligiblePurchases: true,
+      shippingTermsVersion: true,
       shippingCapEnabled: true,
       shippingCapCents: true,
       freeShippingEnabled: true,
@@ -51,8 +49,9 @@ export async function getLiveShowShippingDashboard(liveRoomId: string, db: Db = 
   });
   if (!room) return null;
 
-  const [profiles, items, sessions] = await Promise.all([
+  const [platformProfiles, sellerProfiles, items, sessions] = await Promise.all([
     getActivePlatformShippingProfiles(db),
+    getActiveSellerShippingProfiles(room.sellerId, db),
     db.liveRoomItem.findMany({
       where: { liveRoomId, status: { notIn: ["skipped"] } },
       orderBy: { sortOrder: "asc" },
@@ -61,12 +60,14 @@ export async function getLiveShowShippingDashboard(liveRoomId: string, db: Db = 
         title: true,
         status: true,
         shippingProfileId: true,
+        sellerShippingProfileId: true,
         customWeightOz: true,
         customLengthIn: true,
         customWidthIn: true,
         customHeightIn: true,
         requiresSeparatePackage: true,
         shippingProfile: true,
+        sellerShippingProfile: true,
         listing: {
           select: {
             orders: {
@@ -98,10 +99,11 @@ export async function getLiveShowShippingDashboard(liveRoomId: string, db: Db = 
   const liability = computeShowShippingLiability({ show: showConfig, sessions });
 
   const lineup = items.map((item) => {
-    const profile = item.shippingProfile;
-    const resolved = profile
-      ? resolveShippingProfileDimensions(profile, item)
-      : null;
+    const profileInput = item.sellerShippingProfile
+      ? sellerProfileToProfileInput(item.sellerShippingProfile)
+      : item.shippingProfile;
+    const resolved = profileInput ? resolveShippingProfileDimensions(profileInput, item) : null;
+    const profileName = item.sellerShippingProfile?.name ?? item.shippingProfile?.name ?? null;
     const order = item.listing?.orders?.[0];
     const labelLocked = Boolean(order?.shippoTransactionId?.trim() || order?.labelUrl?.trim());
     return {
@@ -109,7 +111,8 @@ export async function getLiveShowShippingDashboard(liveRoomId: string, db: Db = 
       title: item.title,
       status: item.status,
       shippingProfileId: item.shippingProfileId,
-      profileName: profile?.name ?? null,
+      sellerShippingProfileId: item.sellerShippingProfileId,
+      profileName,
       resolved,
       labelLocked,
       canEditProfile: !labelLocked && item.status !== "sold",
@@ -121,13 +124,19 @@ export async function getLiveShowShippingDashboard(liveRoomId: string, db: Db = 
       id: room.id,
       title: room.title,
       status: room.status,
+      shippingMode: shippingModeFromRoomFlags(room),
       defaultShippingProfileId: room.defaultShippingProfileId,
+      defaultSellerShippingProfileId: room.defaultSellerShippingProfileId,
+      carrierPreference: room.carrierPreference,
+      bundleEligiblePurchases: room.bundleEligiblePurchases,
+      shippingTermsVersion: room.shippingTermsVersion,
       shippingCapEnabled: room.shippingCapEnabled,
       shippingCapCents: room.shippingCapCents,
       freeShippingEnabled: room.freeShippingEnabled,
       sellerPaysOverCap: room.sellerPaysOverCap,
     },
-    profiles,
+    profiles: platformProfiles,
+    sellerProfiles,
     lineup,
     liability,
     capWarningMessage: liability.capWarning
@@ -139,27 +148,58 @@ export async function getLiveShowShippingDashboard(liveRoomId: string, db: Db = 
 export async function updateLiveShowShippingSettings(
   liveRoomId: string,
   patch: {
+    shippingMode?: LiveShowShippingMode;
     defaultShippingProfileId?: string | null;
+    defaultSellerShippingProfileId?: string | null;
     shippingCapEnabled?: boolean;
     shippingCapCents?: number | null;
     freeShippingEnabled?: boolean;
     sellerPaysOverCap?: boolean;
+    carrierPreference?: LiveShowCarrierPreference;
+    bundleEligiblePurchases?: boolean;
+    bumpTermsVersion?: boolean;
   },
   db: Db = prisma,
 ) {
+  const existing = await db.liveRoom.findUnique({
+    where: { id: liveRoomId },
+    select: { shippingTermsVersion: true, shippingMode: true, shippingCapCents: true },
+  });
+  if (!existing) throw new Error("ROOM_NOT_FOUND");
+
   const data: Record<string, unknown> = {};
+  if (patch.shippingMode) {
+    Object.assign(data, liveRoomShippingPatchFromMode({
+      shippingMode: patch.shippingMode,
+      shippingCapCents: patch.shippingCapCents ?? existing.shippingCapCents,
+    }));
+  }
   if (patch.defaultShippingProfileId !== undefined) {
     data.defaultShippingProfileId = patch.defaultShippingProfileId?.trim() || null;
   }
-  if (typeof patch.shippingCapEnabled === "boolean") data.shippingCapEnabled = patch.shippingCapEnabled;
-  if (patch.shippingCapCents !== undefined) {
+  if (patch.defaultSellerShippingProfileId !== undefined) {
+    data.defaultSellerShippingProfileId = patch.defaultSellerShippingProfileId?.trim() || null;
+  }
+  if (typeof patch.shippingCapEnabled === "boolean" && !patch.shippingMode) {
+    data.shippingCapEnabled = patch.shippingCapEnabled;
+  }
+  if (patch.shippingCapCents !== undefined && !patch.shippingMode) {
     data.shippingCapCents =
       patch.shippingCapCents != null && Number.isFinite(patch.shippingCapCents)
         ? Math.max(0, Math.floor(patch.shippingCapCents))
         : null;
   }
-  if (typeof patch.freeShippingEnabled === "boolean") data.freeShippingEnabled = patch.freeShippingEnabled;
+  if (typeof patch.freeShippingEnabled === "boolean" && !patch.shippingMode) {
+    data.freeShippingEnabled = patch.freeShippingEnabled;
+  }
   if (typeof patch.sellerPaysOverCap === "boolean") data.sellerPaysOverCap = patch.sellerPaysOverCap;
+  if (patch.carrierPreference) data.carrierPreference = patch.carrierPreference;
+  if (typeof patch.bundleEligiblePurchases === "boolean") {
+    data.bundleEligiblePurchases = patch.bundleEligiblePurchases;
+  }
+  if (patch.bumpTermsVersion) {
+    data.shippingTermsVersion = (existing.shippingTermsVersion ?? 1) + 1;
+  }
 
   return db.liveRoom.update({
     where: { id: liveRoomId },
@@ -172,6 +212,7 @@ export async function updateLiveRoomItemShippingProfile(
   itemId: string,
   patch: {
     shippingProfileId?: string | null;
+    sellerShippingProfileId?: string | null;
     customWeightOz?: number | null;
     customLengthIn?: number | null;
     customWidthIn?: number | null;
@@ -211,6 +252,9 @@ export async function updateLiveRoomItemShippingProfile(
   }
 
   const data: Record<string, unknown> = {};
+  if (patch.sellerShippingProfileId !== undefined) {
+    data.sellerShippingProfileId = patch.sellerShippingProfileId?.trim() || null;
+  }
   if (patch.shippingProfileId !== undefined) {
     data.shippingProfileId = patch.shippingProfileId?.trim() || null;
   }

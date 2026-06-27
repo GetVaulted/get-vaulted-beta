@@ -9,6 +9,7 @@ import { stripeOffSessionPaymentIntentOptions } from "@/lib/stripe-payment-metho
 import { orderRequiresCheckoutForTax } from "@/lib/stripe-tax";
 import { resolveCheckoutApplicationFeeCents, resolveLiveRoomIdForOrder } from "@/lib/live-show-gmv";
 import { finalizeLiveBuyNowPurchaseComplete } from "@/lib/live-buy-now-purchase";
+import { syncOrderShippingFromLiveSessionTx } from "@/services/shipping/live-commerce-shipping-settlement";
 import {
   finalizeStripeMarketplaceOrderPaid,
   processAuctionPaymentExpiries,
@@ -111,38 +112,9 @@ export function chargeOutcomeReachedStripe(outcome: string, code: string | null)
 const PI_KIND = "pay_order_saved_pm" as const;
 
 async function syncLiveBundledShippingOnOrder(orderId: string): Promise<void> {
-  const payOrder = await prisma.order.findUniqueOrThrow({
-    where: { id: orderId },
-    select: {
-      id: true,
-      itemPriceUsd: true,
-      shippingPriceUsd: true,
-      taxUsd: true,
-      liveShippingSessionId: true,
-      liveShippingSession: { select: { id: true, shippingCostCents: true, liveShowId: true } },
-    },
+  await prisma.$transaction(async (tx) => {
+    await syncOrderShippingFromLiveSessionTx(tx, orderId);
   });
-  let shippingPriceUsd = payOrder.shippingPriceUsd;
-  if (payOrder.liveShippingSession?.id) {
-    const paidOrders = await prisma.order.findMany({
-      where: { liveShippingSessionId: payOrder.liveShippingSession.id, paymentStatus: PAYMENT_PAID },
-      select: { id: true, shippingPriceUsd: true },
-    });
-    const alreadyChargedCents = paidOrders
-      .filter((o) => o.id !== payOrder.id)
-      .reduce((sum, o) => sum + Math.round(Math.max(0, o.shippingPriceUsd) * 100), 0);
-    const remainingCents = Math.max(0, payOrder.liveShippingSession.shippingCostCents - alreadyChargedCents);
-    shippingPriceUsd = remainingCents / 100;
-  }
-  if (Math.abs(shippingPriceUsd - payOrder.shippingPriceUsd) > 0.0001) {
-    await prisma.order.update({
-      where: { id: payOrder.id },
-      data: {
-        shippingPriceUsd,
-        totalUsd: payOrder.itemPriceUsd + shippingPriceUsd + payOrder.taxUsd,
-      },
-    });
-  }
 }
 
 async function handleRetrievedPaymentIntent(

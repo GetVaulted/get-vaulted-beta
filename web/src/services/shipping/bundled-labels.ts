@@ -280,7 +280,22 @@ export async function generateBundledShippoLabelForSession(
       : [
           {
             packageIndex: 0,
-            items: eligible.map((o) => ({ itemId: o.id, profile: { id: "legacy", slug: "legacy", name: "Legacy", weightOz: physicalListingWeightOz(o.listing), lengthIn: 10, widthIn: 8, heightIn: 4, bundleAllowed: true, requiresSeparatePackage: false } })),
+            items: eligible.map((o) => ({
+              itemId: o.id,
+              profile: {
+                id: "legacy",
+                slug: "legacy",
+                name: "Legacy",
+                weightOz: physicalListingWeightOz(o.listing),
+                lengthIn: 10,
+                widthIn: 8,
+                heightIn: 4,
+                bundleAllowed: true,
+                requiresSeparatePackage: false,
+                bundleGroup: "legacy",
+                maxUnitsPerParcel: null,
+              },
+            })),
             weightOz: listings.reduce((sum, li) => sum + physicalListingWeightOz(li), 0) + bundleWeightBufferOz(),
             lengthIn: maxBundleDimensionsInches(listings).length,
             widthIn: maxBundleDimensionsInches(listings).width,

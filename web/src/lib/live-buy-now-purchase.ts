@@ -183,41 +183,7 @@ export async function createLiveBuyNowOrder(args: {
       });
 
       await addOrderToLiveShippingSessionTx(tx, orderRow.id, { liveShowId: args.liveRoomId });
-      const ordWithSession = await tx.order.findUnique({
-        where: { id: orderRow.id },
-        select: {
-          id: true,
-          itemPriceUsd: true,
-          taxUsd: true,
-          liveShippingSessionId: true,
-          liveShippingSession: { select: { id: true, shippingCostCents: true } },
-        },
-      });
-      let synced = orderRow;
-      if (ordWithSession?.liveShippingSession?.id) {
-        const paidOrders = await tx.order.findMany({
-          where: {
-            liveShippingSessionId: ordWithSession.liveShippingSession.id,
-            paymentStatus: PAYMENT_PAID,
-          },
-          select: { id: true, shippingPriceUsd: true },
-        });
-        const alreadyChargedCents = paidOrders
-          .filter((o) => o.id !== ordWithSession.id)
-          .reduce((sum, o) => sum + Math.round(Math.max(0, o.shippingPriceUsd) * 100), 0);
-        const remainingCents = Math.max(
-          0,
-          ordWithSession.liveShippingSession.shippingCostCents - alreadyChargedCents,
-        );
-        const shippingPriceUsd = remainingCents / 100;
-        synced = await tx.order.update({
-          where: { id: orderRow.id },
-          data: {
-            shippingPriceUsd,
-            totalUsd: ordWithSession.itemPriceUsd + shippingPriceUsd + ordWithSession.taxUsd,
-          },
-        });
-      }
+      const synced = await tx.order.findUniqueOrThrow({ where: { id: orderRow.id } });
 
       return {
         orderId: synced.id,

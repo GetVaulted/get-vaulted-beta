@@ -1,3 +1,4 @@
+import { resolveLiveShowShippingCapCents } from "@/lib/live-show-shipping-terms";
 import type { PackageGroup } from "@/lib/unified-shipping-engine";
 
 export type LiveShippingTier = { maxWeightOz: number; costCents: number };
@@ -8,15 +9,8 @@ const FALLBACK_TIERS: LiveShippingTier[] = [
   { maxWeightOz: 16, costCents: 599 },
   { maxWeightOz: 32, costCents: 799 },
   { maxWeightOz: 48, costCents: 999 },
-  { maxWeightOz: Number.POSITIVE_INFINITY, costCents: 1199 },
+  { maxWeightOz: Number.POSITIVE_INFINITY, costCents: 999 },
 ];
-
-function getLiveShippingCapCents(defaultCap: number | null = null): number {
-  if (defaultCap != null && Number.isFinite(defaultCap) && defaultCap >= 0) return Math.floor(defaultCap);
-  const fromEnv = Number(process.env.LIVE_SHIPPING_CAP_CENTS);
-  if (Number.isFinite(fromEnv) && fromEnv >= 0) return Math.floor(fromEnv);
-  return 1199;
-}
 
 function parseTiersFromEnv(): LiveShippingTier[] | null {
   const raw = process.env.LIVE_SHIPPING_TIERS_JSON?.trim();
@@ -52,7 +46,7 @@ export function calculateLiveShippingCost(weightOz: number, capCents?: number | 
   const tiers = effectiveTiers();
   const row = tiers.find((tier) => weightOz <= tier.maxWeightOz) ?? tiers[tiers.length - 1];
   const computed = row?.costCents ?? 0;
-  const cap = getLiveShippingCapCents(capCents ?? null);
+  const cap = resolveLiveShowShippingCapCents(capCents ?? null);
   return Math.min(computed, cap);
 }
 

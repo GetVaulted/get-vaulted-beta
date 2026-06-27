@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { LiveRoomType, Prisma, TeamBoardLeague } from "@/generated/prisma/client";
+import type { LiveShowCarrierPreference } from "@/generated/prisma/enums";
 import { getServerSessionSafe } from "@/lib/auth";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { isDevTempNoDatabaseMode } from "@/lib/dev-temp-no-db";
@@ -14,6 +15,12 @@ import {
   resolveLiveRoomPreviewImage,
 } from "@/lib/live-room-preview-image";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
+import {
+  DEFAULT_LIVE_SHOW_SHIPPING_CAP_CENTS,
+  liveRoomShippingPatchFromMode,
+  resolveLiveShowShippingCapCents,
+} from "@/lib/live-show-shipping-terms";
+import { seedSellerShippingProfiles } from "@/services/shipping/seller-shipping-profiles";
 import {
   resolveDefaultProfileForLiveShow,
   seedPlatformShippingProfiles,
@@ -215,6 +222,10 @@ type PostBody = {
   tipRecipientMode?: string;
   tipsToModerator?: boolean;
   defaultShippingProfileId?: string | null;
+  defaultSellerShippingProfileId?: string | null;
+  shippingMode?: "calculated" | "capped" | "free";
+  carrierPreference?: "usps" | "ups" | "best_rate";
+  bundleEligiblePurchases?: boolean;
   shippingCapEnabled?: boolean;
   shippingCapCents?: number | null;
   freeShippingEnabled?: boolean;
@@ -358,6 +369,17 @@ export async function POST(req: Request) {
   await seedPlatformShippingProfiles().catch(() => {
     /* profiles table may not exist until migration runs */
   });
+  await seedSellerShippingProfiles(sellerId).catch(() => {});
+
+  const defaultSellerProfiles = await prisma.sellerShippingProfile.findMany({
+    where: { sellerId, archivedAt: null },
+    orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+  });
+
+  const defaultSellerProfileId =
+    typeof body.defaultSellerShippingProfileId === "string" && body.defaultSellerShippingProfileId.trim()
+      ? body.defaultSellerShippingProfileId.trim()
+      : (defaultSellerProfiles.find((p) => p.isDefault)?.id ?? defaultSellerProfiles[0]?.id ?? null);
 
   const defaultProfile = await resolveDefaultProfileForLiveShow({
     showDefaultProfileId:
@@ -365,13 +387,28 @@ export async function POST(req: Request) {
     category,
   });
 
-  const shippingCapEnabled = body.shippingCapEnabled === true;
-  const shippingCapRaw = body.shippingCapCents;
-  const shippingCapCents =
-    shippingCapRaw != null && Number.isFinite(Number(shippingCapRaw))
-      ? Math.max(0, Math.floor(Number(shippingCapRaw)))
-      : null;
-  const freeShippingEnabled = body.freeShippingEnabled === true;
+  const shippingModeRaw = typeof body.shippingMode === "string" ? body.shippingMode.trim().toLowerCase() : "";
+  const shippingMode =
+    shippingModeRaw === "calculated" || shippingModeRaw === "capped" || shippingModeRaw === "free"
+      ? shippingModeRaw
+      : body.freeShippingEnabled === true
+        ? "free"
+        : body.shippingCapEnabled === false && body.shippingCapEnabled !== undefined
+          ? "calculated"
+          : "capped";
+
+  const modePatch = liveRoomShippingPatchFromMode({
+    shippingMode,
+    shippingCapCents:
+      body.shippingCapCents != null && Number.isFinite(Number(body.shippingCapCents))
+        ? Math.max(0, Math.floor(Number(body.shippingCapCents)))
+        : DEFAULT_LIVE_SHOW_SHIPPING_CAP_CENTS,
+  });
+
+  const carrierRaw = typeof body.carrierPreference === "string" ? body.carrierPreference.trim().toLowerCase() : "";
+  const carrierPreference: LiveShowCarrierPreference =
+    carrierRaw === "usps" || carrierRaw === "ups" || carrierRaw === "best_rate" ? carrierRaw : "best_rate";
+  const bundleEligiblePurchases = body.bundleEligiblePurchases !== false;
   const sellerPaysOverCap = body.sellerPaysOverCap !== false;
 
   const tipBuilt = await buildLiveTipRoomData(sellerId, body);
@@ -408,10 +445,15 @@ export async function POST(req: Request) {
     tipModeratorId: tipBuilt.data.tipModeratorId,
     tipRecipientMode: tipBuilt.data.tipRecipientMode,
     defaultShippingProfileId: defaultProfile?.id ?? null,
-    shippingCapEnabled,
-    shippingCapCents: shippingCapEnabled ? shippingCapCents : null,
-    freeShippingEnabled,
+    defaultSellerShippingProfileId: defaultSellerProfileId,
+    shippingMode: modePatch.shippingMode,
+    carrierPreference,
+    bundleEligiblePurchases,
+    shippingCapEnabled: modePatch.shippingCapEnabled,
+    shippingCapCents: modePatch.shippingCapCents,
+    freeShippingEnabled: modePatch.freeShippingEnabled,
     sellerPaysOverCap,
+    shippingTermsVersion: 1,
     ...(rt === "break"
       ? {
           ...(breakTotalSpots != null ? { breakTotalSpots } : {}),

@@ -19,6 +19,10 @@ export type BuildCreateLiveRoomPayloadInput = {
   tipModeratorId?: string | null;
   tipsToModerator?: boolean;
   defaultShippingProfileId?: string | null;
+  defaultSellerShippingProfileId?: string | null;
+  shippingMode?: 'calculated' | 'capped' | 'free';
+  carrierPreference?: 'usps' | 'ups' | 'best_rate';
+  bundleEligiblePurchases?: boolean;
   shippingCapEnabled?: boolean;
   shippingCapCents?: number | null;
   freeShippingEnabled?: boolean;
@@ -68,8 +72,15 @@ export function buildCreateLiveRoomPayload(
     body.tipsToModerator = input.tipsToModerator === true;
   }
 
-  if (input.defaultShippingProfileId?.trim()) {
+  if (input.defaultSellerShippingProfileId?.trim()) {
+    body.defaultSellerShippingProfileId = input.defaultSellerShippingProfileId.trim();
+  } else if (input.defaultShippingProfileId?.trim()) {
     body.defaultShippingProfileId = input.defaultShippingProfileId.trim();
+  }
+  if (input.shippingMode) body.shippingMode = input.shippingMode;
+  if (input.carrierPreference) body.carrierPreference = input.carrierPreference;
+  if (typeof input.bundleEligiblePurchases === 'boolean') {
+    body.bundleEligiblePurchases = input.bundleEligiblePurchases;
   }
   if (typeof input.shippingCapEnabled === 'boolean') {
     body.shippingCapEnabled = input.shippingCapEnabled;

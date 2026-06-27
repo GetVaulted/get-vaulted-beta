@@ -69,6 +69,7 @@ import {
   addOrderToLiveShippingSessionTx,
   estimateFirstItemLiveShippingCentsForListingTx,
 } from "@/services/shipping/live-shipping-pricing";
+import { syncOrderShippingFromLiveSessionTx } from "@/services/shipping/live-commerce-shipping-settlement";
 
 /** @remarks Conceptually `payment_pending` — persisted value for compatibility. */
 export const PAYMENT_PENDING = "pending_payment" as const;
@@ -332,41 +333,6 @@ export type BuyNowShippingInput = {
   /** Shippo rate object id chosen by buyer (required when listing shippingPriceUsd is 0). */
   selectedShippingRateId?: string | null;
 };
-
-async function syncOrderShippingFromLiveSessionTx(tx: TransactionClient, orderId: string) {
-  const ord = await tx.order.findUnique({
-    where: { id: orderId },
-    select: {
-      id: true,
-      itemPriceUsd: true,
-      taxUsd: true,
-      liveShippingSessionId: true,
-      liveShippingSession: { select: { id: true, shippingCostCents: true, liveShowId: true } },
-    },
-  });
-  if (!ord?.liveShippingSession?.id) {
-    return tx.order.findUniqueOrThrow({ where: { id: orderId } });
-  }
-  const paidOrders = await tx.order.findMany({
-    where: {
-      liveShippingSessionId: ord.liveShippingSession.id,
-      paymentStatus: PAYMENT_PAID,
-    },
-    select: { id: true, shippingPriceUsd: true },
-  });
-  const alreadyChargedCents = paidOrders
-    .filter((o) => o.id !== ord.id)
-    .reduce((sum, o) => sum + Math.round(Math.max(0, o.shippingPriceUsd) * 100), 0);
-  const remainingCents = Math.max(0, ord.liveShippingSession.shippingCostCents - alreadyChargedCents);
-  const shippingPriceUsd = remainingCents / 100;
-  return tx.order.update({
-    where: { id: orderId },
-    data: {
-      shippingPriceUsd,
-      totalUsd: ord.itemPriceUsd + shippingPriceUsd + ord.taxUsd,
-    },
-  });
-}
 
 /**
  * Buy now: create unpaid order + Stripe Checkout (MVP default). When `ESCROW_ENABLED=true` and provider

@@ -8,12 +8,23 @@ import {
   type LiveShowShippingConfig,
   type PackageGroup,
 } from "@/lib/unified-shipping-engine";
+import { buildLiveShowShippingConfig } from "@/lib/live-show-shipping-terms";
 import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-shipping-profiles";
+import {
+  resolveDefaultSellerProfileForLiveShow,
+  resolveSellerProfileForLiveRoomItem,
+  sellerProfileToProfileInput,
+} from "@/services/shipping/seller-shipping-profiles";
 import { tierFallbackCentsForPackageGroups } from "@/services/shipping/live-shipping-tier-estimate";
 
 type Db = Pick<
   PrismaClient,
-  "liveRoom" | "liveRoomItem" | "liveShippingSession" | "liveShippingSessionItem" | "platformShippingProfile"
+  | "liveRoom"
+  | "liveRoomItem"
+  | "liveShippingSession"
+  | "liveShippingSessionItem"
+  | "platformShippingProfile"
+  | "sellerShippingProfile"
 >;
 
 export type BuyerShippingPoolTotals = {
@@ -29,16 +40,25 @@ export type BuyerShippingPoolTotals = {
 };
 
 export function liveShowShippingConfigFromRoom(room: {
+  shippingMode?: "calculated" | "capped" | "free" | null;
   shippingCapEnabled: boolean;
   shippingCapCents: number | null;
   freeShippingEnabled: boolean;
   sellerPaysOverCap: boolean;
+  carrierPreference?: "usps" | "ups" | "best_rate" | null;
+  bundleEligiblePurchases?: boolean | null;
+  shippingTermsVersion?: number | null;
+  defaultShippingProfileId?: string | null;
+  defaultSellerShippingProfileId?: string | null;
 }): LiveShowShippingConfig {
+  const cfg = buildLiveShowShippingConfig(room);
   return {
-    shippingCapEnabled: room.shippingCapEnabled,
-    shippingCapCents: room.shippingCapCents,
-    freeShippingEnabled: room.freeShippingEnabled,
-    sellerPaysOverCap: room.sellerPaysOverCap,
+    shippingMode: cfg.shippingMode,
+    shippingCapEnabled: cfg.shippingCapEnabled,
+    shippingCapCents: cfg.shippingCapCents,
+    freeShippingEnabled: cfg.freeShippingEnabled,
+    sellerPaysOverCap: cfg.sellerPaysOverCap,
+    bundleEligiblePurchases: cfg.bundleEligiblePurchases,
   };
 }
 
@@ -57,16 +77,51 @@ export async function resolveLiveRoomItemShippingProfile(
     select: {
       id: true,
       shippingProfileId: true,
+      sellerShippingProfileId: true,
       customWeightOz: true,
       customLengthIn: true,
       customWidthIn: true,
       customHeightIn: true,
       requiresSeparatePackage: true,
       shippingProfile: true,
-      liveRoom: { select: { defaultShippingProfileId: true, category: true } },
+      sellerShippingProfile: true,
+      liveRoom: {
+        select: {
+          sellerId: true,
+          defaultShippingProfileId: true,
+          defaultSellerShippingProfileId: true,
+          category: true,
+        },
+      },
     },
   });
   if (!item) return null;
+
+  if (item.sellerShippingProfile) {
+    const profile = sellerProfileToProfileInput(item.sellerShippingProfile);
+    return {
+      itemId: item.id,
+      profile,
+      overrides: item,
+      resolved: resolveShippingProfileDimensions(profile, item),
+    };
+  }
+
+  const sellerFallback = await resolveSellerProfileForLiveRoomItem({
+    sellerId: item.liveRoom.sellerId,
+    sellerShippingProfileId: item.sellerShippingProfileId,
+    showDefaultSellerProfileId: item.liveRoom.defaultSellerShippingProfileId,
+    db: db as Db,
+  });
+  if (sellerFallback) {
+    const profile = sellerProfileToProfileInput(sellerFallback);
+    return {
+      itemId: item.id,
+      profile,
+      overrides: item,
+      resolved: resolveShippingProfileDimensions(profile, item),
+    };
+  }
 
   const profile =
     item.shippingProfile ??
@@ -132,12 +187,16 @@ async function profileRowsForSession(sessionId: string, db: Db | TransactionClie
   return rows;
 }
 
-export function packageGroupsFromProfileRows(rows: ProfileRow[]): PackageGroup[] {
+export function packageGroupsFromProfileRows(
+  rows: ProfileRow[],
+  show?: LiveShowShippingConfig,
+): PackageGroup[] {
   return groupItemsIntoPackages(
     rows.map((r) => ({
       itemId: r.itemId,
       profile: resolveShippingProfileDimensions(r.profile, r.overrides),
     })),
+    { bundleEligiblePurchases: show?.bundleEligiblePurchases },
   );
 }
 
@@ -161,14 +220,18 @@ export function computePoolTotalsFromGroups(
 
   const buyerTotalCents = charge.freeShippingApplied
     ? 0
-    : show.shippingCapEnabled && show.shippingCapCents != null
-      ? Math.min(rawEstimateCents, show.shippingCapCents)
+    : show.shippingMode === "capped" || show.shippingCapEnabled
+      ? Math.min(
+          rawEstimateCents,
+          show.shippingCapCents ?? rawEstimateCents,
+        )
       : rawEstimateCents;
 
-  const capCents = show.shippingCapEnabled ? show.shippingCapCents : null;
+  const capCents =
+    show.shippingMode === "capped" || show.shippingCapEnabled ? show.shippingCapCents : null;
   const capReached =
     !charge.freeShippingApplied &&
-    show.shippingCapEnabled &&
+    (show.shippingMode === "capped" || show.shippingCapEnabled) &&
     capCents != null &&
     buyerTotalCents >= capCents;
 
@@ -198,10 +261,16 @@ export async function computeSessionPoolTotals(
     select: {
       liveShow: {
         select: {
+          shippingMode: true,
           shippingCapEnabled: true,
           shippingCapCents: true,
           freeShippingEnabled: true,
           sellerPaysOverCap: true,
+          carrierPreference: true,
+          bundleEligiblePurchases: true,
+          shippingTermsVersion: true,
+          defaultShippingProfileId: true,
+          defaultSellerShippingProfileId: true,
         },
       },
     },
@@ -209,8 +278,9 @@ export async function computeSessionPoolTotals(
   if (!session) return null;
 
   const rows = await profileRowsForSession(sessionId, db);
-  const groups = packageGroupsFromProfileRows(rows);
-  return computePoolTotalsFromGroups(groups, liveShowShippingConfigFromRoom(session.liveShow));
+  const showConfig = liveShowShippingConfigFromRoom(session.liveShow);
+  const groups = packageGroupsFromProfileRows(rows, showConfig);
+  return computePoolTotalsFromGroups(groups, showConfig);
 }
 
 /** Pool delta if buyer wins this queue item (cards vs helmet aware). */
@@ -245,13 +315,17 @@ export async function estimateWinItemShippingDeltaCents(args: {
   });
 
   const currentRows = session ? await profileRowsForSession(session.id, db) : [];
-  const currentTotal = computePoolTotalsFromGroups(packageGroupsFromProfileRows(currentRows), show).buyerTotalCents;
+  const currentTotal = computePoolTotalsFromGroups(
+    packageGroupsFromProfileRows(currentRows, show),
+    show,
+  ).buyerTotalCents;
 
   const nextRows: ProfileRow[] = [
     ...currentRows,
     { itemId: winProfile.itemId, profile: winProfile.profile, overrides: winProfile.overrides },
   ];
-  const nextTotal = computePoolTotalsFromGroups(packageGroupsFromProfileRows(nextRows), show).buyerTotalCents;
+  const nextTotal = computePoolTotalsFromGroups(packageGroupsFromProfileRows(nextRows, show), show)
+    .buyerTotalCents;
 
   return Math.max(0, nextTotal - currentTotal);
 }

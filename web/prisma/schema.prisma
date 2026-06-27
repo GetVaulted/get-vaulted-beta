@@ -620,6 +620,7 @@ model User {
   layawaysAsSeller                   Layaway[]                   @relation("LayawaySeller")
   messageMentionsReceived            MessageMention[]            @relation("MessageMentionRecipient")
   messageMentionsAuthored            MessageMention[]            @relation("MessageMentionAuthor")
+  sellerShippingProfiles             SellerShippingProfile[]
 }
 
 /// Single-use email verification OTP for signup (hashed at rest; expires).
@@ -1000,6 +1001,12 @@ model LiveRoom {
   /// Show-level shipping (unified profiles + cap/free shipping).
   defaultShippingProfileId String?
   defaultShippingProfile   PlatformShippingProfile? @relation(fields: [defaultShippingProfileId], references: [id], onDelete: SetNull)
+  defaultSellerShippingProfileId String?
+  defaultSellerShippingProfile   SellerShippingProfile? @relation(fields: [defaultSellerShippingProfileId], references: [id], onDelete: SetNull)
+  shippingMode             LiveShowShippingMode @default(capped)
+  carrierPreference        LiveShowCarrierPreference @default(best_rate)
+  bundleEligiblePurchases  Boolean @default(true)
+  shippingTermsVersion     Int @default(1)
   shippingCapEnabled       Boolean @default(false)
   shippingCapCents         Int?
   freeShippingEnabled      Boolean @default(false)
@@ -1192,6 +1199,8 @@ model LiveRoomItem {
   /// Platform shipping profile for this queue row (inherits show default on create).
   shippingProfileId String?
   shippingProfile   PlatformShippingProfile? @relation(fields: [shippingProfileId], references: [id], onDelete: SetNull)
+  sellerShippingProfileId String?
+  sellerShippingProfile   SellerShippingProfile? @relation(fields: [sellerShippingProfileId], references: [id], onDelete: SetNull)
   customWeightOz    Float?
   customLengthIn    Float?
   customWidthIn     Float?
@@ -1256,6 +1265,8 @@ model LiveItemVariantPurchase {
   /// Wheel-assigned team/division label (random assignment mode).
   revealedLabel           String?
   revealedAbbr            String?
+  fulfillmentOrderId      String?                       @unique
+  fulfillmentOrder        Order?                        @relation("VariantPurchaseFulfillmentOrder", fields: [fulfillmentOrderId], references: [id], onDelete: SetNull)
   createdAt               DateTime                      @default(now())
 
   @@index([variantId, paymentStatus])
@@ -1329,6 +1340,8 @@ model BreakSpot {
   stripeCheckoutSessionId String?
   stripePaymentIntentId   String?
   breakPaymentStatus      String       @default("unpaid")
+  fulfillmentOrderId      String?      @unique
+  fulfillmentOrder        Order?       @relation("BreakSpotFulfillmentOrder", fields: [fulfillmentOrderId], references: [id], onDelete: SetNull)
   createdAt      DateTime             @default(now())
 
   @@unique([liveRoomId, spotLabel])
@@ -1506,6 +1519,8 @@ model Order {
   sellerShipFromAddressId String?
   sellerShipFromAddress   Address?    @relation("OrderSellerShipFromAddress", fields: [sellerShipFromAddressId], references: [id], onDelete: SetNull)
   liveShippingSessionItem LiveShippingSessionItem?
+  variantPurchaseFulfillment LiveItemVariantPurchase? @relation("VariantPurchaseFulfillmentOrder")
+  breakSpotFulfillment       BreakSpot?               @relation("BreakSpotFulfillmentOrder")
   inventoryHolds          LiveAuctionInventoryHold[]
   layaway                 Layaway?
   shippoShipmentId        String?
@@ -1526,6 +1541,8 @@ model Order {
   shippingCapApplied       Boolean @default(false)
   freeShippingApplied      Boolean @default(false)
   estimatedLabelCostCents  Int?
+  shippingTermsSnapshotJson Json?
+  shippingTermsVersion       Int?
   shippoRateId             String?
   /// Seller payout lifecycle (instant after delivery vs standard hold).
   payoutStatus             OrderPayoutStatus @default(pending)
@@ -1700,10 +1717,16 @@ model LiveShippingSession {
   shippingCostCents Int      @default(0)
   capReached        Boolean  @default(false)
   /// Snapshot from show at session creation — honors cap advertised at first purchase.
+  shippingMode      LiveShowShippingMode?
   shippingCapCents  Int?
+  shippingChargedCents Int @default(0)
+  estimatedEligibleShippingCents Int?
   freeShippingApplied Boolean @default(false)
   estimatedLabelCostCents Int?
+  finalLabelCostCents Int?
   sellerShippingSubsidyCents Int @default(0)
+  carrierPreference LiveShowCarrierPreference?
+  shippingTermsVersion Int?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   orders            Order[]
@@ -2081,6 +2104,37 @@ model TrustModerationAuditLog {
   @@index([targetType, targetId])
 }
 
+/// Seller-editable shipping profiles (seeded from platform defaults).
+model SellerShippingProfile {
+  id                      String   @id @default(cuid())
+  sellerId                String
+  seller                  User     @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  sourceSlug              String
+  name                    String
+  defaultWeightOz         Float
+  defaultLengthIn         Float
+  defaultWidthIn          Float
+  defaultHeightIn         Float
+  packageType             String   @default("")
+  bundleGroup             String   @default("general")
+  incrementalWeightOz     Float?
+  maxUnitsPerParcel       Int?
+  requiresSeparatePackage Boolean  @default(false)
+  canJoinBuyerShowShipment Boolean @default(true)
+  carrierPreference       LiveShowCarrierPreference @default(best_rate)
+  defaultServicePreference String?
+  isDefault               Boolean  @default(false)
+  archivedAt              DateTime?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  liveRooms               LiveRoom[]
+  liveRoomItems           LiveRoomItem[]
+
+  @@unique([sellerId, sourceSlug])
+  @@index([sellerId, archivedAt])
+}
+
 /// Admin-controlled shipping profile definitions (Live, Marketplace, Trade).
 model PlatformShippingProfile {
   id                      String   @id @default(cuid())
@@ -2109,6 +2163,18 @@ enum ShipmentPackageStatus {
   estimated
   label_created
   voided
+}
+
+enum LiveShowShippingMode {
+  calculated
+  capped
+  free
+}
+
+enum LiveShowCarrierPreference {
+  usps
+  ups
+  best_rate
 }
 
 /// Multi-package support under one buyer/show session or single marketplace order.

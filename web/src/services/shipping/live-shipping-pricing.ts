@@ -18,7 +18,7 @@ const FALLBACK_TIERS: LiveShippingTier[] = [
   { maxWeightOz: 16, costCents: 599 },
   { maxWeightOz: 32, costCents: 799 },
   { maxWeightOz: 48, costCents: 999 },
-  { maxWeightOz: Number.POSITIVE_INFINITY, costCents: 1199 },
+  { maxWeightOz: Number.POSITIVE_INFINITY, costCents: 999 },
 ];
 
 function parsePositiveNumber(raw: string | undefined, fallback: number): number {
@@ -46,12 +46,8 @@ function defaultWeightsForCategory(category: ShippingCategory): { base: number; 
   };
 }
 
-function getLiveShippingCapCents(defaultCap: number | null = null): number {
-  if (defaultCap != null && Number.isFinite(defaultCap) && defaultCap >= 0) return Math.floor(defaultCap);
-  const fromEnv = Number(process.env.LIVE_SHIPPING_CAP_CENTS);
-  if (Number.isFinite(fromEnv) && fromEnv >= 0) return Math.floor(fromEnv);
-  return 1199;
-}
+import { settleLiveOrderShippingTx } from "@/services/shipping/live-commerce-shipping-settlement";
+import { resolveLiveShowShippingCapCents } from "@/lib/live-show-shipping-terms";
 
 function parseTiersFromEnv(): LiveShippingTier[] | null {
   const raw = process.env.LIVE_SHIPPING_TIERS_JSON?.trim();
@@ -85,7 +81,7 @@ export function calculateLiveShippingCost(weightOz: number, capCents?: number | 
   const tiers = effectiveTiers();
   const row = tiers.find((tier) => weightOz <= tier.maxWeightOz) ?? tiers[tiers.length - 1];
   const computed = row?.costCents ?? 0;
-  const cap = getLiveShippingCapCents(capCents ?? null);
+  const cap = resolveLiveShowShippingCapCents(capCents ?? null);
   return Math.min(computed, cap);
 }
 
@@ -210,6 +206,7 @@ export async function addOrderToLiveShippingSessionTx(
     if (existingItem) {
       const summary = await getLiveShippingSessionSummaryTx(tx, existingItem.sessionId);
       if (!summary) throw new Error("LIVE_SHIPPING_SESSION_NOT_FOUND");
+      await settleLiveOrderShippingTx(tx, order.id, opts);
       return summary;
     }
 
@@ -386,11 +383,10 @@ export async function addOrderToLiveShippingSessionTx(
 
     await tx.order.update({
       where: { id: order.id },
-      data: {
-        liveShippingSessionId: session.id,
-        shippingPriceUsd: 0,
-      },
+      data: { liveShippingSessionId: session.id },
     });
+
+    await settleLiveOrderShippingTx(tx, order.id, opts);
 
     return summary;
 }
@@ -429,10 +425,14 @@ async function recalcLiveShippingSessionTx(
     select: {
       liveShow: {
         select: {
+          shippingMode: true,
           shippingCapEnabled: true,
           shippingCapCents: true,
           freeShippingEnabled: true,
           sellerPaysOverCap: true,
+          carrierPreference: true,
+          shippingTermsVersion: true,
+          bundleEligiblePurchases: true,
         },
       },
     },
@@ -462,8 +462,14 @@ async function recalcLiveShippingSessionTx(
       shippingCostCents: totals.buyerTotalCents,
       capReached: totals.capReached,
       freeShippingApplied: totals.freeShippingApplied,
+      estimatedEligibleShippingCents: totals.rawEstimateCents,
       estimatedLabelCostCents: totals.rawEstimateCents,
+      finalLabelCostCents: totals.rawEstimateCents,
       sellerShippingSubsidyCents: totals.sellerSubsidyCents,
+      shippingMode: showConfig.shippingMode ?? null,
+      carrierPreference: session.liveShow.carrierPreference ?? null,
+      shippingTermsVersion: session.liveShow.shippingTermsVersion ?? null,
+      shippingCapCents: showConfig.shippingCapCents,
     },
   });
 

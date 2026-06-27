@@ -175,6 +175,8 @@ export type ResolvedShippingProfile = {
   heightIn: number;
   bundleAllowed: boolean;
   requiresSeparatePackage: boolean;
+  bundleGroup: string;
+  maxUnitsPerParcel: number | null;
 };
 
 export type ProfileInput = {
@@ -187,6 +189,8 @@ export type ProfileInput = {
   defaultHeightIn: number;
   bundleAllowed: boolean;
   requiresSeparatePackage: boolean;
+  bundleGroup?: string;
+  maxUnitsPerParcel?: number | null;
 };
 
 export type ItemProfileOverride = {
@@ -217,6 +221,11 @@ export function resolveShippingProfileDimensions(
     heightIn: pick(overrides?.customHeightIn, profile.defaultHeightIn),
     bundleAllowed: profile.bundleAllowed && !separate,
     requiresSeparatePackage: separate,
+    bundleGroup: profile.bundleGroup?.trim() || profile.slug || "general",
+    maxUnitsPerParcel:
+      profile.maxUnitsPerParcel != null && profile.maxUnitsPerParcel > 0
+        ? profile.maxUnitsPerParcel
+        : null,
   };
 }
 
@@ -229,20 +238,25 @@ export type PackageGroup = {
   heightIn: number;
 };
 
-/** Split line items into package groups (helmets etc. ship alone; bundle-eligible items merge). */
+/** Split line items into package groups (helmets etc. ship alone; bundle-eligible items merge by bundle group). */
 export function groupItemsIntoPackages(
   items: Array<{ itemId: string; profile: ResolvedShippingProfile; quantity?: number }>,
+  opts?: { bundleEligiblePurchases?: boolean },
 ): PackageGroup[] {
   const groups: PackageGroup[] = [];
-  let bundleBucket: typeof items = [];
+  const bundleBuckets = new Map<string, typeof items>();
 
-  const flushBundle = () => {
-    if (bundleBucket.length === 0) return;
+  const flushBundleGroup = (groupKey: string) => {
+    const bucket = bundleBuckets.get(groupKey);
+    if (!bucket || bucket.length === 0) return;
     let weightOz = 0;
     let maxL = 0;
     let maxW = 0;
     let maxH = 0;
-    for (const row of bundleBucket) {
+    const maxUnits = bucket[0]?.profile.maxUnitsPerParcel;
+    const limited = maxUnits != null && maxUnits > 0 ? bucket.slice(0, maxUnits) : bucket;
+    const overflow = maxUnits != null && maxUnits > 0 ? bucket.slice(maxUnits) : [];
+    for (const row of limited) {
       const qty = Math.max(1, row.quantity ?? 1);
       weightOz += row.profile.weightOz * qty;
       maxL = Math.max(maxL, row.profile.lengthIn);
@@ -251,19 +265,41 @@ export function groupItemsIntoPackages(
     }
     groups.push({
       packageIndex: groups.length,
-      items: bundleBucket.map(({ itemId, profile }) => ({ itemId, profile })),
+      items: limited.map(({ itemId, profile }) => ({ itemId, profile })),
       weightOz: Math.max(1, weightOz),
       lengthIn: maxL || 10,
       widthIn: maxW || 8,
       heightIn: maxH || 4,
     });
-    bundleBucket = [];
+    bundleBuckets.delete(groupKey);
+    if (overflow.length > 0) {
+      for (const row of overflow) {
+        groups.push({
+          packageIndex: groups.length,
+          items: [{ itemId: row.itemId, profile: row.profile }],
+          weightOz: row.profile.weightOz,
+          lengthIn: row.profile.lengthIn,
+          widthIn: row.profile.widthIn,
+          heightIn: row.profile.heightIn,
+        });
+      }
+    }
   };
+
+  const flushAllBundles = () => {
+    for (const key of [...bundleBuckets.keys()]) flushBundleGroup(key);
+  };
+
+  const bundlingEnabled = opts?.bundleEligiblePurchases !== false;
 
   for (const row of items) {
     const qty = Math.max(1, row.quantity ?? 1);
-    if (row.profile.requiresSeparatePackage || !row.profile.bundleAllowed) {
-      flushBundle();
+    if (
+      !bundlingEnabled ||
+      row.profile.requiresSeparatePackage ||
+      !row.profile.bundleAllowed
+    ) {
+      flushAllBundles();
       for (let i = 0; i < qty; i++) {
         groups.push({
           packageIndex: groups.length,
@@ -275,21 +311,74 @@ export function groupItemsIntoPackages(
         });
       }
     } else {
+      const groupKey = row.profile.bundleGroup || "general";
+      const bucket = bundleBuckets.get(groupKey) ?? [];
       for (let i = 0; i < qty; i++) {
-        bundleBucket.push({ itemId: row.itemId, profile: row.profile, quantity: 1 });
+        bucket.push({ itemId: row.itemId, profile: row.profile, quantity: 1 });
       }
+      bundleBuckets.set(groupKey, bucket);
     }
   }
-  flushBundle();
+  flushAllBundles();
   return groups;
 }
 
 export type LiveShowShippingConfig = {
+  shippingMode?: "calculated" | "capped" | "free";
   shippingCapEnabled: boolean;
   shippingCapCents: number | null;
   freeShippingEnabled: boolean;
   sellerPaysOverCap: boolean;
+  bundleEligiblePurchases?: boolean;
 };
+
+/** Compute buyer total and incremental charge for a live show purchase. */
+export function computeBuyerLiveShippingTotals(args: {
+  shippingMode: "calculated" | "capped" | "free";
+  shippingCapCents: number | null;
+  sellerPaysOverCap: boolean;
+  estimatedEligibleBundleShippingCents: number;
+  shippingAlreadyChargedCents: number;
+}): {
+  buyerTotalShippingCents: number;
+  shippingDueForThisPurchaseCents: number;
+  sellerShippingSubsidyCents: number;
+  capReached: boolean;
+  freeShippingApplied: boolean;
+} {
+  const raw = Math.max(0, Math.floor(args.estimatedEligibleBundleShippingCents));
+  const already = Math.max(0, Math.floor(args.shippingAlreadyChargedCents));
+
+  if (args.shippingMode === "free") {
+    return {
+      buyerTotalShippingCents: 0,
+      shippingDueForThisPurchaseCents: 0,
+      sellerShippingSubsidyCents: raw,
+      capReached: false,
+      freeShippingApplied: true,
+    };
+  }
+
+  const cap =
+    args.shippingMode === "capped" && args.shippingCapCents != null
+      ? Math.max(0, Math.floor(args.shippingCapCents))
+      : null;
+
+  const buyerTotalShippingCents =
+    args.shippingMode === "capped" && cap != null ? Math.min(cap, raw) : raw;
+
+  const shippingDueForThisPurchaseCents = Math.max(0, buyerTotalShippingCents - already);
+  const sellerShippingSubsidyCents =
+    args.sellerPaysOverCap && raw > buyerTotalShippingCents ? raw - buyerTotalShippingCents : 0;
+
+  return {
+    buyerTotalShippingCents,
+    shippingDueForThisPurchaseCents,
+    sellerShippingSubsidyCents,
+    capReached: cap != null && buyerTotalShippingCents >= cap,
+    freeShippingApplied: false,
+  };
+}
 
 export type BuyerShippingChargeResult = {
   buyerPaysCents: number;
@@ -305,35 +394,24 @@ export function computeLiveBuyerShippingCharge(args: {
   show: LiveShowShippingConfig;
   alreadyChargedCents?: number;
 }): BuyerShippingChargeResult {
-  const raw = Math.max(0, Math.floor(args.rawShippoEstimateCents));
-  if (args.show.freeShippingEnabled) {
-    return {
-      buyerPaysCents: 0,
-      rawEstimateCents: raw,
-      sellerSubsidyCents: raw,
-      shippingCapApplied: false,
-      freeShippingApplied: true,
-    };
-  }
+  const mode =
+    args.show.shippingMode ??
+    (args.show.freeShippingEnabled ? "free" : args.show.shippingCapEnabled ? "capped" : "calculated");
 
-  let buyerPays = raw;
-  let capApplied = false;
-  if (args.show.shippingCapEnabled && args.show.shippingCapCents != null && args.show.shippingCapCents >= 0) {
-    buyerPays = Math.min(raw, args.show.shippingCapCents);
-    capApplied = raw > args.show.shippingCapCents;
-  }
-
-  const already = Math.max(0, Math.floor(args.alreadyChargedCents ?? 0));
-  const incrementalBuyer = Math.max(0, buyerPays - already);
-  const sellerSubsidy =
-    args.show.sellerPaysOverCap && raw > buyerPays ? raw - buyerPays : 0;
+  const totals = computeBuyerLiveShippingTotals({
+    shippingMode: mode,
+    shippingCapCents: args.show.shippingCapCents,
+    sellerPaysOverCap: args.show.sellerPaysOverCap,
+    estimatedEligibleBundleShippingCents: args.rawShippoEstimateCents,
+    shippingAlreadyChargedCents: args.alreadyChargedCents ?? 0,
+  });
 
   return {
-    buyerPaysCents: incrementalBuyer,
-    rawEstimateCents: raw,
-    sellerSubsidyCents: sellerSubsidy,
-    shippingCapApplied: capApplied,
-    freeShippingApplied: false,
+    buyerPaysCents: totals.shippingDueForThisPurchaseCents,
+    rawEstimateCents: Math.max(0, Math.floor(args.rawShippoEstimateCents)),
+    sellerSubsidyCents: totals.sellerShippingSubsidyCents,
+    shippingCapApplied: totals.capReached,
+    freeShippingApplied: totals.freeShippingApplied,
   };
 }
 
@@ -369,6 +447,26 @@ export function filterShippoRatesUspsUps(rates: ShippoRateLike[]): ShippoRateLik
     });
 }
 
+export type LiveShowCarrierPreferenceFilter = "usps" | "ups" | "best_rate";
+
+/** Restrict Shippo rates to seller/show carrier preference. */
+export function filterShippoRatesByCarrierPreference(
+  rates: ShippoRateLike[],
+  preference: LiveShowCarrierPreferenceFilter,
+): ShippoRateLike[] {
+  const allowed = filterShippoRatesUspsUps(rates);
+  if (preference === "best_rate") return allowed;
+  return allowed.filter((r) => normalizeCarrierKey(r.provider) === preference);
+}
+
+export function pickShippoRateForPreference(
+  rates: ShippoRateLike[],
+  preference: LiveShowCarrierPreferenceFilter,
+): ShippoRateLike | null {
+  const filtered = filterShippoRatesByCarrierPreference(rates, preference);
+  return filtered[0] ?? null;
+}
+
 export function shippoRateAmountCents(rate: ShippoRateLike): number {
   const n = Number(rate.amount);
   if (!Number.isFinite(n) || n < 0) return 0;
@@ -376,8 +474,7 @@ export function shippoRateAmountCents(rate: ShippoRateLike): number {
 }
 
 export function pickCheapestShippoRate(rates: ShippoRateLike[]): ShippoRateLike | null {
-  const filtered = filterShippoRatesUspsUps(rates);
-  return filtered[0] ?? null;
+  return pickShippoRateForPreference(rates, "best_rate");
 }
 
 /** Label lock — shipment cannot change profile/dims once any package has a label. */

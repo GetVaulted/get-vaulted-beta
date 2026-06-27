@@ -13,9 +13,10 @@ import {
 } from "@/services/shipping/live-shipping-pool";
 import {
   groupItemsIntoPackages,
-  pickCheapestShippoRate,
+  pickShippoRateForPreference,
   resolveShippingProfileDimensions,
   shippoRateAmountCents,
+  type LiveShowCarrierPreferenceFilter,
   type PackageGroup,
 } from "@/lib/unified-shipping-engine";
 import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-shipping-profiles";
@@ -157,11 +158,14 @@ export async function quoteShippoCentsForPackageGroups(args: {
   groups: PackageGroup[];
   addressFrom: ShippoAddress;
   addressTo: ShippoAddress;
-}): Promise<{ totalCents: number; rateIds: string[] } | null> {
+  carrierPreference?: LiveShowCarrierPreferenceFilter | null;
+}): Promise<{ totalCents: number; rateIds: string[] } | { error: "NO_ELIGIBLE_RATES" } | null> {
   if (!isShippoConfigured() || args.groups.length === 0) return null;
 
+  const preference: LiveShowCarrierPreferenceFilter = args.carrierPreference ?? "best_rate";
   let totalCents = 0;
   const rateIds: string[] = [];
+  let missingRateGroup = false;
 
   for (const group of args.groups) {
     const shipment = (await shippoCreateShipment({
@@ -171,16 +175,28 @@ export async function quoteShippoCentsForPackageGroups(args: {
       async: false,
     })) as { object_id?: string };
     const sid = shipment.object_id;
-    if (!sid) continue;
+    if (!sid) {
+      missingRateGroup = true;
+      continue;
+    }
 
     const ratesRes = (await shippoListRates(sid)) as { results?: unknown[] };
-    const cheapest = pickCheapestShippoRate((ratesRes.results ?? []) as Parameters<typeof pickCheapestShippoRate>[0]);
-    if (!cheapest?.object_id) continue;
+    const picked = pickShippoRateForPreference(
+      (ratesRes.results ?? []) as Parameters<typeof pickShippoRateForPreference>[0],
+      preference,
+    );
+    if (!picked?.object_id) {
+      missingRateGroup = true;
+      continue;
+    }
 
-    totalCents += shippoRateAmountCents(cheapest);
-    rateIds.push(String(cheapest.object_id));
+    totalCents += shippoRateAmountCents(picked);
+    rateIds.push(String(picked.object_id));
   }
 
+  if (missingRateGroup && totalCents <= 0) {
+    return { error: "NO_ELIGIBLE_RATES" };
+  }
   if (totalCents <= 0) return null;
   return { totalCents, rateIds };
 }
@@ -205,6 +221,8 @@ export async function refreshLiveShippingSessionShippoEstimate(
           shippingCapCents: true,
           freeShippingEnabled: true,
           sellerPaysOverCap: true,
+          shippingMode: true,
+          carrierPreference: true,
         },
       },
       seller: {
@@ -273,8 +291,9 @@ export async function refreshLiveShippingSessionShippoEstimate(
         zip: buyer.shipZip,
         country: buyer.shipCountry || "US",
       },
+      carrierPreference: session.liveShow.carrierPreference ?? "best_rate",
     });
-    if (quoted) {
+    if (quoted && "totalCents" in quoted) {
       rawEstimateCents = quoted.totalCents;
       usedShippo = true;
     }

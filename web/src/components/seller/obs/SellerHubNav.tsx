@@ -5,6 +5,7 @@ import { SELLER_OBS_PATH } from "@/lib/obs-seller-paths";
 
 const NAV = [
   { href: "/account/seller", label: "HQ" },
+  { href: "/account/seller/shipping", label: "Shipping" },
   { href: "/seller/listings", label: "Listings" },
   { href: "/account/sales", label: "Sales" },
   { href: "/account/messages", label: "Messages" },

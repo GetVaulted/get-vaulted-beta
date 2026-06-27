@@ -2,6 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
+import {
+  buyerLiveShippingPaidCopy,
+  buyerLiveShippingPreviewCopy,
+  buyerLiveShowShippingHudCopy,
+} from "@/lib/live-show-shipping-terms";
+import type { LiveShowShippingMode } from "@/lib/live-show-shipping-terms";
 
 export type LiveShippingSessionPayload = {
   shippingCostCents: number;
@@ -14,11 +20,10 @@ export type LiveShippingSessionPayload = {
   packageCount: number;
   previewWinDeltaCents: number | null;
   previewRequiresSeparatePackage: boolean;
+  shippingMode?: LiveShowShippingMode;
+  showShippingHudCopy?: string | null;
 };
 
-function formatUsdFromCents(cents: number): string {
-  return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
-}
 
 function hasBundledShippingActivity(d: LiveShippingSessionPayload): boolean {
   return d.shippingCostCents > 0 || d.pricingWeightOz > 0 || d.packageCount > 0;
@@ -113,94 +118,98 @@ export function LiveShippingIndicator({
     );
   }
 
-  const capLine =
-    data?.shippingCapCents != null && data.shippingCapCents > 0 && !data.freeShippingEnabled
-      ? ` · cap ${formatUsdFromCents(data.shippingCapCents)}`
-      : "";
-
   const previewDelta = data?.previewWinDeltaCents ?? data?.nextIncrementalCostCents;
   const separateHint = data?.previewRequiresSeparatePackage ? " (separate package)" : "";
 
+  const shippingMode: LiveShowShippingMode =
+    data?.shippingMode ??
+    (data?.freeShippingEnabled ? "free" : data?.shippingCapCents != null ? "capped" : "calculated");
+
+  const hudCopy =
+    data?.showShippingHudCopy ??
+    buyerLiveShowShippingHudCopy({ mode: shippingMode, capCents: data?.shippingCapCents });
+
   if (!data || !hasBundledShippingActivity(data)) {
-    if (previewDelta != null && previewDelta > 0) {
+    const previewFrom = previewDelta != null && previewDelta > 0 ? previewDelta : null;
+    const previewCopy = buyerLiveShippingPreviewCopy({
+      mode: shippingMode,
+      previewFromCents: previewFrom,
+      capCents: data?.shippingCapCents ?? null,
+    });
+    if (previewFrom != null) {
       return (
         <div className={`rounded-lg border border-emerald-500/20 bg-emerald-950/15 px-2.5 py-2 ${className}`}>
           <p className={`font-semibold text-emerald-100/95 ${compact ? "text-[10px]" : "text-xs"}`}>
-            Win this item → about {formatUsdFromCents(previewDelta)} shipping{separateHint}
+            {previewCopy}
+            {separateHint}
           </p>
-          {capLine ? (
-            <p className={`mt-0.5 text-emerald-200/75 ${compact ? "text-[9px]" : "text-[10px]"}`}>
-              Bundled pool{capLine}
-            </p>
-          ) : null}
+          <p className={`mt-0.5 text-emerald-200/75 ${compact ? "text-[9px]" : "text-[10px]"}`}>{hudCopy}</p>
         </div>
       );
     }
     return (
       <div className={`rounded-lg border border-emerald-500/20 bg-emerald-950/15 px-2.5 py-2 ${className}`}>
-        <p className={`font-semibold text-emerald-100/95 ${compact ? "text-[10px]" : "text-xs"}`}>
-          Win your first item to start shipping
-        </p>
-        {!compact ? (
-          <p className="mt-0.5 text-[10px] text-emerald-200/75">
-            One pool per seller per show{capLine || " — cards bundle; big items may ship separately"}.
-          </p>
-        ) : null}
+        <p className={`font-semibold text-emerald-100/95 ${compact ? "text-[10px]" : "text-xs"}`}>{hudCopy}</p>
       </div>
     );
   }
 
-  const tierLine = data.tierLabel ? ` · ${data.tierLabel}` : "";
-
-  if (data.freeShippingEnabled) {
+  if (data.freeShippingEnabled || shippingMode === "free") {
     return (
       <div className={`rounded-lg border border-emerald-400/25 bg-emerald-950/15 px-2.5 py-2 ${className}`}>
         <p className={`font-semibold text-emerald-100 ${compact ? "text-[10px]" : "text-xs"}`}>
-          Free shipping on this show{tierLine}
+          {buyerLiveShippingPaidCopy({
+            mode: "free",
+            paidCents: data.shippingCostCents,
+            capCents: data.shippingCapCents,
+            capReached: false,
+          })}
         </p>
       </div>
     );
   }
 
-  if (data.capReached) {
+  if (data.capReached || (shippingMode === "capped" && data.shippingCapCents != null && data.shippingCostCents >= data.shippingCapCents)) {
     return (
       <div className={`rounded-lg border border-amber-400/30 bg-amber-950/20 px-2.5 py-2 ${className}`}>
         <p className={`font-semibold text-amber-100 ${compact ? "text-[10px]" : "text-xs"}`}>
-          Shipping pool max reached 🎉{tierLine}
-          {capLine}
-        </p>
-        <p className={`mt-0.5 text-amber-100/85 ${compact ? "text-[9px]" : "text-[10px]"}`}>
-          Keep buying — no extra shipping until cap changes
+          {buyerLiveShippingPaidCopy({
+            mode: shippingMode,
+            paidCents: data.shippingCostCents,
+            capCents: data.shippingCapCents,
+            capReached: true,
+          })}
         </p>
       </div>
     );
   }
 
-  const next =
-    previewDelta != null && previewDelta > 0 ? formatUsdFromCents(previewDelta) : null;
+  const paidCopy = buyerLiveShippingPaidCopy({
+    mode: shippingMode,
+    paidCents: data.shippingCostCents,
+    capCents: data.shippingCapCents,
+    capReached: data.capReached,
+  });
+
+  const previewFrom = previewDelta != null && previewDelta > 0 ? previewDelta : null;
+  const previewCopy =
+    previewFrom != null
+      ? buyerLiveShippingPreviewCopy({
+          mode: shippingMode,
+          previewFromCents: data.shippingCostCents + previewFrom,
+          capCents: data.shippingCapCents,
+        })
+      : null;
 
   return (
     <div className={`rounded-lg border border-emerald-400/25 bg-emerald-950/15 px-2.5 py-2 ${className}`}>
-      <p className={`font-semibold text-emerald-100 ${compact ? "text-[10px]" : "text-xs"}`}>
-        Shipping pool: {formatUsdFromCents(data.shippingCostCents)}
-        {tierLine}
-        {capLine}
-      </p>
-      {next ? (
-        <>
-          <p className={`mt-0.5 text-emerald-50/95 ${compact ? "text-[9px]" : "text-[10px]"}`}>
-            Win this item → adds about {next}
-            {separateHint}
-          </p>
-          <p className={`mt-0.5 text-emerald-200/75 ${compact ? "text-[9px]" : "text-[10px]"}`}>
-            All wins in this show share one capped pool
-          </p>
-        </>
-      ) : (
-        <p className={`mt-0.5 text-emerald-200/75 ${compact ? "text-[9px]" : "text-[10px]"}`}>
-          Items ship together in your pool
+      <p className={`font-semibold text-emerald-100 ${compact ? "text-[10px]" : "text-xs"}`}>{paidCopy}</p>
+      {previewCopy ? (
+        <p className={`mt-0.5 text-emerald-50/95 ${compact ? "text-[9px]" : "text-[10px]"}`}>
+          Next win → {previewCopy}
+          {separateHint}
         </p>
-      )}
+      ) : null}
     </div>
   );
 }

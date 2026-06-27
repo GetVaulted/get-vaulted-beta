@@ -2,6 +2,10 @@ import type { PrismaClient } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { LIVE_BUNDLED_SHIPPING_DESTINATION_KEY } from "@/services/shipping/live-shipping-pricing";
 import {
+  buyerLiveShowShippingHudCopy,
+  shippingModeFromRoomFlags,
+} from "@/lib/live-show-shipping-terms";
+import {
   computeSessionPoolTotals,
   estimateWinItemShippingDeltaCents,
   liveShowShippingConfigFromRoom,
@@ -18,13 +22,15 @@ export type BuyerLiveShippingSessionApi = {
   /** Show-level buyer shipping cap (cents), when enabled. */
   shippingCapCents: number | null;
   freeShippingEnabled: boolean;
+  shippingMode: "calculated" | "capped" | "free";
+  showShippingHudCopy: string;
   packageCount: number;
   /** Preview: if buyer wins `previewItemId`, shipping adds this much. */
   previewWinDeltaCents: number | null;
   previewRequiresSeparatePackage: boolean;
 };
 
-type Db = Pick<PrismaClient, "liveRoom" | "liveRoomItem" | "liveShippingSession" | "liveShippingSessionItem" | "platformShippingProfile">;
+type Db = Pick<PrismaClient, "liveRoom" | "liveRoomItem" | "liveShippingSession" | "liveShippingSessionItem" | "platformShippingProfile" | "sellerShippingProfile">;
 
 /**
  * Bundled live shipping pool for buyer UX (read-only).
@@ -46,14 +52,17 @@ export async function getBuyerBundledLiveShippingSessionUx(
       shippingCapCents: true,
       freeShippingEnabled: true,
       sellerPaysOverCap: true,
+      shippingMode: true,
     },
   });
   if (!room || (room.roomType !== "auction" && room.roomType !== "sale")) {
     return null;
   }
 
+  const shippingMode = shippingModeFromRoomFlags(room);
   const showConfig = liveShowShippingConfigFromRoom(room);
-  const capCents = room.shippingCapEnabled ? room.shippingCapCents : null;
+  const capCents = shippingMode === "capped" ? room.shippingCapCents : null;
+  const hudCopy = buyerLiveShowShippingHudCopy({ mode: shippingMode, capCents: room.shippingCapCents });
 
   const emptyPayload = (): BuyerLiveShippingSessionApi => ({
     shippingCostCents: 0,
@@ -63,6 +72,8 @@ export async function getBuyerBundledLiveShippingSessionUx(
     tierLabel: null,
     shippingCapCents: capCents,
     freeShippingEnabled: room.freeShippingEnabled,
+    shippingMode,
+    showShippingHudCopy: hudCopy,
     packageCount: 0,
     previewWinDeltaCents: null,
     previewRequiresSeparatePackage: false,
@@ -139,6 +150,8 @@ export async function getBuyerBundledLiveShippingSessionUx(
     tierLabel: packageLabel,
     shippingCapCents: capCents,
     freeShippingEnabled: room.freeShippingEnabled,
+    shippingMode,
+    showShippingHudCopy: hudCopy,
     packageCount: pool.packageCount,
     previewWinDeltaCents,
     previewRequiresSeparatePackage,
