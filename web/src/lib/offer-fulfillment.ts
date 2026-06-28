@@ -1,5 +1,6 @@
 import { Prisma } from "@/generated/prisma/client";
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
+import { roundUsd } from "@/lib/round-usd";
 import {
   consumeListingInventoryHoldTx,
   reserveListingInventoryHoldTx,
@@ -238,7 +239,8 @@ export async function createOrderFromAuctionWin(
       }),
     );
   const shippingPriceUsd = hasLiveAuctionContext ? 0 : params.shippingPriceUsd;
-  const totalUsd = params.itemPriceUsd + shippingPriceUsd;
+  const itemPriceUsd = roundUsd(params.itemPriceUsd);
+  const totalUsd = roundUsd(itemPriceUsd + shippingPriceUsd);
   const hasShip =
     params.shipRecipientName &&
     params.shipAddress &&
@@ -272,7 +274,7 @@ export async function createOrderFromAuctionWin(
         listingId: params.listingId,
         buyerId: params.buyerId,
         sellerId: params.sellerId,
-        itemPriceUsd: params.itemPriceUsd,
+        itemPriceUsd,
         shippingPriceUsd,
         taxUsd: 0,
         totalUsd,

@@ -1,5 +1,6 @@
 import type { BreakSpot, Listing, Order, User } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { roundUsd } from "@/lib/round-usd";
 import {
   PAYMENT_EXPIRED,
   PAYMENT_FAILED,
@@ -51,7 +52,8 @@ function mapOrder(o: OrderWithBuyer): HostRecentSaleRowDTO {
     id: `order:${o.id}`,
     kind: "order",
     buyerUsername: o.buyer?.username?.trim() || "buyer",
-    amountUsd: o.totalUsd,
+    /** Hammer / item price — not order total (shipping + tax are separate). */
+    amountUsd: roundUsd(o.itemPriceUsd),
     paymentTone,
     statusLabel,
     occurredAt: o.updatedAt.toISOString(),

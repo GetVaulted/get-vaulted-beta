@@ -1,7 +1,28 @@
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
 import { createOrderFromAuctionWin } from "@/lib/offer-fulfillment";
 import { resolveProxyAuction, type BidLike } from "@/lib/proxy-auction";
+import { roundUsd } from "@/lib/round-usd";
 import { captureLiveRoomItemShippingSnapshotTx } from "@/services/shipping/live-item-shipping-snapshot";
+
+/** Hammer price for a live lot — live room high bid wins over listing/proxy snapshots. */
+export function resolveLiveAuctionHammerUsd(args: {
+  liveRoomItemHighUsd: number | null | undefined;
+  listingCurrentBidUsd: number | null | undefined;
+  proxyDisplayUsd: number;
+}): number {
+  const liveHigh = args.liveRoomItemHighUsd;
+  if (typeof liveHigh === "number" && Number.isFinite(liveHigh) && liveHigh > 0) {
+    return roundUsd(liveHigh);
+  }
+  if (
+    args.listingCurrentBidUsd != null &&
+    Number.isFinite(args.listingCurrentBidUsd) &&
+    args.listingCurrentBidUsd > 0
+  ) {
+    return roundUsd(args.listingCurrentBidUsd);
+  }
+  return roundUsd(args.proxyDisplayUsd);
+}
 
 /**
  * When a host marks a live auction queue item sold, ensure a marketplace `Order` exists
@@ -132,10 +153,11 @@ export async function settleLiveAuctionItemWhenMarkedSold(
     throw new Error("LIVE_AUCTION_NO_WINNER");
   }
 
-  const itemPriceUsd =
-    listingRow.currentBidUsd != null && Number.isFinite(listingRow.currentBidUsd)
-      ? listingRow.currentBidUsd
-      : resolved.displayUsd;
+  const itemPriceUsd = resolveLiveAuctionHammerUsd({
+    liveRoomItemHighUsd: item.currentBidUsd,
+    listingCurrentBidUsd: listingRow.currentBidUsd,
+    proxyDisplayUsd: resolved.displayUsd,
+  });
 
   const leaderBids = bidRows.filter((b) => b.bidderId === leaderId);
   const winCheckout = [...leaderBids].reverse().find(

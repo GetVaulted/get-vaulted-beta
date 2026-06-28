@@ -10,6 +10,7 @@ import {
   liveShowShippingConfigFromTerms,
   type LiveShowShippingTerms,
 } from "@/lib/live-show-shipping-terms";
+import { roundUsd } from "@/lib/round-usd";
 import type { AddOrderToLiveShippingSessionOpts } from "@/services/shipping/live-shipping-pricing";
 import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-shipping-profiles";
 import {
@@ -347,7 +348,7 @@ export async function settleLiveOrderShippingTx(
     where: { id: orderId },
     data: {
       shippingPriceUsd,
-      totalUsd: order.itemPriceUsd + shippingPriceUsd + order.taxUsd,
+      totalUsd: roundUsd(order.itemPriceUsd + shippingPriceUsd + order.taxUsd),
       shippingCapApplied: totals.capReached,
       freeShippingApplied: totals.freeShippingApplied,
       sellerShippingSubsidyCents: totals.sellerShippingSubsidyCents,
