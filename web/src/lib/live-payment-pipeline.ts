@@ -32,7 +32,11 @@ import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId } fr
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
-import { chargeLiveBuyNowOrderWithSavedCard } from "@/lib/stripe-charge-order-saved-pm";
+import {
+  buildStripeChargeErrorDebug,
+  chargeLiveBuyNowOrderWithSavedCard,
+} from "@/lib/stripe-charge-order-saved-pm";
+import { stripeOffSessionPaymentIntentOptions } from "@/lib/stripe-payment-method-config";
 
 export const LIVE_VARIANT_PURCHASE_PI_KIND = "variant_purchase_saved_pm" as const;
 export const LIVE_BREAK_SPOT_PI_KIND = "break_spot_saved_pm" as const;
@@ -128,6 +132,13 @@ function mapPaymentIntentOutcome(
   if (pi.status === "processing") {
     return { outcome: "processing", paymentIntentId: pi.id };
   }
+  if (pi.status === "requires_payment_method") {
+    return {
+      outcome: "error",
+      code: "CARD_DECLINED",
+      message: "Your saved card could not be charged.",
+    };
+  }
   return null;
 }
 
@@ -153,6 +164,40 @@ export function mapLiveFulfillmentOrderError(err: unknown): string {
     return "Could not link this purchase to live shipping — try again.";
   }
   return "Could not prepare checkout. Check your Wallet shipping address and try again.";
+}
+
+function mapLiveSavedCardStripeError(
+  e: unknown,
+  ctx: {
+    kind: "variant_purchase" | "break_spot";
+    referenceId: string;
+    amountCents: number;
+    customerId: string;
+    paymentMethodId: string;
+    destinationAccount: string;
+  },
+): LiveSavedCardChargeOutcome {
+  const stripeDebug = buildStripeChargeErrorDebug(e, {
+    amountCents: ctx.amountCents,
+    currency: "usd",
+    customerId: ctx.customerId,
+    paymentMethodId: ctx.paymentMethodId,
+    destinationAccount: ctx.destinationAccount,
+  });
+  console.error(`[${ctx.kind}] stripe charge error`, {
+    referenceId: ctx.referenceId,
+    ...stripeDebug,
+  });
+  if (e instanceof Stripe.errors.StripeCardError) {
+    return { outcome: "error", code: "CARD_DECLINED", message: e.message || "Card declined." };
+  }
+  if (e instanceof Stripe.errors.StripeInvalidRequestError) {
+    const lower = (e.message ?? "").toLowerCase();
+    if (lower.includes("destination") || lower.includes("application_fee_amount")) {
+      return { outcome: "error", code: "SELLER_NOT_READY", message: "Seller payouts are not ready." };
+    }
+  }
+  return { outcome: "error", code: "STRIPE_ERROR", message: "Could not process payment." };
 }
 
 /**
@@ -258,9 +303,9 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
         currency: "usd",
         customer: customerId,
         payment_method: pmId,
-        confirmation_method: "automatic",
         confirm: true,
         off_session: true,
+        ...stripeOffSessionPaymentIntentOptions("live"),
         metadata: {
           kind: LIVE_VARIANT_PURCHASE_PI_KIND,
           purchaseId: purchase.id,
@@ -285,10 +330,14 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
 
     return { outcome: "error", code: "PAYMENT_INTENT_NOT_COMPLETED", message: "Payment did not complete." };
   } catch (e) {
-    if (e instanceof Stripe.errors.StripeCardError) {
-      return { outcome: "error", code: "CARD_DECLINED", message: e.message || "Card declined." };
-    }
-    return { outcome: "error", code: "STRIPE_ERROR", message: "Could not process payment." };
+    return mapLiveSavedCardStripeError(e, {
+      kind: "variant_purchase",
+      referenceId: purchase.id,
+      amountCents,
+      customerId,
+      paymentMethodId: pmId,
+      destinationAccount: seller.stripeAccountId,
+    });
   }
 }
 
@@ -491,7 +540,21 @@ export async function chargeBreakSpotWithSavedCard(args: {
     return { outcome: "error", code: "BUYER_STRIPE_CUSTOMER_MISSING", message: "Wallet is not linked to Stripe." };
   }
 
-  const fulfillment = await ensureBreakSpotFulfillmentOrder(spot.id);
+  let fulfillment: { orderId: string; chargeTotalUsd: number };
+  try {
+    fulfillment = await ensureBreakSpotFulfillmentOrder(spot.id);
+  } catch (err) {
+    console.error("[break spot] fulfillment order failed", {
+      breakSpotId: spot.id,
+      liveRoomId: spot.liveRoomId,
+      err,
+    });
+    return {
+      outcome: "error",
+      code: "FULFILLMENT_ORDER_FAILED",
+      message: mapLiveFulfillmentOrderError(err),
+    };
+  }
   const amountCents = Math.round(Math.max(0, fulfillment.chargeTotalUsd) * 100);
   if (amountCents < 50) {
     return { outcome: "error", code: "INVALID_AMOUNT", message: "Spot price is too small to charge." };
@@ -520,9 +583,9 @@ export async function chargeBreakSpotWithSavedCard(args: {
         currency: "usd",
         customer: customerId,
         payment_method: pmId,
-        confirmation_method: "automatic",
         confirm: true,
         off_session: true,
+        ...stripeOffSessionPaymentIntentOptions("live"),
         metadata: {
           kind: LIVE_BREAK_SPOT_PI_KIND,
           breakSpotId: spot.id,
@@ -533,7 +596,7 @@ export async function chargeBreakSpotWithSavedCard(args: {
         application_fee_amount: feeCents,
         transfer_data: { destination: seller.stripeAccountId },
       },
-      { idempotencyKey: `break_spot_saved_pm_${spot.id}_${amountCents}` },
+      { idempotencyKey: `break_spot_saved_pm_${spot.id}_${amountCents}_${pmId}` },
     );
 
     await prisma.breakSpot.update({
@@ -548,10 +611,14 @@ export async function chargeBreakSpotWithSavedCard(args: {
     if (mapped) return mapped;
     return { outcome: "error", code: "PAYMENT_INTENT_NOT_COMPLETED", message: "Payment did not complete." };
   } catch (e) {
-    if (e instanceof Stripe.errors.StripeCardError) {
-      return { outcome: "error", code: "CARD_DECLINED", message: e.message || "Card declined." };
-    }
-    return { outcome: "error", code: "STRIPE_ERROR", message: "Could not process payment." };
+    return mapLiveSavedCardStripeError(e, {
+      kind: "break_spot",
+      referenceId: spot.id,
+      amountCents,
+      customerId,
+      paymentMethodId: pmId,
+      destinationAccount: seller.stripeAccountId,
+    });
   }
 }
 

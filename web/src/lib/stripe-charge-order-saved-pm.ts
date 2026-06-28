@@ -49,7 +49,7 @@ export type ChargeOrderSavedPmOutcome =
   | { outcome: "error"; code: string; message?: string; stripeDebug?: StripeChargeErrorDebug };
 
 /** Extract beta/dev-safe Stripe error fields for recovery diagnostics. */
-function buildStripeChargeErrorDebug(
+export function buildStripeChargeErrorDebug(
   e: unknown,
   ctx: {
     amountCents: number;

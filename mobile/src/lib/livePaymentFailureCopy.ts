@@ -13,6 +13,10 @@ const CODE_MESSAGES: Record<string, string> = {
   authentication_required: 'Your bank requires additional verification.',
   card_declined_authentication_required: 'Your bank requires additional verification.',
   CARD_DECLINED: 'Your card was declined.',
+  STRIPE_ERROR: 'Payment could not be completed. Try updating your saved card.',
+  SELLER_NOT_READY: 'The seller is not ready to accept payments yet.',
+  FULFILLMENT_ORDER_FAILED:
+    'Could not prepare checkout. Check your Wallet shipping address and try again.',
   // Order-level payment window lapsed — NOT a card-expiry problem; must not map to "card has expired".
   ORDER_PAYMENT_EXPIRED: "This purchase's payment window expired. Please try again or contact support.",
   order_payment_expired: "This purchase's payment window expired. Please try again or contact support.",
