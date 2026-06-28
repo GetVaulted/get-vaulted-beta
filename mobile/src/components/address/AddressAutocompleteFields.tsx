@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  ScrollView,
   StyleSheet,
   TextInput,
   View,
@@ -24,6 +25,8 @@ type Props = {
   values: AddressAutocompleteValues;
   onChange: (field: FieldKey, value: string) => void;
   onResolved?: (values: AddressAutocompleteValues) => void;
+  /** Parent ScrollView — scrolls city/state into view after a suggestion is selected. */
+  scrollViewRef?: RefObject<ScrollView | null>;
   disabled?: boolean;
   line1Label?: string;
   inputStyle?: object;
@@ -32,6 +35,27 @@ type Props = {
   countryReadOnly?: boolean;
   showLine2?: boolean;
 };
+
+function scrollResolvedFieldsIntoView(
+  scrollRef: RefObject<ScrollView | null> | undefined,
+  sectionRef: RefObject<View | null>,
+) {
+  if (!scrollRef?.current || !sectionRef.current) return;
+  setTimeout(() => {
+    const scroll = scrollRef.current;
+    const section = sectionRef.current;
+    if (!scroll || !section) return;
+    section.measureLayout(
+      scroll as unknown as number,
+      (_left, top) => {
+        scroll.scrollTo({ y: Math.max(0, top - 24), animated: true });
+      },
+      () => {
+        scroll.scrollToEnd({ animated: true });
+      },
+    );
+  }, 120);
+}
 
 function FieldLabel({
   label,
@@ -55,6 +79,7 @@ export function AddressAutocompleteFields({
   values,
   onChange,
   onResolved,
+  scrollViewRef,
   disabled = false,
   line1Label = 'Address line 1',
   inputStyle,
@@ -69,9 +94,18 @@ export function AddressAutocompleteFields({
   const [hint, setHint] = useState<string | null>(null);
   const containerRef = useRef<string | undefined>(undefined);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pauseSearchRef = useRef(false);
+  const line1InputRef = useRef<TextInput | null>(null);
+  const resolvedSectionRef = useRef<View | null>(null);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (pauseSearchRef.current) {
+      setSuggestions([]);
+      setOpen(false);
+      setBusy(false);
+      return;
+    }
     const q = values.line1.trim();
     if (q.length < 3 || !accessToken) {
       setSuggestions([]);
@@ -103,6 +137,13 @@ export function AddressAutocompleteFields({
   }, [accessToken, values.line1, values.country]);
 
   const applyResolved = (resolved: AddressAutocompleteValues) => {
+    pauseSearchRef.current = true;
+    containerRef.current = undefined;
+    setOpen(false);
+    setSuggestions([]);
+    setBusy(false);
+    setHint(null);
+    line1InputRef.current?.blur();
     onChange('line1', resolved.line1);
     onChange('line2', resolved.line2);
     onChange('city', resolved.city);
@@ -110,9 +151,7 @@ export function AddressAutocompleteFields({
     onChange('postalCode', resolved.postalCode);
     onChange('country', resolved.country);
     onResolved?.(resolved);
-    containerRef.current = undefined;
-    setOpen(false);
-    setSuggestions([]);
+    scrollResolvedFieldsIntoView(scrollViewRef, resolvedSectionRef);
   };
 
   const pickSuggestion = async (suggestion: AddressAutocompleteSuggestion) => {
@@ -125,11 +164,15 @@ export function AddressAutocompleteFields({
       return;
     }
 
+    setOpen(false);
+    setSuggestions([]);
+    pauseSearchRef.current = true;
     setBusy(true);
     try {
       const resolved = await retrieveAutocompleteAddress(accessToken, suggestion.id);
       applyResolved(resolved);
     } catch (e) {
+      pauseSearchRef.current = false;
       setHint(e instanceof Error ? e.message : 'Could not load that address.');
     } finally {
       setBusy(false);
@@ -142,13 +185,16 @@ export function AddressAutocompleteFields({
     <View style={{ gap: spacing.sm }}>
       <FieldLabel label={line1Label} labelStyle={labelStyle}>
         <TextInput
+          ref={line1InputRef}
           value={values.line1}
           editable={!disabled}
           onChangeText={(text) => {
+            pauseSearchRef.current = false;
             containerRef.current = undefined;
             onChange('line1', text);
           }}
           onFocus={() => {
+            if (pauseSearchRef.current) return;
             if (suggestions.length) setOpen(true);
           }}
           placeholder="Start typing your street address"
@@ -169,6 +215,7 @@ export function AddressAutocompleteFields({
         ) : null}
       </FieldLabel>
 
+      <View ref={resolvedSectionRef} collapsable={false} style={{ gap: spacing.sm }}>
       {showLine2 ? (
         <FieldLabel label="Address line 2 (optional)" labelStyle={labelStyle}>
           <TextInput
@@ -238,6 +285,7 @@ export function AddressAutocompleteFields({
           />
         </FieldLabel>
       ) : null}
+      </View>
     </View>
   );
 }

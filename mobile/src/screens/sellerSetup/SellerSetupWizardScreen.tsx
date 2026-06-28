@@ -63,6 +63,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   const [step, setStep] = useState<SellerWizardStep>(1);
   const [stepReady, setStepReady] = useState(false);
   const stepInitRef = useRef(false);
+  const wizardScrollRef = useRef<ScrollView | null>(null);
 
   const [shipName, setShipName] = useState('');
   const [shipStreet, setShipStreet] = useState('');
@@ -392,7 +393,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={wizardScrollRef} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.card}>
           {step === 1 ? (
             <>
@@ -558,6 +559,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
                   <Field label="Name / company" value={shipName} onChangeText={setShipName} />
                   <AddressAutocompleteFields
                     accessToken={token}
+                    scrollViewRef={wizardScrollRef}
                     values={{
                       line1: shipStreet,
                       line2: '',

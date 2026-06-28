@@ -45,7 +45,10 @@ export function AddressAutocompleteFields({
   const [hint, setHint] = useState<string | null>(null);
   const containerRef = useRef<string | undefined>(undefined);
   const debounceRef = useRef<number | null>(null);
+  const pauseSearchRef = useRef(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const resolvedSectionRef = useRef<HTMLDivElement | null>(null);
+  const line1InputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -57,6 +60,12 @@ export function AddressAutocompleteFields({
 
   useEffect(() => {
     if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    if (pauseSearchRef.current) {
+      setSuggestions([]);
+      setOpen(false);
+      setBusy(false);
+      return;
+    }
     const q = values.line1.trim();
     if (q.length < 3) {
       setSuggestions([]);
@@ -88,6 +97,13 @@ export function AddressAutocompleteFields({
   }, [values.line1, values.country]);
 
   const applyResolved = (resolved: AddressAutocompleteValues) => {
+    pauseSearchRef.current = true;
+    containerRef.current = undefined;
+    setOpen(false);
+    setSuggestions([]);
+    setBusy(false);
+    setHint(null);
+    line1InputRef.current?.blur();
     onChange("line1", resolved.line1);
     onChange("line2", resolved.line2);
     onChange("city", resolved.city);
@@ -95,9 +111,9 @@ export function AddressAutocompleteFields({
     onChange("postalCode", resolved.postalCode);
     onChange("country", resolved.country);
     onResolved?.(resolved);
-    containerRef.current = undefined;
-    setOpen(false);
-    setSuggestions([]);
+    window.requestAnimationFrame(() => {
+      resolvedSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
   };
 
   const pickSuggestion = async (suggestion: AddressAutocompleteSuggestion) => {
@@ -109,11 +125,15 @@ export function AddressAutocompleteFields({
       return;
     }
 
+    setOpen(false);
+    setSuggestions([]);
+    pauseSearchRef.current = true;
     setBusy(true);
     try {
       const resolved = await retrieveAutocompleteAddress(suggestion.id);
       applyResolved(resolved);
     } catch (e) {
+      pauseSearchRef.current = false;
       setHint(e instanceof Error ? e.message : "Could not load that address.");
     } finally {
       setBusy(false);
@@ -126,13 +146,16 @@ export function AddressAutocompleteFields({
         <label className={labelClassName}>
           {line1Label}
           <input
+            ref={line1InputRef}
             value={values.line1}
             disabled={disabled}
             onChange={(e) => {
+              pauseSearchRef.current = false;
               containerRef.current = undefined;
               onChange("line1", e.target.value);
             }}
             onFocus={() => {
+              if (pauseSearchRef.current) return;
               if (suggestions.length) setOpen(true);
             }}
             autoComplete="address-line1"
@@ -159,6 +182,7 @@ export function AddressAutocompleteFields({
         ) : null}
       </div>
 
+      <div className="contents sm:contents">
       {showLine2 ? (
         <label className={`${labelClassName} sm:col-span-2`}>
           Address line 2 (optional)
@@ -171,7 +195,7 @@ export function AddressAutocompleteFields({
           />
         </label>
       ) : null}
-      <label className={labelClassName}>
+      <label ref={resolvedSectionRef} className={labelClassName}>
         City
         <input
           value={values.city}
@@ -215,6 +239,7 @@ export function AddressAutocompleteFields({
           />
         </label>
       ) : null}
+      </div>
     </div>
   );
 }

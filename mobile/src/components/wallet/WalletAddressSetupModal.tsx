@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -92,6 +92,7 @@ export function WalletAddressSetupModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const footerPad = Math.max(insets.bottom, spacing.lg) + keyboardInset;
+  const scrollRef = useRef<ScrollView | null>(null);
 
   useEffect(() => {
     if (!visible) return;
@@ -136,6 +137,7 @@ export function WalletAddressSetupModal({
                 <View style={s.headerSpacer} />
               </View>
               <ScrollView
+                ref={scrollRef}
                 style={s.scroll}
                 contentContainerStyle={[s.scrollContent, { paddingBottom: footerPad + 72 }]}
                 keyboardShouldPersistTaps="handled"
@@ -151,6 +153,7 @@ export function WalletAddressSetupModal({
                 <AddressInput label="Full name" value={draft.fullName} onChange={(v) => setDraft((d) => ({ ...d, fullName: v }))} placeholder="Jane Collector" />
                 <AddressAutocompleteFields
                   accessToken={accessToken}
+                  scrollViewRef={scrollRef}
                   values={{
                     line1: draft.line1,
                     line2: draft.line2 ?? '',

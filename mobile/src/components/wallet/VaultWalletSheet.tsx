@@ -201,6 +201,7 @@ export function VaultWalletSheet({
   const loadInFlight = useRef(false);
   const wasVisibleRef = useRef(false);
   const addressFormReturnStep = useRef<WalletStep>('shipping');
+  const addressFormScrollRef = useRef<ScrollView | null>(null);
 
   const paymentMethods = summary?.paymentMethods ?? [];
   const defaultAddress = pickDefaultShippingAddress(addresses);
@@ -711,7 +712,7 @@ export function VaultWalletSheet({
         title={addressFormEditing ? 'Edit Address' : 'Add Address'}
         onBack={() => setStep(addressFormReturnStep.current)}
       />
-      <ScrollView contentContainerStyle={t.scrollContent} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={addressFormScrollRef} contentContainerStyle={t.scrollContent} keyboardShouldPersistTaps="handled">
         <LiveRoomText style={t.hintText}>Used for live wins, PYT/PYD spots, and vault deliveries.</LiveRoomText>
         <View style={{ gap: 4 }}>
           <LiveRoomText style={t.fieldLabel}>Label</LiveRoomText>
@@ -735,6 +736,7 @@ export function VaultWalletSheet({
         </View>
         <AddressAutocompleteFields
           accessToken={accessToken}
+          scrollViewRef={addressFormScrollRef}
           values={{
             line1: addressFormDraft.line1,
             line2: addressFormDraft.line2 ?? '',
