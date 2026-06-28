@@ -158,7 +158,11 @@ export async function releaseVariantPurchaseOnCheckoutExpired(purchaseId: string
   await prisma.$transaction(async (tx) => {
     await tx.liveItemVariantPurchase.update({
       where: { id: purchaseId },
-      data: { paymentStatus: "failed", stripeCheckoutSessionId: null },
+      data: {
+        paymentStatus: "failed",
+        stripeCheckoutSessionId: null,
+        stripePaymentIntentId: null,
+      },
     });
     const v = await tx.liveItemVariant.findUnique({
       where: { id: purchase.variantId },
@@ -182,6 +186,91 @@ export async function releaseVariantPurchaseOnCheckoutExpired(purchaseId: string
   });
 
   emitLiveRoomQueueItemsChanged(purchase.liveRoomId);
+}
+
+/**
+ * Re-reserve a variant spot and reopen a failed purchase for payment recovery retry.
+ * After checkout prep/charge failure we mark the purchase failed and release inventory;
+ * retry must restore both before charging again.
+ */
+export async function reopenVariantPurchaseForRecovery(args: {
+  purchaseId: string;
+  buyerId: string;
+}): Promise<{ reopened: boolean; reason?: string }> {
+  const purchase = await prisma.liveItemVariantPurchase.findFirst({
+    where: { id: args.purchaseId, buyerId: args.buyerId },
+    select: {
+      id: true,
+      paymentStatus: true,
+      quantity: true,
+      variantId: true,
+      liveRoomId: true,
+      liveRoomItemId: true,
+      liveRoom: { select: { status: true, lockPurchases: true } },
+    },
+  });
+  if (!purchase) return { reopened: false, reason: "PURCHASE_NOT_FOUND" };
+  if (purchase.paymentStatus === "paid") return { reopened: true };
+  if (purchase.paymentStatus === "pending_payment") return { reopened: true };
+  if (purchase.paymentStatus !== "failed") {
+    return { reopened: false, reason: "PURCHASE_NOT_PAYABLE" };
+  }
+  if (purchase.liveRoom.status !== "live") {
+    return { reopened: false, reason: "ROOM_NOT_LIVE" };
+  }
+  if (purchase.liveRoom.lockPurchases) {
+    return { reopened: false, reason: "PURCHASES_LOCKED" };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const reserved = await tx.liveItemVariant.updateMany({
+        where: { id: purchase.variantId, quantityRemaining: { gte: purchase.quantity } },
+        data: {
+          quantityRemaining: { decrement: purchase.quantity },
+          soldCount: { increment: purchase.quantity },
+        },
+      });
+      if (reserved.count === 0) {
+        throw Object.assign(new Error("SOLD_OUT"), { code: "SOLD_OUT" });
+      }
+
+      const remaining = await tx.liveItemVariant.findUnique({
+        where: { id: purchase.variantId },
+        select: { quantityRemaining: true },
+      });
+      if (remaining && remaining.quantityRemaining <= 0) {
+        await tx.liveItemVariant.update({
+          where: { id: purchase.variantId },
+          data: { status: "sold_out", isHot: false },
+        });
+      }
+
+      await tx.liveItemVariantPurchase.update({
+        where: { id: purchase.id },
+        data: {
+          paymentStatus: "pending_payment",
+          stripePaymentIntentId: null,
+          stripeCheckoutSessionId: null,
+          paidAt: null,
+        },
+      });
+
+      await tx.liveRoomItem.update({
+        where: { id: purchase.liveRoomItemId },
+        data: { itemVersion: { increment: 1 } },
+      });
+    });
+    emitLiveRoomQueueItemsChanged(purchase.liveRoomId);
+    return { reopened: true };
+  } catch (e) {
+    const code =
+      e && typeof e === "object" && "code" in e ? String((e as { code: string }).code) : "";
+    if (code === "SOLD_OUT" || (e instanceof Error && e.message === "SOLD_OUT")) {
+      return { reopened: false, reason: "SPOT_UNAVAILABLE" };
+    }
+    throw e;
+  }
 }
 
 /** @deprecated Live variant purchases use saved-card instant charge — kept for legacy Checkout session webhook cleanup. */

@@ -10,7 +10,7 @@ import {
   chargeBreakSpotWithSavedCard,
   syncBreakSpotPaymentIntent,
 } from "@/lib/live-payment-pipeline";
-import { finalizeLiveItemVariantPurchasePaid, releaseVariantPurchaseOnCheckoutExpired } from "@/lib/live-item-variant-purchase";
+import { finalizeLiveItemVariantPurchasePaid, releaseVariantPurchaseOnCheckoutExpired, reopenVariantPurchaseForRecovery } from "@/lib/live-item-variant-purchase";
 import { finalizeBreakSpotPaid } from "@/lib/live-buy-now-purchase";
 import { prisma } from "@/lib/prisma";
 import {
@@ -34,6 +34,7 @@ import {
   refreshRecoveryPaymentReferences,
   resolveBuyerRecoveryPaymentMethodId,
 } from "@/lib/stripe-buyer-payment-method-setup";
+import { assertPaymentMethodOwnedByUser } from "@/lib/stripe-customer";
 
 export type LiveBuyerPaymentFailureDTO = {
   id: string;
@@ -69,7 +70,16 @@ export function chargeOutcomeToFailureStatus(
 export function chargeOutcomeToFailureReason(charge: ChargeOrderSavedPmOutcome): string {
   if (charge.outcome === "error") {
     if (charge.code === "CARD_DECLINED") return "Your card was declined.";
-    return charge.code.replace(/_/g, " ").toLowerCase();
+    if (charge.code === "FULFILLMENT_ORDER_FAILED") {
+      return charge.message ?? "Could not prepare checkout. Check your shipping address and try again.";
+    }
+    if (charge.code === "PURCHASE_NOT_PAYABLE") {
+      return "This spot purchase expired — tap Fix payment again or ask the host to cancel the retry.";
+    }
+    if (charge.code === "SPOT_UNAVAILABLE") {
+      return "That spot is no longer available — pick another team or ask the host to cancel this retry.";
+    }
+    return charge.message?.trim() || charge.code.replace(/_/g, " ").toLowerCase();
   }
   if (charge.outcome === "requires_action") return "Your bank requires additional verification.";
   if (charge.outcome === "processing") return "Payment is still processing.";
@@ -427,6 +437,8 @@ export async function retryLiveRoomPaymentFailure(args: {
   liveRoomId: string;
   buyerId: string;
   failureId?: string;
+  /** When the buyer just saved a new card in recovery, charge that PM instead of re-resolving default. */
+  paymentMethodId?: string | null;
 }): Promise<
   | { ok: true; paid: true }
   | { ok: true; requiresAction: true; clientSecret: string; paymentIntentId: string }
@@ -472,7 +484,19 @@ export async function retryLiveRoomPaymentFailure(args: {
     data: { status: "recovery_pending" },
   });
 
-  const recoveryPmId = await resolveBuyerRecoveryPaymentMethodId(args.buyerId);
+  let recoveryPmId: string | null = null;
+  const preferredPm = args.paymentMethodId?.trim() ?? "";
+  if (preferredPm) {
+    try {
+      await assertPaymentMethodOwnedByUser(args.buyerId, preferredPm);
+      recoveryPmId = preferredPm;
+    } catch {
+      recoveryPmId = null;
+    }
+  }
+  if (!recoveryPmId) {
+    recoveryPmId = await resolveBuyerRecoveryPaymentMethodId(args.buyerId);
+  }
   if (!recoveryPmId) {
     const updated = await recordLiveRoomPaymentFailure({
       liveRoomId: args.liveRoomId,
@@ -555,6 +579,56 @@ export async function retryLiveRoomPaymentFailure(args: {
       charge,
     );
   } else if (failureRow.variantPurchaseId) {
+    const reopen = await reopenVariantPurchaseForRecovery({
+      purchaseId: failureRow.variantPurchaseId,
+      buyerId: args.buyerId,
+    });
+    reopenedForRecovery = reopen.reopened;
+    reopenReason = reopen.reason ?? null;
+    if (!reopen.reopened) {
+      const reason =
+        reopen.reason === "SPOT_UNAVAILABLE"
+          ? "That spot is no longer available — pick another team or ask the host to cancel this retry."
+          : reopen.reason === "ROOM_NOT_LIVE"
+            ? "This room is not live."
+            : reopen.reason === "PURCHASES_LOCKED"
+              ? "Purchases are locked for this room."
+              : "This spot purchase cannot be retried — ask the host to cancel the retry, then claim the spot again.";
+      const updated = await recordLiveRoomPaymentFailure({
+        liveRoomId: args.liveRoomId,
+        buyerId: args.buyerId,
+        kind: failureRow.kind,
+        liveRoomItemId: failureRow.liveRoomItemId,
+        orderId: failureRow.orderId,
+        variantPurchaseId: failureRow.variantPurchaseId,
+        breakSpotId: failureRow.breakSpotId,
+        amountUsd: failureRow.amountUsd,
+        status: "payment_failed",
+        failureReason: reason,
+        itemTitle: failureRow.itemTitle,
+        buyerUsername: failureRow.buyerUsername,
+      });
+      return {
+        ok: false,
+        error: reason,
+        code: reopen.reason ?? "REOPEN_FAILED",
+        paymentFailure: updated,
+        debug: {
+          failureId: failureRow.id,
+          orderId: failureRow.orderId,
+          variantPurchaseId: failureRow.variantPurchaseId,
+          breakSpotId: failureRow.breakSpotId,
+          paymentMethodId: recoveryPmId,
+          outcome: "error",
+          code: reopen.reason ?? "REOPEN_FAILED",
+          paymentIntentId: null,
+          reachedStripe: false,
+          reopened: false,
+          reopenReason: reopen.reason ?? null,
+          stripeError: null,
+        },
+      };
+    }
     const purchaseCharge = await chargeLiveItemVariantPurchaseWithSavedCard({
       buyerId: args.buyerId,
       purchaseId: failureRow.variantPurchaseId,
@@ -590,7 +664,11 @@ export async function retryLiveRoomPaymentFailure(args: {
     if (purchaseCharge.outcome === "processing") {
       return { ok: true, processing: true };
     }
-    charge = { outcome: "error", code: purchaseCharge.code };
+    charge = {
+      outcome: "error",
+      code: purchaseCharge.code,
+      message: "message" in purchaseCharge ? purchaseCharge.message : undefined,
+    };
   } else if (failureRow.breakSpotId) {
     const spotCharge = await chargeBreakSpotWithSavedCard({
       buyerId: args.buyerId,

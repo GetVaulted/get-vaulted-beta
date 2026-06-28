@@ -18,6 +18,7 @@ function stripePublishableKey(): string | undefined {
 type Body = {
   failureId?: unknown;
   action?: unknown;
+  paymentMethodId?: unknown;
 };
 
 /** Retry payment for an unresolved live-room payment failure (auction win, variant, etc.). */
@@ -37,6 +38,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const failureId = typeof body.failureId === "string" ? body.failureId.trim() : undefined;
   const action = typeof body.action === "string" ? body.action.trim() : "";
+  const paymentMethodId =
+    typeof body.paymentMethodId === "string" ? body.paymentMethodId.trim() : undefined;
 
   if (action === "sync") {
     const sync = await syncLiveRoomPaymentFailureAfterSca({
@@ -61,6 +64,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     liveRoomId,
     buyerId: auth.userId,
     failureId,
+    paymentMethodId,
   });
 
   if (result.ok && "paid" in result && result.paid) {

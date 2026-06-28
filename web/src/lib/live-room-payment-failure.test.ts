@@ -31,6 +31,22 @@ describe("live-room-payment-failure helpers", () => {
     ).toContain("verification");
   });
 
+  it("maps PURCHASE_NOT_PAYABLE for expired variant retry", () => {
+    expect(chargeOutcomeToFailureReason({ outcome: "error", code: "PURCHASE_NOT_PAYABLE" })).toContain(
+      "expired",
+    );
+  });
+
+  it("maps FULFILLMENT_ORDER_FAILED with server message", () => {
+    expect(
+      chargeOutcomeToFailureReason({
+        outcome: "error",
+        code: "FULFILLMENT_ORDER_FAILED",
+        message: "Add a shipping address to your Wallet before buying.",
+      }),
+    ).toContain("shipping address");
+  });
+
   it("maps incomplete live charges to payment_failed recovery state", () => {
     expect(
       chargeOutcomeToFailureStatus({ outcome: "error", code: "PAYMENT_INTENT_NOT_COMPLETED" }),

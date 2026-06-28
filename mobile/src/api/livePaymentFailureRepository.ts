@@ -21,13 +21,18 @@ export async function retryLivePaymentFailure(args: {
   roomId: string;
   failureId: string;
   action?: 'sync';
+  paymentMethodId?: string;
 }): Promise<LivePaymentRetryResult> {
   const base = getWebApiBaseUrl();
   if (!base) throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
   const res = await fetch(`${base}/api/live-rooms/${encodeURIComponent(args.roomId)}/payment-failure/retry`, {
     method: 'POST',
     headers: authHeaders(args.accessToken),
-    body: JSON.stringify({ failureId: args.failureId, action: args.action }),
+    body: JSON.stringify({
+      failureId: args.failureId,
+      action: args.action,
+      paymentMethodId: args.paymentMethodId,
+    }),
   });
   let payload: {
     error?: string;

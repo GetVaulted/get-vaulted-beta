@@ -131,6 +131,30 @@ function mapPaymentIntentOutcome(
   return null;
 }
 
+/** Buyer-safe copy when live shipping / fulfillment order prep fails before Stripe. */
+export function mapLiveFulfillmentOrderError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  const lower = msg.toLowerCase();
+  if (
+    lower.includes("shippingtermssnapshotjson") ||
+    lower.includes("shippingmode") ||
+    lower.includes("does not exist") ||
+    lower.includes("column") && lower.includes("order")
+  ) {
+    return "Checkout is not ready on this show yet — the host may need to update shipping settings.";
+  }
+  if (lower.includes("live_shipping_not_applicable")) {
+    return "Shipping is not set up for this show yet.";
+  }
+  if (lower.includes("no_shipping") || lower.includes("shipping address")) {
+    return "Add a shipping address to your Wallet before buying.";
+  }
+  if (lower.includes("live_shipping_session_not")) {
+    return "Could not link this purchase to live shipping — try again.";
+  }
+  return "Could not prepare checkout. Check your Wallet shipping address and try again.";
+}
+
 /**
  * Instant saved-card charge for a reserved live variant / team spot purchase.
  * On failure the caller must release inventory via {@link releaseVariantPurchaseOnCheckoutExpired}.
@@ -196,11 +220,16 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
   let fulfillment: { orderId: string; chargeTotalUsd: number };
   try {
     fulfillment = await ensureVariantPurchaseFulfillmentOrder(purchase.id);
-  } catch {
+  } catch (err) {
+    console.error("[variant purchase] fulfillment order failed", {
+      purchaseId: purchase.id,
+      liveRoomId: purchase.liveRoomId,
+      err,
+    });
     return {
       outcome: "error",
       code: "FULFILLMENT_ORDER_FAILED",
-      message: "Could not prepare checkout.",
+      message: mapLiveFulfillmentOrderError(err),
     };
   }
   const amountCents = Math.round(Math.max(0, fulfillment.chargeTotalUsd) * 100);
@@ -243,7 +272,7 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
         application_fee_amount: feeCents,
         transfer_data: { destination: seller.stripeAccountId },
       },
-      { idempotencyKey: `variant_saved_pm_${purchase.id}_${amountCents}` },
+      { idempotencyKey: `variant_saved_pm_${purchase.id}_${amountCents}_${pmId}` },
     );
 
     await prisma.liveItemVariantPurchase.update({

@@ -125,6 +125,7 @@ export function LivePaymentFailureModal({
           accessToken,
           roomId,
           failureId: failure.id,
+          paymentMethodId,
         });
         if (result.ok && 'paid' in result && result.paid) {
           console.log('[payment failure] retry payment success');
@@ -178,7 +179,7 @@ export function LivePaymentFailureModal({
         setBusy(false);
       }
     },
-    [accessToken, confirmPayment, failure.id, failure.orderId, onResolved, roomId],
+    [accessToken, confirmPayment, failure.id, failure.orderId, failure.variantPurchaseId, onResolved, roomId],
   );
 
   const openWalletForRecovery = () => {
