@@ -46,7 +46,7 @@ export type ChargeOrderSavedPmOutcome =
   | { outcome: "paid"; paymentIntentId?: string }
   | { outcome: "requires_action"; clientSecret: string; paymentIntentId: string }
   | { outcome: "processing"; paymentIntentId?: string }
-  | { outcome: "error"; code: string; stripeDebug?: StripeChargeErrorDebug };
+  | { outcome: "error"; code: string; message?: string; stripeDebug?: StripeChargeErrorDebug };
 
 /** Extract beta/dev-safe Stripe error fields for recovery diagnostics. */
 function buildStripeChargeErrorDebug(
