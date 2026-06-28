@@ -210,6 +210,7 @@ export type LiveSaleRoomProps = {
   giveaways?: ViewerGiveawayDTO[];
   onOpenWallet: () => void;
   onApplyVariantPurchase?: (payload: VariantPurchasedMergePayload & { label?: string; amountUsd?: number }) => void;
+  buyerPaymentRecoveryPending?: boolean;
 };
 
 export function LiveSaleRoom({
@@ -238,6 +239,7 @@ export function LiveSaleRoom({
   giveaways = [],
   onOpenWallet,
   onApplyVariantPurchase,
+  buyerPaymentRecoveryPending = false,
 }: LiveSaleRoomProps) {
   const { data: session, status } = useSession();
   const shopHref =
@@ -818,8 +820,12 @@ export function LiveSaleRoom({
       toast("Tips are available when the show is live.");
       return;
     }
+    if (buyerPaymentRecoveryPending) {
+      toast("Fix your failed payment before tipping in this show.");
+      return;
+    }
     setTipOpen(true);
-  }, [isLive, liveRoomId, status, toast]);
+  }, [buyerPaymentRecoveryPending, isLive, liveRoomId, status, toast]);
 
   const streamTitle = liveTitle;
 
@@ -1381,7 +1387,7 @@ export function LiveSaleRoom({
     shopHref,
     onShare: handleShare,
     onWallet: handleWallet,
-    onTip: isLive && !isHost ? handleTip : undefined,
+    onTip: isLive && !isHost && !buyerPaymentRecoveryPending ? handleTip : undefined,
     giveawaySideTab,
   };
 

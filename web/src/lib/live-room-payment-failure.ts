@@ -179,7 +179,7 @@ export async function liveRoomPaymentBlockResponse(
   return NextResponse.json(
     {
       error:
-        "Payment failed for your winning bid. Please update your payment method to continue.",
+        "Fix your failed payment before bidding, buying, or tipping in this show.",
       code: "LIVE_PAYMENT_BLOCKED",
       paymentFailure: failure,
     },

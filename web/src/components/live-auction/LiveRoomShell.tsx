@@ -926,6 +926,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const viewerCount = presenceCount ?? 0;
   const paymentFailure = detail.buyerUnresolvedPaymentFailure ?? null;
   const isHostViewer = session?.user?.id === detail.sellerId;
+  const buyerPaymentRecoveryPending = Boolean(paymentFailure && session?.user?.id && !isHostViewer);
 
   const paymentBlocker =
     paymentFailure && session?.user?.id && !isHostViewer ? (
@@ -968,6 +969,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           giveaways={detail.giveaways ?? []}
           onOpenWallet={() => setPremiumWalletOpen(true)}
           onApplyVariantPurchase={handleBuyerVariantPurchased}
+          buyerPaymentRecoveryPending={buyerPaymentRecoveryPending}
         />
         <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
         <LiveSpotTakenCelebration celebration={spotCelebration} onDone={clearSpotCelebration} />
@@ -1012,6 +1014,7 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       giveaways={detail.giveaways ?? []}
       onOpenWallet={() => setPremiumWalletOpen(true)}
       onApplyVariantPurchase={handleBuyerVariantPurchased}
+      buyerPaymentRecoveryPending={buyerPaymentRecoveryPending}
     />
       <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
       <LiveSpotTakenCelebration celebration={spotCelebration} onDone={clearSpotCelebration} />

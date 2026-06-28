@@ -207,6 +207,8 @@ export type LiveAuctionRoomProps = {
   onOpenWallet: () => void;
   /** Instant PYT spot inventory merge after buyer checkout (before realtime round-trip). */
   onApplyVariantPurchase?: (payload: VariantPurchasedMergePayload & { label?: string; amountUsd?: number }) => void;
+  /** Buyer must resolve payment recovery before commerce or tips. */
+  buyerPaymentRecoveryPending?: boolean;
 };
 
 function fmt(n: number) {
@@ -280,6 +282,7 @@ export function LiveAuctionRoom({
   giveaways = [],
   onOpenWallet,
   onApplyVariantPurchase,
+  buyerPaymentRecoveryPending = false,
 }: LiveAuctionRoomProps) {
   const router = useRouter();
   const { data: session, status } = useSession();
@@ -947,8 +950,12 @@ export function LiveAuctionRoom({
       toast("Tips are available when the show is live.");
       return;
     }
+    if (buyerPaymentRecoveryPending) {
+      toast("Fix your failed payment before tipping in this show.");
+      return;
+    }
     setTipOpen(true);
-  }, [isLive, liveRoomId, status, toast]);
+  }, [buyerPaymentRecoveryPending, isLive, liveRoomId, status, toast]);
 
   const desktopVideoOverlay = (
     <div className="live-desktop-action-hud p-4">
@@ -1590,7 +1597,7 @@ export function LiveAuctionRoom({
     shopHref,
     onShare: handleShare,
     onWallet: handleWallet,
-    onTip: isLive && !isHost ? handleTip : undefined,
+    onTip: isLive && !isHost && !buyerPaymentRecoveryPending ? handleTip : undefined,
     giveawaySideTab,
   };
 

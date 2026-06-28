@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { safeDecodeRouteSegment } from "@/lib/live-loader-debug";
 import { chargeLiveTipWithSavedPaymentMethod, createLiveTipCheckoutSession } from "@/services/live-tips";
@@ -17,6 +18,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const { id: raw } = await ctx.params;
   const liveRoomId = safeDecodeRouteSegment(raw ?? "");
+
+  const paymentBlock = await liveRoomPaymentBlockResponse(liveRoomId, auth.userId);
+  if (paymentBlock) return paymentBlock;
 
   let body: PostBody;
   try {

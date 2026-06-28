@@ -968,6 +968,13 @@ function LiveSlide({
                 Alert.alert('Sign in required', 'Log in to send a tip.');
                 return;
               }
+              if (liveSession.unresolvedPaymentFailure) {
+                Alert.alert(
+                  'Payment required',
+                  'Fix your failed payment before tipping in this show.',
+                );
+                return;
+              }
               setTipOpen(true);
             }}
             accessibilityLabel="Send a tip"
