@@ -64,13 +64,36 @@ describe('resolveBuyerRoomKind', () => {
     expect(resolveBuyerRoomKind(snap, baseStream({ liveRoomFormat: 'hybrid' }))).toBe('auction');
   });
 
-  it('uses auction lane when break room has active live lot', () => {
+  it('uses auction lane when break room has active auction lot', () => {
     const snap = {
       roomType: 'break',
       status: 'live',
       activeItemId: 'item-1',
     } as LiveRoomBuyerSnapshot;
     expect(resolveBuyerRoomKind(snap, baseStream({ liveRoomFormat: 'break' }))).toBe('auction');
+  });
+
+  it('keeps break lane when PYD/PYT spot board is on screen', () => {
+    const snap = {
+      roomType: 'break',
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemSalesFormat: 'team_break',
+      activeItemVariants: [
+        {
+          id: 'v1',
+          label: 'AFC East',
+          priceUsd: 35,
+          quantityRemaining: 1,
+          soldCount: 0,
+          isHot: true,
+          sortOrder: 0,
+          status: 'available',
+          buyerUsername: null,
+        },
+      ],
+    } as LiveRoomBuyerSnapshot;
+    expect(resolveBuyerRoomKind(snap, baseStream({ liveRoomFormat: 'break' }))).toBe('break');
   });
 
   it('defaults hybrid stream without focus to auction', () => {

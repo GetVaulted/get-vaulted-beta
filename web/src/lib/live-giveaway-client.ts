@@ -40,7 +40,7 @@ export async function patchLiveGiveawayClient(
   roomId: string,
   giveawayId: string,
   action: "open_entries" | "close_entries" | "cancel" | "draw",
-): Promise<ApiResult<{ giveaway: LiveGiveawayDTO }>> {
+): Promise<ApiResult<{ giveaway: LiveGiveawayDTO; spin?: unknown }>> {
   const res = await fetch(
     `/api/live-rooms/${encodeURIComponent(roomId)}/giveaways/${encodeURIComponent(giveawayId)}`,
     {
@@ -50,9 +50,9 @@ export async function patchLiveGiveawayClient(
     },
   );
   if (!res.ok) return { ok: false, error: await parseError(res) };
-  const j = (await res.json()) as { giveaway?: LiveGiveawayDTO };
+  const j = (await res.json()) as { giveaway?: LiveGiveawayDTO; spin?: unknown };
   if (!j.giveaway?.id) return { ok: false, error: "Invalid response." };
-  return { ok: true, data: { giveaway: j.giveaway } };
+  return { ok: true, data: { giveaway: j.giveaway, spin: j.spin } };
 }
 
 export async function deleteLiveGiveawayClient(roomId: string, giveawayId: string): Promise<ApiResult<{ ok: true }>> {

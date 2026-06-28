@@ -51,8 +51,8 @@ export function useLiveImmersiveChrome({ stageWidth, enabled }: Args) {
     () =>
       Gesture.Pan()
         .enabled(enabled)
-        .activeOffsetX([-24, 24])
-        .failOffsetY([-20, 20])
+        .activeOffsetX([-28, 28])
+        .failOffsetY([-14, 14])
         .onBegin(() => {
           dragStartX.value = translateX.value;
         })

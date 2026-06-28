@@ -12,9 +12,11 @@ import { appendMentionToDraft, canShowLiveChatBanOption, canShowLiveChatKickOpti
 import { applyLiveModerationAction } from '../../../api/trustRepository';
 import { openUserProfile } from '../../../navigation/openPlatform';
 import {
+  computeChatStackMaxHeight,
   computeLiveRoomBottomStack,
   scaledComposerBarHeight,
 } from '../../../lib/liveRoomBottomLayout';
+import { computeLiveTopReserve } from '../../../lib/liveRoomViewport';
 import { liveRoomHudScale, liveRoomOverlayScale } from '../../../lib/liveRoomUiScale';
 import { SellerLiveComposer } from './SellerLiveComposer';
 import { SellerLiveGestureLayer } from './SellerLiveGestureLayer';
@@ -42,6 +44,7 @@ import {
 import { isVariantSalesFormat } from '../../../lib/liveItemVariant';
 import { parseVariantPurchasedRandomClaim } from '../../../lib/liveVariantSpotBoard';
 import { useSellerLiveConsole } from '../../../hooks/useSellerLiveConsole';
+import { useHostGiveawayActions, pickHostStageGiveaway } from '../../../hooks/useHostGiveawayActions';
 import { shareLiveRoomNative } from '../../../lib/shareLiveRoomNative';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { SellerLiveBroadcastSheet } from './SellerLiveBroadcastSheet';
@@ -118,7 +121,7 @@ type Props = {
 
 export function SellerLiveHostView({ navigation, roomId, accessToken, host, initialConsole }: Props) {
   const insets = useSafeAreaInsets();
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const overlayScale = liveRoomOverlayScale(windowWidth);
   const hudScale = liveRoomHudScale(windowWidth);
   const composerBarHeight = scaledComposerBarHeight(overlayScale);
@@ -128,7 +131,6 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const [sellerUsername, setSellerUsername] = useState<string | null>(null);
   const [queueOpen, setQueueOpen] = useState(false);
   const [giveawayOpen, setGiveawayOpen] = useState(false);
-  const [giveawayBusy, setGiveawayBusy] = useState(false);
   const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
   const [spotCelebration, setSpotCelebration] = useState<SpotTakenCelebration | null>(null);
   const [teamsBoardOpen, setTeamsBoardOpen] = useState(false);
@@ -143,6 +145,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const [modActionMessage, setModActionMessage] = useState<ChatMessage | null>(null);
   const [biddingUrgent, setBiddingUrgent] = useState(false);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
+  const [chatExpanded, setChatExpanded] = useState(false);
 
   const console = useSellerLiveConsole({
     accessToken,
@@ -155,6 +158,33 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     onAfterAddLot: () => setQueueOpen(true),
     initialConsole,
   });
+
+  const showGiveawayToast = useCallback((message: string) => {
+    setShareToast(message);
+    setTimeout(() => setShareToast(null), 2400);
+  }, []);
+
+  const giveawayActions = useHostGiveawayActions({
+    accessToken,
+    roomId,
+    onRefresh: async () => {
+      await console.refreshConsole();
+    },
+    onToast: showGiveawayToast,
+    onDrawSpin: (spin) => {
+      if (seenVaultRevealSpinIdsRef.current.has(spin.spinId)) return;
+      seenVaultRevealSpinIdsRef.current.add(spin.spinId);
+      setVaultRevealSpin(spin);
+    },
+    onDrawComplete: () => {
+      void console.syncSales();
+    },
+  });
+
+  const activeStageGiveaway = useMemo(
+    () => pickHostStageGiveaway(console.giveaways),
+    [console.giveaways],
+  );
 
   useEffect(() => {
     if (!user?.id) return;
@@ -266,6 +296,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     if (nextQueued) {
       console.onLaunchAndStart(nextQueued);
     }
+  };
+
+  const onPinNextLot = () => {
+    if (nextQueued) console.onLaunch(nextQueued);
   };
 
   const hostChatUsername = sellerUsername?.trim() || hostName;
@@ -399,6 +433,17 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     ? Math.round(62 * overlayScale) + Math.round(6 * overlayScale)
     : 0;
   const sellerChatBottom = sellerComposerBottom + composerBarHeight + Math.round(12 * overlayScale) + sellerPinnedReserve;
+  const chatMaxHeight = computeChatStackMaxHeight({
+    slideHeight: windowHeight,
+    topReserve: computeLiveTopReserve(insets.top, windowWidth),
+    chatBottom: sellerChatBottom,
+    overlayScale,
+    expanded: chatExpanded,
+  });
+
+  useEffect(() => {
+    setChatExpanded(false);
+  }, [roomId]);
 
   const tagUserInChat = useCallback((username: string) => {
     setChatDraft((prev) => appendMentionToDraft(prev, username));
@@ -587,6 +632,12 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       <SellerHostSideRail
         bottom={sellerComposerBottom + composerBarHeight + spacing.sm}
         onShare={() => void handleShare()}
+        activeGiveaway={activeStageGiveaway}
+        giveawayBusy={giveawayActions.busy}
+        onGiveawayAction={(id, action) => {
+          void giveawayActions.runAction(id, action);
+        }}
+        onOpenGiveawayManage={() => setGiveawayOpen(true)}
       />
 
       <FloatingLiveChat
@@ -595,6 +646,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         bottom={sellerChatBottom}
         left={spacing.lg}
         rightEdge={CHAT_RIGHT_EDGE}
+        maxHeight={chatMaxHeight}
+        compact={overlayScale <= 1}
         isActive
         streamKey={roomId}
         liveRoomId={roomId}
@@ -611,6 +664,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         onPressChatUser={onPressChatUser}
         moderatorUserIds={moderation.moderators.map((m) => m.userId)}
         overlayScale={overlayScale}
+        expanded={chatExpanded}
+        onToggleExpanded={() => setChatExpanded((prev) => !prev)}
       />
 
       {pinnedModerator ? (
@@ -667,7 +722,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         roomLive={console.roomLive}
         onOpenQueue={() => setQueueOpen(true)}
         onAddItem={() => console.setInventoryOpen(true)}
-        onPinNext={onStartAuction}
+        onPinNext={onPinNextLot}
       />
 
       <SellerLiveComposer
@@ -821,15 +876,14 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         accessToken={accessToken}
         roomId={roomId}
         giveaways={console.giveaways}
-        busy={console.busy || giveawayBusy}
+        busy={giveawayActions.busy}
+        onRunAction={(id, action) => {
+          void giveawayActions.runAction(id, action);
+        }}
         onRefresh={async () => {
           await console.refreshConsole();
         }}
-        onBusyChange={setGiveawayBusy}
-        onToast={(msg) => {
-          setShareToast(msg);
-          setTimeout(() => setShareToast(null), 2200);
-        }}
+        onToast={showGiveawayToast}
       />
 
       <SellerLiveSalesSheet

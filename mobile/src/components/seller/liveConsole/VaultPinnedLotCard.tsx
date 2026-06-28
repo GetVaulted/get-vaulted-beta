@@ -303,6 +303,7 @@ export function VaultPinnedLotCard({
             item.variantAssignmentMode,
           ),
       ),
+      activeSpotCommerceMode: item.activeSpotCommerceMode ?? null,
     });
   const showRunningStrip = !hostOverlayMinimal && hudPhase === 'running';
   const showEndedActions = hudPhase === 'ended';

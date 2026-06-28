@@ -13,6 +13,7 @@ import { LiveSpotTakenCelebration } from "@/components/live-auction/LiveSpotTake
 import { VaultRevealOverlay } from "@/components/live-auction/VaultRevealOverlay";
 import { VaultHostAnnouncements } from "@/components/break-host/vault/VaultHostAnnouncements";
 import { VaultHostLiveChatPanel } from "@/components/break-host/vault/VaultHostLiveChatPanel";
+import { ExpandableLiveChatOverlay } from "@/components/live-auction/ExpandableLiveChatOverlay";
 import { VaultHostStageEdgeRail } from "@/components/break-host/vault/VaultHostStageEdgeRail";
 import { VaultHostRightRail } from "@/components/break-host/vault/VaultHostRightRail";
 import { VaultBroadcastControl } from "@/components/break-host/vault/VaultBroadcastControl";
@@ -1364,9 +1365,24 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           setToast(res.error);
           return;
         }
+        if (action === "draw" && res.data.spin) {
+          const spin = parseVaultRevealSpinPayload({ spin: res.data.spin });
+          if (spin && !seenVaultRevealSpinIdsRef.current.has(spin.spinId)) {
+            seenVaultRevealSpinIdsRef.current.add(spin.spinId);
+            setVaultRevealSpin(spin);
+          }
+        }
         await load();
-        if (action === "draw" && res.data.giveaway.winnerUsername) {
-          /* Winner shown on synchronized Vault Reveal wheel */
+        if (action === "draw") {
+          const winner = res.data.giveaway.winnerUsername?.trim();
+          if (winner) setToast(`Winner @${winner}`);
+          else if (res.data.spin) setToast("Giveaway drawn.");
+        } else if (action === "open_entries") {
+          setToast("Entries open.");
+        } else if (action === "close_entries") {
+          setToast("Entries closed.");
+        } else if (action === "cancel") {
+          setToast("Giveaway cancelled.");
         }
       } finally {
         setBusy(false);
@@ -1776,6 +1792,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     lotBidPhase: hostActiveLotBidPhase,
     isVariantItem: activeBoardRow != null && isVariantSalesFormat(activeBoardRow.item.salesFormat),
     hasPinnedVariant: Boolean(hostPinnedVariant),
+    activeSpotCommerceMode: activeBoardRow?.item.activeSpotCommerceMode ?? null,
   });
 
   const hostPinLotEnabled = !hostPinLotBlocked(activeBoardRow);
@@ -2152,9 +2169,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   );
 
   const hostMobileChatOverlay = (
-    <div className="flex h-[min(44vh,20rem)] max-h-[min(52dvh,24rem)] min-h-0 w-full min-w-0 flex-col max-[380px]:h-[min(36vh,16rem)]">
+    <ExpandableLiveChatOverlay>
       {hostLiveChatPanelMobile}
-    </div>
+    </ExpandableLiveChatOverlay>
   );
 
   const hostStageProps = {

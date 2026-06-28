@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { serializeLiveRoomMessage } from "@/lib/live-room-serialize";
 import { prisma } from "@/lib/prisma";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
-import { emitLiveRoomMessageById } from "@/lib/realtime-emit-server";
+import { emitLiveRoomMessageDto } from "@/lib/realtime-emit-server";
 import {
   pauseOpenGiveawayPresence,
   resumeOpenGiveawayPresence,
@@ -99,7 +99,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     include: { sender: { select: { username: true, image: true } } },
   });
 
-  void emitLiveRoomMessageById(row.id);
+  const message = serializeLiveRoomMessage(row);
+  emitLiveRoomMessageDto(liveRoomId, message);
 
-  return NextResponse.json({ message: serializeLiveRoomMessage(row) });
+  return NextResponse.json({ message });
 }

@@ -72,4 +72,31 @@ describe("live-auction-host-start", () => {
       ),
     ).toBe(false);
   });
+
+  it("blocks variant spot start until host switches to auction mode", () => {
+    expect(
+      canHostStartLiveAuction(
+        { ...multiActive, status: "active" },
+        {
+          roomLive: true,
+          lotBidPhase: "not_started",
+          isVariantItem: true,
+          hasPinnedVariant: true,
+          activeSpotCommerceMode: "fixed",
+        },
+      ),
+    ).toBe(false);
+    expect(
+      canHostStartLiveAuction(
+        { ...multiActive, status: "active" },
+        {
+          roomLive: true,
+          lotBidPhase: "not_started",
+          isVariantItem: true,
+          hasPinnedVariant: true,
+          activeSpotCommerceMode: "auction",
+        },
+      ),
+    ).toBe(true);
+  });
 });

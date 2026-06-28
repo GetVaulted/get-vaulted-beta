@@ -18,8 +18,8 @@ import {
   View,
 } from 'react-native';
 import PagerView from 'react-native-pager-view';
-import { GestureDetector } from 'react-native-gesture-handler';
-import Animated from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { runOnJS } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radii, spacing } from '../../theme';
 import { fetchLiveRoomPublicById } from '../../api/liveRoomsRepository';
@@ -256,6 +256,9 @@ function LiveSlide({
     accessToken,
     enabled: isActive,
     realtimePrimary: true,
+    announceViewerJoin: signedIn,
+    roomChatOpen: liveRoomChatOpen(roomStatus),
+    onJoinAnnounceError: moderation.handleRestrictionError,
     senderUserId: userId,
     senderUsername: myChatSender.username,
     senderAvatarUrl: myChatSender.avatarUrl,
@@ -380,14 +383,6 @@ function LiveSlide({
       contentFit: LIVE_STAGE_CONTENT_FIT,
     });
   }, [isActive, stream.id, stageContainer, screenHeight]);
-
-  useEffect(() => {
-    if (!isActive || !signedIn || !accessToken || !liveRoomChatOpen(roomStatus)) return;
-    void liveChat.announceJoin().catch((e) => {
-      const msg = e instanceof Error ? e.message : String(e);
-      moderation.handleRestrictionError(msg);
-    });
-  }, [isActive, signedIn, accessToken, roomStatus, liveChat.announceJoin, moderation.handleRestrictionError]);
 
   useEffect(() => {
     if (isActive) return undefined;
@@ -785,15 +780,6 @@ function LiveSlide({
 
             <GestureDetector gesture={immersiveChrome.pan}>
               <Animated.View style={styles.chromeGestureHost} pointerEvents="box-none">
-                {!immersiveChrome.immersive ? (
-                  <Animated.View
-                    style={styles.chromePanCapture}
-                    pointerEvents="auto"
-                    importantForAccessibility="no-hide-descendants"
-                    accessibilityElementsHidden
-                  />
-                ) : null}
-
                 {immersiveChrome.immersive ? (
                   <Pressable
                     style={StyleSheet.absoluteFill}
@@ -1415,6 +1401,33 @@ export function VerticalLiveFeed({
   const [peekPage, setPeekPage] = useState<number | null>(null);
   const [walletOverlayActive, setWalletOverlayActive] = useState(false);
   const [paymentBlockerActive, setPaymentBlockerActive] = useState(false);
+  const pagerRef = useRef<PagerView>(null);
+
+  const feedGesturesEnabled = !walletOverlayActive && !paymentBlockerActive && streams.length > 1;
+
+  const goToRelativePage = useCallback(
+    (delta: number) => {
+      const next = page + delta;
+      if (next < 0 || next >= streams.length) return;
+      pagerRef.current?.setPage(next);
+      setPage(next);
+      setPeekPage(null);
+    },
+    [page, streams.length],
+  );
+
+  const showSwipeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(feedGesturesEnabled)
+        .activeOffsetY([-28, 28])
+        .failOffsetX([-22, 22])
+        .onEnd((event) => {
+          if (event.translationY <= -72) runOnJS(goToRelativePage)(1);
+          else if (event.translationY >= 72) runOnJS(goToRelativePage)(-1);
+        }),
+    [feedGesturesEnabled, goToRelativePage],
+  );
 
   const warmPageIndices = useMemo(() => {
     const indices = new Set<number>([page]);
@@ -1452,6 +1465,11 @@ export function VerticalLiveFeed({
     setWalletOverlayActive(false);
   }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (!paymentBlockerActive) return;
+    setPaymentBlockerActive(false);
+  }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!streams.length) {
     return (
       <View
@@ -1487,38 +1505,40 @@ export function VerticalLiveFeed({
   }
 
   return (
-    <View
-      style={styles.feedRoot}
-      onLayout={(e) => {
-        const { width, height } = e.nativeEvent.layout;
-        if (width > 0 && height > 0) {
-          setLayoutSize((prev) =>
-            prev?.width === width && prev?.height === height ? prev : { width, height },
-          );
-        }
-      }}
-    >
-      <PagerView
-        key={initialStreamId ?? 'default'}
-        style={styles.feedPager}
-        initialPage={startIndex}
-        orientation="vertical"
-        scrollEnabled={!walletOverlayActive && !paymentBlockerActive}
-        onPageScroll={(e) => {
-          const { position, offset } = e.nativeEvent;
-          if (offset > 0.06 && position + 1 < streams.length) {
-            setPeekPage(position + 1);
-          } else if (offset < -0.06 && position > 0) {
-            setPeekPage(position - 1);
-          } else {
-            setPeekPage(null);
+    <GestureDetector gesture={showSwipeGesture}>
+      <View
+        style={styles.feedRoot}
+        onLayout={(e) => {
+          const { width, height } = e.nativeEvent.layout;
+          if (width > 0 && height > 0) {
+            setLayoutSize((prev) =>
+              prev?.width === width && prev?.height === height ? prev : { width, height },
+            );
           }
         }}
-        onPageSelected={(e) => {
-          setPage(e.nativeEvent.position);
-          setPeekPage(null);
-        }}
       >
+        <PagerView
+          ref={pagerRef}
+          key={initialStreamId ?? 'default'}
+          style={styles.feedPager}
+          initialPage={startIndex}
+          orientation="vertical"
+          scrollEnabled={feedGesturesEnabled}
+          onPageScroll={(e) => {
+            const { position, offset } = e.nativeEvent;
+            if (offset > 0.06 && position + 1 < streams.length) {
+              setPeekPage(position + 1);
+            } else if (offset < -0.06 && position > 0) {
+              setPeekPage(position - 1);
+            } else {
+              setPeekPage(null);
+            }
+          }}
+          onPageSelected={(e) => {
+            setPage(e.nativeEvent.position);
+            setPeekPage(null);
+          }}
+        >
         {streams.map((stream, index) => (
           <View key={stream.id} style={styles.page} collapsable={false}>
             <LiveSlide
@@ -1537,8 +1557,9 @@ export function VerticalLiveFeed({
             />
           </View>
         ))}
-      </PagerView>
-    </View>
+        </PagerView>
+      </View>
+    </GestureDetector>
   );
 }
 
@@ -1603,9 +1624,6 @@ const styles = StyleSheet.create({
   chromeGestureHost: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 8,
-  },
-  chromePanCapture: {
-    ...StyleSheet.absoluteFillObject,
   },
   chromeLayer: {
     ...StyleSheet.absoluteFillObject,

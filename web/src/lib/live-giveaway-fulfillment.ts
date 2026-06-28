@@ -3,6 +3,7 @@ import type { TransactionClient } from "@/generated/prisma/internal/prismaNamesp
 import { buildGiveawayShippingTermsSnapshot } from "@/lib/live-giveaway-shipping";
 import { resolveBuyerDefaultShippingForOrder } from "@/lib/live-buy-now-purchase";
 import { createNotification } from "@/lib/notifications";
+import { addOrderToLiveShippingSessionTx } from "@/services/shipping/live-shipping-pricing";
 import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-shipping-profiles";
 import { resolveShippingProfileDimensions } from "@/lib/unified-shipping-engine";
 import { PAYMENT_PAID } from "@/services/payments";
@@ -167,6 +168,17 @@ export async function createOrderFromGiveawayWinTx(
     where: { id: args.giveaway.id },
     data: { fulfillmentOrderId: order.id },
   });
+
+  try {
+    await addOrderToLiveShippingSessionTx(tx, order.id, { liveShowId: args.giveaway.liveRoomId });
+  } catch (e) {
+    console.error("giveaway live shipping session link failed", {
+      orderId: order.id,
+      giveawayId: args.giveaway.id,
+      liveRoomId: args.giveaway.liveRoomId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
 
   const titleShort = prizeTitle.length > 80 ? `${prizeTitle.slice(0, 77)}…` : prizeTitle;
   await createNotification(tx, {

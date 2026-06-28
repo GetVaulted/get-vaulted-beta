@@ -20,10 +20,9 @@ import { uploadListingImageViaWeb } from '../../../api/webListingsRepository';
 import type { LiveGiveawayRow } from '../../../api/liveGiveawayRepository';
 import {
   createLiveGiveaway,
-  deleteLiveGiveaway,
-  patchLiveGiveaway,
   promoEntrySlugFromUrl,
 } from '../../../api/liveGiveawayRepository';
+import type { HostGiveawayAction } from '../../../hooks/useHostGiveawayActions';
 import { openPromoEntry } from '../../../navigation/openPromoEntry';
 import { useGiveawayCountdown } from '../../../hooks/useGiveawayCountdown';
 import { colors, radii, spacing } from '../../../theme';
@@ -61,6 +60,45 @@ function statusLabel(status: LiveGiveawayRow['status']) {
   }
 }
 
+function GiveawayActionButton({
+  label,
+  tone,
+  disabled,
+  onPress,
+}: {
+  label: string;
+  tone: 'green' | 'amber' | 'violet' | 'muted' | 'danger';
+  disabled?: boolean;
+  onPress: () => void;
+}) {
+  const palette = {
+    green: { border: 'rgba(52,211,153,0.35)', bg: 'rgba(16,185,129,0.12)', text: '#6ee7b7' },
+    amber: { border: 'rgba(251,191,36,0.35)', bg: 'rgba(245,158,11,0.12)', text: '#fcd34d' },
+    violet: { border: 'rgba(167,139,250,0.4)', bg: 'rgba(139,92,246,0.14)', text: '#c4b5fd' },
+    muted: { border: colors.border, bg: colors.background, text: colors.textSecondary },
+    danger: { border: 'rgba(248,113,113,0.35)', bg: 'rgba(127,29,29,0.2)', text: '#fca5a5' },
+  }[tone];
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      disabled={disabled}
+      hitSlop={4}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.actionBtn,
+        {
+          borderColor: palette.border,
+          backgroundColor: palette.bg,
+          opacity: disabled ? 0.45 : pressed ? 0.85 : 1,
+        },
+      ]}
+    >
+      <Text style={[styles.actionBtnTxt, { color: palette.text }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export function SellerLiveGiveawaySheet({
   visible,
   onClose,
@@ -68,8 +106,8 @@ export function SellerLiveGiveawaySheet({
   roomId,
   giveaways,
   busy,
+  onRunAction,
   onRefresh,
-  onBusyChange,
   onToast,
 }: {
   visible: boolean;
@@ -78,8 +116,8 @@ export function SellerLiveGiveawaySheet({
   roomId: string;
   giveaways: LiveGiveawayRow[];
   busy: boolean;
+  onRunAction: (id: string, action: HostGiveawayAction) => void;
   onRefresh: () => Promise<void>;
-  onBusyChange: (busy: boolean) => void;
   onToast?: (message: string) => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -94,6 +132,7 @@ export function SellerLiveGiveawaySheet({
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [createBusy, setCreateBusy] = useState(false);
 
   const rows = useMemo(() => giveaways.filter((g) => g.kind === lane), [giveaways, lane]);
 
@@ -166,23 +205,11 @@ export function SellerLiveGiveawaySheet({
   }, [shareAmoeLink]);
 
   const runAction = useCallback(
-    async (id: string, action: 'open_entries' | 'close_entries' | 'cancel' | 'draw' | 'delete') => {
-      onBusyChange(true);
-      try {
-        if (action === 'delete') {
-          await deleteLiveGiveaway(accessToken, roomId, id);
-        } else {
-          await patchLiveGiveaway(accessToken, roomId, id, action);
-        }
-        await onRefresh();
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : 'Action failed.';
-        setFormError(msg);
-      } finally {
-        onBusyChange(false);
-      }
+    (id: string, action: HostGiveawayAction) => {
+      setFormError(null);
+      void onRunAction(id, action);
     },
-    [accessToken, onBusyChange, onRefresh, roomId],
+    [onRunAction],
   );
 
   const handleCreate = useCallback(async () => {
@@ -195,7 +222,7 @@ export function SellerLiveGiveawaySheet({
       setFormError('Buyers giveaways need official rules (80+ characters).');
       return;
     }
-    onBusyChange(true);
+    setCreateBusy(true);
     setFormError(null);
     try {
       await createLiveGiveaway(accessToken, roomId, {
@@ -215,14 +242,13 @@ export function SellerLiveGiveawaySheet({
       const msg = e instanceof Error ? e.message : 'Could not create giveaway.';
       setFormError(msg);
     } finally {
-      onBusyChange(false);
+      setCreateBusy(false);
     }
   }, [
     accessToken,
     lane,
     imageUrl,
     onToast,
-    onBusyChange,
     onRefresh,
     openOnCreate,
     prizeDescription,
@@ -330,8 +356,8 @@ export function SellerLiveGiveawaySheet({
                   <Pressable style={styles.secondaryBtn} onPress={resetForm}>
                     <Text style={styles.secondaryBtnTxt}>Cancel</Text>
                   </Pressable>
-                  <Pressable style={styles.primaryBtn} disabled={busy} onPress={() => void handleCreate()}>
-                    {busy ? <ActivityIndicator color="#111" /> : <Text style={styles.primaryBtnTxt}>Create</Text>}
+                  <Pressable style={styles.primaryBtn} disabled={busy || createBusy} onPress={() => void handleCreate()}>
+                    {busy || createBusy ? <ActivityIndicator color="#111" /> : <Text style={styles.primaryBtnTxt}>Create</Text>}
                   </Pressable>
                 </View>
               </View>
@@ -390,33 +416,51 @@ export function SellerLiveGiveawaySheet({
                   ) : null}
                   <View style={styles.cardActions}>
                     {g.status === 'draft' ? (
-                      <Pressable disabled={busy} onPress={() => void runAction(g.id, 'open_entries')}>
-                        <Text style={styles.actionTxt}>Open</Text>
-                      </Pressable>
+                      <GiveawayActionButton
+                        label="Open"
+                        tone="green"
+                        disabled={busy || createBusy}
+                        onPress={() => runAction(g.id, 'open_entries')}
+                      />
                     ) : null}
                     {g.status === 'entries_open' ? (
                       <>
-                        <Pressable disabled={busy} onPress={() => void runAction(g.id, 'close_entries')}>
-                          <Text style={styles.actionTxt}>Close</Text>
-                        </Pressable>
-                        <Pressable disabled={busy} onPress={() => void runAction(g.id, 'draw')}>
-                          <Text style={styles.actionTxt}>Draw</Text>
-                        </Pressable>
+                        <GiveawayActionButton
+                          label="Close"
+                          tone="amber"
+                          disabled={busy || createBusy}
+                          onPress={() => runAction(g.id, 'close_entries')}
+                        />
+                        <GiveawayActionButton
+                          label="Draw"
+                          tone="violet"
+                          disabled={busy || createBusy}
+                          onPress={() => runAction(g.id, 'draw')}
+                        />
                       </>
                     ) : null}
                     {g.status === 'entries_closed' ? (
-                      <Pressable disabled={busy} onPress={() => void runAction(g.id, 'draw')}>
-                        <Text style={styles.actionTxt}>Draw</Text>
-                      </Pressable>
+                      <GiveawayActionButton
+                        label="Draw"
+                        tone="violet"
+                        disabled={busy || createBusy}
+                        onPress={() => runAction(g.id, 'draw')}
+                      />
                     ) : null}
                     {g.status !== 'drawn' ? (
                       <>
-                        <Pressable disabled={busy} onPress={() => void runAction(g.id, 'cancel')}>
-                          <Text style={styles.actionTxtMuted}>Cancel</Text>
-                        </Pressable>
-                        <Pressable disabled={busy} onPress={() => void runAction(g.id, 'delete')}>
-                          <Text style={styles.actionTxtDanger}>Delete</Text>
-                        </Pressable>
+                        <GiveawayActionButton
+                          label="Cancel"
+                          tone="muted"
+                          disabled={busy || createBusy}
+                          onPress={() => runAction(g.id, 'cancel')}
+                        />
+                        <GiveawayActionButton
+                          label="Delete"
+                          tone="danger"
+                          disabled={busy || createBusy}
+                          onPress={() => runAction(g.id, 'delete')}
+                        />
                       </>
                     ) : null}
                   </View>
@@ -527,7 +571,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
-  cardActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: spacing.xs },
+  cardActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
+  actionBtn: {
+    minHeight: 40,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionBtnTxt: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
   actionTxt: { fontSize: 11, fontWeight: '800', color: '#6ee7b7', textTransform: 'uppercase' },
   actionTxtMuted: { fontSize: 11, fontWeight: '600', color: colors.textSecondary },
   actionTxtDanger: { fontSize: 11, fontWeight: '700', color: '#fca5a5' },

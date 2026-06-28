@@ -136,13 +136,11 @@ export function LiveStagePlayback({
 
   const useWebrtc = transport === 'webrtc' && enabled;
   const attachHls = transport === 'hls' && Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
-  /** WebRTC is foreground-only; keep a hidden HLS player so system PiP works when the app backgrounds. */
+  /** WebRTC is foreground-only; keep a hidden HLS player so system PiP can attach when the app backgrounds. */
   const attachHlsPip =
     useWebrtc &&
-    (isForeground || appState !== 'active') &&
     roomLifecycleLive &&
     Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
-  const appIsActive = appState === 'active';
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', setAppState);
@@ -184,10 +182,20 @@ export function LiveStagePlayback({
   }, [attachHls, playbackUrl, player]);
 
   useEffect(() => {
-    if (!attachHlsPip || !playbackUrl || !appIsActive) return;
+    if (!attachHlsPip || !playbackUrl) return;
     pipPlayer.replace(playbackUrl);
     pipPlayer.play();
-  }, [appIsActive, attachHlsPip, playbackUrl, pipPlayer]);
+  }, [attachHlsPip, playbackUrl, pipPlayer]);
+
+  useEffect(() => {
+    if (!attachHlsPip) return;
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active' || next === 'inactive' || next === 'background') {
+        pipPlayer.play();
+      }
+    });
+    return () => sub.remove();
+  }, [attachHlsPip, pipPlayer]);
 
   useEffect(() => {
     if (!attachHls) return;
@@ -362,6 +370,7 @@ export function LiveStagePlayback({
           nativeControls={false}
           allowsPictureInPicture
           startsPictureInPictureAutomatically
+          collapsable={false}
         />
       ) : null}
 
@@ -413,11 +422,11 @@ const styles = StyleSheet.create({
   },
   pipHidden: {
     position: 'absolute',
-    top: -120,
-    left: -120,
-    width: 2,
-    height: 2,
-    opacity: 0.01,
+    top: 0,
+    left: 0,
+    width: 120,
+    height: 68,
+    opacity: 0.02,
   },
   standbyWrap: {
     ...StyleSheet.absoluteFillObject,

@@ -8,7 +8,7 @@ import { LiveSaleRoom } from "@/components/live-auction/LiveSaleRoom";
 import { useRealtimeRoomPresence } from "@/hooks/useRealtimeRoomPresence";
 import { useRealtimeRoomSubscription } from "@/hooks/useRealtimeRoomSubscription";
 import { logLiveDebugEvent } from "@/lib/live-debug";
-import { announceLiveRoomJoin, announceLiveRoomLeave } from "@/lib/live-room-viewer-event-client";
+import { announceLiveRoomJoin, announceLiveRoomLeave, buildOptimisticViewerJoinMessage } from "@/lib/live-room-viewer-event-client";
 import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
 import { appendLiveRoomMessageDedupe, mergeLiveRoomMessagesById } from "@/lib/realtime-merge-messages";
 import type { LiveRoomDetailDTO, LiveRoomItemDTO, LiveRoomMessageDTO } from "@/lib/live-room-serialize";
@@ -486,11 +486,22 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     }
   }, [detail]);
 
-  /** Announce join when entering a published room (scheduled or live). */
+  /** Announce join as soon as auth is ready — do not wait for the full room snapshot. */
   useEffect(() => {
-    if (!liveRoomChatOpen(detail?.status) || !session?.user?.id) return;
-    void announceLiveRoomJoin(roomId);
-  }, [detail?.status, roomId, session?.user?.id]);
+    if (status !== "authenticated" || !session?.user?.id || !roomId) return;
+    const username = session.user.username?.trim() || "You";
+    const pendingId = `pending:join:${roomId}`;
+    setMessages((prev) =>
+      appendLiveRoomMessageDedupe(prev, buildOptimisticViewerJoinMessage({ roomId, userId: session.user.id, username })),
+    );
+    void announceLiveRoomJoin(roomId).then((message) => {
+      setMessages((prev) => {
+        const stripped = prev.filter((m) => m.id !== pendingId);
+        if (!message) return stripped;
+        return appendLiveRoomMessageDedupe(stripped, message);
+      });
+    });
+  }, [roomId, session?.user?.id, status]);
 
   /** Pause open-entry giveaway rows when navigating away from the room. */
   useEffect(() => {

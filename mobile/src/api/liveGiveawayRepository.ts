@@ -93,12 +93,26 @@ export async function createLiveGiveaway(
   return j.giveaway;
 }
 
+export type PatchLiveGiveawayResult = {
+  giveaway: LiveGiveawayRow;
+  spin?: {
+    spinId: string;
+    kind: 'giveaway' | 'break_pyt' | 'random_reveal';
+    title: string;
+    labels: string[];
+    winnerIndex: number;
+    winnerLabel: string;
+    durationMs: number;
+    referenceId?: string;
+  };
+};
+
 export async function patchLiveGiveaway(
   accessToken: string,
   roomId: string,
   giveawayId: string,
   action: 'open_entries' | 'close_entries' | 'cancel' | 'draw',
-): Promise<LiveGiveawayRow> {
+): Promise<PatchLiveGiveawayResult> {
   const res = await giveawayFetch(
     `/api/live-rooms/${encodeURIComponent(roomId)}/giveaways/${encodeURIComponent(giveawayId)}`,
     accessToken,
@@ -107,7 +121,7 @@ export async function patchLiveGiveaway(
       body: JSON.stringify({ action }),
     },
   );
-  let j: { giveaway?: LiveGiveawayRow; error?: string } = {};
+  let j: { giveaway?: LiveGiveawayRow; spin?: PatchLiveGiveawayResult['spin']; error?: string } = {};
   try {
     j = (await res.json()) as typeof j;
   } catch {
@@ -115,7 +129,7 @@ export async function patchLiveGiveaway(
   }
   if (!res.ok) throw new Error(parseError(res, j));
   if (!j.giveaway?.id) throw new Error('Invalid giveaway response.');
-  return j.giveaway;
+  return { giveaway: j.giveaway, spin: j.spin };
 }
 
 export async function deleteLiveGiveaway(

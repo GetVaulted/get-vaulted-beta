@@ -1,16 +1,38 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, spacing } from '../../../theme';
+import type { LiveGiveawayRow } from '../../../api/liveGiveawayRepository';
+import type { HostGiveawayAction } from '../../../hooks/useHostGiveawayActions';
+import { spacing } from '../../../theme';
+import { SellerHostGiveawayRail } from './SellerHostGiveawayRail';
 
 type Props = {
   bottom: number;
   onShare: () => void;
+  activeGiveaway?: LiveGiveawayRow | null;
+  giveawayBusy?: boolean;
+  onGiveawayAction?: (id: string, action: HostGiveawayAction) => void;
+  onOpenGiveawayManage?: () => void;
 };
 
-/** Right-edge share control — matches buyer `VerticalLiveFeed` rail placement. */
-export function SellerHostSideRail({ bottom, onShare }: Props) {
+/** Right-edge share + live giveaway host controls. */
+export function SellerHostSideRail({
+  bottom,
+  onShare,
+  activeGiveaway,
+  giveawayBusy = false,
+  onGiveawayAction,
+  onOpenGiveawayManage,
+}: Props) {
   return (
     <View style={[styles.rail, { bottom }]} pointerEvents="box-none">
+      {activeGiveaway && onGiveawayAction && onOpenGiveawayManage ? (
+        <SellerHostGiveawayRail
+          giveaway={activeGiveaway}
+          busy={giveawayBusy}
+          onAction={onGiveawayAction}
+          onOpenManage={onOpenGiveawayManage}
+        />
+      ) : null}
       <Pressable
         style={styles.railBtn}
         onPress={onShare}

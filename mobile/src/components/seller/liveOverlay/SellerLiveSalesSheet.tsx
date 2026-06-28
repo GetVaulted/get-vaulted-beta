@@ -19,7 +19,8 @@ function fmtUsd(n: number) {
   return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function kindLabel(kind: HostRecentSaleRow['kind']) {
+function kindLabel(kind: HostRecentSaleRow['kind'], statusLabel?: string) {
+  if (statusLabel === 'Giveaway' || statusLabel?.startsWith('Giveaway')) return 'giveaway';
   if (kind === 'order') return 'order';
   if (kind === 'variant_purchase') return 'spot';
   return 'spot';
@@ -177,7 +178,7 @@ export function SellerLiveSalesSheet({
                       <View style={styles.saleBody}>
                         <Text style={styles.saleUser} numberOfLines={1}>
                           @{r.buyerUsername}{' '}
-                          <Text style={styles.saleKind}>· {kindLabel(r.kind)}</Text>
+                          <Text style={styles.saleKind}>· {kindLabel(r.kind, r.statusLabel)}</Text>
                         </Text>
                         {r.spotLabel ? (
                           <Text style={styles.spotLabel} numberOfLines={1}>

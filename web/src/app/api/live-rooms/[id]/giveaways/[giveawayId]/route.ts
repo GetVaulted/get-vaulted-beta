@@ -36,7 +36,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; g
   }
 
   emitLiveRoomGiveawaysChanged(liveRoomId);
-  return NextResponse.json({ giveaway: result.giveaway });
+  return NextResponse.json({
+    giveaway: result.giveaway,
+    ...("spin" in result && result.spin ? { spin: result.spin } : {}),
+  });
 }
 
 export async function DELETE(req: Request, ctx: { params: Promise<{ id: string; giveawayId: string }> }) {

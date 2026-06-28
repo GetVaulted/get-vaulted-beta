@@ -15,7 +15,10 @@ import {
 } from "@/lib/live-giveaway-presence";
 import { prisma } from "@/lib/prisma";
 import { emitLiveRoomGiveawaysChanged, emitPurchaseCompleted, emitVaultRevealSpin } from "@/lib/realtime-emit-server";
-import { VAULT_REVEAL_DEFAULT_DURATION_MS } from "@/lib/vault-reveal-spin";
+import {
+  VAULT_REVEAL_DEFAULT_DURATION_MS,
+  type VaultRevealSpinPayload,
+} from "@/lib/vault-reveal-spin";
 
 export { LIVE_GIVEAWAY_DEFAULT_ENTRY_DURATION_MS } from "@/lib/giveaway-countdown";
 
@@ -287,19 +290,26 @@ async function executeGiveawayDraw(
   row: GiveawayWithWinner,
   liveRoomId: string,
   entries: GiveawayDrawEntry[],
-) {
+): Promise<{ giveaway: LiveGiveawayDTO; spin: VaultRevealSpinPayload }> {
   const drawSeed = `${row.id}:${Date.now()}:${randomBytes(8).toString("hex")}`;
   const hash = createHash("sha256").update(drawSeed).digest();
   const pick = hash.readUInt32BE(0) % entries.length;
   const winnerUserId = entries[pick]!.userId;
 
-  const { updated, orderId } = await prisma.$transaction(async (tx) => {
-    const room = await tx.liveRoom.findUnique({
-      where: { id: liveRoomId },
-      select: { sellerId: true },
-    });
-    if (!room) throw new Error("Room not found.");
+  const labels = entries.map((e) => e.user.username?.trim() || "entrant");
+  const winnerIndex = entries.findIndex((e) => e.userId === winnerUserId);
+  const spin: VaultRevealSpinPayload = {
+    spinId: `giveaway-${row.id}-${Date.now()}`,
+    kind: "giveaway",
+    title: row.title,
+    labels,
+    winnerIndex: Math.max(0, winnerIndex),
+    winnerLabel: labels[Math.max(0, winnerIndex)] ?? "winner",
+    durationMs: VAULT_REVEAL_DEFAULT_DURATION_MS,
+    referenceId: row.id,
+  };
 
+  const updated = await prisma.$transaction(async (tx) => {
     const updatedGiveaway = await tx.liveGiveaway.update({
       where: { id: row.id },
       data: {
@@ -311,41 +321,44 @@ async function executeGiveawayDraw(
       },
       include: { winnerUser: { select: { id: true, username: true } } },
     });
+    spin.winnerLabel =
+      updatedGiveaway.winnerUser?.username?.trim() || spin.winnerLabel;
+    return updatedGiveaway;
+  });
 
-    let fulfillmentOrderId = updatedGiveaway.fulfillmentOrderId;
-    const winnerId = updatedGiveaway.winnerUserId;
-    if (!fulfillmentOrderId && winnerId) {
-      fulfillmentOrderId = await createOrderFromGiveawayWinTx(tx, {
-        giveaway: {
-          id: updatedGiveaway.id,
-          liveRoomId: updatedGiveaway.liveRoomId,
-          title: updatedGiveaway.title,
-          prizeDescription: updatedGiveaway.prizeDescription,
-          imageUrl: updatedGiveaway.imageUrl,
-          fulfillmentOrderId: updatedGiveaway.fulfillmentOrderId,
-          winnerUserId: winnerId,
-          winnerUser: updatedGiveaway.winnerUser,
-        },
-        sellerId: room.sellerId,
+  emitVaultRevealSpin(liveRoomId, spin);
+
+  let orderId: string | null = updated.fulfillmentOrderId;
+  if (!orderId && updated.winnerUserId) {
+    try {
+      orderId = await prisma.$transaction(async (tx) => {
+        const room = await tx.liveRoom.findUnique({
+          where: { id: liveRoomId },
+          select: { sellerId: true },
+        });
+        if (!room) throw new Error("Room not found.");
+        return createOrderFromGiveawayWinTx(tx, {
+          giveaway: {
+            id: updated.id,
+            liveRoomId: updated.liveRoomId,
+            title: updated.title,
+            prizeDescription: updated.prizeDescription,
+            imageUrl: updated.imageUrl,
+            fulfillmentOrderId: updated.fulfillmentOrderId,
+            winnerUserId: updated.winnerUserId!,
+            winnerUser: updated.winnerUser,
+          },
+          sellerId: room.sellerId,
+        });
+      });
+    } catch (e) {
+      console.error("giveaway fulfillment order failed after draw", {
+        giveawayId: row.id,
+        liveRoomId,
+        error: e instanceof Error ? e.message : String(e),
       });
     }
-
-    return { updated: updatedGiveaway, orderId: fulfillmentOrderId };
-  });
-
-  const labels = entries.map((e) => e.user.username?.trim() || "entrant");
-  const winnerIndex = entries.findIndex((e) => e.userId === winnerUserId);
-  const winnerLabel = updated.winnerUser?.username?.trim() || labels[winnerIndex] || "winner";
-  emitVaultRevealSpin(liveRoomId, {
-    spinId: `giveaway-${row.id}-${Date.now()}`,
-    kind: "giveaway",
-    title: row.title,
-    labels,
-    winnerIndex: Math.max(0, winnerIndex),
-    winnerLabel,
-    durationMs: VAULT_REVEAL_DEFAULT_DURATION_MS,
-    referenceId: row.id,
-  });
+  }
 
   if (orderId && updated.winnerUserId) {
     const roomNext = await prisma.liveRoom.findUnique({
@@ -363,7 +376,10 @@ async function executeGiveawayDraw(
     });
   }
 
-  return serializeLiveGiveaway(updated, { includeHostSecrets: true });
+  return {
+    giveaway: serializeLiveGiveaway(updated, { includeHostSecrets: true }),
+    spin,
+  };
 }
 
 /** Auto-close or auto-draw giveaways whose 5-minute entry window has ended. */
@@ -464,10 +480,22 @@ export async function patchLiveGiveawayStatus(
       return { ok: false as const, error: "Close entries before drawing, or draw while entries are open." };
     }
     const entries = await loadGiveawayDrawEntries(row.id);
-    if (entries.length === 0) return { ok: false as const, error: "No entries to draw from." };
+    if (entries.length === 0) {
+      const pausedWatchEnter = await prisma.liveGiveawayEntry.count({
+        where: { giveawayId: row.id, method: "watch_enter", activeInRoom: false },
+      });
+      if (pausedWatchEnter > 0) {
+        return {
+          ok: false as const,
+          error:
+            "No active entrants in the room. Viewers who left must return and tap Enter again before you can draw.",
+        };
+      }
+      return { ok: false as const, error: "No entries to draw from." };
+    }
 
-    const giveaway = await executeGiveawayDraw(row, liveRoomId, entries);
-    return { ok: true as const, giveaway };
+    const drawn = await executeGiveawayDraw(row, liveRoomId, entries);
+    return { ok: true as const, giveaway: drawn.giveaway, spin: drawn.spin };
   }
 
   return { ok: false as const, error: "Unknown action." };

@@ -8,6 +8,7 @@ import {
 import {
   JOIN_ANNOUNCE_COOLDOWN_MS,
   mergeChatMessagesById,
+  VIEWER_EVENT_JOIN_BODY,
 } from '../lib/liveRoomChatMessages';
 import type { LiveRoomChatBroadcastMessage } from './useRealtimeRoomSubscription';
 import type { ChatMessage, ChatMessageKind } from '../types';
@@ -65,9 +66,14 @@ export function useLiveRoomChat(args: {
   enabled: boolean;
   /** When true, rely on Supabase chat events; poll slowly as fallback. */
   realtimePrimary?: boolean;
+  /** Buyer join line in chat when the slide becomes active. Host console should leave false. */
+  announceViewerJoin?: boolean;
+  /** When false, defer join until the room is published for chat (scheduled/live). */
+  roomChatOpen?: boolean;
   senderUserId?: string;
   senderUsername?: string;
   senderAvatarUrl?: string | null;
+  onJoinAnnounceError?: (message: string) => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -134,6 +140,20 @@ export function useLiveRoomChat(args: {
     if (!args.accessToken || !args.enabled) return false;
     const last = joinCooldownByRoom.get(args.roomId) ?? 0;
     if (Date.now() - last < JOIN_ANNOUNCE_COOLDOWN_MS) return false;
+
+    const pendingId = `pending:join:${args.roomId}`;
+    const optimistic: ChatMessage = {
+      id: pendingId,
+      user: args.senderUsername?.trim() || 'You',
+      text: VIEWER_EVENT_JOIN_BODY,
+      senderId: args.senderUserId,
+      senderAvatarUrl: args.senderAvatarUrl ?? null,
+      isHost: Boolean(args.hostUserId && args.senderUserId && args.senderUserId === args.hostUserId),
+      messageType: 'system',
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => mergeChatMessagesById(prev, [optimistic]));
+
     try {
       const row = await announceLiveRoomViewerEvent({
         accessToken: args.accessToken,
@@ -141,17 +161,48 @@ export function useLiveRoomChat(args: {
         kind: 'join',
       });
       joinCooldownByRoom.set(args.roomId, Date.now());
-      appendRows([row]);
+      const mapped = mapRow(row, args.hostUsername, args.hostUserId);
+      setMessages((prev) => {
+        const stripped = prev.filter((m) => m.id !== pendingId);
+        return mapped ? mergeChatMessagesById(stripped, [mapped]) : stripped;
+      });
       setError(null);
       return true;
     } catch (e) {
+      setMessages((prev) => prev.filter((m) => m.id !== pendingId));
       const msg = e instanceof Error ? e.message : String(e);
       if (/not live yet|room has ended|409/i.test(msg)) return false;
       setError(msg);
+      args.onJoinAnnounceError?.(msg);
       if (__DEV__) console.warn('[useLiveRoomChat] join announce failed', msg);
       throw e;
     }
-  }, [appendRows, args.accessToken, args.enabled, args.roomId]);
+  }, [
+    args.accessToken,
+    args.enabled,
+    args.hostUserId,
+    args.hostUsername,
+    args.onJoinAnnounceError,
+    args.roomId,
+    args.senderAvatarUrl,
+    args.senderUserId,
+    args.senderUsername,
+  ]);
+
+  useEffect(() => {
+    if (!args.announceViewerJoin || !args.enabled || !args.accessToken) return;
+    if (args.roomChatOpen === false) return;
+    void announceJoin().catch(() => {
+      /* surfaced via onJoinAnnounceError when relevant */
+    });
+  }, [
+    announceJoin,
+    args.accessToken,
+    args.announceViewerJoin,
+    args.enabled,
+    args.roomChatOpen,
+    args.roomId,
+  ]);
 
   const announceLeave = useCallback(async (): Promise<void> => {
     if (!args.accessToken || !args.enabled) return;

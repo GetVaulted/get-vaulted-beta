@@ -574,6 +574,7 @@ export function LiveAuctionRoom({
     lotBidPhase: activeLotBidPhase,
     isVariantItem: activeHasVariants,
     hasPinnedVariant: Boolean(buyerPinnedVariant),
+    activeSpotCommerceMode: activeDbItem?.activeSpotCommerceMode ?? null,
   });
   const hostTimerEndedUnsettled = isLive && activeLotBidPhase === "timer_ended_unsettled";
   const guestNeedsAuth = status === "unauthenticated" && !isHost && isLive;

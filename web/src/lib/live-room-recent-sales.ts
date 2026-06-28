@@ -87,7 +87,7 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
   });
   const listingIds = [...new Set(listingRows.map((r) => r.listingId).filter((x): x is string => Boolean(x)))];
 
-  const [ordersByListing, ordersBySession, spots, variantPurchases] = await Promise.all([
+  const [ordersByListing, ordersBySession, spots, variantPurchases, drawnGiveaways] = await Promise.all([
     listingIds.length
       ? prisma.order.findMany({
           where: { sellerId, listingId: { in: listingIds } },
@@ -129,6 +129,12 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
       orderBy: { paidAt: "desc" },
       take: 50,
     }),
+    prisma.liveGiveaway.findMany({
+      where: { liveRoomId, status: "drawn", winnerUserId: { not: null } },
+      include: { winnerUser: { select: { username: true } } },
+      orderBy: { drawnAt: "desc" },
+      take: 50,
+    }),
   ]);
 
   const orderById = new Map<string, OrderWithBuyer>();
@@ -154,6 +160,26 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
       statusLabel: vp.revealedLabel ? "Revealed" : "Paid",
       occurredAt: (vp.paidAt ?? vp.createdAt).toISOString(),
       spotLabel,
+    });
+  }
+
+  const coveredOrderIds = new Set(
+    [...orderById.values()]
+      .map((o) => o.id)
+      .filter((id): id is string => Boolean(id)),
+  );
+  for (const g of drawnGiveaways) {
+    if (g.fulfillmentOrderId && coveredOrderIds.has(g.fulfillmentOrderId)) continue;
+    const prizeTitle = g.title.trim() || "Giveaway prize";
+    rows.push({
+      id: `giveaway:${g.id}`,
+      kind: "order",
+      buyerUsername: g.winnerUser?.username?.trim() || "winner",
+      amountUsd: 0,
+      paymentTone: "paid",
+      statusLabel: g.fulfillmentOrderId ? "Giveaway" : "Giveaway · ship pending",
+      occurredAt: (g.drawnAt ?? g.updatedAt).toISOString(),
+      spotLabel: prizeTitle,
     });
   }
 
