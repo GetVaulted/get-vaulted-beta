@@ -818,7 +818,7 @@ export async function listLiveRoomRecentViewers(liveRoomId: string, take = 100):
     }
     map.set(row.senderId, {
       userId: row.senderId,
-      username: row.sender.username,
+      username: row.sender.username?.trim() || "Member",
       lastSeenAt: row.createdAt.toISOString(),
       messageCount: 1,
     });

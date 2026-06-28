@@ -17,11 +17,20 @@ export function mergeModeratorRoomUsers(args: {
 }): ModeratorRoomUserRow[] {
   const map = new Map<string, ModeratorRoomUserRow>();
 
+  const normalizeUsername = (username: unknown, userId: string | null): string => {
+    if (typeof username === 'string' && username.trim()) {
+      return username.trim().replace(/^@/, '');
+    }
+    return userId ? 'Member' : 'Guest';
+  };
+
   for (const viewer of args.viewers) {
-    map.set(viewer.userId, {
-      key: viewer.userId,
-      userId: viewer.userId,
-      username: viewer.username,
+    const userId = viewer.userId?.trim() ?? '';
+    if (!userId) continue;
+    map.set(userId, {
+      key: userId,
+      userId,
+      username: normalizeUsername(viewer.username, userId),
       inRoom: false,
       messageCount: viewer.messageCount,
       lastSeenAt: viewer.lastSeenAt,
@@ -35,7 +44,7 @@ export function mergeModeratorRoomUsers(args: {
       map.set(p.userId, {
         key: p.userId,
         userId: p.userId,
-        username: p.username || existing?.username || 'Member',
+        username: normalizeUsername(p.username || existing?.username, p.userId),
         inRoom: true,
         messageCount: existing?.messageCount,
         lastSeenAt: existing?.lastSeenAt,
@@ -44,12 +53,13 @@ export function mergeModeratorRoomUsers(args: {
       continue;
     }
 
-    const guestKey = `guest:${p.tabKey ?? p.username.toLowerCase()}`;
+    const guestUsername = normalizeUsername(p.username, null);
+    const guestKey = `guest:${p.tabKey ?? guestUsername.toLowerCase()}`;
     if (map.has(guestKey)) continue;
     map.set(guestKey, {
       key: guestKey,
       userId: null,
-      username: p.username,
+      username: guestUsername,
       inRoom: true,
       isGuest: true,
     });

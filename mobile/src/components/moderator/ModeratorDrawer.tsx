@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
@@ -126,11 +126,14 @@ export function ModeratorDrawer({
     setPinnedBody(moderation.pinnedModeratorMessage ?? '');
   }, [moderation.pinnedModeratorMessage, visible]);
 
+  const onRefreshRef = useRef(onRefresh);
+  onRefreshRef.current = onRefresh;
+
   useEffect(() => {
     if (visible && (tab === 'tips' || tab === 'users')) {
-      onRefresh();
+      onRefreshRef.current();
     }
-  }, [visible, tab, onRefresh]);
+  }, [visible, tab]);
 
   const can = (actionType: string) =>
     canPerformModeratorAction({

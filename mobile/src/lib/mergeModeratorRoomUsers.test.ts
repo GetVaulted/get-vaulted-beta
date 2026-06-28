@@ -31,4 +31,20 @@ describe('mergeModeratorRoomUsers', () => {
     expect(rows.find((r) => r.userId === 'u2')?.inRoom).toBe(false);
     expect(rows.find((r) => r.userId === 'u2')?.messageCount).toBe(3);
   });
+
+  it('falls back when viewer username is missing', () => {
+    const rows = mergeModeratorRoomUsers({
+      presence: [],
+      viewers: [
+        {
+          userId: 'u3',
+          username: '',
+          lastSeenAt: '2026-01-01T12:00:00.000Z',
+          messageCount: 1,
+        },
+      ],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.username).toBe('Member');
+  });
 });

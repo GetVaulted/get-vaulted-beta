@@ -32,6 +32,11 @@ export function useLiveRoomPresenceUsers(liveRoomId: string, enabled: boolean): 
 
     return () => {
       clearInterval(pollId);
+      if (channel) {
+        channel.off('presence', { event: 'sync' }, sync);
+        channel.off('presence', { event: 'join' }, sync);
+        channel.off('presence', { event: 'leave' }, sync);
+      }
     };
   }, [enabled, liveRoomId]);
 
