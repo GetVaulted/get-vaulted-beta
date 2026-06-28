@@ -48,6 +48,68 @@ describe("shippo-address-autocomplete", () => {
     ]);
   });
 
+  it("maps find results when address is a plain string", async () => {
+    vi.mocked(isShippoConfigured).mockReturnValue(true);
+    vi.mocked(shippoAutocompleteFind).mockResolvedValue({
+      results: [{ id: "abc", address: "100 Main St, Austin, TX 78701" }],
+    });
+
+    const rows = await searchShippoAddressAutocomplete({
+      query: "100 Main",
+      countryCode: "US",
+    });
+    expect(rows).toEqual([
+      { id: "abc", label: "100 Main St, Austin, TX 78701", isContainer: false },
+    ]);
+  });
+
+  it("ignores generic top-level description and reads nested complete_address", async () => {
+    vi.mocked(isShippoConfigured).mockReturnValue(true);
+    vi.mocked(shippoAutocompleteFind).mockResolvedValue({
+      results: [
+        {
+          id: "abc",
+          description: "Address suggestion",
+          address: {
+            complete_address: "100 Main St; Austin TX 78701; US",
+          },
+        },
+      ],
+    });
+
+    const rows = await searchShippoAddressAutocomplete({
+      query: "100 Main",
+      countryCode: "US",
+    });
+    expect(rows).toEqual([
+      { id: "abc", label: "100 Main St, Austin TX 78701, US", isContainer: false },
+    ]);
+  });
+
+  it("hydrates labels from retrieve when find rows only include generic metadata", async () => {
+    vi.mocked(isShippoConfigured).mockReturnValue(true);
+    vi.mocked(shippoAutocompleteFind).mockResolvedValue({
+      results: [{ id: "abc", description: "Address suggestion" }],
+    });
+    vi.mocked(shippoAutocompleteRetrieve).mockResolvedValue({
+      address: {
+        address_line_1: "100 Main St",
+        city_locality: "Austin",
+        state_province: "TX",
+        postal_code: "78701",
+        country_code: "US",
+      },
+    });
+
+    const rows = await searchShippoAddressAutocomplete({
+      query: "100 Main",
+      countryCode: "US",
+    });
+    expect(rows).toEqual([
+      { id: "abc", label: "100 Main St, Austin, TX, 78701", isContainer: false },
+    ]);
+  });
+
   it("maps find results from nested address lines", async () => {
     vi.mocked(isShippoConfigured).mockReturnValue(true);
     vi.mocked(shippoAutocompleteFind).mockResolvedValue({
@@ -62,6 +124,30 @@ describe("shippo-address-autocomplete", () => {
           },
         },
       ],
+    });
+
+    const rows = await searchShippoAddressAutocomplete({
+      query: "100 Main",
+      countryCode: "US",
+    });
+    expect(rows).toEqual([
+      { id: "abc", label: "100 Main St, Austin, TX, 78701", isContainer: false },
+    ]);
+  });
+
+  it("hydrates labels from retrieve when find rows only include ids", async () => {
+    vi.mocked(isShippoConfigured).mockReturnValue(true);
+    vi.mocked(shippoAutocompleteFind).mockResolvedValue({
+      results: [{ id: "abc" }],
+    });
+    vi.mocked(shippoAutocompleteRetrieve).mockResolvedValue({
+      address: {
+        address_line_1: "100 Main St",
+        city_locality: "Austin",
+        state_province: "TX",
+        postal_code: "78701",
+        country_code: "US",
+      },
     });
 
     const rows = await searchShippoAddressAutocomplete({
@@ -89,6 +175,24 @@ describe("shippo-address-autocomplete", () => {
     expect(resolved).toEqual({
       line1: "100 Main St",
       line2: "Apt 4",
+      city: "Austin",
+      state: "TX",
+      postalCode: "78701",
+      country: "US",
+    });
+  });
+
+  it("parses retrieve complete_address strings", async () => {
+    vi.mocked(shippoAutocompleteRetrieve).mockResolvedValue({
+      address: {
+        complete_address: "100 Main St; Austin TX 78701; US",
+      },
+    });
+
+    const resolved = await resolveShippoAutocompleteAddress("abc");
+    expect(resolved).toEqual({
+      line1: "100 Main St",
+      line2: "",
       city: "Austin",
       state: "TX",
       postalCode: "78701",
