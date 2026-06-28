@@ -195,7 +195,8 @@ export function AddressAutocompleteFields({
           />
         </label>
       ) : null}
-      <label ref={resolvedSectionRef} className={labelClassName}>
+      <div ref={resolvedSectionRef} className="contents sm:contents">
+      <label className={labelClassName}>
         City
         <input
           value={values.city}
@@ -239,6 +240,7 @@ export function AddressAutocompleteFields({
           />
         </label>
       ) : null}
+      </div>
       </div>
     </div>
   );
