@@ -355,6 +355,9 @@ function LiveSlide({
       liveChat.appendBroadcast(message);
     },
     onStreamRefresh: () => {
+      setRoomStatus((prev) => (prev === 'ended' ? prev : 'live'));
+    },
+    onStreamHardRefresh: () => {
       setStreamRefreshNonce((n) => n + 1);
       setRoomStatus((prev) => (prev === 'ended' ? prev : 'live'));
     },
@@ -1365,7 +1368,7 @@ function LiveSlide({
             position: 'absolute',
             left: 0,
             top: giveawayTabTop,
-            zIndex: 22,
+            zIndex: 40,
           }}
           pointerEvents="box-none"
         >

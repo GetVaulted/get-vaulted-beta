@@ -20,6 +20,8 @@ export type LivePlaybackMode = 'active' | 'prefetch' | 'off';
 const PREFETCH_POLL_MS = 10_000;
 const LIVE_PLAYBACK_HEALTH_MS = 15_000;
 const NO_VIDEO_RECOVER_MS = 12_000;
+/** Avoid flashing reconnect UI on brief Stage hiccups. */
+const RECONNECT_UI_DELAY_MS = 1_800;
 
 function applyStreamToTransport(args: {
   safe: BuyerSafeStreamFields;
@@ -80,6 +82,27 @@ export function useLiveStagePlayback(args: {
   const noVideoSinceRef = useRef<number | null>(null);
   const playbackModeRef = useRef(args.playbackMode);
   const [webrtcSubscribeEpoch, setWebrtcSubscribeEpoch] = useState(0);
+  const reconnectUiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearReconnectUiTimer = useCallback(() => {
+    if (reconnectUiTimerRef.current != null) {
+      clearTimeout(reconnectUiTimerRef.current);
+      reconnectUiTimerRef.current = null;
+    }
+  }, []);
+
+  const showReconnectingUi = useCallback(() => {
+    clearReconnectUiTimer();
+    reconnectUiTimerRef.current = setTimeout(() => {
+      reconnectUiTimerRef.current = null;
+      setReconnecting(true);
+    }, RECONNECT_UI_DELAY_MS);
+  }, [clearReconnectUiTimer]);
+
+  const hideReconnectingUi = useCallback(() => {
+    clearReconnectUiTimer();
+    setReconnecting(false);
+  }, [clearReconnectUiTimer]);
 
   const clearBackoff = useCallback(() => {
     if (backoffTimerRef.current != null) {
@@ -182,12 +205,13 @@ export function useLiveStagePlayback(args: {
     noVideoSinceRef.current = null;
     setPlayerFatal(false);
     setPlayerRetryCount(0);
-    if (args.playbackMode === 'active') {
-      setVideoHasData(false);
+    hideReconnectingUi();
+    // Hard refresh after an explicit reconnect/host signal — resubscribe Stage once.
+    if (args.playbackMode === 'active' && transportRef.current === 'webrtc') {
+      setWebrtcSubscribeEpoch((n) => n + 1);
     }
-    setWebrtcSubscribeEpoch((n) => n + 1);
     void fetchStream();
-  }, [args.refreshNonce, args.playbackMode, clearBackoff, fetchStream]);
+  }, [args.refreshNonce, args.playbackMode, clearBackoff, fetchStream, hideReconnectingUi]);
 
   useEffect(() => {
     if (args.playbackMode !== 'active') return undefined;
@@ -200,7 +224,7 @@ export function useLiveStagePlayback(args: {
       webrtcFailedRef.current = false;
       webrtcFailoverCountRef.current = 0;
       noVideoSinceRef.current = null;
-      setReconnecting(true);
+      showReconnectingUi();
       if (transportRef.current === 'webrtc') {
         setWebrtcSubscribeEpoch((n) => n + 1);
       } else {
@@ -208,12 +232,12 @@ export function useLiveStagePlayback(args: {
         applyTransport('none');
       }
       void fetchStream().finally(() => {
-        setTimeout(() => setReconnecting(false), 600);
+        hideReconnectingUi();
       });
     };
     const sub = AppState.addEventListener('change', onAppState);
     return () => sub.remove();
-  }, [applyTransport, args.playbackMode, clearBackoff, fetchStream]);
+  }, [applyTransport, args.playbackMode, clearBackoff, fetchStream, hideReconnectingUi, showReconnectingUi]);
 
   useEffect(() => {
     if (args.playbackMode !== 'active') {
@@ -252,14 +276,14 @@ export function useLiveStagePlayback(args: {
 
   const onVideoReady = useCallback(() => {
     setVideoHasData(true);
-    setReconnecting(false);
+    hideReconnectingUi();
     setPlayerFatal(false);
     noVideoSinceRef.current = null;
     retryRef.current = 0;
     setPlayerRetryCount(0);
     webrtcFailoverCountRef.current = 0;
     webrtcFailedRef.current = false;
-  }, []);
+  }, [hideReconnectingUi]);
 
   const onVideoError = useCallback(() => {
     setPlayerFatal(true);
@@ -287,7 +311,7 @@ export function useLiveStagePlayback(args: {
         reason.includes('rejoin_exhausted') || reason.includes('connect_timeout');
       webrtcFailoverCountRef.current += exhausted ? 2 : 1;
       setVideoHasData(false);
-      setReconnecting(false);
+      hideReconnectingUi();
       if (webrtcFailoverCountRef.current >= 2) {
         webrtcFailedRef.current = true;
         applyTransport('hls');
@@ -298,19 +322,20 @@ export function useLiveStagePlayback(args: {
       }
       applyTransport('webrtc');
       setWebrtcSubscribeEpoch((n) => n + 1);
-      setReconnecting(true);
-      setTimeout(() => setReconnecting(false), 800);
+      showReconnectingUi();
     },
-    [applyTransport, fetchStream],
+    [applyTransport, fetchStream, hideReconnectingUi, showReconnectingUi],
   );
 
   const onWebrtcDisconnected = useCallback(() => {
-    setVideoHasData(false);
-    setReconnecting(true);
     if (noVideoSinceRef.current == null) noVideoSinceRef.current = Date.now();
-  }, []);
+    showReconnectingUi();
+  }, [showReconnectingUi]);
 
-  useEffect(() => () => clearBackoff(), [clearBackoff]);
+  useEffect(() => () => {
+    clearBackoff();
+    clearReconnectUiTimer();
+  }, [clearBackoff, clearReconnectUiTimer]);
 
   return {
     loading,

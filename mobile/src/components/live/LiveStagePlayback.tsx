@@ -358,7 +358,7 @@ export function LiveStagePlayback({
       />
 
       {showStandby ? (
-        <View style={styles.standbyWrap}>
+        <View style={styles.standbyWrap} pointerEvents="none">
           {(surface === 'loading' || surface === 'connecting') && roomLifecycleLive ? (
             <ActivityIndicator color={colors.gold} style={styles.loader} />
           ) : null}

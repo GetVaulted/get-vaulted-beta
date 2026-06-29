@@ -62,6 +62,10 @@ export function LiveGiveawaySideTab({
     if (visible.length === 0) setOpen(false);
   }, [visible.length]);
 
+  useEffect(() => {
+    setEnteredIds(new Set(giveaways.filter((g) => g.viewerEntered).map((g) => g.id)));
+  }, [giveaways]);
+
   if (visible.length === 0 || !primary) return null;
 
   const entered = enteredIds.has(primary.id) || primary.viewerEntered;

@@ -18,7 +18,7 @@ const MAX_REJOIN_ATTEMPTS = 12;
 /** Proactive token refresh before the 20-minute viewer TTL expires. */
 const TOKEN_REFRESH_MS = 17 * 60 * 1000;
 /** Remote video missing this long while still "connected" triggers a rejoin. */
-const REMOTE_VIDEO_LOST_MS = 5_000;
+const REMOTE_VIDEO_LOST_MS = 12_000;
 const REMOTE_VIDEO_CHECK_MS = 2_000;
 
 export type MobileStageRemoteTarget = {
@@ -156,7 +156,6 @@ export function useMobileStageSubscribe(args: {
       connectedRef.current = false;
       setPhase('connecting');
       setConnectionState('connecting');
-      cbRef.current.onDisconnected();
       clearTimers();
       teardownListeners();
       try {

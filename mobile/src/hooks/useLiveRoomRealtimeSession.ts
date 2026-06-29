@@ -106,6 +106,9 @@ export function useLiveRoomRealtimeSession(args: {
   const outbidTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const realtimeConnectedRef = useRef(false);
   const fetchStartRef = useRef(0);
+  const lastStreamStatusRef = useRef<{ health: string; mode: string } | null>(null);
+  const reconnectBannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectBannerClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refreshSkewFromServer = useCallback((serverNowMs: number | undefined, clientStartMs: number) => {
     if (typeof serverNowMs !== 'number' || !Number.isFinite(serverNowMs)) return;
@@ -375,32 +378,49 @@ export function useLiveRoomRealtimeSession(args: {
     onRoomStateEvent: () => scheduleReconcile(600),
     onReconnect: () => {
       setConnectionBanner('Live connection restored');
-      setTimeout(() => setConnectionBanner(null), 2400);
+      if (reconnectBannerClearTimerRef.current) clearTimeout(reconnectBannerClearTimerRef.current);
+      reconnectBannerClearTimerRef.current = setTimeout(() => setConnectionBanner(null), 2400);
       scheduleReconcile(120);
-      args.onStreamRefresh?.();
+      args.onStreamHardRefresh?.() ?? args.onStreamRefresh?.();
     },
     onStreamStatusChange: (payload) => {
       scheduleReconcile(200);
       const health =
         typeof payload.streamHealth === 'string' ? payload.streamHealth.toLowerCase() : '';
-      if (health === 'live' || health === 'connecting') {
-        args.onStreamRefresh?.();
+      const mode =
+        typeof payload.streamMode === 'string' ? payload.streamMode.toLowerCase() : '';
+      const prev = lastStreamStatusRef.current;
+      const modeKey = mode || prev?.mode || '';
+      const changed = !prev || prev.health !== health || prev.mode !== modeKey;
+      lastStreamStatusRef.current = { health, mode: modeKey };
+      if (changed && (health === 'live' || health === 'connecting')) {
+        args.onStreamHardRefresh?.() ?? args.onStreamRefresh?.();
       }
     },
     onConnectionStateChange: ({ status, reconnectCount }) => {
       if (status === 'SUBSCRIBED') {
         realtimeConnectedRef.current = true;
         setConnectionState('connected');
+        if (reconnectBannerTimerRef.current) {
+          clearTimeout(reconnectBannerTimerRef.current);
+          reconnectBannerTimerRef.current = null;
+        }
         if (reconnectCount > 0) {
           setConnectionBanner('Live connection restored');
-          setTimeout(() => setConnectionBanner(null), 2400);
+          if (reconnectBannerClearTimerRef.current) clearTimeout(reconnectBannerClearTimerRef.current);
+          reconnectBannerClearTimerRef.current = setTimeout(() => setConnectionBanner(null), 2400);
         } else {
           setConnectionBanner(null);
         }
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
         realtimeConnectedRef.current = false;
         setConnectionState('reconnecting');
-        setConnectionBanner('Reconnecting…');
+        if (!reconnectBannerTimerRef.current) {
+          reconnectBannerTimerRef.current = setTimeout(() => {
+            reconnectBannerTimerRef.current = null;
+            setConnectionBanner('Reconnecting…');
+          }, 1_500);
+        }
       } else if (status === 'JOINING') {
         setConnectionState(reconnectCount > 0 ? 'reconnecting' : 'connecting');
       }
@@ -447,6 +467,8 @@ export function useLiveRoomRealtimeSession(args: {
     () => () => {
       if (reconcileTimerRef.current) clearTimeout(reconcileTimerRef.current);
       if (outbidTimerRef.current) clearTimeout(outbidTimerRef.current);
+      if (reconnectBannerTimerRef.current) clearTimeout(reconnectBannerTimerRef.current);
+      if (reconnectBannerClearTimerRef.current) clearTimeout(reconnectBannerClearTimerRef.current);
     },
     [],
   );
