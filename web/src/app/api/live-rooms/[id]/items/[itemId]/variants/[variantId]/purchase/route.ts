@@ -13,6 +13,7 @@ import { getUnresolvedPaymentFailureForBuyer, liveRoomPaymentBlockResponse } fro
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { isStripeConfigured } from "@/lib/stripe";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
+import { isBetaDeployment } from "@/lib/is-beta-deployment";
 
 function signInUrl(returnPath: string) {
   return `/signin?returnTo=${encodeURIComponent(returnPath)}`;
@@ -20,6 +21,11 @@ function signInUrl(returnPath: string) {
 
 function stripePublishableKey(): string | undefined {
   return process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() || undefined;
+}
+
+function checkoutFailureDebug(code: string | undefined) {
+  if (!isBetaDeployment() || !code) return {};
+  return { checkoutDebug: { code } };
 }
 
 type Body = {
@@ -176,6 +182,7 @@ export async function POST(
               paymentFailed: true,
               purchaseId: settled.purchaseId,
               paymentFailure,
+              ...checkoutFailureDebug(settled.code),
             },
             { status: 402 },
           );
@@ -314,6 +321,7 @@ export async function POST(
           paymentFailed: true,
           purchaseId: settled.purchaseId,
           paymentFailure,
+          ...checkoutFailureDebug(settled.code),
         },
         { status: 402 },
       );

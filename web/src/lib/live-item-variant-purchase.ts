@@ -161,7 +161,7 @@ export async function releaseVariantPurchaseOnCheckoutExpired(purchaseId: string
       data: {
         paymentStatus: "failed",
         stripeCheckoutSessionId: null,
-        stripePaymentIntentId: null,
+        // Keep stripePaymentIntentId so recovery can cancel the dead intent and mint a fresh charge.
       },
     });
     const v = await tx.liveItemVariant.findUnique({
@@ -250,7 +250,6 @@ export async function reopenVariantPurchaseForRecovery(args: {
         where: { id: purchase.id },
         data: {
           paymentStatus: "pending_payment",
-          stripePaymentIntentId: null,
           stripeCheckoutSessionId: null,
           paidAt: null,
         },

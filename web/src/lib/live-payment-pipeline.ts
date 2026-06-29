@@ -228,14 +228,34 @@ function mapLiveSavedCardStripeError(
 
 /** Clear dead intents so recovery retries can create a fresh PaymentIntent (matches buy-now). */
 async function handleExistingLiveSavedCardPaymentIntent(
+  stripe: Stripe,
   pi: Stripe.PaymentIntent,
   clearPaymentIntentId: () => Promise<void>,
-): Promise<LiveSavedCardChargeOutcome | null> {
+): Promise<{ outcome: LiveSavedCardChargeOutcome | null; clearedDeadIntentId: string | null }> {
   if (pi.status === "canceled" || pi.status === "requires_payment_method") {
+    if (pi.status === "requires_payment_method") {
+      try {
+        await stripe.paymentIntents.cancel(pi.id);
+      } catch (e) {
+        console.warn("[live saved-card] could not cancel dead payment intent", pi.id, e);
+      }
+    }
     await clearPaymentIntentId();
-    return null;
+    return { outcome: null, clearedDeadIntentId: pi.id };
   }
-  return mapPaymentIntentOutcome(pi);
+  return { outcome: mapPaymentIntentOutcome(pi), clearedDeadIntentId: null };
+}
+
+export function liveSavedCardStripeIdempotencyKey(args: {
+  prefix: string;
+  referenceId: string;
+  amountCents: number;
+  paymentMethodId: string;
+  chargeAttemptMs: number;
+  clearedDeadIntentId?: string | null;
+}): string {
+  const base = `${args.prefix}_${args.referenceId}_${args.amountCents}_${args.paymentMethodId}_${args.chargeAttemptMs}`;
+  return args.clearedDeadIntentId ? `${base}_after_${args.clearedDeadIntentId}` : base;
 }
 
 /**
@@ -329,15 +349,17 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
 
   const stripe = getStripe();
 
+  let clearedDeadIntentId: string | null = null;
   if (purchase.stripePaymentIntentId) {
     const existing = await stripe.paymentIntents.retrieve(purchase.stripePaymentIntentId);
-    const mapped = await handleExistingLiveSavedCardPaymentIntent(existing, async () => {
+    const handled = await handleExistingLiveSavedCardPaymentIntent(stripe, existing, async () => {
       await prisma.liveItemVariantPurchase.updateMany({
         where: { id: purchase.id },
         data: { stripePaymentIntentId: null },
       });
     });
-    if (mapped) return mapped;
+    clearedDeadIntentId = handled.clearedDeadIntentId;
+    if (handled.outcome) return handled.outcome;
   }
 
   try {
@@ -361,7 +383,16 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
         application_fee_amount: feeCents,
         transfer_data: { destination: destinationAccount },
       },
-      { idempotencyKey: `variant_saved_pm_${purchase.id}_${amountCents}_${pmId}` },
+      {
+        idempotencyKey: liveSavedCardStripeIdempotencyKey({
+          prefix: "variant_saved_pm",
+          referenceId: purchase.id,
+          amountCents,
+          paymentMethodId: pmId,
+          chargeAttemptMs: purchase.createdAt.getTime(),
+          clearedDeadIntentId,
+        }),
+      },
     );
 
     await prisma.liveItemVariantPurchase.update({
@@ -612,18 +643,20 @@ export async function chargeBreakSpotWithSavedCard(args: {
   });
 
   const stripe = getStripe();
+  let clearedDeadIntentId: string | null = null;
   if (spot.stripePaymentIntentId) {
     const existing = await stripe.paymentIntents.retrieve(spot.stripePaymentIntentId);
-    const mapped = await handleExistingLiveSavedCardPaymentIntent(existing, async () => {
+    const handled = await handleExistingLiveSavedCardPaymentIntent(stripe, existing, async () => {
       await prisma.breakSpot.updateMany({
         where: { id: spot.id },
         data: { stripePaymentIntentId: null },
       });
     });
-    if (mapped?.outcome === "paid") {
-      await finalizeBreakSpotPaid({ breakSpotId: spot.id, paymentIntentId: mapped.paymentIntentId });
+    clearedDeadIntentId = handled.clearedDeadIntentId;
+    if (handled.outcome?.outcome === "paid") {
+      await finalizeBreakSpotPaid({ breakSpotId: spot.id, paymentIntentId: handled.outcome.paymentIntentId });
     }
-    if (mapped) return mapped;
+    if (handled.outcome) return handled.outcome;
   }
 
   try {
@@ -646,7 +679,16 @@ export async function chargeBreakSpotWithSavedCard(args: {
         application_fee_amount: feeCents,
         transfer_data: { destination: breakDestinationAccount },
       },
-      { idempotencyKey: `break_spot_saved_pm_${spot.id}_${amountCents}_${pmId}` },
+      {
+        idempotencyKey: liveSavedCardStripeIdempotencyKey({
+          prefix: "break_spot_saved_pm",
+          referenceId: spot.id,
+          amountCents,
+          paymentMethodId: pmId,
+          chargeAttemptMs: spot.createdAt.getTime(),
+          clearedDeadIntentId,
+        }),
+      },
     );
 
     await prisma.breakSpot.update({
