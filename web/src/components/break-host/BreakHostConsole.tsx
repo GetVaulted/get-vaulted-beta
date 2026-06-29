@@ -825,9 +825,11 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   useEffect(() => {
     void load();
     const hasRealtime = Boolean(getSupabaseBrowserClient());
-    const t = setInterval(() => void load(), hasRealtime ? 15000 : 5000);
+    const roomLive = data?.room?.status === "live";
+    const pollMs = roomLive ? 5_000 : hasRealtime ? 15_000 : 5_000;
+    const t = setInterval(() => void load(), pollMs);
     return () => clearInterval(t);
-  }, [load]);
+  }, [load, data?.room?.status]);
 
   useEffect(() => {
     void loadTeamBoard();
@@ -1149,6 +1151,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         flashHostNotice("No bids · lot skipped");
       }
       scheduleFallbackRefresh("purchase_completed", 40);
+      void load();
     },
     onPaymentFailed: (payload) => {
       const who = payload.buyerUsername?.trim() || "buyer";

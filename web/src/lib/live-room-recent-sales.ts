@@ -1,5 +1,6 @@
 import type { BreakSpot, Listing, Order, User } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { liveShowFulfillmentOrderIds } from "@/lib/live-show-fulfillment-order-ids";
 import { roundUsd } from "@/lib/round-usd";
 import {
   PAYMENT_EXPIRED,
@@ -86,8 +87,10 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
     select: { listingId: true },
   });
   const listingIds = [...new Set(listingRows.map((r) => r.listingId).filter((x): x is string => Boolean(x)))];
+  const fulfillmentOrderIds = await liveShowFulfillmentOrderIds(liveRoomId);
 
-  const [ordersByListing, ordersBySession, spots, variantPurchases, drawnGiveaways] = await Promise.all([
+  const [ordersByListing, ordersBySession, ordersByFulfillment, spots, variantPurchases, drawnGiveaways] =
+    await Promise.all([
     listingIds.length
       ? prisma.order.findMany({
           where: { sellerId, listingId: { in: listingIds } },
@@ -111,6 +114,17 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
       orderBy: { updatedAt: "desc" },
       take: 50,
     }),
+    fulfillmentOrderIds.length
+      ? prisma.order.findMany({
+          where: { sellerId, id: { in: fulfillmentOrderIds } },
+          include: {
+            buyer: { select: { username: true } },
+            listing: { select: { title: true } },
+          },
+          orderBy: { updatedAt: "desc" },
+          take: 50,
+        })
+      : Promise.resolve([] as OrderWithBuyer[]),
     prisma.breakSpot.findMany({
       where: {
         liveRoomId,
@@ -138,7 +152,7 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
   ]);
 
   const orderById = new Map<string, OrderWithBuyer>();
-  for (const o of [...ordersByListing, ...ordersBySession]) {
+  for (const o of [...ordersByListing, ...ordersBySession, ...ordersByFulfillment]) {
     if (!orderById.has(o.id)) orderById.set(o.id, o);
   }
 

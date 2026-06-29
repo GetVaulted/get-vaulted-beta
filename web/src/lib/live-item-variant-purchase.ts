@@ -19,6 +19,7 @@ import {
   isRandomVariantAssignment,
 } from "@/lib/live-item-variant-random-reveal";
 import { markVariantPurchaseExternalFulfillmentRequired } from "@/services/shipping/break-pyt-fulfillment-bridge";
+import { finalizeStripeMarketplaceOrderPaid } from "@/services/payments";
 
 function siteUrl(): string {
   return (process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");
@@ -32,7 +33,21 @@ export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, st
       buyer: { select: { id: true, username: true } },
     },
   });
-  if (!purchase || purchase.paymentStatus === "paid") return;
+  if (!purchase) return;
+
+  const alreadyPaid = purchase.paymentStatus === "paid";
+  if (purchase.fulfillmentOrderId) {
+    try {
+      await finalizeStripeMarketplaceOrderPaid(
+        purchase.fulfillmentOrderId,
+        stripePaymentIntentId ?? purchase.stripePaymentIntentId ?? null,
+        null,
+      );
+    } catch (e) {
+      console.error("[variant purchase] finalize fulfillment order failed", { purchaseId, e });
+    }
+  }
+  if (alreadyPaid) return;
 
   await prisma.liveItemVariantPurchase.update({
     where: { id: purchaseId },

@@ -440,7 +440,24 @@ export async function finalizeBreakSpotPaid(args: {
     },
   });
   if (!spot) return null;
-  if (spot.breakPaymentStatus === PAYMENT_PAID && spot.claimStatus === "paid") {
+  const alreadyPaid = spot.breakPaymentStatus === PAYMENT_PAID && spot.claimStatus === "paid";
+
+  const spotWithOrder = await prisma.breakSpot.findUnique({
+    where: { id: args.breakSpotId },
+    select: { fulfillmentOrderId: true, stripePaymentIntentId: true },
+  });
+  if (spotWithOrder?.fulfillmentOrderId) {
+    try {
+      await finalizeStripeMarketplaceOrderPaid(
+        spotWithOrder.fulfillmentOrderId,
+        args.paymentIntentId ?? spotWithOrder.stripePaymentIntentId ?? null,
+        null,
+      );
+    } catch (e) {
+      console.error("[break spot] finalize fulfillment order failed", { breakSpotId: args.breakSpotId, e });
+    }
+  }
+  if (alreadyPaid) {
     return {
       liveRoomId: spot.liveRoomId,
       buyerId: spot.userId,

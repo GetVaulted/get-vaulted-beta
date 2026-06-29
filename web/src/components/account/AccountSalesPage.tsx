@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { AccountLiveShipmentsSection } from "@/components/account/AccountLiveShipmentsSection";
 import { SellerPayoutTierCard } from "@/components/account/SellerPayoutTierCard";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
@@ -191,10 +191,12 @@ export function AccountSalesPage() {
   const [bundledBusySessionId, setBundledBusySessionId] = useState<string | null>(null);
   const [labelError, setLabelError] = useState<string | null>(null);
   const [bundledSessionFeedback, setBundledSessionFeedback] = useState<Record<string, BundledSessionFeedback>>({});
+  const salesLoadedOnceRef = useRef(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
     setLoadError(null);
-    setLiveShippingLoading(true);
+    const silent = opts?.silent ?? salesLoadedOnceRef.current;
+    if (!silent) setLiveShippingLoading(true);
     try {
       const [salesRes, liveRes] = await Promise.all([
         fetch("/api/account/sales"),
@@ -226,13 +228,30 @@ export function AccountSalesPage() {
       } else {
         setLiveShipping(null);
       }
+      salesLoadedOnceRef.current = true;
     } finally {
-      setLiveShippingLoading(false);
+      if (!silent) setLiveShippingLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (status === "authenticated") void load();
+  }, [load, status]);
+
+  useEffect(() => {
+    if (status !== "authenticated") return undefined;
+    const pollMs = 12_000;
+    const tick = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      void load({ silent: true });
+    };
+    const id = window.setInterval(tick, pollMs);
+    const onFocus = () => void load();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [load, status]);
 
   useEffect(() => {

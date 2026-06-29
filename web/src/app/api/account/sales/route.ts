@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { enrichSellerOrderChargeBreakdown } from "@/lib/enrich-seller-order-charge-breakdown";
+import { liveShowFulfillmentOrderIds } from "@/lib/live-show-fulfillment-order-ids";
 import { mapSellerSalesOrderForApi } from "@/lib/map-seller-sales-order";
 import { sellerFulfillmentOrdersWhere } from "@/lib/seller-fulfillment-orders";
 import { resolveAccountSellerUserId } from "@/lib/resolve-account-seller-user";
@@ -42,11 +43,19 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const liveShowId = url.searchParams.get("liveShowId")?.trim() || null;
+  const fulfillmentOrderIds = liveShowId ? await liveShowFulfillmentOrderIds(liveShowId) : [];
 
   const orders = await prisma.order.findMany({
     where: {
       ...sellerFulfillmentOrdersWhere(auth.userId),
-      ...(liveShowId ? { liveShippingSession: { liveShowId } } : {}),
+      ...(liveShowId
+        ? {
+            OR: [
+              { liveShippingSession: { liveShowId } },
+              ...(fulfillmentOrderIds.length ? [{ id: { in: fulfillmentOrderIds } }] : []),
+            ],
+          }
+        : {}),
     },
     orderBy: { createdAt: "desc" },
     select: {
