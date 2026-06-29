@@ -198,10 +198,10 @@ export function LiveStagePlayback({
 
   const surface =
     useWebrtc
-      ? playback.reconnecting
-        ? 'reconnecting'
-        : playback.videoHasData
-          ? 'live'
+      ? playback.videoHasData
+        ? 'live'
+        : playback.reconnecting
+          ? 'reconnecting'
           : roomLifecycleLive
             ? 'connecting'
             : 'offline'
@@ -226,21 +226,20 @@ export function LiveStagePlayback({
   const showWebrtcLayer = useWebrtc && surface !== 'error';
   const showHlsLayer = attachHls && surface !== 'error';
   const showVideoLayer = showWebrtcLayer || showHlsLayer;
-  const streamAttaching =
-    roomLifecycleLive && showVideoLayer && (transport === 'hls' || transport === 'webrtc');
   const showThumbnail =
     Boolean(thumbnailUrl) &&
-    (!showVideoLayer || (!playback.videoHasData && !streamAttaching) || surface === 'offline');
+    (!showVideoLayer || !playback.videoHasData || surface === 'offline');
   const showStandby =
     isForeground &&
     (roomStatus === 'ended' ||
       (streamPaused && roomLifecycleLive) ||
       surface === 'offline' ||
       surface === 'loading' ||
+      surface === 'connecting' ||
       surface === 'reconnecting' ||
       surface === 'error' ||
       (!roomLifecycleLive && roomStatus !== 'ended') ||
-      (roomLifecycleLive && !playback.videoHasData && !streamAttaching));
+      (roomLifecycleLive && !playback.videoHasData));
 
   const standbyContent = (() => {
     if (streamPaused && roomLifecycleLive) {

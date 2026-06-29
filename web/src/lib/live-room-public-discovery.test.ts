@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { isPublicDiscoveryLiveRoom } from "./live-room-public-discovery";
+import {
+  isPublicDiscoveryLiveRoom,
+  parseLiveRoomDiscoveryVisibility,
+} from "./live-room-public-discovery";
+
+describe("parseLiveRoomDiscoveryVisibility", () => {
+  it("defaults to public", () => {
+    expect(parseLiveRoomDiscoveryVisibility({})).toBe("public");
+  });
+
+  it("accepts discoveryVisibility and isPrivate", () => {
+    expect(parseLiveRoomDiscoveryVisibility({ discoveryVisibility: "private" })).toBe("private");
+    expect(parseLiveRoomDiscoveryVisibility({ isPrivate: true })).toBe("private");
+  });
+});
 
 describe("isPublicDiscoveryLiveRoom", () => {
   it("includes live rooms", () => {
@@ -22,5 +36,9 @@ describe("isPublicDiscoveryLiveRoom", () => {
 
   it("excludes ended rooms", () => {
     expect(isPublicDiscoveryLiveRoom({ status: "ended" })).toBe(false);
+  });
+
+  it("excludes private rooms even when live", () => {
+    expect(isPublicDiscoveryLiveRoom({ status: "live", discoveryVisibility: "private" })).toBe(false);
   });
 });

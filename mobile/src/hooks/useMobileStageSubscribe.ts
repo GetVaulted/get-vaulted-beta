@@ -64,11 +64,10 @@ export function useMobileStageSubscribe(args: {
   }, [participants]);
 
   useEffect(() => {
-    if (remoteVideo && connectionState === 'connected' && !connectedRef.current) {
-      connectedRef.current = true;
-      setPhase('connected');
-      cbRef.current.onConnected();
-    }
+    if (!remoteVideo || connectedRef.current || connectionState === 'disconnected') return;
+    connectedRef.current = true;
+    setPhase('connected');
+    cbRef.current.onConnected();
   }, [remoteVideo, connectionState]);
 
   useEffect(() => {

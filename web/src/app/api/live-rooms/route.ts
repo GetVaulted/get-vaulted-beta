@@ -25,7 +25,7 @@ import {
   resolveDefaultProfileForLiveShow,
   seedPlatformShippingProfiles,
 } from "@/services/shipping/platform-shipping-profiles";
-import { isPublicDiscoveryLiveRoom } from "@/lib/live-room-public-discovery";
+import { isPublicDiscoveryLiveRoom, parseLiveRoomDiscoveryVisibility } from "@/lib/live-room-public-discovery";
 import { buildWeeklyRecurringScheduleDates } from "@/lib/live-room-recurring-schedule";
 
 const ROOM_TYPES: LiveRoomType[] = ["auction", "sale", "break"];
@@ -95,6 +95,7 @@ export async function GET(req: Request) {
         ? {
             seller: prismaSellerVisibleOnPublicMarketplace(),
             id: { not: { startsWith: "shot_lr_" } },
+            discoveryVisibility: "public",
           }
         : {}),
     };
@@ -180,6 +181,7 @@ export async function GET(req: Request) {
         tipModeratorId: r.tipModeratorId,
         tipModeratorUsername: r.tipModerator?.username ?? null,
         tipsToModerator: r.tipRecipientMode === "moderator" && Boolean(r.tipModeratorId),
+        discoveryVisibility: r.discoveryVisibility,
       };
     });
 
@@ -232,6 +234,10 @@ type PostBody = {
   sellerPaysOverCap?: boolean;
   /** When true with scheduledStartAt, creates weekly shows through 30 days. */
   recurringEnabled?: boolean;
+  /** `public` (default) lists on Live Shows; `private` is link-only. */
+  discoveryVisibility?: string;
+  visibility?: string;
+  isPrivate?: boolean;
 };
 
 function peekBearerJwtSub(req: Request): string | null {
@@ -410,6 +416,7 @@ export async function POST(req: Request) {
     carrierRaw === "usps" || carrierRaw === "ups" || carrierRaw === "best_rate" ? carrierRaw : "best_rate";
   const bundleEligiblePurchases = body.bundleEligiblePurchases !== false;
   const sellerPaysOverCap = body.sellerPaysOverCap !== false;
+  const discoveryVisibility = parseLiveRoomDiscoveryVisibility(body);
 
   const tipBuilt = await buildLiveTipRoomData(sellerId, body);
   if (!tipBuilt.ok) {
@@ -439,6 +446,7 @@ export async function POST(req: Request) {
     category: category || "Other",
     roomType: rt,
     status: "scheduled" as const,
+    discoveryVisibility,
     thumbnailUrl,
     scheduledStartAt,
     teamBoardLeague,

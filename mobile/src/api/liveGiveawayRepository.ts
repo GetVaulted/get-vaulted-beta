@@ -48,6 +48,8 @@ export type CreateGiveawayInput = {
 export type GiveawayEntryRow = {
   userId: string;
   username: string;
+  method?: 'watch_enter' | 'purchase' | 'amoe_form';
+  activeInRoom?: boolean;
 };
 
 async function giveawayFetch(

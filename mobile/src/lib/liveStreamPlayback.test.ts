@@ -3,6 +3,7 @@ import {
   isLiveStreamSignal,
   parseBuyerSafeStreamPayload,
   preferHlsOverWebrtcOnClient,
+  resolveLivePlaybackSurfaceState,
   shouldAttachHlsPlayback,
   shouldUseStageWebrtcPlayback,
 } from './liveStreamPlayback';
@@ -100,5 +101,19 @@ describe('liveStreamPlayback', () => {
     expect(shouldAttachHlsPlayback('live', 'https://x.m3u8')).toBe(true);
     expect(shouldAttachHlsPlayback('offline', 'https://x.m3u8')).toBe(false);
     expect(shouldAttachHlsPlayback('live', null)).toBe(false);
+  });
+
+  it('resolveLivePlaybackSurfaceState prefers live over reconnecting when frames are ready', () => {
+    expect(
+      resolveLivePlaybackSurfaceState({
+        loading: false,
+        fetchFailed: false,
+        reconnecting: true,
+        streamHealth: 'live',
+        playbackUrl: 'https://x.m3u8',
+        videoHasRenderableData: true,
+        playerFatal: false,
+      }),
+    ).toBe('live');
   });
 });

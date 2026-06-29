@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  computeGiveawaySideTabTop,
   computeLiveStageContainer,
   computeLiveStageRootStyle,
+  computeLiveTopReserve,
   LIVE_STAGE_ASPECT,
   LIVE_STAGE_CONTENT_FIT,
 } from './liveRoomViewport';
@@ -58,6 +60,12 @@ describe('computeLiveStageContainer', () => {
     expect(stage.layoutWidth).toBe(820);
     expect(stage.offsetLeft).toBe(0);
     expect(stage.offsetTop).toBeGreaterThan(0);
+  });
+});
+
+describe('computeGiveawaySideTabTop', () => {
+  it('sits just below the live top chrome reserve', () => {
+    expect(computeGiveawaySideTabTop(59, 390)).toBe(computeLiveTopReserve(59, 390) + 4);
   });
 });
 

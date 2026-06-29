@@ -35,6 +35,7 @@ export type LiveRoomApiRow = {
   sellerUsername: string;
   itemCount: number;
   activeItemTitle: string | null;
+  discoveryVisibility?: 'public' | 'private';
 };
 
 function parseApiErrorBody(raw: unknown): {
@@ -140,6 +141,7 @@ export type CreateLiveRoomInput = {
   freeShippingEnabled?: boolean;
   sellerPaysOverCap?: boolean;
   recurringEnabled?: boolean;
+  discoveryVisibility?: 'public' | 'private';
 };
 
 export async function createLiveRoom(

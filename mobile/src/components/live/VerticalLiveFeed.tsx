@@ -42,7 +42,6 @@ import {
   COMPOSER_BAR_HEIGHT,
   computeChatStackMaxHeight,
   computeLiveRoomBottomStack,
-  computeGiveawaySideTabBottom,
   DEFAULT_COMMERCE_OVERLAY_HEIGHT,
 } from '../../lib/liveRoomBottomLayout';
 import { useLiveRoomChat } from '../../hooks/useLiveRoomChat';
@@ -92,6 +91,7 @@ import {
   computeLiveStageRootStyle,
   computeLiveStageSafeInsets,
   computeLiveTopReserve,
+  computeGiveawaySideTabTop,
   LIVE_STAGE_CONTENT_FIT,
   logLiveStageLayoutDebug,
   type LiveStageContainer,
@@ -625,10 +625,7 @@ function LiveSlide({
     overlayScale,
     expanded: chatExpanded,
   });
-  const giveawayTabBottom = computeGiveawaySideTabBottom({
-    chatBottom: bottomStack.chatBottom,
-    chatMaxHeight,
-  });
+  const giveawayTabTop = computeGiveawaySideTabTop(stageInsets.top, layoutWidth);
   const composerBarHeight = scaledComposerBarHeight(overlayScale);
   const slowModeTimerBottom = bottomStack.composerBottom + composerBarHeight + 8;
 
@@ -1367,7 +1364,7 @@ function LiveSlide({
           style={{
             position: 'absolute',
             left: 0,
-            bottom: giveawayTabBottom,
+            top: giveawayTabTop,
             zIndex: 22,
           }}
           pointerEvents="box-none"
@@ -1377,6 +1374,7 @@ function LiveSlide({
             accessToken={accessToken}
             giveaways={liveSession.roomSnap?.giveaways ?? []}
             signedIn={signedIn}
+            compact={compact}
             onRequireAuth={onRequireAuth}
             onEntered={() => void liveSession.fetchSnapshot()}
             onTimerExpired={() => void liveSession.fetchSnapshot()}

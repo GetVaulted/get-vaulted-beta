@@ -183,6 +183,7 @@ export function SellerLivePage() {
   const [breakSpotPrice, setBreakSpotPrice] = useState("");
   const [teamBoardEnabled, setTeamBoardEnabled] = useState(true);
   const [scheduleMode, setScheduleMode] = useState<"now" | "later">("now");
+  const [discoveryVisibility, setDiscoveryVisibility] = useState<"public" | "private">("public");
   const [recurringWeekly, setRecurringWeekly] = useState(false);
   const createSubmittingRef = useRef(false);
   const [scheduleDate, setScheduleDate] = useState("");
@@ -596,6 +597,9 @@ export function SellerLivePage() {
       if (scheduleMode === "later" && recurringWeekly) {
         body.recurringEnabled = true;
       }
+      if (discoveryVisibility === "private") {
+        body.discoveryVisibility = "private";
+      }
 
       logCreateLiveRoom("POST /api/live-rooms payload", { body });
 
@@ -673,6 +677,7 @@ export function SellerLivePage() {
       setBreakSpotPrice("");
       setTeamBoardEnabled(true);
       setScheduleMode("now");
+      setDiscoveryVisibility("public");
       setRecurringWeekly(false);
       setScheduleDate("");
       setScheduleHour("");
@@ -1023,6 +1028,7 @@ export function SellerLivePage() {
                           <p className="truncate text-sm font-semibold text-zinc-100">{r.title}</p>
                           <p className="mt-0.5 text-[10px] uppercase tracking-wide text-zinc-500">
                             {r.roomType} · {r.status}
+                            {r.discoveryVisibility === "private" ? " · private" : ""}
                             {r.scheduledStartAt ? ` · ${formatScheduledStartFromIso(r.scheduledStartAt)}` : ""}
                           </p>
                         </button>
@@ -1245,6 +1251,35 @@ export function SellerLivePage() {
                       <p className="mt-2 truncate text-center text-[11px] text-zinc-500">Uploaded: {thumbFileName}</p>
                     ) : null}
                   </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/[0.08] bg-black/30 p-5">
+                  <span className="text-xs font-bold uppercase tracking-wide text-zinc-500">Show visibility</span>
+                  <div className="mt-3 flex flex-wrap gap-2 rounded-xl border border-white/10 bg-zinc-950/60 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setDiscoveryVisibility("public")}
+                      className={`flex-1 min-w-[140px] min-h-11 rounded-[var(--live-radius-chrome)] px-4 py-2.5 text-xs font-bold uppercase tracking-wide transition-[transform,background-color,opacity] duration-[var(--live-duration-ui)] ease-[var(--live-ease)] active:scale-[0.98] motion-reduce:active:scale-100 ${
+                        discoveryVisibility === "public" ? "bg-gold/20 text-gold-bright" : "text-zinc-500 hover:text-zinc-300"
+                      }`}
+                    >
+                      Public
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDiscoveryVisibility("private")}
+                      className={`flex-1 min-w-[140px] min-h-11 rounded-[var(--live-radius-chrome)] px-4 py-2.5 text-xs font-bold uppercase tracking-wide transition-[transform,background-color,opacity] duration-[var(--live-duration-ui)] ease-[var(--live-ease)] active:scale-[0.98] motion-reduce:active:scale-100 ${
+                        discoveryVisibility === "private" ? "bg-gold/20 text-gold-bright" : "text-zinc-500 hover:text-zinc-300"
+                      }`}
+                    >
+                      Private
+                    </button>
+                  </div>
+                  <p className="mt-3 text-sm leading-relaxed text-zinc-500">
+                    {discoveryVisibility === "public"
+                      ? "Public shows appear on the Live Shows tab for all buyers."
+                      : "Private shows are hidden from Live Shows. Share your link so invited viewers can join."}
+                  </p>
                 </div>
 
                 <div className="rounded-2xl border border-white/[0.08] bg-black/30 p-5">

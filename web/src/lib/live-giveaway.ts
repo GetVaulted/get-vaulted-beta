@@ -518,7 +518,6 @@ export type LiveGiveawayEntryDTO = {
 export async function listLiveGiveawayEntriesForHost(giveawayId: string, liveRoomId: string) {
   const row = await prisma.liveGiveaway.findFirst({ where: { id: giveawayId, liveRoomId } });
   if (!row) return { ok: false as const, error: "Giveaway not found." };
-  if (row.status === "drawn") return { ok: false as const, error: "Winner already drawn." };
 
   const entries = await prisma.liveGiveawayEntry.findMany({
     where: { giveawayId: row.id },
@@ -531,6 +530,8 @@ export async function listLiveGiveawayEntriesForHost(giveawayId: string, liveRoo
     entries: entries.map((e) => ({
       userId: e.userId,
       username: e.user.username?.trim() || "entrant",
+      method: e.method,
+      activeInRoom: e.activeInRoom,
     })),
   };
 }

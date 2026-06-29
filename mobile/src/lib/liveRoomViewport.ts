@@ -114,6 +114,11 @@ export function computeLiveTopReserve(topInset: number, layoutWidth?: number): n
   return topInset + (compact ? 62 : 72);
 }
 
+/** Left-edge giveaway tab sits flush under the live room top chrome. */
+export function computeGiveawaySideTabTop(topInset: number, layoutWidth?: number): number {
+  return computeLiveTopReserve(topInset, layoutWidth) + 4;
+}
+
 export type LiveStageLayoutDebug = {
   roomId: string;
   screenWidth: number;

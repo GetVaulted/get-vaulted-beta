@@ -109,6 +109,7 @@ export function resolveLivePlaybackSurfaceState(input: {
   const roomLive = input.roomLifecycleLive ?? true;
   if (input.fetchFailed && roomLive) return 'error';
   if (input.fetchFailed && !roomLive) return 'offline';
+  if (input.videoHasRenderableData) return 'live';
   if (input.reconnecting) return 'reconnecting';
   if (input.loading && !input.playbackUrl) return 'loading';
   if (!input.playbackUrl?.trim()) return 'offline';

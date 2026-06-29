@@ -15,7 +15,6 @@ type Props = {
   top: number;
   onSales: () => void;
   salesAttentionCount?: number;
-  onGiveaways: () => void;
   onObs: () => void;
   onTeams?: () => void;
   showTeamsBoard?: boolean;
@@ -36,14 +35,15 @@ type Props = {
   micMuted?: boolean;
   micMuteDisabled?: boolean;
   onToggleMicMute?: () => void;
-  hudScale?: number;
 };
+
+const PILL_ICON = 13;
+const PILL_LABEL = 10;
 
 export function SellerConsoleActionBar({
   top,
   onSales,
   salesAttentionCount = 0,
-  onGiveaways,
   onObs,
   onTeams,
   showTeamsBoard = false,
@@ -64,12 +64,7 @@ export function SellerConsoleActionBar({
   micMuted = false,
   micMuteDisabled,
   onToggleMicMute,
-  hudScale = 1,
 }: Props) {
-  const scale = hudScale > 1 ? hudScale : 1;
-  const iconSize = Math.round(15 * scale);
-  const labelSize = Math.round(11 * scale);
-  const actionMinH = Math.round(ACTION_MIN_H * scale);
   return (
     <View style={[styles.host, { top }]} pointerEvents="box-none">
       <View style={styles.bar}>
@@ -88,39 +83,28 @@ export function SellerConsoleActionBar({
             keyboardShouldPersistTaps="handled"
           >
             <Pressable
-              style={[styles.actionBtn, { minHeight: actionMinH }, salesAttentionCount > 0 && styles.salesAttentionBtn]}
+              style={[styles.actionBtn, salesAttentionCount > 0 && styles.salesAttentionBtn]}
               onPress={onSales}
               accessibilityLabel={SELLER_CONSOLE.sales}
               hitSlop={4}
             >
-              <Ionicons name="receipt-outline" size={iconSize} color="rgba(255,255,255,0.92)" />
-              <Text style={[styles.addTxt, { fontSize: labelSize }]}>{SELLER_CONSOLE.sales}</Text>
+              <Ionicons name="receipt-outline" size={PILL_ICON} color="rgba(255,255,255,0.92)" />
+              <Text style={styles.pillTxt}>{SELLER_CONSOLE.sales}</Text>
               {salesAttentionCount > 0 ? (
                 <View style={styles.attentionDot}>
                   <Text style={styles.attentionDotTxt}>{salesAttentionCount > 9 ? '9+' : salesAttentionCount}</Text>
                 </View>
               ) : null}
             </Pressable>
-            <Pressable
-              style={[styles.actionBtn, styles.givvyBtn, { minHeight: actionMinH }]}
-              onPress={onGiveaways}
-              accessibilityLabel="Giveaways"
-              hitSlop={4}
-            >
-              <Ionicons name="gift-outline" size={iconSize} color="#6ee7b7" />
-              <Text style={[styles.addTxt, styles.givvyTxt, { fontSize: labelSize }]} numberOfLines={1}>
-                Givvys
-              </Text>
-            </Pressable>
             {showTeamsBoard && onTeams ? (
               <Pressable
-                style={[styles.actionBtn, { minHeight: actionMinH }]}
+                style={styles.actionBtn}
                 onPress={onTeams}
                 accessibilityLabel="View team board"
                 hitSlop={4}
               >
-                <Ionicons name="grid-outline" size={iconSize} color="rgba(255,255,255,0.92)" />
-                <Text style={[styles.addTxt, { fontSize: labelSize }]}>Teams</Text>
+                <Ionicons name="grid-outline" size={PILL_ICON} color="rgba(255,255,255,0.92)" />
+                <Text style={styles.pillTxt}>Teams</Text>
               </Pressable>
             ) : null}
             <Pressable
@@ -129,7 +113,7 @@ export function SellerConsoleActionBar({
               accessibilityLabel={SELLER_CONSOLE.obsSetup}
               hitSlop={4}
             >
-              <Text style={styles.obsTxt}>{SELLER_CONSOLE.obsSetup}</Text>
+              <Text style={styles.pillTxt}>{SELLER_CONSOLE.obsSetup}</Text>
             </Pressable>
             {typeof viewerCount === 'number' && streamOnAir ? (
               <View style={styles.viewersWrap}>
@@ -224,9 +208,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    flexShrink: 0,
     minHeight: ACTION_MIN_H,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: radii.pill,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.16)',
@@ -238,10 +223,6 @@ const styles = StyleSheet.create({
   },
   salesAttentionBtn: {
     borderColor: 'rgba(244,63,94,0.45)',
-  },
-  givvyBtn: {
-    paddingHorizontal: 14,
-    minWidth: 86,
   },
   attentionDot: {
     minWidth: 16,
@@ -257,10 +238,14 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#fff',
   },
-  shareTxt: { fontSize: 11, fontWeight: '800', color: colors.gold },
-  addTxt: { fontSize: 11, fontWeight: '800', color: 'rgba(255,255,255,0.92)' },
-  givvyTxt: { color: '#a7f3d0' },
-  obsTxt: { fontSize: 10, fontWeight: '800', color: 'rgba(255,255,255,0.72)' },
+  shareTxt: { fontSize: PILL_LABEL, fontWeight: '800', color: colors.gold },
+  pillTxt: {
+    fontSize: PILL_LABEL,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.92)',
+    lineHeight: 12,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : null),
+  },
   viewersWrap: {
     minHeight: ACTION_MIN_H,
     justifyContent: 'center',

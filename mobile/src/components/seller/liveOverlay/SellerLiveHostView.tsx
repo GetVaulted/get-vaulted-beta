@@ -17,7 +17,7 @@ import {
   scaledComposerBarHeight,
 } from '../../../lib/liveRoomBottomLayout';
 import { computeLiveTopReserve } from '../../../lib/liveRoomViewport';
-import { liveRoomHudScale, liveRoomOverlayScale } from '../../../lib/liveRoomUiScale';
+import { liveRoomOverlayScale } from '../../../lib/liveRoomUiScale';
 import { SellerLiveComposer } from './SellerLiveComposer';
 import { SellerLiveGestureLayer } from './SellerLiveGestureLayer';
 import { AddInventoryModal } from '../liveConsole/AddInventoryModal';
@@ -58,7 +58,9 @@ import { SellerLiveQueueSheet } from './SellerLiveQueueSheet';
 import { SellerNextUpRail, SELLER_NEXT_UP_RAIL_HEIGHT } from './SellerNextUpRail';
 import { SellerLiveGiveawaySheet } from './SellerLiveGiveawaySheet';
 import { SellerConsoleActionBar } from './SellerConsoleActionBar';
+import { SellerGivvyQuickButton } from './SellerGivvyQuickButton';
 import { SellerHostSideRail } from './SellerHostSideRail';
+import { SellerHostGiveawayRail } from './SellerHostGiveawayRail';
 import { SellerLiveSalesSheet } from './SellerLiveSalesSheet';
 import { SellerBreakSpotBoardSheet } from './SellerBreakSpotBoardSheet';
 import { HostModeratorAssignSheet } from '../../moderator/HostModeratorAssignSheet';
@@ -123,7 +125,6 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const overlayScale = liveRoomOverlayScale(windowWidth);
-  const hudScale = liveRoomHudScale(windowWidth);
   const composerBarHeight = scaledComposerBarHeight(overlayScale);
   const { user } = useAuth();
   const [hostAvatarUrl, setHostAvatarUrl] = useState<string | null>(null);
@@ -209,8 +210,11 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const canStart = host.room?.status === 'scheduled';
   const canEnd = host.room?.status === 'live';
   const streamTitle = host.room?.title ?? 'Live show';
-  const actionBarTop = insets.top + 56;
+  const sellerHeaderBody = 44;
+  const sellerGivvyQuickTop = insets.top + 6 + sellerHeaderBody + 4;
+  const actionBarTop = sellerGivvyQuickTop + 44 + 6;
   const actionBarHeight = 56;
+  const hostGivvyRailTop = actionBarTop + actionBarHeight + 6;
 
   const handleShare = useCallback(async () => {
     const shared = await shareLiveRoomNative({
@@ -245,10 +249,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     prevActiveVariantItemRef.current = item?.id ?? null;
   }, [console.activeItem]);
   const salesAttentionCount = useMemo(() => {
-    const pendingSales = console.recentSales.filter(
-      (r) => r.paymentTone === 'retry' || r.paymentTone === 'pending',
-    ).length;
-    return console.paymentFailures.length + pendingSales;
+    const failedSales = console.recentSales.filter((r) => r.paymentTone === 'retry').length;
+    return console.paymentFailures.length + failedSales;
   }, [console.paymentFailures.length, console.recentSales]);
   const pinnedOverlayEstimate =
     displayItem || queuePreview ? SELLER_PINNED_OVERLAY_HEIGHT : SELLER_PINNED_EMPTY_HEIGHT;
@@ -607,6 +609,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         endBusy={host.busy === 'end'}
       />
 
+      <SellerGivvyQuickButton top={sellerGivvyQuickTop} onPress={() => setGiveawayOpen(true)} />
+
       <SellerConsoleActionBar
         top={actionBarTop}
         onSales={() => {
@@ -614,7 +618,6 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
           void console.syncSales();
         }}
         salesAttentionCount={salesAttentionCount}
-        onGiveaways={() => setGiveawayOpen(true)}
         onObs={() => setBroadcastOpen(true)}
         showTeamsBoard={showTeamsBoard}
         onTeams={() => setTeamsBoardOpen(true)}
@@ -639,18 +642,24 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         micMuted={host.microphoneMuted}
         micMuteDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
         onToggleMicMute={host.onToggleMicMute}
-        hudScale={hudScale}
       />
+
+      {activeStageGiveaway ? (
+        <View style={[styles.hostGivvyRail, { top: hostGivvyRailTop }]} pointerEvents="box-none">
+          <SellerHostGiveawayRail
+            giveaway={activeStageGiveaway}
+            busy={giveawayActions.busy}
+            onAction={(id, action) => {
+              void giveawayActions.runAction(id, action);
+            }}
+            onOpenManage={() => setGiveawayOpen(true)}
+          />
+        </View>
+      ) : null}
 
       <SellerHostSideRail
         bottom={sellerComposerBottom + composerBarHeight + spacing.sm}
         onShare={() => void handleShare()}
-        activeGiveaway={activeStageGiveaway}
-        giveawayBusy={giveawayActions.busy}
-        onGiveawayAction={(id, action) => {
-          void giveawayActions.runAction(id, action);
-        }}
-        onOpenGiveawayManage={() => setGiveawayOpen(true)}
       />
 
       <FloatingLiveChat
@@ -992,6 +1001,11 @@ const styles = StyleSheet.create({
     left: spacing.md,
     right: spacing.md,
     zIndex: 12,
+  },
+  hostGivvyRail: {
+    position: 'absolute',
+    right: spacing.sm,
+    zIndex: 14,
   },
   previewHintTxt: {
     color: 'rgba(255,255,255,0.72)',

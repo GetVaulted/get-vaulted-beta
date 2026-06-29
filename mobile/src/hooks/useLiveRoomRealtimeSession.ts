@@ -372,18 +372,31 @@ export function useLiveRoomRealtimeSession(args: {
         void fetchSnapshot();
       }
     },
-    onStreamStatusChange: () => scheduleReconcile(200),
     onRoomStateEvent: () => scheduleReconcile(600),
     onReconnect: () => {
       setConnectionBanner('Live connection restored');
       setTimeout(() => setConnectionBanner(null), 2400);
       scheduleReconcile(120);
+      args.onStreamRefresh?.();
+    },
+    onStreamStatusChange: (payload) => {
+      scheduleReconcile(200);
+      const health =
+        typeof payload.streamHealth === 'string' ? payload.streamHealth.toLowerCase() : '';
+      if (health === 'live' || health === 'connecting') {
+        args.onStreamRefresh?.();
+      }
     },
     onConnectionStateChange: ({ status, reconnectCount }) => {
       if (status === 'SUBSCRIBED') {
         realtimeConnectedRef.current = true;
         setConnectionState('connected');
-        if (reconnectCount > 1) setConnectionBanner('Live connection restored');
+        if (reconnectCount > 0) {
+          setConnectionBanner('Live connection restored');
+          setTimeout(() => setConnectionBanner(null), 2400);
+        } else {
+          setConnectionBanner(null);
+        }
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
         realtimeConnectedRef.current = false;
         setConnectionState('reconnecting');

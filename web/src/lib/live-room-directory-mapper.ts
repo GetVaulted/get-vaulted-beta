@@ -42,6 +42,7 @@ export type LiveRoomListApiRow = {
   tipModeratorId?: string | null;
   tipModeratorUsername?: string | null;
   tipsToModerator?: boolean;
+  discoveryVisibility?: "public" | "private";
 };
 
 function roomKindAndBadge(roomType: LiveRoomListApiRow["roomType"]): { roomKind: LiveRoomKind; formatBadge: LiveRoomFormatBadge } {

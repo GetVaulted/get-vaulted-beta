@@ -29,6 +29,8 @@ export type BuildCreateLiveRoomPayloadInput = {
   sellerPaysOverCap?: boolean;
   /** Weekly recurrence through 30 days — requires scheduleMode `later`. */
   recurringEnabled?: boolean;
+  /** `public` (default) lists on Live Shows; `private` is link-only. */
+  discoveryVisibility?: 'public' | 'private';
 };
 
 export function buildCreateLiveRoomPayload(
@@ -97,6 +99,10 @@ export function buildCreateLiveRoomPayload(
 
   if (input.recurringEnabled && input.scheduleMode === 'later') {
     body.recurringEnabled = true;
+  }
+
+  if (input.discoveryVisibility === 'private') {
+    body.discoveryVisibility = 'private';
   }
 
   return body;

@@ -93,4 +93,20 @@ describe('buildCreateLiveRoomPayload', () => {
       breakSpotPriceUsd: null,
     });
   });
+
+  it('includes private discovery visibility when set', () => {
+    expect(
+      buildCreateLiveRoomPayload({
+        title: 'Invite-only',
+        roomType: 'auction',
+        scheduleMode: 'now',
+        discoveryVisibility: 'private',
+      }),
+    ).toEqual({
+      title: 'Invite-only',
+      description: '',
+      roomType: 'auction',
+      discoveryVisibility: 'private',
+    });
+  });
 });

@@ -252,6 +252,7 @@ export function useLiveStagePlayback(args: {
 
   const onVideoReady = useCallback(() => {
     setVideoHasData(true);
+    setReconnecting(false);
     setPlayerFatal(false);
     noVideoSinceRef.current = null;
     retryRef.current = 0;
@@ -282,7 +283,9 @@ export function useLiveStagePlayback(args: {
       if (__DEV__) {
         console.log('[LiveStagePlayback] WebRTC subscribe failed', { reason });
       }
-      webrtcFailoverCountRef.current += 1;
+      const exhausted =
+        reason.includes('rejoin_exhausted') || reason.includes('connect_timeout');
+      webrtcFailoverCountRef.current += exhausted ? 2 : 1;
       setVideoHasData(false);
       setReconnecting(false);
       if (webrtcFailoverCountRef.current >= 2) {

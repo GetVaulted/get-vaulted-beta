@@ -2,10 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   Share,
@@ -26,6 +28,7 @@ import type { HostGiveawayAction } from '../../../hooks/useHostGiveawayActions';
 import { openPromoEntry } from '../../../navigation/openPromoEntry';
 import { useGiveawayCountdown } from '../../../hooks/useGiveawayCountdown';
 import { colors, radii, spacing } from '../../../theme';
+import { SellerGiveawayEntrantList } from './SellerGiveawayEntrantList';
 
 function HostGiveawayTimer({
   entryCloseAt,
@@ -121,6 +124,8 @@ export function SellerLiveGiveawaySheet({
   onToast?: (message: string) => void;
 }) {
   const insets = useSafeAreaInsets();
+  const scrollRef = useRef<ScrollView>(null);
+  const [keyboardInset, setKeyboardInset] = useState(0);
   const [lane, setLane] = useState<Lane>('open');
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState('');
@@ -133,8 +138,35 @@ export function SellerLiveGiveawaySheet({
   const [imageUploading, setImageUploading] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const [createBusy, setCreateBusy] = useState(false);
+  const [entriesGiveawayId, setEntriesGiveawayId] = useState<string | null>(null);
 
   const rows = useMemo(() => giveaways.filter((g) => g.kind === lane), [giveaways, lane]);
+
+  useEffect(() => {
+    if (!visible) {
+      setKeyboardInset(0);
+      setEntriesGiveawayId(null);
+      return undefined;
+    }
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (evt) => {
+      setKeyboardInset(evt.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardInset(0);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [visible]);
+
+  const scrollFormIntoView = useCallback(() => {
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    });
+  }, []);
 
   const resetForm = useCallback(() => {
     setTitle('');
@@ -262,7 +294,15 @@ export function SellerLiveGiveawaySheet({
     <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
       <View style={styles.root}>
         <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Dismiss giveaways" />
-        <View style={[styles.drawer, { paddingBottom: insets.bottom + spacing.lg }]}>
+        <View
+          style={[
+            styles.drawer,
+            {
+              paddingBottom: insets.bottom + spacing.lg,
+              marginBottom: keyboardInset,
+            },
+          ]}
+        >
           <View style={styles.handle} />
           <View style={styles.head}>
             <Text style={styles.title}>Giveaways</Text>
@@ -274,7 +314,7 @@ export function SellerLiveGiveawaySheet({
           <View style={styles.tabs}>
             {(['open', 'buyers'] as const).map((t) => {
               const active = lane === t;
-              const label = t === 'open' ? 'Giveaway' : 'Buyers givvy';
+              const label = t === 'open' ? 'Giveaway' : 'Buyers';
               return (
                 <Pressable
                   key={t}
@@ -282,9 +322,9 @@ export function SellerLiveGiveawaySheet({
                     setLane(t);
                     resetForm();
                   }}
-                  style={[styles.tab, t === 'buyers' && styles.tabWide, active && styles.tabActive]}
+                  style={[styles.tab, active && styles.tabActive]}
                 >
-                  <Text style={[styles.tabTxt, active && styles.tabTxtActive]} numberOfLines={2}>
+                  <Text style={[styles.tabTxt, active && styles.tabTxtActive]} numberOfLines={1}>
                     {label}
                   </Text>
                 </Pressable>
@@ -292,7 +332,14 @@ export function SellerLiveGiveawaySheet({
             })}
           </View>
 
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+          <ScrollView
+            ref={scrollRef}
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            showsVerticalScrollIndicator={false}
+          >
             {lane === 'buyers' ? (
               <Text style={styles.hint}>
                 Purchases enter buyers silently. AMOE link is only in official rules — not on stage.
@@ -326,6 +373,7 @@ export function SellerLiveGiveawaySheet({
                 <TextInput
                   value={title}
                   onChangeText={setTitle}
+                  onFocus={scrollFormIntoView}
                   placeholder="Giveaway title"
                   placeholderTextColor={colors.textMuted}
                   style={styles.input}
@@ -333,6 +381,7 @@ export function SellerLiveGiveawaySheet({
                 <TextInput
                   value={prizeDescription}
                   onChangeText={setPrizeDescription}
+                  onFocus={scrollFormIntoView}
                   placeholder="Prize description"
                   placeholderTextColor={colors.textMuted}
                   style={styles.input}
@@ -341,6 +390,7 @@ export function SellerLiveGiveawaySheet({
                   <TextInput
                     value={rulesText}
                     onChangeText={setRulesText}
+                    onFocus={scrollFormIntoView}
                     placeholder="Official promotion rules (required)"
                     placeholderTextColor={colors.textMuted}
                     style={[styles.input, styles.textArea]}
@@ -380,10 +430,37 @@ export function SellerLiveGiveawaySheet({
                     ) : null}
                     <View style={styles.cardBody}>
                       <Text style={styles.cardTitle}>{g.title}</Text>
-                      {g.prizeDescription ? <Text style={styles.cardSub}>{g.prizeDescription}</Text> : null}
-                      <Text style={styles.cardMeta}>
-                        {statusLabel(g.status)} · {g.entryCount} entries
-                      </Text>
+                      {g.prizeDescription ?                       <Text style={styles.cardSub}>{g.prizeDescription}</Text> : null}
+                      <Pressable
+                        style={styles.entriesToggleRow}
+                        onPress={() => setEntriesGiveawayId((id) => (id === g.id ? null : g.id))}
+                        hitSlop={4}
+                      >
+                        <Text style={styles.cardMeta}>
+                          {statusLabel(g.status)} · {g.entryCount}{' '}
+                          {g.entryCount === 1 ? 'entry' : 'entries'}
+                        </Text>
+                        <View style={styles.entriesToggleAction}>
+                          <Text style={styles.entriesToggleTxt}>
+                            {entriesGiveawayId === g.id ? 'Hide' : 'View entrants'}
+                          </Text>
+                          <Ionicons
+                            name={entriesGiveawayId === g.id ? 'chevron-up' : 'chevron-down'}
+                            size={14}
+                            color="#6ee7b7"
+                          />
+                        </View>
+                      </Pressable>
+                      {entriesGiveawayId === g.id ? (
+                        <SellerGiveawayEntrantList
+                          accessToken={accessToken}
+                          roomId={roomId}
+                          giveawayId={g.id}
+                          kind={g.kind}
+                          showActiveInRoom={g.kind === 'open' && g.status === 'entries_open'}
+                          refreshKey={`${g.entryCount}-${g.updatedAt}`}
+                        />
+                      ) : null}
                       {g.status === 'entries_open' && g.entryCloseAt ? (
                         <HostGiveawayTimer entryCloseAt={g.entryCloseAt} onExpired={() => void onRefresh()} />
                       ) : null}
@@ -478,7 +555,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, justifyContent: 'flex-end' },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
   drawer: {
-    maxHeight: '78%',
+    maxHeight: '88%',
     borderTopLeftRadius: radii.lg,
     borderTopRightRadius: radii.lg,
     backgroundColor: colors.surface,
@@ -514,15 +591,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tabWide: {
-    flex: 1.35,
-    paddingHorizontal: spacing.md,
-  },
   tabActive: { borderColor: colors.gold, backgroundColor: 'rgba(212,175,55,0.12)' },
-  tabTxt: { fontSize: 12, fontWeight: '700', color: colors.textSecondary, textAlign: 'center', lineHeight: 16 },
+  tabTxt: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 16,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : null),
+  },
   tabTxtActive: { color: colors.gold },
-  scroll: { flexGrow: 0 },
-  scrollContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, gap: spacing.md },
+  scroll: { flexGrow: 0, flexShrink: 1 },
+  scrollContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, gap: spacing.md, flexGrow: 1 },
   hint: { fontSize: 12, color: colors.textMuted, lineHeight: 18 },
   createBtn: {
     borderRadius: radii.md,
@@ -548,6 +628,25 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
   cardSub: { fontSize: 12, color: colors.textSecondary },
   cardMeta: { fontSize: 11, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase' },
+  entriesToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginTop: 2,
+  },
+  entriesToggleAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    flexShrink: 0,
+  },
+  entriesToggleTxt: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#6ee7b7',
+    textTransform: 'uppercase',
+  },
   timer: { fontSize: 11, fontWeight: '800', color: '#c4b5fd', marginTop: 2, fontVariant: ['tabular-nums'] },
   winner: { fontSize: 12, fontWeight: '700', color: colors.gold },
   amoeRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md },

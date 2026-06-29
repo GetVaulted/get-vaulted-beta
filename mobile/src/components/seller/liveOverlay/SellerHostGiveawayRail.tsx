@@ -1,7 +1,9 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { BlurView } from 'expo-blur';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LiveGiveawayRow } from '../../../api/liveGiveawayRepository';
 import type { HostGiveawayAction } from '../../../hooks/useHostGiveawayActions';
-import { spacing } from '../../../theme';
+import { GIVVY_UI } from '../../../lib/givvyUi';
+import { radii, spacing } from '../../../theme';
 
 type RailButton = {
   key: string;
@@ -58,57 +60,81 @@ type Props = {
   onOpenManage: () => void;
 };
 
-/** Right-edge host controls for the active open-lane giveaway (Close / Draw / Cancel / Delete). */
+/** Host controls for the active open-lane giveaway (Close / Draw / Cancel / Delete). */
 export function SellerHostGiveawayRail({ giveaway, busy = false, onAction, onOpenManage }: Props) {
   const buttons = buttonsForGiveaway(giveaway, onOpenManage);
   if (buttons.length === 0) return null;
 
   return (
     <View style={styles.rail} pointerEvents="box-none">
-      <View style={styles.header}>
-        <Text style={styles.headerTitle} numberOfLines={1}>
-          Givvy
-        </Text>
-        <Text style={styles.headerMeta}>{giveaway.entryCount} in</Text>
+      <View style={styles.panel}>
+        {Platform.OS === 'ios' ? (
+          <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} />
+        ) : (
+          <View style={styles.androidFill} />
+        )}
+        <View style={styles.panelInner}>
+          <View style={styles.header}>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              Givvy
+            </Text>
+            <Text style={styles.headerMeta}>{giveaway.entryCount} in</Text>
+          </View>
+          {buttons.map((btn) => {
+            const tone = toneStyles[btn.tone];
+            return (
+              <Pressable
+                key={btn.key}
+                accessibilityRole="button"
+                accessibilityLabel={btn.label}
+                disabled={busy}
+                hitSlop={4}
+                onPress={() => {
+                  if (btn.onPress) {
+                    btn.onPress();
+                    return;
+                  }
+                  if (btn.action) onAction(giveaway.id, btn.action);
+                }}
+                style={({ pressed }) => [
+                  styles.btn,
+                  {
+                    borderColor: tone.border,
+                    backgroundColor: tone.bg,
+                    opacity: busy ? 0.45 : pressed ? 0.88 : 1,
+                  },
+                ]}
+              >
+                <Text style={[styles.btnTxt, { color: tone.text }]}>{btn.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
-      {buttons.map((btn) => {
-        const tone = toneStyles[btn.tone];
-        return (
-          <Pressable
-            key={btn.key}
-            accessibilityRole="button"
-            accessibilityLabel={btn.label}
-            disabled={busy}
-            hitSlop={4}
-            onPress={() => {
-              if (btn.onPress) {
-                btn.onPress();
-                return;
-              }
-              if (btn.action) onAction(giveaway.id, btn.action);
-            }}
-            style={({ pressed }) => [
-              styles.btn,
-              {
-                borderColor: tone.border,
-                backgroundColor: tone.bg,
-                opacity: busy ? 0.45 : pressed ? 0.88 : 1,
-              },
-            ]}
-          >
-            <Text style={[styles.btnTxt, { color: tone.text }]}>{btn.label}</Text>
-          </Pressable>
-        );
-      })}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   rail: {
-    alignItems: 'center',
+    alignItems: 'flex-end',
+  },
+  panel: {
+    minWidth: 72,
+    borderRadius: radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: GIVVY_UI.border,
+    overflow: 'hidden',
+  },
+  androidFill: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(24,24,27,0.9)',
+  },
+  panelInner: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
     gap: 6,
-    marginBottom: spacing.sm,
+    alignItems: 'stretch',
   },
   header: {
     alignItems: 'center',
@@ -116,32 +142,37 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   headerTitle: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '800',
-    color: '#a7f3d0',
+    color: GIVVY_UI.label,
     letterSpacing: 0.4,
     textTransform: 'uppercase',
+    lineHeight: 12,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : null),
   },
   headerMeta: {
     fontSize: 9,
     fontWeight: '700',
     color: 'rgba(255,255,255,0.55)',
     fontVariant: ['tabular-nums'],
+    lineHeight: 11,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : null),
   },
   btn: {
-    minWidth: 58,
-    minHeight: 40,
+    minHeight: 36,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 999,
+    paddingVertical: 7,
+    borderRadius: radii.pill,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
   },
   btnTxt: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.2,
     textTransform: 'uppercase',
+    lineHeight: 11,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : null),
   },
 });

@@ -60,6 +60,12 @@ enum LiveRoomStatus {
   ended
 }
 
+/// Whether a show appears in buyer Live discovery (`public`) or link-only (`private`).
+enum LiveRoomDiscoveryVisibility {
+  public
+  private
+}
+
 enum LiveStreamProvider {
   none
   aws_ivs
@@ -914,6 +920,8 @@ model LiveRoom {
   category           String         @default("Other")
   roomType           LiveRoomType
   status             LiveRoomStatus @default(scheduled)
+  /// `public` = listed on Live Shows; `private` = reachable only via shared link.
+  discoveryVisibility LiveRoomDiscoveryVisibility @default(public)
   thumbnailUrl       String         @default("")
   viewerCount        Int            @default(0)
   streamProvider     LiveStreamProvider @default(none)

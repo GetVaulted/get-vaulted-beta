@@ -63,8 +63,7 @@ export function SellerLiveSalesSheet({
 
   const needsAttention = useMemo(
     () =>
-      paymentFailures.length +
-      recentSales.filter((r) => r.paymentTone === 'retry' || r.paymentTone === 'pending').length,
+      paymentFailures.length + recentSales.filter((r) => r.paymentTone === 'retry').length,
     [paymentFailures.length, recentSales],
   );
 

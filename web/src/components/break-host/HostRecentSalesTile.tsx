@@ -23,15 +23,11 @@ export function HostRecentSalesTile({ rows }: { rows: HostRecentSaleRowDTO[] }) 
               className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border border-white/[0.06] bg-black/35 px-2.5 py-2 text-[11px]"
             >
               <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold text-zinc-100">
-                  @{r.buyerUsername}{" "}
-                  <span className="font-normal text-zinc-500">
-                    {r.kind === "order" ? "· order" : r.kind === "variant_purchase" ? "· spot" : "· spot"}
-                  </span>
+                <p className="truncate font-semibold text-zinc-100">{r.itemTitle}</p>
+                <p className="mt-0.5 truncate text-[10px] text-zinc-500">
+                  @{r.buyerUsername}
+                  {r.spotLabel && r.spotLabel !== r.itemTitle ? ` · ${r.spotLabel}` : ""}
                 </p>
-                {r.spotLabel ? (
-                  <p className="mt-0.5 truncate text-[10px] font-bold text-amber-200/90">{r.spotLabel}</p>
-                ) : null}
                 <p className="mt-0.5 font-mono tabular-nums text-zinc-300">{fmtUsd(r.amountUsd)}</p>
               </div>
               <span

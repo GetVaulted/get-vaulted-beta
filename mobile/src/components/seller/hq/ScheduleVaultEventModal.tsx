@@ -117,6 +117,7 @@ export function ScheduleVaultEventModal({
   const [tipsToModerator, setTipsToModerator] = useState(false);
   const [modalReadinessBusy, setModalReadinessBusy] = useState(false);
   const [recurringWeekly, setRecurringWeekly] = useState(false);
+  const [discoveryVisibility, setDiscoveryVisibility] = useState<'public' | 'private'>('public');
   const submittingRef = useRef(false);
 
   const titleComplete = scheduleTitle.trim().length > 0;
@@ -126,7 +127,10 @@ export function ScheduleVaultEventModal({
   const isBreak = streamFormat === 'break';
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      setDiscoveryVisibility('public');
+      return;
+    }
     setSubmitError(null);
     setModalReadinessBusy(true);
     void (async () => {
@@ -265,6 +269,7 @@ export function ScheduleVaultEventModal({
           carrierPreference: 'best_rate',
           bundleEligiblePurchases: true,
           recurringEnabled: scheduleMode === 'later' && recurringWeekly,
+          discoveryVisibility,
         },
         { sellerUserId: freshReadiness.sellerUserId ?? null },
       );
@@ -516,6 +521,27 @@ export function ScheduleVaultEventModal({
               </View>
             </View>
           ) : null}
+
+          <Text style={styles.label}>Show visibility</Text>
+          <View style={styles.segment}>
+            <Pressable
+              style={[styles.segmentBtn, discoveryVisibility === 'public' && styles.segmentBtnOn]}
+              onPress={() => setDiscoveryVisibility('public')}
+            >
+              <Text style={[styles.segmentTxt, discoveryVisibility === 'public' && styles.segmentTxtOn]}>Public</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.segmentBtn, discoveryVisibility === 'private' && styles.segmentBtnOn]}
+              onPress={() => setDiscoveryVisibility('private')}
+            >
+              <Text style={[styles.segmentTxt, discoveryVisibility === 'private' && styles.segmentTxtOn]}>Private</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.helperTxt}>
+            {discoveryVisibility === 'public'
+              ? 'Public shows appear on the Live Shows tab for all buyers.'
+              : 'Private shows are hidden from Live Shows. Share your link so invited viewers can join.'}
+          </Text>
 
           <Text style={styles.label}>When to go live</Text>
           <View style={styles.segment}>
