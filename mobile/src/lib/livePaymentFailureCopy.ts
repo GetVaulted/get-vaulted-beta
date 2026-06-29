@@ -73,6 +73,7 @@ export function isShippingAddressRecoveryFailure(
   if (lower.includes('before your card was charged')) return true;
   if (lower.includes('add a complete shipping address')) return true;
   if (lower.includes('add a shipping address')) return true;
+  if (lower.includes('delivery address') && lower.includes('wallet')) return true;
 
   return false;
 }

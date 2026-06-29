@@ -238,7 +238,7 @@ export function LiveStagePlayback({
       surface === 'connecting' ||
       surface === 'reconnecting' ||
       surface === 'error' ||
-      (!roomLifecycleLive && roomStatus !== 'ended') ||
+      (!roomLifecycleLive && roomStatus === 'scheduled') ||
       (roomLifecycleLive && !playback.videoHasData));
 
   const standbyContent = (() => {

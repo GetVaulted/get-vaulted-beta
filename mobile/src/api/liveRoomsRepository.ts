@@ -140,6 +140,9 @@ export type CreateLiveRoomInput = {
   shippingCapCents?: number | null;
   freeShippingEnabled?: boolean;
   sellerPaysOverCap?: boolean;
+  shippingMode?: 'calculated' | 'capped' | 'free';
+  carrierPreference?: 'usps' | 'ups' | 'best_rate';
+  bundleEligiblePurchases?: boolean;
   recurringEnabled?: boolean;
   discoveryVisibility?: 'public' | 'private';
 };

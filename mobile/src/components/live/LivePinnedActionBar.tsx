@@ -974,7 +974,7 @@ export function LivePinnedActionBar({
           onPurchased={() => {
             void refreshRoomSnapshot();
           }}
-          onRoomRefresh={refreshRoomSnapshot}
+          onRoomRefresh={() => void refreshRoomSnapshot()}
         />
       ) : null}
     </View>

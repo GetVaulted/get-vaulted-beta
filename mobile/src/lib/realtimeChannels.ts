@@ -50,6 +50,7 @@ export type RoomBroadcastPayload = {
   eventId?: string;
   emittedAt?: string;
   streamHealth?: string;
+  streamMode?: string;
   winnerUsername?: string | null;
   winnerId?: string | null;
   winningAmountUsd?: number | null;

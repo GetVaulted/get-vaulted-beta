@@ -228,7 +228,6 @@ function FloatingChatRow({
                 ? () => onLongPressChatUser(message)
                 : undefined
             }
-            delayLongPress={350}
             accessibilityHint={showBuyerActions ? 'Long press to report' : undefined}
           >
             {name}
