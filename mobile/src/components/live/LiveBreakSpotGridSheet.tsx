@@ -152,10 +152,20 @@ export function LiveBreakSpotGridSheet({
       if (!res.ok) {
         const msg =
           mapLivePaymentFailureMessage(res.error, res.code) + (res.paymentFailed ? ' Spot was not sold.' : '');
+        console.log('[variant purchase] checkout blocked', {
+          code: res.code ?? null,
+          status: res.status,
+          paymentFailed: res.paymentFailed ?? false,
+        });
         setError(msg);
         if (res.paymentFailed || res.code === 'LIVE_PAYMENT_BLOCKED') {
           onClose();
-          Alert.alert(res.paymentFailed ? 'Payment failed' : 'Payment blocked', msg);
+          Alert.alert(
+            res.code === 'LIVE_PAYMENT_BLOCKED' ? 'Payment blocked' : 'Payment failed',
+            res.code === 'LIVE_PAYMENT_BLOCKED'
+              ? `${msg} Use Retry payment on the recovery banner.`
+              : msg,
+          );
           await onRoomRefresh?.();
         }
         return;

@@ -13,6 +13,7 @@ import { useStripe } from '@stripe/stripe-react-native';
 import type { LiveBuyerPaymentFailureSnapshot } from '../../api/liveRoomBuyerRepository';
 import { retryLivePaymentFailure } from '../../api/livePaymentFailureRepository';
 import {
+  isShippingAddressRecoveryFailure,
   mapLivePaymentFailureMessage,
   recoveryStatusMessage,
   PAYMENT_RECOVERY_SUBTITLE,
@@ -57,6 +58,8 @@ export function LivePaymentFailureModal({
   const entrance = useRef(new Animated.Value(0)).current;
 
   const reasonLine = cardSaved ? null : mapLivePaymentFailureMessage(failure.failureReason);
+  const shippingRecovery = isShippingAddressRecoveryFailure(failure.failureReason);
+  const walletInitialStep = shippingRecovery ? ('shipping' as const) : ('main' as const);
 
   useEffect(() => {
     onBlockerActiveChange?.(visible && !walletOpen);
@@ -258,24 +261,33 @@ export function LivePaymentFailureModal({
               <Pressable
                 style={[styles.primaryBtn, busy && styles.disabled]}
                 disabled={busy}
-                onPress={openWalletForRecovery}
+                onPress={() => void runRetry()}
                 accessibilityRole="button"
-                accessibilityLabel="Fix payment"
+                accessibilityLabel="Retry payment"
               >
                 {busy ? (
                   <ActivityIndicator color={colors.background} />
                 ) : (
-                  <LiveRoomText style={styles.primaryLabel}>Fix payment</LiveRoomText>
+                  <LiveRoomText style={styles.primaryLabel}>Retry payment</LiveRoomText>
                 )}
               </Pressable>
               <Pressable
                 style={[styles.secondaryBtn, busy && styles.disabled]}
                 disabled={busy}
+                onPress={openWalletForRecovery}
+                accessibilityRole="button"
+                accessibilityLabel="Update Wallet"
+              >
+                <LiveRoomText style={styles.secondaryLabel}>Update Wallet</LiveRoomText>
+              </Pressable>
+              <Pressable
+                style={[styles.tertiaryBtn, busy && styles.disabled]}
+                disabled={busy}
                 onPress={onLeaveRoom}
                 accessibilityRole="button"
                 accessibilityLabel="Leave room"
               >
-                <LiveRoomText style={styles.secondaryLabel}>Leave room</LiveRoomText>
+                <LiveRoomText style={styles.tertiaryLabel}>Leave room</LiveRoomText>
               </Pressable>
             </View>
           </Animated.View>
@@ -288,7 +300,7 @@ export function LivePaymentFailureModal({
           accessToken={accessToken}
           roomId={roomId}
           recoveryMode
-          initialStep="main"
+          initialStep={walletInitialStep}
           onPaymentMethodSaved={handlePaymentMethodSaved}
           onActiveChange={(active) => {
             if (active) onWalletOverlayChange?.(true);
@@ -412,6 +424,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: colors.textPrimary,
+  },
+  tertiaryBtn: {
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  tertiaryLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
   },
   disabled: {
     opacity: 0.55,

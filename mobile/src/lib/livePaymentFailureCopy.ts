@@ -137,4 +137,4 @@ export function recoveryStatusMessage(status: number | null | undefined): string
 export const PAYMENT_RECOVERY_SUCCESS_TOAST = "Payment successful — you're back in the room.";
 
 export const PAYMENT_RECOVERY_SUBTITLE =
-  'Update your shipping address in Wallet (use the suggested address), then tap Retry payment. The show waits until payment clears.';
+  'Tap Retry payment to charge your saved card. If checkout failed on shipping, use Update Wallet first, then retry.';

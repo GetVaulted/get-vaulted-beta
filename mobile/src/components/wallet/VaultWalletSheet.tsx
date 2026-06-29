@@ -345,6 +345,9 @@ export function VaultWalletSheet({
       }
       await loadWalletData();
       setStep(addressFormReturnStep.current);
+      if (recoveryMode) {
+        onPaymentMethodSaved?.();
+      }
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Could not save address.');
     } finally {
@@ -823,7 +826,9 @@ export function VaultWalletSheet({
           {addressFormBusy ? (
             <ActivityIndicator color="#0a0a0a" />
           ) : (
-            <LiveRoomText style={t.primaryBtnText}>Save address</LiveRoomText>
+            <LiveRoomText style={t.primaryBtnText}>
+              {recoveryMode ? 'Save & retry payment' : 'Save address'}
+            </LiveRoomText>
           )}
         </Pressable>
       </View>

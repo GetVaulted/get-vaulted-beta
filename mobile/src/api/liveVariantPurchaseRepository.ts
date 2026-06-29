@@ -43,6 +43,7 @@ type PurchasePayload = {
   paymentIntentId?: string;
   publishableKey?: string;
   processing?: boolean;
+  checkoutDebug?: { code?: string; fulfillmentDetail?: string | null };
 };
 
 function mapPurchaseResponse(res: Response, payload: PurchasePayload): LiveVariantPurchaseResult {
@@ -132,7 +133,16 @@ export async function purchaseLiveItemVariant(args: {
     /* ignore */
   }
 
-  return mapPurchaseResponse(res, payload);
+  const result = mapPurchaseResponse(res, payload);
+  if (!result.ok) {
+    console.log('[variant purchase] failed', {
+      status: result.status,
+      code: result.code ?? payload.code ?? null,
+      paymentFailed: result.paymentFailed ?? payload.paymentFailed ?? null,
+      checkoutDebug: payload.checkoutDebug ?? null,
+    });
+  }
+  return result;
 }
 
 export async function syncLiveItemVariantPurchase(args: {
