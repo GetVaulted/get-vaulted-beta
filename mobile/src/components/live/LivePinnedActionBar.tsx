@@ -87,6 +87,7 @@ type Props = {
   onBidPlaced?: (amountUsd: number) => void;
   /** Break rooms: block bid CTAs until disclaimer accepted. */
   participationBlocked?: boolean;
+  participationBlockMessage?: string;
   /** Host or assigned moderator — cannot bid/buy in this show. */
   staffCommerceBlocked?: boolean;
   /** Parent can disable feed gestures while wallet overlay is open. */
@@ -111,6 +112,7 @@ export function LivePinnedActionBar({
   mergeBidAck,
   onBidPlaced,
   participationBlocked = false,
+  participationBlockMessage = 'Complete setup in this show before bidding or buying.',
   staffCommerceBlocked = false,
   onWalletOverlayChange,
   layoutWidth,
@@ -372,7 +374,7 @@ export function LivePinnedActionBar({
     }
     if (participationBlocked) {
       logBidControl('blocked', { reason: 'participation blocked' });
-      Alert.alert('Accept notice', 'Accept the live break notice before bidding.');
+      Alert.alert('Not ready yet', participationBlockMessage);
       return;
     }
     if (bidInFlightRef.current || bidBusy) {
@@ -531,6 +533,7 @@ export function LivePinnedActionBar({
     openWalletSetup,
     refreshRoomSnapshot,
     participationBlocked,
+    participationBlockMessage,
     roomSnap,
     stream.id,
     walletSheetOpen,
@@ -545,7 +548,7 @@ export function LivePinnedActionBar({
       return;
     }
     if (participationBlocked) {
-      Alert.alert('Accept notice', 'Accept the live break notice before buying.');
+      Alert.alert('Not ready yet', participationBlockMessage);
       return;
     }
     if (bidInFlightRef.current || bidBusy) return;
@@ -665,6 +668,7 @@ export function LivePinnedActionBar({
     openFullLiveRoom,
     openWalletSetup,
     participationBlocked,
+    participationBlockMessage,
     refreshRoomSnapshot,
     resetBidControl,
     roomSnap,
@@ -970,9 +974,7 @@ export function LivePinnedActionBar({
           onPurchased={() => {
             void refreshRoomSnapshot();
           }}
-          onRoomRefresh={() => {
-            void refreshRoomSnapshot();
-          }}
+          onRoomRefresh={refreshRoomSnapshot}
         />
       ) : null}
     </View>

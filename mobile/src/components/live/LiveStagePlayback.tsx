@@ -1,8 +1,7 @@
-import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useMemo, useState } from 'react';
-import { AppState, ActivityIndicator, Pressable, StyleSheet, View, type AppStateStatus } from 'react-native';
+import { AppState, ActivityIndicator, StyleSheet, View, type AppStateStatus } from 'react-native';
 import { useVideoPlayer, VideoView, type VideoPlayer } from 'expo-video';
 import { useLiveStagePlayback, type LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
 import { useHlsLiveEdgeSeek } from '../../hooks/useHlsLiveEdgeSeek';
@@ -18,7 +17,7 @@ import {
   resolveScheduledPrereleasePhase,
 } from '../../lib/liveStreamScheduled';
 import { LIVE_STAGE_CONTENT_FIT } from '../../lib/liveRoomViewport';
-import { colors, radii, spacing } from '../../theme';
+import { colors, spacing } from '../../theme';
 import { LiveRoomText } from './LiveRoomText';
 import { StageSubscriberVideo } from './StageSubscriberVideo';
 
@@ -87,26 +86,6 @@ function CountdownOverlay({ targetMs }: { targetMs: number }) {
   );
 }
 
-function PlaybackDebugOverlay({
-  transport,
-  streamMode,
-  stageAvailable,
-}: {
-  transport: string;
-  streamMode: string;
-  stageAvailable: boolean;
-}) {
-  if (!__DEV__) return null;
-  return (
-    <View style={styles.debugOverlay} pointerEvents="none">
-      <LiveRoomText style={styles.debugTitle}>Live Playback Debug</LiveRoomText>
-      <LiveRoomText style={styles.debugLine}>transport: {transport}</LiveRoomText>
-      <LiveRoomText style={styles.debugLine}>streamMode: {streamMode}</LiveRoomText>
-      <LiveRoomText style={styles.debugLine}>stageAvailable: {stageAvailable ? 'y' : 'n'}</LiveRoomText>
-    </View>
-  );
-}
-
 export function LiveStagePlayback({
   roomId,
   roomStatus,
@@ -128,8 +107,6 @@ export function LiveStagePlayback({
   const playbackUrl = playback.stream?.playbackUrl ?? null;
   const streamHealth = playback.stream?.streamHealth ?? 'offline';
   const streamPaused = playback.stream?.streamPaused === true;
-  const streamMode = playback.stream?.streamMode ?? 'channel_hls';
-  const stageAvailable = playback.stream?.stageAvailable ?? false;
   const transport = playback.transport;
   const streamSignalLive = streamHealth.toLowerCase() === 'live' || streamHealth.toLowerCase() === 'connecting';
   const roomLifecycleLive = roomStatus === 'live' || streamSignalLive;
@@ -389,24 +366,6 @@ export function LiveStagePlayback({
           {standbyContent}
         </View>
       ) : null}
-
-      {showVideoLayer && muted ? (
-        <Pressable
-          style={styles.unmutePill}
-          onPress={() => onMutedChange(false)}
-          accessibilityRole="button"
-          accessibilityLabel="Unmute stream"
-        >
-          <Ionicons name="volume-mute" size={14} color={colors.gold} />
-          <LiveRoomText style={styles.unmuteText}>Tap for sound</LiveRoomText>
-        </Pressable>
-      ) : null}
-
-      <PlaybackDebugOverlay
-        transport={transport}
-        streamMode={streamMode}
-        stageAvailable={stageAvailable}
-      />
     </View>
   );
 }
@@ -492,52 +451,5 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '300',
     marginBottom: 18,
-  },
-  unmutePill: {
-    position: 'absolute',
-    bottom: 96,
-    alignSelf: 'center',
-    left: '15%',
-    right: '15%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.4)',
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
-  unmuteText: {
-    color: colors.gold,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  debugOverlay: {
-    position: 'absolute',
-    bottom: spacing.sm,
-    right: spacing.sm,
-    maxWidth: 180,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: 'rgba(234,179,8,0.35)',
-    backgroundColor: 'rgba(0,0,0,0.82)',
-  },
-  debugTitle: {
-    color: colors.gold,
-    fontSize: 9,
-    fontWeight: '900',
-    marginBottom: 4,
-    letterSpacing: 0.5,
-  },
-  debugLine: {
-    color: 'rgba(254,243,199,0.95)',
-    fontSize: 9,
-    fontFamily: 'Menlo',
-    lineHeight: 14,
   },
 });

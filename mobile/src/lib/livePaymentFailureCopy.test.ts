@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { mapLivePaymentFailureMessage, recoveryStatusMessage } from './livePaymentFailureCopy';
+import {
+  isShippingAddressRecoveryFailure,
+  mapLivePaymentFailureMessage,
+  recoveryStatusMessage,
+} from './livePaymentFailureCopy';
 
 const ORDER_EXPIRED_COPY =
   "This purchase's payment window expired. Please try again or contact support.";
@@ -28,6 +32,27 @@ describe('mapLivePaymentFailureMessage', () => {
 
   it('uses fallback for empty input', () => {
     expect(mapLivePaymentFailureMessage()).toBe('Your payment method needs attention.');
+  });
+});
+
+describe('isShippingAddressRecoveryFailure', () => {
+  it('detects fulfillment and shipping address failures', () => {
+    expect(isShippingAddressRecoveryFailure(null, 'FULFILLMENT_ORDER_FAILED')).toBe(true);
+    expect(
+      isShippingAddressRecoveryFailure(
+        'Checkout setup failed before your card was charged — update your Wallet shipping address and try again.',
+      ),
+    ).toBe(true);
+    expect(
+      isShippingAddressRecoveryFailure(
+        'Add a complete shipping address (street, city, state, ZIP) to your Wallet before buying.',
+      ),
+    ).toBe(true);
+  });
+
+  it('does not treat card declines as shipping recovery', () => {
+    expect(isShippingAddressRecoveryFailure('Your card was declined.')).toBe(false);
+    expect(isShippingAddressRecoveryFailure(null, 'card_declined')).toBe(false);
   });
 });
 

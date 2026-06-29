@@ -28,7 +28,6 @@ import { scaledComposerBarHeight } from '../../lib/liveRoomBottomLayout';
 import { MentionComposerInput, type MentionComposerInputHandle } from '../mentions/MentionComposerInput';
 import { MentionText } from '../mentions/MentionText';
 import { LiveRoomText } from './LiveRoomText';
-import { LiveChatRowActions } from '../trust/LiveChatRowActions';
 import type { LiveModeratorLevel, LiveViewerRole } from '../../api/trustRepository';
 import type { ChatMessage } from '../../types';
 
@@ -133,12 +132,10 @@ function FloatingChatRow({
   hostAvatarUrl,
   liveRoomId,
   hostUserId,
-  accessToken,
   canModerate,
   isModerator,
-  viewerRole,
   onLongPressMessage,
-  onModerationComplete,
+  onLongPressChatUser,
   compact,
   onPressChatUser,
   moderatorUserIds,
@@ -153,6 +150,7 @@ function FloatingChatRow({
   isModerator?: boolean;
   viewerRole?: LiveViewerRole;
   onLongPressMessage?: (message: ChatMessage) => void;
+  onLongPressChatUser?: (message: ChatMessage) => void;
   onModerationComplete?: () => void;
   compact?: boolean;
   onPressChatUser?: (user: { username: string; userId?: string }) => void;
@@ -225,6 +223,13 @@ function FloatingChatRow({
               isModSender && styles.usernameMod,
             ]}
             onPress={onPressChatUser ? () => onPressChatUser(chatUser) : undefined}
+            onLongPress={
+              showBuyerActions && onLongPressChatUser
+                ? () => onLongPressChatUser(message)
+                : undefined
+            }
+            delayLongPress={350}
+            accessibilityHint={showBuyerActions ? 'Long press to report' : undefined}
           >
             {name}
           </LiveRoomText>
@@ -251,17 +256,6 @@ function FloatingChatRow({
           )}
         </LiveRoomText>
       </View>
-      {showBuyerActions ? (
-        <LiveChatRowActions
-          liveRoomId={liveRoomId}
-          messageId={message.id}
-          senderId={message.senderId}
-          senderUsername={message.user}
-          accessToken={accessToken}
-          canModerate={false}
-          onComplete={onModerationComplete}
-        />
-      ) : null}
         </>
       )}
     </Pressable>
@@ -362,6 +356,7 @@ export function FloatingLiveChat({
   isModerator,
   viewerRole,
   onLongPressMessage,
+  onLongPressChatUser,
   onModerationComplete,
   compact = false,
   onPressChatUser,
@@ -386,6 +381,7 @@ export function FloatingLiveChat({
   isModerator?: boolean;
   viewerRole?: LiveViewerRole;
   onLongPressMessage?: (message: ChatMessage) => void;
+  onLongPressChatUser?: (message: ChatMessage) => void;
   onModerationComplete?: () => void;
   compact?: boolean;
   onPressChatUser?: (user: { username: string; userId?: string }) => void;
@@ -467,6 +463,7 @@ export function FloatingLiveChat({
             isModerator={isModerator}
             viewerRole={viewerRole}
             onLongPressMessage={onLongPressMessage}
+            onLongPressChatUser={onLongPressChatUser}
             onModerationComplete={onModerationComplete}
             compact={compact}
             overlayScale={scale}

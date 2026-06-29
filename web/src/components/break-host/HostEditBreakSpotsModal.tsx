@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { isVariantSalesFormat, variantBuyerSelectLabel } from "@/lib/live-item-variant-presets";
+import { formatSoldSpotBuyerLabel } from "@/lib/live-variant-spot-board";
 
 type SpotDraft = {
   id: string;
@@ -10,6 +11,7 @@ type SpotDraft = {
   priceUsd: number;
   isHot: boolean;
   sold: boolean;
+  buyerUsername: string | null;
 };
 
 function parseUsd(raw: string): number | null {
@@ -33,6 +35,7 @@ function variantsToDrafts(item: LiveRoomItemDTO): SpotDraft[] {
       priceUsd: v.priceUsd,
       isHot: v.isHot,
       sold: v.quantityRemaining <= 0 || v.status === "sold_out",
+      buyerUsername: v.buyerUsername?.trim()?.replace(/^@+/, "") ?? null,
     }));
 }
 
@@ -235,7 +238,9 @@ function SpotEditorPill({
         {spot.label}
       </p>
       {spot.sold ? (
-        <p className="mt-1 text-[10px] font-bold uppercase text-zinc-600">Sold</p>
+        <p className="mt-1 truncate text-[10px] font-semibold text-emerald-300/80">
+          {formatSoldSpotBuyerLabel(spot.buyerUsername)}
+        </p>
       ) : (
         <div className="relative mt-1">
           <span className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-zinc-500">

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Gesture } from 'react-native-gesture-handler';
 import {
   runOnJS,
@@ -18,17 +18,30 @@ type Args = {
 };
 
 export function useLiveImmersiveChrome({ stageWidth, enabled }: Args) {
-  const hideDistance = computeLiveImmersiveHideDistance(stageWidth);
+  const hideDistanceSv = useSharedValue(computeLiveImmersiveHideDistance(stageWidth));
   const translateX = useSharedValue(0);
   const dragStartX = useSharedValue(0);
   const [immersive, setImmersive] = useState(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    hideDistanceSv.value = computeLiveImmersiveHideDistance(stageWidth);
+  }, [hideDistanceSv, stageWidth]);
 
   const snapToHidden = useCallback(
     (hidden: boolean) => {
-      translateX.value = withSpring(hidden ? -hideDistance : 0, LIVE_IMMERSIVE_SPRING);
+      const dist = computeLiveImmersiveHideDistance(stageWidth);
+      translateX.value = withSpring(hidden ? -dist : 0, LIVE_IMMERSIVE_SPRING);
       setImmersive(hidden);
     },
-    [hideDistance, translateX],
+    [stageWidth, translateX],
   );
 
   const restore = useCallback(() => {
@@ -44,6 +57,7 @@ export function useLiveImmersiveChrome({ stageWidth, enabled }: Args) {
   }, [stageWidth, restore]);
 
   const commitImmersive = useCallback((hidden: boolean) => {
+    if (!mountedRef.current) return;
     setImmersive(hidden);
   }, []);
 
@@ -51,29 +65,34 @@ export function useLiveImmersiveChrome({ stageWidth, enabled }: Args) {
     () =>
       Gesture.Pan()
         .enabled(enabled)
-        .activeOffsetX([-28, 28])
-        .failOffsetY([-14, 14])
+        .activeOffsetX([-16, 16])
+        .failOffsetY([-20, 20])
         .onBegin(() => {
+          'worklet';
           dragStartX.value = translateX.value;
         })
         .onUpdate((event) => {
+          'worklet';
+          const dist = hideDistanceSv.value;
           const next = dragStartX.value + event.translationX;
-          translateX.value = Math.min(0, Math.max(-hideDistance, next));
+          translateX.value = Math.min(0, Math.max(-dist, next));
         })
         .onEnd((event) => {
-          const startedHidden = dragStartX.value <= -hideDistance * 0.5;
+          'worklet';
+          const dist = hideDistanceSv.value;
+          const startedHidden = dragStartX.value <= -dist * 0.5;
           const hidden = resolveLiveImmersiveSnap({
             translateX: translateX.value,
-            hideDistance,
+            hideDistance: dist,
             velocityX: event.velocityX,
             translationX: event.translationX,
             startedHidden,
           });
-          translateX.value = withSpring(hidden ? -hideDistance : 0, LIVE_IMMERSIVE_SPRING, (finished) => {
+          translateX.value = withSpring(hidden ? -dist : 0, LIVE_IMMERSIVE_SPRING, (finished) => {
             if (finished) runOnJS(commitImmersive)(hidden);
           });
         }),
-    [commitImmersive, dragStartX, enabled, hideDistance, translateX],
+    [commitImmersive, dragStartX, enabled, hideDistanceSv, translateX],
   );
 
   const chromeStyle = useAnimatedStyle(() => ({

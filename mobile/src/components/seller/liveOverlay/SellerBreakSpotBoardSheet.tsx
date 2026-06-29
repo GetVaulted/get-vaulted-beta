@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useMemo } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { isVariantSalesFormat } from '../../../lib/liveItemVariant';
-import { buildVariantSpotDisplayRows } from '../../../lib/liveVariantSpotBoard';
+import { buildVariantSpotDisplayRows, formatSoldSpotBuyerLabel, type VariantSpotDisplayRow } from '../../../lib/liveVariantSpotBoard';
 import { spotAccentColor, teamAbbrForVariant, isLightSpotAccent } from '../../../lib/liveBreakPresets';
 import { colors, radii, spacing } from '../../../theme';
 import { LiveRoomText } from '../../live/LiveRoomText';
@@ -23,6 +24,102 @@ function fmtMoney(n: number) {
   return `$${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
+function teamGridLayout(windowWidth: number, isDivisionBreak: boolean) {
+  const sheetPadding = spacing.md * 2;
+  const gap = 8;
+  const contentWidth = Math.max(280, windowWidth - sheetPadding);
+  const columns = isDivisionBreak ? 2 : windowWidth >= 900 ? 5 : windowWidth >= 680 ? 4 : windowWidth >= 420 ? 3 : 2;
+  const maxTileWidth = isDivisionBreak ? 280 : 168;
+  const rawWidth = (contentWidth - gap * (columns - 1)) / columns;
+  const tileWidth = Math.min(maxTileWidth, rawWidth);
+  return { tileWidth, gap, columns };
+}
+
+function SpotTile({
+  row,
+  isDivisionBreak,
+  tileWidth,
+  canPin,
+  pinBusy,
+  onPinTeam,
+}: {
+  row: VariantSpotDisplayRow;
+  isDivisionBreak: boolean;
+  tileWidth: number;
+  canPin: boolean;
+  pinBusy: boolean;
+  onPinTeam?: (variantId: string) => void;
+}) {
+  const sold = row.sold;
+  const pinned = row.isHot && !sold;
+  const accent = spotAccentColor(row.label ?? '', row.color, isDivisionBreak);
+  const lightAccent = isLightSpotAccent(accent);
+  const abbr = teamAbbrForVariant(row.label, row.color);
+  const textPrimary = sold ? 'rgba(255,255,255,0.42)' : lightAccent ? '#111' : '#fff';
+  const textSecondary = sold
+    ? 'rgba(255,255,255,0.28)'
+    : lightAccent
+      ? 'rgba(0,0,0,0.62)'
+      : 'rgba(255,255,255,0.72)';
+
+  const body = (
+    <View
+      style={[
+        styles.spotTile,
+        { width: tileWidth, borderLeftColor: sold ? 'rgba(255,255,255,0.12)' : accent },
+        sold && styles.spotTileSold,
+        pinned && styles.spotTilePinned,
+        !sold && { backgroundColor: lightAccent ? `${accent}ee` : `${accent}33` },
+      ]}
+    >
+      {pinned ? (
+        <View style={styles.pinnedBadge}>
+          <LiveRoomText style={styles.pinnedBadgeText}>PINNED</LiveRoomText>
+        </View>
+      ) : row.isHot && !sold ? (
+        <View style={styles.hotBadge}>
+          <LiveRoomText style={styles.hotBadgeText}>HOT</LiveRoomText>
+        </View>
+      ) : null}
+
+      <View style={styles.spotTileTop}>
+        {abbr && !isDivisionBreak ? (
+          <LiveRoomText style={[styles.spotAbbr, { color: textPrimary }]}>{abbr}</LiveRoomText>
+        ) : null}
+        <LiveRoomText
+          style={[styles.spotLabel, { color: textPrimary }, isDivisionBreak && styles.spotLabelDivision]}
+          numberOfLines={isDivisionBreak ? 2 : 1}
+        >
+          {row.label}
+        </LiveRoomText>
+      </View>
+
+      {sold ? (
+        <LiveRoomText style={styles.buyerTag} numberOfLines={1}>
+          {formatSoldSpotBuyerLabel(row.buyerUsername)}
+        </LiveRoomText>
+      ) : (
+        <LiveRoomText style={[styles.priceTag, { color: textSecondary }]}>{fmtMoney(row.priceUsd)}</LiveRoomText>
+      )}
+    </View>
+  );
+
+  if (canPin && row.variantId) {
+    return (
+      <Pressable
+        style={({ pressed }) => [pressed && styles.spotTilePressed]}
+        onPress={() => onPinTeam?.(row.variantId!)}
+        disabled={pinBusy}
+        accessibilityLabel={`Pin ${row.label} for buyers`}
+      >
+        {body}
+      </Pressable>
+    );
+  }
+
+  return body;
+}
+
 export function SellerBreakSpotBoardSheet({
   visible,
   onClose,
@@ -32,9 +129,16 @@ export function SellerBreakSpotBoardSheet({
   onPinTeam,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+
+  const isDivisionBreak = item?.salesFormat === 'team_break';
+  const grid = useMemo(
+    () => teamGridLayout(windowWidth, Boolean(isDivisionBreak)),
+    [windowWidth, isDivisionBreak],
+  );
+
   if (!item || !isVariantSalesFormat(item.salesFormat)) return null;
 
-  const isDivisionBreak = item.salesFormat === 'team_break';
   const rows = buildVariantSpotDisplayRows(item);
   const soldCount = rows.filter((r) => r.sold).length;
   const openCount = rows.length - soldCount;
@@ -70,73 +174,21 @@ export function SellerBreakSpotBoardSheet({
 
           <ScrollView
             style={styles.gridScroll}
-            contentContainerStyle={[
-              styles.gridContent,
-              isDivisionBreak ? styles.gridContentDivision : styles.gridContentTeams,
-            ]}
+            contentContainerStyle={[styles.gridContent, { gap: grid.gap }]}
             showsVerticalScrollIndicator={false}
           >
             {rows.map((row) => {
-              const sold = row.sold;
-              const pinned = row.isHot && !sold;
-              const pinBusy = pinningVariantId === row.variantId;
-              const canPin = Boolean(canPinTeams && onPinTeam && row.variantId && !sold);
-              const accent = spotAccentColor(row.label ?? '', row.color);
-              const light = isLightSpotAccent(accent);
-              const abbr = teamAbbrForVariant(row.label);
-              const cellBody = (
-                <LinearGradient
-                  colors={sold ? ['#1a1a22', '#121218'] : [accent, `${accent}cc`]}
-                  style={styles.spotGradient}
-                >
-                  {pinned ? (
-                    <LiveRoomText style={styles.pinnedTag}>PINNED</LiveRoomText>
-                  ) : row.isHot && !sold ? (
-                    <LiveRoomText style={styles.hotTag}>HOT</LiveRoomText>
-                  ) : null}
-                  <LiveRoomText style={[styles.spotAbbr, light && !sold && styles.spotAbbrDark]}>
-                    {abbr}
-                  </LiveRoomText>
-                  <LiveRoomText
-                    style={[styles.spotLabel, light && !sold && styles.spotLabelDark]}
-                    numberOfLines={2}
-                  >
-                    {row.label}
-                  </LiveRoomText>
-                  {sold ? (
-                    <LiveRoomText style={styles.buyerTag} numberOfLines={1}>
-                      {row.buyerUsername ? `@${row.buyerUsername.replace(/^@+/, '')}` : 'SOLD'}
-                    </LiveRoomText>
-                  ) : (
-                    <LiveRoomText style={[styles.priceTag, light && styles.spotLabelDark]}>
-                      {fmtMoney(row.priceUsd)}
-                    </LiveRoomText>
-                  )}
-                </LinearGradient>
-              );
+              const canPin = Boolean(canPinTeams && onPinTeam && row.variantId && !row.sold);
               return (
-                <View
+                <SpotTile
                   key={row.id}
-                  style={[
-                    styles.spotCell,
-                    isDivisionBreak ? styles.spotCellDivision : styles.spotCellTeam,
-                    sold && styles.spotCellSold,
-                    pinned && styles.spotCellPinned,
-                  ]}
-                >
-                  {canPin ? (
-                    <Pressable
-                      style={styles.spotPressable}
-                      onPress={() => onPinTeam?.(row.variantId!)}
-                      disabled={Boolean(pinningVariantId)}
-                      accessibilityLabel={`Pin ${row.label} for buyers`}
-                    >
-                      {cellBody}
-                    </Pressable>
-                  ) : (
-                    cellBody
-                  )}
-                </View>
+                  row={row}
+                  isDivisionBreak={isDivisionBreak}
+                  tileWidth={grid.tileWidth}
+                  canPin={canPin}
+                  pinBusy={Boolean(pinningVariantId)}
+                  onPinTeam={onPinTeam}
+                />
               );
             })}
           </ScrollView>
@@ -153,7 +205,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.55)',
   },
   sheet: {
-    maxHeight: '92%',
+    maxHeight: '88%',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderWidth: 1,
@@ -212,106 +264,96 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.06)',
   },
   gridScroll: {
+    flexGrow: 0,
     marginTop: spacing.md,
-    maxHeight: '72%',
+    maxHeight: 520,
   },
   gridContent: {
-    paddingBottom: spacing.sm,
-  },
-  gridContentTeams: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    paddingBottom: spacing.lg,
   },
-  gridContentDivision: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  spotCell: {
-    borderRadius: radii.md,
-    overflow: 'hidden',
-  },
-  spotCellTeam: {
-    width: '23%',
-    minWidth: 74,
-    flexGrow: 1,
-    aspectRatio: 0.92,
-  },
-  spotCellDivision: {
-    width: '47%',
-    minHeight: 92,
-    flexGrow: 1,
-  },
-  spotCellSold: {
-    opacity: 0.88,
-  },
-  spotCellPinned: {
-    borderWidth: 2,
-    borderColor: colors.gold,
-  },
-  spotPressable: {
-    flex: 1,
-    borderRadius: radii.md,
-    overflow: 'hidden',
-  },
-  spotGradient: {
-    flex: 1,
-    paddingHorizontal: 8,
+  spotTile: {
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderLeftWidth: 4,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    paddingHorizontal: 10,
     paddingVertical: 10,
-    justifyContent: 'flex-end',
-    minHeight: 72,
+    minHeight: 84,
+    justifyContent: 'space-between',
   },
-  hotTag: {
+  spotTileSold: {
+    opacity: 0.72,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderStyle: 'dashed',
+  },
+  spotTilePinned: {
+    borderColor: colors.gold,
+    borderWidth: 1.5,
+    borderLeftWidth: 4,
+  },
+  spotTilePressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.98 }],
+  },
+  spotTileTop: {
+    gap: 2,
+    paddingRight: 28,
+  },
+  pinnedBadge: {
     position: 'absolute',
     top: 6,
     right: 6,
+    backgroundColor: colors.gold,
+    borderRadius: radii.pill,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  pinnedBadgeText: {
     fontSize: 8,
     fontWeight: '900',
-    color: colors.gold,
-    letterSpacing: 0.6,
+    color: '#111',
+    letterSpacing: 0.4,
   },
-  pinnedTag: {
+  hotBadge: {
     position: 'absolute',
     top: 6,
     right: 6,
-    fontSize: 7,
-    fontWeight: '900',
-    color: '#111',
-    letterSpacing: 0.5,
-    backgroundColor: colors.gold,
-    paddingHorizontal: 4,
+    backgroundColor: 'rgba(220,38,38,0.92)',
+    borderRadius: radii.pill,
+    paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 4,
-    overflow: 'hidden',
   },
-  spotAbbr: {
-    fontSize: 16,
+  hotBadgeText: {
+    fontSize: 8,
     fontWeight: '900',
     color: '#fff',
+    letterSpacing: 0.4,
   },
-  spotAbbrDark: {
-    color: '#111',
+  spotAbbr: {
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: 0.6,
   },
   spotLabel: {
-    marginTop: 2,
-    fontSize: 9,
+    fontSize: 12,
     fontWeight: '700',
-    color: 'rgba(255,255,255,0.92)',
+    lineHeight: 16,
   },
-  spotLabelDark: {
-    color: 'rgba(0,0,0,0.78)',
+  spotLabelDivision: {
+    fontSize: 13,
+    lineHeight: 17,
   },
   buyerTag: {
-    marginTop: 4,
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
     color: colors.gold,
   },
   priceTag: {
-    marginTop: 4,
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '800',
-    color: '#fff',
+    fontVariant: ['tabular-nums'],
   },
 });

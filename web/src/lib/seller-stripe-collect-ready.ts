@@ -45,6 +45,12 @@ export function sellerStripeCollectReady(user: SellerStripeCollectSlice | null |
   return getSellerStripeCollectIssues(user).length === 0;
 }
 
+/** Same bar as live buy-now saved-card checkout — do not block spot charges on extra Connect flags. */
+export function liveSavedCardSellerReady(user: SellerStripeCollectSlice | null | undefined): boolean {
+  if (!isStripeConfigured()) return true;
+  return Boolean(user?.stripeAccountId?.trim() && user.stripeOnboardingComplete);
+}
+
 export function assertSellerStripeCollectReadyFromUser(user: SellerStripeCollectSlice | null | undefined): void {
   if (!isStripeConfigured()) return;
   if (!sellerStripeCollectReady(user)) {

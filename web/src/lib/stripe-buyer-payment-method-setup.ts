@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { ensureStripeCustomerIdForUser, getBuyerDefaultCardPaymentMethodId } from "@/lib/stripe-customer";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { syncBuyerDefaultShippingToPendingOrder } from "@/lib/live-buy-now-purchase";
 
 export function setupIntentIdFromClientSecret(clientSecret: string): string | null {
   const trimmed = clientSecret.trim();
@@ -192,6 +193,13 @@ export async function refreshRecoveryPaymentReferences(args: {
   });
 
   if (args.orderId) {
+    await syncBuyerDefaultShippingToPendingOrder(args.orderId, args.buyerId).catch((err) => {
+      console.warn("[payment recovery] could not sync buyer shipping to order", {
+        orderId: args.orderId,
+        buyerId: args.buyerId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    });
     await prisma.order.updateMany({
       where: {
         id: args.orderId,
@@ -206,6 +214,19 @@ export async function refreshRecoveryPaymentReferences(args: {
   }
 
   if (args.variantPurchaseId) {
+    const purchase = await prisma.liveItemVariantPurchase.findFirst({
+      where: { id: args.variantPurchaseId, buyerId: args.buyerId },
+      select: { fulfillmentOrderId: true },
+    });
+    if (purchase?.fulfillmentOrderId) {
+      await syncBuyerDefaultShippingToPendingOrder(purchase.fulfillmentOrderId, args.buyerId).catch((err) => {
+        console.warn("[payment recovery] could not sync buyer shipping to variant fulfillment order", {
+          variantPurchaseId: args.variantPurchaseId,
+          orderId: purchase.fulfillmentOrderId,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
     await prisma.liveItemVariantPurchase.updateMany({
       where: {
         id: args.variantPurchaseId,
@@ -217,6 +238,19 @@ export async function refreshRecoveryPaymentReferences(args: {
   }
 
   if (args.breakSpotId) {
+    const spot = await prisma.breakSpot.findFirst({
+      where: { id: args.breakSpotId, userId: args.buyerId },
+      select: { fulfillmentOrderId: true },
+    });
+    if (spot?.fulfillmentOrderId) {
+      await syncBuyerDefaultShippingToPendingOrder(spot.fulfillmentOrderId, args.buyerId).catch((err) => {
+        console.warn("[payment recovery] could not sync buyer shipping to break fulfillment order", {
+          breakSpotId: args.breakSpotId,
+          orderId: spot.fulfillmentOrderId,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
     await prisma.breakSpot.updateMany({
       where: {
         id: args.breakSpotId,

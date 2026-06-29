@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { LiveItemVariantDTO, LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { sortVariantsForBuyerDisplay } from "@/lib/live-item-variant-display-order";
 import { isVariantSalesFormat, isRandomVariantAssignment, variantBuyerSelectLabel } from "@/lib/live-item-variant-presets";
+import { formatSoldSpotBuyerLabel } from "@/lib/live-variant-spot-board";
 import {
   createLiveVariantPurchaseIdempotencyKey,
   purchaseLiveItemVariant,
@@ -374,7 +375,9 @@ function VariantPill({
           {fmtMoney(variant.priceUsd)}
         </span>
       ) : (
-        <span className="mt-0.5 block text-[9px] font-bold uppercase tracking-wide text-zinc-600">Sold</span>
+        <span className="mt-0.5 block truncate text-[9px] font-semibold text-emerald-300/80">
+          {formatSoldSpotBuyerLabel(variant.buyerUsername)}
+        </span>
       )}
     </button>
   );

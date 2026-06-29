@@ -1,13 +1,11 @@
-import { prisma } from "@/lib/prisma";
 import { isStripeConfigured } from "@/lib/stripe";
 import { buyerHasCardOnFileForLiveBidding } from "@/lib/stripe-customer";
+import { resolveBuyerDefaultShippingForOrder } from "@/lib/live-buy-now-purchase";
 
-/** At least one buyer shipping address on file (used for live wins / fulfillment). */
+/** At least one complete buyer shipping address on file (street, city, state, ZIP). */
 export async function buyerHasShippingAddressSaved(userId: string): Promise<boolean> {
-  const n = await prisma.address.count({
-    where: { userId, type: "shipping" },
-  });
-  return n > 0;
+  const shipping = await resolveBuyerDefaultShippingForOrder(userId);
+  return shipping != null;
 }
 
 /**

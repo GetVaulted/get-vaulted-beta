@@ -10,16 +10,12 @@ function attachClaimsToItem(item: LiveRoomItemDTO, claims: RandomSpotClaim[]): L
   return { ...item, randomSpotClaims: claims };
 }
 
-/** Load paid random-reveal assignments for PYT/PYD items (team → buyer). */
-export async function enrichLiveRoomDetailRandomClaims(detail: LiveRoomDetailDTO): Promise<LiveRoomDetailDTO> {
-  const randomItemIds = detail.items
-    .filter((i) => isVariantSalesFormat(i.salesFormat) && isRandomVariantAssignment(i.variantAssignmentMode))
-    .map((i) => i.id);
-  if (randomItemIds.length === 0) return detail;
+async function loadRandomSpotClaimsByItemId(itemIds: string[]): Promise<Map<string, RandomSpotClaim[]>> {
+  if (itemIds.length === 0) return new Map();
 
   const rows = await prisma.liveItemVariantPurchase.findMany({
     where: {
-      liveRoomItemId: { in: randomItemIds },
+      liveRoomItemId: { in: itemIds },
       paymentStatus: "paid",
       revealedLabel: { not: null },
     },
@@ -39,13 +35,23 @@ export async function enrichLiveRoomDetailRandomClaims(detail: LiveRoomDetailDTO
     list.push({ label, buyerUsername });
     byItem.set(row.liveRoomItemId, list);
   }
+  return byItem;
+}
 
-  const items = detail.items.map((item) =>
-    attachClaimsToItem(item, byItem.get(item.id) ?? []),
-  );
-  const activeItem = detail.activeItem
-    ? attachClaimsToItem(detail.activeItem, byItem.get(detail.activeItem.id) ?? [])
-    : null;
+/** Attach paid random-reveal assignments (team/division label → buyer) to queue items. */
+export async function enrichLiveRoomItemsRandomClaims(items: LiveRoomItemDTO[]): Promise<LiveRoomItemDTO[]> {
+  const randomItemIds = items
+    .filter((i) => isVariantSalesFormat(i.salesFormat) && isRandomVariantAssignment(i.variantAssignmentMode))
+    .map((i) => i.id);
+  if (randomItemIds.length === 0) return items;
 
+  const byItem = await loadRandomSpotClaimsByItemId(randomItemIds);
+  return items.map((item) => attachClaimsToItem(item, byItem.get(item.id) ?? []));
+}
+
+/** Load paid random-reveal assignments for PYT/PYD items (team → buyer). */
+export async function enrichLiveRoomDetailRandomClaims(detail: LiveRoomDetailDTO): Promise<LiveRoomDetailDTO> {
+  const items = await enrichLiveRoomItemsRandomClaims(detail.items);
+  const activeItem = detail.activeItem ? items.find((i) => i.id === detail.activeItem!.id) ?? detail.activeItem : null;
   return { ...detail, items, activeItem };
 }

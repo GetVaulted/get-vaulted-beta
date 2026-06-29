@@ -1,4 +1,4 @@
-import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
@@ -31,6 +31,13 @@ export function LiveRoomScreen() {
   const seed = useMemo(() => seedStreamsFromCache(streamId), [streamId]);
   const [streams, setStreams] = useState<LiveStream[]>(seed.streams);
   const [loading, setLoading] = useState(!seed.ready);
+  const [roomVisitNonce, setRoomVisitNonce] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      setRoomVisitNonce((n) => n + 1);
+    }, []),
+  );
 
   const blockGuestLive = guestExploreMode && !user;
 
@@ -109,8 +116,10 @@ export function LiveRoomScreen() {
     <LiveStripeProvider accessToken={session?.access_token}>
       <View style={styles.screen}>
         <VerticalLiveFeed
+          key={`${streamId}-${roomVisitNonce}`}
           streams={streams}
           initialStreamId={streamId}
+          roomVisitNonce={roomVisitNonce}
           onBack={() => navigation.goBack()}
           signedIn={Boolean(user)}
           onRequireAuth={onRequireAuth}

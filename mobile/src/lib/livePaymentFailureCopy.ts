@@ -16,7 +16,7 @@ const CODE_MESSAGES: Record<string, string> = {
   STRIPE_ERROR: 'Payment could not be completed. Try updating your saved card.',
   SELLER_NOT_READY: 'The seller is not ready to accept payments yet.',
   FULFILLMENT_ORDER_FAILED:
-    'Could not prepare checkout. Check your Wallet shipping address and try again.',
+    'Checkout setup failed before your card was charged — update your Wallet shipping address and try again.',
   LIVE_PAYMENT_BLOCKED:
     'Fix your failed payment in this show before buying again (check Wallet or the payment banner).',
   NO_SAVED_CARD: 'Add a saved payment method to your Wallet.',
@@ -48,6 +48,43 @@ function looksInternal(raw: string): boolean {
  * Map API / Stripe codes and raw messages to buyer-safe copy.
  * Fallback: "Your payment method needs attention."
  */
+const SHIPPING_RECOVERY_CODES = new Set([
+  'fulfillment_order_failed',
+  'no_shipping_address',
+  'no_shipping',
+]);
+
+/** True when Fix payment should open Wallet shipping (not card setup). */
+export function isShippingAddressRecoveryFailure(
+  raw?: string | null,
+  code?: string | null,
+): boolean {
+  const codeKey = normalizeCode(code);
+  if (codeKey && SHIPPING_RECOVERY_CODES.has(codeKey)) return true;
+  const upperCode = (code ?? '').trim();
+  if (
+    upperCode === 'FULFILLMENT_ORDER_FAILED' ||
+    upperCode === 'NO_SHIPPING_ADDRESS' ||
+    upperCode === 'NO_SHIPPING'
+  ) {
+    return true;
+  }
+
+  const text = (raw ?? '').trim();
+  if (!text) return false;
+  if (SHIPPING_RECOVERY_CODES.has(normalizeCode(text))) return true;
+
+  const lower = text.toLowerCase();
+  if (lower.includes('shipping address')) return true;
+  if (lower.includes('wallet shipping')) return true;
+  if (lower.includes('could not prepare checkout')) return true;
+  if (lower.includes('before your card was charged')) return true;
+  if (lower.includes('add a complete shipping address')) return true;
+  if (lower.includes('add a shipping address')) return true;
+
+  return false;
+}
+
 export function mapLivePaymentFailureMessage(
   raw?: string | null,
   code?: string | null,
@@ -100,4 +137,4 @@ export function recoveryStatusMessage(status: number | null | undefined): string
 export const PAYMENT_RECOVERY_SUCCESS_TOAST = "Payment successful — you're back in the room.";
 
 export const PAYMENT_RECOVERY_SUBTITLE =
-  'Update your payment method to continue. The show waits until payment clears before the next auction or buy now.';
+  'Update your shipping address in Wallet (use the suggested address), then tap Retry payment. The show waits until payment clears.';

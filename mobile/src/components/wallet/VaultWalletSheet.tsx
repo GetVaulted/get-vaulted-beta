@@ -81,6 +81,8 @@ type Props = {
   recoveryMode?: boolean;
   initialStep?: WalletStep;
   openPaymentSetupOnMount?: boolean;
+  /** Recovery — jump straight into Shippo address form (edit default or add new). */
+  openAddressFormOnMount?: boolean;
   onPaymentMethodSaved?: (paymentMethodId?: string) => void;
 };
 
@@ -170,6 +172,7 @@ export function VaultWalletSheet({
   recoveryMode = false,
   initialStep = 'main',
   openPaymentSetupOnMount = false,
+  openAddressFormOnMount = false,
   onPaymentMethodSaved,
 }: Props) {
   const insets = useSafeAreaInsets();
@@ -198,6 +201,7 @@ export function VaultWalletSheet({
   const [actionError, setActionError] = useState<string | null>(null);
   const [promoDraft, setPromoDraft] = useState('');
   const openSeedAppliedRef = useRef(false);
+  const addressFormSeedAppliedRef = useRef(false);
   const loadInFlight = useRef(false);
   const wasVisibleRef = useRef(false);
   const addressFormReturnStep = useRef<WalletStep>('shipping');
@@ -254,6 +258,7 @@ export function VaultWalletSheet({
       setEditingAddressId(null);
       setActionError(null);
       openSeedAppliedRef.current = false;
+      addressFormSeedAppliedRef.current = false;
       return;
     }
 
@@ -269,6 +274,34 @@ export function VaultWalletSheet({
     if (recoveryMode && openPaymentSetupOnMount) setPaymentSetupOpen(true);
     void loadRef.current();
   }, [visible, recoveryMode, initialStep, openPaymentSetupOnMount, initialReadiness]);
+
+  useEffect(() => {
+    if (!visible || !openAddressFormOnMount || addressFormSeedAppliedRef.current || loading) return;
+    if (step !== 'shipping') return;
+    addressFormSeedAppliedRef.current = true;
+    const seed = pickDefaultShippingAddress(addresses);
+    addressFormReturnStep.current = 'shipping';
+    if (seed) {
+      setEditingAddressId(seed.id);
+      setAddressFormDraft({
+        name: seed.name,
+        fullName: seed.fullName,
+        line1: seed.line1,
+        line2: seed.line2,
+        city: seed.city,
+        state: seed.state,
+        postalCode: seed.postalCode,
+        country: seed.country,
+        isDefault: seed.isDefault !== false,
+      });
+      setAddressFormEditing(true);
+    } else {
+      setEditingAddressId(null);
+      setAddressFormDraft(EMPTY_ADDRESS);
+      setAddressFormEditing(false);
+    }
+    setStep('addressForm');
+  }, [visible, openAddressFormOnMount, loading, step, addresses]);
 
   const goMain = () => setStep('main');
   const openPaymentSetup = (mode: 'picker' | 'card' | 'wallet' = 'picker') => {
@@ -475,13 +508,21 @@ export function VaultWalletSheet({
         ) : null}
       </ScrollView>
       <View style={[t.footer, { paddingBottom: 0 }]}>
+        {recoveryMode ? (
+          <Pressable style={t.primaryBtn} onPress={() => onPaymentMethodSaved?.()}>
+            <LiveRoomText style={t.primaryBtnText}>Retry payment</LiveRoomText>
+          </Pressable>
+        ) : null}
         <Pressable
-          style={[t.primaryBtn, loading && !walletReady && t.primaryBtnDisabled]}
-          onPress={walletReady ? onClose : finishWalletSetup}
-          disabled={loading && !walletReady}
+          style={[
+            recoveryMode ? t.secondaryBtn : t.primaryBtn,
+            !recoveryMode && loading && !walletReady && t.primaryBtnDisabled,
+          ]}
+          onPress={recoveryMode ? onClose : walletReady ? onClose : finishWalletSetup}
+          disabled={!recoveryMode && loading && !walletReady}
         >
-          <LiveRoomText style={t.primaryBtnText}>
-            {walletReady ? 'Done' : 'Finish setup'}
+          <LiveRoomText style={recoveryMode ? t.secondaryBtnText : t.primaryBtnText}>
+            {recoveryMode ? 'Back' : walletReady ? 'Done' : 'Finish setup'}
           </LiveRoomText>
         </Pressable>
       </View>
@@ -528,8 +569,13 @@ export function VaultWalletSheet({
         </Pressable>
       </ScrollView>
       <View style={t.footer}>
-        <Pressable style={t.primaryBtn} onPress={goMain}>
-          <LiveRoomText style={t.primaryBtnText}>Done</LiveRoomText>
+        {recoveryMode ? (
+          <Pressable style={t.primaryBtn} onPress={() => onPaymentMethodSaved?.()}>
+            <LiveRoomText style={t.primaryBtnText}>Retry payment</LiveRoomText>
+          </Pressable>
+        ) : null}
+        <Pressable style={recoveryMode ? t.secondaryBtn : t.primaryBtn} onPress={goMain}>
+          <LiveRoomText style={recoveryMode ? t.secondaryBtnText : t.primaryBtnText}>Done</LiveRoomText>
         </Pressable>
       </View>
     </>

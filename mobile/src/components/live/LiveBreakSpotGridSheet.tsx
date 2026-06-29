@@ -9,6 +9,7 @@ import {
   ScrollView,
   StyleSheet,
   View,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LiveItemVariantSnapshot } from '../../api/liveRoomBuyerRepository';
@@ -19,6 +20,7 @@ import {
 } from '../../api/liveVariantPurchaseRepository';
 import { isWalletIncompleteError } from '../../lib/buyerWalletErrors';
 import { mapLivePaymentFailureMessage } from '../../lib/livePaymentFailureCopy';
+import { formatSoldSpotBuyerLabel } from '../../lib/liveVariantSpotBoard';
 import {
   sortVariantsForBuyerDisplay,
   summarizeVariantSpots,
@@ -50,7 +52,7 @@ type Props = {
   onWalletRequired: () => void;
   onPurchased: () => void;
   /** Refetch room snapshot after failed checkout so released spots reappear. */
-  onRoomRefresh?: () => void;
+  onRoomRefresh?: () => void | Promise<void>;
 };
 
 function fmtMoney(n: number) {
@@ -148,13 +150,14 @@ export function LiveBreakSpotGridSheet({
         paymentMethodId: paymentSession?.activePaymentMethodId ?? undefined,
       });
       if (!res.ok) {
-        setError(
-          mapLivePaymentFailureMessage(
-            res.error,
-            res.code,
-          ) + (res.paymentFailed ? ' Spot was not sold.' : ''),
-        );
-        if (res.paymentFailed) onRoomRefresh?.();
+        const msg =
+          mapLivePaymentFailureMessage(res.error, res.code) + (res.paymentFailed ? ' Spot was not sold.' : '');
+        setError(msg);
+        if (res.paymentFailed || res.code === 'LIVE_PAYMENT_BLOCKED') {
+          onClose();
+          Alert.alert(res.paymentFailed ? 'Payment failed' : 'Payment blocked', msg);
+          await onRoomRefresh?.();
+        }
         return;
       }
       if ('paid' in res) {
@@ -169,7 +172,10 @@ export function LiveBreakSpotGridSheet({
       if ('requiresAction' in res) {
         const conf = await confirmPayment(res.clientSecret, { paymentMethodType: 'Card' });
         if (conf.error) {
-          setError(mapLivePaymentFailureMessage(conf.error.message, conf.error.code));
+          const msg = mapLivePaymentFailureMessage(conf.error.message, conf.error.code);
+          setError(msg);
+          onClose();
+          Alert.alert('Payment failed', msg);
           const synced = await syncLiveItemVariantPurchase({
             accessToken,
             liveRoomId: roomId,
@@ -177,7 +183,7 @@ export function LiveBreakSpotGridSheet({
             variantId: selected.id,
             purchaseId: res.purchaseId,
           });
-          if (!synced.ok && synced.paymentFailed) onRoomRefresh?.();
+          if (!synced.ok && synced.paymentFailed) await onRoomRefresh?.();
           return;
         }
         const synced = await syncLiveItemVariantPurchase({
@@ -202,7 +208,14 @@ export function LiveBreakSpotGridSheet({
                 (synced.paymentFailed ? ' Spot was not sold.' : '')
             : 'Payment is still processing — pull to refresh the room.',
         );
-        if (!synced.ok && synced.paymentFailed) onRoomRefresh?.();
+        if (!synced.ok && synced.paymentFailed) {
+          onClose();
+          Alert.alert(
+            'Payment failed',
+            mapLivePaymentFailureMessage(synced.error, synced.code) + ' Spot was not sold.',
+          );
+          await onRoomRefresh?.();
+        }
         return;
       }
       if ('processing' in res) {
@@ -427,7 +440,9 @@ function TeamPill({
           {fmtMoney(variant.priceUsd)}
         </LiveRoomText>
       ) : (
-        <LiveRoomText style={styles.pillSoldMeta}>Sold</LiveRoomText>
+        <LiveRoomText style={styles.pillSoldMeta} numberOfLines={1}>
+          {formatSoldSpotBuyerLabel(variant.buyerUsername)}
+        </LiveRoomText>
       )}
     </Pressable>
   );
@@ -682,9 +697,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontSize: 9,
     fontWeight: '700',
-    color: 'rgba(255,255,255,0.32)',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    color: 'rgba(52,211,153,0.85)',
+    letterSpacing: 0.2,
   },
   hotBadge: {
     position: 'absolute',

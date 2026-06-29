@@ -386,6 +386,19 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       console.syncQueue();
       console.syncSales();
     },
+    onPaymentFailed: (payload) => {
+      void console.syncSales();
+      const buyer = payload.buyerUsername?.trim() ? `@${payload.buyerUsername.trim()}` : 'A buyer';
+      const item = payload.itemTitle?.trim() ? ` — ${payload.itemTitle.trim()}` : '';
+      const reason =
+        typeof payload.failureReason === 'string' && payload.failureReason.trim()
+          ? payload.failureReason.trim()
+          : 'Payment could not be completed.';
+      Alert.alert(
+        'Buyer payment failed',
+        `${buyer}${item}\n\n${reason}\n\nOpen Sales to retry or cancel.`,
+      );
+    },
     onBidPlaced: () => {
       console.syncQueue();
     },

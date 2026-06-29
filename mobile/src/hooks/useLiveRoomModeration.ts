@@ -107,10 +107,14 @@ export function useLiveRoomModeration(args: {
       if (cancelled || detach) return;
       const channel = peekLiveRoomChannel(args.roomId);
       if (!channel) return;
-      const handler = () => void reload();
+      let active = true;
+      const handler = () => {
+        if (!active || cancelled) return;
+        void reload();
+      };
       channel.on('broadcast', { event: RT_EVENT.moderationChanged }, handler);
       detach = () => {
-        channel.off('broadcast', { event: RT_EVENT.moderationChanged }, handler);
+        active = false;
       };
     };
 

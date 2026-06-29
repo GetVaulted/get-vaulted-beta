@@ -2,7 +2,7 @@
 
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import { isVariantSalesFormat, variantBuyerSelectLabel, hostSpotBoardPinEnabled } from "@/lib/live-item-variant-presets";
-import { buildVariantSpotDisplayRows } from "@/lib/live-variant-spot-board";
+import { buildVariantSpotDisplayRows, formatSoldSpotBuyerLabel } from "@/lib/live-variant-spot-board";
 
 type LiveVariantSpotBoardProps = {
   item: LiveRoomItemDTO | null;
@@ -163,12 +163,9 @@ export function LiveVariantSpotBoard({
                   </button>
                 ) : null}
               </div>
-              <p className={`mt-0.5 font-mono text-[10px] font-bold ${r.sold ? "text-zinc-600" : "text-zinc-500"}`}>
-                {r.sold ? "Sold" : fmtMoney(r.priceUsd)}
+              <p className={`mt-0.5 font-mono text-[10px] font-bold ${r.sold ? "text-emerald-300/80" : "text-zinc-500"}`}>
+                {r.sold ? formatSoldSpotBuyerLabel(r.buyerUsername) : fmtMoney(r.priceUsd)}
               </p>
-              {r.sold && r.buyerUsername ? (
-                <p className="mt-0.5 truncate text-[9px] font-semibold text-emerald-300/80">@{r.buyerUsername}</p>
-              ) : null}
             </>
           );
 

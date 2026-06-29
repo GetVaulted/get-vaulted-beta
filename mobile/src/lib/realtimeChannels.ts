@@ -60,4 +60,5 @@ export type RoomBroadcastPayload = {
   failureId?: string;
   buyerUsername?: string | null;
   itemTitle?: string | null;
+  failureReason?: string | null;
 };

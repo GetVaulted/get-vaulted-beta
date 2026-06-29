@@ -11,6 +11,7 @@ import { attachHighBidderUsernames } from "@/lib/live-room-high-bidder-enrich";
 import { listUnresolvedPaymentFailuresForRoom } from "@/lib/live-room-payment-failure";
 import { serializeLiveRoomItem, serializeLiveRoomMessage } from "@/lib/live-room-serialize";
 import { liveRoomItemsWithVariantsInclude } from "@/lib/live-item-variant-include";
+import { enrichLiveRoomItemsRandomClaims } from "@/lib/live-variant-random-claims";
 import { apiErrorResponseFromUnknown } from "@/lib/prisma-api-error-response";
 import { logSellerRoomStateSnapshot } from "@/lib/log-room-state-snapshot";
 import { computeBreakBuyerPhase } from "@/lib/live-room-break-public";
@@ -142,7 +143,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     });
     const flatItems = queueItemsRaw.map((q) => q.item);
     const flatEnriched = await attachHighBidderUsernames(flatItems);
-    const enrichedById = new Map(flatEnriched.map((row) => [row.id, row]));
+    let itemsWithRandomClaims = flatEnriched;
+    try {
+      itemsWithRandomClaims = await enrichLiveRoomItemsRandomClaims(flatEnriched);
+    } catch (e) {
+      console.error("[host-console] enrichLiveRoomItemsRandomClaims failed", { liveRoomId, e });
+    }
+    const enrichedById = new Map(itemsWithRandomClaims.map((row) => [row.id, row]));
     const queueItems = queueItemsRaw.map((row) => ({
       ...row,
       item: enrichedById.get(row.item.id) ?? row.item,

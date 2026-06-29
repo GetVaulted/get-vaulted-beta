@@ -1,5 +1,8 @@
-/** Fraction of stage width the chrome slides off-screen (Whatnot-style). */
-export const LIVE_IMMERSIVE_HIDE_RATIO = 0.94;
+/** Full stage width plus bleed so rails, shadows, and chat never peek at the edge. */
+export const LIVE_IMMERSIVE_HIDE_RATIO = 1;
+
+/** Extra slide distance (design px) past the stage edge for glow / shadow bleed. */
+export const LIVE_IMMERSIVE_HIDE_BLEED_PX = 64;
 
 export const LIVE_IMMERSIVE_SPRING = {
   damping: 26,
@@ -8,7 +11,7 @@ export const LIVE_IMMERSIVE_SPRING = {
 } as const;
 
 export function computeLiveImmersiveHideDistance(stageWidth: number): number {
-  return Math.max(1, stageWidth) * LIVE_IMMERSIVE_HIDE_RATIO;
+  return Math.max(1, stageWidth) * LIVE_IMMERSIVE_HIDE_RATIO + LIVE_IMMERSIVE_HIDE_BLEED_PX;
 }
 
 /** @returns true when chrome should end hidden (immersive / clean video). */
@@ -19,6 +22,7 @@ export function resolveLiveImmersiveSnap(args: {
   translationX: number;
   startedHidden: boolean;
 }): boolean {
+  'worklet';
   const { translateX, hideDistance, velocityX, translationX, startedHidden } = args;
   const hiddenProgress = Math.abs(translateX) / Math.max(1, hideDistance);
 

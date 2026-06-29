@@ -92,7 +92,6 @@ export function VaultEventsHub({
   const [cancellingRoomId, setCancellingRoomId] = useState<string | null>(null);
   const requestRef = useRef(0);
   const loadedOnceRef = useRef(false);
-  const autoSegmentRef = useRef(false);
 
   const liveBlocked = liveGate.blocked;
 
@@ -164,16 +163,6 @@ export function VaultEventsHub({
       void load({ silent: true, force: true });
     });
   }, [load]);
-
-  useEffect(() => {
-    if (!loadedOnce || autoSegmentRef.current || rooms.length === 0) return;
-    autoSegmentRef.current = true;
-    const b = bucketRooms(rooms);
-    if (b.live_now.length > 0) return;
-    if (b.upcoming.length > 0) setSegment('upcoming');
-    else if (b.drafts.length > 0) setSegment('drafts');
-    else if (b.past.length > 0) setSegment('past');
-  }, [loadedOnce, rooms]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

@@ -29,7 +29,7 @@ import {
 } from "@/services/shipping/live-commerce-fulfillment-order";
 import { prisma } from "@/lib/prisma";
 import {
-  sellerStripeCollectReady,
+  liveSavedCardSellerReady,
   sellerStripeCollectSelect,
 } from "@/lib/seller-stripe-collect-ready";
 import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId } from "@/lib/stripe-customer";
@@ -177,7 +177,13 @@ export function mapLiveFulfillmentOrderError(err: unknown): string {
   if (lower.includes("live_shipping_session_not")) {
     return "Could not link this purchase to live shipping — try again.";
   }
-  return "Could not prepare checkout. Check your Wallet shipping address and try again.";
+  return "Checkout setup failed before your card was charged. Check your Wallet shipping address and try again.";
+}
+
+/** Stripe Connect requires application_fee_amount strictly less than the charge amount. */
+function capLiveApplicationFeeCents(feeCents: number, amountCents: number): number {
+  if (amountCents < 50) return 0;
+  return Math.min(Math.max(0, feeCents), Math.max(0, amountCents - 50));
 }
 
 function mapLiveSavedCardStripeError(
@@ -306,7 +312,7 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
     where: { id: purchase.liveRoom.sellerId },
     select: sellerStripeCollectSelect,
   });
-  if (!sellerStripeCollectReady(seller)) {
+  if (!liveSavedCardSellerReady(seller)) {
     return { outcome: "error", code: "SELLER_NOT_READY", message: "Seller payouts are not ready." };
   }
   const destinationAccount = seller!.stripeAccountId!.trim();
@@ -355,13 +361,17 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
     return { outcome: "error", code: "INVALID_AMOUNT", message: "Purchase amount is too small to charge." };
   }
 
-  const feeCents = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: purchase.totalUsd,
-    isCompanyListing: false,
-    liveRoomId: purchase.liveRoomId,
-  });
+  const feeCents = capLiveApplicationFeeCents(
+    await resolveCheckoutApplicationFeeCents({
+      saleAmountUsd: purchase.totalUsd,
+      isCompanyListing: false,
+      liveRoomId: purchase.liveRoomId,
+    }),
+    amountCents,
+  );
 
   const stripe = getStripe();
+  const chargeAttemptMs = Date.now();
 
   let clearedDeadIntentId: string | null = null;
   if (purchase.stripePaymentIntentId) {
@@ -403,7 +413,7 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
           referenceId: purchase.id,
           amountCents,
           paymentMethodId: pmId,
-          chargeAttemptMs: purchase.createdAt.getTime(),
+          chargeAttemptMs,
           clearedDeadIntentId,
         }),
       },
@@ -607,7 +617,7 @@ export async function chargeBreakSpotWithSavedCard(args: {
     where: { id: spot.liveRoom.sellerId },
     select: sellerStripeCollectSelect,
   });
-  if (!sellerStripeCollectReady(seller)) {
+  if (!liveSavedCardSellerReady(seller)) {
     return { outcome: "error", code: "SELLER_NOT_READY", message: "Seller payouts are not ready." };
   }
   const breakDestinationAccount = seller!.stripeAccountId!.trim();
@@ -655,13 +665,17 @@ export async function chargeBreakSpotWithSavedCard(args: {
     return { outcome: "error", code: "INVALID_AMOUNT", message: "Spot price is too small to charge." };
   }
 
-  const feeCents = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: spot.priceUsd,
-    isCompanyListing: false,
-    liveRoomId: spot.liveRoomId,
-  });
+  const feeCents = capLiveApplicationFeeCents(
+    await resolveCheckoutApplicationFeeCents({
+      saleAmountUsd: spot.priceUsd,
+      isCompanyListing: false,
+      liveRoomId: spot.liveRoomId,
+    }),
+    amountCents,
+  );
 
   const stripe = getStripe();
+  const chargeAttemptMs = Date.now();
   let clearedDeadIntentId: string | null = null;
   if (spot.stripePaymentIntentId) {
     const existing = await stripe.paymentIntents.retrieve(spot.stripePaymentIntentId);
@@ -704,7 +718,7 @@ export async function chargeBreakSpotWithSavedCard(args: {
           referenceId: spot.id,
           amountCents,
           paymentMethodId: pmId,
-          chargeAttemptMs: spot.createdAt.getTime(),
+          chargeAttemptMs,
           clearedDeadIntentId,
         }),
       },

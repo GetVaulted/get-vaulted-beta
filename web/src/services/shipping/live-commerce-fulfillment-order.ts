@@ -1,5 +1,8 @@
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
-import { resolveBuyerDefaultShippingForOrder } from "@/lib/live-buy-now-purchase";
+import {
+  resolveBuyerDefaultShippingForOrder,
+  syncBuyerDefaultShippingToPendingOrderTx,
+} from "@/lib/live-buy-now-purchase";
 import { resolveShippingProfileDimensions } from "@/lib/unified-shipping-engine";
 import {
   addOrderToLiveShippingSessionTx,
@@ -28,15 +31,47 @@ function liveCommerceSessionOpts(args: {
 }
 
 /** Ensure live shipping session + immutable terms snapshot exist on a fulfillment order. */
+/** Clear a half-settled live commerce order so shipping prep can run again on retry. */
+async function repairStuckLiveCommerceOrderShippingTx(
+  tx: TransactionClient,
+  orderId: string,
+): Promise<void> {
+  const order = await tx.order.findUnique({
+    where: { id: orderId },
+    select: {
+      liveShippingSessionId: true,
+      shippingTermsSnapshotJson: true,
+    },
+  });
+  if (!order) return;
+  const snapshotReady =
+    order.shippingTermsSnapshotJson != null && typeof order.shippingTermsSnapshotJson === "object";
+  if (snapshotReady) return;
+
+  const sessionItem = await tx.liveShippingSessionItem.findUnique({
+    where: { orderId },
+    select: { sessionId: true },
+  });
+  if (sessionItem) {
+    await tx.liveShippingSessionItem.delete({ where: { orderId } });
+  }
+  await tx.order.update({
+    where: { id: orderId },
+    data: { liveShippingSessionId: null },
+  });
+}
+
 async function completeLiveCommerceFulfillmentShippingTx(
   tx: TransactionClient,
   orderId: string,
   itemPriceUsd: number,
   sessionOpts: AddOrderToLiveShippingSessionOpts,
+  buyerId?: string,
 ): Promise<{ totalUsd: number; shippingPriceUsd: number }> {
   const order = await tx.order.findUnique({
     where: { id: orderId },
     select: {
+      buyerId: true,
       liveShippingSessionId: true,
       shippingTermsSnapshotJson: true,
       totalUsd: true,
@@ -45,18 +80,31 @@ async function completeLiveCommerceFulfillmentShippingTx(
   });
   if (!order) throw new Error("ORDER_NOT_FOUND");
 
+  await syncBuyerDefaultShippingToPendingOrderTx(tx, orderId, buyerId ?? order.buyerId);
+
   const shippingReady =
     order.liveShippingSessionId != null &&
     order.shippingTermsSnapshotJson != null &&
     typeof order.shippingTermsSnapshotJson === "object";
 
   if (!shippingReady) {
-    await addOrderToLiveShippingSessionTx(tx, orderId, sessionOpts);
-    const settled = await settleLiveOrderShippingTx(tx, orderId, sessionOpts);
-    return {
-      totalUsd: itemPriceUsd + settled.shippingPriceUsd,
-      shippingPriceUsd: settled.shippingPriceUsd,
-    };
+    try {
+      await addOrderToLiveShippingSessionTx(tx, orderId, sessionOpts);
+      const settled = await settleLiveOrderShippingTx(tx, orderId, sessionOpts);
+      return {
+        totalUsd: itemPriceUsd + settled.shippingPriceUsd,
+        shippingPriceUsd: settled.shippingPriceUsd,
+      };
+    } catch {
+      await repairStuckLiveCommerceOrderShippingTx(tx, orderId);
+      await syncBuyerDefaultShippingToPendingOrderTx(tx, orderId, buyerId ?? order.buyerId);
+      await addOrderToLiveShippingSessionTx(tx, orderId, sessionOpts);
+      const settled = await settleLiveOrderShippingTx(tx, orderId, sessionOpts);
+      return {
+        totalUsd: itemPriceUsd + settled.shippingPriceUsd,
+        shippingPriceUsd: settled.shippingPriceUsd,
+      };
+    }
   }
 
   return {
@@ -80,6 +128,8 @@ export async function createLiveCommerceFulfillmentOrderTx(
     title: string;
     itemPriceUsd: number;
     idempotencyKey: string;
+    /** Charge spot/item price now; settle live bundled shipping after payment succeeds. */
+    skipLiveShippingSettlement?: boolean;
   },
 ): Promise<{ orderId: string; totalUsd: number; shippingPriceUsd: number }> {
   const sessionOpts = liveCommerceSessionOpts({
@@ -98,6 +148,14 @@ export async function createLiveCommerceFulfillmentOrderTx(
     },
   });
   if (existingOrder) {
+    if (args.skipLiveShippingSettlement) {
+      await syncBuyerDefaultShippingToPendingOrderTx(tx, existingOrder.id, args.buyerId);
+      return {
+        orderId: existingOrder.id,
+        totalUsd: args.itemPriceUsd,
+        shippingPriceUsd: existingOrder.shippingPriceUsd ?? 0,
+      };
+    }
     const totals = await completeLiveCommerceFulfillmentShippingTx(
       tx,
       existingOrder.id,
@@ -207,6 +265,10 @@ export async function createLiveCommerceFulfillmentOrderTx(
     select: { id: true },
   });
 
+  if (args.skipLiveShippingSettlement) {
+    return { orderId: order.id, totalUsd: args.itemPriceUsd, shippingPriceUsd: 0 };
+  }
+
   const totals = await completeLiveCommerceFulfillmentShippingTx(
     tx,
     order.id,
@@ -222,6 +284,25 @@ export async function createLiveCommerceFulfillmentOrderTx(
 }
 
 export async function ensureVariantPurchaseFulfillmentOrder(
+  purchaseId: string,
+): Promise<{ orderId: string; chargeTotalUsd: number }> {
+  try {
+    return await ensureVariantPurchaseFulfillmentOrderStrict(purchaseId);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err ?? "");
+    console.error("[variant purchase] fulfillment strict path failed; charging spot price only", {
+      purchaseId,
+      detail,
+    });
+    try {
+      return await ensureVariantPurchaseFulfillmentOrderSpotPriceFallback(purchaseId);
+    } catch {
+      throw err;
+    }
+  }
+}
+
+async function ensureVariantPurchaseFulfillmentOrderStrict(
   purchaseId: string,
 ): Promise<{ orderId: string; chargeTotalUsd: number }> {
   return prisma.$transaction(async (tx) => {
@@ -290,7 +371,74 @@ export async function ensureVariantPurchaseFulfillmentOrder(
   });
 }
 
+async function ensureVariantPurchaseFulfillmentOrderSpotPriceFallback(
+  purchaseId: string,
+): Promise<{ orderId: string; chargeTotalUsd: number }> {
+  return prisma.$transaction(async (tx) => {
+    const purchase = await tx.liveItemVariantPurchase.findUnique({
+      where: { id: purchaseId },
+      select: {
+        id: true,
+        liveRoomId: true,
+        liveRoomItemId: true,
+        buyerId: true,
+        totalUsd: true,
+        fulfillmentOrderId: true,
+        variant: { select: { label: true } },
+        liveRoom: { select: { sellerId: true } },
+      },
+    });
+    if (!purchase) throw new Error("PURCHASE_NOT_FOUND");
+
+    if (purchase.fulfillmentOrderId) {
+      await syncBuyerDefaultShippingToPendingOrderTx(tx, purchase.fulfillmentOrderId, purchase.buyerId);
+      await tx.order.update({
+        where: { id: purchase.fulfillmentOrderId },
+        data: { totalUsd: purchase.totalUsd, shippingPriceUsd: 0 },
+      });
+      return { orderId: purchase.fulfillmentOrderId, chargeTotalUsd: purchase.totalUsd };
+    }
+
+    const title = `Live spot: ${purchase.variant.label}`.slice(0, 200);
+    const created = await createLiveCommerceFulfillmentOrderTx(tx, {
+      kind: "variant_purchase",
+      buyerId: purchase.buyerId,
+      sellerId: purchase.liveRoom.sellerId,
+      liveShowId: purchase.liveRoomId,
+      liveRoomItemId: purchase.liveRoomItemId,
+      title,
+      itemPriceUsd: purchase.totalUsd,
+      idempotencyKey: `live_variant:${purchase.id}`,
+      skipLiveShippingSettlement: true,
+    });
+    await tx.liveItemVariantPurchase.update({
+      where: { id: purchase.id },
+      data: { fulfillmentOrderId: created.orderId },
+    });
+    return { orderId: created.orderId, chargeTotalUsd: purchase.totalUsd };
+  });
+}
+
 export async function ensureBreakSpotFulfillmentOrder(
+  breakSpotId: string,
+): Promise<{ orderId: string; chargeTotalUsd: number }> {
+  try {
+    return await ensureBreakSpotFulfillmentOrderStrict(breakSpotId);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err ?? "");
+    console.error("[break spot] fulfillment strict path failed; charging spot price only", {
+      breakSpotId,
+      detail,
+    });
+    try {
+      return await ensureBreakSpotFulfillmentOrderSpotPriceFallback(breakSpotId);
+    } catch {
+      throw err;
+    }
+  }
+}
+
+async function ensureBreakSpotFulfillmentOrderStrict(
   breakSpotId: string,
 ): Promise<{ orderId: string; chargeTotalUsd: number }> {
   return prisma.$transaction(async (tx) => {
@@ -356,5 +504,53 @@ export async function ensureBreakSpotFulfillmentOrder(
       data: { fulfillmentOrderId: created.orderId },
     });
     return { orderId: created.orderId, chargeTotalUsd: created.totalUsd };
+  });
+}
+
+async function ensureBreakSpotFulfillmentOrderSpotPriceFallback(
+  breakSpotId: string,
+): Promise<{ orderId: string; chargeTotalUsd: number }> {
+  return prisma.$transaction(async (tx) => {
+    const spot = await tx.breakSpot.findUnique({
+      where: { id: breakSpotId },
+      select: {
+        id: true,
+        liveRoomId: true,
+        liveRoomItemId: true,
+        userId: true,
+        spotLabel: true,
+        priceUsd: true,
+        fulfillmentOrderId: true,
+        liveRoom: { select: { sellerId: true } },
+      },
+    });
+    if (!spot) throw new Error("SPOT_NOT_FOUND");
+
+    if (spot.fulfillmentOrderId) {
+      await syncBuyerDefaultShippingToPendingOrderTx(tx, spot.fulfillmentOrderId, spot.userId);
+      await tx.order.update({
+        where: { id: spot.fulfillmentOrderId },
+        data: { totalUsd: spot.priceUsd, shippingPriceUsd: 0 },
+      });
+      return { orderId: spot.fulfillmentOrderId, chargeTotalUsd: spot.priceUsd };
+    }
+
+    const title = `Break spot: ${spot.spotLabel}`.slice(0, 200);
+    const created = await createLiveCommerceFulfillmentOrderTx(tx, {
+      kind: "break_spot",
+      buyerId: spot.userId,
+      sellerId: spot.liveRoom.sellerId,
+      liveShowId: spot.liveRoomId,
+      liveRoomItemId: spot.liveRoomItemId,
+      title,
+      itemPriceUsd: spot.priceUsd,
+      idempotencyKey: `live_break_spot:${spot.id}`,
+      skipLiveShippingSettlement: true,
+    });
+    await tx.breakSpot.update({
+      where: { id: spot.id },
+      data: { fulfillmentOrderId: created.orderId },
+    });
+    return { orderId: created.orderId, chargeTotalUsd: spot.priceUsd };
   });
 }

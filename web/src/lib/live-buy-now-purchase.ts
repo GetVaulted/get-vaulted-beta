@@ -1,4 +1,5 @@
 import { OrderPaymentMethod } from "@/generated/prisma/enums";
+import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
 import { prisma } from "@/lib/prisma";
 import { isEscrowConfigured, orderTotalQualifiesForEscrow } from "@/lib/escrow-config";
 import {
@@ -41,7 +42,21 @@ export async function resolveBuyerDefaultShippingForOrder(
     where: { userId, type: "shipping" },
     orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
   });
-  if (!addr?.line1?.trim() || !addr.city?.trim() || !addr.state?.trim() || !addr.postalCode?.trim()) {
+  return addr ? buyerShippingSnapshotFromAddress(addr) : null;
+}
+
+export function buyerShippingSnapshotFromAddress(addr: {
+  id: string;
+  fullName: string | null;
+  name: string | null;
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  country: string | null;
+}): BuyerShippingSnapshot | null {
+  if (!addr.line1?.trim() || !addr.city?.trim() || !addr.state?.trim() || !addr.postalCode?.trim()) {
     return null;
   }
   const line2 = addr.line2?.trim();
@@ -54,6 +69,94 @@ export async function resolveBuyerDefaultShippingForOrder(
     shipCountry: (addr.country?.trim() || "US").slice(0, 2).toUpperCase(),
     buyerAddressId: addr.id,
   };
+}
+
+function orderShippingNeedsBuyerRefresh(order: {
+  buyerAddressId: string | null;
+  shipAddress: string | null;
+  shipCity: string | null;
+  shipState: string | null;
+  shipZip: string | null;
+}): boolean {
+  if (isIncompleteOrderShipping(order)) return true;
+  return false;
+}
+
+export function isIncompleteOrderShipping(order: {
+  shipAddress: string | null;
+  shipCity: string | null;
+  shipState: string | null;
+  shipZip: string | null;
+}): boolean {
+  const addr = (order.shipAddress ?? "").trim();
+  const city = (order.shipCity ?? "").trim();
+  const state = (order.shipState ?? "").trim();
+  const zip = (order.shipZip ?? "").trim();
+  if (!addr || !city || !state || !zip) return true;
+  if (zip === "00000") return true;
+  const lower = addr.toLowerCase();
+  if (lower.includes("coordinate shipping")) return true;
+  if (city === "—" || city === "-") return true;
+  return false;
+}
+
+/** Copy the buyer's current default Wallet shipping address onto an unpaid order before retry. */
+export async function syncBuyerDefaultShippingToPendingOrder(
+  orderId: string,
+  buyerId: string,
+): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await syncBuyerDefaultShippingToPendingOrderTx(tx, orderId, buyerId);
+  });
+}
+
+export async function syncBuyerDefaultShippingToPendingOrderTx(
+  tx: TransactionClient,
+  orderId: string,
+  buyerId: string,
+): Promise<void> {
+  const order = await tx.order.findUnique({
+    where: { id: orderId },
+    select: {
+      buyerId: true,
+      paymentStatus: true,
+      buyerAddressId: true,
+      shipAddress: true,
+      shipCity: true,
+      shipState: true,
+      shipZip: true,
+    },
+  });
+  if (!order || order.buyerId !== buyerId || order.paymentStatus === PAYMENT_PAID) return;
+
+  const addr = await tx.address.findFirst({
+    where: { userId: buyerId, type: "shipping" },
+    orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
+  });
+  const shipping = addr ? buyerShippingSnapshotFromAddress(addr) : null;
+  if (!shipping) throw new Error("NO_SHIPPING_ADDRESS");
+
+  const needsUpdate =
+    order.buyerAddressId !== shipping.buyerAddressId ||
+    (order.shipAddress ?? "").trim() !== shipping.shipAddress ||
+    (order.shipCity ?? "").trim() !== shipping.shipCity ||
+    (order.shipState ?? "").trim() !== shipping.shipState ||
+    (order.shipZip ?? "").trim() !== shipping.shipZip;
+
+  if (!needsUpdate && !orderShippingNeedsBuyerRefresh(order)) return;
+
+  await tx.order.update({
+    where: { id: orderId },
+    data: {
+      shipRecipientName: shipping.shipRecipientName,
+      shipAddress: shipping.shipAddress,
+      shipCity: shipping.shipCity,
+      shipState: shipping.shipState,
+      shipZip: shipping.shipZip,
+      shipCountry: shipping.shipCountry,
+      buyerAddressId: shipping.buyerAddressId,
+    },
+  });
 }
 
 export async function createLiveBuyNowOrder(args: {

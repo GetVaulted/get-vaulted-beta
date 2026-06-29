@@ -202,8 +202,8 @@ export function LivePaymentFailureModal({
   const handlePaymentMethodSaved = (paymentMethodId?: string) => {
     setCardSaved(true);
     void (async () => {
-      await runRetry(paymentMethodId);
-      closeWallet();
+      const ok = await runRetry(paymentMethodId);
+      if (ok) closeWallet();
     })();
   };
 
@@ -288,8 +288,7 @@ export function LivePaymentFailureModal({
           accessToken={accessToken}
           roomId={roomId}
           recoveryMode
-          initialStep="payment"
-          openPaymentSetupOnMount
+          initialStep="main"
           onPaymentMethodSaved={handlePaymentMethodSaved}
           onActiveChange={(active) => {
             if (active) onWalletOverlayChange?.(true);

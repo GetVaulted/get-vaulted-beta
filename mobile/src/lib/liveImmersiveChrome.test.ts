@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeLiveImmersiveHideDistance,
+  LIVE_IMMERSIVE_HIDE_BLEED_PX,
   LIVE_IMMERSIVE_HIDE_RATIO,
   resolveLiveImmersiveSnap,
 } from './liveImmersiveChrome';
 
 describe('computeLiveImmersiveHideDistance', () => {
-  it('scales hide distance with stage width', () => {
-    expect(computeLiveImmersiveHideDistance(430)).toBeCloseTo(430 * LIVE_IMMERSIVE_HIDE_RATIO, 5);
+  it('scales hide distance with stage width and bleed', () => {
+    expect(computeLiveImmersiveHideDistance(430)).toBeCloseTo(
+      430 * LIVE_IMMERSIVE_HIDE_RATIO + LIVE_IMMERSIVE_HIDE_BLEED_PX,
+      5,
+    );
   });
 });
 

@@ -15,6 +15,11 @@ export type VariantSpotDisplayRow = {
   color?: string | null;
 };
 
+export function formatSoldSpotBuyerLabel(buyerUsername: string | null | undefined): string {
+  const username = buyerUsername?.trim().replace(/^@+/, '');
+  return username ? `@${username}` : 'Sold';
+}
+
 export function buildVariantSpotDisplayRows(
   item: Pick<LiveRoomItemRow, 'salesFormat' | 'variantAssignmentMode' | 'variants'> & {
     randomSpotClaims?: RandomSpotClaim[];

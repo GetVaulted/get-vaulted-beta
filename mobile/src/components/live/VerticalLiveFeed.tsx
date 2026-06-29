@@ -36,7 +36,6 @@ import { LiveAuctionSoldCelebration } from './LiveAuctionSoldCelebration';
 import { LiveSpotTakenCelebration } from './LiveSpotTakenCelebration';
 import { VaultRevealOverlay } from './VaultRevealOverlay';
 import { LiveGiveawaySideTab } from './LiveGiveawaySideTab';
-import { LiveImmersiveRestoreHint } from './LiveImmersiveRestoreHint';
 import { useLiveImmersiveChrome } from '../../hooks/useLiveImmersiveChrome';
 import {
   CHAT_ABOVE_COMPOSER_GAP,
@@ -74,7 +73,14 @@ import { LiveCustomBidSheet } from './LiveCustomBidSheet';
 import { LiveTipSheet } from './LiveTipSheet';
 import { LivePinnedActionBar } from './LivePinnedActionBar';
 import { LivePaymentFailureModal } from './LivePaymentFailureModal';
+import { LiveBuyerWalletGateModal } from './LiveBuyerWalletGateModal';
+import { WalletSheet } from '../wallet/WalletSheet';
 import { PAYMENT_RECOVERY_SUCCESS_TOAST } from '../../lib/livePaymentFailureCopy';
+import {
+  isWalletIncompleteReadiness,
+  type BuyerWalletReadiness,
+} from '../../lib/buyerWalletErrors';
+import { buyerWalletGatePromptBody } from '../../lib/buyerWalletReadinessDisplay';
 import { LiveEmptyBroadcastBlock } from './LiveEmptyBroadcastBlock';
 import { LiveStagePlayback } from './LiveStagePlayback';
 import { LiveRoomText } from './LiveRoomText';
@@ -109,6 +115,8 @@ function chatRightEdgeForWidth(layoutWidth: number): number {
 type Props = {
   streams: LiveStream[];
   initialStreamId?: string;
+  /** Bumps when the live room screen is focused again (new visit). */
+  roomVisitNonce?: number;
   /** Minimal back control — rendered inside the stream header when provided. */
   onBack?: () => void;
   signedIn?: boolean;
@@ -120,6 +128,37 @@ type Props = {
 function formatViewers(n: number) {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
+}
+
+type WalletGateHostSnapshot = {
+  readiness: BuyerWalletReadiness;
+  showModal: boolean;
+  showSheet: boolean;
+  roomId: string;
+  accessToken: string;
+};
+
+type WalletGateHostActions = {
+  openSheet: () => void;
+  closeSheet: () => void;
+  leaveRoom: () => void;
+  onReadinessChange: (next: BuyerWalletReadiness) => void;
+};
+
+function walletGateHostSnapshotsEqual(
+  a: WalletGateHostSnapshot | null,
+  b: WalletGateHostSnapshot | null,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.roomId === b.roomId &&
+    a.accessToken === b.accessToken &&
+    a.showModal === b.showModal &&
+    a.showSheet === b.showSheet &&
+    a.readiness.paymentReady === b.readiness.paymentReady &&
+    a.readiness.shippingReady === b.readiness.shippingReady
+  );
 }
 
 function LiveSlide({
@@ -135,6 +174,8 @@ function LiveSlide({
   userId,
   onWalletOverlayChange,
   onPaymentBlockerChange,
+  onWalletGateHostChange,
+  roomVisitNonce = 0,
 }: {
   stream: LiveStream;
   isActive: boolean;
@@ -148,6 +189,11 @@ function LiveSlide({
   userId?: string;
   onWalletOverlayChange?: (active: boolean) => void;
   onPaymentBlockerChange?: (active: boolean) => void;
+  onWalletGateHostChange?: (
+    snapshot: WalletGateHostSnapshot | null,
+    actions: WalletGateHostActions | null,
+  ) => void;
+  roomVisitNonce?: number;
 }) {
   const insets = useSafeAreaInsets();
   const stageInsets = computeLiveStageSafeInsets(stageContainer, screenHeight, insets, spacing.sm);
@@ -166,6 +212,7 @@ function LiveSlide({
   const [tipOpen, setTipOpen] = useState(false);
   const [roomPaymentMethodId, setRoomPaymentMethodId] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
+  const [reportChatMessage, setReportChatMessage] = useState<ChatMessage | null>(null);
   const [chatDraft, setChatDraft] = useState('');
   const [streamMuted, setStreamMuted] = useState(true);
   const [streamRefreshNonce, setStreamRefreshNonce] = useState(0);
@@ -174,6 +221,8 @@ function LiveSlide({
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [breakDisclaimerAccepted, setBreakDisclaimerAccepted] = useState(true);
   const [breakDisclaimerReady, setBreakDisclaimerReady] = useState(false);
+  const [walletReadiness, setWalletReadiness] = useState<BuyerWalletReadiness | null>(null);
+  const [walletGateSheetOpen, setWalletGateSheetOpen] = useState(false);
   const [paymentRecoveryToast, setPaymentRecoveryToast] = useState<string | null>(null);
   const [modDrawerOpen, setModDrawerOpen] = useState(false);
   const [chatExpanded, setChatExpanded] = useState(false);
@@ -181,13 +230,24 @@ function LiveSlide({
   const [myChatSender, setMyChatSender] = useState<{ username?: string; avatarUrl?: string | null }>({});
   const chatComposerRef = useRef<MentionComposerInputHandle>(null);
 
+  useEffect(() => {
+    if (!isActive) return;
+    setWalletGateSheetOpen(false);
+    setWalletReadiness(null);
+  }, [isActive, roomVisitNonce, stream.id]);
+
   const leaveRoomSafely = useCallback(() => {
-    if (stackNav.canGoBack()) {
-      stackNav.goBack();
-      return;
-    }
-    onBack?.();
-  }, [stackNav, onBack]);
+    setWalletGateSheetOpen(false);
+    onPaymentBlockerChange?.(false);
+    onWalletGateHostChange?.(null, null);
+    requestAnimationFrame(() => {
+      if (stackNav.canGoBack()) {
+        stackNav.goBack();
+        return;
+      }
+      onBack?.();
+    });
+  }, [onBack, onPaymentBlockerChange, onWalletGateHostChange, stackNav]);
 
   const moderation = useLiveRoomModeration({
     roomId: stream.id,
@@ -220,6 +280,7 @@ function LiveSlide({
     ],
   );
   const showHostUserId = modActor.showHostUserId;
+  const staffCommerceBlocked = moderation.isHost || moderation.isModerator;
 
   useEffect(() => {
     if (!isActive || !showHostUserId) {
@@ -298,6 +359,7 @@ function LiveSlide({
       setRoomStatus((prev) => (prev === 'ended' ? prev : 'live'));
     },
   });
+  const fetchLiveSnapshot = liveSession.fetchSnapshot;
 
   useEffect(() => {
     if (!isActive || (stream.liveRoomFormat !== 'break' && liveSession.roomSnap?.roomType !== 'break')) {
@@ -316,6 +378,119 @@ function LiveSlide({
     breakDisclaimerReady &&
     (stream.liveRoomFormat === 'break' || liveSession.roomSnap?.roomType === 'break') &&
     !breakDisclaimerAccepted;
+
+  useEffect(() => {
+    if (!isActive || !signedIn || !accessToken?.trim() || staffCommerceBlocked) {
+      setWalletReadiness(null);
+      return;
+    }
+    if (!breakDisclaimerReady || !breakDisclaimerAccepted) return;
+
+    let cancelled = false;
+    void fetchLiveBuyerPaymentSession(accessToken, stream.id).then((session) => {
+      if (cancelled || !session) return;
+      setWalletReadiness({
+        paymentReady: session.paymentReady,
+        shippingReady: session.shippingReady,
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    accessToken,
+    breakDisclaimerAccepted,
+    breakDisclaimerReady,
+    isActive,
+    roomVisitNonce,
+    signedIn,
+    staffCommerceBlocked,
+    stream.id,
+  ]);
+
+  const walletParticipationBlocked = Boolean(
+    signedIn &&
+      accessToken?.trim() &&
+      !staffCommerceBlocked &&
+      breakDisclaimerReady &&
+      breakDisclaimerAccepted &&
+      walletReadiness &&
+      isWalletIncompleteReadiness(walletReadiness) &&
+      !liveSession.unresolvedPaymentFailure,
+  );
+
+  const showWalletGateModal = walletParticipationBlocked && !walletGateSheetOpen;
+
+  useEffect(() => {
+    if (!isActive) return;
+    const gateActive = walletParticipationBlocked || walletGateSheetOpen;
+    if (!gateActive || !walletReadiness || !accessToken?.trim()) {
+      onWalletGateHostChange?.(null, null);
+      return;
+    }
+    onWalletGateHostChange?.(
+      {
+        readiness: walletReadiness,
+        showModal: showWalletGateModal,
+        showSheet: walletGateSheetOpen,
+        roomId: stream.id,
+        accessToken,
+      },
+      {
+        openSheet: () => setWalletGateSheetOpen(true),
+        closeSheet: () => setWalletGateSheetOpen(false),
+        leaveRoom: leaveRoomSafely,
+        onReadinessChange: (next) => {
+          setWalletReadiness(next);
+          if (next.paymentReady && next.shippingReady) {
+            setWalletGateSheetOpen(false);
+            void fetchLiveSnapshot();
+          }
+        },
+      },
+    );
+  }, [
+    accessToken,
+    fetchLiveSnapshot,
+    isActive,
+    leaveRoomSafely,
+    onWalletGateHostChange,
+    showWalletGateModal,
+    stream.id,
+    walletGateSheetOpen,
+    walletParticipationBlocked,
+    walletReadiness,
+  ]);
+
+  useEffect(() => {
+    if (!isActive || liveSession.unresolvedPaymentFailure) return;
+    onPaymentBlockerChange?.(walletParticipationBlocked || walletGateSheetOpen);
+    return () => onPaymentBlockerChange?.(false);
+  }, [
+    isActive,
+    liveSession.unresolvedPaymentFailure,
+    onPaymentBlockerChange,
+    walletGateSheetOpen,
+    walletParticipationBlocked,
+  ]);
+
+  const participationBlockMessage = useMemo(() => {
+    if (breakParticipationBlocked) {
+      return 'Accept the live break notice before bidding or buying.';
+    }
+    if (walletParticipationBlocked && walletReadiness) {
+      return buyerWalletGatePromptBody(walletReadiness);
+    }
+    if (liveSession.unresolvedPaymentFailure) {
+      return 'Fix your payment before bidding or buying in this show.';
+    }
+    return 'Complete setup in this show before bidding or buying.';
+  }, [
+    breakParticipationBlocked,
+    liveSession.unresolvedPaymentFailure,
+    walletParticipationBlocked,
+    walletReadiness,
+  ]);
 
   useEffect(() => {
     setRoomStatus(stream.roomStatus);
@@ -342,7 +517,6 @@ function LiveSlide({
   }, [isActive, roomStatus, stream.id]);
 
   const hostHandle = stream.host.handle.replace(/^@/, '') || stream.host.name;
-  const staffCommerceBlocked = moderation.isHost || moderation.isModerator;
 
   useEffect(() => {
     if (!signedIn || !accessToken?.trim() || moderation.isHost) return;
@@ -469,6 +643,7 @@ function LiveSlide({
     !chatExpanded &&
     keyboardOffset <= 0 &&
     breakDisclaimerAccepted &&
+    !walletParticipationBlocked &&
     !(liveSession.unresolvedPaymentFailure && signedIn && accessToken);
 
   const immersiveChrome = useLiveImmersiveChrome({
@@ -757,6 +932,8 @@ function LiveSlide({
         <KeyboardDismissStageShield active={keyboardOffset > 0} />
         <View style={computeLiveStageHostStyle(stageContainer)}>
           <View style={[styles.stageRoot, computeLiveStageRootStyle(stageContainer)]}>
+            <GestureDetector gesture={immersiveChrome.pan}>
+              <View style={styles.stageGestureRoot}>
             <View style={styles.stageVideoFrame} pointerEvents="box-none">
               <LiveStagePlayback
                 roomId={stream.id}
@@ -777,17 +954,6 @@ function LiveSlide({
                 pointerEvents="none"
               />
             </View>
-
-            <GestureDetector gesture={immersiveChrome.pan}>
-              <Animated.View style={styles.chromeGestureHost} pointerEvents="box-none">
-                {immersiveChrome.immersive ? (
-                  <Pressable
-                    style={StyleSheet.absoluteFill}
-                    onPress={immersiveChrome.restore}
-                    accessibilityRole="button"
-                    accessibilityLabel="Show live controls"
-                  />
-                ) : null}
 
                 <Animated.View
                   style={[styles.chromeLayer, immersiveChrome.chromeStyle]}
@@ -1063,6 +1229,7 @@ function LiveSlide({
         isModerator={modActor.isModerator}
         viewerRole={modActor.viewerRole}
         onLongPressMessage={(message) => setModActionMessage(message)}
+        onLongPressChatUser={(message) => setReportChatMessage(message)}
         onModerationComplete={() => {
           void liveChat.reload();
           void moderation.reload();
@@ -1245,7 +1412,12 @@ function LiveSlide({
           clockSkewMs={liveSession.clockSkewMs}
           mergeBidAck={liveSession.mergeBidAck}
           onBidPlaced={(amount) => liveSession.setMyHighBidUsd(amount)}
-          participationBlocked={breakParticipationBlocked || Boolean(liveSession.unresolvedPaymentFailure)}
+          participationBlocked={
+            breakParticipationBlocked ||
+            walletParticipationBlocked ||
+            Boolean(liveSession.unresolvedPaymentFailure)
+          }
+          participationBlockMessage={participationBlockMessage}
           onWalletOverlayChange={
             isActive
               ? (active) => {
@@ -1263,14 +1435,8 @@ function LiveSlide({
       </View>
       ) : null}
                 </Animated.View>
-              </Animated.View>
+              </View>
             </GestureDetector>
-
-            <LiveImmersiveRestoreHint
-              visible={immersiveChrome.immersive}
-              onPress={immersiveChrome.restore}
-              topInset={stageInsets.top}
-            />
 
       {liveSession.unresolvedPaymentFailure && signedIn && accessToken ? (
         <LivePaymentFailureModal
@@ -1362,6 +1528,17 @@ function LiveSlide({
         accessToken={accessToken}
         title="Report show"
       />
+      {reportChatMessage ? (
+        <ReportSheet
+          visible
+          onClose={() => setReportChatMessage(null)}
+          targetType="message"
+          targetId={reportChatMessage.id}
+          liveRoomId={stream.id}
+          accessToken={accessToken}
+          title="Report message"
+        />
+      ) : null}
       {breakDisclaimerReady && (stream.liveRoomFormat === 'break' || liveSession.roomSnap?.roomType === 'break') && !breakDisclaimerAccepted ? (
         <BreakDisclaimerModal
           visible
@@ -1380,6 +1557,7 @@ function LiveSlide({
 export function VerticalLiveFeed({
   streams,
   initialStreamId,
+  roomVisitNonce = 0,
   onBack,
   signedIn = true,
   onRequireAuth,
@@ -1408,7 +1586,32 @@ export function VerticalLiveFeed({
   const [peekPage, setPeekPage] = useState<number | null>(null);
   const [walletOverlayActive, setWalletOverlayActive] = useState(false);
   const [paymentBlockerActive, setPaymentBlockerActive] = useState(false);
+  const [walletGateHost, setWalletGateHost] = useState<WalletGateHostSnapshot | null>(null);
+  const walletGateActionsRef = useRef<WalletGateHostActions | null>(null);
   const pagerRef = useRef<PagerView>(null);
+
+  const handleWalletGateHostChange = useCallback(
+    (snapshot: WalletGateHostSnapshot | null, actions: WalletGateHostActions | null) => {
+      walletGateActionsRef.current = actions;
+      setWalletGateHost((prev) => {
+        if (walletGateHostSnapshotsEqual(prev, snapshot)) return prev;
+        return snapshot;
+      });
+    },
+    [],
+  );
+
+  const clearWalletGateOverlay = useCallback(() => {
+    setWalletGateHost(null);
+    walletGateActionsRef.current = null;
+    setPaymentBlockerActive(false);
+    setWalletOverlayActive(false);
+  }, []);
+
+  const leaveWalletGateRoom = useCallback(() => {
+    setWalletGateHost((prev) => (prev ? { ...prev, showModal: false, showSheet: false } : null));
+    walletGateActionsRef.current?.leaveRoom();
+  }, []);
 
   const feedGesturesEnabled = !walletOverlayActive && !paymentBlockerActive && streams.length > 1;
 
@@ -1477,6 +1680,13 @@ export function VerticalLiveFeed({
     setPaymentBlockerActive(false);
   }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    setWalletGateHost(null);
+    walletGateActionsRef.current = null;
+  }, [page, roomVisitNonce]);
+
+  useEffect(() => () => clearWalletGateOverlay(), [clearWalletGateOverlay]);
+
   if (!streams.length) {
     return (
       <View
@@ -1512,61 +1722,88 @@ export function VerticalLiveFeed({
   }
 
   return (
-    <GestureDetector gesture={showSwipeGesture}>
-      <View
-        style={styles.feedRoot}
-        onLayout={(e) => {
-          const { width, height } = e.nativeEvent.layout;
-          if (width > 0 && height > 0) {
-            setLayoutSize((prev) =>
-              prev?.width === width && prev?.height === height ? prev : { width, height },
-            );
-          }
-        }}
-      >
-        <PagerView
-          ref={pagerRef}
-          key={initialStreamId ?? 'default'}
-          style={styles.feedPager}
-          initialPage={startIndex}
-          orientation="vertical"
-          scrollEnabled={feedGesturesEnabled}
-          onPageScroll={(e) => {
-            const { position, offset } = e.nativeEvent;
-            if (offset > 0.06 && position + 1 < streams.length) {
-              setPeekPage(position + 1);
-            } else if (offset < -0.06 && position > 0) {
-              setPeekPage(position - 1);
-            } else {
-              setPeekPage(null);
+    <>
+      <GestureDetector gesture={showSwipeGesture}>
+        <View
+          style={styles.feedRoot}
+          onLayout={(e) => {
+            const { width, height } = e.nativeEvent.layout;
+            if (width > 0 && height > 0) {
+              setLayoutSize((prev) =>
+                prev?.width === width && prev?.height === height ? prev : { width, height },
+              );
             }
           }}
-          onPageSelected={(e) => {
-            setPage(e.nativeEvent.position);
-            setPeekPage(null);
-          }}
         >
-        {streams.map((stream, index) => (
-          <View key={stream.id} style={styles.page} collapsable={false}>
-            <LiveSlide
-              stream={stream}
-              isActive={index === page}
-              playbackMode={resolvePlaybackMode(index)}
-              stageContainer={stageContainer}
-              screenHeight={viewportHeight}
-              onBack={onBack}
-              signedIn={signedIn}
-              onRequireAuth={onRequireAuth}
-              accessToken={accessToken}
-              userId={userId}
-              onWalletOverlayChange={setWalletOverlayActive}
-              onPaymentBlockerChange={setPaymentBlockerActive}
-            />
-          </View>
-        ))}
-        </PagerView>
-      </View>
-    </GestureDetector>
+          <PagerView
+            ref={pagerRef}
+            key={initialStreamId ?? 'default'}
+            style={styles.feedPager}
+            initialPage={startIndex}
+            orientation="vertical"
+            scrollEnabled={feedGesturesEnabled}
+            onPageScroll={(e) => {
+              const { position, offset } = e.nativeEvent;
+              if (offset > 0.06 && position + 1 < streams.length) {
+                setPeekPage(position + 1);
+              } else if (offset < -0.06 && position > 0) {
+                setPeekPage(position - 1);
+              } else {
+                setPeekPage(null);
+              }
+            }}
+            onPageSelected={(e) => {
+              setPage(e.nativeEvent.position);
+              setPeekPage(null);
+            }}
+          >
+            {streams.map((stream, index) => (
+              <View key={stream.id} style={styles.page} collapsable={false}>
+                <LiveSlide
+                  stream={stream}
+                  isActive={index === page}
+                  playbackMode={resolvePlaybackMode(index)}
+                  stageContainer={stageContainer}
+                  screenHeight={viewportHeight}
+                  onBack={onBack}
+                  signedIn={signedIn}
+                  onRequireAuth={onRequireAuth}
+                  accessToken={accessToken}
+                  userId={userId}
+                  onWalletOverlayChange={setWalletOverlayActive}
+                  onPaymentBlockerChange={setPaymentBlockerActive}
+                  onWalletGateHostChange={handleWalletGateHostChange}
+                  roomVisitNonce={roomVisitNonce}
+                />
+              </View>
+            ))}
+          </PagerView>
+        </View>
+      </GestureDetector>
+      {walletGateHost ? (
+        <LiveBuyerWalletGateModal
+          visible={walletGateHost.showModal}
+          readiness={walletGateHost.readiness}
+          onSetupWallet={() => walletGateActionsRef.current?.openSheet()}
+          onLeaveRoom={leaveWalletGateRoom}
+        />
+      ) : null}
+      {walletGateHost?.showSheet ? (
+        <WalletSheet
+          visible
+          onClose={() => walletGateActionsRef.current?.closeSheet()}
+          accessToken={walletGateHost.accessToken}
+          roomId={walletGateHost.roomId}
+          initialReadiness={walletGateHost.readiness}
+          initialStep={!walletGateHost.readiness.shippingReady ? 'shipping' : 'payment'}
+          openPaymentSetupOnMount={
+            walletGateHost.readiness.shippingReady && !walletGateHost.readiness.paymentReady
+          }
+          onReadinessChange={(next) => walletGateActionsRef.current?.onReadinessChange(next)}
+          onActiveChange={setWalletOverlayActive}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -1627,14 +1864,16 @@ const styles = StyleSheet.create({
   recoveryToastTxt: { color: colors.gold, fontSize: 12, fontWeight: '700', textAlign: 'center' },
   stageRoot: {
     backgroundColor: '#000',
+    overflow: 'hidden',
   },
-  chromeGestureHost: {
+  stageGestureRoot: {
     ...StyleSheet.absoluteFillObject,
-    zIndex: 8,
+    overflow: 'hidden',
   },
   chromeLayer: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 10,
+    overflow: 'hidden',
   },
   stageVideoFrame: {
     ...StyleSheet.absoluteFillObject,

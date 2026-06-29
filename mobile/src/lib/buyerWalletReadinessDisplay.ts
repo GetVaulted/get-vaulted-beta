@@ -21,3 +21,13 @@ export function buyerWalletStatusDetail(snapshot: BuyerWalletReadinessSnapshot):
   }
   return 'Set up once. Required for live shows and used at marketplace checkout.';
 }
+
+export function buyerWalletGatePromptBody(snapshot: BuyerWalletReadinessSnapshot): string {
+  if (!snapshot.paymentReady && !snapshot.shippingReady) {
+    return 'Add a saved payment method and shipping address before you bid, buy, or claim spots in this show.';
+  }
+  if (!snapshot.paymentReady) {
+    return 'Add a saved payment method before you bid or buy in this show.';
+  }
+  return 'Add a shipping address before you bid, buy, or claim spots in this show.';
+}
