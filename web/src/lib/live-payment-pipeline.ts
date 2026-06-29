@@ -67,7 +67,7 @@ export type LiveSavedCardChargeOutcome =
   | { outcome: "paid"; paymentIntentId: string }
   | { outcome: "requires_action"; clientSecret: string; paymentIntentId: string }
   | { outcome: "processing"; paymentIntentId: string }
-  | { outcome: "error"; code: string; message?: string };
+  | { outcome: "error"; code: string; message?: string; fulfillmentDetail?: string };
 
 export async function getLiveBuyerPaymentSessionState(args: {
   buyerId: string;
@@ -160,6 +160,13 @@ export function mapLiveFulfillmentOrderError(err: unknown): string {
   }
   if (lower.includes("live_shipping_not_applicable")) {
     return "Shipping is not set up for this show yet.";
+  }
+  if (
+    lower.includes("sellershippingprofile") ||
+    lower.includes("seller_shipping_profile") ||
+    (lower.includes("relation") && lower.includes("does not exist"))
+  ) {
+    return "Checkout is not ready on this show yet — shipping profiles may still be setting up.";
   }
   if (lower.includes("no_shipping") || lower.includes("shipping address")) {
     return "Add a shipping address to your Wallet before buying.";
@@ -325,15 +332,19 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
   try {
     fulfillment = await ensureVariantPurchaseFulfillmentOrder(purchase.id);
   } catch (err) {
+    const fulfillmentDetail = err instanceof Error ? err.message : String(err ?? "");
     console.error("[variant purchase] fulfillment order failed", {
       purchaseId: purchase.id,
       liveRoomId: purchase.liveRoomId,
+      liveRoomItemId: purchase.liveRoomItemId,
+      message: fulfillmentDetail,
       err,
     });
     return {
       outcome: "error",
       code: "FULFILLMENT_ORDER_FAILED",
       message: mapLiveFulfillmentOrderError(err),
+      fulfillmentDetail,
     };
   }
   const amountCents = Math.round(Math.max(0, fulfillment.chargeTotalUsd) * 100);
@@ -620,15 +631,18 @@ export async function chargeBreakSpotWithSavedCard(args: {
   try {
     fulfillment = await ensureBreakSpotFulfillmentOrder(spot.id);
   } catch (err) {
+    const fulfillmentDetail = err instanceof Error ? err.message : String(err ?? "");
     console.error("[break spot] fulfillment order failed", {
       breakSpotId: spot.id,
       liveRoomId: spot.liveRoomId,
+      message: fulfillmentDetail,
       err,
     });
     return {
       outcome: "error",
       code: "FULFILLMENT_ORDER_FAILED",
       message: mapLiveFulfillmentOrderError(err),
+      fulfillmentDetail,
     };
   }
   const amountCents = Math.round(Math.max(0, fulfillment.chargeTotalUsd) * 100);

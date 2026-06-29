@@ -12,6 +12,59 @@ import { prisma } from "@/lib/prisma";
 
 export type LiveCommerceFulfillmentKind = "variant_purchase" | "break_spot";
 
+function normalizeLiveRoomItemId(liveRoomItemId?: string | null): string | null {
+  const trimmed = liveRoomItemId?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function liveCommerceSessionOpts(args: {
+  liveShowId: string;
+  liveRoomItemId?: string | null;
+}): AddOrderToLiveShippingSessionOpts {
+  return {
+    liveShowId: args.liveShowId,
+    liveRoomItemId: normalizeLiveRoomItemId(args.liveRoomItemId),
+  };
+}
+
+/** Ensure live shipping session + immutable terms snapshot exist on a fulfillment order. */
+async function completeLiveCommerceFulfillmentShippingTx(
+  tx: TransactionClient,
+  orderId: string,
+  itemPriceUsd: number,
+  sessionOpts: AddOrderToLiveShippingSessionOpts,
+): Promise<{ totalUsd: number; shippingPriceUsd: number }> {
+  const order = await tx.order.findUnique({
+    where: { id: orderId },
+    select: {
+      liveShippingSessionId: true,
+      shippingTermsSnapshotJson: true,
+      totalUsd: true,
+      shippingPriceUsd: true,
+    },
+  });
+  if (!order) throw new Error("ORDER_NOT_FOUND");
+
+  const shippingReady =
+    order.liveShippingSessionId != null &&
+    order.shippingTermsSnapshotJson != null &&
+    typeof order.shippingTermsSnapshotJson === "object";
+
+  if (!shippingReady) {
+    await addOrderToLiveShippingSessionTx(tx, orderId, sessionOpts);
+    const settled = await settleLiveOrderShippingTx(tx, orderId, sessionOpts);
+    return {
+      totalUsd: itemPriceUsd + settled.shippingPriceUsd,
+      shippingPriceUsd: settled.shippingPriceUsd,
+    };
+  }
+
+  return {
+    totalUsd: order.totalUsd,
+    shippingPriceUsd: order.shippingPriceUsd,
+  };
+}
+
 /**
  * Creates a pending marketplace order for variant/break commerce so live shipping
  * ledger + immutable terms snapshot use the same path as auction / buy-now orders.
@@ -29,6 +82,11 @@ export async function createLiveCommerceFulfillmentOrderTx(
     idempotencyKey: string;
   },
 ): Promise<{ orderId: string; totalUsd: number; shippingPriceUsd: number }> {
+  const sessionOpts = liveCommerceSessionOpts({
+    liveShowId: args.liveShowId,
+    liveRoomItemId: args.liveRoomItemId,
+  });
+
   const existingOrder = await tx.order.findFirst({
     where: { paymentLabel: args.idempotencyKey },
     select: {
@@ -36,13 +94,20 @@ export async function createLiveCommerceFulfillmentOrderTx(
       totalUsd: true,
       shippingPriceUsd: true,
       shippingTermsSnapshotJson: true,
+      liveShippingSessionId: true,
     },
   });
   if (existingOrder) {
+    const totals = await completeLiveCommerceFulfillmentShippingTx(
+      tx,
+      existingOrder.id,
+      args.itemPriceUsd,
+      sessionOpts,
+    );
     return {
       orderId: existingOrder.id,
-      totalUsd: existingOrder.totalUsd,
-      shippingPriceUsd: existingOrder.shippingPriceUsd,
+      totalUsd: totals.totalUsd,
+      shippingPriceUsd: totals.shippingPriceUsd,
     };
   }
 
@@ -135,17 +200,17 @@ export async function createLiveCommerceFulfillmentOrderTx(
     select: { id: true },
   });
 
-  const sessionOpts: AddOrderToLiveShippingSessionOpts = {
-    liveShowId: args.liveShowId,
-    liveRoomItemId: args.liveRoomItemId ?? null,
-  };
-  await addOrderToLiveShippingSessionTx(tx, order.id, sessionOpts);
-  const settled = await settleLiveOrderShippingTx(tx, order.id, sessionOpts);
+  const totals = await completeLiveCommerceFulfillmentShippingTx(
+    tx,
+    order.id,
+    args.itemPriceUsd,
+    sessionOpts,
+  );
 
   return {
     orderId: order.id,
-    totalUsd: args.itemPriceUsd + settled.shippingPriceUsd,
-    shippingPriceUsd: settled.shippingPriceUsd,
+    totalUsd: totals.totalUsd,
+    shippingPriceUsd: totals.shippingPriceUsd,
   };
 }
 
@@ -170,9 +235,32 @@ export async function ensureVariantPurchaseFulfillmentOrder(
     if (purchase.fulfillmentOrderId) {
       const order = await tx.order.findUnique({
         where: { id: purchase.fulfillmentOrderId },
-        select: { totalUsd: true },
+        select: {
+          id: true,
+          totalUsd: true,
+          shippingPriceUsd: true,
+          liveShippingSessionId: true,
+          shippingTermsSnapshotJson: true,
+        },
       });
       if (order) {
+        const sessionOpts = liveCommerceSessionOpts({
+          liveShowId: purchase.liveRoomId,
+          liveRoomItemId: purchase.liveRoomItemId,
+        });
+        const shippingReady =
+          order.liveShippingSessionId != null &&
+          order.shippingTermsSnapshotJson != null &&
+          typeof order.shippingTermsSnapshotJson === "object";
+        if (!shippingReady) {
+          const totals = await completeLiveCommerceFulfillmentShippingTx(
+            tx,
+            order.id,
+            purchase.totalUsd,
+            sessionOpts,
+          );
+          return { orderId: order.id, chargeTotalUsd: totals.totalUsd };
+        }
         return { orderId: purchase.fulfillmentOrderId, chargeTotalUsd: order.totalUsd };
       }
     }
@@ -216,9 +304,32 @@ export async function ensureBreakSpotFulfillmentOrder(
     if (spot.fulfillmentOrderId) {
       const order = await tx.order.findUnique({
         where: { id: spot.fulfillmentOrderId },
-        select: { totalUsd: true },
+        select: {
+          id: true,
+          totalUsd: true,
+          shippingPriceUsd: true,
+          liveShippingSessionId: true,
+          shippingTermsSnapshotJson: true,
+        },
       });
       if (order) {
+        const sessionOpts = liveCommerceSessionOpts({
+          liveShowId: spot.liveRoomId,
+          liveRoomItemId: spot.liveRoomItemId,
+        });
+        const shippingReady =
+          order.liveShippingSessionId != null &&
+          order.shippingTermsSnapshotJson != null &&
+          typeof order.shippingTermsSnapshotJson === "object";
+        if (!shippingReady) {
+          const totals = await completeLiveCommerceFulfillmentShippingTx(
+            tx,
+            order.id,
+            spot.priceUsd,
+            sessionOpts,
+          );
+          return { orderId: order.id, chargeTotalUsd: totals.totalUsd };
+        }
         return { orderId: spot.fulfillmentOrderId, chargeTotalUsd: order.totalUsd };
       }
     }

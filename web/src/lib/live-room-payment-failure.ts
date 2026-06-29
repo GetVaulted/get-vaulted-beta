@@ -402,6 +402,7 @@ export type RecoveryRetryDebug = {
   reopened: boolean | null;
   reopenReason: string | null;
   stripeError: StripeChargeErrorDebug | null;
+  fulfillmentDetail?: string | null;
 };
 
 /**
@@ -668,6 +669,8 @@ export async function retryLiveRoomPaymentFailure(args: {
       outcome: "error",
       code: purchaseCharge.code,
       message: "message" in purchaseCharge ? purchaseCharge.message : undefined,
+      fulfillmentDetail:
+        "fulfillmentDetail" in purchaseCharge ? purchaseCharge.fulfillmentDetail : undefined,
     };
   } else if (failureRow.breakSpotId) {
     const spotCharge = await chargeBreakSpotWithSavedCard({
@@ -782,6 +785,10 @@ export async function retryLiveRoomPaymentFailure(args: {
       reopened: reopenedForRecovery,
       reopenReason,
       stripeError: charge.stripeDebug ?? null,
+      fulfillmentDetail:
+        charge.outcome === "error" && "fulfillmentDetail" in charge
+          ? charge.fulfillmentDetail ?? null
+          : null,
     },
   };
 }

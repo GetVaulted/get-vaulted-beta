@@ -188,6 +188,11 @@ export async function addOrderToLiveShippingSessionTx(
   pricingWeightOz: number;
   capReached: boolean;
 }> {
+    const liveShowId = opts?.liveShowId?.trim() || null;
+    const liveRoomItemId = opts?.liveRoomItemId?.trim() || null;
+    const sessionOpts: AddOrderToLiveShippingSessionOpts | null =
+      liveShowId || liveRoomItemId ? { liveShowId, liveRoomItemId } : opts ?? null;
+
     const order = await tx.order.findUnique({
       where: { id: orderId },
       select: {
@@ -206,7 +211,7 @@ export async function addOrderToLiveShippingSessionTx(
     if (existingItem) {
       const summary = await getLiveShippingSessionSummaryTx(tx, existingItem.sessionId);
       if (!summary) throw new Error("LIVE_SHIPPING_SESSION_NOT_FOUND");
-      await settleLiveOrderShippingTx(tx, order.id, opts);
+      await settleLiveOrderShippingTx(tx, order.id, sessionOpts);
       return summary;
     }
 
@@ -223,11 +228,11 @@ export async function addOrderToLiveShippingSessionTx(
     if (!listing) throw new Error("LISTING_NOT_FOUND");
 
     const liveItem =
-      opts?.liveShowId && opts?.liveRoomItemId
+      liveShowId && liveRoomItemId
         ? await tx.liveRoomItem.findFirst({
             where: {
-              id: opts.liveRoomItemId,
-              liveRoomId: opts.liveShowId,
+              id: liveRoomItemId,
+              liveRoomId: liveShowId,
               liveRoom: { sellerId: order.sellerId, roomType: { in: ["auction", "break", "sale"] } },
             },
             select: {
@@ -242,12 +247,12 @@ export async function addOrderToLiveShippingSessionTx(
               liveRoom: { select: { defaultShippingProfileId: true, category: true } },
             },
           })
-        : opts?.liveShowId
+        : liveShowId
           ? await tx.liveRoomItem.findFirst({
               where: {
                 listingId: order.listingId,
-                liveRoomId: opts.liveShowId,
-                liveRoom: { sellerId: order.sellerId, roomType: { in: ["auction", "sale"] } },
+                liveRoomId: liveShowId,
+                liveRoom: { sellerId: order.sellerId, roomType: { in: ["auction", "break", "sale"] } },
               },
               select: {
                 liveRoomId: true,
@@ -264,7 +269,7 @@ export async function addOrderToLiveShippingSessionTx(
           : await tx.liveRoomItem.findFirst({
               where: {
                 listingId: order.listingId,
-                liveRoom: { sellerId: order.sellerId, roomType: { in: ["auction", "sale"] } },
+                liveRoom: { sellerId: order.sellerId, roomType: { in: ["auction", "break", "sale"] } },
               },
               select: {
                 liveRoomId: true,
@@ -281,9 +286,9 @@ export async function addOrderToLiveShippingSessionTx(
             });
 
     const showOnly =
-      !liveItem && opts?.liveShowId
+      !liveItem && liveShowId
         ? await tx.liveRoom.findFirst({
-            where: { id: opts.liveShowId, sellerId: order.sellerId },
+            where: { id: liveShowId, sellerId: order.sellerId },
             select: {
               id: true,
               defaultShippingProfileId: true,
@@ -386,7 +391,7 @@ export async function addOrderToLiveShippingSessionTx(
       data: { liveShippingSessionId: session.id },
     });
 
-    await settleLiveOrderShippingTx(tx, order.id, opts);
+    await settleLiveOrderShippingTx(tx, order.id, sessionOpts);
 
     return summary;
 }
