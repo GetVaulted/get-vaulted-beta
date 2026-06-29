@@ -190,6 +190,7 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
       const data = (await res.json().catch(() => ({}))) as { error?: string; order?: OrderDetail };
       if (!res.ok) {
         setLabelError(data.error ?? "Could not regenerate label.");
+        if (data.order) setOrder(data.order);
         return;
       }
       if (data.order) setOrder(data.order);

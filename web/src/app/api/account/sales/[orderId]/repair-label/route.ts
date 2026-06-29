@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { enrichSellerOrderLabelFromShippo } from "@/lib/enrich-seller-order-label-from-shippo";
+import { repairSellerOrderLabelFromShippo } from "@/lib/enrich-seller-order-label-from-shippo";
 import { mapSellerSalesOrderForApi } from "@/lib/map-seller-sales-order";
 import { sellerFulfillmentOrdersWhere } from "@/lib/seller-fulfillment-orders";
 import { resolveAccountSellerUserId } from "@/lib/resolve-account-seller-user";
@@ -34,11 +34,11 @@ export async function POST(_req: Request, ctx: { params: Promise<{ orderId: stri
   const order = await loadSellerOrder(orderId, auth.userId);
   if (!order) return NextResponse.json({ error: "Order not found." }, { status: 404 });
 
-  const repaired = await enrichSellerOrderLabelFromShippo(order);
-  if (!repaired.labelUrl?.trim()) {
+  const repaired = await repairSellerOrderLabelFromShippo(order);
+  if (!repaired.ok) {
     return NextResponse.json(
       {
-        error: "Label file still unavailable from Shippo. Try regenerate or contact support.",
+        error: `${repaired.error} Try Regenerate, or create the label again from Sales on desktop.`,
         repaired: false,
       },
       { status: 422 },

@@ -9,7 +9,7 @@ import { processLabelCreatedPayoutEvaluation } from "@/services/payout/process-p
 export const runtime = "nodejs";
 
 /**
- * Seller-triggered Shippo label purchase for a paid order (same path as post-payment automation).
+ * Seller-triggered Shippo label purchase for a paid order.
  */
 export async function POST(_req: Request, ctx: { params: Promise<{ orderId: string }> }) {
   const session = await getServerSessionSafe();
@@ -36,7 +36,12 @@ export async function POST(_req: Request, ctx: { params: Promise<{ orderId: stri
   if (!order) {
     return NextResponse.json({ error: "Order not found." }, { status: 404 });
   }
-  const gate = canSellerCreateShippingLabel(order);
+  const gate = canSellerCreateShippingLabel({
+    paymentStatus: order.paymentStatus,
+    shippoTransactionId: order.shippoTransactionId,
+    labelUrl: order.labelUrl,
+    fulfillmentStatus: order.fulfillmentStatus,
+  });
   if (!gate.ok) {
     const msg =
       gate.code === "UNPAID"

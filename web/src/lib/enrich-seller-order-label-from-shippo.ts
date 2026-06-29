@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { orderHasPurchasedLabel } from "@/lib/seller-shipping-label-state";
 import { isShippoConfigured, shippoGetTransaction, type ShippoTransaction } from "@/lib/shippo";
+import {
+  formatShippoTransactionMessages,
+  resolveShippoTransactionLabel,
+} from "@/lib/shippo-transaction-label";
 
 export type OrderLabelRepairFields = {
   id: string;
@@ -61,9 +65,17 @@ export async function enrichSellerOrderLabelFromShippo<T extends OrderLabelRepai
   if (!txId) return order;
 
   try {
-    const tx = await shippoGetTransaction(txId);
-    const patch = patchFromShippoTransaction(order, tx);
-    if (!patch) return order;
+    const resolved = await resolveShippoTransactionLabel(txId);
+    const patch = patchFromShippoTransaction(order, {
+      object_id: resolved.transactionId,
+      label_url: resolved.labelUrl,
+      tracking_number: resolved.trackingNumber ?? undefined,
+      tracking_url_provider: resolved.trackingUrl ?? undefined,
+      status: resolved.shippingStatus ?? "SUCCESS",
+    });
+    if (!patch) {
+      return order;
+    }
 
     await prisma.order.update({
       where: { id: order.id },
@@ -83,6 +95,62 @@ export async function enrichSellerOrderLabelFromShippo<T extends OrderLabelRepai
       error: e instanceof Error ? e.message : String(e),
     });
     return order;
+  }
+}
+
+export type RepairSellerOrderLabelResult =
+  | { ok: true; order: OrderLabelRepairFields }
+  | { ok: false; error: string };
+
+export async function repairSellerOrderLabelFromShippo<T extends OrderLabelRepairFields>(
+  order: T,
+): Promise<RepairSellerOrderLabelResult> {
+  if (!sellerOrderLabelNeedsRepair(order)) {
+    return { ok: true, order };
+  }
+  if (!isShippoConfigured()) {
+    return { ok: false, error: "Shippo is not configured on the server." };
+  }
+
+  const txId = order.shippoTransactionId?.trim();
+  if (!txId) {
+    return { ok: false, error: "No Shippo transaction is stored for this order." };
+  }
+
+  try {
+    const resolved = await resolveShippoTransactionLabel(txId);
+    const patch = patchFromShippoTransaction(order, {
+      object_id: resolved.transactionId,
+      label_url: resolved.labelUrl,
+      tracking_number: resolved.trackingNumber ?? undefined,
+      tracking_url_provider: resolved.trackingUrl ?? undefined,
+      status: resolved.shippingStatus ?? "SUCCESS",
+    });
+    if (!patch?.labelUrl?.trim()) {
+      return { ok: false, error: "Label file still unavailable from Shippo." };
+    }
+
+    await prisma.order.update({
+      where: { id: order.id },
+      data: {
+        labelUrl: patch.labelUrl,
+        trackingNumber: patch.trackingNumber,
+        trackingUrl: patch.trackingUrl,
+        shippingStatus: patch.shippingStatus,
+        fulfillmentStatus: patch.fulfillmentStatus,
+      },
+    });
+
+    return { ok: true, order: { ...order, ...patch } };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    try {
+      const tx = await shippoGetTransaction(txId);
+      const detail = formatShippoTransactionMessages(tx.messages);
+      return { ok: false, error: detail ?? msg };
+    } catch {
+      return { ok: false, error: msg };
+    }
   }
 }
 

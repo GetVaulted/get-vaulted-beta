@@ -361,7 +361,13 @@ export async function regenerateSellerShippingLabel(
   }
   if (body?.order && typeof body.order === 'object') {
     const order = normalizeSellerSalesOrder(body.order as Record<string, unknown>);
-    if (order) return { ok: true, order };
+    if (order?.labelUrl?.trim()) return { ok: true, order };
+    if (order) {
+      return {
+        ok: false,
+        error: 'Shippo did not produce a printable label. Confirm addresses and try Regenerate.',
+      };
+    }
   }
   return { ok: false, error: 'Could not regenerate label.' };
 }

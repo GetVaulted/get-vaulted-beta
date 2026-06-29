@@ -57,6 +57,19 @@ export function liveTipApplicationFeeCents(): number {
   return 0;
 }
 
+/** Live chat line when a tip completes — shown to the whole room. */
+export function formatLiveTipChatMessage(args: {
+  senderUsername: string;
+  amountUsd: number;
+  message?: string | null;
+}): string {
+  const username = args.senderUsername.trim() || "Someone";
+  const amount = Number.isFinite(args.amountUsd) ? args.amountUsd.toFixed(2) : "0.00";
+  const base = `${username} tipped $${amount} 💰`;
+  const note = args.message?.trim();
+  return note ? `${base} — ${note}` : base;
+}
+
 export function serializeLiveTipConfig(room: {
   tipRecipientMode: TipRecipientMode;
   tipModeratorId: string | null;

@@ -1,7 +1,7 @@
 import { getStripe, getStripePublishableKey, isStripeConfigured } from "@/lib/stripe";
 import { stripeCheckoutSessionPaymentOptions } from "@/lib/stripe-payment-method-config";
 import { prisma } from "@/lib/prisma";
-import { liveTipApplicationFeeCents, resolveLiveTipRecipientUserId } from "@/lib/live-tip-routing";
+import { formatLiveTipChatMessage, liveTipApplicationFeeCents, resolveLiveTipRecipientUserId } from "@/lib/live-tip-routing";
 import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId } from "@/lib/stripe-customer";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
@@ -375,9 +375,11 @@ export async function finalizeLiveTipPaid(args: {
       },
     });
 
-    const body = tip.message.trim()
-      ? `${tip.sender.username} tipped $${tip.amountUsd.toFixed(2)} to @${tip.recipient.username}: ${tip.message}`
-      : `${tip.sender.username} tipped $${tip.amountUsd.toFixed(2)} to @${tip.recipient.username}`;
+    const body = formatLiveTipChatMessage({
+      senderUsername: tip.sender.username ?? "Someone",
+      amountUsd: tip.amountUsd,
+      message: tip.message,
+    });
 
     await tx.liveRoomMessage.create({
       data: {

@@ -161,6 +161,7 @@ function FloatingChatRow({
   const isModSender = isModeratorSender(message, hostUserId, moderatorUserIds);
   const isHostEnding = isHostEndingLiveBody(message.text);
   const isEvent = isViewerEventMessage(message);
+  const isTip = message.messageType === 'tip';
   const name = isEvent ? formatViewerEventName(message.user) : formatChatDisplayName(message.user);
   const chatUser = { username: message.user, userId: message.senderId };
   const protectedHost = isProtectedShowHost({
@@ -190,6 +191,15 @@ function FloatingChatRow({
         <LiveRoomText
           style={[
             styles.lifecycleEvent,
+            scale > 1 && { fontSize: Math.round(13 * scale), lineHeight: Math.round(17 * scale) },
+          ]}
+        >
+          {message.text}
+        </LiveRoomText>
+      ) : isTip ? (
+        <LiveRoomText
+          style={[
+            styles.tipEvent,
             scale > 1 && { fontSize: Math.round(13 * scale), lineHeight: Math.round(17 * scale) },
           ]}
         >
@@ -716,6 +726,13 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   lifecycleEvent: {
+    color: colors.gold,
+    fontWeight: '800',
+    fontSize: 13,
+    lineHeight: 17,
+    ...TEXT_SHADOW,
+  },
+  tipEvent: {
     color: colors.gold,
     fontWeight: '800',
     fontSize: 13,

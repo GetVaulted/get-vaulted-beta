@@ -15,13 +15,24 @@ describe("canSellerCreateShippingLabel", () => {
     expect(r).toEqual({ ok: false, code: "UNPAID" });
   });
 
-  it("rejects when label already exists", () => {
+  it("rejects when a healthy label transaction already exists", () => {
     const r = canSellerCreateShippingLabel({
       paymentStatus: "paid",
       shippoTransactionId: "txn_1",
       labelUrl: null,
+      fulfillmentStatus: "label_created",
     });
     expect(r).toEqual({ ok: false, code: "LABEL_EXISTS" });
+  });
+
+  it("allows retry when prior Shippo attempt is in exception", () => {
+    const r = canSellerCreateShippingLabel({
+      paymentStatus: "paid",
+      shippoTransactionId: "txn_1",
+      labelUrl: null,
+      fulfillmentStatus: "exception",
+    });
+    expect(r).toEqual({ ok: true });
   });
 
   it("rejects when labelUrl set", () => {

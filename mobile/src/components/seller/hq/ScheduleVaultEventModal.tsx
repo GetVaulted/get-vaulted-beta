@@ -15,10 +15,11 @@ import {
   Switch,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fetchSellerShippingProfiles } from '../../../api/liveHostShippingRepository';
+import { fetchSellerShippingProfiles, type LiveHostShippingProfileOption } from '../../../api/liveHostShippingRepository';
 import { resolveSellerShippingProfileIdForCategory } from '../../../lib/liveShowCategoryShippingProfile';
 import { createLiveRoom, streamFormatToRoomType } from '../../../api/liveRoomsRepository';
 import { fetchSellerLiveReadiness, type SellerLiveReadiness } from '../../../api/liveHostRepository';
@@ -36,6 +37,7 @@ import { LiveShowTipModeratorFields } from './LiveShowTipModeratorFields';
 import { notifyLiveDiscoveryChanged } from '../../../lib/notifyLiveDiscoveryChanged';
 import type { LiveSalesGate } from '../../../lib/sellerLiveReadiness';
 import { VAULT_EVENT_CATEGORY_OPTIONS } from '../../../lib/liveRoomDisplay';
+import { isTabletLiveRoomLayout } from '../../../lib/liveRoomUiScale';
 import { colors, radii, spacing } from '../../../theme';
 
 const THUMBNAIL_MAX_BYTES = 20 * 1024 * 1024;
@@ -102,6 +104,15 @@ export function ScheduleVaultEventModal({
   onScheduled?: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const isTablet = isTabletLiveRoomLayout(windowWidth);
+  const thumbPreviewSize = useMemo(
+    () =>
+      isTablet
+        ? { maxWidth: Math.min(520, Math.round(windowWidth * 0.52)), height: 200 }
+        : { maxWidth: 320, height: 180 },
+    [isTablet, windowWidth],
+  );
   const [tagline, setTagline] = useState('');
   const [scheduleMode, setScheduleMode] = useState<CreateScheduleMode>('now');
   const [scheduledDate, setScheduledDate] = useState(defaultScheduledDate);
@@ -120,9 +131,7 @@ export function ScheduleVaultEventModal({
   const [modalReadinessBusy, setModalReadinessBusy] = useState(false);
   const [recurringWeekly, setRecurringWeekly] = useState(false);
   const [discoveryVisibility, setDiscoveryVisibility] = useState<'public' | 'private'>('public');
-  const [shippingProfiles, setShippingProfiles] = useState<
-    { id: string; name: string; isDefault?: boolean }[]
-  >([]);
+  const [shippingProfiles, setShippingProfiles] = useState<LiveHostShippingProfileOption[]>([]);
   const [defaultSellerShippingProfileId, setDefaultSellerShippingProfileId] = useState('');
   const submittingRef = useRef(false);
 
@@ -305,10 +314,9 @@ export function ScheduleVaultEventModal({
           shippingMode: 'capped',
           carrierPreference: 'best_rate',
           bundleEligiblePurchases: true,
-          defaultSellerShippingProfileId,
+          defaultShippingProfileId: defaultSellerShippingProfileId || undefined,
           recurringEnabled: scheduleMode === 'later' && recurringWeekly,
-          defaultSellerShippingProfileId,
-    discoveryVisibility,
+          discoveryVisibility,
         },
         { sellerUserId: freshReadiness.sellerUserId ?? null },
       );
@@ -443,34 +451,48 @@ export function ScheduleVaultEventModal({
           <Text style={styles.label}>Cover image (optional)</Text>
           <View style={styles.thumbCard}>
             {thumbUrl ? (
-              <Image
-                source={{ uri: thumbUrl }}
-                style={styles.thumbPreview}
-                resizeMode="cover"
-                accessibilityLabel="Cover preview"
-              />
+              <View style={[styles.thumbPreviewFrame, thumbPreviewSize]}>
+                <Image
+                  source={{ uri: thumbUrl }}
+                  style={styles.thumbPreview}
+                  resizeMode="cover"
+                  accessibilityLabel="Cover preview"
+                />
+              </View>
             ) : (
-              <View style={styles.thumbPlaceholder}>
-                <Ionicons name="image-outline" size={28} color={colors.gold} />
-                <Text style={styles.thumbPlaceholderTxt}>Add a live tile image</Text>
+              <View style={[styles.thumbPlaceholder, styles.thumbPreviewFrame, thumbPreviewSize]}>
+                <Ionicons name="image-outline" size={isTablet ? 34 : 28} color={colors.gold} />
+                <Text style={[styles.thumbPlaceholderTxt, isTablet && styles.thumbPlaceholderTxtTablet]}>
+                  Add a live tile image
+                </Text>
                 <Text style={styles.thumbHint}>JPG, PNG, or WebP · up to 20MB</Text>
               </View>
             )}
-            <View style={styles.thumbActions}>
+            <View style={[styles.thumbActions, { maxWidth: thumbPreviewSize.maxWidth }]}>
               <Pressable
-                style={[styles.thumbBtn, thumbUploading && styles.thumbBtnOff]}
+                style={[
+                  styles.thumbBtn,
+                  isTablet && styles.thumbBtnTablet,
+                  thumbUploading && styles.thumbBtnOff,
+                ]}
                 onPress={() => void pickThumbnail()}
                 disabled={thumbUploading || busy}
               >
                 {thumbUploading ? (
                   <ActivityIndicator color={colors.gold} size="small" />
                 ) : (
-                  <Text style={styles.thumbBtnTxt}>{thumbUrl ? 'Replace' : 'Choose image'}</Text>
+                  <Text style={[styles.thumbBtnTxt, isTablet && styles.thumbBtnTxtTablet]}>
+                    {thumbUrl ? 'Replace' : 'Choose image'}
+                  </Text>
                 )}
               </Pressable>
               {thumbUrl ? (
-                <Pressable style={styles.thumbBtnGhost} onPress={resetThumb} disabled={thumbUploading || busy}>
-                  <Text style={styles.thumbBtnGhostTxt}>Remove</Text>
+                <Pressable
+                  style={[styles.thumbBtnGhost, isTablet && styles.thumbBtnTablet]}
+                  onPress={resetThumb}
+                  disabled={thumbUploading || busy}
+                >
+                  <Text style={[styles.thumbBtnGhostTxt, isTablet && styles.thumbBtnTxtTablet]}>Remove</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -694,7 +716,11 @@ export function ScheduleVaultEventModal({
 
           <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
             <Pressable
-              style={[styles.primary, (liveBlocked || busy || thumbUploading || !titleComplete) && styles.primaryOff]}
+              style={[
+                styles.primary,
+                isTablet && styles.primaryTablet,
+                (liveBlocked || busy || thumbUploading || !titleComplete) && styles.primaryOff,
+              ]}
               onPress={() => void submit()}
               disabled={busy || liveBlocked || thumbUploading || !titleComplete}
             >
@@ -702,8 +728,8 @@ export function ScheduleVaultEventModal({
                 <ActivityIndicator color={colors.background} />
               ) : (
                 <>
-                  <Ionicons name={submitIcon} size={20} color={colors.background} />
-                  <Text style={styles.primaryTxt}>{submitLabel}</Text>
+                  <Ionicons name={submitIcon} size={isTablet ? 22 : 20} color={colors.background} />
+                  <Text style={[styles.primaryTxt, isTablet && styles.primaryTxtTablet]}>{submitLabel}</Text>
                 </>
               )}
             </Pressable>
@@ -824,11 +850,26 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     backgroundColor: 'rgba(0,0,0,0.25)',
   },
-  thumbPreview: { width: '100%', aspectRatio: 5 / 4, borderRadius: radii.md },
-  thumbPlaceholder: { alignItems: 'center', paddingVertical: spacing.lg, gap: 6 },
+  thumbPreviewFrame: {
+    alignSelf: 'center',
+    width: '100%',
+    borderRadius: radii.md,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  thumbPreview: { width: '100%', height: '100%' },
+  thumbPlaceholder: { alignItems: 'center', justifyContent: 'center', gap: 6 },
   thumbPlaceholderTxt: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
+  thumbPlaceholderTxtTablet: { fontSize: 16 },
   thumbHint: { fontSize: 11, color: colors.textMuted, textAlign: 'center' },
-  thumbActions: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm, marginTop: spacing.sm },
+  thumbActions: {
+    flexDirection: 'row',
+    alignSelf: 'center',
+    width: '100%',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
   thumbBtn: {
     paddingVertical: 8,
     paddingHorizontal: 16,
@@ -837,8 +878,17 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(212,175,55,0.35)',
     backgroundColor: 'rgba(212,175,55,0.1)',
   },
+  thumbBtnTablet: {
+    flex: 1,
+    minHeight: 48,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   thumbBtnOff: { opacity: 0.6 },
   thumbBtnTxt: { fontSize: 12, fontWeight: '800', color: colors.gold },
+  thumbBtnTxtTablet: { fontSize: 15 },
   thumbBtnGhost: {
     paddingVertical: 8,
     paddingHorizontal: 16,
@@ -871,5 +921,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.gold,
   },
   primaryOff: { opacity: 0.5 },
+  primaryTablet: { minHeight: 54, paddingVertical: 18 },
   primaryTxt: { fontSize: 16, fontWeight: '900', color: colors.background },
+  primaryTxtTablet: { fontSize: 18 },
 });

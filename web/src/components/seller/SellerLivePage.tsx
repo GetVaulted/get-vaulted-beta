@@ -1215,12 +1215,12 @@ export function SellerLivePage() {
                       }}
                     />
                     {previewThumbVisual ? (
-                      <div className="mx-auto max-w-xl overflow-hidden rounded-xl border border-white/10 bg-zinc-950">
+                      <div className="mx-auto max-w-xs overflow-hidden rounded-xl border border-white/10 bg-zinc-950">
                         {/* eslint-disable-next-line @next/next/no-img-element -- uploaded public/Supabase URL, simple preview */}
                         <img src={previewThumb} alt="Live tile preview" className="aspect-video w-full object-cover" />
                       </div>
                     ) : (
-                      <div className="mx-auto flex max-w-xl flex-col items-center justify-center rounded-xl border border-white/[0.08] bg-zinc-950/50 px-4 py-8 text-center">
+                      <div className="mx-auto flex max-w-xs flex-col items-center justify-center rounded-xl border border-white/[0.08] bg-zinc-950/50 px-4 py-8 text-center">
                         <span className="flex size-11 items-center justify-center rounded-full border border-gold/30 bg-gold/10 text-lg text-gold-bright">
                           +
                         </span>

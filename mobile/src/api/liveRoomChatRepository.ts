@@ -1,6 +1,6 @@
 import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 
-export type LiveRoomChatMessageType = 'chat' | 'bid' | 'purchase' | 'system';
+export type LiveRoomChatMessageType = 'chat' | 'bid' | 'purchase' | 'system' | 'tip';
 
 export type LiveRoomChatMessageRow = {
   id: string;

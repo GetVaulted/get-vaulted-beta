@@ -117,6 +117,18 @@ export async function POST(_req: Request, ctx: { params: Promise<{ orderId: stri
   if (!order) return NextResponse.json({ error: "Order not found." }, { status: 404 });
 
   const enriched = await enrichSellerOrderChargeBreakdown(order);
+  const mapped = mapSellerSalesOrderForApi(user, enriched);
 
-  return NextResponse.json({ ok: true, order: mapSellerSalesOrderForApi(user, enriched) });
+  if (!order.labelUrl?.trim()) {
+    return NextResponse.json(
+      {
+        error:
+          "Shippo did not produce a printable label. Confirm your ship-from address, buyer ship-to address, and listing parcel weight.",
+        order: mapped,
+      },
+      { status: 422 },
+    );
+  }
+
+  return NextResponse.json({ ok: true, order: mapped });
 }

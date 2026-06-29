@@ -37,7 +37,6 @@ import { stripeLineItemProductData, STRIPE_TAX_CODE_TANGIBLE, TAX_PROVIDER_STRIP
 import { prisma } from "@/lib/prisma";
 import { PAYMENT_PAID, PAYMENT_PENDING } from "@/services/payments";
 import { initializeOrderPayoutOnPayment } from "@/services/payout/process-delivery-payout";
-import { fulfillOrderShippingAfterPayment } from "@/services/shipping";
 import { resolveMarketplaceCheckoutShipping } from "@/services/marketplace-checkout-shipping";
 
 export type LayawayShippingInput = {
@@ -887,7 +886,6 @@ export async function completeLayawayPlan(layawayId: string): Promise<void> {
   });
 
   await initializeOrderPayoutOnPayment(lay.orderId);
-  await fulfillOrderShippingAfterPayment(lay.orderId);
 
   const layParties = {
     id: lay.id,

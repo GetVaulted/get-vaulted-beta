@@ -19,9 +19,10 @@ import {
 } from '../../api/buyerWalletRepository';
 import { colors, spacing } from '../../theme';
 import { LiveRoomText } from '../live/LiveRoomText';
-import { useKeyboardInset } from './walletSheetKeyboard';
 import { walletAddressSetupStyles as s } from './walletAddressSetupStyles';
 import { AddressAutocompleteFields } from '../address/AddressAutocompleteFields';
+
+const FOOTER_RESERVE = 88;
 
 type Props = {
   visible: boolean;
@@ -87,11 +88,10 @@ export function WalletAddressSetupModal({
   onSaved,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const keyboardInset = useKeyboardInset();
   const [draft, setDraft] = useState<CreateShippingAddressInput>(EMPTY);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const footerPad = Math.max(insets.bottom, spacing.lg) + keyboardInset;
+  const safeBottom = Math.max(insets.bottom, spacing.lg);
   const scrollRef = useRef<ScrollView | null>(null);
 
   useEffect(() => {
@@ -126,8 +126,7 @@ export function WalletAddressSetupModal({
           <View style={s.panel}>
             <KeyboardAvoidingView
               style={s.body}
-              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             >
               <View style={s.headerRow}>
                 <Pressable onPress={onClose} hitSlop={12} style={s.headerSpacer}>
@@ -139,9 +138,10 @@ export function WalletAddressSetupModal({
               <ScrollView
                 ref={scrollRef}
                 style={s.scroll}
-                contentContainerStyle={[s.scrollContent, { paddingBottom: footerPad + 72 }]}
+                contentContainerStyle={[s.scrollContent, { paddingBottom: FOOTER_RESERVE + safeBottom }]}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="interactive"
+                automaticallyAdjustKeyboardInsets
                 showsVerticalScrollIndicator={false}
               >
                 <LiveRoomText style={s.subtitle}>
@@ -177,7 +177,7 @@ export function WalletAddressSetupModal({
                   <Switch value={draft.isDefault !== false} onValueChange={(v) => setDraft((d) => ({ ...d, isDefault: v }))} trackColor={{ true: colors.gold }} />
                 </View>
               </ScrollView>
-              <View style={[s.footer, { paddingBottom: footerPad }]}>
+              <View style={[s.footer, { paddingBottom: safeBottom }]}>
                 <Pressable style={[s.primaryBtn, busy && s.primaryBtnDisabled]} onPress={() => void save()} disabled={busy}>
                   {busy ? <ActivityIndicator color="#0A0A0A" /> : <LiveRoomText style={s.primaryBtnText}>Save address</LiveRoomText>}
                 </Pressable>

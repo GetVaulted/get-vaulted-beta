@@ -323,6 +323,22 @@ export function LiveAuctionChat({
               </div>
             ) : null}
             {overlayList.map((m, idx, arr) => {
+              const isTip = m.messageType === "tip";
+              if (isTip) {
+                const isNewest = idx === arr.length - 1;
+                return (
+                  <div
+                    key={m.id}
+                    className={`chat-msg-row relative max-w-[94%] text-[13px] leading-snug max-[380px]:text-[12px] ${
+                      isNewest
+                        ? "motion-safe:animate-[live-chat-slide_var(--live-duration-enter)_var(--live-ease)_both]"
+                        : "animate-[chat-rise_var(--live-duration-enter)_var(--live-ease)]"
+                    }`}
+                  >
+                    <span className={`font-extrabold text-amber-300/95 ${lineShadow}`}>{m.body}</span>
+                  </div>
+                );
+              }
               const isSystem = m.messageType === "system";
               const inlineEvent = isInlineViewerEventMessage(m);
               const label = chatLabelForMessage(m);
@@ -470,6 +486,18 @@ export function LiveAuctionChat({
           </div>
         ) : (
           panelMessages.map((m, idx, arr) => {
+            const isTip = m.messageType === "tip";
+            if (isTip) {
+              return (
+                <div
+                  key={m.id}
+                  className={`chat-msg-row animate-[chat-rise_var(--live-duration-ui)_var(--live-ease)] leading-snug ${compact ? "text-sm" : "text-[15px]"}`}
+                  style={compact ? { opacity: 0.35 + (idx / Math.max(1, arr.length - 1)) * 0.65 } : undefined}
+                >
+                  <p className="font-extrabold text-amber-300/95">{m.body}</p>
+                </div>
+              );
+            }
             const isSystem = m.messageType === "system";
             const isPurchase = m.messageType === "purchase";
             const inlineEvent = isInlineViewerEventMessage(m);

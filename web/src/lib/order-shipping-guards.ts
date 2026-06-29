@@ -31,11 +31,18 @@ export function canSellerCreateShippingLabel(order: {
   paymentStatus: string;
   shippoTransactionId: string | null;
   labelUrl: string | null;
+  fulfillmentStatus?: string;
 }): { ok: true } | { ok: false; code: "UNPAID" | "LABEL_EXISTS" } {
   if (order.paymentStatus !== PAYMENT_PAID || orderBlocksFulfillmentForLayaway(order)) {
     return { ok: false, code: "UNPAID" };
   }
-  if (order.shippoTransactionId || order.labelUrl) return { ok: false, code: "LABEL_EXISTS" };
+  if (order.labelUrl?.trim()) return { ok: false, code: "LABEL_EXISTS" };
+  if (
+    order.shippoTransactionId?.trim() &&
+    order.fulfillmentStatus !== "exception"
+  ) {
+    return { ok: false, code: "LABEL_EXISTS" };
+  }
   return { ok: true };
 }
 

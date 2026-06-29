@@ -160,7 +160,7 @@ export function SellerShippingLabelPanel(props: SellerShippingLabelPanelProps) {
           </div>
         ) : null}
 
-        {labelFailed && !shippingAddressIncomplete ? (
+        {labelFailed && !shippingAddressIncomplete && !(purchased && !hasFile) ? (
           <div className="rounded-xl border border-amber-500/25 bg-amber-950/20 px-3.5 py-3">
             <p className="text-sm font-semibold text-amber-100">Last label attempt failed</p>
             <p className="mt-1 text-xs leading-relaxed text-amber-100/80">
@@ -173,7 +173,7 @@ export function SellerShippingLabelPanel(props: SellerShippingLabelPanelProps) {
           <div className="rounded-xl border border-amber-500/25 bg-amber-950/20 px-3.5 py-3">
             <p className="text-xs font-semibold text-amber-100">Label file missing</p>
             <p className="mt-1 text-xs leading-relaxed text-amber-100/75">
-              The label was purchased but the PDF is not available.
+              Shippo accepted the label but the PDF is not saved yet. Try Retry lookup first, then Regenerate if needed.
             </p>
           </div>
         ) : null}

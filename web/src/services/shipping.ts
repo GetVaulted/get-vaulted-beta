@@ -2,7 +2,8 @@ import { createNotification } from "@/lib/notifications";
 import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import { prisma } from "@/lib/prisma";
-import { isShippoConfigured, shippoCreateShipment, shippoGetTransaction, shippoListRates, shippoPurchaseRate, type ShippoAddress, type ShippoParcel } from "@/lib/shippo";
+import { isShippoConfigured, shippoCreateShipment, shippoListRates, shippoPurchaseRate, type ShippoAddress, type ShippoParcel } from "@/lib/shippo";
+import { resolveShippoPurchaseLabel } from "@/lib/shippo-transaction-label";
 
 const DEFAULT_PARCEL: ShippoParcel = {
   length: "10",
@@ -28,8 +29,8 @@ function parcelFromListing(w?: number | null, l?: number | null, wi?: number | n
 }
 
 /**
- * After Stripe confirms payment, create Shippo shipment, pick a rate, buy label, persist tracking.
- * Skips when Shippo is not configured or seller origin / parcel data is missing.
+ * Purchase a Shippo label for a paid order: create shipment, pick a rate, buy label, persist tracking.
+ * Called when the seller explicitly creates a label from Sales (not automatically on payment).
  */
 export async function fulfillOrderShippingAfterPayment(orderId: string): Promise<void> {
   if (!isShippoConfigured()) return;
@@ -75,7 +76,24 @@ export async function fulfillOrderShippingAfterPayment(orderId: string): Promise
       labelCreatedAt: order.labelCreatedAt,
     });
     if (repaired.labelUrl?.trim()) return;
-    return;
+    if (order.fulfillmentStatus === "exception") {
+      await prisma.order.update({
+        where: { id: orderId },
+        data: {
+          shippoTransactionId: null,
+          shippoShipmentId: null,
+          carrier: null,
+          service: null,
+          trackingNumber: null,
+          trackingUrl: null,
+          shippingStatus: null,
+          fulfillmentStatus: "pending",
+          labelCreatedAt: null,
+        },
+      });
+    } else {
+      return;
+    }
   }
 
   const from = order.seller;
@@ -141,22 +159,12 @@ export async function fulfillOrderShippingAfterPayment(orderId: string): Promise
       tracking_url_provider?: string;
       label_url?: string;
       status?: string;
+      messages?: { text?: string }[];
     };
 
-    const txId = tx.object_id ?? picked.object_id;
-    let labelUrl = tx.label_url?.trim() || null;
-    if (!labelUrl && txId) {
-      try {
-        const fetched = await shippoGetTransaction(txId);
-        labelUrl = fetched.label_url?.trim() || null;
-      } catch (e) {
-        console.warn("[shippo] post-purchase label fetch failed", {
-          orderId,
-          txId,
-          error: e instanceof Error ? e.message : String(e),
-        });
-      }
-    }
+    const resolved = await resolveShippoPurchaseLabel(tx);
+    const txId = resolved.transactionId;
+    const labelUrl = resolved.labelUrl;
 
     const labelNow = new Date();
     await prisma.order.update({
@@ -166,19 +174,15 @@ export async function fulfillOrderShippingAfterPayment(orderId: string): Promise
         shippoTransactionId: txId,
         carrier: picked.provider ?? null,
         service: picked.servicelevel?.name ?? null,
-        trackingNumber: tx.tracking_number ?? null,
-        trackingUrl: tx.tracking_url_provider ?? null,
+        trackingNumber: resolved.trackingNumber,
+        trackingUrl: resolved.trackingUrl,
         labelUrl,
-        shippingStatus: tx.status ?? "UNKNOWN",
-        fulfillmentStatus: labelUrl ? "label_created" : "exception",
+        shippingStatus: resolved.shippingStatus ?? tx.status ?? "SUCCESS",
+        fulfillmentStatus: "label_created",
         labelCreatedAt: labelNow,
         shippingLabelCostCents,
       },
     });
-    const { processLabelCreatedPayoutEvaluation } = await import(
-      "@/services/payout/process-payout-tier-events"
-    );
-    void processLabelCreatedPayoutEvaluation(orderId);
     const chargedCents =
       order.shippingChargedCents ?? Math.round(Math.max(0, order.shippingPriceUsd) * 100);
     console.info("[shipping economics]", {
@@ -188,7 +192,12 @@ export async function fulfillOrderShippingAfterPayment(orderId: string): Promise
     });
     const lt =
       order.listing.title.length > 80 ? `${order.listing.title.slice(0, 77)}…` : order.listing.title;
-    const tn = tx.tracking_number ? ` Tracking: ${tx.tracking_number}.` : "";
+    const tn = resolved.trackingNumber ? ` Tracking: ${resolved.trackingNumber}.` : "";
+
+    const { processLabelCreatedPayoutEvaluation } = await import(
+      "@/services/payout/process-payout-tier-events"
+    );
+    void processLabelCreatedPayoutEvaluation(orderId);
     await logSellerCommerceEvent({
       sellerId: order.sellerId,
       listingId: order.listing.id,
@@ -239,6 +248,7 @@ export async function fulfillOrderShippingAfterPayment(orderId: string): Promise
       title: "Shipping exception",
       body: `Shippo could not create a label for “${lt}”. ${errMsg.slice(0, 200)}`,
     });
+    throw e instanceof Error ? e : new Error(errMsg);
   }
 }
 

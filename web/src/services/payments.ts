@@ -56,7 +56,6 @@ import { getEscrowProvider } from "@/services/escrow/factory";
 import { assertValidEscrowTransition } from "@/services/escrow/state-machine";
 import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
 import { PAYMENT_LAYAWAY_ACTIVE } from "@/lib/layaway/constants";
-import { fulfillOrderShippingAfterPayment } from "@/services/shipping";
 import {
   assertBuyNowAllowed,
   CommerceGuardError,
@@ -277,7 +276,6 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
     });
   }
 
-  void fulfillOrderShippingAfterPayment(orderId);
   void initializeOrderPayoutOnPayment(orderId);
 
   const lt = order.listing.title.length > 90 ? `${order.listing.title.slice(0, 87)}…` : order.listing.title;
@@ -1449,7 +1447,6 @@ export async function finalizeStripeMarketplaceOrderPaid(
     return { closedLayaways };
   });
 
-  void fulfillOrderShippingAfterPayment(orderId);
   void initializeOrderPayoutOnPayment(orderId);
 
   const lt = order.listing.title.length > 90 ? `${order.listing.title.slice(0, 87)}…` : order.listing.title;
