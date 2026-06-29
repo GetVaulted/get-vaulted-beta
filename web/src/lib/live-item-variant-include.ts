@@ -18,3 +18,13 @@ export const liveRoomItemsWithVariantsInclude = {
     },
   },
 } as const;
+
+/** Host console — variants only; paid buyer usernames attached in one batch query. */
+export const liveRoomItemsHostConsoleInclude = {
+  orderBy: { sortOrder: "asc" as const },
+  include: {
+    variants: {
+      orderBy: { sortOrder: "asc" as const },
+    },
+  },
+} as const;

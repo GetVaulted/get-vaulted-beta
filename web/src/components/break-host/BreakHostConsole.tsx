@@ -164,6 +164,7 @@ type HitRow = {
 };
 
 type HostPayload = {
+  syncScope?: "lite" | "full";
   room: RoomPayload;
   queueItems: QueueRow[];
   orphanSpots: ClaimRow[];
@@ -317,11 +318,14 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     hostConsoleHydratedRef.current = false;
   }, [roomId]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { lite?: boolean }) => {
     const generation = ++loadGenerationRef.current;
     try {
       const t0 = Date.now();
-      const res = await fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/host-console`, { cache: "no-store" });
+      const res = await fetch(
+        `/api/live-rooms/${encodeURIComponent(roomId)}/host-console${opts?.lite ? "?lite=1" : ""}`,
+        { cache: "no-store" },
+      );
       const t1 = Date.now();
       if (!res.ok) {
         const raw = await res.text();
@@ -383,9 +387,16 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         }
         return {
           ...j,
-          recentSales: j.recentSales ?? prev.recentSales ?? [],
+          recentSales:
+            j.syncScope === "lite"
+              ? (prev.recentSales ?? [])
+              : (j.recentSales ?? prev.recentSales ?? []),
           feeTier: j.feeTier ?? prev.feeTier ?? null,
-          sellerUnresolvedPaymentFailures: j.sellerUnresolvedPaymentFailures ?? prev.sellerUnresolvedPaymentFailures ?? [],
+          sellerUnresolvedPaymentFailures:
+            j.syncScope === "lite"
+              ? (prev.sellerUnresolvedPaymentFailures ?? [])
+              : (j.sellerUnresolvedPaymentFailures ?? prev.sellerUnresolvedPaymentFailures ?? []),
+          hits: j.syncScope === "lite" ? (prev.hits ?? []) : (j.hits ?? prev.hits ?? []),
           queueItems: mergeHostQueueRows(prev.queueItems, j.queueItems ?? []),
           messages: mergeLiveRoomMessagesById(prev.messages, j.messages),
         };
@@ -827,7 +838,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     const hasRealtime = Boolean(getSupabaseBrowserClient());
     const roomLive = data?.room?.status === "live";
     const pollMs = roomLive ? 5_000 : hasRealtime ? 15_000 : 5_000;
-    const t = setInterval(() => void load(), pollMs);
+    const t = setInterval(() => void load({ lite: true }), pollMs);
     return () => clearInterval(t);
   }, [load, data?.room?.status]);
 

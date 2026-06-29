@@ -365,6 +365,7 @@ function parsePaymentFailureRow(raw: unknown): HostPaymentFailureRow | null {
 
 export type HostConsolePayload = {
   serverNowMs: number;
+  syncScope?: 'lite' | 'full';
   room: HostConsoleRoom;
   items: LiveRoomItemRow[];
   activeItem: LiveRoomItemRow | null;
@@ -378,15 +379,29 @@ export type HostConsolePayload = {
 export async function fetchHostConsole(
   accessToken: string,
   roomId: string,
-  options?: { force?: boolean },
+  options?: { force?: boolean; lite?: boolean },
 ): Promise<HostConsolePayload> {
-  return readThroughHostConsoleCache(accessToken, roomId, () => fetchHostConsoleFromApi(accessToken, roomId), options);
+  if (options?.lite) {
+    return fetchHostConsoleFromApi(accessToken, roomId, { lite: true });
+  }
+  return readThroughHostConsoleCache(
+    accessToken,
+    roomId,
+    () => fetchHostConsoleFromApi(accessToken, roomId, { lite: false }),
+    options,
+  );
 }
 
-async function fetchHostConsoleFromApi(accessToken: string, roomId: string): Promise<HostConsolePayload> {
-  const endpoint = `/api/live-rooms/${encodeURIComponent(roomId)}/host-console`;
+async function fetchHostConsoleFromApi(
+  accessToken: string,
+  roomId: string,
+  options?: { lite?: boolean },
+): Promise<HostConsolePayload> {
+  const lite = options?.lite === true;
+  const endpoint = `/api/live-rooms/${encodeURIComponent(roomId)}/host-console${lite ? '?lite=1' : ''}`;
   const { res, json: j, bodyPreview } = await hostFetchJson<{
     serverNowMs?: number;
+    syncScope?: 'lite' | 'full';
     room?: HostConsoleRoom & { viewerCount?: number };
     queueItems?: { item: LiveRoomItemRow }[];
     messages?: HostConsoleMessage[];
@@ -417,6 +432,7 @@ async function fetchHostConsoleFromApi(accessToken: string, roomId: string): Pro
   const giveaways = Array.isArray(j.giveaways) ? j.giveaways : [];
   return {
     serverNowMs: j.serverNowMs ?? Date.now(),
+    syncScope: j.syncScope ?? (lite ? 'lite' : 'full'),
     room: { ...j.room, viewerCount: j.room.viewerCount ?? 0 },
     items,
     activeItem,

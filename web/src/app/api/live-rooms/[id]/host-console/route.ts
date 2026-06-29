@@ -10,7 +10,8 @@ import { buildLiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
 import { attachHighBidderUsernames } from "@/lib/live-room-high-bidder-enrich";
 import { listUnresolvedPaymentFailuresForRoom } from "@/lib/live-room-payment-failure";
 import { serializeLiveRoomItem, serializeLiveRoomMessage } from "@/lib/live-room-serialize";
-import { liveRoomItemsWithVariantsInclude } from "@/lib/live-item-variant-include";
+import { liveRoomItemsHostConsoleInclude } from "@/lib/live-item-variant-include";
+import { attachHostConsoleVariantPurchases } from "@/lib/live-item-variant-host-console-enrich";
 import { enrichLiveRoomItemsRandomClaims } from "@/lib/live-variant-random-claims";
 import { apiErrorResponseFromUnknown } from "@/lib/prisma-api-error-response";
 import { logSellerRoomStateSnapshot } from "@/lib/log-room-state-snapshot";
@@ -60,13 +61,18 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     }
     const { userId: hostUserId, isAdmin } = hostAuth;
 
+    const url = new URL(req.url);
+    const lite = url.searchParams.get("lite") === "1";
     const isMobileClient = req.headers.get("x-gv-client") === "getvaulted-mobile";
-    const messageTake = isMobileClient ? 50 : 200;
+    const messageTake = isMobileClient ? 40 : lite ? 60 : 120;
 
-    const room = await prisma.liveRoom.findUnique({
+    const buyerQ = url.searchParams.get("buyerSearch")?.trim() ?? "";
+    const pickerQ = url.searchParams.get("pickerSearch")?.trim() ?? "";
+
+    const roomRow = await prisma.liveRoom.findUnique({
       where: { id: liveRoomId },
       include: {
-        items: liveRoomItemsWithVariantsInclude,
+        items: liveRoomItemsHostConsoleInclude,
         breakSpots: {
           include: { user: { select: { id: true, username: true, email: true } } },
           orderBy: { createdAt: "asc" },
@@ -79,7 +85,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
         },
       },
     });
-    if (!room) {
+    if (!roomRow) {
       logLiveLoaderDebug("api_host_console_room_row_missing", {
         liveRoomId,
         idParamRaw: raw,
@@ -88,11 +94,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const url = new URL(req.url);
-    const buyerQ = url.searchParams.get("buyerSearch")?.trim() ?? "";
-    const pickerQ = url.searchParams.get("pickerSearch")?.trim() ?? "";
-    let buyerMatches: { id: string; username: string; email: string }[] = [];
-    let pickerMatches: { id: string; username: string; email: string }[] = [];
+    const itemsWithPurchases = await attachHostConsoleVariantPurchases(roomRow.items);
+    const room = { ...roomRow, items: itemsWithPurchases };
 
     const userSearch = async (q: string) =>
       prisma.user.findMany({
@@ -104,19 +107,33 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
         select: { id: true, username: true, email: true },
       });
 
-    if (buyerQ.length >= 2) {
-      buyerMatches = await userSearch(buyerQ);
-    }
-    if (pickerQ.length >= 2) {
-      pickerMatches = await userSearch(pickerQ);
-    }
-
-    const hits = await prisma.breakHit.findMany({
-      where: { liveRoomId },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      include: { buyer: { select: { id: true, username: true } } },
-    });
+    const [hits, buyerMatches, pickerMatches, recentSales, sellerUnresolvedPaymentFailures, giveaways] =
+      await Promise.all([
+        lite
+          ? Promise.resolve([])
+          : prisma.breakHit.findMany({
+              where: { liveRoomId },
+              orderBy: { createdAt: "desc" },
+              take: 100,
+              include: { buyer: { select: { id: true, username: true } } },
+            }),
+        buyerQ.length >= 2 ? userSearch(buyerQ) : Promise.resolve([]),
+        pickerQ.length >= 2 ? userSearch(pickerQ) : Promise.resolve([]),
+        lite
+          ? Promise.resolve([])
+          : fetchHostRecentSales(liveRoomId, room.sellerId).catch((e) => {
+              console.error("[host-console] fetchHostRecentSales failed", { liveRoomId, e });
+              return [] as Awaited<ReturnType<typeof fetchHostRecentSales>>;
+            }),
+        listUnresolvedPaymentFailuresForRoom(liveRoomId).catch((e) => {
+          console.error("[host-console] listUnresolvedPaymentFailuresForRoom failed", { liveRoomId, e });
+          return [] as Awaited<ReturnType<typeof listUnresolvedPaymentFailuresForRoom>>;
+        }),
+        listLiveGiveawaysForRoom(liveRoomId, true).catch((e) => {
+          console.error("[host-console] listLiveGiveawaysForRoom failed", { liveRoomId, e });
+          return [] as Awaited<ReturnType<typeof listLiveGiveawaysForRoom>>;
+        }),
+      ]);
 
     const itemsSorted = [...room.items].sort(
       (a, b) => a.sortOrder - b.sortOrder || a.createdAt.getTime() - b.createdAt.getTime(),
@@ -159,20 +176,6 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
     const messagesAsc = [...room.messages].reverse().map((m) => serializeLiveRoomMessage(m));
 
-    let recentSales: Awaited<ReturnType<typeof fetchHostRecentSales>> = [];
-    try {
-      recentSales = await fetchHostRecentSales(liveRoomId, room.sellerId);
-    } catch (e) {
-      console.error("[host-console] fetchHostRecentSales failed", { liveRoomId, e });
-    }
-
-    let sellerUnresolvedPaymentFailures: Awaited<ReturnType<typeof listUnresolvedPaymentFailuresForRoom>> = [];
-    try {
-      sellerUnresolvedPaymentFailures = await listUnresolvedPaymentFailuresForRoom(liveRoomId);
-    } catch (e) {
-      console.error("[host-console] listUnresolvedPaymentFailuresForRoom failed", { liveRoomId, e });
-    }
-
     const serverNowMs = Date.now();
     const activeRow = queueItems.find((q) => q.item.status.toLowerCase() === "active") ?? null;
     const selectedForLog = queueItems[0] ?? null;
@@ -193,10 +196,12 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       extra: {
         previewItemId: selectedForLog?.item.id ?? null,
         purchasableFromActiveOnly: true,
+        lite,
       },
     });
     return NextResponse.json({
       serverNowMs,
+      syncScope: lite ? ("lite" as const) : ("full" as const),
       room: {
         id: room.id,
         sellerId: room.sellerId,
@@ -246,14 +251,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       pickerMatches,
       recentSales,
       sellerUnresolvedPaymentFailures,
-      giveaways: await (async () => {
-        try {
-          return await listLiveGiveawaysForRoom(liveRoomId, true);
-        } catch (e) {
-          console.error("[host-console] listLiveGiveawaysForRoom failed", { liveRoomId, e });
-          return [];
-        }
-      })(),
+      giveaways,
     });
   } catch (e) {
     console.error("[api GET /api/live-rooms/[id]/host-console] failed", { liveRoomId, raw: e });

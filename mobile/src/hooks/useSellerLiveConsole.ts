@@ -76,8 +76,10 @@ export function useSellerLiveConsole({
     (data: Awaited<ReturnType<typeof fetchHostConsole>>) => {
       setItems((prev) => mergeLiveRoomItemsById(prev, data.items));
       setGiveaways(data.giveaways);
-      setRecentSales(data.recentSales);
-      setPaymentFailures(data.paymentFailures);
+      if (data.syncScope !== 'lite') {
+        setRecentSales(data.recentSales);
+        setPaymentFailures(data.paymentFailures);
+      }
       setActiveItem((prev) => reconcileHostActiveItem(prev, data.activeItem ?? null));
       logSellerQueue('queue_length', {
         total: data.items.length,
@@ -112,6 +114,7 @@ export function useSellerLiveConsole({
       try {
         const data = await fetchHostConsole(accessToken, roomId, {
           force: opts?.force ?? !opts?.soft,
+          lite: Boolean(opts?.soft && !opts?.force),
         });
         applyConsolePayload(data);
         return data;
