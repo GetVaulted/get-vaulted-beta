@@ -2,6 +2,7 @@ import type { TransactionClient } from "@/generated/prisma/internal/prismaNamesp
 import {
   resolveBuyerDefaultShippingForOrder,
   syncBuyerDefaultShippingToPendingOrderTx,
+  type BuyerShippingSnapshot,
 } from "@/lib/live-buy-now-purchase";
 import { resolveShippingProfileDimensions } from "@/lib/unified-shipping-engine";
 import {
@@ -14,6 +15,11 @@ import { PAYMENT_PAID, PAYMENT_PENDING } from "@/services/payments";
 import { prisma } from "@/lib/prisma";
 
 export type LiveCommerceFulfillmentKind = "variant_purchase" | "break_spot";
+
+/** Spot checkout creates listing + order rows — allow headroom on pooled Supabase connections. */
+const LIVE_COMMERCE_FULFILLMENT_TX_OPTS = { timeout: 20_000, maxWait: 10_000 } as const;
+
+const DEFAULT_SPOT_PARCEL_DIMS = { weightOz: 4, lengthIn: 8, widthIn: 6, heightIn: 1 };
 
 function normalizeLiveRoomItemId(liveRoomItemId?: string | null): string | null {
   const trimmed = liveRoomItemId?.trim();
@@ -130,6 +136,8 @@ export async function createLiveCommerceFulfillmentOrderTx(
     idempotencyKey: string;
     /** Charge spot/item price now; settle live bundled shipping after payment succeeds. */
     skipLiveShippingSettlement?: boolean;
+    /** Avoid address lookup inside an interactive transaction (prefetch before $transaction). */
+    prefetchedShipping?: BuyerShippingSnapshot | null;
   },
 ): Promise<{ orderId: string; totalUsd: number; shippingPriceUsd: number }> {
   const sessionOpts = liveCommerceSessionOpts({
@@ -169,17 +177,8 @@ export async function createLiveCommerceFulfillmentOrderTx(
     };
   }
 
-  const liveItem = normalizeLiveRoomItemId(args.liveRoomItemId)
-    ? await tx.liveRoomItem.findFirst({
-        where: {
-          id: normalizeLiveRoomItemId(args.liveRoomItemId)!,
-          liveRoomId: args.liveShowId,
-        },
-        select: { sellerShippingProfileId: true },
-      })
-    : null;
-
-  const shipping = await resolveBuyerDefaultShippingForOrder(args.buyerId);
+  const shipping =
+    args.prefetchedShipping ?? (await resolveBuyerDefaultShippingForOrder(args.buyerId));
   if (!shipping) {
     throw new Error("NO_SHIPPING_ADDRESS");
   }
@@ -189,26 +188,40 @@ export async function createLiveCommerceFulfillmentOrderTx(
     select: { defaultShipFromAddressId: true },
   });
 
-  const show = await tx.liveRoom.findFirst({
-    where: { id: args.liveShowId, sellerId: args.sellerId },
-    select: {
-      defaultSellerShippingProfileId: true,
-      defaultShippingProfileId: true,
-      category: true,
-    },
-  });
-  if (!show) throw new Error("LIVE_ROOM_NOT_FOUND");
+  let dims = DEFAULT_SPOT_PARCEL_DIMS;
 
-  const breakProfile = await resolveBreakSpotSellerProfile({
-    sellerId: args.sellerId,
-    showDefaultSellerProfileId: show.defaultSellerShippingProfileId,
-    itemSellerProfileId: liveItem?.sellerShippingProfileId ?? null,
-    db: tx,
-  });
+  if (!args.skipLiveShippingSettlement) {
+    const liveItem = normalizeLiveRoomItemId(args.liveRoomItemId)
+      ? await tx.liveRoomItem.findFirst({
+          where: {
+            id: normalizeLiveRoomItemId(args.liveRoomItemId)!,
+            liveRoomId: args.liveShowId,
+          },
+          select: { sellerShippingProfileId: true },
+        })
+      : null;
 
-  const dims = breakProfile
-    ? resolveShippingProfileDimensions(sellerShippingProfileToProfileInput(breakProfile), null)
-    : { weightOz: 4, lengthIn: 8, widthIn: 6, heightIn: 1 };
+    const show = await tx.liveRoom.findFirst({
+      where: { id: args.liveShowId, sellerId: args.sellerId },
+      select: {
+        defaultSellerShippingProfileId: true,
+        defaultShippingProfileId: true,
+        category: true,
+      },
+    });
+    if (!show) throw new Error("LIVE_ROOM_NOT_FOUND");
+
+    const breakProfile = await resolveBreakSpotSellerProfile({
+      sellerId: args.sellerId,
+      showDefaultSellerProfileId: show.defaultSellerShippingProfileId,
+      itemSellerProfileId: liveItem?.sellerShippingProfileId ?? null,
+      db: tx,
+    });
+
+    dims = breakProfile
+      ? resolveShippingProfileDimensions(sellerShippingProfileToProfileInput(breakProfile), null)
+      : DEFAULT_SPOT_PARCEL_DIMS;
+  }
 
   const listing = await tx.listing.create({
     data: {
@@ -283,22 +296,25 @@ export async function createLiveCommerceFulfillmentOrderTx(
   };
 }
 
+/**
+ * PYT/PYD spot checkout charges the listed spot price at payment time.
+ * Live bundled shipping is settled after the show — do not block the card charge on
+ * pre-payment shipping ledger settlement (that path fails for seller/show config reasons
+ * unrelated to the buyer's saved card or billing ZIP).
+ */
 export async function ensureVariantPurchaseFulfillmentOrder(
   purchaseId: string,
 ): Promise<{ orderId: string; chargeTotalUsd: number }> {
   try {
-    return await ensureVariantPurchaseFulfillmentOrderStrict(purchaseId);
+    return await ensureVariantPurchaseFulfillmentOrderSpotPriceFallback(purchaseId);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err ?? "");
-    console.error("[variant purchase] fulfillment strict path failed; charging spot price only", {
+    console.error("[variant purchase] fulfillment order failed (spot price path)", {
       purchaseId,
       detail,
+      err,
     });
-    try {
-      return await ensureVariantPurchaseFulfillmentOrderSpotPriceFallback(purchaseId);
-    } catch {
-      throw err;
-    }
+    throw err;
   }
 }
 
@@ -368,28 +384,31 @@ async function ensureVariantPurchaseFulfillmentOrderStrict(
       data: { fulfillmentOrderId: created.orderId },
     });
     return { orderId: created.orderId, chargeTotalUsd: created.totalUsd };
-  });
+  }, LIVE_COMMERCE_FULFILLMENT_TX_OPTS);
 }
 
 async function ensureVariantPurchaseFulfillmentOrderSpotPriceFallback(
   purchaseId: string,
 ): Promise<{ orderId: string; chargeTotalUsd: number }> {
-  return prisma.$transaction(async (tx) => {
-    const purchase = await tx.liveItemVariantPurchase.findUnique({
-      where: { id: purchaseId },
-      select: {
-        id: true,
-        liveRoomId: true,
-        liveRoomItemId: true,
-        buyerId: true,
-        totalUsd: true,
-        fulfillmentOrderId: true,
-        variant: { select: { label: true } },
-        liveRoom: { select: { sellerId: true } },
-      },
-    });
-    if (!purchase) throw new Error("PURCHASE_NOT_FOUND");
+  const purchase = await prisma.liveItemVariantPurchase.findUnique({
+    where: { id: purchaseId },
+    select: {
+      id: true,
+      liveRoomId: true,
+      liveRoomItemId: true,
+      buyerId: true,
+      totalUsd: true,
+      fulfillmentOrderId: true,
+      variant: { select: { label: true } },
+      liveRoom: { select: { sellerId: true } },
+    },
+  });
+  if (!purchase) throw new Error("PURCHASE_NOT_FOUND");
 
+  const shipping = await resolveBuyerDefaultShippingForOrder(purchase.buyerId);
+  if (!shipping) throw new Error("NO_SHIPPING_ADDRESS");
+
+  return prisma.$transaction(async (tx) => {
     if (purchase.fulfillmentOrderId) {
       await syncBuyerDefaultShippingToPendingOrderTx(tx, purchase.fulfillmentOrderId, purchase.buyerId);
       await tx.order.update({
@@ -410,31 +429,30 @@ async function ensureVariantPurchaseFulfillmentOrderSpotPriceFallback(
       itemPriceUsd: purchase.totalUsd,
       idempotencyKey: `live_variant:${purchase.id}`,
       skipLiveShippingSettlement: true,
+      prefetchedShipping: shipping,
     });
     await tx.liveItemVariantPurchase.update({
       where: { id: purchase.id },
       data: { fulfillmentOrderId: created.orderId },
     });
     return { orderId: created.orderId, chargeTotalUsd: purchase.totalUsd };
-  });
+  }, LIVE_COMMERCE_FULFILLMENT_TX_OPTS);
 }
 
+/** Same spot-price-first policy as variant PYT/PYD purchases. */
 export async function ensureBreakSpotFulfillmentOrder(
   breakSpotId: string,
 ): Promise<{ orderId: string; chargeTotalUsd: number }> {
   try {
-    return await ensureBreakSpotFulfillmentOrderStrict(breakSpotId);
+    return await ensureBreakSpotFulfillmentOrderSpotPriceFallback(breakSpotId);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err ?? "");
-    console.error("[break spot] fulfillment strict path failed; charging spot price only", {
+    console.error("[break spot] fulfillment order failed (spot price path)", {
       breakSpotId,
       detail,
+      err,
     });
-    try {
-      return await ensureBreakSpotFulfillmentOrderSpotPriceFallback(breakSpotId);
-    } catch {
-      throw err;
-    }
+    throw err;
   }
 }
 
@@ -504,28 +522,31 @@ async function ensureBreakSpotFulfillmentOrderStrict(
       data: { fulfillmentOrderId: created.orderId },
     });
     return { orderId: created.orderId, chargeTotalUsd: created.totalUsd };
-  });
+  }, LIVE_COMMERCE_FULFILLMENT_TX_OPTS);
 }
 
 async function ensureBreakSpotFulfillmentOrderSpotPriceFallback(
   breakSpotId: string,
 ): Promise<{ orderId: string; chargeTotalUsd: number }> {
-  return prisma.$transaction(async (tx) => {
-    const spot = await tx.breakSpot.findUnique({
-      where: { id: breakSpotId },
-      select: {
-        id: true,
-        liveRoomId: true,
-        liveRoomItemId: true,
-        userId: true,
-        spotLabel: true,
-        priceUsd: true,
-        fulfillmentOrderId: true,
-        liveRoom: { select: { sellerId: true } },
-      },
-    });
-    if (!spot) throw new Error("SPOT_NOT_FOUND");
+  const spot = await prisma.breakSpot.findUnique({
+    where: { id: breakSpotId },
+    select: {
+      id: true,
+      liveRoomId: true,
+      liveRoomItemId: true,
+      userId: true,
+      spotLabel: true,
+      priceUsd: true,
+      fulfillmentOrderId: true,
+      liveRoom: { select: { sellerId: true } },
+    },
+  });
+  if (!spot) throw new Error("SPOT_NOT_FOUND");
 
+  const shipping = await resolveBuyerDefaultShippingForOrder(spot.userId);
+  if (!shipping) throw new Error("NO_SHIPPING_ADDRESS");
+
+  return prisma.$transaction(async (tx) => {
     if (spot.fulfillmentOrderId) {
       await syncBuyerDefaultShippingToPendingOrderTx(tx, spot.fulfillmentOrderId, spot.userId);
       await tx.order.update({
@@ -546,11 +567,12 @@ async function ensureBreakSpotFulfillmentOrderSpotPriceFallback(
       itemPriceUsd: spot.priceUsd,
       idempotencyKey: `live_break_spot:${spot.id}`,
       skipLiveShippingSettlement: true,
+      prefetchedShipping: shipping,
     });
     await tx.breakSpot.update({
       where: { id: spot.id },
       data: { fulfillmentOrderId: created.orderId },
     });
     return { orderId: created.orderId, chargeTotalUsd: spot.priceUsd };
-  });
+  }, LIVE_COMMERCE_FULFILLMENT_TX_OPTS);
 }

@@ -168,8 +168,11 @@ export function mapLiveFulfillmentOrderError(err: unknown): string {
   ) {
     return "Checkout is not ready on this show yet — shipping profiles may still be setting up.";
   }
+  if (lower.includes("no_shipping_address") || msg === "NO_SHIPPING_ADDRESS") {
+    return "Add a delivery address to your Wallet (where items ship after the show). Your card billing ZIP is separate.";
+  }
   if (lower.includes("no_shipping") || lower.includes("shipping address")) {
-    return "Add a complete shipping address to your Wallet before buying.";
+    return "Add a delivery address to your Wallet before buying live spots.";
   }
   if (lower.includes("live_shipping_seller_mismatch")) {
     return "Checkout could not link this purchase to the show — try again or contact support.";
@@ -177,7 +180,10 @@ export function mapLiveFulfillmentOrderError(err: unknown): string {
   if (lower.includes("live_shipping_session_not")) {
     return "Could not link this purchase to live shipping — try again.";
   }
-  return "Checkout setup failed before your card was charged. Check your Wallet shipping address and try again.";
+  if (lower.includes("expired transaction") || lower.includes("interactive transaction timeout")) {
+    return "Checkout timed out — try again in a moment.";
+  }
+  return "Checkout could not be prepared before your card was charged. This is usually a show setup issue — ask the host to check shipping settings, or try again in a moment.";
 }
 
 /** Stripe Connect requires application_fee_amount strictly less than the charge amount. */

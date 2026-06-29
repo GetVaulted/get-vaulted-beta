@@ -36,11 +36,12 @@ describe('mapLivePaymentFailureMessage', () => {
 });
 
 describe('isShippingAddressRecoveryFailure', () => {
-  it('detects fulfillment and shipping address failures', () => {
-    expect(isShippingAddressRecoveryFailure(null, 'FULFILLMENT_ORDER_FAILED')).toBe(true);
+  it('detects missing delivery address, not generic fulfillment failures', () => {
+    expect(isShippingAddressRecoveryFailure(null, 'FULFILLMENT_ORDER_FAILED')).toBe(false);
+    expect(isShippingAddressRecoveryFailure(null, 'NO_SHIPPING_ADDRESS')).toBe(true);
     expect(
       isShippingAddressRecoveryFailure(
-        'Checkout setup failed before your card was charged — update your Wallet shipping address and try again.',
+        'Add a delivery address to your Wallet (where items ship after the show).',
       ),
     ).toBe(true);
     expect(

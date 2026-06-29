@@ -25,6 +25,7 @@ export type LiveVariantPurchaseResult =
       walletIncomplete?: boolean;
       paymentFailed?: boolean;
       code?: string;
+      checkoutDebug?: { code?: string; fulfillmentDetail?: string | null };
     };
 
 type PurchasePayload = {
@@ -57,6 +58,7 @@ function mapPurchaseResponse(res: Response, payload: PurchasePayload): LiveVaria
       status: 402,
       paymentFailed: payload.paymentFailed === true,
       code: payload.code,
+      checkoutDebug: payload.checkoutDebug,
     };
   }
   if (res.status === 401) {

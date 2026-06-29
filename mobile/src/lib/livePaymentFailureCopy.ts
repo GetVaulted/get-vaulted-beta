@@ -16,12 +16,12 @@ const CODE_MESSAGES: Record<string, string> = {
   STRIPE_ERROR: 'Payment could not be completed. Try updating your saved card.',
   SELLER_NOT_READY: 'The seller is not ready to accept payments yet.',
   FULFILLMENT_ORDER_FAILED:
-    'Checkout setup failed before your card was charged — update your Wallet shipping address and try again.',
+    'Checkout could not be prepared before your card was charged. This is not a card decline — ask the host to check show shipping settings, or try again.',
   LIVE_PAYMENT_BLOCKED:
     'Fix your failed payment in this show before buying again (check Wallet or the payment banner).',
   NO_SAVED_CARD: 'Add a saved payment method to your Wallet.',
   NO_SHIPPING_ADDRESS:
-    'Add a complete shipping address (street, city, state, ZIP) to your Wallet before buying.',
+    'Add a delivery address to your Wallet (where items ship after the show). Your card billing ZIP is separate.',
   BUYER_STRIPE_CUSTOMER_MISSING: 'Wallet is not linked — re-add your card in Wallet.',
   // Order-level payment window lapsed — NOT a card-expiry problem; must not map to "card has expired".
   ORDER_PAYMENT_EXPIRED: "This purchase's payment window expired. Please try again or contact support.",
@@ -48,11 +48,7 @@ function looksInternal(raw: string): boolean {
  * Map API / Stripe codes and raw messages to buyer-safe copy.
  * Fallback: "Your payment method needs attention."
  */
-const SHIPPING_RECOVERY_CODES = new Set([
-  'fulfillment_order_failed',
-  'no_shipping_address',
-  'no_shipping',
-]);
+const SHIPPING_RECOVERY_CODES = new Set(['no_shipping_address', 'no_shipping']);
 
 /** True when Fix payment should open Wallet shipping (not card setup). */
 export function isShippingAddressRecoveryFailure(
@@ -62,11 +58,7 @@ export function isShippingAddressRecoveryFailure(
   const codeKey = normalizeCode(code);
   if (codeKey && SHIPPING_RECOVERY_CODES.has(codeKey)) return true;
   const upperCode = (code ?? '').trim();
-  if (
-    upperCode === 'FULFILLMENT_ORDER_FAILED' ||
-    upperCode === 'NO_SHIPPING_ADDRESS' ||
-    upperCode === 'NO_SHIPPING'
-  ) {
+  if (upperCode === 'NO_SHIPPING_ADDRESS' || upperCode === 'NO_SHIPPING') {
     return true;
   }
 

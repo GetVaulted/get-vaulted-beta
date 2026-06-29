@@ -156,6 +156,7 @@ export function LiveBreakSpotGridSheet({
           code: res.code ?? null,
           status: res.status,
           paymentFailed: res.paymentFailed ?? false,
+          checkoutDebug: res.checkoutDebug ?? null,
         });
         setError(msg);
         if (res.paymentFailed || res.code === 'LIVE_PAYMENT_BLOCKED') {
