@@ -25,7 +25,6 @@ type Db = Pick<
   | "liveShippingSessionItem"
   | "platformShippingProfile"
   | "sellerShippingProfile"
-  | "listing"
 >;
 
 export type BuyerShippingPoolTotals = {
@@ -172,7 +171,7 @@ async function profileRowsForSession(sessionId: string, db: Db | TransactionClie
       rows.push({ itemId: liveItem.id, profile: liveItem.shippingProfile, overrides: liveItem });
       continue;
     }
-    const listing = await (db as Db).listing.findUnique({
+    const listing = await ("listing" in db ? db.listing : prisma.listing).findUnique({
       where: { id: si.listingId },
       select: {
         shippingBaseWeightOz: true,
@@ -184,13 +183,17 @@ async function profileRowsForSession(sessionId: string, db: Db | TransactionClie
       },
     });
     if (listing) {
-      const weightOz =
-        (Number.isFinite(listing.parcelWeightOz) && listing.parcelWeightOz > 0
+      const parcelWeight =
+        listing.parcelWeightOz != null && Number.isFinite(listing.parcelWeightOz) && listing.parcelWeightOz > 0
           ? listing.parcelWeightOz
-          : null) ??
-        (Number.isFinite(listing.shippingBaseWeightOz) && listing.shippingBaseWeightOz > 0
+          : null;
+      const baseWeight =
+        listing.shippingBaseWeightOz != null &&
+        Number.isFinite(listing.shippingBaseWeightOz) &&
+        listing.shippingBaseWeightOz > 0
           ? listing.shippingBaseWeightOz
-          : 4);
+          : null;
+      const weightOz = parcelWeight ?? baseWeight ?? 4;
       rows.push({
         itemId: liveItem?.id ?? si.orderId,
         profile: {
@@ -201,12 +204,9 @@ async function profileRowsForSession(sessionId: string, db: Db | TransactionClie
           defaultLengthIn: listing.parcelLengthIn ?? 8,
           defaultWidthIn: listing.parcelWidthIn ?? 6,
           defaultHeightIn: listing.parcelHeightIn ?? 1,
-          packageType: "",
           bundleGroup: "general",
           bundleAllowed: true,
           requiresSeparatePackage: false,
-          isActive: true,
-          sortOrder: 0,
         },
         overrides: liveItem ?? undefined,
       });

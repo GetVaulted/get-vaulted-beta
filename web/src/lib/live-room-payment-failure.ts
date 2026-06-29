@@ -530,6 +530,7 @@ export async function retryLiveRoomPaymentFailure(args: {
   });
 
   let charge: ChargeOrderSavedPmOutcome | null = null;
+  let fulfillmentDetail: string | null = null;
   let reopenedForRecovery: boolean | null = null;
   let reopenReason: string | null = null;
   if (failureRow.orderId) {
@@ -669,9 +670,11 @@ export async function retryLiveRoomPaymentFailure(args: {
       outcome: "error",
       code: purchaseCharge.code,
       message: "message" in purchaseCharge ? purchaseCharge.message : undefined,
-      fulfillmentDetail:
-        "fulfillmentDetail" in purchaseCharge ? purchaseCharge.fulfillmentDetail : undefined,
     };
+    fulfillmentDetail =
+      purchaseCharge.outcome === "error" && purchaseCharge.fulfillmentDetail
+        ? purchaseCharge.fulfillmentDetail
+        : null;
   } else if (failureRow.breakSpotId) {
     const spotCharge = await chargeBreakSpotWithSavedCard({
       buyerId: args.buyerId,
@@ -704,6 +707,10 @@ export async function retryLiveRoomPaymentFailure(args: {
       return { ok: true, processing: true };
     }
     charge = { outcome: "error", code: spotCharge.code };
+    fulfillmentDetail =
+      spotCharge.outcome === "error" && spotCharge.fulfillmentDetail
+        ? spotCharge.fulfillmentDetail
+        : null;
   } else {
     return {
       ok: false,
@@ -784,11 +791,8 @@ export async function retryLiveRoomPaymentFailure(args: {
       reachedStripe: chargeOutcomeReachedStripe(charge.outcome, chargeCode),
       reopened: reopenedForRecovery,
       reopenReason,
-      stripeError: charge.stripeDebug ?? null,
-      fulfillmentDetail:
-        charge.outcome === "error" && "fulfillmentDetail" in charge
-          ? charge.fulfillmentDetail ?? null
-          : null,
+      stripeError: charge.outcome === "error" ? charge.stripeDebug ?? null : null,
+      fulfillmentDetail,
     },
   };
 }
