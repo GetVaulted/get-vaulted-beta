@@ -107,8 +107,8 @@ export function SellerOrderDetailLabelSection(props: SellerOrderDetailLabelSecti
         repairLabelBusy={repairBusy}
         onRegenerateLabel={regenerateLabel}
         regenerateLabelBusy={regenerateBusy}
+        labelError={labelError}
       />
-      {labelError ? <p className="mt-2 text-xs font-medium text-rose-300">{labelError}</p> : null}
     </div>
   );
 }

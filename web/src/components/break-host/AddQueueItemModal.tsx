@@ -7,6 +7,7 @@ import { uploadListingImageBlob } from "@/lib/upload-listing-image-client";
 import { buildRandomVariantsFromPreset, buildVariantsFromPreset, type VariantDraftInput } from "@/lib/live-item-variant-presets";
 import { LiveItemVariantBuilder } from "@/components/live-auction/LiveItemVariantBuilder";
 import { resolveSellerShippingProfileIdForCategory } from "@/lib/live-show-category-shipping-profile";
+import { SELLER_CONSOLE } from "@/lib/seller-console-copy";
 
 export type AddQueueItemCloseReason = "cancel" | "success" | "escape";
 

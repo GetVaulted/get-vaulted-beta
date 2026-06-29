@@ -23,7 +23,7 @@ export function formatSellerFulfillmentStatus(status: string): string {
     in_transit: "On the way",
     out_for_delivery: "Out for delivery",
     delivered: "Delivered",
-    exception: "Exception",
+    exception: "Label error",
   };
   return map[status] ?? status.replace(/_/g, " ");
 }
@@ -65,13 +65,19 @@ export function resolveSellerOrderHeadline(order: SellerOrderDisplayFields): {
         : "Carrier updates will appear here.",
     };
   }
+  if (fs === "exception") {
+    return {
+      headline: "Label could not be created",
+      subheadline: "Check the ship-to address below. If it looks wrong, ask the buyer to update Wallet → shipping address.",
+    };
+  }
   if (fs === "delivered") {
     return { headline: "Delivered", subheadline: "Payout moves through hold after delivery confirmation." };
   }
   if (!hasLabel) {
     return {
-      headline: "Ready to ship",
-      subheadline: order.sellerNextAction?.trim() || "Create a shipping label in Seller Studio.",
+      headline: "Create shipping label",
+      subheadline: "Use the shipping panel below when the buyer address is complete.",
     };
   }
   return {

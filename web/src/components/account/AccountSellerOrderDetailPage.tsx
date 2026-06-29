@@ -9,18 +9,15 @@ import { SellerOrderActivityFeed } from "@/components/account/seller-order-detai
 import { SellerFulfillmentTimelineCompact } from "@/components/account/seller-order-detail/SellerFulfillmentTimelineCompact";
 import { SellerOrderSidebarSections } from "@/components/account/seller-order-detail/SellerOrderSidebarSections";
 import { buildSellerFulfillmentTimelineCompact } from "@/lib/order-timeline";
-import { sellerMayShowFulfillmentControls } from "@/lib/order-shipping-guards";
 import {
-  copyTrackingNumber,
-  openLabelForPrint,
-  orderHasPurchasedLabel,
-} from "@/lib/seller-shipping-label-state";
+  isIncompleteOrderShipping,
+  sellerMayShowFulfillmentControls,
+} from "@/lib/order-shipping-guards";
+import { orderHasPurchasedLabel, orderHasLabelFile } from "@/lib/seller-shipping-label-state";
 import {
   formatSellerFulfillmentStatus,
   formatSellerPaymentStatus,
   resolveSellerOrderHeadline,
-  resolveSellerQuickActions,
-  type SellerQuickActionKind,
 } from "@/lib/seller-order-detail-display";
 
 type OrderDetail = {
@@ -72,12 +69,13 @@ function formatDate(iso: string) {
   }
 }
 
-function StatusPill({ label, tone }: { label: string; tone: "gold" | "green" | "zinc" | "sky" }) {
+function StatusPill({ label, tone }: { label: string; tone: "gold" | "green" | "zinc" | "sky" | "rose" }) {
   const tones = {
     gold: "border-gold/30 bg-gold/10 text-gold-bright",
     green: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
     zinc: "border-white/10 bg-white/[0.04] text-zinc-300",
     sky: "border-sky-500/30 bg-sky-500/10 text-sky-100",
+    rose: "border-rose-500/30 bg-rose-500/10 text-rose-200",
   };
   return (
     <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${tones[tone]}`}>
@@ -94,7 +92,7 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
   const [repairBusy, setRepairBusy] = useState(false);
   const [regenerateBusy, setRegenerateBusy] = useState(false);
   const [labelError, setLabelError] = useState<string | null>(null);
-  const [copyMsg, setCopyMsg] = useState<string | null>(null);
+  const [markShippedBusy, setMarkShippedBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -119,16 +117,40 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
     setLabelBusy(true);
     try {
       const res = await fetch(`/api/account/sales/${encodeURIComponent(orderId)}/create-label`, { method: "POST" });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = (await res.json().catch(() => ({}))) as { error?: string; warning?: string };
       if (!res.ok) {
         setLabelError(data.error ?? "Could not create label.");
         return;
+      }
+      if (typeof data.warning === "string" && data.warning.trim()) {
+        setLabelError(data.warning);
       }
       await load();
     } catch {
       setLabelError("Something went wrong.");
     } finally {
       setLabelBusy(false);
+    }
+  };
+
+  const markShipped = async () => {
+    setMarkShippedBusy(true);
+    try {
+      const res = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markShipped: true }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setLabelError(data.error ?? "Could not mark shipped.");
+        return;
+      }
+      await load();
+    } catch {
+      setLabelError("Something went wrong.");
+    } finally {
+      setMarkShippedBusy(false);
     }
   };
 
@@ -179,31 +201,6 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
     }
   };
 
-  const runQuickAction = async (kind: SellerQuickActionKind) => {
-    if (!order) return;
-    if (kind === "print_label" && order.labelUrl?.trim()) {
-      openLabelForPrint(order.labelUrl);
-      return;
-    }
-    if (kind === "download_label" && order.labelUrl?.trim()) {
-      window.open(order.labelUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
-    if (kind === "copy_tracking" && order.trackingNumber?.trim()) {
-      const ok = await copyTrackingNumber(order.trackingNumber.trim());
-      setCopyMsg(ok ? "Copied" : "Could not copy");
-      window.setTimeout(() => setCopyMsg(null), 2000);
-      return;
-    }
-    if (kind === "open_tracking" && order.trackingUrl?.trim()) {
-      window.open(order.trackingUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
-    if (kind === "retrieve_label") return repairLabel();
-    if (kind === "regenerate_label") return regenerateLabel();
-    if (kind === "create_label") return createLabel();
-  };
-
   if (loadError) {
     return (
       <main className="relative flex min-h-0 flex-1 flex-col">
@@ -227,9 +224,10 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
 
   const fulfillmentAllowed = sellerMayShowFulfillmentControls(order);
   const hasLabel = orderHasPurchasedLabel(order);
+  const hasLabelFile = orderHasLabelFile(order.labelUrl);
   const canCreateLabel = fulfillmentAllowed && !hasLabel;
+  const shippingAddressIncomplete = isIncompleteOrderShipping(order);
   const headline = resolveSellerOrderHeadline(order);
-  const quickActions = resolveSellerQuickActions({ ...order, canCreateLabel });
   const timeline = buildSellerFulfillmentTimelineCompact({
     paymentStatus: order.paymentStatus,
     fulfillmentStatus: order.fulfillmentStatus,
@@ -243,9 +241,13 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
   const fulfillmentTone =
     order.fulfillmentStatus === "delivered"
       ? "green"
-      : order.fulfillmentStatus === "label_created" || order.fulfillmentStatus === "in_transit"
-        ? "sky"
-        : "zinc";
+      : order.fulfillmentStatus === "exception"
+        ? "rose"
+        : order.fulfillmentStatus === "label_created" ||
+            order.fulfillmentStatus === "in_transit" ||
+            order.fulfillmentStatus === "shipped"
+          ? "sky"
+          : "zinc";
 
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
@@ -300,26 +302,6 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
           <div className="border-t border-white/[0.06] bg-black/20 px-5 py-4 sm:px-6">
             <p className="text-sm font-semibold text-zinc-100">{headline.headline}</p>
             <p className="mt-1 text-xs text-zinc-500">{headline.subheadline}</p>
-            {quickActions.length > 0 ? (
-              <div className="mt-4 flex flex-wrap gap-2">
-                {quickActions.map((action) => (
-                  <button
-                    key={action.kind}
-                    type="button"
-                    disabled={labelBusy || repairBusy || regenerateBusy}
-                    onClick={() => void runQuickAction(action.kind)}
-                    className={`inline-flex h-10 items-center rounded-full border px-5 text-xs font-bold transition disabled:opacity-50 ${
-                      action.primary
-                        ? "border-gold/40 bg-gold/12 text-gold-bright hover:bg-gold/18"
-                        : "border-white/10 bg-white/[0.03] text-zinc-200 hover:border-white/18"
-                    }`}
-                  >
-                    {action.kind === "copy_tracking" && copyMsg ? copyMsg : action.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            {labelError ? <p className="mt-3 text-xs font-medium text-rose-300">{labelError}</p> : null}
           </div>
         </header>
 
@@ -334,25 +316,36 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
           </div>
 
           <aside className="space-y-4 lg:sticky lg:top-6">
-            <SellerShippingLabelPanel
-              orderId={order.id}
-              carrier={order.carrier}
-              service={order.service}
-              trackingNumber={order.trackingNumber}
-              trackingUrl={order.trackingUrl}
-              labelUrl={order.labelUrl}
-              shippoTransactionId={order.shippoTransactionId}
-              labelCreatedAt={order.labelCreatedAt}
-              fulfillmentStatus={order.fulfillmentStatus}
-              shippingStatus={order.shippingStatus}
-              canCreateLabel={canCreateLabel}
-              onCreateLabel={createLabel}
-              createLabelBusy={labelBusy}
-              onRepairLabel={repairLabel}
-              repairLabelBusy={repairBusy}
-              onRegenerateLabel={regenerateLabel}
-              regenerateLabelBusy={regenerateBusy}
-            />
+            {fulfillmentAllowed ? (
+              <SellerShippingLabelPanel
+                orderId={order.id}
+                carrier={order.carrier}
+                service={order.service}
+                trackingNumber={order.trackingNumber}
+                trackingUrl={order.trackingUrl}
+                labelUrl={order.labelUrl}
+                shippoTransactionId={order.shippoTransactionId}
+                labelCreatedAt={order.labelCreatedAt}
+                fulfillmentStatus={order.fulfillmentStatus}
+                shippingStatus={order.shippingStatus}
+                shippingAddressIncomplete={shippingAddressIncomplete}
+                buyerUsername={order.buyer.username}
+                canCreateLabel={canCreateLabel}
+                onCreateLabel={createLabel}
+                createLabelBusy={labelBusy}
+                onRepairLabel={repairLabel}
+                repairLabelBusy={repairBusy}
+                onRegenerateLabel={regenerateLabel}
+                regenerateLabelBusy={regenerateBusy}
+                labelError={labelError}
+                markShippedBusy={markShippedBusy}
+                onMarkShipped={
+                  hasLabelFile && (order.status === "paid" || order.status === "pending")
+                    ? () => void markShipped()
+                    : undefined
+                }
+              />
+            ) : null}
             <SellerOrderSidebarSections
               shipRecipientName={order.shipRecipientName}
               shipAddress={order.shipAddress}
@@ -369,6 +362,7 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
               stripeProcessingFeeEstimateUsd={order.stripeProcessingFeeEstimateUsd}
               payoutEstimateUsd={order.payoutEstimateUsd}
               payoutStatus={order.payoutStatus}
+              shippingAddressIncomplete={shippingAddressIncomplete}
             />
           </aside>
         </div>

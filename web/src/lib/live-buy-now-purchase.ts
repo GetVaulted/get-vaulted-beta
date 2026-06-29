@@ -1,6 +1,7 @@
 import { OrderPaymentMethod } from "@/generated/prisma/enums";
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
 import { prisma } from "@/lib/prisma";
+import { isIncompleteOrderShipping } from "@/lib/order-shipping-guards";
 import { isEscrowConfigured, orderTotalQualifiesForEscrow } from "@/lib/escrow-config";
 import {
   releaseActiveInventoryHoldsForListingAndBuyerTx,
@@ -78,29 +79,57 @@ function orderShippingNeedsBuyerRefresh(order: {
   shipState: string | null;
   shipZip: string | null;
 }): boolean {
-  if (isIncompleteOrderShipping(order)) return true;
-  return false;
+  return isIncompleteOrderShipping(order);
 }
 
-export function isIncompleteOrderShipping(order: {
-  shipAddress: string | null;
-  shipCity: string | null;
-  shipState: string | null;
-  shipZip: string | null;
-}): boolean {
-  const addr = (order.shipAddress ?? "").trim();
-  const city = (order.shipCity ?? "").trim();
-  const state = (order.shipState ?? "").trim();
-  const zip = (order.shipZip ?? "").trim();
-  if (!addr || !city || !state || !zip) return true;
-  if (zip === "00000") return true;
-  const lower = addr.toLowerCase();
-  if (lower.includes("coordinate shipping")) return true;
-  if (city === "—" || city === "-") return true;
-  return false;
+/** Refresh buyer Wallet default onto an order when ship-to placeholders are stale (including paid orders). */
+export async function refreshBuyerShippingOnOrderIfIncomplete(
+  orderId: string,
+): Promise<
+  { ok: true; updated: boolean } | { ok: false; code: "ORDER_NOT_FOUND" | "NO_SHIPPING_ADDRESS" }
+> {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: {
+      id: true,
+      buyerId: true,
+      buyerAddressId: true,
+      shipAddress: true,
+      shipCity: true,
+      shipState: true,
+      shipZip: true,
+      fulfillmentStatus: true,
+      shippoTransactionId: true,
+      labelUrl: true,
+    },
+  });
+  if (!order) return { ok: false, code: "ORDER_NOT_FOUND" };
+  if (!isIncompleteOrderShipping(order)) return { ok: true, updated: false };
+
+  const shipping = await resolveBuyerDefaultShippingForOrder(order.buyerId);
+  if (!shipping) return { ok: false, code: "NO_SHIPPING_ADDRESS" };
+
+  const resetException =
+    order.fulfillmentStatus === "exception" &&
+    !order.shippoTransactionId?.trim() &&
+    !order.labelUrl?.trim();
+
+  await prisma.order.update({
+    where: { id: orderId },
+    data: {
+      shipRecipientName: shipping.shipRecipientName,
+      shipAddress: shipping.shipAddress,
+      shipCity: shipping.shipCity,
+      shipState: shipping.shipState,
+      shipZip: shipping.shipZip,
+      shipCountry: shipping.shipCountry,
+      buyerAddressId: shipping.buyerAddressId,
+      ...(resetException ? { fulfillmentStatus: "pending" } : {}),
+    },
+  });
+  return { ok: true, updated: true };
 }
 
-/** Copy the buyer's current default Wallet shipping address onto an unpaid order before retry. */
 export async function syncBuyerDefaultShippingToPendingOrder(
   orderId: string,
   buyerId: string,

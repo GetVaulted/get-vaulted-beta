@@ -275,6 +275,7 @@ export function buildSellerFulfillmentTimelineCompact(a: SellerArgs): SellerMile
     a.paymentStatus === "pending_payment" || a.paymentStatus === "payment_requires_action";
   const hasLabel = Boolean(a.labelUrl || a.shippoTransactionId);
   const delivered = a.fulfillmentStatus === "delivered";
+  const labelFailed = a.fulfillmentStatus === "exception";
   const sellerShipped = a.fulfillmentStatus === "shipped" || a.orderStatus === "shipped";
   const inTransit = a.fulfillmentStatus === "in_transit" || a.fulfillmentStatus === "out_for_delivery";
 
@@ -288,8 +289,8 @@ export function buildSellerFulfillmentTimelineCompact(a: SellerArgs): SellerMile
     },
     {
       key: "label",
-      title: "Label created",
-      detail: hasLabel ? "Print label and mark shipped" : "No label yet",
+      title: hasLabel ? "Label ready" : labelFailed ? "Label error" : "Create label",
+      detail: hasLabel ? "Print label and mark shipped" : labelFailed ? "Fix address and retry" : "Buy a Shippo label",
       state: "upcoming",
     },
     {

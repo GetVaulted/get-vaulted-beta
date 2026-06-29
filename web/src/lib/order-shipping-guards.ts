@@ -38,3 +38,22 @@ export function canSellerCreateShippingLabel(order: {
   if (order.shippoTransactionId || order.labelUrl) return { ok: false, code: "LABEL_EXISTS" };
   return { ok: true };
 }
+
+/** True when order ship-to is a placeholder or missing fields required for Shippo. */
+export function isIncompleteOrderShipping(order: {
+  shipAddress: string | null;
+  shipCity: string | null;
+  shipState: string | null;
+  shipZip: string | null;
+}): boolean {
+  const addr = (order.shipAddress ?? "").trim();
+  const city = (order.shipCity ?? "").trim();
+  const state = (order.shipState ?? "").trim();
+  const zip = (order.shipZip ?? "").trim();
+  if (!addr || !city || !state || !zip) return true;
+  if (zip === "00000") return true;
+  const lower = addr.toLowerCase();
+  if (lower.includes("coordinate shipping")) return true;
+  if (city === "—" || city === "-") return true;
+  return false;
+}

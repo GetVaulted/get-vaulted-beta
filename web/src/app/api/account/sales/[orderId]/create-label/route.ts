@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
-import { canSellerCreateShippingLabel } from "@/lib/order-shipping-guards";
+import { canSellerCreateShippingLabel, isIncompleteOrderShipping } from "@/lib/order-shipping-guards";
+import { refreshBuyerShippingOnOrderIfIncomplete } from "@/lib/live-buy-now-purchase";
 import { prisma } from "@/lib/prisma";
 import { fulfillOrderShippingAfterPayment } from "@/services/shipping";
 import { processLabelCreatedPayoutEvaluation } from "@/services/payout/process-payout-tier-events";
@@ -42,6 +43,38 @@ export async function POST(_req: Request, ctx: { params: Promise<{ orderId: stri
         ? "Order must be paid before creating a label."
         : "A label already exists for this order.";
     return NextResponse.json({ error: msg, code: gate.code }, { status: 409 });
+  }
+
+  const refresh = await refreshBuyerShippingOnOrderIfIncomplete(order.id);
+  if (!refresh.ok && refresh.code === "NO_SHIPPING_ADDRESS") {
+    return NextResponse.json(
+      {
+        error:
+          "Buyer shipping address is missing or incomplete. Ask the buyer to add a full address in Account → Wallet, then try again.",
+        code: "BUYER_ADDRESS_INCOMPLETE",
+      },
+      { status: 422 },
+    );
+  }
+
+  const afterRefresh = await prisma.order.findFirst({
+    where: { id: order.id },
+    select: {
+      shipAddress: true,
+      shipCity: true,
+      shipState: true,
+      shipZip: true,
+    },
+  });
+  if (afterRefresh && isIncompleteOrderShipping(afterRefresh)) {
+    return NextResponse.json(
+      {
+        error:
+          "Ship-to address on this order is still incomplete. The buyer must save a valid street, city, state, and ZIP in Wallet.",
+        code: "BUYER_ADDRESS_INCOMPLETE",
+      },
+      { status: 422 },
+    );
   }
 
   try {

@@ -466,7 +466,10 @@ export function AccountSalesPage() {
                 labelError={labelError}
                 onCreateLabel={(orderId) => void createLabel(orderId)}
                 onCreateBundledLabel={(sid) => void createBundledLabel(sid)}
-                onMarkShipped={(order) => setModal({ order, mode: "markShipped" })}
+                onMarkShipped={(order) => {
+                  const row = rows.find((r) => r.id === order.id);
+                  if (row) setModal({ order: row, mode: "markShipped" });
+                }}
               />
             )}
           </>

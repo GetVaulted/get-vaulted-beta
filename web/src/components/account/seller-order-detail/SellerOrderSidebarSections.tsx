@@ -27,6 +27,7 @@ export type SellerOrderSidebarProps = {
   stripeProcessingFeeEstimateUsd: number;
   payoutEstimateUsd: number;
   payoutStatus: string;
+  shippingAddressIncomplete?: boolean;
 };
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
@@ -55,6 +56,12 @@ export function SellerOrderSidebarSections(props: SellerOrderSidebarProps) {
   return (
     <div className="space-y-3">
       <Panel title="Ship to">
+        {props.shippingAddressIncomplete ? (
+          <p className="mb-3 rounded-lg border border-rose-500/25 bg-rose-950/20 px-3 py-2 text-xs text-rose-100">
+            Address on file is incomplete. Ask {props.buyerUsername ? `@${props.buyerUsername}` : "the buyer"} to
+            update Wallet before you can ship.
+          </p>
+        ) : null}
         <p className="text-sm font-semibold text-zinc-100">{props.shipRecipientName || "—"}</p>
         <p className="mt-2 text-sm leading-relaxed text-zinc-400">
           {props.shipAddress}
