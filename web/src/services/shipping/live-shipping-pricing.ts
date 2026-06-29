@@ -288,9 +288,10 @@ export async function addOrderToLiveShippingSessionTx(
     const showOnly =
       !liveItem && liveShowId
         ? await tx.liveRoom.findFirst({
-            where: { id: liveShowId, sellerId: order.sellerId },
+            where: { id: liveShowId },
             select: {
               id: true,
+              sellerId: true,
               defaultShippingProfileId: true,
               category: true,
               shippingCapEnabled: true,
@@ -301,6 +302,9 @@ export async function addOrderToLiveShippingSessionTx(
         : null;
 
     if (!liveItem && !showOnly) throw new Error("LIVE_SHIPPING_NOT_APPLICABLE");
+    if (showOnly && showOnly.sellerId !== order.sellerId) {
+      throw new Error("LIVE_SHIPPING_SELLER_MISMATCH");
+    }
 
     const liveRoomId = liveItem?.liveRoomId ?? showOnly!.id;
 

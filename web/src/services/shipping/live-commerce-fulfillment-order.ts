@@ -111,7 +111,21 @@ export async function createLiveCommerceFulfillmentOrderTx(
     };
   }
 
+  const liveItem = normalizeLiveRoomItemId(args.liveRoomItemId)
+    ? await tx.liveRoomItem.findFirst({
+        where: {
+          id: normalizeLiveRoomItemId(args.liveRoomItemId)!,
+          liveRoomId: args.liveShowId,
+        },
+        select: { sellerShippingProfileId: true },
+      })
+    : null;
+
   const shipping = await resolveBuyerDefaultShippingForOrder(args.buyerId);
+  if (!shipping) {
+    throw new Error("NO_SHIPPING_ADDRESS");
+  }
+
   const seller = await tx.user.findUnique({
     where: { id: args.sellerId },
     select: { defaultShipFromAddressId: true },
@@ -126,13 +140,6 @@ export async function createLiveCommerceFulfillmentOrderTx(
     },
   });
   if (!show) throw new Error("LIVE_ROOM_NOT_FOUND");
-
-  const liveItem = args.liveRoomItemId
-    ? await tx.liveRoomItem.findFirst({
-        where: { id: args.liveRoomItemId, liveRoomId: args.liveShowId },
-        select: { sellerShippingProfileId: true },
-      })
-    : null;
 
   const breakProfile = await resolveBreakSpotSellerProfile({
     sellerId: args.sellerId,

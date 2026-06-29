@@ -70,7 +70,13 @@ export async function retryLivePaymentFailure(args: {
   // Beta/non-prod servers attach a diagnostic `debug` object mirroring the
   // "[payment recovery] retry charge result" log (outcome, code, paymentIntentId, reachedStripe, ...).
   if (payload.debug && typeof payload.debug === 'object') {
-    console.log('[payment recovery] retry charge result (server debug)', payload.debug);
+    const debug = payload.debug as Record<string, unknown>;
+    console.log('[payment recovery] retry charge result (server debug)', debug);
+    const fulfillmentDetail =
+      typeof debug.fulfillmentDetail === 'string' ? debug.fulfillmentDetail.trim() : '';
+    if (fulfillmentDetail) {
+      console.log('[payment recovery] fulfillment detail', fulfillmentDetail);
+    }
   }
   return {
     ok: false,

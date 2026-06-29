@@ -25,6 +25,7 @@ type Db = Pick<
   | "liveShippingSessionItem"
   | "platformShippingProfile"
   | "sellerShippingProfile"
+  | "listing"
 >;
 
 export type BuyerShippingPoolTotals = {
@@ -169,6 +170,46 @@ async function profileRowsForSession(sessionId: string, db: Db | TransactionClie
     });
     if (liveItem?.shippingProfile) {
       rows.push({ itemId: liveItem.id, profile: liveItem.shippingProfile, overrides: liveItem });
+      continue;
+    }
+    const listing = await (db as Db).listing.findUnique({
+      where: { id: si.listingId },
+      select: {
+        shippingBaseWeightOz: true,
+        parcelWeightOz: true,
+        parcelLengthIn: true,
+        parcelWidthIn: true,
+        parcelHeightIn: true,
+        shippingCategory: true,
+      },
+    });
+    if (listing) {
+      const weightOz =
+        (Number.isFinite(listing.parcelWeightOz) && listing.parcelWeightOz > 0
+          ? listing.parcelWeightOz
+          : null) ??
+        (Number.isFinite(listing.shippingBaseWeightOz) && listing.shippingBaseWeightOz > 0
+          ? listing.shippingBaseWeightOz
+          : 4);
+      rows.push({
+        itemId: liveItem?.id ?? si.orderId,
+        profile: {
+          id: `listing:${si.listingId}`,
+          slug: listing.shippingCategory ?? "live_spot",
+          name: "Live spot",
+          defaultWeightOz: weightOz,
+          defaultLengthIn: listing.parcelLengthIn ?? 8,
+          defaultWidthIn: listing.parcelWidthIn ?? 6,
+          defaultHeightIn: listing.parcelHeightIn ?? 1,
+          packageType: "",
+          bundleGroup: "general",
+          bundleAllowed: true,
+          requiresSeparatePackage: false,
+          isActive: true,
+          sortOrder: 0,
+        },
+        overrides: liveItem ?? undefined,
+      });
       continue;
     }
     const fallback = await resolveDefaultProfileForLiveShow({

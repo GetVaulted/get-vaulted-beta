@@ -20,6 +20,8 @@ const CODE_MESSAGES: Record<string, string> = {
   LIVE_PAYMENT_BLOCKED:
     'Fix your failed payment in this show before buying again (check Wallet or the payment banner).',
   NO_SAVED_CARD: 'Add a saved payment method to your Wallet.',
+  NO_SHIPPING_ADDRESS:
+    'Add a complete shipping address (street, city, state, ZIP) to your Wallet before buying.',
   BUYER_STRIPE_CUSTOMER_MISSING: 'Wallet is not linked — re-add your card in Wallet.',
   // Order-level payment window lapsed — NOT a card-expiry problem; must not map to "card has expired".
   ORDER_PAYMENT_EXPIRED: "This purchase's payment window expired. Please try again or contact support.",

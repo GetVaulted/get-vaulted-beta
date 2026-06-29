@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
+import { resolveBuyerDefaultShippingForOrder } from "@/lib/live-buy-now-purchase";
 import { finalizeLiveItemVariantPurchasePaid, releaseVariantPurchaseOnCheckoutExpired, reopenVariantPurchaseForRecovery } from "@/lib/live-item-variant-purchase";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import {
@@ -23,9 +24,14 @@ function stripePublishableKey(): string | undefined {
   return process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() || undefined;
 }
 
-function checkoutFailureDebug(code: string | undefined) {
+function checkoutFailureDebug(code: string | undefined, fulfillmentDetail?: string | null) {
   if (!isBetaDeployment() || !code) return {};
-  return { checkoutDebug: { code } };
+  return {
+    checkoutDebug: {
+      code,
+      fulfillmentDetail: fulfillmentDetail?.trim() || null,
+    },
+  };
 }
 
 type Body = {
@@ -113,6 +119,17 @@ export async function POST(
     if (wallet) {
       return NextResponse.json(wallet, { status: 402 });
     }
+    const shipping = await resolveBuyerDefaultShippingForOrder(userId);
+    if (!shipping) {
+      return NextResponse.json(
+        {
+          error: "Add a complete shipping address (street, city, state, ZIP) to your Wallet before buying.",
+          code: "NO_SHIPPING_ADDRESS",
+          paymentFailed: true,
+        },
+        { status: 402 },
+      );
+    }
   }
 
   const qtyRaw = body.quantity;
@@ -182,7 +199,7 @@ export async function POST(
               paymentFailed: true,
               purchaseId: settled.purchaseId,
               paymentFailure,
-              ...checkoutFailureDebug(settled.code),
+              ...checkoutFailureDebug(settled.code, settled.fulfillmentDetail),
             },
             { status: 402 },
           );
@@ -321,7 +338,7 @@ export async function POST(
           paymentFailed: true,
           purchaseId: settled.purchaseId,
           paymentFailure,
-          ...checkoutFailureDebug(settled.code),
+          ...checkoutFailureDebug(settled.code, settled.fulfillmentDetail),
         },
         { status: 402 },
       );

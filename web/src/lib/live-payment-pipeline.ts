@@ -169,7 +169,10 @@ export function mapLiveFulfillmentOrderError(err: unknown): string {
     return "Checkout is not ready on this show yet — shipping profiles may still be setting up.";
   }
   if (lower.includes("no_shipping") || lower.includes("shipping address")) {
-    return "Add a shipping address to your Wallet before buying.";
+    return "Add a complete shipping address to your Wallet before buying.";
+  }
+  if (lower.includes("live_shipping_seller_mismatch")) {
+    return "Checkout could not link this purchase to the show — try again or contact support.";
   }
   if (lower.includes("live_shipping_session_not")) {
     return "Could not link this purchase to live shipping — try again.";
@@ -475,7 +478,7 @@ export async function settleLiveItemVariantPurchase(args: {
   | { ok: true; paid: true; purchaseId: string }
   | { ok: true; requiresAction: true; purchaseId: string; clientSecret: string; paymentIntentId: string }
   | { ok: true; processing: true; purchaseId: string; paymentIntentId: string }
-  | { ok: false; purchaseId: string; code: string; message: string; paymentFailed: true; paymentFailureId?: string }
+  | { ok: false; purchaseId: string; code: string; message: string; paymentFailed: true; paymentFailureId?: string; fulfillmentDetail?: string }
 > {
   const purchaseMeta = await prisma.liveItemVariantPurchase.findUnique({
     where: { id: args.purchaseId },
@@ -540,6 +543,7 @@ export async function settleLiveItemVariantPurchase(args: {
       message: failure.failureReason ?? "Payment failed.",
       paymentFailed: true,
       paymentFailureId: failure.id,
+      fulfillmentDetail: charge.outcome === "error" ? charge.fulfillmentDetail : undefined,
     };
   }
 
@@ -569,6 +573,7 @@ export async function settleLiveItemVariantPurchase(args: {
     code: charge.outcome === "error" ? charge.code : "PAYMENT_FAILED",
     message: charge.outcome === "error" ? charge.message ?? "Payment failed." : "Payment failed.",
     paymentFailed: true,
+    fulfillmentDetail: charge.outcome === "error" ? charge.fulfillmentDetail : undefined,
   };
 }
 
