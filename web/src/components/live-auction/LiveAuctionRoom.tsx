@@ -62,7 +62,7 @@ import { shareLiveRoomNative } from "@/lib/share-live-room-native";
 import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
-import { isVariantSpotAuctionLive, pinnedVariantAuctionPrimaryLabel } from "@/lib/live-variant-spot-commerce";
+import { isVariantSpotAuctionLive, pinnedVariantAuctionPrimaryLabel, shopAvailableVariants } from "@/lib/live-variant-spot-commerce";
 import { loadStripe } from "@stripe/stripe-js";
 import { resolvePinnedLotOverlayPrice } from "@/lib/live-auction-overlay-price";
 import {
@@ -353,6 +353,11 @@ export function LiveAuctionRoom({
           ? variantClaimPrimaryLabel(activeDbItem.salesFormat)
           : "Sold out"
     : "Select spot";
+  const spotAuctionLive = Boolean(activeDbItem && isVariantSpotAuctionLive(activeDbItem));
+  const shopVariantSpots = activeHasVariants && activeDbItem
+    ? summarizeVariantSpots(shopAvailableVariants(activeDbItem))
+    : null;
+  const variantShopLabel = activeDbItem ? variantClaimPrimaryLabel(activeDbItem.salesFormat) : "Claim spot";
   const [hostAuctionDurationSec, setHostAuctionDurationSec] = useState(5);
   const [hostClutchTimeEnabled, setHostClutchTimeEnabled] = useState(false);
   const [hostAuctionBusy, setHostAuctionBusy] = useState(false);
@@ -447,6 +452,8 @@ export function LiveAuctionRoom({
     () => (activeDbItem ? resolveLiveAuctionLotBidPhase(activeDbItem, nowWall) : "inactive"),
     [activeDbItem, nowWall, auctionResolutionTick],
   );
+  const hybridSpotCommerce =
+    spotAuctionLive && (shopVariantSpots?.available ?? 0) > 0 && activeLotBidPhase === "bidding_open";
   /** Active lot is in the host-started timed bidding window (same as buyer bid affordance). */
   const overlayIsLive = activeLotBidPhase === "bidding_open";
   const overlayTimerEndedUnsettled = activeLotBidPhase === "timer_ended_unsettled";
@@ -648,14 +655,23 @@ export function LiveAuctionRoom({
     : null;
 
   /** PYT/PYD — claim sheet for pick/random; spot auction uses bid flow. */
-  const variantPickerDisabled =
+  const variantShopDisabled =
     !isLive ||
     staffCommerceBlocked ||
     busy ||
     sessionBlocksBuyer ||
     buyerClaimsBlocked ||
-    (activeVariantSpots?.available ?? 0) <= 0 ||
-    Boolean(activeDbItem && isVariantSpotAuctionLive(activeDbItem) && activeLotBidPhase !== "bidding_open");
+    (shopVariantSpots?.available ?? activeVariantSpots?.available ?? 0) <= 0;
+
+  const variantSpotBidDisabled =
+    !isLive ||
+    staffCommerceBlocked ||
+    busy ||
+    bidFlight ||
+    sessionBlocksBuyer ||
+    (spotAuctionLive && activeLotBidPhase !== "bidding_open");
+
+  const variantPickerDisabled = spotAuctionLive ? variantSpotBidDisabled : variantShopDisabled;
 
   const handleTeamPick = useCallback(
     async (teamAbbr: string) => {
@@ -847,6 +863,11 @@ export function LiveAuctionRoom({
       setBusy(false);
     }
   };
+
+  const handleOpenVariantShop = useCallback(() => {
+    if (!activeDbItem || !pytCommerceLive) return;
+    setVariantSheetOpen(true);
+  }, [activeDbItem, pytCommerceLive]);
 
   const handleBuyerVariantCommerce = useCallback(async () => {
     if (!activeDbItem || !pytCommerceLive) return;
@@ -1073,15 +1094,38 @@ export function LiveAuctionRoom({
         </div>
         <div className="flex min-w-[220px] shrink-0 items-center justify-end gap-2">
           {activeHasVariants && activeDbItem ? (
-            <button
-              data-testid="live-bid-button"
-              type="button"
-              disabled={variantPickerDisabled}
-              onClick={() => void handleBuyerVariantCommerce()}
-              className="min-h-10 min-w-[170px] rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-4 text-[11px] font-black uppercase tracking-wide text-zinc-950 shadow-[0_0_22px_-8px_rgba(212,175,55,0.55)] transition-[transform,opacity,filter] duration-[var(--live-duration-ui)] ease-[var(--live-ease)] active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-40"
-            >
-              {variantPickLabel}
-            </button>
+            hybridSpotCommerce ? (
+              <>
+                <button
+                  data-testid="live-variant-claim-button"
+                  type="button"
+                  disabled={variantShopDisabled}
+                  onClick={() => handleOpenVariantShop()}
+                  className="min-h-10 min-w-[140px] rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-4 text-[11px] font-black uppercase tracking-wide text-zinc-950 shadow-[0_0_22px_-8px_rgba(212,175,55,0.55)] transition-[transform,opacity,filter] duration-[var(--live-duration-ui)] ease-[var(--live-ease)] active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-40"
+                >
+                  {variantShopLabel}
+                </button>
+                <button
+                  data-testid="live-bid-button"
+                  type="button"
+                  disabled={variantSpotBidDisabled}
+                  onClick={() => void handlePlaceBid()}
+                  className="min-h-10 min-w-[140px] rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-4 text-[11px] font-black uppercase tracking-wide text-white shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)] transition-[transform,opacity,filter] duration-[var(--live-duration-ui)] ease-[var(--live-ease)] active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-40"
+                >
+                  {variantPickLabel}
+                </button>
+              </>
+            ) : (
+              <button
+                data-testid="live-bid-button"
+                type="button"
+                disabled={variantPickerDisabled}
+                onClick={() => void handleBuyerVariantCommerce()}
+                className="min-h-10 min-w-[170px] rounded-[var(--live-radius-chrome)] bg-gradient-to-r from-gold to-gold-bright px-4 text-[11px] font-black uppercase tracking-wide text-zinc-950 shadow-[0_0_22px_-8px_rgba(212,175,55,0.55)] transition-[transform,opacity,filter] duration-[var(--live-duration-ui)] ease-[var(--live-ease)] active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-40"
+              >
+                {variantPickLabel}
+              </button>
+            )
           ) : (
             <button
               data-testid="live-bid-button"
@@ -1316,14 +1360,37 @@ export function LiveAuctionRoom({
         <p className="mt-2 text-center text-[10px] font-medium text-amber-200/90">{LIVE_AUCTION_BUYER_TIMER_ENDED_COPY}</p>
       ) : null}
       {pytCommerceLive && activeDbItem ? (
-        <button
-          type="button"
-          disabled={variantPickerDisabled}
-          onClick={() => void handleBuyerVariantCommerce()}
-          className="mt-2 min-h-10 w-full rounded-full bg-gradient-to-r from-gold to-gold-bright text-[10px] font-black uppercase tracking-wide text-zinc-950 disabled:opacity-40 md:min-h-11 md:text-[11px]"
-        >
-          {variantPickLabel}
-        </button>
+        hybridSpotCommerce ? (
+          <div className="mt-2 flex gap-2">
+            <button
+              data-testid="live-variant-claim-button"
+              type="button"
+              disabled={variantShopDisabled}
+              onClick={() => handleOpenVariantShop()}
+              className="min-h-10 flex-1 rounded-full bg-gradient-to-r from-gold to-gold-bright text-[10px] font-black uppercase tracking-wide text-zinc-950 disabled:opacity-40 md:min-h-11 md:text-[11px]"
+            >
+              {variantShopLabel}
+            </button>
+            <button
+              data-testid="live-bid-button"
+              type="button"
+              disabled={variantSpotBidDisabled}
+              onClick={() => void handlePlaceBid()}
+              className="min-h-10 flex-1 rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 text-[10px] font-black uppercase tracking-wide text-white disabled:opacity-40 md:min-h-11 md:text-[11px]"
+            >
+              {variantPickLabel}
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            disabled={variantPickerDisabled}
+            onClick={() => void handleBuyerVariantCommerce()}
+            className="mt-2 min-h-10 w-full rounded-full bg-gradient-to-r from-gold to-gold-bright text-[10px] font-black uppercase tracking-wide text-zinc-950 disabled:opacity-40 md:min-h-11 md:text-[11px]"
+          >
+            {variantPickLabel}
+          </button>
+        )
       ) : null}
       {overlayIsLive && !activeHasVariants ? (
         <div className="mt-2 flex min-h-10 flex-col gap-1.5">
@@ -1473,11 +1540,31 @@ export function LiveAuctionRoom({
 
   const buyerVariantClaimActions =
     pytCommerceLive && !isHost ? (
-      <BuyerVariantClaimCta
-        label={variantPickLabel}
-        disabled={variantPickerDisabled}
-        onClick={() => void handleBuyerVariantCommerce()}
-      />
+      hybridSpotCommerce ? (
+        <div className="flex gap-2">
+          <BuyerVariantClaimCta
+            label={variantShopLabel}
+            disabled={variantShopDisabled}
+            onClick={() => handleOpenVariantShop()}
+            className="min-h-10 flex-1 rounded-full bg-gradient-to-r from-gold to-gold-bright px-3 text-[10px] font-black uppercase tracking-wide text-zinc-950 shadow-[0_0_22px_-8px_rgba(212,175,55,0.55)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100 md:min-h-11 md:text-[11px]"
+          />
+          <button
+            data-testid="live-bid-button"
+            type="button"
+            disabled={variantSpotBidDisabled}
+            onClick={() => void handlePlaceBid()}
+            className="min-h-10 flex-1 rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-3 text-[10px] font-black uppercase tracking-wide text-white shadow-[0_0_22px_-8px_rgba(167,139,250,0.8)] transition-[transform,opacity] duration-[var(--live-duration-press)] ease-[var(--live-ease)] active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100 md:min-h-11 md:text-[11px]"
+          >
+            {variantPickLabel}
+          </button>
+        </div>
+      ) : (
+        <BuyerVariantClaimCta
+          label={variantPickLabel}
+          disabled={variantPickerDisabled}
+          onClick={() => void handleBuyerVariantCommerce()}
+        />
+      )
     ) : undefined;
 
   const desktopItemBoardOverlay = desktopItemBoardCommerce ? (
@@ -1753,6 +1840,11 @@ export function LiveAuctionRoom({
           item={activeDbItem}
           liveRoomId={liveRoomId}
           walletReady={buyerLiveWalletReady}
+          excludeVariantIds={
+            spotAuctionLive && activeDbItem.auctionVariantId
+              ? [activeDbItem.auctionVariantId]
+              : undefined
+          }
           onWalletRequired={() => {
             setVariantSheetOpen(false);
             onOpenWallet();

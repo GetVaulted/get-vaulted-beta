@@ -11,6 +11,7 @@ export const HOLD_TO_BID_MS = 420;
 type Props = {
   label: string;
   disabled?: boolean;
+  /** Network in flight — visual only; hold gesture stays enabled for back-to-back bids. */
   busy?: boolean;
   onCommit: () => void;
   /** Return false to abort the hold (e.g. auth required). */
@@ -70,10 +71,10 @@ export function HoldToBidButton({
   );
 
   useEffect(() => {
-    if (disabled || busy) {
-      snapProgressToZero(disabled ? 'disabled' : 'busy');
+    if (disabled) {
+      snapProgressToZero('disabled');
     }
-  }, [busy, disabled, snapProgressToZero]);
+  }, [disabled, snapProgressToZero]);
 
   useEffect(
     () => () => {
@@ -84,7 +85,7 @@ export function HoldToBidButton({
   );
 
   const handlePressIn = useCallback(() => {
-    if (disabled || busy || holdingRef.current || committedRef.current) return;
+    if (disabled || holdingRef.current || committedRef.current) return;
 
     const allowed = onHoldStart?.();
     if (allowed === false) {
@@ -126,7 +127,7 @@ export function HoldToBidButton({
         committedRef.current = false;
       });
     }, HOLD_TO_BID_MS);
-  }, [busy, disabled, label, onCommit, onHoldStart, progress, stopAnim]);
+  }, [disabled, label, onCommit, onHoldStart, progress, stopAnim]);
 
   const handlePressOut = useCallback(() => {
     if (!holdingRef.current || committedRef.current) return;
@@ -146,31 +147,33 @@ export function HoldToBidButton({
         styles.shell,
         auction && styles.shellAuction,
         compact && styles.shellCompact,
-        (disabled || busy) && styles.shellDisabled,
-        (disabled || busy) && auction && styles.shellAuctionDisabled,
+        disabled && styles.shellDisabled,
+        disabled && auction && styles.shellAuctionDisabled,
+        busy && !disabled && styles.shellBusy,
       ]}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
-      disabled={disabled || busy}
+      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint="Press and hold to place your bid"
     >
-      {busy ? (
-        <ActivityIndicator color={auction ? '#fff' : '#0a0a0a'} size="small" />
-      ) : (
-        <LiveRoomText
-          style={[
-            styles.label,
-            auction && styles.labelAuction,
-            disabled && (auction ? styles.labelAuctionDisabled : styles.labelDisabled),
-          ]}
-          numberOfLines={1}
-        >
-          {label}
-        </LiveRoomText>
-      )}
-      {!busy && !disabled ? (
+      <LiveRoomText
+        style={[
+          styles.label,
+          auction && styles.labelAuction,
+          disabled && (auction ? styles.labelAuctionDisabled : styles.labelDisabled),
+        ]}
+        numberOfLines={1}
+      >
+        {label}
+      </LiveRoomText>
+      {busy && !disabled ? (
+        <View style={styles.busyBadge} pointerEvents="none">
+          <ActivityIndicator color={auction ? '#fff' : '#0a0a0a'} size="small" />
+        </View>
+      ) : null}
+      {!disabled ? (
         <View style={styles.progressTrack} pointerEvents="none">
           <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
         </View>
@@ -208,6 +211,9 @@ const styles = StyleSheet.create({
     minHeight: 40,
     paddingVertical: 8,
   },
+  shellBusy: {
+    opacity: 0.92,
+  },
   shellDisabled: {
     opacity: 0.45,
     backgroundColor: 'rgba(255,255,255,0.08)',
@@ -239,6 +245,12 @@ const styles = StyleSheet.create({
   labelAuctionDisabled: {
     color: 'rgba(255,255,255,0.55)',
     textTransform: 'none',
+  },
+  busyBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 6,
+    zIndex: 2,
   },
   progressTrack: {
     ...StyleSheet.absoluteFillObject,

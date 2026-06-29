@@ -65,10 +65,15 @@ export function EditQueueItemPricingModal({
             </Pressable>
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scrollContent}>
-            <Text style={styles.title}>Edit queued lot</Text>
+            <Text style={styles.title}>Edit lot</Text>
             <Text style={styles.sub} numberOfLines={2}>
               {item?.displayTitle ?? item?.title ?? 'Queue lot'}
             </Text>
+            {!locked ? (
+              <Text style={styles.hint}>
+                Change sale type before bidding starts — switch Buy It Now to Auction to run a timed bid.
+              </Text>
+            ) : null}
             {locked ? (
               <Text style={styles.locked}>Bidding has started — pricing can no longer be changed.</Text>
             ) : (
@@ -114,6 +119,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 18, fontWeight: '900', color: colors.textPrimary },
   sub: { fontSize: 13, color: colors.textMuted },
   locked: { fontSize: 13, color: '#fca5a5', lineHeight: 18 },
+  hint: { fontSize: 12, color: colors.textMuted, lineHeight: 17 },
   primary: {
     marginTop: spacing.sm,
     paddingVertical: 14,

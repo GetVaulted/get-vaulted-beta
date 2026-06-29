@@ -23,16 +23,18 @@ export function queueStatusLabel(status: LiveRoomItemRow['status']): string {
 export function SellerQueueStrip({
   items,
   roomEnded,
+  roomLive,
   busy,
-  onStart,
+  onPin,
   onEdit,
   onRemove,
   onAddItem,
 }: {
   items: LiveRoomItemRow[];
   roomEnded: boolean;
+  roomLive: boolean;
   busy: boolean;
-  onStart: (item: LiveRoomItemRow) => void;
+  onPin: (item: LiveRoomItemRow) => void;
   onEdit?: (item: LiveRoomItemRow) => void;
   onRemove: (item: LiveRoomItemRow) => void;
   onAddItem: () => void;
@@ -66,8 +68,9 @@ export function SellerQueueStrip({
           key={item.id}
           item={item}
           roomEnded={roomEnded}
+          roomLive={roomLive}
           busy={busy}
-          onStart={onStart}
+          onPin={onPin}
           onEdit={onEdit}
           onRemove={onRemove}
         />
@@ -79,15 +82,17 @@ export function SellerQueueStrip({
 function SellerQueueStripCard({
   item,
   roomEnded,
+  roomLive,
   busy,
-  onStart,
+  onPin,
   onEdit,
   onRemove,
 }: {
   item: LiveRoomItemRow;
   roomEnded: boolean;
+  roomLive: boolean;
   busy: boolean;
-  onStart: (item: LiveRoomItemRow) => void;
+  onPin: (item: LiveRoomItemRow) => void;
   onEdit?: (item: LiveRoomItemRow) => void;
   onRemove: (item: LiveRoomItemRow) => void;
 }) {
@@ -119,14 +124,18 @@ function SellerQueueStripCard({
       </View>
       {!roomEnded ? (
         <View style={styles.cardActions}>
-          <Pressable style={styles.startBtn} disabled={busy} onPress={() => onStart(item)}>
-            <Text style={styles.startBtnTxt}>Start</Text>
-          </Pressable>
           {canEdit && onEdit ? (
-            <Pressable style={styles.iconBtn} disabled={busy} onPress={() => onEdit(item)}>
-              <Ionicons name="create-outline" size={16} color={colors.gold} />
+            <Pressable style={styles.editBtn} disabled={busy} onPress={() => onEdit(item)}>
+              <Text style={styles.editBtnTxt}>Edit</Text>
             </Pressable>
           ) : null}
+          <Pressable
+            style={[styles.pinBtn, (!roomLive || busy) && styles.pinBtnDisabled]}
+            disabled={!roomLive || busy}
+            onPress={() => onPin(item)}
+          >
+            <Text style={styles.pinBtnTxt}>Pin</Text>
+          </Pressable>
           <Pressable style={styles.iconBtn} disabled={busy} onPress={() => onRemove(item)}>
             <Ionicons name="trash-outline" size={16} color="#FF6B6B" />
           </Pressable>
@@ -186,14 +195,23 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   cardActions: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
-  startBtn: {
+  editBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.35)',
+  },
+  editBtnTxt: { fontWeight: '800', fontSize: 11, color: colors.gold },
+  pinBtn: {
     flex: 1,
     paddingVertical: 8,
     borderRadius: radii.md,
     backgroundColor: colors.gold,
     alignItems: 'center',
   },
-  startBtnTxt: { fontWeight: '900', fontSize: 12, color: '#0a0a0a' },
+  pinBtnDisabled: { opacity: 0.45 },
+  pinBtnTxt: { fontWeight: '900', fontSize: 12, color: '#0a0a0a' },
   iconBtn: {
     width: 36,
     height: 36,

@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { LiveBadge } from '../../ui/LiveBadge';
@@ -25,6 +25,7 @@ export function SellerLiveOverlayHeader({
   onEndShow,
   canEnd,
   endBusy,
+  toolbar,
 }: {
   paddingTop: number;
   hostName: string;
@@ -40,6 +41,8 @@ export function SellerLiveOverlayHeader({
   onEndShow?: () => void;
   canEnd?: boolean;
   endBusy?: boolean;
+  /** Compact seller tools row (Sales, Givvys, etc.) attached under the identity row. */
+  toolbar?: ReactNode;
 }) {
   const ringPulse = useRef(new Animated.Value(0)).current;
   const viewerPop = useRef(new Animated.Value(1)).current;
@@ -140,6 +143,7 @@ export function SellerLiveOverlayHeader({
           ) : null}
         </View>
       </View>
+      {toolbar ? <View style={styles.toolbarRow}>{toolbar}</View> : null}
     </View>
   );
 }
@@ -243,4 +247,8 @@ const styles = StyleSheet.create({
   },
   iconBtn: { padding: 8 },
   endBtn: { padding: 8 },
+  toolbarRow: {
+    marginTop: 4,
+    minHeight: 32,
+  },
 });

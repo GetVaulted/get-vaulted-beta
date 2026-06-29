@@ -85,8 +85,9 @@ export function SellerLiveConsolePanel({
             items={c.items}
             roomType={roomType}
             roomEnded={c.roomEnded}
+            roomLive={c.roomLive}
             busy={c.busy}
-            onLaunch={c.onLaunch}
+            onPin={c.onLaunch}
             onRemove={c.onRemove}
             onReorder={c.onReorder}
             onEditPricing={(item) => c.openPricingEditor(item)}

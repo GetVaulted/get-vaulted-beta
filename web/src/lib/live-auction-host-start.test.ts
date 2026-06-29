@@ -73,7 +73,7 @@ describe("live-auction-host-start", () => {
     ).toBe(false);
   });
 
-  it("blocks variant spot start until host switches to auction mode", () => {
+  it("allows variant spot start when a team is pinned (fixed buy-now or auction mode)", () => {
     expect(
       canHostStartLiveAuction(
         { ...multiActive, status: "active" },
@@ -85,7 +85,7 @@ describe("live-auction-host-start", () => {
           activeSpotCommerceMode: "fixed",
         },
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canHostStartLiveAuction(
         { ...multiActive, status: "active" },
@@ -93,10 +93,10 @@ describe("live-auction-host-start", () => {
           roomLive: true,
           lotBidPhase: "not_started",
           isVariantItem: true,
-          hasPinnedVariant: true,
-          activeSpotCommerceMode: "auction",
+          hasPinnedVariant: false,
+          activeSpotCommerceMode: "fixed",
         },
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 });

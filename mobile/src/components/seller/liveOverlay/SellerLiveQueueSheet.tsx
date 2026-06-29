@@ -24,10 +24,11 @@ export function SellerLiveQueueSheet({
   items,
   roomType,
   roomEnded,
+  roomLive,
   queuedCount,
   consoleError,
   onRetry,
-  onLaunch,
+  onPin,
   onRemove,
   onReorder,
   onEditPricing,
@@ -40,10 +41,11 @@ export function SellerLiveQueueSheet({
   items: LiveRoomItemRow[];
   roomType: 'auction' | 'sale' | 'break';
   roomEnded: boolean;
+  roomLive: boolean;
   queuedCount: number;
   consoleError: SanitizedLiveError | null;
   onRetry: () => void;
-  onLaunch: (item: LiveRoomItemRow) => void;
+  onPin: (item: LiveRoomItemRow) => void;
   onRemove: (item: LiveRoomItemRow) => void;
   onReorder: (ordered: LiveRoomItemRow[]) => void;
   onEditPricing?: (item: LiveRoomItemRow) => void;
@@ -97,8 +99,9 @@ export function SellerLiveQueueSheet({
                 items={items}
                 roomType={roomType}
                 roomEnded={roomEnded}
+                roomLive={roomLive}
                 busy={busy}
-                onLaunch={onLaunch}
+                onPin={onPin}
                 onRemove={onRemove}
                 onReorder={onReorder}
                 onEditPricing={onEditPricing}

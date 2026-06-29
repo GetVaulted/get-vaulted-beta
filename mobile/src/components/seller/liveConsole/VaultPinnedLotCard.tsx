@@ -7,6 +7,7 @@ import { LIVE_AUCTION_HOST_TIMER_ENDED_COPY, resolveLiveAuctionLotBidPhase } fro
 import { canHostStartLiveAuction, isMultiQuantityLiveAuctionItem } from '../../../lib/liveAuctionHostStart';
 import { resolvePinnedLotOverlayPrice } from '../../../lib/liveAuctionOverlayPrice';
 import { isVariantPurchaseItem, summarizeVariantSpots, hostPinnedBuyerVariant } from '../../../lib/liveItemVariant';
+import { wallTimeMsFromServerAnchor } from '../../../lib/serverClockSync';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { colors, radii, spacing } from '../../../theme';
 import { lc } from './liveConsoleTheme';
@@ -55,12 +56,13 @@ function countdownParts(endsAt: string | null, serverNowMs: number): { label: st
   const end = Date.parse(endsAt);
   if (Number.isNaN(end)) return null;
   const diff = end - serverNowMs;
-  if (diff <= 0) return { label: 'Ended', progress: 0 };
+  if (diff <= 0) return { label: '00:00', progress: 0 };
   const s = Math.ceil(diff / 1000);
   const total = DEFAULT_AUCTION_SEC;
   const progress = Math.min(1, s / total);
-  if (s >= 60) return { label: `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, progress };
-  return { label: `${s}s`, progress };
+  const mm = String(Math.floor(s / 60)).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  return { label: `${mm}:${ss}`, progress };
 }
 
 export function VaultPinnedLotCard({
@@ -79,6 +81,7 @@ export function VaultPinnedLotCard({
   hostOverlayMinimal = false,
   queuePreview = false,
   onEditSpots,
+  onEditLot,
   hudScale = 1,
   clutchTimeEnabled = false,
   onToggleClutchTime,
@@ -103,6 +106,8 @@ export function VaultPinnedLotCard({
   queuePreview?: boolean;
   /** Open live team/division spot editor (PYT/PYD). */
   onEditSpots?: () => void;
+  /** Edit auction / buy-it-now pricing and sale type. */
+  onEditLot?: () => void;
   /** Tablet scale for broadcast overlay typography (default 1). */
   hudScale?: number;
   clutchTimeEnabled?: boolean;
@@ -118,13 +123,18 @@ export function VaultPinnedLotCard({
   const gradientDrift = useRef(new Animated.Value(0)).current;
   const bidderFlash = useRef(new Animated.Value(0)).current;
   const countdownGlow = useRef(new Animated.Value(0)).current;
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
+  const serverNowAnchorRef = useRef({ serverNowMs, atLocalMs: Date.now() });
   const prevBid = useRef<number | null>(null);
   const prevBidder = useRef<string | null>(null);
 
   useEffect(() => {
+    serverNowAnchorRef.current = { serverNowMs, atLocalMs: Date.now() };
+  }, [serverNowMs]);
+
+  useEffect(() => {
     if (!item?.auctionEndsAt || item.status !== 'active') return;
-    const id = setInterval(() => setTick((t) => t + 1), 400);
+    const id = setInterval(() => setTick((t) => t + 1), 250);
     return () => clearInterval(id);
   }, [item?.auctionEndsAt, item?.status]);
 
@@ -183,6 +193,11 @@ export function VaultPinnedLotCard({
     prevBidder.current = bidder;
   }, [bidderFlash, item?.lastHighBidderUsername]);
 
+  const liveNowMs = useMemo(() => {
+    const anchor = serverNowAnchorRef.current;
+    return wallTimeMsFromServerAnchor(anchor.serverNowMs, anchor.atLocalMs);
+  }, [serverNowMs, tick]);
+
   const lotBidPhase = useMemo(
     () =>
       item
@@ -192,18 +207,18 @@ export function VaultPinnedLotCard({
               biddingOpen: item.biddingOpen,
               auctionEndsAt: item.auctionEndsAt,
             },
-            serverNowMs,
+            liveNowMs,
           )
         : 'inactive',
-    [item, serverNowMs],
+    [item, liveNowMs],
   );
 
   const countdown = useMemo(() => {
     if (!item?.auctionEndsAt) return null;
-    if (item.biddingOpen) return countdownParts(item.auctionEndsAt, serverNowMs);
+    if (item.biddingOpen) return countdownParts(item.auctionEndsAt, liveNowMs);
     if (lotBidPhase === 'timer_ended_unsettled') return { label: 'Ended', progress: 0 };
     return null;
-  }, [item?.auctionEndsAt, item?.biddingOpen, lotBidPhase, serverNowMs]);
+  }, [item?.auctionEndsAt, item?.biddingOpen, lotBidPhase, liveNowMs]);
 
   useEffect(() => {
     if (!countdown || countdown.progress > 0.28) {
@@ -235,7 +250,7 @@ export function VaultPinnedLotCard({
               ? roomLive
                 ? 'Pin next lot to put it on the block'
                 : 'Go live, then pin the next lot'
-              : 'No lots queued · tap + Add item'}
+              : 'No lots on screen · pin from Queue'}
           </Text>
           {onPinNext ? (
             <Pressable
@@ -254,7 +269,7 @@ export function VaultPinnedLotCard({
     return (
       <View style={styles.empty}>
         <Text style={styles.emptyTitle}>No active item</Text>
-        <Text style={styles.emptySub}>Add or queue a lot from Queue below</Text>
+        <Text style={styles.emptySub}>Pin a lot from Queue to put it on screen</Text>
         {onPinNext ? (
           <Pressable
             style={[styles.pinBtn, styles.pinBtnDefault, (!roomLive || busy) && styles.pinBtnDisabled]}
@@ -272,8 +287,10 @@ export function VaultPinnedLotCard({
 
   const thumb = item.imageUrl?.trim();
   const isVariantItem = isVariantPurchaseItem(item);
+  const isBuyNowItem = item.salesFormat === 'buy_now';
   const spotStats = isVariantItem ? summarizeVariantSpots(item.variants) : null;
   const overlayPrice = resolvePinnedLotOverlayPrice({
+    commerceMode: isBuyNowItem ? 'buy_now' : 'auction',
     salesFormat: item.salesFormat,
     variants: item.variants,
     status: item.status,
@@ -285,24 +302,26 @@ export function VaultPinnedLotCard({
   const reserve =
     item.priceUsd != null && item.currentBidUsd != null && item.currentBidUsd >= item.priceUsd;
   const closingSoon = countdown != null && countdown.progress <= 0.28;
+  const pinnedVariant =
+    isVariantItem && item.variants
+      ? hostPinnedBuyerVariant(
+          item.variants.map((v) => ({
+            ...v,
+            soldCount: v.soldCount ?? 0,
+            sortOrder: v.sortOrder ?? 0,
+          })),
+          item.variantAssignmentMode,
+        )
+      : null;
   const hudPhase = resolveHostLotHudPhase({ item, roomLive, lotBidPhase, queuePreview });
   const showStartAuction =
-    (queuePreview && hudPhase === 'ready' && !isVariantItem) ||
+    !isBuyNowItem &&
     canHostStartLiveAuction(item, {
       roomLive,
       lotBidPhase,
       isVariantItem,
-      hasPinnedVariant: Boolean(
-        isVariantItem &&
-          hostPinnedBuyerVariant(
-            item.variants?.map((v) => ({
-              ...v,
-              soldCount: v.soldCount ?? 0,
-              sortOrder: v.sortOrder ?? 0,
-            })),
-            item.variantAssignmentMode,
-          ),
-      ),
+      salesFormat: item.salesFormat,
+      hasPinnedVariant: Boolean(pinnedVariant),
       activeSpotCommerceMode: item.activeSpotCommerceMode ?? null,
     });
   const showRunningStrip = !hostOverlayMinimal && hudPhase === 'running';
@@ -310,6 +329,14 @@ export function VaultPinnedLotCard({
   const showSecondaryActions =
     !hostOverlayMinimal && roomLive && hudPhase !== 'sold' && hudPhase !== 'skipped';
   const canEditSpots = Boolean(isVariantItem && onEditSpots && !busy);
+  const canEditLot = Boolean(
+    onEditLot &&
+      !busy &&
+      !item.biddingOpen &&
+      item.status !== 'sold' &&
+      item.status !== 'skipped' &&
+      !isVariantItem,
+  );
 
   const lotIdentity = (
     <>
@@ -376,11 +403,15 @@ export function VaultPinnedLotCard({
           </View>
         ) : isVariantItem && spotStats ? (
           <Text style={[styles.meta, compact && styles.metaCompact]}>
-            {spotStats.available > 0
-              ? `${spotStats.available} spot${spotStats.available === 1 ? '' : 's'} available`
-              : 'All spots sold'}
+            {hostOverlayMinimal && pinnedVariant && !item.biddingOpen
+              ? `${pinnedVariant.label} pinned · ${item.activeSpotCommerceMode === 'auction' ? 'ready to auction' : 'buy now — or Start Auction'}`
+              : spotStats.available > 0
+                ? `${spotStats.available} spot${spotStats.available === 1 ? '' : 's'} available`
+                : 'All spots sold'}
           </Text>
-        ) : hostOverlayMinimal ? null : (
+        ) : hostOverlayMinimal ? null : isBuyNowItem && item.status === 'active' ? (
+          <Text style={[styles.meta, compact && styles.metaCompact]}>Live for buyers</Text>
+        ) : (
           <Text style={[styles.meta, compact && styles.metaCompact]}>Waiting for first bid</Text>
         )}
         {canEditSpots ? (
@@ -408,7 +439,9 @@ export function VaultPinnedLotCard({
                         : hudPhase === 'skipped'
                           ? 'Skipped'
                           : hudPhase === 'ready'
-                            ? 'Ready to start'
+                            ? isBuyNowItem
+                              ? 'Buy now live'
+                              : 'Tap Start auction'
                             : 'Ready'}
               </Text>
             ) : null}
@@ -471,6 +504,20 @@ export function VaultPinnedLotCard({
         <View style={[styles.statusBanner, hudPhase === 'sold' ? styles.statusBannerSold : styles.statusBannerSkipped]}>
           <Text style={styles.statusBannerTxt}>{hudPhase === 'sold' ? 'Lot sold' : 'Lot skipped'}</Text>
         </View>
+      ) : null}
+
+      {canEditLot ? (
+        <Pressable
+          style={[styles.editLotBtn, compact && styles.editLotBtnCompact]}
+          disabled={busy}
+          onPress={onEditLot}
+          accessibilityRole="button"
+          accessibilityLabel="Edit lot pricing and sale type"
+        >
+          <Text style={[styles.editLotBtnTxt, compact && styles.editLotBtnTxtCompact]}>
+            {isBuyNowItem ? 'Edit · switch to auction' : 'Edit lot'}
+          </Text>
+        </Pressable>
       ) : null}
 
       {showStartAuction ? (
@@ -720,6 +767,28 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     color: colors.textPrimary,
+  },
+  editLotBtn: {
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.35)',
+    marginBottom: 4,
+  },
+  editLotBtnCompact: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    marginBottom: 2,
+  },
+  editLotBtnTxt: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.gold,
+  },
+  editLotBtnTxtCompact: {
+    fontSize: 10,
   },
   startAuctionPrimary: {
     alignItems: 'center',

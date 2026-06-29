@@ -34,12 +34,25 @@ export function isVariantSpotAuctionLive(item: ItemSpotCommerceRow | null | unde
   return item.activeSpotCommerceMode === "auction";
 }
 
-/** Buyers claim spots via picker sheet (fixed checkout — not spot auction). */
+/** Variants buyers can claim via shop while a spot auction may be live on another team. */
+export function shopAvailableVariants(item: ItemSpotCommerceRow | null | undefined): VariantPinRow[] {
+  const variants = item?.variants ?? [];
+  if (!variants.length) return [];
+  if (isVariantSpotAuctionLive(item) && item!.auctionVariantId?.trim()) {
+    const auctionId = item!.auctionVariantId.trim();
+    return variants.filter((v) => v.id !== auctionId && variantIsAvailable(v));
+  }
+  return variants.filter((v) => variantIsAvailable(v));
+}
+
+export function shopVariantCountDuringSpotAuction(item: ItemSpotCommerceRow | null | undefined): number {
+  return shopAvailableVariants(item).length;
+}
+
+/** Buyers claim spots via picker sheet (fixed checkout — includes hybrid shop during spot auction). */
 export function isVariantSpotFixedCheckoutLive(item: ItemSpotCommerceRow | null | undefined): boolean {
   if (!item || !isVariantSalesFormat(item.salesFormat)) return false;
-  if (isVariantSpotAuctionLive(item)) return false;
-  const variants = item.variants ?? [];
-  return variants.some((v) => variantIsAvailable(v));
+  return shopAvailableVariants(item).length > 0;
 }
 
 /** Host may switch fixed ↔ auction or plain buy_now ↔ auction when commerce is idle. */

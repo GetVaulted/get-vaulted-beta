@@ -49,14 +49,16 @@ export function canHostStartLiveAuction(
     hasPinnedVariant?: boolean;
     /** PYT/PYD pinned spot — only start timed bids when host switched to auction mode. */
     activeSpotCommerceMode?: 'fixed' | 'auction' | null;
+    salesFormat?: string | null;
   },
 ): boolean {
   if (!item || !args.roomLive || item.status !== 'active') return false;
+  if (args.salesFormat === 'buy_now') return false;
   if (args.isVariantItem) {
     if (!args.hasPinnedVariant) return false;
-    if (args.activeSpotCommerceMode !== 'auction') return false;
     if (args.lotBidPhase === 'bidding_open') return false;
     if (liveAuctionUnitsRemaining(item) <= 0) return false;
+    // Pinned spot starts as fixed (buy now); Start Auction promotes the same team to timed bids.
     return args.lotBidPhase === 'not_started';
   }
   if (liveAuctionUnitsRemaining(item) <= 0) return false;

@@ -14,6 +14,8 @@ type Props = {
   onStart: () => void;
   onStop: () => void;
   compact?: boolean;
+  /** Smaller play/stop for the header toolbar row. */
+  headerCompact?: boolean;
 };
 
 /** Single play/stop control — play starts live (with confirm), stop ends live (with confirm). */
@@ -26,6 +28,7 @@ export function SellerBroadcastControl({
   onStart,
   onStop,
   compact,
+  headerCompact,
 }: Props) {
   if (!stageEnabled) return null;
 
@@ -37,8 +40,8 @@ export function SellerBroadcastControl({
 
   const showStop = isOnAir;
   const starting = busy && (phase === 'idle' || phase === 'starting');
-  const iconSize = compact ? 18 : 20;
-  const btnSize = compact ? 44 : 48;
+  const iconSize = headerCompact ? 15 : compact ? 18 : 20;
+  const btnSize = headerCompact ? 32 : compact ? 44 : 48;
 
   const onPress = () => {
     if (showStop) {

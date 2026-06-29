@@ -3,6 +3,41 @@ import { resolveLiveAuctionLotBidPhase } from './liveAuctionLotPhase';
 import type { LiveRoomBuyerSnapshot, LiveBidHttpAck } from '../api/liveRoomBuyerRepository';
 import type { RoomBroadcastPayload } from './realtimeChannels';
 
+/** Keep the furthest-out close time when reconciling concurrent bid/timer updates. */
+export function pickLatestAuctionEndsAt(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): string | null {
+  const aTrim = a?.trim() || null;
+  const bTrim = b?.trim() || null;
+  if (!aTrim) return bTrim;
+  if (!bTrim) return aTrim;
+  return Date.parse(aTrim) >= Date.parse(bTrim) ? aTrim : bTrim;
+}
+
+function withMonotonicAuctionEndsAt(
+  snap: LiveRoomBuyerSnapshot,
+  prev: LiveRoomBuyerSnapshot,
+  wallNowMs: number,
+): LiveRoomBuyerSnapshot {
+  const auctionEndsAt = pickLatestAuctionEndsAt(prev.auctionEndsAt, snap.auctionEndsAt);
+  const biddingOpenRaw = snap.biddingOpen;
+  const lotBidPhase = resolveLiveAuctionLotBidPhase(
+    {
+      status: 'active',
+      biddingOpen: biddingOpenRaw,
+      auctionEndsAt,
+    },
+    wallNowMs,
+  );
+  return {
+    ...snap,
+    auctionEndsAt,
+    biddingOpen: lotBidPhase === 'bidding_open',
+    lotBidPhase,
+  };
+}
+
 export type BuyerSnapshotReconcileResult = {
   snap: LiveRoomBuyerSnapshot;
   /** A new lot / room / active item — bid amounts may legitimately reset. */
@@ -55,19 +90,24 @@ export function reconcileBuyerSnapshotMonotonic(
 
   if (highRegressed || minNextRegressed) {
     const preservedHigh = highRegressed ? (prevHigh as number) : (nextHigh as number);
+    const wallNowMs = next.fetchedAtMs ?? prev.fetchedAtMs ?? Date.now();
     return {
-      snap: {
-        ...next,
-        currentBidUsd: preservedHigh,
-        minNextBidUsd: liveAuctionMinBidUsd({
+      snap: withMonotonicAuctionEndsAt(
+        {
+          ...next,
           currentBidUsd: preservedHigh,
-          startingBidUsd: next.startingBidUsd ?? prev.startingBidUsd,
-          priceUsd: next.priceUsd ?? prev.priceUsd,
+          minNextBidUsd: liveAuctionMinBidUsd({
+            currentBidUsd: preservedHigh,
+            startingBidUsd: next.startingBidUsd ?? prev.startingBidUsd,
+            priceUsd: next.priceUsd ?? prev.priceUsd,
+            lastHighBidderId: prev.lastHighBidderId ?? next.lastHighBidderId,
+          }),
           lastHighBidderId: prev.lastHighBidderId ?? next.lastHighBidderId,
-        }),
-        lastHighBidderId: prev.lastHighBidderId ?? next.lastHighBidderId,
-        lastHighBidderUsername: prev.lastHighBidderUsername ?? next.lastHighBidderUsername,
-      },
+          lastHighBidderUsername: prev.lastHighBidderUsername ?? next.lastHighBidderUsername,
+        },
+        prev,
+        wallNowMs,
+      ),
       lotChanged: false,
       staleIgnored: true,
       advanced: false,
@@ -75,7 +115,13 @@ export function reconcileBuyerSnapshotMonotonic(
   }
 
   const advanced = prevHasHigh && nextHasHigh && (nextHigh as number) > (prevHigh as number);
-  return { snap: next, lotChanged: false, staleIgnored: false, advanced };
+  const wallNowMs = next.fetchedAtMs ?? prev.fetchedAtMs ?? Date.now();
+  return {
+    snap: withMonotonicAuctionEndsAt(next, prev, wallNowMs),
+    lotChanged: false,
+    staleIgnored: false,
+    advanced,
+  };
 }
 
 /** Optimistic merge for `bid_placed` on the active lot snapshot. */

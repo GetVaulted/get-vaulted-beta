@@ -13,7 +13,8 @@ import {
 } from '../../lib/liveItemVariant';
 import {
   isVariantSpotAuctionLive,
-  pinnedVariantAuctionPrimaryLabel,
+  shopAvailableVariants,
+  shopVariantCountDuringSpotAuction,
 } from '../../lib/liveVariantSpotCommerce';
 import { pickVaultWaitingMessage } from '../../lib/liveAuctionBuyerVaultCopy';
 import type { CategoryId, HybridFocus, LiveCommerceMode, LiveRoomFormat, LiveStream } from '../../types';
@@ -108,6 +109,7 @@ function resolveBuyerVariantItemHud(
     const displayAmount = hasBid ? (snap.currentBidUsd ?? opening) : opening;
     const next = snap.minNextBidUsd ?? displayAmount;
     const biddingOpen = snap.lotBidPhase === 'bidding_open';
+    const shopCount = shopVariantCountDuringSpotAuction(snap);
     return {
       ...base,
       format: 'auction',
@@ -123,13 +125,17 @@ function resolveBuyerVariantItemHud(
         startingBidUsd: snap.startingBidUsd,
       }),
       stateLine: biddingOpen
-        ? 'Spot auction live — place the next bid.'
+        ? shopCount > 0
+          ? `${pinned.label} auction live — ${shopCount} other team${shopCount === 1 ? '' : 's'} still in shop.`
+          : 'Spot auction live — place the next bid.'
         : 'Spot auction ended — waiting for host.',
       bottomLeftLabel: 'Custom',
       bottomRightLabel: biddingOpen
-        ? pinnedVariantAuctionPrimaryLabel(snap.activeItemSalesFormat, next)
+        ? `Hold to Bid ${formatBidMoney(next)}`
         : 'Waiting for host',
-      bottomRightIsSlide: biddingOpen,
+      bottomRightIsSlide: false,
+      showShopButton: shopCount > 0 && biddingOpen,
+      shopButtonLabel: variantClaimPrimaryLabel(snap.activeItemSalesFormat),
       buyerPrimaryDisabled: !biddingOpen,
       buyerSecondaryDisabled: !biddingOpen,
       buyerPinnedVariantId: pinned.id,
@@ -334,7 +340,7 @@ export function formatMoney(n: number): string {
   return `$${n.toLocaleString('en-US')}`;
 }
 
-/** Bid CTA — always two decimal places (e.g. Bid $1.00). */
+/** Bid CTA — always two decimal places (e.g. Hold to Bid $1.00). */
 export function formatBidMoney(n: number): string {
   return `$${n.toFixed(2)}`;
 }

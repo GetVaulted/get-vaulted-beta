@@ -47,6 +47,8 @@ type Props = {
   salesFormat: LiveItemSalesFormat;
   variantAssignmentMode?: 'pick' | 'random';
   variants: LiveItemVariantSnapshot[];
+  /** Hide teams currently in spot auction (buyers bid on those instead). */
+  excludeVariantIds?: string[];
   accessToken?: string;
   walletReady: boolean;
   onWalletRequired: () => void;
@@ -69,6 +71,7 @@ export function LiveBreakSpotGridSheet({
   salesFormat,
   variantAssignmentMode = 'pick',
   variants,
+  excludeVariantIds,
   accessToken,
   walletReady,
   onWalletRequired,
@@ -83,8 +86,12 @@ export function LiveBreakSpotGridSheet({
   const [error, setError] = useState<string | null>(null);
 
   const isRandom = isRandomVariantAssignment(variantAssignmentMode);
-  const sortedVariants = useMemo(() => sortVariantsForBuyerDisplay(variants), [variants]);
-  const spotSummary = useMemo(() => summarizeVariantSpots(variants), [variants]);
+  const pickerVariants = useMemo(() => {
+    const exclude = new Set(excludeVariantIds ?? []);
+    return variants.filter((v) => !exclude.has(v.id));
+  }, [excludeVariantIds, variants]);
+  const sortedVariants = useMemo(() => sortVariantsForBuyerDisplay(pickerVariants), [pickerVariants]);
+  const spotSummary = useMemo(() => summarizeVariantSpots(pickerVariants), [pickerVariants]);
   const selected = sortedVariants.find((v) => v.id === selectedId) ?? null;
   const pickerBaseLabel = variantSelectSpotLabel(salesFormat, isRandom);
 
@@ -116,7 +123,7 @@ export function LiveBreakSpotGridSheet({
     ? `${pickerBaseLabel}: ${selected.label}`
     : pickerBaseLabel;
 
-  const allSold = spotSummary.available <= 0 && variants.length > 0;
+  const allSold = spotSummary.available <= 0 && pickerVariants.length > 0;
 
   const checkout = async () => {
     if (!selected) {

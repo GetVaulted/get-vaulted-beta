@@ -51,6 +51,27 @@ export function includeHostRecentSaleRow(row: Pick<HostRecentSaleRowDTO, "paymen
   return row.paymentTone === "paid" || row.paymentTone === "retry";
 }
 
+type SpotCommerceAnchor = {
+  buyerId: string;
+  amountUsd: number;
+  fulfillmentOrderId: string | null;
+  paid: boolean;
+};
+
+/** Hide marketplace order rows when the live room already has the spot/variant sale row. */
+export function shouldHideOrderForSpotCommerceRow(
+  order: { id: string; buyerId: string; itemPriceUsd: number },
+  anchors: SpotCommerceAnchor[],
+): boolean {
+  for (const anchor of anchors) {
+    if (anchor.fulfillmentOrderId === order.id) return true;
+    if (!anchor.paid) continue;
+    if (anchor.buyerId !== order.buyerId) continue;
+    if (roundUsd(anchor.amountUsd) === roundUsd(order.itemPriceUsd)) return true;
+  }
+  return false;
+}
+
 type OrderWithBuyer = Order & {
   buyer: Pick<User, "username">;
   listing?: Pick<Listing, "title"> | null;
@@ -106,11 +127,15 @@ function mapBreakSpot(s: SpotWithUser, itemTitleById: Map<string, string>): Host
 
 type VariantPurchaseWithBuyer = {
   id: string;
+  buyerId: string;
   totalUsd: number;
+  unitPriceUsd: number;
+  quantity: number;
   paymentStatus: string;
   paidAt: Date | null;
   createdAt: Date;
   revealedLabel: string | null;
+  fulfillmentOrderId: string | null;
   buyer: Pick<User, "username"> | null;
   variant: {
     label: string;
@@ -219,6 +244,25 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
   }
 
   const fulfillmentOrderIdSet = new Set(fulfillmentOrderIds);
+  const liveShowSessionOrderIds = new Set(ordersBySession.map((o) => o.id));
+
+  const spotCommerceAnchors: SpotCommerceAnchor[] = [
+    ...spots.map((s) => ({
+      buyerId: s.userId,
+      amountUsd: s.priceUsd,
+      fulfillmentOrderId: s.fulfillmentOrderId,
+      paid:
+        s.breakPaymentStatus === PAYMENT_PAID ||
+        s.breakPaymentStatus === "paid" ||
+        s.paidAt != null,
+    })),
+    ...variantPurchases.map((vp) => ({
+      buyerId: vp.buyerId,
+      amountUsd: roundUsd(vp.unitPriceUsd * vp.quantity),
+      fulfillmentOrderId: vp.fulfillmentOrderId,
+      paid: vp.paymentStatus === "paid",
+    })),
+  ];
 
   const spotItemIds = [
     ...new Set(spots.map((s) => s.liveRoomItemId).filter((id): id is string => Boolean(id))),
@@ -235,6 +279,8 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
   const rows: HostRecentSaleRowDTO[] = [];
   for (const o of orderById.values()) {
     if (fulfillmentOrderIdSet.has(o.id)) continue;
+    if (liveShowSessionOrderIds.has(o.id)) continue;
+    if (shouldHideOrderForSpotCommerceRow(o, spotCommerceAnchors)) continue;
     const mapped = mapOrder(o);
     if (!includeHostRecentSaleRow(mapped)) continue;
     rows.push(mapped);

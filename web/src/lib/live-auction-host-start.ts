@@ -54,9 +54,9 @@ export function canHostStartLiveAuction(
   if (!item || !args.roomLive || item.status !== "active") return false;
   if (args.isVariantItem) {
     if (!args.hasPinnedVariant) return false;
-    if (args.activeSpotCommerceMode !== "auction") return false;
     if (args.lotBidPhase === "bidding_open") return false;
     if (liveAuctionUnitsRemaining(item) <= 0) return false;
+    // Pinned spot starts as fixed (buy now); Start Auction promotes the same team to timed bids.
     return args.lotBidPhase === "not_started";
   }
   if (liveAuctionUnitsRemaining(item) <= 0) return false;

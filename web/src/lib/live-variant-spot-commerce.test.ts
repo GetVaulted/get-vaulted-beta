@@ -4,6 +4,8 @@ import {
   idleVariantSpotCommerceReset,
   isVariantSpotAuctionLive,
   isVariantSpotFixedCheckoutLive,
+  shopAvailableVariants,
+  shopVariantCountDuringSpotAuction,
 } from "@/lib/live-variant-spot-commerce";
 
 describe("live-variant-spot-commerce", () => {
@@ -33,6 +35,42 @@ describe("live-variant-spot-commerce", () => {
     };
     expect(isVariantSpotAuctionLive(item)).toBe(true);
     expect(isVariantSpotFixedCheckoutLive(item)).toBe(false);
+    expect(
+      isVariantSpotFixedCheckoutLive({
+        ...item,
+        variants: [
+          ...item.variants,
+          {
+            id: "v2",
+            label: "Bills",
+            priceUsd: 35,
+            quantityRemaining: 1,
+            soldCount: 0,
+            isHot: false,
+            status: "available",
+          },
+        ],
+      }),
+    ).toBe(true);
+    expect(shopVariantCountDuringSpotAuction(item)).toBe(0);
+    expect(
+      shopVariantCountDuringSpotAuction({
+        ...item,
+        variants: [
+          ...item.variants,
+          {
+            id: "v2",
+            label: "Bills",
+            priceUsd: 35,
+            quantityRemaining: 1,
+            soldCount: 0,
+            isHot: false,
+            status: "available",
+          },
+        ],
+      }),
+    ).toBe(1);
+    expect(shopAvailableVariants(item).map((v) => v.id)).toEqual([]);
     expect(
       isVariantSpotFixedCheckoutLive({
         ...item,

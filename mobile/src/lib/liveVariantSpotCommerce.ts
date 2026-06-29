@@ -1,8 +1,9 @@
-import type { LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
+import type { LiveItemVariantSnapshot, LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
 import {
   availableVariantCount,
   hostPinnedBuyerVariant,
   isActiveVariantBuyerItem,
+  variantIsAvailable,
 } from './liveItemVariant';
 
 export type ActiveSpotCommerceMode = 'fixed' | 'auction';
@@ -15,12 +16,30 @@ export function isVariantSpotAuctionLive(
   return Boolean(snap.activeSpotCommerceMode === 'auction' && snap.auctionVariantId?.trim());
 }
 
+/** Variants buyers can claim via shop while a spot auction may be live on another team. */
+export function shopAvailableVariants(
+  snap: LiveRoomBuyerSnapshot | null | undefined,
+): LiveItemVariantSnapshot[] {
+  const variants = snap?.activeItemVariants ?? [];
+  if (!variants.length) return [];
+  if (isVariantSpotAuctionLive(snap) && snap!.auctionVariantId?.trim()) {
+    const auctionId = snap!.auctionVariantId.trim();
+    return variants.filter((v) => v.id !== auctionId && variantIsAvailable(v));
+  }
+  return variants.filter(variantIsAvailable);
+}
+
+export function shopVariantCountDuringSpotAuction(
+  snap: LiveRoomBuyerSnapshot | null | undefined,
+): number {
+  return shopAvailableVariants(snap).length;
+}
+
 export function isVariantSpotFixedCheckoutLive(
   snap: LiveRoomBuyerSnapshot | null | undefined,
 ): boolean {
   if (!snap || !isActiveVariantBuyerItem(snap)) return false;
-  if (isVariantSpotAuctionLive(snap)) return false;
-  return availableVariantCount(snap.activeItemVariants) > 0;
+  return shopAvailableVariants(snap).length > 0;
 }
 
 export function pinnedVariantAuctionPrimaryLabel(

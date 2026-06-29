@@ -35,6 +35,12 @@ export function QuickLiveLotFields({
         })}
       </View>
 
+      <Text style={styles.fieldHint}>
+        {value.saleType === 'auction'
+          ? 'Buyers bid until the timer ends. Optional reserve and buy-it-now overlay.'
+          : 'Fixed price — buyers purchase instantly when the lot is pinned.'}
+      </Text>
+
       <Text style={styles.fieldLbl}>{priceLabel}</Text>
       <TextInput
         value={value.price}
@@ -93,6 +99,11 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     letterSpacing: 0.8,
     textTransform: 'uppercase',
+  },
+  fieldHint: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: colors.textMuted,
   },
   toggleRow: { flexDirection: 'row', gap: spacing.sm },
   toggleBtn: {

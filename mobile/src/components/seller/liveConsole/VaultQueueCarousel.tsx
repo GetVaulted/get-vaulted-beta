@@ -20,14 +20,16 @@ function statusChip(status: LiveRoomItemRow['status']): { label: string; tone: '
 export function VaultQueueCarousel({
   items,
   roomEnded,
+  roomLive = false,
   busy,
-  onLaunch,
+  onPin,
   onRemove,
 }: {
   items: LiveRoomItemRow[];
   roomEnded: boolean;
+  roomLive: boolean;
   busy: boolean;
-  onLaunch: (item: LiveRoomItemRow) => void;
+  onPin: (item: LiveRoomItemRow) => void;
   onRemove: (item: LiveRoomItemRow) => void;
 }) {
   const queued = items.filter((i) => i.status === 'queued');
@@ -70,9 +72,12 @@ export function VaultQueueCarousel({
             </View>
             {!roomEnded ? (
               <View style={styles.cardActions}>
-                <Pressable style={styles.launchBtn} disabled={busy} onPress={() => onLaunch(item)}>
-                  <Text style={styles.launchTxt}>Launch</Text>
-                  <Ionicons name="play" size={14} color="#0a0a0a" />
+                <Pressable
+                  style={[styles.pinBtn, (!roomLive || busy) && styles.pinBtnDisabled]}
+                  disabled={!roomLive || busy}
+                  onPress={() => onPin(item)}
+                >
+                  <Text style={styles.pinTxt}>Pin</Text>
                 </Pressable>
                 <Pressable style={styles.trash} disabled={busy} onPress={() => onRemove(item)} hitSlop={8}>
                   <Ionicons name="trash-outline" size={16} color="#FF6B6B" />
@@ -114,16 +119,15 @@ const styles = StyleSheet.create({
   chipLive: { backgroundColor: colors.liveGlow },
   chipTxt: { fontSize: 9, fontWeight: '800', color: colors.textSecondary },
   cardActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
-  launchBtn: {
+  pinBtn: {
     flex: 1,
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
     paddingVertical: 8,
     borderRadius: radii.md,
     backgroundColor: colors.gold,
   },
-  launchTxt: { fontWeight: '800', fontSize: 12, color: '#0a0a0a' },
+  pinBtnDisabled: { opacity: 0.45 },
+  pinTxt: { fontWeight: '800', fontSize: 12, color: '#0a0a0a' },
   trash: { padding: 6 },
 });

@@ -30,19 +30,21 @@ function pricingSummary(item: LiveRoomItemRow): string {
 function VaultQueueRow({
   item,
   roomEnded,
+  roomLive,
   busy,
   drag,
   isActive,
-  onLaunch,
+  onPin,
   onRemove,
   onEditPricing,
 }: {
   item: LiveRoomItemRow;
   roomEnded: boolean;
+  roomLive: boolean;
   busy: boolean;
   drag?: () => void;
   isActive?: boolean;
-  onLaunch: (item: LiveRoomItemRow) => void;
+  onPin: (item: LiveRoomItemRow) => void;
   onRemove: (item: LiveRoomItemRow) => void;
   onEditPricing?: (item: LiveRoomItemRow) => void;
 }) {
@@ -89,10 +91,14 @@ function VaultQueueRow({
               <Text style={styles.editBtnTxt}>{isVariantSalesFormat(item.salesFormat) ? 'Spots' : 'Edit'}</Text>
             </Pressable>
           ) : null}
-          <Pressable style={styles.launch} disabled={busy} onPress={() => onLaunch(item)}>
-            <Text style={styles.launchTxt}>Start</Text>
+          <Pressable
+            style={[styles.pinBtn, (!roomLive || busy) && styles.pinBtnDisabled]}
+            disabled={!roomLive || busy}
+            onPress={() => onPin(item)}
+          >
+            <Text style={styles.pinBtnTxt}>Pin</Text>
           </Pressable>
-          <Pressable disabled={busy} onPress={() => onRemove(item)} hitSlop={8}>
+          <Pressable disabled={busy} onPress={() => onRemove(item)} hitSlop={8} style={styles.deleteBtn}>
             <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
           </Pressable>
         </View>
@@ -105,8 +111,9 @@ export function VaultQueueList({
   items,
   roomType,
   roomEnded,
+  roomLive,
   busy,
-  onLaunch,
+  onPin,
   onRemove,
   onReorder,
   onEditPricing,
@@ -117,8 +124,9 @@ export function VaultQueueList({
   items: LiveRoomItemRow[];
   roomType: 'auction' | 'sale' | 'break';
   roomEnded: boolean;
+  roomLive: boolean;
   busy: boolean;
-  onLaunch: (item: LiveRoomItemRow) => void;
+  onPin: (item: LiveRoomItemRow) => void;
   onRemove: (item: LiveRoomItemRow) => void;
   onReorder: (ordered: LiveRoomItemRow[]) => void;
   onEditPricing?: (item: LiveRoomItemRow) => void;
@@ -142,8 +150,9 @@ export function VaultQueueList({
           <VaultQueueRow
             item={item}
             roomEnded={roomEnded}
+            roomLive={roomLive}
             busy={busy}
-            onLaunch={onLaunch}
+            onPin={onPin}
             onRemove={onRemove}
             onEditPricing={onEditPricing}
           />
@@ -179,8 +188,9 @@ export function VaultQueueList({
           key={item.id}
           item={item}
           roomEnded={roomEnded}
+          roomLive={roomLive}
           busy={busy}
-          onLaunch={onLaunch}
+          onPin={onPin}
           onRemove={onRemove}
           onEditPricing={onEditPricing}
         />
@@ -219,20 +229,22 @@ const styles = StyleSheet.create({
   metaLine: { fontSize: 10, fontWeight: '600', color: colors.textSecondary },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
   tag: { fontSize: 9, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase' },
-  actions: { alignItems: 'flex-end', gap: 6 },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   editBtn: {
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 6,
     borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: 'rgba(212,175,55,0.35)',
   },
   editBtnTxt: { fontSize: 10, fontWeight: '800', color: colors.gold },
-  launch: {
+  pinBtn: {
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: radii.pill,
     backgroundColor: colors.gold,
   },
-  launchTxt: { fontSize: 11, fontWeight: '800', color: '#0a0a0a' },
+  pinBtnDisabled: { opacity: 0.45 },
+  pinBtnTxt: { fontSize: 11, fontWeight: '800', color: '#0a0a0a' },
+  deleteBtn: { padding: 4 },
 });

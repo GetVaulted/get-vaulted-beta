@@ -16,7 +16,6 @@ import {
   computeLiveRoomBottomStack,
   scaledComposerBarHeight,
 } from '../../../lib/liveRoomBottomLayout';
-import { computeLiveTopReserve } from '../../../lib/liveRoomViewport';
 import { liveRoomOverlayScale } from '../../../lib/liveRoomUiScale';
 import { SellerLiveComposer } from './SellerLiveComposer';
 import { SellerLiveGestureLayer } from './SellerLiveGestureLayer';
@@ -57,8 +56,7 @@ import {
 import { SellerLiveQueueSheet } from './SellerLiveQueueSheet';
 import { SellerNextUpRail, SELLER_NEXT_UP_RAIL_HEIGHT } from './SellerNextUpRail';
 import { SellerLiveGiveawaySheet } from './SellerLiveGiveawaySheet';
-import { SellerConsoleActionBar } from './SellerConsoleActionBar';
-import { SellerGivvyQuickButton } from './SellerGivvyQuickButton';
+import { SellerConsoleActionBar, sellerHeaderBlockHeight } from './SellerConsoleActionBar';
 import { SellerHostSideRail } from './SellerHostSideRail';
 import { SellerHostGiveawayRail } from './SellerHostGiveawayRail';
 import { SellerLiveSalesSheet } from './SellerLiveSalesSheet';
@@ -210,11 +208,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const canStart = host.room?.status === 'scheduled';
   const canEnd = host.room?.status === 'live';
   const streamTitle = host.room?.title ?? 'Live show';
-  const sellerHeaderBody = 44;
-  const sellerGivvyQuickTop = insets.top + 6 + sellerHeaderBody + 4;
-  const actionBarTop = sellerGivvyQuickTop + 44 + 6;
-  const actionBarHeight = 56;
-  const hostGivvyRailTop = actionBarTop + actionBarHeight + 6;
+  const headerPaddingTop = insets.top + 6;
+  const hostGivvyRailTop = headerPaddingTop + sellerHeaderBlockHeight() + 4;
 
   const handleShare = useCallback(async () => {
     const shared = await shareLiveRoomNative({
@@ -230,9 +225,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   }, [roomId, roomLive, sellerUsername, streamTitle, user?.email]);
 
   const commerceBottom = Math.max(insets.bottom, spacing.xs);
-  const nextQueued = console.items.find((i) => i.status === 'queued') ?? null;
-  const queuePreview = !console.activeItem && Boolean(nextQueued) && !console.roomEnded;
-  const displayItem = console.activeItem ?? (queuePreview ? nextQueued : null);
+  const displayItem = console.activeItem;
   const showTeamsBoard = Boolean(displayItem && isVariantSalesFormat(displayItem.salesFormat) && (displayItem.variants?.length ?? 0) > 0);
   const prevActiveVariantItemRef = useRef<string | null>(null);
   useEffect(() => {
@@ -253,7 +246,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     return console.paymentFailures.length + failedSales;
   }, [console.paymentFailures.length, console.recentSales]);
   const pinnedOverlayEstimate =
-    displayItem || queuePreview ? SELLER_PINNED_OVERLAY_HEIGHT : SELLER_PINNED_EMPTY_HEIGHT;
+    displayItem ? SELLER_PINNED_OVERLAY_HEIGHT : SELLER_PINNED_EMPTY_HEIGHT;
   const [commerceHeight, setCommerceHeight] = useState(pinnedOverlayEstimate);
 
   useEffect(() => {
@@ -293,15 +286,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const onStartAuction = () => {
     if (console.activeItem) {
       console.onStartBidding();
-      return;
     }
-    if (nextQueued) {
-      console.onLaunchAndStart(nextQueued);
-    }
-  };
-
-  const onPinNextLot = () => {
-    if (nextQueued) console.onLaunch(nextQueued);
   };
 
   const hostChatUsername = sellerUsername?.trim() || hostName;
@@ -450,7 +435,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const sellerChatBottom = sellerComposerBottom + composerBarHeight + Math.round(12 * overlayScale) + sellerPinnedReserve;
   const chatMaxHeight = computeChatStackMaxHeight({
     slideHeight: windowHeight,
-    topReserve: computeLiveTopReserve(insets.top, windowWidth),
+    topReserve: headerPaddingTop + sellerHeaderBlockHeight() + 8,
     chatBottom: sellerChatBottom,
     overlayScale,
     expanded: chatExpanded,
@@ -595,7 +580,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       ) : null}
 
       <SellerLiveOverlayHeader
-        paddingTop={insets.top + 6}
+        paddingTop={headerPaddingTop}
         hostName={hostName}
         hostAvatarUrl={hostAvatarUrl}
         streamTitle={streamTitle}
@@ -607,41 +592,40 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         onEndShow={host.stageWebrtcEnabled ? undefined : () => host.onEndShow()}
         canEnd={canEnd && !host.stageWebrtcEnabled}
         endBusy={host.busy === 'end'}
-      />
-
-      <SellerGivvyQuickButton top={sellerGivvyQuickTop} onPress={() => setGiveawayOpen(true)} />
-
-      <SellerConsoleActionBar
-        top={actionBarTop}
-        onSales={() => {
-          setSalesOpen(true);
-          void console.syncSales();
-        }}
-        salesAttentionCount={salesAttentionCount}
-        onObs={() => setBroadcastOpen(true)}
-        showTeamsBoard={showTeamsBoard}
-        onTeams={() => setTeamsBoardOpen(true)}
-        broadcastPhase={host.broadcastPhase}
-        roomStatus={roomStatus}
-        streamOnAir={streamOnAir}
-        canStartRoom={canStart}
-        stageEnabled={host.stageWebrtcEnabled}
-        cameraReady={host.cameraPermissionState === 'granted'}
-        broadcastBusy={
-          host.busy === 'start' ||
-          host.busy === 'end' ||
-          host.cameraPermissionState === 'requesting'
+        toolbar={
+          <SellerConsoleActionBar
+            embedded
+            onSales={() => {
+              setSalesOpen(true);
+              void console.syncSales();
+            }}
+            onGivvy={() => setGiveawayOpen(true)}
+            salesAttentionCount={salesAttentionCount}
+            onObs={() => setBroadcastOpen(true)}
+            showTeamsBoard={showTeamsBoard}
+            onTeams={() => setTeamsBoardOpen(true)}
+            broadcastPhase={host.broadcastPhase}
+            roomStatus={roomStatus}
+            streamOnAir={streamOnAir}
+            canStartRoom={canStart}
+            stageEnabled={host.stageWebrtcEnabled}
+            cameraReady={host.cameraPermissionState === 'granted'}
+            broadcastBusy={
+              host.busy === 'start' ||
+              host.busy === 'end' ||
+              host.cameraPermissionState === 'requesting'
+            }
+            onGoLive={onGoLive}
+            onStopStream={host.onStopBroadcast}
+            showCameraFlip={host.stageWebrtcEnabled && host.showCameraPreview}
+            cameraFlipDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
+            onFlipCamera={host.onFlipCamera}
+            showMicMute={host.stageWebrtcEnabled && host.showCameraPreview}
+            micMuted={host.microphoneMuted}
+            micMuteDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
+            onToggleMicMute={host.onToggleMicMute}
+          />
         }
-        onGoLive={onGoLive}
-        onStopStream={host.onStopBroadcast}
-        viewerCount={console.viewerCount}
-        showCameraFlip={host.stageWebrtcEnabled && host.showCameraPreview}
-        cameraFlipDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
-        onFlipCamera={host.onFlipCamera}
-        showMicMute={host.stageWebrtcEnabled && host.showCameraPreview}
-        micMuted={host.microphoneMuted}
-        micMuteDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
-        onToggleMicMute={host.onToggleMicMute}
       />
 
       {activeStageGiveaway ? (
@@ -723,10 +707,14 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
             ? () => console.openPricingEditor(displayItem)
             : undefined
         }
+        onEditLot={
+          displayItem && !isVariantSalesFormat(displayItem.salesFormat)
+            ? () => console.openPricingEditor(displayItem)
+            : undefined
+        }
         clutchTimeEnabled={console.hostClutchTimeEnabled}
         onToggleClutchTime={console.toggleHostClutchTime}
         hostOverlayMinimal
-        queuePreview={queuePreview}
         onLayoutHeight={(h) => {
           if (h > 0 && Math.abs(h - commerceHeight) > 2) setCommerceHeight(h);
         }}
@@ -741,10 +729,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         loading={console.loading}
         busy={console.busy}
         roomEnded={console.roomEnded}
-        roomLive={console.roomLive}
         onOpenQueue={() => setQueueOpen(true)}
         onAddItem={() => console.setInventoryOpen(true)}
-        onPinNext={onPinNextLot}
       />
 
       <SellerLiveComposer
@@ -857,7 +843,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       ) : null}
 
       {host.stageWebrtcEnabled && !roomLive && host.showCameraPreview ? (
-        <View style={[styles.previewHint, { top: actionBarTop + actionBarHeight + 6 }]}>
+        <View style={[styles.previewHint, { top: headerPaddingTop + sellerHeaderBlockHeight() + 6 }]}>
           <Text style={styles.previewHintTxt}>{SELLER_CONSOLE.previewHint}</Text>
         </View>
       ) : null}
@@ -876,10 +862,11 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         items={console.items}
         roomType={host.room?.roomType ?? 'auction'}
         roomEnded={console.roomEnded}
+        roomLive={console.roomLive}
         queuedCount={console.queuedCount}
         consoleError={console.consoleError}
         onRetry={() => void console.loadOnce()}
-        onLaunch={(item) => {
+        onPin={(item) => {
           console.onLaunch(item);
           setQueueOpen(false);
         }}

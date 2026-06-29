@@ -4,16 +4,33 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-n
 import type { MobileHostBroadcastPhase } from '../../../hooks/useMobileStagePublish';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { confirmStartLive } from '../../../lib/sellerBroadcastConfirm';
+import { GIVVY_UI } from '../../../lib/givvyUi';
 import { colors, radii, spacing } from '../../../theme';
 import { SellerBroadcastControl } from './SellerBroadcastControl';
 import { SellerCameraFlipButton } from './SellerCameraFlipButton';
 import { SellerMicMuteButton } from './SellerMicMuteButton';
 
-const ACTION_MIN_H = 44;
+/** Identity row + toolbar row under safe area (matches SellerLiveOverlayHeader). */
+export const SELLER_HEADER_IDENTITY_H = 40;
+export const SELLER_HEADER_TOOLBAR_H = 32;
+export const SELLER_HEADER_TOOLBAR_GAP = 4;
+export const SELLER_HEADER_PADDING_TOP = 6;
+
+export function sellerHeaderBlockHeight(): number {
+  return SELLER_HEADER_IDENTITY_H + SELLER_HEADER_TOOLBAR_GAP + SELLER_HEADER_TOOLBAR_H;
+}
+
+const ACTION_MIN_H = 32;
+const PILL_ICON = 11;
+const PILL_LABEL = 9;
+const TRAILING_BTN = 32;
 
 type Props = {
-  top: number;
+  top?: number;
+  /** Renders inside the header chrome — no separate floating bar. */
+  embedded?: boolean;
   onSales: () => void;
+  onGivvy?: () => void;
   salesAttentionCount?: number;
   onObs: () => void;
   onTeams?: () => void;
@@ -37,26 +54,23 @@ type Props = {
   onToggleMicMute?: () => void;
 };
 
-const PILL_ICON = 13;
-const PILL_LABEL = 10;
-
 export function SellerConsoleActionBar({
   top,
+  embedded = false,
   onSales,
+  onGivvy,
   salesAttentionCount = 0,
   onObs,
   onTeams,
   showTeamsBoard = false,
   broadcastPhase,
   roomStatus,
-  streamOnAir = false,
   canStartRoom,
   stageEnabled,
   cameraReady,
   broadcastBusy,
   onGoLive,
   onStopStream,
-  viewerCount,
   showCameraFlip,
   cameraFlipDisabled,
   onFlipCamera,
@@ -65,106 +79,119 @@ export function SellerConsoleActionBar({
   micMuteDisabled,
   onToggleMicMute,
 }: Props) {
-  return (
-    <View style={[styles.host, { top }]} pointerEvents="box-none">
-      <View style={styles.bar}>
-        {Platform.OS === 'ios' ? (
-          <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} />
-        ) : (
-          <View style={styles.androidFill} />
-        )}
-        <View style={styles.row}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            bounces
-            style={styles.actionsScroll}
-            contentContainerStyle={styles.actionsContent}
-            keyboardShouldPersistTaps="handled"
+  const body = (
+    <View style={[styles.bar, embedded && styles.barEmbedded]}>
+      {embedded ? null : Platform.OS === 'ios' ? (
+        <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} />
+      ) : (
+        <View style={styles.androidFill} />
+      )}
+      <View style={[styles.row, embedded && styles.rowEmbedded]}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          bounces
+          style={styles.actionsScroll}
+          contentContainerStyle={styles.actionsContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Pressable
+            style={[styles.actionBtn, salesAttentionCount > 0 && styles.salesAttentionBtn]}
+            onPress={onSales}
+            accessibilityLabel={SELLER_CONSOLE.sales}
+            hitSlop={4}
           >
-            <Pressable
-              style={[styles.actionBtn, salesAttentionCount > 0 && styles.salesAttentionBtn]}
-              onPress={onSales}
-              accessibilityLabel={SELLER_CONSOLE.sales}
-              hitSlop={4}
-            >
-              <Ionicons name="receipt-outline" size={PILL_ICON} color="rgba(255,255,255,0.92)" />
-              <Text style={styles.pillTxt}>{SELLER_CONSOLE.sales}</Text>
-              {salesAttentionCount > 0 ? (
-                <View style={styles.attentionDot}>
-                  <Text style={styles.attentionDotTxt}>{salesAttentionCount > 9 ? '9+' : salesAttentionCount}</Text>
-                </View>
-              ) : null}
-            </Pressable>
-            {showTeamsBoard && onTeams ? (
-              <Pressable
-                style={styles.actionBtn}
-                onPress={onTeams}
-                accessibilityLabel="View team board"
-                hitSlop={4}
-              >
-                <Ionicons name="grid-outline" size={PILL_ICON} color="rgba(255,255,255,0.92)" />
-                <Text style={styles.pillTxt}>Teams</Text>
-              </Pressable>
-            ) : null}
-            <Pressable
-              style={styles.actionBtn}
-              onPress={onObs}
-              accessibilityLabel={SELLER_CONSOLE.obsSetup}
-              hitSlop={4}
-            >
-              <Text style={styles.pillTxt}>{SELLER_CONSOLE.obsSetup}</Text>
-            </Pressable>
-            {typeof viewerCount === 'number' && streamOnAir ? (
-              <View style={styles.viewersWrap}>
-                <Text style={styles.viewers}>
-                  {SELLER_CONSOLE.viewers} {viewerCount}
-                </Text>
+            <Ionicons name="receipt-outline" size={PILL_ICON} color="rgba(255,255,255,0.92)" />
+            <Text style={styles.pillTxt}>{SELLER_CONSOLE.sales}</Text>
+            {salesAttentionCount > 0 ? (
+              <View style={styles.attentionDot}>
+                <Text style={styles.attentionDotTxt}>{salesAttentionCount > 9 ? '9+' : salesAttentionCount}</Text>
               </View>
             ) : null}
-          </ScrollView>
+          </Pressable>
+          {onGivvy ? (
+            <Pressable
+              style={[styles.actionBtn, styles.givvyBtn]}
+              onPress={onGivvy}
+              accessibilityLabel="Giveaways"
+              hitSlop={4}
+            >
+              <Ionicons name="gift-outline" size={PILL_ICON} color={GIVVY_UI.icon} />
+              <Text style={[styles.pillTxt, styles.givvyTxt]}>Givvys</Text>
+            </Pressable>
+          ) : null}
+          {showTeamsBoard && onTeams ? (
+            <Pressable
+              style={styles.actionBtn}
+              onPress={onTeams}
+              accessibilityLabel="View team board"
+              hitSlop={4}
+            >
+              <Ionicons name="grid-outline" size={PILL_ICON} color="rgba(255,255,255,0.92)" />
+              <Text style={styles.pillTxt}>Teams</Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            style={styles.actionBtn}
+            onPress={onObs}
+            accessibilityLabel={SELLER_CONSOLE.obsSetup}
+            hitSlop={4}
+          >
+            <Text style={styles.pillTxt}>RTMP</Text>
+          </Pressable>
+        </ScrollView>
 
-          <View style={styles.trailing}>
-            {showMicMute && onToggleMicMute ? (
-              <SellerMicMuteButton
-                visible
-                muted={micMuted}
-                disabled={micMuteDisabled}
-                onPress={onToggleMicMute}
-              />
-            ) : null}
-            {showCameraFlip && onFlipCamera ? (
-              <SellerCameraFlipButton
-                visible
-                disabled={cameraFlipDisabled}
-                onPress={onFlipCamera}
-              />
-            ) : null}
-            {stageEnabled ? (
-              <SellerBroadcastControl
-                phase={broadcastPhase}
-                roomStatus={roomStatus}
-                stageEnabled={stageEnabled}
-                cameraReady={cameraReady}
-                busy={broadcastBusy}
-                onStart={onGoLive}
-                onStop={onStopStream}
-                compact
-              />
-            ) : canStartRoom ? (
-              <Pressable
-                style={[styles.goLive, broadcastBusy && styles.disabled]}
-                onPress={() => confirmStartLive(onGoLive)}
-                disabled={broadcastBusy}
-                accessibilityLabel={SELLER_CONSOLE.startStream}
-                hitSlop={4}
-              >
-                <Ionicons name="play" size={18} color="#0a0a0a" />
-              </Pressable>
-            ) : null}
-          </View>
+        <View style={styles.trailing}>
+          {showMicMute && onToggleMicMute ? (
+            <SellerMicMuteButton
+              visible
+              compact
+              muted={micMuted}
+              disabled={micMuteDisabled}
+              onPress={onToggleMicMute}
+            />
+          ) : null}
+          {showCameraFlip && onFlipCamera ? (
+            <SellerCameraFlipButton
+              visible
+              compact
+              disabled={cameraFlipDisabled}
+              onPress={onFlipCamera}
+            />
+          ) : null}
+          {stageEnabled ? (
+            <SellerBroadcastControl
+              phase={broadcastPhase}
+              roomStatus={roomStatus}
+              stageEnabled={stageEnabled}
+              cameraReady={cameraReady}
+              busy={broadcastBusy}
+              onStart={onGoLive}
+              onStop={onStopStream}
+              compact
+              headerCompact
+            />
+          ) : canStartRoom ? (
+            <Pressable
+              style={[styles.goLive, broadcastBusy && styles.disabled]}
+              onPress={() => confirmStartLive(onGoLive)}
+              disabled={broadcastBusy}
+              accessibilityLabel={SELLER_CONSOLE.startStream}
+              hitSlop={4}
+            >
+              <Ionicons name="play" size={15} color="#0a0a0a" />
+            </Pressable>
+          ) : null}
         </View>
       </View>
+    </View>
+  );
+
+  if (embedded) return body;
+
+  return (
+    <View style={[styles.host, top != null ? { top } : null]} pointerEvents="box-none">
+      {body}
     </View>
   );
 }
@@ -182,6 +209,11 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.1)',
   },
+  barEmbedded: {
+    borderRadius: radii.lg,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(0,0,0,0.42)',
+  },
   androidFill: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.78)',
@@ -189,10 +221,15 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
-    paddingLeft: 6,
-    paddingRight: 8,
-    gap: 6,
+    paddingVertical: 4,
+    paddingLeft: 4,
+    paddingRight: 6,
+    gap: 4,
+  },
+  rowEmbedded: {
+    paddingVertical: 2,
+    paddingLeft: 0,
+    paddingRight: 0,
   },
   actionsScroll: {
     flex: 1,
@@ -201,78 +238,67 @@ const styles = StyleSheet.create({
   actionsContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingRight: 4,
+    gap: 4,
+    paddingRight: 2,
   },
   actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 3,
     flexShrink: 0,
     minHeight: ACTION_MIN_H,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
     borderRadius: radii.pill,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.16)',
     backgroundColor: 'rgba(0,0,0,0.55)',
   },
-  shareBtn: {
-    borderColor: 'rgba(212,175,55,0.45)',
-    backgroundColor: 'rgba(0,0,0,0.62)',
-  },
   salesAttentionBtn: {
     borderColor: 'rgba(244,63,94,0.45)',
   },
+  givvyBtn: {
+    borderColor: GIVVY_UI.border,
+    backgroundColor: GIVVY_UI.pillBg,
+  },
+  givvyTxt: {
+    color: GIVVY_UI.label,
+  },
   attentionDot: {
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    paddingHorizontal: 4,
+    minWidth: 14,
+    height: 14,
+    borderRadius: 7,
+    paddingHorizontal: 3,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(244,63,94,0.85)',
   },
   attentionDotTxt: {
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: '900',
     color: '#fff',
   },
-  shareTxt: { fontSize: PILL_LABEL, fontWeight: '800', color: colors.gold },
   pillTxt: {
     fontSize: PILL_LABEL,
     fontWeight: '800',
     color: 'rgba(255,255,255,0.92)',
-    lineHeight: 12,
+    lineHeight: 11,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : null),
-  },
-  viewersWrap: {
-    minHeight: ACTION_MIN_H,
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-  },
-  viewers: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: 'rgba(255,255,255,0.65)',
-    fontVariant: ['tabular-nums'],
   },
   trailing: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 4,
     flexShrink: 0,
     paddingLeft: 2,
   },
   goLive: {
-    minHeight: ACTION_MIN_H,
-    minWidth: ACTION_MIN_H,
+    width: TRAILING_BTN,
+    height: TRAILING_BTN,
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: radii.pill,
     backgroundColor: colors.gold,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
   },
   disabled: { opacity: 0.55 },
 });

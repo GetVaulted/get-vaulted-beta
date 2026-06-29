@@ -299,12 +299,29 @@ export function useSellerLiveConsole({
 
   const onSaveQueuePricing = (itemId: string, values: QuickLiveLotValues) => {
     void run(async () => {
+      const existing =
+        pricingEditItem?.id === itemId
+          ? pricingEditItem
+          : items.find((row) => row.id === itemId) ?? null;
+      const prevFormat = existing?.salesFormat ?? 'auction';
+      const nextFormat = values.salesFormat;
+
+      if (
+        prevFormat !== nextFormat &&
+        (nextFormat === 'auction' || nextFormat === 'buy_now') &&
+        !isVariantSalesFormat(prevFormat)
+      ) {
+        await patchLiveRoomItem(accessToken, roomId, itemId, {
+          action: 'setCommerceFormat',
+          salesFormat: nextFormat,
+        });
+      }
+
       await patchLiveRoomItem(accessToken, roomId, itemId, {
         quantity: values.quantity,
         startingBidUsd: values.saleType === 'auction' ? values.startingBidUsd : null,
         reservePriceUsd: values.saleType === 'auction' ? values.reservePriceUsd : null,
         priceUsd: values.priceUsd,
-        salesFormat: values.salesFormat,
       });
       setPricingEditItem(null);
     });

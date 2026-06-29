@@ -98,6 +98,24 @@ describe('reconcileBuyerSnapshotMonotonic', () => {
     expect(r.snap.minNextBidUsd).toBe(2);
   });
 
+  it('keeps the later auctionEndsAt when a stale poll has an earlier close time', () => {
+    const prev = snap({
+      auctionEndsAt: '2026-01-01T00:00:30.000Z',
+      currentBidUsd: 5,
+      minNextBidUsd: 6,
+    });
+    const incoming = snap({
+      auctionEndsAt: '2026-01-01T00:00:15.000Z',
+      currentBidUsd: 5,
+      minNextBidUsd: 6,
+      fetchedAtMs: 2_000,
+    });
+
+    const r = reconcileBuyerSnapshotMonotonic(prev, incoming);
+
+    expect(r.snap.auctionEndsAt).toBe('2026-01-01T00:00:30.000Z');
+  });
+
   it('accepts server active item when lot changes even if prev had a higher bid', () => {
     const prev = snap({
       activeItemId: 'item-old',

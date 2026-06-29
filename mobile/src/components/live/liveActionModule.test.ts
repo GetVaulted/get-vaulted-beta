@@ -298,10 +298,55 @@ describe('resolveLiveBuyerCommerceHud', () => {
       fetchedAtMs: Date.now(),
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
-    expect(hud.bottomRightLabel).toBe('Place bid $40.00');
+    expect(hud.bottomRightLabel).toBe('Hold to Bid $40.00');
     expect(hud.itemTitle).toBe('Chiefs');
     expect(hud.buyerPrimaryDisabled).toBe(false);
     expect(hud.buyerPinnedVariantId).toBe('v1');
+  });
+
+  it('shows hybrid auction + shop when one team auctions and others remain buyable', () => {
+    const snap = {
+      roomType: 'sale',
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemTitle: 'PYT 1 Box Break',
+      activeItemSalesFormat: 'variant_selection',
+      activeItemVariantAssignmentMode: 'pick',
+      activeSpotCommerceMode: 'auction',
+      auctionVariantId: 'v1',
+      biddingOpen: true,
+      lotBidPhase: 'bidding_open',
+      minNextBidUsd: 40,
+      activeItemVariants: [
+        {
+          id: 'v1',
+          label: 'Chiefs',
+          priceUsd: 35,
+          quantityRemaining: 1,
+          soldCount: 0,
+          isHot: true,
+          status: 'available',
+          buyerUsername: null,
+        },
+        {
+          id: 'v2',
+          label: 'Bills',
+          priceUsd: 35,
+          quantityRemaining: 1,
+          soldCount: 0,
+          isHot: false,
+          status: 'available',
+          buyerUsername: null,
+        },
+      ],
+      fetchedAtMs: Date.now(),
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.bottomRightLabel).toBe('Hold to Bid $40.00');
+    expect(hud.showShopButton).toBe(true);
+    expect(hud.shopButtonLabel).toBe('Claim Team');
+    expect(hud.itemTitle).toBe('Chiefs');
+    expect(hud.stateLine).toContain('other team');
   });
 
   it('shows Claim Team when PYT break is pinned without host spot pin', () => {

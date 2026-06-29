@@ -229,11 +229,11 @@ export function useLiveRoomRealtimeSession(args: {
         return;
       }
       refreshSkewFromRealtime(payload.serverNowMs);
-      const wallNow = syncedWallTimeMs(
+      const skew =
         typeof payload.serverNowMs === 'number'
           ? estimateClockSkewMs(Date.now(), Date.now(), payload.serverNowMs)
-          : clockSkewMs,
-      );
+          : clockSkewMs;
+      const wallNow = syncedWallTimeMs(skew);
       setRoomSnap((prev) => {
         if (!prev) return prev;
         const merged = mergeBuyerSnapshotForBidPlaced(prev, payload, wallNow);
@@ -260,7 +260,7 @@ export function useLiveRoomRealtimeSession(args: {
         }
         return merged ?? prev;
       });
-      scheduleReconcile(80);
+      scheduleReconcile(250);
     },
     [clockSkewMs, maybeShowOutbid, refreshSkewFromRealtime, scheduleReconcile],
   );
@@ -269,7 +269,11 @@ export function useLiveRoomRealtimeSession(args: {
     (payload: RoomBroadcastPayload) => {
       if (!shouldProcessRealtimeEvent(guardRef.current, 'active_item_changed', payload)) return;
       refreshSkewFromRealtime(payload.serverNowMs);
-      const wallNow = syncedWallTimeMs(clockSkewMs);
+      const skew =
+        typeof payload.serverNowMs === 'number'
+          ? estimateClockSkewMs(Date.now(), Date.now(), payload.serverNowMs)
+          : clockSkewMs;
+      const wallNow = syncedWallTimeMs(skew);
       setMyHighBidUsd(null);
       setRoomSnap((prev) => {
         if (!prev) return prev;

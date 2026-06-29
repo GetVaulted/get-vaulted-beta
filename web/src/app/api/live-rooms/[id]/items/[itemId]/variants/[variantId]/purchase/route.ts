@@ -233,7 +233,7 @@ export async function POST(
       if (item.status !== "active" && item.status !== "queued") {
         throw Object.assign(new Error("ITEM_UNAVAILABLE"), { code: "ITEM_UNAVAILABLE" });
       }
-      if (item.biddingOpen && item.auctionVariantId) {
+      if (item.biddingOpen && item.auctionVariantId === variantId) {
         throw Object.assign(new Error("SPOT_AUCTION_LIVE"), { code: "SPOT_AUCTION_LIVE" });
       }
 

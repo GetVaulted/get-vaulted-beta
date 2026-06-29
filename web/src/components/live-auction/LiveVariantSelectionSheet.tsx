@@ -20,6 +20,8 @@ type LiveVariantSelectionSheetProps = {
   liveRoomId: string;
   walletReady: boolean;
   onWalletRequired: () => void;
+  /** Hide teams currently in spot auction (buyers bid on those instead). */
+  excludeVariantIds?: string[];
   onPurchased?: (payload: {
     itemId: string;
     variantId: string;
@@ -56,6 +58,7 @@ export function LiveVariantSelectionSheet({
   liveRoomId,
   walletReady,
   onWalletRequired,
+  excludeVariantIds,
   onPurchased,
 }: LiveVariantSelectionSheetProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -63,7 +66,11 @@ export function LiveVariantSelectionSheet({
   const [error, setError] = useState<string | null>(null);
 
   const isRandom = isRandomVariantAssignment(item.variantAssignmentMode);
-  const variants = useMemo(() => sortVariantsForBuyerDisplay(item.variants ?? []), [item.variants]);
+  const pickerVariants = useMemo(() => {
+    const exclude = new Set(excludeVariantIds ?? []);
+    return (item.variants ?? []).filter((v) => !exclude.has(v.id));
+  }, [excludeVariantIds, item.variants]);
+  const variants = useMemo(() => sortVariantsForBuyerDisplay(pickerVariants), [pickerVariants]);
   const selected = variants.find((v) => v.id === selectedId) ?? null;
   const spotSummary = useMemo(() => summarizeSpots(variants), [variants]);
   const pickerBase = variantBuyerSelectLabel(item.salesFormat, isRandom);
