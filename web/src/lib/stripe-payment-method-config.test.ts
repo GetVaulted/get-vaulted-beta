@@ -48,10 +48,9 @@ describe("stripe-payment-method-config", () => {
   });
 
   it("off-session recovery PaymentIntent excludes BNPL for live and marketplace", () => {
-    for (const lane of ["live", "marketplace"] as const) {
-      const { payment_method_types } = stripeOffSessionPaymentIntentOptions(lane);
-      expect(paymentMethodTypesIncludeBnpl(payment_method_types)).toBe(false);
-    }
+    expect(stripeOffSessionPaymentIntentOptions("live").payment_method_types).toEqual(["card"]);
+    const { payment_method_types } = stripeOffSessionPaymentIntentOptions("marketplace");
+    expect(paymentMethodTypesIncludeBnpl(payment_method_types)).toBe(false);
   });
 
   it("assertLivePaymentMethodPolicy rejects BNPL and ACH", () => {

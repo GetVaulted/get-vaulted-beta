@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
-import { finalizeLiveItemVariantPurchasePaid, releaseVariantPurchaseOnCheckoutExpired } from "@/lib/live-item-variant-purchase";
+import { finalizeLiveItemVariantPurchasePaid, releaseVariantPurchaseOnCheckoutExpired, reopenVariantPurchaseForRecovery } from "@/lib/live-item-variant-purchase";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
 import {
   getLiveBuyerPaymentSessionState,
@@ -9,7 +9,7 @@ import {
 } from "@/lib/live-payment-pipeline";
 import { prisma } from "@/lib/prisma";
 import { getLiveBuyerCommerceBlock } from "@/lib/live-room-commerce-guards";
-import { liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
+import { getUnresolvedPaymentFailureForBuyer, liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { isStripeConfigured } from "@/lib/stripe";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
@@ -124,7 +124,25 @@ export async function POST(
       if (existing.paymentStatus === "paid") {
         return NextResponse.json({ purchaseId: existing.id, paid: true });
       }
-      if (existing.paymentStatus === "pending_payment" && existing.totalUsd > 0 && isStripeConfigured()) {
+      let canSettle = existing.paymentStatus === "pending_payment";
+      if (existing.paymentStatus === "failed" && existing.totalUsd > 0 && isStripeConfigured()) {
+        const reopened = await reopenVariantPurchaseForRecovery({
+          purchaseId: existing.id,
+          buyerId: userId,
+        });
+        if (!reopened.reopened) {
+          const code = reopened.reason ?? "PURCHASE_NOT_PAYABLE";
+          const error =
+            code === "SOLD_OUT"
+              ? "That option is sold out."
+              : code === "PURCHASES_LOCKED"
+                ? "Purchases are locked for this room."
+                : "Could not retry this purchase.";
+          return NextResponse.json({ error, code, paymentFailed: true, purchaseId: existing.id }, { status: 409 });
+        }
+        canSettle = true;
+      }
+      if (canSettle && existing.totalUsd > 0 && isStripeConfigured()) {
         const settled = await settleLiveItemVariantPurchase({
           buyerId: userId,
           purchaseId: existing.id,
@@ -150,12 +168,14 @@ export async function POST(
           });
         }
         if (!settled.ok) {
+          const paymentFailure = await getUnresolvedPaymentFailureForBuyer(liveRoomId, userId);
           return NextResponse.json(
             {
               error: settled.message,
               code: settled.code,
               paymentFailed: true,
               purchaseId: settled.purchaseId,
+              paymentFailure,
             },
             { status: 402 },
           );
@@ -286,12 +306,14 @@ export async function POST(
       });
     }
     if (!settled.ok) {
+      const paymentFailure = await getUnresolvedPaymentFailureForBuyer(liveRoomId, userId);
       return NextResponse.json(
         {
           error: settled.message,
           code: settled.code,
           paymentFailed: true,
           purchaseId: settled.purchaseId,
+          paymentFailure,
         },
         { status: 402 },
       );

@@ -160,12 +160,14 @@ export function stripeSetupIntentPaymentOptions(): {
 
 /**
  * Off-session / saved-card PaymentIntent recovery — instant methods only, no redirects.
- * Used when a PaymentIntent may need client-side confirmation without BNPL/ACH.
+ * Live lane uses card-only because saved-card checkout always charges an attached card PM.
  */
 export function stripeOffSessionPaymentIntentOptions(lane: "live" | "marketplace"): {
   payment_method_types: StripeCheckoutPaymentMethodType[];
 } {
-  void lane;
+  if (lane === "live") {
+    return { payment_method_types: ["card"] };
+  }
   return { payment_method_types: [...INSTANT_STRIPE_PAYMENT_METHOD_TYPES] };
 }
 

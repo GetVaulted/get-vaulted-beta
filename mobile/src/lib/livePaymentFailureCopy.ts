@@ -17,6 +17,10 @@ const CODE_MESSAGES: Record<string, string> = {
   SELLER_NOT_READY: 'The seller is not ready to accept payments yet.',
   FULFILLMENT_ORDER_FAILED:
     'Could not prepare checkout. Check your Wallet shipping address and try again.',
+  LIVE_PAYMENT_BLOCKED:
+    'Fix your failed payment in this show before buying again (check Wallet or the payment banner).',
+  NO_SAVED_CARD: 'Add a saved payment method to your Wallet.',
+  BUYER_STRIPE_CUSTOMER_MISSING: 'Wallet is not linked — re-add your card in Wallet.',
   // Order-level payment window lapsed — NOT a card-expiry problem; must not map to "card has expired".
   ORDER_PAYMENT_EXPIRED: "This purchase's payment window expired. Please try again or contact support.",
   order_payment_expired: "This purchase's payment window expired. Please try again or contact support.",

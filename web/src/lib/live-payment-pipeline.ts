@@ -28,6 +28,10 @@ import {
   ensureVariantPurchaseFulfillmentOrder,
 } from "@/services/shipping/live-commerce-fulfillment-order";
 import { prisma } from "@/lib/prisma";
+import {
+  sellerStripeCollectReady,
+  sellerStripeCollectSelect,
+} from "@/lib/seller-stripe-collect-ready";
 import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId } from "@/lib/stripe-customer";
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
@@ -196,8 +200,42 @@ function mapLiveSavedCardStripeError(
     if (lower.includes("destination") || lower.includes("application_fee_amount")) {
       return { outcome: "error", code: "SELLER_NOT_READY", message: "Seller payouts are not ready." };
     }
+    if (lower.includes("payment_method_type") || lower.includes("payment method type")) {
+      return {
+        outcome: "error",
+        code: "STRIPE_ERROR",
+        message: "Payment could not be completed. Try updating your saved card in Wallet.",
+      };
+    }
+    if (lower.includes("no such paymentmethod") || lower.includes("does not belong to customer")) {
+      return {
+        outcome: "error",
+        code: "NO_SAVED_CARD",
+        message: "Add a saved payment method to your Wallet.",
+      };
+    }
+  }
+  const stripeMessage = stripeDebug.message?.trim();
+  if (
+    stripeMessage &&
+    stripeMessage.length <= 120 &&
+    !/secret|api key|webhook|prisma|sql/i.test(stripeMessage)
+  ) {
+    return { outcome: "error", code: "STRIPE_ERROR", message: stripeMessage };
   }
   return { outcome: "error", code: "STRIPE_ERROR", message: "Could not process payment." };
+}
+
+/** Clear dead intents so recovery retries can create a fresh PaymentIntent (matches buy-now). */
+async function handleExistingLiveSavedCardPaymentIntent(
+  pi: Stripe.PaymentIntent,
+  clearPaymentIntentId: () => Promise<void>,
+): Promise<LiveSavedCardChargeOutcome | null> {
+  if (pi.status === "canceled" || pi.status === "requires_payment_method") {
+    await clearPaymentIntentId();
+    return null;
+  }
+  return mapPaymentIntentOutcome(pi);
 }
 
 /**
@@ -236,11 +274,12 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
 
   const seller = await prisma.user.findUnique({
     where: { id: purchase.liveRoom.sellerId },
-    select: { stripeAccountId: true, stripeOnboardingComplete: true },
+    select: sellerStripeCollectSelect,
   });
-  if (!seller?.stripeAccountId || !seller.stripeOnboardingComplete) {
+  if (!sellerStripeCollectReady(seller)) {
     return { outcome: "error", code: "SELLER_NOT_READY", message: "Seller payouts are not ready." };
   }
+  const destinationAccount = seller!.stripeAccountId!.trim();
 
   let pmId: string | null;
   try {
@@ -292,7 +331,12 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
 
   if (purchase.stripePaymentIntentId) {
     const existing = await stripe.paymentIntents.retrieve(purchase.stripePaymentIntentId);
-    const mapped = mapPaymentIntentOutcome(existing);
+    const mapped = await handleExistingLiveSavedCardPaymentIntent(existing, async () => {
+      await prisma.liveItemVariantPurchase.updateMany({
+        where: { id: purchase.id },
+        data: { stripePaymentIntentId: null },
+      });
+    });
     if (mapped) return mapped;
   }
 
@@ -315,7 +359,7 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
         },
         description: `Live spot: ${purchase.variant.label}`,
         application_fee_amount: feeCents,
-        transfer_data: { destination: seller.stripeAccountId },
+        transfer_data: { destination: destinationAccount },
       },
       { idempotencyKey: `variant_saved_pm_${purchase.id}_${amountCents}_${pmId}` },
     );
@@ -336,7 +380,7 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
       amountCents,
       customerId,
       paymentMethodId: pmId,
-      destinationAccount: seller.stripeAccountId,
+      destinationAccount: destinationAccount,
     });
   }
 }
@@ -514,11 +558,12 @@ export async function chargeBreakSpotWithSavedCard(args: {
 
   const seller = await prisma.user.findUnique({
     where: { id: spot.liveRoom.sellerId },
-    select: { stripeAccountId: true, stripeOnboardingComplete: true },
+    select: sellerStripeCollectSelect,
   });
-  if (!seller?.stripeAccountId || !seller.stripeOnboardingComplete) {
+  if (!sellerStripeCollectReady(seller)) {
     return { outcome: "error", code: "SELLER_NOT_READY", message: "Seller payouts are not ready." };
   }
+  const breakDestinationAccount = seller!.stripeAccountId!.trim();
 
   let pmId: string | null;
   try {
@@ -569,7 +614,12 @@ export async function chargeBreakSpotWithSavedCard(args: {
   const stripe = getStripe();
   if (spot.stripePaymentIntentId) {
     const existing = await stripe.paymentIntents.retrieve(spot.stripePaymentIntentId);
-    const mapped = mapPaymentIntentOutcome(existing);
+    const mapped = await handleExistingLiveSavedCardPaymentIntent(existing, async () => {
+      await prisma.breakSpot.updateMany({
+        where: { id: spot.id },
+        data: { stripePaymentIntentId: null },
+      });
+    });
     if (mapped?.outcome === "paid") {
       await finalizeBreakSpotPaid({ breakSpotId: spot.id, paymentIntentId: mapped.paymentIntentId });
     }
@@ -594,7 +644,7 @@ export async function chargeBreakSpotWithSavedCard(args: {
         },
         description: `Break spot: ${spot.spotLabel}`,
         application_fee_amount: feeCents,
-        transfer_data: { destination: seller.stripeAccountId },
+        transfer_data: { destination: breakDestinationAccount },
       },
       { idempotencyKey: `break_spot_saved_pm_${spot.id}_${amountCents}_${pmId}` },
     );
@@ -617,7 +667,7 @@ export async function chargeBreakSpotWithSavedCard(args: {
       amountCents,
       customerId,
       paymentMethodId: pmId,
-      destinationAccount: seller.stripeAccountId,
+      destinationAccount: breakDestinationAccount,
     });
   }
 }
