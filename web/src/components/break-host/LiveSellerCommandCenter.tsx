@@ -638,7 +638,7 @@ export function LiveSellerCommandCenter({
             </CollapsibleSection>
           ) : null}
           {liveRoomId ? (
-            <CollapsibleSection title="Shipping" glass defaultOpen={false}>
+            <CollapsibleSection title="Shipping" glass defaultOpen>
               <LiveShowShippingPanel liveRoomId={liveRoomId} compact />
             </CollapsibleSection>
           ) : null}

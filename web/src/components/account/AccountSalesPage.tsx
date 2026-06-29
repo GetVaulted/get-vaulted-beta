@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { AccountLiveShipmentsSection } from "@/components/account/AccountLiveShipmentsSection";
 import { AccountSellerLiveSalesSection } from "@/components/account/AccountSellerLiveSalesSection";
+import { AccountSellerShipWorkspace } from "@/components/account/AccountSellerShipWorkspace";
 import { SellerPayoutTierCard } from "@/components/account/SellerPayoutTierCard";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
 import { useRequireSellerActivation } from "@/hooks/useRequireSellerActivation";
@@ -176,12 +177,19 @@ function payoutStatusTone(status: string): string {
   return "text-zinc-300";
 }
 
-type SalesView = "fulfillment" | "live";
+type SalesView = "ship" | "all" | "live";
+
+function resolveSalesView(param: string | null): SalesView {
+  if (param === "live") return "live";
+  if (param === "all") return "all";
+  return "ship";
+}
 
 export function AccountSalesPage() {
   const { status } = useSession();
   const searchParams = useSearchParams();
-  const initialView: SalesView = searchParams.get("view") === "live" ? "live" : "fulfillment";
+  const router = useRouter();
+  const initialView = resolveSalesView(searchParams.get("view"));
   const [salesView, setSalesView] = useState<SalesView>(initialView);
   const { ready: sellerReady, loading: sellerGateLoading } = useRequireSellerActivation();
   const [rows, setRows] = useState<SaleRow[] | null>(null);
@@ -201,8 +209,13 @@ export function AccountSalesPage() {
   const salesLoadedOnceRef = useRef(false);
 
   useEffect(() => {
-    setSalesView(searchParams.get("view") === "live" ? "live" : "fulfillment");
+    setSalesView(resolveSalesView(searchParams.get("view")));
   }, [searchParams]);
+
+  const selectSalesView = (view: SalesView) => {
+    setSalesView(view);
+    router.replace(view === "ship" ? "/account/sales" : `/account/sales?view=${view}`);
+  };
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     setLoadError(null);
@@ -250,7 +263,7 @@ export function AccountSalesPage() {
   }, [load, status]);
 
   useEffect(() => {
-    if (status !== "authenticated" || salesView !== "fulfillment") return undefined;
+    if (status !== "authenticated" || salesView === "live") return undefined;
     const pollMs = 12_000;
     const tick = () => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
@@ -340,7 +353,7 @@ export function AccountSalesPage() {
     }
   };
 
-  if (status === "loading" || sellerGateLoading || (salesView === "fulfillment" && rows === null)) {
+  if (status === "loading" || sellerGateLoading || (salesView !== "live" && rows === null)) {
     return (
       <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
         <div className="mx-auto max-w-[1920px] px-4 py-24 text-center text-sm text-zinc-500">Loading…</div>
@@ -373,18 +386,33 @@ export function AccountSalesPage() {
       <div className="relative mx-auto w-full max-w-[1920px] px-3 pb-16 pt-5 sm:px-4 lg:px-10">
         <header className="border-b border-white/[0.07] pb-5">
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Account</p>
-          <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">Your sales</h1>
+          <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">
+            {salesView === "ship" ? "Ship orders" : salesView === "live" ? "Live sales" : "All sales"}
+          </h1>
           <p className="mt-1.5 text-sm text-zinc-500">
             {salesView === "live"
               ? "Live sales by show — item, buyer, time, and amount as you sell."
-              : "Orders where you are the seller — payment and fulfillment status."}
+              : salesView === "ship"
+                ? "Create labels, print, and mark packages shipped."
+                : "Full order history, payouts, and shipping details."}
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => setSalesView("fulfillment")}
+              onClick={() => selectSalesView("ship")}
               className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide transition ${
-                salesView === "fulfillment"
+                salesView === "ship"
+                  ? "border-gold/45 bg-gold/12 text-gold-bright"
+                  : "border-white/10 bg-white/[0.02] text-zinc-500 hover:border-white/18 hover:text-zinc-300"
+              }`}
+            >
+              Ship queue
+            </button>
+            <button
+              type="button"
+              onClick={() => selectSalesView("all")}
+              className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide transition ${
+                salesView === "all"
                   ? "border-gold/45 bg-gold/12 text-gold-bright"
                   : "border-white/10 bg-white/[0.02] text-zinc-500 hover:border-white/18 hover:text-zinc-300"
               }`}
@@ -393,7 +421,7 @@ export function AccountSalesPage() {
             </button>
             <button
               type="button"
-              onClick={() => setSalesView("live")}
+              onClick={() => selectSalesView("live")}
               className={`rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide transition ${
                 salesView === "live"
                   ? "border-gold/45 bg-gold/12 text-gold-bright"
@@ -415,8 +443,44 @@ export function AccountSalesPage() {
 
         {salesView === "live" ? <AccountSellerLiveSalesSection /> : null}
 
-        {salesView === "fulfillment" && rows !== null ? (
+        {salesView === "ship" && rows !== null ? (
           <>
+            {loadError ? (
+              <div className="mt-8 rounded-2xl border border-rose-500/25 bg-rose-950/25 px-6 py-10 text-center">
+                <p className="text-sm font-medium text-rose-100">{loadError}</p>
+                <button
+                  type="button"
+                  onClick={() => void load()}
+                  className="mt-5 inline-flex h-10 items-center justify-center rounded-full border border-rose-300/30 px-6 text-xs font-bold uppercase tracking-wide text-rose-50 transition hover:bg-rose-500/10"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : (
+              <AccountSellerShipWorkspace
+                orders={rows}
+                liveShipping={liveShipping}
+                labelBusyId={labelBusyId}
+                bundledBusySessionId={bundledBusySessionId}
+                bundledSessionFeedback={bundledSessionFeedback}
+                labelError={labelError}
+                onCreateLabel={(orderId) => void createLabel(orderId)}
+                onCreateBundledLabel={(sid) => void createBundledLabel(sid)}
+                onMarkShipped={(order) => setModal({ order, mode: "markShipped" })}
+              />
+            )}
+          </>
+        ) : null}
+
+        {salesView === "all" && rows !== null ? (
+          <>
+        <p className="mt-4 text-sm text-zinc-500">
+          Need to print a label?{" "}
+          <button type="button" onClick={() => selectSalesView("ship")} className="font-semibold text-gold-bright hover:underline">
+            Open ship queue
+          </button>
+          .
+        </p>
         {labelError ? (
           <p className="mt-6 rounded-lg border border-rose-500/30 bg-rose-950/30 px-4 py-2 text-sm text-rose-100">{labelError}</p>
         ) : null}

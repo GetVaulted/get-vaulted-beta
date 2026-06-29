@@ -6,7 +6,7 @@ import { compressImageFileToBlob } from "@/lib/listing-image-compress";
 import { uploadListingImageBlob } from "@/lib/upload-listing-image-client";
 import { buildRandomVariantsFromPreset, buildVariantsFromPreset, type VariantDraftInput } from "@/lib/live-item-variant-presets";
 import { LiveItemVariantBuilder } from "@/components/live-auction/LiveItemVariantBuilder";
-import { SELLER_CONSOLE } from "@/lib/seller-console-copy";
+import { resolveSellerShippingProfileIdForCategory } from "@/lib/live-show-category-shipping-profile";
 
 export type AddQueueItemCloseReason = "cancel" | "success" | "escape";
 
@@ -20,6 +20,8 @@ export type AddQueueItemAuctionPayload = {
   variantAssignmentMode?: "pick" | "random";
   variants: VariantDraftInput[];
   teamBoardMisc: boolean;
+  sellerShippingProfileId?: string | null;
+  shippingProfileId?: string | null;
 };
 
 import type { LiveGiveawayKind } from "@/lib/seller-queue-tabs";
@@ -37,6 +39,7 @@ export type AddQueueItemGiveawayPayload = {
 type Props = {
   open: boolean;
   mode: SellerQueueAddModalMode;
+  liveRoomId: string;
   teamBoardLeague?: string | null;
   busy?: boolean;
   onRequestClose: (reason: AddQueueItemCloseReason) => void;
@@ -88,6 +91,7 @@ function parseUsd(raw: string): number | null {
 export function AddQueueItemModal({
   open,
   mode,
+  liveRoomId,
   teamBoardLeague,
   busy = false,
   onRequestClose,
@@ -108,6 +112,9 @@ export function AddQueueItemModal({
   const [rulesText, setRulesText] = useState("");
   const [prizeDescription, setPrizeDescription] = useState("");
   const [openEntriesOnCreate, setOpenEntriesOnCreate] = useState(true);
+  const [profileOptions, setProfileOptions] = useState<{ id: string; name: string; isDefault?: boolean }[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState("");
+  const [profileOptionsAreSeller, setProfileOptionsAreSeller] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
   const [spotVariants, setSpotVariants] = useState<VariantDraftInput[]>([]);
   const [spotsCustomized, setSpotsCustomized] = useState(false);
@@ -133,11 +140,61 @@ export function AddQueueItemModal({
       setPrizeDescription("");
       setOpenEntriesOnCreate(true);
       setFormError(null);
+      setSelectedProfileId("");
       setSpotVariants([]);
       setSpotsCustomized(false);
     }
     wasOpenRef.current = open;
   }, [mode, open]);
+
+  useEffect(() => {
+    if (!open || !liveRoomId.trim()) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/live-rooms/${encodeURIComponent(liveRoomId)}/host-shipping`, {
+          cache: "no-store",
+        });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as {
+          room?: {
+            category?: string | null;
+            defaultSellerShippingProfileId?: string | null;
+            defaultShippingProfileId?: string | null;
+          };
+          sellerProfiles?: { id: string; sourceSlug: string; name: string; isDefault?: boolean }[];
+          profiles?: { id: string; name: string; slug?: string }[];
+        };
+        const options =
+          data.sellerProfiles && data.sellerProfiles.length > 0
+            ? data.sellerProfiles
+            : (data.profiles ?? []).map((p) => ({
+                id: p.id,
+                sourceSlug: p.slug ?? "",
+                name: p.name,
+              }));
+        const categoryDefault = resolveSellerShippingProfileIdForCategory(
+          options,
+          data.room?.category ?? null,
+        );
+        const showDefaultId =
+          data.room?.defaultSellerShippingProfileId?.trim() ||
+          data.room?.defaultShippingProfileId?.trim() ||
+          "";
+        const defaultId = categoryDefault || showDefaultId || options[0]?.id || "";
+        if (!cancelled) {
+          setProfileOptions(options);
+          setProfileOptionsAreSeller(Boolean(data.sellerProfiles?.length));
+          setSelectedProfileId(defaultId);
+        }
+      } catch {
+        /* optional */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [liveRoomId, open]);
 
   useEffect(() => {
     if (saleType !== "pyt" && saleType !== "pyd") {
@@ -214,6 +271,14 @@ export function AddQueueItemModal({
     const parsedQty = Number.isFinite(qtyRaw) && qtyRaw >= 1 ? Math.min(512, Math.floor(qtyRaw)) : 1;
     const parsedPrice = parseUsd(price);
 
+    if (!selectedProfileId.trim()) {
+      setFormError("Select a shipping profile for this lot.");
+      return;
+    }
+    const profilePayload = profileOptionsAreSeller
+      ? { sellerShippingProfileId: selectedProfileId }
+      : { shippingProfileId: selectedProfileId };
+
     if (saleType === "pyt" || saleType === "pyd") {
       if (parsedPrice == null) {
         setFormError(saleType === "pyt" ? "Enter a price per team." : "Enter a price per division.");
@@ -233,6 +298,7 @@ export function AddQueueItemModal({
         variantAssignmentMode: "pick",
         variants,
         teamBoardMisc: queueDraftMisc,
+        ...profilePayload,
       });
       if (ok) requestClose("success", onRequestClose);
       return;
@@ -254,6 +320,7 @@ export function AddQueueItemModal({
         variantAssignmentMode: "random",
         variants: buildRandomVariantsFromPreset(preset, parsedPrice),
         teamBoardMisc: queueDraftMisc,
+        ...profilePayload,
       });
       if (ok) requestClose("success", onRequestClose);
       return;
@@ -273,6 +340,7 @@ export function AddQueueItemModal({
         salesFormat: "buy_now",
         variants: [],
         teamBoardMisc: queueDraftMisc,
+        ...profilePayload,
       });
       if (ok) requestClose("success", onRequestClose);
       return;
@@ -288,9 +356,10 @@ export function AddQueueItemModal({
       salesFormat: "auction",
       variants: [],
       teamBoardMisc: queueDraftMisc,
+      ...profilePayload,
     });
     if (ok) requestClose("success", onRequestClose);
-  }, [imageUrl, onRequestClose, onSubmitAuction, price, quantity, queueDraftMisc, saleType, spotVariants, title]);
+  }, [imageUrl, onRequestClose, onSubmitAuction, price, profileOptionsAreSeller, quantity, queueDraftMisc, saleType, selectedProfileId, spotVariants, title]);
 
   const handleSubmitGiveaway = useCallback(async () => {
     if (!onSubmitGiveaway || (mode !== "giveaway" && mode !== "buyers_giveaway")) return;
@@ -631,6 +700,26 @@ export function AddQueueItemModal({
               />
             </div>
           ) : null}
+
+          <label className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+            Shipping profile
+          </label>
+          <select
+            value={selectedProfileId}
+            onChange={(e) => setSelectedProfileId(e.target.value)}
+            className="mt-1 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
+          >
+            <option value="">Select a profile…</option>
+            {profileOptions.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+                {p.isDefault ? " (default)" : ""}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-[10px] text-zinc-500">
+            Controls parcel size and how this lot bundles with other wins in the show.
+          </p>
 
           <label className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Quantity</label>
           <input

@@ -21,6 +21,7 @@ import {
   resolveLiveShowShippingCapCents,
 } from "@/lib/live-show-shipping-terms";
 import { seedSellerShippingProfiles } from "@/services/shipping/seller-shipping-profiles";
+import { resolveSellerShippingProfileIdForCategory } from "@/lib/live-show-category-shipping-profile";
 import {
   resolveDefaultProfileForLiveShow,
   seedPlatformShippingProfiles,
@@ -385,7 +386,10 @@ export async function POST(req: Request) {
   const defaultSellerProfileId =
     typeof body.defaultSellerShippingProfileId === "string" && body.defaultSellerShippingProfileId.trim()
       ? body.defaultSellerShippingProfileId.trim()
-      : (defaultSellerProfiles.find((p) => p.isDefault)?.id ?? defaultSellerProfiles[0]?.id ?? null);
+      : resolveSellerShippingProfileIdForCategory(defaultSellerProfiles, category) ||
+        defaultSellerProfiles.find((p) => p.isDefault)?.id ||
+        defaultSellerProfiles[0]?.id ||
+        null;
 
   const defaultProfile = await resolveDefaultProfileForLiveShow({
     showDefaultProfileId:

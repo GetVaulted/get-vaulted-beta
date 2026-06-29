@@ -1336,6 +1336,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
           priceUsd: payload.priceUsd,
           startingBidUsd: payload.startingBidUsd,
           quantity: payload.quantity,
+          sellerShippingProfileId: payload.sellerShippingProfileId ?? null,
+          shippingProfileId: payload.shippingProfileId ?? null,
           ...miscPayload,
           ...variantPayload,
         });
@@ -2573,6 +2575,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
       <AddQueueItemModal
         open={queueAddModal != null}
         mode={queueAddModal}
+        liveRoomId={roomId}
         teamBoardLeague={data.room.teamBoardLeague}
         busy={busy}
         onRequestClose={handleQueueAddModalClose}

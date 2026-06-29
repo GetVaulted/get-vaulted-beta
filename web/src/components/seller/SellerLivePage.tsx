@@ -26,6 +26,7 @@ import {
   type PlatformShippingProfileOption,
   type SellerShippingProfileOption,
 } from "@/components/shipping/LiveShowShippingSettingsFields";
+import { resolveSellerShippingProfileIdForCategory } from "@/lib/live-show-category-shipping-profile";
 import { useRequireSellerActivation } from "@/hooks/useRequireSellerActivation";
 
 type RoomTypeChoice = "auction" | "sale" | "break";
@@ -427,6 +428,17 @@ export function SellerLivePage() {
       }
     })();
   }, [status]);
+
+  useEffect(() => {
+    if (sellerShippingProfiles.length === 0) return;
+    const profileId = resolveSellerShippingProfileIdForCategory(sellerShippingProfiles, vaultCategory);
+    if (!profileId) return;
+    setCreateShipping((prev) => ({
+      ...prev,
+      defaultSellerShippingProfileId: profileId,
+      defaultShippingProfileId: "",
+    }));
+  }, [sellerShippingProfiles, vaultCategory]);
 
   useEffect(() => {
     if (selectedId) void loadDetail(selectedId);
@@ -1424,6 +1436,9 @@ export function SellerLivePage() {
                       })}
                     </div>
                     <p className="mt-2 text-xs text-zinc-500">Shows on live tiles as Break - Cards or Break - Helmets.</p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Shipping profile below updates automatically — Cards uses card mailer rates; Helmets uses full-size helmet rates.
+                    </p>
                   </div>
                   <div className="block sm:col-span-2">
                     <span className="text-xs font-bold uppercase tracking-wide text-zinc-500">Pricing</span>

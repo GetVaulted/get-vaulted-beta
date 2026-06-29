@@ -18,8 +18,9 @@ export function formatSellerPaymentStatus(status: string): string {
 export function formatSellerFulfillmentStatus(status: string): string {
   const map: Record<string, string> = {
     pending: "Pending",
-    label_created: "Label created",
-    in_transit: "In transit",
+    label_created: "Label ready",
+    shipped: "Shipped",
+    in_transit: "On the way",
     out_for_delivery: "Out for delivery",
     delivered: "Delivered",
     exception: "Exception",
@@ -42,12 +43,18 @@ export function resolveSellerOrderHeadline(order: SellerOrderDisplayFields): {
     };
   }
   if (hasLabel && hasFile && fs === "label_created") {
-    return { headline: "Label created — print and ship", subheadline: "Your label is ready. Pack the item and drop it off." };
+    return { headline: "Print label & mark shipped", subheadline: "Print the label, pack the item, then mark shipped when you drop it off." };
   }
   if (hasLabel && !hasFile) {
     return {
       headline: "Label file missing",
       subheadline: "Retrieve from Shippo or regenerate a new label to continue.",
+    };
+  }
+  if (fs === "shipped") {
+    return {
+      headline: "Shipped — awaiting carrier scan",
+      subheadline: "Status updates to on the way when the carrier scans the package in.",
     };
   }
   if (fs === "in_transit" || fs === "out_for_delivery") {

@@ -12,6 +12,10 @@ import {
   syncLiveItemVariantPurchase,
 } from "@/lib/live-variant-purchase-client";
 import { HoldToBuyButton } from "@/components/live-auction/HoldToBuyButton";
+import {
+  fetchLiveVariantCheckoutPreview,
+  type LiveVariantCheckoutPreview,
+} from "@/lib/live-variant-checkout-preview-client";
 
 type LiveVariantSelectionSheetProps = {
   open: boolean;
@@ -64,6 +68,8 @@ export function LiveVariantSelectionSheet({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkoutPreview, setCheckoutPreview] = useState<LiveVariantCheckoutPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const isRandom = isRandomVariantAssignment(item.variantAssignmentMode);
   const pickerVariants = useMemo(() => {
@@ -78,16 +84,21 @@ export function LiveVariantSelectionSheet({
   const unitPrice = selected?.priceUsd ?? spotSummary.fromPrice ?? 0;
   const quantity = 1;
 
-  const total = useMemo(() => {
+  const spotPrice = useMemo(() => {
     if (!selected) return 0;
     return Math.round(selected.priceUsd * quantity * 100) / 100;
   }, [quantity, selected]);
+
+  const estimatedTotal = checkoutPreview?.estimatedTotalUsd ?? spotPrice;
+  const chargeNow = checkoutPreview?.chargeNowUsd ?? spotPrice;
 
   useEffect(() => {
     if (!open) {
       setSelectedId(null);
       setError(null);
       setBusy(false);
+      setCheckoutPreview(null);
+      setPreviewLoading(false);
       return;
     }
     if (isRandom) {
@@ -95,6 +106,30 @@ export function LiveVariantSelectionSheet({
       if (available) setSelectedId(available.id);
     }
   }, [open, isRandom, variants]);
+
+  useEffect(() => {
+    if (!open || !walletReady || spotPrice <= 0) {
+      setCheckoutPreview(null);
+      setPreviewLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setPreviewLoading(true);
+    void fetchLiveVariantCheckoutPreview({
+      liveRoomId,
+      itemId: item.id,
+      itemPriceUsd: spotPrice,
+    })
+      .then((preview) => {
+        if (!cancelled) setCheckoutPreview(preview);
+      })
+      .finally(() => {
+        if (!cancelled) setPreviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.id, liveRoomId, open, spotPrice, walletReady]);
 
   if (!open || !isVariantSalesFormat(item.salesFormat) || variants.length === 0) return null;
 
@@ -282,10 +317,32 @@ export function LiveVariantSelectionSheet({
           </div>
 
           <div className="mt-4 space-y-2 rounded-xl border border-white/[0.08] bg-black/30 px-3 py-2 text-[11px]">
-            <SummaryRow label="Shipping" value={walletReady ? "Uses your Vault wallet address" : "Add shipping in Vault Wallet"} />
+            <SummaryRow label="Spot price" value={selected ? fmtMoney(spotPrice) : "—"} />
+            <SummaryRow
+              label="Shipping"
+              value={
+                !walletReady
+                  ? "Add shipping in Vault Wallet"
+                  : previewLoading && !checkoutPreview
+                    ? "Calculating…"
+                    : checkoutPreview?.shippingDisplay ?? "Calculated by destination"
+              }
+            />
             <SummaryRow label="Payment" value={walletReady ? "Saved card in Vault Wallet" : "Add a card in Vault Wallet"} />
-            <SummaryRow label="Taxes" value="Calculated at checkout" />
+            <SummaryRow
+              label="Taxes"
+              value={
+                !walletReady
+                  ? "Add address to estimate"
+                  : previewLoading && !checkoutPreview
+                    ? "Calculating…"
+                    : checkoutPreview?.taxDisplay ?? "Calculated at checkout"
+              }
+            />
           </div>
+          {checkoutPreview?.taxNote ? (
+            <p className="mt-2 text-center text-[10px] font-semibold text-zinc-500">{checkoutPreview.taxNote}</p>
+          ) : null}
 
           {!walletReady ? (
             <button
@@ -302,16 +359,19 @@ export function LiveVariantSelectionSheet({
 
         <div className="flex shrink-0 items-end gap-3 border-t border-white/[0.08] px-4 py-3">
           <div className="min-w-[5.5rem]">
-            <p className="text-[10px] font-extrabold uppercase tracking-wide text-zinc-500">Total</p>
-            <p className="font-mono text-2xl font-black text-amber-300">{selected ? fmtMoney(total) : "—"}</p>
+            <p className="text-[10px] font-extrabold uppercase tracking-wide text-zinc-500">Est. total</p>
+            <p className="font-mono text-2xl font-black text-amber-300">{selected ? fmtMoney(estimatedTotal) : "—"}</p>
+            {selected && walletReady ? (
+              <p className="text-[10px] font-semibold text-zinc-500">Charged now {fmtMoney(chargeNow)}</p>
+            ) : null}
           </div>
           <div className="min-w-0 flex-1">
             <HoldToBuyButton
               label={
                 selected
                   ? isRandom
-                    ? `Hold to buy · wheel reveal · ${fmtMoney(total)}`
-                    : `Hold to buy · ${fmtMoney(total)}`
+                    ? `Hold to buy · wheel reveal · ${fmtMoney(chargeNow)}`
+                    : `Hold to buy · ${fmtMoney(chargeNow)}`
                   : "Select a spot"
               }
               disabled={!selected || allSold}

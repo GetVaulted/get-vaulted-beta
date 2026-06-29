@@ -106,6 +106,8 @@ export async function createLiveRoomQueueItem(
       isHot?: boolean;
     }>;
     variantAssignmentMode?: 'pick' | 'random';
+    sellerShippingProfileId?: string | null;
+    shippingProfileId?: string | null;
   },
 ): Promise<string> {
   const body: Record<string, unknown> = {
@@ -123,6 +125,11 @@ export async function createLiveRoomQueueItem(
   }
   if (input.variants?.length) {
     body.variants = input.variants;
+  }
+  if (input.sellerShippingProfileId?.trim()) {
+    body.sellerShippingProfileId = input.sellerShippingProfileId.trim();
+  } else if (input.shippingProfileId?.trim()) {
+    body.shippingProfileId = input.shippingProfileId.trim();
   }
   const res = await controlFetch(`/api/live-rooms/${encodeURIComponent(roomId)}/items`, accessToken, {
     method: 'POST',

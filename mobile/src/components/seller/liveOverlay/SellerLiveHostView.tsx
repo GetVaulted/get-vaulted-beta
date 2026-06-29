@@ -931,6 +931,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       <AddInventoryModal
         visible={console.inventoryOpen}
         accessToken={accessToken}
+        roomId={roomId}
         onClose={() => console.setInventoryOpen(false)}
         onSubmit={console.onQuickAddLot}
         busy={console.busy}

@@ -237,6 +237,8 @@ export async function createLiveRoomItem(
     salesFormat?: string;
     variants?: unknown;
     variantAssignmentMode?: "pick" | "random";
+    shippingProfileId?: string | null;
+    sellerShippingProfileId?: string | null;
   },
 ): Promise<ApiResult<Record<string, unknown>>> {
   try {

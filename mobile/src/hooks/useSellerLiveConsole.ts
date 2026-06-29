@@ -238,6 +238,8 @@ export function useSellerLiveConsole({
           priceUsd: payload.priceUsd,
           variants: payload.variants,
           variantAssignmentMode: payload.variantAssignmentMode,
+          sellerShippingProfileId: payload.sellerShippingProfileId ?? null,
+          shippingProfileId: payload.shippingProfileId ?? null,
         });
         setItems((prev) => {
           const sortOrder = prev.reduce((max, item) => Math.max(max, item.sortOrder ?? 0), -1) + 1;

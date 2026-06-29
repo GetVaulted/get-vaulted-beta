@@ -193,7 +193,7 @@ export async function POST(req: Request) {
         await createNotification(prisma, {
           userId: o.buyerId,
           type: "order_shipped",
-          title: "Order shipped",
+          title: "On the way",
           body: `“${lt}” is on the way.`,
           href: `/orders/${encodeURIComponent(o.id)}`,
         });
@@ -204,13 +204,13 @@ export async function POST(req: Request) {
           listingId: o.listingId,
           orderId: o.id,
           kind: SELLER_COMMERCE_KIND.fulfillmentInTransit,
-          title: "Shipment in transit",
-          body: `Carrier status update for “${lt}”: in transit.`,
+          title: "On the way",
+          body: `Carrier scanned “${lt}” — package is in transit.`,
         });
         await createNotification(prisma, {
           userId: o.buyerId,
           type: "order_in_transit",
-          title: "Package in transit",
+          title: "On the way",
           body: `“${lt}” is on the way.`,
           href: `/orders/${encodeURIComponent(o.id)}`,
         });

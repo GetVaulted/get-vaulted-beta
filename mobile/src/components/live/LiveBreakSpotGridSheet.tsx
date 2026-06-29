@@ -15,6 +15,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LiveItemVariantSnapshot } from '../../api/liveRoomBuyerRepository';
 import { fetchLiveBuyerPaymentSession } from '../../api/liveBuyerPaymentRepository';
 import {
+  fetchLiveVariantCheckoutPreview,
+  type LiveVariantCheckoutPreview,
+} from '../../api/liveVariantCheckoutPreviewRepository';
+import {
   purchaseLiveItemVariant,
   syncLiveItemVariantPurchase,
 } from '../../api/liveVariantPurchaseRepository';
@@ -84,6 +88,8 @@ export function LiveBreakSpotGridSheet({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkoutPreview, setCheckoutPreview] = useState<LiveVariantCheckoutPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const isRandom = isRandomVariantAssignment(variantAssignmentMode);
   const pickerVariants = useMemo(() => {
@@ -98,16 +104,21 @@ export function LiveBreakSpotGridSheet({
   const unitPrice = selected?.priceUsd ?? spotSummary.fromPriceUsd ?? 0;
   const quantity = 1;
 
-  const total = useMemo(() => {
+  const spotPrice = useMemo(() => {
     if (!selected) return 0;
     return Math.round(selected.priceUsd * quantity * 100) / 100;
   }, [quantity, selected]);
+
+  const estimatedTotal = checkoutPreview?.estimatedTotalUsd ?? spotPrice;
+  const chargeNow = checkoutPreview?.chargeNowUsd ?? spotPrice;
 
   useEffect(() => {
     if (!visible) {
       setSelectedId(null);
       setError(null);
       setBusy(false);
+      setCheckoutPreview(null);
+      setPreviewLoading(false);
       return;
     }
     if (isRandom) {
@@ -118,6 +129,30 @@ export function LiveBreakSpotGridSheet({
       setSelectedId(null);
     }
   }, [isRandom, selectedId, sortedVariants, visible]);
+
+  useEffect(() => {
+    if (!visible || !walletReady || !accessToken?.trim() || spotPrice <= 0) {
+      setCheckoutPreview(null);
+      setPreviewLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setPreviewLoading(true);
+    void fetchLiveVariantCheckoutPreview(accessToken, {
+      liveRoomId: roomId,
+      itemId,
+      itemPriceUsd: spotPrice,
+    })
+      .then((preview) => {
+        if (!cancelled) setCheckoutPreview(preview);
+      })
+      .finally(() => {
+        if (!cancelled) setPreviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, itemId, roomId, spotPrice, visible, walletReady]);
 
   const pickerTitle = selected
     ? `${pickerBaseLabel}: ${selected.label}`
@@ -341,33 +376,60 @@ export function LiveBreakSpotGridSheet({
 
             <View style={styles.summaryCard}>
               <SummaryRow
+                icon="pricetag-outline"
+                label="Spot price"
+                value={selected ? fmtMoney(spotPrice) : '—'}
+              />
+              <SummaryRow
                 icon="cube-outline"
                 label="Shipping"
-                value={walletReady ? 'Uses your Vault wallet address' : 'Add shipping in Vault Wallet'}
+                value={
+                  !walletReady
+                    ? 'Add shipping in Vault Wallet'
+                    : previewLoading && !checkoutPreview
+                      ? 'Calculating…'
+                      : checkoutPreview?.shippingDisplay ?? 'Calculated by destination'
+                }
               />
               <SummaryRow
                 icon="card-outline"
                 label="Payment"
                 value={walletReady ? 'Saved card in Vault Wallet' : 'Add a card in Vault Wallet'}
               />
-              <SummaryRow icon="receipt-outline" label="Taxes" value="Calculated at checkout" />
+              <SummaryRow
+                icon="receipt-outline"
+                label="Taxes"
+                value={
+                  !walletReady
+                    ? 'Add address to estimate'
+                    : previewLoading && !checkoutPreview
+                      ? 'Calculating…'
+                      : checkoutPreview?.taxDisplay ?? 'Calculated at checkout'
+                }
+              />
             </View>
+            {checkoutPreview?.taxNote ? (
+              <LiveRoomText style={styles.previewNote}>{checkoutPreview.taxNote}</LiveRoomText>
+            ) : null}
 
             {error ? <LiveRoomText style={styles.error}>{error}</LiveRoomText> : null}
           </ScrollView>
 
           <View style={styles.stickyBar}>
             <View style={styles.totalCol}>
-              <LiveRoomText style={styles.totalLabel}>Total</LiveRoomText>
-              <LiveRoomText style={styles.totalValue}>{selected ? fmtMoney(total) : '—'}</LiveRoomText>
+              <LiveRoomText style={styles.totalLabel}>Est. total</LiveRoomText>
+              <LiveRoomText style={styles.totalValue}>{selected ? fmtMoney(estimatedTotal) : '—'}</LiveRoomText>
+              {selected && walletReady ? (
+                <LiveRoomText style={styles.chargeNowNote}>Charged now {fmtMoney(chargeNow)}</LiveRoomText>
+              ) : null}
             </View>
             <View style={styles.payCol}>
               <HoldToBidButton
                 label={
                   selected
                     ? isRandom
-                      ? `Hold to buy · wheel reveal · ${fmtMoney(total)}`
-                      : `Hold to buy · ${fmtMoney(total)}`
+                      ? `Hold to buy · wheel reveal · ${fmtMoney(chargeNow)}`
+                      : `Hold to buy · ${fmtMoney(chargeNow)}`
                     : isRandom
                       ? 'Hold to buy'
                       : 'Select a spot'
@@ -751,7 +813,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   summaryLabel: {
-    width: 62,
+    width: 72,
     fontSize: 11,
     fontWeight: '700',
     color: 'rgba(255,255,255,0.45)',
@@ -762,6 +824,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: 'rgba(255,255,255,0.72)',
     textAlign: 'right',
+  },
+  previewNote: {
+    marginTop: 6,
+    fontSize: 10,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.42)',
+    textAlign: 'center',
   },
   error: {
     textAlign: 'center',
@@ -796,6 +865,11 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: colors.gold,
     fontVariant: ['tabular-nums'],
+  },
+  chargeNowNote: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.45)',
   },
   payCol: {
     flex: 1,

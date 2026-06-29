@@ -16,6 +16,11 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  fetchLiveHostShippingDashboard,
+  liveHostDefaultProfileId,
+  liveHostShippingProfileOptions,
+} from '../../../api/liveHostShippingRepository';
 import { uploadListingImageViaWeb } from '../../../api/webListingsRepository';
 import {
   breakSpotCountForSaleType,
@@ -59,7 +64,11 @@ function saleCategoryForType(saleType: LiveLotSaleType): SaleCategory {
   return 'teams_divisions';
 }
 
-export type QuickLiveLotSubmitPayload = QuickLiveLotValues & { imageUrl: string };
+export type QuickLiveLotSubmitPayload = QuickLiveLotValues & {
+  imageUrl: string;
+  sellerShippingProfileId?: string | null;
+  shippingProfileId?: string | null;
+};
 
 export type QuickLiveLotSubmitOptions = {
   addAnother?: boolean;
@@ -68,12 +77,14 @@ export type QuickLiveLotSubmitOptions = {
 export function AddInventoryModal({
   visible,
   accessToken,
+  roomId,
   busy,
   onClose,
   onSubmit,
 }: {
   visible: boolean;
   accessToken: string;
+  roomId: string;
   busy?: boolean;
   onClose: () => void;
   onSubmit: (payload: QuickLiveLotSubmitPayload, options?: QuickLiveLotSubmitOptions) => void;
@@ -87,6 +98,9 @@ export function AddInventoryModal({
   const [imageError, setImageError] = useState<string | null>(null);
   const [spotDrafts, setSpotDrafts] = useState<LiveBreakVariantDraft[]>([]);
   const [spotsCustomized, setSpotsCustomized] = useState(false);
+  const [profileOptions, setProfileOptions] = useState<{ id: string; name: string; isDefault?: boolean }[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState('');
+  const [profileOptionsAreSeller, setProfileOptionsAreSeller] = useState(true);
 
   const resetDraft = () => {
     setDraft(emptyQuickLiveLotInput());
@@ -96,7 +110,23 @@ export function AddInventoryModal({
     setImageUrl(null);
     setImageUploading(false);
     setImageError(null);
+    setSelectedProfileId('');
   };
+
+  useEffect(() => {
+    if (!visible || !accessToken.trim() || !roomId.trim()) return;
+    let cancelled = false;
+    void fetchLiveHostShippingDashboard(accessToken, roomId).then((dashboard) => {
+      if (cancelled || !dashboard) return;
+      const options = liveHostShippingProfileOptions(dashboard);
+      setProfileOptions(options);
+      setProfileOptionsAreSeller(dashboard.sellerProfiles.length > 0);
+      setSelectedProfileId(liveHostDefaultProfileId(dashboard) || options[0]?.id || '');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, roomId, visible]);
 
   useEffect(() => {
     if (visible) resetDraft();
@@ -188,7 +218,14 @@ export function AddInventoryModal({
       Alert.alert('Add product', validated.message);
       return;
     }
-    onSubmit({ ...validated.values, imageUrl: imageUrl.trim() }, { addAnother });
+    if (!selectedProfileId.trim()) {
+      Alert.alert('Shipping profile', 'Select a shipping profile for this lot.');
+      return;
+    }
+    const profilePayload = profileOptionsAreSeller
+      ? { sellerShippingProfileId: selectedProfileId }
+      : { shippingProfileId: selectedProfileId };
+    onSubmit({ ...validated.values, imageUrl: imageUrl.trim(), ...profilePayload }, { addAnother });
     if (addAnother) resetDraft();
   };
 
@@ -321,6 +358,26 @@ export function AddInventoryModal({
                 disabled={busy}
               />
             ) : null}
+
+            <Text style={styles.fieldLbl}>Shipping profile</Text>
+            <View style={styles.profileWrap}>
+              {profileOptions.map((profile) => {
+                const selected = selectedProfileId === profile.id;
+                return (
+                  <Pressable
+                    key={profile.id}
+                    style={[styles.profileChip, selected && styles.profileChipOn]}
+                    onPress={() => setSelectedProfileId(profile.id)}
+                    disabled={busy}
+                  >
+                    <Text style={[styles.profileChipTxt, selected && styles.profileChipTxtOn]}>
+                      {profile.name}
+                      {profile.isDefault ? ' · default' : ''}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
 
             <Text style={styles.fieldLbl}>Quantity</Text>
             <TextInput
@@ -490,6 +547,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(212,175,55,0.06)',
   },
   breakHintTxt: { flex: 1, fontSize: 12, lineHeight: 17, color: colors.textSecondary },
+  profileWrap: { gap: 8, marginBottom: spacing.xs },
+  profileChip: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  profileChipOn: {
+    borderColor: 'rgba(212,175,55,0.55)',
+    backgroundColor: 'rgba(212,175,55,0.12)',
+  },
+  profileChipTxt: { fontSize: 13, fontWeight: '700', color: colors.textSecondary },
+  profileChipTxtOn: { color: colors.gold },
   actionRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
   primary: {
     paddingVertical: 14,

@@ -123,6 +123,7 @@ export async function getLiveShowShippingDashboard(liveRoomId: string, db: Db = 
     room: {
       id: room.id,
       title: room.title,
+      category: room.category,
       status: room.status,
       shippingMode: shippingModeFromRoomFlags(room),
       defaultShippingProfileId: room.defaultShippingProfileId,

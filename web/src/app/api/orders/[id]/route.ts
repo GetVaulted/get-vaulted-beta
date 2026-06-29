@@ -130,7 +130,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       data: {
         status: "shipped",
         shippedAt: new Date(),
-        fulfillmentStatus: "in_transit",
+        fulfillmentStatus: "shipped",
         ...(tn !== undefined ? { trackingNumber: tn } : {}),
         ...escrowShipData,
       },
@@ -152,15 +152,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         listingId: order.listing.id,
         orderId: order.id,
         kind: SELLER_COMMERCE_KIND.fulfillmentInTransit,
-        title: "Shipment in transit",
-        body: `You marked “${lt}” as shipped (add tracking from Sales when you have it).`,
+        title: "Marked shipped",
+        body: `You marked “${lt}” as shipped.${tn ? ` Tracking: ${tn}.` : " Carrier scans will update status to on the way."}`,
       });
     }
     await createNotification(prisma, {
       userId: order.buyerId,
       type: "order_shipped",
       title: "Order shipped",
-      body: tn ? `“${lt}” is on the way. Tracking: ${tn}.` : `“${lt}” has been marked shipped.`,
+      body: tn
+        ? `“${lt}” was handed to the carrier. Tracking: ${tn}. You'll get another update when it's on the way.`
+        : `“${lt}” was marked shipped by the seller. You'll get an update when the carrier scans it in.`,
       href: `/orders/${encodeURIComponent(id)}`,
     });
     emitOrderLifecycleSync({
@@ -169,7 +171,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       listingId: order.listingId,
       orderStatus: "shipped",
       paymentStatus: order.paymentStatus,
-      extraPayload: { fulfillmentStatus: "in_transit" },
+      extraPayload: { fulfillmentStatus: "shipped" },
     });
     return NextResponse.json({ ok: true });
   }

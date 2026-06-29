@@ -100,8 +100,14 @@ export function sellerNextActionForOrder(user: SellerNextActionUser, o: SellerNe
   if (o.status === "delivered" || o.fulfillmentStatus === "delivered") {
     return { kind: "delivered", label: labelFor("delivered") };
   }
-  if (o.trackingUrl || o.trackingNumber || o.status === "shipped") {
-    return { kind: "track_shipment", label: labelFor("track_shipment") };
+  if (o.fulfillmentStatus === "in_transit" || o.fulfillmentStatus === "out_for_delivery") {
+    return { kind: "track_shipment", label: "On the way" };
+  }
+  if (o.fulfillmentStatus === "shipped" || o.status === "shipped") {
+    return { kind: "track_shipment", label: "Awaiting carrier scan" };
+  }
+  if (o.fulfillmentStatus === "label_created") {
+    return { kind: "ready_to_ship", label: "Print label & ship" };
   }
   return { kind: "ready_to_ship", label: labelFor("ready_to_ship") };
 }

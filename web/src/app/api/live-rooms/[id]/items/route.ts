@@ -26,6 +26,7 @@ type PostBody = {
   variants?: unknown;
   variantAssignmentMode?: string;
   shippingProfileId?: string | null;
+  sellerShippingProfileId?: string | null;
 };
 
 function clampItemQuantity(n: number): number {
@@ -139,6 +140,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ error: "That shipping profile is not available." }, { status: 400 });
   }
 
+  const explicitSellerProfileId =
+    typeof body.sellerShippingProfileId === "string" && body.sellerShippingProfileId.trim()
+      ? body.sellerShippingProfileId.trim()
+      : null;
+  let sellerShippingProfileId: string | null = null;
+  if (explicitSellerProfileId) {
+    const sellerProfile = await prisma.sellerShippingProfile.findFirst({
+      where: { id: explicitSellerProfileId, sellerId: room.sellerId, archivedAt: null },
+    });
+    if (!sellerProfile) {
+      return NextResponse.json({ error: "That seller shipping profile is not available." }, { status: 400 });
+    }
+    sellerShippingProfileId = sellerProfile.id;
+  }
+
   const baseCreate = {
     liveRoomId,
     listingId,
@@ -158,6 +174,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     variantAssignmentMode,
     variantSpotCommerceDefault: isVariantSalesFormat(salesFormat) ? ("hybrid" as const) : undefined,
     shippingProfileId: resolvedProfile?.id ?? null,
+    sellerShippingProfileId,
     requiresSeparatePackage: resolvedProfile?.requiresSeparatePackage ?? null,
   };
 

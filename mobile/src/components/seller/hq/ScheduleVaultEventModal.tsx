@@ -18,6 +18,8 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { fetchSellerShippingProfiles } from '../../../api/liveHostShippingRepository';
+import { resolveSellerShippingProfileIdForCategory } from '../../../lib/liveShowCategoryShippingProfile';
 import { createLiveRoom, streamFormatToRoomType } from '../../../api/liveRoomsRepository';
 import { fetchSellerLiveReadiness, type SellerLiveReadiness } from '../../../api/liveHostRepository';
 import { logVaultCommandCenter, supabaseJwtSub } from '../../../lib/logVaultCommandCenterFlow';
@@ -118,6 +120,10 @@ export function ScheduleVaultEventModal({
   const [modalReadinessBusy, setModalReadinessBusy] = useState(false);
   const [recurringWeekly, setRecurringWeekly] = useState(false);
   const [discoveryVisibility, setDiscoveryVisibility] = useState<'public' | 'private'>('public');
+  const [shippingProfiles, setShippingProfiles] = useState<
+    { id: string; name: string; isDefault?: boolean }[]
+  >([]);
+  const [defaultSellerShippingProfileId, setDefaultSellerShippingProfileId] = useState('');
   const submittingRef = useRef(false);
 
   const titleComplete = scheduleTitle.trim().length > 0;
@@ -129,6 +135,7 @@ export function ScheduleVaultEventModal({
   useEffect(() => {
     if (!visible) {
       setDiscoveryVisibility('public');
+      setDefaultSellerShippingProfileId('');
       return;
     }
     setSubmitError(null);
@@ -136,11 +143,37 @@ export function ScheduleVaultEventModal({
     void (async () => {
       try {
         await onRefreshReadiness?.();
+        if (accessToken?.trim()) {
+          const profiles = await fetchSellerShippingProfiles(accessToken);
+          setShippingProfiles(profiles);
+          const defaultProfileId = resolveSellerShippingProfileIdForCategory(
+            profiles.map((p) => ({
+              id: p.id,
+              sourceSlug: p.sourceSlug ?? '',
+              isDefault: p.isDefault,
+            })),
+            scheduleCategory,
+          );
+          setDefaultSellerShippingProfileId(defaultProfileId);
+        }
       } finally {
         setModalReadinessBusy(false);
       }
     })();
-  }, [visible, onRefreshReadiness]);
+  }, [accessToken, visible, onRefreshReadiness]);
+
+  useEffect(() => {
+    if (!visible || shippingProfiles.length === 0) return;
+    const profileId = resolveSellerShippingProfileIdForCategory(
+      shippingProfiles.map((p) => ({
+        id: p.id,
+        sourceSlug: p.sourceSlug ?? '',
+        isDefault: p.isDefault,
+      })),
+      scheduleCategory,
+    );
+    if (profileId) setDefaultSellerShippingProfileId(profileId);
+  }, [scheduleCategory, shippingProfiles, visible]);
 
   const resetThumb = useCallback(() => {
     setThumbUrl('');
@@ -228,6 +261,10 @@ export function ScheduleVaultEventModal({
       Alert.alert('Title required', 'Name your vault event before continuing.');
       return;
     }
+    if (!defaultSellerShippingProfileId.trim()) {
+      Alert.alert('Shipping profile', 'Select the shipping profile for this show.');
+      return;
+    }
     if (thumbUploading) return;
 
     let scheduledStartAt: string | undefined;
@@ -268,8 +305,10 @@ export function ScheduleVaultEventModal({
           shippingMode: 'capped',
           carrierPreference: 'best_rate',
           bundleEligiblePurchases: true,
+          defaultSellerShippingProfileId,
           recurringEnabled: scheduleMode === 'later' && recurringWeekly,
-          discoveryVisibility,
+          defaultSellerShippingProfileId,
+    discoveryVisibility,
         },
         { sellerUserId: freshReadiness.sellerUserId ?? null },
       );
@@ -522,6 +561,29 @@ export function ScheduleVaultEventModal({
             </View>
           ) : null}
 
+          <Text style={styles.label}>Default shipping profile</Text>
+          <View style={styles.profileWrap}>
+            {shippingProfiles.map((profile) => {
+              const selected = defaultSellerShippingProfileId === profile.id;
+              return (
+                <Pressable
+                  key={profile.id}
+                  style={[styles.profileChip, selected && styles.profileChipOn]}
+                  onPress={() => setDefaultSellerShippingProfileId(profile.id)}
+                  disabled={busy}
+                >
+                  <Text style={[styles.profileChipTxt, selected && styles.profileChipTxtOn]}>
+                    {profile.name}
+                    {profile.isDefault ? ' · default' : ''}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.helperTxt}>
+            Auto-selected from your break category — Cards uses card mailer rates; Helmets uses full-size helmet rates. You can change it before creating the show.
+          </Text>
+
           <Text style={styles.label}>Show visibility</Text>
           <View style={styles.segment}>
             <Pressable
@@ -704,6 +766,21 @@ const styles = StyleSheet.create({
   chipOn: { borderColor: colors.gold, backgroundColor: 'rgba(212,175,55,0.12)' },
   chipTxt: { fontSize: 13, fontWeight: '700', color: colors.textMuted },
   chipTxtOn: { color: colors.gold },
+  profileWrap: { gap: 8, marginTop: spacing.xs },
+  profileChip: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  profileChipOn: {
+    borderColor: 'rgba(212,175,55,0.55)',
+    backgroundColor: 'rgba(212,175,55,0.12)',
+  },
+  profileChipTxt: { fontSize: 13, fontWeight: '700', color: colors.textMuted },
+  profileChipTxtOn: { color: colors.gold },
   segment: {
     flexDirection: 'row',
     borderRadius: radii.md,

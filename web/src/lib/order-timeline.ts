@@ -30,10 +30,8 @@ export function buildBuyerOrderTimeline(a: BuyerArgs): OrderTimelineStep[] {
   const hasLabel = Boolean(a.labelUrl || a.shippoTransactionId);
   const delivered = a.fulfillmentStatus === "delivered";
   const outForDelivery = a.fulfillmentStatus === "out_for_delivery";
-  const inTransit =
-    a.fulfillmentStatus === "in_transit" ||
-    a.orderStatus === "shipped" ||
-    (Boolean(a.trackingNumber) && paid && !delivered && !outForDelivery);
+  const sellerShipped = a.fulfillmentStatus === "shipped" || a.orderStatus === "shipped";
+  const inTransit = a.fulfillmentStatus === "in_transit" || a.fulfillmentStatus === "out_for_delivery";
 
   const steps: OrderTimelineStep[] = [];
 
@@ -77,8 +75,12 @@ export function buildBuyerOrderTimeline(a: BuyerArgs): OrderTimelineStep[] {
 
   steps.push({
     key: "transit",
-    title: "In transit",
-    detail: inTransit ? "Carrier is moving your package." : "Tracking updates appear here.",
+    title: inTransit ? "On the way" : sellerShipped ? "Shipped" : "On the way",
+    detail: inTransit
+      ? "Carrier is moving your package."
+      : sellerShipped
+        ? "Seller shipped your package. You'll see an update when the carrier scans it in."
+        : "Tracking updates appear here after the carrier scans your package.",
     state: "upcoming",
   });
 
@@ -127,9 +129,12 @@ export function buildBuyerOrderTimeline(a: BuyerArgs): OrderTimelineStep[] {
     } else if (inTransit) {
       setComplete(0, labelIdx);
       steps[transitIdx]!.state = "current";
-    } else if (hasLabel) {
+    } else if (sellerShipped) {
       setComplete(0, labelIdx);
       steps[transitIdx]!.state = "current";
+    } else if (hasLabel) {
+      setComplete(0, paidIdx);
+      steps[labelIdx]!.state = "current";
     } else {
       setComplete(0, paidIdx);
       steps[labelIdx]!.state = "current";
@@ -165,10 +170,8 @@ export function buildSellerOrderMilestones(a: SellerArgs): SellerMilestone[] {
   const hasLabel = Boolean(a.labelUrl || a.shippoTransactionId);
   const delivered = a.fulfillmentStatus === "delivered";
   const outForDelivery = a.fulfillmentStatus === "out_for_delivery";
-  const inTransit =
-    a.fulfillmentStatus === "in_transit" ||
-    a.orderStatus === "shipped" ||
-    (Boolean(a.trackingNumber) && paid && !delivered && !outForDelivery);
+  const sellerShipped = a.fulfillmentStatus === "shipped" || a.orderStatus === "shipped";
+  const inTransit = a.fulfillmentStatus === "in_transit" || a.fulfillmentStatus === "out_for_delivery";
 
   const milestones: SellerMilestone[] = [
     {
@@ -197,8 +200,12 @@ export function buildSellerOrderMilestones(a: SellerArgs): SellerMilestone[] {
     },
     {
       key: "transit",
-      title: "In transit",
-      detail: inTransit && !delivered && !outForDelivery ? "Package is moving to the buyer." : "Carrier movement.",
+      title: inTransit ? "On the way" : sellerShipped ? "Shipped" : "On the way",
+      detail: inTransit
+        ? "Carrier is moving the package."
+        : sellerShipped
+          ? "Waiting for carrier to scan the package in."
+          : "Carrier movement after first scan.",
       state: "upcoming",
     },
     {
@@ -246,6 +253,10 @@ export function buildSellerOrderMilestones(a: SellerArgs): SellerMilestone[] {
       milestones[i2]!.state = "complete";
       milestones[i3]!.state = "complete";
       milestones[i4]!.state = "current";
+    } else if (sellerShipped) {
+      milestones[i2]!.state = "complete";
+      milestones[i3]!.state = "complete";
+      milestones[i4]!.state = "current";
     } else if (hasLabel) {
       milestones[i2]!.state = "complete";
       milestones[i3]!.state = "current";
@@ -264,11 +275,8 @@ export function buildSellerFulfillmentTimelineCompact(a: SellerArgs): SellerMile
     a.paymentStatus === "pending_payment" || a.paymentStatus === "payment_requires_action";
   const hasLabel = Boolean(a.labelUrl || a.shippoTransactionId);
   const delivered = a.fulfillmentStatus === "delivered";
-  const inTransit =
-    a.fulfillmentStatus === "in_transit" ||
-    a.fulfillmentStatus === "out_for_delivery" ||
-    a.orderStatus === "shipped" ||
-    (Boolean(a.trackingNumber) && paid && !delivered);
+  const sellerShipped = a.fulfillmentStatus === "shipped" || a.orderStatus === "shipped";
+  const inTransit = a.fulfillmentStatus === "in_transit" || a.fulfillmentStatus === "out_for_delivery";
 
   const steps: SellerMilestone[] = [
     { key: "ordered", title: "Ordered", detail: "Buyer placed order", state: "upcoming" },
@@ -281,13 +289,17 @@ export function buildSellerFulfillmentTimelineCompact(a: SellerArgs): SellerMile
     {
       key: "label",
       title: "Label created",
-      detail: hasLabel ? "Label on file" : "No label yet",
+      detail: hasLabel ? "Print label and mark shipped" : "No label yet",
       state: "upcoming",
     },
     {
       key: "transit",
-      title: "In transit",
-      detail: inTransit ? "Carrier has package" : "Shipped to buyer",
+      title: inTransit ? "On the way" : sellerShipped ? "Shipped" : "On the way",
+      detail: inTransit
+        ? "Carrier scanned the package in"
+        : sellerShipped
+          ? "Awaiting carrier scan"
+          : "Updates after carrier scan",
       state: "upcoming",
     },
     {
@@ -311,6 +323,11 @@ export function buildSellerFulfillmentTimelineCompact(a: SellerArgs): SellerMile
     return steps;
   }
   if (inTransit) {
+    steps[2]!.state = "complete";
+    steps[3]!.state = "current";
+    return steps;
+  }
+  if (sellerShipped) {
     steps[2]!.state = "complete";
     steps[3]!.state = "current";
     return steps;

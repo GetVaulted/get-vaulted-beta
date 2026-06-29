@@ -110,6 +110,7 @@ export function SellerLiveConsolePanel({
       <AddInventoryModal
         visible={c.inventoryOpen}
         accessToken={accessToken}
+        roomId={roomId}
         onClose={() => c.setInventoryOpen(false)}
         onSubmit={c.onQuickAddLot}
         busy={c.busy}
