@@ -16,6 +16,8 @@ export function mergeModeratorRoomUsers(args: {
   viewers: LiveRoomViewerRow[];
 }): ModeratorRoomUserRow[] {
   const map = new Map<string, ModeratorRoomUserRow>();
+  const viewers = Array.isArray(args.viewers) ? args.viewers : [];
+  const presence = Array.isArray(args.presence) ? args.presence : [];
 
   const normalizeUsername = (username: unknown, userId: string | null): string => {
     if (typeof username === 'string' && username.trim()) {
@@ -24,7 +26,7 @@ export function mergeModeratorRoomUsers(args: {
     return userId ? 'Member' : 'Guest';
   };
 
-  for (const viewer of args.viewers) {
+  for (const viewer of viewers) {
     const userId = viewer.userId?.trim() ?? '';
     if (!userId) continue;
     map.set(userId, {
@@ -38,7 +40,7 @@ export function mergeModeratorRoomUsers(args: {
     });
   }
 
-  for (const p of args.presence) {
+  for (const p of presence) {
     if (p.userId) {
       const existing = map.get(p.userId);
       map.set(p.userId, {

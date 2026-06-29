@@ -13,7 +13,9 @@ function normalizePresenceUsername(username: unknown, userId: string | null): st
 }
 
 /** Parse Supabase Realtime presence state into deduped viewer rows. */
-export function parseRoomPresenceUsers(state: Record<string, unknown>): RoomPresenceUser[] {
+export function parseRoomPresenceUsers(state: Record<string, unknown> | null | undefined): RoomPresenceUser[] {
+  if (!state || typeof state !== 'object') return [];
+
   const byKey = new Map<string, RoomPresenceUser>();
 
   for (const entries of Object.values(state)) {

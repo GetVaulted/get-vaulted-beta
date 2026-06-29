@@ -3,6 +3,11 @@ import { mergeModeratorRoomUsers } from './mergeModeratorRoomUsers';
 import { parseRoomPresenceUsers } from './liveRoomPresenceUsers';
 
 describe('parseRoomPresenceUsers', () => {
+  it('returns empty list for null or invalid state', () => {
+    expect(parseRoomPresenceUsers(null)).toEqual([]);
+    expect(parseRoomPresenceUsers(undefined)).toEqual([]);
+  });
+
   it('dedupes presence slots by user id', () => {
     const rows = parseRoomPresenceUsers({
       'slot-a': [{ userId: 'u1', username: '@alpha', tabKey: 't1' }],

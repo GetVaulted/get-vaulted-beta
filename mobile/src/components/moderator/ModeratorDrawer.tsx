@@ -93,13 +93,17 @@ export function ModeratorDrawer({
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [selectedUser, setSelectedUser] = useState<ModeratorRoomUserRow | null>(null);
 
-  const presenceUsers = useLiveRoomPresenceUsers(liveRoomId, visible && tab === 'users');
+  const presenceUsers = useLiveRoomPresenceUsers(liveRoomId, visible);
   const roomUsers = useMemo(
-    () => mergeModeratorRoomUsers({ presence: presenceUsers, viewers: moderation.viewers ?? [] }),
+    () =>
+      mergeModeratorRoomUsers({
+        presence: presenceUsers,
+        viewers: moderation.viewers ?? [],
+      }),
     [presenceUsers, moderation.viewers],
   );
   const moderatorIdSet = useMemo(
-    () => new Set(moderation.moderators.map((m) => m.userId)),
+    () => new Set((moderation.moderators ?? []).map((m) => m.userId)),
     [moderation.moderators],
   );
 
@@ -130,7 +134,7 @@ export function ModeratorDrawer({
   onRefreshRef.current = onRefresh;
 
   useEffect(() => {
-    if (visible && (tab === 'tips' || tab === 'users')) {
+    if (visible && tab === 'tips') {
       onRefreshRef.current();
     }
   }, [visible, tab]);
@@ -148,7 +152,7 @@ export function ModeratorDrawer({
   const resolveModeratorPinIdentity = useCallback(() => {
     const userId = moderatorUserId?.trim() ?? null;
     const fromList = userId
-      ? moderation.moderators.find((row) => row.userId === userId)?.username?.trim()
+      ? (moderation.moderators ?? []).find((row) => row.userId === userId)?.username?.trim()
       : null;
     return {
       pinnedModeratorUserId: userId,
@@ -244,7 +248,7 @@ export function ModeratorDrawer({
             onOpenQueue={() => setTab('queue')}
             onOpenUsers={() => setTab('users')}
             onOpenAnnounce={() => setTab('announcements')}
-            queueCount={moderation.modQueue.length}
+            queueCount={(moderation.modQueue ?? []).length}
             userCount={roomUsers.length}
           />
         );
@@ -261,11 +265,11 @@ export function ModeratorDrawer({
         );
       case 'queue':
         return (
-          <ModQueueList rows={moderation.modQueue} emptyLabel="No open reports for this show." />
+          <ModQueueList rows={moderation.modQueue ?? []} emptyLabel="No open reports for this show." />
         );
       case 'tips':
         return (
-          <TipsTab tips={moderation.tips} summary={moderation.tipSummary} />
+          <TipsTab tips={moderation.tips ?? []} summary={moderation.tipSummary} />
         );
       case 'pinned':
         return (
@@ -317,7 +321,7 @@ export function ModeratorDrawer({
           />
         );
       case 'history':
-        return <HistoryList rows={moderation.modHistory} />;
+        return <HistoryList rows={moderation.modHistory ?? []} />;
       default:
         return null;
     }

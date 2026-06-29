@@ -12,31 +12,28 @@ export function useLiveRoomPresenceUsers(liveRoomId: string, enabled: boolean): 
       return undefined;
     }
 
+    let active = true;
+
     const sync = () => {
+      if (!active) return;
       const channel = peekLiveRoomChannel(liveRoomId);
       if (!channel) {
         setUsers([]);
         return;
       }
-      setUsers(parseRoomPresenceUsers(channel.presenceState() as Record<string, unknown>));
+      try {
+        setUsers(parseRoomPresenceUsers(channel.presenceState()));
+      } catch {
+        setUsers([]);
+      }
     };
 
     sync();
-    const pollId = setInterval(sync, 2500);
-    const channel = peekLiveRoomChannel(liveRoomId);
-    if (channel) {
-      channel.on('presence', { event: 'sync' }, sync);
-      channel.on('presence', { event: 'join' }, sync);
-      channel.on('presence', { event: 'leave' }, sync);
-    }
+    const pollId = setInterval(sync, 2000);
 
     return () => {
+      active = false;
       clearInterval(pollId);
-      if (channel) {
-        channel.off('presence', { event: 'sync' }, sync);
-        channel.off('presence', { event: 'join' }, sync);
-        channel.off('presence', { event: 'leave' }, sync);
-      }
     };
   }, [enabled, liveRoomId]);
 
