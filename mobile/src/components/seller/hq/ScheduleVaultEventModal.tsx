@@ -128,48 +128,59 @@ export function ScheduleVaultEventModal({
   const [tipModeratorId, setTipModeratorId] = useState<string | null>(null);
   const [tipModeratorUsername, setTipModeratorUsername] = useState('');
   const [tipsToModerator, setTipsToModerator] = useState(false);
-  const [modalReadinessBusy, setModalReadinessBusy] = useState(false);
   const [recurringWeekly, setRecurringWeekly] = useState(false);
   const [discoveryVisibility, setDiscoveryVisibility] = useState<'public' | 'private'>('public');
   const [shippingProfiles, setShippingProfiles] = useState<LiveHostShippingProfileOption[]>([]);
   const [defaultSellerShippingProfileId, setDefaultSellerShippingProfileId] = useState('');
   const submittingRef = useRef(false);
+  const onRefreshReadinessRef = useRef(onRefreshReadiness);
+  const modalBootstrappedRef = useRef(false);
+  onRefreshReadinessRef.current = onRefreshReadiness;
 
   const titleComplete = scheduleTitle.trim().length > 0;
   const readinessOk = readiness?.canGoLive === true;
-  const readinessKnown = readiness !== null && !modalReadinessBusy;
+  const readinessKnown = readiness !== null;
   const liveBlocked = liveGate.blocked || !readinessKnown || !readinessOk;
   const isBreak = streamFormat === 'break';
 
   useEffect(() => {
     if (!visible) {
+      modalBootstrappedRef.current = false;
       setDiscoveryVisibility('public');
       setDefaultSellerShippingProfileId('');
       return;
     }
+    if (modalBootstrappedRef.current) return;
+    modalBootstrappedRef.current = true;
     setSubmitError(null);
-    setModalReadinessBusy(true);
+
+    let cancelled = false;
     void (async () => {
+      await onRefreshReadinessRef.current?.();
+      const token = accessToken?.trim();
+      if (cancelled || !token) return;
       try {
-        await onRefreshReadiness?.();
-        if (accessToken?.trim()) {
-          const profiles = await fetchSellerShippingProfiles(accessToken);
-          setShippingProfiles(profiles);
-          const defaultProfileId = resolveSellerShippingProfileIdForCategory(
-            profiles.map((p) => ({
-              id: p.id,
-              sourceSlug: p.sourceSlug ?? '',
-              isDefault: p.isDefault,
-            })),
-            scheduleCategory,
-          );
-          setDefaultSellerShippingProfileId(defaultProfileId);
-        }
-      } finally {
-        setModalReadinessBusy(false);
+        const profiles = await fetchSellerShippingProfiles(token);
+        if (cancelled) return;
+        setShippingProfiles(profiles);
+        const defaultProfileId = resolveSellerShippingProfileIdForCategory(
+          profiles.map((p) => ({
+            id: p.id,
+            sourceSlug: p.sourceSlug ?? '',
+            isDefault: p.isDefault,
+          })),
+          scheduleCategory,
+        );
+        setDefaultSellerShippingProfileId(defaultProfileId);
+      } catch {
+        /* shipping profiles are optional for opening the modal */
       }
     })();
-  }, [accessToken, visible, onRefreshReadiness]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, visible]);
 
   useEffect(() => {
     if (!visible || shippingProfiles.length === 0) return;
@@ -705,7 +716,7 @@ export function ScheduleVaultEventModal({
 
           <CreateVaultEventReadinessChecklist
             readiness={readiness}
-            loading={readinessLoading || modalReadinessBusy}
+            loading={readinessLoading}
             titleComplete={titleComplete}
             onFixStripe={() => onFixReadiness?.('stripe')}
             onFixShipFrom={() => onFixReadiness?.('ship_from')}

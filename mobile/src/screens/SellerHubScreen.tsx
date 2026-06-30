@@ -265,16 +265,25 @@ export function SellerHubScreen() {
     [],
   );
 
+  const onRefreshVaultEventReadiness = useCallback(() => {
+    void cmdData.liveReadiness.refresh({ silent: true });
+  }, [cmdData.liveReadiness]);
+
+  const onFixVaultEventReadiness = useCallback(
+    (step: 'stripe' | 'ship_from') => {
+      if (step === 'stripe') void openStripeOnboarding();
+      else if (step === 'ship_from') focusShipFromSetup();
+    },
+    [focusShipFromSetup, openStripeOnboarding],
+  );
+
   const vaultEventsPanelProps = {
     accessToken: session?.access_token,
     liveGate: cmdData.liveGate,
     readiness: cmdData.liveReadiness.readiness,
     readinessLoading: cmdData.liveReadiness.loading && !cmdData.liveReadiness.loadedOnce,
-    onRefreshReadiness: () => void cmdData.liveReadiness.refresh({ silent: true }),
-    onFixReadiness: (step: 'stripe' | 'ship_from') => {
-      if (step === 'stripe') void openStripeOnboarding();
-      else if (step === 'ship_from') focusShipFromSetup();
-    },
+    onRefreshReadiness: onRefreshVaultEventReadiness,
+    onFixReadiness: onFixVaultEventReadiness,
     onBlockedSchedule: onLiveSetupBlocked,
     scheduleTitle,
     setScheduleTitle,
