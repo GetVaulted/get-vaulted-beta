@@ -102,6 +102,10 @@ export function mapSellerSalesOrderForApi(user: SellerSalesOrderUser, o: SellerS
     shippingPriceUsd: o.shippingPriceUsd,
     taxUsd,
     taxAmountCents,
+    salesTaxRemittanceNote:
+      taxAmountCents > 0
+        ? "Get Vaulted collects and remits applicable sales tax on marketplace sales where required."
+        : null,
     status: o.status,
     paymentStatus: o.paymentStatus,
     fulfillmentStatus: o.fulfillmentStatus,

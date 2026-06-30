@@ -8,6 +8,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SELLER_HUB_TABS, type SellerHubTabId } from '../../../data/sellerHubMock';
 import { colors, radii, spacing } from '../../../theme';
 
@@ -20,6 +21,7 @@ export function SellerHubTabBar({
   activeTab: SellerHubTabId;
   onChangeTab: (id: SellerHubTabId) => void;
 }) {
+  const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
   const scrollRef = useRef<ScrollView>(null);
   const layoutsRef = useRef<Partial<Record<SellerHubTabId, TabLayout>>>({});
@@ -48,7 +50,11 @@ export function SellerHubTabBar({
   );
 
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, { paddingTop: insets.top + spacing.xs }]}>
+      <View style={styles.brandRow}>
+        <Text style={styles.brandKicker}>Get Vaulted</Text>
+        <Text style={styles.brandTitle}>Seller Studio</Text>
+      </View>
       <ScrollView
         ref={scrollRef}
         horizontal
@@ -65,13 +71,14 @@ export function SellerHubTabBar({
               key={t.id}
               onPress={() => onChangeTab(t.id)}
               onLayout={onTabLayout(t.id)}
-              style={[styles.chip, on && styles.chipOn]}
+              style={styles.tab}
               accessibilityRole="tab"
               accessibilityState={{ selected: on }}
             >
-              <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
+              <Text style={[styles.tabText, on && styles.tabTextOn]} numberOfLines={1}>
                 {t.label}
               </Text>
+              {on ? <View style={styles.tabIndicator} /> : <View style={styles.tabIndicatorSpacer} />}
             </Pressable>
           );
         })}
@@ -83,37 +90,54 @@ export function SellerHubTabBar({
 const styles = StyleSheet.create({
   wrap: {
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
     backgroundColor: colors.background,
+  },
+  brandRow: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
+  },
+  brandKicker: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    color: colors.gold,
+    textTransform: 'uppercase',
+  },
+  brandTitle: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: colors.textPrimary,
+    letterSpacing: -0.5,
+    marginTop: 2,
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
+    alignItems: 'flex-end',
     paddingHorizontal: spacing.lg,
     paddingRight: spacing.xl,
+    gap: spacing.lg,
   },
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10,
-    minHeight: 44,
-    justifyContent: 'center',
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+  tab: {
+    paddingBottom: spacing.sm,
+    minHeight: 40,
+    justifyContent: 'flex-end',
   },
-  chipOn: {
-    borderColor: colors.gold,
-    backgroundColor: 'rgba(212,175,55,0.12)',
-  },
-  chipText: {
+  tabText: {
     color: colors.textMuted,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
+    paddingBottom: 6,
   },
-  chipTextOn: {
-    color: colors.gold,
+  tabTextOn: {
+    color: colors.textPrimary,
+  },
+  tabIndicator: {
+    height: 2,
+    borderRadius: radii.pill,
+    backgroundColor: colors.gold,
+  },
+  tabIndicatorSpacer: {
+    height: 2,
   },
 });

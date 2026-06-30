@@ -17,8 +17,9 @@ import {
   logIgnoredMarketplacePaymentIntentWebhook,
 } from "@/lib/stripe-payment-intent-webhook";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { buildOrderTaxPersistFields } from "@/lib/sales-tax-order";
+import { recordTaxDestinationVolumeOnOrderPaid } from "@/lib/sales-tax-reporting";
 import {
-  buildCheckoutTaxSessionFields,
   buildMarketplaceCheckoutTaxBundle,
   connectCheckoutPaymentIntentData,
   loadSellerShipFromForTax,
@@ -1377,6 +1378,8 @@ export async function finalizeStripeMarketplaceOrderPaid(
       shippingPriceUsd: true,
       itemPriceUsd: true,
       taxUsd: true,
+      shipState: true,
+      shipCountry: true,
       liveShippingSession: { select: { liveShowId: true } },
       listing: { select: { title: true, buyingFormat: true } },
     },
@@ -1398,6 +1401,14 @@ export async function finalizeStripeMarketplaceOrderPaid(
 
   const shippingChargedCents = Math.round(Math.max(0, shippingPriceUsd) * 100);
 
+  const taxFields = buildOrderTaxPersistFields({
+    itemPriceUsd,
+    shippingPriceUsd,
+    taxAmountCents,
+    stripeTaxCalculationId: taxFromSession?.stripeTaxCalculationId ?? null,
+    taxJurisdictionState: order.shipState,
+  });
+
   const { closedLayaways } = await prisma.$transaction(async (tx) => {
     await tx.order.update({
       where: { id: orderId },
@@ -1407,13 +1418,9 @@ export async function finalizeStripeMarketplaceOrderPaid(
         stripePaymentIntentId: paymentIntentId ?? undefined,
         stripeCheckoutSessionId: sessionId ?? undefined,
         shippingChargedCents,
-        taxAmountCents,
-        taxUsd,
-        taxProvider: taxAmountCents > 0 ? TAX_PROVIDER_STRIPE : null,
-        stripeTaxCalculationId: taxFromSession?.stripeTaxCalculationId ?? null,
+        ...taxFields,
         itemPriceUsd,
         shippingPriceUsd,
-        totalUsd,
       },
     });
 
@@ -1446,6 +1453,14 @@ export async function finalizeStripeMarketplaceOrderPaid(
 
     return { closedLayaways };
   });
+
+  void recordTaxDestinationVolumeOnOrderPaid({
+    shipState: order.shipState,
+    shipCountry: order.shipCountry,
+    itemPriceUsd,
+    shippingPriceUsd,
+    taxAmountCents,
+  }).catch((e) => console.warn("[sales-tax] nexus volume record failed", e));
 
   void initializeOrderPayoutOnPayment(orderId);
 

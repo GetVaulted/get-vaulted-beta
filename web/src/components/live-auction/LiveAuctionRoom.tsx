@@ -58,7 +58,7 @@ import {
 import { canHostStartLiveAuction } from "@/lib/live-auction-host-start";
 import { finalizeOverdueLiveAuctions, patchLiveRoomItemStatus, patchLiveItemVariants, startLiveRoomItemAuction } from "@/lib/live-room-control-client";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
-import { shareLiveRoomNative } from "@/lib/share-live-room-native";
+import { LiveRoomShareSheet } from "@/components/live-auction/LiveRoomShareSheet";
 import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
@@ -294,6 +294,7 @@ export function LiveAuctionRoom({
   const [buyerLineupOpen, setBuyerLineupOpen] = useState(false);
   const isBuyerDesktop = useBuyerLiveDesktop();
   const [tipOpen, setTipOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [roomPaymentMethodId, setRoomPaymentMethodId] = useState<string | null>(null);
   useLayoutEffect(() => {
     const mq = window.matchMedia("(min-width: 1400px)");
@@ -939,20 +940,9 @@ export function LiveAuctionRoom({
     }
   }, [activeDbItem, hostAuctionDurationSec, hostClutchTimeEnabled, liveRoomId, onAuctionHttpAck, onRefetch, router, toast]);
 
-  const handleShare = useCallback(async () => {
-    const showTitle = streamTitle;
-    try {
-      const ok = await shareLiveRoomNative({
-        roomId: liveRoomId,
-        showTitle,
-        hostUsername: sellerShopUsername ?? hostDisplayName.replace(/^@+/, ""),
-        category: roomCategory,
-      });
-      if (ok) toast("Shared.");
-    } catch {
-      toast("Could not share right now.");
-    }
-  }, [hostDisplayName, liveRoomId, roomCategory, sellerShopUsername, streamTitle, toast]);
+  const handleShare = useCallback(() => {
+    setShareOpen(true);
+  }, []);
 
   const handleWallet = useCallback(() => {
     if (status !== "authenticated") {
@@ -1866,6 +1856,17 @@ export function LiveAuctionRoom({
         }}
         onSuccess={() => toast("Tip sent — thanks for supporting the show!")}
         onError={(msg) => toast(msg)}
+      />
+      <LiveRoomShareSheet
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        roomId={liveRoomId}
+        showTitle={streamTitle}
+        hostUsername={sellerShopUsername ?? hostDisplayName.replace(/^@+/, "")}
+        isLive={isLive}
+        category={roomCategory}
+        canNotifyFollowers={isHost}
+        onToast={toast}
       />
     </div>
   );

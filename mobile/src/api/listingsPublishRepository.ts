@@ -228,6 +228,7 @@ function buildWebListingBody(
 
   const body: Record<string, unknown> = {
     publishRequestId,
+    inventoryChannel: channel,
     title: form.title.trim(),
     description: form.description.trim(),
     category: webCategoryFromMobileCategory(category),

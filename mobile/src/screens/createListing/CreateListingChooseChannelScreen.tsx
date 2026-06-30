@@ -26,15 +26,16 @@ function ChannelCard({
       accessibilityLabel={cfg.label}
     >
       <LinearGradient colors={cfg.gradient} style={StyleSheet.absoluteFillObject} />
-      <View style={[styles.iconRing, { borderColor: cfg.border, backgroundColor: cfg.fill }]}>
-        <Ionicons name={cfg.icon} size={28} color={cfg.primary} />
+      <View style={styles.cardTop}>
+        <View style={[styles.iconRing, { borderColor: cfg.border, backgroundColor: cfg.fill }]}>
+          <Ionicons name={cfg.icon} size={26} color={cfg.primary} />
+        </View>
+        <Ionicons name="arrow-forward-circle" size={28} color={cfg.primaryMuted} />
       </View>
       <Text style={styles.cardTitle}>{cfg.label}</Text>
       <Text style={styles.cardHelper}>{cfg.helper}</Text>
-      <Text style={[styles.cardFuture, { color: cfg.primaryMuted }]}>{cfg.futureNote}</Text>
-      <View style={[styles.cardCta, { backgroundColor: cfg.primary }]}>
-        <Text style={styles.cardCtaText}>Continue</Text>
-        <Ionicons name="arrow-forward" size={16} color="#0a0a0a" />
+      <View style={[styles.featurePill, { borderColor: cfg.border, backgroundColor: 'rgba(0,0,0,0.25)' }]}>
+        <Text style={[styles.featurePillText, { color: cfg.primary }]}>{cfg.futureNote}</Text>
       </View>
     </Pressable>
   );
@@ -51,28 +52,42 @@ export function CreateListingChooseChannelScreen({ navigation }: Props) {
   };
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
-      <View style={styles.head}>
-        <View style={styles.headBtnSpacer} />
-        <Pressable
-          onPress={close}
-          style={styles.closeBtn}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel="Exit listing"
-        >
-          <Ionicons name="close" size={22} color={colors.textPrimary} />
-        </Pressable>
-      </View>
-      <Text style={styles.kicker}>Seller HQ · New listing</Text>
-      <Text style={styles.title}>What are you creating?</Text>
-      <Text style={styles.sub}>
-        Choose where this item will live. Marketplace and live show inventory use separate flows so you always know
-        where buyers will find it.
-      </Text>
-      <View style={styles.cards}>
-        <ChannelCard channel="marketplace" onPress={() => pick('marketplace')} />
-        <ChannelCard channel="live_show" onPress={() => pick('live_show')} />
+    <View style={styles.screen}>
+      <LinearGradient
+        colors={['rgba(212,175,55,0.12)', 'rgba(5,5,5,0.95)', colors.background]}
+        locations={[0, 0.4, 1]}
+        style={StyleSheet.absoluteFillObject}
+        pointerEvents="none"
+      />
+      <View style={[styles.content, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.lg }]}>
+        <View style={styles.head}>
+          <View style={styles.headBtnSpacer} />
+          <Pressable
+            onPress={close}
+            style={({ pressed }) => [styles.closeBtn, pressed && styles.closeBtnPressed]}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Exit listing"
+          >
+            <Ionicons name="close" size={20} color={colors.textPrimary} />
+          </Pressable>
+        </View>
+
+        <Text style={styles.kicker}>Seller HQ · New listing</Text>
+        <Text style={styles.title}>Where should this item live?</Text>
+        <Text style={styles.sub}>
+          Marketplace and live show inventory are separate. Pick the path that matches how you plan to sell.
+        </Text>
+
+        <View style={styles.cards}>
+          <ChannelCard channel="marketplace" onPress={() => pick('marketplace')} />
+          <ChannelCard channel="live_show" onPress={() => pick('live_show')} />
+        </View>
+
+        <View style={styles.footerHint}>
+          <Ionicons name="shield-checkmark-outline" size={16} color={colors.textMuted} />
+          <Text style={styles.footerHintText}>You can save drafts anytime and finish later from Seller HQ.</Text>
+        </View>
       </View>
     </View>
   );
@@ -82,13 +97,16 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  content: {
+    flex: 1,
     paddingHorizontal: spacing.lg,
   },
   head: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.xl,
   },
   headBtnSpacer: {
     width: 40,
@@ -101,20 +119,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceElevated,
+    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
   },
+  closeBtnPressed: { opacity: 0.75 },
   kicker: {
     ...typography.micro,
     color: colors.gold,
-    letterSpacing: 1,
-    marginBottom: spacing.xs,
+    letterSpacing: 1.2,
+    marginBottom: spacing.sm,
   },
   title: {
     ...typography.title,
-    fontSize: 28,
+    fontSize: 30,
     color: colors.textPrimary,
-    letterSpacing: -0.5,
+    letterSpacing: -0.6,
     marginBottom: spacing.sm,
   },
   sub: {
@@ -125,6 +144,7 @@ const styles = StyleSheet.create({
   },
   cards: {
     gap: spacing.lg,
+    flex: 1,
   },
   card: {
     borderRadius: radii.lg,
@@ -132,9 +152,17 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     overflow: 'hidden',
     gap: spacing.sm,
+    minHeight: 168,
   },
   cardPressed: {
     opacity: 0.94,
+    transform: [{ scale: 0.995 }],
+  },
+  cardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
   },
   iconRing: {
     width: 52,
@@ -143,36 +171,44 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: spacing.xs,
   },
   cardTitle: {
     color: colors.textPrimary,
-    fontSize: 20,
+    fontSize: 21,
     fontWeight: '800',
-    letterSpacing: -0.3,
+    letterSpacing: -0.4,
   },
   cardHelper: {
     color: colors.textSecondary,
     fontSize: 14,
     lineHeight: 20,
   },
-  cardFuture: {
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: spacing.xs,
+  featurePill: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radii.pill,
+    borderWidth: 1,
   },
-  cardCta: {
+  featurePillText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  footerHint: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: spacing.md,
-    paddingVertical: 14,
-    borderRadius: radii.md,
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.08)',
   },
-  cardCtaText: {
-    color: '#0a0a0a',
-    fontWeight: '800',
-    fontSize: 15,
+  footerHintText: {
+    flex: 1,
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
   },
 });

@@ -70,14 +70,13 @@ export function SellerHQCommandHeader({
           <Text style={styles.handle} numberOfLines={1}>
             {handle}
           </Text>
-          <Text style={styles.studioTag}>Seller operating system</Text>
         </View>
       </View>
       <View style={styles.metricsRow}>
-        <MetricCell label="Revenue vault" value={revenueSnapshot} accent />
-        <MetricCell label="Collector network" value={activeCollectors} />
-        <MetricCell label="Fulfillment" value={pendingOrders} />
-        <MetricCell label="Performance" value={performanceInsight} />
+        <MetricCell label="Today" value={revenueSnapshot} accent />
+        <MetricCell label="Collectors" value={activeCollectors} />
+        <MetricCell label="To ship" value={pendingOrders} />
+        <MetricCell label="Insight" value={performanceInsight} />
       </View>
     </View>
   );
@@ -109,12 +108,6 @@ const styles = StyleSheet.create({
   },
   name: { fontSize: 20, fontWeight: '800', color: colors.textPrimary, marginTop: 4 },
   handle: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
-  studioTag: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.textSecondary,
-    marginTop: 8,
-  },
   metricsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',

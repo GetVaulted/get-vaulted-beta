@@ -1,6 +1,7 @@
 import type { MarketplaceBuyingFormat, MarketplaceCategory, MarketplaceListing } from "@/content/marketplace-listings";
 import { formatAuctionTimeRemaining } from "@/lib/auction-display";
 import type { FulfillmentReadinessIssue } from "@/lib/seller-shipping-readiness";
+import type { ListingInventoryChannel } from "@/lib/listing-inventory-channel";
 
 /** Seller dashboard row shape (matches API JSON). */
 export type SellerListingStatus =
@@ -62,6 +63,8 @@ export type StoredUserListing = {
   shipFromAddressId?: string | null;
   /** ISO — pay-by deadline when status is `awaiting_auction_payment`. */
   auctionPaymentDeadlineIso?: string;
+  /** Seller inventory lane — marketplace storefront vs live show queue. */
+  inventoryChannel?: ListingInventoryChannel;
   /** Seller-only: Stripe, ship-from, and parcel gaps that block fulfillment. */
   fulfillmentWarnings?: FulfillmentReadinessIssue[];
   /** Derived from seller profile for buyer-facing copy. */

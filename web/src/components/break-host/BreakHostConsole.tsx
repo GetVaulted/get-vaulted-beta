@@ -66,7 +66,7 @@ import { SellerConsoleActionBar } from "@/components/seller/SellerConsoleActionB
 import { SellerConsoleInventoryRail } from "@/components/seller/SellerConsoleInventoryRail";
 import { SellerConsoleStatsPanel } from "@/components/seller/SellerConsoleStatsPanel";
 import { SellerGoLiveSetupPanel } from "@/components/seller/SellerGoLiveSetupPanel";
-import { shareLiveRoomNative } from "@/lib/share-live-room-native";
+import { LiveRoomShareSheet } from "@/components/live-auction/LiveRoomShareSheet";
 import { useHostStagePublish } from "@/hooks/useHostStagePublish";
 import { useRealtimeRoomPresence } from "@/hooks/useRealtimeRoomPresence";
 import { logIvsWeb } from "@/lib/ivs-web-broadcast-log";
@@ -245,6 +245,7 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
   const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
   /** Short-lived buyer/room activity hint (does not replace error `toast`). */
   const [hostNotice, setHostNotice] = useState<string | null>(null);
   const hostNoticeTimerRef = useRef<number | null>(null);
@@ -1459,26 +1460,9 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     }
   };
 
-  const handleShareRoom = useCallback(async () => {
-    if (!data?.room) return;
-    const showTitle = data.room.breakDisplayTitle || data.room.title;
-    const hostUsername =
-      session?.user?.username?.trim() ||
-      session?.user?.name?.trim() ||
-      session?.user?.email?.split("@")[0]?.trim() ||
-      "Host";
-    try {
-      const ok = await shareLiveRoomNative({
-        roomId,
-        showTitle,
-        hostUsername,
-        isLive: data.room.status === "live",
-      });
-      if (ok) setToast("Shared.");
-    } catch {
-      setToast("Could not share right now.");
-    }
-  }, [data, roomId, session?.user?.email, session?.user?.name, session?.user?.username]);
+  const handleShareRoom = useCallback(() => {
+    setShareOpen(true);
+  }, []);
 
   const toggleStreamPreviewMute = useCallback(() => {
     setStreamPreviewMuted((prev) => {
@@ -2592,6 +2576,22 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         onRequestClose={handleQueueAddModalClose}
         onSubmitAuction={handleSubmitAuctionAdd}
         onSubmitGiveaway={handleSubmitGiveawayAdd}
+      />
+
+      <LiveRoomShareSheet
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        roomId={roomId}
+        showTitle={data?.room ? data.room.breakDisplayTitle || data.room.title : "Live show"}
+        hostUsername={
+          session?.user?.username?.trim() ||
+          session?.user?.name?.trim() ||
+          session?.user?.email?.split("@")[0]?.trim() ||
+          "Host"
+        }
+        isLive={data?.room?.status === "live"}
+        canNotifyFollowers
+        onToast={(msg) => setToast(msg)}
       />
     </div>
   );

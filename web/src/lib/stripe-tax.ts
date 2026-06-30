@@ -1,5 +1,10 @@
 import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
+import {
+  isMarketplaceSaleTaxEligible,
+  resolveTaxCollectionForDestination,
+  type TaxCollectionBasis,
+} from "@/lib/sales-tax-jurisdiction";
 import { ensureStripeCustomerIdForUser } from "@/lib/stripe-customer";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { normalizeUsStateCode } from "@/lib/us-state-code";
@@ -109,40 +114,19 @@ export function normalizeShipToAddress(ship: ShipToAddress): ShipToAddress {
   };
 }
 
+export { isMarketplaceSaleTaxEligible, resolveTaxCollectionForDestination };
+export type { TaxCollectionBasis };
+
 /** Whether Get Vaulted should collect sales tax for this ship-to (nexus gate). */
 export async function isTaxCollectionEnabledForShipTo(
   state: string | null | undefined,
   country: string | null | undefined,
 ): Promise<boolean> {
-  if (!isStripeTaxFeatureEnabled()) return false;
-  if (normalizeCountryCode(country) !== "US") return false;
-  const code = normalizeUsStateCode(state);
-  if (!code) return false;
-  const row = await prisma.taxNexusState.findUnique({
-    where: { stateCode: code },
-    select: { enabled: true },
-  });
-  return Boolean(row?.enabled);
+  const decision = await resolveTaxCollectionForDestination({ shipState: state, shipCountry: country });
+  return decision.collect;
 }
 
-/** Marketplace sales tax: nexus ship-to plus TX intrastate seller requirement when ship-from is known. */
-export async function isMarketplaceSaleTaxEligible(args: {
-  shipTo: ShipToAddress;
-  sellerShipFrom?: ShipFromAddress | null;
-}): Promise<boolean> {
-  const shipTo = normalizeShipToAddress(args.shipTo);
-  const enabled = await isTaxCollectionEnabledForShipTo(shipTo.shipState, shipTo.shipCountry);
-  if (!enabled) return false;
-
-  const buyerState = normalizeUsStateCode(shipTo.shipState);
-  if (buyerState !== "TX") return true;
-
-  if (!args.sellerShipFrom) return true;
-  const sellerState = normalizeUsStateCode(args.sellerShipFrom.state);
-  return sellerState === "TX";
-}
-
-/** Saved-card PaymentIntents skip Stripe Tax — use Checkout when nexus applies to ship-to. */
+/** Saved-card charges can include tax via resolveConnectPaymentTaxPlan; kept for legacy callers. */
 export async function orderRequiresCheckoutForTax(
   state: string | null | undefined,
   country: string | null | undefined,

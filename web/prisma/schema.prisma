@@ -1479,6 +1479,18 @@ model Order {
   taxAmountCents    Int      @default(0)
   taxProvider       String?
   stripeTaxCalculationId String?
+  /// US state code where tax was collected (buyer ship-to jurisdiction).
+  taxJurisdictionState   String?
+  /// Item subtotal included in tax calculation (cents).
+  taxTaxableSubtotalCents Int      @default(0)
+  /// Shipping amount included in tax calculation (cents).
+  taxShippingTaxableCents Int      @default(0)
+  /// When tax was calculated for this order.
+  taxCalculatedAt        DateTime?
+  /// Sales tax reversed on refunds (cents).
+  taxRefundedCents       Int      @default(0)
+  /// Why tax was collected: marketplace_facilitator, direct_nexus, etc.
+  taxCollectionBasis     String?
   totalUsd          Float
   /// Legacy lifecycle: pending → paid → shipped (mirrors fulfillment where applicable).
   status            String   @default("pending")
@@ -1703,13 +1715,31 @@ model LayawayAuditLog {
 
 /// Admin-tracked sales tax nexus — gates Stripe Tax collection per US state.
 model TaxNexusState {
-  stateCode    String   @id
-  label        String
-  enabled      Boolean  @default(false)
-  registeredAt DateTime?
-  notes        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  stateCode       String   @id
+  label           String
+  enabled         Boolean  @default(false)
+  /// marketplace_facilitator | direct_nexus | admin_enabled
+  collectionBasis String   @default("marketplace_facilitator")
+  registeredAt    DateTime?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+/// Informational GMV/tax volume by destination state for nexus monitoring (does not auto-enable collection).
+model TaxDestinationVolumeDaily {
+  id                   String   @id @default(cuid())
+  stateCode            String
+  orderDate            DateTime @db.Date
+  taxableSalesCents    Int      @default(0)
+  nonTaxableSalesCents Int      @default(0)
+  taxCollectedCents    Int      @default(0)
+  orderCount           Int      @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([stateCode, orderDate])
+  @@index([stateCode, orderDate])
 }
 
 model LiveShippingSession {
@@ -2211,4 +2241,12 @@ model ShipmentPackage {
 
   @@index([liveShippingSessionId, packageIndex])
   @@index([orderId])
+}
+
+/// Admin-editable marketplace platform fee (single-row config).
+model PlatformMarketplaceFeeConfig {
+  id                 String   @id @default("default")
+  platformFeePercent Float    @default(8)
+  updatedAt          DateTime @updatedAt
+  updatedByUserId    String?
 }

@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useState } from 'react';
@@ -21,17 +22,22 @@ import {
   getListingsAccessToken,
   type WebStoredListing,
 } from '../../api/webListingsRepository';
-import { fetchMyLiveRooms, type LiveRoomApiRow } from '../../api/liveRoomsRepository';
 import { SellerListingEndControls } from '../../components/seller/SellerListingEndControls';
+import {
+  StudioFieldLabel,
+  StudioMetricTile,
+  StudioPrimaryButton,
+  StudioSecondaryButton,
+  StudioSection,
+  studioStyles,
+} from '../../components/seller/hq/SellerStudioUI';
 import { useAuth } from '../../auth/AuthContext';
 import { openCreateListing } from '../../navigation/openCreateListing';
-import { openSellerHostRoom } from '../../navigation/openSellerHostRoom';
-import { openSellerHQ } from '../../navigation/openSellerHQ';
 import { getWebApiBaseUrl } from '../../lib/webApiBaseUrl';
 import { notifyListingCatalogChanged } from '../../lib/notifyListingCatalogChanged';
 import { publicListingPath } from '../../lib/sellerListingRoutes';
 import type { RootStackParamList } from '../../navigation/types';
-import { colors, radii, spacing, typography } from '../../theme';
+import { colors, spacing, typography } from '../../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SellerListingManagement'>;
 
@@ -47,7 +53,6 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
   const [priceUsd, setPriceUsd] = useState('');
   const [shippingUsd, setShippingUsd] = useState('');
   const [handlingTime, setHandlingTime] = useState('1–3 business days');
-  const [liveRooms, setLiveRooms] = useState<LiveRoomApiRow[]>([]);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -79,16 +84,6 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
   useEffect(() => {
     void reload();
   }, [reload]);
-
-  useEffect(() => {
-    const token = session?.access_token;
-    if (!token) return;
-    void fetchMyLiveRooms(token)
-      .then((rows) =>
-        setLiveRooms(rows.filter((r) => r.status === 'live' || r.status === 'scheduled').slice(0, 12)),
-      )
-      .catch(() => setLiveRooms([]));
-  }, [session?.access_token]);
 
   const patchListing = async (body: Record<string, unknown>) => {
     setBusy(true);
@@ -138,16 +133,16 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
 
   if (loading) {
     return (
-      <View style={[styles.center, { paddingTop: insets.top }]}>
+      <View style={[studioStyles.screenBg, styles.center, { paddingTop: insets.top }]}>
         <ActivityIndicator color={colors.gold} size="large" />
-        <Text style={styles.loadingTxt}>Loading Seller Studio…</Text>
+        <Text style={styles.loadingTxt}>Loading listing…</Text>
       </View>
     );
   }
 
   if (!stored) {
     return (
-      <View style={[styles.center, { paddingTop: insets.top }]}>
+      <View style={[studioStyles.screenBg, styles.center, { paddingTop: insets.top }]}>
         <Text style={styles.errorTitle}>Listing unavailable</Text>
         <Pressable style={styles.backBtn} onPress={() => navigation.goBack()}>
           <Text style={styles.backBtnTxt}>← Back</Text>
@@ -158,117 +153,120 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
 
   const thumb = stored.imageDataUrls?.[0];
   const status = stored.status ?? 'active';
+  const priceLocked = stored.buyingFormat === 'auction' && bidCount > 0;
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top }]}>
-      <View style={styles.stickyHeader}>
-        <Pressable style={styles.iconBtn} onPress={() => navigation.goBack()} accessibilityLabel="Back">
+    <View style={[studioStyles.screenBg, { paddingTop: insets.top }]}>
+      <LinearGradient
+        colors={['rgba(212,175,55,0.1)', 'rgba(5,5,5,0.98)', colors.background]}
+        locations={[0, 0.35, 1]}
+        style={StyleSheet.absoluteFillObject}
+        pointerEvents="none"
+      />
+
+      <View style={studioStyles.header}>
+        <Pressable style={studioStyles.headerBtn} onPress={() => navigation.goBack()} accessibilityLabel="Back">
           <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
         </Pressable>
-        <View style={styles.headerCenter}>
-          <Text style={styles.studioLabel}>Vault Seller Studio</Text>
-          <Text style={styles.headerTitle} numberOfLines={1}>
+        <View style={studioStyles.headerCenter}>
+          <Text style={studioStyles.headerKicker}>Seller Studio</Text>
+          <Text style={studioStyles.headerTitle} numberOfLines={1}>
             {stored.title}
           </Text>
         </View>
         <Pressable
-          style={styles.iconBtn}
+          style={studioStyles.headerBtn}
           onPress={() => void openCreateListing(navigation, { draftId: listingId })}
+          accessibilityLabel="Edit listing"
         >
           <Ionicons name="create-outline" size={20} color={colors.gold} />
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.hero}>
+      <ScrollView contentContainerStyle={studioStyles.scroll} showsVerticalScrollIndicator={false}>
+        <View style={studioStyles.heroCard}>
           {thumb ? (
-            <Image source={{ uri: thumb }} style={styles.thumb} />
+            <Image source={{ uri: thumb }} style={studioStyles.heroThumb} />
           ) : (
-            <View style={[styles.thumb, styles.thumbEmpty]} />
+            <View style={[studioStyles.heroThumb, styles.thumbEmpty]} />
           )}
-          <View style={styles.heroBody}>
-            <Text style={styles.statusPill}>{status.replace(/_/g, ' ')}</Text>
-            <Text style={styles.meta}>
+          <View style={studioStyles.heroBody}>
+            <View style={studioStyles.statusPill}>
+              <Text style={studioStyles.statusPillText}>{status.replace(/_/g, ' ')}</Text>
+            </View>
+            <Text style={studioStyles.heroMeta}>
               {stored.buyingFormat === 'auction' ? 'Auction' : 'Buy now'}
               {stored.watchers != null ? ` · ${stored.watchers} watching` : ''}
             </Text>
           </View>
         </View>
 
-        <Section title="Performance">
-          <View style={styles.metricsRow}>
-          {[
-            { label: 'Watchers', value: stored.watchers ?? '—' },
-            { label: 'Bids', value: stored.buyingFormat === 'auction' ? bidCount : '—' },
-            { label: 'Format', value: stored.buyingFormat === 'auction' ? 'Auction' : 'Buy now' },
-            { label: 'Status', value: status.replace(/_/g, ' ') },
-          ].map((m) => (
-            <View key={m.label} style={styles.metric}>
-              <Text style={styles.metricLbl}>{m.label}</Text>
-              <Text style={styles.metricVal}>{m.value}</Text>
-            </View>
-          ))}
+        <View style={studioStyles.quickRow}>
+          <StudioSecondaryButton
+            label="Edit"
+            icon="create-outline"
+            onPress={() => void openCreateListing(navigation, { draftId: listingId })}
+          />
+          <StudioSecondaryButton label="Share" icon="share-outline" onPress={() => void onShare()} />
+          <StudioSecondaryButton label="Preview" icon="open-outline" onPress={onPreview} />
+        </View>
+
+        <StudioSection title="Performance">
+          <View style={studioStyles.metricGrid}>
+            <StudioMetricTile label="Watchers" value={stored.watchers ?? '—'} />
+            <StudioMetricTile label="Bids" value={stored.buyingFormat === 'auction' ? bidCount : '—'} />
+            <StudioMetricTile label="Format" value={stored.buyingFormat === 'auction' ? 'Auction' : 'Buy now'} />
+            <StudioMetricTile label="Status" value={status.replace(/_/g, ' ')} />
           </View>
-        </Section>
+        </StudioSection>
 
-        <Section title="Listing editor">
-          <Text style={styles.hint}>Update title, photos, category, and full listing fields in the create-listing flow.</Text>
-          <Pressable style={styles.primaryBtn} onPress={() => void openCreateListing(navigation, { draftId: listingId })}>
-            <Text style={styles.primaryBtnTxt}>Edit listing details</Text>
-          </Pressable>
-        </Section>
-
-        <Section title="Pricing">
-          <Text style={styles.fieldLbl}>
+        <StudioSection
+          title="Pricing"
+          subtitle={priceLocked ? 'Starting bid is locked while bids are active.' : undefined}
+        >
+          <StudioFieldLabel>
             {stored.buyingFormat === 'auction' ? 'Starting / current bid (USD)' : 'Buy now price (USD)'}
-          </Text>
+          </StudioFieldLabel>
           <TextInput
-            style={styles.input}
+            style={studioStyles.fieldInput}
             keyboardType="decimal-pad"
             value={priceUsd}
             onChangeText={setPriceUsd}
-            editable={!(stored.buyingFormat === 'auction' && bidCount > 0)}
+            editable={!priceLocked}
             placeholderTextColor={colors.textMuted}
           />
-          {stored.buyingFormat === 'auction' && bidCount > 0 ? (
-            <Text style={styles.hint}>Starting bid is locked while the auction has active bids.</Text>
-          ) : null}
-          <Pressable
-            style={[styles.primaryBtn, (busy || (stored.buyingFormat === 'auction' && bidCount > 0)) && styles.btnOff]}
-            disabled={busy || (stored.buyingFormat === 'auction' && bidCount > 0)}
+          <StudioPrimaryButton
+            label="Save pricing"
+            disabled={busy || priceLocked}
             onPress={() => {
               const n = Number(priceUsd);
               if (!Number.isFinite(n) || n <= 0) {
                 Alert.alert('Invalid price');
                 return;
               }
-              void patchListing(
-                stored.buyingFormat === 'auction' ? { startingBidUsd: n } : { priceUsd: n },
-              );
+              void patchListing(stored.buyingFormat === 'auction' ? { startingBidUsd: n } : { priceUsd: n });
             }}
-          >
-            <Text style={styles.primaryBtnTxt}>Save pricing</Text>
-          </Pressable>
-        </Section>
+          />
+        </StudioSection>
 
-        <Section title="Shipping">
-          <Text style={styles.fieldLbl}>Shipping price (USD)</Text>
+        <StudioSection title="Shipping">
+          <StudioFieldLabel>Shipping price (USD)</StudioFieldLabel>
           <TextInput
-            style={styles.input}
+            style={studioStyles.fieldInput}
             keyboardType="decimal-pad"
             value={shippingUsd}
             onChangeText={setShippingUsd}
             placeholderTextColor={colors.textMuted}
           />
-          <Text style={styles.fieldLbl}>Handling time</Text>
+          <StudioFieldLabel>Handling time</StudioFieldLabel>
           <TextInput
-            style={styles.input}
+            style={studioStyles.fieldInput}
             value={handlingTime}
             onChangeText={setHandlingTime}
             placeholderTextColor={colors.textMuted}
           />
-          <Pressable
-            style={[styles.primaryBtn, busy && styles.btnOff]}
+          <StudioPrimaryButton
+            label="Save shipping"
             disabled={busy}
             onPress={() => {
               const ship = Number(shippingUsd);
@@ -281,53 +279,43 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
                 handlingTime: handlingTime.trim() || '1–3 business days',
               });
             }}
-          >
-            <Text style={styles.primaryBtnTxt}>Save shipping</Text>
-          </Pressable>
-        </Section>
+          />
+        </StudioSection>
 
-        <Section title="Inventory">
-          <View style={styles.actionRow}>
+        <StudioSection title="Visibility">
+          <View style={studioStyles.actionRow}>
             {status === 'active' || status === 'auction_live' ? (
-              <Pressable
-                style={styles.secondaryBtn}
-                disabled={busy}
+              <StudioSecondaryButton
+                label="Pause"
                 onPress={() => {
                   Alert.alert('Pause listing?', 'This moves the listing to drafts.', [
                     { text: 'Cancel', style: 'cancel' },
                     { text: 'Pause', onPress: () => void patchListing({ status: 'draft' }) },
                   ]);
                 }}
-              >
-                <Text style={styles.secondaryBtnTxt}>Pause</Text>
-              </Pressable>
+              />
             ) : null}
             {status === 'draft' ? (
-              <Pressable
-                style={styles.primaryBtn}
+              <StudioPrimaryButton
+                label="Publish"
                 disabled={busy}
                 onPress={() =>
                   void patchListing({
                     status: stored.buyingFormat === 'auction' ? 'auction_live' : 'active',
                   })
                 }
-              >
-                <Text style={styles.primaryBtnTxt}>Publish</Text>
-              </Pressable>
+              />
             ) : null}
             {status !== 'sold' && status !== 'draft' && status !== 'ended' ? (
-              <Pressable
-                style={styles.secondaryBtn}
-                disabled={busy}
+              <StudioSecondaryButton
+                label="Mark sold"
                 onPress={() => {
                   Alert.alert('Mark as sold?', 'This will mark the listing as sold.', [
                     { text: 'Cancel', style: 'cancel' },
                     { text: 'Mark sold', onPress: () => void patchListing({ status: 'sold' }) },
                   ]);
                 }}
-              >
-                <Text style={styles.secondaryBtnTxt}>Mark sold</Text>
-              </Pressable>
+              />
             ) : null}
           </View>
           <SellerListingEndControls
@@ -339,48 +327,12 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
             endRequest={endRequest}
             onChanged={() => void reload()}
           />
-        </Section>
+        </StudioSection>
 
-        <Section title="Assign to live show">
-          <Text style={styles.hint}>Queue this lot from your host console during a scheduled or live vault event.</Text>
-          {liveRooms.length === 0 ? (
-            <Text style={styles.hint}>No scheduled or live rooms yet.</Text>
-          ) : (
-            liveRooms.map((room) => (
-              <View key={room.id} style={styles.liveRoomRow}>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={styles.liveRoomTitle} numberOfLines={1}>
-                    {room.title}
-                  </Text>
-                  <Text style={styles.liveRoomMeta}>{room.status} · {room.roomType}</Text>
-                </View>
-                <Pressable
-                  style={styles.liveRoomBtn}
-                  onPress={() => openSellerHostRoom(navigation, room.id)}
-                >
-                  <Text style={styles.liveRoomBtnTxt}>Host console</Text>
-                </Pressable>
-              </View>
-            ))
-          )}
-          <Pressable style={styles.secondaryBtn} onPress={() => openSellerHQ(navigation, { tab: 'live' })}>
-            <Text style={styles.secondaryBtnTxt}>Manage vault events</Text>
-          </Pressable>
-        </Section>
-
-        <Section title="Share & promote">
-          <Pressable style={styles.primaryBtn} onPress={() => void onShare()}>
-            <Ionicons name="share-outline" size={18} color="#0a0a0a" />
-            <Text style={styles.primaryBtnTxt}>Share buyer link</Text>
-          </Pressable>
-          <Pressable style={styles.secondaryBtn} onPress={onPreview}>
-            <Text style={styles.secondaryBtnTxt}>Open buyer preview (external)</Text>
-          </Pressable>
-        </Section>
-
-        <Section title="Archive">
+        <StudioSection title="Archive">
+          <Text style={studioStyles.hint}>Permanently remove this listing from your inventory.</Text>
           <Pressable
-            style={styles.dangerBtn}
+            style={[studioStyles.dangerBtn, busy && studioStyles.btnOff]}
             disabled={busy}
             onPress={() => {
               Alert.alert('Delete listing?', 'This cannot be undone.', [
@@ -412,167 +364,19 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
               ]);
             }}
           >
-            <Text style={styles.dangerBtnTxt}>Delete listing</Text>
+            <Text style={studioStyles.dangerBtnTxt}>Delete listing</Text>
           </Pressable>
-        </Section>
+        </StudioSection>
       </ScrollView>
     </View>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      {children}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.background },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background, gap: spacing.md },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md },
   loadingTxt: { ...typography.body, color: colors.textSecondary },
   errorTitle: { ...typography.title, color: colors.textPrimary },
   backBtn: { padding: spacing.md },
   backBtnTxt: { color: colors.gold, fontWeight: '700' },
-  stickyHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: 'rgba(5,5,7,0.95)',
-  },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerCenter: { flex: 1, minWidth: 0 },
-  studioLabel: {
-    ...typography.micro,
-    color: colors.gold,
-    textTransform: 'uppercase',
-    letterSpacing: 1.2,
-  },
-  headerTitle: { ...typography.subtitle, color: colors.textPrimary },
-  scroll: { padding: spacing.md, paddingBottom: spacing.xxxl, gap: spacing.md },
-  hero: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    padding: spacing.md,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceElevated,
-  },
-  thumb: { width: 88, height: 88, borderRadius: radii.md },
   thumbEmpty: { backgroundColor: colors.surface },
-  heroBody: { flex: 1, justifyContent: 'center', gap: spacing.xs },
-  statusPill: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: radii.pill,
-    backgroundColor: 'rgba(212,175,55,0.12)',
-    color: colors.gold,
-    fontWeight: '800',
-    fontSize: 11,
-    textTransform: 'uppercase',
-  },
-  meta: { ...typography.caption, color: colors.textSecondary },
-  metricsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  metric: {
-    flexGrow: 1,
-    flexBasis: '45%',
-    minWidth: 120,
-    padding: spacing.md,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceElevated,
-    alignItems: 'center',
-  },
-  metricLbl: { ...typography.micro, color: colors.textMuted, textTransform: 'uppercase' },
-  metricVal: { marginTop: 4, fontSize: 22, fontWeight: '800', color: colors.textPrimary },
-  section: {
-    padding: spacing.md,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceElevated,
-    gap: spacing.sm,
-  },
-  sectionTitle: {
-    ...typography.micro,
-    color: colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  actionRow: { flexDirection: 'row', gap: spacing.sm },
-  primaryBtn: {
-    flex: 1,
-    backgroundColor: colors.gold,
-    paddingVertical: spacing.md,
-    borderRadius: radii.md,
-    alignItems: 'center',
-  },
-  primaryBtnTxt: { color: '#0a0a0a', fontWeight: '800', fontSize: 14 },
-  secondaryBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    gap: spacing.xs,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingVertical: spacing.md,
-    borderRadius: radii.md,
-  },
-  secondaryBtnTxt: { color: colors.textSecondary, fontWeight: '700', fontSize: 14 },
-  fieldLbl: { ...typography.caption, color: colors.textMuted },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    padding: spacing.md,
-    color: colors.textPrimary,
-    backgroundColor: colors.surface,
-  },
-  hint: { ...typography.caption, color: colors.textSecondary, lineHeight: 18 },
-  dangerBtn: {
-    backgroundColor: 'rgba(139,46,46,0.35)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,69,58,0.4)',
-    paddingVertical: spacing.md,
-    borderRadius: radii.md,
-    alignItems: 'center',
-  },
-  dangerBtnTxt: { color: '#ffb4a8', fontWeight: '800' },
-  btnOff: { opacity: 0.5 },
-  liveRoomRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  liveRoomTitle: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
-  liveRoomMeta: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
-  liveRoomBtn: {
-    borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.35)',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radii.pill,
-  },
-  liveRoomBtnTxt: { fontSize: 11, fontWeight: '800', color: colors.gold },
 });

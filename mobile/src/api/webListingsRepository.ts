@@ -161,6 +161,8 @@ export type WebStoredListing = {
   allowOffers?: boolean;
   allowLayaway?: boolean;
   acceptTradeOffers?: boolean;
+  /** Set on create when seller picks marketplace vs live show wizard. */
+  inventoryChannel?: 'marketplace' | 'live_show';
   imageDataUrls?: string[];
   description?: string;
   price?: number;

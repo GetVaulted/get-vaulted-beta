@@ -40,6 +40,11 @@ import {
   buildStripeChargeErrorDebug,
   chargeLiveBuyNowOrderWithSavedCard,
 } from "@/lib/stripe-charge-order-saved-pm";
+import {
+  connectPaymentIntentTransferData,
+  resolveConnectPaymentTaxPlan,
+} from "@/lib/sales-tax-charge";
+import { orderTaxUpdateData } from "@/lib/sales-tax-order";
 import { stripeOffSessionPaymentIntentOptions } from "@/lib/stripe-payment-method-config";
 
 export const LIVE_VARIANT_PURCHASE_PI_KIND = "variant_purchase_saved_pm" as const;
@@ -190,6 +195,48 @@ export function mapLiveFulfillmentOrderError(err: unknown): string {
 function capLiveApplicationFeeCents(feeCents: number, amountCents: number): number {
   if (amountCents < 50) return 0;
   return Math.min(Math.max(0, feeCents), Math.max(0, amountCents - 50));
+}
+
+async function applyOrderTaxPlanForLiveCharge(args: {
+  orderId: string;
+  sellerId: string;
+  itemPriceUsd: number;
+  shippingPriceUsd: number;
+  applicationFeeCents: number;
+}) {
+  const order = await prisma.order.findUnique({
+    where: { id: args.orderId },
+    select: {
+      shipRecipientName: true,
+      shipAddress: true,
+      shipCity: true,
+      shipState: true,
+      shipZip: true,
+      shipCountry: true,
+    },
+  });
+  if (!order) {
+    return {
+      amountCents: Math.round((args.itemPriceUsd + args.shippingPriceUsd) * 100),
+      feeCents: args.applicationFeeCents,
+      sellerTransferCents: null as number | null,
+      metadata: {} as Record<string, string>,
+    };
+  }
+  const taxPlan = await resolveConnectPaymentTaxPlan({
+    shipTo: order,
+    itemPriceUsd: args.itemPriceUsd,
+    shippingPriceUsd: args.shippingPriceUsd,
+    applicationFeeCents: args.applicationFeeCents,
+    sellerId: args.sellerId,
+  });
+  await prisma.order.update({ where: { id: args.orderId }, data: orderTaxUpdateData(taxPlan.orderTax) });
+  return {
+    amountCents: taxPlan.amountCents,
+    feeCents: taxPlan.applicationFeeCents,
+    sellerTransferCents: taxPlan.sellerTransferCents,
+    metadata: taxPlan.metadata,
+  };
 }
 
 function mapLiveSavedCardStripeError(
@@ -362,19 +409,31 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
       fulfillmentDetail,
     };
   }
-  const amountCents = Math.round(Math.max(0, fulfillment.chargeTotalUsd) * 100);
+  const feeCentsRaw = await resolveCheckoutApplicationFeeCents({
+    saleAmountUsd: purchase.totalUsd,
+    isCompanyListing: false,
+    liveRoomId: purchase.liveRoomId,
+  });
+
+  const orderRow = await prisma.order.findUnique({
+    where: { id: fulfillment.orderId },
+    select: { itemPriceUsd: true, shippingPriceUsd: true },
+  });
+  const itemUsd = orderRow?.itemPriceUsd ?? purchase.totalUsd;
+  const shipUsd = orderRow?.shippingPriceUsd ?? 0;
+
+  const taxCharge = await applyOrderTaxPlanForLiveCharge({
+    orderId: fulfillment.orderId,
+    sellerId: purchase.liveRoom.sellerId,
+    itemPriceUsd: itemUsd,
+    shippingPriceUsd: shipUsd,
+    applicationFeeCents: feeCentsRaw,
+  });
+  const amountCents = taxCharge.amountCents;
   if (amountCents < 50) {
     return { outcome: "error", code: "INVALID_AMOUNT", message: "Purchase amount is too small to charge." };
   }
-
-  const feeCents = capLiveApplicationFeeCents(
-    await resolveCheckoutApplicationFeeCents({
-      saleAmountUsd: purchase.totalUsd,
-      isCompanyListing: false,
-      liveRoomId: purchase.liveRoomId,
-    }),
-    amountCents,
-  );
+  const feeCents = capLiveApplicationFeeCents(taxCharge.feeCents, amountCents);
 
   const stripe = getStripe();
   const chargeAttemptMs = Date.now();
@@ -408,10 +467,15 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
           variantId: purchase.variantId,
           liveRoomId: purchase.liveRoomId,
           userId: args.buyerId,
+          orderId: fulfillment.orderId,
+          ...taxCharge.metadata,
         },
         description: `Live spot: ${purchase.variant.label}`,
-        application_fee_amount: feeCents,
-        transfer_data: { destination: destinationAccount },
+        ...connectPaymentIntentTransferData({
+          destinationAccountId: destinationAccount,
+          applicationFeeCents: feeCents,
+          sellerTransferCents: taxCharge.sellerTransferCents,
+        }),
       },
       {
         idempotencyKey: liveSavedCardStripeIdempotencyKey({
@@ -666,19 +730,29 @@ export async function chargeBreakSpotWithSavedCard(args: {
       fulfillmentDetail,
     };
   }
-  const amountCents = Math.round(Math.max(0, fulfillment.chargeTotalUsd) * 100);
+  const feeCentsRaw = await resolveCheckoutApplicationFeeCents({
+    saleAmountUsd: spot.priceUsd,
+    isCompanyListing: false,
+    liveRoomId: spot.liveRoomId,
+  });
+
+  const orderRow = await prisma.order.findUnique({
+    where: { id: fulfillment.orderId },
+    select: { itemPriceUsd: true, shippingPriceUsd: true },
+  });
+
+  const taxCharge = await applyOrderTaxPlanForLiveCharge({
+    orderId: fulfillment.orderId,
+    sellerId: spot.liveRoom.sellerId,
+    itemPriceUsd: orderRow?.itemPriceUsd ?? spot.priceUsd,
+    shippingPriceUsd: orderRow?.shippingPriceUsd ?? 0,
+    applicationFeeCents: feeCentsRaw,
+  });
+  const amountCents = taxCharge.amountCents;
   if (amountCents < 50) {
     return { outcome: "error", code: "INVALID_AMOUNT", message: "Spot price is too small to charge." };
   }
-
-  const feeCents = capLiveApplicationFeeCents(
-    await resolveCheckoutApplicationFeeCents({
-      saleAmountUsd: spot.priceUsd,
-      isCompanyListing: false,
-      liveRoomId: spot.liveRoomId,
-    }),
-    amountCents,
-  );
+  const feeCents = capLiveApplicationFeeCents(taxCharge.feeCents, amountCents);
 
   const stripe = getStripe();
   const chargeAttemptMs = Date.now();
@@ -713,10 +787,15 @@ export async function chargeBreakSpotWithSavedCard(args: {
           breakSpotId: spot.id,
           liveRoomId: spot.liveRoomId,
           userId: args.buyerId,
+          orderId: fulfillment.orderId,
+          ...taxCharge.metadata,
         },
         description: `Break spot: ${spot.spotLabel}`,
-        application_fee_amount: feeCents,
-        transfer_data: { destination: breakDestinationAccount },
+        ...connectPaymentIntentTransferData({
+          destinationAccountId: breakDestinationAccount,
+          applicationFeeCents: feeCents,
+          sellerTransferCents: taxCharge.sellerTransferCents,
+        }),
       },
       {
         idempotencyKey: liveSavedCardStripeIdempotencyKey({

@@ -20,6 +20,15 @@ export function resolveBuyNowPriceUsd(form: Partial<CreateListingFormState>): nu
   return parseListingPriceUsd(form.buyNowPrice);
 }
 
+/** Sale amount entered on the pricing step (by listing type). */
+export function resolvePricingItemPriceUsd(form: Partial<CreateListingFormState>): number {
+  const type = form.listingType;
+  if (type === 'buy_now' || type === 'vault_drop') return parseListingPriceUsd(form.buyNowPrice);
+  if (type === 'auction' || type === 'live_auction') return parseListingPriceUsd(form.startingBid);
+  if (type === 'break_spot') return parseListingPriceUsd(form.spotPrice);
+  return 0;
+}
+
 export function isLayawayPriceEligible(form: Partial<CreateListingFormState>): boolean {
   if (form.listingType !== 'buy_now' && form.listingType !== 'vault_drop') return false;
   return resolveBuyNowPriceUsd(form) >= 500;

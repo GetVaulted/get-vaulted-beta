@@ -1,4 +1,6 @@
-/** Fixed marketplace listing platform fee (Stripe processing is separate). */
+import { getCachedMarketplacePlatformFeePercent } from "@/services/platform-fee-settings";
+
+/** Fixed marketplace listing platform fee default (Stripe processing is separate). Admin may override in DB. */
 export const MARKETPLACE_PLATFORM_FEE_PERCENT = 8;
 
 export const LIVE_SHOW_FEE_TIER_2_THRESHOLD_USD = 1000;
@@ -35,7 +37,7 @@ export function applicationFeeCentsFromSubtotalUsd(subtotalUsd: number, feePerce
 }
 
 export function marketplacePlatformFeePercent(): number {
-  return MARKETPLACE_PLATFORM_FEE_PERCENT;
+  return getCachedMarketplacePlatformFeePercent();
 }
 
 /** Tier for the *next* sale based on completed GMV so far in this live show session. */

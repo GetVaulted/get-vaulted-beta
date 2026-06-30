@@ -45,9 +45,13 @@ Set on the **Next.js** Netlify site (copy from beta, then update URLs):
 | `NEXT_PUBLIC_SITE_URL` | `https://shopgetvaulted.com` |
 | `STRIPE_CONNECT_PUBLIC_APP_URL` | `https://shopgetvaulted.com` |
 | `NEXT_PUBLIC_CANONICAL_SHARE_URL` | `https://shopgetvaulted.com` (optional; code default) |
-| `DATABASE_URL`, Supabase keys, Stripe, etc. | **Same as beta** (same Supabase project) |
+| `DATABASE_URL`, Supabase keys | **Same as beta** (same Supabase project) |
+| Stripe keys | **Live** on production context only — see [production-launch-config.md](./production-launch-config.md) |
+| `RESEND_API_KEY`, `RESEND_FROM` | Production Resend sender on verified domain |
 
 Keep `beta.shopgetvaulted.com` as a **domain alias** on the same site during cutover for testing, or add a 301 from beta → prod when ready.
+
+**Do not launch live commerce with Stripe test keys on `shopgetvaulted.com`.** Run `npm run check:production-deployment` after updating Netlify production env.
 
 ### Deploy
 
@@ -87,10 +91,14 @@ Keep beta redirect URLs until you retire that hostname.
 
 ---
 
-## 4. Stripe
+## 4. Stripe (live mode required for launch)
+
+Production Netlify context must use **live** Stripe keys (`sk_live_`, `pk_live_`) and a **live** webhook signing secret. Beta can remain on test keys.
 
 - **Connect** return URLs use `STRIPE_CONNECT_PUBLIC_APP_URL` / request host — set to prod (step 1).
-- **Webhooks**: add or update endpoint to `https://shopgetvaulted.com/api/stripe/webhook` (keep beta endpoint until cutover complete, then remove).
+- **Webhooks**: live endpoint `https://shopgetvaulted.com/api/stripe/webhook` (keep beta test webhook until cutover complete, then remove).
+
+Full checklist: [production-launch-config.md](./production-launch-config.md).
 
 ---
 
@@ -121,7 +129,8 @@ Optional kill switch: `LIVE_MARKETPLACE_COMING_SOON=1`.
 - [ ] Share from app → iMessage shows **title + image tile**
 - [ ] Mobile sign-in / sign-up (Supabase OAuth redirect)
 - [ ] Seller Stripe Connect onboarding return URL
-- [ ] `GET https://shopgetvaulted.com/api/auth/config` — same `projectRef` as mobile
+- [ ] `GET https://shopgetvaulted.com/api/auth/config` — same `projectRef` as mobile, `stripeMode: live`, `stripeProductionReady: true`
+- [ ] `npm run check:production-deployment` passes
 - [ ] Retire or 301 static marketing site
 
 ---

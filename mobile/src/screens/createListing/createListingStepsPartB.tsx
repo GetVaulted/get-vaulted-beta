@@ -12,7 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useMemo } from 'react';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   PublishListingError,
@@ -22,10 +22,17 @@ import {
 import { fetchSellerConnectStatus } from '../../api/stripeConnectRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { clearHomeFeedCache } from '../../lib/homeFeedCache';
+import { usePlatformFee } from '../../platform/PlatformFeeContext';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { openSellerListingManagement } from '../../navigation/openSellerListingManagement';
 import type { ListingPreview } from '../../createListing/types';
 import { useCreateListingDraft } from '../../createListing/CreateListingDraftContext';
+import {
+  listingPricingAssistantEnabled,
+  marketplaceListingAiEnabled,
+} from '../../createListing/listingAiAssistantEnabled';
+import { ListingPricingPayoutCard } from '../../createListing/ListingPricingPayoutCard';
+import { resolvePricingItemPriceUsd } from '../../createListing/createListingReviewDisplay';
 import {
   AUCTION_DURATION_DAY_OPTIONS,
   countListingPhotos,
@@ -44,6 +51,8 @@ import {
 import { useSellerShipFromZipPrefill } from '../../createListing/useSellerShipFromZipPrefill';
 import type { CreateListingStackParamList } from '../../navigation/types';
 import { CreateListingChrome } from './CreateListingChrome';
+import { CreateListingFooter, WizardReviewBlock, wizardStyles } from './CreateListingWizardUI';
+import { useSaveListingDraft } from './useSaveListingDraft';
 import { useCreateListingFlow } from './createListingFlowHelpers';
 import { useCreateListingNavigation } from './useCreateListingNavigation';
 import {
@@ -57,65 +66,45 @@ import {
 import { colors, radii, spacing, typography } from '../../theme';
 
 function Footer({
+  accentPrimary,
   onBack,
   onNext,
   nextLabel,
   disabled,
 }: {
+  accentPrimary: string;
   onBack?: () => void;
   onNext: () => void;
   nextLabel: string;
   disabled?: boolean;
 }) {
+  const onSaveDraft = useSaveListingDraft();
   return (
-    <View style={foot.row}>
-      {onBack ? (
-        <Pressable style={foot.back} onPress={onBack}>
-          <Text style={foot.backTxt}>Back</Text>
-        </Pressable>
-      ) : (
-        <View style={{ flex: 1 }} />
-      )}
-      <Pressable
-        style={[foot.next, disabled && foot.nextOff]}
-        onPress={() => !disabled && onNext()}
-        disabled={disabled}
-      >
-        <Text style={foot.nextTxt}>{nextLabel}</Text>
-        <Ionicons name="arrow-forward" size={18} color={colors.background} />
-      </Pressable>
-    </View>
+    <CreateListingFooter
+      accentPrimary={accentPrimary}
+      onBack={onBack}
+      onNext={onNext}
+      nextLabel={nextLabel}
+      disabled={disabled}
+      onSaveDraft={onSaveDraft}
+    />
   );
 }
 
-const foot = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: 'auto', paddingVertical: spacing.lg },
-  back: { paddingVertical: spacing.md, paddingHorizontal: spacing.md },
-  backTxt: { color: colors.textMuted, fontWeight: '700', fontSize: 15 },
-  next: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.gold,
-    paddingVertical: spacing.lg,
-    borderRadius: radii.md,
-  },
-  nextOff: { opacity: 0.45 },
-  nextTxt: { color: colors.background, fontWeight: '800', fontSize: 16 },
-});
-
-function feePreview(t: (typeof LISTING_COMMERCE_OPTIONS)[number]['id'] | null): string {
+function feePreview(
+  t: (typeof LISTING_COMMERCE_OPTIONS)[number]['id'] | null,
+  platformFeePercent: number,
+): string {
+  const pct = platformFeePercent;
   switch (t) {
     case 'buy_now':
     case 'vault_drop':
-      return 'Est. success fee ~4.5% · Vaulted checkout included';
+      return `Est. success fee ${pct}% · Vaulted checkout included`;
     case 'auction':
     case 'live_auction':
-      return 'Hammer fee ~6% · reserve holds optional';
+      return `Hammer fee from ${pct}% · reserve holds optional`;
     case 'break_spot':
-      return 'Spot fee ~8% · lane tooling included';
+      return `Spot fee from ${pct}% · lane tooling included`;
     case 'trade_only':
       return 'Flat trade lane fee applies when offers lock';
     default:
@@ -127,9 +116,18 @@ export function CreateListingPricingScreen({
   navigation,
 }: NativeStackScreenProps<CreateListingStackParamList, 'CreateListingPricing'>) {
   const { form, setForm } = useCreateListingDraft();
+  const { platformFeePercent, feeRateLabel } = usePlatformFee();
   const { channel, accent, totalSteps, isLiveShow, step } = useCreateListingFlow();
+  const showPricingAssistant = listingPricingAssistantEnabled(isLiveShow);
   const { exitFlow, goBackStep } = useCreateListingNavigation();
   const t = form.listingType;
+  const pricingItemPriceUsd = useMemo(() => resolvePricingItemPriceUsd(form), [
+    form.buyNowPrice,
+    form.startingBid,
+    form.spotPrice,
+    form.listingType,
+  ]);
+  const showPayoutEstimate = t !== 'trade_only' && pricingItemPriceUsd > 0;
 
   const applyAiPrice = () => {
     if (!form.aiSuggestedPrice.trim()) return;
@@ -238,8 +236,8 @@ export function CreateListingPricingScreen({
       onBack={goBackStep}
       onExit={exitFlow}
     >
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scroll}>
-        {form.aiSuggestedPrice ? (
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={wizardStyles.scroll}>
+        {showPricingAssistant && form.aiSuggestedPrice ? (
           <View style={styles.aiPriceCard}>
             <Text style={styles.aiPriceK}>Pricing assistant</Text>
             <Text style={styles.aiPriceSuggested}>Suggested: {form.aiSuggestedPrice}</Text>
@@ -254,9 +252,18 @@ export function CreateListingPricingScreen({
           </View>
         ) : null}
         {body()}
-        <Text style={styles.fee}>{feePreview(t)}</Text>
+        {showPayoutEstimate ? (
+          <ListingPricingPayoutCard
+            itemPriceUsd={pricingItemPriceUsd}
+            platformFeePercent={platformFeePercent}
+            feeRateLabel={feeRateLabel}
+          />
+        ) : (
+          <Text style={styles.fee}>{feePreview(t, platformFeePercent)}</Text>
+        )}
       </ScrollView>
       <Footer
+        accentPrimary={accent.primary}
         onBack={() => navigation.goBack()}
         onNext={() =>
           isLiveShow ? navigation.navigate('CreateListingLiveShipping') : navigation.navigate('CreateListingShipping')
@@ -299,7 +306,7 @@ function Field({
         onChangeText={onChange}
         placeholder={placeholder}
         placeholderTextColor={colors.textMuted}
-        style={[styles.input, multiline && styles.inputMulti]}
+        style={[wizardStyles.fieldInput, multiline && styles.inputMulti]}
         multiline={multiline}
       />
     </View>
@@ -338,6 +345,7 @@ export function CreateListingReviewScreen({
   navigation,
 }: NativeStackScreenProps<CreateListingStackParamList, 'CreateListingReview'>) {
   const { form, setForm, saveDraft, completeAfterPublish } = useCreateListingDraft();
+  const { platformFeePercent, feeRateLabel } = usePlatformFee();
   const sellerShipFromZip = useSellerShipFromZipPrefill();
   const { session, user } = useAuth();
   const formForShipping = {
@@ -349,6 +357,8 @@ export function CreateListingReviewScreen({
   const publishLockRef = useRef(false);
   const publishRequestIdRef = useRef<string | null>(null);
   const { channel, accent, totalSteps, isLiveShow, step } = useCreateListingFlow();
+  const showListingAi = marketplaceListingAiEnabled(isLiveShow);
+  const showPricingAssistant = listingPricingAssistantEnabled(isLiveShow);
   const channelCfg = LISTING_CHANNEL_CONFIG[channel];
   const { exitFlow, goBackStep } = useCreateListingNavigation();
   const thumb = listingPhotoUri(form);
@@ -368,7 +378,10 @@ export function CreateListingReviewScreen({
 
   const aiReviewReasons = Array.isArray(form.aiReviewReasons) ? form.aiReviewReasons : [];
   const needsAck =
-    form.aiNeedsSellerConfirmation && aiReviewReasons.length > 0 && !form.aiAcknowledgedReviews;
+    showListingAi &&
+    form.aiNeedsSellerConfirmation &&
+    aiReviewReasons.length > 0 &&
+    !form.aiAcknowledgedReviews;
   const needsMarketplaceShipping =
     !isLiveShow &&
     !marketplaceShippingListingReady(formForShipping) &&
@@ -389,10 +402,10 @@ export function CreateListingReviewScreen({
 
   const verificationLine =
     form.verificationSource === 'visible_in_media'
-      ? 'Authentication visible in uploaded imagery — not proof of authenticity without Vaulted verification.'
+      ? 'Authentication visible in uploaded imagery — buyers should confirm condition and authenticity.'
       : form.verificationSource === 'seller_provided'
-        ? 'Seller-provided credentials — AI does not guarantee authenticity.'
-        : 'No authentication evidence highlighted — consider Vaulted Verification before going live.';
+        ? 'Seller-provided credentials — not independently verified by Get Vaulted.'
+        : 'No authentication evidence highlighted in this listing.';
 
   const exitToActiveListing = useCallback(
     (listingId: string, preview: ListingPreview) => {
@@ -479,14 +492,19 @@ export function CreateListingReviewScreen({
 
   const onSaveDraft = () => {
     saveDraft();
-    Alert.alert(
-      'Draft saved',
-      isLiveShow ? 'Resume from HQ → Live show listings.' : 'Resume from HQ → Marketplace listings.',
-    );
+    Alert.alert('Draft saved', 'Resume anytime from Seller Studio → Inventory.');
     navigation.getParent()?.goBack();
   };
 
   const sellerPrice = resolveSellerDisplayPrice(form);
+  const reviewItemPriceUsd = useMemo(() => resolvePricingItemPriceUsd(form), [
+    form.buyNowPrice,
+    form.startingBid,
+    form.spotPrice,
+    form.listingType,
+  ]);
+  const showReviewPayoutEstimate =
+    !isLiveShow && form.listingType !== 'trade_only' && reviewItemPriceUsd > 0;
 
   return (
     <CreateListingChrome
@@ -497,12 +515,12 @@ export function CreateListingReviewScreen({
       subtitle={
         isLiveShow
           ? 'Confirm on-air placement before adding to your show inventory.'
-          : 'Acquisition preview · marketplace discovery · verification upsells.'
+          : 'Acquisition preview · marketplace discovery · final check before publish.'
       }
       onBack={goBackStep}
       onExit={exitFlow}
     >
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scroll}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={wizardStyles.scroll}>
         {requiredIssues.length > 0 ? (
           <View style={styles.reviewIssuesCard}>
             <Text style={styles.reviewIssuesTitle}>Complete these before publishing</Text>
@@ -534,26 +552,38 @@ export function CreateListingReviewScreen({
           {asListingString(form.tags).trim() ? (
             <Text style={styles.previewTags}>Tags: {asListingString(form.tags).trim()}</Text>
           ) : null}
-          <Text style={styles.previewFee}>{feePreview(form.listingType)}</Text>
+          <Text style={styles.previewFee}>
+            {showReviewPayoutEstimate
+              ? `Get Vaulted success fee ${platformFeePercent}% · Vaulted checkout included`
+              : feePreview(form.listingType, platformFeePercent)}
+          </Text>
         </LinearGradient>
 
-        <Text style={styles.blockK}>Seller-confirmed economics</Text>
-        <Text style={styles.blockBody}>Your price: {sellerPrice}</Text>
-        {form.aiSuggestedPrice ? (
-          <Text style={styles.blockMuted}>AI suggested (reference only): {form.aiSuggestedPrice}</Text>
-        ) : null}
+        <WizardReviewBlock title="Seller-confirmed economics">
+          <Text style={wizardStyles.reviewLineStrong}>Your price: {sellerPrice}</Text>
+          {showReviewPayoutEstimate ? (
+            <ListingPricingPayoutCard
+              itemPriceUsd={reviewItemPriceUsd}
+              platformFeePercent={platformFeePercent}
+              feeRateLabel={feeRateLabel}
+            />
+          ) : null}
+          {showPricingAssistant && form.aiSuggestedPrice ? (
+            <Text style={wizardStyles.reviewLineMuted}>AI suggested (reference only): {form.aiSuggestedPrice}</Text>
+          ) : null}
+        </WizardReviewBlock>
 
-        <Text style={styles.blockK}>Shipping & fees</Text>
+        <WizardReviewBlock title="Shipping & fees">
         {isLiveShow ? (
           <>
-            <Text style={styles.blockBody}>
+            <Text style={wizardStyles.reviewLine}>
               Live profile: {liveProfile?.label ?? '—'} · {form.liveShippingPreset === 'advanced' ? 'Advanced' : 'Simplified'}
             </Text>
-            <Text style={styles.blockBody}>
+            <Text style={wizardStyles.reviewLine}>
               Ship from: {asListingString(formForShipping.liveShipFromZip).trim() || '—'}
               {form.liveBundleEligible ? ' · Eligible for in-show bundling' : ' · Single-line shipping (not bundled)'}
             </Text>
-            <Text style={styles.blockBody}>
+            <Text style={wizardStyles.reviewLine}>
               {liveProfile && !liveProfile.internationalEligible
                 ? 'Domestic only (profile)'
                 : form.liveShipInternational
@@ -563,10 +593,10 @@ export function CreateListingReviewScreen({
               · Shippo runs under the hood — buyers see tier-based bundles in the show, not marketplace rates.
             </Text>
             {asListingString(form.liveHandlingSurcharge).trim() ? (
-              <Text style={styles.blockMuted}>Handling surcharge: {asListingString(form.liveHandlingSurcharge).trim()}</Text>
+              <Text style={wizardStyles.reviewLineMuted}>Handling surcharge: {asListingString(form.liveHandlingSurcharge).trim()}</Text>
             ) : null}
             {form.liveShippingPreset === 'advanced' ? (
-              <Text style={styles.blockMuted}>
+              <Text style={wizardStyles.reviewLineMuted}>
                 Adv. package: {asListingString(form.liveAdvancedWeightLb).trim() || '—'} lb ·{' '}
                 {asListingString(form.liveAdvancedLengthIn).trim() || '—'}×
                 {asListingString(form.liveAdvancedWidthIn).trim() || '—'}×
@@ -577,48 +607,66 @@ export function CreateListingReviewScreen({
         ) : marketplaceShippingListingReady(formForShipping) ||
           (form.selectedShippoRate != null && isPackageDetailsComplete(formForShipping)) ? (
           <>
-            <Text style={styles.blockBody}>
+            <Text style={wizardStyles.reviewLine}>
               Buyer-chosen delivery — checkout loads live Shippo quotes; the default is the best-value option. Faster
               options show when you allow them. You print the exact label and service the buyer paid for.
             </Text>
-            <Text style={styles.blockBody}>
+            <Text style={wizardStyles.reviewLine}>
               {form.marketplaceShippingOfferScope === 'all'
                 ? 'You allow: all carrier services returned for this parcel.'
                 : form.marketplaceShippingOfferScope === 'no_overnight'
                   ? 'You allow: economy & standard lanes (overnight-style services excluded).'
                   : `You allow: ${form.marketplaceOfferableRateCount} specific service(s).`}
             </Text>
-            <Text style={styles.blockBody}>
+            <Text style={wizardStyles.reviewLine}>
               Package lane · ship from {asListingString(formForShipping.shipFromZip).trim() || '—'}
+              {form.marketplaceSellerShippingProfileId ? ' · saved shipping profile' : ''}
               {asListingString(form.shippingHandlingFee).trim()
                 ? ` · Handling add-on ${asListingString(form.shippingHandlingFee).trim()}`
                 : ''}
             </Text>
-            <Text style={styles.blockMuted}>
+            <Text style={wizardStyles.reviewLineMuted}>
+              {[
+                formForShipping.packageWeightLb.trim() || formForShipping.packageWeightOz.trim()
+                  ? `${formForShipping.packageWeightLb.trim() || '0'} lb ${formForShipping.packageWeightOz.trim() || '0'} oz`.replace(
+                      /^0 lb 0 oz$/,
+                      '',
+                    )
+                  : null,
+                formForShipping.packageLengthIn.trim() &&
+                formForShipping.packageWidthIn.trim() &&
+                formForShipping.packageHeightIn.trim()
+                  ? `${formForShipping.packageLengthIn}×${formForShipping.packageWidthIn}×${formForShipping.packageHeightIn} in`
+                  : null,
+              ]
+                .filter((line) => line && line !== '0 lb 0 oz')
+                .join(' · ')}
+            </Text>
+            <Text style={wizardStyles.reviewLineMuted}>
               {form.insurance ? 'Insurance available at label purchase · ' : ''}
               {form.signature ? 'Signature option · ' : ''}
               {form.international ? 'International quoting on' : 'Domestic benchmark lane'}
             </Text>
-            <Text style={styles.blockMuted}>Faster delivery options available at checkout.</Text>
+            <Text style={wizardStyles.reviewLineMuted}>Faster delivery options available at checkout.</Text>
           </>
         ) : (
-          <Text style={styles.blockBody}>
+          <Text style={wizardStyles.reviewLine}>
             Complete Shipping preferences — package details, rate preview, and at least one buyer-facing option.
           </Text>
         )}
-        <Text style={styles.blockMuted}>{feePreview(form.listingType)}</Text>
-
-        <Text style={styles.blockK}>Verification status</Text>
-        <Text style={styles.blockBody}>{verificationLine}</Text>
-        {form.vaultedVerification ? (
-          <Text style={styles.blockMuted}>Vaulted Verification add-on selected at publish.</Text>
+        {!showReviewPayoutEstimate ? (
+          <Text style={wizardStyles.reviewLineMuted}>{feePreview(form.listingType, platformFeePercent)}</Text>
         ) : null}
+        </WizardReviewBlock>
 
-        {form.aiNeedsSellerConfirmation ? (
-          <>
-            <Text style={styles.blockK}>Needs seller confirmation</Text>
+        <WizardReviewBlock title="Verification status">
+          <Text style={wizardStyles.reviewLine}>{verificationLine}</Text>
+        </WizardReviewBlock>
+
+        {showListingAi && form.aiNeedsSellerConfirmation ? (
+          <WizardReviewBlock title="Needs seller confirmation">
             {aiReviewReasons.map((r) => (
-              <Text key={r} style={styles.blockBody}>
+              <Text key={r} style={wizardStyles.reviewLine}>
                 · {asListingString(r)}
               </Text>
             ))}
@@ -631,15 +679,16 @@ export function CreateListingReviewScreen({
                 thumbColor={form.aiAcknowledgedReviews ? colors.gold : '#888'}
               />
             </View>
-          </>
+          </WizardReviewBlock>
         ) : null}
 
-        <Text style={styles.blockK}>{isLiveShow ? 'Live placement' : 'Marketplace placement'}</Text>
-        <Text style={styles.blockBody}>
-          {isLiveShow
-            ? 'Queued for your upcoming live show — can convert to marketplace after the show ends.'
-            : 'Discover rails + SEO discovery — can be pulled into a live show queue later.'}
-        </Text>
+        <WizardReviewBlock title={isLiveShow ? 'Live placement' : 'Marketplace placement'}>
+          <Text style={wizardStyles.reviewLine}>
+            {isLiveShow
+              ? 'Queued for your live show inventory — separate from marketplace listings.'
+              : 'Listed in marketplace discovery — separate from live show inventory.'}
+          </Text>
+        </WizardReviewBlock>
 
         <Text style={styles.blockK}>Mobile preview</Text>
         <View style={styles.mobileShell}>
@@ -654,20 +703,7 @@ export function CreateListingReviewScreen({
           </View>
         </View>
 
-        <Text style={styles.blockK}>Live integration</Text>
-        <Toggle
-          label="Feature in upcoming live show"
-          value={form.featureInLive}
-          onValueChange={(v) => setForm({ featureInLive: v, selectedLiveShowId: v ? form.selectedLiveShowId : null })}
-        />
-        {form.featureInLive ? (
-          <Text style={styles.blockBody}>
-            After your listing is live, open Seller HQ to attach it to a scheduled show. There are no bundled demo
-            shows in the app.
-          </Text>
-        ) : null}
-
-        <Text style={styles.blockK}>Buyer actions</Text>
+        <WizardReviewBlock title="Buyer actions">
         {!isLiveShow ? (
           <Toggle
             label="Accept offers"
@@ -684,27 +720,23 @@ export function CreateListingReviewScreen({
           />
         ) : null}
         <Toggle label="Accept trade offers" value={form.acceptTrades} onValueChange={(v) => setForm({ acceptTrades: v })} />
-
-        <Text style={styles.blockK}>Verification upsells</Text>
-        <Toggle label="Vaulted Verification" value={form.vaultedVerification} onValueChange={(v) => setForm({ vaultedVerification: v })} />
-        <Toggle label="White Glove Inspection" value={form.whiteGlove} onValueChange={(v) => setForm({ whiteGlove: v })} />
-        <Toggle label="Escrow Protection" value={form.escrowProtection} onValueChange={(v) => setForm({ escrowProtection: v })} />
+        </WizardReviewBlock>
 
         <View style={styles.dual}>
           <Pressable style={styles.draftBtn} onPress={onSaveDraft}>
             <Text style={styles.draftTxt}>Save draft</Text>
           </Pressable>
           <Pressable
-            style={[styles.pubBtn, (!canPublish || publishing) && styles.pubBtnOff]}
+            style={[styles.pubBtn, { backgroundColor: accent.primary }, (!canPublish || publishing) && styles.pubBtnOff]}
             onPress={() => void onPublish()}
             disabled={!canPublish || publishing}
           >
             {publishing ? (
-              <ActivityIndicator color={colors.background} />
+              <ActivityIndicator color="#0a0a0a" />
             ) : (
               <>
                 <Text style={styles.pubTxt}>Publish listing</Text>
-                <Ionicons name="rocket-outline" size={18} color={colors.background} />
+                <Ionicons name="rocket-outline" size={18} color="#0a0a0a" />
               </>
             )}
           </Pressable>
@@ -888,9 +920,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     paddingVertical: spacing.lg,
-    borderRadius: radii.md,
-    backgroundColor: colors.gold,
+    borderRadius: radii.lg,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    elevation: 6,
   },
-  pubBtnOff: { opacity: 0.4 },
-  pubTxt: { color: colors.background, fontWeight: '800', fontSize: 15 },
+  pubBtnOff: { opacity: 0.4, shadowOpacity: 0 },
+  pubTxt: { color: '#0a0a0a', fontWeight: '800', fontSize: 15 },
 });

@@ -38,9 +38,10 @@ import {
   estimateStripeProcessingFeeUsd,
   formatSellerPayoutStatus,
   STRIPE_FEE_RATE_LABEL,
-  VAULTED_FEE_RATE_LABEL,
-  VAULTED_PLATFORM_FEE_PERCENT,
+  VAULTED_PLATFORM_FEE_PERCENT_FALLBACK,
+  vaultedFeeRateLabel,
 } from '../../lib/sellerOrderPayoutDisplay';
+import { usePlatformFee } from '../../platform/PlatformFeeContext';
 import { orderHasPurchasedLabel } from '../../lib/sellerShippingLabelState';
 import { resolveSellerOrderTotals } from '../../lib/sellerOrderTotals';
 import type { RootStackParamList } from '../../navigation/types';
@@ -98,6 +99,7 @@ function StatusPill({ label, tone }: { label: string; tone: 'gold' | 'green' | '
 export function SellerOrderDetailScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
+  const { platformFeePercent: livePlatformFeePercent, feeRateLabel: liveFeeRateLabel } = usePlatformFee();
   const [labelActionBusy, setLabelActionBusy] = useState<'repair' | 'regenerate' | null>(null);
 
   const loadOrder = useCallback(async (): Promise<OrderBundle | null> => {
@@ -121,7 +123,10 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
 
   const orderTotals = detail ? resolveSellerOrderTotals(detail) : null;
   const saleAmountUsd = orderTotals?.itemPriceUsd ?? 0;
-  const vaultedFeePercent = detail?.platformFeePercent ?? VAULTED_PLATFORM_FEE_PERCENT;
+  const vaultedFeePercent = detail?.platformFeePercent ?? livePlatformFeePercent ?? VAULTED_PLATFORM_FEE_PERCENT_FALLBACK;
+  const orderFeeRateLabel = detail?.platformFeePercent != null
+    ? vaultedFeeRateLabel(vaultedFeePercent)
+    : liveFeeRateLabel;
   const platformFeeUsd =
     detail?.platformFeeEstimateUsd ?? estimatePlatformFeeUsd(saleAmountUsd, vaultedFeePercent);
   const stripeFeeUsd =
@@ -339,7 +344,7 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
               <Text style={styles.cardKicker}>Your payout</Text>
               <Text style={styles.lineStrong}>Status: {payoutStatus?.title ?? '—'}</Text>
               {payoutStatus?.detail ? <Text style={styles.line}>{payoutStatus.detail}</Text> : null}
-              <MoneyLine label={`Get Vaulted (${VAULTED_FEE_RATE_LABEL})`} value={`−${formatMoney(platformFeeUsd)}`} />
+              <MoneyLine label={`Get Vaulted (${orderFeeRateLabel})`} value={`−${formatMoney(platformFeeUsd)}`} />
               <MoneyLine label={`Stripe (${STRIPE_FEE_RATE_LABEL})`} value={`−${formatMoney(stripeFeeUsd)}`} />
               <View style={styles.divider} />
               <MoneyLine label="Est. payout" value={formatMoney(detail.payoutEstimateUsd ?? 0)} strong accent />

@@ -11,6 +11,7 @@ import {
   type LiveOrderRefundKind,
 } from "@/lib/order-refund-eligibility";
 import { serializeOrderRefundRequest, type OrderRefundRequestDto } from "@/lib/order-refund-types";
+import { fullRefundAmountCents } from "@/lib/sales-tax-charge";
 import { prisma } from "@/lib/prisma";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
@@ -495,6 +496,9 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
       paymentStatus: true,
       paymentMethod: true,
       stripePaymentIntentId: true,
+      itemPriceUsd: true,
+      shippingPriceUsd: true,
+      taxAmountCents: true,
       listing: { select: { title: true } },
     },
   });
@@ -516,11 +520,18 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
     throw new RefundRequestError("STRIPE_NOT_CONFIGURED", 503);
   }
 
+  const refundAmountCents = fullRefundAmountCents({
+    itemPriceUsd: order.itemPriceUsd,
+    shippingPriceUsd: order.shippingPriceUsd,
+    taxAmountCents: order.taxAmountCents ?? 0,
+  });
+
   const stripe = getStripe();
   let stripeRefundId: string | null = null;
   try {
     const refund = await stripe.refunds.create({
       payment_intent: order.stripePaymentIntentId,
+      amount: refundAmountCents,
       metadata: { orderId, refundRequestId, kind: "live_order_refund" },
     });
     stripeRefundId = refund.id;
@@ -538,6 +549,7 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
         status: "cancelled",
         payoutStatus: "blocked",
         payoutBlockedReason: "refunded",
+        taxRefundedCents: order.taxAmountCents ?? 0,
       },
     });
 

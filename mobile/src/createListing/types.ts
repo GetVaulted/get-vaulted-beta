@@ -122,13 +122,13 @@ export type CreateListingFormState = {
   packageWidthIn: string;
   packageHeightIn: string;
   shipFromZip: string;
-  /** Optional US buyer ZIP — improves zone-based domestic rate estimates when set. */
-  shipToZip: string;
   shippingHandlingFee: string;
   /** @deprecated Optional legacy single-rate snapshot; not required to publish. */
   selectedShippoRate: ListingShippoRate | null;
   /** Which Shippo services buyers may select at checkout (listing preview + persistence). */
   marketplaceShippingOfferScope: MarketplaceShippingOfferScope;
+  /** Seller shipping profile used to prefill parcel details on marketplace listings. */
+  marketplaceSellerShippingProfileId: string | null;
   /**
    * When scope is `custom`, allowed `carrier|serviceLevel` keys. Ignored for `all` / `no_overnight`.
    */
@@ -253,16 +253,16 @@ export const emptyCreateListingForm = (): CreateListingFormState => ({
   packageWidthIn: '',
   packageHeightIn: '',
   shipFromZip: '',
-  shipToZip: '',
   shippingHandlingFee: '',
   selectedShippoRate: null,
   marketplaceShippingOfferScope: 'all',
+  marketplaceSellerShippingProfileId: null,
   marketplaceAllowedRateKeys: [],
   marketplaceAllowedCarriers: [],
   marketplaceRatesPreviewOk: false,
   marketplaceOfferableRateCount: 0,
   insurance: false,
-  signature: true,
+  signature: false,
   international: false,
   featureInLive: false,
   selectedLiveShowId: null,
@@ -283,7 +283,7 @@ export const emptyCreateListingForm = (): CreateListingFormState => ({
   allowLayaway: false,
   vaultedVerification: false,
   whiteGlove: false,
-  escrowProtection: true,
+  escrowProtection: false,
   tags: '',
   aiScanCompleted: false,
   aiListingTypeRecommendation: null,

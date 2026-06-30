@@ -1,3 +1,4 @@
+import { LISTING_PRICING_ASSISTANT_ENABLED } from './listingAiAssistantEnabled';
 import type { CreateListingFormState, ListingCommerceType } from './types';
 
 /**
@@ -21,7 +22,11 @@ export function buildMockAiListingScan(form: CreateListingFormState): Partial<Cr
     patch.aiFieldBadges = { ...form.aiFieldBadges, title: 'ai_suggestion' };
   }
 
-  if (form.listingChannel === 'marketplace' && !form.buyNowPrice.trim()) {
+  if (
+    LISTING_PRICING_ASSISTANT_ENABLED &&
+    form.listingChannel === 'marketplace' &&
+    !form.buyNowPrice.trim()
+  ) {
     patch.aiSuggestedPrice = '149';
     patch.aiPriceReasoning = 'Starter ask based on similar marketplace listings — adjust before publishing.';
   }

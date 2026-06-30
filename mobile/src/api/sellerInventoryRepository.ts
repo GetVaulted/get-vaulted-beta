@@ -1,5 +1,6 @@
 import type { ListingChannel } from '../createListing/listingChannel';
 import type { ListingPreview } from '../createListing/types';
+import { resolveListingInventoryChannel } from '../lib/sellerInventoryBuckets';
 import { resolveListingImageUrl } from './mapWebMarketplaceListing';
 import {
   fetchListingWorkspaceFromWeb,
@@ -57,41 +58,28 @@ function storedToPreview(row: WebStoredListing, channel: ListingChannel): Listin
   };
 }
 
-function isSellerMarketplaceInventory(row: WebStoredListing): boolean {
-  const s = row.status;
-  return s === 'active' || s === 'auction_live' || s === 'ended';
-}
-
-function isLiveShowQueue(row: WebStoredListing): boolean {
-  return row.status === 'draft';
-}
-
 export type SellerInventorySnapshot = {
   marketplace: ListingPreview[];
   liveShow: ListingPreview[];
+  all: ListingPreview[];
 };
 
 export async function fetchSellerInventoryFromWeb(accessToken: string): Promise<SellerInventorySnapshot> {
-  console.log('[inventory] fetch seller marketplace listings');
-  console.log('[inventory] fetch live queue');
-
   const [mine, workspace] = await Promise.all([
     fetchMyListingsFromWeb(accessToken),
     fetchListingWorkspaceFromWeb(accessToken),
   ]);
 
   const workspaceId = workspace?.id ?? null;
+  const rows = mine.filter((row) => row.id !== workspaceId);
 
-  const marketplace = mine
-    .filter((row) => isSellerMarketplaceInventory(row))
-    .map((row) => storedToPreview(row, 'marketplace'));
+  const all = rows.map((row) => {
+    const channel = resolveListingInventoryChannel(row);
+    return storedToPreview(row, channel);
+  });
 
-  const liveShow = mine
-    .filter((row) => isLiveShowQueue(row) && row.id !== workspaceId)
-    .map((row) => storedToPreview(row, 'live_show'));
+  const marketplace = all.filter((l) => l.channel === 'marketplace');
+  const liveShow = all.filter((l) => l.channel === 'live_show');
 
-  console.log(`[inventory] hydrated ${marketplace.length} marketplace listings`);
-  console.log(`[inventory] hydrated ${liveShow.length} live show listings`);
-
-  return { marketplace, liveShow };
+  return { marketplace, liveShow, all };
 }

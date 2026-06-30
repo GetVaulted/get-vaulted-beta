@@ -98,7 +98,7 @@ import {
 } from '../../lib/liveRoomViewport';
 import { isCompactLiveRoomLayout, liveRoomOverlayScale } from '../../lib/liveRoomUiScale';
 import { scaledComposerBarHeight } from '../../lib/liveRoomBottomLayout';
-import { shareLiveStreamNative } from '../../lib/shareLiveRoomNative';
+import { LiveRoomShareSheet } from './LiveRoomShareSheet';
 import { prefetchLiveStreamRooms } from '../../lib/liveStreamPrefetchCache';
 import type { LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
 import type { LiveRoomLineupItemSnapshot } from '../../lib/liveBuyerQueueProjection';
@@ -210,6 +210,7 @@ function LiveSlide({
   const [preBidItem, setPreBidItem] = useState<LiveRoomLineupItemSnapshot | null>(null);
   const [preBidBusy, setPreBidBusy] = useState(false);
   const [tipOpen, setTipOpen] = useState(false);
+  const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [roomPaymentMethodId, setRoomPaymentMethodId] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportChatMessage, setReportChatMessage] = useState<ChatMessage | null>(null);
@@ -807,15 +808,8 @@ function LiveSlide({
     if (rootNavigationRef.isReady()) rootNavigationRef.navigate('Settings');
   };
 
-  const shareRoom = async () => {
-    try {
-      const shared = await shareLiveStreamNative(stream);
-      if (shared && signedIn && accessToken) {
-        void liveChat.announceShare();
-      }
-    } catch {
-      /* cancelled */
-    }
+  const openShareSheet = () => {
+    setShareSheetOpen(true);
   };
 
   const handleShopItemPress = useCallback(
@@ -1199,11 +1193,7 @@ function LiveSlide({
         <Pressable
           style={styles.railBtn}
           onPress={() => {
-            if (!signedIn) {
-              onRequireAuth?.();
-              return;
-            }
-            void shareRoom();
+            openShareSheet();
           }}
         >
           <Ionicons name="share-outline" size={railIconSize} color="rgba(255,255,255,0.92)" />
@@ -1520,6 +1510,19 @@ function LiveSlide({
           onError={(msg) => Alert.alert('Tip', msg)}
         />
       ) : null}
+      <LiveRoomShareSheet
+        visible={shareSheetOpen}
+        onClose={() => setShareSheetOpen(false)}
+        roomId={stream.id}
+        showTitle={stream.title}
+        hostUsername={stream.host.handle.replace(/^@+/, '') || stream.host.name}
+        isLive={roomStatus === 'live'}
+        accessToken={accessToken}
+        onInAppShareSent={() => {
+          if (signedIn && accessToken) void liveChat.announceShare();
+        }}
+        onToast={(msg) => Alert.alert('Share', msg)}
+      />
       <ReportSheet
         visible={reportOpen}
         onClose={() => setReportOpen(false)}

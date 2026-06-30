@@ -109,8 +109,8 @@ export function LiveBreakSpotGridSheet({
     return Math.round(selected.priceUsd * quantity * 100) / 100;
   }, [quantity, selected]);
 
-  const estimatedTotal = checkoutPreview?.estimatedTotalUsd ?? spotPrice;
-  const chargeNow = checkoutPreview?.chargeNowUsd ?? spotPrice;
+  const totalDue = checkoutPreview?.chargeNowUsd ?? spotPrice;
+  const chargeNow = totalDue;
 
   useEffect(() => {
     if (!visible) {
@@ -417,11 +417,8 @@ export function LiveBreakSpotGridSheet({
 
           <View style={styles.stickyBar}>
             <View style={styles.totalCol}>
-              <LiveRoomText style={styles.totalLabel}>Est. total</LiveRoomText>
-              <LiveRoomText style={styles.totalValue}>{selected ? fmtMoney(estimatedTotal) : '—'}</LiveRoomText>
-              {selected && walletReady ? (
-                <LiveRoomText style={styles.chargeNowNote}>Charged now {fmtMoney(chargeNow)}</LiveRoomText>
-              ) : null}
+              <LiveRoomText style={styles.totalLabel}>Total due</LiveRoomText>
+              <LiveRoomText style={styles.totalValue}>{selected ? fmtMoney(totalDue) : '—'}</LiveRoomText>
             </View>
             <View style={styles.payCol}>
               <HoldToBidButton

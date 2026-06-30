@@ -11,6 +11,7 @@ import type { ListingMediaItem, ListingPreview } from './types';
 import { applyOptionalAiScanPatch, hasConfidentAiSuggestions } from './applyOptionalAiScan';
 import { buildMockAiListingScan } from './mockAiListingScan';
 import { listingAssistantReply } from './listingAssistantReplies';
+import { MARKETPLACE_LISTING_AI_ENABLED } from './listingAiAssistantEnabled';
 import { sanitizeSubcategoriesForCategory } from './listingCategoryTaxonomy';
 import type { ListingChannel } from './listingChannel';
 import { normalizeCategoryId } from '../types';
@@ -147,7 +148,6 @@ export function CreateListingDraftProvider({ children }: { children: ReactNode }
     setFormState({
       ...emptyCreateListingForm(),
       listingChannel: channel,
-      featureInLive: channel === 'live_show',
     });
     setEditingDraftId(null);
     setAssistantMessages(WELCOME_ASSISTANT);
@@ -349,6 +349,7 @@ export function CreateListingDraftProvider({ children }: { children: ReactNode }
   }, [promptAddPhotos]);
 
   const runAiMediaScan = useCallback(async () => {
+    if (formRef.current.listingChannel === 'marketplace' && !MARKETPLACE_LISTING_AI_ENABLED) return;
     setFormState((s) => {
       const patch = buildMockAiListingScan(s);
       const hasSuggestions = hasConfidentAiSuggestions(patch);
@@ -373,6 +374,7 @@ export function CreateListingDraftProvider({ children }: { children: ReactNode }
   }, []);
 
   const sendAssistantPrompt = useCallback((text: string) => {
+    if (formRef.current.listingChannel === 'marketplace' && !MARKETPLACE_LISTING_AI_ENABLED) return;
     const trimmed = text.trim();
     if (!trimmed) return;
     const reply = listingAssistantReply(trimmed, formRef.current);

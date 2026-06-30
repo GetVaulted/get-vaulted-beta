@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
-import { createOrderFromAcceptedOffer, declineOtherOpenOffersOnListing } from "@/lib/offer-fulfillment";
+import { createOrderFromAcceptedOffer, declineOtherOpenOffersOnListing, loadBuyerShipToForOffer } from "@/lib/offer-fulfillment";
 import { createNotification } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 
@@ -66,6 +66,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         return NextResponse.json({ error: "Listing already sold." }, { status: 409 });
       }
 
+      const shipTo = await loadBuyerShipToForOffer(offer.buyerId);
+      const defaultAddr = shipTo
+        ? await prisma.address.findFirst({
+            where: { userId: offer.buyerId, isDefault: true },
+            select: { id: true },
+          })
+        : null;
+
       const { orderId } = await prisma.$transaction(async (tx) => {
         const r = await createOrderFromAcceptedOffer(tx, {
           listingId: listing.id,
@@ -74,6 +82,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
           sellerId: offer.sellerId,
           itemPriceUsd: offer.amountUsd,
           shippingPriceUsd: listing.shippingPriceUsd,
+          shipTo,
+          buyerAddressId: defaultAddr?.id ?? null,
         });
         await tx.offer.update({
           where: { id: offerId },
@@ -149,6 +159,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
       const price = offer.counterAmountUsd;
 
+      const shipTo = await loadBuyerShipToForOffer(offer.buyerId);
+      const defaultAddr = shipTo
+        ? await prisma.address.findFirst({
+            where: { userId: offer.buyerId, isDefault: true },
+            select: { id: true },
+          })
+        : null;
+
       const { orderId } = await prisma.$transaction(async (tx) => {
         const r = await createOrderFromAcceptedOffer(tx, {
           listingId: listing.id,
@@ -157,6 +175,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
           sellerId: offer.sellerId,
           itemPriceUsd: price,
           shippingPriceUsd: listing.shippingPriceUsd,
+          shipTo,
+          buyerAddressId: defaultAddr?.id ?? null,
         });
         await tx.offer.update({
           where: { id: offerId },

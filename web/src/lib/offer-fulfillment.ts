@@ -8,18 +8,36 @@ import {
 } from "@/lib/live-auction-inventory-hold";
 import { createNotification } from "@/lib/notifications";
 import { addOrderToLiveShippingSessionTx } from "@/services/shipping/live-shipping-pricing";
-import { AUCTION_WINNER_PAYMENT_WINDOW_MS } from "@/services/payments";
+import { AUCTION_WINNER_PAYMENT_WINDOW_MS, PAYMENT_PENDING } from "@/services/payments";
+import { prisma } from "@/lib/prisma";
+import type { ShipToAddress } from "@/lib/stripe-tax";
 
-const OFFER_SHIP = {
-  shipRecipientName: "Offer accepted",
-  shipAddress: "Coordinate shipping with the seller",
+const OFFER_SHIP_PLACEHOLDER = {
+  shipRecipientName: "Add shipping address",
+  shipAddress: "Complete checkout with your delivery address",
   shipCity: "—",
   shipState: "—",
   shipZip: "00000",
   shipCountry: "US",
 } as const;
 
-/** Creates an order at the agreed price and marks the listing sold. Caller must run inside a transaction. */
+export async function loadBuyerShipToForOffer(buyerId: string): Promise<ShipToAddress | null> {
+  const addr = await prisma.address.findFirst({
+    where: { userId: buyerId, isDefault: true },
+    orderBy: { updatedAt: "desc" },
+  });
+  if (!addr?.state?.trim() || !addr.postalCode?.trim()) return null;
+  return {
+    shipRecipientName: addr.fullName?.trim() || addr.name?.trim() || "Buyer",
+    shipAddress: [addr.line1, addr.line2].filter(Boolean).join(", "),
+    shipCity: addr.city,
+    shipState: addr.state,
+    shipZip: addr.postalCode,
+    shipCountry: addr.country ?? "US",
+  };
+}
+
+/** Creates an unpaid order at the agreed price — buyer pays via Checkout (sales tax applied at payment). */
 export async function createOrderFromAcceptedOffer(
   tx: TransactionClient,
   params: {
@@ -29,6 +47,8 @@ export async function createOrderFromAcceptedOffer(
     sellerId: string;
     itemPriceUsd: number;
     shippingPriceUsd: number;
+    shipTo?: ShipToAddress | null;
+    buyerAddressId?: string | null;
   },
 ): Promise<{ orderId: string }> {
   const existingOrder = await tx.order.findUnique({
@@ -45,12 +65,14 @@ export async function createOrderFromAcceptedOffer(
         status: { in: ["active", "auction_live"] },
         moderationRemovedAt: null,
       },
-      data: { status: "sold" },
+      data: { status: "awaiting_auction_payment" },
     });
     return { orderId: existingOrder.id };
   }
 
+  const ship = params.shipTo ?? OFFER_SHIP_PLACEHOLDER;
   const totalUsd = params.itemPriceUsd + params.shippingPriceUsd;
+  const paymentDeadlineAt = new Date(Date.now() + AUCTION_WINNER_PAYMENT_WINDOW_MS);
   await reserveListingInventoryHoldTx(tx, {
     listingId: params.listingId,
     userId: params.buyerId,
@@ -67,11 +89,13 @@ export async function createOrderFromAcceptedOffer(
         shippingPriceUsd: params.shippingPriceUsd,
         taxUsd: 0,
         totalUsd,
-        status: "paid",
-        paymentStatus: "paid",
+        status: "pending",
+        paymentStatus: PAYMENT_PENDING,
         fulfillmentStatus: "pending",
-        paymentLabel: "offer",
-        ...OFFER_SHIP,
+        paymentLabel: "",
+        paymentDeadlineAt,
+        buyerAddressId: params.buyerAddressId ?? undefined,
+        ...ship,
       },
       select: { id: true },
     });
@@ -101,7 +125,7 @@ export async function createOrderFromAcceptedOffer(
             status: { in: ["active", "auction_live"] },
             moderationRemovedAt: null,
           },
-          data: { status: "sold" },
+          data: { status: "awaiting_auction_payment" },
         });
         return { orderId: recovered.id };
       }
@@ -121,7 +145,7 @@ export async function createOrderFromAcceptedOffer(
       status: { in: ["active", "auction_live"] },
       moderationRemovedAt: null,
     },
-    data: { status: "sold" },
+    data: { status: "awaiting_auction_payment" },
   });
   if (sold.count !== 1) {
     throw new Error("LISTING_UNAVAILABLE");
@@ -132,14 +156,14 @@ export async function createOrderFromAcceptedOffer(
     userId: params.buyerId,
     type: "offer_accepted",
     title: "Offer accepted",
-    body: `Your offer on “${titleShort}” was accepted. View your order to continue.`,
+    body: `Your offer on “${titleShort}” was accepted. Complete payment to finalize — sales tax applies where required.`,
     href: `/orders/${encodeURIComponent(orderId)}`,
   });
   await createNotification(tx, {
     userId: params.sellerId,
-    type: "item_sold",
-    title: "Item sold",
-    body: `“${titleShort}” sold.`,
+    type: "offer_accepted_pending_payment",
+    title: "Offer accepted — awaiting payment",
+    body: `“${titleShort}” — buyer must complete checkout (including sales tax where required).`,
     href: "/account/sales",
   });
 

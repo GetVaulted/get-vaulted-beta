@@ -94,10 +94,7 @@ export function SellerHQCommandCenter({
 
   return (
     <View style={styles.wrap}>
-      <View style={styles.studioHeader}>
-        <Text style={styles.studioTitle}>Seller Studio</Text>
-        <Text style={styles.studioSub}>Your operating desk for listings, events, and fulfillment.</Text>
-      </View>
+      <Text style={styles.studioSub}>Listings, live events, and fulfillment — one desk.</Text>
 
       {showSetupBanner ? (
         <SellerHQPremiumBanner
@@ -152,7 +149,5 @@ export function SellerHQCommandCenter({
 
 const styles = StyleSheet.create({
   wrap: { gap: spacing.lg },
-  studioHeader: { marginBottom: -spacing.xs },
-  studioTitle: { fontSize: 28, fontWeight: '900', color: colors.textPrimary, letterSpacing: -0.5 },
-  studioSub: { fontSize: 13, color: colors.textMuted, marginTop: 4, lineHeight: 18 },
+  studioSub: { fontSize: 14, color: colors.textSecondary, lineHeight: 20, marginTop: -spacing.xs },
 });

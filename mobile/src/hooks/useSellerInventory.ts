@@ -5,7 +5,7 @@ import { subscribeHomeFeedInvalidation } from '../lib/homeFeedCache';
 import { isSupabaseConfigured } from '../lib/supabase';
 import type { SellerReloadOptions } from './sellerReloadOptions';
 
-const EMPTY: SellerInventorySnapshot = { marketplace: [], liveShow: [] };
+const EMPTY: SellerInventorySnapshot = { marketplace: [], liveShow: [], all: [] };
 
 export function useSellerInventory(accessToken: string | undefined, enabled: boolean) {
   const [data, setData] = useState<SellerInventorySnapshot>(EMPTY);
@@ -67,5 +67,5 @@ export function useSellerInventory(accessToken: string | undefined, enabled: boo
     await reload({ silent: true });
   }, [reload]);
 
-  return { ...data, loading, refreshing, loadedOnce, refresh, reload };
+  return { ...data, loading, refreshing, loadedOnce, refresh, reload, all: data.all ?? [...data.marketplace, ...data.liveShow] };
 }

@@ -13,6 +13,7 @@ import { createLayawayDepositCheckout } from "@/services/layaway";
 import { isValidLayawayPlan } from "@/lib/layaway/eligibility";
 import { CommerceGuardError, commerceGuardErrorToHttp } from "@/lib/marketplace/commerce-guards";
 import type { LayawayPlanType } from "@/generated/prisma/client";
+import { ensureMarketplacePlatformFeeCache } from "@/services/platform-fee-settings";
 
 type Body = {
   kind?: string;
@@ -47,6 +48,7 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
   if (auth instanceof NextResponse) return auth;
 
   try {
+    await ensureMarketplacePlatformFeeCache();
     await processAuctionPaymentExpiries();
   } catch (e) {
     console.error("[checkout] processAuctionPaymentExpiries", e);

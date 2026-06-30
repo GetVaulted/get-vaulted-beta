@@ -57,7 +57,7 @@ import { liveBidMetaFallbackPollMs } from "@/lib/live-fallback-poll-intervals";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 import { logAuctionTimer } from "@/lib/auction-timer-sync";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
-import { shareLiveRoomNative } from "@/lib/share-live-room-native";
+import { LiveRoomShareSheet } from "@/components/live-auction/LiveRoomShareSheet";
 import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
 import type { VariantPurchasedMergePayload } from "@/lib/live-room-variant-merge";
 import { isVariantSalesFormat, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
@@ -297,6 +297,7 @@ export function LiveSaleRoom({
   const [buyerLineupOpen, setBuyerLineupOpen] = useState(false);
   const isBuyerDesktop = useBuyerLiveDesktop();
   const [tipOpen, setTipOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [roomPaymentMethodId, setRoomPaymentMethodId] = useState<string | null>(null);
   useLayoutEffect(() => {
     const mq = window.matchMedia("(min-width: 1280px)");
@@ -810,20 +811,9 @@ export function LiveSaleRoom({
     toast,
   ]);
 
-  const handleShare = useCallback(async () => {
-    const showTitle = roomTitle?.trim() || liveTitle;
-    try {
-      const ok = await shareLiveRoomNative({
-        roomId: liveRoomId,
-        showTitle,
-        hostUsername: sellerShopUsername ?? hostDisplayName.replace(/^@+/, ""),
-        category: roomCategory,
-      });
-      if (ok) toast("Shared.");
-    } catch {
-      toast("Could not share right now.");
-    }
-  }, [hostDisplayName, liveRoomId, liveTitle, roomCategory, roomTitle, sellerShopUsername, toast]);
+  const handleShare = useCallback(() => {
+    setShareOpen(true);
+  }, []);
 
   const handleWallet = useCallback(() => {
     if (status !== "authenticated") {
@@ -1654,6 +1644,17 @@ export function LiveSaleRoom({
         }}
         onSuccess={() => toast("Tip sent — thanks for supporting the show!")}
         onError={(msg) => toast(msg)}
+      />
+      <LiveRoomShareSheet
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        roomId={liveRoomId}
+        showTitle={roomTitle?.trim() || liveTitle}
+        hostUsername={sellerShopUsername ?? hostDisplayName.replace(/^@+/, "")}
+        isLive={isLive}
+        category={roomCategory}
+        canNotifyFollowers={isHost}
+        onToast={toast}
       />
     </div>
   );

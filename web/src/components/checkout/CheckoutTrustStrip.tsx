@@ -38,7 +38,8 @@ export function CheckoutTrustStrip({ compact = false }: { compact?: boolean }) {
   );
 }
 
-const SALES_TAX_NOTE = "Sales tax is calculated securely at checkout when required.";
+const SALES_TAX_NOTE =
+  "Get Vaulted collects applicable sales tax based on your delivery address where required. Tax is shown before you pay.";
 const PAYMENT_NOTE =
   "Payment is processed securely through Stripe. Your order is confirmed only after payment succeeds.";
 

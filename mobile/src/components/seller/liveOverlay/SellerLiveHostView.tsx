@@ -44,7 +44,7 @@ import { isVariantSalesFormat } from '../../../lib/liveItemVariant';
 import { parseVariantPurchasedRandomClaim } from '../../../lib/liveVariantSpotBoard';
 import { useSellerLiveConsole } from '../../../hooks/useSellerLiveConsole';
 import { useHostGiveawayActions, pickHostStageGiveaway } from '../../../hooks/useHostGiveawayActions';
-import { shareLiveRoomNative } from '../../../lib/shareLiveRoomNative';
+import { LiveRoomShareSheet } from '../../live/LiveRoomShareSheet';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { SellerLiveBroadcastSheet } from './SellerLiveBroadcastSheet';
 import { SellerLiveOverlayHeader } from './SellerLiveOverlayHeader';
@@ -137,6 +137,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [salesOpen, setSalesOpen] = useState(false);
   const [shareToast, setShareToast] = useState<string | null>(null);
+  const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [chatDraft, setChatDraft] = useState('');
   const chatComposerRef = useRef<MentionComposerInputHandle>(null);
   const [modDrawerOpen, setModDrawerOpen] = useState(false);
@@ -211,18 +212,9 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const headerPaddingTop = insets.top + 6;
   const hostGivvyRailTop = headerPaddingTop + sellerHeaderBlockHeight() + 4;
 
-  const handleShare = useCallback(async () => {
-    const shared = await shareLiveRoomNative({
-      roomId,
-      showTitle: streamTitle,
-      hostUsername: sellerUsername ?? user?.email?.split('@')[0] ?? 'Host',
-      isLive: roomLive,
-    });
-    if (shared) {
-      setShareToast('Shared.');
-      setTimeout(() => setShareToast(null), 2200);
-    }
-  }, [roomId, roomLive, sellerUsername, streamTitle, user?.email]);
+  const handleShare = useCallback(() => {
+    setShareSheetOpen(true);
+  }, []);
 
   const commerceBottom = Math.max(insets.bottom, spacing.xs);
   const displayItem = console.activeItem;
@@ -853,6 +845,18 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
           <Text style={styles.toastTxt}>{shareToast}</Text>
         </View>
       ) : null}
+
+      <LiveRoomShareSheet
+        visible={shareSheetOpen}
+        onClose={() => setShareSheetOpen(false)}
+        roomId={roomId}
+        showTitle={streamTitle}
+        hostUsername={sellerUsername ?? user?.email?.split('@')[0] ?? 'Host'}
+        isLive={roomLive}
+        accessToken={accessToken}
+        canNotifyFollowers
+        onToast={(msg) => showGiveawayToast(msg)}
+      />
 
       <SellerLiveQueueSheet
         visible={queueOpen}

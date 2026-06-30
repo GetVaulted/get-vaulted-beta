@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet } from 'react-native';
 import { AuthProvider } from './src/auth/AuthContext';
+import { PlatformFeeProvider } from './src/platform/PlatformFeeContext';
 import { loadHomeFeedCache } from './src/lib/homeFeedCache';
 import { configureGlobalTextScaling } from './src/lib/appUiScale';
 import {
@@ -34,9 +35,11 @@ export default function App() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <AppLayoutProvider>
-        <AuthProvider>
-          <RootNavigator />
-        </AuthProvider>
+        <PlatformFeeProvider>
+          <AuthProvider>
+            <RootNavigator />
+          </AuthProvider>
+        </PlatformFeeProvider>
       </AppLayoutProvider>
       <StatusBar style="light" />
     </GestureHandlerRootView>

@@ -12,9 +12,16 @@ import {
   View,
 } from 'react-native';
 import { fetchListingShippoRates } from '../../api/shippoListingRatesRepository';
+import { fetchSellerShippingProfiles, type LiveHostShippingProfileOption } from '../../api/liveHostShippingRepository';
+import { useAuth } from '../../auth/AuthContext';
 import { useCreateListingDraft } from '../../createListing/CreateListingDraftContext';
 import { useSellerShipFromZipPrefill } from '../../createListing/useSellerShipFromZipPrefill';
 import { LISTING_FLOW_STEP } from '../../createListing/listingChannel';
+import {
+  formatSellerProfileParcelSummary,
+  packageFieldsFromSellerProfile,
+  suggestMarketplaceShippingProfileId,
+} from '../../createListing/marketplaceShippingProfile';
 import {
   formatListingRatePrice,
   isLikelyOvernightOrExpressAirRate,
@@ -23,6 +30,7 @@ import {
   marketplaceCarrierLabel,
   marketplaceListingRateKey,
   marketplaceOfferableRates,
+  normalizeMarketplaceCarrierKey,
   parsePackageNumber,
   packageWeightLbTotal,
   uniqueCarriersFromRates,
@@ -32,8 +40,11 @@ import {
 import type { CreateListingStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
 import { CreateListingChrome } from './CreateListingChrome';
+import { CreateListingFooter, wizardStyles } from './CreateListingWizardUI';
+import { useSaveListingDraft } from './useSaveListingDraft';
 import { useCreateListingFlow } from './createListingFlowHelpers';
 import { useCreateListingNavigation } from './useCreateListingNavigation';
+import { resolveSellerAccessToken } from '../../lib/resolveSellerAccessToken';
 
 function ShippingField({
   label,
@@ -64,69 +75,75 @@ function ShippingField({
 }
 
 function Footer({
+  accentPrimary,
   onBack,
   onNext,
   nextLabel,
   disabled,
 }: {
+  accentPrimary: string;
   onBack?: () => void;
   onNext: () => void;
   nextLabel: string;
   disabled?: boolean;
 }) {
+  const onSaveDraft = useSaveListingDraft();
   return (
-    <View style={styles.footRow}>
-      {onBack ? (
-        <Pressable style={styles.footBack} onPress={onBack}>
-          <Text style={styles.footBackTxt}>Back</Text>
-        </Pressable>
-      ) : (
-        <View style={{ flex: 1 }} />
-      )}
-      <Pressable style={[styles.footNext, disabled && styles.footNextOff]} onPress={() => !disabled && onNext()} disabled={disabled}>
-        <Text style={styles.footNextTxt}>{nextLabel}</Text>
-        <Ionicons name="arrow-forward" size={18} color={colors.background} />
-      </Pressable>
-    </View>
+    <CreateListingFooter
+      accentPrimary={accentPrimary}
+      onBack={onBack}
+      onNext={onNext}
+      nextLabel={nextLabel}
+      disabled={disabled}
+      onSaveDraft={onSaveDraft}
+    />
   );
 }
 
 const SCOPE_OPTIONS: { id: MarketplaceShippingOfferScope; label: string; sub: string }[] = [
-  { id: 'all', label: 'All services', sub: 'Buyers see every quote Shippo returns for this package' },
+  {
+    id: 'all',
+    label: 'All services',
+    sub: 'Every carrier Shippo returns for this parcel — buyers pick the best-value lane per carrier at checkout.',
+  },
   {
     id: 'no_overnight',
     label: 'No overnight / next-day air',
-    sub: 'Ground & slower · hides overnight-style lanes (heuristic)',
+    sub: 'Same as all services, but overnight and next-day air lanes are hidden from buyers.',
   },
-  { id: 'custom', label: 'Pick carriers', sub: 'Choose USPS, UPS, FedEx, etc. — only carriers Shippo returns for your package' },
+  {
+    id: 'custom',
+    label: 'Pick carriers',
+    sub: 'Limit checkout to specific carriers (USPS, UPS, FedEx, etc.) — only ones Shippo returns for this parcel.',
+  },
 ];
+
+function carriersForOfferScope(
+  scope: MarketplaceShippingOfferScope,
+  selectedCarriers: string[],
+  allCarriers: string[],
+): string[] {
+  if (scope !== 'custom') return [];
+  const filtered = selectedCarriers.filter((k) => allCarriers.includes(k));
+  return filtered.length > 0 ? filtered : allCarriers;
+}
 
 function RatePreviewCard({
   rate,
-  mode,
-  allowed,
-  excluded,
+  scope,
   handlingFee,
-  onToggleAllowed,
 }: {
   rate: ListingShippoRate;
-  mode: MarketplaceShippingOfferScope;
-  allowed: boolean;
-  excluded: boolean;
+  scope: MarketplaceShippingOfferScope;
   handlingFee: number;
-  onToggleAllowed: () => void;
 }) {
+  const excluded = scope === 'no_overnight' && isLikelyOvernightOrExpressAirRate(rate);
   const title = listingRateLabel(rate);
   const price = formatListingRatePrice(rate.amount, rate.currency, handlingFee);
 
   return (
-    <View style={[styles.rateCard, excluded && styles.rateCardMuted, mode === 'custom' && allowed && styles.rateCardOn]}>
+    <View style={[styles.rateCard, excluded && styles.rateCardMuted]}>
       <View style={styles.rateHead}>
-        {mode === 'custom' ? (
-          <Pressable style={styles.checkHit} onPress={onToggleAllowed} hitSlop={8}>
-            <Ionicons name={allowed ? 'checkbox' : 'square-outline'} size={22} color={allowed ? colors.gold : colors.textMuted} />
-          </Pressable>
-        ) : null}
         <View style={{ flex: 1 }}>
           <Text style={styles.rateTitle}>{title}</Text>
           <Text style={styles.rateEta}>{rate.estimatedDelivery}</Text>
@@ -141,13 +158,11 @@ function RatePreviewCard({
               <Text style={styles.rateMuted}>Tracking varies by service</Text>
             )}
           </View>
-          {mode === 'no_overnight' && excluded ? (
+          {excluded ? (
             <Text style={styles.rateExcl}>Not offered — overnight / express rule</Text>
-          ) : null}
-          {mode === 'all' ? <Text style={styles.rateIncl}>Available to buyers at checkout</Text> : null}
-          {mode === 'no_overnight' && !excluded ? <Text style={styles.rateIncl}>Available to buyers at checkout</Text> : null}
-          {mode === 'custom' && allowed ? <Text style={styles.rateIncl}>Allowed for buyers</Text> : null}
-          {mode === 'custom' && !allowed ? <Text style={styles.rateExcl}>Unchecked — not offered</Text> : null}
+          ) : (
+            <Text style={styles.rateIncl}>Available to buyers at checkout</Text>
+          )}
         </View>
       </View>
     </View>
@@ -158,12 +173,17 @@ export function CreateListingShippingScreen({
   navigation,
 }: NativeStackScreenProps<CreateListingStackParamList, 'CreateListingShipping'>) {
   const { form, setForm } = useCreateListingDraft();
+  const { session } = useAuth();
   const sellerShipFromZip = useSellerShipFromZipPrefill();
-  const { channel, totalSteps } = useCreateListingFlow();
+  const { channel, accent, totalSteps } = useCreateListingFlow();
   const { exitFlow, goBackStep } = useCreateListingNavigation();
   const formRef = useRef(form);
   formRef.current = form;
   const effectiveShipFromZip = form.shipFromZip.trim() || sellerShipFromZip || '';
+
+  const [shippingProfiles, setShippingProfiles] = useState<LiveHostShippingProfileOption[]>([]);
+  const [profilesLoading, setProfilesLoading] = useState(true);
+  const [profilesLoadError, setProfilesLoadError] = useState<string | null>(null);
 
   const [rates, setRates] = useState<ListingShippoRate[]>([]);
   const [loading, setLoading] = useState(false);
@@ -179,18 +199,92 @@ export function CreateListingShippingScreen({
 
   const packageReady = isPackageDetailsComplete({ ...form, shipFromZip: effectiveShipFromZip });
 
-  const offerablePreview = useMemo(
-    () =>
-      marketplaceOfferableRates(
-        rates,
-        form.marketplaceShippingOfferScope,
-        form.marketplaceAllowedRateKeys,
-        form.marketplaceAllowedCarriers,
-      ),
-    [rates, form.marketplaceShippingOfferScope, form.marketplaceAllowedRateKeys, form.marketplaceAllowedCarriers],
+  const selectedProfile = useMemo(
+    () => shippingProfiles.find((p) => p.id === form.marketplaceSellerShippingProfileId) ?? null,
+    [shippingProfiles, form.marketplaceSellerShippingProfileId],
   );
 
+  const loadShippingProfiles = useCallback(async () => {
+    setProfilesLoading(true);
+    setProfilesLoadError(null);
+    try {
+      const token = await resolveSellerAccessToken(session?.access_token ?? undefined);
+      const profiles = await fetchSellerShippingProfiles(token);
+      setShippingProfiles(profiles);
+      if (profiles.length === 0) {
+        setProfilesLoadError('Could not load shipping profiles. Tap Retry or manage profiles in Seller HQ.');
+      }
+    } catch (e) {
+      setShippingProfiles([]);
+      setProfilesLoadError(e instanceof Error ? e.message : 'Could not load shipping profiles.');
+    } finally {
+      setProfilesLoading(false);
+    }
+  }, [session?.access_token]);
+
+  useEffect(() => {
+    void loadShippingProfiles();
+  }, [loadShippingProfiles]);
+
+  const applyProfileSelection = useCallback(
+    (profileId: string, profiles: LiveHostShippingProfileOption[]) => {
+      const profile = profiles.find((p) => p.id === profileId);
+      if (!profile) return;
+      const pkg = packageFieldsFromSellerProfile(profile);
+      setForm({
+        marketplaceSellerShippingProfileId: profileId,
+        ...pkg,
+        selectedShippoRate: null,
+        shippingMethod: '',
+        marketplaceRatesPreviewOk: false,
+        marketplaceOfferableRateCount: 0,
+      });
+    },
+    [setForm],
+  );
+
+  useEffect(() => {
+    if (profilesLoading || shippingProfiles.length === 0) return;
+
+    const currentId = formRef.current.marketplaceSellerShippingProfileId;
+    const currentValid = currentId && shippingProfiles.some((p) => p.id === currentId);
+    if (currentValid) return;
+
+    const suggestedId = suggestMarketplaceShippingProfileId(
+      shippingProfiles,
+      formRef.current.category,
+      formRef.current.subcategories,
+    );
+    if (suggestedId) {
+      applyProfileSelection(suggestedId, shippingProfiles);
+    }
+  }, [profilesLoading, shippingProfiles, applyProfileSelection]);
+
+  const selectProfile = (profileId: string) => {
+    applyProfileSelection(profileId, shippingProfiles);
+  };
+
+  const offerablePreview = useMemo(() => {
+    const carrierKeys = uniqueCarriersFromRates(rates);
+    const carrierFilter = carriersForOfferScope(
+      form.marketplaceShippingOfferScope,
+      form.marketplaceAllowedCarriers,
+      carrierKeys,
+    );
+    return marketplaceOfferableRates(rates, form.marketplaceShippingOfferScope, [], carrierFilter);
+  }, [rates, form.marketplaceShippingOfferScope, form.marketplaceAllowedCarriers]);
+
   const previewCarriers = useMemo(() => uniqueCarriersFromRates(rates), [rates]);
+
+  const previewRates = useMemo(() => {
+    const scope = form.marketplaceShippingOfferScope;
+    let list = [...rates];
+    if (scope === 'custom') {
+      const allowed = new Set(form.marketplaceAllowedCarriers.map(normalizeMarketplaceCarrierKey));
+      list = list.filter((r) => allowed.has(normalizeMarketplaceCarrierKey(r.carrier)));
+    }
+    return list.sort((a, b) => Number(a.amount) - Number(b.amount));
+  }, [rates, form.marketplaceShippingOfferScope, form.marketplaceAllowedCarriers]);
 
   const applyRatesResult = useCallback(
     (nextRates: ListingShippoRate[]) => {
@@ -200,11 +294,12 @@ export function CreateListingShippingScreen({
       if (carriers.length === 0 && carrierKeys.length > 0) {
         carriers = carrierKeys;
       }
+      const carrierFilter = carriersForOfferScope(f.marketplaceShippingOfferScope, carriers, carrierKeys);
       const offerable = marketplaceOfferableRates(
         nextRates,
         f.marketplaceShippingOfferScope,
-        f.marketplaceAllowedRateKeys,
-        carriers,
+        [],
+        carrierFilter,
       );
       setForm({
         marketplaceAllowedCarriers: carriers,
@@ -231,7 +326,6 @@ export function CreateListingShippingScreen({
     const zip = (formRef.current.shipFromZip.trim() || sellerShipFromZip || '')
       .replace(/\D/g, '')
       .slice(0, 5);
-    const shipTo = formRef.current.shipToZip.replace(/\D/g, '').slice(0, 5);
 
     const reqId = ++requestIdRef.current;
     setLoading(true);
@@ -239,7 +333,6 @@ export function CreateListingShippingScreen({
 
     const result = await fetchListingShippoRates({
       shipFromZip: zip,
-      shipToZip: shipTo.length === 5 ? shipTo : undefined,
       weightLb: weight,
       lengthIn: length,
       widthIn: width,
@@ -288,7 +381,6 @@ export function CreateListingShippingScreen({
     form.packageWidthIn,
     form.packageHeightIn,
     form.shipFromZip,
-    form.shipToZip,
     form.international,
     sellerShipFromZip,
   ]);
@@ -316,7 +408,6 @@ export function CreateListingShippingScreen({
     packageWidthIn?: string;
     packageHeightIn?: string;
     shipFromZip?: string;
-    shipToZip?: string;
   }) => {
     setForm({
       ...patch,
@@ -329,14 +420,16 @@ export function CreateListingShippingScreen({
 
   const setScope = (scope: MarketplaceShippingOfferScope) => {
     const f = formRef.current;
-    const offerable = marketplaceOfferableRates(
-      rates,
-      scope,
-      f.marketplaceAllowedRateKeys,
-      f.marketplaceAllowedCarriers,
-    );
+    const carrierKeys = uniqueCarriersFromRates(rates);
+    let carriers = f.marketplaceAllowedCarriers.filter((k) => carrierKeys.includes(k));
+    if (scope === 'custom' && carriers.length === 0) {
+      carriers = carrierKeys;
+    }
+    const carrierFilter = carriersForOfferScope(scope, carriers, carrierKeys);
+    const offerable = marketplaceOfferableRates(rates, scope, [], carrierFilter);
     setForm({
       marketplaceShippingOfferScope: scope,
+      marketplaceAllowedCarriers: carriers,
       marketplaceOfferableRateCount: offerable.length,
       marketplaceRatesPreviewOk: rates.length > 0,
       selectedShippoRate: null,
@@ -345,16 +438,14 @@ export function CreateListingShippingScreen({
   };
 
   const toggleCarrier = (carrierKey: string) => {
+    if (formRef.current.marketplaceShippingOfferScope !== 'custom') return;
     const set = new Set(formRef.current.marketplaceAllowedCarriers);
     if (set.has(carrierKey)) set.delete(carrierKey);
     else set.add(carrierKey);
     const nextCarriers = [...set];
-    const offerable = marketplaceOfferableRates(
-      rates,
-      formRef.current.marketplaceShippingOfferScope,
-      formRef.current.marketplaceAllowedRateKeys,
-      nextCarriers,
-    );
+    const carrierKeys = uniqueCarriersFromRates(rates);
+    const carrierFilter = carriersForOfferScope('custom', nextCarriers, carrierKeys);
+    const offerable = marketplaceOfferableRates(rates, 'custom', [], carrierFilter);
     setForm({
       marketplaceAllowedCarriers: nextCarriers,
       marketplaceOfferableRateCount: offerable.length,
@@ -364,12 +455,18 @@ export function CreateListingShippingScreen({
     });
   };
 
+  const profileRequired = shippingProfiles.length > 0;
+  const profileOk = !profileRequired || Boolean(form.marketplaceSellerShippingProfileId?.trim());
+  const scopeCarriersOk =
+    form.marketplaceShippingOfferScope !== 'custom' || form.marketplaceAllowedCarriers.length > 0;
+
   const canContinue =
+    profileOk &&
+    scopeCarriersOk &&
     packageReady &&
     !loading &&
     rates.length > 0 &&
-    form.marketplaceOfferableRateCount > 0 &&
-    form.marketplaceAllowedCarriers.length > 0;
+    form.marketplaceOfferableRateCount > 0;
 
   return (
     <CreateListingChrome
@@ -383,7 +480,7 @@ export function CreateListingShippingScreen({
     >
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={wizardStyles.scroll}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.callout}>
@@ -394,29 +491,114 @@ export function CreateListingShippingScreen({
           </Text>
         </View>
 
-        <Text style={styles.sectionK}>Package details</Text>
-        <Text style={styles.sectionHint}>Shippo uses this for live quotes at checkout and for label purchase.</Text>
+        <Text style={styles.sectionK}>Shipping profile</Text>
+        <Text style={styles.sectionHint}>
+          Pick a saved profile from Seller HQ — it pre-fills weight and box size. You can still tweak the parcel below.
+        </Text>
+        <View style={styles.profileWrap}>
+          {profilesLoading ? (
+            <View style={styles.stateBox}>
+              <ActivityIndicator color={colors.gold} />
+              <Text style={styles.stateTxt}>Loading shipping profiles…</Text>
+            </View>
+          ) : shippingProfiles.length === 0 ? (
+            <View style={styles.stateBox}>
+              <Ionicons name="cube-outline" size={22} color={colors.textMuted} />
+              <Text style={styles.stateTxt}>
+                {profilesLoadError ?? 'No shipping profiles available. Enter package details manually below.'}
+              </Text>
+              <Pressable style={styles.retryBtn} onPress={() => void loadShippingProfiles()}>
+                <Text style={styles.retryTxt}>Retry</Text>
+              </Pressable>
+            </View>
+          ) : (
+            shippingProfiles.map((profile) => {
+              const selected = form.marketplaceSellerShippingProfileId === profile.id;
+              return (
+                <Pressable
+                  key={profile.id}
+                  style={[styles.profileCard, selected && styles.profileCardOn]}
+                  onPress={() => selectProfile(profile.id)}
+                >
+                  <View style={styles.profileHead}>
+                    <Ionicons
+                      name={selected ? 'radio-button-on' : 'radio-button-off'}
+                      size={20}
+                      color={selected ? colors.gold : colors.textMuted}
+                    />
+                    <Text style={[styles.profileName, selected && styles.profileNameOn]}>
+                      {profile.name}
+                      {profile.isDefault ? ' · default' : ''}
+                    </Text>
+                  </View>
+                  <Text style={styles.profileMeta}>{formatSellerProfileParcelSummary(profile)}</Text>
+                </Pressable>
+              );
+            })
+          )}
+        </View>
 
-        <View style={styles.dimRow}>
-          <View style={styles.dimHalf}>
-            <ShippingField
-              label="Weight (lb)"
-              value={form.packageWeightLb}
-              onChange={(t) => patchPackage({ packageWeightLb: t })}
-              placeholder="0"
-              keyboardType="decimal-pad"
-            />
+        <View style={styles.packageCard}>
+          <Text style={styles.packageCardK}>Package weight & size</Text>
+          <Text style={styles.packageCardHint}>
+            {selectedProfile
+              ? `From ${selectedProfile.name} — adjust if this listing ships differently.`
+              : 'Enter weight and dimensions together — Shippo uses this for live quotes at checkout.'}
+          </Text>
+
+          <View style={styles.dimRow}>
+            <View style={styles.dimHalf}>
+              <ShippingField
+                label="Weight (lb)"
+                value={form.packageWeightLb}
+                onChange={(t) => patchPackage({ packageWeightLb: t })}
+                placeholder="0"
+                keyboardType="decimal-pad"
+              />
+            </View>
+            <View style={styles.dimHalf}>
+              <ShippingField
+                label="Weight (oz)"
+                value={form.packageWeightOz}
+                onChange={(t) => patchPackage({ packageWeightOz: t })}
+                placeholder="8"
+                keyboardType="decimal-pad"
+              />
+            </View>
           </View>
-          <View style={styles.dimHalf}>
-            <ShippingField
-              label="Weight (oz)"
-              value={form.packageWeightOz}
-              onChange={(t) => patchPackage({ packageWeightOz: t })}
-              placeholder="8"
-              keyboardType="decimal-pad"
-            />
+
+          <View style={styles.dimRow}>
+            <View style={styles.dimThird}>
+              <ShippingField
+                label="Length (in)"
+                value={form.packageLengthIn}
+                onChange={(t) => patchPackage({ packageLengthIn: t })}
+                placeholder="10"
+                keyboardType="decimal-pad"
+              />
+            </View>
+            <View style={styles.dimThird}>
+              <ShippingField
+                label="Width (in)"
+                value={form.packageWidthIn}
+                onChange={(t) => patchPackage({ packageWidthIn: t })}
+                placeholder="8"
+                keyboardType="decimal-pad"
+              />
+            </View>
+            <View style={styles.dimThird}>
+              <ShippingField
+                label="Height (in)"
+                value={form.packageHeightIn}
+                onChange={(t) => patchPackage({ packageHeightIn: t })}
+                placeholder="4"
+                keyboardType="decimal-pad"
+              />
+            </View>
           </View>
         </View>
+
+        <Text style={styles.sectionK}>Ship from</Text>
         {sellerShipFromZip ? (
           <View style={styles.fieldBlock}>
             <Text style={styles.fieldLbl}>Ship-from ZIP</Text>
@@ -432,45 +614,6 @@ export function CreateListingShippingScreen({
             keyboardType="number-pad"
           />
         )}
-        {!form.international ? (
-          <ShippingField
-            label="Ship-to ZIP (optional)"
-            value={form.shipToZip}
-            onChange={(t) => patchPackage({ shipToZip: t })}
-            placeholder="Buyer region — for zone-based estimates"
-            keyboardType="number-pad"
-          />
-        ) : null}
-
-        <View style={styles.dimRow}>
-          <View style={styles.dimThird}>
-            <ShippingField
-              label="Length (in)"
-              value={form.packageLengthIn}
-              onChange={(t) => patchPackage({ packageLengthIn: t })}
-              placeholder="10"
-              keyboardType="decimal-pad"
-            />
-          </View>
-          <View style={styles.dimThird}>
-            <ShippingField
-              label="Width (in)"
-              value={form.packageWidthIn}
-              onChange={(t) => patchPackage({ packageWidthIn: t })}
-              placeholder="8"
-              keyboardType="decimal-pad"
-            />
-          </View>
-          <View style={styles.dimThird}>
-            <ShippingField
-              label="Height (in)"
-              value={form.packageHeightIn}
-              onChange={(t) => patchPackage({ packageHeightIn: t })}
-              placeholder="4"
-              keyboardType="decimal-pad"
-            />
-          </View>
-        </View>
 
         <ShippingField
           label="Handling fee (optional)"
@@ -503,8 +646,8 @@ export function CreateListingShippingScreen({
 
         <Text style={styles.sectionK}>Buyer shipping options</Text>
         <Text style={styles.sectionHint}>
-          Choose how much flexibility buyers get. Use “Choose services” to match USPS Ground + Priority but block
-          overnight lanes.
+          Choose how carrier lanes appear at checkout. The preview below is a sample from your ship-from ZIP — buyers
+          see live prices for their address.
         </Text>
         {SCOPE_OPTIONS.map((opt) => {
           const on = form.marketplaceShippingOfferScope === opt.id;
@@ -523,38 +666,42 @@ export function CreateListingShippingScreen({
           );
         })}
 
+        {form.marketplaceShippingOfferScope === 'custom' && previewCarriers.length > 0 ? (
+          <>
+            <Text style={styles.sectionHint}>Select which carriers buyers can choose from:</Text>
+            <View style={styles.carrierRow}>
+              {previewCarriers.map((carrierKey) => {
+                const on = form.marketplaceAllowedCarriers.includes(carrierKey);
+                return (
+                  <Pressable
+                    key={carrierKey}
+                    style={[styles.carrierChip, on && styles.carrierChipOn]}
+                    onPress={() => toggleCarrier(carrierKey)}
+                  >
+                    <Text style={[styles.carrierChipTxt, on && styles.carrierChipTxtOn]}>
+                      {marketplaceCarrierLabel(carrierKey)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
+
         <Text style={styles.sectionK}>Live rate preview</Text>
         <Text style={styles.sectionHint}>
-          Sample quotes for your parcel — buyers pay the option they select. Add ship-to ZIP for zone-accurate
-          previews.
+          Sample quotes for your parcel from your ship-from ZIP. Buyers see live prices at checkout based on their
+          address.
         </Text>
         {!packageReady ? (
           <Text style={styles.sectionHint}>Enter package weight, dimensions, and ship-from ZIP to load rates.</Text>
         ) : null}
         {offerablePreview.length > 0 ? (
           <Text style={styles.summaryLine}>
-            {form.marketplaceOfferableRateCount} carrier option{form.marketplaceOfferableRateCount !== 1 ? 's' : ''} will be
-            offered at checkout.
+            {form.marketplaceOfferableRateCount} carrier lane{form.marketplaceOfferableRateCount !== 1 ? 's' : ''} will be
+            offered at checkout
+            {previewCarriers.length === 1 ? ` (${marketplaceCarrierLabel(previewCarriers[0]!)} returned for this preview)` : ''}.
           </Text>
-        ) : null}
-
-        {previewCarriers.length > 0 ? (
-          <View style={styles.carrierRow}>
-            {previewCarriers.map((carrierKey) => {
-              const on = form.marketplaceAllowedCarriers.includes(carrierKey);
-              return (
-                <Pressable
-                  key={carrierKey}
-                  style={[styles.carrierChip, on && styles.carrierChipOn]}
-                  onPress={() => toggleCarrier(carrierKey)}
-                >
-                  <Text style={[styles.carrierChipTxt, on && styles.carrierChipTxtOn]}>
-                    {marketplaceCarrierLabel(carrierKey)}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
         ) : null}
 
         {loading ? (
@@ -591,15 +738,12 @@ export function CreateListingShippingScreen({
         ) : null}
 
         {!loading
-          ? offerablePreview.map((rate) => (
+          ? previewRates.map((rate) => (
               <RatePreviewCard
                 key={marketplaceListingRateKey(rate)}
                 rate={rate}
-                mode="all"
-                allowed
-                excluded={false}
+                scope={form.marketplaceShippingOfferScope}
                 handlingFee={handlingFee}
-                onToggleAllowed={() => {}}
               />
             ))
           : null}
@@ -631,6 +775,7 @@ export function CreateListingShippingScreen({
       </ScrollView>
 
       <Footer
+        accentPrimary={accent.primary}
         onBack={() => navigation.goBack()}
         onNext={() => navigation.navigate('CreateListingReview')}
         nextLabel="Review"
@@ -713,6 +858,30 @@ const styles = StyleSheet.create({
   dimRow: { flexDirection: 'row', gap: spacing.sm },
   dimHalf: { flex: 1 },
   dimThird: { flex: 1 },
+  profileWrap: { gap: spacing.sm },
+  profileCard: {
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceElevated,
+    gap: 4,
+  },
+  profileCardOn: { borderColor: colors.gold, backgroundColor: 'rgba(212,175,55,0.06)' },
+  profileHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  profileName: { color: colors.textPrimary, fontWeight: '800', fontSize: 15, flex: 1 },
+  profileNameOn: { color: colors.gold },
+  profileMeta: { color: colors.textMuted, fontSize: 12, lineHeight: 17, marginLeft: 28 },
+  packageCard: {
+    padding: spacing.lg,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surfaceElevated,
+    gap: spacing.sm,
+  },
+  packageCardK: { color: colors.textPrimary, fontWeight: '800', fontSize: 16 },
+  packageCardHint: { color: colors.textMuted, fontSize: 13, lineHeight: 18, marginBottom: spacing.xs },
   toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',

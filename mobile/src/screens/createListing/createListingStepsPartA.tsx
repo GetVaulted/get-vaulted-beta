@@ -33,64 +33,44 @@ import {
   LIVE_INVENTORY_PHOTOS,
 } from '../../createListing/types';
 import { commerceOptionsForChannel } from '../../createListing/listingChannel';
+import { marketplaceListingAiEnabled } from '../../createListing/listingAiAssistantEnabled';
 import type { CreateListingStackParamList } from '../../navigation/types';
 import { CreateListingChrome } from './CreateListingChrome';
+import { CreateListingFooter, WizardInfoBanner, wizardStyles } from './CreateListingWizardUI';
+import { useSaveListingDraft } from './useSaveListingDraft';
 import { MarketplaceDraggableMediaList } from './MarketplaceDraggableMediaList';
 import { useCreateListingFlow } from './createListingFlowHelpers';
 import { useCreateListingNavigation } from './useCreateListingNavigation';
 import { colors, radii, spacing, typography } from '../../theme';
 
 function Footer({
+  accentPrimary,
   onBack,
   onNext,
   nextLabel,
   backLabel = 'Back',
   disabled,
 }: {
+  accentPrimary: string;
   onBack?: () => void;
   onNext: () => void;
   nextLabel: string;
   backLabel?: string;
   disabled?: boolean;
 }) {
+  const onSaveDraft = useSaveListingDraft();
   return (
-    <View style={foot.row}>
-      {onBack ? (
-        <Pressable style={foot.back} onPress={onBack}>
-          <Text style={foot.backTxt}>{backLabel}</Text>
-        </Pressable>
-      ) : (
-        <View style={{ flex: 1 }} />
-      )}
-      <Pressable
-        style={[foot.next, disabled && foot.nextOff]}
-        onPress={() => !disabled && onNext()}
-        disabled={disabled}
-      >
-        <Text style={foot.nextTxt}>{nextLabel}</Text>
-        <Ionicons name="arrow-forward" size={18} color={colors.background} />
-      </Pressable>
-    </View>
+    <CreateListingFooter
+      accentPrimary={accentPrimary}
+      onBack={onBack}
+      onNext={onNext}
+      nextLabel={nextLabel}
+      backLabel={backLabel}
+      disabled={disabled}
+      onSaveDraft={onSaveDraft}
+    />
   );
 }
-
-const foot = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: 'auto', paddingVertical: spacing.lg },
-  back: { paddingVertical: spacing.md, paddingHorizontal: spacing.md },
-  backTxt: { color: colors.textMuted, fontWeight: '700', fontSize: 15 },
-  next: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.gold,
-    paddingVertical: spacing.lg,
-    borderRadius: radii.md,
-  },
-  nextOff: { opacity: 0.45 },
-  nextTxt: { color: colors.background, fontWeight: '800', fontSize: 16 },
-});
 
 export function CreateListingMediaScreen({
   navigation,
@@ -99,6 +79,7 @@ export function CreateListingMediaScreen({
   const { form, setForm, addMockPhoto, promptAddPhotos, removeMedia, setMediaOrder, startFresh, loadDraft, runAiMediaScan, beginListingChannel } =
     useCreateListingDraft();
   const { channel, accent, totalSteps, isLiveShow, step } = useCreateListingFlow();
+  const showListingAi = marketplaceListingAiEnabled(isLiveShow);
 
   const photoCount = countListingPhotos(form.media);
   const minPhotos = isLiveShow ? LIVE_INVENTORY_PHOTOS : LISTING_MIN_PHOTOS;
@@ -195,19 +176,20 @@ export function CreateListingMediaScreen({
           : `Luxury listing gallery · ${LISTING_MIN_PHOTOS}–${LISTING_MAX_PHOTOS} photos (required). Optional video.`
       }
     >
-      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-        <View style={[styles.aiAssistBanner, { borderColor: accent.border, backgroundColor: accent.fill }]}>
-          <Ionicons name="sparkles-outline" size={20} color={accent.primary} />
-          <Text style={styles.aiAssistBannerText}>
+      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={wizardStyles.scroll}>
+        {isLiveShow || showListingAi ? (
+          <WizardInfoBanner accentPrimary={accent.primary} accentFill={accent.fill} accentBorder={accent.border}>
             Vault AI will review your media and suggest listing details when possible. You can edit everything before
             publishing.
-          </Text>
-        </View>
-        <View style={styles.dropZone}>
+          </WizardInfoBanner>
+        ) : null}
+        <View style={[wizardStyles.dropZone, { borderColor: accent.border }]}>
           <LinearGradient colors={accent.gradient} style={StyleSheet.absoluteFillObject} />
-          <Ionicons name="images-outline" size={36} color={accent.primary} />
-          <Text style={styles.dropTitle}>{isLiveShow ? 'Upload thumbnail' : 'Add photos & video'}</Text>
-          <Text style={styles.dropSub}>
+          <View style={[wizardStyles.optionIconWrap, { borderColor: accent.border, backgroundColor: accent.fill }]}>
+            <Ionicons name="images-outline" size={22} color={accent.primary} />
+          </View>
+          <Text style={wizardStyles.dropTitle}>{isLiveShow ? 'Upload thumbnail' : 'Add photos & video'}</Text>
+          <Text style={wizardStyles.dropSub}>
             {isLiveShow
               ? photoCount >= LIVE_INVENTORY_PHOTOS
                 ? 'Thumbnail ready'
@@ -217,15 +199,21 @@ export function CreateListingMediaScreen({
                 }${!atPhotoMax ? ' · select multiple at once' : ''}`}
           </Text>
           {!atPhotoMax ? (
-            <View style={styles.dropActions}>
-              <Pressable style={styles.addBtn} onPress={() => void promptAddPhotos()}>
+            <View style={wizardStyles.dropActions}>
+              <Pressable
+                style={[wizardStyles.dropActionBtn, { borderColor: accent.border }]}
+                onPress={() => void promptAddPhotos()}
+              >
                 <Ionicons name="camera-outline" size={18} color={accent.primary} />
-                <Text style={styles.addTxt}>{isLiveShow ? 'Upload thumbnail' : 'Add photos'}</Text>
+                <Text style={wizardStyles.dropActionTxt}>{isLiveShow ? 'Upload thumbnail' : 'Add photos'}</Text>
               </Pressable>
               {!isLiveShow ? (
-                <Pressable style={styles.addBtn} onPress={() => addMockPhoto('video')}>
+                <Pressable
+                  style={[wizardStyles.dropActionBtn, { borderColor: accent.border }]}
+                  onPress={() => addMockPhoto('video')}
+                >
                   <Ionicons name="videocam-outline" size={18} color={accent.primary} />
-                  <Text style={styles.addTxt}>Add video</Text>
+                  <Text style={wizardStyles.dropActionTxt}>Add video</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -233,10 +221,9 @@ export function CreateListingMediaScreen({
         </View>
 
         {!isLiveShow && form.media.length > 0 ? (
-          <View style={[styles.reorderNote, { borderColor: accent.border, backgroundColor: accent.fill }]}>
-            <Ionicons name="hand-left-outline" size={18} color={accent.primary} />
-            <Text style={styles.reorderNoteText}>To change the order, press and drag.</Text>
-          </View>
+          <WizardInfoBanner accentPrimary={accent.primary} accentFill={accent.fill} accentBorder={accent.border} icon="hand-left-outline">
+            To change the order, press and drag.
+          </WizardInfoBanner>
         ) : null}
 
         {!isLiveShow && form.media.length > 0 ? (
@@ -268,13 +255,14 @@ export function CreateListingMediaScreen({
         )}
       </ScrollView>
       <Footer
+        accentPrimary={accent.primary}
         onBack={goBackStep}
         backLabel="Back"
         onNext={() => {
           navigation.navigate('CreateListingType');
-          void runAiMediaScan();
+          if (showListingAi) void runAiMediaScan();
         }}
-        nextLabel="Continue to details"
+        nextLabel="Continue"
         disabled={!canContinue}
       />
     </CreateListingChrome>
@@ -286,6 +274,7 @@ export function CreateListingTypeScreen({
 }: NativeStackScreenProps<CreateListingStackParamList, 'CreateListingType'>) {
   const { form, setForm } = useCreateListingDraft();
   const { channel, accent, totalSteps, isLiveShow, step } = useCreateListingFlow();
+  const showListingAi = marketplaceListingAiEnabled(isLiveShow);
   const { exitFlow, goBackStep } = useCreateListingNavigation();
   const rec = form.aiListingTypeRecommendation;
   const recLabel = rec ? LISTING_COMMERCE_OPTIONS.find((o) => o.id === rec)?.label : null;
@@ -305,8 +294,8 @@ export function CreateListingTypeScreen({
       onBack={goBackStep}
       onExit={exitFlow}
     >
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scroll}>
-        {form.aiScanCompleted && !(rec && recLabel) ? (
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={wizardStyles.scroll}>
+        {showListingAi && form.aiScanCompleted && !(rec && recLabel) ? (
           <View style={styles.aiAssistBanner}>
             <Ionicons name="sparkles-outline" size={18} color={colors.gold} />
             <Text style={styles.aiAssistBannerText}>
@@ -315,7 +304,7 @@ export function CreateListingTypeScreen({
             </Text>
           </View>
         ) : null}
-        {rec && recLabel ? (
+        {showListingAi && rec && recLabel ? (
           <View style={styles.aiBanner}>
             <Text style={styles.aiBannerK}>Optional AI lane suggestion</Text>
             <Text style={styles.aiBannerBody}>
@@ -339,7 +328,11 @@ export function CreateListingTypeScreen({
           return (
             <Pressable
               key={opt.id}
-              style={[styles.typeCard, on && styles.typeCardOn, on && { borderColor: accent.border }]}
+              style={[
+                wizardStyles.optionCard,
+                on && wizardStyles.optionCardSelected,
+                on && { borderColor: accent.border, backgroundColor: accent.fill },
+              ]}
               onPress={() =>
                 setForm({
                   listingType: opt.id,
@@ -347,14 +340,16 @@ export function CreateListingTypeScreen({
                 })
               }
             >
-              <Ionicons name={opt.icon} size={22} color={on ? accent.primary : colors.textMuted} />
+              <View style={[wizardStyles.optionIconWrap, { borderColor: accent.border, backgroundColor: accent.fill }]}>
+                <Ionicons name={opt.icon} size={20} color={on ? accent.primary : colors.textMuted} />
+              </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.typeTitle}>{opt.label}</Text>
-                <Text style={styles.typeSub}>{opt.sub}</Text>
+                <Text style={wizardStyles.optionTitle}>{opt.label}</Text>
+                <Text style={wizardStyles.optionSub}>{opt.sub}</Text>
               </View>
               <Ionicons
-                name={on ? 'radio-button-on' : 'radio-button-off'}
-                size={22}
+                name={on ? 'checkmark-circle' : 'ellipse-outline'}
+                size={24}
                 color={on ? accent.primary : colors.textMuted}
               />
             </Pressable>
@@ -362,6 +357,7 @@ export function CreateListingTypeScreen({
         })}
       </ScrollView>
       <Footer
+        accentPrimary={accent.primary}
         onBack={() => navigation.goBack()}
         onNext={() => {
           if (!form.listingType) return;
@@ -405,13 +401,17 @@ export function CreateListingCategoryScreen({
       onBack={goBackStep}
       onExit={exitFlow}
     >
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scroll}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={wizardStyles.scroll}>
         {LISTING_CATEGORY_OPTIONS.map((c) => {
           const on = form.category === c.id;
           return (
             <Pressable
               key={c.id}
-              style={[styles.catCard, on && styles.catCardOn, on && { borderColor: accent.border }]}
+              style={[
+                wizardStyles.optionCard,
+                on && wizardStyles.optionCardSelected,
+                on && { borderColor: accent.border, backgroundColor: accent.fill },
+              ]}
               onPress={() =>
                 setForm({
                   category: c.id,
@@ -420,8 +420,8 @@ export function CreateListingCategoryScreen({
                 })
               }
             >
-              <Text style={styles.catTitle}>{c.label}</Text>
-              <Ionicons name="chevron-forward" size={18} color={on ? accent.primary : colors.textMuted} />
+              <Text style={[wizardStyles.optionTitle, { flex: 1 }]}>{c.label}</Text>
+              <Ionicons name={on ? 'checkmark-circle' : 'chevron-forward'} size={22} color={on ? accent.primary : colors.textMuted} />
             </Pressable>
           );
         })}
@@ -484,6 +484,7 @@ export function CreateListingCategoryScreen({
         ) : null}
       </ScrollView>
       <Footer
+        accentPrimary={accent.primary}
         onBack={() => navigation.goBack()}
         onNext={() => {
           if (!form.category) return;
@@ -531,7 +532,7 @@ function ListingDetailsField({
         onChangeText={onChange}
         placeholder={placeholder}
         placeholderTextColor={colors.textMuted}
-        style={[styles.input, multiline && styles.inputMulti]}
+        style={[wizardStyles.fieldInput, multiline && styles.inputMulti]}
         multiline={multiline}
       />
     </View>
@@ -542,7 +543,8 @@ export function CreateListingDetailsScreen({
   navigation,
 }: NativeStackScreenProps<CreateListingStackParamList, 'CreateListingDetails'>) {
   const { form, setForm, confirmAiField } = useCreateListingDraft();
-  const { channel, totalSteps, isLiveShow, step } = useCreateListingFlow();
+  const { channel, accent, totalSteps, isLiveShow, step } = useCreateListingFlow();
+  const showListingAi = marketplaceListingAiEnabled(isLiveShow);
   const { exitFlow, goBackStep } = useCreateListingNavigation();
 
   const mark = (key: AiTrackedField, text: string) =>
@@ -567,7 +569,7 @@ export function CreateListingDetailsScreen({
     >
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={wizardStyles.scroll}
         keyboardShouldPersistTaps="handled"
       >
         {isLiveShow ? (
@@ -587,7 +589,7 @@ export function CreateListingDetailsScreen({
             />
           </>
         ) : null}
-        {form.aiNeedsSellerConfirmation ? (
+        {showListingAi && form.aiNeedsSellerConfirmation ? (
           <View style={styles.warnBanner}>
             <Ionicons name="alert-circle-outline" size={20} color="#FFB340" />
             <View style={{ flex: 1 }}>
@@ -602,16 +604,16 @@ export function CreateListingDetailsScreen({
         ) : null}
         <ListingDetailsField
           label="Title"
-          aiBadge={form.aiFieldBadges.title}
-          onConfirmAi={() => confirmAiField('title')}
+          aiBadge={showListingAi ? form.aiFieldBadges.title : undefined}
+          onConfirmAi={showListingAi ? () => confirmAiField('title') : undefined}
           value={form.title}
           onChange={(t) => mark('title', t)}
           placeholder="What is this acquisition?"
         />
         <ListingDetailsField
           label="Description"
-          aiBadge={form.aiFieldBadges.description}
-          onConfirmAi={() => confirmAiField('description')}
+          aiBadge={showListingAi ? form.aiFieldBadges.description : undefined}
+          onConfirmAi={showListingAi ? () => confirmAiField('description') : undefined}
           value={form.description}
           onChange={(t) => mark('description', t)}
           placeholder="Story, context, why it matters…"
@@ -619,48 +621,48 @@ export function CreateListingDetailsScreen({
         />
         <ListingDetailsField
           label="Condition"
-          aiBadge={form.aiFieldBadges.condition}
-          onConfirmAi={() => confirmAiField('condition')}
+          aiBadge={showListingAi ? form.aiFieldBadges.condition : undefined}
+          onConfirmAi={showListingAi ? () => confirmAiField('condition') : undefined}
           value={form.condition}
           onChange={(t) => mark('condition', t)}
           placeholder="e.g. Unworn · PSA 10 · hairline case"
         />
         <ListingDetailsField
           label="Authentication"
-          aiBadge={form.aiFieldBadges.authentication}
-          onConfirmAi={() => confirmAiField('authentication')}
+          aiBadge={showListingAi ? form.aiFieldBadges.authentication : undefined}
+          onConfirmAi={showListingAi ? () => confirmAiField('authentication') : undefined}
           value={form.authentication}
           onChange={(t) => mark('authentication', t)}
           placeholder="Visible labels only — never claim guaranteed authenticity without Vaulted verification."
         />
         <ListingDetailsField
           label="Brand / set / player"
-          aiBadge={form.aiFieldBadges.brand}
-          onConfirmAi={() => confirmAiField('brand')}
+          aiBadge={showListingAi ? form.aiFieldBadges.brand : undefined}
+          onConfirmAi={showListingAi ? () => confirmAiField('brand') : undefined}
           value={form.brand}
           onChange={(t) => mark('brand', t)}
           placeholder="Brand, set, or player line"
         />
         <ListingDetailsField
           label="Reference #"
-          aiBadge={form.aiFieldBadges.referenceNumber}
-          onConfirmAi={() => confirmAiField('referenceNumber')}
+          aiBadge={showListingAi ? form.aiFieldBadges.referenceNumber : undefined}
+          onConfirmAi={showListingAi ? () => confirmAiField('referenceNumber') : undefined}
           value={form.referenceNumber}
           onChange={(t) => mark('referenceNumber', t)}
           placeholder="SKU, ref, cert #"
         />
         <ListingDetailsField
           label="Year"
-          aiBadge={form.aiFieldBadges.year}
-          onConfirmAi={() => confirmAiField('year')}
+          aiBadge={showListingAi ? form.aiFieldBadges.year : undefined}
+          onConfirmAi={showListingAi ? () => confirmAiField('year') : undefined}
           value={form.year}
           onChange={(t) => mark('year', t)}
           placeholder="Year or era"
         />
         <ListingDetailsField
           label="Grade"
-          aiBadge={form.aiFieldBadges.grade}
-          onConfirmAi={() => confirmAiField('grade')}
+          aiBadge={showListingAi ? form.aiFieldBadges.grade : undefined}
+          onConfirmAi={showListingAi ? () => confirmAiField('grade') : undefined}
           value={form.grade}
           onChange={(t) => mark('grade', t)}
           placeholder="Grade or N/A"
@@ -668,8 +670,8 @@ export function CreateListingDetailsScreen({
         {!isLiveShow ? (
           <ListingDetailsField
             label="Tags"
-            aiBadge={form.aiFieldBadges.tags}
-            onConfirmAi={() => confirmAiField('tags')}
+            aiBadge={showListingAi ? form.aiFieldBadges.tags : undefined}
+            onConfirmAi={showListingAi ? () => confirmAiField('tags') : undefined}
             value={form.tags}
             onChange={(t) => mark('tags', t)}
             placeholder="Comma-separated discovery tags"
@@ -694,6 +696,7 @@ export function CreateListingDetailsScreen({
         ) : null}
       </ScrollView>
       <Footer
+        accentPrimary={accent.primary}
         onBack={() => navigation.goBack()}
         onNext={() => navigation.navigate('CreateListingPricing')}
         nextLabel="Continue"

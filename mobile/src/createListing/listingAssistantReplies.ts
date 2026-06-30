@@ -1,3 +1,4 @@
+import { LISTING_PRICING_ASSISTANT_ENABLED } from './listingAiAssistantEnabled';
 import type { CreateListingFormState } from './types';
 
 export type AssistantTurn = {
@@ -28,6 +29,12 @@ export function listingAssistantReply(prompt: string, form: CreateListingFormSta
     };
   }
   if (p.includes('price') || p.includes('pricing')) {
+    if (!LISTING_PRICING_ASSISTANT_ENABLED) {
+      return {
+        reply:
+          'Pricing suggestions are paused while we build more marketplace data. Set your ask on the Pricing step — you control the final number buyers see.',
+      };
+    }
     const sug = form.aiSuggestedPrice || '—';
     return {
       reply: `Vault assistant suggests ${sug} based on your lane (illustrative — not market advice). You set the final number buyers see. Reasoning on file: ${form.aiPriceReasoning || 'Add pricing on the Pricing step — media suggestions are optional when available.'}`,
@@ -64,8 +71,10 @@ export function listingAssistantReply(prompt: string, form: CreateListingFormSta
     };
   }
 
+  const pricingHint = LISTING_PRICING_ASSISTANT_ENABLED ? '“Suggest price”, ' : '';
+
   return {
     reply:
-      'Try: “Write a better description”, “Make this sound more premium”, “Suggest price”, “Add SEO tags”, “Estimate shipping weight”, “Create live auction copy”, or “Make this trade-friendly”.',
+      `Try: “Write a better description”, “Make this sound more premium”, ${pricingHint}“Add SEO tags”, “Estimate shipping weight”, “Create live auction copy”, or “Make this trade-friendly”.`,
   };
 }

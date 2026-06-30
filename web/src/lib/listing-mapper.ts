@@ -8,6 +8,7 @@ import {
   getSellerFulfillmentReadinessIssues,
 } from "@/lib/seller-shipping-readiness";
 import type { SellerListingStatus, StoredUserListing } from "@/lib/user-listings-storage";
+import { parseListingInventoryChannel, type ListingInventoryChannel } from "@/lib/listing-inventory-channel";
 
 export type ListingSellerFulfillmentSubset = {
   id: string;
@@ -120,6 +121,7 @@ export function dbListingToStored(
     shipFromAddressId: row.shipFromAddressId ?? null,
     auctionPaymentDeadlineIso:
       row.status === "awaiting_auction_payment" ? (opts?.auctionPaymentDeadlineIso ?? undefined) : undefined,
+    inventoryChannel: parseListingInventoryChannel(row.description) ?? undefined,
     fulfillmentWarnings,
     shipsFromRegion: formatShipsFromRegion(row.seller.shipFromState, row.seller.shipFromCountry) ?? undefined,
   };

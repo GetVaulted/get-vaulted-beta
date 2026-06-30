@@ -35,7 +35,7 @@ export function SellerHQSetupEssentials({
   return (
     <View style={styles.wrap}>
       <Text style={hq.sectionEyebrow}>Seller essentials</Text>
-      <Text style={styles.sectionTitle}>Payouts and shipping — managed here, not in Settings</Text>
+      <Text style={styles.sectionTitle}>Payouts & ship-from</Text>
 
       <View style={[styles.panel, hq.goldCard]}>
         <View style={styles.row}>

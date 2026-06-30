@@ -26,7 +26,7 @@ export const LISTING_CHANNEL_CONFIG: Record<ListingChannel, ListingChannelAccent
     fill: 'rgba(212,175,55,0.08)',
     gradient: ['rgba(212,175,55,0.14)', 'rgba(12,11,9,0.98)'],
     helper: 'List items for permanent browsing in the Vault marketplace.',
-    futureNote: 'After a live show ends, live inventory can convert into marketplace listings.',
+    futureNote: 'Buy now · Offers · Trades · Vault discovery',
   },
   live_show: {
     label: 'Live Show Listing',
@@ -38,9 +38,19 @@ export const LISTING_CHANNEL_CONFIG: Record<ListingChannel, ListingChannelAccent
     fill: 'rgba(255,69,58,0.1)',
     gradient: ['rgba(255,69,58,0.12)', 'rgba(10,8,8,0.98)'],
     helper: 'Prepare inventory for upcoming live shows and auctions.',
-    futureNote: 'Pull marketplace listings into a live show queue when you are ready to go on air.',
+    futureNote: 'Auctions · Breaks · Vault drops · On-air only',
   },
 };
+
+export const LISTING_STEP_LABELS = [
+  'Media',
+  'Format',
+  'Category',
+  'Details',
+  'Pricing',
+  'Shipping',
+  'Review',
+] as const;
 
 const MARKETPLACE_COMMERCE: ListingCommerceType[] = ['buy_now', 'trade_only'];
 const LIVE_COMMERCE: ListingCommerceType[] = ['live_auction', 'break_spot', 'vault_drop', 'auction'];

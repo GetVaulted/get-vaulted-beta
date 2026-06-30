@@ -1,40 +1,11 @@
 import { NextResponse } from "next/server";
-import { isAppleOAuthProviderEnabled, isGoogleOAuthProviderEnabled } from "@/lib/auth-provider-availability";
-import { supabaseProjectRefFromUrl } from "@/lib/resolve-database-url";
-import { webSignupVerificationMethod } from "@/lib/is-beta-deployment";
-import { getStripePublishableKey, isStripeConfigured } from "@/lib/stripe";
+import { buildDeploymentConfigDiagnostics } from "@/lib/deployment-config-diagnostics";
 
 /**
- * Public read-only check that beta web Supabase env is present and which project ref it targets.
- * Does not expose keys. Compare `projectRef` to mobile `EXPO_PUBLIC_SUPABASE_URL`.
+ * Public read-only deployment diagnostics.
+ * Does not expose secret keys (sk_, whsec_, re_). Compare `projectRef` to mobile `EXPO_PUBLIC_SUPABASE_URL`.
+ * `stripePublishableKey` is included for client Stripe.js / mobile wallet (publishable only).
  */
 export async function GET() {
-  const url =
-    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? process.env.SUPABASE_URL?.trim() ?? "";
-  const anonConfigured = Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ?? process.env.SUPABASE_ANON_KEY?.trim(),
-  );
-  const projectRef = url ? supabaseProjectRefFromUrl(url) : null;
-  const verificationMethod = webSignupVerificationMethod();
-  const nextAuthUrl = process.env.NEXTAUTH_URL?.trim() || null;
-
-  return NextResponse.json({
-    projectRef,
-    supabaseUrlConfigured: Boolean(url),
-    supabaseAnonKeyConfigured: anonConfigured,
-    webSignInSupportsSupabaseAuth: anonConfigured && Boolean(url),
-    webSignupAvailable: verificationMethod !== "unavailable",
-    webSignupVerificationMethod: verificationMethod,
-    webSignupResendConfigured: Boolean(process.env.RESEND_API_KEY?.trim()),
-    nextAuthUrlConfigured: Boolean(nextAuthUrl),
-    nextAuthUrl,
-    expectedBetaProjectRef: "xkaaicokjgmpbctfermj",
-    alignedWithBeta: projectRef === "xkaaicokjgmpbctfermj",
-    oauthProviders: {
-      google: isGoogleOAuthProviderEnabled(),
-      apple: isAppleOAuthProviderEnabled(),
-    },
-    stripeConfigured: isStripeConfigured(),
-    stripePublishableKey: isStripeConfigured() ? getStripePublishableKey().trim() || null : null,
-  });
+  return NextResponse.json(buildDeploymentConfigDiagnostics());
 }

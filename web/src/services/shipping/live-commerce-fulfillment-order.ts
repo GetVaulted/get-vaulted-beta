@@ -134,8 +134,6 @@ export async function createLiveCommerceFulfillmentOrderTx(
     title: string;
     itemPriceUsd: number;
     idempotencyKey: string;
-    /** Charge spot/item price now; settle live bundled shipping after payment succeeds. */
-    skipLiveShippingSettlement?: boolean;
     /** Avoid address lookup inside an interactive transaction (prefetch before $transaction). */
     prefetchedShipping?: BuyerShippingSnapshot | null;
   },
@@ -156,14 +154,6 @@ export async function createLiveCommerceFulfillmentOrderTx(
     },
   });
   if (existingOrder) {
-    if (args.skipLiveShippingSettlement) {
-      await syncBuyerDefaultShippingToPendingOrderTx(tx, existingOrder.id, args.buyerId);
-      return {
-        orderId: existingOrder.id,
-        totalUsd: args.itemPriceUsd,
-        shippingPriceUsd: existingOrder.shippingPriceUsd ?? 0,
-      };
-    }
     const totals = await completeLiveCommerceFulfillmentShippingTx(
       tx,
       existingOrder.id,
@@ -190,38 +180,36 @@ export async function createLiveCommerceFulfillmentOrderTx(
 
   let dims = DEFAULT_SPOT_PARCEL_DIMS;
 
-  if (!args.skipLiveShippingSettlement) {
-    const liveItem = normalizeLiveRoomItemId(args.liveRoomItemId)
-      ? await tx.liveRoomItem.findFirst({
-          where: {
-            id: normalizeLiveRoomItemId(args.liveRoomItemId)!,
-            liveRoomId: args.liveShowId,
-          },
-          select: { sellerShippingProfileId: true },
-        })
-      : null;
+  const liveItem = normalizeLiveRoomItemId(args.liveRoomItemId)
+    ? await tx.liveRoomItem.findFirst({
+        where: {
+          id: normalizeLiveRoomItemId(args.liveRoomItemId)!,
+          liveRoomId: args.liveShowId,
+        },
+        select: { sellerShippingProfileId: true },
+      })
+    : null;
 
-    const show = await tx.liveRoom.findFirst({
-      where: { id: args.liveShowId, sellerId: args.sellerId },
-      select: {
-        defaultSellerShippingProfileId: true,
-        defaultShippingProfileId: true,
-        category: true,
-      },
-    });
-    if (!show) throw new Error("LIVE_ROOM_NOT_FOUND");
+  const show = await tx.liveRoom.findFirst({
+    where: { id: args.liveShowId, sellerId: args.sellerId },
+    select: {
+      defaultSellerShippingProfileId: true,
+      defaultShippingProfileId: true,
+      category: true,
+    },
+  });
+  if (!show) throw new Error("LIVE_ROOM_NOT_FOUND");
 
-    const breakProfile = await resolveBreakSpotSellerProfile({
-      sellerId: args.sellerId,
-      showDefaultSellerProfileId: show.defaultSellerShippingProfileId,
-      itemSellerProfileId: liveItem?.sellerShippingProfileId ?? null,
-      db: tx,
-    });
+  const breakProfile = await resolveBreakSpotSellerProfile({
+    sellerId: args.sellerId,
+    showDefaultSellerProfileId: show.defaultSellerShippingProfileId,
+    itemSellerProfileId: liveItem?.sellerShippingProfileId ?? null,
+    db: tx,
+  });
 
-    dims = breakProfile
-      ? resolveShippingProfileDimensions(sellerShippingProfileToProfileInput(breakProfile), null)
-      : DEFAULT_SPOT_PARCEL_DIMS;
-  }
+  dims = breakProfile
+    ? resolveShippingProfileDimensions(sellerShippingProfileToProfileInput(breakProfile), null)
+    : DEFAULT_SPOT_PARCEL_DIMS;
 
   const listing = await tx.listing.create({
     data: {
@@ -278,10 +266,6 @@ export async function createLiveCommerceFulfillmentOrderTx(
     select: { id: true },
   });
 
-  if (args.skipLiveShippingSettlement) {
-    return { orderId: order.id, totalUsd: args.itemPriceUsd, shippingPriceUsd: 0 };
-  }
-
   const totals = await completeLiveCommerceFulfillmentShippingTx(
     tx,
     order.id,
@@ -297,30 +281,21 @@ export async function createLiveCommerceFulfillmentOrderTx(
 }
 
 /**
- * PYT/PYD spot checkout charges the listed spot price at payment time.
- * Live bundled shipping is settled after the show — do not block the card charge on
- * pre-payment shipping ledger settlement (that path fails for seller/show config reasons
- * unrelated to the buyer's saved card or billing ZIP).
+ * PYT/PYD spot and break checkout — settle bundled live shipping before charging,
+ * same as auction wins and live buy-now.
  */
 export async function ensureVariantPurchaseFulfillmentOrder(
   purchaseId: string,
 ): Promise<{ orderId: string; chargeTotalUsd: number }> {
-  try {
-    return await ensureVariantPurchaseFulfillmentOrderSpotPriceFallback(purchaseId);
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err ?? "");
-    console.error("[variant purchase] fulfillment order failed (spot price path)", {
-      purchaseId,
-      detail,
-      err,
-    });
-    throw err;
-  }
-}
+  const purchaseHead = await prisma.liveItemVariantPurchase.findUnique({
+    where: { id: purchaseId },
+    select: { buyerId: true },
+  });
+  if (!purchaseHead) throw new Error("PURCHASE_NOT_FOUND");
 
-async function ensureVariantPurchaseFulfillmentOrderStrict(
-  purchaseId: string,
-): Promise<{ orderId: string; chargeTotalUsd: number }> {
+  const shipping = await resolveBuyerDefaultShippingForOrder(purchaseHead.buyerId);
+  if (!shipping) throw new Error("NO_SHIPPING_ADDRESS");
+
   return prisma.$transaction(async (tx) => {
     const purchase = await tx.liveItemVariantPurchase.findUnique({
       where: { id: purchaseId },
@@ -378,6 +353,7 @@ async function ensureVariantPurchaseFulfillmentOrderStrict(
       title,
       itemPriceUsd: purchase.totalUsd,
       idempotencyKey: `live_variant:${purchase.id}`,
+      prefetchedShipping: shipping,
     });
     await tx.liveItemVariantPurchase.update({
       where: { id: purchase.id },
@@ -387,78 +363,19 @@ async function ensureVariantPurchaseFulfillmentOrderStrict(
   }, LIVE_COMMERCE_FULFILLMENT_TX_OPTS);
 }
 
-async function ensureVariantPurchaseFulfillmentOrderSpotPriceFallback(
-  purchaseId: string,
-): Promise<{ orderId: string; chargeTotalUsd: number }> {
-  const purchase = await prisma.liveItemVariantPurchase.findUnique({
-    where: { id: purchaseId },
-    select: {
-      id: true,
-      liveRoomId: true,
-      liveRoomItemId: true,
-      buyerId: true,
-      totalUsd: true,
-      fulfillmentOrderId: true,
-      variant: { select: { label: true } },
-      liveRoom: { select: { sellerId: true } },
-    },
-  });
-  if (!purchase) throw new Error("PURCHASE_NOT_FOUND");
-
-  const shipping = await resolveBuyerDefaultShippingForOrder(purchase.buyerId);
-  if (!shipping) throw new Error("NO_SHIPPING_ADDRESS");
-
-  return prisma.$transaction(async (tx) => {
-    if (purchase.fulfillmentOrderId) {
-      await syncBuyerDefaultShippingToPendingOrderTx(tx, purchase.fulfillmentOrderId, purchase.buyerId);
-      await tx.order.update({
-        where: { id: purchase.fulfillmentOrderId },
-        data: { totalUsd: purchase.totalUsd, shippingPriceUsd: 0 },
-      });
-      return { orderId: purchase.fulfillmentOrderId, chargeTotalUsd: purchase.totalUsd };
-    }
-
-    const title = `Live spot: ${purchase.variant.label}`.slice(0, 200);
-    const created = await createLiveCommerceFulfillmentOrderTx(tx, {
-      kind: "variant_purchase",
-      buyerId: purchase.buyerId,
-      sellerId: purchase.liveRoom.sellerId,
-      liveShowId: purchase.liveRoomId,
-      liveRoomItemId: purchase.liveRoomItemId,
-      title,
-      itemPriceUsd: purchase.totalUsd,
-      idempotencyKey: `live_variant:${purchase.id}`,
-      skipLiveShippingSettlement: true,
-      prefetchedShipping: shipping,
-    });
-    await tx.liveItemVariantPurchase.update({
-      where: { id: purchase.id },
-      data: { fulfillmentOrderId: created.orderId },
-    });
-    return { orderId: created.orderId, chargeTotalUsd: purchase.totalUsd };
-  }, LIVE_COMMERCE_FULFILLMENT_TX_OPTS);
-}
-
-/** Same spot-price-first policy as variant PYT/PYD purchases. */
+/** Same upfront shipping + charge policy as variant PYT/PYD purchases. */
 export async function ensureBreakSpotFulfillmentOrder(
   breakSpotId: string,
 ): Promise<{ orderId: string; chargeTotalUsd: number }> {
-  try {
-    return await ensureBreakSpotFulfillmentOrderSpotPriceFallback(breakSpotId);
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err ?? "");
-    console.error("[break spot] fulfillment order failed (spot price path)", {
-      breakSpotId,
-      detail,
-      err,
-    });
-    throw err;
-  }
-}
+  const spotRow = await prisma.breakSpot.findUnique({
+    where: { id: breakSpotId },
+    select: { userId: true },
+  });
+  if (!spotRow) throw new Error("SPOT_NOT_FOUND");
 
-async function ensureBreakSpotFulfillmentOrderStrict(
-  breakSpotId: string,
-): Promise<{ orderId: string; chargeTotalUsd: number }> {
+  const shipping = await resolveBuyerDefaultShippingForOrder(spotRow.userId);
+  if (!shipping) throw new Error("NO_SHIPPING_ADDRESS");
+
   return prisma.$transaction(async (tx) => {
     const spot = await tx.breakSpot.findUnique({
       where: { id: breakSpotId },
@@ -516,63 +433,12 @@ async function ensureBreakSpotFulfillmentOrderStrict(
       title,
       itemPriceUsd: spot.priceUsd,
       idempotencyKey: `live_break_spot:${spot.id}`,
-    });
-    await tx.breakSpot.update({
-      where: { id: spot.id },
-      data: { fulfillmentOrderId: created.orderId },
-    });
-    return { orderId: created.orderId, chargeTotalUsd: created.totalUsd };
-  }, LIVE_COMMERCE_FULFILLMENT_TX_OPTS);
-}
-
-async function ensureBreakSpotFulfillmentOrderSpotPriceFallback(
-  breakSpotId: string,
-): Promise<{ orderId: string; chargeTotalUsd: number }> {
-  const spot = await prisma.breakSpot.findUnique({
-    where: { id: breakSpotId },
-    select: {
-      id: true,
-      liveRoomId: true,
-      liveRoomItemId: true,
-      userId: true,
-      spotLabel: true,
-      priceUsd: true,
-      fulfillmentOrderId: true,
-      liveRoom: { select: { sellerId: true } },
-    },
-  });
-  if (!spot) throw new Error("SPOT_NOT_FOUND");
-
-  const shipping = await resolveBuyerDefaultShippingForOrder(spot.userId);
-  if (!shipping) throw new Error("NO_SHIPPING_ADDRESS");
-
-  return prisma.$transaction(async (tx) => {
-    if (spot.fulfillmentOrderId) {
-      await syncBuyerDefaultShippingToPendingOrderTx(tx, spot.fulfillmentOrderId, spot.userId);
-      await tx.order.update({
-        where: { id: spot.fulfillmentOrderId },
-        data: { totalUsd: spot.priceUsd, shippingPriceUsd: 0 },
-      });
-      return { orderId: spot.fulfillmentOrderId, chargeTotalUsd: spot.priceUsd };
-    }
-
-    const title = `Break spot: ${spot.spotLabel}`.slice(0, 200);
-    const created = await createLiveCommerceFulfillmentOrderTx(tx, {
-      kind: "break_spot",
-      buyerId: spot.userId,
-      sellerId: spot.liveRoom.sellerId,
-      liveShowId: spot.liveRoomId,
-      liveRoomItemId: spot.liveRoomItemId,
-      title,
-      itemPriceUsd: spot.priceUsd,
-      idempotencyKey: `live_break_spot:${spot.id}`,
-      skipLiveShippingSettlement: true,
       prefetchedShipping: shipping,
     });
     await tx.breakSpot.update({
       where: { id: spot.id },
       data: { fulfillmentOrderId: created.orderId },
     });
-    return { orderId: created.orderId, chargeTotalUsd: spot.priceUsd };
+    return { orderId: created.orderId, chargeTotalUsd: created.totalUsd };
   }, LIVE_COMMERCE_FULFILLMENT_TX_OPTS);
 }

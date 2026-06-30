@@ -6,6 +6,11 @@ export type LiveHostShippingProfileOption = {
   name: string;
   sourceSlug?: string;
   isDefault?: boolean;
+  defaultWeightOz?: number;
+  defaultLengthIn?: number;
+  defaultWidthIn?: number;
+  defaultHeightIn?: number;
+  incrementalWeightOz?: number | null;
 };
 
 export type LiveHostShippingDashboard = {

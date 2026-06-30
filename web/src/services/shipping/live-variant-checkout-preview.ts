@@ -17,9 +17,9 @@ export type LiveVariantCheckoutPreview = {
   shippingDisplay: string;
   taxUsd: number;
   taxDisplay: string;
-  /** Spot price charged to the saved card immediately. */
+  /** Item + shipping + tax charged to the saved card at purchase. */
   chargeNowUsd: number;
-  /** Item + estimated shipping + estimated tax (transparency only). */
+  /** Same as chargeNowUsd — full amount due at checkout. */
   estimatedTotalUsd: number;
   taxNote: string | null;
 };
@@ -128,7 +128,6 @@ export async function getLiveVariantCheckoutPreview(args: {
         taxDisplay = fmtUsd(taxUsd);
       } else if (est.collectTax) {
         taxDisplay = fmtUsd(0);
-        taxNote = "Sales tax may apply when your show order ships.";
       } else {
         taxDisplay = "Not applicable";
       }
@@ -138,7 +137,7 @@ export async function getLiveVariantCheckoutPreview(args: {
     }
   }
 
-  const estimatedTotalUsd = Math.round((itemPriceUsd + shippingUsd + taxUsd) * 100) / 100;
+  const chargeNowUsd = Math.round((itemPriceUsd + shippingUsd + taxUsd) * 100) / 100;
 
   return {
     itemPriceUsd,
@@ -146,8 +145,8 @@ export async function getLiveVariantCheckoutPreview(args: {
     shippingDisplay,
     taxUsd,
     taxDisplay,
-    chargeNowUsd: itemPriceUsd,
-    estimatedTotalUsd,
+    chargeNowUsd,
+    estimatedTotalUsd: chargeNowUsd,
     taxNote,
   };
 }

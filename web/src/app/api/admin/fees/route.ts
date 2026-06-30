@@ -14,17 +14,27 @@ import {
 } from "@/lib/platform-fee-policy";
 import { DEFAULT_INSTANT_PAYOUT_LIMITS } from "@/services/payout/instant-payout-limits";
 import { PAYOUT_TIER_THRESHOLDS } from "@/services/payout/seller-payout-tier";
+import {
+  formatMarketplaceFeeRateLabel,
+  getMarketplacePlatformFeeConfig,
+  setMarketplacePlatformFeePercent,
+} from "@/services/platform-fee-settings";
 import { requireAdmin } from "@/lib/require-admin";
 
 export async function GET() {
   const gate = await requireAdmin();
   if (!gate.ok) return gate.response;
 
+  const marketplaceConfig = await getMarketplacePlatformFeeConfig();
+
   return NextResponse.json({
     marketplace: {
-      platformFeePercent: MARKETPLACE_PLATFORM_FEE_PERCENT,
-      editable: false,
-      note: "TODO: Persist fee overrides in platform settings table — currently code constants.",
+      platformFeePercent: marketplaceConfig.platformFeePercent,
+      feeRateLabel: formatMarketplaceFeeRateLabel(marketplaceConfig.platformFeePercent),
+      defaultPlatformFeePercent: MARKETPLACE_PLATFORM_FEE_PERCENT,
+      editable: true,
+      updatedAt: marketplaceConfig.updatedAt?.toISOString() ?? null,
+      note: "Applies to marketplace buy-now and layaway checkout. Stripe card processing is separate.",
     },
     liveSelling: {
       tiers: [
@@ -41,7 +51,7 @@ export async function GET() {
         },
       ],
       editable: false,
-      note: "TODO: Admin fee tier editor — currently code constants in platform-fee-policy.ts.",
+      note: "Live show tier fees are code constants for now — contact engineering to change.",
     },
     payoutProgram: {
       thresholds: PAYOUT_TIER_THRESHOLDS,
@@ -55,7 +65,38 @@ export async function GET() {
       depositPercent: LAYAWAY_DEPOSIT_FRACTION * 100,
       planDurationsDays: LAYAWAY_PLAN_DAYS,
       editable: false,
-      note: "TODO: Persist layaway policy in admin settings — currently layaway/constants.ts.",
+      note: "Layaway policy is code constants for now.",
+    },
+  });
+}
+
+type PatchBody = {
+  marketplacePlatformFeePercent?: unknown;
+};
+
+export async function PATCH(req: Request) {
+  const gate = await requireAdmin();
+  if (!gate.ok) return gate.response;
+
+  let body: PatchBody;
+  try {
+    body = (await req.json()) as PatchBody;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const raw = body.marketplacePlatformFeePercent;
+  const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw.trim()) : NaN;
+  if (!Number.isFinite(n)) {
+    return NextResponse.json({ error: "marketplacePlatformFeePercent must be a number." }, { status: 400 });
+  }
+
+  const platformFeePercent = await setMarketplacePlatformFeePercent(n, gate.userId);
+  return NextResponse.json({
+    ok: true,
+    marketplace: {
+      platformFeePercent,
+      feeRateLabel: formatMarketplaceFeeRateLabel(platformFeePercent),
     },
   });
 }

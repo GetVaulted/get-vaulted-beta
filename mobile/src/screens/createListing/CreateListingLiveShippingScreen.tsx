@@ -15,6 +15,8 @@ import { useSellerShipFromZipPrefill } from '../../createListing/useSellerShipFr
 import type { CreateListingStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
 import { CreateListingChrome } from './CreateListingChrome';
+import { CreateListingFooter, wizardStyles } from './CreateListingWizardUI';
+import { useSaveListingDraft } from './useSaveListingDraft';
 import { useCreateListingFlow } from './createListingFlowHelpers';
 import { useCreateListingNavigation } from './useCreateListingNavigation';
 
@@ -51,32 +53,24 @@ function Footer({
   onNext,
   nextLabel,
   disabled,
-  accentColor,
+  accentPrimary,
 }: {
   onBack?: () => void;
   onNext: () => void;
   nextLabel: string;
   disabled?: boolean;
-  accentColor: string;
+  accentPrimary: string;
 }) {
+  const onSaveDraft = useSaveListingDraft();
   return (
-    <View style={styles.footRow}>
-      {onBack ? (
-        <Pressable style={styles.footBack} onPress={onBack}>
-          <Text style={styles.footBackTxt}>Back</Text>
-        </Pressable>
-      ) : (
-        <View style={{ flex: 1 }} />
-      )}
-      <Pressable
-        style={[styles.footNext, { backgroundColor: accentColor }, disabled && styles.footNextOff]}
-        onPress={() => !disabled && onNext()}
-        disabled={disabled}
-      >
-        <Text style={styles.footNextTxt}>Review</Text>
-        <Ionicons name="arrow-forward" size={18} color={colors.background} />
-      </Pressable>
-    </View>
+    <CreateListingFooter
+      accentPrimary={accentPrimary}
+      onBack={onBack}
+      onNext={onNext}
+      nextLabel={nextLabel}
+      disabled={disabled}
+      onSaveDraft={onSaveDraft}
+    />
   );
 }
 
@@ -131,7 +125,7 @@ export function CreateListingLiveShippingScreen({
     >
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={wizardStyles.scroll}
         keyboardShouldPersistTaps="handled"
       >
         <Text style={[styles.sectionK, { color: accent.primary }]}>Shipping mode</Text>
@@ -317,7 +311,7 @@ export function CreateListingLiveShippingScreen({
         onNext={() => navigation.navigate('CreateListingReview')}
         nextLabel="Review"
         disabled={!stepDone}
-        accentColor={accent.primary}
+        accentPrimary={accent.primary}
       />
     </CreateListingChrome>
   );

@@ -129,8 +129,12 @@ export function marketplaceShippingListingReady(form: {
 }): boolean {
   if (!isPackageDetailsComplete(form)) return false;
   if (!form.marketplaceRatesPreviewOk || form.marketplaceOfferableRateCount < 1) return false;
-  if (form.marketplaceAllowedCarriers.length === 0) return false;
-  if (form.marketplaceShippingOfferScope === 'custom' && form.marketplaceAllowedRateKeys.length === 0) return false;
+  if (
+    form.marketplaceShippingOfferScope === 'custom' &&
+    form.marketplaceAllowedCarriers.length === 0
+  ) {
+    return false;
+  }
   return true;
 }
 

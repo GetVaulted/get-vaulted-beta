@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import type { NavigationProp, ParamListBase } from '@react-navigation/native';
 import { useNavigation } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -20,29 +19,25 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   type SellerHubTabId,
   vaultWins,
-  walletSnapshot,
 } from '../data/sellerHubMock';
 import { SellerHubTabBar } from '../components/seller/hq/SellerHubTabBar';
 import { LaunchVaultEventPanel } from './sellerHub/LaunchVaultEventPanel';
 import { SellerSetupGatePanel } from '../components/seller/hq/SellerSetupGatePanel';
 import { useCreateListingDraft } from '../createListing/CreateListingDraftContext';
-import { openCreateListing } from '../navigation/openCreateListing';
 import { openContactSupport } from '../navigation/openPlatform';
 import { openSellerSetup } from '../navigation/openSellerSetup';
 import { AccountAccessBar } from '../components/account/AccountAccessBar';
 import { SellerHQCommandCenter } from '../components/seller/hq/SellerHQCommandCenter';
-import { SellerPayoutTierCard } from '../components/seller/hq/SellerPayoutTierCard';
+import { SellerInventoryPanel } from '../components/seller/hq/SellerInventoryPanel';
+import { SellerInsightsPanel } from '../components/seller/hq/SellerInsightsPanel';
+import { SellerRevenuePanel } from '../components/seller/hq/SellerRevenuePanel';
 import type { SellerHQEntryPhase } from '../lib/sellerHubEntry';
 import { useSellerSetupState } from '../hooks/useSellerSetupState';
 import { openSellerHostRoom } from '../navigation/openSellerHostRoom';
-import { openSellerListingManagementFromTab } from '../navigation/openSellerListingManagement';
 import { consumePendingSellerHQTab, setPendingVaultEventSchedule } from '../navigation/openSellerHQ';
 import { navigateAuthLogin, navigateAuthSignUp, rootNavigationRef } from '../navigation/rootNavigationRef';
 import { useAuth } from '../auth/AuthContext';
 import { fetchProfileById } from '../api/profilesRepository';
-import { LISTING_CHANNEL_CONFIG } from '../createListing/listingChannel';
-import type { ListingChannel } from '../createListing/listingChannel';
-import type { ListingPreview } from '../createListing/types';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { MainTabParamList, RootStackParamList } from '../navigation/types';
 import { colors, radii, spacing, typography } from '../theme';
@@ -61,34 +56,12 @@ import { useCanonicalUserId } from '../hooks/useCanonicalUserId';
 import { openSellerLayaways } from '../navigation/openSellerLayaways';
 import { SellerHQOrdersPanel } from '../components/seller/hq/SellerHQOrdersPanel';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
-import { openStripeConnectDashboard } from '../lib/openStripeConnectDashboard';
 import {
   openStripeConnectOnboarding,
   refreshSellerConnectAfterOnboarding,
 } from '../lib/openStripeConnectOnboarding';
 import { areDevToolsEnabled } from '../lib/devTools';
 import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
-
-function statusStyle(status: ListingPreview['status']) {
-  switch (status) {
-    case 'active':
-      return { bg: 'rgba(52,199,89,0.15)', fg: colors.success, label: 'Live' };
-    case 'draft':
-      return { bg: 'rgba(255,255,255,0.06)', fg: colors.textSecondary, label: 'Draft' };
-    case 'sold':
-      return { bg: 'rgba(212,175,55,0.12)', fg: colors.gold, label: 'Sold' };
-    case 'expiring':
-      return { bg: 'rgba(255,149,0,0.15)', fg: '#FFB340', label: 'Ending' };
-    case 'pending':
-      return { bg: 'rgba(100,149,237,0.15)', fg: '#8EBBFF', label: 'Pending' };
-    case 'in_auction':
-      return { bg: 'rgba(212,175,55,0.15)', fg: colors.gold, label: 'In auction' };
-    case 'ended':
-      return { bg: 'rgba(255,255,255,0.08)', fg: colors.textMuted, label: 'Ended' };
-    default:
-      return { bg: 'rgba(255,255,255,0.06)', fg: colors.textMuted, label: status };
-  }
-}
 
 export function SellerHubScreen() {
   const insets = useSafeAreaInsets();
@@ -317,7 +290,7 @@ export function SellerHubScreen() {
   const renderTab = () => {
     switch (tab) {
       case 'listings':
-        return <ListingsPanel navigation={navigation} inventory={sellerInventory} />;
+        return <SellerInventoryPanel navigation={navigation} inventory={sellerInventory} />;
       case 'live':
         return null;
       case 'orders':
@@ -344,15 +317,26 @@ export function SellerHubScreen() {
         );
       case 'wallet':
         return (
-          <WalletPanel
+          <SellerRevenuePanel
             accessToken={session?.access_token}
             sellerWallet={sellerWallet}
             hasStripeAccount={Boolean(sellerConnect.status?.stripe_account_id?.trim())}
             onSetupPayouts={openStripeOnboarding}
+            analytics={cmdData.analytics}
           />
         );
       case 'analytics':
-        return <AnalyticsPanel analytics={cmdData.analytics} />;
+        return (
+          <SellerInsightsPanel
+            analytics={cmdData.analytics}
+            metrics={cmdData.metrics}
+            inventory={sellerInventory}
+            layawayCounts={layawaySummary.counts}
+            liveCount={cmdData.liveCount}
+            upcomingCount={cmdData.upcomingCount}
+            onOpenTab={setTab}
+          />
+        );
       case 'vault':
         return <VaultIdentityPanel />;
       default:
@@ -456,7 +440,7 @@ export function SellerHubScreen() {
   }
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top + spacing.sm }]}>
+    <View style={[styles.screen, { paddingTop: spacing.xs }]}>
       <SellerHubTabBar activeTab={tab} onChangeTab={setTab} />
       {tab === 'live' ? (
         <View style={[styles.liveTabPane, { paddingBottom: 0 }]}>
@@ -493,6 +477,20 @@ export function SellerHubScreen() {
                 onRefresh={() => void pullRefresh(() => sellerWallet.refresh({ silent: true }))}
                 tintColor={colors.gold}
               />
+            ) : tab === 'analytics' ? (
+              <RefreshControl
+                refreshing={pullRefreshing}
+                onRefresh={() =>
+                  void pullRefresh(
+                    () => sellerInventory.reload({ silent: true }),
+                    () => ordersSummary.reload({ silent: true }),
+                    () => layawaySummary.reload({ silent: true }),
+                    () => cmdData.reloadRooms({ silent: true }),
+                    () => (user?.id ? cmdData.reloadAnalytics(user.id) : undefined),
+                  )
+                }
+                tintColor={colors.gold}
+              />
             ) : tab === 'overview' ? (
               <RefreshControl
                 refreshing={pullRefreshing}
@@ -517,297 +515,6 @@ export function SellerHubScreen() {
           <AccountAccessBar variant="footer" hideSettings />
           <View style={{ height: spacing.lg }} />
         </ScrollView>
-      )}
-    </View>
-  );
-}
-
-function ListingInventorySection({
-  channel,
-  navigation,
-  listings,
-  drafts,
-  loading,
-}: {
-  channel: ListingChannel;
-  navigation: BottomTabNavigationProp<MainTabParamList>;
-  listings: ListingPreview[];
-  drafts: { id: string }[];
-  loading?: boolean;
-}) {
-  const cfg = LISTING_CHANNEL_CONFIG[channel];
-  const isLive = channel === 'live_show';
-  const hasListings = listings.length > 0;
-  const sectionTitle = isLive ? 'Live show listings' : 'Marketplace listings';
-  const headerLabel = `${sectionTitle} (${listings.length})`;
-
-  const openNew = () => {
-    void openCreateListing(navigation as unknown as NavigationProp<ParamListBase>, { channel });
-  };
-
-  return (
-    <View
-      style={[
-        styles.listingSection,
-        hasListings && styles.listingSectionCompact,
-        { borderColor: cfg.border, backgroundColor: cfg.fill },
-      ]}
-    >
-      <View style={[styles.listingsHeaderRow, hasListings && styles.listingsHeaderRowCompact]}>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <View style={styles.listingSectionTitleRow}>
-            <Ionicons name={cfg.icon} size={hasListings ? 16 : 18} color={cfg.primary} />
-            <Text style={[styles.listingsHeaderTitle, hasListings && styles.listingsHeaderTitleCompact]}>
-              {headerLabel}
-            </Text>
-          </View>
-          {!hasListings ? <Text style={styles.panelHint}>{cfg.helper}</Text> : null}
-        </View>
-        <Pressable style={[styles.listingsNewBtn, { backgroundColor: cfg.primary }]} onPress={openNew}>
-          <Ionicons name="add" size={20} color="#0a0a0a" />
-          <Text style={styles.listingsNewBtnText}>New</Text>
-        </Pressable>
-      </View>
-      {loading && !hasListings ? (
-        <ActivityIndicator color={cfg.primary} style={{ marginVertical: spacing.md }} />
-      ) : null}
-      {!loading && listings.length === 0 ? (
-        <Text style={styles.listingSectionEmpty}>
-          {isLive ? 'No show inventory yet — queue lots before you go live.' : 'No marketplace listings yet — start your storefront.'}
-        </Text>
-      ) : null}
-      {hasListings ? (
-        <View style={styles.listingGrid}>
-        {listings.map((L) => {
-          const st = statusStyle(L.status);
-          return (
-            <Pressable
-              key={L.id}
-              style={styles.listingCard}
-              onPress={() => {
-                if (L.status === 'draft') {
-                  const hasDraft = drafts.some((d) => d.id === L.id);
-                  void openCreateListing(
-                    navigation as unknown as NavigationProp<ParamListBase>,
-                    hasDraft ? { draftId: L.id } : { channel },
-                  );
-                  return;
-                }
-                openSellerListingManagementFromTab(navigation, L.id);
-              }}
-            >
-              <Image source={{ uri: L.imageUrl }} style={styles.listingImg} />
-              <View style={styles.listingBody}>
-                <View style={styles.listingTop}>
-                  <Text style={styles.listingTitle} numberOfLines={2}>
-                    {L.title}
-                  </Text>
-                  <View style={[styles.channelMiniPill, { borderColor: cfg.border }]}>
-                    <Text style={[styles.channelMiniPillText, { color: cfg.primary }]}>{cfg.shortLabel}</Text>
-                  </View>
-                </View>
-                <Text style={styles.listingPrice}>{L.price}</Text>
-                <View style={styles.listingFoot}>
-                  <View style={[styles.statusPill, { backgroundColor: st.bg }]}>
-                    <Text style={[styles.statusPillText, { color: st.fg }]}>{st.label}</Text>
-                  </View>
-                  {L.watches > 0 ? (
-                    <Text style={styles.watchCount}>{L.watches} watching</Text>
-                  ) : null}
-                </View>
-              </View>
-            </Pressable>
-          );
-        })}
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
-function ListingsPanel({
-  navigation,
-  inventory,
-}: {
-  navigation: BottomTabNavigationProp<MainTabParamList>;
-  inventory: ReturnType<typeof useSellerInventory>;
-}) {
-  const { drafts } = useCreateListingDraft();
-
-  return (
-    <View style={{ gap: spacing.lg }}>
-      <ListingInventorySection
-        channel="marketplace"
-        navigation={navigation}
-        listings={inventory.marketplace}
-        drafts={drafts}
-        loading={inventory.loading && !inventory.loadedOnce}
-      />
-      <ListingInventorySection
-        channel="live_show"
-        navigation={navigation}
-        listings={inventory.liveShow}
-        drafts={drafts}
-        loading={inventory.loading && !inventory.loadedOnce}
-      />
-    </View>
-  );
-}
-
-function WalletPanel({
-  accessToken,
-  sellerWallet,
-  hasStripeAccount,
-  onSetupPayouts,
-}: {
-  accessToken?: string;
-  sellerWallet: {
-    wallet: import('../api/stripeConnectRepository').SellerWalletSummary | null;
-    loading: boolean;
-    loadedOnce: boolean;
-    refreshing: boolean;
-    refresh: (opts?: import('../hooks/sellerReloadOptions').SellerReloadOptions) => Promise<import('../api/stripeConnectRepository').SellerWalletSummary | null>;
-  };
-  hasStripeAccount: boolean;
-  onSetupPayouts: () => void;
-}) {
-  const [stripeLinkBusy, setStripeLinkBusy] = useState(false);
-  const [walletRefreshBusy, setWalletRefreshBusy] = useState(false);
-  const w = sellerWallet.wallet;
-
-  const showWalletPlaceholder = sellerWallet.loading && !sellerWallet.loadedOnce;
-
-  const available = showWalletPlaceholder ? '…' : (w?.availableFormatted ?? walletSnapshot.available);
-  const pending = showWalletPlaceholder ? '…' : (w?.pendingFormatted ?? walletSnapshot.pending);
-  const nextPayout =
-    showWalletPlaceholder ? '…' : (w?.nextPayoutLabel ?? (hasStripeAccount ? '—' : 'Set up payouts first'));
-  const scheduleLine = w?.payoutScheduleSummary ?? w?.message ?? null;
-
-  const openStripeSettings = async () => {
-    if (!accessToken) return;
-    if (!hasStripeAccount) {
-      Alert.alert('Payout setup required', 'Connect Stripe before managing payouts.', [
-        { text: 'Not now', style: 'cancel' },
-        { text: 'Set up payouts', onPress: () => void onSetupPayouts() },
-      ]);
-      return;
-    }
-    setStripeLinkBusy(true);
-    try {
-      await openStripeConnectDashboard(accessToken);
-    } catch (e) {
-      Alert.alert('Could not open Stripe', e instanceof Error ? e.message : 'Unknown error');
-    } finally {
-      setStripeLinkBusy(false);
-    }
-  };
-
-  return (
-    <View style={{ gap: spacing.md }}>
-    <View style={styles.walletHero}>
-      <View style={styles.walletHeaderRow}>
-        <Text style={styles.walletLabel}>Revenue vault · available</Text>
-        <Pressable
-          onPress={async () => {
-            if (walletRefreshBusy) return;
-            setWalletRefreshBusy(true);
-            try {
-              await sellerWallet.refresh({ silent: true });
-            } finally {
-              setWalletRefreshBusy(false);
-            }
-          }}
-          disabled={walletRefreshBusy}
-          hitSlop={8}
-        >
-          <Text style={styles.walletRefresh}>
-            {walletRefreshBusy ? 'Refreshing…' : 'Refresh'}
-          </Text>
-        </Pressable>
-      </View>
-      <Text style={styles.walletBig}>{available}</Text>
-      <Text style={styles.walletHint}>Ready for Stripe’s next automatic payout (not instant withdraw).</Text>
-      <View style={styles.walletRow}>
-        <View style={styles.walletCol}>
-          <Text style={styles.walletMuted}>Pending</Text>
-          <Text style={styles.walletMid}>{pending}</Text>
-          <Text style={styles.walletColHint}>Not yet available</Text>
-        </View>
-        <View style={styles.walletCol}>
-          <Text style={styles.walletMuted}>Next payout</Text>
-          <Text style={styles.walletMidSm} numberOfLines={4}>
-            {nextPayout}
-          </Text>
-        </View>
-      </View>
-      {scheduleLine ? <Text style={styles.walletSchedule}>{scheduleLine}</Text> : null}
-      {!hasStripeAccount ? (
-        <Pressable style={styles.withdrawBtn} onPress={() => void onSetupPayouts()}>
-          <Text style={styles.withdrawBtnText}>Set up payouts</Text>
-        </Pressable>
-      ) : (
-        <Pressable
-          style={[styles.walletStripeLink, stripeLinkBusy && styles.payoutCtaDisabled]}
-          onPress={() => void openStripeSettings()}
-          disabled={stripeLinkBusy}
-        >
-          {stripeLinkBusy ? (
-            <ActivityIndicator color={colors.gold} />
-          ) : (
-            <Text style={styles.walletStripeLinkText}>Bank & payout settings in Stripe</Text>
-          )}
-        </Pressable>
-      )}
-    </View>
-    <SellerPayoutTierCard accessToken={accessToken} />
-    </View>
-  );
-}
-
-function AnalyticsPanel({ analytics }: { analytics: import('../api/sellerAnalyticsRepository').SellerAnalyticsSnapshot }) {
-  const hasData =
-    analytics.activeListings > 0 ||
-    analytics.completedSales > 0 ||
-    analytics.liveViewerTotal > 0 ||
-    analytics.reviewCount > 0;
-
-  return (
-    <View style={{ gap: spacing.lg }}>
-      <View style={styles.analyticsCard}>
-        <Text style={styles.analyticsBig}>{analytics.revenueAvailable ?? '—'}</Text>
-        <Text style={styles.analyticsCaption}>Revenue vault · available balance</Text>
-      </View>
-      {hasData ? (
-        <View style={styles.kpiGrid}>
-          <View style={styles.kpi}>
-            <Text style={styles.kpiLabel}>Active listings</Text>
-            <Text style={styles.kpiVal}>{analytics.activeListings}</Text>
-          </View>
-          <View style={styles.kpi}>
-            <Text style={styles.kpiLabel}>Completed sales</Text>
-            <Text style={styles.kpiVal}>{analytics.completedSales}</Text>
-          </View>
-          <View style={styles.kpi}>
-            <Text style={styles.kpiLabel}>Live viewers</Text>
-            <Text style={styles.kpiVal}>{analytics.liveViewerTotal > 0 ? analytics.liveViewerTotal : '—'}</Text>
-          </View>
-          <View style={styles.kpi}>
-            <Text style={styles.kpiLabel}>Vault rating</Text>
-            <Text style={styles.kpiValSm}>
-              {analytics.reviewCount > 0 ? `${analytics.averageRating.toFixed(1)}★ (${analytics.reviewCount})` : '—'}
-            </Text>
-          </View>
-          <View style={styles.kpi}>
-            <Text style={styles.kpiLabel}>Completed trades</Text>
-            <Text style={styles.kpiVal}>{analytics.completedTrades}</Text>
-          </View>
-          <View style={styles.kpi}>
-            <Text style={styles.kpiLabel}>Followers</Text>
-            <Text style={styles.kpiVal}>{analytics.followers}</Text>
-          </View>
-        </View>
-      ) : (
-        <Text style={styles.orderEmpty}>Insights populate as you list, sell, and host on Get Vaulted.</Text>
       )}
     </View>
   );
@@ -1219,136 +926,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     lineHeight: 18,
   },
-  panelHint: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    marginBottom: spacing.sm,
-  },
-  listingsHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    marginBottom: spacing.xs,
-  },
-  listingsHeaderTitle: {
-    ...typography.title,
-    fontSize: 20,
-    color: colors.textPrimary,
-    letterSpacing: -0.3,
-    marginBottom: 2,
-  },
-  listingsNewBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.pill,
-    backgroundColor: colors.gold,
-  },
-  listingsNewBtnText: {
-    color: '#0a0a0a',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  listingSection: {
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  listingSectionCompact: {
-    paddingVertical: spacing.sm,
-    gap: spacing.xs,
-  },
-  listingsHeaderRowCompact: {
-    marginBottom: 0,
-  },
-  listingsHeaderTitleCompact: {
-    fontSize: 17,
-  },
-  listingGrid: {
-    gap: spacing.sm,
-    marginTop: spacing.xs,
-  },
-  listingSectionTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 2,
-  },
-  listingSectionEmpty: {
-    color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 19,
-    paddingVertical: spacing.sm,
-  },
-  channelMiniPill: {
-    borderWidth: 1,
-    borderRadius: radii.pill,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  channelMiniPillText: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.4,
-  },
-  listingCard: {
-    flexDirection: 'row',
-    borderRadius: radii.lg,
-    overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceElevated,
-  },
-  listingImg: {
-    width: 100,
-    height: 112,
-  },
-  listingBody: {
-    flex: 1,
-    padding: spacing.md,
-    justifyContent: 'space-between',
-  },
-  listingTop: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    alignItems: 'flex-start',
-  },
-  listingTitle: {
-    flex: 1,
-    color: colors.textPrimary,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  listingPrice: {
-    color: colors.gold,
-    fontSize: 16,
-    fontWeight: '800',
-    marginTop: spacing.xs,
-  },
-  listingFoot: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: spacing.sm,
-  },
-  statusPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radii.pill,
-  },
-  statusPillText: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.4,
-  },
-  watchCount: {
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: '600',
-  },
   liveBadge: {
     backgroundColor: 'rgba(255,59,48,0.2)',
     paddingHorizontal: 6,
@@ -1526,155 +1103,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     textTransform: 'uppercase',
-  },
-  walletHero: {
-    padding: spacing.xl,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.surface,
-    gap: spacing.md,
-  },
-  walletHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  walletRefresh: { fontSize: 12, fontWeight: '700', color: colors.gold },
-  walletLabel: {
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  walletBig: {
-    color: colors.textPrimary,
-    fontSize: 36,
-    fontWeight: '900',
-    letterSpacing: -1,
-  },
-  walletRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-    marginTop: spacing.md,
-  },
-  walletCol: { flex: 1, minWidth: 0 },
-  walletColHint: { fontSize: 10, color: colors.textMuted, marginTop: 4 },
-  walletMidSm: {
-    color: colors.textPrimary,
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: 4,
-    lineHeight: 18,
-  },
-  walletSchedule: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    lineHeight: 17,
-    marginTop: spacing.md,
-  },
-  walletStripeLink: {
-    marginTop: spacing.lg,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  walletStripeLinkText: {
-    color: colors.gold,
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  walletMuted: {
-    color: colors.textMuted,
-    fontSize: 12,
-  },
-  walletMid: {
-    color: colors.textPrimary,
-    fontSize: 18,
-    fontWeight: '800',
-    marginTop: 4,
-  },
-  walletHint: {
-    fontSize: 12,
-    color: colors.textMuted,
-    lineHeight: 17,
-    marginTop: spacing.md,
-  },
-  withdrawBtn: {
-    marginTop: spacing.lg,
-    paddingVertical: 14,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.gold,
-    alignItems: 'center',
-  },
-  withdrawBtnText: {
-    color: colors.gold,
-    fontWeight: '800',
-    fontSize: 15,
-  },
-  analyticsCard: {
-    padding: spacing.xl,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceElevated,
-  },
-  analyticsBig: {
-    color: colors.gold,
-    fontSize: 28,
-    fontWeight: '900',
-    letterSpacing: -0.5,
-  },
-  analyticsCaption: {
-    color: colors.textMuted,
-    fontSize: 12,
-    marginTop: 4,
-  },
-  barRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 6,
-    marginTop: spacing.lg,
-    height: 88,
-  },
-  bar: {
-    flex: 1,
-    borderRadius: 6,
-    backgroundColor: colors.gold,
-    opacity: 0.75,
-  },
-  kpiGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.md,
-  },
-  kpi: {
-    width: '47%',
-    padding: spacing.lg,
-    borderRadius: radii.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  kpiLabel: {
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  kpiVal: {
-    color: colors.textPrimary,
-    fontSize: 22,
-    fontWeight: '800',
-    marginTop: spacing.sm,
-  },
-  kpiValSm: {
-    color: colors.textPrimary,
-    fontSize: 15,
-    fontWeight: '800',
-    marginTop: spacing.sm,
   },
   vaultHead: {
     marginTop: spacing.sm,

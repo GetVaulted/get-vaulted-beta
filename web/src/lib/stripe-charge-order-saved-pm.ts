@@ -6,7 +6,11 @@ import { assertPaymentMethodOwnedByUser, getBuyerDefaultCardPaymentMethodId } fr
 import { isStripePaymentMethodId } from "@/lib/stripe-payment-method-id";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { stripeOffSessionPaymentIntentOptions } from "@/lib/stripe-payment-method-config";
-import { orderRequiresCheckoutForTax } from "@/lib/stripe-tax";
+import { orderTaxUpdateData } from "@/lib/sales-tax-order";
+import {
+  connectPaymentIntentTransferData,
+  resolveConnectPaymentTaxPlan,
+} from "@/lib/sales-tax-charge";
 import { resolveCheckoutApplicationFeeCents, resolveLiveRoomIdForOrder } from "@/lib/live-show-gmv";
 import { finalizeLiveBuyNowPurchaseComplete } from "@/lib/live-buy-now-purchase";
 import { syncOrderShippingFromLiveSessionTx } from "@/services/shipping/live-commerce-shipping-settlement";
@@ -210,10 +214,6 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
     return { outcome: "error", code: "ORDER_NOT_ELIGIBLE_SAVED_CARD" };
   }
 
-  if (await orderRequiresCheckoutForTax(row.shipState, row.shipCountry)) {
-    return { outcome: "error", code: "REQUIRES_CHECKOUT_FOR_TAX" };
-  }
-
   if (!row.seller.stripeAccountId || !row.seller.stripeOnboardingComplete) {
     return { outcome: "error", code: "SELLER_NOT_READY" };
   }
@@ -259,6 +259,12 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
       taxUsd: true,
       totalUsd: true,
       stripePaymentIntentId: true,
+      shipRecipientName: true,
+      shipAddress: true,
+      shipCity: true,
+      shipState: true,
+      shipZip: true,
+      shipCountry: true,
     },
   });
 
@@ -269,7 +275,28 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
     isCompanyListing: Boolean(row.listing.isCompanyListing),
     liveRoomId,
   });
-  const amountCents = Math.round(Math.max(0, orderFresh.totalUsd) * 100);
+
+  const taxPlan = await resolveConnectPaymentTaxPlan({
+    shipTo: {
+      shipRecipientName: orderFresh.shipRecipientName,
+      shipAddress: orderFresh.shipAddress,
+      shipCity: orderFresh.shipCity,
+      shipState: orderFresh.shipState,
+      shipZip: orderFresh.shipZip,
+      shipCountry: orderFresh.shipCountry,
+    },
+    itemPriceUsd: orderFresh.itemPriceUsd,
+    shippingPriceUsd: orderFresh.shippingPriceUsd,
+    applicationFeeCents: feeCents,
+    sellerId: row.sellerId,
+  });
+
+  await prisma.order.update({
+    where: { id: row.id },
+    data: orderTaxUpdateData(taxPlan.orderTax),
+  });
+
+  const amountCents = taxPlan.amountCents;
   if (amountCents < 50) {
     return { outcome: "error", code: "INVALID_ORDER_AMOUNT" };
   }
@@ -296,9 +323,13 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
           orderId: row.id,
           kind: PI_KIND,
           listingId: row.listingId,
+          ...taxPlan.metadata,
         },
-        application_fee_amount: feeCents,
-        transfer_data: { destination: row.seller.stripeAccountId },
+        ...connectPaymentIntentTransferData({
+          destinationAccountId: row.seller.stripeAccountId,
+          applicationFeeCents: feeCents,
+          sellerTransferCents: taxPlan.sellerTransferCents,
+        }),
       },
       // PM is part of the key so a recovery retry with a NEW card creates a fresh PaymentIntent
       // instead of replaying the original (expired-card) intent via Stripe idempotency.
@@ -568,7 +599,18 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
   await syncLiveBundledShippingOnOrder(row.id);
   const orderFresh = await prisma.order.findUniqueOrThrow({
     where: { id: row.id },
-    select: { totalUsd: true, itemPriceUsd: true, stripePaymentIntentId: true },
+    select: {
+      totalUsd: true,
+      itemPriceUsd: true,
+      shippingPriceUsd: true,
+      stripePaymentIntentId: true,
+      shipRecipientName: true,
+      shipAddress: true,
+      shipCity: true,
+      shipState: true,
+      shipZip: true,
+      shipCountry: true,
+    },
   });
 
   const liveRoomId = args.liveRoomId || row.liveShippingSession?.liveShowId || (await resolveLiveRoomIdForOrder(row.id));
@@ -577,7 +619,28 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
     isCompanyListing: Boolean(row.listing.isCompanyListing),
     liveRoomId,
   });
-  const amountCents = Math.round(Math.max(0, orderFresh.totalUsd) * 100);
+
+  const taxPlan = await resolveConnectPaymentTaxPlan({
+    shipTo: {
+      shipRecipientName: orderFresh.shipRecipientName,
+      shipAddress: orderFresh.shipAddress,
+      shipCity: orderFresh.shipCity,
+      shipState: orderFresh.shipState,
+      shipZip: orderFresh.shipZip,
+      shipCountry: orderFresh.shipCountry,
+    },
+    itemPriceUsd: orderFresh.itemPriceUsd,
+    shippingPriceUsd: orderFresh.shippingPriceUsd,
+    applicationFeeCents: feeCents,
+    sellerId: row.sellerId,
+  });
+
+  await prisma.order.update({
+    where: { id: row.id },
+    data: orderTaxUpdateData(taxPlan.orderTax),
+  });
+
+  const amountCents = taxPlan.amountCents;
   if (amountCents < 50) return { outcome: "error", code: "INVALID_ORDER_AMOUNT" };
 
   const buyer = await prisma.user.findUnique({
@@ -617,9 +680,13 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
           liveRoomId: args.liveRoomId,
           liveRoomItemId: args.liveRoomItemId,
           userId: args.buyerId,
+          ...taxPlan.metadata,
         },
-        application_fee_amount: feeCents,
-        transfer_data: { destination: row.seller.stripeAccountId },
+        ...connectPaymentIntentTransferData({
+          destinationAccountId: row.seller.stripeAccountId,
+          applicationFeeCents: feeCents,
+          sellerTransferCents: taxPlan.sellerTransferCents,
+        }),
       },
       // Include the PM so a recovery retry with a new card does not replay the prior intent.
       { idempotencyKey: `live_buy_now_${row.id}_${amountCents}_${pmId}` },

@@ -14,6 +14,7 @@ export async function GET() {
       stateCode: s.stateCode,
       label: s.label,
       enabled: s.enabled,
+      collectionBasis: s.collectionBasis,
       registeredAt: s.registeredAt?.toISOString() ?? null,
       notes: s.notes,
     })),

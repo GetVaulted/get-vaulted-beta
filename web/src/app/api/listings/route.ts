@@ -7,6 +7,7 @@ import { hasCompleteParcel } from "@/lib/listing-publish";
 import { prisma } from "@/lib/prisma";
 import { processAuctionPaymentExpiries } from "@/services/payments";
 import { assertSellerCanPublishListing } from "@/lib/seller-publish-readiness";
+import { embedListingInventoryChannel, parseInventoryChannelFromBody } from "@/lib/listing-inventory-channel";
 import { dbListingToMarketplace, dbListingToStored, type ListingWithSellerImages } from "@/lib/listing-mapper";
 import { listingWithSellerFulfillmentInclude } from "@/lib/listing-with-seller-include";
 import { LISTING_WORKSPACE_KEY } from "@/lib/listing-workspace";
@@ -127,6 +128,7 @@ type ListingBody = {
   marketplaceAllowedCarriers?: unknown;
   platformShippingProfileId?: unknown;
   platformShippingProfileSlug?: unknown;
+  inventoryChannel?: unknown;
   publishRequestId?: unknown;
 };
 
@@ -430,7 +432,12 @@ export async function POST(req: Request) {
   }
   const category = typeof body.category === "string" && body.category.trim() ? body.category.trim() : "Other";
   const condition = typeof body.condition === "string" && body.condition.trim() ? body.condition.trim() : "Other";
-  const description = typeof body.description === "string" ? body.description : "";
+  const rawDescription = typeof body.description === "string" ? body.description : "";
+  const inventoryChannelFromBody = parseInventoryChannelFromBody(body);
+  const description =
+    inventoryChannelFromBody != null
+      ? embedListingInventoryChannel(rawDescription, inventoryChannelFromBody)
+      : rawDescription;
   const handlingTime = typeof body.handlingTime === "string" ? body.handlingTime : "";
   const allowOffers = Boolean(body.allowOffers);
   const allowLayawayRequested = Boolean(body.allowLayaway);

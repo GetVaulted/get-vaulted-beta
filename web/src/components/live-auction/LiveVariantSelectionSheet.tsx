@@ -89,8 +89,8 @@ export function LiveVariantSelectionSheet({
     return Math.round(selected.priceUsd * quantity * 100) / 100;
   }, [quantity, selected]);
 
-  const estimatedTotal = checkoutPreview?.estimatedTotalUsd ?? spotPrice;
-  const chargeNow = checkoutPreview?.chargeNowUsd ?? spotPrice;
+  const totalDue = checkoutPreview?.chargeNowUsd ?? spotPrice;
+  const chargeNow = totalDue;
 
   useEffect(() => {
     if (!open) {
@@ -357,13 +357,10 @@ export function LiveVariantSelectionSheet({
           {error ? <p className="mt-3 text-center text-xs text-rose-300">{error}</p> : null}
         </div>
 
-        <div className="flex shrink-0 items-end gap-3 border-t border-white/[0.08] px-4 py-3">
+          <div className="flex shrink-0 items-end gap-3 border-t border-white/[0.08] px-4 py-3">
           <div className="min-w-[5.5rem]">
-            <p className="text-[10px] font-extrabold uppercase tracking-wide text-zinc-500">Est. total</p>
-            <p className="font-mono text-2xl font-black text-amber-300">{selected ? fmtMoney(estimatedTotal) : "—"}</p>
-            {selected && walletReady ? (
-              <p className="text-[10px] font-semibold text-zinc-500">Charged now {fmtMoney(chargeNow)}</p>
-            ) : null}
+            <p className="text-[10px] font-extrabold uppercase tracking-wide text-zinc-500">Total due</p>
+            <p className="font-mono text-2xl font-black text-amber-300">{selected ? fmtMoney(totalDue) : "—"}</p>
           </div>
           <div className="min-w-0 flex-1">
             <HoldToBuyButton
