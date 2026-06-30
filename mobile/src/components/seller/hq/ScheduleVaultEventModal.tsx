@@ -132,9 +132,10 @@ export function ScheduleVaultEventModal({
   const [discoveryVisibility, setDiscoveryVisibility] = useState<'public' | 'private'>('public');
   const [shippingProfiles, setShippingProfiles] = useState<LiveHostShippingProfileOption[]>([]);
   const [defaultSellerShippingProfileId, setDefaultSellerShippingProfileId] = useState('');
+  const [profilesLoading, setProfilesLoading] = useState(false);
+  const [profilesLoadError, setProfilesLoadError] = useState<string | null>(null);
   const submittingRef = useRef(false);
   const onRefreshReadinessRef = useRef(onRefreshReadiness);
-  const modalBootstrappedRef = useRef(false);
   onRefreshReadinessRef.current = onRefreshReadiness;
 
   const titleComplete = scheduleTitle.trim().length > 0;
@@ -143,44 +144,47 @@ export function ScheduleVaultEventModal({
   const liveBlocked = liveGate.blocked || !readinessKnown || !readinessOk;
   const isBreak = streamFormat === 'break';
 
-  useEffect(() => {
-    if (!visible) {
-      modalBootstrappedRef.current = false;
-      setDiscoveryVisibility('public');
+  const loadShippingProfiles = useCallback(async () => {
+    const token = accessToken?.trim();
+    if (!token) {
+      setShippingProfiles([]);
       setDefaultSellerShippingProfileId('');
+      setProfilesLoadError('Sign in to load shipping profiles.');
       return;
     }
-    if (modalBootstrappedRef.current) return;
-    modalBootstrappedRef.current = true;
-    setSubmitError(null);
-
-    let cancelled = false;
-    void (async () => {
-      await onRefreshReadinessRef.current?.();
-      const token = accessToken?.trim();
-      if (cancelled || !token) return;
-      try {
-        const profiles = await fetchSellerShippingProfiles(token);
-        if (cancelled) return;
-        setShippingProfiles(profiles);
-        const defaultProfileId = resolveSellerShippingProfileIdForCategory(
-          profiles.map((p) => ({
-            id: p.id,
-            sourceSlug: p.sourceSlug ?? '',
-            isDefault: p.isDefault,
-          })),
-          scheduleCategory,
-        );
-        setDefaultSellerShippingProfileId(defaultProfileId);
-      } catch {
-        /* shipping profiles are optional for opening the modal */
+    setProfilesLoading(true);
+    setProfilesLoadError(null);
+    try {
+      const profiles = await fetchSellerShippingProfiles(token);
+      setShippingProfiles(profiles);
+      if (profiles.length === 0) {
+        setDefaultSellerShippingProfileId('');
+        setProfilesLoadError('Could not load shipping profiles. Tap Retry or open Seller Studio on desktop.');
+        return;
       }
-    })();
+      setProfilesLoadError(null);
+    } catch (e) {
+      setShippingProfiles([]);
+      setDefaultSellerShippingProfileId('');
+      setProfilesLoadError(e instanceof Error ? e.message : 'Could not load shipping profiles.');
+    } finally {
+      setProfilesLoading(false);
+    }
+  }, [accessToken]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, visible]);
+  useEffect(() => {
+    if (!visible) {
+      setDiscoveryVisibility('public');
+      setDefaultSellerShippingProfileId('');
+      setShippingProfiles([]);
+      setProfilesLoadError(null);
+      setProfilesLoading(false);
+      return;
+    }
+    setSubmitError(null);
+    void onRefreshReadinessRef.current?.();
+    void loadShippingProfiles();
+  }, [visible, loadShippingProfiles]);
 
   useEffect(() => {
     if (!visible || shippingProfiles.length === 0) return;
@@ -282,7 +286,15 @@ export function ScheduleVaultEventModal({
       return;
     }
     if (!defaultSellerShippingProfileId.trim()) {
-      Alert.alert('Shipping profile', 'Select the shipping profile for this show.');
+      if (shippingProfiles.length === 0) {
+        Alert.alert(
+          'Shipping profiles unavailable',
+          profilesLoadError ??
+            'Your shipping profiles did not load. Scroll to Default shipping profile and tap Retry.',
+        );
+      } else {
+        Alert.alert('Shipping profile', 'Select the shipping profile for this show.');
+      }
       return;
     }
     if (thumbUploading) return;
@@ -596,22 +608,40 @@ export function ScheduleVaultEventModal({
 
           <Text style={styles.label}>Default shipping profile</Text>
           <View style={styles.profileWrap}>
-            {shippingProfiles.map((profile) => {
-              const selected = defaultSellerShippingProfileId === profile.id;
-              return (
-                <Pressable
-                  key={profile.id}
-                  style={[styles.profileChip, selected && styles.profileChipOn]}
-                  onPress={() => setDefaultSellerShippingProfileId(profile.id)}
-                  disabled={busy}
-                >
-                  <Text style={[styles.profileChipTxt, selected && styles.profileChipTxtOn]}>
-                    {profile.name}
-                    {profile.isDefault ? ' · default' : ''}
-                  </Text>
+            {profilesLoading ? (
+              <View style={styles.profileStatusRow}>
+                <ActivityIndicator color={colors.gold} size="small" />
+                <Text style={styles.profileStatusTxt}>Loading shipping profiles…</Text>
+              </View>
+            ) : shippingProfiles.length === 0 ? (
+              <View style={styles.profileEmptyBox}>
+                <Text style={styles.profileEmptyTitle}>No profiles to select</Text>
+                <Text style={styles.profileEmptyBody}>
+                  {profilesLoadError ??
+                    'Shipping profiles did not load. Retry here before creating the show.'}
+                </Text>
+                <Pressable style={styles.profileRetryBtn} onPress={() => void loadShippingProfiles()} disabled={busy}>
+                  <Text style={styles.profileRetryTxt}>Retry</Text>
                 </Pressable>
-              );
-            })}
+              </View>
+            ) : (
+              shippingProfiles.map((profile) => {
+                const selected = defaultSellerShippingProfileId === profile.id;
+                return (
+                  <Pressable
+                    key={profile.id}
+                    style={[styles.profileChip, selected && styles.profileChipOn]}
+                    onPress={() => setDefaultSellerShippingProfileId(profile.id)}
+                    disabled={busy}
+                  >
+                    <Text style={[styles.profileChipTxt, selected && styles.profileChipTxtOn]}>
+                      {profile.name}
+                      {profile.isDefault ? ' · default' : ''}
+                    </Text>
+                  </Pressable>
+                );
+              })
+            )}
           </View>
           <Text style={styles.helperTxt}>
             Auto-selected from your break category — Cards uses card mailer rates; Helmets uses full-size helmet rates. You can change it before creating the show.
@@ -804,6 +834,29 @@ const styles = StyleSheet.create({
   chipTxt: { fontSize: 13, fontWeight: '700', color: colors.textMuted },
   chipTxtOn: { color: colors.gold },
   profileWrap: { gap: 8, marginTop: spacing.xs },
+  profileStatusRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs },
+  profileStatusTxt: { fontSize: 13, color: colors.textSecondary },
+  profileEmptyBox: {
+    gap: spacing.xs,
+    padding: spacing.sm,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.35)',
+    backgroundColor: 'rgba(120,53,15,0.22)',
+  },
+  profileEmptyTitle: { fontSize: 13, fontWeight: '800', color: '#FFD699' },
+  profileEmptyBody: { fontSize: 12, lineHeight: 17, color: '#FFE4B5' },
+  profileRetryBtn: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.gold,
+    backgroundColor: `${colors.gold}18`,
+  },
+  profileRetryTxt: { fontSize: 12, fontWeight: '800', color: colors.gold },
   profileChip: {
     borderRadius: radii.md,
     borderWidth: 1,

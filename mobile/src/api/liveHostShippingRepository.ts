@@ -22,7 +22,12 @@ export async function fetchSellerShippingProfiles(
   accessToken: string,
 ): Promise<LiveHostShippingProfileOption[]> {
   const res = await fetchWebApiAuthed('/api/account/seller/shipping-profiles', accessToken);
-  if (!res.ok) return [];
+  if (res.status === 401) {
+    throw new Error('Session expired. Sign in again to load shipping profiles.');
+  }
+  if (!res.ok) {
+    throw new Error('Could not load shipping profiles from the server.');
+  }
   const body = (await res.json().catch(() => null)) as {
     profiles?: LiveHostShippingProfileOption[];
   } | null;
