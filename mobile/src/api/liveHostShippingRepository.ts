@@ -1,4 +1,4 @@
-import { fetchWebApiAuthed } from '../lib/fetchWebApiAuthed';
+import { fetchWebApiMobileWithSellerAuth } from '../lib/resolveSellerAccessToken';
 import { resolveSellerShippingProfileIdForCategory } from '../lib/liveShowCategoryShippingProfile';
 
 export type LiveHostShippingProfileOption = {
@@ -21,7 +21,7 @@ export type LiveHostShippingDashboard = {
 export async function fetchSellerShippingProfiles(
   accessToken: string,
 ): Promise<LiveHostShippingProfileOption[]> {
-  const res = await fetchWebApiAuthed('/api/account/seller/shipping-profiles', accessToken);
+  const res = await fetchWebApiMobileWithSellerAuth('/api/account/seller/shipping-profiles', accessToken);
   if (res.status === 401) {
     throw new Error('Session expired. Sign in again to load shipping profiles.');
   }
@@ -38,7 +38,7 @@ export async function fetchLiveHostShippingDashboard(
   accessToken: string,
   liveRoomId: string,
 ): Promise<LiveHostShippingDashboard | null> {
-  const res = await fetchWebApiAuthed(
+  const res = await fetchWebApiMobileWithSellerAuth(
     `/api/live-rooms/${encodeURIComponent(liveRoomId)}/host-shipping`,
     accessToken,
   );

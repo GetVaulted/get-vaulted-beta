@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { LiveShowCarrierPreference } from "@/generated/prisma/enums";
-import { getServerSessionSafe } from "@/lib/auth";
+import { resolveAccountSellerUserId } from "@/lib/resolve-account-seller-user";
 import { prisma } from "@/lib/prisma";
 import {
   archiveSellerShippingProfile,
@@ -14,10 +14,10 @@ function parseCarrier(raw: unknown): LiveShowCarrierPreference | null {
   return null;
 }
 
-export async function GET() {
-  const session = await getServerSessionSafe();
-  const sellerId = session?.user?.id;
-  if (!sellerId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(req: Request) {
+  const resolved = await resolveAccountSellerUserId(req);
+  if (resolved instanceof NextResponse) return resolved;
+  const sellerId = resolved.userId;
 
   const profiles = await getActiveSellerShippingProfiles(sellerId);
   return NextResponse.json({
@@ -62,9 +62,9 @@ type PostBody = {
 };
 
 export async function POST(req: Request) {
-  const session = await getServerSessionSafe();
-  const sellerId = session?.user?.id;
-  if (!sellerId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const resolved = await resolveAccountSellerUserId(req);
+  if (resolved instanceof NextResponse) return resolved;
+  const sellerId = resolved.userId;
 
   let body: PostBody;
   try {
@@ -171,9 +171,9 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const session = await getServerSessionSafe();
-  const sellerId = session?.user?.id;
-  if (!sellerId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const resolved = await resolveAccountSellerUserId(req);
+  if (resolved instanceof NextResponse) return resolved;
+  const sellerId = resolved.userId;
 
   let body: PostBody & { id?: string };
   try {

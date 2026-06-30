@@ -17,7 +17,7 @@
       "supportsTablet": true,
       "usesAppleSignIn": true,
       "bundleIdentifier": "com.getvaulted.app",
-      "buildNumber": "65",
+      "buildNumber": "66",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Get Vaulted uses your photo library for profile photos and listing images.",
         "NSCameraUsageDescription": "Get Vaulted uses the camera for live broadcasts, profile photos, and listing images.",
@@ -30,7 +30,7 @@
     },
     "android": {
       "package": "com.getvaulted.app",
-      "versionCode": 65,
+      "versionCode": 66,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#050505"

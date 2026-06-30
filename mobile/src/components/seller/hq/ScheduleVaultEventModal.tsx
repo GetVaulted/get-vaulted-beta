@@ -145,16 +145,10 @@ export function ScheduleVaultEventModal({
   const isBreak = streamFormat === 'break';
 
   const loadShippingProfiles = useCallback(async () => {
-    const token = accessToken?.trim();
-    if (!token) {
-      setShippingProfiles([]);
-      setDefaultSellerShippingProfileId('');
-      setProfilesLoadError('Sign in to load shipping profiles.');
-      return;
-    }
     setProfilesLoading(true);
     setProfilesLoadError(null);
     try {
+      const token = await resolveSellerAccessToken(accessToken ?? undefined);
       const profiles = await fetchSellerShippingProfiles(token);
       setShippingProfiles(profiles);
       if (profiles.length === 0) {
