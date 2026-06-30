@@ -58,6 +58,23 @@ Copy **Web client ID + secret** into Supabase Google provider settings.
    - Return URLs: `https://<SUPABASE_PROJECT_REF>.supabase.co/auth/v1/callback`
 3. Create a **Sign in with Apple** key (.p8) and add Team ID, Key ID, Services ID, and key to Supabase Apple provider.
 
+**Supabase → Authentication → Providers → Apple → Client IDs**
+
+This field must list **every** Apple identifier that can sign in — comma-separated:
+
+```
+<your-services-id>,com.getvaulted.app
+```
+
+| Identifier | Used by |
+|------------|---------|
+| Services ID (e.g. `com.getvaulted.app.web`) | Web “Continue with Apple”, Supabase OAuth callback |
+| App bundle ID `com.getvaulted.app` | **Native iOS app** (`signInWithIdToken`) |
+
+If the bundle ID is missing, iOS users see: `Unacceptable audience in id_token: [com.getvaulted.app]`.
+
+If you use Expo Go for dev, also add `host.exp.Exponent`. For dev/preview builds with other bundle IDs, add those too.
+
 ---
 
 ## Web app
@@ -116,6 +133,7 @@ After OAuth login, the app calls `/api/account/identity` to create the Prisma us
 | Symptom | Fix |
 |---------|-----|
 | `redirect_uri_mismatch` | Add exact callback URL to Supabase allowlist + Google/Apple console |
+| `Unacceptable audience in id_token: [com.getvaulted.app]` | Supabase → Apple provider → **Client IDs** must include `com.getvaulted.app` (native iOS), not just the Services ID |
 | Web loops on callback | Check `NEXTAUTH_URL` matches current host |
 | Mobile Google never returns | `EXPO_PUBLIC_SITE_URL` must be reachable from phone (LAN IP, not `localhost`) |
 | Apple unavailable on Android | Expected — Apple button only shows on iOS |

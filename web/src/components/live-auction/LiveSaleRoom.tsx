@@ -280,6 +280,7 @@ export function LiveSaleRoom({
   const [busy, setBusy] = useState(false);
   const [pinVariantBusy, setPinVariantBusy] = useState(false);
   const [variantSheetOpen, setVariantSheetOpen] = useState(false);
+  const [variantSheetInitialVariantId, setVariantSheetInitialVariantId] = useState<string | null>(null);
   /** Auction bid POST in flight — disables button. */
   const [bidFlight, setBidFlight] = useState(false);
   const [bidMeta, setBidMeta] = useState<ListingBidMeta | null>(null);
@@ -713,15 +714,21 @@ export function LiveSaleRoom({
           body: JSON.stringify({ amountUsd: amount }),
         },
       );
-      const data = (await res.json().catch(() => ({}))) as { error?: string; signInUrl?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        signInUrl?: string;
+        code?: string;
+        minNextBidUsd?: number;
+      };
       if (res.status === 401) {
         if (data.signInUrl) router.push(data.signInUrl);
         else redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
         return;
       }
       if (!res.ok) {
-        setActionError(data.error ?? "Could not place bid.");
-        toast(data.error ?? "Could not place bid.");
+        const msg = data.error ?? "We couldn't place that bid. Try again in a moment.";
+        setActionError(msg);
+        toast(msg);
         return;
       }
       const ack = parseAuctionHttpAckPayload(data);
@@ -742,7 +749,7 @@ export function LiveSaleRoom({
         router.refresh();
       }, 750);
     } catch {
-      toast("Could not place bid.");
+      toast("We couldn't place that bid. Try again in a moment.");
     } finally {
       setBidFlight(false);
     }
@@ -750,6 +757,7 @@ export function LiveSaleRoom({
 
   const handleOpenVariantShop = useCallback(() => {
     if (!activeDb || !pytCommerceLive) return;
+    setVariantSheetInitialVariantId(null);
     setVariantSheetOpen(true);
   }, [activeDb, pytCommerceLive]);
 
@@ -759,8 +767,9 @@ export function LiveSaleRoom({
       await handlePlaceBid();
       return;
     }
+    setVariantSheetInitialVariantId(buyerPinnedVariant?.id ?? null);
     setVariantSheetOpen(true);
-  }, [activeDb, handlePlaceBid, pytCommerceLive]);
+  }, [activeDb, buyerPinnedVariant?.id, handlePlaceBid, pytCommerceLive]);
 
   const handleHostMarkSold = useCallback(async () => {
     if (!activeDb || activeLotBidPhase !== "timer_ended_unsettled") return;
@@ -1612,10 +1621,14 @@ export function LiveSaleRoom({
       {activeDb && activeHasVariants ? (
         <LiveVariantSelectionSheet
           open={variantSheetOpen}
-          onClose={() => setVariantSheetOpen(false)}
+          onClose={() => {
+            setVariantSheetOpen(false);
+            setVariantSheetInitialVariantId(null);
+          }}
           item={activeDb}
           liveRoomId={liveRoomId}
           walletReady={buyerLiveWalletReady}
+          initialVariantId={variantSheetInitialVariantId}
           excludeVariantIds={
             spotAuctionLive && activeDb.auctionVariantId
               ? [activeDb.auctionVariantId]

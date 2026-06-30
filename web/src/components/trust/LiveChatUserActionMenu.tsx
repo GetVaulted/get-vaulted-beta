@@ -32,14 +32,21 @@ function canKickFromShow(args: {
   allowedActions: string[];
 }) {
   if (args.hostUserId && args.targetUserId === args.hostUserId) return false;
-  if (args.allowedActions.length) {
-    return args.allowedActions.includes("kick");
+  if (args.allowedActions.includes("kick") || args.allowedActions.includes("room_ban")) {
+    return true;
   }
-  return canModeratorPerformAction({
-    actionType: "kick",
-    isHost: args.isHost,
-    moderatorLevel: args.moderatorLevel,
-  });
+  return (
+    canModeratorPerformAction({
+      actionType: "kick",
+      isHost: args.isHost,
+      moderatorLevel: args.moderatorLevel,
+    }) ||
+    canModeratorPerformAction({
+      actionType: "room_ban",
+      isHost: args.isHost,
+      moderatorLevel: args.moderatorLevel,
+    })
+  );
 }
 
 function canBanFromSeller(args: {

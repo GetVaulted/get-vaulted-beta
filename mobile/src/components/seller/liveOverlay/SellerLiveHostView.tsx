@@ -16,7 +16,7 @@ import {
   computeLiveRoomBottomStack,
   scaledComposerBarHeight,
 } from '../../../lib/liveRoomBottomLayout';
-import { liveRoomOverlayScale } from '../../../lib/liveRoomUiScale';
+import { sellerConsoleToolbarScale, liveRoomOverlayScale } from '../../../lib/liveRoomUiScale';
 import { SellerLiveComposer } from './SellerLiveComposer';
 import { SellerLiveGestureLayer } from './SellerLiveGestureLayer';
 import { AddInventoryModal } from '../liveConsole/AddInventoryModal';
@@ -56,7 +56,7 @@ import {
 import { SellerLiveQueueSheet } from './SellerLiveQueueSheet';
 import { SellerNextUpRail, SELLER_NEXT_UP_RAIL_HEIGHT } from './SellerNextUpRail';
 import { SellerLiveGiveawaySheet } from './SellerLiveGiveawaySheet';
-import { SellerConsoleActionBar, sellerHeaderBlockHeight } from './SellerConsoleActionBar';
+import { SellerConsoleActionBar, sellerHeaderBlockHeight, SELLER_HEADER_TOOLBAR_H } from './SellerConsoleActionBar';
 import { SellerHostSideRail } from './SellerHostSideRail';
 import { SellerHostGiveawayRail } from './SellerHostGiveawayRail';
 import { SellerLiveSalesSheet } from './SellerLiveSalesSheet';
@@ -123,6 +123,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const overlayScale = liveRoomOverlayScale(windowWidth);
+  const toolbarScale = sellerConsoleToolbarScale(windowWidth);
+  const sellerToolbarHeight = Math.round(SELLER_HEADER_TOOLBAR_H * toolbarScale);
   const composerBarHeight = scaledComposerBarHeight(overlayScale);
   const { user } = useAuth();
   const [hostAvatarUrl, setHostAvatarUrl] = useState<string | null>(null);
@@ -210,7 +212,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const canEnd = host.room?.status === 'live';
   const streamTitle = host.room?.title ?? 'Live show';
   const headerPaddingTop = insets.top + 6;
-  const hostGivvyRailTop = headerPaddingTop + sellerHeaderBlockHeight() + 4;
+  const hostGivvyRailTop = headerPaddingTop + sellerHeaderBlockHeight(windowWidth) + 4;
 
   const handleShare = useCallback(() => {
     setShareSheetOpen(true);
@@ -427,7 +429,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const sellerChatBottom = sellerComposerBottom + composerBarHeight + Math.round(12 * overlayScale) + sellerPinnedReserve;
   const chatMaxHeight = computeChatStackMaxHeight({
     slideHeight: windowHeight,
-    topReserve: headerPaddingTop + sellerHeaderBlockHeight() + 8,
+    topReserve: headerPaddingTop + sellerHeaderBlockHeight(windowWidth) + 8,
     chatBottom: sellerChatBottom,
     overlayScale,
     expanded: chatExpanded,
@@ -471,6 +473,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
           targetUserId,
           hostUserId: showHostUserId,
           allowedActions: modActor.allowedActions,
+          isHost: modActor.isHost,
+          isModerator: modActor.isModerator,
+          canModerate: modActor.canModerate,
+          moderatorLevel: modActor.moderatorLevel,
         });
       const canBan =
         modActor.canModerate &&
@@ -492,7 +498,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
                 canKickFromShow: canKick,
                 canBanFromSeller: canBan,
                 onKickFromShow: () => {
-                  if (targetUserId) void applyChatUserModeration('room_ban', targetUserId, user.username);
+                  if (targetUserId) void applyChatUserModeration('kick', targetUserId, user.username);
                 },
                 onBanFromSeller: () => {
                   if (targetUserId) void applyChatUserModeration('seller_stream_ban', targetUserId, user.username);
@@ -584,6 +590,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         onEndShow={host.stageWebrtcEnabled ? undefined : () => host.onEndShow()}
         canEnd={canEnd && !host.stageWebrtcEnabled}
         endBusy={host.busy === 'end'}
+        toolbarMinHeight={sellerToolbarHeight}
         toolbar={
           <SellerConsoleActionBar
             embedded
@@ -795,7 +802,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         />
       ) : null}
 
-      {modActionMessage && showModeratorTools(modActor.isModerator, modActor.canModerate, modActor.isHost) ? (
+      {modActionMessage && accessToken ? (
         <ModeratorActionSheet
           visible={Boolean(modActionMessage)}
           onClose={() => setModActionMessage(null)}
@@ -835,7 +842,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       ) : null}
 
       {host.stageWebrtcEnabled && !roomLive && host.showCameraPreview ? (
-        <View style={[styles.previewHint, { top: headerPaddingTop + sellerHeaderBlockHeight() + 6 }]}>
+        <View style={[styles.previewHint, { top: headerPaddingTop + sellerHeaderBlockHeight(windowWidth) + 6 }]}>
           <Text style={styles.previewHintTxt}>{SELLER_CONSOLE.previewHint}</Text>
         </View>
       ) : null}
@@ -852,6 +859,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         roomId={roomId}
         showTitle={streamTitle}
         hostUsername={sellerUsername ?? user?.email?.split('@')[0] ?? 'Host'}
+        hostAvatarUrl={hostAvatarUrl}
         isLive={roomLive}
         accessToken={accessToken}
         canNotifyFollowers

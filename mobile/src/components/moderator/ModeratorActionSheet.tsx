@@ -1,21 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActionSheetIOS,
   Alert,
-  Modal,
   Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { applyLiveModerationAction } from '../../api/trustRepository';
 import type { LiveModeratorLevel } from '../../api/trustRepository';
 import { canPerformModeratorAction, isProtectedShowHost, TIMEOUT_MINUTES } from '../../lib/liveModeratorPermissions';
+import { formatChatMessageForCopy } from '../../lib/liveRoomChatMessages';
 import { openUserProfile } from '../../navigation/openPlatform';
-import { colors, radii, spacing } from '../../theme';
 import { ReportSheet } from '../trust/ReportSheet';
 
 type Props = {
@@ -64,8 +58,10 @@ export function ModeratorActionSheet(props: Props) {
   } = props;
 
   const [reportOpen, setReportOpen] = useState(false);
+  const openedRef = useRef(false);
   const isHostMessage = isProtectedShowHost({ hostUserId, targetUserId: senderId, messageIsHost });
   const canMod = isModerator || Boolean(canModerate) || Boolean(isHost);
+  const copyText = formatChatMessageForCopy(senderUsername, messageText);
 
   const runAction = async (actionType: string, metadata?: Record<string, unknown>) => {
     if (!accessToken || !senderId) return;
@@ -135,28 +131,42 @@ export function ModeratorActionSheet(props: Props) {
   }, [canMod, accessToken, senderId, isHostMessage, isModerator, isHost, canModerate, moderatorLevel, allowedActions]);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      openedRef.current = false;
+      return;
+    }
+    if (openedRef.current) return;
+    openedRef.current = true;
 
-    const labels = [
-      'View profile',
-      'Copy message',
-      'Report message',
-      ...modOptions.map((o) => o.label),
-      'Cancel',
+    const copyMessage = () => {
+      void Clipboard.setStringAsync(copyText).then(() => {
+        Alert.alert('Copied', 'Message copied to clipboard.');
+        onClose();
+      });
+    };
+
+    const baseOptions: { label: string; action: () => void; destructive?: boolean }[] = [
+      { label: 'Copy message', action: copyMessage },
     ];
-    const handlers: Array<() => void> = [
-      () => {
-        if (senderId) openUserProfile(senderId);
-      },
-      () => {
-        void Clipboard.setStringAsync(messageText).then(() => {
-          Alert.alert('Copied', 'Message copied to clipboard.');
-        });
-      },
-      () => setReportOpen(true),
-      ...modOptions.map((o) => o.action),
-      onClose,
-    ];
+    if (senderId) {
+      baseOptions.push({
+        label: 'View profile',
+        action: () => {
+          openUserProfile(senderId);
+          onClose();
+        },
+      });
+    }
+    if (accessToken) {
+      baseOptions.push({
+        label: 'Report message',
+        action: () => setReportOpen(true),
+      });
+    }
+
+    const options = [...baseOptions, ...modOptions];
+    const labels = [...options.map((o) => o.label), 'Cancel'];
+    const handlers = [...options.map((o) => o.action), onClose];
     const destructiveIndex = labels.findIndex(
       (l) =>
         l.startsWith('Delete') ||
@@ -170,7 +180,7 @@ export function ModeratorActionSheet(props: Props) {
           options: labels,
           cancelButtonIndex: labels.length - 1,
           destructiveButtonIndex: destructiveIndex >= 0 ? destructiveIndex : undefined,
-          title: `@${senderUsername}`,
+          title: `@${senderUsername.replace(/^@/, '')}`,
         },
         (idx) => {
           if (idx == null || idx >= handlers.length) {
@@ -184,19 +194,16 @@ export function ModeratorActionSheet(props: Props) {
     }
 
     Alert.alert(
-      `@${senderUsername}`,
+      `@${senderUsername.replace(/^@/, '')}`,
       undefined,
       [
-        { text: 'View profile', onPress: handlers[0] },
-        { text: 'Copy message', onPress: handlers[1] },
-        { text: 'Report message', onPress: handlers[2] },
-        ...modOptions.map((opt, i) => ({
-          text: modOptions[i].label,
+        ...options.map((opt) => ({
+          text: opt.label,
           onPress: opt.action,
           style:
-            modOptions[i].label.startsWith('Delete') ||
-            modOptions[i].label.startsWith('Ban from') ||
-            modOptions[i].label.startsWith('Kick from')
+            opt.label.startsWith('Delete') ||
+            opt.label.startsWith('Ban from') ||
+            opt.label.startsWith('Kick from')
               ? ('destructive' as const)
               : undefined,
         })),
@@ -204,12 +211,15 @@ export function ModeratorActionSheet(props: Props) {
       ],
       { cancelable: true, onDismiss: onClose },
     );
-  }, [visible, modOptions, messageText, onClose, senderId, senderUsername]);
+  }, [accessToken, copyText, modOptions, onClose, senderId, senderUsername, visible]);
 
   return (
     <ReportSheet
       visible={reportOpen}
-      onClose={() => setReportOpen(false)}
+      onClose={() => {
+        setReportOpen(false);
+        onClose();
+      }}
       targetType="message"
       targetId={messageId}
       liveRoomId={liveRoomId}
@@ -218,61 +228,3 @@ export function ModeratorActionSheet(props: Props) {
     />
   );
 }
-
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: radii.lg,
-    borderTopRightRadius: radii.lg,
-    paddingBottom: spacing.lg,
-    maxHeight: '70%',
-  },
-  handle: {
-    alignSelf: 'center',
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    marginVertical: spacing.sm,
-  },
-  title: {
-    color: colors.textPrimary,
-    fontWeight: '800',
-    fontSize: 16,
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-  },
-  list: {
-    paddingHorizontal: spacing.lg,
-  },
-  row: {
-    paddingVertical: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
-  },
-  rowText: {
-    color: colors.textPrimary,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  destructive: {
-    color: '#f87171',
-  },
-  cancel: {
-    marginTop: spacing.md,
-    marginHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
-    borderRadius: radii.lg,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-  },
-  cancelText: {
-    color: colors.textSecondary,
-    fontWeight: '700',
-  },
-});

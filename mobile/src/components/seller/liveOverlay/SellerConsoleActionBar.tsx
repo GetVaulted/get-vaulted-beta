@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import type { MobileHostBroadcastPhase } from '../../../hooks/useMobileStagePublish';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { confirmStartLive } from '../../../lib/sellerBroadcastConfirm';
 import { GIVVY_UI } from '../../../lib/givvyUi';
+import { sellerConsoleToolbarScale } from '../../../lib/liveRoomUiScale';
 import { colors, radii, spacing } from '../../../theme';
 import { SellerBroadcastControl } from './SellerBroadcastControl';
 import { SellerCameraFlipButton } from './SellerCameraFlipButton';
@@ -16,8 +17,9 @@ export const SELLER_HEADER_TOOLBAR_H = 32;
 export const SELLER_HEADER_TOOLBAR_GAP = 4;
 export const SELLER_HEADER_PADDING_TOP = 6;
 
-export function sellerHeaderBlockHeight(): number {
-  return SELLER_HEADER_IDENTITY_H + SELLER_HEADER_TOOLBAR_GAP + SELLER_HEADER_TOOLBAR_H;
+export function sellerHeaderBlockHeight(layoutWidth?: number): number {
+  const scale = layoutWidth != null ? sellerConsoleToolbarScale(layoutWidth) : 1;
+  return SELLER_HEADER_IDENTITY_H + SELLER_HEADER_TOOLBAR_GAP + Math.round(SELLER_HEADER_TOOLBAR_H * scale);
 }
 
 const ACTION_MIN_H = 32;
@@ -79,6 +81,19 @@ export function SellerConsoleActionBar({
   micMuteDisabled,
   onToggleMicMute,
 }: Props) {
+  const { width: windowWidth } = useWindowDimensions();
+  const scale = sellerConsoleToolbarScale(windowWidth);
+  const pillIcon = Math.round(PILL_ICON * scale);
+  const pillLabelSize = PILL_LABEL * scale;
+  const pillLineHeight = Math.round(11 * scale);
+  const actionMinH = Math.round(ACTION_MIN_H * scale);
+  const actionPadH = Math.round(8 * scale);
+  const actionPadV = Math.round(5 * scale);
+  const actionGap = Math.round(4 * scale);
+  const rowPadV = Math.round(4 * scale);
+  const trailingBtn = Math.round(TRAILING_BTN * scale);
+  const goLiveIcon = Math.round(15 * scale);
+
   const body = (
     <View style={[styles.bar, embedded && styles.barEmbedded]}>
       {embedded ? null : Platform.OS === 'ios' ? (
@@ -86,62 +101,110 @@ export function SellerConsoleActionBar({
       ) : (
         <View style={styles.androidFill} />
       )}
-      <View style={[styles.row, embedded && styles.rowEmbedded]}>
+      <View style={[styles.row, embedded && styles.rowEmbedded, { paddingVertical: embedded ? Math.round(2 * scale) : rowPadV, gap: actionGap }]}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           bounces
           style={styles.actionsScroll}
-          contentContainerStyle={styles.actionsContent}
+          contentContainerStyle={[styles.actionsContent, { gap: actionGap }]}
           keyboardShouldPersistTaps="handled"
         >
           <Pressable
-            style={[styles.actionBtn, salesAttentionCount > 0 && styles.salesAttentionBtn]}
+            style={[
+              styles.actionBtn,
+              {
+                minHeight: actionMinH,
+                paddingHorizontal: actionPadH,
+                paddingVertical: actionPadV,
+                gap: Math.round(3 * scale),
+              },
+              salesAttentionCount > 0 && styles.salesAttentionBtn,
+            ]}
             onPress={onSales}
             accessibilityLabel={SELLER_CONSOLE.sales}
-            hitSlop={4}
+            hitSlop={Math.round(4 * scale)}
           >
-            <Ionicons name="receipt-outline" size={PILL_ICON} color="rgba(255,255,255,0.92)" />
-            <Text style={styles.pillTxt}>{SELLER_CONSOLE.sales}</Text>
+            <Ionicons name="receipt-outline" size={pillIcon} color="rgba(255,255,255,0.92)" />
+            <Text style={[styles.pillTxt, { fontSize: pillLabelSize, lineHeight: pillLineHeight }]}>
+              {SELLER_CONSOLE.sales}
+            </Text>
             {salesAttentionCount > 0 ? (
-              <View style={styles.attentionDot}>
-                <Text style={styles.attentionDotTxt}>{salesAttentionCount > 9 ? '9+' : salesAttentionCount}</Text>
+              <View
+                style={[
+                  styles.attentionDot,
+                  {
+                    minWidth: Math.round(14 * scale),
+                    height: Math.round(14 * scale),
+                    borderRadius: Math.round(7 * scale),
+                  },
+                ]}
+              >
+                <Text style={[styles.attentionDotTxt, { fontSize: Math.max(8, Math.round(8 * scale)) }]}>
+                  {salesAttentionCount > 9 ? '9+' : salesAttentionCount}
+                </Text>
               </View>
             ) : null}
           </Pressable>
           {onGivvy ? (
             <Pressable
-              style={[styles.actionBtn, styles.givvyBtn]}
+              style={[
+                styles.actionBtn,
+                styles.givvyBtn,
+                {
+                  minHeight: actionMinH,
+                  paddingHorizontal: actionPadH,
+                  paddingVertical: actionPadV,
+                  gap: Math.round(3 * scale),
+                },
+              ]}
               onPress={onGivvy}
               accessibilityLabel="Giveaways"
-              hitSlop={4}
+              hitSlop={Math.round(4 * scale)}
             >
-              <Ionicons name="gift-outline" size={PILL_ICON} color={GIVVY_UI.icon} />
-              <Text style={[styles.pillTxt, styles.givvyTxt]}>Givvys</Text>
+              <Ionicons name="gift-outline" size={pillIcon} color={GIVVY_UI.icon} />
+              <Text style={[styles.pillTxt, styles.givvyTxt, { fontSize: pillLabelSize, lineHeight: pillLineHeight }]}>
+                Givvys
+              </Text>
             </Pressable>
           ) : null}
           {showTeamsBoard && onTeams ? (
             <Pressable
-              style={styles.actionBtn}
+              style={[
+                styles.actionBtn,
+                {
+                  minHeight: actionMinH,
+                  paddingHorizontal: actionPadH,
+                  paddingVertical: actionPadV,
+                  gap: Math.round(3 * scale),
+                },
+              ]}
               onPress={onTeams}
               accessibilityLabel="View team board"
-              hitSlop={4}
+              hitSlop={Math.round(4 * scale)}
             >
-              <Ionicons name="grid-outline" size={PILL_ICON} color="rgba(255,255,255,0.92)" />
-              <Text style={styles.pillTxt}>Teams</Text>
+              <Ionicons name="grid-outline" size={pillIcon} color="rgba(255,255,255,0.92)" />
+              <Text style={[styles.pillTxt, { fontSize: pillLabelSize, lineHeight: pillLineHeight }]}>Teams</Text>
             </Pressable>
           ) : null}
           <Pressable
-            style={styles.actionBtn}
+            style={[
+              styles.actionBtn,
+              {
+                minHeight: actionMinH,
+                paddingHorizontal: actionPadH,
+                paddingVertical: actionPadV,
+              },
+            ]}
             onPress={onObs}
             accessibilityLabel={SELLER_CONSOLE.obsSetup}
-            hitSlop={4}
+            hitSlop={Math.round(4 * scale)}
           >
-            <Text style={styles.pillTxt}>RTMP</Text>
+            <Text style={[styles.pillTxt, { fontSize: pillLabelSize, lineHeight: pillLineHeight }]}>RTMP</Text>
           </Pressable>
         </ScrollView>
 
-        <View style={styles.trailing}>
+        <View style={[styles.trailing, { gap: actionGap }]}>
           {showMicMute && onToggleMicMute ? (
             <SellerMicMuteButton
               visible
@@ -173,13 +236,17 @@ export function SellerConsoleActionBar({
             />
           ) : canStartRoom ? (
             <Pressable
-              style={[styles.goLive, broadcastBusy && styles.disabled]}
+              style={[
+                styles.goLive,
+                { width: trailingBtn, height: trailingBtn },
+                broadcastBusy && styles.disabled,
+              ]}
               onPress={() => confirmStartLive(onGoLive)}
               disabled={broadcastBusy}
               accessibilityLabel={SELLER_CONSOLE.startStream}
-              hitSlop={4}
+              hitSlop={Math.round(4 * scale)}
             >
-              <Ionicons name="play" size={15} color="#0a0a0a" />
+              <Ionicons name="play" size={goLiveIcon} color="#0a0a0a" />
             </Pressable>
           ) : null}
         </View>

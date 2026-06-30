@@ -1,4 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -112,7 +111,7 @@ export function BreakSpotSetupGrid({
         <Text style={styles.toolbarTitle}>
           {isDivision ? '8 divisions' : '32 teams'} · {pinnedCount} pinned
         </Text>
-        <Text style={styles.toolbarHint}>Tap a spot to set price · tap pin to feature for buyers</Text>
+        <Text style={styles.toolbarHint}>Tap a spot to set price · Pin to feature for buyers</Text>
       </View>
 
       <ScrollView
@@ -150,11 +149,9 @@ export function BreakSpotSetupGrid({
                 disabled={disabled}
                 accessibilityLabel={spot.isHot ? 'Unpin spot' : 'Pin spot for buyers'}
               >
-                <Ionicons
-                  name={spot.isHot ? 'pin' : 'pin-outline'}
-                  size={14}
-                  color={spot.isHot ? colors.gold : 'rgba(255,255,255,0.55)'}
-                />
+                <Text style={[styles.pinBtnText, spot.isHot && styles.pinBtnTextActive]}>
+                  {spot.isHot ? 'Pinned' : 'Pin'}
+                </Text>
               </Pressable>
             </View>
           );
@@ -225,9 +222,10 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 4,
     right: 4,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    minWidth: 36,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: radii.pill,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.45)',
@@ -237,6 +235,16 @@ const styles = StyleSheet.create({
   pinBtnActive: {
     backgroundColor: 'rgba(212,175,55,0.22)',
     borderColor: 'rgba(212,175,55,0.45)',
+  },
+  pinBtnText: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.72)',
+  },
+  pinBtnTextActive: {
+    color: colors.gold,
   },
   editor: {
     borderRadius: radii.md,

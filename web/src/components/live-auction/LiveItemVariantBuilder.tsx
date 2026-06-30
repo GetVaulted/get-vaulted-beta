@@ -170,7 +170,7 @@ function HotSpotButton({ active, onClick }: { active: boolean; onClick: () => vo
             : "border-white/10 bg-white/[0.03] text-zinc-500 hover:border-white/16 hover:text-zinc-300"
         }`}
       >
-        📌 Pin
+        {active ? "Pinned" : "Pin"}
       </button>
     </div>
   );

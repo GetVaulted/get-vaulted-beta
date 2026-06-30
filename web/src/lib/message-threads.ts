@@ -16,6 +16,59 @@ export function liveAnchorKey(liveRoomId: string): string {
   return `live:${liveRoomId}`;
 }
 
+export function liveMessagingAnchorWorkspaceKey(liveRoomId: string): string {
+  return `live-networking:${liveRoomId}`;
+}
+
+/** Listing row required by MessageThread FK — attach show inventory or create a hidden anchor. */
+export async function resolveLiveNetworkingListingAnchor(
+  tx: Prisma.TransactionClient,
+  args: { liveRoomId: string; sellerId: string; roomTitle: string },
+): Promise<{ listingId: string; listingTitle: string }> {
+  const itemRows = await tx.liveRoomItem.findMany({
+    where: { liveRoomId: args.liveRoomId, listingId: { not: null } },
+    orderBy: { sortOrder: "asc" },
+    select: { listingId: true },
+    take: 24,
+  });
+  for (const row of itemRows) {
+    const listingId = row.listingId?.trim();
+    if (!listingId) continue;
+    const listing = await tx.listing.findFirst({
+      where: { id: listingId, sellerId: args.sellerId, moderationRemovedAt: null },
+      select: { id: true, title: true },
+    });
+    if (listing) return { listingId: listing.id, listingTitle: listing.title };
+  }
+
+  const sellerListing = await tx.listing.findFirst({
+    where: { sellerId: args.sellerId, moderationRemovedAt: null },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true, title: true },
+  });
+  if (sellerListing) return { listingId: sellerListing.id, listingTitle: sellerListing.title };
+
+  const workspaceKey = liveMessagingAnchorWorkspaceKey(args.liveRoomId);
+  const anchor = await tx.listing.upsert({
+    where: { sellerId_workspaceKey: { sellerId: args.sellerId, workspaceKey } },
+    create: {
+      sellerId: args.sellerId,
+      workspaceKey,
+      title: (args.roomTitle.trim() || "Live show").slice(0, 200),
+      description: "Private messages about this live show.",
+      category: "Live",
+      condition: "See show",
+      buyingFormat: "buy_now",
+      status: "draft",
+      priceUsd: 0,
+      shippingPriceUsd: 0,
+    },
+    update: {},
+    select: { id: true, title: true },
+  });
+  return { listingId: anchor.id, listingTitle: anchor.title };
+}
+
 export function orderAnchorKey(orderId: string): string {
   return `order:${orderId}`;
 }

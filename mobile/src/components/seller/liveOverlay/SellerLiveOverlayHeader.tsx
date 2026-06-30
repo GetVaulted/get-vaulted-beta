@@ -26,6 +26,7 @@ export function SellerLiveOverlayHeader({
   canEnd,
   endBusy,
   toolbar,
+  toolbarMinHeight = 32,
 }: {
   paddingTop: number;
   hostName: string;
@@ -43,6 +44,7 @@ export function SellerLiveOverlayHeader({
   endBusy?: boolean;
   /** Compact seller tools row (Sales, Givvys, etc.) attached under the identity row. */
   toolbar?: ReactNode;
+  toolbarMinHeight?: number;
 }) {
   const ringPulse = useRef(new Animated.Value(0)).current;
   const viewerPop = useRef(new Animated.Value(1)).current;
@@ -143,7 +145,7 @@ export function SellerLiveOverlayHeader({
           ) : null}
         </View>
       </View>
-      {toolbar ? <View style={styles.toolbarRow}>{toolbar}</View> : null}
+      {toolbar ? <View style={[styles.toolbarRow, { minHeight: toolbarMinHeight }]}>{toolbar}</View> : null}
     </View>
   );
 }
@@ -249,6 +251,5 @@ const styles = StyleSheet.create({
   endBtn: { padding: 8 },
   toolbarRow: {
     marginTop: 4,
-    minHeight: 32,
   },
 });

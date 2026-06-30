@@ -6,6 +6,7 @@ import {
   googleOAuthNotConfiguredMessage,
   isAppleOAuthProviderEnabled,
   isAppleProviderDisabledError,
+  mapAppleSignInErrorMessage,
   isGoogleOAuthConfigured,
 } from './authProviderAvailability';
 import { provisionSocialAuthAccount } from './provisionSocialAuthAccount';
@@ -136,7 +137,7 @@ export async function signInWithAppleOAuth(): Promise<SocialAuthResult> {
       if (isAppleProviderDisabledError(error.message)) {
         throw new Error('Apple Sign In is not configured yet. Use email or Google, or try again later.');
       }
-      throw error;
+      throw new Error(mapAppleSignInErrorMessage(error.message));
     }
 
     const given = credential.fullName?.givenName?.trim() ?? '';

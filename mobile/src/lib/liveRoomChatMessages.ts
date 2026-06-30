@@ -118,6 +118,13 @@ export function formatChatDisplayName(user: string): string {
   return trimmed.startsWith('@') ? trimmed.slice(1) : trimmed;
 }
 
+/** Clipboard-friendly line for moderators reviewing or escalating chat. */
+export function formatChatMessageForCopy(username: string, text: string): string {
+  const handle = formatChatDisplayName(username);
+  const body = text.trim();
+  return body ? `@${handle}: ${body}` : `@${handle}`;
+}
+
 export function formatViewerEventName(user: string): string {
   const trimmed = user.trim();
   if (!trimmed) return 'Guest';

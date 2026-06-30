@@ -53,6 +53,8 @@ type Props = {
   variants: LiveItemVariantSnapshot[];
   /** Hide teams currently in spot auction (buyers bid on those instead). */
   excludeVariantIds?: string[];
+  /** Pre-select a team/division when opening checkout (host-pinned spot). */
+  initialVariantId?: string | null;
   accessToken?: string;
   walletReady: boolean;
   onWalletRequired: () => void;
@@ -76,6 +78,7 @@ export function LiveBreakSpotGridSheet({
   variantAssignmentMode = 'pick',
   variants,
   excludeVariantIds,
+  initialVariantId,
   accessToken,
   walletReady,
   onWalletRequired,
@@ -124,11 +127,19 @@ export function LiveBreakSpotGridSheet({
     if (isRandom) {
       const available = sortedVariants.find((v) => variantIsAvailable(v));
       if (available) setSelectedId(available.id);
+      return;
+    }
+    if (
+      initialVariantId &&
+      sortedVariants.some((v) => v.id === initialVariantId && variantIsAvailable(v))
+    ) {
+      setSelectedId(initialVariantId);
+      return;
     }
     if (selectedId && !sortedVariants.some((v) => v.id === selectedId && variantIsAvailable(v))) {
       setSelectedId(null);
     }
-  }, [isRandom, selectedId, sortedVariants, visible]);
+  }, [initialVariantId, isRandom, selectedId, sortedVariants, visible]);
 
   useEffect(() => {
     if (!visible || !walletReady || !accessToken?.trim() || spotPrice <= 0) {
@@ -345,8 +356,8 @@ export function LiveBreakSpotGridSheet({
                 {isRandom
                   ? 'Hold to buy — the Vault wheel assigns your team from what’s left'
                   : selected
-                    ? `Confirm ${isDivisionBreak ? 'division' : 'team'} and hold to buy below`
-                    : `Tap ${isDivisionBreak ? 'a division' : 'a team'} to continue`}
+                    ? `Confirm ${isDivisionBreak ? 'division' : 'team'} and hold to buy — shipping & tax included below`
+                    : `Tap ${isDivisionBreak ? 'a division' : 'a team'} to checkout`}
               </LiveRoomText>
               {isRandom ? (
                 <View style={styles.randomRevealCard}>
@@ -499,7 +510,7 @@ function TeamPill({
     >
       {variant.isHot && !soldOut ? (
         <View style={styles.hotBadge}>
-          <LiveRoomText style={styles.hotBadgeText}>Hot</LiveRoomText>
+          <LiveRoomText style={styles.hotBadgeText}>Pinned</LiveRoomText>
         </View>
       ) : null}
       <LiveRoomText

@@ -45,11 +45,12 @@ import type { LiveStackParamList, MainTabParamList } from '../../navigation/type
 import { colors, radii, spacing } from '../../theme';
 import type { LiveStream } from '../../types';
 import { HoldToBidButton } from './HoldToBidButton';
-import { resolveBuyerRoomKind, resolveLiveBuyerCommerceHud } from './liveActionModule';
+import { resolveBuyerRoomKind, resolveLiveBuyerCommerceHud, formatMoney } from './liveActionModule';
+import { fetchLiveVariantCheckoutPreview, type LiveVariantCheckoutPreview } from '../../api/liveVariantCheckoutPreviewRepository';
 import { LiveCustomBidSheet } from './LiveCustomBidSheet';
 import { LiveBreakSpotGridSheet } from './LiveBreakSpotGridSheet';
 import type { LiveCustomBidPayload } from '../../lib/liveCustomBid';
-import { isActiveVariantBuyerItem } from '../../lib/liveItemVariant';
+import { isActiveVariantBuyerItem, hostPinnedBuyerVariant, lowestAvailableVariantPrice } from '../../lib/liveItemVariant';
 import { isVariantSpotAuctionLive, shopVariantCountDuringSpotAuction } from '../../lib/liveVariantSpotCommerce';
 import { reconcileBuyerSnapshotMonotonic } from '../../lib/liveRoomBuyerSnapshotMerge';
 import { computeAuctionRemainingMs, logAuctionTimer } from '../../lib/auctionTimerSync';
@@ -59,6 +60,10 @@ import {
   LIVE_ROOM_REF_WIDTH,
   liveRoomHudScale,
 } from '../../lib/liveRoomUiScale';
+import {
+  resolveLiveBidFailureDisplay,
+  type LiveBidFailureDisplay,
+} from '../../lib/liveBidUserErrors';
 
 /** @deprecated Prefer measuring commerce HUD via `onLayout`; used as initial layout estimate only. */
 export const LIVE_COMMERCE_OVERLAY_HEIGHT = 118;
@@ -83,6 +88,8 @@ type Props = {
   /** Merge bid HTTP ACK into live snapshot (timer + high bid). */
   mergeBidAck?: (ack: import('../../api/liveRoomBuyerRepository').LiveBidHttpAck) => void;
   onBidPlaced?: (amountUsd: number) => void;
+  /** Premium in-room toast for outbid / bid failures (replaces harsh system alerts). */
+  onBidNotice?: (notice: LiveBidFailureDisplay) => void;
   /** Break rooms: block bid CTAs until disclaimer accepted. */
   participationBlocked?: boolean;
   participationBlockMessage?: string;
@@ -109,6 +116,7 @@ export function LivePinnedActionBar({
   clockSkewMs = 0,
   mergeBidAck,
   onBidPlaced,
+  onBidNotice,
   participationBlocked = false,
   participationBlockMessage = 'Complete setup in this show before bidding or buying.',
   staffCommerceBlocked = false,
@@ -132,6 +140,7 @@ export function LivePinnedActionBar({
   const bidSafetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [walletReadiness, setWalletReadiness] = useState<BuyerWalletReadiness | null>(null);
   const [variantSheetOpen, setVariantSheetOpen] = useState(false);
+  const [variantSheetInitialId, setVariantSheetInitialId] = useState<string | null>(null);
   const [customBidSheetOpen, setCustomBidSheetOpen] = useState(false);
   const [timerTick, setTimerTick] = useState(0);
   const [localRoomSnap, setLocalRoomSnap] = useState<LiveRoomBuyerSnapshot | null>(null);
@@ -177,7 +186,21 @@ export function LivePinnedActionBar({
   const primaryDisabled = m.buyerPrimaryDisabled === true || participationBlocked || commerceBlocked || staffCommerceBlocked;
   const secondaryDisabled = m.buyerSecondaryDisabled === true || participationBlocked || commerceBlocked || staffCommerceBlocked;
   const padBottom = 4 + Math.min(10, Math.round(bottomSafeInset * (compact ? 0.25 : 0.35)));
-  const metaLine = [m.winningLine, m.stateLine].filter(Boolean).join(' · ');
+  const variantCheckoutMetaLine = variantCheckoutPreview
+    ? `Spot ${formatMoney(variantCheckoutPreview.itemPriceUsd)} · Ship ${variantCheckoutPreview.shippingDisplay} · Tax ${variantCheckoutPreview.taxDisplay}`
+    : variantCheckoutPreviewEnabled && variantCheckoutPreviewLoading
+      ? 'Calculating shipping & tax…'
+      : variantItemActive && !walletReady && !isVariantSpotAuctionLive(roomSnap)
+        ? 'Add wallet for total with shipping + tax'
+        : null;
+  const metaLine =
+    variantCheckoutMetaLine ?? [m.winningLine, m.stateLine].filter(Boolean).join(' · ');
+  const hudCurrentPrefix = variantCheckoutPreview ? 'Total' : m.currentPrefix;
+  const hudCurrentAmount = variantCheckoutPreview
+    ? formatMoney(variantCheckoutPreview.chargeNowUsd)
+    : variantCheckoutPreviewEnabled && variantCheckoutPreviewLoading
+      ? '…'
+      : m.currentAmount;
 
   const guard = (fn: () => void) => {
     if (!signedIn) {
@@ -227,7 +250,9 @@ export function LivePinnedActionBar({
     }
   }, [clearBidSafetyTimer, stream.id]);
 
-  const tryPlaceLiveBidRef = useRef<((bid?: LiveCustomBidPayload) => Promise<void>) | null>(null);
+  const tryPlaceLiveBidRef = useRef<
+    ((bid?: LiveCustomBidPayload, opts?: { rethrowOnFailure?: boolean }) => Promise<void>) | null
+  >(null);
 
   const closeWalletSetup = useCallback(() => {
     logWalletSheet('close');
@@ -281,6 +306,51 @@ export function LivePinnedActionBar({
     const r = walletReadiness ?? fromSnap;
     return Boolean(r?.paymentReady && r?.shippingReady);
   }, [roomSnap, walletReadiness]);
+
+  const variantCheckoutPreviewEnabled = Boolean(
+    variantItemActive &&
+      walletReady &&
+      accessToken &&
+      roomSnap?.activeItemId &&
+      !isVariantSpotAuctionLive(roomSnap),
+  );
+  const variantPreviewItemPriceUsd = useMemo(() => {
+    if (!variantCheckoutPreviewEnabled || !roomSnap) return 0;
+    const variants = roomSnap.activeItemVariants ?? [];
+    const pinned = hostPinnedBuyerVariant(variants, roomSnap.activeItemVariantAssignmentMode);
+    if (pinned?.priceUsd != null && pinned.priceUsd > 0) return pinned.priceUsd;
+    return lowestAvailableVariantPrice(variants) ?? roomSnap.priceUsd ?? roomSnap.startingBidUsd ?? 0;
+  }, [roomSnap, variantCheckoutPreviewEnabled]);
+  const [variantCheckoutPreview, setVariantCheckoutPreview] = useState<LiveVariantCheckoutPreview | null>(null);
+  const [variantCheckoutPreviewLoading, setVariantCheckoutPreviewLoading] = useState(false);
+
+  useEffect(() => {
+    if (!variantCheckoutPreviewEnabled || variantPreviewItemPriceUsd <= 0 || !accessToken || !roomSnap?.activeItemId) {
+      setVariantCheckoutPreview(null);
+      setVariantCheckoutPreviewLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setVariantCheckoutPreviewLoading(true);
+    void fetchLiveVariantCheckoutPreview(accessToken, {
+      liveRoomId: stream.id,
+      itemId: roomSnap.activeItemId,
+      itemPriceUsd: variantPreviewItemPriceUsd,
+    }).then((preview) => {
+      if (cancelled) return;
+      setVariantCheckoutPreview(preview);
+      setVariantCheckoutPreviewLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    accessToken,
+    roomSnap?.activeItemId,
+    stream.id,
+    variantCheckoutPreviewEnabled,
+    variantPreviewItemPriceUsd,
+  ]);
 
   const refreshRoomSnapshot = useCallback(async (): Promise<LiveRoomBuyerSnapshot | null> => {
     if (onRefreshSnapshot) return onRefreshSnapshot();
@@ -362,7 +432,10 @@ export function LivePinnedActionBar({
     void openWebCommerceUrl(url);
   }, [stream.id]);
 
-  const tryPlaceLiveBid = useCallback(async (bid?: LiveCustomBidPayload) => {
+  const tryPlaceLiveBid = useCallback(async (
+    bid?: LiveCustomBidPayload,
+    opts?: { rethrowOnFailure?: boolean },
+  ) => {
     if (walletOverlayOpenRef.current || walletSheetOpen) {
       logBidControl('blocked', { reason: 'wallet overlay open' });
       logLiveBidBlocked('wallet overlay open');
@@ -513,8 +586,16 @@ export function LivePinnedActionBar({
         await refreshRoomSnapshot();
         return;
       }
-      logBidControl('blocked', { reason: 'bid failed', message: e instanceof Error ? e.message : 'unknown' });
-      Alert.alert('Could not place bid', e instanceof Error ? e.message : 'Unknown error');
+      await refreshRoomSnapshot();
+      const display = resolveLiveBidFailureDisplay(e);
+      logBidControl('blocked', { reason: 'bid failed', kind: display.kind, message: display.message });
+      if (display.kind === 'outbid') {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+      }
+      onBidNotice?.(display);
+      if (opts?.rethrowOnFailure) {
+        throw new Error(display.message);
+      }
     } finally {
       if (openedWallet) {
         bidInFlightRef.current = false;
@@ -530,6 +611,7 @@ export function LivePinnedActionBar({
     accessToken,
     onRequireAuth,
     onBidPlaced,
+    onBidNotice,
     openFullLiveRoom,
     openWalletSetup,
     refreshRoomSnapshot,
@@ -761,6 +843,10 @@ export function LivePinnedActionBar({
         }
         return;
       }
+      setVariantSheetInitialId(m.buyerPinnedVariantId ?? hostPinnedBuyerVariant(
+        roomSnap?.activeItemVariants,
+        roomSnap?.activeItemVariantAssignmentMode,
+      )?.id ?? null);
       setVariantSheetOpen(true);
       return;
     }
@@ -795,12 +881,19 @@ export function LivePinnedActionBar({
     variantItemActive,
     useLiveAuctionBidFlow,
     walletSheetOpen,
-    staffCommerceBlocked,
+    m.buyerPinnedVariantId,
+    roomSnap?.activeItemVariantAssignmentMode,
+    roomSnap?.activeItemVariants,
   ]);
 
   const onSecondary = () => {
     if (secondaryDisabled) return;
     guard(() => {
+      if (variantItemActive && !isVariantSpotAuctionLive(roomSnap) && m.bottomLeftLabel === 'All teams') {
+        setVariantSheetInitialId(null);
+        setVariantSheetOpen(true);
+        return;
+      }
       if (useLiveAuctionBidFlow && roomSnap?.lotBidPhase === 'bidding_open') {
         setCustomBidSheetOpen(true);
         return;
@@ -810,7 +903,7 @@ export function LivePinnedActionBar({
 
   const submitCustomBid = useCallback(
     async (payload: LiveCustomBidPayload) => {
-      await tryPlaceLiveBid(payload);
+      await tryPlaceLiveBid(payload, { rethrowOnFailure: true });
     },
     [tryPlaceLiveBid],
   );
@@ -826,7 +919,8 @@ export function LivePinnedActionBar({
   };
   const onShop = () =>
     guard(() => {
-      if (variantItemActive && shopVariantCountDuringSpotAuction(roomSnap) > 0) {
+      if (variantItemActive) {
+        setVariantSheetInitialId(null);
         setVariantSheetOpen(true);
         return;
       }
@@ -866,9 +960,9 @@ export function LivePinnedActionBar({
             </LiveRoomText>
           </View>
           <View style={styles.priceBlock}>
-            <LiveRoomText style={[styles.currentPrefix, { fontSize: hudFs(9) }]}>{m.currentPrefix}</LiveRoomText>
+            <LiveRoomText style={[styles.currentPrefix, { fontSize: hudFs(9) }]}>{hudCurrentPrefix}</LiveRoomText>
             <LiveRoomText style={[styles.currentAmount, { fontSize: hudFs(20) }]}>
-              {m.currentAmount}
+              {hudCurrentAmount}
             </LiveRoomText>
           </View>
         </View>
@@ -998,7 +1092,10 @@ export function LivePinnedActionBar({
         /* Buyer PYT/PYD checkout — compact bottom sheet, not a center board */
         <LiveBreakSpotGridSheet
           visible={variantSheetOpen}
-          onClose={() => setVariantSheetOpen(false)}
+          onClose={() => {
+            setVariantSheetOpen(false);
+            setVariantSheetInitialId(null);
+          }}
           roomId={stream.id}
           itemId={roomSnap.activeItemId}
           title={roomSnap.activeItemTitle ?? m.itemTitle}
@@ -1006,6 +1103,7 @@ export function LivePinnedActionBar({
           salesFormat={roomSnap.activeItemSalesFormat ?? 'variant_selection'}
           variantAssignmentMode={roomSnap.activeItemVariantAssignmentMode ?? 'pick'}
           variants={roomSnap.activeItemVariants ?? []}
+          initialVariantId={variantSheetInitialId}
           excludeVariantIds={
             isVariantSpotAuctionLive(roomSnap) && roomSnap.auctionVariantId
               ? [roomSnap.auctionVariantId]

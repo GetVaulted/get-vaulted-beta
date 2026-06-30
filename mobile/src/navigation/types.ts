@@ -52,6 +52,7 @@ export type RootStackParamList = {
   MessageCompose: {
     listingId?: string;
     liveRoomId?: string;
+    sellerUserId?: string;
     sellerUsername?: string;
     initialDraft?: string;
   };

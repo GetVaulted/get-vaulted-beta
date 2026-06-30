@@ -1,4 +1,4 @@
-import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
+import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
 import type { MessageConversationKind, ThreadDetail, ThreadListItem, ThreadMessage } from '../types/messages';
 
 function apiErrorMessage(res: Response, body: unknown): string {
@@ -10,19 +10,19 @@ function apiErrorMessage(res: Response, body: unknown): string {
 }
 
 async function msgFetch(path: string, accessToken: string, init?: RequestInit): Promise<Response> {
-  const base = getWebApiBaseUrl();
-  if (!base) {
-    throw new Error('Set EXPO_PUBLIC_SITE_URL or EXPO_PUBLIC_WEB_API_URL to your Next.js API host.');
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${accessToken}`,
+  };
+  if (init?.body) headers['Content-Type'] = 'application/json';
+  if (init?.headers) {
+    const extra = new Headers(init.headers);
+    extra.forEach((value, key) => {
+      headers[key] = value;
+    });
   }
-  const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
-  return fetch(url, {
+  return fetchWebApiMobile(path, {
     ...init,
-    headers: {
-      Accept: 'application/json',
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-      Authorization: `Bearer ${accessToken}`,
-      ...init?.headers,
-    },
+    headers,
   });
 }
 

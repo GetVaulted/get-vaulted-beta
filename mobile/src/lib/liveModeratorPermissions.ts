@@ -33,7 +33,8 @@ export function effectiveModeratorLevel(args: {
 }): LiveModeratorLevel | null {
   if (args.isHost) return 'head';
   if (args.moderatorLevel) return args.moderatorLevel;
-  if (args.isModerator) return 'chat';
+  // Assigned mods default to show level in the DB when level is missing on the snapshot.
+  if (args.isModerator) return 'show';
   return null;
 }
 
@@ -118,8 +119,8 @@ export function canPerformModeratorAction(args: {
   });
   if (!level) return false;
 
-  if (args.allowedActions?.length) {
-    return args.allowedActions.includes(args.actionType);
+  if (args.allowedActions?.length && args.allowedActions.includes(args.actionType)) {
+    return true;
   }
 
   const required = ACTION_MIN_LEVEL[args.actionType];

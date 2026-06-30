@@ -106,6 +106,8 @@ import { liveAuctionMinBidUsd } from '../../lib/liveAuctionPricing';
 import { placeLiveRoomPreBid } from '../../api/liveRoomBuyerRepository';
 import { purchaseLiveBuyNow, syncLiveBuyNowPurchase } from '../../api/liveBuyNowRepository';
 import { mapLivePaymentFailureMessage } from '../../lib/livePaymentFailureCopy';
+import { LiveBidNoticeToast } from './LiveBidNoticeToast';
+import type { LiveBidFailureDisplay } from '../../lib/liveBidUserErrors';
 
 function chatRightEdgeForWidth(layoutWidth: number): number {
   if (layoutWidth >= 768) return Math.round(92 * liveRoomOverlayScale(layoutWidth));
@@ -225,6 +227,8 @@ function LiveSlide({
   const [walletReadiness, setWalletReadiness] = useState<BuyerWalletReadiness | null>(null);
   const [walletGateSheetOpen, setWalletGateSheetOpen] = useState(false);
   const [paymentRecoveryToast, setPaymentRecoveryToast] = useState<string | null>(null);
+  const [bidNotice, setBidNotice] = useState<LiveBidFailureDisplay | null>(null);
+  const bidNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [modDrawerOpen, setModDrawerOpen] = useState(false);
   const [chatExpanded, setChatExpanded] = useState(false);
   const [modActionMessage, setModActionMessage] = useState<ChatMessage | null>(null);
@@ -282,6 +286,21 @@ function LiveSlide({
   );
   const showHostUserId = modActor.showHostUserId;
   const staffCommerceBlocked = moderation.isHost || moderation.isModerator;
+
+  const showBidNotice = useCallback((notice: LiveBidFailureDisplay) => {
+    setBidNotice(notice);
+    if (bidNoticeTimerRef.current) clearTimeout(bidNoticeTimerRef.current);
+    bidNoticeTimerRef.current = setTimeout(() => {
+      bidNoticeTimerRef.current = null;
+      setBidNotice(null);
+    }, 4200);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (bidNoticeTimerRef.current) clearTimeout(bidNoticeTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isActive || !showHostUserId) {
@@ -723,6 +742,10 @@ function LiveSlide({
           targetUserId,
           hostUserId: showHostUserId,
           allowedActions: modActor.allowedActions,
+          isHost: modActor.isHost,
+          isModerator: modActor.isModerator,
+          canModerate: modActor.canModerate,
+          moderatorLevel: modActor.moderatorLevel,
         });
       const canBan =
         modActor.canModerate &&
@@ -900,10 +923,18 @@ function LiveSlide({
           <Text style={styles.connectionBannerTxt}>{liveSession.connectionBanner}</Text>
         </View>
       ) : null}
-      {liveSession.showOutbidToast ? (
-        <View style={styles.outbidToast} pointerEvents="none">
-          <Text style={styles.outbidToastTxt}>Outbid — new high bid on this item</Text>
-        </View>
+      {bidNotice ? (
+        <LiveBidNoticeToast
+          title={bidNotice.title}
+          message={bidNotice.message}
+          variant={bidNotice.kind === 'outbid' ? 'outbid' : 'info'}
+        />
+      ) : liveSession.showOutbidToast ? (
+        <LiveBidNoticeToast
+          title="Outbid"
+          message="New high bid on this item — tap bid to raise your offer."
+          variant="outbid"
+        />
       ) : null}
       {paymentRecoveryToast ? (
         <View style={styles.recoveryToast} pointerEvents="none">
@@ -1095,6 +1126,7 @@ function LiveSlide({
             </LiveRoomText>
           </Pressable>
         ) : null}
+        {!moderation.isHost ? (
         <Pressable
           style={styles.railBtn}
           onPress={() => {
@@ -1105,6 +1137,7 @@ function LiveSlide({
             if (rootNavigationRef.isReady()) {
               rootNavigationRef.navigate('MessageCompose', {
                 liveRoomId: stream.id,
+                sellerUserId: stream.host.id,
                 sellerUsername: stream.host.handle || stream.host.name,
               });
             }
@@ -1116,6 +1149,7 @@ function LiveSlide({
             Message
           </LiveRoomText>
         </Pressable>
+        ) : null}
         {!moderation.isHost ? (
           <Pressable
             style={styles.railBtn}
@@ -1269,7 +1303,7 @@ function LiveSlide({
         />
       ) : null}
 
-      {modActionMessage && showModeratorTools(modActor.isModerator, modActor.canModerate, modActor.isHost) ? (
+      {modActionMessage && accessToken ? (
         <ModeratorActionSheet
           visible={Boolean(modActionMessage)}
           onClose={() => setModActionMessage(null)}
@@ -1403,6 +1437,7 @@ function LiveSlide({
           clockSkewMs={liveSession.clockSkewMs}
           mergeBidAck={liveSession.mergeBidAck}
           onBidPlaced={(amount) => liveSession.setMyHighBidUsd(amount)}
+          onBidNotice={showBidNotice}
           participationBlocked={
             breakParticipationBlocked ||
             walletParticipationBlocked ||
@@ -1516,8 +1551,12 @@ function LiveSlide({
         roomId={stream.id}
         showTitle={stream.title}
         hostUsername={stream.host.handle.replace(/^@+/, '') || stream.host.name}
+        hostAvatarUrl={stream.host.avatarUrl}
+        previewImageUrl={stream.previewImageUrl}
+        thumbnailGradient={stream.thumbnailGradient}
         isLive={roomStatus === 'live'}
         accessToken={accessToken}
+        canNotifyFollowers={modActor.isHost}
         onInAppShareSent={() => {
           if (signedIn && accessToken) void liveChat.announceShare();
         }}

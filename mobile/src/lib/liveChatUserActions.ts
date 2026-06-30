@@ -1,4 +1,5 @@
 import { Alert } from 'react-native';
+import { canPerformModeratorAction, type LiveModeratorLevel } from './liveModeratorPermissions';
 import { formatChatDisplayName } from './liveRoomChatMessages';
 
 export function appendMentionToDraft(draft: string, username: string): string {
@@ -12,10 +13,33 @@ export function canShowLiveChatKickOption(args: {
   targetUserId?: string;
   hostUserId?: string;
   allowedActions: string[];
+  isHost?: boolean;
+  isModerator?: boolean;
+  canModerate?: boolean;
+  moderatorLevel?: LiveModeratorLevel | null;
 }): boolean {
   if (!args.targetUserId?.trim()) return false;
   if (args.hostUserId && args.targetUserId === args.hostUserId) return false;
-  return args.allowedActions.includes('kick') || args.allowedActions.includes('room_ban');
+  if (
+    canPerformModeratorAction({
+      actionType: 'kick',
+      isHost: Boolean(args.isHost),
+      isModerator: Boolean(args.isModerator),
+      canModerate: Boolean(args.canModerate),
+      moderatorLevel: args.moderatorLevel ?? null,
+      allowedActions: args.allowedActions,
+    })
+  ) {
+    return true;
+  }
+  return canPerformModeratorAction({
+    actionType: 'room_ban',
+    isHost: Boolean(args.isHost),
+    isModerator: Boolean(args.isModerator),
+    canModerate: Boolean(args.canModerate),
+    moderatorLevel: args.moderatorLevel ?? null,
+    allowedActions: args.allowedActions,
+  });
 }
 
 export function canShowLiveChatBanOption(args: {

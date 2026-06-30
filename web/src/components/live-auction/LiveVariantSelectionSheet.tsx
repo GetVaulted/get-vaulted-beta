@@ -23,6 +23,8 @@ type LiveVariantSelectionSheetProps = {
   item: LiveRoomItemDTO;
   liveRoomId: string;
   walletReady: boolean;
+  /** Pre-select host-pinned team/division when opening checkout. */
+  initialVariantId?: string | null;
   onWalletRequired: () => void;
   /** Hide teams currently in spot auction (buyers bid on those instead). */
   excludeVariantIds?: string[];
@@ -63,6 +65,7 @@ export function LiveVariantSelectionSheet({
   walletReady,
   onWalletRequired,
   excludeVariantIds,
+  initialVariantId,
   onPurchased,
 }: LiveVariantSelectionSheetProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -104,8 +107,15 @@ export function LiveVariantSelectionSheet({
     if (isRandom) {
       const available = variants.find((v) => v.quantityRemaining > 0 && v.status !== "sold_out");
       if (available) setSelectedId(available.id);
+      return;
     }
-  }, [open, isRandom, variants]);
+    if (
+      initialVariantId &&
+      variants.some((v) => v.id === initialVariantId && v.quantityRemaining > 0 && v.status !== "sold_out")
+    ) {
+      setSelectedId(initialVariantId);
+    }
+  }, [open, isRandom, variants, initialVariantId]);
 
   useEffect(() => {
     if (!open || !walletReady || spotPrice <= 0) {
@@ -426,7 +436,7 @@ function VariantPill({
     >
       {variant.isHot && !soldOut ? (
         <span className="absolute -top-1.5 right-2 rounded-full border border-white/20 bg-red-600 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide text-white">
-          Hot
+          Pinned
         </span>
       ) : null}
       <span

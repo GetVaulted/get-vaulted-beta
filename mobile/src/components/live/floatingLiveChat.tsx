@@ -25,7 +25,8 @@ import { liveChatUsernameInitial } from '../../lib/liveChatAvatar';
 import { isProtectedShowHost } from '../../lib/liveModeratorPermissions';
 import { LIVE_ROOM_TEXT_PROPS } from '../../lib/liveRoomUiScale';
 import { scaledComposerBarHeight } from '../../lib/liveRoomBottomLayout';
-import { MentionComposerInput, type MentionComposerInputHandle } from '../mentions/MentionComposerInput';
+import { MentionComposerInput, type MentionComposerInputHandle, type MentionSuggestionsState } from '../mentions/MentionComposerInput';
+import { MentionSuggestionStrip } from '../mentions/MentionSuggestionStrip';
 import { MentionText } from '../mentions/MentionText';
 import { LiveRoomText } from './LiveRoomText';
 import type { LiveModeratorLevel, LiveViewerRole } from '../../api/trustRepository';
@@ -132,6 +133,7 @@ function FloatingChatRow({
   hostAvatarUrl,
   liveRoomId,
   hostUserId,
+  accessToken,
   canModerate,
   isModerator,
   onLongPressMessage,
@@ -175,16 +177,16 @@ function FloatingChatRow({
     liveRoomId &&
     message.senderId &&
     !protectedHost;
-  const showModLongPress =
-    Boolean(isModerator || canModerate) &&
+  const showMessageLongPress =
+    Boolean(onLongPressMessage) &&
+    Boolean(accessToken?.trim()) &&
     message.messageType === 'chat' &&
-    message.senderId &&
     !protectedHost;
 
   return (
     <Pressable
       style={[styles.chatRow, compact && styles.chatRowCompact, isHostEnding && styles.lifecycleRow]}
-      onLongPress={showModLongPress ? () => onLongPressMessage?.(message) : undefined}
+      onLongPress={showMessageLongPress ? () => onLongPressMessage?.(message) : undefined}
       delayLongPress={350}
     >
       {isHostEnding ? (
@@ -537,12 +539,14 @@ export function FloatingChatComposer({
   const submitLockRef = useRef(false);
   const localInputRef = useRef<MentionComposerInputHandle>(null);
   const composerRef = inputRef ?? localInputRef;
+  const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestionsState | null>(null);
   const canSend = !sendDisabled && value.trim().length > 0;
   const editable = !inputDisabled;
 
   const handleSend = async () => {
     if (submitLockRef.current || sendDisabled || !value.trim()) return;
     composerRef.current?.dismissSuggestions();
+    setMentionSuggestions(null);
     submitLockRef.current = true;
     try {
       await onSend();
@@ -553,56 +557,62 @@ export function FloatingChatComposer({
 
   return (
     <View
-      style={[styles.composerWrap, { bottom, left, right: rightEdge, height: barHeight }]}
+      style={[styles.composerWrap, { bottom, left, right: rightEdge }]}
       pointerEvents="box-none"
     >
-      {leadingAccessory}
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
-        scrollEnabled={false}
-        style={styles.composerScroll}
-        contentContainerStyle={styles.composerPillFlex}
-      >
-        <View
-          style={[
-            styles.composerPill,
-            leadingAccessory ? styles.composerPillWithLeading : null,
-            scale > 1 && { minHeight: barHeight - 4, paddingLeft: Math.round(spacing.md * scale) },
-          ]}
+      {mentionSuggestions?.open ? (
+        <MentionSuggestionStrip users={mentionSuggestions.results} onPick={mentionSuggestions.pick} />
+      ) : null}
+      <View style={[styles.composerRow, { minHeight: barHeight }]}>
+        {leadingAccessory}
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          scrollEnabled={false}
+          style={styles.composerScroll}
+          contentContainerStyle={styles.composerPillFlex}
         >
-          <MentionComposerInput
-            ref={composerRef}
-            style={[styles.composerInput, scale > 1 && { fontSize: Math.round(14 * scale) }]}
-            value={value}
-            onChangeText={onChangeText}
-            accessToken={accessToken}
-            liveRoomId={liveRoomId}
-            placeholder={placeholder}
-            placeholderTextColor="rgba(255,255,255,0.48)"
-            returnKeyType="send"
-            enablesReturnKeyAutomatically
-            blurOnSubmit={false}
-            onSubmitEditing={() => void handleSend()}
-            editable={editable}
-            maxLength={280}
-            allowFontScaling={LIVE_ROOM_TEXT_PROPS.allowFontScaling}
-            maxFontSizeMultiplier={LIVE_ROOM_TEXT_PROPS.maxFontSizeMultiplier}
-          />
-          <Pressable
-            style={[styles.composerSendBtn, !canSend && styles.composerSendBtnDim]}
-            onPress={() => void handleSend()}
-            hitSlop={8}
-            disabled={!canSend}
+          <View
+            style={[
+              styles.composerPill,
+              leadingAccessory ? styles.composerPillWithLeading : null,
+              scale > 1 && { minHeight: barHeight - 4, paddingLeft: Math.round(spacing.md * scale) },
+            ]}
           >
-            <Ionicons
-              name="send"
-              size={Math.round(16 * scale)}
-              color={canSend ? colors.gold : 'rgba(255,255,255,0.28)'}
+            <MentionComposerInput
+              ref={composerRef}
+              style={[styles.composerInput, scale > 1 && { fontSize: Math.round(14 * scale) }]}
+              value={value}
+              onChangeText={onChangeText}
+              accessToken={accessToken}
+              liveRoomId={liveRoomId}
+              onSuggestionsChange={setMentionSuggestions}
+              placeholder={placeholder}
+              placeholderTextColor="rgba(255,255,255,0.48)"
+              returnKeyType="send"
+              enablesReturnKeyAutomatically
+              blurOnSubmit={false}
+              onSubmitEditing={() => void handleSend()}
+              editable={editable}
+              maxLength={280}
+              allowFontScaling={LIVE_ROOM_TEXT_PROPS.allowFontScaling}
+              maxFontSizeMultiplier={LIVE_ROOM_TEXT_PROPS.maxFontSizeMultiplier}
             />
-          </Pressable>
-        </View>
-      </ScrollView>
+            <Pressable
+              style={[styles.composerSendBtn, !canSend && styles.composerSendBtnDim]}
+              onPress={() => void handleSend()}
+              hitSlop={8}
+              disabled={!canSend}
+            >
+              <Ionicons
+                name="send"
+                size={Math.round(16 * scale)}
+                color={canSend ? colors.gold : 'rgba(255,255,255,0.28)'}
+              />
+            </Pressable>
+          </View>
+        </ScrollView>
+      </View>
     </View>
   );
 }
@@ -805,11 +815,14 @@ const styles = StyleSheet.create({
   },
   composerWrap: {
     position: 'absolute',
+    zIndex: 20,
+    elevation: 20,
+  },
+  composerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    zIndex: 20,
-    elevation: 20,
+    width: '100%',
   },
   composerScroll: {
     flex: 1,

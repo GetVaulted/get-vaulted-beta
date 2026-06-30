@@ -48,21 +48,22 @@ export function MentionComposer({
   const [results, setResults] = useState<MentionSearchUser[]>([]);
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
-  const active = getActiveMentionQuery(value, cursor);
+  const activeMention = getActiveMentionQuery(value, cursor);
   const useStripPicker = Boolean(liveRoomId?.trim());
   const plainQuery =
-    plainUsernameSearch && !active
+    plainUsernameSearch && !activeMention
       ? value.trim().replace(/^@+/, "").toLowerCase()
       : null;
-  const searchQuery = active?.query ?? (plainQuery && /^[a-z0-9_]{1,20}$/.test(plainQuery) ? plainQuery : null);
+  const plainSearchActive = Boolean(plainQuery && /^[a-z0-9_]{1,20}$/.test(plainQuery));
 
   useEffect(() => {
-    if (!searchQuery) {
+    if (!activeMention && !plainSearchActive) {
       setResults([]);
       setOpen(false);
       return;
     }
-    if (!useStripPicker && searchQuery.length < 1) {
+    const q = activeMention ? activeMention.query : plainQuery!;
+    if (!useStripPicker && q.length < 1) {
       setResults([]);
       setOpen(false);
       return;
@@ -70,8 +71,8 @@ export function MentionComposer({
     let cancelled = false;
     const t = window.setTimeout(() => {
       const url = useStripPicker
-        ? `/api/live-rooms/${encodeURIComponent(liveRoomId!)}/mention-search?q=${encodeURIComponent(searchQuery)}`
-        : `/api/users/mention-search?q=${encodeURIComponent(searchQuery)}`;
+        ? `/api/live-rooms/${encodeURIComponent(liveRoomId!)}/mention-search?q=${encodeURIComponent(q)}`
+        : `/api/users/mention-search?q=${encodeURIComponent(q)}`;
       void fetch(url, { cache: "no-store", credentials: "include" })
         .then((r) => (r.ok ? r.json() : { users: [] }))
         .then((j: { users?: MentionSearchUser[] }) => {
@@ -92,7 +93,7 @@ export function MentionComposer({
       cancelled = true;
       window.clearTimeout(t);
     };
-  }, [searchQuery, liveRoomId, useStripPicker]);
+  }, [activeMention?.query, activeMention?.start, activeMention?.end, liveRoomId, plainQuery, plainSearchActive, useStripPicker]);
 
   const pick = useCallback(
     (user: MentionSearchUser) => {
@@ -102,8 +103,8 @@ export function MentionComposer({
         setOpen(false);
         return;
       }
-      if (!active) return;
-      const next = insertMentionAtQuery(value, active, user.username);
+      if (!activeMention) return;
+      const next = insertMentionAtQuery(value, activeMention, user.username);
       onChange(next.text);
       setOpen(false);
       requestAnimationFrame(() => {
@@ -114,7 +115,7 @@ export function MentionComposer({
         setCursor(next.cursor);
       });
     },
-    [active, onChange, onPickUser, singleLine, value],
+    [activeMention, onChange, onPickUser, singleLine, value],
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>) => {

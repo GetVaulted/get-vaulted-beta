@@ -27,6 +27,7 @@ import {
   ensureBreakSpotFulfillmentOrder,
   ensureVariantPurchaseFulfillmentOrder,
 } from "@/services/shipping/live-commerce-fulfillment-order";
+import { syncOrderShippingFromLiveSessionTx } from "@/services/shipping/live-commerce-shipping-settlement";
 import { prisma } from "@/lib/prisma";
 import {
   liveSavedCardSellerReady,
@@ -393,6 +394,9 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
   let fulfillment: { orderId: string; chargeTotalUsd: number };
   try {
     fulfillment = await ensureVariantPurchaseFulfillmentOrder(purchase.id);
+    await prisma.$transaction(async (tx) => {
+      await syncOrderShippingFromLiveSessionTx(tx, fulfillment.orderId);
+    });
   } catch (err) {
     const fulfillmentDetail = err instanceof Error ? err.message : String(err ?? "");
     console.error("[variant purchase] fulfillment order failed", {

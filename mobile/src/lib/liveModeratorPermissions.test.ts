@@ -31,10 +31,15 @@ describe('liveModeratorPermissions', () => {
     })).toBe(true);
   });
 
-  it('falls back to chat level for assigned moderators missing level', () => {
-    expect(effectiveModeratorLevel({ isHost: false, moderatorLevel: null, isModerator: true })).toBe('chat');
+  it('falls back to show level for assigned moderators missing level', () => {
+    expect(effectiveModeratorLevel({ isHost: false, moderatorLevel: null, isModerator: true })).toBe('show');
     expect(canPerformModeratorAction({
       actionType: 'delete_message',
+      isModerator: true,
+      moderatorLevel: null,
+    })).toBe(true);
+    expect(canPerformModeratorAction({
+      actionType: 'kick',
       isModerator: true,
       moderatorLevel: null,
     })).toBe(true);
@@ -42,6 +47,6 @@ describe('liveModeratorPermissions', () => {
       actionType: 'slow_mode',
       isModerator: true,
       moderatorLevel: null,
-    })).toBe(false);
+    })).toBe(true);
   });
 });

@@ -27,6 +27,10 @@ import { BUYER_LIVE_MAIN_SECTION, BUYER_LIVE_PAGE_GRID } from "@/components/live
 import { HostLiveRoomConsoleBanner } from "@/components/live-auction/buyer/HostLiveRoomConsoleBanner";
 import { useBuyerLiveDesktop } from "@/components/live-auction/buyer/useBuyerLiveDesktop";
 import { useLiveRoomModerationState } from "@/hooks/useLiveRoomModerationState";
+import {
+  formatLiveVariantCheckoutHudMeta,
+  useLiveVariantCheckoutPreview,
+} from "@/hooks/useLiveVariantCheckoutPreview";
 import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
 import { LiveGiveawaySideTab } from "@/components/live-auction/LiveGiveawaySideTab";
 import type { ViewerGiveawayDTO } from "@/lib/live-giveaway";
@@ -369,6 +373,7 @@ export function LiveAuctionRoom({
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [variantSheetOpen, setVariantSheetOpen] = useState(false);
+  const [variantSheetInitialVariantId, setVariantSheetInitialVariantId] = useState<string | null>(null);
   /** Blocks double-submit while bid POST is in flight. */
   const [bidFlight, setBidFlight] = useState(false);
   const [customBidOpen, setCustomBidOpen] = useState(false);
@@ -567,6 +572,22 @@ export function LiveAuctionRoom({
   const payReady = buyerLiveBidPaymentReady !== false;
   const shipReady = buyerLiveShippingReady !== false;
   const buyerLiveWalletReady = payReady && shipReady;
+  const buyerPytCheckoutHudActive = Boolean(
+    activeHasVariants && pytCommerceLive && !spotAuctionLive && !isHost && status === "authenticated",
+  );
+  const { preview: variantCheckoutPreview, loading: variantCheckoutPreviewLoading } = useLiveVariantCheckoutPreview({
+    enabled: buyerPytCheckoutHudActive && buyerLiveWalletReady && Boolean(activeDbItem?.id),
+    liveRoomId,
+    itemId: activeDbItem?.id,
+    itemPriceUsd: pytFromPriceUsd,
+  });
+  const pytCheckoutHudMetaLine = variantCheckoutPreview
+    ? formatLiveVariantCheckoutHudMeta(variantCheckoutPreview)
+    : buyerPytCheckoutHudActive && buyerLiveWalletReady && variantCheckoutPreviewLoading
+      ? "Calculating shipping & tax…"
+      : buyerPytCheckoutHudActive && !buyerLiveWalletReady
+        ? "Add wallet for total with shipping + tax"
+        : null;
   const auctionRemainingMs = useMemo(() => {
     void auctionResolutionTick;
     if (!activeDbItem?.biddingOpen || !activeDbItem.auctionEndsAt) return null;
@@ -795,15 +816,21 @@ export function LiveAuctionRoom({
             }),
           },
         );
-        const data = (await res.json().catch(() => ({}))) as { error?: string; signInUrl?: string };
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          signInUrl?: string;
+          code?: string;
+          minNextBidUsd?: number;
+        };
         if (res.status === 401) {
           if (data.signInUrl) router.push(data.signInUrl);
           else redirectSignIn(`/live/${encodeURIComponent(liveRoomId)}`);
           return;
         }
         if (!res.ok) {
-          setActionError(data.error ?? "Could not place bid.");
-          toast(data.error ?? "Could not place bid.");
+          const msg = data.error ?? "We couldn't place that bid. Try again in a moment.";
+          setActionError(msg);
+          toast(msg);
           return;
         }
         const ack = parseAuctionHttpAckPayload(data);
@@ -824,7 +851,7 @@ export function LiveAuctionRoom({
           router.refresh();
         }, 750);
       } catch {
-        toast("Could not place bid.");
+        toast("We couldn't place that bid. Try again in a moment.");
       } finally {
         setBidFlight(false);
       }
@@ -867,6 +894,7 @@ export function LiveAuctionRoom({
 
   const handleOpenVariantShop = useCallback(() => {
     if (!activeDbItem || !pytCommerceLive) return;
+    setVariantSheetInitialVariantId(null);
     setVariantSheetOpen(true);
   }, [activeDbItem, pytCommerceLive]);
 
@@ -876,8 +904,9 @@ export function LiveAuctionRoom({
       await handlePlaceBid();
       return;
     }
+    setVariantSheetInitialVariantId(buyerPinnedVariant?.id ?? null);
     setVariantSheetOpen(true);
-  }, [activeDbItem, handlePlaceBid, pytCommerceLive]);
+  }, [activeDbItem, buyerPinnedVariant?.id, handlePlaceBid, pytCommerceLive]);
 
   const handleHostPinLiveVariant = useCallback(
     async (variantId: string) => {
@@ -976,7 +1005,11 @@ export function LiveAuctionRoom({
             {selectedQueue?.displayTitle ?? activeQueueItem?.displayTitle ?? "Current item"}
           </p>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-            <p className="font-black text-amber-100">${displaySpotAmount}</p>
+            <p className="font-black text-amber-100">
+              {buyerPytCheckoutHudActive && variantCheckoutPreview
+                ? `Total ${fmt(variantCheckoutPreview.chargeNowUsd)}`
+                : `$${displaySpotAmount}`}
+            </p>
             {activeHasVariants ? (
               <>
                 <span className="text-zinc-400">•</span>
@@ -993,6 +1026,9 @@ export function LiveAuctionRoom({
             <span className="text-zinc-400">•</span>
             <p className="text-zinc-300">{hostDisplayName}</p>
           </div>
+          {pytCheckoutHudMetaLine ? (
+            <p className="mt-1 line-clamp-2 text-[10px] font-medium text-zinc-400">{pytCheckoutHudMetaLine}</p>
+          ) : null}
           <p
             className={`mt-1 text-[10px] font-semibold uppercase tracking-wide ${
               activeHasVariants
@@ -1243,16 +1279,23 @@ export function LiveAuctionRoom({
               <p className="mt-0.5 line-clamp-1 text-[9px] text-zinc-500">{overlayItem?.shippingLine ?? "Shipping + taxes calculated at checkout"}</p>
             </>
           ) : (
-            <p className="mt-0.5 line-clamp-1 text-[10px] text-emerald-300/90">
-              {activeVariantSpots?.available ?? 0} spot{(activeVariantSpots?.available ?? 0) === 1 ? "" : "s"} open
-            </p>
+            <>
+              <p className="mt-0.5 line-clamp-1 text-[10px] text-emerald-300/90">
+                {activeVariantSpots?.available ?? 0} spot{(activeVariantSpots?.available ?? 0) === 1 ? "" : "s"} open
+              </p>
+              {pytCheckoutHudMetaLine ? (
+                <p className="mt-0.5 line-clamp-2 text-[9px] font-medium text-zinc-400">{pytCheckoutHudMetaLine}</p>
+              ) : null}
+            </>
           )}
         </div>
         <div className="min-w-0 shrink-0 text-right">
           <p className="text-[13px] font-black tabular-nums tracking-tight text-gold-bright motion-safe:[animation:live-price-glow_3.2s_ease-in-out_infinite] motion-reduce:[animation:none]">
             {overlayItem
               ? activeHasVariants
-                ? fmt(pytFromPriceUsd)
+                ? variantCheckoutPreview
+                  ? fmt(variantCheckoutPreview.chargeNowUsd)
+                  : fmt(pytFromPriceUsd)
                 : overlayIsLive
                   ? fmt(buyerCurrentHighUsd)
                   : fmt(overlayItem.buyNow ?? overlayItem.topBid)
@@ -1826,10 +1869,14 @@ export function LiveAuctionRoom({
       {activeDbItem && activeHasVariants ? (
         <LiveVariantSelectionSheet
           open={variantSheetOpen}
-          onClose={() => setVariantSheetOpen(false)}
+          onClose={() => {
+            setVariantSheetOpen(false);
+            setVariantSheetInitialVariantId(null);
+          }}
           item={activeDbItem}
           liveRoomId={liveRoomId}
           walletReady={buyerLiveWalletReady}
+          initialVariantId={variantSheetInitialVariantId}
           excludeVariantIds={
             spotAuctionLive && activeDbItem.auctionVariantId
               ? [activeDbItem.auctionVariantId]

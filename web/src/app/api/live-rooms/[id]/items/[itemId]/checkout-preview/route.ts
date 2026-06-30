@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
-import { getServerSessionSafe } from "@/lib/auth";
+import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { getLiveVariantCheckoutPreview } from "@/services/shipping/live-variant-checkout-preview";
 
 export const runtime = "nodejs";
 
 /** Buyer checkout preview: bundled live shipping + sales tax estimate for PYT/PYD spot purchase. */
 export async function GET(req: Request, ctx: { params: Promise<{ id: string; itemId: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await resolveLiveRoomsUserId(req);
+  if (auth instanceof NextResponse) return auth;
 
   const { id: rawRoom, itemId: rawItem } = await ctx.params;
   const liveRoomId = decodeURIComponent(rawRoom);
@@ -22,7 +20,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string; ite
   }
 
   const preview = await getLiveVariantCheckoutPreview({
-    buyerId: session.user.id,
+    buyerId: auth.userId,
     liveRoomId,
     liveRoomItemId,
     itemPriceUsd,

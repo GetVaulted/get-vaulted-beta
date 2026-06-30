@@ -69,7 +69,7 @@ export function LiveModeratorMenu({
         <div className="absolute right-0 top-full z-50 mt-1 min-w-[9rem] rounded-lg border border-white/10 bg-[#0a0a0d] py-1 shadow-xl">
           {[
             { type: "mute", label: "Mute" },
-            { type: "room_ban", label: "Kick from show" },
+            { type: "kick", label: "Kick from show" },
             ...(hostUserId && targetUserId !== hostUserId
               ? [{ type: "seller_stream_ban", label: "Ban from all shows" }]
               : []),

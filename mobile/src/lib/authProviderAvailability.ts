@@ -28,3 +28,18 @@ export function isAppleProviderDisabledError(message: string): boolean {
   if (/appleid\.apple\.com/i.test(message) && /not enabled/i.test(message)) return true;
   return m.includes('apple provider') && m.includes('not enabled');
 }
+
+/** Native iOS Apple tokens use the app bundle ID as `aud`; Supabase must allowlist it under Client IDs. */
+export function isAppleNativeAudienceError(message: string): boolean {
+  return /unacceptable audience in id_token/i.test(message);
+}
+
+export function mapAppleSignInErrorMessage(message: string): string {
+  if (isAppleProviderDisabledError(message)) {
+    return 'Apple Sign In is not configured yet. Use email or Google, or try again later.';
+  }
+  if (isAppleNativeAudienceError(message)) {
+    return 'Apple Sign In is not fully configured for the iOS app yet. Try email or Google, or ask support to add com.getvaulted.app to Supabase Apple Client IDs.';
+  }
+  return message;
+}

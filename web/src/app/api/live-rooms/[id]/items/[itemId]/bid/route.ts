@@ -24,6 +24,7 @@ import {
   currentHighUsdFromLockedItem,
   lockActiveLiveRoomItemForBid,
 } from "@/lib/live-room-bid-lock";
+import { liveBidOutbidJsonBody } from "@/lib/live-bid-user-errors";
 
 function signInUrl(returnPath: string) {
   return `/signin?returnTo=${encodeURIComponent(returnPath)}`;
@@ -504,7 +505,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
       return NextResponse.json({ error: "You are already the high bidder at this amount." }, { status: 409 });
     }
     if (msg === "CONCURRENT_HIGHER_BID") {
-      return NextResponse.json({ error: "Another higher bid was placed. Try the next amount." }, { status: 409 });
+      return NextResponse.json(liveBidOutbidJsonBody({ formatMoney }), { status: 409 });
     }
     if (msg === "PROXY_MAX_LT_BID") {
       return NextResponse.json({ error: "Max proxy bid must be at least your current bid amount." }, { status: 400 });
@@ -512,11 +513,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
     if (msg.startsWith("MIN_BID:")) {
       const min = Number(msg.slice("MIN_BID:".length));
       return NextResponse.json(
-        { error: `Bid must be at least ${formatMoney(Number.isFinite(min) ? min : 0)}.` },
-        { status: 400 },
+        liveBidOutbidJsonBody({
+          minNextBidUsd: Number.isFinite(min) ? min : undefined,
+          formatMoney,
+        }),
+        { status: 409 },
       );
     }
     console.error(e);
-    return NextResponse.json({ error: "Could not place bid." }, { status: 500 });
+    return NextResponse.json({ error: "We couldn't place that bid. Try again in a moment." }, { status: 500 });
   }
 }

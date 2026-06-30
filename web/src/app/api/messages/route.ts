@@ -6,6 +6,7 @@ import {
   listingAnchorKey,
   liveAnchorKey,
   resolveInboxForNewThread,
+  resolveLiveNetworkingListingAnchor,
 } from "@/lib/message-threads";
 import type { MessageConversationKind } from "@/generated/prisma/client";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
@@ -78,35 +79,20 @@ export async function POST(req: Request) {
       if (liveRoomId) {
         const room = await tx.liveRoom.findUnique({
           where: { id: liveRoomId },
-          select: {
-            id: true,
-            sellerId: true,
-            title: true,
-            items: {
-              where: { listingId: { not: null } },
-              take: 1,
-              orderBy: { sortOrder: "asc" },
-              select: { listingId: true },
-            },
-          },
+          select: { id: true, sellerId: true, title: true },
         });
         if (!room) throw new Error("NOT_FOUND");
         sellerId = room.sellerId;
         anchorKey = liveAnchorKey(room.id);
         listingTitle = room.title;
-        if (!resolvedListingId) {
-          resolvedListingId = room.items[0]?.listingId ?? "";
-        }
-        if (!resolvedListingId) {
-          const fallback = await tx.listing.findFirst({
-            where: { sellerId },
-            orderBy: { updatedAt: "desc" },
-            select: { id: true, title: true },
-          });
-          if (!fallback) throw new Error("NO_LISTING");
-          resolvedListingId = fallback.id;
-          if (!listingTitle) listingTitle = fallback.title;
-        }
+        resolvedLiveRoomId = room.id;
+        const anchor = await resolveLiveNetworkingListingAnchor(tx, {
+          liveRoomId: room.id,
+          sellerId: room.sellerId,
+          roomTitle: room.title,
+        });
+        resolvedListingId = anchor.listingId;
+        if (!listingTitle.trim()) listingTitle = anchor.listingTitle;
       } else {
         const listing = await tx.listing.findUnique({
           where: { id: listingId },
@@ -215,7 +201,7 @@ export async function POST(req: Request) {
         { status: 409 },
       );
     }
-    console.error(e);
+    console.error("[messages POST]", e);
     return NextResponse.json({ error: "Could not send message." }, { status: 500 });
   }
 }

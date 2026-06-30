@@ -1,8 +1,6 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
-  Image,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -14,12 +12,18 @@ import {
   searchMentionUsers,
   type MentionSearchUser,
 } from '../../api/mentionSearchRepository';
-import { liveChatUsernameInitial } from '../../lib/liveChatAvatar';
 import {
   getActiveMentionQuery,
   insertMentionAtQuery,
 } from '../../lib/mentions/parseMentions';
 import { colors, spacing } from '../../theme';
+import { MentionSuggestionStrip } from './MentionSuggestionStrip';
+
+export type MentionSuggestionsState = {
+  open: boolean;
+  results: MentionSearchUser[];
+  pick: (user: MentionSearchUser) => void;
+};
 
 export type MentionComposerInputHandle = {
   blur: () => void;
@@ -32,37 +36,12 @@ type Props = Omit<TextInputProps, 'value' | 'onChangeText'> & {
   onChangeText: (text: string) => void;
   accessToken?: string;
   liveRoomId?: string;
+  /** Render avatar strip above the composer (avoids clipping inside fixed-height pill). */
+  onSuggestionsChange?: (state: MentionSuggestionsState | null) => void;
 };
 
-const AVATAR_SIZE = 52;
-
-function truncateHandle(username: string, max = 11): string {
-  const label = `@${username}`;
-  if (label.length <= max) return label;
-  return `${label.slice(0, max - 1)}…`;
-}
-
-function MentionStripAvatar({ user }: { user: MentionSearchUser }) {
-  const [imgFailed, setImgFailed] = useState(false);
-  const uri = user.image?.trim();
-  if (uri && !imgFailed) {
-    return (
-      <Image
-        source={{ uri }}
-        style={styles.stripAvatar}
-        onError={() => setImgFailed(true)}
-      />
-    );
-  }
-  return (
-    <View style={styles.stripAvatarFallback}>
-      <Text style={styles.stripAvatarInitial}>{liveChatUsernameInitial(user.username)}</Text>
-    </View>
-  );
-}
-
 export const MentionComposerInput = forwardRef<MentionComposerInputHandle, Props>(function MentionComposerInput(
-  { value, onChangeText, accessToken, liveRoomId, onSubmitEditing, ...inputProps },
+  { value, onChangeText, accessToken, liveRoomId, onSuggestionsChange, onSubmitEditing, ...inputProps },
   ref,
 ) {
   const inputRef = useRef<TextInput>(null);
@@ -118,16 +97,28 @@ export const MentionComposerInput = forwardRef<MentionComposerInputHandle, Props
     };
   }, [accessToken, active?.query, active?.start, active?.end, liveRoomId, useStripPicker]);
 
-  const pick = (user: MentionSearchUser) => {
-    if (!active) return;
-    const next = insertMentionAtQuery(value, active, user.username);
-    onChangeText(next.text);
-    dismissSuggestions();
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      setCursor(next.cursor);
-    });
-  };
+  const pick = useCallback(
+    (user: MentionSearchUser) => {
+      if (!active) return;
+      const next = insertMentionAtQuery(value, active, user.username);
+      onChangeText(next.text);
+      dismissSuggestions();
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        setCursor(next.cursor);
+      });
+    },
+    [active, onChangeText, value],
+  );
+
+  useEffect(() => {
+    if (!onSuggestionsChange) return;
+    if (open && useStripPicker && results.length > 0) {
+      onSuggestionsChange({ open: true, results, pick });
+      return;
+    }
+    onSuggestionsChange(null);
+  }, [onSuggestionsChange, open, pick, results, useStripPicker]);
 
   const handleSubmitEditing: NonNullable<TextInputProps['onSubmitEditing']> = (event) => {
     dismissSuggestions();
@@ -136,25 +127,9 @@ export const MentionComposerInput = forwardRef<MentionComposerInputHandle, Props
 
   return (
     <View style={styles.wrap}>
-      {open && useStripPicker ? (
-        <View style={styles.stripWrap} pointerEvents="box-none">
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.stripContent}
-          >
-            {results.map((user) => (
-              <Pressable key={user.id} style={styles.stripItem} onPress={() => pick(user)}>
-                <MentionStripAvatar user={user} />
-                <Text style={styles.stripHandle} numberOfLines={1}>
-                  {truncateHandle(user.username)}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
-      ) : open ? (
+      {open && useStripPicker && !onSuggestionsChange ? (
+        <MentionSuggestionStrip users={results} onPick={pick} />
+      ) : open && !useStripPicker ? (
         <View style={styles.dropdown}>
           {results.map((item) => (
             <Pressable key={item.id} style={styles.row} onPress={() => pick(item)}>
@@ -168,7 +143,12 @@ export const MentionComposerInput = forwardRef<MentionComposerInputHandle, Props
         value={value}
         onChangeText={(t) => {
           onChangeText(t);
-          setCursor(t.length);
+          setCursor((prev) => {
+            const delta = t.length - value.length;
+            if (delta === 1 && prev === value.length) return t.length;
+            if (delta === -1 && prev === value.length) return t.length;
+            return prev;
+          });
         }}
         onSelectionChange={(e) => setCursor(e.nativeEvent.selection.end)}
         onSubmitEditing={handleSubmitEditing}
@@ -180,57 +160,6 @@ export const MentionComposerInput = forwardRef<MentionComposerInputHandle, Props
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, minWidth: 0 },
-  stripWrap: {
-    position: 'absolute',
-    bottom: '100%',
-    left: -8,
-    right: -8,
-    marginBottom: 8,
-    zIndex: 40,
-  },
-  stripContent: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-    paddingHorizontal: 4,
-  },
-  stripItem: {
-    width: 68,
-    alignItems: 'center',
-    gap: 6,
-  },
-  stripAvatar: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: AVATAR_SIZE / 2,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.22)',
-  },
-  stripAvatarFallback: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: AVATAR_SIZE / 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(30,30,36,0.92)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.22)',
-  },
-  stripAvatarInitial: {
-    color: colors.gold,
-    fontWeight: '800',
-    fontSize: 16,
-  },
-  stripHandle: {
-    maxWidth: 68,
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '600',
-    textAlign: 'center',
-    textShadowColor: 'rgba(0,0,0,0.85)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
-  },
   dropdown: {
     position: 'absolute',
     bottom: '100%',

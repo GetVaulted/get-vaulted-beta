@@ -36,7 +36,7 @@ describe("live-room-moderator-permissions", () => {
     expect(
       canModeratorPerformAction({ actionType: "post_announcement", isHost: false, moderatorLevel: "show" }),
     ).toBe(true);
-    expect(canModeratorPerformAction({ actionType: "kick", isHost: false, moderatorLevel: "show" })).toBe(false);
+    expect(canModeratorPerformAction({ actionType: "kick", isHost: false, moderatorLevel: "show" })).toBe(true);
   });
 
   it("head mods can kick and seller ban", () => {

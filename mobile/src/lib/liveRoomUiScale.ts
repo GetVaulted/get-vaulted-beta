@@ -53,6 +53,12 @@ export function liveRoomHudScale(layoutWidth: number): number {
   return 1;
 }
 
+/** Seller header pills (Sales, Givvys, Teams, RTMP) — scale up on tablet-class widths. */
+export function sellerConsoleToolbarScale(layoutWidth: number): number {
+  if (!isTabletLiveRoomLayout(layoutWidth)) return 1;
+  return Math.max(1.28, liveRoomHudScale(layoutWidth));
+}
+
 /** Alias — chat/composer overlays use the same scale as the commerce HUD. */
 export function liveRoomOverlayScale(layoutWidth: number): number {
   return isIpadLiveRoomLayout(layoutWidth) ? liveRoomHudScale(layoutWidth) : 1;

@@ -527,7 +527,7 @@ function RoomToolsTab({
 
       <Text style={[styles.sectionTitle, { marginTop: spacing.md }]}>User moderation</Text>
       <Text style={styles.hint}>
-        Long-press a chat message to mute, timeout, kick, ban, block bidding, or delete.
+        Long-press a chat message to copy, report, mute, timeout, kick, ban, block bidding, or delete.
       </Text>
 
       <Text style={[styles.sectionTitle, { marginTop: spacing.md }]}>More in this drawer</Text>

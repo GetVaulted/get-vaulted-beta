@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { isGoogleOAuthConfigured } from '../../lib/authProviderAvailability';
+import { isGoogleOAuthConfigured, mapAppleSignInErrorMessage } from '../../lib/authProviderAvailability';
 import { AUTH_USER_MESSAGES } from '../../lib/authUserMessages';
 import { isAppleSignInAvailable } from '../../lib/socialAuth';
 import { colors, radii, spacing } from '../../theme';
@@ -86,7 +86,7 @@ export function socialAuthErrorMessage(e: unknown, cancelledMsg = AUTH_USER_MESS
   if (e && typeof e === 'object' && 'message' in e) {
     const msg = String((e as { message?: string }).message ?? '');
     if (/cancel/i.test(msg)) return cancelledMsg;
-    if (msg.trim()) return msg;
+    if (msg.trim()) return mapAppleSignInErrorMessage(msg);
   }
   return AUTH_USER_MESSAGES.socialSignInFailed;
 }

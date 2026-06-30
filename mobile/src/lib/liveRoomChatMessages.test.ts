@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   dedupeChatMessagesById,
   dedupeViewerEventMessages,
+  formatChatMessageForCopy,
   formatViewerEventName,
   isViewerEventMessage,
   prepareFloatingChatDisplay,
@@ -16,6 +17,11 @@ function msg(id: string, text: string, overrides: Partial<ChatMessage> = {}): Ch
 }
 
 describe('liveRoomChatMessages', () => {
+  it('formats chat lines for clipboard copy', () => {
+    expect(formatChatMessageForCopy('seller1', 'hello there')).toBe('@seller1: hello there');
+    expect(formatChatMessageForCopy('@seller1', 'hello there')).toBe('@seller1: hello there');
+  });
+
   it('dedupes repeated ids in order', () => {
     const input = [msg('a', '1'), msg('b', '2'), msg('a', '1'), msg('c', '3')];
     expect(dedupeChatMessagesById(input).map((m) => m.id)).toEqual(['a', 'b', 'c']);

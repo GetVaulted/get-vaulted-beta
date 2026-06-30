@@ -82,7 +82,7 @@ export function LiveVariantSpotBoard({
           <p className="mt-0.5 truncate text-xs font-bold text-white">{item.title}</p>
           <p className="mt-0.5 text-[10px] font-semibold text-zinc-500">
             {available} open · {rows.length - available} sold
-            {hostMode && onPinVariant ? " · tap a team to pin for buyers" : ""}
+            {hostMode && onPinVariant ? " · use Pin on a team to feature it for buyers" : ""}
           </p>
         </div>
         {hostMode ? (
@@ -137,7 +137,7 @@ export function LiveVariantSpotBoard({
                 : r.isHot
                   ? "border-amber-400/40 bg-amber-500/10"
                   : "border-white/15 bg-white/[0.03]"
-          } ${canPin && !pinBusy ? "cursor-pointer hover:border-amber-300/55 hover:bg-amber-500/10" : ""}`;
+          }`;
 
           const inner = (
             <>
@@ -163,26 +163,28 @@ export function LiveVariantSpotBoard({
                   </button>
                 ) : null}
               </div>
-              <p className={`mt-0.5 font-mono text-[10px] font-bold ${r.sold ? "text-emerald-300/80" : "text-zinc-500"}`}>
-                {r.sold ? formatSoldSpotBuyerLabel(r.buyerUsername) : fmtMoney(r.priceUsd)}
-              </p>
+              <div className="mt-0.5 flex items-center justify-between gap-2">
+                <p className={`font-mono text-[10px] font-bold ${r.sold ? "text-emerald-300/80" : "text-zinc-500"}`}>
+                  {r.sold ? formatSoldSpotBuyerLabel(r.buyerUsername) : fmtMoney(r.priceUsd)}
+                </p>
+                {canPin && r.variantId ? (
+                  <button
+                    type="button"
+                    disabled={pinBusy}
+                    onClick={() => onPinVariant!(r.variantId!)}
+                    className={`shrink-0 rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-wide ${
+                      pinned
+                        ? "border-amber-300/55 bg-amber-500/20 text-amber-100"
+                        : "border-white/15 bg-black/35 text-zinc-200 hover:border-amber-300/45"
+                    }`}
+                    aria-label={`Pin ${r.label} for buyers`}
+                  >
+                    {pinned ? "Pinned" : "Pin"}
+                  </button>
+                ) : null}
+              </div>
             </>
           );
-
-          if (canPin) {
-            return (
-              <button
-                key={r.id}
-                type="button"
-                disabled={pinBusy}
-                className={tileClass}
-                onClick={() => onPinVariant!(r.variantId!)}
-                aria-label={`Pin ${r.label} for buyers`}
-              >
-                {inner}
-              </button>
-            );
-          }
 
           return (
             <div key={r.id} className={tileClass}>

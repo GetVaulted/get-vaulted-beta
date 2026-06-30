@@ -99,23 +99,24 @@ function SpotTile({
           {formatSoldSpotBuyerLabel(row.buyerUsername)}
         </LiveRoomText>
       ) : (
-        <LiveRoomText style={[styles.priceTag, { color: textSecondary }]}>{fmtMoney(row.priceUsd)}</LiveRoomText>
+        <View style={styles.spotFooter}>
+          <LiveRoomText style={[styles.priceTag, { color: textSecondary }]}>{fmtMoney(row.priceUsd)}</LiveRoomText>
+          {canPin && row.variantId ? (
+            <Pressable
+              style={[styles.pinActionBtn, pinned && styles.pinActionBtnActive]}
+              onPress={() => onPinTeam?.(row.variantId!)}
+              disabled={pinBusy}
+              accessibilityLabel={`Pin ${row.label} for buyers`}
+            >
+              <LiveRoomText style={[styles.pinActionBtnText, pinned && styles.pinActionBtnTextActive]}>
+                {pinned ? 'Pinned' : 'Pin'}
+              </LiveRoomText>
+            </Pressable>
+          ) : null}
+        </View>
       )}
     </View>
   );
-
-  if (canPin && row.variantId) {
-    return (
-      <Pressable
-        style={({ pressed }) => [pressed && styles.spotTilePressed]}
-        onPress={() => onPinTeam?.(row.variantId!)}
-        disabled={pinBusy}
-        accessibilityLabel={`Pin ${row.label} for buyers`}
-      >
-        {body}
-      </Pressable>
-    );
-  }
 
   return body;
 }
@@ -164,7 +165,7 @@ export function SellerBreakSpotBoardSheet({
               </LiveRoomText>
               <LiveRoomText style={styles.spotsMeta}>
                 {openCount} open · {soldCount} sold
-                {canPinTeams ? ' · tap a team to pin for buyers' : ''}
+                {canPinTeams ? ' · use Pin on a team to feature it for buyers' : ''}
               </LiveRoomText>
             </View>
             <Pressable style={styles.closeBtn} onPress={onClose} hitSlop={10}>
@@ -297,6 +298,34 @@ const styles = StyleSheet.create({
   spotTilePressed: {
     opacity: 0.88,
     transform: [{ scale: 0.98 }],
+  },
+  spotFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  pinActionBtn: {
+    borderRadius: radii.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  pinActionBtnActive: {
+    borderColor: colors.gold,
+    backgroundColor: 'rgba(212,175,55,0.18)',
+  },
+  pinActionBtnText: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.82)',
+  },
+  pinActionBtnTextActive: {
+    color: colors.gold,
   },
   spotTileTop: {
     gap: 2,

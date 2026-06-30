@@ -18,12 +18,28 @@ describe('appendMentionToDraft', () => {
 });
 
 describe('live chat moderation menu options', () => {
+  it('allows kick for show mods even when API allowedActions omits kick', () => {
+    expect(
+      canShowLiveChatKickOption({
+        targetUserId: 'buyer-1',
+        hostUserId: 'host-1',
+        allowedActions: ['mute', 'delete_message'],
+        isModerator: true,
+        canModerate: true,
+        moderatorLevel: 'show',
+      }),
+    ).toBe(true);
+  });
+
   it('allows kick when head mod actions include room_ban', () => {
     expect(
       canShowLiveChatKickOption({
         targetUserId: 'buyer-1',
         hostUserId: 'host-1',
         allowedActions: ['room_ban'],
+        isModerator: true,
+        canModerate: true,
+        moderatorLevel: 'head',
       }),
     ).toBe(true);
   });
@@ -33,13 +49,32 @@ describe('live chat moderation menu options', () => {
       canShowLiveChatKickOption({
         targetUserId: 'host-1',
         hostUserId: 'host-1',
-        allowedActions: ['room_ban'],
+        allowedActions: ['kick'],
+        isModerator: true,
+        canModerate: true,
+        moderatorLevel: 'show',
       }),
     ).toBe(false);
     expect(
       canShowLiveChatKickOption({
         hostUserId: 'host-1',
-        allowedActions: ['room_ban'],
+        allowedActions: ['kick'],
+        isModerator: true,
+        canModerate: true,
+        moderatorLevel: 'show',
+      }),
+    ).toBe(false);
+  });
+
+  it('blocks kick for chat-only mods', () => {
+    expect(
+      canShowLiveChatKickOption({
+        targetUserId: 'buyer-1',
+        hostUserId: 'host-1',
+        allowedActions: ['mute', 'delete_message'],
+        isModerator: true,
+        canModerate: true,
+        moderatorLevel: 'chat',
       }),
     ).toBe(false);
   });

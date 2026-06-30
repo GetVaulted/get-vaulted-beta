@@ -9,6 +9,7 @@ import {
   isRandomVariantAssignment,
   lowestAvailableVariantPrice,
   variantClaimPrimaryLabel,
+  variantIsAvailable,
   variantSelectSpotLabel,
 } from '../../lib/liveItemVariant';
 import {
@@ -138,6 +139,32 @@ function resolveBuyerVariantItemHud(
       shopButtonLabel: variantClaimPrimaryLabel(snap.activeItemSalesFormat),
       buyerPrimaryDisabled: !biddingOpen,
       buyerSecondaryDisabled: !biddingOpen,
+      buyerPinnedVariantId: pinned.id,
+    };
+  }
+
+  if (pinned) {
+    const otherAvailable = variants.filter((v) => variantIsAvailable(v) && v.id !== pinned.id).length;
+    return {
+      ...base,
+      format: 'shop',
+      hybridFocus: null,
+      timerMmSs: '—',
+      itemTitle: pinned.label,
+      currentPrefix: 'Price',
+      currentAmount: formatMoney(pinned.priceUsd),
+      winningLine: '',
+      stateLine:
+        otherAvailable > 0
+          ? `${pinned.label} pinned — checkout below includes shipping & tax. ${otherAvailable} other spot${otherAvailable === 1 ? '' : 's'} in shop.`
+          : `${pinned.label} pinned — pick this spot at checkout with shipping & tax.`,
+      bottomLeftLabel: otherAvailable > 0 ? 'All teams' : 'Custom',
+      bottomRightLabel: variantSelectSpotLabel(snap.activeItemSalesFormat),
+      bottomRightIsSlide: false,
+      showShopButton: otherAvailable > 0,
+      shopButtonLabel: variantClaimPrimaryLabel(snap.activeItemSalesFormat),
+      buyerPrimaryDisabled: false,
+      buyerSecondaryDisabled: otherAvailable <= 0,
       buyerPinnedVariantId: pinned.id,
     };
   }

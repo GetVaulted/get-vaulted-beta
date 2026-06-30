@@ -18,6 +18,7 @@ import {
   type LiveCustomBidMode,
   type LiveCustomBidPayload,
 } from '../../lib/liveCustomBid';
+import { resolveLiveBidFailureDisplay } from '../../lib/liveBidUserErrors';
 import { colors, radii, spacing } from '../../theme';
 
 type Props = {
@@ -69,7 +70,7 @@ export function LiveCustomBidSheet({
       setError(null);
       await onSubmit(payload);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not place bid.');
+      setError(resolveLiveBidFailureDisplay(e).message);
     }
   };
 

@@ -88,6 +88,8 @@ export type LiveRoomBuyerSnapshot = {
   lineupItems?: LiveRoomLineupItemSnapshot[];
 };
 
+import { LiveBidError } from '../lib/liveBidUserErrors';
+
 function apiErrorMessage(res: Response, body: unknown): string {
   if (body && typeof body === 'object') {
     const o = body as { error?: string; signInUrl?: string };
@@ -418,6 +420,7 @@ export async function placeLiveRoomBid(args: {
     error?: string;
     signInUrl?: string;
     code?: string;
+    minNextBidUsd?: number;
     paymentReady?: boolean;
     shippingReady?: boolean;
     addPaymentMethodsUrl?: string;
@@ -438,7 +441,10 @@ export async function placeLiveRoomBid(args: {
     throw err;
   }
   if (!res.ok) {
-    throw new Error(apiErrorMessage(res, j));
+    const code = typeof j.code === 'string' ? j.code : undefined;
+    const minNextBidUsd =
+      typeof j.minNextBidUsd === 'number' && Number.isFinite(j.minNextBidUsd) ? j.minNextBidUsd : undefined;
+    throw new LiveBidError(apiErrorMessage(res, j), { code, minNextBidUsd, status: res.status });
   }
   void clientStart;
   return {
