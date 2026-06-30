@@ -20,6 +20,7 @@ import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { buildOrderTaxPersistFields } from "@/lib/sales-tax-order";
 import { recordTaxDestinationVolumeOnOrderPaid } from "@/lib/sales-tax-reporting";
 import {
+  buildCheckoutTaxSessionFields,
   buildMarketplaceCheckoutTaxBundle,
   connectCheckoutPaymentIntentData,
   loadSellerShipFromForTax,
