@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSessionSafe } from "@/lib/auth";
 import { accountStandingLabel } from "@/services/payout/account-standing";
-import { DEFAULT_INSTANT_PAYOUT_LIMITS } from "@/services/payout/instant-payout-limits";
+import { getCachedPayoutProgramConfig, ensurePayoutProgramCache } from "@/services/payout/payout-program-settings";
 import {
   loadSellerPayoutTierDashboard,
   recalculateSellerPayoutTier,
@@ -19,6 +19,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  await ensurePayoutProgramCache();
   await recalculateSellerPayoutTier(session.user.id);
   const dashboard = await loadSellerPayoutTierDashboard(session.user.id);
   if (!dashboard) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -51,7 +52,7 @@ export async function GET() {
       outstandingInstantPayoutUsd: metrics.outstandingInstantPayoutUsd,
       lifetimeInstantPayoutUsd: metrics.lifetimeInstantPayoutUsd,
     },
-    platformLimits: DEFAULT_INSTANT_PAYOUT_LIMITS,
+    platformLimits: getCachedPayoutProgramConfig().instantLimits,
     suspensionReason: seller.suspensionReason,
     rejectionReason: seller.instantPayoutRejectionReason,
     education: {

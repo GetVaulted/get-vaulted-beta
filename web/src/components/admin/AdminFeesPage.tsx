@@ -4,6 +4,35 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AdminCommandShell, adminPanelClassName } from "@/components/admin/AdminCommandShell";
 
+type LiveShowFeeConfig = {
+  tier1FeePercent: number;
+  tier2ThresholdUsd: number;
+  tier2FeePercent: number;
+  tier3ThresholdUsd: number;
+  tier3FeePercent: number;
+};
+
+type PayoutProgramDraft = {
+  thresholds: {
+    fast: { minAccountAgeDays: number; minLifetimeGmvUsd: number; minCompletedOrders: number };
+    instant: {
+      minAccountAgeDays: number;
+      minLifetimeGmvUsd: number;
+      maxCancellationRate: number;
+      maxChargebackRate: number;
+      maxDisputeRate: number;
+      maxUnresolvedDisputes: number;
+    };
+  };
+  instantLimits: {
+    perOrderUsd: number;
+    dailyUsd: number;
+    maxDailyCount: number;
+    maxOutstandingUsd: number;
+  };
+  instantSuspensionRateCeiling: number;
+};
+
 type FeesPayload = {
   marketplace: {
     platformFeePercent: number;
@@ -15,14 +44,18 @@ type FeesPayload = {
   };
   liveSelling: {
     tiers: Array<{ label: string; thresholdUsd: number; feePercent: number }>;
+    config: LiveShowFeeConfig;
+    editable: boolean;
+    updatedAt: string | null;
     note: string;
   };
   payoutProgram: {
-    thresholds: {
-      fast: { minAccountAgeDays: number; minLifetimeGmvUsd: number; minCompletedOrders: number };
-      instant: Record<string, number>;
-    };
-    instantLimits: { perOrderUsd: number; dailyUsd: number; maxOutstandingUsd: number };
+    config: PayoutProgramDraft;
+    thresholds: PayoutProgramDraft["thresholds"];
+    instantLimits: PayoutProgramDraft["instantLimits"];
+    instantSuspensionRateCeiling: number;
+    editable: boolean;
+    updatedAt: string | null;
     note: string;
   };
   layaway: {
@@ -49,9 +82,17 @@ export function AdminFeesPage() {
   const [data, setData] = useState<FeesPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [feeDraft, setFeeDraft] = useState("");
+  const [liveDraft, setLiveDraft] = useState<LiveShowFeeConfig | null>(null);
+  const [payoutDraft, setPayoutDraft] = useState<PayoutProgramDraft | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savingLive, setSavingLive] = useState(false);
+  const [savingPayout, setSavingPayout] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveLiveError, setSaveLiveError] = useState<string | null>(null);
+  const [savePayoutError, setSavePayoutError] = useState<string | null>(null);
   const [saveOk, setSaveOk] = useState<string | null>(null);
+  const [saveLiveOk, setSaveLiveOk] = useState<string | null>(null);
+  const [savePayoutOk, setSavePayoutOk] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,6 +102,8 @@ export function AdminFeesPage() {
         const json = (await res.json()) as FeesPayload;
         setData(json);
         setFeeDraft(String(json.marketplace.platformFeePercent));
+        setLiveDraft(json.liveSelling.config);
+        setPayoutDraft(json.payoutProgram.config);
       }
     } finally {
       setLoading(false);
@@ -98,10 +141,69 @@ export function AdminFeesPage() {
     }
   };
 
+  const saveLiveFees = async () => {
+    if (!liveDraft) return;
+    setSaveLiveError(null);
+    setSaveLiveOk(null);
+    const tier2Threshold = Number(liveDraft.tier2ThresholdUsd);
+    const tier3Threshold = Number(liveDraft.tier3ThresholdUsd);
+    if (!Number.isFinite(tier2Threshold) || tier2Threshold < 1) {
+      setSaveLiveError("Volume tier threshold must be at least $1.");
+      return;
+    }
+    if (!Number.isFinite(tier3Threshold) || tier3Threshold <= tier2Threshold) {
+      setSaveLiveError("Top tier threshold must be greater than the volume tier threshold.");
+      return;
+    }
+    setSavingLive(true);
+    try {
+      const res = await fetch("/api/admin/fees", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ liveSelling: liveDraft }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setSaveLiveError(typeof body.error === "string" ? body.error : "Could not save live fee tiers.");
+        return;
+      }
+      setSaveLiveOk("Live selling fee tiers updated.");
+      await load();
+    } finally {
+      setSavingLive(false);
+    }
+  };
+
+  const liveInputClassName =
+    "mt-1.5 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 font-mono text-sm text-zinc-100 outline-none ring-gold/30 focus:border-gold/40 focus:ring-2";
+
+  const savePayoutProgram = async () => {
+    if (!payoutDraft) return;
+    setSavePayoutError(null);
+    setSavePayoutOk(null);
+    setSavingPayout(true);
+    try {
+      const res = await fetch("/api/admin/fees", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ payoutProgram: payoutDraft }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setSavePayoutError(typeof body.error === "string" ? body.error : "Could not save payout program.");
+        return;
+      }
+      setSavePayoutOk("Seller payout program updated.");
+      await load();
+    } finally {
+      setSavingPayout(false);
+    }
+  };
+
   return (
     <AdminCommandShell
       title="Get Vaulted Rates & Fee Settings"
-      subtitle="Edit marketplace platform fee live — mobile and checkout pick it up automatically."
+      subtitle="Edit marketplace and live show platform fees live — checkout and seller consoles pick them up automatically."
       actions={
         <Link href="/admin/seller-risk" className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:bg-white/[0.04]">
           Seller payout review →
@@ -150,42 +252,199 @@ export function AdminFeesPage() {
 
             <section className={`${adminPanelClassName} p-5`}>
               <h2 className="text-sm font-bold text-gold-bright">Live selling fee tiers</h2>
-              <div className="mt-4">
-                {data.liveSelling.tiers.map((t) => (
-                  <SettingRow
-                    key={t.label}
-                    label={`${t.label} tier (≥ $${t.thresholdUsd.toLocaleString()})`}
-                    value={`${t.feePercent}%`}
-                  />
-                ))}
-                <p className="mt-3 text-xs text-zinc-600">{data.liveSelling.note}</p>
-              </div>
+              <p className="mt-2 text-xs leading-relaxed text-zinc-500">{data.liveSelling.note}</p>
+              {liveDraft ? (
+                <div className="mt-4 space-y-4">
+                  <div className="rounded-lg border border-white/[0.06] bg-black/20 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Base tier (≥ $0)</p>
+                    <label className="mt-2 block">
+                      <span className="text-xs text-zinc-500">Fee (%)</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={25}
+                        step={0.01}
+                        value={liveDraft.tier1FeePercent}
+                        onChange={(e) =>
+                          setLiveDraft((prev) => (prev ? { ...prev, tier1FeePercent: Number(e.target.value) } : prev))
+                        }
+                        className={liveInputClassName}
+                      />
+                    </label>
+                  </div>
+                  <div className="rounded-lg border border-white/[0.06] bg-black/20 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Volume tier</p>
+                    <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                      <label className="block">
+                        <span className="text-xs text-zinc-500">GMV threshold ($)</span>
+                        <input
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={liveDraft.tier2ThresholdUsd}
+                          onChange={(e) =>
+                            setLiveDraft((prev) =>
+                              prev ? { ...prev, tier2ThresholdUsd: Number(e.target.value) } : prev,
+                            )
+                          }
+                          className={liveInputClassName}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs text-zinc-500">Fee (%)</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={25}
+                          step={0.01}
+                          value={liveDraft.tier2FeePercent}
+                          onChange={(e) =>
+                            setLiveDraft((prev) => (prev ? { ...prev, tier2FeePercent: Number(e.target.value) } : prev))
+                          }
+                          className={liveInputClassName}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-white/[0.06] bg-black/20 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Top tier</p>
+                    <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                      <label className="block">
+                        <span className="text-xs text-zinc-500">GMV threshold ($)</span>
+                        <input
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={liveDraft.tier3ThresholdUsd}
+                          onChange={(e) =>
+                            setLiveDraft((prev) =>
+                              prev ? { ...prev, tier3ThresholdUsd: Number(e.target.value) } : prev,
+                            )
+                          }
+                          className={liveInputClassName}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs text-zinc-500">Fee (%)</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={25}
+                          step={0.01}
+                          value={liveDraft.tier3FeePercent}
+                          onChange={(e) =>
+                            setLiveDraft((prev) => (prev ? { ...prev, tier3FeePercent: Number(e.target.value) } : prev))
+                          }
+                          className={liveInputClassName}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={savingLive}
+                    onClick={() => void saveLiveFees()}
+                    className="rounded-lg bg-gold px-4 py-2.5 text-sm font-bold text-black disabled:opacity-50"
+                  >
+                    {savingLive ? "Saving…" : "Save live fee tiers"}
+                  </button>
+                  {data.liveSelling.updatedAt ? (
+                    <p className="text-xs text-zinc-600">
+                      Last updated {new Date(data.liveSelling.updatedAt).toLocaleString()}
+                    </p>
+                  ) : null}
+                  {saveLiveError ? <p className="text-sm text-rose-400">{saveLiveError}</p> : null}
+                  {saveLiveOk ? <p className="text-sm text-emerald-400">{saveLiveOk}</p> : null}
+                </div>
+              ) : null}
             </section>
 
-            <section className={`${adminPanelClassName} p-5`}>
+            <section className={`${adminPanelClassName} p-5 lg:col-span-2`}>
               <h2 className="text-sm font-bold text-gold-bright">Seller payout program</h2>
-              <div className="mt-4 space-y-0">
-                <SettingRow
-                  label="Fast payout — min account age"
-                  value={`${data.payoutProgram.thresholds.fast.minAccountAgeDays} days`}
-                />
-                <SettingRow
-                  label="Fast payout — min lifetime GMV"
-                  value={`$${data.payoutProgram.thresholds.fast.minLifetimeGmvUsd.toLocaleString()}`}
-                />
-                <SettingRow
-                  label="Fast payout — min completed orders"
-                  value={String(data.payoutProgram.thresholds.fast.minCompletedOrders)}
-                />
-                <SettingRow
-                  label="Instant — max cancellation rate"
-                  value={`${((data.payoutProgram.thresholds.instant.maxCancellationRate ?? 0) * 100).toFixed(1)}%`}
-                />
-                <SettingRow label="Instant per-order limit" value={`$${data.payoutProgram.instantLimits.perOrderUsd}`} />
-                <SettingRow label="Instant daily limit" value={`$${data.payoutProgram.instantLimits.dailyUsd}`} />
-                <SettingRow label="Instant exposure limit" value={`$${data.payoutProgram.instantLimits.maxOutstandingUsd}`} />
-                <p className="mt-3 text-xs text-zinc-600">{data.payoutProgram.note}</p>
-              </div>
+              <p className="mt-2 text-xs leading-relaxed text-zinc-500">{data.payoutProgram.note}</p>
+              {payoutDraft ? (
+                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-lg border border-white/[0.06] bg-black/20 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Fast payout (Get Vaulted)</p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                      <label className="block">
+                        <span className="text-xs text-zinc-500">Min account age (days)</span>
+                        <input type="number" min={0} value={payoutDraft.thresholds.fast.minAccountAgeDays} onChange={(e) => setPayoutDraft((p) => p ? { ...p, thresholds: { ...p.thresholds, fast: { ...p.thresholds.fast, minAccountAgeDays: Number(e.target.value) } } } : p)} className={liveInputClassName} />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs text-zinc-500">Min lifetime GMV ($)</span>
+                        <input type="number" min={0} value={payoutDraft.thresholds.fast.minLifetimeGmvUsd} onChange={(e) => setPayoutDraft((p) => p ? { ...p, thresholds: { ...p.thresholds, fast: { ...p.thresholds.fast, minLifetimeGmvUsd: Number(e.target.value) } } } : p)} className={liveInputClassName} />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs text-zinc-500">Min completed orders</span>
+                        <input type="number" min={0} value={payoutDraft.thresholds.fast.minCompletedOrders} onChange={(e) => setPayoutDraft((p) => p ? { ...p, thresholds: { ...p.thresholds, fast: { ...p.thresholds.fast, minCompletedOrders: Number(e.target.value) } } } : p)} className={liveInputClassName} />
+                      </label>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-white/[0.06] bg-black/20 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Instant eligibility (Stripe-aligned defaults)</p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <label className="block">
+                        <span className="text-xs text-zinc-500">Min account age (days)</span>
+                        <input type="number" min={0} value={payoutDraft.thresholds.instant.minAccountAgeDays} onChange={(e) => setPayoutDraft((p) => p ? { ...p, thresholds: { ...p.thresholds, instant: { ...p.thresholds.instant, minAccountAgeDays: Number(e.target.value) } } } : p)} className={liveInputClassName} />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs text-zinc-500">Min lifetime GMV ($)</span>
+                        <input type="number" min={0} value={payoutDraft.thresholds.instant.minLifetimeGmvUsd} onChange={(e) => setPayoutDraft((p) => p ? { ...p, thresholds: { ...p.thresholds, instant: { ...p.thresholds.instant, minLifetimeGmvUsd: Number(e.target.value) } } } : p)} className={liveInputClassName} />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs text-zinc-500">Max cancellation rate (%)</span>
+                        <input type="number" min={0} max={100} step={0.01} value={payoutDraft.thresholds.instant.maxCancellationRate * 100} onChange={(e) => setPayoutDraft((p) => p ? { ...p, thresholds: { ...p.thresholds, instant: { ...p.thresholds.instant, maxCancellationRate: Number(e.target.value) / 100 } } } : p)} className={liveInputClassName} />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs text-zinc-500">Max chargeback rate (%)</span>
+                        <input type="number" min={0} max={100} step={0.01} value={payoutDraft.thresholds.instant.maxChargebackRate * 100} onChange={(e) => setPayoutDraft((p) => p ? { ...p, thresholds: { ...p.thresholds, instant: { ...p.thresholds.instant, maxChargebackRate: Number(e.target.value) / 100 } } } : p)} className={liveInputClassName} />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs text-zinc-500">Max dispute rate (%)</span>
+                        <input type="number" min={0} max={100} step={0.01} value={payoutDraft.thresholds.instant.maxDisputeRate * 100} onChange={(e) => setPayoutDraft((p) => p ? { ...p, thresholds: { ...p.thresholds, instant: { ...p.thresholds.instant, maxDisputeRate: Number(e.target.value) / 100 } } } : p)} className={liveInputClassName} />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs text-zinc-500">Suspension rate ceiling (%)</span>
+                        <input type="number" min={0} max={100} step={0.01} value={payoutDraft.instantSuspensionRateCeiling * 100} onChange={(e) => setPayoutDraft((p) => p ? { ...p, instantSuspensionRateCeiling: Number(e.target.value) / 100 } : p)} className={liveInputClassName} />
+                      </label>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-white/[0.06] bg-black/20 p-3 lg:col-span-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Instant payout limits (Stripe US)</p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <label className="block">
+                        <span className="text-xs text-zinc-500">Per order max ($)</span>
+                        <input type="number" min={0} max={9999} value={payoutDraft.instantLimits.perOrderUsd} onChange={(e) => setPayoutDraft((p) => p ? { ...p, instantLimits: { ...p.instantLimits, perOrderUsd: Number(e.target.value) } } : p)} className={liveInputClassName} />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs text-zinc-500">Daily volume max ($)</span>
+                        <input type="number" min={0} value={payoutDraft.instantLimits.dailyUsd} onChange={(e) => setPayoutDraft((p) => p ? { ...p, instantLimits: { ...p.instantLimits, dailyUsd: Number(e.target.value) } } : p)} className={liveInputClassName} />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs text-zinc-500">Max payouts per day</span>
+                        <input type="number" min={1} max={100} value={payoutDraft.instantLimits.maxDailyCount} onChange={(e) => setPayoutDraft((p) => p ? { ...p, instantLimits: { ...p.instantLimits, maxDailyCount: Number(e.target.value) } } : p)} className={liveInputClassName} />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs text-zinc-500">Max outstanding exposure ($)</span>
+                        <input type="number" min={0} value={payoutDraft.instantLimits.maxOutstandingUsd} onChange={(e) => setPayoutDraft((p) => p ? { ...p, instantLimits: { ...p.instantLimits, maxOutstandingUsd: Number(e.target.value) } } : p)} className={liveInputClassName} />
+                      </label>
+                    </div>
+                  </div>
+                  <div className="lg:col-span-2">
+                    <button type="button" disabled={savingPayout} onClick={() => void savePayoutProgram()} className="rounded-lg bg-gold px-4 py-2.5 text-sm font-bold text-black disabled:opacity-50">
+                      {savingPayout ? "Saving…" : "Save payout program"}
+                    </button>
+                    {data.payoutProgram.updatedAt ? (
+                      <p className="mt-3 text-xs text-zinc-600">
+                        Last updated {new Date(data.payoutProgram.updatedAt).toLocaleString()}
+                      </p>
+                    ) : null}
+                    {savePayoutError ? <p className="mt-2 text-sm text-rose-400">{savePayoutError}</p> : null}
+                    {savePayoutOk ? <p className="mt-2 text-sm text-emerald-400">{savePayoutOk}</p> : null}
+                  </div>
+                </div>
+              ) : null}
             </section>
 
             <section className={`${adminPanelClassName} p-5 lg:col-span-2`}>

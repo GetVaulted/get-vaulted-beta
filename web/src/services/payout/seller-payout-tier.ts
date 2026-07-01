@@ -18,25 +18,12 @@ import {
 } from "@/services/payout/account-standing";
 import { sellerHasVerifiedStripePayoutAccount } from "@/services/payout/instant-payout-eligibility";
 import { resolveSellerLevel, sellerLevelLabel } from "@/services/payout/seller-level";
+import { getCachedPayoutProgramConfig } from "@/services/payout/payout-program-settings";
+import { STRIPE_ALIGNED_PAYOUT_PROGRAM_DEFAULTS } from "@/lib/stripe-instant-payout-reference";
 
-/** Tier thresholds — Get Vaulted seller payout program. */
-export const PAYOUT_TIER_THRESHOLDS = {
-  fast: {
-    minAccountAgeDays: 30,
-    minLifetimeGmvUsd: 10_000,
-    minCompletedOrders: 100,
-  },
-  instant: {
-    minAccountAgeDays: 90,
-    minLifetimeGmvUsd: 60_000,
-    maxCancellationRate: 0.01,
-    maxChargebackRate: 0.01,
-    maxDisputeRate: 0.01,
-    maxUnresolvedDisputes: 0,
-  },
-} as const;
+/** @deprecated Use getCachedPayoutProgramConfig().thresholds — kept for tests and static imports. */
+export const PAYOUT_TIER_THRESHOLDS = STRIPE_ALIGNED_PAYOUT_PROGRAM_DEFAULTS.thresholds;
 
-export const INSTANT_SUSPENSION_RATE_CEILING = 0.01;
 export const EXCESSIVE_SHIPPING_DELAY_DAYS = 7;
 
 export type SellerPayoutMetricsData = {
@@ -289,7 +276,7 @@ function meetsFastRequirements(
   ctx: SellerTierContext,
 ): { met: boolean; failed: string[] } {
   const failed = sellerBaseRequirementsMet(ctx, metrics.fraudStatus);
-  const t = PAYOUT_TIER_THRESHOLDS.fast;
+  const t = getCachedPayoutProgramConfig().thresholds.fast;
   if (metrics.accountAgeDays < t.minAccountAgeDays) failed.push("account_age_below_30_days");
   if (metrics.lifetimeGmvUsd < t.minLifetimeGmvUsd) failed.push("gmv_below_10000");
   if (metrics.completedOrders < t.minCompletedOrders) failed.push("completed_orders_below_100");
@@ -306,7 +293,7 @@ function meetsInstantRequirements(
 ): { met: boolean; failed: string[] } {
   const fast = meetsFastRequirements(metrics, ctx);
   const failed = [...fast.failed];
-  const t = PAYOUT_TIER_THRESHOLDS.instant;
+  const t = getCachedPayoutProgramConfig().thresholds.instant;
   if (metrics.accountAgeDays < t.minAccountAgeDays) failed.push("account_age_below_90_days");
   if (metrics.lifetimeGmvUsd < t.minLifetimeGmvUsd) failed.push("gmv_below_60000");
   if (!accountStandingMeetsInstant(metrics.accountStanding)) {
@@ -326,16 +313,17 @@ export function detectInstantTierSuspensions(
   ctx: { fraudStatus: SellerFraudStatus; suspendedAt?: Date | null },
 ): string[] {
   const reasons: string[] = [];
+  const suspensionCeiling = getCachedPayoutProgramConfig().instantSuspensionRateCeiling;
   if (
     metrics.accountStanding === AccountStanding.needs_attention ||
     metrics.accountStanding === AccountStanding.restricted
   ) {
     reasons.push("account_standing_degraded");
   }
-  if (metrics.chargebackRate > INSTANT_SUSPENSION_RATE_CEILING) {
+  if (metrics.chargebackRate > suspensionCeiling) {
     reasons.push("chargeback_rate_exceeded_1pct");
   }
-  if (metrics.cancellationRate > INSTANT_SUSPENSION_RATE_CEILING) {
+  if (metrics.cancellationRate > suspensionCeiling) {
     reasons.push("cancellation_rate_exceeded_1pct");
   }
   if (ctx.fraudStatus === SellerFraudStatus.investigation) {
@@ -454,21 +442,21 @@ export function buildInstantTierChecklist(
   metrics: SellerPayoutMetricsData,
   ctx: SellerTierContext,
 ): PayoutTierChecklistItem[] {
-  const t = PAYOUT_TIER_THRESHOLDS.instant;
+  const t = getCachedPayoutProgramConfig().thresholds.instant;
   const status = ctx.instantPayoutApprovalStatus;
   const adminApproved = status === InstantPayoutApprovalStatus.approved;
 
   return [
     {
       key: "account_age",
-      label: "90 days on platform",
+      label: `${t.minAccountAgeDays} days on platform`,
       met: metrics.accountAgeDays >= t.minAccountAgeDays,
       current: `${metrics.accountAgeDays} days`,
       required: `${t.minAccountAgeDays} days`,
     },
     {
       key: "lifetime_gmv",
-      label: "$60,000 lifetime GMV",
+      label: `${formatUsd(t.minLifetimeGmvUsd)} lifetime GMV`,
       met: metrics.lifetimeGmvUsd >= t.minLifetimeGmvUsd,
       current: formatUsd(metrics.lifetimeGmvUsd),
       required: formatUsd(t.minLifetimeGmvUsd),
@@ -482,17 +470,17 @@ export function buildInstantTierChecklist(
     },
     {
       key: "cancellation_rate",
-      label: "Cancellation rate < 1%",
+      label: `Cancellation rate < ${(t.maxCancellationRate * 100).toFixed(2).replace(/\.?0+$/, "")}%`,
       met: metrics.cancellationRate <= t.maxCancellationRate,
       current: `${(metrics.cancellationRate * 100).toFixed(2)}%`,
-      required: "< 1%",
+      required: `< ${(t.maxCancellationRate * 100).toFixed(2).replace(/\.?0+$/, "")}%`,
     },
     {
       key: "chargeback_rate",
-      label: "Chargeback rate < 1%",
+      label: `Chargeback rate < ${(t.maxChargebackRate * 100).toFixed(2).replace(/\.?0+$/, "")}%`,
       met: metrics.chargebackRate <= t.maxChargebackRate,
       current: `${(metrics.chargebackRate * 100).toFixed(2)}%`,
-      required: "< 1%",
+      required: `< ${(t.maxChargebackRate * 100).toFixed(2).replace(/\.?0+$/, "")}%`,
     },
     {
       key: "admin_approval",
@@ -509,25 +497,25 @@ export function buildInstantTierChecklist(
 }
 
 export function buildFastTierChecklist(metrics: SellerPayoutMetricsData): PayoutTierChecklistItem[] {
-  const t = PAYOUT_TIER_THRESHOLDS.fast;
+  const t = getCachedPayoutProgramConfig().thresholds.fast;
   return [
     {
       key: "account_age",
-      label: "30 days on platform",
+      label: `${t.minAccountAgeDays} days on platform`,
       met: metrics.accountAgeDays >= t.minAccountAgeDays,
       current: `${metrics.accountAgeDays} days`,
       required: `${t.minAccountAgeDays} days`,
     },
     {
       key: "lifetime_gmv",
-      label: "$10,000 lifetime GMV",
+      label: `${formatUsd(t.minLifetimeGmvUsd)} lifetime GMV`,
       met: metrics.lifetimeGmvUsd >= t.minLifetimeGmvUsd,
       current: formatUsd(metrics.lifetimeGmvUsd),
       required: formatUsd(t.minLifetimeGmvUsd),
     },
     {
       key: "completed_orders",
-      label: "100 completed orders",
+      label: `${t.minCompletedOrders} completed orders`,
       met: metrics.completedOrders >= t.minCompletedOrders,
       current: String(metrics.completedOrders),
       required: String(t.minCompletedOrders),

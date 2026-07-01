@@ -1,17 +1,15 @@
 import { prisma } from "@/lib/prisma";
 import { logPayoutEligibilityDecision } from "@/lib/payout-audit-log";
+import { getCachedPayoutProgramConfig } from "@/services/payout/payout-program-settings";
+import { STRIPE_ALIGNED_PAYOUT_PROGRAM_DEFAULTS } from "@/lib/stripe-instant-payout-reference";
 
-/** Platform-wide instant payout risk limits (USD). */
-export const DEFAULT_INSTANT_PAYOUT_LIMITS = {
-  perOrderUsd: Number(process.env.INSTANT_PAYOUT_PER_ORDER_LIMIT_USD ?? 2500),
-  dailyUsd: Number(process.env.INSTANT_PAYOUT_DAILY_LIMIT_USD ?? 10_000),
-  maxOutstandingUsd: Number(process.env.INSTANT_PAYOUT_MAX_OUTSTANDING_USD ?? 25_000),
-} as const;
+/** @deprecated Use getCachedPayoutProgramConfig().instantLimits */
+export const DEFAULT_INSTANT_PAYOUT_LIMITS = STRIPE_ALIGNED_PAYOUT_PROGRAM_DEFAULTS.instantLimits;
 
 export type InstantPayoutLimitCheck = {
   allowed: boolean;
   reason: string | null;
-  violatedLimit: "per_order" | "daily" | "outstanding" | null;
+  violatedLimit: "per_order" | "daily" | "daily_count" | "outstanding" | null;
 };
 
 function startOfUtcDay(d = new Date()): Date {
@@ -21,8 +19,10 @@ function startOfUtcDay(d = new Date()): Date {
 export async function loadSellerInstantLimitOverrides(sellerId: string): Promise<{
   perOrderUsd: number;
   dailyUsd: number;
+  maxDailyCount: number;
   maxOutstandingUsd: number;
 }> {
+  const platform = getCachedPayoutProgramConfig().instantLimits;
   const seller = await prisma.user.findUnique({
     where: { id: sellerId },
     select: {
@@ -32,10 +32,10 @@ export async function loadSellerInstantLimitOverrides(sellerId: string): Promise
     },
   });
   return {
-    perOrderUsd: seller?.instantPayoutPerOrderLimitUsd ?? DEFAULT_INSTANT_PAYOUT_LIMITS.perOrderUsd,
-    dailyUsd: seller?.instantPayoutDailyLimitUsd ?? DEFAULT_INSTANT_PAYOUT_LIMITS.dailyUsd,
-    maxOutstandingUsd:
-      seller?.instantPayoutExposureLimitUsd ?? DEFAULT_INSTANT_PAYOUT_LIMITS.maxOutstandingUsd,
+    perOrderUsd: seller?.instantPayoutPerOrderLimitUsd ?? platform.perOrderUsd,
+    dailyUsd: seller?.instantPayoutDailyLimitUsd ?? platform.dailyUsd,
+    maxDailyCount: platform.maxDailyCount,
+    maxOutstandingUsd: seller?.instantPayoutExposureLimitUsd ?? platform.maxOutstandingUsd,
   };
 }
 
@@ -48,6 +48,7 @@ export async function checkInstantPayoutLimits(
     where: { sellerId },
     select: {
       dailyInstantPayoutUsd: true,
+      dailyInstantPayoutCount: true,
       dailyInstantPayoutResetAt: true,
       outstandingInstantPayoutUsd: true,
     },
@@ -55,8 +56,9 @@ export async function checkInstantPayoutLimits(
 
   const todayStart = startOfUtcDay();
   const resetAt = metrics?.dailyInstantPayoutResetAt;
-  const dailyTotal =
-    resetAt && resetAt >= todayStart ? (metrics?.dailyInstantPayoutUsd ?? 0) : 0;
+  const sameDay = resetAt && resetAt >= todayStart;
+  const dailyTotal = sameDay ? (metrics?.dailyInstantPayoutUsd ?? 0) : 0;
+  const dailyCount = sameDay ? (metrics?.dailyInstantPayoutCount ?? 0) : 0;
   const outstanding = metrics?.outstandingInstantPayoutUsd ?? 0;
   const amount = Math.max(0, orderPayoutUsd);
 
@@ -65,6 +67,13 @@ export async function checkInstantPayoutLimits(
       allowed: false,
       reason: `Order payout $${amount.toFixed(2)} exceeds per-order instant limit $${limits.perOrderUsd}.`,
       violatedLimit: "per_order",
+    };
+  }
+  if (dailyCount + 1 > limits.maxDailyCount) {
+    return {
+      allowed: false,
+      reason: `Daily instant payout count would exceed ${limits.maxDailyCount} (current day: ${dailyCount}).`,
+      violatedLimit: "daily_count",
     };
   }
   if (dailyTotal + amount > limits.dailyUsd) {
@@ -96,24 +105,31 @@ export async function recordInstantPayoutRelease(
 
   const existing = await prisma.sellerPayoutMetrics.findUnique({
     where: { sellerId },
-    select: { dailyInstantPayoutUsd: true, dailyInstantPayoutResetAt: true },
+    select: {
+      dailyInstantPayoutUsd: true,
+      dailyInstantPayoutCount: true,
+      dailyInstantPayoutResetAt: true,
+    },
   });
 
   const resetDaily =
     !existing?.dailyInstantPayoutResetAt || existing.dailyInstantPayoutResetAt < todayStart;
   const nextDaily = resetDaily ? amount : (existing?.dailyInstantPayoutUsd ?? 0) + amount;
+  const nextCount = resetDaily ? 1 : (existing?.dailyInstantPayoutCount ?? 0) + 1;
 
   await prisma.sellerPayoutMetrics.upsert({
     where: { sellerId },
     create: {
       sellerId,
       dailyInstantPayoutUsd: amount,
+      dailyInstantPayoutCount: 1,
       dailyInstantPayoutResetAt: new Date(),
       outstandingInstantPayoutUsd: amount,
       lifetimeInstantPayoutUsd: amount,
     },
     update: {
       dailyInstantPayoutUsd: nextDaily,
+      dailyInstantPayoutCount: nextCount,
       dailyInstantPayoutResetAt: new Date(),
       outstandingInstantPayoutUsd: { increment: amount },
       lifetimeInstantPayoutUsd: { increment: amount },

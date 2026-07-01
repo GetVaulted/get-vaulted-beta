@@ -1,4 +1,5 @@
 import { getCachedMarketplacePlatformFeePercent } from "@/services/platform-fee-settings";
+import { getCachedLiveShowFeeConfig } from "@/services/live-show-fee-settings";
 
 /** Fixed marketplace listing platform fee default (Stripe processing is separate). Admin may override in DB. */
 export const MARKETPLACE_PLATFORM_FEE_PERCENT = 8;
@@ -42,35 +43,37 @@ export function marketplacePlatformFeePercent(): number {
 
 /** Tier for the *next* sale based on completed GMV so far in this live show session. */
 export function liveShowPlatformFeePercent(completedGmvUsd: number): number {
+  const cfg = getCachedLiveShowFeeConfig();
   const gmv = Math.max(0, completedGmvUsd);
-  if (gmv >= LIVE_SHOW_FEE_TIER_3_THRESHOLD_USD) return LIVE_SHOW_TIER_3_FEE_PERCENT;
-  if (gmv >= LIVE_SHOW_FEE_TIER_2_THRESHOLD_USD) return LIVE_SHOW_TIER_2_FEE_PERCENT;
-  return LIVE_SHOW_TIER_1_FEE_PERCENT;
+  if (gmv >= cfg.tier3ThresholdUsd) return cfg.tier3FeePercent;
+  if (gmv >= cfg.tier2ThresholdUsd) return cfg.tier2FeePercent;
+  return cfg.tier1FeePercent;
 }
 
 export function buildLiveShowFeeTierSnapshot(completedGmvUsd: number): LiveShowFeeTierSnapshot {
+  const cfg = getCachedLiveShowFeeConfig();
   const gmv = Math.max(0, completedGmvUsd);
   const currentFeePercent = liveShowPlatformFeePercent(gmv);
 
-  if (gmv < LIVE_SHOW_FEE_TIER_2_THRESHOLD_USD) {
+  if (gmv < cfg.tier2ThresholdUsd) {
     return {
       completedGmvUsd: gmv,
       currentFeePercent,
       currentTierLabel: "Base",
-      nextTierFeePercent: LIVE_SHOW_TIER_2_FEE_PERCENT,
-      nextTierThresholdUsd: LIVE_SHOW_FEE_TIER_2_THRESHOLD_USD,
-      usdToNextTier: LIVE_SHOW_FEE_TIER_2_THRESHOLD_USD - gmv,
+      nextTierFeePercent: cfg.tier2FeePercent,
+      nextTierThresholdUsd: cfg.tier2ThresholdUsd,
+      usdToNextTier: cfg.tier2ThresholdUsd - gmv,
     };
   }
 
-  if (gmv < LIVE_SHOW_FEE_TIER_3_THRESHOLD_USD) {
+  if (gmv < cfg.tier3ThresholdUsd) {
     return {
       completedGmvUsd: gmv,
       currentFeePercent,
       currentTierLabel: "Volume",
-      nextTierFeePercent: LIVE_SHOW_TIER_3_FEE_PERCENT,
-      nextTierThresholdUsd: LIVE_SHOW_FEE_TIER_3_THRESHOLD_USD,
-      usdToNextTier: LIVE_SHOW_FEE_TIER_3_THRESHOLD_USD - gmv,
+      nextTierFeePercent: cfg.tier3FeePercent,
+      nextTierThresholdUsd: cfg.tier3ThresholdUsd,
+      usdToNextTier: cfg.tier3ThresholdUsd - gmv,
     };
   }
 

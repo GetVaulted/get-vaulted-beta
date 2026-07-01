@@ -14,6 +14,8 @@ import { isValidLayawayPlan } from "@/lib/layaway/eligibility";
 import { CommerceGuardError, commerceGuardErrorToHttp } from "@/lib/marketplace/commerce-guards";
 import type { LayawayPlanType } from "@/generated/prisma/client";
 import { ensureMarketplacePlatformFeeCache } from "@/services/platform-fee-settings";
+import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
+import { ensurePayoutProgramCache } from "@/services/payout/payout-program-settings";
 
 type Body = {
   kind?: string;
@@ -48,7 +50,11 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
   if (auth instanceof NextResponse) return auth;
 
   try {
-    await ensureMarketplacePlatformFeeCache();
+    await Promise.all([
+      ensureMarketplacePlatformFeeCache(),
+      ensureLiveShowFeeCache(),
+      ensurePayoutProgramCache(),
+    ]);
     await processAuctionPaymentExpiries();
   } catch (e) {
     console.error("[checkout] processAuctionPaymentExpiries", e);

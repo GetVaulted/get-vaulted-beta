@@ -12,9 +12,16 @@ import {
   type SellerShipFromFields,
   type SellerStripeFields,
 } from "@/lib/seller-shipping-readiness";
+import { getCachedPayoutProgramConfig } from "@/services/payout/payout-program-settings";
+import { STRIPE_US_INSTANT_PAYOUT_MAX_USD } from "@/lib/stripe-instant-payout-reference";
 
-/** High-value order threshold for manual review (USD). Tips excluded — orders only. */
-export const SUSPICIOUS_ORDER_VALUE_USD = 2500;
+/** High-value order threshold for manual review (USD). Matches platform instant per-order cap. */
+export function suspiciousOrderValueUsd(): number {
+  return getCachedPayoutProgramConfig().instantLimits.perOrderUsd;
+}
+
+/** @deprecated use suspiciousOrderValueUsd() */
+export const SUSPICIOUS_ORDER_VALUE_USD = STRIPE_US_INSTANT_PAYOUT_MAX_USD;
 
 export type OrderPayoutDisqualifier =
   | "missing_tracking"
@@ -247,7 +254,7 @@ export function evaluateOrderInstantPayoutEligibility(args: {
     disqualifiers.push("chargeback");
   }
 
-  if (order.totalUsd >= SUSPICIOUS_ORDER_VALUE_USD) {
+  if (order.totalUsd >= suspiciousOrderValueUsd()) {
     disqualifiers.push("suspicious_order_value");
   }
 

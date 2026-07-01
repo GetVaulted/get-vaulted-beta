@@ -9,7 +9,7 @@ import {
 import { logPayoutEligibilityDecision } from "@/lib/payout-audit-log";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
-import { DEFAULT_INSTANT_PAYOUT_LIMITS } from "@/services/payout/instant-payout-limits";
+import { getCachedPayoutProgramConfig, ensurePayoutProgramCache } from "@/services/payout/payout-program-settings";
 import { loadSellerPayoutSummaryForAdmin } from "@/services/payout/process-delivery-payout";
 import {
   loadSellerPayoutTierDashboard,
@@ -52,6 +52,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const { id: raw } = await ctx.params;
   const sellerId = decodeURIComponent(raw);
+
+  await ensurePayoutProgramCache();
 
   const summary = await loadSellerPayoutSummaryForAdmin(sellerId);
   if (!summary) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -97,7 +99,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       instantPayoutRejectionReason: dashboard?.seller.instantPayoutRejectionReason ?? null,
       suspensionReason: dashboard?.seller.suspensionReason ?? null,
       limitOverrides: dashboard?.seller.limitOverrides ?? null,
-      platformLimits: DEFAULT_INSTANT_PAYOUT_LIMITS,
+      platformLimits: getCachedPayoutProgramConfig().instantLimits,
     },
     metrics: dashboard?.metrics ?? summary.metrics ?? null,
     tierEvaluation: dashboard?.evaluation ?? summary.tierEvaluation ?? null,

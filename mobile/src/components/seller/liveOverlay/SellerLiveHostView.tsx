@@ -445,8 +445,13 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   }, []);
 
   const applyChatUserModeration = useCallback(
-    async (actionType: 'room_ban' | 'seller_stream_ban', targetUserId: string, username: string) => {
-      const label = actionType === 'room_ban' ? 'Kicked from show' : 'Banned from seller shows';
+    async (actionType: 'kick' | 'room_ban' | 'seller_stream_ban', targetUserId: string, username: string) => {
+      const label =
+        actionType === 'kick'
+          ? 'Kicked from show'
+          : actionType === 'room_ban'
+            ? 'Banned from show'
+            : 'Banned from seller shows';
       const result = await applyLiveModerationAction({
         accessToken,
         roomId,

@@ -1638,6 +1638,7 @@ model SellerPayoutMetrics {
   unresolvedDisputeCount    Int               @default(0)
   excessiveShippingDelayCount Int             @default(0)
   dailyInstantPayoutUsd       Float             @default(0)
+  dailyInstantPayoutCount     Int               @default(0)
   dailyInstantPayoutResetAt   DateTime?
   outstandingInstantPayoutUsd Float             @default(0)
   lifetimeInstantPayoutUsd    Float             @default(0)
@@ -2249,4 +2250,37 @@ model PlatformMarketplaceFeeConfig {
   platformFeePercent Float    @default(8)
   updatedAt          DateTime @updatedAt
   updatedByUserId    String?
+}
+
+/// Admin-editable live show volume fee tiers (single-row config).
+model PlatformLiveShowFeeConfig {
+  id                String   @id @default("default")
+  tier1FeePercent   Float    @default(8)
+  tier2ThresholdUsd Float    @default(1000)
+  tier2FeePercent   Float    @default(7.25)
+  tier3ThresholdUsd Float    @default(3000)
+  tier3FeePercent   Float    @default(6.5)
+  updatedAt         DateTime @updatedAt
+  updatedByUserId   String?
+}
+
+/// Admin-editable seller payout program thresholds and instant limits.
+model PlatformPayoutProgramConfig {
+  id                           String   @id @default("default")
+  fastMinAccountAgeDays        Int      @default(30)
+  fastMinLifetimeGmvUsd        Float    @default(10000)
+  fastMinCompletedOrders       Int      @default(100)
+  instantMinAccountAgeDays     Int      @default(60)
+  instantMinLifetimeGmvUsd       Float    @default(5000)
+  instantMaxCancellationRate   Float    @default(0.01)
+  instantMaxChargebackRate       Float    @default(0.0075)
+  instantMaxDisputeRate          Float    @default(0.0075)
+  instantMaxUnresolvedDisputes   Int      @default(0)
+  instantPerOrderUsd             Float    @default(9999)
+  instantDailyUsd                Float    @default(99990)
+  instantMaxDailyCount           Int      @default(10)
+  instantMaxOutstandingUsd       Float    @default(25000)
+  instantSuspensionRateCeiling   Float    @default(0.0075)
+  updatedAt                      DateTime @updatedAt
+  updatedByUserId                String?
 }

@@ -7,6 +7,7 @@ import { logLiveLoaderDebug, safeDecodeRouteSegment } from "@/lib/live-loader-de
 import { prisma } from "@/lib/prisma";
 import { fetchHostRecentSales } from "@/lib/live-room-recent-sales";
 import { buildLiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
+import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
 import { attachHighBidderUsernames } from "@/lib/live-room-high-bidder-enrich";
 import { listUnresolvedPaymentFailuresForRoom } from "@/lib/live-room-payment-failure";
 import { serializeLiveRoomItem, serializeLiveRoomMessage } from "@/lib/live-room-serialize";
@@ -60,6 +61,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       return hostAuth;
     }
     const { userId: hostUserId, isAdmin } = hostAuth;
+
+    await ensureLiveShowFeeCache();
 
     const url = new URL(req.url);
     const lite = url.searchParams.get("lite") === "1";

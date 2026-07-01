@@ -186,21 +186,6 @@ export function LivePinnedActionBar({
   const primaryDisabled = m.buyerPrimaryDisabled === true || participationBlocked || commerceBlocked || staffCommerceBlocked;
   const secondaryDisabled = m.buyerSecondaryDisabled === true || participationBlocked || commerceBlocked || staffCommerceBlocked;
   const padBottom = 4 + Math.min(10, Math.round(bottomSafeInset * (compact ? 0.25 : 0.35)));
-  const variantCheckoutMetaLine = variantCheckoutPreview
-    ? `Spot ${formatMoney(variantCheckoutPreview.itemPriceUsd)} · Ship ${variantCheckoutPreview.shippingDisplay} · Tax ${variantCheckoutPreview.taxDisplay}`
-    : variantCheckoutPreviewEnabled && variantCheckoutPreviewLoading
-      ? 'Calculating shipping & tax…'
-      : variantItemActive && !walletReady && !isVariantSpotAuctionLive(roomSnap)
-        ? 'Add wallet for total with shipping + tax'
-        : null;
-  const metaLine =
-    variantCheckoutMetaLine ?? [m.winningLine, m.stateLine].filter(Boolean).join(' · ');
-  const hudCurrentPrefix = variantCheckoutPreview ? 'Total' : m.currentPrefix;
-  const hudCurrentAmount = variantCheckoutPreview
-    ? formatMoney(variantCheckoutPreview.chargeNowUsd)
-    : variantCheckoutPreviewEnabled && variantCheckoutPreviewLoading
-      ? '…'
-      : m.currentAmount;
 
   const guard = (fn: () => void) => {
     if (!signedIn) {
@@ -351,6 +336,22 @@ export function LivePinnedActionBar({
     variantCheckoutPreviewEnabled,
     variantPreviewItemPriceUsd,
   ]);
+
+  const variantCheckoutMetaLine = variantCheckoutPreview
+    ? `Spot ${formatMoney(variantCheckoutPreview.itemPriceUsd)} · Ship ${variantCheckoutPreview.shippingDisplay} · Tax ${variantCheckoutPreview.taxDisplay}`
+    : variantCheckoutPreviewEnabled && variantCheckoutPreviewLoading
+      ? 'Calculating shipping & tax…'
+      : variantItemActive && !walletReady && !isVariantSpotAuctionLive(roomSnap)
+        ? 'Add wallet for total with shipping + tax'
+        : null;
+  const metaLine =
+    variantCheckoutMetaLine ?? [m.winningLine, m.stateLine].filter(Boolean).join(' · ');
+  const hudCurrentPrefix = variantCheckoutPreview ? 'Total' : m.currentPrefix;
+  const hudCurrentAmount = variantCheckoutPreview
+    ? formatMoney(variantCheckoutPreview.chargeNowUsd)
+    : variantCheckoutPreviewEnabled && variantCheckoutPreviewLoading
+      ? '…'
+      : m.currentAmount;
 
   const refreshRoomSnapshot = useCallback(async (): Promise<LiveRoomBuyerSnapshot | null> => {
     if (onRefreshSnapshot) return onRefreshSnapshot();
