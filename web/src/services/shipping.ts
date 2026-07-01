@@ -2,6 +2,13 @@ import { createNotification } from "@/lib/notifications";
 import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import { prisma } from "@/lib/prisma";
+import {
+  assertBuyerShippoContact,
+  assertSellerShippoContact,
+  resolveBuyerShippoContact,
+  resolveSellerShippoContact,
+  withShippoContact,
+} from "@/lib/shippo-label-contacts";
 import { isShippoConfigured, shippoCreateShipment, shippoListRates, shippoPurchaseRate, type ShippoAddress, type ShippoParcel } from "@/lib/shippo";
 import { resolveShippoPurchaseLabel } from "@/lib/shippo-transaction-label";
 
@@ -50,13 +57,26 @@ export async function fulfillOrderShippingAfterPayment(orderId: string): Promise
       },
       seller: {
         select: {
+          email: true,
           shipFromStreet: true,
           shipFromCity: true,
           shipFromState: true,
           shipFromZip: true,
           shipFromCountry: true,
           shipFromName: true,
+          defaultShipFromAddress: {
+            select: { email: true, phone: true },
+          },
         },
+      },
+      buyer: {
+        select: { email: true },
+      },
+      buyerAddress: {
+        select: { email: true, phone: true },
+      },
+      sellerShipFromAddress: {
+        select: { email: true, phone: true },
       },
     },
   });
@@ -102,22 +122,42 @@ export async function fulfillOrderShippingAfterPayment(orderId: string): Promise
     return;
   }
 
-  const addressFrom: ShippoAddress = {
-    name: from.shipFromName || "Seller",
-    street1: from.shipFromStreet,
-    city: from.shipFromCity,
-    state: from.shipFromState,
-    zip: from.shipFromZip,
-    country: from.shipFromCountry,
-  };
-  const addressTo: ShippoAddress = {
-    name: order.shipRecipientName,
-    street1: order.shipAddress,
-    city: order.shipCity,
-    state: order.shipState,
-    zip: order.shipZip,
-    country: order.shipCountry,
-  };
+  const sellerContact = resolveSellerShippoContact({
+    userEmail: from.email,
+    addressEmail: order.sellerShipFromAddress?.email ?? from.defaultShipFromAddress?.email,
+    addressPhone: order.sellerShipFromAddress?.phone ?? from.defaultShipFromAddress?.phone,
+  });
+  assertSellerShippoContact(sellerContact);
+
+  const buyerContact = resolveBuyerShippoContact({
+    userEmail: order.buyer.email,
+    addressEmail: order.buyerAddress?.email,
+    addressPhone: order.buyerAddress?.phone,
+  });
+  assertBuyerShippoContact(buyerContact);
+
+  const addressFrom: ShippoAddress = withShippoContact(
+    {
+      name: from.shipFromName || "Seller",
+      street1: from.shipFromStreet,
+      city: from.shipFromCity,
+      state: from.shipFromState,
+      zip: from.shipFromZip,
+      country: from.shipFromCountry,
+    },
+    sellerContact,
+  );
+  const addressTo: ShippoAddress = withShippoContact(
+    {
+      name: order.shipRecipientName,
+      street1: order.shipAddress,
+      city: order.shipCity,
+      state: order.shipState,
+      zip: order.shipZip,
+      country: order.shipCountry,
+    },
+    buyerContact,
+  );
 
   const parcel = parcelFromListing(
     order.listing.parcelWeightOz,
