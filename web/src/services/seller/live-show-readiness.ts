@@ -61,6 +61,7 @@ export async function getSellerLiveReadiness(
           state: true,
           postalCode: true,
           country: true,
+          phone: true,
         },
       },
     },
@@ -130,7 +131,7 @@ export async function getSellerLiveReadiness(
   }
 
   if (!hasShipFromAddress) {
-    issues.push("Add a complete shipping address so we can buy labels for your orders.");
+    issues.push("Add a complete ship-from address and contact phone so we can buy USPS labels for your orders.");
   }
 
   if (alternateCheckoutSellerRequired && !alternateCheckoutSellerLinked) {

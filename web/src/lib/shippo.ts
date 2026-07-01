@@ -73,6 +73,8 @@ export type ShippoAddress = {
   state: string;
   zip: string;
   country: string;
+  email?: string;
+  phone?: string;
 };
 
 export type ShippoValidatedAddressResponse = ShippoAddress & {

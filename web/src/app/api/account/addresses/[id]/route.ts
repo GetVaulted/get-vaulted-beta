@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
-import { validateAddressPatchInput, type AddressInput } from "@/lib/address-book";
+import { validateAddressPatchInput, shippingAddressLabelPhoneError, type AddressInput } from "@/lib/address-book";
 import { verifyAddressPatchData } from "@/lib/apply-address-verification";
 import type { AddressType } from "@/generated/prisma/enums";
 
@@ -27,6 +27,26 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
   const patch = verified.patch;
   const nextType = (patch.type as AddressType | undefined) ?? existing.type;
+  const mergedForLabels = {
+    type: nextType,
+    line1: (patch.line1 as string | null | undefined) ?? existing.line1,
+    city: (patch.city as string | null | undefined) ?? existing.city,
+    state: (patch.state as string | null | undefined) ?? existing.state,
+    postalCode: (patch.postalCode as string | null | undefined) ?? existing.postalCode,
+    country: (patch.country as string | null | undefined) ?? existing.country,
+    phone: (patch.phone as string | null | undefined) ?? existing.phone,
+  };
+  const phoneError = shippingAddressLabelPhoneError(mergedForLabels);
+  if (phoneError) {
+    return NextResponse.json({ error: phoneError }, { status: 400 });
+  }
+  if (nextType === "shipping" && patch.email === undefined && !existing.email) {
+    const user = await prisma.user.findUnique({
+      where: { id: auth.userId },
+      select: { email: true },
+    });
+    if (user?.email) patch.email = user.email;
+  }
   const nextDefault = typeof patch.isDefault === "boolean" ? patch.isDefault : existing.isDefault;
   const address = await prisma.$transaction(async (tx) => {
     if (nextDefault) {

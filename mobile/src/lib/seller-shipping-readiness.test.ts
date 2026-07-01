@@ -5,39 +5,43 @@ import {
   sellerHasShipFromAddress,
 } from './seller-shipping-readiness';
 
+const completeSeller = {
+  shipFromStreet: '123 Main St',
+  shipFromCity: 'Austin',
+  shipFromState: 'TX',
+  shipFromZip: '78701',
+  shipFromCountry: 'US',
+  shipFromPhone: '5551234567',
+};
+
 describe('hasCompleteSellerShipFrom', () => {
-  it('returns true when all ship-from fields are present', () => {
-    expect(
-      hasCompleteSellerShipFrom({
-        shipFromStreet: '123 Main St',
-        shipFromCity: 'Austin',
-        shipFromState: 'TX',
-        shipFromZip: '78701',
-        shipFromCountry: 'US',
-      }),
-    ).toBe(true);
+  it('returns true when all ship-from fields and phone are present', () => {
+    expect(hasCompleteSellerShipFrom(completeSeller)).toBe(true);
   });
 
   it('defaults country to US when missing', () => {
     expect(
       hasCompleteSellerShipFrom({
-        shipFromStreet: '123 Main St',
-        shipFromCity: 'Austin',
-        shipFromState: 'TX',
-        shipFromZip: '78701',
+        ...completeSeller,
         shipFromCountry: null,
       }),
     ).toBe(true);
   });
 
+  it('returns false when phone is missing', () => {
+    expect(
+      hasCompleteSellerShipFrom({
+        ...completeSeller,
+        shipFromPhone: null,
+      }),
+    ).toBe(false);
+  });
+
   it('returns false when street is missing', () => {
     expect(
       hasCompleteSellerShipFrom({
+        ...completeSeller,
         shipFromStreet: '',
-        shipFromCity: 'Austin',
-        shipFromState: 'TX',
-        shipFromZip: '78701',
-        shipFromCountry: 'US',
       }),
     ).toBe(false);
   });
@@ -57,13 +61,7 @@ describe('sellerHasShipFromAddress', () => {
     expect(
       sellerHasShipFromAddress(
         { hasStripeAccount: true, stripeChargesEnabled: true, hasShipFromAddress: false },
-        {
-          shipFromStreet: '123 Main St',
-          shipFromCity: 'Austin',
-          shipFromState: 'TX',
-          shipFromZip: '78701',
-          shipFromCountry: 'US',
-        },
+        completeSeller,
       ),
     ).toBe(true);
   });
@@ -71,14 +69,6 @@ describe('sellerHasShipFromAddress', () => {
 
 describe('formatSellerShipFromSummary', () => {
   it('joins address parts', () => {
-    expect(
-      formatSellerShipFromSummary({
-        shipFromStreet: '123 Main St',
-        shipFromCity: 'Austin',
-        shipFromState: 'TX',
-        shipFromZip: '78701',
-        shipFromCountry: 'US',
-      }),
-    ).toBe('123 Main St, Austin, TX, 78701, US');
+    expect(formatSellerShipFromSummary(completeSeller)).toBe('123 Main St, Austin, TX, 78701, US');
   });
 });

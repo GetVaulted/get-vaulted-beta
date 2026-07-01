@@ -46,6 +46,7 @@ export type AccountSellerPayload = {
     shipFromZip: string | null;
     shipFromCountry: string | null;
     defaultShipFromAddressId: string | null;
+    shipFromPhone: string | null;
   };
   stripePlatformConfigured: boolean;
   stripeEmbedOnboardingAvailable: boolean;
@@ -108,6 +109,9 @@ export async function loadAccountSellerPayload(userId: string, opts?: { provisio
           sellerSetupWizardCompletedAt: true,
           sellerAgreementAcceptedAt: true,
           defaultShipFromAddressId: true,
+          defaultShipFromAddress: {
+            select: { phone: true },
+          },
         },
       }),
     null,
@@ -342,12 +346,16 @@ export async function loadAccountSellerPayload(userId: string, opts?: { provisio
     .map(([category, count]) => ({ category, count }));
 
   const liveRoom = liveRoomR.value;
+  const { defaultShipFromAddress, ...sellerUser } = user;
 
   return {
     setupWizardComplete: Boolean(user.sellerSetupWizardCompletedAt),
     sellerSetupWizardCompletedAt: user.sellerSetupWizardCompletedAt?.toISOString() ?? null,
     sellerAgreementAcceptedAt: user.sellerAgreementAcceptedAt?.toISOString() ?? null,
-    seller: user,
+    seller: {
+      ...sellerUser,
+      shipFromPhone: defaultShipFromAddress?.phone ?? null,
+    },
     stripePlatformConfigured: isStripeConfigured(),
     stripeEmbedOnboardingAvailable:
       isStripeConfigured() && Boolean(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim()),

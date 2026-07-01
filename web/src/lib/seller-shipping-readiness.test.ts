@@ -15,6 +15,7 @@ const baseSeller = {
   shipFromState: "TX",
   shipFromZip: "78701",
   shipFromCountry: "US",
+  shipFromPhone: "5551234567",
 };
 
 const baseParcel = {
@@ -33,11 +34,17 @@ describe("hasStripeConnectReady", () => {
 });
 
 describe("hasCompleteSellerShipFrom", () => {
-  it("requires core address fields", () => {
+  it("requires core address fields and contact phone", () => {
     expect(
       hasCompleteSellerShipFrom({
         ...baseSeller,
         shipFromZip: "",
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteSellerShipFrom({
+        ...baseSeller,
+        shipFromPhone: null,
       }),
     ).toBe(false);
     expect(hasCompleteSellerShipFrom(baseSeller)).toBe(true);

@@ -70,6 +70,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   const [shipCity, setShipCity] = useState('');
   const [shipState, setShipState] = useState('');
   const [shipZip, setShipZip] = useState('');
+  const [shipPhone, setShipPhone] = useState('');
   const [shippingSaved, setShippingSaved] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
 
@@ -182,6 +183,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
     setShipCity(setup.seller.shipFromCity ?? '');
     setShipState(setup.seller.shipFromState ?? '');
     setShipZip(setup.seller.shipFromZip ?? '');
+    setShipPhone(setup.seller.shipFromPhone ?? '');
     setDisplayName(setup.seller.name ?? '');
     setProfileImage(setup.seller.image);
     setShippingSaved(sellerHasShipFromAddress(setup.checks, setup.seller));
@@ -263,9 +265,9 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
 
   const saveShipping = async () => {
     if (!token) return;
-    const required = [shipStreet, shipCity, shipState, shipZip].map((v) => v.trim());
+    const required = [shipStreet, shipCity, shipState, shipZip, shipPhone].map((v) => v.trim());
     if (required.some((v) => !v)) {
-      Alert.alert('Complete your address', 'Street, city, state, and ZIP are required.');
+      Alert.alert('Complete your address', 'Street, city, state, ZIP, and contact phone are required.');
       return;
     }
     setSaveBusy(true);
@@ -277,6 +279,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
         shipFromState: shipState.trim(),
         shipFromZip: shipZip.trim(),
         shipFromCountry: SELLER_SHIP_FROM_COUNTRY,
+        shipFromPhone: shipPhone.trim(),
       });
       if (res.readiness) {
         setup.applyReadinessFromServer(res.readiness, res.seller);
@@ -557,6 +560,13 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
               ) : (
                 <>
                   <Field label="Name / company" value={shipName} onChangeText={setShipName} />
+                  <Field
+                    label="Contact phone (required for USPS labels)"
+                    value={shipPhone}
+                    onChangeText={setShipPhone}
+                    keyboardType="phone-pad"
+                    autoComplete="tel"
+                  />
                   <AddressAutocompleteFields
                     accessToken={token}
                     scrollViewRef={wizardScrollRef}
@@ -702,11 +712,15 @@ function Field({
   value,
   onChangeText,
   required,
+  keyboardType,
+  autoComplete,
 }: {
   label: string;
   value: string;
   onChangeText: (v: string) => void;
   required?: boolean;
+  keyboardType?: 'default' | 'phone-pad';
+  autoComplete?: 'tel' | 'name';
 }) {
   return (
     <View style={{ marginBottom: spacing.sm }}>
@@ -716,7 +730,9 @@ function Field({
         onChangeText={onChangeText}
         style={styles.input}
         placeholderTextColor={colors.textMuted}
-        autoCapitalize="words"
+        autoCapitalize={keyboardType === 'phone-pad' ? 'none' : 'words'}
+        keyboardType={keyboardType}
+        autoComplete={autoComplete}
       />
     </View>
   );

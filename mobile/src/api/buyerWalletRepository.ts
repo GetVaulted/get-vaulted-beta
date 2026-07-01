@@ -50,6 +50,7 @@ export type BuyerShippingAddressRow = {
   state: string;
   postalCode: string;
   country: string;
+  phone?: string | null;
   isDefault?: boolean;
 };
 
@@ -76,6 +77,7 @@ export type CreateShippingAddressInput = {
   state: string;
   postalCode: string;
   country: string;
+  phone: string;
   isDefault?: boolean;
 };
 
@@ -238,6 +240,7 @@ export async function updateBuyerShippingAddress(
       state: input.state.trim(),
       postalCode: input.postalCode.trim(),
       country: input.country.trim().toUpperCase().slice(0, 2) || 'US',
+      phone: input.phone.trim(),
       isDefault: input.isDefault !== false,
     }),
   });
@@ -351,6 +354,7 @@ export async function createBuyerShippingAddress(
       state: input.state.trim(),
       postalCode: input.postalCode.trim(),
       country: input.country.trim().toUpperCase().slice(0, 2) || 'US',
+      phone: input.phone.trim(),
       isDefault: input.isDefault !== false,
       isVerified: false,
     }),

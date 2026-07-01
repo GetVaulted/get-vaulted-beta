@@ -11,6 +11,13 @@ import { createNotification } from "@/lib/notifications";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import { prisma } from "@/lib/prisma";
 import {
+  BUYER_SHIPPO_CONTACT_MISSING,
+  resolveBuyerShippoContact,
+  resolveSellerShippoContact,
+  SELLER_SHIPPO_CONTACT_MISSING,
+  withShippoContact,
+} from "@/lib/shippo-label-contacts";
+import {
   isShippoConfigured,
   shippoCreateShipment,
   shippoGetTransaction,
@@ -183,17 +190,27 @@ export async function generateBundledShippoLabelForSession(
     include: {
       seller: {
         select: {
+          email: true,
           shipFromStreet: true,
           shipFromCity: true,
           shipFromState: true,
           shipFromZip: true,
           shipFromCountry: true,
           shipFromName: true,
+          defaultShipFromAddress: {
+            select: { email: true, phone: true },
+          },
         },
       },
       orders: {
         orderBy: { createdAt: "asc" },
         include: {
+          buyer: {
+            select: { email: true },
+          },
+          buyerAddress: {
+            select: { email: true, phone: true },
+          },
           listing: {
             select: {
               id: true,
@@ -244,6 +261,10 @@ export async function generateBundledShippoLabelForSession(
   }
 
   const first = eligible[0]!;
+  const firstOrder = session.orders.find((o) => o.id === first.id);
+  if (!firstOrder) {
+    throw new Error("NO_ELIGIBLE_ORDERS");
+  }
   for (const o of eligible.slice(1)) {
     if (!addressesMatch(first, o)) {
       throw new Error("MISMATCHED_SHIP_TO_ADDRESSES");
@@ -255,22 +276,46 @@ export async function generateBundledShippoLabelForSession(
     throw new Error("SELLER_SHIP_FROM_INCOMPLETE");
   }
 
-  const addressFrom: ShippoAddress = {
-    name: from.shipFromName || "Seller",
-    street1: from.shipFromStreet,
-    city: from.shipFromCity,
-    state: from.shipFromState,
-    zip: from.shipFromZip,
-    country: from.shipFromCountry,
-  };
-  const addressTo: ShippoAddress = {
-    name: first.shipRecipientName,
-    street1: first.shipAddress,
-    city: first.shipCity,
-    state: first.shipState,
-    zip: first.shipZip,
-    country: first.shipCountry,
-  };
+  const sellerContact = resolveSellerShippoContact({
+    userEmail: from.email,
+    addressEmail: from.defaultShipFromAddress?.email,
+    addressPhone: from.defaultShipFromAddress?.phone,
+  });
+  if (!sellerContact) {
+    throw new Error(SELLER_SHIPPO_CONTACT_MISSING);
+  }
+
+  const buyerContact = resolveBuyerShippoContact({
+    userEmail: firstOrder.buyer.email,
+    addressEmail: firstOrder.buyerAddress?.email,
+    addressPhone: firstOrder.buyerAddress?.phone,
+  });
+  if (!buyerContact) {
+    throw new Error(BUYER_SHIPPO_CONTACT_MISSING);
+  }
+
+  const addressFrom: ShippoAddress = withShippoContact(
+    {
+      name: from.shipFromName || "Seller",
+      street1: from.shipFromStreet,
+      city: from.shipFromCity,
+      state: from.shipFromState,
+      zip: from.shipFromZip,
+      country: from.shipFromCountry,
+    },
+    sellerContact,
+  );
+  const addressTo: ShippoAddress = withShippoContact(
+    {
+      name: first.shipRecipientName,
+      street1: first.shipAddress,
+      city: first.shipCity,
+      state: first.shipState,
+      zip: first.shipZip,
+      country: first.shipCountry,
+    },
+    buyerContact,
+  );
 
   const listings = eligible.map((o) => o.listing);
   const built = await buildSessionPackageGroups(sessionId);

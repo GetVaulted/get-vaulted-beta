@@ -1,5 +1,6 @@
 import type { AddressType } from "@/generated/prisma/enums";
 import { normalizeUsStateCode } from "@/lib/us-state-code";
+import { normalizePhoneForShippo } from "@/lib/shippo-label-contacts";
 
 export type AddressInput = {
   type?: unknown;
@@ -78,6 +79,10 @@ export function validateAddressCreateInput(body: AddressInput):
   if (!name || !fullName || !line1 || !city || !state || !postalCode) {
     return { ok: false, error: "Missing required address fields." };
   }
+  const phone = asOptionalString(body.phone, 40) ?? null;
+  if (type === "shipping" && !normalizePhoneForShippo(phone)) {
+    return { ok: false, error: "A valid US contact phone is required for shipping labels." };
+  }
   const normalizedState =
     normalizedCountry === "US" ? normalizeUsStateCode(state) ?? state : state;
   return {
@@ -93,7 +98,7 @@ export function validateAddressCreateInput(body: AddressInput):
       state: normalizedState,
       postalCode,
       country: normalizedCountry,
-      phone: asOptionalString(body.phone, 40) ?? null,
+      phone,
       email: asOptionalString(body.email, 200) ?? null,
       isDefault: Boolean(body.isDefault),
       isVerified: Boolean(body.isVerified),
@@ -152,4 +157,33 @@ export function isAddressComplete(a: {
   country?: string | null;
 }): boolean {
   return Boolean(a.line1 && a.city && a.state && a.postalCode && a.country);
+}
+
+/** Buyer ship-to must include a valid phone for USPS label purchase. */
+export function isShippingAddressCompleteForLabels(a: {
+  line1?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  country?: string | null;
+  phone?: string | null;
+}): boolean {
+  return isAddressComplete(a) && normalizePhoneForShippo(a.phone) !== null;
+}
+
+export function shippingAddressLabelPhoneError(
+  address: {
+    type?: AddressType | string | null;
+    line1?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postalCode?: string | null;
+    country?: string | null;
+    phone?: string | null;
+  },
+): string | null {
+  if (address.type !== "shipping") return null;
+  if (!isAddressComplete(address)) return null;
+  if (normalizePhoneForShippo(address.phone)) return null;
+  return "A valid US contact phone is required for shipping labels.";
 }

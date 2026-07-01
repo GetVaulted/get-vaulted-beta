@@ -38,6 +38,7 @@ export function SellerShipFromSetupCard({
   const [state, setState] = useState('');
   const [zip, setZip] = useState('');
   const [country, setCountry] = useState('US');
+  const [phone, setPhone] = useState('');
   const [editing, setEditing] = useState(false);
 
   const load = useCallback(async () => {
@@ -54,6 +55,7 @@ export function SellerShipFromSetupCard({
       setState(seller.shipFromState ?? '');
       setZip(seller.shipFromZip ?? '');
       setCountry(seller.shipFromCountry?.trim() || 'US');
+      setPhone(seller.shipFromPhone ?? '');
       setEditing(!hasCompleteSellerShipFrom(seller));
     } catch {
       /* keep defaults */
@@ -75,9 +77,9 @@ export function SellerShipFromSetupCard({
       Alert.alert('Sign in required', 'Sign in to save your shipping address.');
       return;
     }
-    const fields = [street, city, state, zip, country].map((v) => v.trim());
+    const fields = [street, city, state, zip, country, phone].map((v) => v.trim());
     if (fields.some((v) => !v)) {
-      Alert.alert('Complete your address', 'Street, city, state, ZIP, and country are required before you can go live.');
+      Alert.alert('Complete your address', 'Street, city, state, ZIP, country, and contact phone are required before you can go live.');
       return;
     }
     setBusy(true);
@@ -89,6 +91,7 @@ export function SellerShipFromSetupCard({
         shipFromState: state.trim(),
         shipFromZip: zip.trim(),
         shipFromCountry: country.trim(),
+        shipFromPhone: phone.trim(),
       });
       setEditing(false);
       onSaved?.();
@@ -117,6 +120,7 @@ export function SellerShipFromSetupCard({
     shipFromState: state,
     shipFromZip: zip,
     shipFromCountry: country,
+    shipFromPhone: phone,
   });
   const showSaved = !editing && addressComplete;
 
@@ -144,6 +148,15 @@ export function SellerShipFromSetupCard({
         placeholder="Name on label (optional)"
         placeholderTextColor={colors.textMuted}
         style={styles.input}
+      />
+      <TextInput
+        value={phone}
+        onChangeText={setPhone}
+        placeholder="Contact phone (required for USPS labels)"
+        placeholderTextColor={colors.textMuted}
+        style={styles.input}
+        keyboardType="phone-pad"
+        autoComplete="tel"
       />
       <AddressAutocompleteFields
         accessToken={accessToken}

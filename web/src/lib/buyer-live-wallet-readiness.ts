@@ -2,7 +2,7 @@ import { isStripeConfigured } from "@/lib/stripe";
 import { buyerHasCardOnFileForLiveBidding } from "@/lib/stripe-customer";
 import { resolveBuyerDefaultShippingForOrder } from "@/lib/live-buy-now-purchase";
 
-/** At least one complete buyer shipping address on file (street, city, state, ZIP). */
+/** At least one complete buyer shipping address on file (street, city, state, ZIP, contact phone). */
 export async function buyerHasShippingAddressSaved(userId: string): Promise<boolean> {
   const shipping = await resolveBuyerDefaultShippingForOrder(userId);
   return shipping != null;
@@ -40,7 +40,7 @@ export async function liveWalletIncompleteOrNull(userId: string): Promise<LiveWa
   if (paymentReady && shippingReady) return null;
   const missing: string[] = [];
   if (!paymentReady) missing.push("saved payment method");
-  if (!shippingReady) missing.push("shipping address");
+  if (!shippingReady) missing.push("shipping address with contact phone");
   return {
     error: `Add ${missing.join(" and ")} to your Wallet before bidding, buying, or claiming spots in live shows.`,
     code: "LIVE_BUYER_WALLET_INCOMPLETE",

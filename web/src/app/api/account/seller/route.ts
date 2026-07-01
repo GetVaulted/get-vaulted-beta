@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { SELLER_SHIP_FROM_COUNTRY } from "@/lib/seller-shipping-readiness";
 import { normalizeUsStateCode } from "@/lib/us-state-code";
 import { verifyAddressForShipping } from "@/lib/shippo-address-validation";
+import { normalizePhoneForShippo } from "@/lib/shippo-label-contacts";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
 import { processAuctionPaymentExpiries } from "@/services/payments";
 
@@ -50,6 +51,7 @@ type PatchBody = {
   shipFromState?: unknown;
   shipFromZip?: unknown;
   shipFromCountry?: unknown;
+  shipFromPhone?: unknown;
   defaultShipFromAddressId?: unknown;
 };
 
@@ -79,9 +81,17 @@ export async function PATCH(req: Request) {
   const shipFromZip = trim(body.shipFromZip, 32) ?? "";
   const shipFromCountryRaw = trim(body.shipFromCountry, 120) ?? "";
   const shipFromCountry = shipFromCountryRaw || SELLER_SHIP_FROM_COUNTRY;
+  const shipFromPhone = normalizePhoneForShippo(trim(body.shipFromPhone, 32));
 
   if (!shipFromStreet || !shipFromCity || !shipFromStateInput || !shipFromZip) {
     return NextResponse.json({ error: "Please complete your address." }, { status: 400 });
+  }
+
+  if (!shipFromPhone) {
+    return NextResponse.json(
+      { error: "A valid US phone number is required for USPS shipping labels." },
+      { status: 400 },
+    );
   }
 
   if (shipFromCountry.toUpperCase() !== SELLER_SHIP_FROM_COUNTRY) {
@@ -184,6 +194,7 @@ export async function PATCH(req: Request) {
           postalCode: verifiedZip,
           country: verifiedCountry,
           email,
+          phone: shipFromPhone,
           isDefault: true,
           isVerified: verifiedShipFrom.verified,
         },
@@ -202,6 +213,7 @@ export async function PATCH(req: Request) {
         postalCode: verifiedZip,
         country: verifiedCountry,
         email,
+        phone: shipFromPhone,
         isDefault: true,
         isVerified: verifiedShipFrom.verified,
       },
@@ -240,5 +252,14 @@ export async function PATCH(req: Request) {
   });
 
   const readiness = await getSellerLiveReadiness(userId, prisma);
-  return NextResponse.json({ seller: user, readiness, message: "Shipping address saved." });
+  return NextResponse.json({
+    seller: user
+      ? {
+          ...user,
+          shipFromPhone: defaultAddress.phone,
+        }
+      : user,
+    readiness,
+    message: "Shipping address saved.",
+  });
 }

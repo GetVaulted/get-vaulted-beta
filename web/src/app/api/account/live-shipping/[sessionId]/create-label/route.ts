@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { generateBundledShippoLabelForSession } from "@/services/shipping/bundled-labels";
+import { SELLER_SHIPPO_CONTACT_MISSING, BUYER_SHIPPO_CONTACT_MISSING } from "@/lib/shippo-label-contacts";
 
 export const runtime = "nodejs";
 
@@ -52,6 +53,12 @@ export async function POST(_req: Request, ctx: { params: Promise<{ sessionId: st
         { error: "Complete your ship-from address under Account → Seller before creating labels.", code },
         { status: 400 },
       );
+    }
+    if (code === SELLER_SHIPPO_CONTACT_MISSING) {
+      return NextResponse.json({ error: msg, code: "SELLER_CONTACT_INCOMPLETE" }, { status: 422 });
+    }
+    if (code === BUYER_SHIPPO_CONTACT_MISSING) {
+      return NextResponse.json({ error: msg, code: "BUYER_CONTACT_INCOMPLETE" }, { status: 422 });
     }
     if (code === "MISMATCHED_SHIP_TO_ADDRESSES") {
       return NextResponse.json(

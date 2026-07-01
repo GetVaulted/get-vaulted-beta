@@ -43,6 +43,7 @@ const EMPTY: CreateShippingAddressInput = {
   state: '',
   postalCode: '',
   country: 'US',
+  phone: '',
   isDefault: true,
 };
 
@@ -53,13 +54,15 @@ function AddressInput({
   placeholder,
   autoCapitalize = 'words',
   keyboardType = 'default',
+  autoComplete,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder: string;
   autoCapitalize?: 'none' | 'words' | 'sentences' | 'characters';
-  keyboardType?: 'default' | 'number-pad';
+  keyboardType?: 'default' | 'number-pad' | 'phone-pad';
+  autoComplete?: 'tel' | 'name';
 }) {
   return (
     <View style={s.field}>
@@ -72,6 +75,7 @@ function AddressInput({
         style={s.input}
         autoCapitalize={autoCapitalize}
         keyboardType={keyboardType}
+        autoComplete={autoComplete}
       />
     </View>
   );
@@ -145,12 +149,20 @@ export function WalletAddressSetupModal({
                 showsVerticalScrollIndicator={false}
               >
                 <LiveRoomText style={s.subtitle}>
-                  Shipping addresses are used for live auction wins and vault deliveries. We verify addresses with the
-                  carrier before saving so labels do not fail later.
+                  Shipping addresses are used for live auction wins and vault deliveries. Include a contact phone — USPS
+                  requires it for labels. Your account email is used automatically.
                 </LiveRoomText>
                 {error ? <LiveRoomText style={s.errorText}>{error}</LiveRoomText> : null}
                 <AddressInput label="Label" value={draft.name} onChange={(v) => setDraft((d) => ({ ...d, name: v }))} placeholder="Shipping" />
                 <AddressInput label="Full name" value={draft.fullName} onChange={(v) => setDraft((d) => ({ ...d, fullName: v }))} placeholder="Jane Collector" />
+                <AddressInput
+                  label="Contact phone (required for USPS labels)"
+                  value={draft.phone}
+                  onChange={(v) => setDraft((d) => ({ ...d, phone: v }))}
+                  placeholder="(555) 123-4567"
+                  keyboardType="phone-pad"
+                  autoComplete="tel"
+                />
                 <AddressAutocompleteFields
                   accessToken={accessToken}
                   scrollViewRef={scrollRef}

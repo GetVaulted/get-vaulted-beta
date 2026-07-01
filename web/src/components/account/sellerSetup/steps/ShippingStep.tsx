@@ -19,6 +19,7 @@ export function ShippingStep({
   shipCity,
   shipState,
   shipZip,
+  shipPhone,
   saveBusy,
   saveError,
   saved,
@@ -32,11 +33,12 @@ export function ShippingStep({
   shipCity: string;
   shipState: string;
   shipZip: string;
+  shipPhone: string;
   saveBusy: boolean;
   saveError: string | null;
   saved: boolean;
   onBack: () => void;
-  onChange: (field: "name" | "street" | "city" | "state" | "zip", value: string) => void;
+  onChange: (field: "name" | "street" | "city" | "state" | "zip" | "phone", value: string) => void;
   onSave: () => void;
   onContinue: () => void;
 }) {
@@ -86,6 +88,17 @@ export function ShippingStep({
                 autoComplete="name"
               />
             </label>
+            <label>
+              <span className="mb-1 block text-xs font-medium text-zinc-400">Contact phone (required for USPS labels)</span>
+              <input
+                value={shipPhone}
+                onChange={(e) => onChange("phone", e.target.value)}
+                className={inputClass}
+                autoComplete="tel"
+                inputMode="tel"
+                placeholder="(555) 123-4567"
+              />
+            </label>
             <AddressAutocompleteFields
               values={{
                 line1: shipStreet,
@@ -117,6 +130,9 @@ export function ShippingStep({
             />
             <p className="text-[11px] text-zinc-600">US-only selling during launch ({SELLER_SHIP_FROM_COUNTRY_LABEL}).</p>
           </div>
+          <p className="text-xs text-zinc-500">
+            USPS requires your email and phone on shipping labels. Your account email is used automatically.
+          </p>
           <p className="text-xs text-zinc-500">
             We verify ship-from addresses with the carrier when you save so shipping labels do not fail at fulfillment.
           </p>

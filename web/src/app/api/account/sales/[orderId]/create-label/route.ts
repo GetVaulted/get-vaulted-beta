@@ -4,6 +4,7 @@ import { canSellerCreateShippingLabel, isIncompleteOrderShipping } from "@/lib/o
 import { refreshBuyerShippingOnOrderIfIncomplete } from "@/lib/live-buy-now-purchase";
 import { prisma } from "@/lib/prisma";
 import { fulfillOrderShippingAfterPayment } from "@/services/shipping";
+import { SELLER_SHIPPO_CONTACT_MISSING, BUYER_SHIPPO_CONTACT_MISSING } from "@/lib/shippo-label-contacts";
 import { processLabelCreatedPayoutEvaluation } from "@/services/payout/process-payout-tier-events";
 
 export const runtime = "nodejs";
@@ -87,6 +88,12 @@ export async function POST(_req: Request, ctx: { params: Promise<{ orderId: stri
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[create-label]", e);
+    if (msg === SELLER_SHIPPO_CONTACT_MISSING) {
+      return NextResponse.json({ error: msg, code: "SELLER_CONTACT_INCOMPLETE" }, { status: 422 });
+    }
+    if (msg === BUYER_SHIPPO_CONTACT_MISSING) {
+      return NextResponse.json({ error: msg, code: "BUYER_CONTACT_INCOMPLETE" }, { status: 422 });
+    }
     return NextResponse.json({ error: msg || "Shippo label creation failed." }, { status: 500 });
   }
 

@@ -73,6 +73,7 @@ export function SellerSetupWizard() {
   const [shipCity, setShipCity] = useState("");
   const [shipState, setShipState] = useState("");
   const [shipZip, setShipZip] = useState("");
+  const [shipPhone, setShipPhone] = useState("");
   const [shippingSaved, setShippingSaved] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -101,7 +102,8 @@ export function SellerSetupWizard() {
         return;
       }
       const j = (await res.json()) as {
-        seller?: SellerPayload;
+        seller?: SellerPayload & { shipFromPhone?: string | null };
+        shipFromAddresses?: { phone?: string | null; isDefault?: boolean }[];
         stripePlatformConfigured?: boolean;
         stripeEmbedOnboardingAvailable?: boolean;
         readiness?: LiveReadiness;
@@ -117,6 +119,7 @@ export function SellerSetupWizard() {
         setShipCity(s.shipFromCity ?? "");
         setShipState(s.shipFromState ?? "");
         setShipZip(s.shipFromZip ?? "");
+        setShipPhone(s.shipFromPhone ?? j.shipFromAddresses?.find((a) => a.isDefault)?.phone ?? j.shipFromAddresses?.[0]?.phone ?? "");
         setDisplayName(s.name ?? "");
         setProfileImage(s.image);
         setShippingSaved(Boolean(j.readiness?.checks.hasShipFromAddress));
@@ -252,9 +255,9 @@ export function SellerSetupWizard() {
 
   const saveShipFrom = async () => {
     setSaveError(null);
-    const required = [shipStreet, shipCity, shipState, shipZip].map((v) => v.trim());
+    const required = [shipStreet, shipCity, shipState, shipZip, shipPhone].map((v) => v.trim());
     if (required.some((v) => !v)) {
-      setSaveError("Please complete your address.");
+      setSaveError("Please complete your address and contact phone.");
       return;
     }
     setSaveBusy(true);
@@ -268,6 +271,7 @@ export function SellerSetupWizard() {
           shipFromCity: shipCity,
           shipFromState: shipState,
           shipFromZip: shipZip,
+          shipFromPhone: shipPhone,
           shipFromCountry: SELLER_SHIP_FROM_COUNTRY,
         }),
       });
@@ -443,6 +447,7 @@ export function SellerSetupWizard() {
           shipCity={shipCity}
           shipState={shipState}
           shipZip={shipZip}
+          shipPhone={shipPhone}
           saveBusy={saveBusy}
           saveError={saveError}
           saved={shippingSaved}
@@ -453,6 +458,7 @@ export function SellerSetupWizard() {
             if (field === "city") setShipCity(value);
             if (field === "state") setShipState(value);
             if (field === "zip") setShipZip(value);
+            if (field === "phone") setShipPhone(value);
           }}
           onSave={() => void saveShipFrom()}
           onContinue={() => goToStep(4)}

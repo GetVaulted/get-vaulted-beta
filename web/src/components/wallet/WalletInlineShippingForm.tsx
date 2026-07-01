@@ -37,6 +37,7 @@ export function WalletInlineShippingForm({ onSaved, onCancel }: Props) {
   const [state, setState] = useState("");
   const [postalCode, setPostalCode] = useState("");
   const [country, setCountry] = useState("US");
+  const [phone, setPhone] = useState("");
   const [verifyBusy, setVerifyBusy] = useState(false);
   const [verifyNote, setVerifyNote] = useState<string | null>(null);
 
@@ -50,6 +51,7 @@ export function WalletInlineShippingForm({ onSaved, onCancel }: Props) {
       state,
       postalCode,
       country,
+      phone,
       isDefault: true,
     });
 
@@ -123,6 +125,10 @@ export function WalletInlineShippingForm({ onSaved, onCancel }: Props) {
       <label className="block text-[11px] font-semibold text-zinc-400">
         Full name
         <input value={fullName} onChange={(e) => setFullName(e.target.value)} className={fieldClass} />
+      </label>
+      <label className="block text-[11px] font-semibold text-zinc-400">
+        Contact phone (required)
+        <input value={phone} onChange={(e) => setPhone(e.target.value)} className={fieldClass} autoComplete="tel" inputMode="tel" />
       </label>
       <AddressAutocompleteFields
         values={{ line1, line2, city, state, postalCode, country }}

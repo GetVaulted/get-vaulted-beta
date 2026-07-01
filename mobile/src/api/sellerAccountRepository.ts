@@ -13,6 +13,7 @@ export type SellerAccountPayload = {
   shipFromState: string | null;
   shipFromZip: string | null;
   shipFromCountry: string | null;
+  shipFromPhone: string | null;
 };
 
 export type SellerAccountResponse = {
@@ -50,6 +51,7 @@ export type PatchSellerShipFromInput = {
   shipFromState: string;
   shipFromZip: string;
   shipFromCountry: string;
+  shipFromPhone: string;
 };
 
 export async function patchSellerShipFrom(

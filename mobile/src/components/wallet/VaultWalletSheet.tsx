@@ -95,6 +95,7 @@ const EMPTY_ADDRESS: CreateShippingAddressInput = {
   state: '',
   postalCode: '',
   country: 'US',
+  phone: '',
   isDefault: true,
 };
 
@@ -292,6 +293,7 @@ export function VaultWalletSheet({
         state: seed.state,
         postalCode: seed.postalCode,
         country: seed.country,
+        phone: seed.phone ?? '',
         isDefault: seed.isDefault !== false,
       });
       setAddressFormEditing(true);
@@ -322,6 +324,7 @@ export function VaultWalletSheet({
         state: seed.state,
         postalCode: seed.postalCode,
         country: seed.country,
+        phone: seed.phone ?? '',
         isDefault: seed.isDefault !== false,
       });
       setAddressFormEditing(true);
@@ -781,6 +784,18 @@ export function VaultWalletSheet({
             placeholder="Jane Collector"
             placeholderTextColor="rgba(255,255,255,0.35)"
             style={t.formInput}
+          />
+        </View>
+        <View style={{ gap: 4 }}>
+          <LiveRoomText style={t.fieldLabel}>Contact phone (required for USPS labels)</LiveRoomText>
+          <TextInput
+            value={addressFormDraft.phone}
+            onChangeText={(text) => setAddressFormDraft((prev) => ({ ...prev, phone: text }))}
+            placeholder="(555) 123-4567"
+            placeholderTextColor="rgba(255,255,255,0.35)"
+            style={t.formInput}
+            keyboardType="phone-pad"
+            autoComplete="tel"
           />
         </View>
         <AddressAutocompleteFields

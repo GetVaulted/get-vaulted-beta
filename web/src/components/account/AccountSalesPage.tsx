@@ -48,6 +48,12 @@ function formatBundledLabelError(error: string | undefined, code: string | undef
   if (code === "SELLER_SHIP_FROM_INCOMPLETE") {
     return "Complete your ship-from address under Account → Seller before creating labels.";
   }
+  if (code === "SELLER_CONTACT_INCOMPLETE") {
+    return "Add a contact phone under Account → Seller before creating USPS labels.";
+  }
+  if (code === "BUYER_CONTACT_INCOMPLETE") {
+    return "Buyer ship-to is missing a contact phone. Ask the buyer to update their address in Account → Wallet.";
+  }
   if (code === "NO_ELIGIBLE_ORDERS") {
     return "No paid, unlabeled orders in this bundle. Wait for buyer payment or use per-order labels for ship-alone items.";
   }

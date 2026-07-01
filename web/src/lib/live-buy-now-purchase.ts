@@ -2,6 +2,7 @@ import { OrderPaymentMethod } from "@/generated/prisma/enums";
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
 import { prisma } from "@/lib/prisma";
 import { isIncompleteOrderShipping } from "@/lib/order-shipping-guards";
+import { isShippingAddressCompleteForLabels } from "@/lib/address-book";
 import { isEscrowConfigured, orderTotalQualifiesForEscrow } from "@/lib/escrow-config";
 import {
   releaseActiveInventoryHoldsForListingAndBuyerTx,
@@ -56,8 +57,9 @@ export function buyerShippingSnapshotFromAddress(addr: {
   state: string | null;
   postalCode: string | null;
   country: string | null;
+  phone?: string | null;
 }): BuyerShippingSnapshot | null {
-  if (!addr.line1?.trim() || !addr.city?.trim() || !addr.state?.trim() || !addr.postalCode?.trim()) {
+  if (!isShippingAddressCompleteForLabels(addr)) {
     return null;
   }
   const line2 = addr.line2?.trim();

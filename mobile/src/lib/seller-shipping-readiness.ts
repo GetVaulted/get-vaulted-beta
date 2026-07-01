@@ -1,4 +1,5 @@
 import type { SellerReadinessChecks } from './seller-setup-state';
+import { normalizePhoneForShippo } from './shippoLabelContacts';
 
 export const SELLER_SHIP_FROM_COUNTRY = 'US';
 export const SELLER_SHIP_FROM_COUNTRY_LABEL = 'United States';
@@ -10,18 +11,20 @@ export type SellerShipFromFields = {
   shipFromState?: string | null;
   shipFromZip?: string | null;
   shipFromCountry?: string | null;
+  shipFromPhone?: string | null;
 };
 
-/** Mirrors web `hasCompleteSellerShipFrom` — canonical seller ship-from on User row. */
+/** Mirrors web `hasCompleteSellerShipFrom` — address + USPS contact phone. */
 export function hasCompleteSellerShipFrom(s: SellerShipFromFields | null | undefined): boolean {
   if (!s) return false;
-  return Boolean(
+  const addressComplete = Boolean(
     s.shipFromStreet?.trim() &&
       s.shipFromCity?.trim() &&
       s.shipFromState?.trim() &&
       s.shipFromZip?.trim() &&
       (s.shipFromCountry?.trim() || SELLER_SHIP_FROM_COUNTRY),
   );
+  return addressComplete && normalizePhoneForShippo(s.shipFromPhone) !== null;
 }
 
 /** Unified ship-from gate: API readiness checks and/or persisted seller profile fields. */

@@ -143,27 +143,72 @@ export type SeedUserOpts = {
 
 export async function seedUser(p: PrismaClient, opts: SeedUserOpts) {
   const passwordHash = await hashTestPassword();
-  return p.user.create({
-    data: {
-      email: opts.email,
-      username: opts.username,
-      passwordHash,
-      emailVerified: new Date(),
-      role: opts.role ?? "user",
-      stripeAccountId: opts.stripeAccountId ?? undefined,
-      stripeOnboardingComplete: opts.stripeOnboardingComplete ?? false,
-      ...(opts.shipFrom
-        ? {
-            shipFromName: opts.shipFrom.shipFromName,
-            shipFromStreet: opts.shipFrom.shipFromStreet,
-            shipFromCity: opts.shipFrom.shipFromCity,
-            shipFromState: opts.shipFrom.shipFromState,
-            shipFromZip: opts.shipFrom.shipFromZip,
-            shipFromCountry: opts.shipFrom.shipFromCountry ?? "US",
-          }
-        : {}),
-      ...(opts.trustapUserId !== undefined ? { trustapUserId: opts.trustapUserId } : {}),
-    },
+  const shipFrom = opts.shipFrom
+    ? {
+        shipFromName: opts.shipFrom.shipFromName ?? seedCompleteShipFrom.shipFromName,
+        shipFromStreet: opts.shipFrom.shipFromStreet ?? seedCompleteShipFrom.shipFromStreet,
+        shipFromCity: opts.shipFrom.shipFromCity ?? seedCompleteShipFrom.shipFromCity,
+        shipFromState: opts.shipFrom.shipFromState ?? seedCompleteShipFrom.shipFromState,
+        shipFromZip: opts.shipFrom.shipFromZip ?? seedCompleteShipFrom.shipFromZip,
+        shipFromCountry: opts.shipFrom.shipFromCountry ?? seedCompleteShipFrom.shipFromCountry ?? "US",
+      }
+    : null;
+
+  if (!shipFrom) {
+    return p.user.create({
+      data: {
+        email: opts.email,
+        username: opts.username,
+        passwordHash,
+        emailVerified: new Date(),
+        role: opts.role ?? "user",
+        stripeAccountId: opts.stripeAccountId ?? undefined,
+        stripeOnboardingComplete: opts.stripeOnboardingComplete ?? false,
+        ...(opts.trustapUserId !== undefined ? { trustapUserId: opts.trustapUserId } : {}),
+      },
+    });
+  }
+
+  return p.$transaction(async (tx) => {
+    const user = await tx.user.create({
+      data: {
+        email: opts.email,
+        username: opts.username,
+        passwordHash,
+        emailVerified: new Date(),
+        role: opts.role ?? "user",
+        stripeAccountId: opts.stripeAccountId ?? undefined,
+        stripeOnboardingComplete: opts.stripeOnboardingComplete ?? false,
+        shipFromName: shipFrom.shipFromName,
+        shipFromStreet: shipFrom.shipFromStreet,
+        shipFromCity: shipFrom.shipFromCity,
+        shipFromState: shipFrom.shipFromState,
+        shipFromZip: shipFrom.shipFromZip,
+        shipFromCountry: shipFrom.shipFromCountry,
+        ...(opts.trustapUserId !== undefined ? { trustapUserId: opts.trustapUserId } : {}),
+      },
+    });
+    const address = await tx.address.create({
+      data: {
+        userId: user.id,
+        type: "ship_from",
+        name: "Shipping address",
+        fullName: shipFrom.shipFromName,
+        line1: shipFrom.shipFromStreet,
+        city: shipFrom.shipFromCity,
+        state: shipFrom.shipFromState,
+        postalCode: shipFrom.shipFromZip,
+        country: shipFrom.shipFromCountry,
+        email: opts.email,
+        phone: "5555550100",
+        isDefault: true,
+        isVerified: true,
+      },
+    });
+    return tx.user.update({
+      where: { id: user.id },
+      data: { defaultShipFromAddressId: address.id },
+    });
   });
 }
 

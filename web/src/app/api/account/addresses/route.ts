@@ -4,6 +4,21 @@ import { prisma } from "@/lib/prisma";
 import { validateAddressCreateInput, type AddressInput } from "@/lib/address-book";
 import { verifyAddressCreateData } from "@/lib/apply-address-verification";
 
+async function enrichShippingAddressForLabels<T extends { type: string; email: string | null }>(
+  userId: string,
+  data: T,
+): Promise<T> {
+  if (data.type !== "shipping") return data;
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+  return {
+    ...data,
+    email: data.email ?? user?.email ?? null,
+  };
+}
+
 export async function GET(req: Request) {
   const auth = await resolveAccountUserId(req);
   if (auth instanceof NextResponse) return auth;
@@ -29,7 +44,7 @@ export async function POST(req: Request) {
   if (!verified.ok) {
     return NextResponse.json(verified.body, { status: verified.status });
   }
-  const data = verified.data;
+  const data = await enrichShippingAddressForLabels(auth.userId, verified.data);
   const address = await prisma.$transaction(async (tx) => {
     if (data.isDefault) {
       await tx.address.updateMany({

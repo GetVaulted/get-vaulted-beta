@@ -199,6 +199,28 @@ export async function seedFreshBetaQaAccounts(
   });
   log("  sellerqa: Stripe Connect snapshot + ship-from ready");
 
+  const sellerShipFrom = await p.address.create({
+    data: {
+      userId: seller.id,
+      type: "ship_from",
+      name: "Shipping address",
+      fullName: "Seller QA Ship From",
+      line1: "100 Beta QA Blvd",
+      city: "Austin",
+      state: "TX",
+      postalCode: "78701",
+      country: "US",
+      email: BETA_QA_SELLER_EMAIL,
+      phone: "5555550100",
+      isDefault: true,
+      isVerified: true,
+    },
+  });
+  await p.user.update({
+    where: { id: seller.id },
+    data: { defaultShipFromAddressId: sellerShipFrom.id },
+  });
+
   await p.address.create({
     data: {
       userId: buyer.id,
@@ -210,6 +232,8 @@ export async function seedFreshBetaQaAccounts(
       state: "TX",
       postalCode: "78702",
       country: "US",
+      email: BETA_QA_BUYER_EMAIL,
+      phone: "5555550200",
       isDefault: true,
     },
   });

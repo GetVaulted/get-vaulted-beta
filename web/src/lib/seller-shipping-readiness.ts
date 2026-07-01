@@ -1,5 +1,6 @@
 import type { ListingStatus } from "@/generated/prisma/client";
 import { hasCompleteParcel, type ParcelFields } from "@/lib/listing-publish";
+import { normalizePhoneForShippo } from "@/lib/shippo-label-contacts";
 
 /** Launch default: domestic US ship-from only. */
 export const SELLER_SHIP_FROM_COUNTRY = "US";
@@ -18,7 +19,10 @@ export type SellerShipFromFields = {
     state: string | null;
     postalCode: string | null;
     country: string | null;
+    phone?: string | null;
   } | null;
+  /** Denormalized from default ship-from address for clients without the relation loaded. */
+  shipFromPhone?: string | null;
 };
 
 export type SellerStripeFields = {
@@ -26,8 +30,14 @@ export type SellerStripeFields = {
   stripeOnboardingComplete: boolean;
 };
 
-/** Shippo label purchase needs a complete origin address. */
+function hasSellerShipFromContactPhone(s: SellerShipFromFields): boolean {
+  const phone = s.shipFromPhone ?? s.defaultShipFromAddress?.phone;
+  return normalizePhoneForShippo(phone) !== null;
+}
+
+/** Shippo label purchase needs a complete origin address plus USPS contact phone. */
 export function hasCompleteSellerShipFrom(s: SellerShipFromFields): boolean {
+  let addressComplete = false;
   if (
     s.defaultShipFromAddressId &&
     s.defaultShipFromAddress?.line1?.trim() &&
@@ -36,15 +46,17 @@ export function hasCompleteSellerShipFrom(s: SellerShipFromFields): boolean {
     s.defaultShipFromAddress?.postalCode?.trim() &&
     s.defaultShipFromAddress?.country?.trim()
   ) {
-    return true;
+    addressComplete = true;
+  } else {
+    addressComplete = Boolean(
+      s.shipFromStreet?.trim() &&
+        s.shipFromCity?.trim() &&
+        s.shipFromState?.trim() &&
+        s.shipFromZip?.trim() &&
+        s.shipFromCountry?.trim(),
+    );
   }
-  return Boolean(
-    s.shipFromStreet?.trim() &&
-      s.shipFromCity?.trim() &&
-      s.shipFromState?.trim() &&
-      s.shipFromZip?.trim() &&
-      s.shipFromCountry?.trim(),
-  );
+  return addressComplete && hasSellerShipFromContactPhone(s);
 }
 
 /** Unified ship-from gate: API readiness checks and/or persisted seller profile fields. */
@@ -103,7 +115,7 @@ export function getSellerFulfillmentReadinessIssues(args: {
       code: "ship_from",
       severity: publishedOrSold ? "error" : "warning",
       message:
-        "Ship-from address is incomplete — add street, city, state, ZIP, and country under Account → Seller so labels can print after payment.",
+        "Ship-from setup is incomplete — add street, city, state, ZIP, country, and a contact phone under Account → Seller so USPS labels can print after payment.",
     });
   }
 

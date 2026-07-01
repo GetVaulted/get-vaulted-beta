@@ -38,6 +38,7 @@ export function AccountWalletShippingSection() {
   const [state, setState] = useState("");
   const [postalCode, setPostalCode] = useState("");
   const [country, setCountry] = useState("US");
+  const [phone, setPhone] = useState("");
   const [isDefault, setIsDefault] = useState(true);
   const [verifyBusy, setVerifyBusy] = useState(false);
   const [verifyNote, setVerifyNote] = useState<string | null>(null);
@@ -53,6 +54,7 @@ export function AccountWalletShippingSection() {
       state,
       postalCode,
       country,
+      phone,
       isDefault,
     });
 
@@ -142,6 +144,7 @@ export function AccountWalletShippingSection() {
       setCity("");
       setState("");
       setPostalCode("");
+      setPhone("");
       await load();
     } finally {
       setBusy(false);
@@ -153,8 +156,8 @@ export function AccountWalletShippingSection() {
       <div>
         <h2 className="font-display text-lg font-bold text-foreground">Shipping addresses</h2>
         <p className="mt-1 max-w-2xl text-xs text-zinc-500">
-          Live shows require a ship-to on file before you can bid, buy, or claim spots. Addresses are stored on your
-          profile and reused at checkout.
+          Live shows require a ship-to on file before you can bid, buy, or claim spots. Include a contact phone — USPS
+          requires it for shipping labels. Your account email is used automatically.
         </p>
       </div>
 
@@ -230,6 +233,20 @@ export function AccountWalletShippingSection() {
               <input
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100"
+              />
+            </label>
+            <label className="block text-[11px] font-semibold text-zinc-400 sm:col-span-2">
+              Contact phone (required for USPS labels)
+              <input
+                value={phone}
+                onChange={(e) => {
+                  setPhone(e.target.value);
+                  setVerifiedReady(false);
+                }}
+                autoComplete="tel"
+                inputMode="tel"
+                placeholder="(555) 123-4567"
                 className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100"
               />
             </label>

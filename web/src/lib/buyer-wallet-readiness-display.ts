@@ -10,7 +10,7 @@ export function buyerWalletReady(snapshot: BuyerWalletReadinessSnapshot): boolea
 export function buyerWalletStatusLabel(snapshot: BuyerWalletReadinessSnapshot): string {
   if (buyerWalletReady(snapshot)) return "Ready for live + checkout";
   const missing: string[] = [];
-  if (!snapshot.shippingReady) missing.push("shipping address");
+  if (!snapshot.shippingReady) missing.push("shipping address with contact phone");
   if (!snapshot.paymentReady) missing.push("payment method");
   return `Add ${missing.join(" and ")}`;
 }

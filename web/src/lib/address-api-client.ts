@@ -8,6 +8,7 @@ export type AddressFormPayload = {
   state: string;
   postalCode: string;
   country: string;
+  phone: string;
   isDefault: boolean;
 };
 
@@ -20,6 +21,7 @@ export function buildShippingAddressPayload(input: {
   state: string;
   postalCode: string;
   country: string;
+  phone: string;
   isDefault: boolean;
 }): AddressFormPayload {
   return {
@@ -32,6 +34,7 @@ export function buildShippingAddressPayload(input: {
     state: input.state.trim(),
     postalCode: input.postalCode.trim(),
     country: input.country.trim().toUpperCase().slice(0, 2) || "US",
+    phone: input.phone.trim(),
     isDefault: input.isDefault,
   };
 }
