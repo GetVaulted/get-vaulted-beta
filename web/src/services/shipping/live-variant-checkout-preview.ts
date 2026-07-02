@@ -1,7 +1,7 @@
 import type { BuyerLiveShippingSessionApi } from "@/services/shipping/buyer-live-shipping-ux";
 import { getBuyerBundledLiveShippingSessionUx } from "@/services/shipping/buyer-live-shipping-ux";
 import { resolveBuyerDefaultShippingForOrder } from "@/lib/live-buy-now-purchase";
-import { buyerLiveShippingPaidCopy, buyerLiveShippingPreviewCopy, buyerLiveShowShippingHudCopy, shippingModeFromRoomFlags } from "@/lib/live-show-shipping-terms";
+import { buyerLiveShowShippingHudCopy, shippingModeFromRoomFlags } from "@/lib/live-show-shipping-terms";
 import {
   estimateSalesTaxCents,
   isStripeTaxFeatureEnabled,
@@ -35,6 +35,17 @@ export function bundledLiveShippingTotalCentsAfterWin(session: BuyerLiveShipping
 
 function fmtUsd(n: number): string {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+}
+
+/** Checkout sheet: dollar amount due now, or free after the show shipping cap is met. */
+export function variantCheckoutShippingDisplay(args: {
+  shippingUsd: number;
+  freeShippingEnabled?: boolean;
+  shippingMode?: "calculated" | "capped" | "free";
+}): string {
+  if (args.freeShippingEnabled || args.shippingMode === "free") return "Free shipping";
+  if (args.shippingUsd <= 0) return "Free shipping";
+  return fmtUsd(args.shippingUsd);
 }
 
 export async function getLiveVariantCheckoutPreview(args: {
@@ -99,38 +110,16 @@ export async function getLiveVariantCheckoutPreview(args: {
     shippingSession = fallbackShippingSession();
   }
 
-  const bundledShippingCents = bundledLiveShippingTotalCentsAfterWin(shippingSession);
   const incrementalShippingCents = shippingSession.capReached
     ? 0
     : Math.max(0, shippingSession.previewWinDeltaCents ?? 0);
   const shippingUsd = Math.round(incrementalShippingCents) / 100;
 
-  let shippingDisplay: string;
-  if (shippingSession.freeShippingEnabled || shippingSession.shippingMode === "free") {
-    shippingDisplay = "Free shipping";
-  } else if (shippingSession.capReached && incrementalShippingCents <= 0) {
-    shippingDisplay = buyerLiveShippingPaidCopy({
-      mode: shippingSession.shippingMode,
-      paidCents: shippingSession.shippingCostCents,
-      capCents: shippingSession.shippingCapCents,
-      capReached: true,
-    });
-  } else if (bundledShippingCents > 0) {
-    shippingDisplay =
-      shippingSession.shippingMode === "capped"
-        ? buyerLiveShippingPreviewCopy({
-            mode: shippingSession.shippingMode,
-            previewFromCents: bundledShippingCents,
-            capCents: shippingSession.shippingCapCents,
-          })
-        : fmtUsd(bundledShippingCents / 100);
-  } else {
-    shippingDisplay = buyerLiveShippingPreviewCopy({
-      mode: shippingSession.shippingMode,
-      previewFromCents: null,
-      capCents: shippingSession.shippingCapCents,
-    });
-  }
+  const shippingDisplay = variantCheckoutShippingDisplay({
+    shippingUsd,
+    freeShippingEnabled: shippingSession.freeShippingEnabled,
+    shippingMode: shippingSession.shippingMode,
+  });
 
   let taxUsd = 0;
   let taxDisplay = "Not applicable";

@@ -63,15 +63,24 @@ describe("bundledLiveShippingTotalCentsAfterWin", () => {
   });
 });
 
-describe("getLiveVariantCheckoutPreview shipping display", () => {
-  it("uses cap-reached free copy when show shipping cap is met", async () => {
-    const { buyerLiveShippingPaidCopy } = await import("@/lib/live-show-shipping-terms");
-    const capReachedCopy = buyerLiveShippingPaidCopy({
-      mode: "capped",
-      paidCents: 999,
-      capCents: 999,
-      capReached: true,
-    });
-    expect(capReachedCopy).toBe("Shipping cap reached — additional eligible wins ship free");
+describe("variantCheckoutShippingDisplay", () => {
+  it("shows the incremental shipping charge on first spot checkout", async () => {
+    const { variantCheckoutShippingDisplay } = await import("@/services/shipping/live-variant-checkout-preview");
+    expect(
+      variantCheckoutShippingDisplay({
+        shippingUsd: 9.99,
+        shippingMode: "capped",
+      }),
+    ).toBe("$9.99");
+  });
+
+  it("shows free shipping after the show cap is already paid", async () => {
+    const { variantCheckoutShippingDisplay } = await import("@/services/shipping/live-variant-checkout-preview");
+    expect(
+      variantCheckoutShippingDisplay({
+        shippingUsd: 0,
+        shippingMode: "capped",
+      }),
+    ).toBe("Free shipping");
   });
 });

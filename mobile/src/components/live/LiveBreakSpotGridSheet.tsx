@@ -126,11 +126,11 @@ export function LiveBreakSpotGridSheet({
 
   const shippingSummaryValue = !walletReady
     ? 'Add shipping in Vault Wallet'
-    : effectivePreview?.shippingDisplay
+    : effectivePreview
       ? effectivePreview.shippingDisplay
       : previewLoading
         ? 'Calculating…'
-        : 'Included when you hold to buy';
+        : '—';
 
   const taxSummaryValue = !walletReady
     ? 'Add address to estimate'
