@@ -15,7 +15,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     where: { id: liveRoomId },
     select: { id: true, sellerId: true, roomType: true },
   });
-  if (!room || (room.roomType !== "auction" && room.roomType !== "sale")) {
+  if (!room || !["auction", "break", "sale"].includes(room.roomType)) {
     return NextResponse.json({ session: null });
   }
   if (room.sellerId === session.user.id) {

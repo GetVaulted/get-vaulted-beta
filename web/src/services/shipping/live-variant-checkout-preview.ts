@@ -50,7 +50,7 @@ export async function getLiveVariantCheckoutPreview(args: {
     where: { id: args.liveRoomId },
     select: { id: true, sellerId: true, roomType: true },
   });
-  if (!room || (room.roomType !== "auction" && room.roomType !== "sale")) return null;
+  if (!room || !["auction", "break", "sale"].includes(room.roomType)) return null;
 
   const item = await prisma.liveRoomItem.findFirst({
     where: { id: args.liveRoomItemId, liveRoomId: args.liveRoomId },

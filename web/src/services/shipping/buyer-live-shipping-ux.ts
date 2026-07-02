@@ -55,7 +55,7 @@ export async function getBuyerBundledLiveShippingSessionUx(
       shippingMode: true,
     },
   });
-  if (!room || (room.roomType !== "auction" && room.roomType !== "sale")) {
+  if (!room || !["auction", "break", "sale"].includes(room.roomType)) {
     return null;
   }
 

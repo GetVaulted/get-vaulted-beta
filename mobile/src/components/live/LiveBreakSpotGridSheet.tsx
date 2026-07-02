@@ -61,6 +61,8 @@ type Props = {
   onPurchased: () => void;
   /** Refetch room snapshot after failed checkout so released spots reappear. */
   onRoomRefresh?: () => void | Promise<void>;
+  /** HUD may already have loaded this — reuse while the sheet refetches for the selected spot. */
+  seedCheckoutPreview?: LiveVariantCheckoutPreview | null;
 };
 
 function fmtMoney(n: number) {
@@ -84,6 +86,7 @@ export function LiveBreakSpotGridSheet({
   onWalletRequired,
   onPurchased,
   onRoomRefresh,
+  seedCheckoutPreview = null,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { confirmPayment } = useStripe();
@@ -112,8 +115,16 @@ export function LiveBreakSpotGridSheet({
     return Math.round(selected.priceUsd * quantity * 100) / 100;
   }, [quantity, selected]);
 
-  const totalDue = checkoutPreview?.chargeNowUsd ?? spotPrice;
+  const effectivePreview =
+    checkoutPreview ??
+    (seedCheckoutPreview && Math.abs(seedCheckoutPreview.itemPriceUsd - spotPrice) < 0.01
+      ? seedCheckoutPreview
+      : null);
+
+  const totalDue = effectivePreview?.chargeNowUsd ?? spotPrice;
   const chargeNow = totalDue;
+  const previewPending =
+    walletReady && selected != null && spotPrice > 0 && effectivePreview == null;
 
   useEffect(() => {
     if (!visible) {
@@ -147,21 +158,48 @@ export function LiveBreakSpotGridSheet({
       setPreviewLoading(false);
       return;
     }
+
     let cancelled = false;
-    setPreviewLoading(true);
-    void fetchLiveVariantCheckoutPreview(accessToken, {
-      liveRoomId: roomId,
-      itemId,
-      itemPriceUsd: spotPrice,
-    })
-      .then((preview) => {
-        if (!cancelled) setCheckoutPreview(preview);
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+
+    const loadPreview = () => {
+      if (cancelled) return;
+      setPreviewLoading(true);
+      void fetchLiveVariantCheckoutPreview(accessToken, {
+        liveRoomId: roomId,
+        itemId,
+        itemPriceUsd: spotPrice,
       })
-      .finally(() => {
-        if (!cancelled) setPreviewLoading(false);
-      });
+        .then((preview) => {
+          if (cancelled) return;
+          if (preview) {
+            setCheckoutPreview(preview);
+            setPreviewLoading(false);
+            return;
+          }
+          attempt += 1;
+          if (attempt < 6) {
+            retryTimer = setTimeout(loadPreview, Math.min(8000, 1500 * attempt));
+            return;
+          }
+          setPreviewLoading(false);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          attempt += 1;
+          if (attempt < 6) {
+            retryTimer = setTimeout(loadPreview, Math.min(8000, 1500 * attempt));
+            return;
+          }
+          setPreviewLoading(false);
+        });
+    };
+
+    loadPreview();
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, [accessToken, itemId, roomId, spotPrice, visible, walletReady]);
 
@@ -354,9 +392,11 @@ export function LiveBreakSpotGridSheet({
               <LiveRoomText style={styles.pickerTitle}>{pickerTitle}</LiveRoomText>
               <LiveRoomText style={styles.pickerHint}>
                 {isRandom
-                  ? 'Hold to buy — the Vault wheel assigns your team from what’s left'
+                  ? 'Hold to buy to checkout — the Vault wheel assigns your team from what’s left'
                   : selected
-                    ? `Confirm ${isDivisionBreak ? 'division' : 'team'} and hold to buy — shipping & tax included below`
+                    ? walletReady
+                      ? `Hold to buy to pay ${fmtMoney(chargeNow)} now — spot, shipping, and tax below`
+                      : `Confirm ${isDivisionBreak ? 'division' : 'team'}, then hold to buy to checkout`
                     : `Tap ${isDivisionBreak ? 'a division' : 'a team'} to checkout`}
               </LiveRoomText>
               {isRandom ? (
@@ -397,15 +437,11 @@ export function LiveBreakSpotGridSheet({
                 value={
                   !walletReady
                     ? 'Add shipping in Vault Wallet'
-                    : previewLoading && !checkoutPreview
+                    : previewLoading && !effectivePreview
                       ? 'Calculating…'
-                      : checkoutPreview?.shippingDisplay ?? 'Calculated by destination'
+                      : effectivePreview?.shippingDisplay ??
+                        (previewPending ? 'Calculating…' : '—')
                 }
-              />
-              <SummaryRow
-                icon="card-outline"
-                label="Payment"
-                value={walletReady ? 'Saved card in Vault Wallet' : 'Add a card in Vault Wallet'}
               />
               <SummaryRow
                 icon="receipt-outline"
@@ -413,14 +449,19 @@ export function LiveBreakSpotGridSheet({
                 value={
                   !walletReady
                     ? 'Add address to estimate'
-                    : previewLoading && !checkoutPreview
+                    : previewLoading && !effectivePreview
                       ? 'Calculating…'
-                      : checkoutPreview?.taxDisplay ?? 'Calculated at checkout'
+                      : effectivePreview?.taxDisplay ?? (previewPending ? 'Calculating…' : '—')
                 }
               />
             </View>
-            {checkoutPreview?.taxNote ? (
-              <LiveRoomText style={styles.previewNote}>{checkoutPreview.taxNote}</LiveRoomText>
+            {effectivePreview?.taxNote ? (
+              <LiveRoomText style={styles.previewNote}>{effectivePreview.taxNote}</LiveRoomText>
+            ) : null}
+            {previewPending && !previewLoading ? (
+              <LiveRoomText style={styles.previewNote}>
+                Hold to buy completes checkout — your saved card is charged the total shown above.
+              </LiveRoomText>
             ) : null}
 
             {error ? <LiveRoomText style={styles.error}>{error}</LiveRoomText> : null}
@@ -456,7 +497,7 @@ export function LiveBreakSpotGridSheet({
                   return true;
                 }}
                 onCommit={onCheckoutPress}
-                variant="gold"
+                variant="auction"
               />
             </View>
           </View>
@@ -871,7 +912,7 @@ const styles = StyleSheet.create({
   totalValue: {
     fontSize: 22,
     fontWeight: '900',
-    color: colors.gold,
+    color: '#A78BFA',
     fontVariant: ['tabular-nums'],
   },
   chargeNowNote: {

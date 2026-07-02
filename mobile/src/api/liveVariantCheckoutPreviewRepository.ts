@@ -11,6 +11,12 @@ export type LiveVariantCheckoutPreview = {
   taxNote: string | null;
 };
 
+function parseLiveVariantCheckoutPreview(body: unknown): LiveVariantCheckoutPreview | null {
+  const row = body as LiveVariantCheckoutPreview | null;
+  if (!row || typeof row.chargeNowUsd !== 'number' || typeof row.estimatedTotalUsd !== 'number') return null;
+  return row;
+}
+
 export async function fetchLiveVariantCheckoutPreview(
   accessToken: string,
   args: {
@@ -25,8 +31,16 @@ export async function fetchLiveVariantCheckoutPreview(
     accessToken,
     { method: 'GET' },
   );
-  if (!res.ok) return null;
-  const body = (await res.json().catch(() => null)) as LiveVariantCheckoutPreview | null;
-  if (!body || typeof body.chargeNowUsd !== 'number' || typeof body.estimatedTotalUsd !== 'number') return null;
-  return body;
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => null);
+    console.warn('[checkout-preview] unavailable', {
+      status: res.status,
+      liveRoomId: args.liveRoomId,
+      itemId: args.itemId,
+      itemPriceUsd: args.itemPriceUsd,
+      error: (errBody as { error?: string } | null)?.error ?? null,
+    });
+    return null;
+  }
+  return parseLiveVariantCheckoutPreview(await res.json().catch(() => null));
 }

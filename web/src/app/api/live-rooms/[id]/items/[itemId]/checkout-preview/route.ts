@@ -19,15 +19,19 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string; ite
     return NextResponse.json({ error: "itemPriceUsd is required." }, { status: 400 });
   }
 
-  const preview = await getLiveVariantCheckoutPreview({
-    buyerId: auth.userId,
-    liveRoomId,
-    liveRoomItemId,
-    itemPriceUsd,
-  });
-  if (!preview) {
-    return NextResponse.json({ error: "Checkout preview unavailable." }, { status: 404 });
+  try {
+    const preview = await getLiveVariantCheckoutPreview({
+      buyerId: auth.userId,
+      liveRoomId,
+      liveRoomItemId,
+      itemPriceUsd,
+    });
+    if (!preview) {
+      return NextResponse.json({ error: "Checkout preview unavailable." }, { status: 404 });
+    }
+    return NextResponse.json(preview);
+  } catch (e) {
+    console.error("[checkout-preview GET]", { liveRoomId, liveRoomItemId, itemPriceUsd, e });
+    return NextResponse.json({ error: "Checkout preview failed." }, { status: 500 });
   }
-
-  return NextResponse.json(preview);
 }

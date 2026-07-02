@@ -295,7 +295,6 @@ export function LivePinnedActionBar({
     bottomRightLabel: m.bottomRightLabel,
   });
   const useLiveBuyNowFlow = isActiveBuyNowBuyerItem(roomSnap);
-  const useVariantClaimFlow = variantFixedCheckoutActive;
   const { confirmPayment } = useStripe();
   const walletReady = useMemo(() => {
     const fromSnap = walletReadinessFromSnapshot(roomSnap);
@@ -1053,7 +1052,7 @@ export function LivePinnedActionBar({
               >
                 <LinearGradient
                   colors={
-                    useLiveBuyNowFlow || useVariantClaimFlow
+                    useLiveBuyNowFlow
                       ? ['#E8C872', '#D4AF37', '#B8860B']
                       : ['#D946EF', '#8B5CF6', '#6366F1']
                   }
@@ -1072,7 +1071,7 @@ export function LivePinnedActionBar({
                       style={[
                         styles.ctaBidText,
                         { fontSize: hudFs(11) },
-                        useLiveBuyNowFlow || useVariantClaimFlow ? styles.ctaBuyNowText : undefined,
+                        useLiveBuyNowFlow && styles.ctaBuyNowText,
                         (primaryDisabled || bidBusy) && styles.ctaDisabledText,
                       ]}
                       numberOfLines={1}
@@ -1143,6 +1142,7 @@ export function LivePinnedActionBar({
             void refreshRoomSnapshot();
           }}
           onRoomRefresh={() => void refreshRoomSnapshot()}
+          seedCheckoutPreview={variantCheckoutPreview}
         />
       ) : null}
     </View>
