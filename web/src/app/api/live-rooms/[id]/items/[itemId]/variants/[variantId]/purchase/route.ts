@@ -99,7 +99,7 @@ export async function POST(
 
   const room = await prisma.liveRoom.findUnique({
     where: { id: liveRoomId },
-    select: { id: true, sellerId: true, status: true, lockPurchases: true, streamHealth: true, streamPaused: true },
+    select: { id: true, sellerId: true, status: true, lockPurchases: true, streamHealth: true, streamPaused: true, streamMode: true, streamStartedAt: true, streamEndedAt: true },
   });
   if (!room) return NextResponse.json({ error: "Room not found." }, { status: 404 });
   if (room.status !== "live") {

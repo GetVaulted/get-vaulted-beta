@@ -26,6 +26,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       teamBoardLeague: true,
       streamHealth: true,
       streamPaused: true,
+      streamMode: true,
+      streamStartedAt: true,
+      streamEndedAt: true,
       items: {
         where: { status: "active" },
         take: 1,

@@ -129,8 +129,19 @@ export function LiveStagePlayback({
       status: roomStatus,
       streamHealth,
       streamPaused,
+      streamMode: playback.stream?.streamMode ?? 'channel_hls',
+      streamStartedAt: playback.stream?.streamStartedAt ?? null,
+      streamEndedAt: playback.stream?.streamEndedAt ?? null,
     });
-  }, [onBroadcastGateChange, roomStatus, streamHealth, streamPaused]);
+  }, [
+    onBroadcastGateChange,
+    playback.stream?.streamEndedAt,
+    playback.stream?.streamMode,
+    playback.stream?.streamStartedAt,
+    roomStatus,
+    streamHealth,
+    streamPaused,
+  ]);
 
   const streamSignalLive = streamHealth.toLowerCase() === 'live' || streamHealth.toLowerCase() === 'connecting';
   const roomLifecycleLive = roomStatus === 'live' || streamSignalLive;

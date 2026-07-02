@@ -238,6 +238,9 @@ function LiveSlide({
     status: stream.roomStatus,
     streamHealth: 'offline',
     streamPaused: false,
+    streamMode: 'channel_hls',
+    streamStartedAt: null,
+    streamEndedAt: null,
   });
   const handleBroadcastGateChange = useCallback((gate: LiveRoomBroadcastGate) => {
     setBroadcastGate(gate);

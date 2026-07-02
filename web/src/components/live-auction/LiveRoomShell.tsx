@@ -517,6 +517,9 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           status: "live",
           streamHealth: stream.streamHealth,
           streamPaused: stream.streamPaused,
+          streamMode: stream.streamMode,
+          streamStartedAt: stream.streamStartedAt,
+          streamEndedAt: stream.streamEndedAt,
         });
       })
       .catch(() => {});
@@ -976,6 +979,9 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       status: "live",
       streamHealth: broadcastGate.streamHealth,
       streamPaused: broadcastGate.streamPaused,
+      streamMode: broadcastGate.streamMode,
+      streamStartedAt: broadcastGate.streamStartedAt,
+      streamEndedAt: broadcastGate.streamEndedAt,
     });
   const broadcastCommerceHint = broadcastCommerceBlocked
     ? broadcastGate.streamPaused

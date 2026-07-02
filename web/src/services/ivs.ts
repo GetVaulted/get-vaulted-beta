@@ -282,8 +282,11 @@ export async function commitLiveRoomStreamHealthFromIvs(args: {
     roomVersion: { increment: 1 },
   };
 
-  if (newHealth === "live" && !room.streamStartedAt) {
-    data.streamStartedAt = now;
+  if (newHealth === "live") {
+    if (!room.streamStartedAt) {
+      data.streamStartedAt = now;
+    }
+    data.streamEndedAt = null;
   }
   if ((newHealth === "offline" || newHealth === "ended" || newHealth === "error") && previousHealth === "live") {
     data.streamEndedAt = now;

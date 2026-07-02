@@ -16,11 +16,23 @@ describe("getLiveRoomBroadcastCommerceBlock", () => {
     ).toBeNull();
   });
 
-  it("blocks when the stream is offline while the room is live", () => {
+  it("allows commerce during warm-up before IVS reports live", () => {
+    expect(
+      getLiveRoomBroadcastCommerceBlock({
+        status: "live",
+        streamHealth: "offline",
+        streamPaused: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("blocks when a disconnect was recorded while the room is still live", () => {
     const block = getLiveRoomBroadcastCommerceBlock({
       status: "live",
       streamHealth: "offline",
       streamPaused: false,
+      streamStartedAt: new Date("2026-07-02T18:00:00.000Z"),
+      streamEndedAt: new Date("2026-07-02T18:05:00.000Z"),
     });
     expect(block?.code).toBe("LIVE_BROADCAST_OFFLINE");
     expect(block?.error).toBe(LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR);

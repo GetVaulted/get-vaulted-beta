@@ -293,6 +293,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         status: "live",
         startedAt: new Date(),
         endedAt: null,
+        streamEndedAt: null,
+        streamPaused: false,
         completedSalesGmvUsd: 0,
         roomVersion: { increment: 1 },
       },

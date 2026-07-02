@@ -68,7 +68,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   const [room, item] = await Promise.all([
     prisma.liveRoom.findUnique({
       where: { id: liveRoomId },
-      select: { id: true, sellerId: true, roomType: true, status: true, streamHealth: true, streamPaused: true },
+      select: { id: true, sellerId: true, roomType: true, status: true, streamHealth: true, streamPaused: true, streamMode: true, streamStartedAt: true, streamEndedAt: true },
     }),
     prisma.liveRoomItem.findFirst({
       where: { id: itemId, liveRoomId },

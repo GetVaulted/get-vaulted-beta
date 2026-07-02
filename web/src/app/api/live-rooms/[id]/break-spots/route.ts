@@ -36,6 +36,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       breakFilledLockedAt: true,
       streamHealth: true,
       streamPaused: true,
+      streamMode: true,
+      streamStartedAt: true,
+      streamEndedAt: true,
     },
   });
   if (!room) return NextResponse.json({ error: "Room not found." }, { status: 404 });
