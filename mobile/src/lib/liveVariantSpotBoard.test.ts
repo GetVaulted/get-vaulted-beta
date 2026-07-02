@@ -16,6 +16,8 @@ describe('buildVariantSpotDisplayRows random pool', () => {
           status: 'available',
           sortOrder: 0,
           color: 'nfl_teams',
+          isHot: false,
+          buyerUsername: null,
         },
       ],
       randomSpotClaims: [{ label: 'Chiefs', buyerUsername: 'buyer1' }],
@@ -43,6 +45,8 @@ describe('buildVariantSpotDisplayRows random pool', () => {
           status: 'available',
           sortOrder: 0,
           color: 'nfl_divisions',
+          isHot: false,
+          buyerUsername: null,
         },
       ],
     });

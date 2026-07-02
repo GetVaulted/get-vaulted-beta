@@ -26,10 +26,11 @@ export function buildVariantSpotDisplayRows(
   },
 ): VariantSpotDisplayRow[] {
   if (!item.salesFormat || !isVariantSalesFormat(item.salesFormat) || !item.variants?.length) return [];
+  const salesFormat = item.salesFormat;
 
   if (isRandomVariantAssignment(item.variantAssignmentMode)) {
     const pool =
-      item.salesFormat === 'team_break'
+      salesFormat === 'team_break'
         ? NFL_DIVISIONS.map((d) => d.label)
         : NFL_TEAMS.map((t) => t.name);
     const claimByLabel = new Map(
@@ -49,7 +50,7 @@ export function buildVariantSpotDisplayRows(
         sold: buyer != null,
         buyerUsername: buyer,
         isHot: false,
-        color: spotColorKeyForPoolLabel(label, item.salesFormat),
+        color: spotColorKeyForPoolLabel(label, salesFormat),
       };
     });
   }
