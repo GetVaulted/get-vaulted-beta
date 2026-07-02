@@ -4,6 +4,7 @@ import {
   idleVariantSpotCommerceReset,
   isVariantSpotAuctionLive,
   isVariantSpotFixedCheckoutLive,
+  shopAvailableSpotCount,
   shopAvailableVariants,
   shopVariantCountDuringSpotAuction,
 } from "@/lib/live-variant-spot-commerce";
@@ -70,7 +71,33 @@ describe("live-variant-spot-commerce", () => {
         ],
       }),
     ).toBe(1);
-    expect(shopAvailableVariants(item).map((v) => v.id)).toEqual([]);
+    expect(shopAvailableSpotCount(item)).toBe(0);
+    expect(
+      shopAvailableSpotCount({
+        ...item,
+        biddingOpen: false,
+        activeSpotCommerceMode: "fixed",
+        auctionVariantId: null,
+        variants: item.variants,
+      }),
+    ).toBe(1);
+    expect(
+      shopAvailableSpotCount({
+        ...item,
+        variants: [
+          ...item.variants,
+          {
+            id: "v2",
+            label: "Bills",
+            priceUsd: 35,
+            quantityRemaining: 1,
+            soldCount: 0,
+            isHot: false,
+            status: "available",
+          },
+        ],
+      }),
+    ).toBe(1);
     expect(
       isVariantSpotFixedCheckoutLive({
         ...item,

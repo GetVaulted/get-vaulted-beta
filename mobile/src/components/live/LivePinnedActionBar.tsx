@@ -154,6 +154,9 @@ export function LivePinnedActionBar({
     () => resolveLiveBuyerCommerceHud(stream, roomSnap, syncedNowMs),
     [stream, roomSnap, syncedNowMs],
   );
+  const variantItemActive = isActiveVariantBuyerItem(roomSnap);
+  const variantFixedCheckoutActive =
+    variantItemActive && !isVariantSpotAuctionLive(roomSnap);
 
   useEffect(() => {
     if (roomSnap?.lotBidPhase !== 'bidding_open' || !roomSnap.auctionEndsAt) return undefined;
@@ -183,8 +186,16 @@ export function LivePinnedActionBar({
     variantSheetOpen ||
     customBidSheetOpen ||
     Boolean(roomSnap?.unresolvedPaymentFailure);
-  const primaryDisabled = m.buyerPrimaryDisabled === true || participationBlocked || commerceBlocked || staffCommerceBlocked;
-  const secondaryDisabled = m.buyerSecondaryDisabled === true || participationBlocked || commerceBlocked || staffCommerceBlocked;
+  const primaryDisabled =
+    m.buyerPrimaryDisabled === true ||
+    staffCommerceBlocked ||
+    commerceBlocked ||
+    (participationBlocked && !variantFixedCheckoutActive);
+  const secondaryDisabled =
+    m.buyerSecondaryDisabled === true ||
+    staffCommerceBlocked ||
+    commerceBlocked ||
+    (participationBlocked && !variantFixedCheckoutActive);
   const padBottom = 4 + Math.min(10, Math.round(bottomSafeInset * (compact ? 0.25 : 0.35)));
 
   const guard = (fn: () => void) => {
@@ -284,7 +295,7 @@ export function LivePinnedActionBar({
     bottomRightLabel: m.bottomRightLabel,
   });
   const useLiveBuyNowFlow = isActiveBuyNowBuyerItem(roomSnap);
-  const variantItemActive = isActiveVariantBuyerItem(roomSnap);
+  const useVariantClaimFlow = variantFixedCheckoutActive;
   const { confirmPayment } = useStripe();
   const walletReady = useMemo(() => {
     const fromSnap = walletReadinessFromSnapshot(roomSnap);
@@ -844,6 +855,15 @@ export function LivePinnedActionBar({
         }
         return;
       }
+      if (participationBlocked) {
+        Alert.alert('Not ready yet', participationBlockMessage);
+        return;
+      }
+      if (!walletReady) {
+        const walletFromSnap = walletReadinessFromSnapshot(roomSnap);
+        openWalletSetup('variant_checkout', walletFromSnap ?? undefined);
+        return;
+      }
       setVariantSheetInitialId(m.buyerPinnedVariantId ?? hostPinnedBuyerVariant(
         roomSnap?.activeItemVariants,
         roomSnap?.activeItemVariantAssignmentMode,
@@ -885,6 +905,10 @@ export function LivePinnedActionBar({
     m.buyerPinnedVariantId,
     roomSnap?.activeItemVariantAssignmentMode,
     roomSnap?.activeItemVariants,
+    participationBlocked,
+    participationBlockMessage,
+    walletReady,
+    openWalletSetup,
   ]);
 
   const onSecondary = () => {
@@ -1029,7 +1053,7 @@ export function LivePinnedActionBar({
               >
                 <LinearGradient
                   colors={
-                    useLiveBuyNowFlow
+                    useLiveBuyNowFlow || useVariantClaimFlow
                       ? ['#E8C872', '#D4AF37', '#B8860B']
                       : ['#D946EF', '#8B5CF6', '#6366F1']
                   }
@@ -1048,7 +1072,7 @@ export function LivePinnedActionBar({
                       style={[
                         styles.ctaBidText,
                         { fontSize: hudFs(11) },
-                        useLiveBuyNowFlow && styles.ctaBuyNowText,
+                        useLiveBuyNowFlow || useVariantClaimFlow ? styles.ctaBuyNowText : undefined,
                         (primaryDisabled || bidBusy) && styles.ctaDisabledText,
                       ]}
                       numberOfLines={1}

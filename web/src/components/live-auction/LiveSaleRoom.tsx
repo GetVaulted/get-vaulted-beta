@@ -61,7 +61,12 @@ import { LiveRoomShareSheet } from "@/components/live-auction/LiveRoomShareSheet
 import { formatAuctionLeaderLine } from "@/lib/live-auction-winner-display";
 import type { VariantPurchasedMergePayload } from "@/lib/live-room-variant-merge";
 import { isVariantSalesFormat, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
-import { isVariantSpotAuctionLive, pinnedVariantAuctionPrimaryLabel, shopAvailableVariants } from "@/lib/live-variant-spot-commerce";
+import {
+  isVariantSpotAuctionLive,
+  pinnedVariantAuctionPrimaryLabel,
+  shopAvailableSpotCount,
+  shopAvailableVariants,
+} from "@/lib/live-variant-spot-commerce";
 import { purchaseLiveBuyNowWithSca } from "@/lib/live-buy-now-client";
 
 type SaleItem = {
@@ -550,6 +555,11 @@ export function LiveSaleRoom({
     if (isRandomVariantAssignment(activeDb.variantAssignmentMode)) return null;
     return hostPinnedBuyerVariant(activeDb.variants, activeDb.variantAssignmentMode);
   }, [activeDb]);
+  const spotAuctionLive = Boolean(activeDb && isVariantSpotAuctionLive(activeDb));
+  const shopVariantSpots = activeHasVariants && activeDb
+    ? summarizeVariantSpots(shopAvailableVariants(activeDb))
+    : null;
+  const shoppableSpotCount = activeHasVariants && activeDb ? shopAvailableSpotCount(activeDb) : 0;
   const variantSelectLabel = activeDb
     ? isVariantSpotAuctionLive(activeDb)
       ? pinnedVariantAuctionPrimaryLabel(
@@ -558,14 +568,10 @@ export function LiveSaleRoom({
         )
       : isRandomVariantAssignment(activeDb.variantAssignmentMode)
         ? variantBuyerSelectLabel(activeDb.salesFormat, true)
-        : (activeVariantSpots?.available ?? 0) > 0
+        : shoppableSpotCount > 0
           ? variantClaimPrimaryLabel(activeDb.salesFormat)
           : "Sold out"
     : "Select spot";
-  const spotAuctionLive = Boolean(activeDb && isVariantSpotAuctionLive(activeDb));
-  const shopVariantSpots = activeHasVariants && activeDb
-    ? summarizeVariantSpots(shopAvailableVariants(activeDb))
-    : null;
   const hybridSpotCommerce =
     spotAuctionLive && (shopVariantSpots?.available ?? 0) > 0 && activeLotBidPhase === "bidding_open";
   const variantShopLabel = activeDb ? variantClaimPrimaryLabel(activeDb.salesFormat) : "Claim spot";
@@ -590,7 +596,7 @@ export function LiveSaleRoom({
     busy ||
     sessionBlocksBuyer ||
     activeDb?.status !== "active" ||
-    (shopVariantSpots?.available ?? activeVariantSpots?.available ?? 0) <= 0;
+    shoppableSpotCount <= 0;
 
   const variantSpotBidDisabled =
     !isLive ||

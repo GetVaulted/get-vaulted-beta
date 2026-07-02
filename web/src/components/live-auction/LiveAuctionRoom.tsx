@@ -66,7 +66,12 @@ import { LiveRoomShareSheet } from "@/components/live-auction/LiveRoomShareSheet
 import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
-import { isVariantSpotAuctionLive, pinnedVariantAuctionPrimaryLabel, shopAvailableVariants } from "@/lib/live-variant-spot-commerce";
+import {
+  isVariantSpotAuctionLive,
+  pinnedVariantAuctionPrimaryLabel,
+  shopAvailableSpotCount,
+  shopAvailableVariants,
+} from "@/lib/live-variant-spot-commerce";
 import { loadStripe } from "@stripe/stripe-js";
 import { resolvePinnedLotOverlayPrice } from "@/lib/live-auction-overlay-price";
 import {
@@ -346,6 +351,12 @@ export function LiveAuctionRoom({
     if (isRandomVariantAssignment(activeDbItem.variantAssignmentMode)) return null;
     return hostPinnedBuyerVariant(activeDbItem.variants, activeDbItem.variantAssignmentMode);
   }, [activeDbItem]);
+  const spotAuctionLive = Boolean(activeDbItem && isVariantSpotAuctionLive(activeDbItem));
+  const shopVariantSpots = activeHasVariants && activeDbItem
+    ? summarizeVariantSpots(shopAvailableVariants(activeDbItem))
+    : null;
+  const shoppableSpotCount =
+    activeHasVariants && activeDbItem ? shopAvailableSpotCount(activeDbItem) : 0;
   const variantPickLabel = activeDbItem
     ? isVariantSpotAuctionLive(activeDbItem)
       ? pinnedVariantAuctionPrimaryLabel(
@@ -354,14 +365,10 @@ export function LiveAuctionRoom({
         )
       : isRandomVariantAssignment(activeDbItem.variantAssignmentMode)
         ? variantBuyerSelectLabel(activeDbItem.salesFormat, true)
-        : (activeVariantSpots?.available ?? 0) > 0
+        : shoppableSpotCount > 0
           ? variantClaimPrimaryLabel(activeDbItem.salesFormat)
           : "Sold out"
     : "Select spot";
-  const spotAuctionLive = Boolean(activeDbItem && isVariantSpotAuctionLive(activeDbItem));
-  const shopVariantSpots = activeHasVariants && activeDbItem
-    ? summarizeVariantSpots(shopAvailableVariants(activeDbItem))
-    : null;
   const variantShopLabel = activeDbItem ? variantClaimPrimaryLabel(activeDbItem.salesFormat) : "Claim spot";
   const [hostAuctionDurationSec, setHostAuctionDurationSec] = useState(5);
   const [hostClutchTimeEnabled, setHostClutchTimeEnabled] = useState(false);
@@ -612,8 +619,11 @@ export function LiveAuctionRoom({
   const guestNeedsAuth = status === "unauthenticated" && !isHost && isLive;
   const sessionPending = status === "loading" && !isHost && isLive;
   const sessionBlocksBuyer = status === "unauthenticated" && !isHost && isLive;
+  /** Legacy break spot claims — do not block PYT/PYD variant shop checkout on the active lot. */
   const buyerClaimsBlocked = Boolean(
-    breakSnapshot && (breakSnapshot.breakPaused || breakSnapshot.lockPurchases || breakSnapshot.breakFull),
+    !pytCommerceLive &&
+      breakSnapshot &&
+      (breakSnapshot.breakPaused || breakSnapshot.lockPurchases || breakSnapshot.breakFull),
   );
 
   /**
@@ -683,7 +693,7 @@ export function LiveAuctionRoom({
     busy ||
     sessionBlocksBuyer ||
     buyerClaimsBlocked ||
-    (shopVariantSpots?.available ?? activeVariantSpots?.available ?? 0) <= 0;
+    shoppableSpotCount <= 0;
 
   const variantSpotBidDisabled =
     !isLive ||

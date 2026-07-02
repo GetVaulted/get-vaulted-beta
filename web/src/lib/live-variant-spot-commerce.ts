@@ -2,7 +2,13 @@ import type {
   LiveActiveSpotCommerceMode,
   LiveVariantSpotCommerceDefault,
 } from "@/generated/prisma/client";
-import { isVariantSalesFormat, hostPinnedBuyerVariant, variantIsAvailable, type VariantPinRow } from "@/lib/live-item-variant-presets";
+import {
+  isVariantSalesFormat,
+  hostPinnedBuyerVariant,
+  summarizeVariantSpots,
+  variantIsAvailable,
+  type VariantPinRow,
+} from "@/lib/live-item-variant-presets";
 
 export type VariantSpotCommerceDefault = LiveVariantSpotCommerceDefault;
 export type ActiveSpotCommerceMode = LiveActiveSpotCommerceMode;
@@ -47,6 +53,11 @@ export function shopAvailableVariants(item: ItemSpotCommerceRow | null | undefin
 
 export function shopVariantCountDuringSpotAuction(item: ItemSpotCommerceRow | null | undefined): number {
   return shopAvailableVariants(item).length;
+}
+
+/** Open spot count buyers can claim via shop (respects spot-auction exclusions). */
+export function shopAvailableSpotCount(item: ItemSpotCommerceRow | null | undefined): number {
+  return summarizeVariantSpots(shopAvailableVariants(item)).available;
 }
 
 /** Buyers claim spots via picker sheet (fixed checkout — includes hybrid shop during spot auction). */
