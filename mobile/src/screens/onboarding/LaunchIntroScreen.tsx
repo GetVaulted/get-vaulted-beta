@@ -7,8 +7,8 @@ import {
   Alert,
   AppState,
   type AppStateStatus,
-  Dimensions,
   Image,
+  useWindowDimensions,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -65,14 +65,28 @@ import {
   type MontageOverlay,
 } from './introMontageAssets';
 
-const { width: W, height: H } = Dimensions.get('window');
 /** Mid-montage memorabilia flash — haptic fires as the cut lands. */
 const HELMET_FLASH_HAPTIC_P = 0.304;
 const MAX_WAIT_AUTH_MS = 8000;
 const AUTH_HANDOFF_MS = 760;
-const LOGO_W = Math.min(W * 0.82, 320);
 
 type Props = NativeStackScreenProps<RootStackParamList, 'LaunchIntro'>;
+
+/** Full-bleed cover sizing — extra bleed hides seams on tall iPhones during Ken Burns. */
+function montageCoverFrame(width: number, height: number) {
+  const bleed = Math.max(width, height) * 0.1;
+  return {
+    left: -bleed,
+    top: -bleed,
+    width: width + bleed * 2,
+    height: height + bleed * 2,
+  };
+}
+
+function montageMinScale(width: number, height: number): number {
+  const aspect = height / Math.max(width, 1);
+  return aspect > 2.05 ? 1.22 : aspect > 1.85 ? 1.18 : 1.14;
+}
 
 function montageBeatOpacity(p: number, beatIndex: number): number {
   'worklet';
@@ -257,17 +271,28 @@ function IntroHypeCopy({ progress }: { progress: SharedValue<number> }) {
   );
 }
 
-function IntroGoldSweep({ progress }: { progress: SharedValue<number> }) {
+function IntroGoldSweep({ progress, frameW, frameH }: { progress: SharedValue<number>; frameW: number; frameH: number }) {
   const sweep = useAnimatedStyle(() => ({
     opacity: interpolate(progress.value, [0.02, 0.1, 0.45, 0.55], [0, 0.5, 0.22, 0], Extrapolation.CLAMP),
     transform: [
       { rotate: '-14deg' },
-      { translateX: interpolate(progress.value, [0, 0.52], [-W * 1.5, W * 1.5], Extrapolation.CLAMP) },
+      { translateX: interpolate(progress.value, [0, 0.52], [-frameW * 1.5, frameW * 1.5], Extrapolation.CLAMP) },
     ],
   }));
   return (
     <View style={styles.sweepClip} pointerEvents="none">
-      <Animated.View style={[styles.sweepBar, sweep]}>
+      <Animated.View
+        style={[
+          {
+            position: 'absolute',
+            width: 160,
+            height: frameH * 1.45,
+            left: frameW * 0.5 - 80,
+            top: -frameH * 0.12,
+          },
+          sweep,
+        ]}
+      >
         <LinearGradient
           colors={['transparent', 'rgba(255,220,150,0.55)', 'rgba(212,175,55,0.45)', 'transparent']}
           start={{ x: 0, y: 0.5 }}
@@ -295,7 +320,13 @@ function IntroVaultFlash({ progress }: { progress: SharedValue<number> }) {
   );
 }
 
-function IntroHelmetFlash({ progress }: { progress: SharedValue<number> }) {
+function IntroHelmetFlash({
+  progress,
+  coverStyle,
+}: {
+  progress: SharedValue<number>;
+  coverStyle: ReturnType<typeof montageCoverFrame>;
+}) {
   const layer = useAnimatedStyle(() => {
     const p = progress.value;
     return {
@@ -311,7 +342,7 @@ function IntroHelmetFlash({ progress }: { progress: SharedValue<number> }) {
   return (
     <Animated.View style={[StyleSheet.absoluteFill, layer]} pointerEvents="none">
       <Animated.View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }, ken]}>
-        <Image source={{ uri: HELMET_FLASH_URI }} style={styles.montageImg} resizeMode="cover" />
+        <Image source={{ uri: HELMET_FLASH_URI }} style={[styles.montageImgBase, coverStyle]} resizeMode="cover" />
         <LinearGradient
           colors={['rgba(0,0,0,0.1)', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.86)']}
           style={StyleSheet.absoluteFill}
@@ -345,8 +376,8 @@ function ImpactRing({ progress, delay }: { progress: SharedValue<number>; delay:
   );
 }
 
-function IntroImpactBurst({ progress }: { progress: SharedValue<number> }) {
-  const size = Math.min(W, H) * 0.46;
+function IntroImpactBurst({ progress, frameW, frameH }: { progress: SharedValue<number>; frameW: number; frameH: number }) {
+  const size = Math.min(frameW, frameH) * 0.46;
   return (
     <View style={styles.impactAnchor} pointerEvents="none">
       <View style={{ width: size, height: size, position: 'relative' }}>
@@ -361,16 +392,20 @@ function IntroImpactBurst({ progress }: { progress: SharedValue<number> }) {
 function MontageLayer({
   beatIndex,
   progress,
+  coverStyle,
+  minKenScale,
 }: {
   beatIndex: number;
   progress: SharedValue<number>;
+  coverStyle: ReturnType<typeof montageCoverFrame>;
+  minKenScale: number;
 }) {
   const uri = MONTAGE_URIS[beatIndex % MONTAGE_URIS.length];
   const overlay = BEAT_OVERLAYS[beatIndex] ?? 'none';
 
   const ken = useAnimatedStyle(() => {
     const o = montageBeatOpacity(progress.value, beatIndex);
-    const scale = interpolate(o, [0, 0.45, 1], [1.16, 1.04, 1], Extrapolation.CLAMP);
+    const scale = interpolate(o, [0, 0.45, 1], [minKenScale, minKenScale * 0.92, 1], Extrapolation.CLAMP);
     return { transform: [{ scale }] };
   });
 
@@ -382,7 +417,7 @@ function MontageLayer({
   return (
     <Animated.View style={[StyleSheet.absoluteFill, layer]} pointerEvents="none">
       <Animated.View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }, ken]}>
-        <Image source={{ uri }} style={styles.montageImg} resizeMode="cover" />
+        <Image source={{ uri }} style={[styles.montageImgBase, coverStyle]} resizeMode="cover" />
       </Animated.View>
       <LinearGradient
         colors={['rgba(0,0,0,0.04)', 'rgba(0,0,0,0.42)', 'rgba(0,0,0,0.88)']}
@@ -394,8 +429,12 @@ function MontageLayer({
 }
 
 export function LaunchIntroScreen({ navigation, route }: Props) {
+  const { width: frameW, height: frameH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const instantAuth = route.params?.instantAuth === true;
+  const coverStyle = montageCoverFrame(frameW, frameH);
+  const minKenScale = montageMinScale(frameW, frameH);
+  const logoW = Math.min(frameW * 0.82, 320);
   const { user, loading: authLoading, signInWithPassword, signInWithGoogle, signInWithApple, requestPasswordReset, enterGuestExplore } = useAuth();
   const userRef = useRef(user);
   const authLoadingRef = useRef(authLoading);
@@ -594,12 +633,8 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
 
   const montageShell = useAnimatedStyle(() => {
     const collapseT = interpolate(progress.value, [MONTAGE_END_P, COLLAPSE_END_P], [0, 1], Extrapolation.CLAMP);
-    const scale = interpolate(collapseT, [0, 1], [1, 0.14]);
-    const shellOp = interpolate(collapseT, [0, 0.22, 1], [1, 0.82, 0]);
-    return {
-      opacity: shellOp,
-      transform: [{ scale }],
-    };
+    const shellOp = interpolate(collapseT, [0, 0.35, 1], [1, 0.55, 0], Extrapolation.CLAMP);
+    return { opacity: shellOp };
   });
 
   const vignette = useAnimatedStyle(() => ({
@@ -641,7 +676,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
   });
 
   const blockLift = useAnimatedStyle(() => ({
-    transform: [{ translateY: interpolate(authProgress.value, [0, 1], [0, -Math.min(96, H * 0.12)]) }],
+    transform: [{ translateY: interpolate(authProgress.value, [0, 1], [0, -Math.min(96, frameH * 0.12)]) }],
   }));
 
   const logoNudge = useAnimatedStyle(() => ({
@@ -713,7 +748,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
   };
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+    <View style={styles.screen}>
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <LinearGradient colors={['#000000', '#020202', '#000000']} style={StyleSheet.absoluteFill} />
       </View>
@@ -727,15 +762,21 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
         />
       </Animated.View>
 
-      <Animated.View style={[StyleSheet.absoluteFill, montageShell]} pointerEvents="none">
+      <Animated.View style={[styles.montageStage, montageShell]} pointerEvents="none">
         {Array.from({ length: BEAT_COUNT }, (_, i) => (
-          <MontageLayer key={i} beatIndex={i} progress={progress} />
+          <MontageLayer
+            key={i}
+            beatIndex={i}
+            progress={progress}
+            coverStyle={coverStyle}
+            minKenScale={minKenScale}
+          />
         ))}
-        <IntroHelmetFlash progress={progress} />
+        <IntroHelmetFlash progress={progress} coverStyle={coverStyle} />
       </Animated.View>
 
-      <IntroGoldSweep progress={progress} />
-      <IntroImpactBurst progress={progress} />
+      <IntroGoldSweep progress={progress} frameW={frameW} frameH={frameH} />
+      <IntroImpactBurst progress={progress} frameW={frameW} frameH={frameH} />
       <IntroHypeCopy progress={progress} />
 
       <Animated.View style={[styles.vignette, vignette]} pointerEvents="none" />
@@ -743,21 +784,21 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
       <IntroVaultFlash progress={progress} />
 
       <KeyboardAvoidingView
-        style={styles.flex}
+        style={[styles.flex, { paddingTop: insets.top, paddingBottom: insets.bottom }]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 8 : 0}
       >
         <ScrollView
           contentContainerStyle={styles.scrollInner}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <Animated.View style={[styles.finale, cameraPush, blockLift]} pointerEvents="box-none">
+          <Animated.View style={[styles.finale, { minHeight: frameH * 0.72 }, cameraPush, blockLift]} pointerEvents="box-none">
             <Animated.View style={logoNudge}>
               <Animated.View style={[styles.logoBlock, logoShell]}>
                 <Animated.View style={logoScale}>
                   <View style={styles.brandClip}>
-                    <BrandLogo width={LOGO_W} />
+                    <BrandLogo width={logoW} />
                   </View>
                 </Animated.View>
                 <Animated.View style={[styles.liveRow, liveCombined]}>
@@ -882,9 +923,16 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#000', overflow: 'hidden' },
-  flex: { flex: 1 },
+  flex: { flex: 1, zIndex: 10 },
+  montageStage: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+  },
+  montageImgBase: {
+    position: 'absolute',
+  },
   scrollInner: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.lg },
-  montageImg: { ...StyleSheet.absoluteFillObject, width: W, height: H },
   vignette: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000',
@@ -892,7 +940,6 @@ const styles = StyleSheet.create({
   finale: {
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: H * 0.72,
   },
   logoBlock: { alignItems: 'center', gap: 18 },
   brandClip: { paddingVertical: 8 },
@@ -912,7 +959,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingBottom: H * 0.18,
+    paddingBottom: '18%',
     zIndex: 4,
     gap: 10,
   },
@@ -938,7 +985,7 @@ const styles = StyleSheet.create({
   },
   hypeMega: {
     color: colors.gold,
-    fontSize: Math.min(44, W * 0.11),
+    fontSize: 44,
     fontWeight: '900',
     letterSpacing: -1.2,
     textAlign: 'center',
@@ -961,13 +1008,6 @@ const styles = StyleSheet.create({
     zIndex: 2,
     overflow: 'hidden',
   },
-  sweepBar: {
-    position: 'absolute',
-    width: 160,
-    height: H * 1.45,
-    left: W * 0.5 - 80,
-    top: -H * 0.12,
-  },
   vaultFlash: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 14,
@@ -977,7 +1017,7 @@ const styles = StyleSheet.create({
     zIndex: 3,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingBottom: H * 0.14,
+    paddingBottom: '14%',
   },
   authWrap: {
     width: '100%',

@@ -8,6 +8,7 @@ export type AdminModuleId =
   | "users"
   | "fulfillment"
   | "trust"
+  | "support-tickets"
   | "health"
   | "listings"
   | "orders"
@@ -93,6 +94,13 @@ export const ADMIN_MODULES: AdminModuleDef[] = [
     accent: "rose",
   },
   {
+    id: "support-tickets",
+    title: "Support Tickets",
+    description: "In-app support requests from buyers and sellers.",
+    href: "/admin/support-tickets",
+    accent: "amber",
+  },
+  {
     id: "health",
     title: "Platform Health",
     description: "Supabase, API, Stripe webhooks, IVS, Shippo, and job failures.",
@@ -130,7 +138,7 @@ export const ADMIN_MODULES: AdminModuleDef[] = [
 ];
 
 export const ADMIN_PRIMARY_MODULES = ADMIN_MODULES.filter((m) =>
-  ["live-shows", "finance", "fees", "shipping-profiles", "seller-risk", "moderation", "users", "fulfillment", "trust", "health"].includes(
+  ["live-shows", "finance", "fees", "shipping-profiles", "seller-risk", "moderation", "users", "fulfillment", "trust", "support-tickets", "health"].includes(
     m.id,
   ),
 );
@@ -146,6 +154,7 @@ export const ADMIN_NAV_LINKS: { href: string; label: string; exact?: boolean }[]
   { href: "/admin/users-management", label: "Users" },
   { href: "/admin/fulfillment", label: "Fulfillment" },
   { href: "/admin/trust", label: "Trust" },
+  { href: "/admin/support-tickets", label: "Support" },
   { href: "/admin/health", label: "Health" },
   { href: "/admin/tax", label: "Tax" },
 ];

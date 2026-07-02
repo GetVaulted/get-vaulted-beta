@@ -93,7 +93,7 @@ function resolveBuyerVariantItemHud(
       winningLine: '',
       stateLine:
         available > 0
-          ? `${available} spot${available === 1 ? '' : 's'} available — tap to spin the wheel.`
+          ? `${available} spot${available === 1 ? '' : 's'} available — tap for vault reveal.`
           : 'All spots are sold or unavailable.',
       bottomLeftLabel: 'Custom',
       bottomRightLabel: variantSelectSpotLabel(snap.activeItemSalesFormat, true),

@@ -64,6 +64,8 @@ export function ModeratorViewerActions({
     }
     if (actionType === 'kick' || actionType === 'room_ban') {
       Alert.alert('Removed', `@${username} was removed from this show.`);
+    } else if (actionType === 'unkick' || actionType === 'unban' || actionType === 'seller_stream_unban') {
+      Alert.alert('Restriction lifted', `@${username} can return to this show.`);
     }
     onComplete?.();
   };
@@ -102,6 +104,9 @@ export function ModeratorViewerActions({
     if (can('kick')) {
       opts.push({ label: 'Kick from stream', destructive: true, action: () => void runAction('kick') });
     }
+    if (can('unkick')) {
+      opts.push({ label: 'Remove kick', action: () => void runAction('unkick') });
+    }
     if (can('room_ban')) {
       opts.push({
         label: 'Ban from stream',
@@ -109,12 +114,18 @@ export function ModeratorViewerActions({
         action: () => void runAction('room_ban'),
       });
     }
+    if (can('unban')) {
+      opts.push({ label: 'Remove room ban', action: () => void runAction('unban') });
+    }
     if (can('seller_stream_ban')) {
       opts.push({
         label: 'Ban from seller future streams',
         destructive: true,
         action: () => void runAction('seller_stream_ban'),
       });
+    }
+    if (can('seller_stream_unban')) {
+      opts.push({ label: 'Remove seller stream ban', action: () => void runAction('seller_stream_unban') });
     }
     return opts;
   }, [

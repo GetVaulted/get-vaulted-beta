@@ -136,6 +136,7 @@ export function VaultHostLiveChatPanel({
       liveRoomId={liveRoomId}
       hostUserId={hostUserId}
       isHost={mod.isHost}
+      isModerator={mod.isModerator}
       canModerate
       moderatorLevel={mod.moderatorLevel}
       allowedActions={mod.allowedActions}

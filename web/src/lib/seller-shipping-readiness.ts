@@ -35,9 +35,7 @@ function hasSellerShipFromContactPhone(s: SellerShipFromFields): boolean {
   return normalizePhoneForShippo(phone) !== null;
 }
 
-/** Shippo label purchase needs a complete origin address plus USPS contact phone. */
-export function hasCompleteSellerShipFrom(s: SellerShipFromFields): boolean {
-  let addressComplete = false;
+function hasSellerShipFromAddressFields(s: SellerShipFromFields): boolean {
   if (
     s.defaultShipFromAddressId &&
     s.defaultShipFromAddress?.line1?.trim() &&
@@ -46,17 +44,34 @@ export function hasCompleteSellerShipFrom(s: SellerShipFromFields): boolean {
     s.defaultShipFromAddress?.postalCode?.trim() &&
     s.defaultShipFromAddress?.country?.trim()
   ) {
-    addressComplete = true;
-  } else {
-    addressComplete = Boolean(
-      s.shipFromStreet?.trim() &&
-        s.shipFromCity?.trim() &&
-        s.shipFromState?.trim() &&
-        s.shipFromZip?.trim() &&
-        s.shipFromCountry?.trim(),
-    );
+    return true;
   }
-  return addressComplete && hasSellerShipFromContactPhone(s);
+  return Boolean(
+    s.shipFromStreet?.trim() &&
+      s.shipFromCity?.trim() &&
+      s.shipFromState?.trim() &&
+      s.shipFromZip?.trim() &&
+      s.shipFromCountry?.trim(),
+  );
+}
+
+/** Address on file but missing USPS contact phone (common after onboarding before phone was required). */
+export function sellerNeedsShipFromPhoneOnly(s: SellerShipFromFields): boolean {
+  return hasSellerShipFromAddressFields(s) && !hasSellerShipFromContactPhone(s);
+}
+
+/** Seller-facing copy for ship-from setup banners. */
+export function sellerShipFromSetupBannerMessage(s: SellerShipFromFields): string {
+  if (hasCompleteSellerShipFrom(s)) return "";
+  if (sellerNeedsShipFromPhoneOnly(s)) {
+    return "Add a contact phone for USPS labels — your ship-from address is already saved.";
+  }
+  return "Add your ship-from address and contact phone in Seller HQ.";
+}
+
+/** Shippo label purchase needs a complete origin address plus USPS contact phone. */
+export function hasCompleteSellerShipFrom(s: SellerShipFromFields): boolean {
+  return hasSellerShipFromAddressFields(s) && hasSellerShipFromContactPhone(s);
 }
 
 /** Unified ship-from gate: API readiness checks and/or persisted seller profile fields. */
@@ -114,8 +129,9 @@ export function getSellerFulfillmentReadinessIssues(args: {
     issues.push({
       code: "ship_from",
       severity: publishedOrSold ? "error" : "warning",
-      message:
-        "Ship-from setup is incomplete — add street, city, state, ZIP, country, and a contact phone under Account → Seller so USPS labels can print after payment.",
+      message: sellerNeedsShipFromPhoneOnly(args.seller)
+        ? "Ship-from phone missing — add a contact phone under Account → Seller so USPS labels can print after payment."
+        : "Ship-from setup is incomplete — add street, city, state, ZIP, country, and a contact phone under Account → Seller so USPS labels can print after payment.",
     });
   }
 

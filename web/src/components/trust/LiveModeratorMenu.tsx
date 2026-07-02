@@ -55,6 +55,23 @@ export function LiveModeratorMenu({
     }
   };
 
+  const punitive = [
+    { type: "mute", label: "Mute" },
+    { type: "kick", label: "Kick from show" },
+    { type: "room_ban", label: "Ban from show" },
+    { type: "seller_stream_ban", label: "Ban from all shows" },
+    { type: "block_bidding", label: "Block bidding" },
+    ...(targetMessageId ? [{ type: "delete_message", label: "Delete message" }] : []),
+  ] as const;
+
+  const restorative = [
+    { type: "unmute", label: "Unmute" },
+    { type: "unkick", label: "Remove kick" },
+    { type: "unban", label: "Remove room ban" },
+    { type: "seller_stream_unban", label: "Remove seller ban" },
+    { type: "unblock_bidding", label: "Unblock bidding" },
+  ] as const;
+
   return (
     <div className="relative inline-block">
       <button
@@ -66,22 +83,26 @@ export function LiveModeratorMenu({
         mod
       </button>
       {open ? (
-        <div className="absolute right-0 top-full z-50 mt-1 min-w-[9rem] rounded-lg border border-white/10 bg-[#0a0a0d] py-1 shadow-xl">
-          {[
-            { type: "mute", label: "Mute" },
-            { type: "kick", label: "Kick from show" },
-            ...(hostUserId && targetUserId !== hostUserId
-              ? [{ type: "seller_stream_ban", label: "Ban from all shows" }]
-              : []),
-            { type: "block_bidding", label: "Block bidding" },
-            ...(targetMessageId ? [{ type: "delete_message", label: "Delete message" }] : []),
-          ].map(({ type, label }) => (
+        <div className="absolute right-0 top-full z-50 mt-1 min-w-[10rem] rounded-lg border border-white/10 bg-[#0a0a0d] py-1 shadow-xl">
+          {punitive.map(({ type, label }) => (
             <button
               key={type}
               type="button"
               disabled={busy}
-              onClick={() => void act(type, type === "delete_message" ? undefined : undefined)}
-              className="block w-full px-3 py-1.5 text-left text-[11px] text-zinc-300 hover:bg-white/5 disabled:opacity-50"
+              onClick={() => void act(type)}
+              className="block w-full px-3 py-1.5 text-left text-[11px] text-rose-200/90 hover:bg-white/5 disabled:opacity-50"
+            >
+              {label}
+            </button>
+          ))}
+          <div className="my-1 border-t border-white/10" />
+          {restorative.map(({ type, label }) => (
+            <button
+              key={type}
+              type="button"
+              disabled={busy}
+              onClick={() => void act(type)}
+              className="block w-full px-3 py-1.5 text-left text-[11px] text-emerald-200/90 hover:bg-white/5 disabled:opacity-50"
             >
               {label}
             </button>

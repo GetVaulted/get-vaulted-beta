@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthContext';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
-import { listSupportTickets } from '../../platform/platformStore';
+import { fetchMySupportTickets } from '../../api/supportRepository';
 import type { SupportTicket } from '../../platform/types';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
@@ -13,19 +13,19 @@ type Props = NativeStackScreenProps<RootStackParamList, 'SupportInbox'>;
 
 export function SupportInboxScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || !session?.access_token) return;
     setLoading(true);
     try {
-      setTickets(await listSupportTickets(user.id));
+      setTickets(await fetchMySupportTickets(session.access_token));
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [session?.access_token, user?.id]);
 
   useEffect(() => {
     void load();

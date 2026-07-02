@@ -44,6 +44,21 @@ describe('liveModeratorPermissions', () => {
       moderatorLevel: null,
     })).toBe(true);
     expect(canPerformModeratorAction({
+      actionType: 'seller_stream_ban',
+      isModerator: true,
+      moderatorLevel: null,
+    })).toBe(true);
+    expect(canPerformModeratorAction({
+      actionType: 'unkick',
+      isModerator: true,
+      moderatorLevel: null,
+    })).toBe(true);
+    expect(canPerformModeratorAction({
+      actionType: 'seller_stream_unban',
+      isModerator: true,
+      moderatorLevel: null,
+    })).toBe(true);
+    expect(canPerformModeratorAction({
       actionType: 'slow_mode',
       isModerator: true,
       moderatorLevel: null,

@@ -6,7 +6,7 @@ import { compressImageFileToBlob } from "@/lib/listing-image-compress";
 import { uploadListingImageBlob } from "@/lib/upload-listing-image-client";
 import { buildRandomVariantsFromPreset, buildVariantsFromPreset, type VariantDraftInput } from "@/lib/live-item-variant-presets";
 import { LiveItemVariantBuilder } from "@/components/live-auction/LiveItemVariantBuilder";
-import { resolveSellerShippingProfileIdForCategory } from "@/lib/live-show-category-shipping-profile";
+import { resolveLiveHostDefaultShippingProfileId } from "@/lib/live-show-category-shipping-profile";
 import { SELLER_CONSOLE } from "@/lib/seller-console-copy";
 
 export type AddQueueItemCloseReason = "cancel" | "success" | "escape";
@@ -65,8 +65,8 @@ const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
 const BREAK_VARIANTS: { id: BreakSaleType; label: string; sub: string }[] = [
   { id: "pyt", label: "PYT", sub: "Pick your team" },
   { id: "pyd", label: "PYD", sub: "Pick division" },
-  { id: "random_pyt", label: "Random Teams", sub: "32 · wheel reveal" },
-  { id: "random_pyd", label: "Random Divisions", sub: "8 · wheel reveal" },
+  { id: "random_pyt", label: "Random Teams", sub: "32 · vault reveal" },
+  { id: "random_pyd", label: "Random Divisions", sub: "8 · vault reveal" },
 ];
 
 function saleTypeForCategory(category: SaleCategory, breakVariant: BreakSaleType): SaleType {
@@ -174,15 +174,12 @@ export function AddQueueItemModal({
                 sourceSlug: p.slug ?? "",
                 name: p.name,
               }));
-        const categoryDefault = resolveSellerShippingProfileIdForCategory(
-          options,
-          data.room?.category ?? null,
-        );
-        const showDefaultId =
-          data.room?.defaultSellerShippingProfileId?.trim() ||
-          data.room?.defaultShippingProfileId?.trim() ||
-          "";
-        const defaultId = categoryDefault || showDefaultId || options[0]?.id || "";
+        const defaultId = resolveLiveHostDefaultShippingProfileId({
+          profiles: options,
+          roomDefaultSellerShippingProfileId: data.room?.defaultSellerShippingProfileId,
+          roomDefaultShippingProfileId: data.room?.defaultShippingProfileId,
+          category: data.room?.category ?? null,
+        }) || options[0]?.id || "";
         if (!cancelled) {
           setProfileOptions(options);
           setProfileOptionsAreSeller(Boolean(data.sellerProfiles?.length));
@@ -676,7 +673,7 @@ export function AddQueueItemModal({
           {isBreakSale ? (
             <p className="mt-3 rounded-lg border border-gold/20 bg-gold/5 px-3 py-2 text-xs text-zinc-300">
               {isRandomBreak
-                ? `Buyers purchase a spot — the Vault wheel assigns ${saleType === "random_pyt" ? "an NFL team" : "a division"} from what's left. Won teams leave the wheel.`
+                ? `Buyers purchase a spot — Vault Reveal assigns ${saleType === "random_pyt" ? "an NFL team" : "a division"} from what's left. Won spots leave the pool.`
                 : `Buyers pick from ${saleType === "pyt" ? "32 teams" : "8 divisions"}. Sold spots disappear from the board.`}
             </p>
           ) : null}

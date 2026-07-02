@@ -39,10 +39,38 @@ describe("live-room-moderator-permissions", () => {
     expect(canModeratorPerformAction({ actionType: "kick", isHost: false, moderatorLevel: "show" })).toBe(true);
   });
 
-  it("head mods can kick and seller ban", () => {
+  it("show mods can kick, undo kick, and undo seller bans", () => {
+    expect(canModeratorPerformAction({ actionType: "kick", isHost: false, moderatorLevel: "show" })).toBe(true);
+    expect(canModeratorPerformAction({ actionType: "unkick", isHost: false, moderatorLevel: "show" })).toBe(true);
+    expect(
+      canModeratorPerformAction({ actionType: "seller_stream_unban", isHost: false, moderatorLevel: "show" }),
+    ).toBe(true);
+  });
+
+  it("head mods retain full punitive actions", () => {
     expect(canModeratorPerformAction({ actionType: "kick", isHost: false, moderatorLevel: "head" })).toBe(true);
     expect(
       canModeratorPerformAction({ actionType: "seller_stream_ban", isHost: false, moderatorLevel: "head" }),
+    ).toBe(true);
+    expect(canModeratorPerformAction({ actionType: "room_ban", isHost: false, moderatorLevel: "head" })).toBe(true);
+  });
+
+  it("assigned moderators without level default to show powers", () => {
+    expect(
+      canModeratorPerformAction({
+        actionType: "kick",
+        isHost: false,
+        moderatorLevel: null,
+        isModerator: true,
+      }),
+    ).toBe(true);
+    expect(
+      canModeratorPerformAction({
+        actionType: "seller_stream_ban",
+        isHost: false,
+        moderatorLevel: null,
+        isModerator: true,
+      }),
     ).toBe(true);
   });
 

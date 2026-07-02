@@ -19,6 +19,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { patchSellerProfile, patchSellerShipFrom } from '../../api/sellerAccountRepository';
 import { uploadMyAvatar } from '../../api/profilesRepository';
+import { persistProfileAvatarEverywhere } from '../../lib/profileAvatarSync';
 import { useAuth } from '../../auth/AuthContext';
 import { useSellerSetupState } from '../../hooks/useSellerSetupState';
 import { reconcileSellerPayoutAfterStripe } from '../../lib/reconcileSellerPayoutAfterStripe';
@@ -312,6 +313,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
     const asset = picked.assets[0];
     try {
       const url = await uploadMyAvatar(user.id, asset.uri, asset.mimeType ?? 'image/jpeg');
+      await persistProfileAvatarEverywhere({ userId: user.id, accessToken: token, publicUrl: url });
       setProfileImage(url);
     } catch (e) {
       Alert.alert('Upload failed', e instanceof Error ? e.message : 'Could not upload photo.');

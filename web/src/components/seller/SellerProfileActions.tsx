@@ -30,15 +30,15 @@ export function SellerProfileActions({
   const returnTo = pathname || `/seller/${encodeURIComponent(sellerUsername)}`;
 
   const handleAskSubmit = async (text: string) => {
-    if (!messageListing?.id) {
-      throw new Error("This seller has no active listings to message about yet.");
-    }
+    const payload = messageListing?.id
+      ? { listingId: messageListing.id, body: text }
+      : { recipientUserId: sellerId, body: text };
     const res = await fetch("/api/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ listingId: messageListing.id, body: text }),
+      body: JSON.stringify(payload),
     });
-    const data = (await res.json().catch(() => ({}))) as { error?: string; threadId?: string };
+    const data = (await res.json().catch(() => ({}))) as { error?: string; threadId?: string; inbox?: string };
     if (!res.ok) {
       throw new Error(typeof data.error === "string" ? data.error : "Message could not be sent.");
     }
@@ -53,10 +53,6 @@ export function SellerProfileActions({
     setMessageError(null);
     if (status === "unauthenticated" || !session?.user?.id) {
       router.push(`/signin?returnTo=${encodeURIComponent(returnTo)}`);
-      return;
-    }
-    if (!messageListing?.id) {
-      setMessageError("This seller has no active listings yet. Browse the marketplace and message from a listing.");
       return;
     }
     setAskOpen(true);
@@ -89,7 +85,7 @@ export function SellerProfileActions({
         onClick={openMessageSeller}
         className="inline-flex h-10 items-center justify-center rounded-full border border-gold/35 bg-gold/10 px-5 text-xs font-semibold text-gold-bright transition hover:border-gold/50 hover:bg-gold/15"
       >
-        Message seller
+        Message
       </button>
       {messageError ? (
         <p className="text-[11px] leading-snug text-amber-200/90 sm:max-w-xs">{messageError}</p>
@@ -101,15 +97,13 @@ export function SellerProfileActions({
         Browse marketplace
       </Link>
       <UserReportLink userId={sellerId} className="inline-flex h-10 items-center px-2" />
-      {messageListing ? (
-        <AskSellerModal
-          open={askOpen}
-          onClose={() => setAskOpen(false)}
-          listingTitle={messageListing.title}
-          sellerUsername={sellerUsername}
-          onSubmit={handleAskSubmit}
-        />
-      ) : null}
+      <AskSellerModal
+        open={askOpen}
+        onClose={() => setAskOpen(false)}
+        listingTitle={messageListing?.title ?? "Direct message from profile"}
+        sellerUsername={sellerUsername}
+        onSubmit={handleAskSubmit}
+      />
     </div>
   );
 }

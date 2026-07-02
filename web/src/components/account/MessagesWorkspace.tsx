@@ -15,6 +15,7 @@ export type ThreadListItem = {
   lastPreview: string;
   lastAt: string;
   unreadCount: number;
+  inbox?: "primary" | "request";
 };
 
 function formatThreadTime(iso: string) {
@@ -33,17 +34,21 @@ function formatThreadTime(iso: string) {
 export function MessagesWorkspace({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { status } = useSession();
+  const [inbox, setInbox] = useState<"primary" | "request">("primary");
   const [threads, setThreads] = useState<ThreadListItem[] | null>(null);
+  const [requestCount, setRequestCount] = useState(0);
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/account/threads");
+    const res = await fetch(`/api/account/threads?inbox=${inbox}`);
     if (!res.ok) {
       setThreads([]);
+      setRequestCount(0);
       return;
     }
-    const data = (await res.json()) as { threads?: ThreadListItem[] };
+    const data = (await res.json()) as { threads?: ThreadListItem[]; requestCount?: number };
     setThreads(Array.isArray(data.threads) ? data.threads : []);
-  }, []);
+    setRequestCount(typeof data.requestCount === "number" ? data.requestCount : 0);
+  }, [inbox]);
 
   useEffect(() => {
     if (status === "authenticated") void load();
@@ -88,11 +93,39 @@ export function MessagesWorkspace({ children }: { children: React.ReactNode }) {
             }`}
           >
             <div className="border-b border-white/[0.08] px-3 py-2.5">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-600">Inbox</p>
+              <div className="flex gap-1 rounded-full bg-white/[0.04] p-1">
+                <button
+                  type="button"
+                  onClick={() => setInbox("primary")}
+                  className={`flex-1 rounded-full px-3 py-1.5 text-[11px] font-bold transition ${
+                    inbox === "primary" ? "bg-gold/15 text-gold-bright" : "text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  Inbox
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInbox("request")}
+                  className={`relative flex-1 rounded-full px-3 py-1.5 text-[11px] font-bold transition ${
+                    inbox === "request" ? "bg-gold/15 text-gold-bright" : "text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  Requests
+                  {requestCount > 0 ? (
+                    <span className="ml-1 inline-flex min-w-[1rem] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-black text-white">
+                      {requestCount > 9 ? "9+" : requestCount}
+                    </span>
+                  ) : null}
+                </button>
+              </div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto">
               {threads && threads.length === 0 ? (
-                <p className="px-4 py-10 text-center text-sm text-zinc-500">No conversations yet.</p>
+                <p className="px-4 py-10 text-center text-sm text-zinc-500">
+                  {inbox === "request"
+                    ? "No message requests yet."
+                    : "No conversations yet. Message someone from their profile or a listing."}
+                </p>
               ) : (
                 <ul className="divide-y divide-white/[0.06]">
                   {(threads ?? []).map((t) => {

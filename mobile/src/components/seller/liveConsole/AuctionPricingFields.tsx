@@ -36,22 +36,6 @@ export function AuctionPricingFields({
           keyboardType="decimal-pad"
           disabled={disabled}
         />
-        <Field
-          label="Reserve (optional)"
-          value={value.reservePrice}
-          onChangeText={(reservePrice) => set({ reservePrice })}
-          placeholder="Hidden minimum"
-          keyboardType="decimal-pad"
-          disabled={disabled}
-        />
-        <Field
-          label="Buy it now (optional)"
-          value={value.buyNowPrice}
-          onChangeText={(buyNowPrice) => set({ buyNowPrice })}
-          placeholder="Instant purchase"
-          keyboardType="decimal-pad"
-          disabled={disabled}
-        />
       </View>
     </View>
   );

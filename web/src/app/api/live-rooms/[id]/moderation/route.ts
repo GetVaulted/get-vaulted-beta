@@ -74,6 +74,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     ? listAllowedModerationActions({
         isHost: modCtx.isHost,
         moderatorLevel: modCtx.moderatorLevel,
+        isModerator: modCtx.isModerator,
       })
     : [];
 

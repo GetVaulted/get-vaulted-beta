@@ -113,7 +113,9 @@ export async function requestEnablePushNotifications(input: {
 }): Promise<PushRegistrationResult> {
   const res = await registerForPushNotifications();
   if (!res.ok) return res;
-  const persisted = await persistPushToken(input.supabaseUserId, res.token, input.accessToken);
+  const persisted = await persistPushToken(input.supabaseUserId, res.token, input.accessToken, {
+    requireWebSync: true,
+  });
   if (!persisted.ok) return { ok: false, reason: persisted.reason };
   return res;
 }
@@ -151,33 +153,42 @@ export async function persistPushToken(
   userId: string,
   token: string,
   accessToken?: string,
+  options?: { requireWebSync?: boolean },
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   const platform = Platform.OS;
   const deviceName = Device.modelName ?? Device.deviceName ?? null;
 
-  if (accessToken) {
-    const webOk = await registerPushTokenWithWebApi(accessToken, { token, platform, deviceName });
-    if (!webOk) {
-      return { ok: false, reason: 'Could not save push token to the server. Check your connection and try again.' };
+  const sb = getSupabase();
+  if (sb) {
+    const { error } = await sb.from('push_device_tokens').upsert(
+      {
+        user_id: userId,
+        expo_push_token: token,
+        platform,
+        device_name: deviceName,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,expo_push_token' },
+    );
+    if (error) {
+      console.warn('[push] persistPushToken supabase', error.message);
+      return { ok: false, reason: 'Could not save push token locally.' };
     }
   }
 
-  const sb = getSupabase();
-  if (!sb) return { ok: true };
-  const { error } = await sb.from('push_device_tokens').upsert(
-    {
-      user_id: userId,
-      expo_push_token: token,
-      platform,
-      device_name: deviceName,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'user_id,expo_push_token' },
-  );
-  if (error) {
-    console.warn('[push] persistPushToken supabase', error.message);
-    return { ok: false, reason: 'Could not save push token locally.' };
+  if (accessToken) {
+    const webOk = await registerPushTokenWithWebApi(accessToken, { token, platform, deviceName });
+    if (!webOk) {
+      if (options?.requireWebSync) {
+        return {
+          ok: false,
+          reason: 'Could not save push token to the server. Check your connection and try again.',
+        };
+      }
+      console.warn('[push] server sync failed; local token saved — will retry on next launch');
+    }
   }
+
   return { ok: true };
 }
 

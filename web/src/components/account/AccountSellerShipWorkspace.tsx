@@ -62,7 +62,9 @@ function SetupBanner({ liveShipping }: { liveShipping: SellerLiveShippingDashboa
       <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-amber-100/95">
         {!setup.shipFromComplete ? (
           <li>
-            Add your ship-from address in{" "}
+            {setup.shipFromNeedsPhoneOnly
+              ? "Add a contact phone for your saved ship-from address in "
+              : "Add your ship-from address in "}
             <Link href="/account/seller" className="font-semibold text-gold-bright hover:underline">
               Seller HQ
             </Link>

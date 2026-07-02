@@ -37,6 +37,22 @@ describe('mergeModeratorRoomUsers', () => {
     expect(rows.find((r) => r.userId === 'u2')?.messageCount).toBe(3);
   });
 
+  it('prefers chat username over presence Member placeholder', () => {
+    const rows = mergeModeratorRoomUsers({
+      presence: [{ userId: 'u1', username: 'Member' }],
+      viewers: [
+        {
+          userId: 'u1',
+          username: 'alpha',
+          lastSeenAt: '2026-01-01T12:00:00.000Z',
+          messageCount: 2,
+        },
+      ],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.username).toBe('alpha');
+  });
+
   it('falls back when viewer username is missing', () => {
     const rows = mergeModeratorRoomUsers({
       presence: [],
@@ -50,6 +66,15 @@ describe('mergeModeratorRoomUsers', () => {
       ],
     });
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.username).toBe('Member');
+    expect(rows[0]?.username).toBe('user-u3');
+  });
+
+  it('uses username hints for presence-only viewers', () => {
+    const rows = mergeModeratorRoomUsers({
+      presence: [{ userId: 'u9', username: 'Member' }],
+      viewers: [],
+      usernameByUserId: { u9: 'niner' },
+    });
+    expect(rows[0]?.username).toBe('niner');
   });
 });

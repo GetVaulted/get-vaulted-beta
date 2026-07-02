@@ -37,7 +37,7 @@ export function QuickLiveLotFields({
 
       <Text style={styles.fieldHint}>
         {value.saleType === 'auction'
-          ? 'Buyers bid until the timer ends. Optional reserve and buy-it-now overlay.'
+          ? 'Buyers bid until the timer ends.'
           : 'Fixed price — buyers purchase instantly when the lot is pinned.'}
       </Text>
 
@@ -62,31 +62,6 @@ export function QuickLiveLotFields({
         editable={!disabled}
         style={[styles.input, disabled && styles.inputOff]}
       />
-
-      {value.saleType === 'auction' ? (
-        <>
-          <Text style={styles.fieldLbl}>Reserve (optional)</Text>
-          <TextInput
-            value={value.reservePrice}
-            onChangeText={(reservePrice) => onChange({ ...value, reservePrice })}
-            placeholder="Hidden minimum"
-            placeholderTextColor={colors.textMuted}
-            keyboardType="decimal-pad"
-            editable={!disabled}
-            style={[styles.input, disabled && styles.inputOff]}
-          />
-          <Text style={styles.fieldLbl}>Buy it now (optional)</Text>
-          <TextInput
-            value={value.buyNowPrice}
-            onChangeText={(buyNowPrice) => onChange({ ...value, buyNowPrice })}
-            placeholder="Instant purchase price"
-            placeholderTextColor={colors.textMuted}
-            keyboardType="decimal-pad"
-            editable={!disabled}
-            style={[styles.input, disabled && styles.inputOff]}
-          />
-        </>
-      ) : null}
     </View>
   );
 }

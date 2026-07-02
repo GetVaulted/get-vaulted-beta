@@ -1,29 +1,30 @@
-import { describe, expect, it } from 'vitest';
 import {
-  appendMentionToDraft,
   canShowLiveChatBanOption,
   canShowLiveChatKickOption,
+  canShowLiveChatRemoveKickOption,
+  canShowLiveChatRemoveSellerBanOption,
 } from './liveChatUserActions';
 
-describe('appendMentionToDraft', () => {
-  it('appends a mention with spacing', () => {
-    expect(appendMentionToDraft('', 'seller1')).toBe('@seller1 ');
-    expect(appendMentionToDraft('hello', 'seller1')).toBe('hello @seller1 ');
-    expect(appendMentionToDraft('hello ', 'seller1')).toBe('hello @seller1 ');
-  });
+describe('liveChatUserActions', () => {
+  const targetUserId = 'buyer-1';
+  const hostUserId = 'host-1';
 
-  it('strips leading @ from username', () => {
-    expect(appendMentionToDraft('', '@seller1')).toBe('@seller1 ');
-  });
-});
-
-describe('live chat moderation menu options', () => {
-  it('allows kick for show mods even when API allowedActions omits kick', () => {
+  it('lets show mods kick and ban from seller streams', () => {
     expect(
       canShowLiveChatKickOption({
-        targetUserId: 'buyer-1',
-        hostUserId: 'host-1',
-        allowedActions: ['mute', 'delete_message'],
+        targetUserId,
+        hostUserId,
+        allowedActions: [],
+        isModerator: true,
+        canModerate: true,
+        moderatorLevel: 'show',
+      }),
+    ).toBe(true);
+    expect(
+      canShowLiveChatBanOption({
+        targetUserId,
+        hostUserId,
+        allowedActions: [],
         isModerator: true,
         canModerate: true,
         moderatorLevel: 'show',
@@ -31,24 +32,34 @@ describe('live chat moderation menu options', () => {
     ).toBe(true);
   });
 
-  it('allows kick when head mod actions include room_ban', () => {
+  it('lets show mods undo kick and seller bans', () => {
     expect(
-      canShowLiveChatKickOption({
-        targetUserId: 'buyer-1',
-        hostUserId: 'host-1',
-        allowedActions: ['room_ban'],
+      canShowLiveChatRemoveKickOption({
+        targetUserId,
+        hostUserId,
+        allowedActions: [],
         isModerator: true,
         canModerate: true,
-        moderatorLevel: 'head',
+        moderatorLevel: 'show',
+      }),
+    ).toBe(true);
+    expect(
+      canShowLiveChatRemoveSellerBanOption({
+        targetUserId,
+        hostUserId,
+        allowedActions: [],
+        isModerator: true,
+        canModerate: true,
+        moderatorLevel: 'show',
       }),
     ).toBe(true);
   });
 
-  it('blocks kick on host and without user id', () => {
+  it('blocks punitive actions on the host', () => {
     expect(
       canShowLiveChatKickOption({
-        targetUserId: 'host-1',
-        hostUserId: 'host-1',
+        targetUserId: hostUserId,
+        hostUserId,
         allowedActions: ['kick'],
         isModerator: true,
         canModerate: true,
@@ -56,9 +67,10 @@ describe('live chat moderation menu options', () => {
       }),
     ).toBe(false);
     expect(
-      canShowLiveChatKickOption({
-        hostUserId: 'host-1',
-        allowedActions: ['kick'],
+      canShowLiveChatBanOption({
+        targetUserId: hostUserId,
+        hostUserId,
+        allowedActions: ['seller_stream_ban'],
         isModerator: true,
         canModerate: true,
         moderatorLevel: 'show',
@@ -66,34 +78,15 @@ describe('live chat moderation menu options', () => {
     ).toBe(false);
   });
 
-  it('blocks kick for chat-only mods', () => {
-    expect(
-      canShowLiveChatKickOption({
-        targetUserId: 'buyer-1',
-        hostUserId: 'host-1',
-        allowedActions: ['mute', 'delete_message'],
-        isModerator: true,
-        canModerate: true,
-        moderatorLevel: 'chat',
-      }),
-    ).toBe(false);
-  });
-
-  it('allows seller ban for host only', () => {
+  it('does not expose ban to regular buyers', () => {
     expect(
       canShowLiveChatBanOption({
-        targetUserId: 'buyer-1',
-        hostUserId: 'host-1',
-        isHost: true,
-        allowedActions: ['seller_stream_ban'],
-      }),
-    ).toBe(true);
-    expect(
-      canShowLiveChatBanOption({
-        targetUserId: 'buyer-1',
-        hostUserId: 'host-1',
-        isHost: false,
-        allowedActions: ['seller_stream_ban'],
+        targetUserId,
+        hostUserId,
+        allowedActions: [],
+        isModerator: false,
+        canModerate: false,
+        moderatorLevel: null,
       }),
     ).toBe(false);
   });

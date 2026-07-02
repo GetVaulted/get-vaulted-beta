@@ -1,5 +1,11 @@
 /** Shared Vault Reveal wheel payload — broadcast to every client in the room. */
 
+import {
+  buildVaultDropPoolRun,
+  vaultDropPoolRunAnimationMs,
+  type VaultDropPoolRunStep,
+} from "../../../shared/vault-drop-pool-run";
+
 export type VaultRevealSpinKind = "giveaway" | "break_pyt" | "random_reveal";
 
 export type VaultRevealSpinPayload = {
@@ -24,11 +30,50 @@ export const VAULT_REVEAL_RESULT_HOLD_MS = 1600;
 export const VAULT_REVEAL_TOTAL_DISPLAY_MS =
   VAULT_REVEAL_DEFAULT_DURATION_MS + VAULT_REVEAL_RESULT_HOLD_MS;
 
-/** Giveaway Vault Seal reveal (legacy — wheel is used for all kinds in the UI). */
+/** Vault Seal reveal timing — used for giveaway, break randomizer, and random spot reveals. */
 export const VAULT_SEAL_GLOW_MS = 400;
 export const VAULT_SEAL_BREAK_MS = 600;
 export const VAULT_SEAL_WINNER_HOLD_MS = 1600;
 export const VAULT_SEAL_TOTAL_MS = VAULT_SEAL_GLOW_MS + VAULT_SEAL_BREAK_MS + VAULT_SEAL_WINNER_HOLD_MS;
+
+/** Vault Drop reveal — visible pool roll, flash slam, winner hold. */
+export const VAULT_DROP_FLASH_MS = 100;
+export const VAULT_DROP_HOLD_MS = 1400;
+/** @deprecated Use vaultDropRevealTiming() — pool roll duration depends on label count. */
+export const VAULT_DROP_BUILD_MS = 540;
+export const VAULT_DROP_TOTAL_MS = VAULT_DROP_BUILD_MS + VAULT_DROP_FLASH_MS + VAULT_DROP_HOLD_MS;
+
+export {
+  buildVaultDropPoolRun,
+  buildVaultDropReelLane,
+  reelStepAnimationMs,
+  reelStepEasingCss,
+  vaultDropPoolChipActive,
+  vaultDropPoolPhaseCopy,
+  vaultDropPoolRollingLabel,
+  vaultDropPoolRunAnimationMs,
+  vaultDropPoolRunDurationMs,
+  vaultDropReelLaneStartScrollIndex,
+  VAULT_DROP_REEL_LAND_MS,
+  VAULT_DROP_REEL_LANE_COPIES,
+  type VaultDropPoolRunStep,
+} from '../../../shared/vault-drop-pool-run';
+
+export function vaultDropRevealTiming(spin: Pick<VaultRevealSpinPayload, 'labels' | 'winnerIndex'>): {
+  steps: VaultDropPoolRunStep[];
+  poolMs: number;
+  totalMs: number;
+} {
+  const steps = buildVaultDropPoolRun(spin.labels, spin.winnerIndex);
+  const poolMs = vaultDropPoolRunAnimationMs(steps);
+  return { steps, poolMs, totalMs: poolMs + VAULT_DROP_HOLD_MS };
+}
+
+export function vaultDropRevealEyebrow(kind: VaultRevealSpinKind): string {
+  if (kind === "giveaway") return "Vault Draw";
+  if (kind === "random_reveal") return "Vault Drop";
+  return "Break Randomizer";
+}
 
 export function isVaultSealRevealKind(kind: VaultRevealSpinKind): boolean {
   return kind === "giveaway" || kind === "break_pyt" || kind === "random_reveal";

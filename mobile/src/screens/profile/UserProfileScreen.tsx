@@ -20,8 +20,8 @@ import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader
 import { ReportSheet } from '../../components/trust/ReportSheet';
 import { UserAvatar } from '../../components/ui/UserAvatar';
 import { VaultImage } from '../../components/ui/VaultImage';
-import { openDispute, openFollowersFollowing, openContactSupport } from '../../navigation/openPlatform';
-import { openMessageSellerForListing } from '../../navigation/openMessages';
+import { openDispute, openFollowersFollowing } from '../../navigation/openPlatform';
+import { openMessageUser } from '../../navigation/openMessages';
 import type { RootStackParamList } from '../../navigation/types';
 import { computeTrustProfile } from '../../platform/computeTrustProfile';
 import {
@@ -240,22 +240,15 @@ export function UserProfileScreen({ navigation, route }: Props) {
             <Pressable
               style={styles.btnGhost}
               onPress={() => {
-                if (listings[0]) {
-                  openMessageSellerForListing(navigation, { listingId: listings[0].id });
+                if (!session?.access_token) {
+                  Alert.alert('Sign in', 'Sign in to send a message.');
                   return;
                 }
-                const liveRoomId = liveNow[0]?.id ?? pastShows[0]?.id;
-                if (liveRoomId) {
-                  navigation.navigate('MessageCompose', {
-                    liveRoomId,
-                    initialDraft: profile?.username ? `Hi @${profile.username}, ` : undefined,
-                  });
-                  return;
-                }
-                openContactSupport(
-                  { category: 'other', referenceType: 'profile', referenceId: userId },
-                  navigation,
-                );
+                openMessageUser(navigation, {
+                  userId,
+                  username: profile?.username ?? undefined,
+                  initialDraft: profile?.username ? `Hi @${profile.username}, ` : undefined,
+                });
               }}
             >
               <Text style={styles.btnGhostTxt}>Message</Text>

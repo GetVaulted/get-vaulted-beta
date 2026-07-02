@@ -19,6 +19,7 @@ import { useAuth } from '../auth/AuthContext';
 import { SellerLiveHostView } from '../components/seller/liveOverlay/SellerLiveHostView';
 import { LiveConsoleWarningBanner } from '../components/seller/liveConsole/LiveConsoleWarningBanner';
 import { sanitizeLiveError, type SanitizedLiveError } from '../components/seller/liveConsole/liveConsoleErrors';
+import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhileFocused';
 import { useMobileStagePublish } from '../hooks/useMobileStagePublish';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
 import { logVaultCommandCenter } from '../lib/logVaultCommandCenterFlow';
@@ -33,6 +34,8 @@ export function SellerHostRoomScreen({ navigation, route }: Props) {
   const { session } = useAuth();
   const token = session?.access_token;
   const roomId = route.params.roomId;
+
+  useKeepScreenAwakeWhileFocused('live-room-host');
 
   useEffect(() => {
     logVaultCommandCenter('host_screen_mount', { roomId, hasToken: Boolean(token) });

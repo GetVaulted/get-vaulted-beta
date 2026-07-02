@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSupabaseBearerJwt } from "@/lib/mobile-supabase-bearer";
 import { reassignExpoPushTokenToUser, revokeExpoPushTokensForUser } from "@/lib/push/push-device-token";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -16,7 +15,7 @@ type Body = {
 
 /** Register or refresh an Expo push token for the signed-in user (mobile Bearer auth). */
 export async function POST(req: Request) {
-  const auth = await resolveAccountUserId(req);
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
 
   let body: Body;
@@ -37,9 +36,7 @@ export async function POST(req: Request) {
       ? body.deviceName.trim().slice(0, 120)
       : null;
 
-  const supabaseAuthUserId = getSupabaseBearerJwt(req)
-    ? await resolveSupabaseAuthUserIdFromJwt(req)
-    : null;
+  const supabaseAuthUserId = auth.supabaseAuthUserId ?? null;
 
   await reassignExpoPushTokenToUser({
     userId: auth.userId,
@@ -86,7 +83,7 @@ export async function POST(req: Request) {
 
 /** Unregister Expo push token(s) for the signed-in user (logout / account switch). */
 export async function DELETE(req: Request) {
-  const auth = await resolveAccountUserId(req);
+  const auth = await resolveAccountUserId(req, { skipStripeSiblingSync: true });
   if (auth instanceof NextResponse) return auth;
 
   let body: Body = {};
@@ -98,9 +95,7 @@ export async function DELETE(req: Request) {
   }
 
   const token = typeof body.token === "string" ? body.token.trim() : "";
-  const supabaseAuthUserId = getSupabaseBearerJwt(req)
-    ? await resolveSupabaseAuthUserIdFromJwt(req)
-    : null;
+  const supabaseAuthUserId = auth.supabaseAuthUserId ?? null;
 
   await revokeExpoPushTokensForUser({
     userId: auth.userId,
@@ -109,14 +104,4 @@ export async function DELETE(req: Request) {
   });
 
   return NextResponse.json({ ok: true });
-}
-
-async function resolveSupabaseAuthUserIdFromJwt(req: Request): Promise<string | null> {
-  const jwt = getSupabaseBearerJwt(req);
-  if (!jwt) return null;
-  const admin = getSupabaseAdminClient();
-  if (!admin) return null;
-  const { data, error } = await admin.auth.getUser(jwt);
-  if (error || !data.user?.id) return null;
-  return data.user.id;
 }

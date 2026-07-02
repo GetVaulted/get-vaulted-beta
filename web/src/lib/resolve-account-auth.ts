@@ -2,15 +2,24 @@ import { NextResponse } from "next/server";
 import { isAccountDeleted } from "@/lib/account-deletion";
 import { getServerSessionSafe } from "@/lib/auth";
 import { requestHasSupabaseBearer } from "@/lib/mobile-supabase-bearer";
-import { requireUserIdFromSupabaseBearer } from "@/lib/require-supabase-bearer";
+import {
+  requireUserIdFromSupabaseBearer,
+  type RequireSupabaseBearerOptions,
+} from "@/lib/require-supabase-bearer";
 import { prisma } from "@/lib/prisma";
+
+export type ResolveAccountAuthResult = {
+  userId: string;
+  supabaseAuthUserId?: string;
+};
 
 /** Web session (cookies) or mobile `Authorization: Bearer` (Supabase JWT). */
 export async function resolveAccountUserId(
   request: Request,
-): Promise<{ userId: string } | NextResponse> {
+  options: RequireSupabaseBearerOptions = {},
+): Promise<ResolveAccountAuthResult | NextResponse> {
   if (requestHasSupabaseBearer(request)) {
-    return requireUserIdFromSupabaseBearer(request);
+    return requireUserIdFromSupabaseBearer(request, options);
   }
 
   const session = await getServerSessionSafe();

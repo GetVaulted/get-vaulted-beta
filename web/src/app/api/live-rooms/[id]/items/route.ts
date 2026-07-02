@@ -9,6 +9,7 @@ import type { LiveItemVariantAssignmentMode } from "@/generated/prisma/client";
 import { validateLiveRoomItemThumbnail } from "@/lib/listing-photo-requirements";
 import { apiErrorResponseFromUnknown } from "@/lib/prisma-api-error-response";
 import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-shipping-profiles";
+import { resolveDefaultSellerProfileForLiveShow } from "@/services/shipping/seller-shipping-profiles";
 
 type PostBody = {
   title?: string;
@@ -153,6 +154,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       return NextResponse.json({ error: "That seller shipping profile is not available." }, { status: 400 });
     }
     sellerShippingProfileId = sellerProfile.id;
+  } else {
+    const inheritedSellerProfile = await resolveDefaultSellerProfileForLiveShow({
+      sellerId: room.sellerId,
+      showDefaultSellerProfileId: room.defaultSellerShippingProfileId,
+      db: prisma,
+    });
+    sellerShippingProfileId = inheritedSellerProfile?.id ?? null;
   }
 
   const baseCreate = {

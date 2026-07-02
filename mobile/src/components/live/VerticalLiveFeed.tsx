@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radii, spacing } from '../../theme';
 import { fetchLiveRoomPublicById } from '../../api/liveRoomsRepository';
 import { fetchProfileById } from '../../api/profilesRepository';
+import { resolveCanonicalProfileAvatar } from '../../lib/profileAvatarSync';
 import { applyLiveModerationAction } from '../../api/trustRepository';
 import { fetchLiveBuyerPaymentSession } from '../../api/liveBuyerPaymentRepository';
 import { fetchSellerFollowStatus, toggleSellerFollow } from '../../api/sellerFollowRepository';
@@ -66,7 +67,7 @@ import {
   PinnedModeratorBar,
 } from './floatingLiveChat';
 import type { MentionComposerInputHandle } from '../mentions/MentionComposerInput';
-import { appendMentionToDraft, canShowLiveChatBanOption, canShowLiveChatKickOption, promptLiveChatUserAction } from '../../lib/liveChatUserActions';
+import { appendMentionToDraft, canShowLiveChatBanOption, canShowLiveChatKickOption, canShowLiveChatRemoveKickOption, canShowLiveChatRemoveRoomBanOption, canShowLiveChatRemoveSellerBanOption, promptLiveChatUserAction, type LiveChatModerationActionType } from '../../lib/liveChatUserActions';
 import { LiveBuyerShopSheet } from './LiveBuyerShopSheet';
 import { LiveCustomBidSheet } from './LiveCustomBidSheet';
 import { LiveTipSheet } from './LiveTipSheet';
@@ -329,11 +330,16 @@ function LiveSlide({
       setMyChatSender({});
       return;
     }
-    void fetchProfileById(userId).then((profile) => {
+    void fetchProfileById(userId).then(async (profile) => {
       if (!profile) return;
+      const avatarUrl = await resolveCanonicalProfileAvatar({
+        userId,
+        accessToken,
+        supabaseAvatarUrl: profile.avatar_url ?? null,
+      });
       setMyChatSender({
         username: profile.username?.trim() || profile.display_name?.trim() || undefined,
-        avatarUrl: profile.avatar_url ?? null,
+        avatarUrl,
       });
     });
   }, [isActive, userId]);
@@ -374,6 +380,7 @@ function LiveSlide({
     userId,
     enabled: isActive,
     hostUsername: stream.host.handle.replace(/^@/, '') || stream.host.name,
+    viewerDisplayName: myChatSender.username ?? null,
     onModerationChanged: () => void moderation.reload(),
     onChatBroadcast: (message) => {
       if (!message.id) {
@@ -736,14 +743,20 @@ function LiveSlide({
   }, []);
 
   const applyChatUserModeration = useCallback(
-    async (actionType: 'kick' | 'room_ban' | 'seller_stream_ban', targetUserId: string, username: string) => {
+    async (actionType: LiveChatModerationActionType, targetUserId: string, username: string) => {
       if (!accessToken?.trim()) return;
       const label =
         actionType === 'kick'
           ? 'Kicked from show'
-          : actionType === 'room_ban'
-            ? 'Banned from show'
-            : 'Banned from seller shows';
+          : actionType === 'unkick'
+            ? 'Kick removed'
+            : actionType === 'room_ban'
+              ? 'Banned from show'
+              : actionType === 'unban'
+                ? 'Room ban removed'
+                : actionType === 'seller_stream_unban'
+                  ? 'Seller ban removed'
+                  : 'Banned from seller shows';
       const result = await applyLiveModerationAction({
         accessToken,
         roomId: stream.id,
@@ -764,25 +777,20 @@ function LiveSlide({
   const onPressChatUser = useCallback(
     (user: { username: string; userId?: string }) => {
       const targetUserId = user.userId?.trim();
-      const canKick =
-        modActor.canModerate &&
-        canShowLiveChatKickOption({
-          targetUserId,
-          hostUserId: showHostUserId,
-          allowedActions: modActor.allowedActions,
-          isHost: modActor.isHost,
-          isModerator: modActor.isModerator,
-          canModerate: modActor.canModerate,
-          moderatorLevel: modActor.moderatorLevel,
-        });
-      const canBan =
-        modActor.canModerate &&
-        canShowLiveChatBanOption({
-          targetUserId,
-          hostUserId: showHostUserId,
-          isHost: modActor.isHost,
-          allowedActions: modActor.allowedActions,
-        });
+      const modArgs = {
+        targetUserId,
+        hostUserId: showHostUserId,
+        allowedActions: modActor.allowedActions,
+        isHost: modActor.isHost,
+        isModerator: modActor.isModerator,
+        canModerate: modActor.canModerate,
+        moderatorLevel: modActor.moderatorLevel,
+      };
+      const canKick = modActor.canModerate && canShowLiveChatKickOption(modArgs);
+      const canBan = modActor.canModerate && canShowLiveChatBanOption(modArgs);
+      const canRemoveKick = modActor.canModerate && canShowLiveChatRemoveKickOption(modArgs);
+      const canRemoveRoomBan = modActor.canModerate && canShowLiveChatRemoveRoomBanOption(modArgs);
+      const canRemoveSellerBan = modActor.canModerate && canShowLiveChatRemoveSellerBanOption(modArgs);
 
       promptLiveChatUserAction({
         username: user.username,
@@ -790,21 +798,42 @@ function LiveSlide({
         onTag: tagUserInChat,
         onViewProfile: targetUserId ? (userId) => openUserProfile(userId) : undefined,
         moderation:
-          canKick || canBan
+          canKick || canBan || canRemoveKick || canRemoveRoomBan || canRemoveSellerBan
             ? {
                 canKickFromShow: canKick,
                 canBanFromSeller: canBan,
+                canRemoveKick,
+                canRemoveRoomBan,
+                canRemoveSellerBan,
                 onKickFromShow: () => {
                   if (targetUserId) void applyChatUserModeration('kick', targetUserId, user.username);
                 },
                 onBanFromSeller: () => {
                   if (targetUserId) void applyChatUserModeration('seller_stream_ban', targetUserId, user.username);
                 },
+                onRemoveKick: () => {
+                  if (targetUserId) void applyChatUserModeration('unkick', targetUserId, user.username);
+                },
+                onRemoveRoomBan: () => {
+                  if (targetUserId) void applyChatUserModeration('unban', targetUserId, user.username);
+                },
+                onRemoveSellerBan: () => {
+                  if (targetUserId) void applyChatUserModeration('seller_stream_unban', targetUserId, user.username);
+                },
               }
             : undefined,
       });
     },
-    [applyChatUserModeration, modActor.allowedActions, modActor.canModerate, modActor.isHost, showHostUserId, tagUserInChat],
+    [
+      applyChatUserModeration,
+      modActor.allowedActions,
+      modActor.canModerate,
+      modActor.isHost,
+      modActor.isModerator,
+      modActor.moderatorLevel,
+      showHostUserId,
+      tagUserInChat,
+    ],
   );
 
   const sendFloatingChat = useCallback(async () => {

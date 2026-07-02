@@ -6,9 +6,12 @@ import { colors, radii } from '../../../theme';
 export function QueueSaleTypePill({
   item,
   compact = false,
+  inline = false,
 }: {
   item: Pick<LiveRoomItemRow, 'salesFormat' | 'activeSpotCommerceMode'>;
   compact?: boolean;
+  /** Sit on the same row as queue action buttons (Edit / Pin). */
+  inline?: boolean;
 }) {
   const label = queueSaleTypePillLabel(item);
   const buyNow = label === 'Buy Now';
@@ -18,6 +21,7 @@ export function QueueSaleTypePill({
       style={[
         styles.pill,
         compact && styles.pillCompact,
+        inline && styles.pillInline,
         buyNow ? styles.pillBuyNow : styles.pillAuction,
       ]}
     >
@@ -37,6 +41,10 @@ const styles = StyleSheet.create({
   pillCompact: {
     paddingHorizontal: 6,
     paddingVertical: 2,
+  },
+  pillInline: {
+    alignSelf: 'center',
+    paddingVertical: 5,
   },
   pillAuction: {
     borderColor: 'rgba(212,175,55,0.45)',

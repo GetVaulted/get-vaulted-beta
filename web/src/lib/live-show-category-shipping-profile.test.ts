@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  resolveLiveHostDefaultShippingProfileId,
   resolveSellerShippingProfileIdForCategory,
   suggestSellerShippingProfileSourceSlugForCategory,
 } from "./live-show-category-shipping-profile";
@@ -27,5 +28,30 @@ describe("resolveSellerShippingProfileIdForCategory", () => {
 
   it("picks helmet profile id for Helmets category", () => {
     expect(resolveSellerShippingProfileIdForCategory(PROFILES, "Helmets")).toBe("helmet-id");
+  });
+});
+
+describe("resolveLiveHostDefaultShippingProfileId", () => {
+  it("prefers show default over category-mapped break spot profile", () => {
+    expect(
+      resolveLiveHostDefaultShippingProfileId({
+        profiles: [
+          ...PROFILES,
+          { id: "graded-id", sourceSlug: "graded_card" },
+        ],
+        roomDefaultSellerShippingProfileId: "graded-id",
+        category: "Cards",
+      }),
+    ).toBe("graded-id");
+  });
+
+  it("falls back to category when show has no default", () => {
+    expect(
+      resolveLiveHostDefaultShippingProfileId({
+        profiles: PROFILES,
+        roomDefaultSellerShippingProfileId: null,
+        category: "Cards",
+      }),
+    ).toBe("cards-id");
   });
 });

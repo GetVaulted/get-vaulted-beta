@@ -32,8 +32,10 @@ export type LiveRoomModeratorContext = {
 const REVERSAL: Partial<Record<LiveRoomModerationActionType, LiveRoomModerationActionType>> = {
   mute: "unmute",
   timeout: "unmute",
+  kick: "unkick",
   room_ban: "unban",
   block_bidding: "unblock_bidding",
+  seller_stream_ban: "seller_stream_unban",
 };
 
 function isActive(expiresAt: Date | null | undefined, now: Date): boolean {
@@ -275,7 +277,7 @@ export async function getLiveRoomModeratorContext(args: {
   });
   const isModerator = Boolean(mod);
   const canModerate = isHost || isModerator;
-  const moderatorLevel = isHost ? ("head" as const) : mod?.moderatorLevel ?? null;
+  const moderatorLevel = isHost ? ("head" as const) : mod?.moderatorLevel ?? (isModerator ? ("show" as const) : null);
 
   return {
     isHost,
@@ -355,9 +357,18 @@ export async function getLiveRoomUserRestrictions(args: {
 
   const seen = new Set<string>();
   for (const a of actions) {
-    const key = a.actionType;
-    if (seen.has(key) || (REVERSAL[a.actionType as keyof typeof REVERSAL] && seen.has(a.actionType))) continue;
-    if (a.actionType === "unmute" || a.actionType === "unban" || a.actionType === "unblock_bidding") {
+    if (seen.has(a.actionType)) continue;
+
+    const reversal = REVERSAL[a.actionType as keyof typeof REVERSAL];
+    if (reversal && seen.has(reversal)) continue;
+
+    if (
+      a.actionType === "unmute" ||
+      a.actionType === "unban" ||
+      a.actionType === "unkick" ||
+      a.actionType === "unblock_bidding" ||
+      a.actionType === "seller_stream_unban"
+    ) {
       seen.add(a.actionType);
       continue;
     }
@@ -436,6 +447,7 @@ export async function applyLiveRoomModerationAction(args: {
       actionType,
       isHost: ctx.isHost,
       moderatorLevel: ctx.moderatorLevel,
+      isModerator: ctx.isModerator,
       isAdmin: args.isAdmin,
     })
   ) {
@@ -554,16 +566,30 @@ export async function applyLiveRoomModerationAction(args: {
     });
   }
 
+  if (actionType === "seller_stream_unban") {
+    if (!args.targetUserId) return { ok: false, error: "Target user required." };
+    await prisma.sellerStreamBan.updateMany({
+      where: {
+        sellerId: room.sellerId,
+        targetUserId: args.targetUserId,
+        revokedAt: null,
+      },
+      data: { revokedAt: new Date() },
+    });
+  }
+
   const userActions: LiveRoomModerationActionType[] = [
     "mute",
     "unmute",
     "timeout",
     "kick",
+    "unkick",
     "room_ban",
     "unban",
     "block_bidding",
     "unblock_bidding",
     "seller_stream_ban",
+    "seller_stream_unban",
   ];
   if (userActions.includes(actionType) && !args.targetUserId) {
     return { ok: false, error: "Target user required." };

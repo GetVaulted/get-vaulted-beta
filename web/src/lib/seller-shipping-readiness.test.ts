@@ -5,6 +5,7 @@ import {
   hasCompleteSellerShipFrom,
   hasStripeConnectReady,
   sellerHasShipFromAddress,
+  sellerNeedsShipFromPhoneOnly,
 } from "@/lib/seller-shipping-readiness";
 
 const baseSeller = {
@@ -48,6 +49,25 @@ describe("hasCompleteSellerShipFrom", () => {
       }),
     ).toBe(false);
     expect(hasCompleteSellerShipFrom(baseSeller)).toBe(true);
+  });
+});
+
+describe("sellerNeedsShipFromPhoneOnly", () => {
+  it("detects saved address missing phone", () => {
+    expect(
+      sellerNeedsShipFromPhoneOnly({
+        ...baseSeller,
+        shipFromPhone: null,
+      }),
+    ).toBe(true);
+    expect(sellerNeedsShipFromPhoneOnly(baseSeller)).toBe(false);
+    expect(
+      sellerNeedsShipFromPhoneOnly({
+        ...baseSeller,
+        shipFromStreet: null,
+        shipFromPhone: null,
+      }),
+    ).toBe(false);
   });
 });
 

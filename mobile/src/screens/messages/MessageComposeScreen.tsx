@@ -30,17 +30,23 @@ export function MessageComposeScreen({ navigation, route }: Props) {
   const [busy, setBusy] = useState(false);
 
   const sellerLabel = route.params.sellerUsername?.trim();
-  const title = sellerLabel ? `Message @${sellerLabel.replace(/^@/, '')}` : 'Message seller';
+  const profileTarget = route.params.sellerUserId?.trim();
+  const title = sellerLabel
+    ? `Message @${sellerLabel.replace(/^@/, '')}`
+    : profileTarget
+      ? 'Message collector'
+      : 'Message seller';
   const fromLive = Boolean(route.params.liveRoomId);
+  const fromProfile = Boolean(profileTarget && !route.params.listingId && !route.params.liveRoomId);
 
   const onSend = async () => {
     const text = draft.trim();
     if (!text) {
-      Alert.alert('Message', 'Write a note to the seller.');
+      Alert.alert('Message', 'Write a note before sending.');
       return;
     }
     if (!token) {
-      Alert.alert('Sign in', 'Sign in to message sellers.');
+      Alert.alert('Sign in', 'Sign in to message collectors.');
       return;
     }
     setBusy(true);
@@ -48,6 +54,7 @@ export function MessageComposeScreen({ navigation, route }: Props) {
       const { threadId, inbox } = await startConversation(token, {
         listingId: route.params.listingId,
         liveRoomId: route.params.liveRoomId,
+        sellerUserId: profileTarget,
         body: text,
         conversationKind: fromLive ? 'live_networking' : 'buyer_seller',
       });
@@ -55,7 +62,7 @@ export function MessageComposeScreen({ navigation, route }: Props) {
       if (inbox === 'request') {
         Alert.alert(
           'Request sent',
-          'Your message is in the seller’s requests until they accept.',
+          'Your message is in their requests until they accept.',
           [{ text: 'OK', onPress: () => navigation.replace('MessageThread', { threadId }) }],
         );
         return;
@@ -93,7 +100,9 @@ export function MessageComposeScreen({ navigation, route }: Props) {
         <Text style={styles.hint}>
           {fromLive
             ? 'Private message — stays off the live chat.'
-            : 'Ask about condition, shipping, or make an offer.'}
+            : fromProfile
+              ? 'Direct message — private conversation on Get Vaulted.'
+              : 'Ask about condition, shipping, or make an offer.'}
         </Text>
         <MentionComposerInput
           style={styles.input}

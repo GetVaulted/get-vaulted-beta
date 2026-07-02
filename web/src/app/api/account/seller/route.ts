@@ -74,14 +74,45 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const shipFromName = trim(body.shipFromName, 200) ?? "";
-  const shipFromStreet = trim(body.shipFromStreet, 300) ?? "";
-  const shipFromCity = trim(body.shipFromCity, 120) ?? "";
-  const shipFromStateInput = trim(body.shipFromState, 120) ?? "";
-  const shipFromZip = trim(body.shipFromZip, 32) ?? "";
+  const shipFromNameInput = trim(body.shipFromName, 200);
+  let shipFromName = shipFromNameInput ?? "";
+  let shipFromStreet = trim(body.shipFromStreet, 300) ?? "";
+  let shipFromCity = trim(body.shipFromCity, 120) ?? "";
+  let shipFromStateInput = trim(body.shipFromState, 120) ?? "";
+  let shipFromZip = trim(body.shipFromZip, 32) ?? "";
   const shipFromCountryRaw = trim(body.shipFromCountry, 120) ?? "";
-  const shipFromCountry = shipFromCountryRaw || SELLER_SHIP_FROM_COUNTRY;
+  let shipFromCountry = shipFromCountryRaw || SELLER_SHIP_FROM_COUNTRY;
   const shipFromPhone = normalizePhoneForShippo(trim(body.shipFromPhone, 32));
+
+  const baseUser = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      username: true,
+      defaultShipFromAddressId: true,
+      shipFromName: true,
+      shipFromStreet: true,
+      shipFromCity: true,
+      shipFromState: true,
+      shipFromZip: true,
+      shipFromCountry: true,
+    },
+  });
+  if (!baseUser) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // Phone-only refresh: reuse saved onboarding address when the client sends just a phone update.
+  if (!shipFromStreet.trim() && baseUser.shipFromStreet?.trim()) {
+    shipFromName = shipFromName || baseUser.shipFromName?.trim() || "";
+    shipFromStreet = baseUser.shipFromStreet.trim();
+    shipFromCity = baseUser.shipFromCity?.trim() ?? "";
+    shipFromStateInput = baseUser.shipFromState?.trim() ?? "";
+    shipFromZip = baseUser.shipFromZip?.trim() ?? "";
+    shipFromCountry = baseUser.shipFromCountry?.trim() || SELLER_SHIP_FROM_COUNTRY;
+  }
 
   if (!shipFromStreet || !shipFromCity || !shipFromStateInput || !shipFromZip) {
     return NextResponse.json({ error: "Please complete your address." }, { status: 400 });
@@ -101,30 +132,42 @@ export async function PATCH(req: Request) {
     );
   }
 
-  const baseUser = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      username: true,
-      defaultShipFromAddressId: true,
-    },
-  });
-  if (!baseUser) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
   const shipFromState = normalizeUsStateCode(shipFromStateInput) ?? shipFromStateInput;
-  const verifiedShipFrom = await verifyAddressForShipping({
-    fullName: shipFromName || baseUser.name?.trim() || baseUser.username || "Seller",
-    line1: shipFromStreet,
-    line2: null,
-    city: shipFromCity,
-    state: shipFromState,
-    postalCode: shipFromZip,
-    country: shipFromCountry,
-  });
+  const addressUnchanged =
+    baseUser.shipFromStreet?.trim() === shipFromStreet.trim() &&
+    baseUser.shipFromCity?.trim() === shipFromCity.trim() &&
+    (normalizeUsStateCode(baseUser.shipFromState ?? "") ?? baseUser.shipFromState)?.trim() === shipFromState.trim() &&
+    baseUser.shipFromZip?.trim() === shipFromZip.trim() &&
+    (baseUser.shipFromCountry?.trim() || SELLER_SHIP_FROM_COUNTRY) === shipFromCountry.trim();
+
+  let verifiedShipFrom: Awaited<ReturnType<typeof verifyAddressForShipping>>;
+  if (addressUnchanged) {
+    verifiedShipFrom = {
+      ok: true,
+      verified: true,
+      corrected: false,
+      fields: {
+        fullName: shipFromName || baseUser.shipFromName?.trim() || baseUser.name?.trim() || baseUser.username || "Seller",
+        line1: shipFromStreet,
+        line2: null,
+        city: shipFromCity,
+        state: shipFromState,
+        postalCode: shipFromZip,
+        country: shipFromCountry,
+      },
+      messages: [],
+    };
+  } else {
+    verifiedShipFrom = await verifyAddressForShipping({
+      fullName: shipFromName || baseUser.name?.trim() || baseUser.username || "Seller",
+      line1: shipFromStreet,
+      line2: null,
+      city: shipFromCity,
+      state: shipFromState,
+      postalCode: shipFromZip,
+      country: shipFromCountry,
+    });
+  }
   if (!verifiedShipFrom.ok) {
     return NextResponse.json(
       {

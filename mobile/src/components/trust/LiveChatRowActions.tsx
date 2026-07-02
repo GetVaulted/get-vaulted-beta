@@ -52,12 +52,26 @@ export function LiveChatRowActions({
     const handlers: Array<() => void> = [() => setReportOpen(true)];
 
     if (canModerate && accessToken && senderId && !hostProtected) {
-      options.push('Mute', 'Kick', 'Ban from room', 'Block bidding', 'Delete message');
+      options.push(
+        'Mute',
+        'Kick',
+        'Ban from room',
+        'Block bidding',
+        'Remove kick',
+        'Remove room ban',
+        'Unmute',
+        'Unblock bidding',
+        'Delete message',
+      );
       handlers.push(
         () => void runMod('mute'),
         () => void runMod('kick'),
         () => void runMod('room_ban'),
         () => void runMod('block_bidding'),
+        () => void runMod('unkick'),
+        () => void runMod('unban'),
+        () => void runMod('unmute'),
+        () => void runMod('unblock_bidding'),
         () => void runMod('delete_message'),
       );
     }

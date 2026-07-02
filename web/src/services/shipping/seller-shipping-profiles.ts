@@ -289,7 +289,7 @@ export function sellerShippingProfileToProfileInput(profile: {
   };
 }
 
-/** Break / team / spot commerce — prefer item profile, else the seeded Break Spot mailer profile. */
+/** Break / team / spot commerce — item profile, then show default, then seeded break mailer. */
 export async function resolveBreakSpotSellerProfile(args: {
   sellerId: string;
   showDefaultSellerProfileId?: string | null;
@@ -308,14 +308,14 @@ export async function resolveBreakSpotSellerProfile(args: {
     });
     if (byItem) return byItem;
   }
-  const breakSpot = await db.sellerShippingProfile.findFirst({
-    where: { sellerId: args.sellerId, sourceSlug: "live_break_spot", archivedAt: null },
-  });
-  if (breakSpot) return breakSpot;
-  return resolveDefaultSellerProfileForLiveShow({
+  const showDefault = await resolveDefaultSellerProfileForLiveShow({
     sellerId: args.sellerId,
     showDefaultSellerProfileId: args.showDefaultSellerProfileId,
     db,
+  });
+  if (showDefault) return showDefault;
+  return db.sellerShippingProfile.findFirst({
+    where: { sellerId: args.sellerId, sourceSlug: "live_break_spot", archivedAt: null },
   });
 }
 

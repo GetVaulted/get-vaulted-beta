@@ -53,3 +53,22 @@ export function resolveSellerShippingProfileIdForCategory(
     ""
   );
 }
+
+/** Default profile when adding a queue item — show default wins over category suggestion. */
+export function resolveLiveHostDefaultShippingProfileId(args: {
+  profiles: readonly LiveShowCategoryProfileOption[];
+  roomDefaultSellerShippingProfileId?: string | null;
+  roomDefaultShippingProfileId?: string | null;
+  category?: string | null;
+}): string {
+  const { profiles } = args;
+  if (profiles.length === 0) return "";
+  const roomDefault =
+    args.roomDefaultSellerShippingProfileId?.trim() ||
+    args.roomDefaultShippingProfileId?.trim() ||
+    "";
+  if (roomDefault && profiles.some((p) => p.id === roomDefault)) {
+    return roomDefault;
+  }
+  return resolveSellerShippingProfileIdForCategory(profiles, args.category);
+}

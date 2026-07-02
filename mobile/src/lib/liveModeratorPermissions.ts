@@ -21,9 +21,11 @@ const ACTION_MIN_LEVEL: Record<string, LiveModeratorLevel> = {
   block_bidding: 'break',
   unblock_bidding: 'break',
   kick: 'show',
+  unkick: 'show',
   room_ban: 'head',
   unban: 'head',
-  seller_stream_ban: 'head',
+  seller_stream_ban: 'show',
+  seller_stream_unban: 'show',
 };
 
 export function effectiveModeratorLevel(args: {
@@ -186,10 +188,16 @@ export function formatModActionLabel(actionType: string): string {
       return 'Mute user';
     case 'kick':
       return 'Kick from stream';
+    case 'unkick':
+      return 'Remove kick';
     case 'room_ban':
       return 'Ban from stream';
+    case 'unban':
+      return 'Remove room ban';
     case 'seller_stream_ban':
       return 'Ban from seller streams';
+    case 'seller_stream_unban':
+      return 'Remove seller ban';
     case 'pin_message':
       return 'Pin message';
     case 'post_announcement':

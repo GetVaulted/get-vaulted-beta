@@ -8,6 +8,47 @@ import type {
 } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 
+export function profileAnchorKey(userId: string): string {
+  return `profile:${userId}`;
+}
+
+export function profileMessagingAnchorWorkspaceKey(userId: string): string {
+  return `profile-dm:${userId}`;
+}
+
+/** Hidden listing anchor so profile DMs work without an active marketplace listing. */
+export async function resolveProfileMessagingListingAnchor(
+  tx: Prisma.TransactionClient,
+  args: { profileUserId: string; profileLabel?: string },
+): Promise<{ listingId: string; listingTitle: string }> {
+  const sellerListing = await tx.listing.findFirst({
+    where: { sellerId: args.profileUserId, moderationRemovedAt: null, status: { in: ["active", "auction_live"] } },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true, title: true },
+  });
+  if (sellerListing) return { listingId: sellerListing.id, listingTitle: sellerListing.title };
+
+  const workspaceKey = profileMessagingAnchorWorkspaceKey(args.profileUserId);
+  const anchor = await tx.listing.upsert({
+    where: { sellerId_workspaceKey: { sellerId: args.profileUserId, workspaceKey } },
+    create: {
+      sellerId: args.profileUserId,
+      workspaceKey,
+      title: (args.profileLabel?.trim() || "Direct message").slice(0, 200),
+      description: "Private messages from your Get Vaulted profile.",
+      category: "Direct",
+      condition: "N/A",
+      buyingFormat: "buy_now",
+      status: "draft",
+      priceUsd: 0,
+      shippingPriceUsd: 0,
+    },
+    update: {},
+    select: { id: true, title: true },
+  });
+  return { listingId: anchor.id, listingTitle: anchor.title };
+}
+
 export function listingAnchorKey(listingId: string): string {
   return `listing:${listingId}`;
 }

@@ -20,6 +20,7 @@ export function ShippingStep({
   shipState,
   shipZip,
   shipPhone,
+  phoneOnlyCompletion = false,
   saveBusy,
   saveError,
   saved,
@@ -34,6 +35,7 @@ export function ShippingStep({
   shipState: string;
   shipZip: string;
   shipPhone: string;
+  phoneOnlyCompletion?: boolean;
   saveBusy: boolean;
   saveError: string | null;
   saved: boolean;
@@ -49,9 +51,13 @@ export function ShippingStep({
 
   return (
     <WizardCard className="flex flex-1 flex-col">
-      <h2 className="font-display text-xl font-black tracking-tight text-foreground sm:text-2xl">Shipping address</h2>
+      <h2 className="font-display text-xl font-black tracking-tight text-foreground sm:text-2xl">
+        {phoneOnlyCompletion ? "Contact phone" : "Shipping address"}
+      </h2>
       <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-        Where packages ship from when you fulfill orders. We use this for shipping labels and buyer estimates.
+        {phoneOnlyCompletion
+          ? "Your ship-from address is already saved. USPS requires a phone number on every shipping label."
+          : "Where packages ship from when you fulfill orders. We use this for shipping labels and buyer estimates."}
       </p>
 
       {saved ? (
@@ -79,6 +85,12 @@ export function ShippingStep({
           }}
         >
           <div className="grid gap-3">
+            {phoneOnlyCompletion ? (
+              <div className="rounded-xl border border-white/[0.08] bg-[#08080a] px-4 py-3 text-sm text-zinc-300">
+                {[shipStreet, shipCity, shipState, shipZip, SELLER_SHIP_FROM_COUNTRY].filter(Boolean).join(", ")}
+              </div>
+            ) : (
+              <>
             <label>
               <span className="mb-1 block text-xs font-medium text-zinc-400">Name / company</span>
               <input
@@ -86,17 +98,6 @@ export function ShippingStep({
                 onChange={(e) => onChange("name", e.target.value)}
                 className={inputClass}
                 autoComplete="name"
-              />
-            </label>
-            <label>
-              <span className="mb-1 block text-xs font-medium text-zinc-400">Contact phone (required for USPS labels)</span>
-              <input
-                value={shipPhone}
-                onChange={(e) => onChange("phone", e.target.value)}
-                className={inputClass}
-                autoComplete="tel"
-                inputMode="tel"
-                placeholder="(555) 123-4567"
               />
             </label>
             <AddressAutocompleteFields
@@ -129,6 +130,19 @@ export function ShippingStep({
               labelClassName="block text-xs font-medium text-zinc-400"
             />
             <p className="text-[11px] text-zinc-600">US-only selling during launch ({SELLER_SHIP_FROM_COUNTRY_LABEL}).</p>
+              </>
+            )}
+            <label>
+              <span className="mb-1 block text-xs font-medium text-zinc-400">Contact phone (required for USPS labels)</span>
+              <input
+                value={shipPhone}
+                onChange={(e) => onChange("phone", e.target.value)}
+                className={inputClass}
+                autoComplete="tel"
+                inputMode="tel"
+                placeholder="(555) 123-4567"
+              />
+            </label>
           </div>
           <p className="text-xs text-zinc-500">
             USPS requires your email and phone on shipping labels. Your account email is used automatically.
@@ -144,7 +158,7 @@ export function ShippingStep({
             backDisabled={saveBusy}
             primary={
               <WizardPrimaryButton type="submit" disabled={saveBusy}>
-                {saveBusy ? "Saving…" : "Save & continue"}
+                {saveBusy ? "Saving…" : phoneOnlyCompletion ? "Save phone" : "Save & continue"}
               </WizardPrimaryButton>
             }
           />

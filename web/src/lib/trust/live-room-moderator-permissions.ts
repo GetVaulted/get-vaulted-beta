@@ -21,17 +21,22 @@ const ACTION_MIN_LEVEL: Partial<Record<LiveRoomModerationActionType, LiveRoomMod
   block_bidding: "break",
   unblock_bidding: "break",
   kick: "show",
+  unkick: "show",
   room_ban: "head",
   unban: "head",
-  seller_stream_ban: "head",
+  seller_stream_ban: "show",
+  seller_stream_unban: "show",
 };
 
 export function effectiveModeratorLevel(args: {
   isHost: boolean;
   moderatorLevel: LiveRoomModeratorLevel | null;
+  isModerator?: boolean;
 }): LiveRoomModeratorLevel | null {
   if (args.isHost) return "head";
-  return args.moderatorLevel;
+  if (args.moderatorLevel) return args.moderatorLevel;
+  if (args.isModerator) return "show";
+  return null;
 }
 
 export function resolveViewerRole(args: { isHost: boolean; isModerator: boolean }): LiveViewerRole {
@@ -44,12 +49,14 @@ export function canModeratorPerformAction(args: {
   actionType: LiveRoomModerationActionType;
   isHost: boolean;
   moderatorLevel: LiveRoomModeratorLevel | null;
+  isModerator?: boolean;
   isAdmin?: boolean;
 }): boolean {
   if (args.isAdmin) return true;
   const level = effectiveModeratorLevel({
     isHost: args.isHost,
     moderatorLevel: args.moderatorLevel,
+    isModerator: args.isModerator,
   });
   if (!level) return false;
 
@@ -61,6 +68,7 @@ export function canModeratorPerformAction(args: {
 export function listAllowedModerationActions(args: {
   isHost: boolean;
   moderatorLevel: LiveRoomModeratorLevel | null;
+  isModerator?: boolean;
 }): LiveRoomModerationActionType[] {
   const level = effectiveModeratorLevel(args);
   if (!level) return [];
@@ -72,8 +80,10 @@ export function listAllowedModerationActions(args: {
 
 const HOST_REVERSIBLE_ACTIONS = new Set<LiveRoomModerationActionType>([
   "unmute",
+  "unkick",
   "unban",
   "unblock_bidding",
+  "seller_stream_unban",
 ]);
 
 /** Assigned moderators (non-admin) cannot punish the show host/seller; all other users remain fair game. */

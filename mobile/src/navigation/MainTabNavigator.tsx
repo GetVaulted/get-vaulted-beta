@@ -16,7 +16,7 @@ export function MainTabNavigator() {
       screenOptions={{
         headerShown: false,
         lazy: true,
-        freezeOnBlur: true,
+        freezeOnBlur: false,
       }}
     >
       <Tab.Screen name="Home" component={HomeScreen} />

@@ -22,6 +22,7 @@ import {
   type LiveRoomTipRow,
   type LiveRoomTipSummary,
 } from '../../api/trustRepository';
+import { useModeratorRoomUserDirectory } from '../../hooks/useModeratorRoomUserDirectory';
 import { useLiveRoomPresenceUsers } from '../../hooks/useLiveRoomPresenceUsers';
 import {
   canPerformModeratorAction,
@@ -29,8 +30,9 @@ import {
   formatModeratorLevelLabel,
   isLiveRoomHostUser,
 } from '../../lib/liveModeratorPermissions';
-import { mergeModeratorRoomUsers, type ModeratorRoomUserRow } from '../../lib/mergeModeratorRoomUsers';
+import { resolveModerationActor } from '../../lib/liveModeratorPermissions';
 import { computePinExpiresIso } from '../../lib/pinnedMessageExpiry';
+import type { ModeratorRoomUserRow } from '../../lib/mergeModeratorRoomUsers';
 import { colors, radii, spacing } from '../../theme';
 import { ModeratorViewerActions } from './ModeratorViewerActions';
 
@@ -94,17 +96,39 @@ export function ModeratorDrawer({
   const [selectedUser, setSelectedUser] = useState<ModeratorRoomUserRow | null>(null);
 
   const presenceUsers = useLiveRoomPresenceUsers(liveRoomId, visible);
-  const roomUsers = useMemo(
-    () =>
-      mergeModeratorRoomUsers({
-        presence: presenceUsers,
-        viewers: moderation.viewers ?? [],
-      }),
-    [presenceUsers, moderation.viewers],
-  );
+  const roomUsers = useModeratorRoomUserDirectory({
+    visible,
+    presence: presenceUsers,
+    viewers: moderation.viewers ?? [],
+    moderators: moderation.moderators ?? [],
+    modHistory: moderation.modHistory ?? [],
+  });
   const moderatorIdSet = useMemo(
     () => new Set((moderation.moderators ?? []).map((m) => m.userId)),
     [moderation.moderators],
+  );
+  const modActor = useMemo(
+    () =>
+      resolveModerationActor({
+        canModerate: moderation.canModerate,
+        isHost: moderation.isHost,
+        isModerator: moderation.isModerator,
+        viewerRole: moderation.viewerRole,
+        moderatorLevel: moderation.moderatorLevel,
+        allowedActions: moderation.allowedActions,
+        sellerId: moderation.sellerId,
+        userId: moderatorUserId,
+      }),
+    [
+      moderation.allowedActions,
+      moderation.canModerate,
+      moderation.isHost,
+      moderation.isModerator,
+      moderation.moderatorLevel,
+      moderation.sellerId,
+      moderation.viewerRole,
+      moderatorUserId,
+    ],
   );
 
   useEffect(() => {
@@ -142,11 +166,11 @@ export function ModeratorDrawer({
   const can = (actionType: string) =>
     canPerformModeratorAction({
       actionType,
-      isModerator: moderation.isModerator,
-      isHost: moderation.isHost,
-      canModerate: moderation.canModerate,
-      moderatorLevel: moderation.moderatorLevel,
-      allowedActions: moderation.allowedActions,
+      isModerator: modActor.isModerator,
+      isHost: modActor.isHost,
+      canModerate: modActor.canModerate,
+      moderatorLevel: modActor.moderatorLevel,
+      allowedActions: modActor.allowedActions,
     });
 
   const resolveModeratorPinIdentity = useCallback(() => {
@@ -445,14 +469,14 @@ export function ModeratorDrawer({
           onClose={() => setSelectedUser(null)}
           liveRoomId={liveRoomId}
           accessToken={accessToken}
-          isModerator={moderation.isModerator}
-          isHost={moderation.isHost}
-          canModerate={moderation.canModerate}
-          moderatorLevel={moderation.moderatorLevel}
-          allowedActions={moderation.allowedActions}
+          isModerator={modActor.isModerator}
+          isHost={modActor.isHost}
+          canModerate={modActor.canModerate}
+          moderatorLevel={modActor.moderatorLevel}
+          allowedActions={modActor.allowedActions}
           userId={selectedUser.userId}
           username={selectedUser.username}
-          hostUserId={moderation.sellerId}
+          hostUserId={modActor.showHostUserId}
           onComplete={() => {
             setSelectedUser(null);
             onRefresh();
@@ -527,7 +551,7 @@ function RoomToolsTab({
 
       <Text style={[styles.sectionTitle, { marginTop: spacing.md }]}>User moderation</Text>
       <Text style={styles.hint}>
-        Long-press a chat message to copy, report, mute, timeout, kick, ban, block bidding, or delete.
+        Long-press a chat message to copy, report, mute, timeout, kick, ban, remove kick/ban, block bidding, or delete.
       </Text>
 
       <Text style={[styles.sectionTitle, { marginTop: spacing.md }]}>More in this drawer</Text>

@@ -13,6 +13,8 @@ type ThreadMeta = {
   listingTitle: string;
   otherUserId: string;
   otherUsername: string;
+  inbox?: "primary" | "request";
+  isSeller?: boolean;
 };
 
 type Msg = {
@@ -98,6 +100,21 @@ export function AccountThreadPage({ threadId }: { threadId: string }) {
     }
   };
 
+  const acceptRequest = async () => {
+    const res = await fetch(`/api/account/threads/${encodeURIComponent(threadId)}/actions`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "accept_request" }),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      setSendError(typeof data.error === "string" ? data.error : "Could not accept request.");
+      return;
+    }
+    await load();
+    window.dispatchEvent(new Event("gv-messages-updated"));
+  };
+
   if (status === "loading" || (status === "authenticated" && pageState === "loading")) {
     return (
       <div className="flex flex-1 items-center justify-center py-16 text-sm text-zinc-500">Loading conversation…</div>
@@ -137,6 +154,21 @@ export function AccountThreadPage({ threadId }: { threadId: string }) {
         </Link>
       </div>
 
+      {meta.inbox === "request" && meta.isSeller ? (
+        <div className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-3">
+          <p className="text-xs text-amber-100/90">
+            This collector messaged you from your profile. Accept to move the conversation to your inbox and reply.
+          </p>
+          <button
+            type="button"
+            onClick={() => void acceptRequest()}
+            className="mt-2 inline-flex h-9 items-center rounded-full bg-gold px-4 text-xs font-bold text-zinc-950"
+          >
+            Accept message request
+          </button>
+        </div>
+      ) : null}
+
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 sm:px-4">
         {messages.length === 0 ? (
           <p className="py-8 text-center text-sm text-zinc-600">No messages yet.</p>
@@ -167,6 +199,9 @@ export function AccountThreadPage({ threadId }: { threadId: string }) {
       </div>
 
       <div className="border-t border-white/[0.08] bg-[#060608] p-3 sm:p-4">
+        {meta.inbox === "request" && !meta.isSeller ? (
+          <p className="mb-2 text-xs text-zinc-500">Waiting for them to accept your message request.</p>
+        ) : null}
         {sendError ? <p className="mb-2 text-xs font-medium text-rose-300">{sendError}</p> : null}
         <div className="flex gap-2">
           <MentionComposer
@@ -188,7 +223,7 @@ export function AccountThreadPage({ threadId }: { threadId: string }) {
           />
           <button
             type="button"
-            disabled={sending || !draft.trim()}
+            disabled={sending || !draft.trim() || (meta.inbox === "request" && !meta.isSeller)}
             onClick={() => void send()}
             className="h-auto shrink-0 self-end rounded-xl bg-gradient-to-r from-gold to-gold-bright px-4 py-2 text-xs font-bold text-zinc-950 disabled:opacity-50"
           >

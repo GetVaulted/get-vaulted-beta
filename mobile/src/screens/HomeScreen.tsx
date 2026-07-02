@@ -1,57 +1,62 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, FlatList, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchLiveShowsForDiscovery } from '../api/liveShowsDiscoveryRepository';
 import { fetchMarketplaceListings } from '../api/listingsFeedRepository';
 import { fetchMyLiveRooms, type LiveRoomApiRow } from '../api/liveRoomsRepository';
 import { fetchSellerFollowStatus, toggleSellerFollow } from '../api/sellerFollowRepository';
-import { PremiumEmptyPanel } from '../components/empty/PremiumEmptyPanel';
 import { FeaturedCreatorCard } from '../components/home/FeaturedCreatorCard';
+import { HomeCommunityPulse } from '../components/home/HomeCommunityPulse';
 import { HomeCompactHeader } from '../components/home/HomeCompactHeader';
-import { HomeCultureHero } from '../components/home/HomeCultureHero';
-import { HomeFeaturedLiveHero } from '../components/home/HomeFeaturedLiveHero';
-import { HomeFeedSection } from '../components/home/HomeFeedSection';
-import { HomeFeedSyncHint } from '../components/home/HomeFeedSyncHint';
-import { HomeLiveActivityStrip } from '../components/home/HomeLiveActivityStrip';
-import { HomeRecentSalesRail } from '../components/home/HomeRecentSalesRail';
+import { HomeDiscoveryStrip } from '../components/home/HomeDiscoveryStrip';
+import {
+  HomeFeaturedLiveCard,
+  HomeLiveHeroSkeleton,
+} from '../components/home/HomeFeaturedLiveCard';
+import { HomeFindYourNextGrailCard } from '../components/home/HomeFindYourNextGrailCard';
+import {
+  HOME_HOT_VAULT_CARD_HEIGHT,
+  HOME_HOT_VAULT_CARD_WIDTH,
+  HomeHotVaultCard,
+} from '../components/home/HomeHotVaultCard';
+import { HomeLiveDealsRail } from '../components/home/HomeLiveDealsRail';
+import { HomeNeverMissDropSection } from '../components/home/HomeNeverMissDropSection';
+import { HomeSectionHeader } from '../components/home/HomeSectionHeader';
 import { HomeSellerEventBanner } from '../components/home/HomeSellerEventBanner';
 import { HomeSellerOnboardingStrip } from '../components/home/HomeSellerOnboardingStrip';
-import { HotClipCard } from '../components/home/HotClipCard';
+import { HomeStartingSoonLane } from '../components/home/HomeStartingSoonLane';
 import {
   LIVE_ROOM_CARD_SNAP,
   LiveNowPreviewCard,
 } from '../components/home/LiveNowPreviewCard';
-import { LIVE_ROOM_CARD_TOTAL_HEIGHT, LiveRoomCardSkeletonRail } from '../components/home/LiveRoomCardSkeleton';
-import {
-  MARKETPLACE_RAIL_CARD_HEIGHT,
-  MarketplaceCardSkeletonRail,
-} from '../components/home/MarketplaceCardSkeleton';
-import { MomentumStrip } from '../components/home/MomentumStrip';
-import { VaultDropCard } from '../components/home/VaultDropCard';
-import { ProductCard } from '../components/ui/ProductCard';
+import { MarketplaceCardSkeletonRail } from '../components/home/MarketplaceCardSkeleton';
 import { SearchBar } from '../components/ui/SearchBar';
+import { VaultCampaignHeader } from '../components/branding/VaultCampaignHeader';
 import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
 import {
-  deriveLiveActivityPulse,
-  deriveTrendingSales,
+  deriveFreshInVault,
+  deriveHomeCommunityPulse,
+  deriveHomeDiscoveryLanes,
+  deriveHotVaultListings,
+  deriveLiveDeals,
+  deriveLiveHeroStreams,
+  deriveUpcomingHeroEvents,
   deriveVerifiedSellers,
-  placeholderCommunitySales,
 } from '../lib/homeFeedDerivations';
-import { deriveHotClipsFromLive } from '../lib/hotClips';
 import {
   markLiveDiscoveryFetchAttempt,
   markLiveDiscoveryFetchResult,
   shouldThrottleLiveDiscoveryFetch,
 } from '../lib/liveDiscoveryFetchPolicy';
-import { openCreateListing } from '../navigation/openCreateListing';
+import { filterDisplayableMarketplaceProducts, productIdSet } from '../lib/marketplaceListingQuality';
 import { useLiveDiscoverySync } from '../hooks/useLiveDiscoverySync';
 import { useLiveEventReminders } from '../hooks/useLiveEventReminders';
+import { useMarketplaceLayout } from '../hooks/useMarketplaceLayout';
 import {
   getHomeFeedMemorySnapshot,
   hasWarmHomeFeedCache,
@@ -78,57 +83,94 @@ import { openSellerHostRoom } from '../navigation/openSellerHostRoom';
 import { openSellerHQ } from '../navigation/openSellerHQ';
 import { openSellerSetup } from '../navigation/openSellerSetup';
 import { navigateAuthSignUp } from '../navigation/rootNavigationRef';
-import { colors, radii, spacing } from '../theme';
-import type { FeaturedCreator, HotClip, LiveStream, Product, ScheduledStream } from '../types';
+import { colors, spacing } from '../theme';
+import type { FeaturedCreator, LiveStream, Product, ScheduledStream } from '../types';
 
 type Nav = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList>,
   NativeStackNavigationProp<RootStackParamList>
 >;
 
+const HOT_VAULT_SNAP = HOME_HOT_VAULT_CARD_WIDTH + spacing.sm;
+
+function sanitizeListings(listings: Product[]): Product[] {
+  return filterDisplayableMarketplaceProducts(listings);
+}
+
 function initialFeedState() {
   const snapshot = getHomeFeedMemorySnapshot();
+  const listings = sanitizeListings(snapshot?.listings ?? []);
   return {
     liveRows: snapshot?.live ?? [],
     scheduledRows: snapshot?.scheduled ?? [],
-    listings: snapshot?.listings ?? [],
-    hasCache: Boolean(snapshot?.live.length || snapshot?.listings?.length),
+    listings,
+    hasCache: Boolean(snapshot?.live.length || listings.length),
   };
 }
 
 export function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const layout = useMarketplaceLayout();
   const navigation = useNavigation<Nav>();
   const { user, guestExploreMode, session } = useAuth();
   const { count: notificationCount } = useNotificationBadge(user?.id);
   const sellerSetup = useSellerSetupState(session?.access_token, Boolean(user?.id));
   const { remind, isReminderSet } = useLiveEventReminders();
-  const [followBySeller, setFollowBySeller] = useState<Record<string, boolean>>({});
-  const [followBusyId, setFollowBusyId] = useState<string | null>(null);
+  const creatorsSectionY = useRef(0);
 
   const seed = useMemo(() => initialFeedState(), []);
   const [initialLoad, setInitialLoad] = useState(!seed.hasCache);
-  const [refreshing, setRefreshing] = useState(false);
   const [listings, setListings] = useState<Product[]>(seed.listings);
   const [liveRows, setLiveRows] = useState<LiveStream[]>(seed.liveRows);
   const [scheduledRows, setScheduledRows] = useState<ScheduledStream[]>(seed.scheduledRows);
-  const [clips, setClips] = useState<HotClip[]>([]);
   const [sellerNextRoom, setSellerNextRoom] = useState<LiveRoomApiRow | null>(null);
   const [activeBuyerOrders, setActiveBuyerOrders] = useState(0);
+  const [followBySeller, setFollowBySeller] = useState<Record<string, boolean>>({});
+  const [followBusyId, setFollowBusyId] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
 
   const sellerActivated = sellerSetup.displayActivated;
+  const showSellerOnboarding = Boolean(user) && sellerSetup.phase === 'partial' && !sellerActivated;
 
-  const featuredLive = liveRows[0] ?? null;
-  const featuredUpcoming = scheduledRows[0] ?? null;
+  const liveHeroStreams = useMemo(() => deriveLiveHeroStreams(liveRows), [liveRows]);
+  const featuredLive = liveHeroStreams[0] ?? null;
+  const secondaryLiveRows = useMemo(() => liveHeroStreams.slice(1), [liveHeroStreams]);
+  const upcomingHeroEvents = useMemo(() => deriveUpcomingHeroEvents(scheduledRows), [scheduledRows]);
+  const trendingInVault = useMemo(() => deriveHotVaultListings(listings).slice(0, 10), [listings]);
+  const trendingIds = useMemo(() => productIdSet(trendingInVault), [trendingInVault]);
   const verifiedSellers = useMemo(
     () => deriveVerifiedSellers(liveRows, scheduledRows),
     [liveRows, scheduledRows],
   );
-  const activityPulse = useMemo(() => deriveLiveActivityPulse(liveRows), [liveRows]);
-  const communitySales = useMemo(() => {
-    const trending = deriveTrendingSales(listings);
-    return trending.length ? trending : placeholderCommunitySales();
-  }, [listings]);
+  const discoveryLanes = useMemo(
+    () => deriveHomeDiscoveryLanes(liveRows, scheduledRows, listings, verifiedSellers),
+    [liveRows, scheduledRows, listings, verifiedSellers],
+  );
+  const liveDeals = useMemo(() => deriveLiveDeals(liveRows), [liveRows]);
+  const communityPulse = useMemo(
+    () => deriveHomeCommunityPulse(liveRows, scheduledRows, listings, verifiedSellers),
+    [liveRows, scheduledRows, listings, verifiedSellers],
+  );
+  const followedSellerIds = useMemo(
+    () => Object.entries(followBySeller).filter(([, following]) => following).map(([id]) => id),
+    [followBySeller],
+  );
+  const freshInVault = useMemo(
+    () => deriveFreshInVault(listings, followedSellerIds, trendingIds),
+    [listings, followedSellerIds, trendingIds],
+  );
+  const hasPersonalizedPicks = followedSellerIds.length > 0;
+  const freshSectionTitle = hasPersonalizedPicks ? 'Picked for Your Vault' : 'Fresh in the Vault';
+  const freshSectionSubtitle = hasPersonalizedPicks
+    ? 'New inventory from sellers you follow'
+    : 'Authenticated listings across the vault';
+
+  const startingSoonIsHero = !featuredLive && upcomingHeroEvents.length > 0;
+  const showFeaturedSkeleton = initialLoad && !featuredLive && upcomingHeroEvents.length === 0;
+  const showFindGrail = !initialLoad && !featuredLive && upcomingHeroEvents.length === 0;
+  const showUpNextSection = Boolean(featuredLive && upcomingHeroEvents.length);
+  const showNeverMissDrop =
+    !communityPulse.length && !showUpNextSection && !startingSoonIsHero && !showFindGrail;
 
   useEffect(() => {
     if (!user?.id) {
@@ -143,17 +185,13 @@ export function HomeScreen() {
 
   const loadFeed = useCallback(async (opts?: { hadCachedLive?: boolean; hadCachedListings?: boolean; force?: boolean }) => {
     if (!isSupabaseConfigured()) {
-      setClips([]);
       setSellerNextRoom(null);
       setInitialLoad(false);
-      setRefreshing(false);
       return;
     }
 
     const force = Boolean(opts?.force);
     const skipDiscovery = shouldThrottleLiveDiscoveryFetch({ force });
-
-    if (opts?.hadCachedLive || opts?.hadCachedListings) setRefreshing(true);
 
     try {
       if (!skipDiscovery) markLiveDiscoveryFetchAttempt();
@@ -174,13 +212,12 @@ export function HomeScreen() {
           markLiveDiscoveryFetchResult(true);
           setLiveRows(livePack.live);
           setScheduledRows(livePack.scheduled);
-          setClips(deriveHotClipsFromLive(livePack.live));
         } else {
           markLiveDiscoveryFetchResult(false, livePack.meta.error);
         }
       }
 
-      setListings(products);
+      setListings(sanitizeListings(products));
 
       if (!skipDiscovery && livePack.meta.success) {
         void saveHomeFeedCache({
@@ -198,7 +235,6 @@ export function HomeScreen() {
       }
     } finally {
       setInitialLoad(false);
-      setRefreshing(false);
     }
   }, []);
 
@@ -241,7 +277,7 @@ export function HomeScreen() {
         if (!warm) {
           if (cache.live.length) setLiveRows(cache.live);
           if (cache.scheduled.length) setScheduledRows(cache.scheduled);
-          if (cache.listings.length) setListings(cache.listings);
+          if (cache.listings.length) setListings(sanitizeListings(cache.listings));
         }
         if (cache.live.length || cache.listings.length) {
           setInitialLoad(false);
@@ -262,6 +298,30 @@ export function HomeScreen() {
       force: opts?.force,
     }),
   );
+
+  useEffect(() => {
+    if (!session?.access_token || verifiedSellers.length === 0) {
+      setFollowBySeller({});
+      return;
+    }
+    let cancelled = false;
+    const task = deferAfterFirstPaint(() => {
+      void (async () => {
+        const next: Record<string, boolean> = {};
+        await Promise.all(
+          verifiedSellers.map(async (creator) => {
+            const status = await fetchSellerFollowStatus(creator.host.id, session.access_token);
+            if (status) next[creator.host.id] = status.following;
+          }),
+        );
+        if (!cancelled) setFollowBySeller(next);
+      })();
+    }, 900);
+    return () => {
+      cancelled = true;
+      task.cancel();
+    };
+  }, [session?.access_token, verifiedSellers]);
 
   const goLive = () => {
     navigation.navigate('Live', { screen: 'LiveDiscovery' });
@@ -294,30 +354,6 @@ export function HomeScreen() {
     navigation.navigate('ProductDetail', { productId: product.id });
   };
 
-  useEffect(() => {
-    if (!session?.access_token || verifiedSellers.length === 0) {
-      setFollowBySeller({});
-      return;
-    }
-    let cancelled = false;
-    const task = deferAfterFirstPaint(() => {
-      void (async () => {
-        const next: Record<string, boolean> = {};
-        await Promise.all(
-          verifiedSellers.map(async (creator) => {
-            const status = await fetchSellerFollowStatus(creator.host.id, session.access_token);
-            if (status) next[creator.host.id] = status.following;
-          }),
-        );
-        if (!cancelled) setFollowBySeller(next);
-      })();
-    }, 900);
-    return () => {
-      cancelled = true;
-      task.cancel();
-    };
-  }, [session?.access_token, verifiedSellers]);
-
   const requireAuthForHomeAction = () => {
     if (guestExploreMode || !session?.access_token) {
       navigateAuthSignUp();
@@ -348,6 +384,22 @@ export function HomeScreen() {
     });
   };
 
+  const handleDiscoveryLane = (laneId: string) => {
+    if (laneId === 'marketplace' || laneId === 'under50' || laneId === 'ending') {
+      goMarketplace();
+      return;
+    }
+    if (laneId === 'sellers') {
+      if (creatorsSectionY.current > 0) {
+        scrollRef.current?.scrollTo({ y: creatorsSectionY.current, animated: true });
+      } else {
+        goLive();
+      }
+      return;
+    }
+    goLive();
+  };
+
   const sellerEventForBanner = useMemo((): ScheduledStream | null => {
     if (!sellerNextRoom?.scheduledStartAt) return null;
     return {
@@ -369,25 +421,20 @@ export function HomeScreen() {
     };
   }, [sellerNextRoom]);
 
-  const showLiveSkeleton = initialLoad && liveRows.length === 0;
-  const showLiveEmpty = !initialLoad && liveRows.length === 0;
-  const showMarketplaceSkeleton = initialLoad && listings.length === 0;
-  const showMarketplaceEmpty = !initialLoad && listings.length === 0;
-
-  const liveSyncHint = refreshing && liveRows.length > 0 ? 'Syncing live rooms…' : null;
-  const marketSyncHint = refreshing && listings.length > 0 ? 'Syncing the vault…' : null;
-  const liveBootHint = showLiveSkeleton ? 'Loading live rooms…' : null;
+  const showTrendingSkeleton = initialLoad && trendingInVault.length === 0;
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { paddingTop: insets.top + spacing.sm }]}>
       <LinearGradient
-        colors={['rgba(212,175,55,0.06)', 'transparent', 'transparent']}
+        colors={['rgba(212,175,55,0.07)', 'rgba(255,59,48,0.04)', 'transparent']}
         style={styles.topGlow}
         pointerEvents="none"
       />
       <ScrollView
+        ref={scrollRef}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + spacing.sm }]}
+        contentInsetAdjustmentBehavior="never"
+        contentContainerStyle={[styles.scroll, { paddingBottom: layout.tabBarClearance }]}
       >
         <HomeCompactHeader
           notificationCount={notificationCount}
@@ -401,20 +448,161 @@ export function HomeScreen() {
 
         <SearchBar
           home
-          placeholder="Search live rooms, sellers, grails…"
+          placeholder="Search live, the vault, sellers, collections…"
           onPress={() => openVaultSearch(navigation)}
         />
 
-        <HomeCultureHero onLiveHub={goLive} onVault={goMarketplace} />
+        <VaultCampaignHeader />
 
-        <MomentumStrip
-          liveCount={liveRows.length}
-          listingCount={listings.length}
-          scheduledCount={scheduledRows.length}
-        />
+        <HomeSectionHeader first eyebrow="Discover" title="Jump in fast">
+          <HomeDiscoveryStrip lanes={discoveryLanes} onPressLane={handleDiscoveryLane} />
+        </HomeSectionHeader>
 
-        {sellerSetup.showSetupGate ? (
-          <View style={styles.inlineBanner}>
+        {featuredLive ? (
+          <HomeSectionHeader eyebrow="Live now" title="Watch live" actionLabel="Live hub" onAction={goLive}>
+            <HomeFeaturedLiveCard stream={featuredLive} onPress={() => openLiveShow(featuredLive.id)} />
+          </HomeSectionHeader>
+        ) : showFeaturedSkeleton ? (
+          <View style={styles.heroSlot}>
+            <HomeLiveHeroSkeleton />
+          </View>
+        ) : startingSoonIsHero ? (
+          <HomeSectionHeader eyebrow="Starting soon" title="Next live drops" actionLabel="See all" onAction={goLive}>
+            <HomeStartingSoonLane
+              events={upcomingHeroEvents.slice(0, 8)}
+              reminderSetFor={isReminderSet}
+              onOpenEvent={openLiveShow}
+              onRemind={handleEventRemind}
+            />
+          </HomeSectionHeader>
+        ) : showFindGrail ? (
+          <HomeSectionHeader eyebrow="The vault" title="Find Your Next Grail">
+            <HomeFindYourNextGrailCard onExploreLive={goLive} onShopTheVault={goMarketplace} />
+          </HomeSectionHeader>
+        ) : null}
+
+        {secondaryLiveRows.length ? (
+          <View style={styles.secondaryLiveBlock}>
+            <FlatList
+              horizontal
+              data={secondaryLiveRows}
+              keyExtractor={(item) => item.id}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.hList}
+              snapToInterval={LIVE_ROOM_CARD_SNAP}
+              decelerationRate="fast"
+              renderItem={({ item }) => (
+                <LiveNowPreviewCard stream={item} onPress={() => openLiveShow(item.id)} />
+              )}
+            />
+          </View>
+        ) : null}
+
+        {showUpNextSection ? (
+          <HomeSectionHeader eyebrow="Up next" title="Starting soon" actionLabel="Calendar" onAction={goLive}>
+            <HomeStartingSoonLane
+              events={upcomingHeroEvents.slice(0, 6)}
+              reminderSetFor={isReminderSet}
+              onOpenEvent={openLiveShow}
+              onRemind={handleEventRemind}
+            />
+          </HomeSectionHeader>
+        ) : null}
+
+        {showTrendingSkeleton ? (
+          <HomeSectionHeader eyebrow="The vault" title="Trending in the Vault">
+            <View style={styles.hotVaultSlot}>
+              <MarketplaceCardSkeletonRail count={4} />
+            </View>
+          </HomeSectionHeader>
+        ) : trendingInVault.length ? (
+          <HomeSectionHeader
+            eyebrow="The vault"
+            title="Trending in the Vault"
+            actionLabel="See all"
+            onAction={goMarketplace}
+          >
+            <View style={styles.hotVaultSlot}>
+              <FlatList
+                horizontal
+                data={trendingInVault}
+                keyExtractor={(item) => item.id}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.hList}
+                snapToInterval={HOT_VAULT_SNAP}
+                decelerationRate="fast"
+                renderItem={({ item }) => (
+                  <HomeHotVaultCard product={item} onPress={() => openProduct(item)} />
+                )}
+              />
+            </View>
+          </HomeSectionHeader>
+        ) : null}
+
+        {liveDeals.length ? (
+          <HomeSectionHeader eyebrow="Live floor" title="Auction heat" actionLabel="Live hub" onAction={goLive}>
+            <HomeLiveDealsRail deals={liveDeals} onOpenStream={openLiveShow} />
+          </HomeSectionHeader>
+        ) : null}
+
+        {communityPulse.length ? (
+          <HomeSectionHeader eyebrow="Community" title="Vault activity">
+            <HomeCommunityPulse items={communityPulse} />
+          </HomeSectionHeader>
+        ) : showNeverMissDrop ? (
+          <HomeSectionHeader eyebrow="Stay ready" title="Never Miss a Drop">
+            <HomeNeverMissDropSection onExploreLive={goLive} />
+          </HomeSectionHeader>
+        ) : null}
+
+        {freshInVault.length ? (
+          <HomeSectionHeader
+            eyebrow="For you"
+            title={freshSectionTitle}
+            subtitle={freshSectionSubtitle}
+            actionLabel="Shop the Vault"
+            onAction={goMarketplace}
+          >
+            <FlatList
+              horizontal
+              data={freshInVault}
+              keyExtractor={(item) => `fresh-${item.id}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.hList}
+              snapToInterval={HOT_VAULT_SNAP}
+              decelerationRate="fast"
+              renderItem={({ item }) => (
+                <HomeHotVaultCard product={item} onPress={() => openProduct(item)} />
+              )}
+            />
+          </HomeSectionHeader>
+        ) : null}
+
+        {verifiedSellers.length ? (
+          <View
+            onLayout={(event) => {
+              creatorsSectionY.current = event.nativeEvent.layout.y;
+            }}
+          >
+            <HomeSectionHeader eyebrow="Verified hosts" title="Trending sellers" actionLabel="Live hub" onAction={goLive}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sellerRail}>
+                {verifiedSellers.map((creator) => (
+                  <FeaturedCreatorCard
+                    key={creator.host.id}
+                    creator={creator}
+                    following={followBySeller[creator.host.id] ?? false}
+                    followBusy={followBusyId === creator.host.id}
+                    onFollow={() => handleFollowCreator(creator)}
+                    onPress={() => openUserProfile(creator.host.id, navigation)}
+                  />
+                ))}
+              </ScrollView>
+            </HomeSectionHeader>
+          </View>
+        ) : null}
+
+        {showSellerOnboarding ? (
+          <View style={styles.bottomBanner}>
             <HomeSellerOnboardingStrip
               hasUser={Boolean(user)}
               phase={sellerSetup.phase}
@@ -424,7 +612,7 @@ export function HomeScreen() {
         ) : null}
 
         {sellerActivated ? (
-          <View style={styles.inlineBanner}>
+          <View style={styles.bottomBanner}>
             <HomeSellerEventBanner
               event={sellerEventForBanner}
               onOpenCommandCenter={() => {
@@ -434,180 +622,6 @@ export function HomeScreen() {
             />
           </View>
         ) : null}
-
-        <HomeFeedSection
-          first
-          eyebrow="Spotlight"
-          title="Featured"
-          actionLabel="Live hub"
-          onAction={goLive}
-        >
-          <HomeFeaturedLiveHero
-            liveStream={featuredLive}
-            upcomingEvent={featuredUpcoming}
-            onPressLive={() => featuredLive && openLiveShow(featuredLive.id)}
-            onPressUpcoming={() => featuredUpcoming && openLiveShow(featuredUpcoming.id)}
-            onPressRemind={
-              featuredUpcoming ? () => handleEventRemind(featuredUpcoming) : undefined
-            }
-            reminderSet={featuredUpcoming ? isReminderSet(featuredUpcoming.id) : false}
-            onPressExplore={goLive}
-          />
-        </HomeFeedSection>
-
-        <HomeFeedSection eyebrow="Now streaming" title="Live now" actionLabel="See all" onAction={goLive}>
-          {liveBootHint ? <HomeFeedSyncHint message={liveBootHint} /> : null}
-          {liveSyncHint ? <HomeFeedSyncHint message={liveSyncHint} /> : null}
-          <View style={styles.liveRailSlot}>
-            {showLiveSkeleton ? (
-              <LiveRoomCardSkeletonRail count={5} />
-            ) : liveRows.length ? (
-              <FlatList
-                horizontal
-                data={liveRows}
-                keyExtractor={(item) => item.id}
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.liveRail}
-                snapToInterval={LIVE_ROOM_CARD_SNAP}
-                snapToAlignment="start"
-                decelerationRate="fast"
-                renderItem={({ item, index }) => (
-                  <LiveNowPreviewCard
-                    stream={item}
-                    onPress={() => openLiveShow(item.id)}
-                    promoBadge={index === 0 ? 'FEATURED' : index === 1 ? 'TRENDING' : undefined}
-                  />
-                )}
-              />
-            ) : showLiveEmpty ? (
-              <PremiumEmptyPanel
-                icon="radio-outline"
-                kicker="Live floor"
-                title="The live floor opens soon"
-                subtitle="Join vault events, breaks, and auctions the moment sellers go live."
-                actions={[
-                  { label: 'Enter live', onPress: goLive },
-                  { label: 'Browse vault', onPress: goMarketplace, variant: 'secondary' },
-                ]}
-              />
-            ) : null}
-          </View>
-        </HomeFeedSection>
-
-        <HomeFeedSection
-          eyebrow="Trending this week"
-          title="Vault inventory"
-          actionLabel="Marketplace"
-          onAction={goMarketplace}
-        >
-          {marketSyncHint ? <HomeFeedSyncHint message={marketSyncHint} /> : null}
-          <View style={styles.marketRailSlot}>
-            {showMarketplaceSkeleton ? (
-              <MarketplaceCardSkeletonRail count={4} />
-            ) : showMarketplaceEmpty ? (
-              <PremiumEmptyPanel
-                icon="diamond-outline"
-                kicker="Vault marketplace"
-                title="Ready to make your first vault listing?"
-                subtitle="Reach collectors with verified inventory, buy-now listings, offers, and live auctions."
-                actions={[
-                  {
-                    label: 'Create listing',
-                    onPress: () => void openCreateListing(navigation, { channel: 'marketplace' }),
-                  },
-                  { label: 'Browse vault', onPress: goMarketplace, variant: 'secondary' },
-                ]}
-              />
-            ) : (
-              <FlatList
-                horizontal
-                data={listings}
-                keyExtractor={(item) => item.id}
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.hList}
-                renderItem={({ item }) => (
-                  <ProductCard product={item} onPress={() => openProduct(item)} variant="rail" marketplaceMeta />
-                )}
-              />
-            )}
-          </View>
-        </HomeFeedSection>
-
-        <HomeFeedSection eyebrow="Upcoming drops" title="Vault events" actionLabel="See all" onAction={goLive}>
-          {scheduledRows.length ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
-              {scheduledRows.map((s) => (
-                <VaultDropCard
-                  key={s.id}
-                  event={s}
-                  onRemind={() => handleEventRemind(s)}
-                  reminderSet={isReminderSet(s.id)}
-                  onPress={() => openLiveShow(s.id)}
-                />
-              ))}
-            </ScrollView>
-          ) : (
-            <View style={styles.upcomingPlaceholder}>
-              <Ionicons name="calendar-outline" size={22} color="rgba(212,175,55,0.7)" />
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text style={styles.upcomingTitle}>Drops are being scheduled</Text>
-                <Text style={styles.upcomingSub}>
-                  Vault events surface here as sellers lock dates for live breaks and auctions.
-                </Text>
-              </View>
-              <Pressable style={styles.upcomingCta} onPress={goLive}>
-                <Text style={styles.upcomingCtaTxt}>Explore</Text>
-              </Pressable>
-            </View>
-          )}
-        </HomeFeedSection>
-
-        <HomeFeedSection eyebrow="Vault verified" title="Top sellers" actionLabel="Live hub" onAction={goLive}>
-          {verifiedSellers.length ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sellerRail}>
-              {verifiedSellers.map((creator) => (
-                <FeaturedCreatorCard
-                  key={creator.host.id}
-                  creator={creator}
-                  following={followBySeller[creator.host.id] ?? false}
-                  followBusy={followBusyId === creator.host.id}
-                  onFollow={() => handleFollowCreator(creator)}
-                  onPress={() => openUserProfile(creator.host.id, navigation)}
-                />
-              ))}
-            </ScrollView>
-          ) : (
-            <View style={styles.upcomingPlaceholder}>
-              <Ionicons name="shield-checkmark-outline" size={22} color="rgba(212,175,55,0.7)" />
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text style={styles.upcomingTitle}>Verified sellers go live here</Text>
-                <Text style={styles.upcomingSub}>
-                  Follow breakout hosts, breakers, and vault shops as they hit the live floor.
-                </Text>
-              </View>
-            </View>
-          )}
-        </HomeFeedSection>
-
-        <HomeFeedSection eyebrow="Community pulse" title="Collector activity">
-          <HomeLiveActivityStrip items={activityPulse} />
-        </HomeFeedSection>
-
-        <HomeFeedSection eyebrow="Market heat" title="Recently sold & trending" actionLabel="Vault" onAction={goMarketplace}>
-          <HomeRecentSalesRail sales={communitySales} />
-        </HomeFeedSection>
-
-        {clips.length ? (
-          <HomeFeedSection eyebrow="Highlights" title="Hit clips" actionLabel="Live" onAction={goLive}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList}>
-              {clips.map((clip) => (
-                <HotClipCard key={clip.id} clip={clip} onOpen={openLiveShow} />
-              ))}
-            </ScrollView>
-          </HomeFeedSection>
-        ) : null}
-
-        <View style={{ height: spacing.xxl }} />
       </ScrollView>
     </View>
   );
@@ -624,63 +638,29 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 220,
+    height: 280,
   },
   scroll: {
-    paddingBottom: 120,
+    flexGrow: 1,
   },
-  liveRailSlot: {
-    minHeight: LIVE_ROOM_CARD_TOTAL_HEIGHT,
+  heroSlot: {
+    marginTop: spacing.md,
   },
-  marketRailSlot: {
-    minHeight: MARKETPLACE_RAIL_CARD_HEIGHT,
-  },
-  inlineBanner: {
+  secondaryLiveBlock: {
     marginTop: spacing.sm,
+  },
+  hotVaultSlot: {
+    minHeight: HOME_HOT_VAULT_CARD_HEIGHT,
   },
   hList: {
     paddingRight: spacing.lg,
     gap: spacing.sm,
   },
-  liveRail: {
-    paddingRight: spacing.lg,
-  },
   sellerRail: {
     paddingRight: spacing.lg,
     gap: spacing.sm,
   },
-  upcomingPlaceholder: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    padding: spacing.md,
-    borderRadius: radii.lg,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.07)',
-  },
-  upcomingTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: colors.textPrimary,
-  },
-  upcomingSub: {
-    fontSize: 12,
-    lineHeight: 17,
-    color: colors.textMuted,
-    fontWeight: '500',
-  },
-  upcomingCta: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: radii.pill,
-    backgroundColor: 'rgba(212,175,55,0.12)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(212,175,55,0.28)',
-  },
-  upcomingCtaTxt: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: colors.gold,
+  bottomBanner: {
+    marginTop: spacing.lg,
   },
 });

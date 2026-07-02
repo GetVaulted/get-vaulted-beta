@@ -19,16 +19,18 @@ const GRADIENT_OFF = ['#040608', '#0a1016', '#121a22', '#1a222c', '#222a32'] as 
 
 type Props = {
   isFocused: boolean;
+  slotWidth: number;
   onPress: () => void;
   accessibilityLabel?: string;
 };
 
-export function LiveTabOrb({ isFocused, onPress, accessibilityLabel }: Props) {
+export function LiveTabOrb({ isFocused, slotWidth, onPress, accessibilityLabel }: Props) {
   const { width } = useWindowDimensions();
   const scale = Math.min(1, Math.max(0.88, width / 430));
-  const orbSize = Math.round(54 * scale);
-  const ringSize = Math.round(48 * scale);
-  const stackSize = Math.round(92 * scale);
+  const stackSize = Math.min(Math.round(92 * scale), Math.floor(slotWidth * 0.92));
+  const orbSize = Math.min(Math.round(54 * scale), Math.floor(stackSize * 0.62));
+  const ringSize = Math.max(36, Math.floor(orbSize * 0.9));
+  const lift = Math.min(22, Math.round(stackSize * 0.18));
   const wave1 = useSharedValue(0);
   const wave2 = useSharedValue(0);
   const breathe = useSharedValue(1);
@@ -57,7 +59,7 @@ export function LiveTabOrb({ isFocused, onPress, accessibilityLabel }: Props) {
       true,
     );
     return () => clearTimeout(t);
-  }, []);
+  }, [breathe, halo, wave1, wave2]);
 
   const ring1Style = useAnimatedStyle(() => ({
     transform: [{ scale: 1 + wave1.value * 0.58 }],
@@ -78,20 +80,33 @@ export function LiveTabOrb({ isFocused, onPress, accessibilityLabel }: Props) {
   }));
 
   return (
-    <View style={styles.slot}>
+    <View style={[styles.slot, { maxWidth: slotWidth }]}>
       <Pressable
         accessibilityRole="button"
         accessibilityState={isFocused ? { selected: true } : {}}
         accessibilityLabel={accessibilityLabel ?? 'Live'}
         onPress={onPress}
-        style={({ pressed }) => [styles.press, pressed && styles.pressed]}
+        hitSlop={{ top: 8, bottom: 6, left: 2, right: 2 }}
+        style={({ pressed }) => [styles.press, { marginTop: -lift, width: stackSize }, pressed && styles.pressed]}
       >
         <View style={[styles.orbStack, { width: stackSize, height: stackSize }]}>
-          <Animated.View style={[styles.halo, { width: orbSize + 32, height: orbSize + 32, borderRadius: (orbSize + 32) / 2 }, haloStyle]} />
-          <Animated.View style={[styles.ring, { width: ringSize, height: ringSize, borderRadius: ringSize / 2 }, ring1Style]} />
-          <Animated.View style={[styles.ring, { width: ringSize, height: ringSize, borderRadius: ringSize / 2 }, ring2Style]} />
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.halo, { width: orbSize + 24, height: orbSize + 24, borderRadius: (orbSize + 24) / 2 }, haloStyle]}
+          />
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.ring, { width: ringSize, height: ringSize, borderRadius: ringSize / 2 }, ring1Style]}
+          />
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.ring, { width: ringSize, height: ringSize, borderRadius: ringSize / 2 }, ring2Style]}
+          />
 
-          <Animated.View style={[styles.orbScale, orbScaleStyle, isFocused ? styles.orbGlowOn : styles.orbGlowOff]}>
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.orbScale, orbScaleStyle, isFocused ? styles.orbGlowOn : styles.orbGlowOff]}
+          >
             <LinearGradient
               colors={isFocused ? [...GRADIENT_ON] : [...GRADIENT_OFF]}
               start={{ x: 0.12, y: 0 }}
@@ -127,13 +142,12 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'flex-end',
-    overflow: 'visible',
-    zIndex: 20,
+    overflow: 'hidden',
+    zIndex: 2,
     paddingBottom: 4,
   },
   press: {
     alignItems: 'center',
-    marginTop: -22,
     zIndex: 2,
   },
   orbStack: {

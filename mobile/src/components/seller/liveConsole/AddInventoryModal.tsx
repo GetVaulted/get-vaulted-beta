@@ -54,8 +54,8 @@ const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
 const BREAK_VARIANTS: { id: BreakSaleType; label: string; sub: string }[] = [
   { id: 'pyt', label: 'PYT', sub: 'Pick your team' },
   { id: 'pyd', label: 'PYD', sub: 'Pick division' },
-  { id: 'random_pyt', label: 'Random Teams', sub: '32 · wheel' },
-  { id: 'random_pyd', label: 'Random Divisions', sub: '8 · wheel' },
+  { id: 'random_pyt', label: 'Random Teams', sub: '32 · vault reveal' },
+  { id: 'random_pyd', label: 'Random Divisions', sub: '8 · vault reveal' },
 ];
 
 function saleCategoryForType(saleType: LiveLotSaleType): SaleCategory {
@@ -389,31 +389,6 @@ export function AddInventoryModal({
               style={[styles.input, isBreakLotSaleType(draft.saleType) && styles.inputDisabled]}
               editable={!busy && !isBreakLotSaleType(draft.saleType)}
             />
-
-            {draft.saleType === 'auction' ? (
-              <>
-                <Text style={styles.fieldLbl}>Reserve (optional)</Text>
-                <TextInput
-                  value={draft.reservePrice}
-                  onChangeText={(reservePrice) => setDraft((prev) => ({ ...prev, reservePrice }))}
-                  placeholder="Hidden minimum"
-                  placeholderTextColor={colors.textMuted}
-                  keyboardType="decimal-pad"
-                  style={styles.input}
-                  editable={!busy}
-                />
-                <Text style={styles.fieldLbl}>Buy it now (optional)</Text>
-                <TextInput
-                  value={draft.buyNowPrice}
-                  onChangeText={(buyNowPrice) => setDraft((prev) => ({ ...prev, buyNowPrice }))}
-                  placeholder="Instant purchase price"
-                  placeholderTextColor={colors.textMuted}
-                  keyboardType="decimal-pad"
-                  style={styles.input}
-                  editable={!busy}
-                />
-              </>
-            ) : null}
 
             <View style={styles.actionRow}>
               <Pressable

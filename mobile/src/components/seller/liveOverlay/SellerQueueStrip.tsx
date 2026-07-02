@@ -117,7 +117,6 @@ function SellerQueueStripCard({
       <Text style={styles.cardTitle} numberOfLines={2}>
         {item.displayTitle ?? item.title}
       </Text>
-      <QueueSaleTypePill item={item} compact />
       <Text style={styles.meta}>Qty {qty} · Start {start}</Text>
       {reserve ? <Text style={styles.metaSub}>Reserve {reserve}</Text> : null}
       {bin ? <Text style={styles.metaSub}>Buy now {bin}</Text> : null}
@@ -126,6 +125,7 @@ function SellerQueueStripCard({
       </View>
       {!roomEnded ? (
         <View style={styles.cardActions}>
+          <QueueSaleTypePill item={item} compact inline />
           {canEdit && onEdit ? (
             <Pressable style={styles.editBtn} disabled={busy} onPress={() => onEdit(item)}>
               <Text style={styles.editBtnTxt}>Edit</Text>

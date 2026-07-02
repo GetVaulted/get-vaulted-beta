@@ -1,4 +1,4 @@
-import { NFL_DIVISIONS, NFL_TEAMS } from './liveBreakPresets';
+import { NFL_DIVISIONS, NFL_TEAMS, spotColorKeyForPoolLabel } from './liveBreakPresets';
 import { isRandomVariantAssignment, isVariantSalesFormat } from './liveItemVariant';
 import type { LiveRoomItemRow } from '../api/liveRoomControlRepository';
 
@@ -49,7 +49,7 @@ export function buildVariantSpotDisplayRows(
         sold: buyer != null,
         buyerUsername: buyer,
         isHot: false,
-        color: poolVariant?.color ?? null,
+        color: spotColorKeyForPoolLabel(label, item.salesFormat),
       };
     });
   }

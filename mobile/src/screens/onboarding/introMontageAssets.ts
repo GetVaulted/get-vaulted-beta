@@ -5,19 +5,19 @@
 import { Image } from 'react-native';
 
 export const MONTAGE_URIS = [
-  'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1400&q=82&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1614162692292-7a56fe755c90?w=1400&q=82&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1517649763962-0c62306601b7?w=1400&q=82&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1504450758481-733fbeb0a814?w=1400&q=82&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1575367474432-62064d877175?w=1400&q=82&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1519861530063-99ff5c85a011?w=1400&q=82&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1708983471447-931a5b164778?w=1400&q=82&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1471295253337-4c3ae1c0ecf9?w=1400&q=82&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1200&h=2200&q=82&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1614162692292-7a56fe755c90?w=1200&h=2200&q=82&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1517649763962-0c62306601b7?w=1200&h=2200&q=82&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1504450758481-733fbeb0a814?w=1200&h=2200&q=82&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1575367474432-62064d877175?w=1200&h=2200&q=82&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1519861530063-99ff5c85a011?w=1200&h=2200&q=82&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1708983471447-931a5b164778?w=1200&h=2200&q=82&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1471295253337-4c3ae1c0ecf9?w=1200&h=2200&q=82&auto=format&fit=crop',
 ] as const;
 
 /** Memorabilia beat — full-bleed flash over montage (helmet on display). */
 export const HELMET_FLASH_URI =
-  'https://images.unsplash.com/photo-1638378943379-f9c64b6612e4?w=1400&q=82&auto=format&fit=crop' as const;
+  'https://images.unsplash.com/photo-1638378943379-f9c64b6612e4?w=1200&h=2200&q=82&auto=format&fit=crop' as const;
 
 export type MontageOverlay =
   | 'none'

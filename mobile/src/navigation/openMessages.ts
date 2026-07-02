@@ -34,6 +34,17 @@ export function openMessageSellerForListing(
   (navigation as RootNav).navigate('MessageCompose', params);
 }
 
+export function openMessageUser(
+  navigation: NavigationProp<ParamListBase>,
+  params: { userId: string; username?: string; initialDraft?: string },
+) {
+  (navigation as RootNav).navigate('MessageCompose', {
+    sellerUserId: params.userId,
+    sellerUsername: params.username,
+    initialDraft: params.initialDraft,
+  });
+}
+
 export function openMessageSellerFromLive(params: {
   liveRoomId: string;
   listingId?: string;

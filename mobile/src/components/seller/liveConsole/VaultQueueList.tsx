@@ -73,12 +73,9 @@ function VaultQueueRow({
         </View>
       )}
       <View style={{ flex: 1, minWidth: 0 }}>
-        <View style={styles.titleRow}>
-          <Text style={styles.title} numberOfLines={2}>
-            {item.displayTitle ?? item.title}
-          </Text>
-          <QueueSaleTypePill item={item} compact />
-        </View>
+        <Text style={styles.title} numberOfLines={2}>
+          {item.displayTitle ?? item.title}
+        </Text>
         <Text style={styles.bid} numberOfLines={2}>
           {pricingSummary(item)}
         </Text>
@@ -88,25 +85,28 @@ function VaultQueueRow({
           <Text style={styles.tag}>{queueStatusLabel(item.status)}</Text>
         </View>
       </View>
-      {!roomEnded ? (
-        <View style={styles.actions}>
-          {canEditPricing && onEditPricing ? (
-            <Pressable style={styles.editBtn} disabled={busy} onPress={() => onEditPricing(item)}>
-              <Text style={styles.editBtnTxt}>{isVariantSalesFormat(item.salesFormat) ? 'Spots' : 'Edit'}</Text>
+      <View style={styles.actions}>
+        <QueueSaleTypePill item={item} compact inline />
+        {!roomEnded ? (
+          <>
+            {canEditPricing && onEditPricing ? (
+              <Pressable style={styles.editBtn} disabled={busy} onPress={() => onEditPricing(item)}>
+                <Text style={styles.editBtnTxt}>{isVariantSalesFormat(item.salesFormat) ? 'Spots' : 'Edit'}</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              style={[styles.pinBtn, (!roomLive || busy) && styles.pinBtnDisabled]}
+              disabled={!roomLive || busy}
+              onPress={() => onPin(item)}
+            >
+              <Text style={styles.pinBtnTxt}>Pin</Text>
             </Pressable>
-          ) : null}
-          <Pressable
-            style={[styles.pinBtn, (!roomLive || busy) && styles.pinBtnDisabled]}
-            disabled={!roomLive || busy}
-            onPress={() => onPin(item)}
-          >
-            <Text style={styles.pinBtnTxt}>Pin</Text>
-          </Pressable>
-          <Pressable disabled={busy} onPress={() => onRemove(item)} hitSlop={8} style={styles.deleteBtn}>
-            <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
-          </Pressable>
-        </View>
-      ) : null}
+            <Pressable disabled={busy} onPress={() => onRemove(item)} hitSlop={8} style={styles.deleteBtn}>
+              <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
+            </Pressable>
+          </>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -228,17 +228,12 @@ const styles = StyleSheet.create({
   dragHandle: { padding: 4 },
   thumb: { width: 52, height: 64, borderRadius: radii.sm, backgroundColor: 'rgba(0,0,0,0.4)' },
   thumbPh: { alignItems: 'center', justifyContent: 'center' },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 6,
-  },
-  title: { flex: 1, fontSize: 13, fontWeight: '800', color: colors.textPrimary },
+  title: { fontSize: 13, fontWeight: '800', color: colors.textPrimary },
   bid: { fontSize: 11, fontWeight: '600', color: colors.gold, marginTop: 2, lineHeight: 15 },
   metaLine: { fontSize: 10, fontWeight: '600', color: colors.textSecondary },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
   tag: { fontSize: 9, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase' },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  actions: { flexDirection: 'row', alignItems: 'center', alignSelf: 'center', gap: 6, flexShrink: 0 },
   editBtn: {
     paddingHorizontal: 8,
     paddingVertical: 6,

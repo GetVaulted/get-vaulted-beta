@@ -60,5 +60,6 @@ export type SellerLiveShippingDashboard = {
     shippoApiOk: boolean;
     shippoApiError: string | null;
     shipFromComplete: boolean;
+    shipFromNeedsPhoneOnly: boolean;
   };
 };

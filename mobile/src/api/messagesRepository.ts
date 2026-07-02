@@ -83,6 +83,8 @@ export async function sendThreadMessage(
 export type StartConversationParams = {
   listingId?: string;
   liveRoomId?: string;
+  sellerUserId?: string;
+  recipientUserId?: string;
   offerId?: string;
   orderId?: string;
   conversationKind?: MessageConversationKind;

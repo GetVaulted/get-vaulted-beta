@@ -2,7 +2,7 @@ import type { PrismaClient } from "@/generated/prisma/client";
 import { isEscrowConfigured, isEscrowFeaturesEnabled } from "@/lib/escrow-config";
 import type { LiveShowReadiness, LiveShowReadinessChecks } from "@/lib/live-show-readiness-types";
 import { prisma } from "@/lib/prisma";
-import { hasCompleteSellerShipFrom } from "@/lib/seller-shipping-readiness";
+import { hasCompleteSellerShipFrom, sellerNeedsShipFromPhoneOnly } from "@/lib/seller-shipping-readiness";
 import { isShippoConfigured } from "@/lib/shippo";
 import { isStripeConfigured } from "@/lib/stripe";
 
@@ -131,7 +131,11 @@ export async function getSellerLiveReadiness(
   }
 
   if (!hasShipFromAddress) {
-    issues.push("Add a complete ship-from address and contact phone so we can buy USPS labels for your orders.");
+    issues.push(
+      sellerNeedsShipFromPhoneOnly(user)
+        ? "Add a contact phone for your saved ship-from address so we can buy USPS labels for your orders."
+        : "Add a complete ship-from address and contact phone so we can buy USPS labels for your orders.",
+    );
   }
 
   if (alternateCheckoutSellerRequired && !alternateCheckoutSellerLinked) {

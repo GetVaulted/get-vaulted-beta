@@ -54,6 +54,9 @@ export function AdminTrustSafetyPage() {
       subtitle="Unified trust queue across users, listings, live shows, chat, and orders."
       actions={
         <div className="flex flex-wrap gap-2">
+          <Link href="/admin/support-tickets" className="rounded-lg bg-gold/15 px-3 py-1.5 text-xs font-semibold text-gold-bright hover:bg-gold/25">
+            Support tickets →
+          </Link>
           <Link href="/admin/refund-requests" className="rounded-lg bg-gold/15 px-3 py-1.5 text-xs font-semibold text-gold-bright hover:bg-gold/25">
             Refund escalations →
           </Link>

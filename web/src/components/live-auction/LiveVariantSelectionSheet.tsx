@@ -296,7 +296,7 @@ export function LiveVariantSelectionSheet({
             <p className="text-sm font-black text-white">{pickerTitle}</p>
             <p className="mt-0.5 text-[11px] font-semibold text-zinc-500">
               {isRandom
-                ? "Hold to buy — the Vault wheel assigns your team from what's left"
+                ? "Hold to buy — Vault Reveal assigns your team from what's left"
                 : selected
                   ? "Confirm your spot and hold to buy below"
                   : "Tap a team or division to continue"}
@@ -320,7 +320,7 @@ export function LiveVariantSelectionSheet({
               <div className="mt-3 rounded-xl border border-amber-400/25 bg-gradient-to-r from-amber-500/10 to-zinc-950/80 px-4 py-3 text-center">
                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-200/90">Vault Reveal</p>
                 <p className="mt-1 text-sm font-bold text-white">
-                  {spotSummary.available} {item.salesFormat === "team_break" ? "divisions" : "teams"} left on the wheel
+                  {spotSummary.available} {item.salesFormat === "team_break" ? "divisions" : "teams"} left in the pool
                 </p>
               </div>
             )}
@@ -377,7 +377,7 @@ export function LiveVariantSelectionSheet({
               label={
                 selected
                   ? isRandom
-                    ? `Hold to buy · wheel reveal · ${fmtMoney(chargeNow)}`
+                    ? `Hold to buy · vault reveal · ${fmtMoney(chargeNow)}`
                     : `Hold to buy · ${fmtMoney(chargeNow)}`
                   : "Select a spot"
               }

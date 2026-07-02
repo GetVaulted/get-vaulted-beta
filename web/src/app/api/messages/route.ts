@@ -5,8 +5,10 @@ import {
   ensureThreadParticipants,
   listingAnchorKey,
   liveAnchorKey,
+  profileAnchorKey,
   resolveInboxForNewThread,
   resolveLiveNetworkingListingAnchor,
+  resolveProfileMessagingListingAnchor,
 } from "@/lib/message-threads";
 import type { MessageConversationKind } from "@/generated/prisma/client";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
@@ -15,6 +17,8 @@ import { prisma } from "@/lib/prisma";
 type Body = {
   listingId?: string;
   liveRoomId?: string;
+  recipientUserId?: string;
+  sellerUserId?: string;
   offerId?: string;
   orderId?: string;
   conversationKind?: string;
@@ -49,6 +53,9 @@ export async function POST(req: Request) {
 
   const listingId = typeof body.listingId === "string" ? body.listingId.trim() : "";
   const liveRoomId = typeof body.liveRoomId === "string" ? body.liveRoomId.trim() : "";
+  const recipientUserId =
+    (typeof body.recipientUserId === "string" ? body.recipientUserId.trim() : "") ||
+    (typeof body.sellerUserId === "string" ? body.sellerUserId.trim() : "");
   const offerId = typeof body.offerId === "string" ? body.offerId.trim() : "";
   const orderId = typeof body.orderId === "string" ? body.orderId.trim() : "";
   const text = trimBody(body.body, 8000);
@@ -64,8 +71,8 @@ export async function POST(req: Request) {
             : "buyer_seller";
 
   if (!text) return NextResponse.json({ error: "Enter a message." }, { status: 400 });
-  if (!listingId && !liveRoomId) {
-    return NextResponse.json({ error: "Missing listing or live show." }, { status: 400 });
+  if (!listingId && !liveRoomId && !recipientUserId) {
+    return NextResponse.json({ error: "Missing recipient, listing, or live show." }, { status: 400 });
   }
 
   try {
@@ -93,6 +100,21 @@ export async function POST(req: Request) {
         });
         resolvedListingId = anchor.listingId;
         if (!listingTitle.trim()) listingTitle = anchor.listingTitle;
+      } else if (recipientUserId && !listingId) {
+        const profileUser = await tx.user.findUnique({
+          where: { id: recipientUserId },
+          select: { id: true, username: true },
+        });
+        if (!profileUser) throw new Error("NOT_FOUND");
+        sellerId = profileUser.id;
+        anchorKey = profileAnchorKey(profileUser.id);
+        const profileLabel = profileUser.username ? `@${profileUser.username}` : "Direct message";
+        const anchor = await resolveProfileMessagingListingAnchor(tx, {
+          profileUserId: profileUser.id,
+          profileLabel,
+        });
+        resolvedListingId = anchor.listingId;
+        listingTitle = anchor.listingTitle;
       } else {
         const listing = await tx.listing.findUnique({
           where: { id: listingId },
@@ -161,11 +183,16 @@ export async function POST(req: Request) {
 
       const preview = text.length > 120 ? `${text.slice(0, 117)}…` : text;
       const lt = listingTitle.length > 60 ? `${listingTitle.slice(0, 57)}…` : listingTitle;
+      const notifyTitle = inbox === "request" ? "Message request" : "New message";
+      const notifyBody =
+        anchorKey.startsWith("profile:") || lt === "Direct message"
+          ? preview
+          : `Regarding “${lt}”: ${preview}`;
       await createNotification(tx, {
         userId: sellerId,
         type: "message_received",
-        title: inbox === "request" ? "Message request" : "New message",
-        body: `Regarding “${lt}”: ${preview}`,
+        title: notifyTitle,
+        body: notifyBody,
         href: `/account/messages/${encodeURIComponent(thread.id)}`,
       });
 

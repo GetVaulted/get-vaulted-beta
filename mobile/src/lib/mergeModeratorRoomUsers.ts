@@ -1,5 +1,6 @@
 import type { LiveRoomViewerRow } from '../api/trustRepository';
 import type { RoomPresenceUser } from './liveRoomPresenceUsers';
+import { resolveModeratorRoomUsername } from './moderatorRoomDisplayUsername';
 
 export type ModeratorRoomUserRow = {
   key: string;
@@ -14,17 +15,15 @@ export type ModeratorRoomUserRow = {
 export function mergeModeratorRoomUsers(args: {
   presence: RoomPresenceUser[];
   viewers: LiveRoomViewerRow[];
+  usernameByUserId?: Record<string, string>;
 }): ModeratorRoomUserRow[] {
   const map = new Map<string, ModeratorRoomUserRow>();
   const viewers = Array.isArray(args.viewers) ? args.viewers : [];
   const presence = Array.isArray(args.presence) ? args.presence : [];
+  const usernameByUserId = args.usernameByUserId ?? {};
 
-  const normalizeUsername = (username: unknown, userId: string | null): string => {
-    if (typeof username === 'string' && username.trim()) {
-      return username.trim().replace(/^@/, '');
-    }
-    return userId ? 'Member' : 'Guest';
-  };
+  const usernameFor = (userId: string | null, ...candidates: Array<string | null | undefined>) =>
+    resolveModeratorRoomUsername([usernameByUserId[userId ?? ''], ...candidates], userId);
 
   for (const viewer of viewers) {
     const userId = viewer.userId?.trim() ?? '';
@@ -32,7 +31,7 @@ export function mergeModeratorRoomUsers(args: {
     map.set(userId, {
       key: userId,
       userId,
-      username: normalizeUsername(viewer.username, userId),
+      username: usernameFor(userId, viewer.username),
       inRoom: false,
       messageCount: viewer.messageCount,
       lastSeenAt: viewer.lastSeenAt,
@@ -46,7 +45,7 @@ export function mergeModeratorRoomUsers(args: {
       map.set(p.userId, {
         key: p.userId,
         userId: p.userId,
-        username: normalizeUsername(p.username || existing?.username, p.userId),
+        username: usernameFor(p.userId, existing?.username, p.username),
         inRoom: true,
         messageCount: existing?.messageCount,
         lastSeenAt: existing?.lastSeenAt,
@@ -55,7 +54,7 @@ export function mergeModeratorRoomUsers(args: {
       continue;
     }
 
-    const guestUsername = normalizeUsername(p.username, null);
+    const guestUsername = usernameFor(null, p.username);
     const guestKey = `guest:${p.tabKey ?? guestUsername.toLowerCase()}`;
     if (map.has(guestKey)) continue;
     map.set(guestKey, {

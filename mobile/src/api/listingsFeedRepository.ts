@@ -5,6 +5,7 @@ import {
 } from './webListingsRepository';
 import { mapListingCategoryToCategoryId } from './marketplaceListingCategory';
 import { mapWebMarketplaceListingToProduct } from './mapWebMarketplaceListing';
+import { filterBrowsableMarketplaceProducts } from '../lib/marketplaceListingQuality';
 import type { CategoryId, Product } from '../types';
 
 export { mapListingCategoryToCategoryId } from './marketplaceListingCategory';
@@ -32,7 +33,8 @@ export async function fetchMarketplaceListings(opts?: {
   const filtered = opts?.category
     ? published.filter((r) => mapListingCategoryToCategoryId(r.category) === opts.category)
     : published;
-  return filtered.slice(0, lim).map(mapWebMarketplaceListingToProduct);
+  const mapped = filtered.slice(0, lim * 2).map(mapWebMarketplaceListingToProduct);
+  return filterBrowsableMarketplaceProducts(mapped).slice(0, lim);
 }
 
 export async function fetchMarketplaceListingById(listingId: string): Promise<Product | null> {

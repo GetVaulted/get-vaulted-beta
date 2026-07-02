@@ -24,7 +24,7 @@ function formatViewers(n: number) {
 }
 
 const HERO_W = Dimensions.get('window').width - spacing.lg * 2;
-const HERO_H = 200;
+const HERO_H = 212;
 
 export function HomeFeaturedLiveHero({
   liveStream,
@@ -161,12 +161,12 @@ function streamCategoryLine(stream: LiveStream) {
 
 const styles = StyleSheet.create({
   shell: {
-    height: 200,
-    borderRadius: 20,
+    height: HERO_H,
+    borderRadius: radii.lg,
     overflow: 'hidden',
     marginBottom: 0,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255,255,255,0.06)',
   },
   upcomingShell: {
     borderColor: 'rgba(212,175,55,0.28)',

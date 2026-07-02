@@ -149,9 +149,26 @@ export function buildRandomDivisionVariants(priceUsd: number): LiveBreakVariantD
 }
 
 export function teamAbbrForVariant(label: string, color?: string | null): string | null {
-  if (color?.trim()) return color.trim().toUpperCase();
+  const raw = color?.trim();
+  if (raw) {
+    const lower = raw.toLowerCase();
+    if (lower !== 'nfl_teams' && lower !== 'nfl_divisions') {
+      return raw.toUpperCase();
+    }
+  }
   const match = NFL_TEAMS.find((t) => t.name.toLowerCase() === label.trim().toLowerCase());
   return match?.abbr ?? null;
+}
+
+/** Per-spot color key for random pool boards (team abbr or division conference). */
+export function spotColorKeyForPoolLabel(
+  label: string,
+  salesFormat: 'variant_selection' | 'team_break',
+): string | null {
+  if (salesFormat === 'team_break') {
+    return NFL_DIVISIONS.find((d) => d.label === label)?.conference ?? null;
+  }
+  return NFL_TEAMS.find((t) => t.name.toLowerCase() === label.trim().toLowerCase())?.abbr ?? null;
 }
 
 export function spotAccentColor(label: string, color?: string | null, isDivision?: boolean): string {

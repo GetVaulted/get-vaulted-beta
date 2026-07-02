@@ -14,6 +14,7 @@ import { useAuth } from '../auth/AuthContext';
 import type { LiveStackParamList } from '../navigation/types';
 import { alertGuestLiveRestricted } from '../navigation/guestExploreGuards';
 import { navigateAuthLogin, navigateAuthSignUp } from '../navigation/rootNavigationRef';
+import { useKeepScreenAwakeWhileFocused } from '../hooks/useKeepScreenAwakeWhileFocused';
 import { colors } from '../theme';
 import type { LiveStream } from '../types';
 
@@ -32,6 +33,8 @@ export function LiveRoomScreen() {
   const [streams, setStreams] = useState<LiveStream[]>(seed.streams);
   const [loading, setLoading] = useState(!seed.ready);
   const [roomVisitNonce, setRoomVisitNonce] = useState(0);
+
+  useKeepScreenAwakeWhileFocused('live-room-buyer');
 
   useFocusEffect(
     useCallback(() => {

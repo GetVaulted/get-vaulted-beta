@@ -434,7 +434,7 @@ export function LiveBreakSpotGridSheet({
               <LiveRoomText style={styles.pickerTitle}>{pickerTitle}</LiveRoomText>
               <LiveRoomText style={styles.pickerHint}>
                 {isRandom
-                  ? 'Hold to buy to checkout — the Vault wheel assigns your team from what’s left'
+                  ? 'Hold to buy — Vault Reveal assigns your team from what’s left'
                   : selected
                     ? walletReady
                       ? `Hold to buy to pay ${fmtMoney(chargeNow)} now — spot, shipping, and tax below`
@@ -445,7 +445,7 @@ export function LiveBreakSpotGridSheet({
                 <View style={styles.randomRevealCard}>
                   <LiveRoomText style={styles.randomRevealKicker}>Vault Reveal</LiveRoomText>
                   <LiveRoomText style={styles.randomRevealBody}>
-                    {spotSummary.available} {isDivisionBreak ? 'divisions' : 'teams'} left on the wheel
+                    {spotSummary.available} {isDivisionBreak ? 'divisions' : 'teams'} left in the pool
                   </LiveRoomText>
                 </View>
               ) : (
@@ -501,7 +501,7 @@ export function LiveBreakSpotGridSheet({
                 label={
                   selected
                     ? isRandom
-                      ? `Hold to buy · wheel reveal · ${fmtMoney(chargeNow)}`
+                      ? `Hold to buy · vault reveal · ${fmtMoney(chargeNow)}`
                       : `Hold to buy · ${fmtMoney(chargeNow)}`
                     : isRandom
                       ? 'Hold to buy'

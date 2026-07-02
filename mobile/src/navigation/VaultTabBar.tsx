@@ -10,6 +10,7 @@ import { LiveTabOrb } from './LiveTabOrb';
 
 const ORDER: (keyof MainTabParamList)[] = ['Home', 'Marketplace', 'Live', 'TradeCenter', 'HQ'];
 const TAB_SLOT_TIGHT_WIDTH = 88;
+const TAB_COUNT = ORDER.length;
 
 function iconFor(
   name: keyof MainTabParamList,
@@ -46,6 +47,7 @@ export function VaultTabBar({ state, descriptors, navigation }: BottomTabBarProp
   const shortLabels = compact || tightTabs;
   const labelSize = marketplaceFontSize(shortLabels ? 9 : 10, Math.min(1, width / 430));
   const bottomPad = Math.max(insets.bottom, spacing.sm);
+  const tabSlotWidth = width / TAB_COUNT;
   const currentRoute = state.routes[state.index];
   const nestedLiveName =
     currentRoute?.name === 'Live'
@@ -76,12 +78,17 @@ export function VaultTabBar({ state, descriptors, navigation }: BottomTabBarProp
             <LiveTabOrb
               key={route.key}
               isFocused={isFocused}
+              slotWidth={tabSlotWidth}
               accessibilityLabel={options.tabBarAccessibilityLabel}
-              onPress={() =>
-                navigation.navigate('Live', {
-                  screen: 'LiveDiscovery',
-                })
-              }
+              onPress={() => {
+                const event = navigation.emit({
+                  type: 'tabPress',
+                  target: route.key,
+                  canPreventDefault: true,
+                });
+                if (event.defaultPrevented) return;
+                navigation.navigate('Live', { screen: 'LiveDiscovery' });
+              }}
             />
           );
         }
@@ -92,22 +99,17 @@ export function VaultTabBar({ state, descriptors, navigation }: BottomTabBarProp
             target: route.key,
             canPreventDefault: true,
           });
+          if (event.defaultPrevented) return;
           if (isFocused) {
-            if (route.name === 'Live') {
-              navigation.navigate('Live', { screen: 'LiveDiscovery' });
-            } else if (route.name === 'TradeCenter') {
+            if (route.name === 'TradeCenter') {
               navigation.navigate('TradeCenter', { screen: 'TradeCenterHome' });
             }
             return;
           }
-          if (!event.defaultPrevented) {
-            if (route.name === 'Live') {
-              navigation.navigate('Live', { screen: 'LiveDiscovery' });
-            } else if (route.name === 'TradeCenter') {
-              navigation.navigate('TradeCenter', { screen: 'TradeCenterHome' });
-            } else {
-              navigation.navigate(route.name, route.params);
-            }
+          if (route.name === 'TradeCenter') {
+            navigation.navigate('TradeCenter', { screen: 'TradeCenterHome' });
+          } else {
+            navigation.navigate(route.name, route.params);
           }
         };
 
@@ -140,6 +142,7 @@ export function VaultTabBar({ state, descriptors, navigation }: BottomTabBarProp
             accessibilityState={isFocused ? { selected: true } : {}}
             accessibilityLabel={options.tabBarAccessibilityLabel}
             onPress={onPress}
+            hitSlop={{ top: 8, bottom: 6, left: 4, right: 4 }}
             style={({ pressed }) => [styles.tabSlot, pressed && styles.pressed]}
           >
             <Ionicons
@@ -166,7 +169,8 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
     overflow: 'visible',
-    zIndex: 10,
+    zIndex: 100,
+    elevation: 24,
   },
   tabSlot: {
     flex: 1,
@@ -177,6 +181,7 @@ const styles = StyleSheet.create({
     minHeight: 48,
     minWidth: 0,
     paddingHorizontal: 1,
+    overflow: 'hidden',
   },
   label: {
     ...typography.micro,

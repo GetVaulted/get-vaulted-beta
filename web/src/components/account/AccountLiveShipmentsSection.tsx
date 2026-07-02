@@ -335,9 +335,11 @@ export function AccountLiveShipmentsSection({
               )}
               {!data.labelSetup.shipFromComplete ? (
                 <li>
-                  Ship-from address incomplete — add it under{" "}
+                  {data.labelSetup.shipFromNeedsPhoneOnly
+                    ? "Ship-from phone missing — add a contact phone in "
+                    : "Ship-from address incomplete — add it under "}
                   <Link href="/account/seller" className="font-semibold text-gold-bright/90 hover:underline">
-                    Account → Seller
+                    Seller HQ
                   </Link>{" "}
                   before creating labels.
                 </li>

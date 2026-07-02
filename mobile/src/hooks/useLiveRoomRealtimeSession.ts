@@ -52,6 +52,7 @@ export function useLiveRoomRealtimeSession(args: {
   enabled: boolean;
   hostUsername: string;
   onChatBroadcast?: (message: LiveRoomChatBroadcastMessage) => void;
+  viewerDisplayName?: string | null;
   /** Hard playback reset (WebRTC rejoin). Use only for go-live / ended transitions. */
   onStreamHardRefresh?: () => void;
   /** @deprecated Prefer onStreamHardRefresh — kept for callers that only need metadata. */
@@ -80,6 +81,7 @@ export function useLiveRoomRealtimeSession(args: {
     liveRoomId: args.roomId,
     enabled: args.enabled,
     userId: args.userId ?? null,
+    viewerDisplayName: args.viewerDisplayName ?? null,
     trackSelf: true,
   });
 

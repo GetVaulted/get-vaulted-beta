@@ -1,5 +1,5 @@
 import { fetchWebApiMobileWithSellerAuth } from '../lib/resolveSellerAccessToken';
-import { resolveSellerShippingProfileIdForCategory } from '../lib/liveShowCategoryShippingProfile';
+import { resolveLiveHostDefaultShippingProfileId } from '../lib/liveShowCategoryShippingProfile';
 
 export type LiveHostShippingProfileOption = {
   id: string;
@@ -59,19 +59,14 @@ export function liveHostShippingProfileOptions(dashboard: LiveHostShippingDashbo
 
 export function liveHostDefaultProfileId(dashboard: LiveHostShippingDashboard): string {
   const options = liveHostShippingProfileOptions(dashboard);
-  const fromCategory = resolveSellerShippingProfileIdForCategory(
-    options.map((p) => ({
+  return resolveLiveHostDefaultShippingProfileId({
+    profiles: options.map((p) => ({
       id: p.id,
       sourceSlug: p.sourceSlug ?? '',
       isDefault: p.isDefault,
     })),
-    dashboard.room.category ?? null,
-  );
-  if (fromCategory) return fromCategory;
-  return (
-    dashboard.room.defaultSellerShippingProfileId?.trim() ||
-    dashboard.room.defaultShippingProfileId?.trim() ||
-    options[0]?.id ||
-    ''
-  );
+    roomDefaultSellerShippingProfileId: dashboard.room.defaultSellerShippingProfileId,
+    roomDefaultShippingProfileId: dashboard.room.defaultShippingProfileId,
+    category: dashboard.room.category ?? null,
+  });
 }

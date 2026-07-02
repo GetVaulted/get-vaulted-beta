@@ -1,7 +1,7 @@
 import type { VaultRevealSpinPayload } from '../../lib/vaultRevealSpin';
-import { VaultRevealWheelOverlay } from './VaultRevealWheelOverlay';
+import { VaultDropRevealOverlay } from './VaultDropRevealOverlay';
 
-/** Giveaways, PYT randomizer, and per-spot random reveals all use the premium wheel. */
+/** Giveaways, PYT randomizer, and per-spot random reveals — Vault Drop hype reveal. */
 export function VaultRevealOverlay({
   spin,
   onDismiss,
@@ -9,5 +9,5 @@ export function VaultRevealOverlay({
   spin: VaultRevealSpinPayload | null;
   onDismiss: () => void;
 }) {
-  return <VaultRevealWheelOverlay spin={spin} onDismiss={onDismiss} />;
+  return <VaultDropRevealOverlay spin={spin} onDismiss={onDismiss} />;
 }

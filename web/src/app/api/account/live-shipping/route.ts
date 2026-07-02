@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSessionSafe } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { hasCompleteSellerShipFrom } from "@/lib/seller-shipping-readiness";
+import { hasCompleteSellerShipFrom, sellerNeedsShipFromPhoneOnly } from "@/lib/seller-shipping-readiness";
 import { isShippoConfigured, probeShippoApi, shippoTokenKind } from "@/lib/shippo";
 import { getSellerLiveShippingDashboard } from "@/services/account/seller-live-shipping-dashboard";
 import { processAuctionPaymentExpiries } from "@/services/payments";
@@ -28,7 +28,7 @@ export async function GET() {
         shipFromCountry: true,
         defaultShipFromAddressId: true,
         defaultShipFromAddress: {
-          select: { line1: true, city: true, state: true, postalCode: true, country: true },
+          select: { line1: true, city: true, state: true, postalCode: true, country: true, phone: true },
         },
       },
     }),
@@ -43,6 +43,7 @@ export async function GET() {
       shippoApiOk: shippoProbe.ok,
       shippoApiError: shippoProbe.ok ? null : shippoProbe.error,
       shipFromComplete: seller ? hasCompleteSellerShipFrom(seller) : false,
+      shipFromNeedsPhoneOnly: seller ? sellerNeedsShipFromPhoneOnly(seller) : false,
     },
   });
 }

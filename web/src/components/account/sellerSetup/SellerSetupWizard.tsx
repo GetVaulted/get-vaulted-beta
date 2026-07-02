@@ -10,7 +10,7 @@ import { ProfileStep } from "@/components/account/sellerSetup/steps/ProfileStep"
 import { ShippingStep } from "@/components/account/sellerSetup/steps/ShippingStep";
 import { WelcomeStep } from "@/components/account/sellerSetup/steps/WelcomeStep";
 import { WizardShell } from "@/components/account/sellerSetup/WizardShell";
-import { SELLER_SHIP_FROM_COUNTRY } from "@/lib/seller-shipping-readiness";
+import { SELLER_SHIP_FROM_COUNTRY, sellerNeedsShipFromPhoneOnly } from "@/lib/seller-shipping-readiness";
 import {
   isPayoutSetupComplete,
   isRequiredSellerSetupComplete,
@@ -255,25 +255,43 @@ export function SellerSetupWizard() {
 
   const saveShipFrom = async () => {
     setSaveError(null);
-    const required = [shipStreet, shipCity, shipState, shipZip, shipPhone].map((v) => v.trim());
-    if (required.some((v) => !v)) {
-      setSaveError("Please complete your address and contact phone.");
-      return;
+    const phoneOnly = sellerNeedsShipFromPhoneOnly({
+      shipFromStreet: shipStreet,
+      shipFromCity: shipCity,
+      shipFromState: shipState,
+      shipFromZip: shipZip,
+      shipFromCountry: SELLER_SHIP_FROM_COUNTRY,
+      shipFromPhone: shipPhone,
+    });
+    if (phoneOnly) {
+      if (!shipPhone.trim()) {
+        setSaveError("Enter a contact phone for USPS labels.");
+        return;
+      }
+    } else {
+      const required = [shipStreet, shipCity, shipState, shipZip, shipPhone].map((v) => v.trim());
+      if (required.some((v) => !v)) {
+        setSaveError("Please complete your address and contact phone.");
+        return;
+      }
     }
     setSaveBusy(true);
     try {
+      const body: Record<string, string> = {
+        shipFromPhone: shipPhone,
+        shipFromCountry: SELLER_SHIP_FROM_COUNTRY,
+      };
+      if (!phoneOnly) {
+        body.shipFromName = shipName;
+        body.shipFromStreet = shipStreet;
+        body.shipFromCity = shipCity;
+        body.shipFromState = shipState;
+        body.shipFromZip = shipZip;
+      }
       const res = await fetch("/api/account/seller", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shipFromName: shipName,
-          shipFromStreet: shipStreet,
-          shipFromCity: shipCity,
-          shipFromState: shipState,
-          shipFromZip: shipZip,
-          shipFromPhone: shipPhone,
-          shipFromCountry: SELLER_SHIP_FROM_COUNTRY,
-        }),
+        body: JSON.stringify(body),
       });
       const j = (await res.json().catch(() => ({}))) as { error?: string; messages?: string[]; readiness?: LiveReadiness };
       if (!res.ok) {
@@ -448,6 +466,14 @@ export function SellerSetupWizard() {
           shipState={shipState}
           shipZip={shipZip}
           shipPhone={shipPhone}
+          phoneOnlyCompletion={sellerNeedsShipFromPhoneOnly({
+            shipFromStreet: shipStreet,
+            shipFromCity: shipCity,
+            shipFromState: shipState,
+            shipFromZip: shipZip,
+            shipFromCountry: SELLER_SHIP_FROM_COUNTRY,
+            shipFromPhone: shipPhone,
+          })}
           saveBusy={saveBusy}
           saveError={saveError}
           saved={shippingSaved}

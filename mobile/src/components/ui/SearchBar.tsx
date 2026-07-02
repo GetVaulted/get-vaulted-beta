@@ -77,12 +77,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
   },
   wrapHome: {
-    paddingVertical: 10,
+    paddingVertical: 11,
     paddingHorizontal: spacing.md,
-    borderRadius: radii.pill,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderColor: 'rgba(255,255,255,0.08)',
-    marginBottom: spacing.sm,
+    borderRadius: radii.md,
+    backgroundColor: 'rgba(255,255,255,0.035)',
+    borderColor: 'rgba(255,255,255,0.06)',
   },
   input: {
     flex: 1,

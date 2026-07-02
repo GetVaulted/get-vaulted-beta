@@ -193,6 +193,7 @@ export function LiveAuctionChat({
       liveRoomId={liveRoomId}
       hostUserId={hostUserId}
       isHost={mod.isHost}
+      isModerator={mod.isModerator}
       canModerate={mod.canModerate}
       moderatorLevel={mod.moderatorLevel}
       allowedActions={mod.allowedActions}

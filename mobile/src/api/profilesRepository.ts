@@ -168,6 +168,27 @@ export async function fetchProfileById(userId: string): Promise<ProfileLite | nu
   return data as ProfileLite;
 }
 
+/** Batch-resolve usernames for mod tools (presence often tracks placeholder "Member"). */
+export async function fetchProfileUsernamesByIds(userIds: string[]): Promise<Record<string, string>> {
+  const sb = getSupabase();
+  if (!sb) return {};
+  const ids = [...new Set(userIds.map((id) => id.trim()).filter(Boolean))];
+  if (!ids.length) return {};
+
+  const { data, error } = await sb.from('profiles').select('id, username, display_name').in('id', ids);
+  if (error || !data?.length) return {};
+
+  const out: Record<string, string> = {};
+  for (const row of data) {
+    const id = typeof row.id === 'string' ? row.id.trim() : '';
+    const username = typeof row.username === 'string' ? row.username.trim() : '';
+    const displayName = typeof row.display_name === 'string' ? row.display_name.trim() : '';
+    const label = username || displayName;
+    if (id && label) out[id] = label.replace(/^@/, '');
+  }
+  return out;
+}
+
 export async function updateMyProfile(
   userId: string,
   patch: { username?: string; display_name?: string; avatar_url?: string | null },

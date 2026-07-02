@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
+import { syncSupabaseProfileAvatar } from "@/lib/sync-profile-avatar";
 
 type PatchBody = {
   name?: unknown;
@@ -52,6 +53,10 @@ export async function PATCH(req: Request) {
     data,
     select: { name: true, image: true, username: true },
   });
+
+  if (image !== undefined) {
+    await syncSupabaseProfileAvatar(auth.userId, image);
+  }
 
   return NextResponse.json({ user });
 }

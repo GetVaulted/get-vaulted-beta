@@ -6,6 +6,11 @@ import { syncStripeConnectFromEmailSibling } from "@/lib/link-stripe-account-fro
 import { getSupabaseBearerJwt } from "@/lib/mobile-supabase-bearer";
 import { prisma } from "@/lib/prisma";
 
+export type RequireSupabaseBearerOptions = {
+  /** Skip Stripe Connect sibling sync (background endpoints like push-token registration). */
+  skipStripeSiblingSync?: boolean;
+};
+
 /**
  * Validates `Authorization: Bearer <supabase_access_token>` for mobile / native clients,
  * then resolves a Prisma `User.id` (creating a minimal `User` when the account exists only in Supabase).
@@ -13,7 +18,8 @@ import { prisma } from "@/lib/prisma";
  */
 export async function requireUserIdFromSupabaseBearer(
   request: Request,
-): Promise<{ userId: string } | NextResponse> {
+  options: RequireSupabaseBearerOptions = {},
+): Promise<{ userId: string; supabaseAuthUserId: string } | NextResponse> {
   const jwt = getSupabaseBearerJwt(request);
   if (!jwt) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -69,14 +75,16 @@ export async function requireUserIdFromSupabaseBearer(
     );
   }
 
-  try {
-    await syncStripeConnectFromEmailSibling(prismaUserId);
-  } catch (e) {
-    console.warn("[requireUserIdFromSupabaseBearer] stripe sibling sync failed", {
-      userId: prismaUserId,
-      error: e instanceof Error ? e.message : String(e),
-    });
+  if (!options.skipStripeSiblingSync) {
+    try {
+      await syncStripeConnectFromEmailSibling(prismaUserId);
+    } catch (e) {
+      console.warn("[requireUserIdFromSupabaseBearer] stripe sibling sync failed", {
+        userId: prismaUserId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
   }
 
-  return { userId: prismaUserId };
+  return { userId: prismaUserId, supabaseAuthUserId: data.user.id };
 }

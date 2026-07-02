@@ -4,7 +4,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthContext';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
-import { createSupportTicket } from '../../platform/platformStore';
+import { createSupportTicket } from '../../api/supportRepository';
 import type { SupportCategory } from '../../platform/types';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
@@ -25,7 +25,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ContactSupport'>;
 
 export function ContactSupportScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const [category, setCategory] = useState<SupportCategory>(route.params?.category ?? 'other');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
@@ -33,7 +33,7 @@ export function ContactSupportScreen({ navigation, route }: Props) {
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
-    if (!user?.id) {
+    if (!user?.id || !session?.access_token) {
       Alert.alert('Sign in required', 'Sign in to contact support.');
       return;
     }
@@ -43,8 +43,7 @@ export function ContactSupportScreen({ navigation, route }: Props) {
     }
     setBusy(true);
     try {
-      const ticket = await createSupportTicket({
-        userId: user.id,
+      const ticket = await createSupportTicket(session.access_token, {
         category,
         subject: subject.trim() || CATEGORIES.find((c) => c.id === category)?.label || 'Support request',
         message: message.trim(),
@@ -55,6 +54,8 @@ export function ContactSupportScreen({ navigation, route }: Props) {
       Alert.alert('Ticket submitted', `Reference ${ticket.id}. Track status in Support Inbox.`, [
         { text: 'OK', onPress: () => navigation.replace('SupportTicketDetail', { ticketId: ticket.id }) },
       ]);
+    } catch (e) {
+      Alert.alert('Could not submit', e instanceof Error ? e.message : 'Try again in a moment.');
     } finally {
       setBusy(false);
     }

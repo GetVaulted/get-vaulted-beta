@@ -1,4 +1,5 @@
 export {
+  resolveLiveHostDefaultShippingProfileId,
   resolveSellerShippingProfileIdForCategory,
   suggestSellerShippingProfileSourceSlugForCategory,
   type LiveShowCategoryProfileOption,

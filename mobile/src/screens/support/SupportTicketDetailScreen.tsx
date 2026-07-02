@@ -2,8 +2,9 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '../../auth/AuthContext';
+import { fetchSupportTicket } from '../../api/supportRepository';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
-import { getSupportTicket } from '../../platform/platformStore';
 import type { SupportTicket } from '../../platform/types';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
@@ -12,15 +13,25 @@ type Props = NativeStackScreenProps<RootStackParamList, 'SupportTicketDetail'>;
 
 export function SupportTicketDetailScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
+  const { session } = useAuth();
   const [ticket, setTicket] = useState<SupportTicket | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     void (async () => {
-      setTicket(await getSupportTicket(route.params.ticketId));
-      setLoading(false);
+      if (!session?.access_token) {
+        setTicket(null);
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      try {
+        setTicket(await fetchSupportTicket(session.access_token, route.params.ticketId));
+      } finally {
+        setLoading(false);
+      }
     })();
-  }, [route.params.ticketId]);
+  }, [route.params.ticketId, session?.access_token]);
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>

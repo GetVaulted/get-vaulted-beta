@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { StripeOnboardingEmbed } from "@/components/seller/StripeOnboardingEmbed";
 import { SellerHubNav } from "@/components/seller/obs/SellerHubNav";
+import { SellerShipFromSetupCard } from "@/components/account/SellerShipFromSetupCard";
 import { useSellerSetupState } from "@/hooks/useSellerSetupState";
+import { SELLER_OBS_PATH } from "@/lib/obs-seller-paths";
 import { SELLER_SETUP_PATH } from "@/lib/seller-setup-state";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
 
@@ -39,13 +41,6 @@ type SellerHomeStats = {
   } | null;
 };
 
-type StripeDebugRequirements = {
-  currentlyDue: string[];
-  pendingVerification: string[];
-  eventuallyDue: string[];
-  disabledReason?: string | null;
-};
-
 type LiveReadinessChecks = {
   hasStripeAccount: boolean;
   stripeChargesEnabled: boolean;
@@ -61,18 +56,69 @@ type LiveReadiness = {
   checks: LiveReadinessChecks;
 };
 
-type NextReadinessStep = "stripe" | "ship_from" | "ready";
-
-function getNextReadinessStep(checks: LiveReadinessChecks): NextReadinessStep {
-  if (!checks.hasStripeAccount || !checks.stripeChargesEnabled) return "stripe";
-  if (!checks.hasShipFromAddress) return "ship_from";
-  return "ready";
-}
-
 function payoutStatus(s: SellerPayload | null): "not_connected" | "pending" | "ready" {
   if (!s?.stripeAccountId) return "not_connected";
   if (!s.stripeOnboardingComplete) return "pending";
   return "ready";
+}
+
+function HubSectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-zinc-500">{children}</p>
+  );
+}
+
+function HubStatCard({
+  label,
+  lines,
+  href,
+  cta,
+  highlight,
+}: {
+  label: string;
+  lines: { text: string; emphasis?: boolean }[];
+  href: string;
+  cta: string;
+  highlight?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`group block rounded-xl border p-4 transition hover:border-gold/25 hover:bg-white/[0.02] ${
+        highlight
+          ? "border-gold/20 bg-gold/[0.04]"
+          : "border-white/[0.08] bg-zinc-950/40"
+      }`}
+    >
+      <HubSectionLabel>{label}</HubSectionLabel>
+      <div className="mt-2 space-y-0.5">
+        {lines.map((line) => (
+          <p
+            key={line.text}
+            className={`text-sm ${line.emphasis ? "font-semibold text-zinc-100" : "text-zinc-400"}`}
+          >
+            {line.text}
+          </p>
+        ))}
+      </div>
+      <span className="mt-3 inline-flex text-xs font-semibold text-gold-bright/90 group-hover:text-gold-bright">
+        {cta} →
+      </span>
+    </Link>
+  );
+}
+
+function StatusPill({ tone, children }: { tone: "ready" | "pending" | "warn"; children: ReactNode }) {
+  const tones = {
+    ready: "border-emerald-500/30 bg-emerald-950/50 text-emerald-200",
+    pending: "border-amber-500/30 bg-amber-950/40 text-amber-100",
+    warn: "border-rose-500/30 bg-rose-950/40 text-rose-100",
+  };
+  return (
+    <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${tones[tone]}`}>
+      {children}
+    </span>
+  );
 }
 
 export function SellerHubPage() {
@@ -97,20 +143,8 @@ export function SellerHubPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const [saveBusy, setSaveBusy] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saveMsg, setSaveMsg] = useState<string | null>(null);
-  /** From GET /api/account/seller — never use isStripeConfigured() in this client component (secret is server-only). */
-  const [stripePlatformConfigured, setStripePlatformConfigured] = useState(false);
   const [stripeEmbedOpen, setStripeEmbedOpen] = useState(false);
-  const [stripeEmbedFallbackHint, setStripeEmbedFallbackHint] = useState(false);
-  const [stripeDebugBlockedBy, setStripeDebugBlockedBy] = useState<string[]>([]);
-  const [stripeDebugRequirements, setStripeDebugRequirements] = useState<StripeDebugRequirements>({
-    currentlyDue: [],
-    pendingVerification: [],
-    eventuallyDue: [],
-    disabledReason: null,
-  });
+  const [stripeEmbedOnboardingAvailable, setStripeEmbedOnboardingAvailable] = useState(false);
   const [readiness, setReadiness] = useState<LiveReadiness>({
     canGoLive: false,
     issues: [],
@@ -123,24 +157,10 @@ export function SellerHubPage() {
       hasAtLeastOneListingWithShippingProfile: false,
     },
   });
-  const payoutsSectionRef = useRef<HTMLElement | null>(null);
   const shipFromSectionRef = useRef<HTMLElement | null>(null);
-  const recommendedSectionRef = useRef<HTMLElement | null>(null);
-  const [recommendedCategories, setRecommendedCategories] = useState<{ category: string; count: number }[]>([]);
-
-  const [shipName, setShipName] = useState("");
-  const [shipStreet, setShipStreet] = useState("");
-  const [shipCity, setShipCity] = useState("");
-  const [shipState, setShipState] = useState("");
-  const [shipZip, setShipZip] = useState("");
-  const [shipCountry, setShipCountry] = useState("");
 
   const toast = useCallback((message: string) => {
     window.dispatchEvent(new CustomEvent(WATCHLIST_TOAST_EVENT, { detail: { message } }));
-  }, []);
-
-  const scrollTo = useCallback((ref: { current: HTMLElement | null }) => {
-    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
   const fetchLiveReadiness = useCallback(async (): Promise<LiveReadinessChecks | null> => {
@@ -153,14 +173,6 @@ export function SellerHubPage() {
       return null;
     }
   }, []);
-
-  const guideToNextReadinessStep = useCallback(
-    async (opts?: { payoutsCompleteToast?: boolean }) => {
-      if (opts?.payoutsCompleteToast) toast("Payouts setup complete.");
-      router.push(SELLER_SETUP_PATH);
-    },
-    [router, toast],
-  );
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -205,7 +217,7 @@ export function SellerHubPage() {
       }
       const j = (await res.json()) as {
         seller?: SellerPayload;
-        stripePlatformConfigured?: boolean;
+        stripeEmbedOnboardingAvailable?: boolean;
         readiness?: LiveReadiness;
         sellerHomeStats?: SellerHomeStats;
         recommendedCategories?: { category: string; count: number }[];
@@ -244,16 +256,7 @@ export function SellerHubPage() {
         },
       );
       setHomeStats(j.sellerHomeStats ?? null);
-      setStripePlatformConfigured(j.stripePlatformConfigured === true);
-      setRecommendedCategories(Array.isArray(j.recommendedCategories) ? j.recommendedCategories : []);
-      if (s) {
-        setShipName(s.shipFromName ?? "");
-        setShipStreet(s.shipFromStreet ?? "");
-        setShipCity(s.shipFromCity ?? "");
-        setShipState(s.shipFromState ?? "");
-        setShipZip(s.shipFromZip ?? "");
-        setShipCountry(s.shipFromCountry ?? "");
-      }
+      setStripeEmbedOnboardingAvailable(j.stripeEmbedOnboardingAvailable === true);
     } finally {
       setLoading(false);
     }
@@ -261,7 +264,6 @@ export function SellerHubPage() {
 
   const onStripeEmbedEnd = useCallback(() => {
     setStripeEmbedOpen(false);
-    setStripeEmbedFallbackHint(true);
     void load();
   }, [load]);
 
@@ -289,22 +291,11 @@ export function SellerHubPage() {
         const j = (await res.json()) as {
           stripeOnboardingComplete?: boolean;
           stripeChargesEnabled?: boolean | null;
-          debugStripeRequirements?: StripeDebugRequirements;
         };
-        setStripeDebugBlockedBy([]);
-        setStripeDebugRequirements(
-          j.debugStripeRequirements ?? {
-            currentlyDue: [],
-            pendingVerification: [],
-            eventuallyDue: [],
-            disabledReason: null,
-          },
-        );
         if (j.stripeOnboardingComplete === true || j.stripeChargesEnabled === true) {
           setStripeEmbedOpen(false);
-          setStripeEmbedFallbackHint(false);
           await load();
-          await guideToNextReadinessStep({ payoutsCompleteToast: true });
+          toast("Payout setup updated.");
         }
       } catch {
         // ignore intermittent polling failures while modal is open
@@ -312,9 +303,13 @@ export function SellerHubPage() {
     };
     const id = window.setInterval(() => void poll(), 5000);
     return () => clearInterval(id);
-  }, [stripeEmbedOpen, seller?.stripeOnboardingComplete, load, guideToNextReadinessStep]);
+  }, [stripeEmbedOpen, seller?.stripeOnboardingComplete, load, toast]);
 
-  const connectPayouts = async () => {
+  const openStripeOnboarding = async () => {
+    if (stripeEmbedOnboardingAvailable) {
+      setStripeEmbedOpen(true);
+      return;
+    }
     setBusy(true);
     try {
       const res = await fetch("/api/seller/stripe/onboard", { method: "POST", credentials: "same-origin" });
@@ -329,43 +324,30 @@ export function SellerHubPage() {
     }
   };
 
-  const saveShipFrom = async () => {
-    setSaveError(null);
-    setSaveMsg(null);
-    const required = [shipStreet, shipCity, shipState, shipZip, shipCountry].map((v) => v.trim());
-    if (required.some((v) => !v)) {
-      setSaveError("Please complete your address.");
-      return;
-    }
-
-    setSaveBusy(true);
+  const openStripeDashboard = async () => {
+    setBusy(true);
     try {
-      const res = await fetch("/api/account/seller", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shipFromName: shipName,
-          shipFromStreet: shipStreet,
-          shipFromCity: shipCity,
-          shipFromState: shipState,
-          shipFromZip: shipZip,
-          shipFromCountry: shipCountry,
-        }),
+      const res = await fetch("/api/stripe/connect/create-dashboard-link", {
+        method: "POST",
+        credentials: "same-origin",
       });
-      const j = (await res.json().catch(() => ({}))) as { error?: string; message?: string; readiness?: LiveReadiness };
+      const j = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
       if (!res.ok) {
-        setSaveError(j.error ?? "Could not save your address.");
+        setLoadError(j.error ?? "Could not open Stripe dashboard.");
         return;
       }
-      const successMsg = j.message ?? "Shipping address saved.";
-      setSaveMsg(successMsg);
-      toast(successMsg);
-      if (j.readiness) setReadiness(j.readiness);
-      await load();
-      await guideToNextReadinessStep();
+      if (j.url) window.open(j.url, "_blank", "noopener,noreferrer");
     } finally {
-      setSaveBusy(false);
+      setBusy(false);
     }
+  };
+
+  const managePayouts = () => {
+    if (payoutStatus(seller) === "ready") {
+      void openStripeDashboard();
+      return;
+    }
+    void openStripeOnboarding();
   };
 
   if (status === "unauthenticated") {
@@ -398,131 +380,222 @@ export function SellerHubPage() {
   }
 
   const ps = payoutStatus(seller);
+  const liveRoom = homeStats?.liveRoom;
+  const isLiveNow = liveRoom?.status === "live";
+  const shipFromNeedsAttention = !readiness.checks.hasShipFromAddress;
 
   return (
-    <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
-      <div className="relative mx-auto w-full max-w-[1920px] px-3 pb-16 pt-5 sm:px-4 lg:px-10">
-        <header className="rounded-2xl border border-white/[0.09] bg-[linear-gradient(180deg,rgba(24,24,29,0.88)_0%,rgba(10,10,13,0.86)_100%)] p-5 shadow-[0_24px_60px_-36px_rgba(0,0,0,0.8)] sm:p-6">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Active seller</p>
-          <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">Seller HQ</h1>
-          <p className="mt-1.5 max-w-2xl text-sm text-zinc-400">Your command center for listings, sales, live shows, and orders.</p>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <Link
-              href="/seller/live"
-              className="inline-flex h-11 w-full items-center justify-center rounded-full bg-gradient-to-r from-gold to-gold-bright px-6 text-sm font-bold text-zinc-950 shadow-[0_12px_34px_-14px_rgba(201,162,39,0.6)] transition hover:brightness-110 sm:min-w-[160px] sm:w-auto"
-            >
-              Schedule Live Show
-            </Link>
-            <Link
-              href="/account/listings/new"
-              className="inline-flex h-11 w-full items-center justify-center rounded-full border border-white/15 px-6 text-sm font-semibold text-zinc-100 transition hover:border-gold/40 hover:text-gold-bright sm:min-w-[132px] sm:w-auto"
-            >
-              Create Listing
-            </Link>
-            <Link
-              href={SELLER_SETUP_PATH}
-              className="inline-flex h-11 items-center justify-center rounded-full border border-white/10 px-5 text-sm font-medium text-zinc-400 transition hover:border-white/20 hover:text-zinc-200"
-            >
-              Seller settings
-            </Link>
+    <main className="relative flex min-h-0 flex-1 flex-col bg-[#030303]">
+      <div className="relative mx-auto w-full max-w-5xl px-4 pb-20 pt-6 sm:pt-8">
+        <header className="border-b border-white/[0.06] pb-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <HubSectionLabel>Active seller</HubSectionLabel>
+              <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl">
+                Seller HQ
+              </h1>
+              <p className="mt-1 max-w-lg text-sm text-zinc-500">
+                Listings, live shows, orders, and payout settings in one place.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href="/seller/live"
+                className="inline-flex h-10 items-center justify-center rounded-lg bg-gradient-to-r from-gold to-gold-bright px-5 text-sm font-bold text-zinc-950 transition hover:brightness-110"
+              >
+                {isLiveNow ? "Enter live room" : "Schedule live show"}
+              </Link>
+              <Link
+                href="/account/listings/new"
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-white/12 px-5 text-sm font-semibold text-zinc-200 transition hover:border-gold/30 hover:text-gold-bright"
+              >
+                New listing
+              </Link>
+            </div>
           </div>
         </header>
 
         <SellerHubNav activeHref="/account/seller" />
 
-        {loadError ? <p className="mt-4 text-sm font-medium text-amber-200">{loadError}</p> : null}
+        {loadError ? (
+          <p className="mt-4 rounded-lg border border-amber-500/30 bg-amber-950/20 px-3 py-2 text-sm text-amber-100">
+            {loadError}
+          </p>
+        ) : null}
         {loadWarnings.length && !loadError ? (
           <p className="mt-4 text-sm text-amber-200/90">
             Some seller data could not be loaded ({loadWarnings.length} issue
-            {loadWarnings.length === 1 ? "" : "s"}). Core settings are shown; retry or check migrations if counts look
-            wrong.
+            {loadWarnings.length === 1 ? "" : "s"}).
           </p>
         ) : null}
 
-        <section className="mt-6 grid gap-4 md:grid-cols-2">
-          <article className="rounded-2xl border border-white/[0.08] bg-zinc-950/60 p-5 sm:p-6">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">My Live Events</p>
-            <p className="mt-2 text-sm font-semibold text-zinc-100">
-              {homeStats?.liveRoom ? homeStats.liveRoom.title : "No active or scheduled room"}
-            </p>
-            <p className="mt-1 text-xs text-zinc-500">
-              {homeStats?.liveRoom?.status === "live"
-                ? "Currently live"
-                : homeStats?.liveRoom?.scheduledStartAt
-                  ? `Scheduled ${new Date(homeStats.liveRoom.scheduledStartAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}`
-                  : "Start a room when you are ready."}
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Link href="/seller/live" className="inline-flex min-h-9 items-center rounded-full bg-gold px-4 py-2 text-xs font-bold text-zinc-950">
-                Go Live
-              </Link>
-              <Link href="/account/seller/obs" className="inline-flex min-h-9 items-center rounded-full border border-gold/35 bg-gold/10 px-4 py-2 text-xs font-bold text-gold-bright">
-                OBS Studio
-              </Link>
-              <Link href="/seller/live" className="inline-flex min-h-9 items-center rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200">
-                My Live Events
-              </Link>
+        {isLiveNow && liveRoom ? (
+          <div className="mt-6 rounded-xl border border-gold/25 bg-gold/[0.06] px-4 py-3 sm:flex sm:items-center sm:justify-between sm:gap-4">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gold-bright/80">Live now</p>
+              <p className="mt-0.5 font-semibold text-zinc-100">{liveRoom.title}</p>
             </div>
-          </article>
+            <Link
+              href="/seller/live"
+              className="mt-3 inline-flex h-9 items-center rounded-lg bg-gold px-4 text-xs font-bold text-zinc-950 sm:mt-0"
+            >
+              Open console
+            </Link>
+          </div>
+        ) : null}
 
-          <article className="rounded-2xl border border-white/[0.08] bg-zinc-950/60 p-5 sm:p-6">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Listings</p>
-            <p className="mt-2 text-sm text-zinc-300">Active listings: <span className="font-bold text-zinc-100">{homeStats?.activeListingsCount ?? 0}</span></p>
-            <p className="mt-1 text-sm text-zinc-300">Draft listings: <span className="font-bold text-zinc-100">{homeStats?.draftListingsCount ?? 0}</span></p>
-            <div className="mt-4">
-              <Link href="/account/listings/new" className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200">
-                Create Listing
-              </Link>
-            </div>
-          </article>
-
-          <article className="rounded-2xl border border-white/[0.08] bg-zinc-950/60 p-5 sm:p-6">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Orders</p>
-            <p className="mt-2 text-sm text-zinc-300">Open orders: <span className="font-bold text-zinc-100">{homeStats?.openOrdersCount ?? 0}</span></p>
-            <p className="mt-1 text-sm text-zinc-300">Awaiting shipment: <span className="font-bold text-zinc-100">{homeStats?.awaitingShipmentCount ?? 0}</span></p>
-            <p className="mt-1 text-sm text-zinc-300">Recent sales: <span className="font-bold text-zinc-100">{homeStats?.recentSalesCount ?? 0}</span></p>
-            <div className="mt-4">
-              <Link href="/account/sales" className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200">
-                Open Orders
-              </Link>
-            </div>
-          </article>
-
-          <article className="rounded-2xl border border-white/[0.08] bg-zinc-950/60 p-5 sm:p-6">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Messages</p>
-            <p className="mt-2 text-sm text-zinc-300">Unread buyer messages: <span className="font-bold text-zinc-100">{homeStats?.unreadBuyerMessagesCount ?? 0}</span></p>
-            <div className="mt-4">
-              <Link href="/account/messages" className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200">
-                Open Messages
-              </Link>
-            </div>
-          </article>
+        <section className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <HubStatCard
+            label="Live"
+            highlight={isLiveNow}
+            href="/seller/live"
+            cta={isLiveNow ? "Go to console" : "Open live hub"}
+            lines={[
+              {
+                text: liveRoom?.title ?? "No scheduled show",
+                emphasis: true,
+              },
+              {
+                text: isLiveNow
+                  ? "You are live"
+                  : liveRoom?.scheduledStartAt
+                    ? `Scheduled ${new Date(liveRoom.scheduledStartAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}`
+                    : "Schedule when you are ready",
+              },
+            ]}
+          />
+          <HubStatCard
+            label="Listings"
+            href="/seller/listings"
+            cta="View listings"
+            lines={[
+              { text: `${homeStats?.activeListingsCount ?? 0} active`, emphasis: true },
+              { text: `${homeStats?.draftListingsCount ?? 0} drafts` },
+            ]}
+          />
+          <HubStatCard
+            label="Orders"
+            href="/account/sales"
+            cta="Open orders"
+            lines={[
+              { text: `${homeStats?.openOrdersCount ?? 0} open`, emphasis: true },
+              { text: `${homeStats?.awaitingShipmentCount ?? 0} awaiting shipment` },
+            ]}
+          />
+          <HubStatCard
+            label="Messages"
+            href="/account/messages"
+            cta="Open inbox"
+            lines={[
+              {
+                text: `${homeStats?.unreadBuyerMessagesCount ?? 0} unread`,
+                emphasis: (homeStats?.unreadBuyerMessagesCount ?? 0) > 0,
+              },
+              { text: "Buyer conversations" },
+            ]}
+          />
         </section>
 
-        <section className="mt-6 rounded-2xl border border-white/[0.08] bg-zinc-950/60 p-5 sm:p-6">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Payouts</p>
-          {ps === "ready" ? (
-            <div className="mt-2 flex flex-wrap items-center gap-2.5">
-              <span className="rounded-full border border-emerald-500/35 bg-emerald-950/40 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-emerald-200">
-                Payouts ready
-              </span>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void connectPayouts()}
-                className="inline-flex h-10 items-center justify-center rounded-full border border-white/15 px-5 text-sm font-semibold text-zinc-200 transition hover:border-gold/35 hover:text-gold-bright disabled:opacity-50"
-              >
-                {busy ? "Opening..." : "Manage payouts"}
-              </button>
-            </div>
-          ) : (
-            <p className="mt-2 text-sm text-zinc-400">
-              <Link href={SELLER_SETUP_PATH} className="font-semibold text-gold-bright hover:underline">
-                Complete seller setup
-              </Link>{" "}
-              to finish payout configuration.
-            </p>
-          )}
+        <section className="mt-10">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-zinc-200">Seller essentials</h2>
+            <Link
+              href={SELLER_SETUP_PATH}
+              className="text-xs font-medium text-zinc-500 transition hover:text-gold-bright"
+            >
+              All settings
+            </Link>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <article className="rounded-xl border border-white/[0.08] bg-zinc-950/50 p-4 sm:p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-zinc-100">Payouts</h3>
+                  <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                    {ps === "ready"
+                      ? "Stripe is connected. View balances, payout schedule, and bank details in your dashboard."
+                      : ps === "pending"
+                        ? "Finish verifying your Stripe account to receive marketplace and live payouts."
+                        : "Connect Stripe once to get paid for sales and live auctions."}
+                  </p>
+                </div>
+                <StatusPill tone={ps === "ready" ? "ready" : ps === "pending" ? "pending" : "warn"}>
+                  {ps === "ready" ? "Connected" : ps === "pending" ? "Pending" : "Setup"}
+                </StatusPill>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => managePayouts()}
+                  className="inline-flex h-9 items-center justify-center rounded-lg bg-white/[0.06] px-4 text-xs font-semibold text-zinc-100 ring-1 ring-white/10 transition hover:bg-white/[0.1] hover:ring-gold/25 disabled:opacity-50"
+                >
+                  {busy ? "Opening…" : ps === "ready" ? "Stripe dashboard" : "Connect payouts"}
+                </button>
+                {ps !== "ready" ? (
+                  <Link
+                    href={SELLER_SETUP_PATH}
+                    className="inline-flex h-9 items-center justify-center rounded-lg px-3 text-xs font-medium text-zinc-500 transition hover:text-zinc-300"
+                  >
+                    Setup wizard
+                  </Link>
+                ) : null}
+              </div>
+            </article>
+
+            <article
+              ref={shipFromSectionRef}
+              className={`rounded-xl border p-4 sm:p-5 ${
+                shipFromNeedsAttention
+                  ? "border-amber-500/20 bg-amber-950/10"
+                  : "border-white/[0.08] bg-zinc-950/50"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-zinc-100">Ship-from</h3>
+                  <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                    {shipFromNeedsAttention
+                      ? seller.shipFromStreet?.trim()
+                        ? "Address saved — add a contact phone for USPS labels."
+                        : "Origin address and phone for Shippo labels after orders pay."
+                      : "Origin address and phone on file for shipping labels."}
+                  </p>
+                </div>
+                <StatusPill tone={shipFromNeedsAttention ? "pending" : "ready"}>
+                  {shipFromNeedsAttention ? "Action needed" : "Ready"}
+                </StatusPill>
+              </div>
+              <div className="mt-4">
+                <SellerShipFromSetupCard
+                  embedded
+                  onSaved={async () => {
+                    await load();
+                    const checks = await fetchLiveReadiness();
+                    if (checks) {
+                      setReadiness((prev) => ({ ...prev, checks }));
+                    }
+                  }}
+                />
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section className="mt-8 flex flex-wrap gap-2 border-t border-white/[0.06] pt-6">
+          <Link
+            href={SELLER_OBS_PATH}
+            className="inline-flex h-9 items-center rounded-lg border border-white/10 px-4 text-xs font-semibold text-zinc-400 transition hover:border-gold/25 hover:text-zinc-200"
+          >
+            OBS Studio
+          </Link>
+          <Link
+            href="/account/seller/shipping"
+            className="inline-flex h-9 items-center rounded-lg border border-white/10 px-4 text-xs font-semibold text-zinc-400 transition hover:border-gold/25 hover:text-zinc-200"
+          >
+            Shipping profiles
+          </Link>
         </section>
       </div>
 
@@ -556,16 +629,11 @@ export function SellerHubPage() {
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto bg-[#0f0f12] p-4">
-              <StripeOnboardingEmbed
-                active={stripeEmbedOpen}
-                onSessionEnd={onStripeEmbedEnd}
-                onNeedsFallbackHint={() => setStripeEmbedFallbackHint(true)}
-              />
+              <StripeOnboardingEmbed active={stripeEmbedOpen} onSessionEnd={onStripeEmbedEnd} />
             </div>
           </div>
         </div>
       ) : null}
     </main>
   );
-
 }

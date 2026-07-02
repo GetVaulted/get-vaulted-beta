@@ -22,10 +22,10 @@ import { useAuth } from '../../auth/AuthContext';
 import { useSellerStripeConnect } from '../../hooks/useSellerStripeConnect';
 import type { SellerHQEntryPhase } from '../../lib/sellerHubEntry';
 import { avatarUrlWithCacheBust } from '../../lib/profileAvatarUpload';
+import { persistProfileAvatarEverywhere, resolveCanonicalProfileAvatar } from '../../lib/profileAvatarSync';
 import { openSellerHQ } from '../../navigation/openSellerHQ';
 import { openSettings } from '../../navigation/openPlatform';
 import { navigateAuthSignUp } from '../../navigation/rootNavigationRef';
-import { getSupabase } from '../../lib/supabase';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
 
@@ -52,12 +52,16 @@ export function ProfileEditScreen({ navigation }: Props) {
       const p = await fetchProfileById(user.id);
       setUsername(p?.username ?? '');
       setDisplayName(p?.display_name ?? '');
-      const remote = p?.avatar_url?.trim() || null;
+      const remote = await resolveCanonicalProfileAvatar({
+        userId: user.id,
+        accessToken: session?.access_token,
+        supabaseAvatarUrl: p?.avatar_url ?? null,
+      });
       setAvatarUrl(remote ? avatarUrlWithCacheBust(remote) : null);
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [session?.access_token, user?.id]);
 
   useEffect(() => {
     void load();
@@ -92,11 +96,11 @@ export function ProfileEditScreen({ navigation }: Props) {
     setAvatarUrl(preparedUri);
     try {
       const publicUrl = await uploadMyAvatar(user.id, preparedUri);
-      await updateMyProfile(user.id, { avatar_url: publicUrl });
-      const sb = getSupabase();
-      if (sb) {
-        await sb.auth.updateUser({ data: { avatar_url: publicUrl } });
-      }
+      await persistProfileAvatarEverywhere({
+        userId: user.id,
+        accessToken: session?.access_token,
+        publicUrl,
+      });
       setAvatarUrl(publicUrl);
       setCropUri(null);
       Alert.alert('Saved', 'Your profile picture was updated.');

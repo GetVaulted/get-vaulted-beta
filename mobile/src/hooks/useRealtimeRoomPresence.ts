@@ -116,7 +116,7 @@ export function useRealtimeRoomPresence(opts: {
         releaseLiveRoomChannel(supabase, liveRoomId);
       }
     };
-  }, [enabled, liveRoomId, trackSelf, userId]);
+  }, [enabled, liveRoomId, trackSelf, userId, viewerDisplayName]);
 
   return viewerCount;
 }

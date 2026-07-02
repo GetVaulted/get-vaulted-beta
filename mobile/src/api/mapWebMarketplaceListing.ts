@@ -39,7 +39,7 @@ export function mapWebMarketplaceListingToProduct(listing: WebMarketplaceListing
   const priceLabel = formatMarketplaceUsd(listing.price);
   return {
     id: listing.id,
-    title: listing.title || 'Listing',
+    title: listing.title?.trim() || '',
     category: cat,
     imageGradient: ['#06080c', '#10141c'] as [string, string],
     imageUrl,
