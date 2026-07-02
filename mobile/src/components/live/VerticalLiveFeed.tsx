@@ -787,7 +787,7 @@ function LiveSlide({
         moderatorLevel: modActor.moderatorLevel,
       };
       const canKick = modActor.canModerate && canShowLiveChatKickOption(modArgs);
-      const canBan = modActor.canModerate && canShowLiveChatBanOption(modArgs);
+      const canBanFromShow = modActor.canModerate && canShowLiveChatBanOption(modArgs);
       const canRemoveKick = modActor.canModerate && canShowLiveChatRemoveKickOption(modArgs);
       const canRemoveRoomBan = modActor.canModerate && canShowLiveChatRemoveRoomBanOption(modArgs);
       const canRemoveSellerBan = modActor.canModerate && canShowLiveChatRemoveSellerBanOption(modArgs);
@@ -798,18 +798,18 @@ function LiveSlide({
         onTag: tagUserInChat,
         onViewProfile: targetUserId ? (userId) => openUserProfile(userId) : undefined,
         moderation:
-          canKick || canBan || canRemoveKick || canRemoveRoomBan || canRemoveSellerBan
+          canKick || canBanFromShow || canRemoveKick || canRemoveRoomBan || canRemoveSellerBan
             ? {
                 canKickFromShow: canKick,
-                canBanFromSeller: canBan,
+                canBanFromShow: canBanFromShow,
                 canRemoveKick,
                 canRemoveRoomBan,
                 canRemoveSellerBan,
                 onKickFromShow: () => {
                   if (targetUserId) void applyChatUserModeration('kick', targetUserId, user.username);
                 },
-                onBanFromSeller: () => {
-                  if (targetUserId) void applyChatUserModeration('seller_stream_ban', targetUserId, user.username);
+                onBanFromShow: () => {
+                  if (targetUserId) void applyChatUserModeration('room_ban', targetUserId, user.username);
                 },
                 onRemoveKick: () => {
                   if (targetUserId) void applyChatUserModeration('unkick', targetUserId, user.username);

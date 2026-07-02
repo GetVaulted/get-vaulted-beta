@@ -9,7 +9,7 @@ describe('liveChatUserActions', () => {
   const targetUserId = 'buyer-1';
   const hostUserId = 'host-1';
 
-  it('lets show mods kick and ban from seller streams', () => {
+  it('lets show mods kick and ban from the show', () => {
     expect(
       canShowLiveChatKickOption({
         targetUserId,
@@ -70,7 +70,7 @@ describe('liveChatUserActions', () => {
       canShowLiveChatBanOption({
         targetUserId: hostUserId,
         hostUserId,
-        allowedActions: ['seller_stream_ban'],
+        allowedActions: ['room_ban'],
         isModerator: true,
         canModerate: true,
         moderatorLevel: 'show',
@@ -78,7 +78,17 @@ describe('liveChatUserActions', () => {
     ).toBe(false);
   });
 
-  it('does not expose ban to regular buyers', () => {
+  it('does not expose kick or ban to regular buyers', () => {
+    expect(
+      canShowLiveChatKickOption({
+        targetUserId,
+        hostUserId,
+        allowedActions: [],
+        isModerator: false,
+        canModerate: false,
+        moderatorLevel: null,
+      }),
+    ).toBe(false);
     expect(
       canShowLiveChatBanOption({
         targetUserId,
@@ -89,5 +99,30 @@ describe('liveChatUserActions', () => {
         moderatorLevel: null,
       }),
     ).toBe(false);
+  });
+
+  it('lets the host kick and ban from the show', () => {
+    expect(
+      canShowLiveChatKickOption({
+        targetUserId,
+        hostUserId,
+        allowedActions: [],
+        isHost: true,
+        isModerator: false,
+        canModerate: true,
+        moderatorLevel: 'head',
+      }),
+    ).toBe(true);
+    expect(
+      canShowLiveChatBanOption({
+        targetUserId,
+        hostUserId,
+        allowedActions: [],
+        isHost: true,
+        isModerator: false,
+        canModerate: true,
+        moderatorLevel: 'head',
+      }),
+    ).toBe(true);
   });
 });

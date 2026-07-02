@@ -39,8 +39,9 @@ describe("live-room-moderator-permissions", () => {
     expect(canModeratorPerformAction({ actionType: "kick", isHost: false, moderatorLevel: "show" })).toBe(true);
   });
 
-  it("show mods can kick, undo kick, and undo seller bans", () => {
+  it("show mods can kick, ban from show, undo kick, and undo seller bans", () => {
     expect(canModeratorPerformAction({ actionType: "kick", isHost: false, moderatorLevel: "show" })).toBe(true);
+    expect(canModeratorPerformAction({ actionType: "room_ban", isHost: false, moderatorLevel: "show" })).toBe(true);
     expect(canModeratorPerformAction({ actionType: "unkick", isHost: false, moderatorLevel: "show" })).toBe(true);
     expect(
       canModeratorPerformAction({ actionType: "seller_stream_unban", isHost: false, moderatorLevel: "show" }),

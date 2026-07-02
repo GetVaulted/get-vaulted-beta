@@ -17,6 +17,10 @@ export function appendMentionToDraft(draft: string, username: string): string {
   return `${prefix}@${handle} `;
 }
 
+function isAssignedModerationStaff(args: { isHost?: boolean; isModerator?: boolean }): boolean {
+  return Boolean(args.isHost) || Boolean(args.isModerator);
+}
+
 export function canShowLiveChatKickOption(args: {
   targetUserId?: string;
   hostUserId?: string;
@@ -26,6 +30,7 @@ export function canShowLiveChatKickOption(args: {
   canModerate?: boolean;
   moderatorLevel?: LiveModeratorLevel | null;
 }): boolean {
+  if (!isAssignedModerationStaff(args)) return false;
   if (!args.targetUserId?.trim()) return false;
   if (args.hostUserId && args.targetUserId === args.hostUserId) return false;
   return canPerformModeratorAction({
@@ -47,10 +52,11 @@ export function canShowLiveChatBanOption(args: {
   moderatorLevel?: LiveModeratorLevel | null;
   allowedActions: string[];
 }): boolean {
+  if (!isAssignedModerationStaff(args)) return false;
   if (!args.targetUserId?.trim()) return false;
   if (args.hostUserId && args.targetUserId === args.hostUserId) return false;
   return canPerformModeratorAction({
-    actionType: 'seller_stream_ban',
+    actionType: 'room_ban',
     isHost: Boolean(args.isHost),
     isModerator: Boolean(args.isModerator),
     canModerate: Boolean(args.canModerate),
@@ -68,6 +74,7 @@ export function canShowLiveChatRemoveKickOption(args: {
   moderatorLevel?: LiveModeratorLevel | null;
   allowedActions: string[];
 }): boolean {
+  if (!isAssignedModerationStaff(args)) return false;
   if (!args.targetUserId?.trim()) return false;
   if (args.hostUserId && args.targetUserId === args.hostUserId) return false;
   return canPerformModeratorAction({
@@ -89,6 +96,7 @@ export function canShowLiveChatRemoveRoomBanOption(args: {
   moderatorLevel?: LiveModeratorLevel | null;
   allowedActions: string[];
 }): boolean {
+  if (!isAssignedModerationStaff(args)) return false;
   if (!args.targetUserId?.trim()) return false;
   if (args.hostUserId && args.targetUserId === args.hostUserId) return false;
   return canPerformModeratorAction({
@@ -110,6 +118,7 @@ export function canShowLiveChatRemoveSellerBanOption(args: {
   moderatorLevel?: LiveModeratorLevel | null;
   allowedActions: string[];
 }): boolean {
+  if (!isAssignedModerationStaff(args)) return false;
   if (!args.targetUserId?.trim()) return false;
   if (args.hostUserId && args.targetUserId === args.hostUserId) return false;
   return canPerformModeratorAction({
@@ -145,12 +154,12 @@ function confirmRemoveSellerBan(displayName: string, onConfirm: () => void) {
 
 export type LiveChatUserModerationHandlers = {
   canKickFromShow: boolean;
-  canBanFromSeller: boolean;
+  canBanFromShow: boolean;
   canRemoveKick?: boolean;
   canRemoveRoomBan?: boolean;
   canRemoveSellerBan?: boolean;
   onKickFromShow: () => void;
-  onBanFromSeller: () => void;
+  onBanFromShow: () => void;
   onRemoveKick?: () => void;
   onRemoveRoomBan?: () => void;
   onRemoveSellerBan?: () => void;
@@ -167,13 +176,13 @@ function confirmKickFromShow(displayName: string, onConfirm: () => void) {
   );
 }
 
-function confirmBanFromSeller(displayName: string, onConfirm: () => void) {
+function confirmBanFromShow(displayName: string, onConfirm: () => void) {
   Alert.alert(
-    'Ban from all shows?',
-    `${displayName} will be blocked from every show hosted by this seller.`,
+    'Ban from show?',
+    `${displayName} will be removed and cannot return to this show.`,
     [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Ban from all shows', style: 'destructive', onPress: onConfirm },
+      { text: 'Ban from show', style: 'destructive', onPress: onConfirm },
     ],
   );
 }
@@ -199,11 +208,11 @@ export function promptLiveChatUserAction(args: {
       onPress: () => confirmKickFromShow(name, args.moderation!.onKickFromShow),
     });
   }
-  if (args.moderation?.canBanFromSeller) {
+  if (args.moderation?.canBanFromShow) {
     buttons.push({
-      text: 'Ban from all shows',
+      text: 'Ban from show',
       style: 'destructive',
-      onPress: () => confirmBanFromSeller(name, args.moderation!.onBanFromSeller),
+      onPress: () => confirmBanFromShow(name, args.moderation!.onBanFromShow),
     });
   }
   if (args.moderation?.canRemoveKick && args.moderation.onRemoveKick) {

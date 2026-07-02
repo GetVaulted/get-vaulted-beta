@@ -43,6 +43,7 @@ function canPerformUserModAction(args: {
   allowedActions: string[];
 }) {
   if (!args.canModerate) return false;
+  if (!args.isHost && !args.isModerator) return false;
   if (args.hostUserId && args.targetUserId === args.hostUserId) return false;
   if (args.allowedActions.includes(args.actionType)) return true;
   return canModeratorPerformAction({
