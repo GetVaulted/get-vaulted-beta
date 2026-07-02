@@ -1,8 +1,10 @@
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useRef } from 'react';
 import { ActivityIndicator, Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
 import { logBidControl } from '../../lib/bidControlLog';
 import { colors, radii } from '../../theme';
+import { LIVE_CLAIM_CTA_GRADIENT } from './liveClaimCtaStyle';
 import { LiveRoomText } from './LiveRoomText';
 
 /** Deliberate hold duration — short enough for fast auctions, long enough to avoid swipe accidents. */
@@ -158,6 +160,15 @@ export function HoldToBidButton({
       accessibilityLabel={label}
       accessibilityHint="Press and hold to place your bid"
     >
+      {auction && !disabled ? (
+        <LinearGradient
+          colors={[...LIVE_CLAIM_CTA_GRADIENT]}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={StyleSheet.absoluteFillObject}
+          pointerEvents="none"
+        />
+      ) : null}
       <LiveRoomText
         style={[
           styles.label,
@@ -202,7 +213,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   shellAuction: {
-    backgroundColor: '#8B5CF6',
+    backgroundColor: 'transparent',
     borderColor: 'rgba(255,255,255,0.14)',
     shadowColor: '#D946EF',
     shadowOpacity: 0.35,

@@ -1,7 +1,7 @@
 import type { BuyerLiveShippingSessionApi } from "@/services/shipping/buyer-live-shipping-ux";
 import { getBuyerBundledLiveShippingSessionUx } from "@/services/shipping/buyer-live-shipping-ux";
 import { resolveBuyerDefaultShippingForOrder } from "@/lib/live-buy-now-purchase";
-import { buyerLiveShippingPaidCopy, buyerLiveShippingPreviewCopy } from "@/lib/live-show-shipping-terms";
+import { buyerLiveShippingPaidCopy, buyerLiveShippingPreviewCopy, buyerLiveShowShippingHudCopy, shippingModeFromRoomFlags } from "@/lib/live-show-shipping-terms";
 import {
   estimateSalesTaxCents,
   isStripeTaxFeatureEnabled,
@@ -48,7 +48,16 @@ export async function getLiveVariantCheckoutPreview(args: {
 
   const room = await prisma.liveRoom.findUnique({
     where: { id: args.liveRoomId },
-    select: { id: true, sellerId: true, roomType: true },
+    select: {
+      id: true,
+      sellerId: true,
+      roomType: true,
+      shippingCapEnabled: true,
+      shippingCapCents: true,
+      freeShippingEnabled: true,
+      sellerPaysOverCap: true,
+      shippingMode: true,
+    },
   });
   if (!room || !["auction", "break", "sale"].includes(room.roomType)) return null;
 
@@ -58,10 +67,37 @@ export async function getLiveVariantCheckoutPreview(args: {
   });
   if (!item) return null;
 
-  const shippingSession = await getBuyerBundledLiveShippingSessionUx(args.buyerId, args.liveRoomId, {
-    previewLiveRoomItemId: args.liveRoomItemId,
+  const shippingMode = shippingModeFromRoomFlags(room);
+  const capCents = shippingMode === "capped" ? room.shippingCapCents : null;
+  const fallbackShippingSession = (): BuyerLiveShippingSessionApi => ({
+    shippingCostCents: 0,
+    pricingWeightOz: 0,
+    capReached: false,
+    nextIncrementalCostCents: null,
+    tierLabel: null,
+    shippingCapCents: capCents,
+    freeShippingEnabled: room.freeShippingEnabled,
+    shippingMode,
+    showShippingHudCopy: buyerLiveShowShippingHudCopy({ mode: shippingMode, capCents: room.shippingCapCents }),
+    packageCount: 0,
+    previewWinDeltaCents: null,
+    previewRequiresSeparatePackage: false,
   });
-  if (!shippingSession) return null;
+
+  let shippingSession: BuyerLiveShippingSessionApi;
+  try {
+    const session = await getBuyerBundledLiveShippingSessionUx(args.buyerId, args.liveRoomId, {
+      previewLiveRoomItemId: args.liveRoomItemId,
+    });
+    shippingSession = session ?? fallbackShippingSession();
+  } catch (e) {
+    console.error("[checkout-preview] bundled shipping session failed", {
+      liveRoomId: args.liveRoomId,
+      liveRoomItemId: args.liveRoomItemId,
+      e,
+    });
+    shippingSession = fallbackShippingSession();
+  }
 
   const bundledShippingCents = bundledLiveShippingTotalCentsAfterWin(shippingSession);
   const incrementalShippingCents = shippingSession.capReached

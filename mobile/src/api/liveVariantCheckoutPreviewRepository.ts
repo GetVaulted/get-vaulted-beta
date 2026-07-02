@@ -9,6 +9,7 @@ export type LiveVariantCheckoutPreview = {
   chargeNowUsd: number;
   estimatedTotalUsd: number;
   taxNote: string | null;
+  liveRoomItemId?: string;
 };
 
 function parseLiveVariantCheckoutPreview(body: unknown): LiveVariantCheckoutPreview | null {

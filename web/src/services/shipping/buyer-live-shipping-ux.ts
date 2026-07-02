@@ -106,14 +106,23 @@ export async function getBuyerBundledLiveShippingSessionUx(
   let previewRequiresSeparatePackage = false;
 
   if (previewItemId) {
-    previewWinDeltaCents = await estimateWinItemShippingDeltaCents({
-      buyerId,
-      liveShowId,
-      liveRoomItemId: previewItemId,
-      db,
-    });
-    const prof = await resolveLiveRoomItemShippingProfile(previewItemId, db);
-    previewRequiresSeparatePackage = prof?.resolved.requiresSeparatePackage === true;
+    try {
+      previewWinDeltaCents = await estimateWinItemShippingDeltaCents({
+        buyerId,
+        liveShowId,
+        liveRoomItemId: previewItemId,
+        db,
+      });
+      const prof = await resolveLiveRoomItemShippingProfile(previewItemId, db);
+      previewRequiresSeparatePackage = prof?.resolved.requiresSeparatePackage === true;
+    } catch (e) {
+      console.error("[buyer-live-shipping-ux] preview delta failed", {
+        liveShowId,
+        previewItemId,
+        e,
+      });
+      previewWinDeltaCents = null;
+    }
   } else if (!pool.capReached && session) {
     const lastItem = await db.liveShippingSessionItem.findFirst({
       where: { sessionId: session.id },

@@ -26,6 +26,7 @@ import { emitAuctionEnded, emitAuctionStarted, emitLiveDiscoveryChanged, emitTea
 import { postHostEndingLiveChatMessage } from "@/lib/live-room-show-events";
 import { computeBreakBuyerPhase } from "@/lib/live-room-break-public";
 import { buildLiveTipRoomData } from "@/lib/live-tip-moderator";
+import { resolveLiveVariantCheckoutPreviewForActiveItem } from "@/lib/live-variant-checkout-preview-for-room";
 import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
 import { finalizeLiveStreamReplay } from "@/lib/trust/live-replay-service";
 import { endHostStageSession } from "@/services/ivs";
@@ -180,6 +181,24 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   } catch (e) {
     console.error("[api/live-rooms/[id]] listViewerGiveawaysForRoom failed", { liveRoomId: id, e });
     enriched.giveaways = [];
+  }
+  if (
+    viewerId &&
+    !isHost &&
+    enriched.buyerLiveBidPaymentReady &&
+    enriched.buyerLiveShippingReady &&
+    enriched.activeItem
+  ) {
+    try {
+      enriched.variantCheckoutPreview = await resolveLiveVariantCheckoutPreviewForActiveItem({
+        buyerId: viewerId,
+        liveRoomId: id,
+        activeItem: enriched.activeItem,
+      });
+    } catch (e) {
+      console.error("[api/live-rooms/[id]] variantCheckoutPreview failed", { liveRoomId: id, viewerId, e });
+      enriched.variantCheckoutPreview = null;
+    }
   }
   logSellerRoomStateSnapshot({
     source: "buyer-room-get",

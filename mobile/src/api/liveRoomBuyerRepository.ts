@@ -86,9 +86,29 @@ export type LiveRoomBuyerSnapshot = {
   giveaways?: ViewerGiveawayRow[];
   /** Host queue aligned lineup (auction + buy-now + PYT/PYD masters). */
   lineupItems?: LiveRoomLineupItemSnapshot[];
+  /** Checkout totals for active PYT/PYD item (from room GET when wallet ready). */
+  variantCheckoutPreview?: LiveVariantCheckoutPreview | null;
 };
 
 import { LiveBidError } from '../lib/liveBidUserErrors';
+import type { LiveVariantCheckoutPreview } from './liveVariantCheckoutPreviewRepository';
+
+function parseVariantCheckoutPreview(raw: unknown): LiveVariantCheckoutPreview | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.chargeNowUsd !== 'number' || typeof o.estimatedTotalUsd !== 'number') return null;
+  return {
+    itemPriceUsd: typeof o.itemPriceUsd === 'number' ? o.itemPriceUsd : 0,
+    shippingUsd: typeof o.shippingUsd === 'number' ? o.shippingUsd : 0,
+    shippingDisplay: typeof o.shippingDisplay === 'string' ? o.shippingDisplay : '',
+    taxUsd: typeof o.taxUsd === 'number' ? o.taxUsd : 0,
+    taxDisplay: typeof o.taxDisplay === 'string' ? o.taxDisplay : '',
+    chargeNowUsd: o.chargeNowUsd,
+    estimatedTotalUsd: o.estimatedTotalUsd,
+    taxNote: typeof o.taxNote === 'string' ? o.taxNote : null,
+    liveRoomItemId: typeof o.liveRoomItemId === 'string' ? o.liveRoomItemId : undefined,
+  };
+}
 
 function apiErrorMessage(res: Response, body: unknown): string {
   if (body && typeof body === 'object') {
@@ -230,6 +250,7 @@ export async function fetchLiveRoomBuyerSnapshot(
       buyerLiveBidPaymentReady?: boolean;
       buyerLiveShippingReady?: boolean;
       buyerUnresolvedPaymentFailure?: unknown;
+      variantCheckoutPreview?: unknown;
       activeItem?: {
         id?: string;
         title?: string;
@@ -365,6 +386,10 @@ export async function fetchLiveRoomBuyerSnapshot(
     auctionEventSeq:
       typeof detail?.auctionEventSeq === 'number' && Number.isFinite(detail.auctionEventSeq)
         ? Math.max(0, Math.floor(detail.auctionEventSeq))
+        : undefined,
+    variantCheckoutPreview:
+      detail?.variantCheckoutPreview != null
+        ? parseVariantCheckoutPreview(detail.variantCheckoutPreview)
         : undefined,
   };
   logBuyerRoomStateSnapshot('fetch', snapshot);

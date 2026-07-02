@@ -45,6 +45,7 @@ import type { LiveStackParamList, MainTabParamList } from '../../navigation/type
 import { colors, radii, spacing } from '../../theme';
 import type { LiveStream } from '../../types';
 import { HoldToBidButton } from './HoldToBidButton';
+import { LIVE_CLAIM_CTA_GRADIENT } from './liveClaimCtaStyle';
 import { resolveBuyerRoomKind, resolveLiveBuyerCommerceHud, formatMoney } from './liveActionModule';
 import { fetchLiveVariantCheckoutPreview, type LiveVariantCheckoutPreview } from '../../api/liveVariantCheckoutPreviewRepository';
 import { LiveCustomBidSheet } from './LiveCustomBidSheet';
@@ -316,12 +317,26 @@ export function LivePinnedActionBar({
     if (pinned?.priceUsd != null && pinned.priceUsd > 0) return pinned.priceUsd;
     return lowestAvailableVariantPrice(variants) ?? roomSnap.priceUsd ?? roomSnap.startingBidUsd ?? 0;
   }, [roomSnap, variantCheckoutPreviewEnabled]);
-  const [variantCheckoutPreview, setVariantCheckoutPreview] = useState<LiveVariantCheckoutPreview | null>(null);
+  const snapshotVariantCheckoutPreview = useMemo(() => {
+    const preview = roomSnap?.variantCheckoutPreview;
+    if (!preview || preview.liveRoomItemId !== roomSnap?.activeItemId) return null;
+    return preview;
+  }, [roomSnap?.activeItemId, roomSnap?.variantCheckoutPreview]);
+  const [fetchedVariantCheckoutPreview, setFetchedVariantCheckoutPreview] =
+    useState<LiveVariantCheckoutPreview | null>(null);
   const [variantCheckoutPreviewLoading, setVariantCheckoutPreviewLoading] = useState(false);
 
   useEffect(() => {
     if (!variantCheckoutPreviewEnabled || variantPreviewItemPriceUsd <= 0 || !accessToken || !roomSnap?.activeItemId) {
-      setVariantCheckoutPreview(null);
+      setFetchedVariantCheckoutPreview(null);
+      setVariantCheckoutPreviewLoading(false);
+      return undefined;
+    }
+    if (
+      snapshotVariantCheckoutPreview &&
+      Math.abs(snapshotVariantCheckoutPreview.itemPriceUsd - variantPreviewItemPriceUsd) < 0.01
+    ) {
+      setFetchedVariantCheckoutPreview(null);
       setVariantCheckoutPreviewLoading(false);
       return undefined;
     }
@@ -333,7 +348,7 @@ export function LivePinnedActionBar({
       itemPriceUsd: variantPreviewItemPriceUsd,
     }).then((preview) => {
       if (cancelled) return;
-      setVariantCheckoutPreview(preview);
+      setFetchedVariantCheckoutPreview(preview);
       setVariantCheckoutPreviewLoading(false);
     });
     return () => {
@@ -342,10 +357,13 @@ export function LivePinnedActionBar({
   }, [
     accessToken,
     roomSnap?.activeItemId,
+    snapshotVariantCheckoutPreview,
     stream.id,
     variantCheckoutPreviewEnabled,
     variantPreviewItemPriceUsd,
   ]);
+
+  const variantCheckoutPreview = snapshotVariantCheckoutPreview ?? fetchedVariantCheckoutPreview;
 
   const variantCheckoutMetaLine = variantCheckoutPreview
     ? `Spot ${formatMoney(variantCheckoutPreview.itemPriceUsd)} · Ship ${variantCheckoutPreview.shippingDisplay} · Tax ${variantCheckoutPreview.taxDisplay}`
@@ -868,6 +886,7 @@ export function LivePinnedActionBar({
         roomSnap?.activeItemVariantAssignmentMode,
       )?.id ?? null);
       setVariantSheetOpen(true);
+      void refreshRoomSnapshot();
       return;
     }
 
@@ -985,7 +1004,13 @@ export function LivePinnedActionBar({
           </View>
           <View style={styles.priceBlock}>
             <LiveRoomText style={[styles.currentPrefix, { fontSize: hudFs(9) }]}>{hudCurrentPrefix}</LiveRoomText>
-            <LiveRoomText style={[styles.currentAmount, { fontSize: hudFs(20) }]}>
+            <LiveRoomText
+              style={[
+                styles.currentAmount,
+                { fontSize: hudFs(20) },
+                variantCheckoutPreview ? styles.currentAmountCheckout : null,
+              ]}
+            >
               {hudCurrentAmount}
             </LiveRoomText>
           </View>
@@ -1054,7 +1079,7 @@ export function LivePinnedActionBar({
                   colors={
                     useLiveBuyNowFlow
                       ? ['#E8C872', '#D4AF37', '#B8860B']
-                      : ['#D946EF', '#8B5CF6', '#6366F1']
+                      : [...LIVE_CLAIM_CTA_GRADIENT]
                   }
                   start={{ x: 0, y: 0.5 }}
                   end={{ x: 1, y: 0.5 }}
@@ -1225,6 +1250,9 @@ const styles = StyleSheet.create({
     letterSpacing: -0.6,
     marginTop: -1,
     fontVariant: ['tabular-nums'],
+  },
+  currentAmountCheckout: {
+    color: colors.success,
   },
   metaLine: {
     color: 'rgba(255,255,255,0.62)',

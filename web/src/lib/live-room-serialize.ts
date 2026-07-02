@@ -23,6 +23,7 @@ import {
 export type { LiveItemVariantDTO };
 import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
 import type { ViewerGiveawayDTO } from "@/lib/live-giveaway";
+import type { LiveVariantCheckoutPreviewForRoom } from "@/lib/live-variant-checkout-preview-for-room";
 
 /** Result of `liveRoom.findUnique` with seller, items, messages+sender, and optional break relations. */
 export type LiveRoomDetailPayload = LiveRoom & {
@@ -154,6 +155,8 @@ export type LiveRoomDetailDTO = {
   sellerUnresolvedPaymentFailures?: SellerPaymentFailureDTO[];
   /** Open giveaways accepting entries (buyer watch UI). */
   giveaways?: ViewerGiveawayDTO[];
+  /** PYT/PYD checkout totals for the active item when buyer wallet is ready. */
+  variantCheckoutPreview?: LiveVariantCheckoutPreviewForRoom | null;
 };
 
 export type LiveBuyerPaymentFailureDTO = {

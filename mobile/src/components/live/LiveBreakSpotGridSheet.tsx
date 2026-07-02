@@ -123,8 +123,22 @@ export function LiveBreakSpotGridSheet({
 
   const totalDue = effectivePreview?.chargeNowUsd ?? spotPrice;
   const chargeNow = totalDue;
-  const previewPending =
-    walletReady && selected != null && spotPrice > 0 && effectivePreview == null;
+
+  const shippingSummaryValue = !walletReady
+    ? 'Add shipping in Vault Wallet'
+    : effectivePreview?.shippingDisplay
+      ? effectivePreview.shippingDisplay
+      : previewLoading
+        ? 'Calculating…'
+        : 'Included when you hold to buy';
+
+  const taxSummaryValue = !walletReady
+    ? 'Add address to estimate'
+    : effectivePreview?.taxDisplay
+      ? effectivePreview.taxDisplay
+      : previewLoading
+        ? 'Calculating…'
+        : 'Included when you hold to buy';
 
   useEffect(() => {
     if (!visible) {
@@ -159,6 +173,15 @@ export function LiveBreakSpotGridSheet({
       return;
     }
 
+    if (
+      seedCheckoutPreview &&
+      Math.abs(seedCheckoutPreview.itemPriceUsd - spotPrice) < 0.01
+    ) {
+      setCheckoutPreview(seedCheckoutPreview);
+      setPreviewLoading(false);
+      return;
+    }
+
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let attempt = 0;
@@ -179,8 +202,8 @@ export function LiveBreakSpotGridSheet({
             return;
           }
           attempt += 1;
-          if (attempt < 6) {
-            retryTimer = setTimeout(loadPreview, Math.min(8000, 1500 * attempt));
+          if (attempt < 4) {
+            retryTimer = setTimeout(loadPreview, Math.min(6000, 1200 * attempt));
             return;
           }
           setPreviewLoading(false);
@@ -188,20 +211,21 @@ export function LiveBreakSpotGridSheet({
         .catch(() => {
           if (cancelled) return;
           attempt += 1;
-          if (attempt < 6) {
-            retryTimer = setTimeout(loadPreview, Math.min(8000, 1500 * attempt));
+          if (attempt < 4) {
+            retryTimer = setTimeout(loadPreview, Math.min(6000, 1200 * attempt));
             return;
           }
           setPreviewLoading(false);
         });
     };
 
+    setCheckoutPreview(null);
     loadPreview();
     return () => {
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [accessToken, itemId, roomId, spotPrice, visible, walletReady]);
+  }, [accessToken, itemId, roomId, seedCheckoutPreview, spotPrice, visible, walletReady]);
 
   const pickerTitle = selected
     ? `${pickerBaseLabel}: ${selected.label}`
@@ -434,34 +458,16 @@ export function LiveBreakSpotGridSheet({
               <SummaryRow
                 icon="cube-outline"
                 label="Shipping"
-                value={
-                  !walletReady
-                    ? 'Add shipping in Vault Wallet'
-                    : previewLoading && !effectivePreview
-                      ? 'Calculating…'
-                      : effectivePreview?.shippingDisplay ??
-                        (previewPending ? 'Calculating…' : '—')
-                }
+                value={shippingSummaryValue}
               />
               <SummaryRow
                 icon="receipt-outline"
                 label="Taxes"
-                value={
-                  !walletReady
-                    ? 'Add address to estimate'
-                    : previewLoading && !effectivePreview
-                      ? 'Calculating…'
-                      : effectivePreview?.taxDisplay ?? (previewPending ? 'Calculating…' : '—')
-                }
+                value={taxSummaryValue}
               />
             </View>
             {effectivePreview?.taxNote ? (
               <LiveRoomText style={styles.previewNote}>{effectivePreview.taxNote}</LiveRoomText>
-            ) : null}
-            {previewPending && !previewLoading ? (
-              <LiveRoomText style={styles.previewNote}>
-                Hold to buy completes checkout — your saved card is charged the total shown above.
-              </LiveRoomText>
             ) : null}
 
             {error ? <LiveRoomText style={styles.error}>{error}</LiveRoomText> : null}
@@ -912,7 +918,7 @@ const styles = StyleSheet.create({
   totalValue: {
     fontSize: 22,
     fontWeight: '900',
-    color: '#A78BFA',
+    color: colors.success,
     fontVariant: ['tabular-nums'],
   },
   chargeNowNote: {
