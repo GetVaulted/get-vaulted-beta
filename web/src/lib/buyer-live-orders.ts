@@ -1,6 +1,11 @@
 import type { BreakSpot, LiveGiveaway, LiveItemVariantPurchase, Order } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
+  loadOrderChargeTotalsById,
+  orderChargeUsdFromFields,
+  resolveChargeUsdFromFulfillmentOrderMap,
+} from "@/lib/live-purchase-charge-total";
+import {
   PAYMENT_EXPIRED,
   PAYMENT_FAILED,
   PAYMENT_PAID,
@@ -113,7 +118,12 @@ function mapLiveOrder(o: OrderRow): BuyerLiveOrderRow | null {
     sellerUsername: o.seller.username?.trim() || "seller",
     title: listingTitle,
     spotLabel: null,
-    amountUsd: o.totalUsd,
+    amountUsd: orderChargeUsdFromFields({
+      totalUsd: o.totalUsd,
+      itemPriceUsd: o.itemPriceUsd,
+      shippingPriceUsd: o.shippingPriceUsd,
+      taxUsd: o.taxUsd,
+    }),
     paymentTone,
     statusLabel,
     occurredAt: o.createdAt.toISOString(),
@@ -123,7 +133,7 @@ function mapLiveOrder(o: OrderRow): BuyerLiveOrderRow | null {
   };
 }
 
-function mapBreakSpot(s: BreakSpotRow): BuyerLiveOrderRow {
+function mapBreakSpot(s: BreakSpotRow, orderChargeUsdById: ReadonlyMap<string, number>): BuyerLiveOrderRow {
   const { paymentTone, statusLabel } = toneFromBreakPaymentStatus(s.breakPaymentStatus);
   const itemTitle = "Break spot";
   return {
@@ -134,7 +144,7 @@ function mapBreakSpot(s: BreakSpotRow): BuyerLiveOrderRow {
     sellerUsername: s.liveRoom.seller.username?.trim() || "seller",
     title: itemTitle,
     spotLabel: s.spotLabel.trim() || null,
-    amountUsd: s.priceUsd,
+    amountUsd: resolveChargeUsdFromFulfillmentOrderMap(s.priceUsd, s.fulfillmentOrderId, orderChargeUsdById),
     paymentTone,
     statusLabel,
     occurredAt: (s.paidAt ?? s.createdAt).toISOString(),
@@ -144,7 +154,10 @@ function mapBreakSpot(s: BreakSpotRow): BuyerLiveOrderRow {
   };
 }
 
-function mapVariantPurchase(vp: VariantPurchaseRow): BuyerLiveOrderRow {
+function mapVariantPurchase(
+  vp: VariantPurchaseRow,
+  orderChargeUsdById: ReadonlyMap<string, number>,
+): BuyerLiveOrderRow {
   const spotLabel = vp.revealedLabel?.trim() || vp.variant.label.trim() || null;
   const { paymentTone, statusLabel: baseStatus } = toneFromVariantPaymentStatus(vp.paymentStatus);
   const statusLabel =
@@ -158,7 +171,7 @@ function mapVariantPurchase(vp: VariantPurchaseRow): BuyerLiveOrderRow {
     sellerUsername: vp.liveRoom.seller.username?.trim() || "seller",
     title: itemTitle,
     spotLabel,
-    amountUsd: vp.totalUsd,
+    amountUsd: resolveChargeUsdFromFulfillmentOrderMap(vp.totalUsd, vp.fulfillmentOrderId, orderChargeUsdById),
     paymentTone,
     statusLabel,
     occurredAt: (vp.paidAt ?? vp.createdAt).toISOString(),
@@ -239,6 +252,11 @@ export async function fetchBuyerLiveOrders(buyerId: string): Promise<BuyerLiveOr
     }),
   ]);
 
+  const orderChargeUsdById = await loadOrderChargeTotalsById([
+    ...breakSpots.map((s) => s.fulfillmentOrderId),
+    ...variantPurchases.map((vp) => vp.fulfillmentOrderId),
+  ].filter((id): id is string => Boolean(id?.trim())));
+
   const rows: BuyerLiveOrderRow[] = [];
   for (const g of giveawayWins) {
     rows.push(mapGiveawayWin(g));
@@ -248,10 +266,10 @@ export async function fetchBuyerLiveOrders(buyerId: string): Promise<BuyerLiveOr
     if (mapped) rows.push(mapped);
   }
   for (const s of breakSpots) {
-    rows.push(mapBreakSpot(s));
+    rows.push(mapBreakSpot(s, orderChargeUsdById));
   }
   for (const vp of variantPurchases) {
-    rows.push(mapVariantPurchase(vp));
+    rows.push(mapVariantPurchase(vp, orderChargeUsdById));
   }
 
   rows.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));

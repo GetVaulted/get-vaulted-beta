@@ -14,7 +14,42 @@ vi.mock("@/lib/stripe", () => ({
   getStripe: () => ({ paymentIntents: { retrieve: paymentIntentsRetrieve } }),
 }));
 
-import { resolveLivePurchaseNotificationChargeUsd } from "./live-purchase-charge-total";
+import {
+  orderChargeUsdFromFields,
+  resolveChargeUsdFromFulfillmentOrderMap,
+  resolveLivePurchaseNotificationChargeUsd,
+} from "./live-purchase-charge-total";
+
+describe("orderChargeUsdFromFields", () => {
+  it("uses order total when present", () => {
+    expect(
+      orderChargeUsdFromFields({
+        totalUsd: 107.42,
+        itemPriceUsd: 90,
+        shippingPriceUsd: 9.99,
+        taxUsd: 7.43,
+      }),
+    ).toBe(107.42);
+  });
+
+  it("computes from parts when total is zero", () => {
+    expect(
+      orderChargeUsdFromFields({
+        totalUsd: 0,
+        itemPriceUsd: 90,
+        shippingPriceUsd: 9.99,
+        taxUsd: 7.43,
+      }),
+    ).toBe(107.42);
+  });
+});
+
+describe("resolveChargeUsdFromFulfillmentOrderMap", () => {
+  it("returns fulfillment order charge instead of spot fallback", () => {
+    const charge = resolveChargeUsdFromFulfillmentOrderMap(90, "ord_1", new Map([["ord_1", 107.42]]));
+    expect(charge).toBe(107.42);
+  });
+});
 
 describe("resolveLivePurchaseNotificationChargeUsd", () => {
   beforeEach(() => {

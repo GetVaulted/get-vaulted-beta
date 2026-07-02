@@ -1,5 +1,65 @@
 import { prisma } from "@/lib/prisma";
+import { roundUsd } from "@/lib/round-usd";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+
+export type OrderChargeFields = {
+  totalUsd: number;
+  itemPriceUsd: number;
+  shippingPriceUsd: number;
+  taxUsd: number;
+};
+
+/** Settled charge on an order row (item + shipping + tax). */
+export function orderChargeUsdFromFields(order: OrderChargeFields): number {
+  if (order.totalUsd > 0) return roundUsd(order.totalUsd);
+  const computed = (order.itemPriceUsd ?? 0) + (order.shippingPriceUsd ?? 0) + (order.taxUsd ?? 0);
+  if (Number.isFinite(computed) && computed > 0) return roundUsd(computed);
+  return roundUsd(order.itemPriceUsd ?? 0);
+}
+
+export function resolveChargeUsdFromFulfillmentOrderMap(
+  fallbackUsd: number,
+  fulfillmentOrderId: string | null | undefined,
+  orderChargeUsdById: ReadonlyMap<string, number>,
+): number {
+  const orderId = fulfillmentOrderId?.trim();
+  if (orderId) {
+    const charge = orderChargeUsdById.get(orderId);
+    if (charge != null && Number.isFinite(charge) && charge > 0) return charge;
+  }
+  return roundUsd(fallbackUsd);
+}
+
+export async function loadOrderChargeTotalsById(orderIds: string[]): Promise<Map<string, number>> {
+  const unique = [...new Set(orderIds.map((id) => id.trim()).filter(Boolean))];
+  if (!unique.length) return new Map();
+  const orders = await prisma.order.findMany({
+    where: { id: { in: unique } },
+    select: {
+      id: true,
+      totalUsd: true,
+      itemPriceUsd: true,
+      shippingPriceUsd: true,
+      taxUsd: true,
+    },
+  });
+  const map = new Map<string, number>();
+  for (const order of orders) {
+    map.set(order.id, orderChargeUsdFromFields(order));
+  }
+  return map;
+}
+
+function orderChargeFromLookup(order: {
+  totalUsd: number;
+  itemPriceUsd: number;
+  shippingPriceUsd: number;
+  taxUsd: number;
+} | null): number | null {
+  if (!order) return null;
+  const charge = orderChargeUsdFromFields(order);
+  return charge > 0 ? charge : null;
+}
 
 /** Buyer-facing charge total for live purchase notifications (spot + shipping + tax). */
 export async function resolveLivePurchaseNotificationChargeUsd(args: {
@@ -30,16 +90,8 @@ export async function resolveLivePurchaseNotificationChargeUsd(args: {
         taxUsd: true,
       },
     });
-    if (order?.totalUsd != null && Number.isFinite(order.totalUsd) && order.totalUsd > 0) {
-      return order.totalUsd;
-    }
-    if (order) {
-      const computed =
-        (order.itemPriceUsd ?? 0) + (order.shippingPriceUsd ?? 0) + (order.taxUsd ?? 0);
-      if (Number.isFinite(computed) && computed > 0) {
-        return Math.round(computed * 100) / 100;
-      }
-    }
+    const charge = orderChargeFromLookup(order);
+    if (charge != null) return charge;
   }
 
   return args.fallbackUsd;

@@ -1,5 +1,10 @@
 import type { BreakSpot, Listing, Order, User } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import {
+  loadOrderChargeTotalsById,
+  orderChargeUsdFromFields,
+  resolveChargeUsdFromFulfillmentOrderMap,
+} from "@/lib/live-purchase-charge-total";
 import { liveShowFulfillmentOrderIds } from "@/lib/live-show-fulfillment-order-ids";
 import { roundUsd } from "@/lib/round-usd";
 import {
@@ -95,8 +100,12 @@ function mapOrder(o: OrderWithBuyer): HostRecentSaleRowDTO {
     kind: "order",
     itemTitle,
     buyerUsername: o.buyer?.username?.trim() || "buyer",
-    /** Hammer / item price — not order total (shipping + tax are separate). */
-    amountUsd: roundUsd(o.itemPriceUsd),
+    amountUsd: orderChargeUsdFromFields({
+      totalUsd: o.totalUsd,
+      itemPriceUsd: o.itemPriceUsd,
+      shippingPriceUsd: o.shippingPriceUsd,
+      taxUsd: o.taxUsd,
+    }),
     paymentTone,
     statusLabel,
     occurredAt: o.updatedAt.toISOString(),
@@ -106,7 +115,11 @@ function mapOrder(o: OrderWithBuyer): HostRecentSaleRowDTO {
 
 type SpotWithUser = BreakSpot & { user: Pick<User, "username"> };
 
-function mapBreakSpot(s: SpotWithUser, itemTitleById: Map<string, string>): HostRecentSaleRowDTO {
+function mapBreakSpot(
+  s: SpotWithUser,
+  itemTitleById: Map<string, string>,
+  orderChargeUsdById: ReadonlyMap<string, number>,
+): HostRecentSaleRowDTO {
   const { paymentTone, statusLabel } = toneFromBreakPaymentStatus(s.breakPaymentStatus);
   const occurredAt = (s.paidAt ?? s.createdAt).toISOString();
   const spotLabel = s.spotLabel?.trim() || null;
@@ -117,7 +130,7 @@ function mapBreakSpot(s: SpotWithUser, itemTitleById: Map<string, string>): Host
     kind: "break_spot",
     itemTitle,
     buyerUsername: s.user?.username?.trim() || "buyer",
-    amountUsd: s.priceUsd,
+    amountUsd: resolveChargeUsdFromFulfillmentOrderMap(s.priceUsd, s.fulfillmentOrderId, orderChargeUsdById),
     paymentTone,
     statusLabel,
     occurredAt,
@@ -143,7 +156,10 @@ type VariantPurchaseWithBuyer = {
   };
 };
 
-function mapVariantPurchase(vp: VariantPurchaseWithBuyer): HostRecentSaleRowDTO | null {
+function mapVariantPurchase(
+  vp: VariantPurchaseWithBuyer,
+  orderChargeUsdById: ReadonlyMap<string, number>,
+): HostRecentSaleRowDTO | null {
   if (vp.paymentStatus === "pending_payment" || vp.paymentStatus === "cancelled") return null;
   const { paymentTone, statusLabel } = toneFromVariantPaymentStatus(vp.paymentStatus);
   const spotLabel = vp.revealedLabel?.trim() || vp.variant.label;
@@ -152,7 +168,7 @@ function mapVariantPurchase(vp: VariantPurchaseWithBuyer): HostRecentSaleRowDTO 
     kind: "variant_purchase",
     itemTitle: itemDisplayTitle(vp.variant.liveRoomItem, spotLabel),
     buyerUsername: vp.buyer?.username?.trim() || "buyer",
-    amountUsd: vp.totalUsd,
+    amountUsd: resolveChargeUsdFromFulfillmentOrderMap(vp.totalUsd, vp.fulfillmentOrderId, orderChargeUsdById),
     paymentTone,
     statusLabel: vp.paymentStatus === "paid" && vp.revealedLabel ? "Revealed" : statusLabel,
     occurredAt: (vp.paidAt ?? vp.createdAt).toISOString(),
@@ -276,6 +292,12 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
       : [];
   const spotItemTitleById = new Map(spotItemRows.map((row) => [row.id, row.title]));
 
+  const fulfillmentChargeOrderIds = [
+    ...spots.map((s) => s.fulfillmentOrderId),
+    ...variantPurchases.map((vp) => vp.fulfillmentOrderId),
+  ].filter((id): id is string => Boolean(id?.trim()));
+  const orderChargeUsdById = await loadOrderChargeTotalsById(fulfillmentChargeOrderIds);
+
   const rows: HostRecentSaleRowDTO[] = [];
   for (const o of orderById.values()) {
     if (fulfillmentOrderIdSet.has(o.id)) continue;
@@ -286,12 +308,12 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
     rows.push(mapped);
   }
   for (const s of spots) {
-    const mapped = mapBreakSpot(s, spotItemTitleById);
+    const mapped = mapBreakSpot(s, spotItemTitleById, orderChargeUsdById);
     if (!includeHostRecentSaleRow(mapped)) continue;
     rows.push(mapped);
   }
   for (const vp of variantPurchases) {
-    const mapped = mapVariantPurchase(vp);
+    const mapped = mapVariantPurchase(vp, orderChargeUsdById);
     if (!mapped || !includeHostRecentSaleRow(mapped)) continue;
     rows.push(mapped);
   }
