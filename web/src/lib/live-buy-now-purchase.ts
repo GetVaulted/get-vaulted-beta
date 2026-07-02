@@ -62,13 +62,20 @@ export function buyerShippingSnapshotFromAddress(addr: {
   if (!isShippingAddressCompleteForLabels(addr)) {
     return null;
   }
+  const line1 = addr.line1?.trim();
+  const city = addr.city?.trim();
+  const state = addr.state?.trim();
+  const postalCode = addr.postalCode?.trim();
+  if (!line1 || !city || !state || !postalCode) {
+    return null;
+  }
   const line2 = addr.line2?.trim();
   return {
     shipRecipientName: (addr.fullName?.trim() || addr.name?.trim() || "Buyer").slice(0, 160),
-    shipAddress: line2 ? `${addr.line1.trim()}, ${line2}` : addr.line1.trim(),
-    shipCity: addr.city.trim(),
-    shipState: addr.state.trim(),
-    shipZip: addr.postalCode.trim(),
+    shipAddress: line2 ? `${line1}, ${line2}` : line1,
+    shipCity: city,
+    shipState: state,
+    shipZip: postalCode,
     shipCountry: (addr.country?.trim() || "US").slice(0, 2).toUpperCase(),
     buyerAddressId: addr.id,
   };
