@@ -92,7 +92,7 @@ export async function getBuyerBundledLiveShippingSessionUx(
         destinationAddressId: LIVE_BUNDLED_SHIPPING_DESTINATION_KEY,
       },
     },
-    select: { id: true },
+    select: { id: true, shippingChargedCents: true, capReached: true },
   });
 
   let pool = session ? await computeSessionPoolTotals(session.id, db) : null;
@@ -100,6 +100,12 @@ export async function getBuyerBundledLiveShippingSessionUx(
   if (!session || !pool || (await db.liveShippingSessionItem.count({ where: { sessionId: session.id } })) === 0) {
     pool = computePoolTotalsFromGroups([], showConfig);
   }
+
+  const alreadyChargedCents = Math.max(0, session?.shippingChargedCents ?? 0);
+  const capReachedEffective =
+    pool.capReached ||
+    session?.capReached === true ||
+    (capCents != null && capCents > 0 && alreadyChargedCents >= capCents);
 
   const previewItemId = opts?.previewLiveRoomItemId?.trim();
   let previewWinDeltaCents: number | null = null;
@@ -123,7 +129,7 @@ export async function getBuyerBundledLiveShippingSessionUx(
       });
       previewWinDeltaCents = null;
     }
-  } else if (!pool.capReached && session) {
+  } else if (!capReachedEffective && session) {
     const lastItem = await db.liveShippingSessionItem.findFirst({
       where: { sessionId: session.id },
       orderBy: { createdAt: "desc" },
@@ -146,15 +152,19 @@ export async function getBuyerBundledLiveShippingSessionUx(
     }
   }
 
+  if (capReachedEffective) {
+    previewWinDeltaCents = 0;
+  }
+
   const packageLabel =
     pool.packageCount <= 1
       ? "1 package"
       : `${pool.packageCount} packages`;
 
   return {
-    shippingCostCents: pool.buyerTotalCents,
+    shippingCostCents: Math.max(pool.buyerTotalCents, alreadyChargedCents),
     pricingWeightOz: pool.pricingWeightOz,
-    capReached: pool.capReached,
+    capReached: capReachedEffective,
     nextIncrementalCostCents: previewWinDeltaCents,
     tierLabel: packageLabel,
     shippingCapCents: capCents,

@@ -188,12 +188,14 @@ describe("getBuyerBundledLiveShippingSessionUx (integration)", () => {
     expect(ux!.nextIncrementalCostCents).toBeNull();
   });
 
-  it("returns null for non-auction/sale room", async () => {
+  it("returns empty snapshot for break rooms without a session", async () => {
     const seller = await seedSellerStripeReady(prisma, { email: "bsu_s6@test.internal", username: "bsus6" });
     const buyer = await seedUser(prisma, { email: "bsu_b6@test.internal", username: "bsub6" });
     const live = await prisma.liveRoom.create({
       data: { sellerId: seller.id, title: "B", roomType: "break", status: "live" },
     });
-    expect(await getBuyerBundledLiveShippingSessionUx(buyer.id, live.id)).toBeNull();
+    const ux = await getBuyerBundledLiveShippingSessionUx(buyer.id, live.id);
+    expect(ux).not.toBeNull();
+    expect(ux!.shippingCostCents).toBe(0);
   });
 });

@@ -3,12 +3,14 @@ import type { TransactionClient } from "@/generated/prisma/internal/prismaNamesp
 import { prisma } from "@/lib/prisma";
 import {
   computeLiveBuyerShippingCharge,
+  computeBuyerLiveShippingTotals,
   groupItemsIntoPackages,
   resolveShippingProfileDimensions,
   type LiveShowShippingConfig,
   type PackageGroup,
 } from "@/lib/unified-shipping-engine";
 import { buildLiveShowShippingConfig } from "@/lib/live-show-shipping-terms";
+import { LIVE_BUNDLED_SHIPPING_DESTINATION_KEY } from "@/services/shipping/live-shipping-pricing";
 import { resolveDefaultProfileForLiveShow } from "@/services/shipping/platform-shipping-profiles";
 import {
   resolveDefaultSellerProfileForLiveShow,
@@ -335,11 +337,13 @@ export async function estimateWinItemShippingDeltaCents(args: {
   const room = await db.liveRoom.findUnique({
     where: { id: args.liveShowId },
     select: {
+      id: true,
       sellerId: true,
       shippingCapEnabled: true,
       shippingCapCents: true,
       freeShippingEnabled: true,
       sellerPaysOverCap: true,
+      shippingMode: true,
     },
   });
   if (!room) return null;
@@ -347,26 +351,48 @@ export async function estimateWinItemShippingDeltaCents(args: {
   const show = liveShowShippingConfigFromRoom(room);
   if (show.freeShippingEnabled) return 0;
 
+  const shippingMode =
+    show.shippingMode ?? (show.freeShippingEnabled ? "free" : show.shippingCapEnabled ? "capped" : "calculated");
+
   const winProfile = await resolveLiveRoomItemShippingProfile(args.liveRoomItemId, db);
   if (!winProfile) return null;
 
-  const session = await db.liveShippingSession.findFirst({
-    where: { buyerId: args.buyerId, liveShowId: args.liveShowId, sellerId: room.sellerId },
-    select: { id: true },
+  const session = await db.liveShippingSession.findUnique({
+    where: {
+      buyerId_sellerId_liveShowId_destinationAddressId: {
+        buyerId: args.buyerId,
+        sellerId: room.sellerId,
+        liveShowId: args.liveShowId,
+        destinationAddressId: LIVE_BUNDLED_SHIPPING_DESTINATION_KEY,
+      },
+    },
+    select: { id: true, shippingChargedCents: true, capReached: true },
   });
 
-  const currentRows = session ? await profileRowsForSession(session.id, db) : [];
-  const currentTotal = computePoolTotalsFromGroups(
-    packageGroupsFromProfileRows(currentRows, show),
-    show,
-  ).buyerTotalCents;
+  const alreadyChargedCents = Math.max(0, session?.shippingChargedCents ?? 0);
+  const capCents = show.shippingCapCents;
+  if (
+    session?.capReached === true ||
+    (shippingMode === "capped" && capCents != null && capCents > 0 && alreadyChargedCents >= capCents)
+  ) {
+    return 0;
+  }
 
+  const currentRows = session ? await profileRowsForSession(session.id, db) : [];
   const nextRows: ProfileRow[] = [
     ...currentRows,
     { itemId: winProfile.itemId, profile: winProfile.profile, overrides: winProfile.overrides },
   ];
-  const nextTotal = computePoolTotalsFromGroups(packageGroupsFromProfileRows(nextRows, show), show)
-    .buyerTotalCents;
+  const nextPoolBuyerTotal = computePoolTotalsFromGroups(
+    packageGroupsFromProfileRows(nextRows, show),
+    show,
+  ).buyerTotalCents;
 
-  return Math.max(0, nextTotal - currentTotal);
+  return computeBuyerLiveShippingTotals({
+    shippingMode,
+    shippingCapCents: capCents,
+    sellerPaysOverCap: show.sellerPaysOverCap !== false,
+    estimatedEligibleBundleShippingCents: nextPoolBuyerTotal,
+    shippingAlreadyChargedCents: alreadyChargedCents,
+  }).shippingDueForThisPurchaseCents;
 }

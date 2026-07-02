@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { computeBuyerLiveShippingTotals } from "@/lib/unified-shipping-engine";
 import {
   computePoolTotalsFromGroups,
   packageGroupsFromProfileRows,
@@ -60,5 +61,17 @@ describe("live-shipping-pool", () => {
     const totals = computePoolTotalsFromGroups(heavy, tightCap);
     expect(totals.buyerTotalCents).toBeLessThanOrEqual(500);
     expect(totals.capReached).toBe(true);
+  });
+
+  it("does not charge shipping again after show cap was paid on a prior win", () => {
+    const due = computeBuyerLiveShippingTotals({
+      shippingMode: "capped",
+      shippingCapCents: 999,
+      sellerPaysOverCap: true,
+      estimatedEligibleBundleShippingCents: 999,
+      shippingAlreadyChargedCents: 999,
+    });
+    expect(due.shippingDueForThisPurchaseCents).toBe(0);
+    expect(due.capReached).toBe(true);
   });
 });
