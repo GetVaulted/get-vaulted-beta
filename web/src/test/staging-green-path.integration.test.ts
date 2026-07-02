@@ -194,6 +194,10 @@ describe("staging green path (live auction + orders fulfillment)", () => {
       { params: Promise.resolve({ id: room.id }) },
     );
     expect(goLive.status).toBe(200);
+    await prisma.liveRoom.update({
+      where: { id: room.id },
+      data: { streamHealth: "live" },
+    });
 
     authHoisted.userId = seller.id;
     const activate = await patchItem(

@@ -494,7 +494,7 @@ export function LiveAuctionRoom({
 
   useEffect(() => {
     if (!customBidOpen) return;
-    setCustomBidDraft(String(buyerNextBidUsd));
+    setCustomBidDraft("");
   }, [buyerNextBidUsd, customBidOpen, activeDbItem?.id]);
 
   useEffect(() => {
@@ -609,7 +609,7 @@ export function LiveAuctionRoom({
       ? formatCountdownMs(auctionRemainingMs)
       : null;
   const hostStartEnabled = canHostStartLiveAuction(activeDbItem, {
-    roomLive: isLive,
+    broadcastOnAir: isLive,
     lotBidPhase: activeLotBidPhase,
     isVariantItem: activeHasVariants,
     hasPinnedVariant: Boolean(buyerPinnedVariant),
@@ -764,6 +764,25 @@ export function LiveAuctionRoom({
 
   const customBidReserveSupported = !activeDbItem?.listingId;
 
+  const handleSubmitCustomBid = async () => {
+    const entered = Number.parseFloat(customBidDraft);
+    try {
+      const payload = resolveLiveCustomBidPayload({
+        mode: customBidReserveSupported && customBidMode === "reserve" ? "reserve" : "exact",
+        enteredUsd: entered,
+        minNextBidUsd: buyerNextBidUsd,
+      });
+      await handlePlaceBid({
+        amountUsd: payload.amountUsd,
+        maxProxyUsd: payload.maxProxyUsd,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Enter a valid bid amount.";
+      setActionError(msg);
+      toast(msg);
+    }
+  };
+
   const handlePlaceBid = async (opts?: { amountUsd?: number; maxProxyUsd?: number }) => {
     setActionError(null);
     if (status !== "authenticated") {
@@ -784,23 +803,12 @@ export function LiveAuctionRoom({
 
       if (opts?.amountUsd != null) {
         amountUsd = opts.amountUsd;
-      } else if (customBidOpen) {
-        const entered = Number.parseFloat(customBidDraft);
-        try {
-          const payload = resolveLiveCustomBidPayload({
-            mode: customBidReserveSupported && customBidMode === "reserve" ? "reserve" : "exact",
-            enteredUsd: entered,
-            minNextBidUsd: buyerNextBidUsd,
-          });
-          amountUsd = payload.amountUsd;
-          maxProxyUsd = payload.maxProxyUsd;
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : "Enter a valid bid amount.";
-          setActionError(msg);
-          return;
-        }
       } else {
         amountUsd = buyerNextBidUsd;
+      }
+
+      if (maxProxyUsd == null && !activeDbItem?.listingId) {
+        maxProxyUsd = amountUsd;
       }
 
       if (amountUsd + 0.001 < buyerNextBidUsd) {
@@ -1446,6 +1454,7 @@ export function LiveAuctionRoom({
                   min={buyerNextBidUsd}
                   step="1"
                   inputMode="decimal"
+                  placeholder={String(buyerNextBidUsd)}
                   value={customBidDraft}
                   onChange={(e) => setCustomBidDraft(e.target.value)}
                   className="min-w-0 flex-1 bg-transparent text-sm font-bold tabular-nums text-zinc-100 outline-none"
@@ -1485,6 +1494,14 @@ export function LiveAuctionRoom({
                   />
                 </button>
               </div>
+              <button
+                type="button"
+                disabled={actionsDisabled || bidFlight}
+                onClick={() => void handleSubmitCustomBid()}
+                className="min-h-10 rounded-full bg-gold px-3 text-[11px] font-black uppercase tracking-wide text-zinc-950 disabled:opacity-50 md:min-h-11"
+              >
+                {bidFlight ? "Placing…" : "Place custom bid"}
+              </button>
             </div>
           ) : null}
           <div className="flex min-h-10 items-center gap-1.5 max-[380px]:gap-1 md:min-h-11">

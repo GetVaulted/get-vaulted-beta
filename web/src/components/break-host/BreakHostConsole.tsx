@@ -37,6 +37,7 @@ import {
   canHostStartLiveAuction,
   resolveLiveAuctionHostStartLotPhase,
 } from "@/lib/live-auction-host-start";
+import { isLiveRoomBroadcastOnAir } from "@/lib/live-room-broadcast-on-air";
 import { canonicalLiveRoomUrl } from "@/lib/live-room-share-metadata";
 import { liveRoomChatOpen } from "@/lib/live-room-chat-policy";
 import {
@@ -131,6 +132,8 @@ type RoomPayload = {
   scheduledStartAt: string | null;
   /** When the seller started the live room (host console “Start stream”). */
   startedAt: string | null;
+  streamHealth?: string;
+  streamPaused?: boolean;
   thumbnailUrl?: string | null;
 };
 
@@ -1787,8 +1790,25 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
     if (!item?.variants?.length) return null;
     return hostPinnedBuyerVariant(item.variants, item.variantAssignmentMode);
   }, [activeBoardRow?.item]);
+  const hostBroadcastOnAir = useMemo(() => {
+    if (room.status !== "live") return false;
+    if (
+      isLiveRoomBroadcastOnAir({
+        status: room.status,
+        streamHealth: room.streamHealth ?? "offline",
+        streamPaused: room.streamPaused,
+      })
+    ) {
+      return true;
+    }
+    return (
+      webcamBroadcast.phase === "live" ||
+      webcamBroadcast.phase === "paused" ||
+      webcamBroadcast.phase === "starting"
+    );
+  }, [room.status, room.streamHealth, room.streamPaused, webcamBroadcast.phase]);
   const hostStartLiveAuctionEnabled = canHostStartLiveAuction(activeBoardRow?.item ?? null, {
-    roomLive: room.status === "live",
+    broadcastOnAir: hostBroadcastOnAir,
     lotBidPhase: hostActiveLotBidPhase,
     isVariantItem: activeBoardRow != null && isVariantSalesFormat(activeBoardRow.item.salesFormat),
     hasPinnedVariant: Boolean(hostPinnedVariant),

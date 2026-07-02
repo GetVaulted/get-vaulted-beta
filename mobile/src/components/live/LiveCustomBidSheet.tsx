@@ -52,7 +52,7 @@ export function LiveCustomBidSheet({
 
   useEffect(() => {
     if (!visible) return;
-    setAmountDraft(String(minNextBidUsd));
+    setAmountDraft('');
     setMode('exact');
     setError(null);
   }, [visible, minNextBidUsd]);
@@ -86,8 +86,8 @@ export function LiveCustomBidSheet({
         <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
           <Text style={styles.helper}>
             {currentBidUsd != null && Number.isFinite(currentBidUsd)
-              ? `Current bid ${fmtUsd(currentBidUsd)} · next bid at least ${fmtUsd(minNextBidUsd)}.`
-              : `Next bid at least ${fmtUsd(minNextBidUsd)}.`}
+              ? `Current bid ${fmtUsd(currentBidUsd)} · Hold to Bid for ${fmtUsd(minNextBidUsd)} or enter a higher amount below.`
+              : `Hold to Bid for ${fmtUsd(minNextBidUsd)} or enter a custom amount below.`}
           </Text>
 
           <Text style={styles.label}>Amount</Text>

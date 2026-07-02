@@ -43,7 +43,8 @@ export function liveAuctionHasPendingWinner(
 export function canHostStartLiveAuction(
   item: LiveAuctionHostStartItem | null | undefined,
   args: {
-    roomLive: boolean;
+    /** Room is live and the host broadcast is on air (not paused/offline). */
+    broadcastOnAir: boolean;
     lotBidPhase: LiveAuctionLotBidPhase;
     isVariantItem?: boolean;
     hasPinnedVariant?: boolean;
@@ -52,7 +53,7 @@ export function canHostStartLiveAuction(
     salesFormat?: string | null;
   },
 ): boolean {
-  if (!item || !args.roomLive || item.status !== 'active') return false;
+  if (!item || !args.broadcastOnAir || item.status !== 'active') return false;
   if (args.salesFormat === 'buy_now') return false;
   if (args.isVariantItem) {
     if (!args.hasPinnedVariant) return false;

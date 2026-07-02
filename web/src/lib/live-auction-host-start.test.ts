@@ -34,17 +34,26 @@ describe("live-auction-host-start", () => {
     };
     expect(
       canHostStartLiveAuction(endedNoBids, {
-        roomLive: true,
+        broadcastOnAir: true,
         lotBidPhase: "timer_ended_unsettled",
       }),
     ).toBe(true);
+  });
+
+  it("blocks start before broadcast is on air", () => {
+    expect(
+      canHostStartLiveAuction(multiActive, {
+        broadcastOnAir: false,
+        lotBidPhase: "not_started",
+      }),
+    ).toBe(false);
   });
 
   it("blocks start while bidding is open", () => {
     expect(
       canHostStartLiveAuction(
         { ...multiActive, biddingOpen: true, auctionEndsAt: new Date(Date.now() + 5000).toISOString() },
-        { roomLive: true, lotBidPhase: "bidding_open" },
+        { broadcastOnAir: true, lotBidPhase: "bidding_open" },
       ),
     ).toBe(false);
   });
@@ -59,7 +68,7 @@ describe("live-auction-host-start", () => {
     expect(
       canHostStartLiveAuction(
         { ...multiActive, lastHighBidderId: "user-1", auctionEndsAt: new Date(Date.now() - 5000).toISOString() },
-        { roomLive: true, lotBidPhase: "timer_ended_unsettled" },
+        { broadcastOnAir: true, lotBidPhase: "timer_ended_unsettled" },
       ),
     ).toBe(false);
   });
@@ -68,7 +77,7 @@ describe("live-auction-host-start", () => {
     expect(
       canHostStartLiveAuction(
         { ...multiActive, quantity: 0, status: "sold" },
-        { roomLive: true, lotBidPhase: "not_started" },
+        { broadcastOnAir: true, lotBidPhase: "not_started" },
       ),
     ).toBe(false);
   });
@@ -78,7 +87,7 @@ describe("live-auction-host-start", () => {
       canHostStartLiveAuction(
         { ...multiActive, status: "active" },
         {
-          roomLive: true,
+          broadcastOnAir: true,
           lotBidPhase: "not_started",
           isVariantItem: true,
           hasPinnedVariant: true,
@@ -90,7 +99,7 @@ describe("live-auction-host-start", () => {
       canHostStartLiveAuction(
         { ...multiActive, status: "active" },
         {
-          roomLive: true,
+          broadcastOnAir: true,
           lotBidPhase: "not_started",
           isVariantItem: true,
           hasPinnedVariant: false,

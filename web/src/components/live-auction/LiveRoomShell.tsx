@@ -972,7 +972,11 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           buyerPaymentRecoveryPending={buyerPaymentRecoveryPending}
         />
         <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
-        <LiveSpotTakenCelebration celebration={spotCelebration} onDone={clearSpotCelebration} />
+        <LiveSpotTakenCelebration
+          celebration={spotCelebration}
+          onDone={clearSpotCelebration}
+          viewerUsername={session?.user?.username}
+        />
         <VaultRevealOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
         {paymentBlocker}
         <LivePremiumWalletSheet
@@ -1017,7 +1021,11 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       buyerPaymentRecoveryPending={buyerPaymentRecoveryPending}
     />
       <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
-      <LiveSpotTakenCelebration celebration={spotCelebration} onDone={clearSpotCelebration} />
+      <LiveSpotTakenCelebration
+        celebration={spotCelebration}
+        onDone={clearSpotCelebration}
+        viewerUsername={session?.user?.username}
+      />
       <VaultRevealOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
       {paymentBlocker}
       <LivePremiumWalletSheet

@@ -37,7 +37,9 @@ describe("live-spot-celebration", () => {
   });
 
   it("headline reflects kind", () => {
-    expect(spotCelebrationHeadline("purchase")).toBe("TAKEN!");
+    expect(spotCelebrationHeadline("purchase")).toBe("CLAIMED!");
     expect(spotCelebrationHeadline("auction_win")).toBe("SOLD!");
+    expect(spotCelebrationHeadline("purchase", { viewerIsWinner: true })).toBe("YOU CLAIMED IT!");
+    expect(spotCelebrationHeadline("auction_win", { viewerIsWinner: true })).toBe("YOU WON!");
   });
 });

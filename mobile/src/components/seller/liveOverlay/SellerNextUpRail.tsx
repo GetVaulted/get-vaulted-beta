@@ -7,6 +7,7 @@ import { formatUsdDisplay, queueItemQuantity } from '../../../lib/liveAuctionPri
 import { logSellerQueue } from '../../../lib/logSellerQueue';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
 import { colors, radii, spacing } from '../../../theme';
+import { QueueSaleTypePill } from '../liveConsole/QueueSaleTypePill';
 
 /** Compact Whatnot-style “next up” bar — full queue opens in sheet only. */
 export const SELLER_NEXT_UP_RAIL_HEIGHT = 52;
@@ -76,9 +77,12 @@ export function SellerNextUpRail({
             accessibilityLabel={`Next up: ${nextLabel}`}
           >
             <Text style={styles.eyebrow}>Next up</Text>
-            <Text style={styles.nextTitle} numberOfLines={1}>
-              {nextLabel}
-            </Text>
+            <View style={styles.nextTitleRow}>
+              <Text style={styles.nextTitle} numberOfLines={1}>
+                {nextLabel}
+              </Text>
+              {nextQueued ? <QueueSaleTypePill item={nextQueued} compact /> : null}
+            </View>
             <Text style={styles.nextMeta} numberOfLines={1}>
               {nextMeta}
             </Text>
@@ -146,11 +150,17 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     color: colors.textMuted,
   },
+  nextTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 1,
+  },
   nextTitle: {
+    flex: 1,
     fontSize: 13,
     fontWeight: '800',
     color: colors.textPrimary,
-    marginTop: 1,
   },
   nextMeta: {
     fontSize: 10,

@@ -147,6 +147,12 @@ type WalletGateHostActions = {
   onReadinessChange: (next: BuyerWalletReadiness) => void;
 };
 
+type LiveSpotCelebrationHost = {
+  celebration: import('../../lib/liveSpotCelebration').LiveSpotTakenCelebration;
+  viewerUsername?: string | null;
+  clear: () => void;
+};
+
 function walletGateHostSnapshotsEqual(
   a: WalletGateHostSnapshot | null,
   b: WalletGateHostSnapshot | null,
@@ -178,6 +184,7 @@ function LiveSlide({
   onPaymentBlockerChange,
   onWalletGateHostChange,
   roomVisitNonce = 0,
+  onSpotCelebrationHostChange,
 }: {
   stream: LiveStream;
   isActive: boolean;
@@ -196,6 +203,7 @@ function LiveSlide({
     actions: WalletGateHostActions | null,
   ) => void;
   roomVisitNonce?: number;
+  onSpotCelebrationHostChange?: (host: LiveSpotCelebrationHost | null) => void;
 }) {
   const insets = useSafeAreaInsets();
   const stageInsets = computeLiveStageSafeInsets(stageContainer, screenHeight, insets, spacing.sm);
@@ -383,6 +391,26 @@ function LiveSlide({
     },
   });
   const fetchLiveSnapshot = liveSession.fetchSnapshot;
+
+  useEffect(() => {
+    if (!onSpotCelebrationHostChange) return undefined;
+    if (!isActive || !liveSession.spotCelebration) {
+      onSpotCelebrationHostChange(null);
+      return () => onSpotCelebrationHostChange(null);
+    }
+    onSpotCelebrationHostChange({
+      celebration: liveSession.spotCelebration,
+      viewerUsername: myChatSender.username,
+      clear: liveSession.clearSpotCelebration,
+    });
+    return () => onSpotCelebrationHostChange(null);
+  }, [
+    isActive,
+    liveSession.clearSpotCelebration,
+    liveSession.spotCelebration,
+    myChatSender.username,
+    onSpotCelebrationHostChange,
+  ]);
 
   useEffect(() => {
     if (!isActive || (stream.liveRoomFormat !== 'break' && liveSession.roomSnap?.roomType !== 'break')) {
@@ -945,10 +973,6 @@ function LiveSlide({
         celebration={liveSession.soldCelebration}
         onDone={liveSession.clearSoldCelebration}
       />
-      <LiveSpotTakenCelebration
-        celebration={liveSession.spotCelebration}
-        onDone={liveSession.clearSpotCelebration}
-      />
       <VaultRevealOverlay
         spin={liveSession.vaultRevealSpin}
         onDismiss={liveSession.clearVaultRevealSpin}
@@ -1419,6 +1443,7 @@ function LiveSlide({
             right: spacing.md,
           },
         ]}
+        pointerEvents={isActive ? 'auto' : 'none'}
         onLayout={(e) => {
           const h = e.nativeEvent.layout.height;
           if (h > 0 && Math.abs(h - commerceHeight) > 2) setCommerceHeight(h);
@@ -1457,6 +1482,9 @@ function LiveSlide({
             openWalletRef.current = open;
           }}
           staffCommerceBlocked={staffCommerceBlocked}
+          onSpotCelebration={liveSession.showSpotCelebration}
+          viewerUsername={myChatSender.username}
+          commerceActive={isActive}
         />
       </View>
       ) : null}
@@ -1630,8 +1658,13 @@ export function VerticalLiveFeed({
   const [walletOverlayActive, setWalletOverlayActive] = useState(false);
   const [paymentBlockerActive, setPaymentBlockerActive] = useState(false);
   const [walletGateHost, setWalletGateHost] = useState<WalletGateHostSnapshot | null>(null);
+  const [spotCelebrationHost, setSpotCelebrationHost] = useState<LiveSpotCelebrationHost | null>(null);
   const walletGateActionsRef = useRef<WalletGateHostActions | null>(null);
   const pagerRef = useRef<PagerView>(null);
+
+  const handleSpotCelebrationHostChange = useCallback((host: LiveSpotCelebrationHost | null) => {
+    setSpotCelebrationHost(host);
+  }, []);
 
   const handleWalletGateHostChange = useCallback(
     (snapshot: WalletGateHostSnapshot | null, actions: WalletGateHostActions | null) => {
@@ -1817,6 +1850,7 @@ export function VerticalLiveFeed({
                   onPaymentBlockerChange={setPaymentBlockerActive}
                   onWalletGateHostChange={handleWalletGateHostChange}
                   roomVisitNonce={roomVisitNonce}
+                  onSpotCelebrationHostChange={handleSpotCelebrationHostChange}
                 />
               </View>
             ))}
@@ -1844,6 +1878,13 @@ export function VerticalLiveFeed({
           }
           onReadinessChange={(next) => walletGateActionsRef.current?.onReadinessChange(next)}
           onActiveChange={setWalletOverlayActive}
+        />
+      ) : null}
+      {spotCelebrationHost ? (
+        <LiveSpotTakenCelebration
+          celebration={spotCelebrationHost.celebration}
+          onDone={spotCelebrationHost.clear}
+          viewerUsername={spotCelebrationHost.viewerUsername}
         />
       ) : null}
     </>

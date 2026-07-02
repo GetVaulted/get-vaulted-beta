@@ -390,14 +390,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
         acceptedAt: now,
         idempotencyKey: idempotencyKey || undefined,
       });
-      if (maxProxyUsd != null) {
-        if (maxProxyUsd < amountUsd) throw new Error("PROXY_MAX_LT_BID");
+      if (!item.listingId) {
+        const effectiveMaxProxyUsd = maxProxyUsd ?? amountUsd;
+        if (effectiveMaxProxyUsd + 0.001 < amountUsd) throw new Error("PROXY_MAX_LT_BID");
         await upsertLiveAuctionProxyBid(tx, {
           liveRoomId,
           liveRoomItemId: itemId,
           userId: bidderId,
-          maxAmountUsd: maxProxyUsd,
-          listingId: item.listingId,
+          maxAmountUsd: effectiveMaxProxyUsd,
+          listingId: null,
         });
       }
       const proxyOutbids = await resolveLiveProxyBidChain(tx, {

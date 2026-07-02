@@ -24,7 +24,7 @@ describe('liveAuctionHostStart', () => {
           biddingOpen: true,
         },
         {
-          roomLive: true,
+          broadcastOnAir: true,
           lotBidPhase: 'timer_ended_unsettled',
         },
       ),

@@ -26,17 +26,18 @@ type HostLotHudPhase =
 function resolveHostLotHudPhase(args: {
   item: LiveRoomItemRow | null;
   roomLive: boolean;
+  broadcastOnAir: boolean;
   lotBidPhase: ReturnType<typeof resolveLiveAuctionLotBidPhase>;
   queuePreview?: boolean;
 }): HostLotHudPhase {
-  const { item, roomLive, lotBidPhase, queuePreview } = args;
+  const { item, broadcastOnAir, lotBidPhase, queuePreview } = args;
   if (!item) return 'empty';
   if (queuePreview && item.status === 'queued') {
-    return roomLive ? 'ready' : 'prelive';
+    return broadcastOnAir ? 'ready' : 'prelive';
   }
   if (item.status === 'sold') return 'sold';
   if (item.status === 'skipped') return 'skipped';
-  if (!roomLive) return 'prelive';
+  if (!broadcastOnAir) return 'prelive';
   if (lotBidPhase === 'bidding_open') return 'running';
   if (lotBidPhase === 'timer_ended_unsettled') {
     if (isMultiQuantityLiveAuctionItem(item) && !item.lastHighBidderId?.trim()) return 'ready';
@@ -69,6 +70,7 @@ export function VaultPinnedLotCard({
   item,
   serverNowMs,
   roomLive,
+  broadcastOnAir = roomLive,
   busy,
   startingAuction = false,
   density = 'default',
@@ -89,6 +91,8 @@ export function VaultPinnedLotCard({
   item: LiveRoomItemRow | null;
   serverNowMs: number;
   roomLive: boolean;
+  /** Stream on air — gates Start Auction (defaults to roomLive). */
+  broadcastOnAir?: boolean;
   busy: boolean;
   startingAuction?: boolean;
   /** Compact broadcast overlay — ~18% smaller with live energy FX. */
@@ -313,11 +317,11 @@ export function VaultPinnedLotCard({
           item.variantAssignmentMode,
         )
       : null;
-  const hudPhase = resolveHostLotHudPhase({ item, roomLive, lotBidPhase, queuePreview });
+  const hudPhase = resolveHostLotHudPhase({ item, roomLive, broadcastOnAir, lotBidPhase, queuePreview });
   const showStartAuction =
     !isBuyNowItem &&
     canHostStartLiveAuction(item, {
-      roomLive,
+      broadcastOnAir,
       lotBidPhase,
       isVariantItem,
       salesFormat: item.salesFormat,
@@ -590,7 +594,7 @@ export function VaultPinnedLotCard({
           </Pressable>
         </View>
       ) : hudPhase === 'prelive' ? (
-        <Text style={[styles.hint, compact && styles.metaCompact]}>Go live to run this lot</Text>
+        <Text style={[styles.hint, compact && styles.metaCompact]}>Go live to start bidding</Text>
       ) : null}
     </Animated.View>
   );

@@ -62,4 +62,5 @@ export type RoomBroadcastPayload = {
   buyerUsername?: string | null;
   itemTitle?: string | null;
   failureReason?: string | null;
+  randomReveal?: boolean;
 };

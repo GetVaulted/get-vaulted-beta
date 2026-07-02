@@ -4,6 +4,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { colors, radii, spacing } from '../../../theme';
 import { lc } from './liveConsoleTheme';
+import { QueueSaleTypePill } from './QueueSaleTypePill';
 
 function fmtMoney(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return '—';
@@ -65,7 +66,7 @@ export function VaultQueueCarousel({
             <Text style={styles.bid}>Start {fmtMoney(item.startingBidUsd ?? 1)}</Text>
             <View style={styles.tagRow}>
               <Text style={styles.tag}>{hasReserve ? 'Reserve' : 'No reserve'}</Text>
-              <Text style={styles.tag}>Auction</Text>
+              <QueueSaleTypePill item={item} compact />
             </View>
             <View style={[styles.chip, chip.tone === 'live' && styles.chipLive]}>
               <Text style={styles.chipTxt}>{chip.label}</Text>

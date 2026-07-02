@@ -34,7 +34,7 @@ import { createRealtimeEventGuard, shouldProcessRealtimeEvent, syncAuctionSeqGua
 import type { RoomBroadcastPayload } from '../lib/realtimeChannels';
 import { estimateClockSkewMs, syncedWallTimeMs } from '../lib/serverClockSync';
 import { isSupabaseConfigured } from '../lib/supabase';
-import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from '../lib/vaultRevealSpin';
+import { parseVaultRevealSpinPayload, VAULT_REVEAL_TOTAL_DISPLAY_MS, type VaultRevealSpinPayload } from '../lib/vaultRevealSpin';
 import { useRealtimeRoomSubscription, type LiveRoomChatBroadcastMessage } from './useRealtimeRoomSubscription';
 import { useRealtimeRoomPresence } from './useRealtimeRoomPresence';
 
@@ -72,6 +72,9 @@ export function useLiveRoomRealtimeSession(args: {
   const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
   const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
   const seenSpotCelebrationKeysRef = useRef<Set<string>>(new Set());
+  const pendingSpotCelebrationRef = useRef<LiveSpotTakenCelebration | null>(null);
+  const pendingSpotCelebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const vaultRevealActiveRef = useRef(false);
 
   const viewerCount = useRealtimeRoomPresence({
     liveRoomId: args.roomId,
@@ -90,9 +93,40 @@ export function useLiveRoomRealtimeSession(args: {
     }, SPOT_CELEBRATION_DISPLAY_MS + 1000);
   }, []);
 
+  const clearPendingSpotCelebrationTimer = useCallback(() => {
+    if (pendingSpotCelebrationTimerRef.current) {
+      clearTimeout(pendingSpotCelebrationTimerRef.current);
+      pendingSpotCelebrationTimerRef.current = null;
+    }
+  }, []);
+
+  const flushPendingSpotCelebration = useCallback(() => {
+    clearPendingSpotCelebrationTimer();
+    const pending = pendingSpotCelebrationRef.current;
+    if (!pending) return;
+    pendingSpotCelebrationRef.current = null;
+    showSpotCelebration(pending);
+  }, [clearPendingSpotCelebrationTimer, showSpotCelebration]);
+
+  const queueSpotCelebrationAfterReveal = useCallback(
+    (taken: LiveSpotTakenCelebration) => {
+      pendingSpotCelebrationRef.current = taken;
+      clearPendingSpotCelebrationTimer();
+      pendingSpotCelebrationTimerRef.current = setTimeout(() => {
+        pendingSpotCelebrationTimerRef.current = null;
+        flushPendingSpotCelebration();
+      }, VAULT_REVEAL_TOTAL_DISPLAY_MS + 600);
+    },
+    [clearPendingSpotCelebrationTimer, flushPendingSpotCelebration],
+  );
+
   const clearSpotCelebration = useCallback(() => setSpotCelebration(null), []);
   const clearSoldCelebration = useCallback(() => setSoldCelebration(null), []);
-  const clearVaultRevealSpin = useCallback(() => setVaultRevealSpin(null), []);
+  const clearVaultRevealSpin = useCallback(() => {
+    vaultRevealActiveRef.current = false;
+    setVaultRevealSpin(null);
+    flushPendingSpotCelebration();
+  }, [flushPendingSpotCelebration]);
 
   const unresolvedPaymentFailure = roomSnap?.unresolvedPaymentFailure ?? null;
 
@@ -314,6 +348,7 @@ export function useLiveRoomRealtimeSession(args: {
       const spin = parseVaultRevealSpinPayload(payload);
       if (!spin || seenVaultRevealSpinIdsRef.current.has(spin.spinId)) return;
       seenVaultRevealSpinIdsRef.current.add(spin.spinId);
+      vaultRevealActiveRef.current = true;
       setVaultRevealSpin(spin);
       scheduleReconcile(250);
     },
@@ -321,7 +356,13 @@ export function useLiveRoomRealtimeSession(args: {
     onVariantPurchased: (payload) => {
       if (!shouldProcessRealtimeEvent(guardRef.current, 'variant_purchased', payload)) return;
       const taken = parseVariantPurchasedCelebration(payload);
-      if (taken) showSpotCelebration(taken);
+      if (taken) {
+        if (payload.randomReveal === true) {
+          queueSpotCelebrationAfterReveal(taken);
+        } else {
+          showSpotCelebration(taken);
+        }
+      }
       scheduleReconcile(250);
     },
     onListingBid: () => scheduleReconcile(450),
@@ -358,6 +399,8 @@ export function useLiveRoomRealtimeSession(args: {
       const celebration =
         parsed?.kind === 'sold' ? { ...parsed, viewerWasBidder } : parsed;
       if (celebration?.kind === 'sold') setSoldCelebration(celebration);
+      const spotTaken = parseAuctionWinSpotCelebration(payload);
+      if (spotTaken) showSpotCelebration(spotTaken);
       logAuctionTimer({
         source: 'purchase_completed',
         serverNowMs: payload.serverNowMs,
@@ -489,6 +532,7 @@ export function useLiveRoomRealtimeSession(args: {
     soldCelebration,
     clearSoldCelebration,
     spotCelebration,
+    showSpotCelebration,
     clearSpotCelebration,
     vaultRevealSpin,
     clearVaultRevealSpin,

@@ -16,6 +16,7 @@ export function SellerLivePinnedOverlay({
   item,
   serverNowMs,
   roomLive,
+  broadcastOnAir,
   busy,
   startingAuction,
   onStartBidding,
@@ -36,6 +37,7 @@ export function SellerLivePinnedOverlay({
   item: LiveRoomItemRow | null;
   serverNowMs: number;
   roomLive: boolean;
+  broadcastOnAir?: boolean;
   busy: boolean;
   startingAuction?: boolean;
   onStartBidding: () => void;
@@ -79,6 +81,7 @@ export function SellerLivePinnedOverlay({
             item={item}
             serverNowMs={serverNowMs}
             roomLive={roomLive}
+            broadcastOnAir={broadcastOnAir}
             busy={busy}
             startingAuction={startingAuction}
             onStartBidding={onStartBidding}

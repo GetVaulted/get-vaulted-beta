@@ -96,12 +96,8 @@ export function VaultEventsHub({
   const liveBlocked = liveGate.blocked;
 
   const trySchedule = useCallback(() => {
-    if (liveBlocked) {
-      onBlockedSchedule?.();
-      return;
-    }
     onScheduleNew();
-  }, [liveBlocked, onBlockedSchedule, onScheduleNew]);
+  }, [onScheduleNew]);
 
   const load = useCallback(async (opts?: SellerReloadOptions) => {
     if (!accessToken?.trim()) {
@@ -413,7 +409,7 @@ export function VaultEventsHub({
           contentContainerStyle={[
             styles.listScrollContent,
             {
-              paddingBottom: spacing.md,
+              paddingBottom: FAB_CLEARANCE + spacing.md,
               ...(showList
                 ? {}
                 : {
@@ -425,21 +421,28 @@ export function VaultEventsHub({
         />
       </View>
 
-      <View style={styles.fabFooter}>
+      <View style={styles.fabHost} pointerEvents="box-none">
         <Pressable
-          style={styles.fab}
+          style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
           onPress={trySchedule}
-          disabled={liveBlocked}
+          hitSlop={12}
           accessibilityRole="button"
           accessibilityLabel="Schedule vault event"
         >
-          <LinearGradient colors={['#F0D56A', colors.gold, '#9A7B2C']} style={StyleSheet.absoluteFill} />
+          <LinearGradient
+            colors={['#F0D56A', colors.gold, '#9A7B2C']}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
           <Ionicons name="add" size={28} color="#0a0a0a" />
         </Pressable>
       </View>
     </View>
   );
 }
+
+const FAB_SIZE = 60;
+const FAB_CLEARANCE = FAB_SIZE + spacing.lg;
 
 const styles = StyleSheet.create({
   root: {
@@ -567,16 +570,16 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     maxWidth: 300,
   },
-  fabFooter: {
-    flexShrink: 0,
-    alignItems: 'flex-end',
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.xs,
+  fabHost: {
+    position: 'absolute',
+    right: 0,
+    bottom: spacing.sm,
+    zIndex: 20,
   },
   fab: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: FAB_SIZE,
+    height: FAB_SIZE,
+    borderRadius: FAB_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -585,5 +588,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 16,
     elevation: 10,
+  },
+  fabPressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.96 }],
   },
 });

@@ -31,10 +31,10 @@ export function resolveLiveCustomBidPayload(args: {
 export const LIVE_CUSTOM_BID_MODE_COPY = {
   exact: {
     label: "Exact bid",
-    description: "Places this amount on the lot right now.",
+    description: "Instant bid — places the exact amount you enter on the lot now.",
   },
   reserve: {
     label: "Max bid",
-    description: "Bids the minimum now and keeps you winning up to this amount as others bid.",
+    description: "Placeholder max — bids the minimum now and keeps you winning up to this amount.",
   },
 } as const;

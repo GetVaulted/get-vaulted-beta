@@ -35,6 +35,7 @@ export function useSellerLiveConsole({
   onBiddingUrgentChange,
   onAfterAddLot,
   initialConsole,
+  broadcastOnAir: broadcastOnAirProp,
 }: {
   accessToken: string;
   roomId: string;
@@ -46,6 +47,8 @@ export function useSellerLiveConsole({
   onAfterAddLot?: () => void;
   /** When provided on first mount, skips duplicate host-console fetch. */
   initialConsole?: HostConsolePayload | null;
+  /** When false, host cannot open timed bidding (stream not on air). Defaults to roomStatus === 'live'. */
+  broadcastOnAir?: boolean;
 }) {
   const [items, setItems] = useState<LiveRoomItemRow[]>([]);
   const [giveaways, setGiveaways] = useState<LiveGiveawayRow[]>([]);
@@ -380,6 +383,13 @@ export function useSellerLiveConsole({
 
   const onStartBidding = () => {
     if (!activeItem) return;
+    if (roomStatus !== 'live' || !broadcastOnAir) {
+      Alert.alert(
+        'Go live first',
+        'Start your broadcast before opening bidding. Buyers need to see you live first.',
+      );
+      return;
+    }
     void run(async () => {
       setStartingAuction(true);
       try {
@@ -419,6 +429,13 @@ export function useSellerLiveConsole({
   };
 
   const onLaunchAndStart = (item: LiveRoomItemRow) => {
+    if (roomStatus !== 'live' || !broadcastOnAir) {
+      Alert.alert(
+        'Go live first',
+        'Start your broadcast before opening bidding. Buyers need to see you live first.',
+      );
+      return;
+    }
     void run(async () => {
       await patchLiveRoomItem(accessToken, roomId, item.id, { status: 'active' });
       setStartingAuction(true);
@@ -451,6 +468,7 @@ export function useSellerLiveConsole({
 
   const auctionRoom = roomType === 'auction' || roomType === 'break';
   const roomLive = roomStatus === 'live';
+  const broadcastOnAir = broadcastOnAirProp ?? roomLive;
   const roomEnded = roomStatus === 'ended';
   const queuedCount = items.filter((i) => i.status === 'queued').length;
 
@@ -500,6 +518,7 @@ export function useSellerLiveConsole({
     onRemove,
     auctionRoom,
     roomLive,
+    broadcastOnAir,
     roomEnded,
     queuedCount,
     biddingUrgent,

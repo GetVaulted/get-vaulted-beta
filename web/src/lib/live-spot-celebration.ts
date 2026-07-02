@@ -13,10 +13,9 @@ export function parseVariantPurchasedCelebration(payload: {
   amountUsd?: number | null;
   randomReveal?: boolean;
 }): LiveSpotTakenCelebration | null {
-  if (payload.randomReveal) return null;
   const label = payload.label?.trim();
-  const username = payload.buyerUsername?.trim()?.replace(/^@+/, "");
-  if (!label || !username) return null;
+  const username = payload.buyerUsername?.trim()?.replace(/^@+/, "") || "Buyer";
+  if (!label) return null;
   const amountUsd =
     typeof payload.amountUsd === "number" && Number.isFinite(payload.amountUsd) ? payload.amountUsd : 0;
   return { username, label, amountUsd, kind: "purchase" };
@@ -39,12 +38,62 @@ export function parseAuctionWinSpotCelebration(payload: {
   return { username, label, amountUsd, kind: "auction_win" };
 }
 
-export function spotCelebrationHeadline(kind: LiveSpotTakenCelebration["kind"]): string {
-  return kind === "auction_win" ? "SOLD!" : "TAKEN!";
+export function normalizeSpotCelebrationUsername(username: string): string {
+  return username.trim().replace(/^@+/, "");
+}
+
+export function isSpotCelebrationViewerWinner(
+  celebration: LiveSpotTakenCelebration,
+  viewerUsername?: string | null,
+): boolean {
+  const viewer = viewerUsername ? normalizeSpotCelebrationUsername(viewerUsername) : "";
+  if (!viewer) return false;
+  return normalizeSpotCelebrationUsername(celebration.username).toLowerCase() === viewer.toLowerCase();
+}
+
+export function spotCelebrationHeadline(
+  kind: LiveSpotTakenCelebration["kind"],
+  opts?: { viewerIsWinner?: boolean },
+): string {
+  if (opts?.viewerIsWinner) {
+    return kind === "auction_win" ? "YOU WON!" : "YOU CLAIMED IT!";
+  }
+  return kind === "auction_win" ? "SOLD!" : "CLAIMED!";
+}
+
+export function spotCelebrationKicker(kind: LiveSpotTakenCelebration["kind"]): string {
+  return kind === "auction_win" ? "Hammer dropped" : "Spot secured";
+}
+
+export function spotCelebrationTagline(kind: LiveSpotTakenCelebration["kind"]): string {
+  return kind === "auction_win" ? "Locked in · shipping from wallet" : "In the Vault · Get Vaulted Live";
+}
+
+export function formatSpotCelebrationPrice(amountUsd: number): string | null {
+  if (!(amountUsd > 0)) return null;
+  const hasCents = Math.abs(amountUsd - Math.round(amountUsd)) > 0.001;
+  return amountUsd.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: hasCents ? 2 : 0,
+  });
 }
 
 export function formatSpotWinnerAnnouncement(celebration: LiveSpotTakenCelebration): string {
   return `@${celebration.username} won (${celebration.label})`;
+}
+
+export function formatSpotCelebrationAccessibility(
+  celebration: LiveSpotTakenCelebration,
+  opts?: { viewerIsWinner?: boolean },
+): string {
+  const headline = spotCelebrationHeadline(celebration.kind, opts);
+  const price = formatSpotCelebrationPrice(celebration.amountUsd);
+  const pricePart = price ? ` for ${price}` : "";
+  if (opts?.viewerIsWinner) {
+    return `${headline} ${celebration.label}${pricePart}`;
+  }
+  return `${headline} @${celebration.username} claimed ${celebration.label}${pricePart}`;
 }
 
 /** Stable key for dismiss timers — avoids resetting when parent re-renders. */

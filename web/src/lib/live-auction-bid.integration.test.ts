@@ -91,6 +91,10 @@ describe("live auction bid pipeline (host lot)", () => {
       }),
       { params: Promise.resolve({ id: room.id }) },
     );
+    await prisma.liveRoom.update({
+      where: { id: room.id },
+      data: { streamHealth: "live" },
+    });
     await patchItem(
       new Request("http://localhost", {
         method: "PATCH",
@@ -109,6 +113,54 @@ describe("live auction bid pipeline (host lot)", () => {
     );
     return { seller, buyer, room, item };
   }
+
+  it("rejects startAuction when the room is live but stream is offline", async () => {
+    const seller = await seedSellerStripeAndShipFrom(prisma, {
+      email: "bid_seller_offline@test.internal",
+      username: "bidSellerOffline",
+    });
+    const room = await prisma.liveRoom.create({
+      data: { sellerId: seller.id, title: "Offline stream room", roomType: "auction", status: "scheduled" },
+    });
+    const item = await prisma.liveRoomItem.create({
+      data: {
+        liveRoomId: room.id,
+        title: "Host lot",
+        status: "queued",
+        sortOrder: 0,
+        startingBidUsd: 10,
+        currentBidUsd: 10,
+      },
+    });
+    authHoisted.userId = seller.id;
+    await patchRoom(
+      new Request("http://localhost", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "start" }),
+      }),
+      { params: Promise.resolve({ id: room.id }) },
+    );
+    await patchItem(
+      new Request("http://localhost", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "active" }),
+      }),
+      { params: Promise.resolve({ id: room.id, itemId: item.id }) },
+    );
+    const startRes = await patchItem(
+      new Request("http://localhost", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "startAuction", auctionDurationSec: 30, clutchTimeEnabled: false }),
+      }),
+      { params: Promise.resolve({ id: room.id, itemId: item.id }) },
+    );
+    expect(startRes.status).toBe(409);
+    const body = (await startRes.json()) as { error?: string };
+    expect(body.error).toMatch(/broadcast/i);
+  });
 
   it("accepts bid, writes LiveRoomBid + LiveAuctionEvent, sets server leader", async () => {
     const { buyer, room, item } = await seedLiveHostLot();

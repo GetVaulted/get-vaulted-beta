@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isLiveRoomBroadcastOnAir } from "@/lib/live-room-broadcast-on-air";
 import { requireLiveRoomHostUser } from "@/lib/resolve-live-room-host-user";
 import {
   finalizeBreakAuctionRoundIfEnded,
@@ -227,6 +228,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
     }
     if (room.status !== "live") {
       return NextResponse.json({ error: "Start your live show first, then open bidding on the lot." }, { status: 409 });
+    }
+    if (
+      !isLiveRoomBroadcastOnAir({
+        status: room.status,
+        streamHealth: room.streamHealth,
+        streamPaused: room.streamPaused,
+      })
+    ) {
+      return NextResponse.json(
+        { error: "Start your broadcast before opening bidding. Buyers need to see you live first." },
+        { status: 409 },
+      );
     }
     if (item.status !== "active") {
       return NextResponse.json({ error: "Post this lot first, then start bidding." }, { status: 409 });

@@ -34,6 +34,7 @@ import {
   type LiveItemSalesFormat,
 } from '../../lib/liveItemVariant';
 import { colors, radii, spacing } from '../../theme';
+import { buildLocalVariantPurchaseCelebration, type LiveSpotTakenCelebration } from '../../lib/liveSpotCelebration';
 import { HoldToBidButton } from './HoldToBidButton';
 import { LiveRoomText } from './LiveRoomText';
 
@@ -59,6 +60,9 @@ type Props = {
   walletReady: boolean;
   onWalletRequired: () => void;
   onPurchased: () => void;
+  /** Immediate buyer/seller celebration — do not wait on realtime. */
+  onSpotCelebration?: (celebration: LiveSpotTakenCelebration) => void;
+  viewerUsername?: string | null;
   /** Refetch room snapshot after failed checkout so released spots reappear. */
   onRoomRefresh?: () => void | Promise<void>;
   /** HUD may already have loaded this — reuse while the sheet refetches for the selected spot. */
@@ -85,6 +89,8 @@ export function LiveBreakSpotGridSheet({
   walletReady,
   onWalletRequired,
   onPurchased,
+  onSpotCelebration,
+  viewerUsername,
   onRoomRefresh,
   seedCheckoutPreview = null,
 }: Props) {
@@ -233,6 +239,22 @@ export function LiveBreakSpotGridSheet({
 
   const allSold = spotSummary.available <= 0 && pickerVariants.length > 0;
 
+  const finishSuccessfulPurchase = (spotLabel: string, amountUsd: number) => {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    onClose();
+    setSelectedId(null);
+    onPurchased();
+    if (isRandom || !onSpotCelebration) return;
+    const celebration = buildLocalVariantPurchaseCelebration({
+      viewerUsername,
+      label: spotLabel,
+      amountUsd,
+    });
+    setTimeout(() => {
+      onSpotCelebration(celebration);
+    }, 420);
+  };
+
   const checkout = async () => {
     if (!selected) {
       setError(`Select ${isDivisionBreak ? 'a division' : 'a team'} first.`);
@@ -287,12 +309,10 @@ export function LiveBreakSpotGridSheet({
         return;
       }
       if ('paid' in res) {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        onPurchased();
-        setSelectedId(null);
-        if (spotSummary.available <= quantity) {
-          onClose();
-        }
+        finishSuccessfulPurchase(
+          selected.label,
+          checkoutPreview?.chargeNowUsd ?? selected.priceUsd * quantity,
+        );
         return;
       }
       if ('requiresAction' in res) {
@@ -320,12 +340,10 @@ export function LiveBreakSpotGridSheet({
           purchaseId: res.purchaseId,
         });
         if (synced.ok && 'paid' in synced) {
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-          onPurchased();
-          setSelectedId(null);
-          if (spotSummary.available <= quantity) {
-            onClose();
-          }
+          finishSuccessfulPurchase(
+            selected.label,
+            checkoutPreview?.chargeNowUsd ?? selected.priceUsd * quantity,
+          );
           return;
         }
         setError(

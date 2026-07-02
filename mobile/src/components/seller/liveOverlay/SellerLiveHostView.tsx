@@ -28,16 +28,19 @@ import { SellerLiveStreamBackdrop } from './SellerLiveStreamBackdrop';
 import type { MobileHostBroadcastPhase, SellerCameraPermissionState } from '../../../hooks/useMobileStagePublish';
 import type { SellerCameraFacing } from '../../../lib/sellerHostCamera';
 import { liveRoomChatOpen } from '../../../lib/liveRoomChatPolicy';
+import { isLiveRoomBroadcastOnAir } from '../../../lib/liveRoomBroadcastOnAir';
 import { useLiveRoomChat } from '../../../hooks/useLiveRoomChat';
 import { resolvePinnedModeratorUsername } from '../../../lib/resolvePinnedModeratorUsername';
 import { useLiveRoomModeration } from '../../../hooks/useLiveRoomModeration';
 import { useRealtimeRoomSubscription } from '../../../hooks/useRealtimeRoomSubscription';
-import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from '../../../lib/vaultRevealSpin';
+import { parseVaultRevealSpinPayload, VAULT_REVEAL_TOTAL_DISPLAY_MS, type VaultRevealSpinPayload } from '../../../lib/vaultRevealSpin';
 import { VaultRevealOverlay } from '../../live/VaultRevealOverlay';
 import { LiveSpotTakenCelebration } from '../../live/LiveSpotTakenCelebration';
 import {
   parseAuctionWinSpotCelebration,
   parseVariantPurchasedCelebration,
+  spotCelebrationDismissKey,
+  SPOT_CELEBRATION_DISPLAY_MS,
   type LiveSpotTakenCelebration as SpotTakenCelebration,
 } from '../../../lib/liveSpotCelebration';
 import { isVariantSalesFormat } from '../../../lib/liveItemVariant';
@@ -134,6 +137,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const [giveawayOpen, setGiveawayOpen] = useState(false);
   const [vaultRevealSpin, setVaultRevealSpin] = useState<VaultRevealSpinPayload | null>(null);
   const [spotCelebration, setSpotCelebration] = useState<SpotTakenCelebration | null>(null);
+  const seenSpotCelebrationKeysRef = useRef<Set<string>>(new Set());
+  const pendingSpotCelebrationRef = useRef<SpotTakenCelebration | null>(null);
+  const pendingSpotCelebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const vaultRevealActiveRef = useRef(false);
   const [teamsBoardOpen, setTeamsBoardOpen] = useState(false);
   const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
   const [broadcastOpen, setBroadcastOpen] = useState(false);
@@ -149,6 +156,21 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [chatExpanded, setChatExpanded] = useState(false);
 
+  const roomLive = host.room?.status === 'live';
+  const streamOnAir =
+    host.broadcastPhase === 'live' ||
+    host.broadcastPhase === 'paused' ||
+    host.broadcastPhase === 'starting';
+  const broadcastOnAir = useMemo(() => {
+    if (!roomLive) return false;
+    if (host.stageWebrtcEnabled) return streamOnAir;
+    return isLiveRoomBroadcastOnAir({
+      status: 'live',
+      streamHealth: host.stream?.streamHealth ?? 'offline',
+      streamPaused: host.stream?.streamPaused,
+    });
+  }, [host.stageWebrtcEnabled, host.stream, roomLive, streamOnAir]);
+
   const console = useSellerLiveConsole({
     accessToken,
     roomId,
@@ -156,6 +178,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     roomType: host.room?.roomType ?? 'auction',
     sellerUsername,
     navigation,
+    broadcastOnAir,
     onBiddingUrgentChange: setBiddingUrgent,
     onAfterAddLot: () => setQueueOpen(true),
     initialConsole,
@@ -200,12 +223,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     });
   }, [user?.id]);
 
-  const roomLive = host.room?.status === 'live';
   const roomStatus = host.room?.status ?? 'scheduled';
-  const streamOnAir =
-    host.broadcastPhase === 'live' ||
-    host.broadcastPhase === 'paused' ||
-    host.broadcastPhase === 'starting';
   const roomChatOpen = liveRoomChatOpen(host.room?.status);
   const canHostChat = roomChatOpen || host.broadcastPhase === 'live' || host.streamConnected;
   const canStart = host.room?.status === 'scheduled';
@@ -331,6 +349,49 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     senderAvatarUrl: hostAvatarUrl,
   });
 
+  const showSpotCelebration = useCallback((taken: SpotTakenCelebration) => {
+    const key = spotCelebrationDismissKey(taken);
+    if (seenSpotCelebrationKeysRef.current.has(key)) return;
+    seenSpotCelebrationKeysRef.current.add(key);
+    setSpotCelebration(taken);
+    setTimeout(() => {
+      seenSpotCelebrationKeysRef.current.delete(key);
+    }, SPOT_CELEBRATION_DISPLAY_MS + 1000);
+  }, []);
+
+  const clearPendingSpotCelebrationTimer = useCallback(() => {
+    if (pendingSpotCelebrationTimerRef.current) {
+      clearTimeout(pendingSpotCelebrationTimerRef.current);
+      pendingSpotCelebrationTimerRef.current = null;
+    }
+  }, []);
+
+  const flushPendingSpotCelebration = useCallback(() => {
+    clearPendingSpotCelebrationTimer();
+    const pending = pendingSpotCelebrationRef.current;
+    if (!pending) return;
+    pendingSpotCelebrationRef.current = null;
+    showSpotCelebration(pending);
+  }, [clearPendingSpotCelebrationTimer, showSpotCelebration]);
+
+  const queueSpotCelebrationAfterReveal = useCallback(
+    (taken: SpotTakenCelebration) => {
+      pendingSpotCelebrationRef.current = taken;
+      clearPendingSpotCelebrationTimer();
+      pendingSpotCelebrationTimerRef.current = setTimeout(() => {
+        pendingSpotCelebrationTimerRef.current = null;
+        flushPendingSpotCelebration();
+      }, VAULT_REVEAL_TOTAL_DISPLAY_MS + 600);
+    },
+    [clearPendingSpotCelebrationTimer, flushPendingSpotCelebration],
+  );
+
+  const dismissVaultRevealSpin = useCallback(() => {
+    vaultRevealActiveRef.current = false;
+    setVaultRevealSpin(null);
+    flushPendingSpotCelebration();
+  }, [flushPendingSpotCelebration]);
+
   useRealtimeRoomSubscription({
     liveRoomId: roomId,
     enabled: true,
@@ -350,12 +411,19 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       const spin = parseVaultRevealSpinPayload(payload);
       if (!spin || seenVaultRevealSpinIdsRef.current.has(spin.spinId)) return;
       seenVaultRevealSpinIdsRef.current.add(spin.spinId);
+      vaultRevealActiveRef.current = true;
       setVaultRevealSpin(spin);
       console.syncGiveaways();
     },
     onVariantPurchased: (payload) => {
       const taken = parseVariantPurchasedCelebration(payload);
-      if (taken) setSpotCelebration(taken);
+      if (taken) {
+        if (payload.randomReveal === true) {
+          queueSpotCelebrationAfterReveal(taken);
+        } else {
+          showSpotCelebration(taken);
+        }
+      }
       const randomClaim = parseVariantPurchasedRandomClaim(payload);
       if (randomClaim) console.recordRandomSpotClaim(randomClaim.itemId, randomClaim.claim);
       console.syncQueue();
@@ -363,7 +431,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     },
     onPurchaseCompleted: (payload) => {
       const taken = parseAuctionWinSpotCelebration(payload);
-      if (taken) setSpotCelebration(taken);
+      if (taken) showSpotCelebration(taken);
       console.syncQueue();
       console.syncSales();
     },
@@ -588,7 +656,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         hostAvatarUrl={hostAvatarUrl}
         streamTitle={streamTitle}
         viewerCount={console.viewerCount}
-        streamOnAir={streamOnAir}
+        streamOnAir={broadcastOnAir}
         liveStartedAt={roomLive ? host.room?.startedAt ?? null : null}
         onBack={() => navigation.goBack()}
         onBroadcastSettings={() => setBroadcastOpen(true)}
@@ -610,7 +678,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
             onTeams={() => setTeamsBoardOpen(true)}
             broadcastPhase={host.broadcastPhase}
             roomStatus={roomStatus}
-            streamOnAir={streamOnAir}
+            streamOnAir={broadcastOnAir}
             canStartRoom={canStart}
             stageEnabled={host.stageWebrtcEnabled}
             cameraReady={host.cameraPermissionState === 'granted'}
@@ -700,6 +768,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         item={displayItem}
         serverNowMs={console.serverNowMs}
         roomLive={console.roomLive}
+        broadcastOnAir={console.broadcastOnAir}
         busy={console.busy}
         startingAuction={console.startingAuction}
         onStartBidding={onStartAuction}
@@ -965,8 +1034,7 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         onClose={() => console.setPricingEditItem(null)}
         onSave={console.onSaveBreakSpots}
       />
-      <VaultRevealOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
-      <LiveSpotTakenCelebration celebration={spotCelebration} onDone={() => setSpotCelebration(null)} />
+      <VaultRevealOverlay spin={vaultRevealSpin} onDismiss={dismissVaultRevealSpin} />
       <SellerBreakSpotBoardSheet
         visible={teamsBoardOpen}
         onClose={() => setTeamsBoardOpen(false)}
@@ -987,6 +1055,11 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
                 )
             : undefined
         }
+      />
+      <LiveSpotTakenCelebration
+        celebration={spotCelebration}
+        onDone={() => setSpotCelebration(null)}
+        viewerUsername={sellerUsername ?? undefined}
       />
     </View>
     </SellerLiveGestureLayer>

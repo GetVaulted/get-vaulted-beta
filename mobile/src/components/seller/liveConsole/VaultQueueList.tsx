@@ -5,6 +5,7 @@ import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { isVariantSalesFormat } from '../../../lib/liveItemVariant';
 import { formatUsdDisplay, queueItemQuantity } from '../../../lib/liveAuctionPricing';
 import { queueStatusLabel } from '../liveOverlay/SellerQueueStrip';
+import { QueueSaleTypePill } from './QueueSaleTypePill';
 import { colors, radii, spacing } from '../../../theme';
 
 function pricingSummary(item: LiveRoomItemRow): string {
@@ -72,9 +73,12 @@ function VaultQueueRow({
         </View>
       )}
       <View style={{ flex: 1, minWidth: 0 }}>
-        <Text style={styles.title} numberOfLines={2}>
-          {item.displayTitle ?? item.title}
-        </Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title} numberOfLines={2}>
+            {item.displayTitle ?? item.title}
+          </Text>
+          <QueueSaleTypePill item={item} compact />
+        </View>
         <Text style={styles.bid} numberOfLines={2}>
           {pricingSummary(item)}
         </Text>
@@ -224,7 +228,12 @@ const styles = StyleSheet.create({
   dragHandle: { padding: 4 },
   thumb: { width: 52, height: 64, borderRadius: radii.sm, backgroundColor: 'rgba(0,0,0,0.4)' },
   thumbPh: { alignItems: 'center', justifyContent: 'center' },
-  title: { fontSize: 13, fontWeight: '800', color: colors.textPrimary },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+  },
+  title: { flex: 1, fontSize: 13, fontWeight: '800', color: colors.textPrimary },
   bid: { fontSize: 11, fontWeight: '600', color: colors.gold, marginTop: 2, lineHeight: 15 },
   metaLine: { fontSize: 10, fontWeight: '600', color: colors.textSecondary },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },

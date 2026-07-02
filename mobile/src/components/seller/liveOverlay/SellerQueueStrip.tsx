@@ -4,6 +4,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { formatUsdDisplay, queueItemQuantity } from '../../../lib/liveAuctionPricing';
 import { colors, radii, spacing } from '../../../theme';
+import { QueueSaleTypePill } from '../liveConsole/QueueSaleTypePill';
 
 export const SELLER_QUEUE_STRIP_CARD_W = 176;
 
@@ -116,6 +117,7 @@ function SellerQueueStripCard({
       <Text style={styles.cardTitle} numberOfLines={2}>
         {item.displayTitle ?? item.title}
       </Text>
+      <QueueSaleTypePill item={item} compact />
       <Text style={styles.meta}>Qty {qty} · Start {start}</Text>
       {reserve ? <Text style={styles.metaSub}>Reserve {reserve}</Text> : null}
       {bin ? <Text style={styles.metaSub}>Buy now {bin}</Text> : null}
