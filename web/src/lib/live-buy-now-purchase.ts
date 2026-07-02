@@ -24,6 +24,7 @@ import { emitLiveRoomMessagesRefetch, emitPurchaseCompleted } from "@/lib/realti
 import { resolveLiveBuyNowUnitSale } from "@/lib/live-room-item-quantity-display";
 import { createNotification } from "@/lib/notifications";
 import { liveRoomBuyerPaymentConfirmedNotification } from "@/lib/live-room-payment-notify-copy";
+import { resolveLivePurchaseNotificationChargeUsd } from "@/lib/live-purchase-charge-total";
 import { captureLiveRoomItemShippingSnapshotTx } from "@/services/shipping/live-item-shipping-snapshot";
 import { assertSellerStripeCollectReadyFromUser, sellerStripeCollectSelect } from "@/lib/seller-stripe-collect-ready";
 import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
@@ -533,18 +534,11 @@ export async function finalizeBreakSpotPaid(args: {
   emitLiveRoomMessagesRefetch(spot.liveRoomId);
 
   if (Number.isFinite(spot.priceUsd) && spot.priceUsd > 0) {
-    const chargeTotalUsd = spotWithOrder?.fulfillmentOrderId
-      ? await (async () => {
-          const order = await prisma.order.findUnique({
-            where: { id: spotWithOrder.fulfillmentOrderId! },
-            select: { totalUsd: true },
-          });
-          if (order?.totalUsd != null && Number.isFinite(order.totalUsd) && order.totalUsd > 0) {
-            return order.totalUsd;
-          }
-          return spot.priceUsd;
-        })()
-      : spot.priceUsd;
+    const chargeTotalUsd = await resolveLivePurchaseNotificationChargeUsd({
+      fallbackUsd: spot.priceUsd,
+      fulfillmentOrderId: spotWithOrder?.fulfillmentOrderId,
+      stripePaymentIntentId: args.paymentIntentId ?? spotWithOrder?.stripePaymentIntentId,
+    });
     const paymentNote = liveRoomBuyerPaymentConfirmedNotification({
       amountUsd: chargeTotalUsd,
       href: "/account/orders?view=live",

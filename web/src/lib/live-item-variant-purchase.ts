@@ -14,6 +14,7 @@ import {
 import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
 import { createNotification } from "@/lib/notifications";
 import { liveRoomBuyerPaymentConfirmedNotification } from "@/lib/live-room-payment-notify-copy";
+import { resolveLivePurchaseNotificationChargeUsd } from "@/lib/live-purchase-charge-total";
 import { maybeMarkVariantBreakReady } from "@/lib/live-item-variant-break";
 import {
   executeRandomVariantRevealOnPurchase,
@@ -24,21 +25,6 @@ import { finalizeStripeMarketplaceOrderPaid } from "@/services/payments";
 
 function siteUrl(): string {
   return (process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");
-}
-
-async function resolveLivePurchaseChargeTotalUsd(args: {
-  fulfillmentOrderId: string | null | undefined;
-  fallbackUsd: number;
-}): Promise<number> {
-  if (!args.fulfillmentOrderId) return args.fallbackUsd;
-  const order = await prisma.order.findUnique({
-    where: { id: args.fulfillmentOrderId },
-    select: { totalUsd: true },
-  });
-  if (order?.totalUsd != null && Number.isFinite(order.totalUsd) && order.totalUsd > 0) {
-    return order.totalUsd;
-  }
-  return args.fallbackUsd;
 }
 
 export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, stripePaymentIntentId?: string | null) {
@@ -162,9 +148,18 @@ export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, st
   }
 
   if (purchase.totalUsd > 0) {
-    const chargeTotalUsd = await resolveLivePurchaseChargeTotalUsd({
-      fulfillmentOrderId: purchase.fulfillmentOrderId,
-      fallbackUsd: purchase.totalUsd,
+    const paidMeta = await prisma.liveItemVariantPurchase.findUnique({
+      where: { id: purchaseId },
+      select: {
+        fulfillmentOrderId: true,
+        stripePaymentIntentId: true,
+        totalUsd: true,
+      },
+    });
+    const chargeTotalUsd = await resolveLivePurchaseNotificationChargeUsd({
+      fallbackUsd: paidMeta?.totalUsd ?? purchase.totalUsd,
+      fulfillmentOrderId: paidMeta?.fulfillmentOrderId ?? purchase.fulfillmentOrderId,
+      stripePaymentIntentId: stripePaymentIntentId ?? paidMeta?.stripePaymentIntentId,
     });
     const paymentNote = liveRoomBuyerPaymentConfirmedNotification({
       amountUsd: chargeTotalUsd,
