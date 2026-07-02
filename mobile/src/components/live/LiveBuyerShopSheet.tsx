@@ -15,6 +15,7 @@ type Props = {
 
 function actionLabel(item: LiveRoomLineupItemSnapshot): string | null {
   if (item.queueAction === 'pre_bid') return 'Pre-bid';
+  if (item.queueAction === 'variant_shop') return item.salesFormat === 'team_break' ? 'Pick division' : 'Pick team';
   if (item.queueAction === 'buy_now') return item.isPinned ? 'Buy now' : 'On screen soon';
   return null;
 }

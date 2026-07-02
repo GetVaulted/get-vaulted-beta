@@ -227,6 +227,7 @@ function parseRoomLineupItems(raw: unknown): Parameters<typeof projectBuyerQueue
       salesFormat: typeof o.salesFormat === 'string' ? o.salesFormat : 'auction',
       listingId: typeof o.listingId === 'string' ? o.listingId : null,
       variants: parseVariantSnapshots(o.variants),
+      variantAssignmentMode: o.variantAssignmentMode === 'random' ? 'random' : 'pick',
       createdAt: typeof o.createdAt === 'string' ? o.createdAt : undefined,
     });
   }

@@ -1116,7 +1116,22 @@ export function LivePinnedActionBar({
                   ]}
                 >
                   {bidBusy ? (
-                    <ActivityIndicator color="#fff" size="small" />
+                    <View style={styles.ctaProcessingRow}>
+                      <ActivityIndicator
+                        color={useLiveBuyNowFlow ? '#18181b' : '#fff'}
+                        size="small"
+                      />
+                      <LiveRoomText
+                        style={[
+                          styles.ctaBidText,
+                          { fontSize: hudFs(11) },
+                          useLiveBuyNowFlow && styles.ctaBuyNowText,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        Processing
+                      </LiveRoomText>
+                    </View>
                   ) : (
                     <LiveRoomText
                       style={[
@@ -1367,6 +1382,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 0.4,
     textTransform: 'uppercase',
+  },
+  ctaProcessingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
   ctaBuyNowText: {
     color: '#18181b',

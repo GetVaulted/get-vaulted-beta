@@ -160,6 +160,45 @@ export function teamAbbrForVariant(label: string, color?: string | null): string
   return match?.abbr ?? null;
 }
 
+/** Compact division label for boards + reel pills (e.g. "AFC East" → "AFC E"). */
+export function formatDivisionReelAbbr(label: string): string {
+  const match = label.trim().match(/^(AFC|NFC)\s+(East|North|South|West)$/i);
+  if (!match) return label.trim();
+  return `${match[1]!.toUpperCase()} ${match[2]![0]!.toUpperCase()}`;
+}
+
+function divisionColorForLabelOrAbbr(label: string, abbr?: string | null): string | null {
+  const trimmed = label.trim();
+  const direct = NFL_DIVISION_COLORS[trimmed];
+  if (direct) return direct;
+  const abbrTrim = abbr?.trim();
+  for (const division of NFL_DIVISIONS) {
+    const divAbbr = formatDivisionReelAbbr(division.label);
+    if (divAbbr === trimmed || (abbrTrim && divAbbr === abbrTrim)) {
+      return NFL_DIVISION_COLORS[division.label] ?? null;
+    }
+  }
+  return null;
+}
+
+/** Team/division brand color for vault drop reels and spot boards. */
+export function segmentColorForLabel(label: string, abbr?: string | null): string {
+  const divisionColor = divisionColorForLabelOrAbbr(label, abbr);
+  if (divisionColor) return divisionColor;
+  if (abbr?.trim()) {
+    const teamColor = NFL_TEAM_COLORS[abbr.trim().toUpperCase()];
+    if (teamColor) return teamColor;
+  }
+  const fromLabel = teamAbbrForVariant(label, null);
+  if (fromLabel && NFL_TEAM_COLORS[fromLabel]) return NFL_TEAM_COLORS[fromLabel]!;
+  let hash = 0;
+  for (let i = 0; i < label.length; i += 1) {
+    hash = (hash * 31 + label.charCodeAt(i)) >>> 0;
+  }
+  const palette = ['#047857', '#059669', '#0d9488', '#065f46', '#134e4a', '#115e59', '#047857'];
+  return palette[hash % palette.length]!;
+}
+
 /** Per-spot color key for random pool boards (team abbr or division conference). */
 export function spotColorKeyForPoolLabel(
   label: string,
@@ -173,11 +212,9 @@ export function spotColorKeyForPoolLabel(
 
 export function spotAccentColor(label: string, color?: string | null, isDivision?: boolean): string {
   if (isDivision) {
-    return NFL_DIVISION_COLORS[label] ?? '#1e293b';
+    return divisionColorForLabelOrAbbr(label, color) ?? '#1e293b';
   }
-  const abbr = teamAbbrForVariant(label, color);
-  if (abbr && NFL_TEAM_COLORS[abbr]) return NFL_TEAM_COLORS[abbr];
-  return '#1e293b';
+  return segmentColorForLabel(label, color);
 }
 
 export function isLightSpotAccent(hex: string): boolean {

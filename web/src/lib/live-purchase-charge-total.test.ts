@@ -32,6 +32,17 @@ describe("orderChargeUsdFromFields", () => {
     ).toBe(107.42);
   });
 
+  it("computes from parts when total is spot-only", () => {
+    expect(
+      orderChargeUsdFromFields({
+        totalUsd: 90,
+        itemPriceUsd: 90,
+        shippingPriceUsd: 9.99,
+        taxUsd: 7.43,
+      }),
+    ).toBe(107.42);
+  });
+
   it("computes from parts when total is zero", () => {
     expect(
       orderChargeUsdFromFields({
@@ -71,6 +82,21 @@ describe("resolveLivePurchaseNotificationChargeUsd", () => {
   it("uses fulfillment order total when PI is unavailable", async () => {
     orderFindUnique.mockResolvedValue({
       totalUsd: 107.42,
+      itemPriceUsd: 90,
+      shippingPriceUsd: 9.99,
+      taxUsd: 7.43,
+    });
+    const total = await resolveLivePurchaseNotificationChargeUsd({
+      fallbackUsd: 90,
+      fulfillmentOrderId: "ord_1",
+      stripePaymentIntentId: null,
+    });
+    expect(total).toBe(107.42);
+  });
+
+  it("sums item shipping and tax when order totalUsd is spot-only", async () => {
+    orderFindUnique.mockResolvedValue({
+      totalUsd: 90,
       itemPriceUsd: 90,
       shippingPriceUsd: 9.99,
       taxUsd: 7.43,

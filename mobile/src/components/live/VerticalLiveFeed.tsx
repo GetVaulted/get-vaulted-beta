@@ -69,6 +69,7 @@ import {
 import type { MentionComposerInputHandle } from '../mentions/MentionComposerInput';
 import { appendMentionToDraft, canShowLiveChatBanOption, canShowLiveChatKickOption, canShowLiveChatRemoveKickOption, canShowLiveChatRemoveRoomBanOption, canShowLiveChatRemoveSellerBanOption, promptLiveChatUserAction, type LiveChatModerationActionType } from '../../lib/liveChatUserActions';
 import { LiveBuyerShopSheet } from './LiveBuyerShopSheet';
+import { LiveBreakSpotGridSheet } from './LiveBreakSpotGridSheet';
 import { LiveCustomBidSheet } from './LiveCustomBidSheet';
 import { LiveTipSheet } from './LiveTipSheet';
 import { LivePinnedActionBar } from './LivePinnedActionBar';
@@ -78,6 +79,7 @@ import { WalletSheet } from '../wallet/WalletSheet';
 import { PAYMENT_RECOVERY_SUCCESS_TOAST } from '../../lib/livePaymentFailureCopy';
 import {
   isWalletIncompleteReadiness,
+  walletReadinessFromSnapshot,
   type BuyerWalletReadiness,
 } from '../../lib/buyerWalletErrors';
 import { buyerWalletGatePromptBody } from '../../lib/buyerWalletReadinessDisplay';
@@ -114,6 +116,7 @@ import {
   liveBroadcastCommerceBlockMessage,
   type LiveRoomBroadcastGate,
 } from '../../lib/liveRoomBroadcastOnAir';
+import { isVariantSpotAuctionLive } from '../../lib/liveVariantSpotCommerce';
 
 function chatRightEdgeForWidth(layoutWidth: number): number {
   if (layoutWidth >= 768) return Math.round(92 * liveRoomOverlayScale(layoutWidth));
@@ -225,6 +228,7 @@ function LiveSlide({
   const [shopOpen, setShopOpen] = useState(false);
   const [preBidItem, setPreBidItem] = useState<LiveRoomLineupItemSnapshot | null>(null);
   const [preBidBusy, setPreBidBusy] = useState(false);
+  const [shopSpotItem, setShopSpotItem] = useState<LiveRoomLineupItemSnapshot | null>(null);
   const [tipOpen, setTipOpen] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [roomPaymentMethodId, setRoomPaymentMethodId] = useState<string | null>(null);
@@ -920,6 +924,12 @@ function LiveSlide({
     setShareSheetOpen(true);
   };
 
+  const shopWalletReady = useMemo(() => {
+    const fromSnap = walletReadinessFromSnapshot(liveSession.roomSnap);
+    const r = walletReadiness ?? fromSnap;
+    return Boolean(r && r.paymentReady && r.shippingReady);
+  }, [liveSession.roomSnap, walletReadiness]);
+
   const handleShopItemPress = useCallback(
     async (item: LiveRoomLineupItemSnapshot) => {
       setShopOpen(false);
@@ -929,6 +939,11 @@ function LiveSlide({
       }
       if (item.queueAction === 'pre_bid') {
         setPreBidItem(item);
+        return;
+      }
+      if (item.queueAction === 'variant_shop') {
+        // PYT/PYD spots are an open sale — shoppable even before the host pins this item on screen.
+        setShopSpotItem(item);
         return;
       }
       if (item.queueAction === 'buy_now') {
@@ -1589,6 +1604,36 @@ function LiveSlide({
         activeItemId={liveSession.roomSnap?.activeItemId ?? null}
         onItemPress={(item) => void handleShopItemPress(item)}
       />
+      {accessToken && shopSpotItem ? (
+        <LiveBreakSpotGridSheet
+          visible
+          onClose={() => setShopSpotItem(null)}
+          roomId={stream.id}
+          itemId={shopSpotItem.id}
+          title={shopSpotItem.displayTitle}
+          imageUrl={shopSpotItem.imageUrl}
+          salesFormat={shopSpotItem.salesFormat}
+          variantAssignmentMode={shopSpotItem.variantAssignmentMode ?? 'pick'}
+          variants={shopSpotItem.variants ?? []}
+          excludeVariantIds={
+            shopSpotItem.id === liveSession.roomSnap?.activeItemId &&
+            isVariantSpotAuctionLive(liveSession.roomSnap) &&
+            liveSession.roomSnap?.auctionVariantId
+              ? [liveSession.roomSnap.auctionVariantId]
+              : undefined
+          }
+          accessToken={accessToken}
+          walletReady={shopWalletReady}
+          onWalletRequired={() => openWalletRef.current('shop_variant_wallet')}
+          onPurchased={() => {
+            setShopSpotItem(null);
+            void liveSession.fetchSnapshot();
+          }}
+          onSpotCelebration={liveSession.showSpotCelebration}
+          viewerUsername={myChatSender.username}
+          onRoomRefresh={() => void liveSession.fetchSnapshot()}
+        />
+      ) : null}
       {accessToken && preBidItem ? (
         <LiveCustomBidSheet
           visible

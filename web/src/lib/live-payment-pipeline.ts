@@ -70,7 +70,7 @@ export type LiveBuyerPaymentSessionState = {
 };
 
 export type LiveSavedCardChargeOutcome =
-  | { outcome: "paid"; paymentIntentId: string }
+  | { outcome: "paid"; paymentIntentId: string; chargeUsd?: number }
   | { outcome: "requires_action"; clientSecret: string; paymentIntentId: string }
   | { outcome: "processing"; paymentIntentId: string }
   | { outcome: "error"; code: string; message?: string; fulfillmentDetail?: string };
@@ -499,6 +499,9 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
     });
 
     const mapped = mapPaymentIntentOutcome(intent);
+    if (mapped?.outcome === "paid") {
+      return { ...mapped, chargeUsd: amountCents / 100 };
+    }
     if (mapped) return mapped;
 
     return { outcome: "error", code: "PAYMENT_INTENT_NOT_COMPLETED", message: "Payment did not complete." };
@@ -548,7 +551,8 @@ export async function syncLiveItemVariantPurchasePaymentIntent(args: {
   }
 
   if (mapped.outcome === "paid") {
-    await finalizeLiveItemVariantPurchasePaid(purchase.id, mapped.paymentIntentId);
+    const chargeUsd = typeof pi.amount === "number" && pi.amount >= 50 ? pi.amount / 100 : undefined;
+    await finalizeLiveItemVariantPurchasePaid(purchase.id, mapped.paymentIntentId, chargeUsd);
     emitLiveRoomQueueItemsChanged(purchase.liveRoomId);
   }
   return mapped;
@@ -577,7 +581,7 @@ export async function settleLiveItemVariantPurchase(args: {
   const charge = await chargeLiveItemVariantPurchaseWithSavedCard(args);
 
   if (charge.outcome === "paid") {
-    await finalizeLiveItemVariantPurchasePaid(args.purchaseId, charge.paymentIntentId);
+    await finalizeLiveItemVariantPurchasePaid(args.purchaseId, charge.paymentIntentId, charge.chargeUsd);
     if (purchaseMeta) emitLiveRoomQueueItemsChanged(purchaseMeta.liveRoomId);
     return { ok: true, paid: true, purchaseId: args.purchaseId };
   }

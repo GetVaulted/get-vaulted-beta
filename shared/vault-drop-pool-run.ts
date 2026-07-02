@@ -122,11 +122,26 @@ export type VaultDropReelScrollPlan = {
   /** Continuous spin ends centered on the winner slot. */
   spinEndScroll: number;
   winnerScrollIndex: number;
+  /** Repeat pool labels this many times so the spin never scrolls into empty space. */
+  laneCopyCount: number;
   spinDurationMs: number;
   /** Winner pop / hold after the reel stops — no extra scroll. */
   landDurationMs: number;
   totalAnimationMs: number;
 };
+
+/** Enough lane repeats to cover the full scroll plan (small PYD pools need more than 3). */
+export function vaultDropReelLaneCopyCount(labelCount: number, winnerScrollIndex: number): number {
+  if (labelCount <= 0) return 1;
+  return Math.max(VAULT_DROP_REEL_LANE_COPIES, Math.ceil((winnerScrollIndex + 1) / labelCount));
+}
+
+/** Keep PYD (8) spin energy closer to PYT (32) — small pools otherwise finish too fast. */
+function minReelSpinDurationMs(labelCount: number): number {
+  if (labelCount <= 8) return 4800;
+  if (labelCount <= 12) return 4500;
+  return 0;
+}
 
 /** Continuous reel motion plan — one smooth spin then a short winner lock. */
 export function buildVaultDropReelScrollPlan(labels: string[], winnerIndex: number): VaultDropReelScrollPlan {
@@ -138,6 +153,7 @@ export function buildVaultDropReelScrollPlan(labels: string[], winnerIndex: numb
       laneStartScroll: 0,
       spinEndScroll: 0,
       winnerScrollIndex: 0,
+      laneCopyCount: 1,
       spinDurationMs: 0,
       landDurationMs: VAULT_DROP_REEL_LAND_MS,
       totalAnimationMs: VAULT_DROP_REEL_LAND_MS,
@@ -146,14 +162,18 @@ export function buildVaultDropReelScrollPlan(labels: string[], winnerIndex: numb
   const laneStartScroll = vaultDropReelLaneStartScrollIndex(n, steps[0]?.labelIndex ?? 0);
   const winnerScrollIndex = laneStartScroll + steps.length;
   const spinEndScroll = winnerScrollIndex;
+  const laneCopyCount = vaultDropReelLaneCopyCount(n, winnerScrollIndex);
   const landDurationMs = VAULT_DROP_REEL_LAND_MS;
-  const spinDurationMs =
-    Math.max(900, vaultDropPoolRunAnimationMs(steps) - landDurationMs) + VAULT_DROP_REEL_SPIN_EXTRA_MS;
+  const spinDurationMs = Math.max(
+    minReelSpinDurationMs(n),
+    Math.max(900, vaultDropPoolRunAnimationMs(steps) - landDurationMs) + VAULT_DROP_REEL_SPIN_EXTRA_MS,
+  );
   return {
     steps,
     laneStartScroll,
     spinEndScroll,
     winnerScrollIndex,
+    laneCopyCount,
     spinDurationMs,
     landDurationMs,
     totalAnimationMs: spinDurationMs + landDurationMs,

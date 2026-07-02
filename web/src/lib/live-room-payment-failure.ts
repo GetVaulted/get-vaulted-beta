@@ -645,7 +645,11 @@ export async function retryLiveRoomPaymentFailure(args: {
       purchaseCharge,
     );
     if (purchaseCharge.outcome === "paid") {
-      await finalizeLiveItemVariantPurchasePaid(failureRow.variantPurchaseId, purchaseCharge.paymentIntentId);
+      await finalizeLiveItemVariantPurchasePaid(
+        failureRow.variantPurchaseId,
+        purchaseCharge.paymentIntentId,
+        purchaseCharge.chargeUsd,
+      );
       emitLiveRoomQueueItemsChanged(args.liveRoomId);
       await resolveLiveRoomPaymentFailure({
         failureId: failureRow.id,

@@ -27,7 +27,11 @@ function siteUrl(): string {
   return (process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");
 }
 
-export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, stripePaymentIntentId?: string | null) {
+export async function finalizeLiveItemVariantPurchasePaid(
+  purchaseId: string,
+  stripePaymentIntentId?: string | null,
+  notificationChargeUsd?: number | null,
+) {
   const purchase = await prisma.liveItemVariantPurchase.findUnique({
     where: { id: purchaseId },
     include: {
@@ -156,11 +160,15 @@ export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, st
         totalUsd: true,
       },
     });
-    const chargeTotalUsd = await resolveLivePurchaseNotificationChargeUsd({
-      fallbackUsd: paidMeta?.totalUsd ?? purchase.totalUsd,
-      fulfillmentOrderId: paidMeta?.fulfillmentOrderId ?? purchase.fulfillmentOrderId,
-      stripePaymentIntentId: stripePaymentIntentId ?? paidMeta?.stripePaymentIntentId,
-    });
+    const chargeTotalUsd =
+      notificationChargeUsd != null && Number.isFinite(notificationChargeUsd) && notificationChargeUsd > 0
+        ? notificationChargeUsd
+        : await resolveLivePurchaseNotificationChargeUsd({
+            fallbackUsd: paidMeta?.totalUsd ?? purchase.totalUsd,
+            fulfillmentOrderId: paidMeta?.fulfillmentOrderId ?? purchase.fulfillmentOrderId,
+            stripePaymentIntentId:
+              stripePaymentIntentId ?? paidMeta?.stripePaymentIntentId ?? purchase.stripePaymentIntentId,
+          });
     const paymentNote = liveRoomBuyerPaymentConfirmedNotification({
       amountUsd: chargeTotalUsd,
       href: "/account/orders?view=live",

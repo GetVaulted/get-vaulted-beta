@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from "react";
-import { segmentColorForLabel } from "@/lib/nfl-team-colors";
+import { isLightSpotAccent, segmentColorForLabel } from "@/lib/nfl-team-colors";
 import {
   buildVaultDropReelLane,
   vaultDropPoolPhaseCopyForSpin,
@@ -154,7 +154,17 @@ export function VaultDropRevealOverlay({
   const [reelBump, setReelBump] = useState(false);
 
   const accent = useMemo(() => (spin ? revealAccentColor(spin) : "#D4AF37"), [spin]);
-  const reelLaneLabels = useMemo(() => (spin ? buildVaultDropReelLane(spin.labels) : []), [spin?.labels]);
+  const scrollPlan = useMemo(
+    () => (spin?.labels?.length ? vaultDropRevealTiming(spin).scrollPlan : null),
+    [spin?.labels, spin?.winnerIndex],
+  );
+  const reelLaneLabels = useMemo(
+    () =>
+      spin?.labels?.length && scrollPlan
+        ? buildVaultDropReelLane(spin.labels, scrollPlan.laneCopyCount)
+        : [],
+    [spin?.labels, scrollPlan?.laneCopyCount],
+  );
   const labelCount = spin?.labels.length ?? 0;
   const showWinner = phase === "reveal";
 
@@ -372,6 +382,7 @@ export function VaultDropRevealOverlay({
                     {reelLaneLabels.map((label, index) => {
                       const sourceIndex = labelCount > 0 ? index % labelCount : 0;
                       const chipAccent = labelAccentColor(spin, sourceIndex);
+                      const lightChip = isLightSpotAccent(chipAccent);
                       const isWinnerSlot = showWinner && index === centerScrollIndex;
                       const pillLabel = vaultDropReelPillLabel(spin, sourceIndex);
                       return (
@@ -381,12 +392,14 @@ export function VaultDropRevealOverlay({
                           style={{ width: REEL_PILL_SPAN }}
                         >
                           <div
-                            className={`box-border flex h-10 w-[84px] items-center justify-center rounded-full border-2 px-2 text-center text-[11px] font-extrabold leading-none text-white ${
+                            className={`box-border flex h-10 w-[84px] items-center justify-center rounded-full border-2 px-2 text-center text-[11px] font-extrabold leading-none ${
+                              lightChip ? "text-zinc-950" : "text-white"
+                            } ${
                               isWinnerSlot && reelBump ? "scale-105" : "scale-100"
                             } ${isWinnerSlot ? "shadow-[0_8px_20px_rgba(0,0,0,0.35)]" : ""} transition-transform duration-200`}
                             style={{
                               borderColor: chipAccent,
-                              backgroundColor: reelPillBackground(spin, chipAccent, false),
+                              backgroundColor: reelPillBackground(spin, chipAccent, lightChip),
                             }}
                           >
                             {pillLabel}

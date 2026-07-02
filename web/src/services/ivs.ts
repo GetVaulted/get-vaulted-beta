@@ -274,7 +274,7 @@ export async function commitLiveRoomStreamHealthFromIvs(args: {
     lastIvsError: null;
     roomVersion: { increment: number };
     streamStartedAt?: Date;
-    streamEndedAt?: Date;
+    streamEndedAt?: Date | null;
   } = {
     streamHealth: newHealth,
     lastIvsStatusSyncAt: now,

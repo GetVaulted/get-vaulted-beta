@@ -8,6 +8,7 @@ import { buildRandomVariantsFromPreset, buildVariantsFromPreset, type VariantDra
 import { LiveItemVariantBuilder } from "@/components/live-auction/LiveItemVariantBuilder";
 import { resolveLiveHostDefaultShippingProfileId } from "@/lib/live-show-category-shipping-profile";
 import { SELLER_CONSOLE } from "@/lib/seller-console-copy";
+import { RANDOM_BREAK_SALE_TYPES_ENABLED } from "../../../../shared/live-break-feature-flags";
 
 export type AddQueueItemCloseReason = "cancel" | "success" | "escape";
 
@@ -57,7 +58,11 @@ type BreakSaleType = "pyt" | "pyd" | "random_pyt" | "random_pyd";
 type SaleType = "auction" | "buy_now" | BreakSaleType;
 
 const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
-  { id: "teams_divisions", label: SELLER_CONSOLE.saleCategoryTeamsDivisions, sub: "Pick or random spots" },
+  {
+    id: "teams_divisions",
+    label: SELLER_CONSOLE.saleCategoryTeamsDivisions,
+    sub: RANDOM_BREAK_SALE_TYPES_ENABLED ? "Pick or random spots" : "Pick your team or division",
+  },
   { id: "auction", label: SELLER_CONSOLE.saleCategoryAuction, sub: "Timed bidding" },
   { id: "buy_now", label: SELLER_CONSOLE.saleCategoryBuyNow, sub: "Fixed price" },
 ];
@@ -68,6 +73,11 @@ const BREAK_VARIANTS: { id: BreakSaleType; label: string; sub: string }[] = [
   { id: "random_pyt", label: "Random Teams", sub: "32 · vault reveal" },
   { id: "random_pyd", label: "Random Divisions", sub: "8 · vault reveal" },
 ];
+
+/** Sale-type picker options actually shown to sellers — random breaks stay in `BREAK_VARIANTS` but are hidden while disabled. */
+const VISIBLE_BREAK_VARIANTS = RANDOM_BREAK_SALE_TYPES_ENABLED
+  ? BREAK_VARIANTS
+  : BREAK_VARIANTS.filter((v) => v.id === "pyt" || v.id === "pyd");
 
 function saleTypeForCategory(category: SaleCategory, breakVariant: BreakSaleType): SaleType {
   if (category === "auction") return "auction";
@@ -645,7 +655,7 @@ export function AddQueueItemModal({
 
           {saleCategory === "teams_divisions" ? (
             <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {BREAK_VARIANTS.map((type) => {
+              {VISIBLE_BREAK_VARIANTS.map((type) => {
                 const active = breakSaleType === type.id;
                 return (
                   <button

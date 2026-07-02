@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { spotAccentColor } from './liveBreakPresets';
+import { spotAccentColor, segmentColorForLabel } from './liveBreakPresets';
 import { buildVariantSpotDisplayRows } from './liveVariantSpotBoard';
 
 describe('buildVariantSpotDisplayRows random pool', () => {
@@ -54,5 +54,6 @@ describe('buildVariantSpotDisplayRows random pool', () => {
     const afcEast = rows.find((r) => r.label === 'AFC East');
     expect(afcEast?.color).toBe('AFC');
     expect(spotAccentColor('AFC East', afcEast?.color, true)).toBe('#C83803');
+    expect(segmentColorForLabel('AFC E', 'AFC E')).toBe('#C83803');
   });
 });

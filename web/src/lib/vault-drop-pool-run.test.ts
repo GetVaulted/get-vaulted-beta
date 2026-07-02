@@ -57,9 +57,17 @@ describe("buildVaultDropReelScrollPlan", () => {
     expect(plan.steps).toEqual(steps);
     expect(plan.winnerScrollIndex).toBe(plan.laneStartScroll + steps.length);
     expect(plan.spinEndScroll).toBe(plan.winnerScrollIndex);
+    expect(plan.winnerScrollIndex).toBeLessThan(plan.laneCopyCount * labels.length);
     expect(plan.spinDurationMs).toBeGreaterThanOrEqual(900 + VAULT_DROP_REEL_SPIN_EXTRA_MS);
     expect(plan.landDurationMs).toBe(VAULT_DROP_REEL_LAND_MS);
     expect(plan.totalAnimationMs).toBe(plan.spinDurationMs + plan.landDurationMs);
+  });
+
+  it("adds extra lane copies for 8-division pools so the reel never scrolls into empty space", () => {
+    const labels = Array.from({ length: 8 }, (_, i) => `AFC ${i}`);
+    const plan = buildVaultDropReelScrollPlan(labels, 3);
+    expect(plan.laneCopyCount).toBeGreaterThan(3);
+    expect(plan.winnerScrollIndex).toBeLessThan(plan.laneCopyCount * labels.length);
   });
 
   it("centers slots under the viewport midpoint", () => {

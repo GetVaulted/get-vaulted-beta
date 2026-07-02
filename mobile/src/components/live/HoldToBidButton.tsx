@@ -10,10 +10,12 @@ import { LiveRoomText } from './LiveRoomText';
 /** Deliberate hold duration — short enough for fast auctions, long enough to avoid swipe accidents. */
 export const HOLD_TO_BID_MS = 420;
 
+const PROCESSING_LABEL = 'Processing';
+
 type Props = {
   label: string;
   disabled?: boolean;
-  /** Network in flight — visual only; hold gesture stays enabled for back-to-back bids. */
+  /** Network in flight — shows Processing and blocks new holds until cleared. */
   busy?: boolean;
   onCommit: () => void;
   /** Return false to abort the hold (e.g. auth required). */
@@ -78,6 +80,12 @@ export function HoldToBidButton({
     }
   }, [disabled, snapProgressToZero]);
 
+  useEffect(() => {
+    if (busy) {
+      snapProgressToZero('busy');
+    }
+  }, [busy, snapProgressToZero]);
+
   useEffect(
     () => () => {
       clearHoldTimer();
@@ -87,7 +95,7 @@ export function HoldToBidButton({
   );
 
   const handlePressIn = useCallback(() => {
-    if (disabled || holdingRef.current || committedRef.current) return;
+    if (disabled || busy || holdingRef.current || committedRef.current) return;
 
     const allowed = onHoldStart?.();
     if (allowed === false) {
@@ -129,7 +137,7 @@ export function HoldToBidButton({
         committedRef.current = false;
       });
     }, HOLD_TO_BID_MS);
-  }, [disabled, label, onCommit, onHoldStart, progress, stopAnim]);
+  }, [busy, disabled, label, onCommit, onHoldStart, progress, stopAnim]);
 
   const handlePressOut = useCallback(() => {
     if (!holdingRef.current || committedRef.current) return;
@@ -142,6 +150,8 @@ export function HoldToBidButton({
   });
 
   const auction = variant === 'auction';
+  const showProcessing = busy && !disabled;
+  const indicatorColor = auction ? '#fff' : '#0a0a0a';
 
   return (
     <Pressable
@@ -151,13 +161,13 @@ export function HoldToBidButton({
         compact && styles.shellCompact,
         disabled && styles.shellDisabled,
         disabled && auction && styles.shellAuctionDisabled,
-        busy && !disabled && styles.shellBusy,
+        showProcessing && styles.shellBusy,
       ]}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       disabled={disabled}
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={showProcessing ? PROCESSING_LABEL : label}
       accessibilityHint="Press and hold to place your bid"
     >
       {auction && !disabled ? (
@@ -169,22 +179,29 @@ export function HoldToBidButton({
           pointerEvents="none"
         />
       ) : null}
-      <LiveRoomText
-        style={[
-          styles.label,
-          auction && styles.labelAuction,
-          disabled && (auction ? styles.labelAuctionDisabled : styles.labelDisabled),
-        ]}
-        numberOfLines={1}
-      >
-        {label}
-      </LiveRoomText>
-      {busy && !disabled ? (
-        <View style={styles.busyBadge} pointerEvents="none">
-          <ActivityIndicator color={auction ? '#fff' : '#0a0a0a'} size="small" />
+      {showProcessing ? (
+        <View style={styles.processingRow} pointerEvents="none">
+          <ActivityIndicator color={indicatorColor} size="small" />
+          <LiveRoomText
+            style={[styles.label, auction && styles.labelAuction]}
+            numberOfLines={1}
+          >
+            {PROCESSING_LABEL}
+          </LiveRoomText>
         </View>
-      ) : null}
-      {!disabled ? (
+      ) : (
+        <LiveRoomText
+          style={[
+            styles.label,
+            auction && styles.labelAuction,
+            disabled && (auction ? styles.labelAuctionDisabled : styles.labelDisabled),
+          ]}
+          numberOfLines={1}
+        >
+          {label}
+        </LiveRoomText>
+      )}
+      {!disabled && !busy ? (
         <View style={styles.progressTrack} pointerEvents="none">
           <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
         </View>
@@ -257,11 +274,12 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.55)',
     textTransform: 'none',
   },
-  busyBadge: {
-    position: 'absolute',
-    top: 4,
-    right: 6,
-    zIndex: 2,
+  processingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    zIndex: 1,
   },
   progressTrack: {
     ...StyleSheet.absoluteFillObject,

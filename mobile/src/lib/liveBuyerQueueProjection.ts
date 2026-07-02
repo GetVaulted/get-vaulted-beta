@@ -14,11 +14,15 @@ export type LiveRoomLineupItemSnapshot = {
   isPinned: boolean;
   isLiveBidding: boolean;
   listingId: string | null;
-  queueAction: 'pre_bid' | 'buy_now' | 'none';
+  /** `variant_shop` = PYT/PYD team or division spots — always shoppable, not gated on being pinned. */
+  queueAction: 'pre_bid' | 'buy_now' | 'variant_shop' | 'none';
   startingBidUsd: number | null;
   currentBidUsd: number | null;
   lastHighBidderId: string | null;
   biddingOpen: boolean;
+  /** PYT/PYD spot list — present so the Shop sheet can open the buyer spot board for any lineup item. */
+  variants?: LiveItemVariantSnapshot[];
+  variantAssignmentMode?: 'pick' | 'random';
 };
 
 type LineupItemInput = {
@@ -38,6 +42,7 @@ type LineupItemInput = {
   auctionEndsAt?: string | null;
   salesFormat?: string;
   variants?: LiveItemVariantSnapshot[];
+  variantAssignmentMode?: 'pick' | 'random';
   listingId?: string | null;
   createdAt?: string;
 };
@@ -125,7 +130,7 @@ export function buildBuyerQueueLineupRow(
       spotStats.available > 0
         ? `${spotStats.available} spot${spotStats.available === 1 ? '' : 's'} open`
         : 'Sold out';
-    const statusCopy = isPinned ? 'On screen' : 'Up next';
+    const statusCopy = isPinned ? 'On screen' : 'Open now';
     return {
       id: item.id,
       displayTitle: title,
@@ -137,11 +142,14 @@ export function buildBuyerQueueLineupRow(
       isPinned,
       isLiveBidding: false,
       listingId,
-      queueAction: 'none',
+      // PYT/PYD spots are an open sale — shoppable from any lineup position, not just when pinned on screen.
+      queueAction: spotStats.available > 0 ? 'variant_shop' : 'none',
       startingBidUsd: typeof item.startingBidUsd === 'number' ? item.startingBidUsd : null,
       currentBidUsd: typeof item.currentBidUsd === 'number' ? item.currentBidUsd : null,
       lastHighBidderId: item.lastHighBidderId?.trim() || null,
       biddingOpen,
+      variants: item.variants ?? [],
+      variantAssignmentMode: item.variantAssignmentMode ?? 'pick',
     };
   }
 

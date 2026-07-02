@@ -1,5 +1,7 @@
 /** Shared Vault Reveal wheel payload — broadcast to every client in the room. */
 
+import { formatDivisionReelAbbr, NFL_DIVISION_COLORS } from "@/lib/nfl-team-colors";
+import { NFL_DIVISIONS_PRESET } from "@/lib/live-item-variant-presets";
 import {
   buildVaultDropPoolRun,
   buildVaultDropReelScrollPlan,
@@ -79,6 +81,7 @@ export {
   VAULT_DROP_REEL_SPIN_EXTRA_MS,
   vaultDropReelCenterOffset,
   vaultDropReelFocusRingPosition,
+  vaultDropReelLaneCopyCount,
   type VaultDropPoolRunStep,
   type VaultDropReelScrollPlan,
 } from '../../../shared/vault-drop-pool-run';
@@ -129,7 +132,9 @@ export function vaultDropRevealPoolHint(spin: VaultRevealSpinPayload): string {
       : "Entry reel slows down and locks on the winner";
   }
   if (spin.kind === "random_reveal") {
-    return "Team reel slows down and locks on your draw";
+    return isDivisionRevealSpin(spin)
+      ? "Division reel slows down and locks on your draw"
+      : "Team reel slows down and locks on your draw";
   }
   return "Spot reel slows down and locks on the draw";
 }
@@ -146,11 +151,14 @@ export function vaultDropRevealChipColor(spin: VaultRevealSpinPayload, index: nu
   return "#D4AF37";
 }
 
-/** Compact division label for reel pills (e.g. "AFC East" → "AFC E"). */
-export function formatDivisionReelAbbr(label: string): string {
-  const match = label.trim().match(/^(AFC|NFC)\s+(East|North|South|West)$/i);
-  if (!match) return label.trim();
-  return `${match[1]!.toUpperCase()} ${match[2]![0]!.toUpperCase()}`;
+export { formatDivisionReelAbbr } from "@/lib/nfl-team-colors";
+
+export function isDivisionRevealSpin(spin: Pick<VaultRevealSpinPayload, "labels">): boolean {
+  return spin.labels.some((label) => {
+    const trimmed = label.trim();
+    if (NFL_DIVISION_COLORS[trimmed]) return true;
+    return NFL_DIVISIONS_PRESET.some((division) => formatDivisionReelAbbr(division.label) === trimmed);
+  });
 }
 
 /** Text shown inside vault drop reel pills — never returns blank. */
@@ -161,7 +169,7 @@ export function vaultDropReelPillLabel(
   const label = spin.labels[index]?.trim() ?? "";
   const abbr = spin.segmentAbbrs?.[index]?.trim() ?? "";
   if (spin.kind === "random_reveal" || spin.kind === "break_pyt") {
-    const raw = abbr || label;
+    const raw = abbr || formatDivisionReelAbbr(label) || label;
     if (!raw) return "—";
     if (raw.length <= 10) return raw;
     return `${raw.slice(0, 9)}…`;
@@ -256,14 +264,17 @@ export function vaultSealWinnerCopy(spin: VaultRevealSpinPayload): VaultSealWinn
   }
   if (spin.kind === "random_reveal") {
     const left = Math.max(0, spin.labels.length - 1);
+    const divisionReveal = isDivisionRevealSpin(spin);
     return {
-      kicker: "Your team",
+      kicker: divisionReveal ? "Your division" : "Your team",
       primary: winner || "—",
       sub: buyer ? `@${buyer}` : undefined,
       detail:
         left > 0
-          ? `${left} ${left === 1 ? "spot" : "spots"} left in the pool`
-          : "Final spot revealed",
+          ? `${left} ${left === 1 ? (divisionReveal ? "division" : "spot") : divisionReveal ? "divisions" : "spots"} left in the pool`
+          : divisionReveal
+            ? "Final division revealed"
+            : "Final spot revealed",
     };
   }
   return {

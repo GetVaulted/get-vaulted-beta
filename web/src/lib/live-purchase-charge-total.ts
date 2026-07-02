@@ -11,10 +11,16 @@ export type OrderChargeFields = {
 
 /** Settled charge on an order row (item + shipping + tax). */
 export function orderChargeUsdFromFields(order: OrderChargeFields): number {
-  if (order.totalUsd > 0) return roundUsd(order.totalUsd);
-  const computed = (order.itemPriceUsd ?? 0) + (order.shippingPriceUsd ?? 0) + (order.taxUsd ?? 0);
-  if (Number.isFinite(computed) && computed > 0) return roundUsd(computed);
-  return roundUsd(order.itemPriceUsd ?? 0);
+  const item = order.itemPriceUsd ?? 0;
+  const ship = order.shippingPriceUsd ?? 0;
+  const tax = order.taxUsd ?? 0;
+  const computed = item + ship + tax;
+  const total = order.totalUsd ?? 0;
+  // Some live fulfillment rows keep spot price in totalUsd until tax/shipping land.
+  if (computed > 0 && computed > total + 0.001) return roundUsd(computed);
+  if (total > 0) return roundUsd(total);
+  if (computed > 0) return roundUsd(computed);
+  return roundUsd(item);
 }
 
 export function resolveChargeUsdFromFulfillmentOrderMap(
@@ -71,8 +77,10 @@ export async function resolveLivePurchaseNotificationChargeUsd(args: {
   if (piId && isStripeConfigured()) {
     try {
       const pi = await getStripe().paymentIntents.retrieve(piId);
-      if (pi.status === "succeeded" && typeof pi.amount === "number" && pi.amount >= 50) {
-        return Math.round(pi.amount) / 100;
+      if (typeof pi.amount === "number" && pi.amount >= 50) {
+        if (pi.status === "succeeded" || pi.status === "processing") {
+          return Math.round(pi.amount) / 100;
+        }
       }
     } catch (e) {
       console.warn("[live purchase notify] payment intent amount lookup failed", { piId, e });

@@ -36,6 +36,7 @@ import {
 } from '../../../lib/liveAuctionPricing';
 import type { LiveBreakVariantDraft } from '../../../lib/liveBreakPresets';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
+import { RANDOM_BREAK_SALE_TYPES_ENABLED } from '../../../../../shared/live-break-feature-flags';
 import { useKeyboardInset } from '../../wallet/walletSheetKeyboard';
 import { colors, radii, spacing } from '../../../theme';
 import { BreakSpotSetupGrid } from './BreakSpotSetupGrid';
@@ -46,7 +47,11 @@ type SaleCategory = 'teams_divisions' | 'auction' | 'buy_now';
 type BreakSaleType = 'pyt' | 'pyd' | 'random_pyt' | 'random_pyd';
 
 const SALE_CATEGORIES: { id: SaleCategory; label: string; sub: string }[] = [
-  { id: 'teams_divisions', label: SELLER_CONSOLE.saleCategoryTeamsDivisions, sub: 'Pick or random spots' },
+  {
+    id: 'teams_divisions',
+    label: SELLER_CONSOLE.saleCategoryTeamsDivisions,
+    sub: RANDOM_BREAK_SALE_TYPES_ENABLED ? 'Pick or random spots' : 'Pick your team or division',
+  },
   { id: 'auction', label: SELLER_CONSOLE.saleCategoryAuction, sub: 'Timed bidding' },
   { id: 'buy_now', label: SELLER_CONSOLE.saleCategoryBuyNow, sub: 'Fixed price' },
 ];
@@ -57,6 +62,11 @@ const BREAK_VARIANTS: { id: BreakSaleType; label: string; sub: string }[] = [
   { id: 'random_pyt', label: 'Random Teams', sub: '32 · vault reveal' },
   { id: 'random_pyd', label: 'Random Divisions', sub: '8 · vault reveal' },
 ];
+
+/** Sale-type picker options actually shown to sellers — random breaks stay in `BREAK_VARIANTS` but are hidden while disabled. */
+const VISIBLE_BREAK_VARIANTS = RANDOM_BREAK_SALE_TYPES_ENABLED
+  ? BREAK_VARIANTS
+  : BREAK_VARIANTS.filter((v) => v.id === 'pyt' || v.id === 'pyd');
 
 function saleCategoryForType(saleType: LiveLotSaleType): SaleCategory {
   if (saleType === 'buy_now') return 'buy_now';
@@ -313,7 +323,7 @@ export function AddInventoryModal({
 
             {saleCategory === 'teams_divisions' ? (
               <View style={styles.saleTypeGrid}>
-                {BREAK_VARIANTS.map((type) => {
+                {VISIBLE_BREAK_VARIANTS.map((type) => {
                   const active = draft.saleType === type.id;
                   return (
                     <Pressable

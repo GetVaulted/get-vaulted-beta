@@ -11,7 +11,7 @@ import {
   type LayoutChangeEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { isLightSpotAccent, NFL_DIVISION_COLORS, spotAccentColor } from '../../lib/liveBreakPresets';
+import { formatDivisionReelAbbr, isLightSpotAccent, segmentColorForLabel } from '../../lib/liveBreakPresets';
 import {
   buildVaultDropReelLane,
   vaultDropPoolPhaseCopyForSpin,
@@ -50,9 +50,8 @@ function revealAccentColor(spin: VaultRevealSpinPayload): string {
 function labelAccentColor(spin: VaultRevealSpinPayload, index: number): string {
   if (spin.kind === 'giveaway') return vaultDropRevealChipColor(spin, index);
   const label = spin.labels[index]?.trim() ?? '';
-  const abbr = spin.segmentAbbrs?.[index]?.trim();
-  const isDivision = Boolean(NFL_DIVISION_COLORS[label]);
-  return spotAccentColor(label, abbr, isDivision);
+  const abbr = spin.segmentAbbrs?.[index]?.trim() ?? null;
+  return segmentColorForLabel(label, abbr);
 }
 
 function reelPillBackground(spin: VaultRevealSpinPayload, chipAccent: string, lightChip: boolean): string {
@@ -131,7 +130,17 @@ export function VaultDropRevealOverlay({
   const reelAnimRef = useRef<{ cancel: () => void } | null>(null);
 
   const accent = useMemo(() => (spin ? revealAccentColor(spin) : colors.gold), [spin]);
-  const reelLaneLabels = useMemo(() => (spin ? buildVaultDropReelLane(spin.labels) : []), [spin?.labels]);
+  const scrollPlan = useMemo(
+    () => (spin?.labels?.length ? vaultDropRevealTiming(spin).scrollPlan : null),
+    [spin?.labels, spin?.winnerIndex],
+  );
+  const reelLaneLabels = useMemo(
+    () =>
+      spin?.labels?.length && scrollPlan
+        ? buildVaultDropReelLane(spin.labels, scrollPlan.laneCopyCount)
+        : [],
+    [spin?.labels, scrollPlan?.laneCopyCount],
+  );
   const labelCount = spin?.labels.length ?? 0;
   const showWinner = phase === 'reveal';
 

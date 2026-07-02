@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { isVariantSalesFormat } from '../../../lib/liveItemVariant';
 import { buildVariantSpotDisplayRows, formatSoldSpotBuyerLabel, type VariantSpotDisplayRow } from '../../../lib/liveVariantSpotBoard';
-import { spotAccentColor, teamAbbrForVariant, isLightSpotAccent } from '../../../lib/liveBreakPresets';
+import { formatDivisionReelAbbr, spotAccentColor, teamAbbrForVariant, isLightSpotAccent } from '../../../lib/liveBreakPresets';
 import { colors, radii, spacing } from '../../../theme';
 import { LiveRoomText } from '../../live/LiveRoomText';
 
@@ -54,7 +54,9 @@ function SpotTile({
   const pinned = row.isHot && !sold;
   const accent = spotAccentColor(row.label ?? '', row.color, isDivisionBreak);
   const lightAccent = isLightSpotAccent(accent);
-  const abbr = teamAbbrForVariant(row.label, row.color);
+  const abbr = isDivisionBreak
+    ? formatDivisionReelAbbr(row.label ?? '')
+    : teamAbbrForVariant(row.label, row.color);
   const textPrimary = sold ? 'rgba(255,255,255,0.42)' : lightAccent ? '#111' : '#fff';
   const textSecondary = sold
     ? 'rgba(255,255,255,0.28)'
@@ -83,15 +85,24 @@ function SpotTile({
       ) : null}
 
       <View style={styles.spotTileTop}>
-        {abbr && !isDivisionBreak ? (
+        {abbr ? (
           <LiveRoomText style={[styles.spotAbbr, { color: textPrimary }]}>{abbr}</LiveRoomText>
         ) : null}
-        <LiveRoomText
-          style={[styles.spotLabel, { color: textPrimary }, isDivisionBreak && styles.spotLabelDivision]}
-          numberOfLines={isDivisionBreak ? 2 : 1}
-        >
-          {row.label}
-        </LiveRoomText>
+        {!isDivisionBreak ? (
+          <LiveRoomText
+            style={[styles.spotLabel, { color: textPrimary }]}
+            numberOfLines={1}
+          >
+            {row.label}
+          </LiveRoomText>
+        ) : (
+          <LiveRoomText
+            style={[styles.spotLabel, styles.spotLabelDivision, { color: textSecondary }]}
+            numberOfLines={2}
+          >
+            {row.label}
+          </LiveRoomText>
+        )}
       </View>
 
       {sold ? (
