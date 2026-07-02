@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/require-admin";
-import { aggregateTaxReporting, listNexusMonitoringByState } from "@/lib/sales-tax-reporting";
+import { aggregateTaxReporting, listNexusMonitoringByState, syncTaxReportingFromPaidOrders } from "@/lib/sales-tax-reporting";
 
 export async function GET(req: Request) {
   const gate = await requireAdmin();
@@ -28,5 +28,22 @@ export async function GET(req: Request) {
     summary,
     refunded,
     filters: { stateCode, sellerId, from: from?.toISOString() ?? null, to: to?.toISOString() ?? null },
+  });
+}
+
+/** Repair order tax fields from Stripe metadata and rebuild destination volume monitor. */
+export async function POST() {
+  const gate = await requireAdmin();
+  if (!gate.ok) return gate.response;
+
+  const result = await syncTaxReportingFromPaidOrders();
+  const summary = await aggregateTaxReporting({});
+  const rows = await listNexusMonitoringByState();
+
+  return NextResponse.json({
+    ok: true,
+    ...result,
+    summary,
+    monitorRowCount: rows.length,
   });
 }

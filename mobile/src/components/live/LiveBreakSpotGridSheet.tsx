@@ -241,8 +241,10 @@ export function LiveBreakSpotGridSheet({
 
   const finishSuccessfulPurchase = (spotLabel: string, amountUsd: number) => {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    onClose();
+    setBusy(false);
+    setError(null);
     setSelectedId(null);
+    onClose();
     onPurchased();
     if (isRandom || !onSpotCelebration) return;
     const celebration = buildLocalVariantPurchaseCelebration({

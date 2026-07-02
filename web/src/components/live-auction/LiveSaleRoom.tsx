@@ -216,6 +216,8 @@ export type LiveSaleRoomProps = {
   onOpenWallet: () => void;
   onApplyVariantPurchase?: (payload: VariantPurchasedMergePayload & { label?: string; amountUsd?: number }) => void;
   buyerPaymentRecoveryPending?: boolean;
+  broadcastCommerceBlocked?: boolean;
+  broadcastCommerceHint?: string | null;
 };
 
 export function LiveSaleRoom({
@@ -245,6 +247,8 @@ export function LiveSaleRoom({
   onOpenWallet,
   onApplyVariantPurchase,
   buyerPaymentRecoveryPending = false,
+  broadcastCommerceBlocked = false,
+  broadcastCommerceHint = null,
 }: LiveSaleRoomProps) {
   const { data: session, status } = useSession();
   const shopHref =
@@ -577,13 +581,16 @@ export function LiveSaleRoom({
   const variantShopLabel = activeDb ? variantClaimPrimaryLabel(activeDb.salesFormat) : "Claim spot";
   const actionsDisabled =
     !isLive ||
+    broadcastCommerceBlocked ||
     staffCommerceBlocked ||
     busy ||
     bidFlight ||
     sessionPending ||
     sessionBlocksBuyer ||
     ((roomType === "auction" || roomType === "sale") && !isHost && isLive && !buyerLiveWalletReady && !activeHasVariants);
-  const staffCommerceHint = staffCommerceBlocked
+  const staffCommerceHint = broadcastCommerceHint
+    ? broadcastCommerceHint
+    : staffCommerceBlocked
     ? isHost
       ? LIVE_HOST_SELF_COMMERCE_ERROR
       : viewerModeration.isModerator
@@ -592,6 +599,7 @@ export function LiveSaleRoom({
     : null;
   const variantShopDisabled =
     !isLive ||
+    broadcastCommerceBlocked ||
     staffCommerceBlocked ||
     busy ||
     sessionBlocksBuyer ||
@@ -600,6 +608,7 @@ export function LiveSaleRoom({
 
   const variantSpotBidDisabled =
     !isLive ||
+    broadcastCommerceBlocked ||
     staffCommerceBlocked ||
     busy ||
     bidFlight ||

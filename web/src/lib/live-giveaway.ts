@@ -307,6 +307,7 @@ async function executeGiveawayDraw(
     winnerLabel: labels[Math.max(0, winnerIndex)] ?? "winner",
     durationMs: VAULT_REVEAL_DEFAULT_DURATION_MS,
     referenceId: row.id,
+    giveawayKind: row.kind,
   };
 
   const updated = await prisma.$transaction(async (tx) => {
@@ -323,6 +324,7 @@ async function executeGiveawayDraw(
     });
     spin.winnerLabel =
       updatedGiveaway.winnerUser?.username?.trim() || spin.winnerLabel;
+    spin.winnerUserId = updated.winnerUserId ?? winnerUserId;
     return updatedGiveaway;
   });
 

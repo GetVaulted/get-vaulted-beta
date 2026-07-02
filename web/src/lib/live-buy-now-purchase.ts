@@ -23,6 +23,7 @@ import {
 import { emitLiveRoomMessagesRefetch, emitPurchaseCompleted } from "@/lib/realtime-emit-server";
 import { resolveLiveBuyNowUnitSale } from "@/lib/live-room-item-quantity-display";
 import { createNotification } from "@/lib/notifications";
+import { liveRoomBuyerPaymentConfirmedNotification } from "@/lib/live-room-payment-notify-copy";
 import { captureLiveRoomItemShippingSnapshotTx } from "@/services/shipping/live-item-shipping-snapshot";
 import { assertSellerStripeCollectReadyFromUser, sellerStripeCollectSelect } from "@/lib/seller-stripe-collect-ready";
 import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
@@ -531,13 +532,16 @@ export async function finalizeBreakSpotPaid(args: {
   emitBreakSpotsChanged(spot.liveRoomId);
   emitLiveRoomMessagesRefetch(spot.liveRoomId);
 
-  await createNotification(prisma, {
-    userId: spot.userId,
-    type: "break_spot_paid",
-    title: "Spot paid",
-    body: `Payment confirmed for ${spot.spotLabel}.`,
-    href: `/account/orders?view=live`,
-  });
+  if (Number.isFinite(spot.priceUsd) && spot.priceUsd > 0) {
+    const paymentNote = liveRoomBuyerPaymentConfirmedNotification({
+      amountUsd: spot.priceUsd,
+      href: "/account/orders?view=live",
+    });
+    await createNotification(prisma, {
+      userId: spot.userId,
+      ...paymentNote,
+    });
+  }
 
   return {
     liveRoomId: spot.liveRoomId,

@@ -15,7 +15,7 @@ import { getLiveRoomItemSnapshotDto } from "@/lib/live-room-item-snapshot-server
 import { resolveLiveProxyBidChain, upsertLiveAuctionProxyBid } from "@/services/live-auction/resolve-live-proxy-bid-chain";
 import { isStripeConfigured } from "@/lib/stripe";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
-import { getLiveBuyerCommerceBlock } from "@/lib/live-room-commerce-guards";
+import { getLiveBuyerCommerceBlock, getLiveRoomBroadcastCommerceBlock } from "@/lib/live-room-commerce-guards";
 import { getLiveRoomUserRestrictions } from "@/lib/trust/live-room-moderation";
 import { getTransactionServerNow, getServerNow } from "@/lib/server-transaction-now";
 import { recordLiveRoomBid } from "@/lib/record-live-room-bid";
@@ -68,7 +68,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   const [room, item] = await Promise.all([
     prisma.liveRoom.findUnique({
       where: { id: liveRoomId },
-      select: { id: true, sellerId: true, roomType: true, status: true },
+      select: { id: true, sellerId: true, roomType: true, status: true, streamHealth: true, streamPaused: true },
     }),
     prisma.liveRoomItem.findFirst({
       where: { id: itemId, liveRoomId },
@@ -97,6 +97,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   }
   if (room.status !== "live") {
     return NextResponse.json({ error: "This room is not live." }, { status: 409 });
+  }
+  const broadcastBlock = getLiveRoomBroadcastCommerceBlock(room);
+  if (broadcastBlock) {
+    return NextResponse.json({ error: broadcastBlock.error, code: broadcastBlock.code }, { status: broadcastBlock.status });
   }
 
   if (item.status !== "active") {

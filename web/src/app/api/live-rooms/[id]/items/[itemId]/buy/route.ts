@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSessionSafe } from "@/lib/auth";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
-import { getLiveBuyerCommerceBlock } from "@/lib/live-room-commerce-guards";
+import { getLiveBuyerCommerceBlock, getLiveRoomBroadcastCommerceBlock } from "@/lib/live-room-commerce-guards";
 import { liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
 import { settleLiveBuyNowPurchase } from "@/lib/live-payment-pipeline";
 import { syncLiveBuyNowOrderPaymentIntent } from "@/lib/stripe-charge-order-saved-pm";
@@ -31,7 +31,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
 
   const room = await prisma.liveRoom.findUnique({
     where: { id: liveRoomId },
-    select: { id: true, sellerId: true, roomType: true, status: true },
+    select: { id: true, sellerId: true, roomType: true, status: true, streamHealth: true, streamPaused: true },
   });
   if (!room) return NextResponse.json({ error: "Room not found." }, { status: 404 });
   if (room.roomType !== "sale") {
@@ -39,6 +39,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   }
   if (room.status !== "live") {
     return NextResponse.json({ error: "This room is not live." }, { status: 409 });
+  }
+  const broadcastBlock = getLiveRoomBroadcastCommerceBlock(room);
+  if (broadcastBlock) {
+    return NextResponse.json({ error: broadcastBlock.error, code: broadcastBlock.code }, { status: broadcastBlock.status });
   }
 
   const item = await prisma.liveRoomItem.findFirst({

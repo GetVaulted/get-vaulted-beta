@@ -48,5 +48,5 @@ export function formatLiveVariantCheckoutHudMeta(preview: LiveVariantCheckoutPre
     currency: "USD",
     maximumFractionDigits: 2,
   });
-  return `Spot ${spot} · Ship ${preview.shippingDisplay} · Tax ${preview.taxDisplay}`;
+  return `Spot ${spot} · ${preview.shippingDisplay} · Tax ${preview.taxDisplay}`;
 }

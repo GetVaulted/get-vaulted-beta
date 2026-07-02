@@ -7,9 +7,20 @@ import { VaultDropRevealOverlay } from "@/components/live-auction/VaultDropRevea
 export function VaultRevealOverlay({
   spin,
   onDismiss,
+  viewerUsername,
+  viewerUserId,
 }: {
   spin: VaultRevealSpinPayload | null;
   onDismiss: () => void;
+  viewerUsername?: string | null;
+  viewerUserId?: string | null;
 }) {
-  return <VaultDropRevealOverlay spin={spin} onDismiss={onDismiss} />;
+  return (
+    <VaultDropRevealOverlay
+      spin={spin}
+      onDismiss={onDismiss}
+      viewerUsername={viewerUsername}
+      viewerUserId={viewerUserId}
+    />
+  );
 }

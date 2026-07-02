@@ -2540,7 +2540,17 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
         viewerRole="seller"
       />
       <LiveSpotTakenCelebration celebration={spotCelebration} onDone={() => setSpotCelebration(null)} />
-      <VaultRevealOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
+      <VaultRevealOverlay
+        spin={vaultRevealSpin}
+        onDismiss={() => setVaultRevealSpin(null)}
+        viewerUsername={
+          session?.user?.username?.trim() ||
+          session?.user?.name?.trim() ||
+          session?.user?.email?.split("@")[0]?.trim() ||
+          null
+        }
+        viewerUserId={session?.user?.id ?? null}
+      />
 
       {obsSetupModalOpen ? (
         <div

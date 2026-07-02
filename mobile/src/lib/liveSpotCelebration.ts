@@ -69,14 +69,8 @@ export function spotCelebrationTagline(kind: LiveSpotTakenCelebration['kind']): 
   return kind === 'auction_win' ? 'Locked in · shipping from wallet' : 'In the Vault · Get Vaulted Live';
 }
 
-export function formatSpotCelebrationPrice(amountUsd: number): string | null {
-  if (!(amountUsd > 0)) return null;
-  const hasCents = Math.abs(amountUsd - Math.round(amountUsd)) > 0.001;
-  return amountUsd.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: hasCents ? 2 : 0,
-  });
+export function formatSpotCelebrationPrice(_amountUsd: number): string | null {
+  return null;
 }
 
 export function formatSpotWinnerAnnouncement(celebration: LiveSpotTakenCelebration): string {
@@ -101,12 +95,10 @@ export function formatSpotCelebrationAccessibility(
   opts?: { viewerIsWinner?: boolean },
 ): string {
   const headline = spotCelebrationHeadline(celebration.kind, opts);
-  const price = formatSpotCelebrationPrice(celebration.amountUsd);
-  const pricePart = price ? ` for ${price}` : '';
   if (opts?.viewerIsWinner) {
-    return `${headline} ${celebration.label}${pricePart}`;
+    return `${headline} ${celebration.label}`;
   }
-  return `${headline} @${celebration.username} claimed ${celebration.label}${pricePart}`;
+  return `${headline} @${celebration.username} claimed ${celebration.label}`;
 }
 
 /** Stable key for dismiss timers — avoids resetting when parent re-renders. */

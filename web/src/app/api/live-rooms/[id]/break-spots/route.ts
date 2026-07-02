@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
+import { getLiveRoomBroadcastCommerceBlock } from "@/lib/live-room-commerce-guards";
 import { getServerSessionSafe } from "@/lib/auth";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
 import { prisma } from "@/lib/prisma";
@@ -33,6 +34,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       breakPaused: true,
       lockPurchases: true,
       breakFilledLockedAt: true,
+      streamHealth: true,
+      streamPaused: true,
     },
   });
   if (!room) return NextResponse.json({ error: "Room not found." }, { status: 404 });
@@ -41,6 +44,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
   if (room.status !== "live") {
     return NextResponse.json({ error: "This room is not live." }, { status: 409 });
+  }
+  const broadcastBlock = getLiveRoomBroadcastCommerceBlock(room);
+  if (broadcastBlock) {
+    return NextResponse.json({ error: broadcastBlock.error, code: broadcastBlock.code }, { status: broadcastBlock.status });
   }
   if (room.breakPaused) {
     return NextResponse.json({ error: "This break is paused by the host." }, { status: 409 });

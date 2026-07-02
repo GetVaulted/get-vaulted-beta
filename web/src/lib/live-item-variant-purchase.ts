@@ -13,6 +13,7 @@ import {
 } from "@/lib/realtime-emit-server";
 import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
 import { createNotification } from "@/lib/notifications";
+import { liveRoomBuyerPaymentConfirmedNotification } from "@/lib/live-room-payment-notify-copy";
 import { maybeMarkVariantBreakReady } from "@/lib/live-item-variant-break";
 import {
   executeRandomVariantRevealOnPurchase,
@@ -145,15 +146,16 @@ export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, st
     await maybeMarkVariantBreakReady(purchase.liveRoomItemId, purchase.liveRoomId, room.sellerId);
   }
 
-  await createNotification(prisma, {
-    userId: purchase.buyerId,
-    type: "break_spot_paid",
-    title: randomReveal ? "Team revealed!" : "Spot confirmed",
-    body: randomReveal
-      ? `You got ${displayLabel}!`
-      : `Payment confirmed for ${displayLabel}.`,
-    href: `/account/orders?view=live`,
-  });
+  if (purchase.totalUsd > 0) {
+    const paymentNote = liveRoomBuyerPaymentConfirmedNotification({
+      amountUsd: purchase.totalUsd,
+      href: "/account/orders?view=live",
+    });
+    await createNotification(prisma, {
+      userId: purchase.buyerId,
+      ...paymentNote,
+    });
+  }
 }
 
 export async function releaseVariantPurchaseOnCheckoutExpired(purchaseId: string) {

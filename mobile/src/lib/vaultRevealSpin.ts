@@ -2,11 +2,13 @@
 
 import {
   buildVaultDropPoolRun,
-  vaultDropPoolRunDurationMs,
+  buildVaultDropReelScrollPlan,
+  vaultDropPoolRunAnimationMs,
   type VaultDropPoolRunStep,
 } from '../../../shared/vault-drop-pool-run';
 
 export type VaultRevealSpinKind = 'giveaway' | 'break_pyt' | 'random_reveal';
+export type VaultRevealGiveawayKind = 'open' | 'buyers';
 
 export type VaultRevealSpinPayload = {
   spinId: string;
@@ -17,10 +19,16 @@ export type VaultRevealSpinPayload = {
   winnerLabel: string;
   durationMs: number;
   referenceId?: string;
+  giveawayKind?: VaultRevealGiveawayKind;
+  winnerUserId?: string;
   assignments?: { order: number; label: string }[];
   segmentAbbrs?: string[];
   buyerUsername?: string;
 };
+
+export const GIVVY_REVEAL_ACCENT = '#6ee7b7';
+export const GIVVY_REVEAL_CHIP_COLORS = ['#6ee7b7', '#34d399', '#2dd4bf', '#5eead4'] as const;
+export const GIVVY_REVEAL_BORDER_GRADIENT = ['#059669', '#34d399', '#6ee7b7'] as const;
 
 export const VAULT_REVEAL_DEFAULT_DURATION_MS = 2400;
 export const VAULT_REVEAL_RESULT_HOLD_MS = 1600;
@@ -42,6 +50,7 @@ export const VAULT_DROP_TOTAL_MS = VAULT_DROP_BUILD_MS + VAULT_DROP_FLASH_MS + V
 export {
   buildVaultDropPoolRun,
   buildVaultDropReelLane,
+  buildVaultDropReelScrollPlan,
   reelStepAnimationMs,
   reelStepEasingCss,
   vaultDropPoolChipActive,
@@ -50,25 +59,121 @@ export {
   vaultDropPoolRunAnimationMs,
   vaultDropPoolRunDurationMs,
   vaultDropReelLaneStartScrollIndex,
+  vaultDropReelLandEasingCss,
+  vaultDropReelSpinEasingCss,
   VAULT_DROP_REEL_LAND_MS,
   VAULT_DROP_REEL_LANE_COPIES,
+  VAULT_DROP_REEL_PILL_GAP,
+  VAULT_DROP_REEL_PILL_HEIGHT,
+  VAULT_DROP_REEL_PILL_BORDER,
+  VAULT_DROP_REEL_FOCUS_RING_PAD,
+  VAULT_DROP_REEL_PILL_SPAN,
+  VAULT_DROP_REEL_PILL_WIDTH,
+  VAULT_DROP_REEL_SPIN_EXTRA_MS,
+  vaultDropReelCenterOffset,
+  vaultDropReelFocusRingPosition,
   type VaultDropPoolRunStep,
+  type VaultDropReelScrollPlan,
 } from '../../../shared/vault-drop-pool-run';
 
 export function vaultDropRevealTiming(spin: Pick<VaultRevealSpinPayload, 'labels' | 'winnerIndex'>): {
   steps: VaultDropPoolRunStep[];
   poolMs: number;
   totalMs: number;
+  scrollPlan: ReturnType<typeof buildVaultDropReelScrollPlan>;
 } {
-  const steps = buildVaultDropPoolRun(spin.labels, spin.winnerIndex);
-  const poolMs = vaultDropPoolRunAnimationMs(steps);
-  return { steps, poolMs, totalMs: poolMs + VAULT_DROP_HOLD_MS };
+  const scrollPlan = buildVaultDropReelScrollPlan(spin.labels, spin.winnerIndex);
+  return {
+    steps: scrollPlan.steps,
+    poolMs: scrollPlan.totalAnimationMs,
+    totalMs: scrollPlan.totalAnimationMs + VAULT_DROP_HOLD_MS,
+    scrollPlan,
+  };
 }
 
-export function vaultDropRevealEyebrow(kind: VaultRevealSpinKind): string {
-  if (kind === 'giveaway') return 'Vault Draw';
-  if (kind === 'random_reveal') return 'Vault Drop';
+export function vaultDropRevealEyebrow(
+  spin: Pick<VaultRevealSpinPayload, 'kind' | 'giveawayKind'>,
+): string {
+  if (spin.kind === 'giveaway') {
+    return spin.giveawayKind === 'buyers' ? 'Buyers Givvy Draw' : 'Givvy Draw';
+  }
+  if (spin.kind === 'random_reveal') return 'Vault Drop';
   return 'Break Randomizer';
+}
+
+export function vaultDropPoolPhaseCopyForSpin(
+  spin: Pick<VaultRevealSpinPayload, 'kind' | 'giveawayKind'>,
+  progress: number,
+): string {
+  if (spin.kind === 'giveaway') {
+    if (progress < 0.72) return 'Rolling entries';
+    if (progress < 0.94) return 'Slowing down';
+    return 'Locked';
+  }
+  if (progress < 0.72) return 'Rolling the pool';
+  if (progress < 0.94) return 'Slowing down';
+  return 'Locked';
+}
+
+export function vaultDropRevealPoolHint(spin: VaultRevealSpinPayload): string {
+  if (spin.kind === 'giveaway') {
+    return spin.giveawayKind === 'buyers'
+      ? 'Buyer entry reel slows down and locks on the winner'
+      : 'Entry reel slows down and locks on the winner';
+  }
+  if (spin.kind === 'random_reveal') {
+    return 'Team reel slows down and locks on your draw';
+  }
+  return 'Spot reel slows down and locks on the draw';
+}
+
+export function vaultDropRevealAccent(spin: VaultRevealSpinPayload): string {
+  if (spin.kind === 'giveaway') return GIVVY_REVEAL_ACCENT;
+  return '#D4AF37';
+}
+
+export function vaultDropRevealChipColor(spin: VaultRevealSpinPayload, index: number): string {
+  if (spin.kind === 'giveaway') {
+    return GIVVY_REVEAL_CHIP_COLORS[index % GIVVY_REVEAL_CHIP_COLORS.length] ?? GIVVY_REVEAL_ACCENT;
+  }
+  return '#D4AF37';
+}
+
+export function vaultRevealDisplayMs(
+  spin: Pick<VaultRevealSpinPayload, 'labels' | 'winnerIndex'>,
+): number {
+  return vaultDropRevealTiming(spin).totalMs;
+}
+
+export type VaultDropRevealViewer = {
+  userId?: string | null;
+  username?: string | null;
+};
+
+export function normalizeRevealUsername(raw: string | null | undefined): string {
+  return raw?.trim().replace(/^@/, '').toLowerCase() ?? '';
+}
+
+export function vaultDropRevealViewerWonGiveaway(
+  spin: VaultRevealSpinPayload,
+  viewer?: VaultDropRevealViewer | null,
+): boolean {
+  if (spin.kind !== 'giveaway' || !viewer) return false;
+  if (viewer.userId?.trim() && spin.winnerUserId?.trim() && viewer.userId === spin.winnerUserId) {
+    return true;
+  }
+  const viewerHandle = normalizeRevealUsername(viewer.username);
+  const winnerHandle = normalizeRevealUsername(spin.winnerLabel);
+  return Boolean(viewerHandle && winnerHandle && viewerHandle === winnerHandle);
+}
+
+export function vaultDropRevealGivvyWinBanner(
+  spin: VaultRevealSpinPayload,
+  viewer?: VaultDropRevealViewer | null,
+): string | null {
+  if (!vaultDropRevealViewerWonGiveaway(spin, viewer)) return null;
+  if (spin.giveawayKind === 'buyers') return 'Congrats — you won the Buyers Givvy!';
+  return 'Congrats — you won the Givvy!';
 }
 
 export function isVaultSealRevealKind(kind: VaultRevealSpinKind): boolean {
@@ -78,7 +183,8 @@ export function isVaultSealRevealKind(kind: VaultRevealSpinKind): boolean {
 export function vaultSealMetaLine(spin: VaultRevealSpinPayload): string {
   const n = spin.labels.length;
   if (spin.kind === 'giveaway') {
-    return `${n} ${n === 1 ? 'entry' : 'entries'} · verified draw`;
+    const lane = spin.giveawayKind === 'buyers' ? 'buyers givvy' : 'givvy';
+    return `${n} ${n === 1 ? 'entry' : 'entries'} · verified ${lane} draw`;
   }
   if (spin.kind === 'random_reveal') {
     return `${n} remaining · verified reveal`;
@@ -104,7 +210,7 @@ export function vaultSealWinnerCopy(spin: VaultRevealSpinPayload): VaultSealWinn
 
   if (spin.kind === 'giveaway') {
     return {
-      kicker: 'Winner',
+      kicker: spin.giveawayKind === 'buyers' ? 'Buyers Givvy winner' : 'Givvy winner',
       primary: formatWinnerHandle(spin.winnerLabel),
       sub: 'Takes home',
       detail: spin.title,
@@ -151,9 +257,13 @@ export function parseVaultRevealSpinPayload(raw: unknown): VaultRevealSpinPayloa
   if (!spinId) return null;
   const kind =
     spin.kind === 'break_pyt' ? 'break_pyt' : spin.kind === 'random_reveal' ? 'random_reveal' : 'giveaway';
+  const giveawayKind =
+    spin.giveawayKind === 'buyers' ? 'buyers' : spin.giveawayKind === 'open' ? 'open' : undefined;
+
   return {
     spinId,
     kind,
+    giveawayKind,
     title:
       typeof spin.title === 'string'
         ? spin.title
@@ -170,6 +280,7 @@ export function parseVaultRevealSpinPayload(raw: unknown): VaultRevealSpinPayloa
         ? spin.durationMs
         : VAULT_REVEAL_DEFAULT_DURATION_MS,
     referenceId: typeof spin.referenceId === 'string' ? spin.referenceId : undefined,
+    winnerUserId: typeof spin.winnerUserId === 'string' ? spin.winnerUserId : undefined,
     segmentAbbrs: Array.isArray(spin.segmentAbbrs)
       ? spin.segmentAbbrs.filter((a): a is string => typeof a === 'string')
       : undefined,

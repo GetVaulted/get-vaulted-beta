@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   formatSpotCelebrationAccessibility,
-  formatSpotCelebrationPrice,
   isSpotCelebrationViewerWinner,
   spotCelebrationDismissKey,
   spotCelebrationHeadline,
@@ -22,7 +21,7 @@ type Props = {
 
 const DISPLAY_MS = SPOT_CELEBRATION_DISPLAY_MS;
 
-/** PYT/PYD spot win — full-screen hype card with claim gradient + price. */
+/** PYT/PYD spot win — full-screen hype card with claim gradient (no price shown). */
 export function LiveSpotTakenCelebration({ celebration, onDone, viewerUsername }: Props) {
   const [mounted, setMounted] = useState(false);
   const [entered, setEntered] = useState(false);
@@ -71,7 +70,6 @@ export function LiveSpotTakenCelebration({ celebration, onDone, viewerUsername }
   if (!celebration || !mounted) return null;
 
   const headline = spotCelebrationHeadline(celebration.kind, { viewerIsWinner });
-  const price = formatSpotCelebrationPrice(celebration.amountUsd);
   const accessibilityLabel = formatSpotCelebrationAccessibility(celebration, { viewerIsWinner });
 
   return createPortal(
@@ -104,7 +102,6 @@ export function LiveSpotTakenCelebration({ celebration, onDone, viewerUsername }
             {!viewerIsWinner ? (
               <p className="mt-1 text-sm font-bold text-zinc-400">@{celebration.username}</p>
             ) : null}
-            {price ? <p className="mt-3 text-2xl font-black text-emerald-400 sm:text-3xl">{price}</p> : null}
             <p className="mt-4 text-xs font-semibold text-zinc-500">{spotCelebrationTagline(celebration.kind)}</p>
           </div>
         </div>

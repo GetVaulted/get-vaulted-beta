@@ -94,6 +94,8 @@ type Props = {
   onBidNotice?: (notice: LiveBidFailureDisplay) => void;
   /** Break rooms: block bid CTAs until disclaimer accepted. */
   participationBlocked?: boolean;
+  /** Host stream offline/paused — always blocks checkout, including hold-to-buy. */
+  broadcastCommerceBlocked?: boolean;
   participationBlockMessage?: string;
   /** Host or assigned moderator — cannot bid/buy in this show. */
   staffCommerceBlocked?: boolean;
@@ -107,6 +109,8 @@ type Props = {
   viewerUsername?: string | null;
   /** False on off-screen feed slides so hold-to-bid cannot fire on a background room. */
   commerceActive?: boolean;
+  /** Vault reveal is on screen — collapse checkout so the roll is visible. */
+  vaultRevealActive?: boolean;
 };
 
 export function LivePinnedActionBar({
@@ -124,6 +128,7 @@ export function LivePinnedActionBar({
   onBidPlaced,
   onBidNotice,
   participationBlocked = false,
+  broadcastCommerceBlocked = false,
   participationBlockMessage = 'Complete setup in this show before bidding or buying.',
   staffCommerceBlocked = false,
   onWalletOverlayChange,
@@ -132,6 +137,7 @@ export function LivePinnedActionBar({
   onSpotCelebration,
   viewerUsername,
   commerceActive = true,
+  vaultRevealActive = false,
 }: Props) {
   const stackNav = useNavigation<NativeStackNavigationProp<LiveStackParamList>>();
   const tabNav = stackNav.getParent<BottomTabNavigationProp<MainTabParamList>>();
@@ -175,6 +181,12 @@ export function LivePinnedActionBar({
   const autoCloseNudgedItemRef = useRef<string | null>(null);
 
   useEffect(() => {
+    if (!vaultRevealActive) return;
+    setVariantSheetOpen(false);
+    setVariantSheetInitialId(null);
+  }, [vaultRevealActive]);
+
+  useEffect(() => {
     if (roomSnap?.lotBidPhase !== 'bidding_open' || !roomSnap.auctionEndsAt) return;
     if (timerTick % 4 !== 0) return;
     logAuctionTimer({
@@ -200,12 +212,14 @@ export function LivePinnedActionBar({
     m.buyerPrimaryDisabled === true ||
     staffCommerceBlocked ||
     commerceBlocked ||
+    broadcastCommerceBlocked ||
     (participationBlocked && !variantFixedCheckoutActive);
   const secondaryDisabled =
     commerceInactive ||
     m.buyerSecondaryDisabled === true ||
     staffCommerceBlocked ||
     commerceBlocked ||
+    broadcastCommerceBlocked ||
     (participationBlocked && !variantFixedCheckoutActive);
   const padBottom = 4 + Math.min(10, Math.round(bottomSafeInset * (compact ? 0.25 : 0.35)));
 
@@ -365,7 +379,7 @@ export function LivePinnedActionBar({
   const variantCheckoutPreview = snapshotVariantCheckoutPreview ?? fetchedVariantCheckoutPreview;
 
   const variantCheckoutMetaLine = variantCheckoutPreview
-    ? `Spot ${formatMoney(variantCheckoutPreview.itemPriceUsd)} · Ship ${variantCheckoutPreview.shippingDisplay} · Tax ${variantCheckoutPreview.taxDisplay}`
+    ? `Spot ${formatMoney(variantCheckoutPreview.itemPriceUsd)} · ${variantCheckoutPreview.shippingDisplay} · Tax ${variantCheckoutPreview.taxDisplay}`
     : variantCheckoutPreviewEnabled && variantCheckoutPreviewLoading
       ? 'Calculating shipping & tax…'
       : variantItemActive && !walletReady && !isVariantSpotAuctionLive(roomSnap)
@@ -1176,6 +1190,8 @@ export function LivePinnedActionBar({
             openWalletSetup('variant_checkout_wallet', walletReadinessFromSnapshot(roomSnap));
           }}
           onPurchased={() => {
+            setVariantSheetOpen(false);
+            setVariantSheetInitialId(null);
             void refreshRoomSnapshot();
           }}
           onSpotCelebration={onSpotCelebration}

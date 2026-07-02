@@ -7,7 +7,6 @@ import {
   emitTeamBreakReady,
 } from "@/lib/realtime-emit-server";
 import { allVariantSpotsSold } from "@/lib/live-item-variant-presets";
-import { createNotification } from "@/lib/notifications";
 
 /** After a variant purchase settles, mark break ready when every spot is sold. */
 export async function maybeMarkVariantBreakReady(liveRoomItemId: string, liveRoomId: string, sellerId: string) {
@@ -25,12 +24,11 @@ export async function maybeMarkVariantBreakReady(liveRoomItemId: string, liveRoo
 
   const item = await prisma.liveRoomItem.findUnique({
     where: { id: liveRoomItemId },
-    select: { itemVersion: true, title: true, salesFormat: true },
+    select: { itemVersion: true, salesFormat: true },
   });
   const itemVersion = item?.itemVersion ?? 0;
   const isDivisionBreak = item?.salesFormat === "team_break";
   const spotWord = isDivisionBreak ? "divisions" : "teams";
-  const itemTitle = item?.title?.trim() || "Break";
 
   const sellerMsg = await prisma.liveRoomMessage.create({
     data: {
@@ -48,24 +46,6 @@ export async function maybeMarkVariantBreakReady(liveRoomItemId: string, liveRoo
       messageType: "system",
     },
   });
-
-  const buyers = await prisma.liveItemVariantPurchase.findMany({
-    where: { liveRoomItemId, paymentStatus: "paid" },
-    select: { buyerId: true },
-    distinct: ["buyerId"],
-  });
-  const href = `/live/${encodeURIComponent(liveRoomId)}`;
-  await Promise.all(
-    buyers.map((row) =>
-      createNotification(prisma, {
-        userId: row.buyerId,
-        type: "break_ready",
-        title: "Break is full",
-        body: `All spots sold for ${itemTitle}. The break is starting soon — watch live for the rip!`,
-        href,
-      }),
-    ),
-  );
 
   emitTeamBreakReady(liveRoomId, { itemId: liveRoomItemId, itemVersion });
   emitLiveRoomQueueItemsChanged(liveRoomId);

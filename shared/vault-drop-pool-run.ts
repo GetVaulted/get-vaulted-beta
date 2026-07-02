@@ -16,8 +16,46 @@ function poolStepBudget(labelCount: number): number {
 /** Final snap-to-winner animation (ms) — keep in sync with reel overlays. */
 export const VAULT_DROP_REEL_LAND_MS = 540;
 
+/** Extra continuous spin time layered on top of the deceleration curve. */
+export const VAULT_DROP_REEL_SPIN_EXTRA_MS = 3000;
+
+/** Reel chip geometry — keep in sync with VaultDropRevealOverlay (mobile + web). */
+export const VAULT_DROP_REEL_PILL_WIDTH = 84;
+export const VAULT_DROP_REEL_PILL_HEIGHT = 40;
+export const VAULT_DROP_REEL_PILL_GAP = 6;
+export const VAULT_DROP_REEL_PILL_BORDER = 2;
+export const VAULT_DROP_REEL_FOCUS_RING_PAD = 4;
+/** Negative values move the gold focus ring up relative to the pill slot. */
+export const VAULT_DROP_REEL_FOCUS_RING_TOP_NUDGE = -1;
+export const VAULT_DROP_REEL_PILL_SPAN = VAULT_DROP_REEL_PILL_WIDTH + VAULT_DROP_REEL_PILL_GAP;
+
 /** Repeat labels so the reel can scroll forward without wrapping backward. */
 export const VAULT_DROP_REEL_LANE_COPIES = 3;
+
+/** translateX that centers scroll slot `scrollIndex` under the viewport focus ring. */
+export function vaultDropReelCenterOffset(
+  viewportWidth: number,
+  scrollIndex: number,
+  span = VAULT_DROP_REEL_PILL_SPAN,
+): number {
+  return viewportWidth / 2 - span / 2 - scrollIndex * span;
+}
+
+/** Absolute focus ring position inside the reel viewport. */
+export function vaultDropReelFocusRingPosition(
+  viewportWidth: number,
+  viewportHeight = VAULT_DROP_REEL_PILL_HEIGHT + 12,
+): { left: number; top: number; width: number; height: number } {
+  return {
+    left: Math.max(0, viewportWidth / 2 - VAULT_DROP_REEL_PILL_WIDTH / 2),
+    top: Math.max(
+      0,
+      (viewportHeight - VAULT_DROP_REEL_PILL_HEIGHT) / 2 + VAULT_DROP_REEL_FOCUS_RING_TOP_NUDGE,
+    ),
+    width: VAULT_DROP_REEL_PILL_WIDTH,
+    height: VAULT_DROP_REEL_PILL_HEIGHT,
+  };
+}
 
 export function buildVaultDropReelLane<T>(items: readonly T[], copies = VAULT_DROP_REEL_LANE_COPIES): T[] {
   if (items.length === 0) return [];
@@ -76,6 +114,59 @@ export function vaultDropPoolRunAnimationMs(steps: readonly VaultDropPoolRunStep
     total += reelStepAnimationMs(i / last, false, step.delayMs);
   });
   return total;
+}
+
+export type VaultDropReelScrollPlan = {
+  steps: VaultDropPoolRunStep[];
+  laneStartScroll: number;
+  /** Continuous spin ends centered on the winner slot. */
+  spinEndScroll: number;
+  winnerScrollIndex: number;
+  spinDurationMs: number;
+  /** Winner pop / hold after the reel stops — no extra scroll. */
+  landDurationMs: number;
+  totalAnimationMs: number;
+};
+
+/** Continuous reel motion plan — one smooth spin then a short winner lock. */
+export function buildVaultDropReelScrollPlan(labels: string[], winnerIndex: number): VaultDropReelScrollPlan {
+  const steps = buildVaultDropPoolRun(labels, winnerIndex);
+  const n = labels.length;
+  if (n <= 0) {
+    return {
+      steps,
+      laneStartScroll: 0,
+      spinEndScroll: 0,
+      winnerScrollIndex: 0,
+      spinDurationMs: 0,
+      landDurationMs: VAULT_DROP_REEL_LAND_MS,
+      totalAnimationMs: VAULT_DROP_REEL_LAND_MS,
+    };
+  }
+  const laneStartScroll = vaultDropReelLaneStartScrollIndex(n, steps[0]?.labelIndex ?? 0);
+  const winnerScrollIndex = laneStartScroll + steps.length;
+  const spinEndScroll = winnerScrollIndex;
+  const landDurationMs = VAULT_DROP_REEL_LAND_MS;
+  const spinDurationMs =
+    Math.max(900, vaultDropPoolRunAnimationMs(steps) - landDurationMs) + VAULT_DROP_REEL_SPIN_EXTRA_MS;
+  return {
+    steps,
+    laneStartScroll,
+    spinEndScroll,
+    winnerScrollIndex,
+    spinDurationMs,
+    landDurationMs,
+    totalAnimationMs: spinDurationMs + landDurationMs,
+  };
+}
+
+/** Easing for the continuous reel spin (fast start, long deceleration). */
+export function vaultDropReelSpinEasingCss(spinDurationMs: number): string {
+  return `${spinDurationMs}ms cubic-bezier(0.12, 0.85, 0.22, 1)`;
+}
+
+export function vaultDropReelLandEasingCss(): string {
+  return `${VAULT_DROP_REEL_LAND_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`;
 }
 
 export function vaultDropPoolRunDurationMs(steps: readonly VaultDropPoolRunStep[]): number {

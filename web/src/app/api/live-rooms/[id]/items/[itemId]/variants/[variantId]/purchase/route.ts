@@ -9,7 +9,7 @@ import {
   syncLiveItemVariantPurchasePaymentIntent,
 } from "@/lib/live-payment-pipeline";
 import { prisma } from "@/lib/prisma";
-import { getLiveBuyerCommerceBlock } from "@/lib/live-room-commerce-guards";
+import { getLiveBuyerCommerceBlock, getLiveRoomBroadcastCommerceBlock } from "@/lib/live-room-commerce-guards";
 import { getUnresolvedPaymentFailureForBuyer, liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
 import { resolveLiveRoomsUserId } from "@/lib/resolve-live-rooms-auth";
 import { isStripeConfigured } from "@/lib/stripe";
@@ -99,11 +99,15 @@ export async function POST(
 
   const room = await prisma.liveRoom.findUnique({
     where: { id: liveRoomId },
-    select: { id: true, sellerId: true, status: true, lockPurchases: true },
+    select: { id: true, sellerId: true, status: true, lockPurchases: true, streamHealth: true, streamPaused: true },
   });
   if (!room) return NextResponse.json({ error: "Room not found." }, { status: 404 });
   if (room.status !== "live") {
     return NextResponse.json({ error: "This room is not live." }, { status: 409 });
+  }
+  const broadcastBlock = getLiveRoomBroadcastCommerceBlock(room);
+  if (broadcastBlock) {
+    return NextResponse.json({ error: broadcastBlock.error, code: broadcastBlock.code }, { status: broadcastBlock.status });
   }
   if (room.lockPurchases) {
     return NextResponse.json({ error: "Purchases are locked for this room." }, { status: 409 });

@@ -1,15 +1,43 @@
 import { prisma } from "@/lib/prisma";
 import {
+  isLiveRoomBroadcastOnAir,
+  type LiveRoomBroadcastGate,
+} from "@/lib/live-room-broadcast-on-air";
+import {
+  LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR,
   LIVE_HOST_SELF_COMMERCE_ERROR,
   LIVE_MODERATOR_COMMERCE_ERROR,
+  LIVE_STREAM_PAUSED_COMMERCE_ERROR,
   type LiveBuyerCommerceBlock,
 } from "@/lib/live-room-commerce-messages";
 
 export {
+  LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR,
   LIVE_HOST_SELF_COMMERCE_ERROR,
   LIVE_MODERATOR_COMMERCE_ERROR,
+  LIVE_STREAM_PAUSED_COMMERCE_ERROR,
   type LiveBuyerCommerceBlock,
 } from "@/lib/live-room-commerce-messages";
+
+/** Blocks buyer bids and checkout when the host broadcast is offline or paused. */
+export function getLiveRoomBroadcastCommerceBlock(
+  room: LiveRoomBroadcastGate,
+): LiveBuyerCommerceBlock | null {
+  if (room.status !== "live") return null;
+  if (isLiveRoomBroadcastOnAir(room)) return null;
+  if (room.streamPaused === true) {
+    return {
+      status: 409,
+      error: LIVE_STREAM_PAUSED_COMMERCE_ERROR,
+      code: "LIVE_STREAM_PAUSED",
+    };
+  }
+  return {
+    status: 409,
+    error: LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR,
+    code: "LIVE_BROADCAST_OFFLINE",
+  };
+}
 
 /** Blocks hosts and assigned room moderators from bidding or buying in the show. */
 export async function getLiveBuyerCommerceBlock(args: {

@@ -551,9 +551,17 @@ export function AddQueueItemModal({
         </div>
 
         <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-4 sm:p-5">
-          <p className="mb-4 text-sm text-zinc-500">Photo, title, price, and quantity — ready in seconds.</p>
+          <p className="mb-4 text-sm text-zinc-500">Title, photo, price, and quantity — ready in seconds.</p>
 
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Photo</span>
+          <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Title</label>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="e.g. PSA 10 rookie chase"
+            className="mt-1 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
+          />
+
+          <span className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Photo</span>
           <div
             onClick={() => !imageUploading && imageFileRef.current?.click()}
             role="button"
@@ -606,14 +614,6 @@ export function AddQueueItemModal({
             )}
           </div>
           {imageError ? <p className="mt-1 text-xs text-rose-300">{imageError}</p> : null}
-
-          <label className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Title</label>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g. PSA 10 rookie chase"
-            className="mt-1 w-full rounded-lg border border-white/10 bg-[#0c0c10] px-3 py-2 text-sm text-zinc-100"
-          />
 
           <span className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Sale type</span>
           <div className="mt-2 grid grid-cols-3 gap-2">

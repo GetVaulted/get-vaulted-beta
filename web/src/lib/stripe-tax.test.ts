@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import {
   extractTaxFromCheckoutSession,
+  extractTaxFromPaymentIntent,
   normalizeCountryCode,
   isStripeTaxFeatureEnabled,
   orderRequiresCheckoutForTax,
@@ -57,6 +58,16 @@ describe("stripe-tax helpers", () => {
     } as unknown as Parameters<typeof extractTaxFromCheckoutSession>[0]);
     expect(extracted.taxAmountCents).toBe(825);
     expect(extracted.stripeTaxCalculationId).toBe("taxcalc_123");
+  });
+
+  it("extracts tax from payment intent metadata", () => {
+    const extracted = extractTaxFromPaymentIntent({
+      amount: 10825,
+      amount_received: 10825,
+      metadata: { salesTaxCents: "825", stripeTaxCalculationId: "taxcalc_live_1" },
+    } as unknown as Parameters<typeof extractTaxFromPaymentIntent>[0]);
+    expect(extracted.taxAmountCents).toBe(825);
+    expect(extracted.stripeTaxCalculationId).toBe("taxcalc_live_1");
   });
 });
 

@@ -4,7 +4,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import {
   formatSpotCelebrationAccessibility,
-  formatSpotCelebrationPrice,
   isSpotCelebrationViewerWinner,
   spotCelebrationDismissKey,
   spotCelebrationHeadline,
@@ -97,7 +96,6 @@ export function LiveSpotTakenCelebration({ celebration, onDone, viewerUsername }
   if (!celebration) return null;
 
   const headline = spotCelebrationHeadline(celebration.kind, { viewerIsWinner });
-  const price = formatSpotCelebrationPrice(celebration.amountUsd);
   const accessibilityLabel = formatSpotCelebrationAccessibility(celebration, { viewerIsWinner });
 
   return (
@@ -130,7 +128,6 @@ export function LiveSpotTakenCelebration({ celebration, onDone, viewerUsername }
               {!viewerIsWinner ? (
                 <LiveRoomText style={styles.username}>@{celebration.username}</LiveRoomText>
               ) : null}
-              {price ? <LiveRoomText style={styles.price}>{price}</LiveRoomText> : null}
               <LiveRoomText style={styles.tagline}>{spotCelebrationTagline(celebration.kind)}</LiveRoomText>
             </View>
           </LinearGradient>
@@ -205,13 +202,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 15,
     fontWeight: '700',
-    textAlign: 'center',
-  },
-  price: {
-    marginTop: spacing.sm,
-    color: colors.success,
-    fontSize: 28,
-    fontWeight: '900',
     textAlign: 'center',
   },
   tagline: {

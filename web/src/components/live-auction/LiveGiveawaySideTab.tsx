@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ViewerGiveawayDTO } from "@/lib/live-giveaway";
+import { GIVVY_SIDE_TAB, GIVVY_UI } from "@/lib/givvy-ui";
 import { GiveawayTimerBadge } from "@/components/live-auction/GiveawayTimerBadge";
 
 type Props = {
@@ -13,7 +14,7 @@ type Props = {
   onTimerExpired?: () => void;
 };
 
-/** Left-edge dark glass tab — Whatnot-style giveaway rail for buyers. */
+/** Left-edge Givvy tab — matches mobile buyer + seller Givvy branding. */
 export function LiveGiveawaySideTab({
   liveRoomId,
   giveaways,
@@ -57,13 +58,13 @@ export function LiveGiveawaySideTab({
         );
         const j = (await res.json()) as { error?: string };
         if (!res.ok) {
-          setError(j.error ?? "Could not enter giveaway.");
+          setError(j.error ?? "Could not enter Givvy.");
           return;
         }
         setEnteredIds((prev) => new Set([...prev, giveawayId]));
         onEntered?.();
       } catch {
-        setError("Could not enter giveaway.");
+        setError("Could not enter Givvy.");
       } finally {
         setBusyId(null);
       }
@@ -83,39 +84,68 @@ export function LiveGiveawaySideTab({
       {!open ? (
         <button
           type="button"
-          aria-label="Open giveaway"
+          aria-label="Open Givvy"
           onClick={() => setOpen(true)}
-          className={`relative flex min-h-[6rem] w-[4.75rem] shrink-0 flex-col justify-center gap-2 rounded-r-xl border border-l-0 border-white/15 bg-zinc-900/75 py-2.5 pl-2 pr-2.5 shadow-[4px_0_24px_-8px_rgba(0,0,0,0.75)] backdrop-blur-md transition hover:bg-zinc-900/85 ${
-            needsEntry ? "ring-1 ring-white/20" : ""
+          className={`relative flex ${GIVVY_SIDE_TAB.minHeightClass} ${GIVVY_SIDE_TAB.widthClass} shrink-0 flex-col justify-center gap-1.5 rounded-r-xl border border-l-0 py-2.5 pl-2 pr-2.5 shadow-[4px_0_24px_-8px_rgba(0,0,0,0.75)] backdrop-blur-md transition hover:brightness-110 ${
+            needsEntry ? "ring-1 ring-emerald-300/25" : ""
           }`}
+          style={{
+            borderColor: GIVVY_UI.border,
+            backgroundColor: GIVVY_UI.pillBg,
+          }}
         >
-          <span className="text-left text-[11px] font-bold leading-tight tracking-tight text-zinc-50">
-            Giveaway
+          <span
+            className="text-left text-[10px] font-bold leading-tight tracking-tight"
+            style={{ color: GIVVY_UI.label }}
+          >
+            Givvy
           </span>
           <span className="flex items-center gap-1.5">
             <span className="relative inline-flex" aria-hidden>
-              <span className="text-[19px] leading-none">🎁</span>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7M12 3v12M8 7l4-4 4 4"
+                  stroke={GIVVY_UI.icon}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
               {needsEntry ? (
-                <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-white/90" />
+                <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-emerald-200/90" />
               ) : null}
             </span>
             <span className="min-w-0 text-left">
-              <span className="block text-[22px] font-extrabold leading-none tabular-nums text-zinc-50">
+              <span
+                className="block text-[20px] font-extrabold leading-none tabular-nums"
+                style={{ color: GIVVY_UI.count }}
+              >
                 {entryCount}
               </span>
-              <span className="mt-0.5 block text-[10px] font-semibold text-zinc-300/80">Entries</span>
+              <span
+                className="mt-0.5 block text-[8px] font-semibold uppercase tracking-wide"
+                style={{ color: GIVVY_UI.countMuted }}
+              >
+                Entries
+              </span>
             </span>
           </span>
         </button>
       ) : (
-        <div className="w-[min(18rem,calc(100vw-3rem))] rounded-xl border border-white/12 bg-zinc-900/88 p-3 shadow-2xl backdrop-blur-xl">
+        <div
+          className="w-[min(18rem,calc(100vw-3rem))] rounded-xl border p-3 shadow-2xl backdrop-blur-xl"
+          style={{
+            borderColor: GIVVY_UI.border,
+            backgroundColor: "rgba(24,24,27,0.88)",
+          }}
+        >
           <div className="flex items-start gap-2">
             <p className="min-w-0 flex-1 text-[15px] font-extrabold leading-snug tracking-tight text-zinc-50">
               {primary.title}
             </p>
             <button
               type="button"
-              aria-label="Minimize giveaway"
+              aria-label="Minimize Givvy"
               onClick={() => setOpen(false)}
               className="shrink-0 rounded-md p-1 text-zinc-400 transition hover:bg-white/10 hover:text-zinc-200"
             >
@@ -136,7 +166,9 @@ export function LiveGiveawaySideTab({
           ) : null}
 
           <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs font-bold text-zinc-200/90">
-            <span aria-hidden>🎁</span>
+            <span aria-hidden style={{ color: GIVVY_UI.icon }}>
+              🎁
+            </span>
             <span>
               {entryCount} {entryCount === 1 ? "Entry" : "Entries"}
             </span>
@@ -150,7 +182,10 @@ export function LiveGiveawaySideTab({
           </p>
 
           {entered ? (
-            <p className="mt-3 rounded-full border border-white/15 bg-white/10 px-3 py-2.5 text-center text-xs font-bold text-zinc-100">
+            <p
+              className="mt-3 rounded-full border px-3 py-2.5 text-center text-xs font-bold text-zinc-100"
+              style={{ borderColor: GIVVY_UI.border, backgroundColor: "rgba(110,231,183,0.12)" }}
+            >
               {primary.viewerActiveInDrawing === false
                 ? "Entered · return to stay in the drawing"
                 : "You’re in the drawing"}
@@ -160,9 +195,10 @@ export function LiveGiveawaySideTab({
               type="button"
               disabled={busyId === primary.id}
               onClick={() => void handleEnter(primary.id)}
-              className="mt-3 flex w-full min-h-11 items-center justify-center rounded-full bg-zinc-50 px-4 py-2.5 text-sm font-extrabold text-zinc-900 transition hover:bg-white disabled:opacity-60"
+              className="mt-3 flex w-full min-h-11 items-center justify-center rounded-full px-4 py-2.5 text-sm font-extrabold text-zinc-950 transition hover:brightness-110 disabled:opacity-60"
+              style={{ backgroundColor: GIVVY_UI.icon }}
             >
-              {busyId === primary.id ? "…" : "Enter Giveaway"}
+              {busyId === primary.id ? "…" : "Enter Givvy"}
             </button>
           )}
 
@@ -172,4 +208,3 @@ export function LiveGiveawaySideTab({
     </div>
   );
 }
-

@@ -37,6 +37,12 @@ import { VaultRevealOverlay } from "@/components/live-auction/VaultRevealOverlay
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser-client";
 import { parseVaultRevealSpinPayload, type VaultRevealSpinPayload } from "@/lib/vault-reveal-spin";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
+import { isLiveRoomBroadcastOnAir, type LiveRoomBroadcastGate } from "@/lib/live-room-broadcast-on-air";
+import {
+  LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR,
+  LIVE_STREAM_PAUSED_COMMERCE_ERROR,
+} from "@/lib/live-room-commerce-messages";
+import { parseBuyerSafeStreamPayload } from "@/lib/live-stream-playback";
 
 type LiveRoomShellProps = {
   roomId: string;
@@ -52,6 +58,11 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
   const [teamBoardTick, setTeamBoardTick] = useState(0);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [streamPlaybackRefreshNonce, setStreamPlaybackRefreshNonce] = useState(0);
+  const [broadcastGate, setBroadcastGate] = useState<LiveRoomBroadcastGate>({
+    status: "scheduled",
+    streamHealth: "offline",
+    streamPaused: false,
+  });
   /** Estimated server − client wall clock (ms). Updated on each room fetch + periodic `/api/time` ping while live. */
   const [clockSkewMs, setClockSkewMs] = useState(0);
   const lastRefreshAtRef = useRef<number | null>(null);
@@ -486,6 +497,34 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
     }
   }, [detail]);
 
+  useEffect(() => {
+    if (!detail || detail.status !== "live") {
+      setBroadcastGate({
+        status: detail?.status ?? "scheduled",
+        streamHealth: "offline",
+        streamPaused: false,
+      });
+      return;
+    }
+    let cancelled = false;
+    void fetch(`/api/live-rooms/${encodeURIComponent(roomId)}/stream`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((raw) => {
+        if (cancelled || !raw) return;
+        const stream = parseBuyerSafeStreamPayload((raw as { stream?: unknown }).stream);
+        if (!stream) return;
+        setBroadcastGate({
+          status: "live",
+          streamHealth: stream.streamHealth,
+          streamPaused: stream.streamPaused,
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [detail?.status, roomId, streamPlaybackRefreshNonce]);
+
   /** Announce join as soon as auth is ready — do not wait for the full room snapshot. */
   useEffect(() => {
     if (status !== "authenticated" || !session?.user?.id || !roomId) return;
@@ -846,13 +885,21 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       }
     },
     onRoomStateEvent: () => scheduleFallbackRefresh("room_state_event", 1800),
-    onStreamStatusChange: () => {
+    onStreamStatusChange: (payload) => {
       logLiveDebugEvent({
         event: "event_received",
         roomId,
         lastRefreshAtMs: lastRefreshAtRef.current,
         extra: { type: "stream_status" },
       });
+      if (payload.streamHealth) {
+        setBroadcastGate((prev) => ({
+          ...prev,
+          status: "live",
+          streamHealth: payload.streamHealth!,
+        }));
+      }
+      setStreamPlaybackRefreshNonce((n) => n + 1);
       scheduleFallbackRefresh("stream_status", 200);
     },
     onReconnect: () => {
@@ -923,6 +970,18 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
 
   const host = `@${detail.sellerUsername}`;
   const isLive = detail.status === "live";
+  const broadcastCommerceBlocked =
+    isLive &&
+    !isLiveRoomBroadcastOnAir({
+      status: "live",
+      streamHealth: broadcastGate.streamHealth,
+      streamPaused: broadcastGate.streamPaused,
+    });
+  const broadcastCommerceHint = broadcastCommerceBlocked
+    ? broadcastGate.streamPaused
+      ? LIVE_STREAM_PAUSED_COMMERCE_ERROR
+      : LIVE_BROADCAST_OFFLINE_COMMERCE_ERROR
+    : null;
   const viewerCount = presenceCount ?? 0;
   const paymentFailure = detail.buyerUnresolvedPaymentFailure ?? null;
   const isHostViewer = session?.user?.id === detail.sellerId;
@@ -970,6 +1029,8 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           onOpenWallet={() => setPremiumWalletOpen(true)}
           onApplyVariantPurchase={handleBuyerVariantPurchased}
           buyerPaymentRecoveryPending={buyerPaymentRecoveryPending}
+          broadcastCommerceBlocked={broadcastCommerceBlocked}
+          broadcastCommerceHint={broadcastCommerceHint}
         />
         <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
         <LiveSpotTakenCelebration
@@ -977,7 +1038,12 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
           onDone={clearSpotCelebration}
           viewerUsername={session?.user?.username}
         />
-        <VaultRevealOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
+        <VaultRevealOverlay
+          spin={vaultRevealSpin}
+          onDismiss={() => setVaultRevealSpin(null)}
+          viewerUsername={session?.user?.username}
+          viewerUserId={session?.user?.id}
+        />
         {paymentBlocker}
         <LivePremiumWalletSheet
           open={premiumWalletOpen}
@@ -1019,6 +1085,8 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
       onOpenWallet={() => setPremiumWalletOpen(true)}
       onApplyVariantPurchase={handleBuyerVariantPurchased}
       buyerPaymentRecoveryPending={buyerPaymentRecoveryPending}
+      broadcastCommerceBlocked={broadcastCommerceBlocked}
+      broadcastCommerceHint={broadcastCommerceHint}
     />
       <LiveAuctionSoldCelebration celebration={soldCelebration} onDone={() => setSoldCelebration(null)} />
       <LiveSpotTakenCelebration
@@ -1026,7 +1094,12 @@ export function LiveRoomShell({ roomId }: LiveRoomShellProps) {
         onDone={clearSpotCelebration}
         viewerUsername={session?.user?.username}
       />
-      <VaultRevealOverlay spin={vaultRevealSpin} onDismiss={() => setVaultRevealSpin(null)} />
+      <VaultRevealOverlay
+        spin={vaultRevealSpin}
+        onDismiss={() => setVaultRevealSpin(null)}
+        viewerUsername={session?.user?.username}
+        viewerUserId={session?.user?.id}
+      />
       {paymentBlocker}
       <LivePremiumWalletSheet
         open={premiumWalletOpen}

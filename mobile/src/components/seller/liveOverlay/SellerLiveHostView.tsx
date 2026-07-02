@@ -1056,7 +1056,12 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         onClose={() => console.setPricingEditItem(null)}
         onSave={console.onSaveBreakSpots}
       />
-      <VaultRevealOverlay spin={vaultRevealSpin} onDismiss={dismissVaultRevealSpin} />
+      <VaultRevealOverlay
+        spin={vaultRevealSpin}
+        onDismiss={dismissVaultRevealSpin}
+        viewerUsername={sellerUsername ?? undefined}
+        viewerUserId={user?.id}
+      />
       <SellerBreakSpotBoardSheet
         visible={teamsBoardOpen}
         onClose={() => setTeamsBoardOpen(false)}

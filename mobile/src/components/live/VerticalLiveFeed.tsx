@@ -109,6 +109,11 @@ import { purchaseLiveBuyNow, syncLiveBuyNowPurchase } from '../../api/liveBuyNow
 import { mapLivePaymentFailureMessage } from '../../lib/livePaymentFailureCopy';
 import { LiveBidNoticeToast } from './LiveBidNoticeToast';
 import type { LiveBidFailureDisplay } from '../../lib/liveBidUserErrors';
+import {
+  isLiveBroadcastCommerceBlocked,
+  liveBroadcastCommerceBlockMessage,
+  type LiveRoomBroadcastGate,
+} from '../../lib/liveRoomBroadcastOnAir';
 
 function chatRightEdgeForWidth(layoutWidth: number): number {
   if (layoutWidth >= 768) return Math.round(92 * liveRoomOverlayScale(layoutWidth));
@@ -226,9 +231,25 @@ function LiveSlide({
   const [reportOpen, setReportOpen] = useState(false);
   const [reportChatMessage, setReportChatMessage] = useState<ChatMessage | null>(null);
   const [chatDraft, setChatDraft] = useState('');
-  const [streamMuted, setStreamMuted] = useState(true);
+  const [streamMuted, setStreamMuted] = useState(false);
   const [streamRefreshNonce, setStreamRefreshNonce] = useState(0);
   const [roomStatus, setRoomStatus] = useState(stream.roomStatus);
+  const [broadcastGate, setBroadcastGate] = useState<LiveRoomBroadcastGate>({
+    status: stream.roomStatus,
+    streamHealth: 'offline',
+    streamPaused: false,
+  });
+  const handleBroadcastGateChange = useCallback((gate: LiveRoomBroadcastGate) => {
+    setBroadcastGate(gate);
+  }, []);
+  const broadcastCommerceBlocked = useMemo(
+    () => isLiveBroadcastCommerceBlocked({ ...broadcastGate, status: roomStatus }),
+    [broadcastGate, roomStatus],
+  );
+  const broadcastCommerceBlockMessage = useMemo(
+    () => liveBroadcastCommerceBlockMessage({ ...broadcastGate, status: roomStatus }),
+    [broadcastGate, roomStatus],
+  );
   const [commerceHeight, setCommerceHeight] = useState(DEFAULT_COMMERCE_OVERLAY_HEIGHT);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [breakDisclaimerAccepted, setBreakDisclaimerAccepted] = useState(true);
@@ -536,6 +557,9 @@ function LiveSlide({
     if (breakParticipationBlocked) {
       return 'Accept the live break notice before bidding or buying.';
     }
+    if (broadcastCommerceBlockMessage) {
+      return broadcastCommerceBlockMessage;
+    }
     if (walletParticipationBlocked && walletReadiness) {
       return buyerWalletGatePromptBody(walletReadiness);
     }
@@ -545,6 +569,7 @@ function LiveSlide({
     return 'Complete setup in this show before bidding or buying.';
   }, [
     breakParticipationBlocked,
+    broadcastCommerceBlockMessage,
     liveSession.unresolvedPaymentFailure,
     walletParticipationBlocked,
     walletReadiness,
@@ -1005,6 +1030,8 @@ function LiveSlide({
       <VaultRevealOverlay
         spin={liveSession.vaultRevealSpin}
         onDismiss={liveSession.clearVaultRevealSpin}
+        viewerUsername={myChatSender.username}
+        viewerUserId={userId}
       />
       <View style={styles.slide}>
         <KeyboardDismissStageShield active={keyboardOffset > 0} />
@@ -1023,6 +1050,7 @@ function LiveSlide({
                 refreshNonce={streamRefreshNonce}
                 muted={isActive ? streamMuted : true}
                 onMutedChange={setStreamMuted}
+                onBroadcastGateChange={handleBroadcastGateChange}
               />
               <LinearGradient
                 colors={stream.thumbnailGradient}
@@ -1494,9 +1522,11 @@ function LiveSlide({
           onBidNotice={showBidNotice}
           participationBlocked={
             breakParticipationBlocked ||
+            broadcastCommerceBlocked ||
             walletParticipationBlocked ||
             Boolean(liveSession.unresolvedPaymentFailure)
           }
+          broadcastCommerceBlocked={broadcastCommerceBlocked}
           participationBlockMessage={participationBlockMessage}
           onWalletOverlayChange={
             isActive
@@ -1514,6 +1544,7 @@ function LiveSlide({
           onSpotCelebration={liveSession.showSpotCelebration}
           viewerUsername={myChatSender.username}
           commerceActive={isActive}
+          vaultRevealActive={Boolean(liveSession.vaultRevealSpin)}
         />
       </View>
       ) : null}

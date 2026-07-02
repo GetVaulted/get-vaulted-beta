@@ -188,7 +188,7 @@ export function LiveVideoStagePlayback({
 }: LiveVideoStagePlaybackProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
-  const mutedRef = useRef(true);
+  const mutedRef = useRef(false);
   const pollRef = useRef<number | null>(null);
   const retryRef = useRef(0);
   const backoffTimerRef = useRef<number | null>(null);
@@ -217,7 +217,7 @@ export function LiveVideoStagePlayback({
   const [videoHasData, setVideoHasData] = useState(false);
   const [playerFatal, setPlayerFatal] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
-  const [muted, setMuted] = useState(true);
+  const [muted, setMuted] = useState(false);
   const [debugEngine, setDebugEngine] = useState<"none" | "hls" | "native">("none");
   const [hlsFatalRetries, setHlsFatalRetries] = useState(0);
   const [hydrated, setHydrated] = useState(false);

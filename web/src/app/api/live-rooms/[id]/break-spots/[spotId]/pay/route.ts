@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSessionSafe } from "@/lib/auth";
 import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
 import { liveRoomPaymentBlockResponse } from "@/lib/live-room-payment-failure";
+import { getLiveRoomBroadcastCommerceBlock } from "@/lib/live-room-commerce-guards";
 import { settleLiveBreakSpotPayment, syncBreakSpotPaymentIntent } from "@/lib/live-payment-pipeline";
 import { prisma } from "@/lib/prisma";
 import { isStripeConfigured } from "@/lib/stripe";
@@ -48,6 +49,19 @@ export async function POST(
 
   const paymentBlock = await liveRoomPaymentBlockResponse(liveRoomId, userId);
   if (paymentBlock) return paymentBlock;
+
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: liveRoomId },
+    select: { status: true, streamHealth: true, streamPaused: true },
+  });
+  if (!room) return NextResponse.json({ error: "Room not found." }, { status: 404 });
+  if (room.status !== "live") {
+    return NextResponse.json({ error: "This room is not live." }, { status: 409 });
+  }
+  const broadcastBlock = getLiveRoomBroadcastCommerceBlock(room);
+  if (broadcastBlock) {
+    return NextResponse.json({ error: broadcastBlock.error, code: broadcastBlock.code }, { status: broadcastBlock.status });
+  }
 
   const spot = await prisma.breakSpot.findFirst({
     where: { id: breakSpotId, liveRoomId, userId },

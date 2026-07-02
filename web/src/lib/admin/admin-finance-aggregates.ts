@@ -15,9 +15,10 @@ const paidOrderWhere: Prisma.OrderWhereInput = {
 export type AdminFinanceSummary = {
   gmvUsd: number | null;
   platformFeesUsd: number | null;
-  /** TODO: Wire from Stripe Balance Transactions API — estimate only until then. */
+  /** Stripe card processing on buyer charges — paid by sellers, shown for reference only. */
   processingFeesUsd: number | null;
   processingFeesEstimated: boolean;
+  /** Platform application fees collected on sales (not net of Stripe processing). */
   netRevenueUsd: number | null;
   sellerPayoutsUsd: number | null;
   pendingPayoutsUsd: number | null;
@@ -84,6 +85,7 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
     _sum: { unresolvedDisputeCount: true },
   });
   const chargebacksDisputes = metricsAgg._sum.unresolvedDisputeCount ?? 0;
+  notes.push("Stripe processing fees are paid by sellers on Connect — not deducted from platform net.");
   notes.push("Chargeback/dispute count sums seller unresolved disputes — not full Stripe dispute history.");
 
   return {
@@ -91,7 +93,7 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
     platformFeesUsd: Math.round(platformFeesUsd * 100) / 100,
     processingFeesUsd: Math.round(processingFeesUsd * 100) / 100,
     processingFeesEstimated: true,
-    netRevenueUsd: Math.round((platformFeesUsd - processingFeesUsd) * 100) / 100,
+    netRevenueUsd: Math.round(platformFeesUsd * 100) / 100,
     sellerPayoutsUsd: Math.round(sellerPayoutsUsd * 100) / 100,
     pendingPayoutsUsd: Math.round(pendingPayoutsUsd * 100) / 100,
     refundedOrders,

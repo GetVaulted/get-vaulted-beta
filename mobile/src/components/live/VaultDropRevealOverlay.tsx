@@ -14,13 +14,22 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { isLightSpotAccent, NFL_DIVISION_COLORS, spotAccentColor } from '../../lib/liveBreakPresets';
 import {
   buildVaultDropReelLane,
-  reelStepAnimationMs,
-  vaultDropPoolPhaseCopy,
-  vaultDropReelLaneStartScrollIndex,
+  vaultDropPoolPhaseCopyForSpin,
+  vaultDropRevealAccent,
+  vaultDropRevealChipColor,
   vaultDropRevealEyebrow,
+  vaultDropRevealGivvyWinBanner,
+  vaultDropRevealPoolHint,
   vaultDropRevealTiming,
   vaultSealMetaLine,
   vaultSealWinnerCopy,
+  GIVVY_REVEAL_BORDER_GRADIENT,
+  VAULT_DROP_REEL_PILL_HEIGHT,
+  VAULT_DROP_REEL_PILL_BORDER,
+  VAULT_DROP_REEL_PILL_SPAN,
+  VAULT_DROP_REEL_PILL_WIDTH,
+  vaultDropReelCenterOffset,
+  vaultDropReelFocusRingPosition,
   type VaultRevealSpinPayload,
 } from '../../lib/vaultRevealSpin';
 import { colors, radii, spacing } from '../../theme';
@@ -30,11 +39,14 @@ import { LiveRoomText } from './LiveRoomText';
 type Phase = 'idle' | 'pool' | 'reveal';
 
 function revealAccentColor(spin: VaultRevealSpinPayload): string {
-  return labelAccentColor(spin, spin.winnerIndex);
+  if (spin.kind === 'random_reveal' || spin.kind === 'break_pyt') {
+    return labelAccentColor(spin, spin.winnerIndex);
+  }
+  return vaultDropRevealAccent(spin);
 }
 
 function labelAccentColor(spin: VaultRevealSpinPayload, index: number): string {
-  if (spin.kind === 'giveaway') return colors.gold;
+  if (spin.kind === 'giveaway') return vaultDropRevealChipColor(spin, index);
   const label = spin.labels[index]?.trim() ?? '';
   const abbr = spin.segmentAbbrs?.[index]?.trim();
   const isDivision = Boolean(NFL_DIVISION_COLORS[label]);
@@ -47,21 +59,17 @@ function shortPoolLabel(label: string): string {
   return `${t.slice(0, 13)}…`;
 }
 
-const REEL_PILL_WIDTH = 84;
-const REEL_PILL_GAP = 6;
-const REEL_PILL_HEIGHT = 40;
-const REEL_PILL_SPAN = REEL_PILL_WIDTH + REEL_PILL_GAP;
+const REEL_PILL_WIDTH = VAULT_DROP_REEL_PILL_WIDTH;
+const REEL_PILL_HEIGHT = VAULT_DROP_REEL_PILL_HEIGHT;
+const REEL_PILL_BORDER = VAULT_DROP_REEL_PILL_BORDER;
+const REEL_PILL_SPAN = VAULT_DROP_REEL_PILL_SPAN;
+const REEL_WINDOW_HEIGHT = REEL_PILL_HEIGHT + 12;
 
-function reelCenterOffset(viewportWidth: number, index: number): number {
-  return viewportWidth / 2 - REEL_PILL_WIDTH / 2 - index * REEL_PILL_SPAN;
+function reelCenterOffset(viewportWidth: number, index: number, span = REEL_PILL_SPAN): number {
+  return vaultDropReelCenterOffset(viewportWidth, index, span);
 }
 
-function reelStepEasing(progress: number, landing: boolean): (value: number) => number {
-  if (landing) return Easing.out(Easing.cubic);
-  if (progress < 0.72) return Easing.linear;
-  if (progress < 0.92) return Easing.out(Easing.quad);
-  return Easing.out(Easing.cubic);
-}
+const REEL_SPIN_EASING = Easing.bezier(0.12, 0.85, 0.22, 1);
 
 function animateReelTo(
   reelX: Animated.Value,
@@ -87,23 +95,28 @@ function reelDisplayScrollIndex(phase: Phase, centerScrollIndex: number, winnerS
 export function VaultDropRevealOverlay({
   spin,
   onDismiss,
+  viewerUsername,
+  viewerUserId,
 }: {
   spin: VaultRevealSpinPayload | null;
   onDismiss: () => void;
+  viewerUsername?: string | null;
+  viewerUserId?: string | null;
 }) {
   const insets = useSafeAreaInsets();
   const onDismissRef = useRef(onDismiss);
   onDismissRef.current = onDismiss;
   const animSpinIdRef = useRef<string | null>(null);
-  const reelViewportWidthRef = useRef(280);
+  const reelViewportWidthRef = useRef(0);
   const winnerScrollIndexRef = useRef(0);
+  const reelSpanRef = useRef(REEL_PILL_SPAN);
 
   const [phase, setPhase] = useState<Phase>('idle');
-  const [cycleIndex, setCycleIndex] = useState(0);
   const [centerScrollIndex, setCenterScrollIndex] = useState(0);
   const [poolProgress, setPoolProgress] = useState(0);
   const [poolPhaseCopy, setPoolPhaseCopy] = useState('Rolling the pool');
-  const [reelViewportWidth, setReelViewportWidth] = useState(280);
+  const [reelMeasuredWidth, setReelMeasuredWidth] = useState(0);
+  const [reelSpan, setReelSpan] = useState(REEL_PILL_SPAN);
 
   const cardScale = useRef(new Animated.Value(0.82)).current;
   const headlineScale = useRef(new Animated.Value(1)).current;
@@ -123,6 +136,7 @@ export function VaultDropRevealOverlay({
     if (!spin) {
       animSpinIdRef.current = null;
       setPhase('idle');
+      setReelMeasuredWidth(0);
       cardScale.setValue(0.82);
       headlineScale.setValue(1);
       scanY.setValue(0);
@@ -130,38 +144,35 @@ export function VaultDropRevealOverlay({
       reelX.setValue(0);
       reelBump.setValue(1);
       reelGlow.setValue(0);
-      return;
     }
+  }, [spin?.spinId]);
+
+  useEffect(() => {
+    if (!spin?.labels?.length) return;
     if (animSpinIdRef.current === spin.spinId) return;
+    if (reelMeasuredWidth <= 0) return;
     animSpinIdRef.current = spin.spinId;
 
-    const { steps } = vaultDropRevealTiming(spin);
-    const laneStartScroll = vaultDropReelLaneStartScrollIndex(spin.labels.length, steps[0]?.labelIndex ?? 0);
-    const winnerScrollIndex = laneStartScroll + steps.length;
+    const { scrollPlan } = vaultDropRevealTiming(spin);
+    const { laneStartScroll, spinEndScroll, winnerScrollIndex, spinDurationMs, landDurationMs } = scrollPlan;
     winnerScrollIndexRef.current = winnerScrollIndex;
     setPhase('pool');
-    setCycleIndex(steps[0]?.labelIndex ?? 0);
     setCenterScrollIndex(laneStartScroll);
     setPoolProgress(0);
-    setPoolPhaseCopy(vaultDropPoolPhaseCopy(0));
+    setPoolPhaseCopy(vaultDropPoolPhaseCopyForSpin(spin, 0));
     cardScale.setValue(0.82);
     headlineScale.setValue(1);
     scanY.setValue(0);
     pulse.setValue(0);
     reelBump.setValue(1);
     reelGlow.setValue(0);
-    reelX.setValue(reelCenterOffset(reelViewportWidthRef.current, laneStartScroll));
 
-    const animateReelToScroll = async (scrollIndex: number, progress: number, landing: boolean, delayMs: number) => {
-      const durationMs = reelStepAnimationMs(progress, landing, delayMs);
-      setCenterScrollIndex(scrollIndex);
-      await animateReelTo(
-        reelX,
-        reelCenterOffset(reelViewportWidthRef.current, scrollIndex),
-        durationMs,
-        reelStepEasing(progress, landing),
-      );
-    };
+    const viewportWidth = reelMeasuredWidth;
+    const span = reelSpanRef.current;
+    const spinStartX = reelCenterOffset(viewportWidth, laneStartScroll, span);
+    const spinEndX = reelCenterOffset(viewportWidth, spinEndScroll, span);
+    reelX.setValue(spinStartX);
+    reelViewportWidthRef.current = viewportWidth;
 
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 
@@ -189,29 +200,36 @@ export function VaultDropRevealOverlay({
       },
     };
 
-    void (async () => {
-      for (let stepIdx = 1; stepIdx < steps.length; stepIdx += 1) {
-        if (cancelled) return;
-        const step = steps[stepIdx]!;
-        const progress = stepIdx / Math.max(1, steps.length - 1);
-        setCycleIndex(step.labelIndex);
-        setPoolProgress(progress);
-        setPoolPhaseCopy(vaultDropPoolPhaseCopy(progress));
-        if (progress > 0.55 && stepIdx % 2 === 0) {
-          void Haptics.selectionAsync().catch(() => {});
-        }
-        await animateReelToScroll(laneStartScroll + stepIdx, progress, false, step.delayMs);
+    const spinDistance = spinStartX - spinEndX;
+    let lastHapticIndex = laneStartScroll;
+    const progressListenerId = reelX.addListener(({ value }) => {
+      if (spinDistance === 0) return;
+      const progress = Math.max(0, Math.min(1, (spinStartX - value) / spinDistance));
+      setPoolProgress(progress);
+      setPoolPhaseCopy(vaultDropPoolPhaseCopyForSpin(spin, progress));
+      const currentIndex = laneStartScroll + Math.round((spinStartX - value) / span);
+      if (progress > 0.08 && currentIndex !== lastHapticIndex) {
+        lastHapticIndex = currentIndex;
+        void Haptics.selectionAsync().catch(() => {});
       }
+    });
+
+    void (async () => {
+      await animateReelTo(reelX, spinEndX, spinDurationMs, REEL_SPIN_EASING);
+      reelX.setValue(spinEndX);
 
       if (cancelled) return;
 
       scanLoop.stop();
       pulseLoop.stop();
-      setPhase('reveal');
-      setCycleIndex(spin.winnerIndex);
+      setCenterScrollIndex(winnerScrollIndex);
       setPoolProgress(1);
       setPoolPhaseCopy('Locked');
-      await animateReelToScroll(winnerScrollIndex, 1, true, 0);
+      setPhase('reveal');
+
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, Math.min(120, landDurationMs));
+      });
 
       if (cancelled) return;
 
@@ -220,7 +238,7 @@ export function VaultDropRevealOverlay({
 
       Animated.sequence([
         Animated.timing(reelBump, {
-          toValue: 1.12,
+          toValue: 1.06,
           duration: 200,
           easing: Easing.out(Easing.quad),
           useNativeDriver: true,
@@ -266,38 +284,52 @@ export function VaultDropRevealOverlay({
     return () => {
       cancelled = true;
       reelAnimRef.current?.cancel();
+      reelX.removeListener(progressListenerId);
       scanLoop.stop();
       pulseLoop.stop();
     };
-  }, [spin?.spinId]);
+  }, [spin?.spinId, spin?.labels.length, reelMeasuredWidth, reelSpan]);
 
   useEffect(() => {
-    if (!spin?.spinId) return;
+    if (!spin?.spinId || !spin.labels.length) return;
     const { totalMs } = vaultDropRevealTiming(spin);
     const dismissTimer = setTimeout(() => onDismissRef.current(), totalMs);
     return () => clearTimeout(dismissTimer);
   }, [spin?.spinId, spin?.labels.length, spin?.winnerIndex]);
 
+  const onReelSlotLayout = (event: LayoutChangeEvent) => {
+    const width = event.nativeEvent.layout.width;
+    if (width <= 0 || Math.abs(width - reelSpanRef.current) <= 0.5) return;
+    reelSpanRef.current = width;
+    setReelSpan(width);
+  };
+
   const onReelLayout = (event: LayoutChangeEvent) => {
     const width = event.nativeEvent.layout.width;
     if (width <= 0) return;
     reelViewportWidthRef.current = width;
-    if (Math.abs(width - reelViewportWidth) > 1) {
-      setReelViewportWidth(width);
-      if (spin) {
-        const scrollIdx = reelDisplayScrollIndex(phase, centerScrollIndex, winnerScrollIndexRef.current);
-        reelX.setValue(reelCenterOffset(width, scrollIdx));
-      }
+    setReelMeasuredWidth((prev) => (Math.abs(prev - width) > 1 ? width : prev));
+    if (phase === 'pool') return;
+    if (spin) {
+      const scrollIdx = reelDisplayScrollIndex(phase, centerScrollIndex, winnerScrollIndexRef.current);
+      reelX.setValue(reelCenterOffset(width, scrollIdx, reelSpanRef.current));
     }
   };
 
-  if (!spin) return null;
+  if (!spin || spin.labels.length === 0) return null;
 
   const winner = vaultSealWinnerCopy(spin);
-  const eyebrow = vaultDropRevealEyebrow(spin.kind);
+  const eyebrow = vaultDropRevealEyebrow(spin);
+  const poolHint = vaultDropRevealPoolHint(spin);
+  const isGivvyDraw = spin.kind === 'giveaway';
+  const borderGradient = isGivvyDraw ? GIVVY_REVEAL_BORDER_GRADIENT : LIVE_CLAIM_CTA_GRADIENT;
+  const givvyWinBanner = showWinner
+    ? vaultDropRevealGivvyWinBanner(spin, { userId: viewerUserId, username: viewerUsername })
+    : null;
   const scanTranslate = scanY.interpolate({ inputRange: [0, 1], outputRange: [-120, 120] });
   const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.85] });
   const reelGlowOpacity = reelGlow.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
+  const focusRing = vaultDropReelFocusRingPosition(reelMeasuredWidth, REEL_WINDOW_HEIGHT);
 
   return (
     <Modal visible animationType="fade" transparent statusBarTranslucent onRequestClose={onDismiss}>
@@ -314,33 +346,41 @@ export function VaultDropRevealOverlay({
         <Animated.View
           style={[
             styles.glow,
-            { backgroundColor: `${showWinner ? accent : colors.gold}33`, opacity: pulseOpacity },
+            { backgroundColor: `${showWinner ? accent : isGivvyDraw ? '#34d399' : colors.gold}33`, opacity: pulseOpacity },
           ]}
         />
 
         <Pressable onPress={() => {}} style={styles.cardPressGuard}>
         <Animated.View style={[styles.cardWrap, { transform: [{ scale: cardScale }] }]}>
-          <LinearGradient colors={[...LIVE_CLAIM_CTA_GRADIENT]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.gradientBorder}>
+          <LinearGradient colors={[...borderGradient]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.gradientBorder}>
             <View style={styles.cardInner}>
-              <LiveRoomText style={styles.eyebrow}>{eyebrow}</LiveRoomText>
+              <LiveRoomText style={[styles.eyebrow, isGivvyDraw && styles.givvyEyebrow]}>{eyebrow}</LiveRoomText>
               <LiveRoomText style={styles.showTitle} numberOfLines={2}>
                 {spin.title}
               </LiveRoomText>
               <LiveRoomText style={styles.meta}>{vaultSealMetaLine(spin)}</LiveRoomText>
-              <LiveRoomText style={styles.fairness}>Verified server draw · everyone sees the same roll</LiveRoomText>
+              <LiveRoomText style={[styles.fairness, isGivvyDraw && styles.givvyFairness]}>
+                Verified server draw · everyone sees the same roll
+              </LiveRoomText>
 
               <View style={styles.poolBlock}>
-                <LiveRoomText style={styles.poolKicker}>
+                <LiveRoomText style={[styles.poolKicker, isGivvyDraw && styles.givvyPoolKicker]}>
                   {showWinner ? winner.kicker : poolPhaseCopy}
                 </LiveRoomText>
                 {!showWinner ? (
                   <View style={styles.progressTrack}>
-                    <View style={[styles.progressFill, { width: `${Math.round(poolProgress * 100)}%` }]} />
+                    <View
+                      style={[
+                        styles.progressFill,
+                        isGivvyDraw && styles.givvyProgressFill,
+                        { width: `${Math.round(poolProgress * 100)}%` },
+                      ]}
+                    />
                   </View>
                 ) : null}
 
-                <View style={styles.reelFrame} onLayout={onReelLayout}>
-                  <View style={styles.reelWindow} pointerEvents="none">
+                <View style={styles.reelFrame}>
+                  <View style={styles.reelWindow} onLayout={onReelLayout} pointerEvents="none">
                     <Animated.View style={[styles.reelTrack, { transform: [{ translateX: reelX }] }]}>
                       {reelLaneLabels.map((label, index) => {
                         const sourceIndex = labelCount > 0 ? index % labelCount : 0;
@@ -348,32 +388,50 @@ export function VaultDropRevealOverlay({
                         const lightChip = isLightSpotAccent(chipAccent);
                         const isWinnerSlot = showWinner && index === centerScrollIndex;
                         return (
-                          <Animated.View
+                          <View
                             key={`${label}-${index}`}
-                            style={[
-                              styles.reelPill,
-                              {
-                                backgroundColor: lightChip ? `${chipAccent}ee` : `${chipAccent}44`,
-                                borderColor: chipAccent,
-                                transform: isWinnerSlot ? [{ scale: reelBump }] : undefined,
-                              },
-                              isWinnerSlot && styles.reelPillWinner,
-                            ]}
+                            style={styles.reelSlot}
+                            onLayout={index === 0 ? onReelSlotLayout : undefined}
                           >
-                            <LiveRoomText
+                            <Animated.View
                               style={[
-                                styles.reelPillTxt,
-                                { color: lightChip ? '#111' : '#fff' },
-                                isWinnerSlot && styles.reelPillTxtWinner,
+                                styles.reelPill,
+                                {
+                                  backgroundColor: lightChip ? `${chipAccent}ee` : `${chipAccent}44`,
+                                  borderColor: chipAccent,
+                                  transform: isWinnerSlot ? [{ scale: reelBump }] : undefined,
+                                },
+                                isWinnerSlot && styles.reelPillWinner,
                               ]}
-                              numberOfLines={1}
                             >
-                              {shortPoolLabel(label)}
-                            </LiveRoomText>
-                          </Animated.View>
+                              <LiveRoomText
+                                style={[
+                                  styles.reelPillTxt,
+                                  { color: lightChip ? '#111' : '#fff' },
+                                  isWinnerSlot && styles.reelPillTxtWinner,
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {shortPoolLabel(label)}
+                              </LiveRoomText>
+                            </Animated.View>
+                          </View>
                         );
                       })}
                     </Animated.View>
+                    <View
+                      style={[
+                        styles.reelFocusRing,
+                        isGivvyDraw && styles.givvyFocusRing,
+                        {
+                          left: focusRing.left,
+                          top: focusRing.top,
+                          width: focusRing.width,
+                          height: focusRing.height,
+                        },
+                      ]}
+                      pointerEvents="none"
+                    />
                   </View>
                   <LinearGradient
                     colors={['#0a0a0c', 'rgba(10,10,12,0)', 'rgba(10,10,12,0)', '#0a0a0c']}
@@ -383,7 +441,6 @@ export function VaultDropRevealOverlay({
                     style={styles.reelEdgeFade}
                     pointerEvents="none"
                   />
-                  <View style={styles.reelFocusRing} pointerEvents="none" />
                   {showWinner ? (
                     <Animated.View
                       pointerEvents="none"
@@ -397,6 +454,9 @@ export function VaultDropRevealOverlay({
 
                 {showWinner ? (
                   <Animated.View style={{ transform: [{ scale: headlineScale }], width: '100%' }}>
+                    {givvyWinBanner ? (
+                      <LiveRoomText style={styles.givvyWinBanner}>{givvyWinBanner}</LiveRoomText>
+                    ) : null}
                     <LiveRoomText style={[styles.winnerTeam, { color: accent }]} numberOfLines={2}>
                       {winner.primary}
                     </LiveRoomText>
@@ -404,7 +464,7 @@ export function VaultDropRevealOverlay({
                     {winner.detail ? <LiveRoomText style={styles.winnerDetail}>{winner.detail}</LiveRoomText> : null}
                   </Animated.View>
                 ) : (
-                  <LiveRoomText style={styles.reelHint}>Team reel slows down and locks on your draw</LiveRoomText>
+                  <LiveRoomText style={styles.reelHint}>{poolHint}</LiveRoomText>
                 )}
               </View>
             </View>
@@ -488,6 +548,9 @@ const styles = StyleSheet.create({
     color: colors.gold,
     textAlign: 'center',
   },
+  givvyEyebrow: {
+    color: '#6ee7b7',
+  },
   showTitle: {
     marginTop: spacing.sm,
     fontSize: 16,
@@ -509,6 +572,9 @@ const styles = StyleSheet.create({
     color: 'rgba(255,215,120,0.72)',
     textAlign: 'center',
   },
+  givvyFairness: {
+    color: 'rgba(110,231,183,0.82)',
+  },
   poolBlock: {
     marginTop: spacing.md,
     width: '100%',
@@ -523,6 +589,9 @@ const styles = StyleSheet.create({
     color: 'rgba(255,215,120,0.92)',
     textAlign: 'center',
   },
+  givvyPoolKicker: {
+    color: 'rgba(110,231,183,0.92)',
+  },
   progressTrack: {
     width: '100%',
     height: 4,
@@ -535,6 +604,9 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: colors.gold,
   },
+  givvyProgressFill: {
+    backgroundColor: '#34d399',
+  },
   reelFrame: {
     width: '100%',
     marginTop: spacing.xs,
@@ -542,9 +614,9 @@ const styles = StyleSheet.create({
   },
   reelWindow: {
     width: '100%',
-    height: REEL_PILL_HEIGHT + 12,
+    height: REEL_WINDOW_HEIGHT,
     overflow: 'hidden',
-    justifyContent: 'center',
+    position: 'relative',
     backgroundColor: 'rgba(0,0,0,0.35)',
     borderRadius: radii.pill,
     borderWidth: StyleSheet.hairlineWidth,
@@ -553,20 +625,25 @@ const styles = StyleSheet.create({
   reelTrack: {
     flexDirection: 'row',
     alignItems: 'center',
+    height: REEL_WINDOW_HEIGHT,
+  },
+  reelSlot: {
+    width: REEL_PILL_SPAN,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   reelPill: {
     width: REEL_PILL_WIDTH,
     height: REEL_PILL_HEIGHT,
-    marginRight: REEL_PILL_GAP,
     flexShrink: 0,
     borderRadius: radii.pill,
-    borderWidth: 1.5,
+    borderWidth: REEL_PILL_BORDER,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 8,
   },
   reelPillWinner: {
-    borderWidth: 2,
     shadowColor: '#000',
     shadowOpacity: 0.35,
     shadowRadius: 10,
@@ -584,15 +661,13 @@ const styles = StyleSheet.create({
   },
   reelFocusRing: {
     position: 'absolute',
-    top: 4,
-    left: '50%',
-    marginLeft: -(REEL_PILL_WIDTH / 2) - 4,
-    width: REEL_PILL_WIDTH + 8,
-    height: REEL_PILL_HEIGHT + 4,
     borderRadius: radii.pill,
-    borderWidth: 2,
-    borderColor: 'rgba(255,215,120,0.72)',
-    backgroundColor: 'rgba(255,215,120,0.06)',
+    borderWidth: REEL_PILL_BORDER,
+    borderColor: 'rgba(255,215,120,0.85)',
+    backgroundColor: 'transparent',
+  },
+  givvyFocusRing: {
+    borderColor: 'rgba(110,231,183,0.88)',
   },
   reelEdgeFade: {
     ...StyleSheet.absoluteFillObject,
@@ -600,9 +675,10 @@ const styles = StyleSheet.create({
   },
   reelWinnerGlow: {
     position: 'absolute',
-    top: -6,
+    top: '50%',
     left: '50%',
     marginLeft: -(REEL_PILL_WIDTH / 2) - 10,
+    marginTop: -(REEL_PILL_HEIGHT / 2) - 10,
     width: REEL_PILL_WIDTH + 20,
     height: REEL_PILL_HEIGHT + 20,
     borderRadius: radii.pill,
@@ -619,6 +695,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 0.3,
     marginTop: spacing.xs,
+  },
+  givvyWinBanner: {
+    fontSize: 15,
+    fontWeight: '900',
+    textAlign: 'center',
+    color: '#6ee7b7',
+    marginBottom: spacing.sm,
+    letterSpacing: 0.2,
   },
   winnerSub: {
     fontSize: 15,

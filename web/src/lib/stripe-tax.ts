@@ -364,6 +364,38 @@ export function extractTaxFromCheckoutSession(session: Stripe.Checkout.Session):
   };
 }
 
+/** Read buyer-paid tax from a succeeded PaymentIntent (live saved-card / Connect charges). */
+export function extractTaxFromPaymentIntent(paymentIntent: Stripe.PaymentIntent): ExtractedCheckoutTax {
+  let taxAmountCents = 0;
+  if (paymentIntent.metadata?.salesTaxCents) {
+    const parsed = Number.parseInt(paymentIntent.metadata.salesTaxCents, 10);
+    if (Number.isFinite(parsed) && parsed > 0) taxAmountCents = parsed;
+  }
+  const stripeTaxCalculationId =
+    typeof paymentIntent.metadata?.stripeTaxCalculationId === "string"
+      ? paymentIntent.metadata.stripeTaxCalculationId
+      : null;
+  return {
+    taxAmountCents,
+    taxUsd: taxAmountCents / 100,
+    stripeTaxCalculationId,
+    totalAmountCents: paymentIntent.amount_received ?? paymentIntent.amount ?? null,
+  };
+}
+
+export async function fetchPaymentIntentTax(paymentIntentId: string): Promise<ExtractedCheckoutTax | null> {
+  const id = paymentIntentId.trim();
+  if (!id || !isStripeConfigured()) return null;
+  try {
+    const stripe = getStripe();
+    const paymentIntent = await stripe.paymentIntents.retrieve(id);
+    return extractTaxFromPaymentIntent(paymentIntent);
+  } catch (e) {
+    console.error("[stripe-tax] fetchPaymentIntentTax", e);
+    return null;
+  }
+}
+
 /** Estimate sales tax via Stripe Tax Calculation API (no hardcoded rates). */
 export async function estimateSalesTaxCents(args: {
   itemPriceUsd: number;

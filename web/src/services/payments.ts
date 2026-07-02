@@ -25,6 +25,7 @@ import {
   connectCheckoutPaymentIntentData,
   loadSellerShipFromForTax,
   fetchCheckoutSessionTax,
+  fetchPaymentIntentTax,
   STRIPE_TAX_CODE_SHIPPING,
   STRIPE_TAX_CODE_TANGIBLE,
   stripeLineItemProductData,
@@ -1379,6 +1380,8 @@ export async function finalizeStripeMarketplaceOrderPaid(
       shippingPriceUsd: true,
       itemPriceUsd: true,
       taxUsd: true,
+      taxAmountCents: true,
+      stripeTaxCalculationId: true,
       shipState: true,
       shipCountry: true,
       liveShippingSession: { select: { liveShowId: true } },
@@ -1392,9 +1395,26 @@ export async function finalizeStripeMarketplaceOrderPaid(
     sessionId != null ? await fetchCheckoutSessionTax(sessionId) : null;
   const breakdown =
     sessionId != null ? await fetchCheckoutSessionChargeBreakdown(sessionId) : null;
-  const taxAmountCents = breakdown
+  let taxAmountCents = breakdown
     ? Math.round(breakdown.taxUsd * 100)
     : taxFromSession?.taxAmountCents ?? 0;
+  let stripeTaxCalculationId = taxFromSession?.stripeTaxCalculationId ?? null;
+
+  if (taxAmountCents <= 0 && paymentIntentId) {
+    const taxFromPi = await fetchPaymentIntentTax(paymentIntentId);
+    if (taxFromPi && taxFromPi.taxAmountCents > 0) {
+      taxAmountCents = taxFromPi.taxAmountCents;
+      stripeTaxCalculationId = taxFromPi.stripeTaxCalculationId ?? stripeTaxCalculationId;
+    }
+  }
+
+  if (taxAmountCents <= 0 && (order.taxAmountCents ?? 0) > 0) {
+    taxAmountCents = order.taxAmountCents;
+    stripeTaxCalculationId = order.stripeTaxCalculationId ?? stripeTaxCalculationId;
+  } else if (taxAmountCents <= 0 && (order.taxUsd ?? 0) > 0) {
+    taxAmountCents = Math.round(order.taxUsd * 100);
+  }
+
   const taxUsd = breakdown?.taxUsd ?? taxAmountCents / 100;
   const itemPriceUsd = breakdown?.itemPriceUsd ?? order.itemPriceUsd;
   const shippingPriceUsd = breakdown?.shippingPriceUsd ?? order.shippingPriceUsd;
@@ -1406,7 +1426,7 @@ export async function finalizeStripeMarketplaceOrderPaid(
     itemPriceUsd,
     shippingPriceUsd,
     taxAmountCents,
-    stripeTaxCalculationId: taxFromSession?.stripeTaxCalculationId ?? null,
+    stripeTaxCalculationId,
     taxJurisdictionState: order.shipState,
   });
 
@@ -1596,35 +1616,8 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
       if (kind === "break_spot") {
         const breakSpotId = session.metadata?.breakSpotId;
         if (!breakSpotId) return;
-        await prisma.breakSpot.update({
-          where: { id: breakSpotId },
-          data: {
-            claimStatus: "paid",
-            paidAt: new Date(),
-            breakPaymentStatus: PAYMENT_PAID,
-            stripePaymentIntentId: pi ?? undefined,
-            stripeCheckoutSessionId: session.id,
-          },
-        });
-        const spot = await prisma.breakSpot.findUnique({
-          where: { id: breakSpotId },
-          select: { liveRoomId: true, userId: true, spotLabel: true, priceUsd: true },
-        });
-        if (spot) {
-          if (Number.isFinite(spot.priceUsd) && spot.priceUsd > 0) {
-            await prisma.$transaction(async (tx) => {
-              await recordLiveShowCompletedSaleTx(tx, spot.liveRoomId, spot.priceUsd!);
-            });
-          }
-          emitLiveRoomMessagesRefetch(spot.liveRoomId);
-          await createNotification(prisma, {
-            userId: spot.userId,
-            type: "break_spot_paid",
-            title: "Spot paid",
-            body: `Payment confirmed for ${spot.spotLabel}.`,
-            href: `/live/${encodeURIComponent(spot.liveRoomId)}`,
-          });
-        }
+        const { finalizeBreakSpotPaid } = await import("@/lib/live-buy-now-purchase");
+        await finalizeBreakSpotPaid({ breakSpotId, paymentIntentId: pi ?? undefined });
         return;
       }
 

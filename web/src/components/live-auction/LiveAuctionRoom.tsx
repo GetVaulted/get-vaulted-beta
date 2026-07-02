@@ -218,6 +218,9 @@ export type LiveAuctionRoomProps = {
   onApplyVariantPurchase?: (payload: VariantPurchasedMergePayload & { label?: string; amountUsd?: number }) => void;
   /** Buyer must resolve payment recovery before commerce or tips. */
   buyerPaymentRecoveryPending?: boolean;
+  /** Host IVS broadcast offline/paused — block buyer bids and checkout. */
+  broadcastCommerceBlocked?: boolean;
+  broadcastCommerceHint?: string | null;
 };
 
 function fmt(n: number) {
@@ -292,6 +295,8 @@ export function LiveAuctionRoom({
   onOpenWallet,
   onApplyVariantPurchase,
   buyerPaymentRecoveryPending = false,
+  broadcastCommerceBlocked = false,
+  broadcastCommerceHint = null,
 }: LiveAuctionRoomProps) {
   const router = useRouter();
   const { data: session, status } = useSession();
@@ -669,6 +674,7 @@ export function LiveAuctionRoom({
 
   const actionsDisabled =
     !isLive ||
+    broadcastCommerceBlocked ||
     staffCommerceBlocked ||
     busy ||
     (overlayIsLive && bidFlight) ||
@@ -678,7 +684,9 @@ export function LiveAuctionRoom({
     bidActionLocked ||
     !breakDisclaimerAccepted ||
     (!isHost && isLive && !buyerLiveWalletReady);
-  const staffCommerceHint = staffCommerceBlocked
+  const staffCommerceHint = broadcastCommerceHint
+    ? broadcastCommerceHint
+    : staffCommerceBlocked
     ? isHost
       ? LIVE_HOST_SELF_COMMERCE_ERROR
       : viewerModeration.isModerator
@@ -689,6 +697,7 @@ export function LiveAuctionRoom({
   /** PYT/PYD — claim sheet for pick/random; spot auction uses bid flow. */
   const variantShopDisabled =
     !isLive ||
+    broadcastCommerceBlocked ||
     staffCommerceBlocked ||
     busy ||
     sessionBlocksBuyer ||
@@ -697,6 +706,7 @@ export function LiveAuctionRoom({
 
   const variantSpotBidDisabled =
     !isLive ||
+    broadcastCommerceBlocked ||
     staffCommerceBlocked ||
     busy ||
     bidFlight ||

@@ -259,7 +259,17 @@ export function AddInventoryModal({
             contentContainerStyle={styles.scrollContent}
           >
             <Text style={styles.title}>Add to show</Text>
-            <Text style={styles.sub}>Photo, title, pricing, and quantity — queue as many lots as you need.</Text>
+            <Text style={styles.sub}>Title, photo, pricing, and quantity — queue as many lots as you need.</Text>
+
+            <Text style={styles.fieldLbl}>Title</Text>
+            <TextInput
+              value={draft.title}
+              onChangeText={(title) => setDraft((prev) => ({ ...prev, title }))}
+              placeholder="e.g. PSA 10 rookie chase"
+              placeholderTextColor={colors.textMuted}
+              style={styles.input}
+              editable={!busy}
+            />
 
             <Text style={styles.fieldLbl}>Photo</Text>
             <Pressable
@@ -282,16 +292,6 @@ export function AddInventoryModal({
               ) : null}
             </Pressable>
             {imageError ? <Text style={styles.errorTxt}>{imageError}</Text> : null}
-
-            <Text style={styles.fieldLbl}>Title</Text>
-            <TextInput
-              value={draft.title}
-              onChangeText={(title) => setDraft((prev) => ({ ...prev, title }))}
-              placeholder="e.g. PSA 10 rookie chase"
-              placeholderTextColor={colors.textMuted}
-              style={styles.input}
-              editable={!busy}
-            />
 
             <Text style={styles.fieldLbl}>Sale type</Text>
             <View style={styles.saleCategoryRow}>

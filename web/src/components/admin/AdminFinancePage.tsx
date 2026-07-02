@@ -53,7 +53,7 @@ export function AdminFinancePage() {
   return (
     <AdminCommandShell
       title="Financial Analytics"
-      subtitle="Aggregates from paid marketplace orders. Processing fees and disputes use estimates until Stripe reconciliation endpoints exist."
+      subtitle="Platform net is application fees collected on paid orders. Stripe processing is paid by sellers and shown separately for reference."
     >
       {loading && !summary ? (
         <p className="text-sm text-zinc-500">Loading finance data…</p>
@@ -64,11 +64,18 @@ export function AdminFinancePage() {
               { label: "GMV USD", value: summary?.gmvUsd ?? null, tone: "gold" },
               { label: "Platform fees USD", value: summary?.platformFeesUsd ?? null },
               {
-                label: "Processing fees USD",
+                label: "Stripe processing (sellers)",
                 value: summary?.processingFeesUsd ?? null,
-                hint: summary?.processingFeesEstimated ? "Estimated (2.9% + $0.30)" : undefined,
+                hint: summary?.processingFeesEstimated
+                  ? "Estimated seller-paid Stripe (2.9% + $0.30) — not platform cost"
+                  : undefined,
               },
-              { label: "Net revenue USD", value: summary?.netRevenueUsd ?? null, tone: "gold" },
+              {
+                label: "Net platform revenue USD",
+                value: summary?.netRevenueUsd ?? null,
+                hint: "Application fees collected — same as platform fees",
+                tone: "gold",
+              },
               { label: "Seller payouts USD", value: summary?.sellerPayoutsUsd ?? null },
               { label: "Pending payouts USD", value: summary?.pendingPayoutsUsd ?? null, tone: "warn" },
               { label: "Refunded layaways", value: summary?.refundedOrders ?? null },
@@ -112,7 +119,7 @@ export function AdminFinancePage() {
               ))}
             </div>
             <p className="mt-3 text-[11px] text-zinc-600">
-              Gold = item GMV · Green = platform fees · TODO: full-history SQL aggregation + Stripe Balance Transactions for processing/net.
+              Gold = item GMV · Green = platform fees collected · Net platform revenue equals platform fees (Stripe processing is seller-paid).
             </p>
           </div>
 

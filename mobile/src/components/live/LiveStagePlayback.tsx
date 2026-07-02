@@ -1,14 +1,15 @@
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, ActivityIndicator, StyleSheet, View, type AppStateStatus } from 'react-native';
-import { useVideoPlayer, VideoView, type VideoPlayer } from 'expo-video';
+import { useVideoPlayer, VideoView, isPictureInPictureSupported, type VideoPlayer } from 'expo-video';
 import { useLiveStagePlayback, type LivePlaybackMode } from '../../hooks/useLiveStagePlayback';
 import { useHlsLiveEdgeSeek } from '../../hooks/useHlsLiveEdgeSeek';
 import {
   resolveLivePlaybackSurfaceState,
   shouldAttachHlsPlayback,
 } from '../../lib/liveStreamPlayback';
+import type { LiveRoomBroadcastGate } from '../../lib/liveRoomBroadcastOnAir';
 import {
   formatScheduledStartLong,
   getCountdownParts,
@@ -34,6 +35,7 @@ type Props = {
   muted: boolean;
   onMutedChange: (muted: boolean) => void;
   contentFit?: 'cover' | 'contain';
+  onBroadcastGateChange?: (gate: LiveRoomBroadcastGate) => void;
 };
 
 function StandbyOverlay({
@@ -98,35 +100,61 @@ export function LiveStagePlayback({
   muted,
   onMutedChange,
   contentFit = 'cover',
+  onBroadcastGateChange,
 }: Props) {
   const mode: LivePlaybackMode = playbackMode ?? (enabled ? 'active' : 'off');
   const isForeground = mode === 'active';
   const [appState, setAppState] = useState<AppStateStatus>(() => AppState.currentState);
+  const appStateRef = useRef(appState);
+  appStateRef.current = appState;
+  const mainVideoRef = useRef<VideoView>(null);
+  const pipVideoRef = useRef<VideoView>(null);
+  const pipReadyRef = useRef(false);
+  const pipStartingRef = useRef(false);
+  const pipRetryTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const playbackContextRef = useRef({
+    useWebrtc: false,
+    attachHls: false,
+    attachHlsPip: false,
+  });
   const playback = useLiveStagePlayback({ roomId, playbackMode: mode, accessToken, refreshNonce });
 
   const playbackUrl = playback.stream?.playbackUrl ?? null;
   const streamHealth = playback.stream?.streamHealth ?? 'offline';
   const streamPaused = playback.stream?.streamPaused === true;
   const transport = playback.transport;
+
+  useEffect(() => {
+    onBroadcastGateChange?.({
+      status: roomStatus,
+      streamHealth,
+      streamPaused,
+    });
+  }, [onBroadcastGateChange, roomStatus, streamHealth, streamPaused]);
+
   const streamSignalLive = streamHealth.toLowerCase() === 'live' || streamHealth.toLowerCase() === 'connecting';
   const roomLifecycleLive = roomStatus === 'live' || streamSignalLive;
 
   const useWebrtc = transport === 'webrtc' && enabled;
   const attachHls = transport === 'hls' && Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
-  /** WebRTC is foreground-only; keep a hidden HLS player so system PiP can attach when the app backgrounds. */
+  /** WebRTC is foreground-only; keep a hidden HLS player warm so system PiP can attach when the app backgrounds. */
   const attachHlsPip =
     useWebrtc &&
+    (isForeground || appState !== 'active') &&
     roomLifecycleLive &&
     Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
+  const appIsActive = appState === 'active';
+  playbackContextRef.current = { useWebrtc, attachHls, attachHlsPip };
 
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', setAppState);
-    return () => sub.remove();
+  const clearPipRetryTimers = useCallback(() => {
+    for (const timer of pipRetryTimersRef.current) clearTimeout(timer);
+    pipRetryTimersRef.current = [];
   }, []);
 
   const hlsPlayerSetup = (p: VideoPlayer) => {
     p.loop = false;
     p.muted = muted;
+    p.staysActiveInBackground = true;
     p.bufferOptions = {
       preferredForwardBufferDuration: 3,
       waitsToMinimizeStalling: false,
@@ -159,20 +187,99 @@ export function LiveStagePlayback({
   }, [attachHls, playbackUrl, player]);
 
   useEffect(() => {
-    if (!attachHlsPip || !playbackUrl) return;
+    if (!attachHlsPip || !playbackUrl || !appIsActive) return;
     pipPlayer.replace(playbackUrl);
     pipPlayer.play();
-  }, [attachHlsPip, playbackUrl, pipPlayer]);
+  }, [appIsActive, attachHlsPip, playbackUrl, pipPlayer]);
+
+  const tryStartPictureInPicture = useCallback(async () => {
+    if (pipStartingRef.current || appStateRef.current === 'active') return;
+    if (!isPictureInPictureSupported()) {
+      if (__DEV__) {
+        console.warn(
+          '[LiveStagePlayback] PiP is not supported in this build. Use the Get Vaulted dev client or TestFlight — Expo Go cannot enable PiP.',
+        );
+      }
+      return;
+    }
+
+    const { useWebrtc: webrtc, attachHls: hls, attachHlsPip: hlsPip } = playbackContextRef.current;
+    const usePipCompanion = webrtc && hlsPip;
+    const useMainHls = hls && !usePipCompanion;
+    if (!usePipCompanion && !useMainHls) {
+      if (__DEV__) {
+        console.warn('[LiveStagePlayback] PiP skipped — stream is not on an HLS-capable path yet.', {
+          transport: playbackContextRef.current,
+        });
+      }
+      return;
+    }
+
+    if (usePipCompanion && !pipReadyRef.current) {
+      pipPlayer.play();
+      return;
+    }
+    if (useMainHls && player.status !== 'readyToPlay') {
+      player.play();
+      return;
+    }
+
+    const viewRef = usePipCompanion ? pipVideoRef : mainVideoRef;
+    if (!viewRef.current) return;
+
+    pipStartingRef.current = true;
+    try {
+      await viewRef.current.startPictureInPicture();
+    } catch (err) {
+      if (__DEV__) {
+        console.warn('[LiveStagePlayback] startPictureInPicture failed', err);
+      }
+    } finally {
+      pipStartingRef.current = false;
+    }
+  }, [pipPlayer, player]);
 
   useEffect(() => {
-    if (!attachHlsPip) return;
     const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'active' || next === 'inactive' || next === 'background') {
-        pipPlayer.play();
+      appStateRef.current = next;
+      setAppState(next);
+      if (next === 'background' || next === 'inactive') {
+        clearPipRetryTimers();
+        void tryStartPictureInPicture();
+        for (const delayMs of [150, 400, 900]) {
+          pipRetryTimersRef.current.push(
+            setTimeout(() => {
+              void tryStartPictureInPicture();
+            }, delayMs),
+          );
+        }
+      } else if (next === 'active') {
+        clearPipRetryTimers();
       }
     });
+    return () => {
+      clearPipRetryTimers();
+      sub.remove();
+    };
+  }, [clearPipRetryTimers, tryStartPictureInPicture]);
+
+  useEffect(() => {
+    if (!attachHlsPip) {
+      pipReadyRef.current = false;
+      return undefined;
+    }
+    const syncReady = () => {
+      pipReadyRef.current = pipPlayer.status === 'readyToPlay';
+    };
+    const sub = pipPlayer.addListener('statusChange', (evt) => {
+      pipReadyRef.current = evt.status === 'readyToPlay';
+      if (evt.status === 'readyToPlay' && appStateRef.current !== 'active') {
+        void tryStartPictureInPicture();
+      }
+    });
+    syncReady();
     return () => sub.remove();
-  }, [attachHlsPip, pipPlayer]);
+  }, [attachHlsPip, pipPlayer, tryStartPictureInPicture]);
 
   useEffect(() => {
     if (!attachHls) return;
@@ -329,17 +436,20 @@ export function LiveStagePlayback({
 
       {showHlsLayer ? (
         <VideoView
+          ref={mainVideoRef}
           player={player}
           style={styles.video}
           contentFit={contentFit}
           nativeControls={false}
           allowsPictureInPicture
           startsPictureInPictureAutomatically
+          collapsable={false}
         />
       ) : null}
 
       {attachHlsPip ? (
         <VideoView
+          ref={pipVideoRef}
           player={pipPlayer}
           style={styles.pipHidden}
           contentFit={contentFit}
@@ -380,11 +490,11 @@ const styles = StyleSheet.create({
   },
   pipHidden: {
     position: 'absolute',
-    top: 0,
+    top: -200,
     left: 0,
-    width: 120,
-    height: 68,
-    opacity: 0.02,
+    width: 160,
+    height: 90,
+    opacity: 0.01,
   },
   standbyWrap: {
     ...StyleSheet.absoluteFillObject,

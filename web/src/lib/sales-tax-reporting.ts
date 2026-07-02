@@ -1,9 +1,21 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { normalizeCountryCode, normalizeUsStateCode } from "@/lib/stripe-tax";
+import { buildOrderTaxPersistFields, orderTaxUpdateData } from "@/lib/sales-tax-order";
+import { fetchPaymentIntentTax, normalizeCountryCode, normalizeUsStateCode } from "@/lib/stripe-tax";
 
 function startOfUtcDay(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+/** Prefer persisted cents; fall back to legacy taxUsd on older rows. */
+export function effectiveOrderTaxAmountCents(order: {
+  taxAmountCents?: number | null;
+  taxUsd?: number | null;
+}): number {
+  const cents = Math.max(0, order.taxAmountCents ?? 0);
+  if (cents > 0) return cents;
+  const fromUsd = Math.round(Math.max(0, order.taxUsd ?? 0) * 100);
+  return fromUsd > 0 ? fromUsd : 0;
 }
 
 /** Informational nexus monitoring — does NOT auto-enable tax collection. */
@@ -82,9 +94,12 @@ export async function aggregateTaxReporting(filters: TaxReportingFilters): Promi
     where,
     select: {
       taxAmountCents: true,
+      taxUsd: true,
       taxRefundedCents: true,
       taxTaxableSubtotalCents: true,
       taxShippingTaxableCents: true,
+      itemPriceUsd: true,
+      shippingPriceUsd: true,
     },
   });
 
@@ -95,15 +110,25 @@ export async function aggregateTaxReporting(filters: TaxReportingFilters): Promi
   let shippingTaxableCents = 0;
 
   for (const o of orders) {
-    const tax = Math.max(0, o.taxAmountCents ?? 0);
+    const tax = effectiveOrderTaxAmountCents(o);
     const refunded = Math.max(0, o.taxRefundedCents ?? 0);
     taxCollectedCents += tax;
     taxRefundedCents += refunded;
     if (tax > 0) {
-      taxableSalesCents += o.taxTaxableSubtotalCents ?? 0;
-      shippingTaxableCents += o.taxShippingTaxableCents ?? 0;
+      const itemCents =
+        o.taxTaxableSubtotalCents && o.taxTaxableSubtotalCents > 0
+          ? o.taxTaxableSubtotalCents
+          : Math.round(Math.max(0, o.itemPriceUsd) * 100);
+      const shipCents =
+        o.taxShippingTaxableCents && o.taxShippingTaxableCents > 0
+          ? o.taxShippingTaxableCents
+          : Math.round(Math.max(0, o.shippingPriceUsd) * 100);
+      taxableSalesCents += itemCents;
+      shippingTaxableCents += shipCents;
     } else {
-      const subtotal = (o.taxTaxableSubtotalCents ?? 0) + (o.taxShippingTaxableCents ?? 0);
+      const subtotal =
+        (o.taxTaxableSubtotalCents ?? 0) + (o.taxShippingTaxableCents ?? 0) ||
+        Math.round(Math.max(0, o.itemPriceUsd + o.shippingPriceUsd) * 100);
       nonTaxableSalesCents += subtotal > 0 ? subtotal : 0;
     }
   }
@@ -153,4 +178,93 @@ export async function listNexusMonitoringByState(args?: { from?: Date; to?: Date
     collectionEnabled: enabledMap.get(r.stateCode)?.enabled ?? false,
     collectionBasis: enabledMap.get(r.stateCode)?.collectionBasis ?? null,
   }));
+}
+
+/** Repair missing tax cents on paid orders and rebuild destination volume monitor rows. */
+export async function syncTaxReportingFromPaidOrders(): Promise<{
+  ordersRepaired: number;
+  volumeRowsWritten: number;
+}> {
+  const candidates = await prisma.order.findMany({
+    where: {
+      paymentStatus: { in: ["paid", "refunded"] },
+      OR: [{ taxAmountCents: 0 }, { taxUsd: { gt: 0 } }],
+    },
+    select: {
+      id: true,
+      itemPriceUsd: true,
+      shippingPriceUsd: true,
+      taxUsd: true,
+      taxAmountCents: true,
+      stripeTaxCalculationId: true,
+      stripePaymentIntentId: true,
+      shipState: true,
+      taxJurisdictionState: true,
+      taxCollectionBasis: true,
+    },
+    take: 500,
+    orderBy: { createdAt: "desc" },
+  });
+
+  let ordersRepaired = 0;
+  for (const order of candidates) {
+    let taxAmountCents = effectiveOrderTaxAmountCents(order);
+    let stripeTaxCalculationId = order.stripeTaxCalculationId ?? null;
+
+    if (taxAmountCents <= 0 && order.stripePaymentIntentId) {
+      const fromPi = await fetchPaymentIntentTax(order.stripePaymentIntentId);
+      if (fromPi && fromPi.taxAmountCents > 0) {
+        taxAmountCents = fromPi.taxAmountCents;
+        stripeTaxCalculationId = fromPi.stripeTaxCalculationId ?? stripeTaxCalculationId;
+      }
+    }
+
+    if (taxAmountCents <= 0) continue;
+    if (order.taxAmountCents === taxAmountCents && order.taxUsd >= taxAmountCents / 100 - 0.001) continue;
+
+    await prisma.order.update({
+      where: { id: order.id },
+      data: orderTaxUpdateData(
+        buildOrderTaxPersistFields({
+          itemPriceUsd: order.itemPriceUsd,
+          shippingPriceUsd: order.shippingPriceUsd,
+          taxAmountCents,
+          stripeTaxCalculationId,
+          taxJurisdictionState: order.taxJurisdictionState ?? order.shipState,
+          taxCollectionBasis: (order.taxCollectionBasis as "marketplace_facilitator" | null) ?? null,
+        }),
+      ),
+    });
+    ordersRepaired += 1;
+  }
+
+  await prisma.taxDestinationVolumeDaily.deleteMany({});
+
+  const paidOrders = await prisma.order.findMany({
+    where: { paymentStatus: { in: ["paid", "refunded"] } },
+    select: {
+      shipState: true,
+      shipCountry: true,
+      itemPriceUsd: true,
+      shippingPriceUsd: true,
+      taxAmountCents: true,
+      taxUsd: true,
+      createdAt: true,
+    },
+  });
+
+  for (const order of paidOrders) {
+    const taxAmountCents = effectiveOrderTaxAmountCents(order);
+    await recordTaxDestinationVolumeOnOrderPaid({
+      shipState: order.shipState,
+      shipCountry: order.shipCountry,
+      itemPriceUsd: order.itemPriceUsd,
+      shippingPriceUsd: order.shippingPriceUsd,
+      taxAmountCents,
+      paidAt: order.createdAt,
+    });
+  }
+
+  const volumeRowsWritten = await prisma.taxDestinationVolumeDaily.count();
+  return { ordersRepaired, volumeRowsWritten };
 }

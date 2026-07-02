@@ -27,15 +27,19 @@ export function AdminTaxNexusPage() {
     { stateCode: string; taxableSalesCents: number; orderCount: number; collectionEnabled: boolean }[]
   >([]);
   const [loading, setLoading] = useState(true);
+  const [syncBusy, setSyncBusy] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch("/api/admin/tax/nexus", { cache: "no-store" });
       if (!res.ok) {
         setRows([]);
+        setLoadError("Could not load nexus states.");
         return;
       }
       const j = (await res.json()) as { states?: NexusRow[] };
@@ -44,16 +48,42 @@ export function AdminTaxNexusPage() {
       if (rep.ok) {
         const rj = (await rep.json()) as { summary?: TaxSummary };
         setSummary(rj.summary ?? null);
+      } else {
+        setSummary(null);
+        setLoadError((prev) => prev ?? "Could not load tax reporting summary.");
       }
       const mon = await fetch("/api/admin/tax/reporting?view=nexus-monitor", { cache: "no-store" });
       if (mon.ok) {
         const mj = (await mon.json()) as { rows?: typeof monitorRows };
         setMonitorRows(Array.isArray(mj.rows) ? mj.rows : []);
+      } else {
+        setMonitorRows([]);
       }
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const syncReporting = useCallback(async () => {
+    setSyncBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/tax/reporting", { method: "POST" });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        summary?: TaxSummary;
+        ordersRepaired?: number;
+      };
+      if (!res.ok) {
+        setError(typeof j.error === "string" ? j.error : "Sync failed.");
+        return;
+      }
+      setSummary(j.summary ?? null);
+      await load();
+    } finally {
+      setSyncBusy(false);
+    }
+  }, [load]);
 
   useEffect(() => {
     void load();
@@ -90,8 +120,22 @@ export function AdminTaxNexusPage() {
         Tax. Platform fee and seller payout exclude tax.
       </p>
 
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={syncBusy || loading}
+          onClick={() => void syncReporting()}
+          className="rounded-lg border border-gold/35 bg-gold/10 px-3 py-2 text-xs font-semibold text-gold-bright hover:bg-gold/15 disabled:opacity-50"
+        >
+          {syncBusy ? "Syncing…" : "Sync reporting from orders"}
+        </button>
+        <p className="text-[11px] text-zinc-500">
+          Rebuild totals from paid orders and Stripe payment metadata (fixes live checkout rows that showed $0).
+        </p>
+      </div>
+
       {summary ? (
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <div className="mt-4 grid gap-3 sm:grid-cols-4">
           <div className="rounded-lg border border-white/10 bg-black/30 p-3">
             <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Tax collected</p>
             <p className="mt-1 text-lg font-black text-emerald-300">
@@ -110,7 +154,30 @@ export function AdminTaxNexusPage() {
               ${(summary.taxableSalesCents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}
             </p>
           </div>
+          <div className="rounded-lg border border-white/10 bg-black/30 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Paid orders tracked</p>
+            <p className="mt-1 text-lg font-black text-zinc-100">{summary.orderCount.toLocaleString()}</p>
+          </div>
         </div>
+      ) : !loading ? (
+        <p className="mt-4 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-zinc-400">
+          No reporting summary loaded yet. Use sync if you have paid orders with tax.
+        </p>
+      ) : null}
+
+      {summary && summary.taxCollectedCents === 0 && summary.orderCount > 0 ? (
+        <p className="mt-3 rounded-lg border border-amber-400/20 bg-amber-950/20 px-3 py-2 text-xs text-amber-100">
+          {summary.orderCount} paid order{summary.orderCount === 1 ? "" : "s"} tracked, but none show collected tax yet.
+          Tax only counts when the buyer&apos;s ship-to state is enabled above and checkout actually charged sales tax.
+          Try <span className="font-semibold">Sync reporting from orders</span> after live or marketplace test purchases to
+          TX (or another enabled state).
+        </p>
+      ) : null}
+
+      {loadError ? (
+        <p className="mt-4 rounded-lg border border-rose-400/25 bg-rose-950/30 px-3 py-2 text-xs text-rose-100">
+          {loadError}
+        </p>
       ) : null}
 
       {error ? (

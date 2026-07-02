@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { getLiveRoomHostAccess } from "@/lib/live-room-host-auth";
+import { getLiveRoomBroadcastCommerceBlock } from "@/lib/live-room-commerce-guards";
 import { prisma } from "@/lib/prisma";
 import { emitLiveRoomMessageById, emitTeamBoardChanged } from "@/lib/realtime-emit-server";
 import { getTeamBoardPublicPayload } from "@/lib/team-board-public-server";
@@ -23,6 +24,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       status: true,
       sellerId: true,
       teamBoardLeague: true,
+      streamHealth: true,
+      streamPaused: true,
       items: {
         where: { status: "active" },
         take: 1,
@@ -33,6 +36,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!room || room.roomType !== "break") return NextResponse.json({ error: "Not found." }, { status: 404 });
   if (room.status !== "live") {
     return NextResponse.json({ error: "This room is not live." }, { status: 409 });
+  }
+  const broadcastBlock = getLiveRoomBroadcastCommerceBlock(room);
+  if (broadcastBlock) {
+    return NextResponse.json({ error: broadcastBlock.error, code: broadcastBlock.code }, { status: broadcastBlock.status });
   }
 
   let body: PostBody;

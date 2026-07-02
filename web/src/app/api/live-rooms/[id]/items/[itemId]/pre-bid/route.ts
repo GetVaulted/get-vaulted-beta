@@ -6,7 +6,7 @@ import {
   liveAuctionPreBidMinUsd,
   placeLiveAuctionPreBid,
 } from "@/lib/live-auction-pre-bid";
-import { getLiveBuyerCommerceBlock } from "@/lib/live-room-commerce-guards";
+import { getLiveBuyerCommerceBlock, getLiveRoomBroadcastCommerceBlock } from "@/lib/live-room-commerce-guards";
 import { getLiveRoomUserRestrictions } from "@/lib/trust/live-room-moderation";
 import { getLiveRoomItemSnapshotDto } from "@/lib/live-room-item-snapshot-server";
 import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
@@ -35,7 +35,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   const [room, item] = await Promise.all([
     prisma.liveRoom.findUnique({
       where: { id: liveRoomId },
-      select: { id: true, sellerId: true, roomType: true, status: true },
+      select: { id: true, sellerId: true, roomType: true, status: true, streamHealth: true, streamPaused: true },
     }),
     prisma.liveRoomItem.findFirst({
       where: { id: itemId, liveRoomId },
@@ -57,6 +57,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
   if (!item) return NextResponse.json({ error: "Item not found." }, { status: 404 });
   if (room.status !== "live") {
     return NextResponse.json({ error: "This room is not live." }, { status: 409 });
+  }
+  const broadcastBlock = getLiveRoomBroadcastCommerceBlock(room);
+  if (broadcastBlock) {
+    return NextResponse.json({ error: broadcastBlock.error, code: broadcastBlock.code }, { status: broadcastBlock.status });
   }
   if (room.roomType !== "auction" && room.roomType !== "sale" && room.roomType !== "break") {
     return NextResponse.json({ error: "Pre-bids are not available in this room type." }, { status: 400 });
