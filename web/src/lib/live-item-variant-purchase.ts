@@ -26,6 +26,21 @@ function siteUrl(): string {
   return (process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");
 }
 
+async function resolveLivePurchaseChargeTotalUsd(args: {
+  fulfillmentOrderId: string | null | undefined;
+  fallbackUsd: number;
+}): Promise<number> {
+  if (!args.fulfillmentOrderId) return args.fallbackUsd;
+  const order = await prisma.order.findUnique({
+    where: { id: args.fulfillmentOrderId },
+    select: { totalUsd: true },
+  });
+  if (order?.totalUsd != null && Number.isFinite(order.totalUsd) && order.totalUsd > 0) {
+    return order.totalUsd;
+  }
+  return args.fallbackUsd;
+}
+
 export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, stripePaymentIntentId?: string | null) {
   const purchase = await prisma.liveItemVariantPurchase.findUnique({
     where: { id: purchaseId },
@@ -147,8 +162,12 @@ export async function finalizeLiveItemVariantPurchasePaid(purchaseId: string, st
   }
 
   if (purchase.totalUsd > 0) {
+    const chargeTotalUsd = await resolveLivePurchaseChargeTotalUsd({
+      fulfillmentOrderId: purchase.fulfillmentOrderId,
+      fallbackUsd: purchase.totalUsd,
+    });
     const paymentNote = liveRoomBuyerPaymentConfirmedNotification({
-      amountUsd: purchase.totalUsd,
+      amountUsd: chargeTotalUsd,
       href: "/account/orders?view=live",
     });
     await createNotification(prisma, {

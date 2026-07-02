@@ -3,7 +3,7 @@ import type { LiveItemSalesFormat, LiveItemVariantAssignmentMode } from "@/gener
 import { prisma } from "@/lib/prisma";
 import { NFL_DIVISIONS_PRESET, NFL_TEAMS_PRESET } from "@/lib/live-item-variant-presets";
 import { emitVaultRevealSpin } from "@/lib/realtime-emit-server";
-import { VAULT_REVEAL_DEFAULT_DURATION_MS } from "@/lib/vault-reveal-spin";
+import { formatDivisionReelAbbr, VAULT_REVEAL_DEFAULT_DURATION_MS } from "@/lib/vault-reveal-spin";
 
 export type RandomPoolEntry = { label: string; abbr: string };
 
@@ -13,7 +13,10 @@ export function isRandomVariantAssignment(mode: LiveItemVariantAssignmentMode | 
 
 export function randomPoolForSalesFormat(format: LiveItemSalesFormat): RandomPoolEntry[] {
   if (format === "team_break") {
-    return NFL_DIVISIONS_PRESET.map((d) => ({ label: d.label, abbr: d.label }));
+    return NFL_DIVISIONS_PRESET.map((d) => ({
+      label: d.label,
+      abbr: formatDivisionReelAbbr(d.label),
+    }));
   }
   return NFL_TEAMS_PRESET.map((t) => ({ label: t.label, abbr: t.abbr ?? t.label }));
 }

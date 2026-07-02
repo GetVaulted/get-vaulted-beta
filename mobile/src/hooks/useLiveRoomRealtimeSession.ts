@@ -34,7 +34,7 @@ import { createRealtimeEventGuard, shouldProcessRealtimeEvent, syncAuctionSeqGua
 import type { RoomBroadcastPayload } from '../lib/realtimeChannels';
 import { estimateClockSkewMs, syncedWallTimeMs } from '../lib/serverClockSync';
 import { isSupabaseConfigured } from '../lib/supabase';
-import { parseVaultRevealSpinPayload, VAULT_REVEAL_TOTAL_DISPLAY_MS, type VaultRevealSpinPayload } from '../lib/vaultRevealSpin';
+import { parseVaultRevealSpinPayload, VAULT_REVEAL_TOTAL_DISPLAY_MS, vaultRevealDisplayMs, type VaultRevealSpinPayload } from '../lib/vaultRevealSpin';
 import { useRealtimeRoomSubscription, type LiveRoomChatBroadcastMessage } from './useRealtimeRoomSubscription';
 import { useRealtimeRoomPresence } from './useRealtimeRoomPresence';
 
@@ -76,6 +76,11 @@ export function useLiveRoomRealtimeSession(args: {
   const pendingSpotCelebrationRef = useRef<LiveSpotTakenCelebration | null>(null);
   const pendingSpotCelebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const vaultRevealActiveRef = useRef(false);
+  const vaultRevealSpinRef = useRef<VaultRevealSpinPayload | null>(null);
+
+  useEffect(() => {
+    vaultRevealSpinRef.current = vaultRevealSpin;
+  }, [vaultRevealSpin]);
 
   const viewerCount = useRealtimeRoomPresence({
     liveRoomId: args.roomId,
@@ -114,10 +119,12 @@ export function useLiveRoomRealtimeSession(args: {
     (taken: LiveSpotTakenCelebration) => {
       pendingSpotCelebrationRef.current = taken;
       clearPendingSpotCelebrationTimer();
+      const spin = vaultRevealSpinRef.current;
+      const delayMs = (spin ? vaultRevealDisplayMs(spin) : VAULT_REVEAL_TOTAL_DISPLAY_MS) + 600;
       pendingSpotCelebrationTimerRef.current = setTimeout(() => {
         pendingSpotCelebrationTimerRef.current = null;
         flushPendingSpotCelebration();
-      }, VAULT_REVEAL_TOTAL_DISPLAY_MS + 600);
+      }, delayMs);
     },
     [clearPendingSpotCelebrationTimer, flushPendingSpotCelebration],
   );
@@ -518,8 +525,9 @@ export function useLiveRoomRealtimeSession(args: {
       if (outbidTimerRef.current) clearTimeout(outbidTimerRef.current);
       if (reconnectBannerTimerRef.current) clearTimeout(reconnectBannerTimerRef.current);
       if (reconnectBannerClearTimerRef.current) clearTimeout(reconnectBannerClearTimerRef.current);
+      clearPendingSpotCelebrationTimer();
     },
-    [],
+    [clearPendingSpotCelebrationTimer],
   );
 
   return {

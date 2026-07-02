@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatDivisionReelAbbr,
+  vaultDropReelPillLabel,
   vaultDropRevealGivvyWinBanner,
   vaultDropRevealViewerWonGiveaway,
   type VaultRevealSpinPayload,
@@ -47,5 +49,27 @@ describe("vault-reveal-spin givvy winner", () => {
         { userId: "user-winner" },
       ),
     ).toBeNull();
+  });
+});
+
+describe("vault drop reel pill labels", () => {
+  it("abbreviates PYD division names for the reel", () => {
+    expect(formatDivisionReelAbbr("AFC East")).toBe("AFC E");
+    expect(formatDivisionReelAbbr("NFC West")).toBe("NFC W");
+  });
+
+  it("prefers segment abbrs for random reveal pills", () => {
+    const spin: VaultRevealSpinPayload = {
+      spinId: "random-1",
+      kind: "random_reveal",
+      title: "PYD Break",
+      labels: ["AFC East", "AFC North"],
+      segmentAbbrs: ["AFC E", "AFC N"],
+      winnerIndex: 0,
+      winnerLabel: "AFC East",
+      durationMs: 2400,
+    };
+    expect(vaultDropReelPillLabel(spin, 0)).toBe("AFC E");
+    expect(vaultDropReelPillLabel(spin, 1)).toBe("AFC N");
   });
 });

@@ -33,7 +33,7 @@ import { useLiveRoomChat } from '../../../hooks/useLiveRoomChat';
 import { resolvePinnedModeratorUsername } from '../../../lib/resolvePinnedModeratorUsername';
 import { useLiveRoomModeration } from '../../../hooks/useLiveRoomModeration';
 import { useRealtimeRoomSubscription } from '../../../hooks/useRealtimeRoomSubscription';
-import { parseVaultRevealSpinPayload, VAULT_REVEAL_TOTAL_DISPLAY_MS, type VaultRevealSpinPayload } from '../../../lib/vaultRevealSpin';
+import { parseVaultRevealSpinPayload, VAULT_REVEAL_TOTAL_DISPLAY_MS, vaultRevealDisplayMs, type VaultRevealSpinPayload } from '../../../lib/vaultRevealSpin';
 import { VaultRevealOverlay } from '../../live/VaultRevealOverlay';
 import { LiveSpotTakenCelebration } from '../../live/LiveSpotTakenCelebration';
 import {
@@ -141,6 +141,11 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const pendingSpotCelebrationRef = useRef<SpotTakenCelebration | null>(null);
   const pendingSpotCelebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const vaultRevealActiveRef = useRef(false);
+  const vaultRevealSpinRef = useRef<VaultRevealSpinPayload | null>(null);
+
+  useEffect(() => {
+    vaultRevealSpinRef.current = vaultRevealSpin;
+  }, [vaultRevealSpin]);
   const [teamsBoardOpen, setTeamsBoardOpen] = useState(false);
   const seenVaultRevealSpinIdsRef = useRef<Set<string>>(new Set());
   const [broadcastOpen, setBroadcastOpen] = useState(false);
@@ -378,10 +383,12 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
     (taken: SpotTakenCelebration) => {
       pendingSpotCelebrationRef.current = taken;
       clearPendingSpotCelebrationTimer();
+      const spin = vaultRevealSpinRef.current;
+      const delayMs = (spin ? vaultRevealDisplayMs(spin) : VAULT_REVEAL_TOTAL_DISPLAY_MS) + 600;
       pendingSpotCelebrationTimerRef.current = setTimeout(() => {
         pendingSpotCelebrationTimerRef.current = null;
         flushPendingSpotCelebration();
-      }, VAULT_REVEAL_TOTAL_DISPLAY_MS + 600);
+      }, delayMs);
     },
     [clearPendingSpotCelebrationTimer, flushPendingSpotCelebration],
   );

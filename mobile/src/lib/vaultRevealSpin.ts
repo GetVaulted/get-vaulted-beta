@@ -139,6 +139,36 @@ export function vaultDropRevealChipColor(spin: VaultRevealSpinPayload, index: nu
   return '#D4AF37';
 }
 
+/** Compact division label for reel pills (e.g. "AFC East" → "AFC E"). */
+export function formatDivisionReelAbbr(label: string): string {
+  const match = label.trim().match(/^(AFC|NFC)\s+(East|North|South|West)$/i);
+  if (!match) return label.trim();
+  return `${match[1]!.toUpperCase()} ${match[2]![0]!.toUpperCase()}`;
+}
+
+/** Text shown inside vault drop reel pills — never returns blank. */
+export function vaultDropReelPillLabel(
+  spin: Pick<VaultRevealSpinPayload, 'kind' | 'labels' | 'segmentAbbrs'>,
+  index: number,
+): string {
+  const label = spin.labels[index]?.trim() ?? '';
+  const abbr = spin.segmentAbbrs?.[index]?.trim() ?? '';
+  if (spin.kind === 'random_reveal' || spin.kind === 'break_pyt') {
+    const raw = abbr || label;
+    if (!raw) return '—';
+    if (raw.length <= 10) return raw;
+    return `${raw.slice(0, 9)}…`;
+  }
+  if (!label) return abbr || '—';
+  if (label.length <= 14) return label;
+  return `${label.slice(0, 13)}…`;
+}
+
+/** Reel pill fill — opaque enough for white/dark text on team + division colors. */
+export function vaultDropReelPillBackground(chipAccent: string, lightChip: boolean): string {
+  return lightChip ? `${chipAccent}ee` : `${chipAccent}cc`;
+}
+
 export function vaultRevealDisplayMs(
   spin: Pick<VaultRevealSpinPayload, 'labels' | 'winnerIndex'>,
 ): number {
@@ -247,9 +277,13 @@ export function parseVaultRevealSpinPayload(raw: unknown): VaultRevealSpinPayloa
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
   const spin = (o.spin ?? o) as Record<string, unknown>;
-  const labels = Array.isArray(spin.labels)
+  const segmentAbbrs = Array.isArray(spin.segmentAbbrs)
+    ? spin.segmentAbbrs.filter((a): a is string => typeof a === 'string' && a.trim().length > 0)
+    : [];
+  const labelsRaw = Array.isArray(spin.labels)
     ? spin.labels.filter((l): l is string => typeof l === 'string' && l.trim().length > 0)
     : [];
+  const labels = labelsRaw.length > 0 ? labelsRaw : segmentAbbrs;
   if (labels.length === 0) return null;
   const winnerIndex = typeof spin.winnerIndex === 'number' ? spin.winnerIndex : 0;
   const spinId =
@@ -281,9 +315,7 @@ export function parseVaultRevealSpinPayload(raw: unknown): VaultRevealSpinPayloa
         : VAULT_REVEAL_DEFAULT_DURATION_MS,
     referenceId: typeof spin.referenceId === 'string' ? spin.referenceId : undefined,
     winnerUserId: typeof spin.winnerUserId === 'string' ? spin.winnerUserId : undefined,
-    segmentAbbrs: Array.isArray(spin.segmentAbbrs)
-      ? spin.segmentAbbrs.filter((a): a is string => typeof a === 'string')
-      : undefined,
+    segmentAbbrs: segmentAbbrs.length > 0 ? segmentAbbrs : undefined,
     buyerUsername: typeof spin.buyerUsername === 'string' ? spin.buyerUsername : undefined,
     assignments: Array.isArray(spin.assignments)
       ? spin.assignments

@@ -21,6 +21,8 @@ import {
   vaultDropRevealGivvyWinBanner,
   vaultDropRevealPoolHint,
   vaultDropRevealTiming,
+  vaultDropReelPillBackground,
+  vaultDropReelPillLabel,
   vaultSealMetaLine,
   vaultSealWinnerCopy,
   GIVVY_REVEAL_BORDER_GRADIENT,
@@ -53,10 +55,11 @@ function labelAccentColor(spin: VaultRevealSpinPayload, index: number): string {
   return spotAccentColor(label, abbr, isDivision);
 }
 
-function shortPoolLabel(label: string): string {
-  const t = label.trim();
-  if (t.length <= 14) return t;
-  return `${t.slice(0, 13)}…`;
+function reelPillBackground(spin: VaultRevealSpinPayload, chipAccent: string, lightChip: boolean): string {
+  if (spin.kind === 'random_reveal' || spin.kind === 'break_pyt') {
+    return vaultDropReelPillBackground(chipAccent, lightChip);
+  }
+  return lightChip ? `${chipAccent}ee` : `${chipAccent}44`;
 }
 
 const REEL_PILL_WIDTH = VAULT_DROP_REEL_PILL_WIDTH;
@@ -381,12 +384,21 @@ export function VaultDropRevealOverlay({
 
                 <View style={styles.reelFrame}>
                   <View style={styles.reelWindow} onLayout={onReelLayout} pointerEvents="none">
+                    <LinearGradient
+                      colors={['#0a0a0c', 'rgba(10,10,12,0)', 'rgba(10,10,12,0)', '#0a0a0c']}
+                      locations={[0, 0.14, 0.86, 1]}
+                      start={{ x: 0, y: 0.5 }}
+                      end={{ x: 1, y: 0.5 }}
+                      style={styles.reelEdgeFadeBack}
+                      pointerEvents="none"
+                    />
                     <Animated.View style={[styles.reelTrack, { transform: [{ translateX: reelX }] }]}>
                       {reelLaneLabels.map((label, index) => {
                         const sourceIndex = labelCount > 0 ? index % labelCount : 0;
                         const chipAccent = labelAccentColor(spin, sourceIndex);
                         const lightChip = isLightSpotAccent(chipAccent);
                         const isWinnerSlot = showWinner && index === centerScrollIndex;
+                        const pillLabel = vaultDropReelPillLabel(spin, sourceIndex);
                         return (
                           <View
                             key={`${label}-${index}`}
@@ -394,26 +406,29 @@ export function VaultDropRevealOverlay({
                             onLayout={index === 0 ? onReelSlotLayout : undefined}
                           >
                             <Animated.View
-                              style={[
-                                styles.reelPill,
-                                {
-                                  backgroundColor: lightChip ? `${chipAccent}ee` : `${chipAccent}44`,
-                                  borderColor: chipAccent,
-                                  transform: isWinnerSlot ? [{ scale: reelBump }] : undefined,
-                                },
-                                isWinnerSlot && styles.reelPillWinner,
-                              ]}
+                              style={isWinnerSlot ? { transform: [{ scale: reelBump }] } : undefined}
                             >
-                              <LiveRoomText
+                              <View
                                 style={[
-                                  styles.reelPillTxt,
-                                  { color: lightChip ? '#111' : '#fff' },
-                                  isWinnerSlot && styles.reelPillTxtWinner,
+                                  styles.reelPill,
+                                  {
+                                    backgroundColor: reelPillBackground(spin, chipAccent, lightChip),
+                                    borderColor: chipAccent,
+                                  },
+                                  isWinnerSlot && styles.reelPillWinner,
                                 ]}
-                                numberOfLines={1}
                               >
-                                {shortPoolLabel(label)}
-                              </LiveRoomText>
+                                <LiveRoomText
+                                  style={[
+                                    styles.reelPillTxt,
+                                    { color: lightChip ? '#111' : '#fff' },
+                                    isWinnerSlot && styles.reelPillTxtWinner,
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {pillLabel}
+                                </LiveRoomText>
+                              </View>
                             </Animated.View>
                           </View>
                         );
@@ -433,14 +448,6 @@ export function VaultDropRevealOverlay({
                       pointerEvents="none"
                     />
                   </View>
-                  <LinearGradient
-                    colors={['#0a0a0c', 'rgba(10,10,12,0)', 'rgba(10,10,12,0)', '#0a0a0c']}
-                    locations={[0, 0.14, 0.86, 1]}
-                    start={{ x: 0, y: 0.5 }}
-                    end={{ x: 1, y: 0.5 }}
-                    style={styles.reelEdgeFade}
-                    pointerEvents="none"
-                  />
                   {showWinner ? (
                     <Animated.View
                       pointerEvents="none"
@@ -626,6 +633,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     height: REEL_WINDOW_HEIGHT,
+    zIndex: 1,
   },
   reelSlot: {
     width: REEL_PILL_SPAN,
@@ -669,9 +677,10 @@ const styles = StyleSheet.create({
   givvyFocusRing: {
     borderColor: 'rgba(110,231,183,0.88)',
   },
-  reelEdgeFade: {
+  reelEdgeFadeBack: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: radii.pill,
+    zIndex: 0,
   },
   reelWinnerGlow: {
     position: 'absolute',

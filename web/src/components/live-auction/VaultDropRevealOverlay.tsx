@@ -17,6 +17,8 @@ import {
   vaultDropRevealGivvyWinBanner,
   vaultDropRevealPoolHint,
   vaultDropRevealTiming,
+  vaultDropReelPillBackground,
+  vaultDropReelPillLabel,
   vaultSealMetaLine,
   vaultSealWinnerCopy,
   type VaultRevealSpinPayload,
@@ -46,10 +48,11 @@ function labelAccentColor(spin: VaultRevealSpinPayload, index: number): string {
   return segmentColorForLabel(label, spin.segmentAbbrs?.[index] ?? null);
 }
 
-function shortPoolLabel(label: string): string {
-  const t = label.trim();
-  if (t.length <= 14) return t;
-  return `${t.slice(0, 13)}…`;
+function reelPillBackground(spin: VaultRevealSpinPayload, chipAccent: string, lightChip: boolean): string {
+  if (spin.kind === "random_reveal" || spin.kind === "break_pyt") {
+    return vaultDropReelPillBackground(chipAccent, lightChip);
+  }
+  return lightChip ? `${chipAccent}ee` : `${chipAccent}66`;
 }
 
 function animateReelScroll(
@@ -360,7 +363,7 @@ export function VaultDropRevealOverlay({
                   className="relative h-[52px] overflow-hidden rounded-full border border-white/10 bg-black/35"
                 >
                   <div
-                    className="flex h-full items-center will-change-transform"
+                    className="relative z-[1] flex h-full items-center will-change-transform"
                     style={{
                       transform: `translateX(${reelX}px)`,
                       transition: reelTransition,
@@ -370,6 +373,7 @@ export function VaultDropRevealOverlay({
                       const sourceIndex = labelCount > 0 ? index % labelCount : 0;
                       const chipAccent = labelAccentColor(spin, sourceIndex);
                       const isWinnerSlot = showWinner && index === centerScrollIndex;
+                      const pillLabel = vaultDropReelPillLabel(spin, sourceIndex);
                       return (
                         <div
                           key={`${label}-${index}`}
@@ -382,16 +386,16 @@ export function VaultDropRevealOverlay({
                             } ${isWinnerSlot ? "shadow-[0_8px_20px_rgba(0,0,0,0.35)]" : ""} transition-transform duration-200`}
                             style={{
                               borderColor: chipAccent,
-                              backgroundColor: `${chipAccent}66`,
+                              backgroundColor: reelPillBackground(spin, chipAccent, false),
                             }}
                           >
-                            {shortPoolLabel(label)}
+                            {pillLabel}
                           </div>
                         </div>
                       );
                     })}
                   </div>
-                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#0a0a0c] via-transparent via-70% to-[#0a0a0c]" />
+                  <div className="pointer-events-none absolute inset-0 z-[2] bg-gradient-to-r from-[#0a0a0c] via-transparent via-70% to-[#0a0a0c]" />
                   <div
                     className={`pointer-events-none absolute rounded-full border-2 ${
                       isGivvyDraw ? "border-emerald-200/85" : "border-amber-200/85"

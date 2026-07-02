@@ -17,6 +17,12 @@ import {
   parseScheduledStartMs,
   resolveScheduledPrereleasePhase,
 } from '../../lib/liveStreamScheduled';
+import {
+  LIVE_PIP_RETRY_DELAYS_MS,
+  shouldAttemptLivePictureInPicture,
+  shouldSuspendLiveStageMedia,
+  shouldWarmLiveHlsPipCompanion,
+} from '../../lib/livePlaybackAppState';
 import { LIVE_STAGE_CONTENT_FIT } from '../../lib/liveRoomViewport';
 import { colors, spacing } from '../../theme';
 import { LiveRoomText } from './LiveRoomText';
@@ -106,6 +112,7 @@ export function LiveStagePlayback({
   const isForeground = mode === 'active';
   const [appState, setAppState] = useState<AppStateStatus>(() => AppState.currentState);
   const appStateRef = useRef(appState);
+  const prevAppStateRef = useRef<AppStateStatus>(appState);
   appStateRef.current = appState;
   const mainVideoRef = useRef<VideoView>(null);
   const pipVideoRef = useRef<VideoView>(null);
@@ -146,15 +153,22 @@ export function LiveStagePlayback({
   const streamSignalLive = streamHealth.toLowerCase() === 'live' || streamHealth.toLowerCase() === 'connecting';
   const roomLifecycleLive = roomStatus === 'live' || streamSignalLive;
 
-  const useWebrtc = transport === 'webrtc' && enabled;
-  const attachHls = transport === 'hls' && Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
-  /** WebRTC is foreground-only; keep a hidden HLS player warm so system PiP can attach when the app backgrounds. */
-  const attachHlsPip =
-    useWebrtc &&
-    (isForeground || appState !== 'active') &&
-    roomLifecycleLive &&
+  const playbackActive = isForeground;
+  const useWebrtc = transport === 'webrtc' && enabled && playbackActive;
+  const attachHls =
+    transport === 'hls' &&
+    playbackActive &&
     Boolean(playbackUrl && shouldAttachHlsPlayback(streamHealth, playbackUrl));
-  const appIsActive = appState === 'active';
+  /** WebRTC is foreground-only; keep a hidden HLS player warm so PiP can attach when the app backgrounds. */
+  const attachHlsPip = shouldWarmLiveHlsPipCompanion({
+    playbackActive: isForeground,
+    useWebrtc,
+    roomLifecycleLive,
+    playbackUrl,
+  });
+  const stageMediaSuspended = shouldSuspendLiveStageMedia(appState);
+  const pipAutoStart =
+    isPictureInPictureSupported() && Boolean(playbackUrl) && (attachHls || attachHlsPip);
   playbackContextRef.current = { useWebrtc, attachHls, attachHlsPip };
 
   const clearPipRetryTimers = useCallback(() => {
@@ -171,8 +185,32 @@ export function LiveStagePlayback({
       waitsToMinimizeStalling: false,
       minBufferForPlayback: 1,
     };
-    p.play();
+    try {
+      p.play();
+    } catch {
+      /* player may be released during pager unmount */
+    }
   };
+
+  const safeVideoPlay = useCallback((target: VideoPlayer) => {
+    try {
+      target.play();
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const safeVideoReplace = useCallback(
+    (target: VideoPlayer, url: string) => {
+      try {
+        target.replace(url);
+        safeVideoPlay(target);
+      } catch {
+        /* ignore */
+      }
+    },
+    [safeVideoPlay],
+  );
 
   const player = useVideoPlayer(attachHls ? playbackUrl : null, hlsPlayerSetup);
 
@@ -193,15 +231,13 @@ export function LiveStagePlayback({
 
   useEffect(() => {
     if (!attachHls || !playbackUrl) return;
-    player.replace(playbackUrl);
-    player.play();
-  }, [attachHls, playbackUrl, player]);
+    safeVideoReplace(player, playbackUrl);
+  }, [attachHls, playbackUrl, player, safeVideoReplace]);
 
   useEffect(() => {
-    if (!attachHlsPip || !playbackUrl || !appIsActive) return;
-    pipPlayer.replace(playbackUrl);
-    pipPlayer.play();
-  }, [appIsActive, attachHlsPip, playbackUrl, pipPlayer]);
+    if (!attachHlsPip || !playbackUrl) return;
+    safeVideoReplace(pipPlayer, playbackUrl);
+  }, [attachHlsPip, playbackUrl, pipPlayer, safeVideoReplace]);
 
   const tryStartPictureInPicture = useCallback(async () => {
     if (pipStartingRef.current || appStateRef.current === 'active') return;
@@ -226,17 +262,14 @@ export function LiveStagePlayback({
       return;
     }
 
-    if (usePipCompanion && !pipReadyRef.current) {
-      pipPlayer.play();
-      return;
-    }
-    if (useMainHls && player.status !== 'readyToPlay') {
-      player.play();
-      return;
-    }
-
     const viewRef = usePipCompanion ? pipVideoRef : mainVideoRef;
     if (!viewRef.current) return;
+
+    if (usePipCompanion) {
+      safeVideoPlay(pipPlayer);
+    } else {
+      safeVideoPlay(player);
+    }
 
     pipStartingRef.current = true;
     try {
@@ -248,16 +281,17 @@ export function LiveStagePlayback({
     } finally {
       pipStartingRef.current = false;
     }
-  }, [pipPlayer, player]);
+  }, [pipPlayer, player, safeVideoPlay]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
+      const prev = prevAppStateRef.current;
+      prevAppStateRef.current = next;
       appStateRef.current = next;
       setAppState(next);
-      if (next === 'background' || next === 'inactive') {
+      if (shouldAttemptLivePictureInPicture(next, prev)) {
         clearPipRetryTimers();
-        void tryStartPictureInPicture();
-        for (const delayMs of [150, 400, 900]) {
+        for (const delayMs of LIVE_PIP_RETRY_DELAYS_MS) {
           pipRetryTimersRef.current.push(
             setTimeout(() => {
               void tryStartPictureInPicture();
@@ -284,7 +318,7 @@ export function LiveStagePlayback({
     };
     const sub = pipPlayer.addListener('statusChange', (evt) => {
       pipReadyRef.current = evt.status === 'readyToPlay';
-      if (evt.status === 'readyToPlay' && appStateRef.current !== 'active') {
+      if (evt.status === 'readyToPlay' && appStateRef.current === 'background') {
         void tryStartPictureInPicture();
       }
     });
@@ -435,7 +469,7 @@ export function LiveStagePlayback({
         <StageSubscriberVideo
           roomId={roomId}
           accessToken={accessToken}
-          active={useWebrtc}
+          active={useWebrtc && !stageMediaSuspended}
           refreshNonce={refreshNonce}
           subscribeEpoch={playback.webrtcSubscribeEpoch}
           contentFit={contentFit}
@@ -453,7 +487,7 @@ export function LiveStagePlayback({
           contentFit={contentFit}
           nativeControls={false}
           allowsPictureInPicture
-          startsPictureInPictureAutomatically
+          startsPictureInPictureAutomatically={pipAutoStart}
           collapsable={false}
         />
       ) : null}
@@ -466,7 +500,7 @@ export function LiveStagePlayback({
           contentFit={contentFit}
           nativeControls={false}
           allowsPictureInPicture
-          startsPictureInPictureAutomatically
+          startsPictureInPictureAutomatically={pipAutoStart}
           collapsable={false}
         />
       ) : null}
@@ -501,11 +535,11 @@ const styles = StyleSheet.create({
   },
   pipHidden: {
     position: 'absolute',
-    top: -200,
-    left: 0,
-    width: 160,
-    height: 90,
-    opacity: 0.01,
+    bottom: 0,
+    right: 0,
+    width: 2,
+    height: 2,
+    opacity: 0.02,
   },
   standbyWrap: {
     ...StyleSheet.absoluteFillObject,

@@ -196,6 +196,7 @@ export function useMobileStageSubscribe(args: {
         if (evt.state === 'disconnected' && connectedRef.current) {
           connectedRef.current = false;
           setPhase('connecting');
+          cbRef.current.onDisconnected();
           void attemptRejoin('connection_disconnected');
           return;
         }

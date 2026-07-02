@@ -27,16 +27,29 @@ function applyStreamToTransport(args: {
   safe: BuyerSafeStreamFields;
   accessToken?: string;
   webrtcFailed: boolean;
+  playbackMode: LivePlaybackMode;
   lastAttachKeyRef: React.MutableRefObject<string>;
   applyTransport: (next: LivePlaybackTransport) => void;
   setPlayerFatal: (v: boolean) => void;
   setVideoHasData: (v: boolean) => void;
 }) {
-  const wantWebrtc = shouldUseStageWebrtcPlayback(args.safe, args.webrtcFailed, args.accessToken);
+  const stageWebrtcEligible = shouldUseStageWebrtcPlayback(
+    args.safe,
+    args.webrtcFailed,
+    args.accessToken,
+  );
+  const wantWebrtc = args.playbackMode === 'active' && stageWebrtcEligible;
   if (wantWebrtc) {
     args.applyTransport('webrtc');
     args.lastAttachKeyRef.current = '';
     args.setPlayerFatal(false);
+    return;
+  }
+
+  if (args.playbackMode !== 'active' && stageWebrtcEligible) {
+    args.applyTransport('waiting');
+    args.lastAttachKeyRef.current = '';
+    args.setVideoHasData(false);
     return;
   }
 
@@ -146,6 +159,7 @@ export function useLiveStagePlayback(args: {
         safe,
         accessToken: args.accessToken,
         webrtcFailed: webrtcFailedRef.current,
+        playbackMode: args.playbackMode,
         lastAttachKeyRef,
         applyTransport,
         setPlayerFatal,
@@ -181,6 +195,7 @@ export function useLiveStagePlayback(args: {
           safe: cached,
           accessToken: args.accessToken,
           webrtcFailed: webrtcFailedRef.current,
+          playbackMode: args.playbackMode,
           lastAttachKeyRef,
           applyTransport,
           setPlayerFatal,
@@ -215,6 +230,7 @@ export function useLiveStagePlayback(args: {
 
   useEffect(() => {
     if (args.playbackMode !== 'active') return undefined;
+    let cancelled = false;
     const onAppState = (next: AppStateStatus) => {
       if (next !== 'active') {
         clearBackoff();
@@ -232,11 +248,14 @@ export function useLiveStagePlayback(args: {
         applyTransport('none');
       }
       void fetchStream().finally(() => {
-        hideReconnectingUi();
+        if (!cancelled) hideReconnectingUi();
       });
     };
     const sub = AppState.addEventListener('change', onAppState);
-    return () => sub.remove();
+    return () => {
+      cancelled = true;
+      sub.remove();
+    };
   }, [applyTransport, args.playbackMode, clearBackoff, fetchStream, hideReconnectingUi, showReconnectingUi]);
 
   useEffect(() => {

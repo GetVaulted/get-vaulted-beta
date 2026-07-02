@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import {
   addOnPublishStateChangedListener,
   addOnStageConnectionStateChangedListener,
@@ -14,6 +15,7 @@ import {
 } from 'expo-realtime-ivs-broadcast';
 import { endHostStageSession, requestHostStageToken } from '../api/liveRoomStreamRepository';
 import { isStageWebrtcEnabled } from '../lib/liveStreamPlayback';
+import { shouldSuspendLiveStageMedia } from '../lib/livePlaybackAppState';
 import {
   cameraPermissionDeniedMessage,
   cameraPermissionUnavailableMessage,
@@ -56,6 +58,9 @@ export function useMobileStagePublish(args: {
   const rearDefaultAppliedRef = useRef(false);
   const previewInitInFlightRef = useRef(false);
   const listenerSubsRef = useRef<Array<{ remove: () => void }>>([]);
+  const phaseRef = useRef<MobileHostBroadcastPhase>('idle');
+  const interruptedPublishRef = useRef(false);
+  const mountedRef = useRef(true);
 
   const [phase, setPhase] = useState<MobileHostBroadcastPhase>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +72,52 @@ export function useMobileStagePublish(args: {
 
   const cbRef = useRef(args);
   cbRef.current = args;
+
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (next === 'active') {
+        if (!interruptedPublishRef.current) return;
+        interruptedPublishRef.current = false;
+        const currentPhase = phaseRef.current;
+        if (currentPhase !== 'live' && currentPhase !== 'paused') return;
+        void (async () => {
+          try {
+            await setStreamsPublished(true);
+            if (!mountedRef.current) return;
+            publishingRef.current = true;
+            setPhase('live');
+          } catch {
+            /* call or another app may still hold the mic */
+          }
+        })();
+        return;
+      }
+
+      if (!shouldSuspendLiveStageMedia(next)) return;
+      if (!publishingRef.current && phaseRef.current !== 'live') return;
+
+      interruptedPublishRef.current = true;
+      publishingRef.current = false;
+      void setStreamsPublished(false).catch(() => {
+        /* ignore — releasing the mic avoids native crashes during phone calls */
+      });
+      if (phaseRef.current === 'live' && mountedRef.current) {
+        setPhase('paused');
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   const clearStageListeners = useCallback(() => {
     for (const sub of listenerSubsRef.current) {
@@ -99,10 +150,12 @@ export function useMobileStagePublish(args: {
     }
     localStreamsReadyRef.current = false;
     rearDefaultAppliedRef.current = false;
-    setLocalPreviewReady(false);
-    setCameraFacing(SELLER_DEFAULT_CAMERA_FACING);
-    setMicrophoneMutedState(false);
-    setPermissionState('idle');
+    if (mountedRef.current) {
+      setLocalPreviewReady(false);
+      setCameraFacing(SELLER_DEFAULT_CAMERA_FACING);
+      setMicrophoneMutedState(false);
+      setPermissionState('idle');
+    }
     try {
       await setMicrophoneMuted(false);
     } catch {
@@ -308,6 +361,7 @@ export function useMobileStagePublish(args: {
       setError(friendlyPublishError(err));
     } finally {
       wentLiveRef.current = false;
+      interruptedPublishRef.current = false;
       setPhase('idle');
     }
   }, [endServerSession, phase, teardownStageConnection]);

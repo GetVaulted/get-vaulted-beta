@@ -128,6 +128,12 @@ async function main() {
   );
 
   console.log('\n--- Public list sellerqa summary ---');
+  const liveSellerqa = pubRooms.filter(
+    (r) => r.sellerUsername === 'sellerqa' && r.status === 'live',
+  );
+  const schedSellerqa = pubRooms.filter(
+    (r) => r.sellerUsername === 'sellerqa' && r.status === 'scheduled',
+  );
   console.log(`live: ${liveSellerqa.length}, scheduled: ${schedSellerqa.length}`);
   for (const r of [...liveSellerqa, ...schedSellerqa].slice(0, 8)) {
     console.log(`  ${r.status} | ${r.id} | ${r.title}`);

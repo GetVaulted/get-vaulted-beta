@@ -533,8 +533,20 @@ export async function finalizeBreakSpotPaid(args: {
   emitLiveRoomMessagesRefetch(spot.liveRoomId);
 
   if (Number.isFinite(spot.priceUsd) && spot.priceUsd > 0) {
+    const chargeTotalUsd = spotWithOrder?.fulfillmentOrderId
+      ? await (async () => {
+          const order = await prisma.order.findUnique({
+            where: { id: spotWithOrder.fulfillmentOrderId! },
+            select: { totalUsd: true },
+          });
+          if (order?.totalUsd != null && Number.isFinite(order.totalUsd) && order.totalUsd > 0) {
+            return order.totalUsd;
+          }
+          return spot.priceUsd;
+        })()
+      : spot.priceUsd;
     const paymentNote = liveRoomBuyerPaymentConfirmedNotification({
-      amountUsd: spot.priceUsd,
+      amountUsd: chargeTotalUsd,
       href: "/account/orders?view=live",
     });
     await createNotification(prisma, {
