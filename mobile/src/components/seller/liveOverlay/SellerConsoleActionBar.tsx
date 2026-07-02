@@ -46,6 +46,8 @@ type Props = {
   broadcastBusy: boolean;
   onGoLive: () => void;
   onStopStream: () => void;
+  onPauseStream?: () => void;
+  onResumeStream?: () => void;
   viewerCount?: number;
   showCameraFlip?: boolean;
   cameraFlipDisabled?: boolean;
@@ -73,6 +75,8 @@ export function SellerConsoleActionBar({
   broadcastBusy,
   onGoLive,
   onStopStream,
+  onPauseStream,
+  onResumeStream,
   showCameraFlip,
   cameraFlipDisabled,
   onFlipCamera,
@@ -231,6 +235,8 @@ export function SellerConsoleActionBar({
               busy={broadcastBusy}
               onStart={onGoLive}
               onStop={onStopStream}
+              onPause={onPauseStream}
+              onResume={onResumeStream}
               compact
               headerCompact
             />

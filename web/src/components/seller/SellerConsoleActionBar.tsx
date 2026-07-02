@@ -15,6 +15,8 @@ type SellerConsoleActionBarProps = {
   roomLive: boolean;
   onGoLive: () => void;
   onStopStream: () => void;
+  onPauseStream?: () => void;
+  onResumeStream?: () => void;
   streamTimerDisplay?: string;
   viewerCount?: number;
 };
@@ -30,6 +32,8 @@ export function SellerConsoleActionBar({
   roomLive,
   onGoLive,
   onStopStream,
+  onPauseStream,
+  onResumeStream,
   streamTimerDisplay,
   viewerCount,
 }: SellerConsoleActionBarProps) {
@@ -87,10 +91,12 @@ export function SellerConsoleActionBar({
           </span>
         ) : null}
         <VaultBroadcastControl
-          phase={phaseForControl as "idle" | "starting" | "live" | "stopping"}
+          phase={phaseForControl as "idle" | "starting" | "live" | "paused" | "stopping"}
           roomLive={roomLive}
           onStart={onGoLive}
           onStop={onStopStream}
+          onPause={onPauseStream}
+          onResume={onResumeStream}
         />
       </div>
     </div>

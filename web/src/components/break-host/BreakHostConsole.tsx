@@ -2368,6 +2368,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
             roomLive={room.status === "live"}
             onGoLive={handleGoLive}
             onStopStream={() => void webcamBroadcast.stop()}
+            onPauseStream={handlePauseStream}
+            onResumeStream={handleResumeStream}
             streamTimerDisplay={streamTimerDisplay}
             viewerCount={viewerCount}
           />
@@ -2438,6 +2440,8 @@ export function BreakHostConsole({ roomId }: { roomId: string }) {
             roomLive={room.status === "live"}
             onGoLive={handleGoLive}
             onStopStream={() => void webcamBroadcast.stop()}
+            onPauseStream={handlePauseStream}
+            onResumeStream={handleResumeStream}
             streamTimerDisplay={streamTimerDisplay}
             viewerCount={viewerCount}
           />

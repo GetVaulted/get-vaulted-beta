@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import type { MobileHostBroadcastPhase } from '../../../hooks/useMobileStagePublish';
 import { confirmEndLive, confirmStartLive } from '../../../lib/sellerBroadcastConfirm';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
@@ -13,12 +13,14 @@ type Props = {
   busy: boolean;
   onStart: () => void;
   onStop: () => void;
+  onPause?: () => void;
+  onResume?: () => void;
   compact?: boolean;
   /** Smaller play/stop for the header toolbar row. */
   headerCompact?: boolean;
 };
 
-/** Single play/stop control — play starts live (with confirm), stop ends live (with confirm). */
+/** Play/stop with optional pause — pause appears only after the seller goes live. */
 export function SellerBroadcastControl({
   phase,
   roomStatus,
@@ -27,6 +29,8 @@ export function SellerBroadcastControl({
   busy,
   onStart,
   onStop,
+  onPause,
+  onResume,
   compact,
   headerCompact,
 }: Props) {
@@ -39,11 +43,13 @@ export function SellerBroadcastControl({
   if (!canShow || roomEnded) return null;
 
   const showStop = isOnAir;
+  const showPause = showStop && phase === 'live' && Boolean(onPause);
+  const showResume = showStop && phase === 'paused' && Boolean(onResume);
   const starting = busy && (phase === 'idle' || phase === 'starting');
   const iconSize = headerCompact ? 15 : compact ? 18 : 20;
   const btnSize = headerCompact ? 32 : compact ? 44 : 48;
 
-  const onPress = () => {
+  const onPrimaryPress = () => {
     if (showStop) {
       if (stopping || busy) return;
       confirmEndLive(onStop);
@@ -53,32 +59,69 @@ export function SellerBroadcastControl({
     confirmStartLive(onStart);
   };
 
+  const primaryDisabled = stopping || (showStop ? busy : !cameraReady || busy);
+
   return (
-    <Pressable
-      style={[
-        showStop ? styles.stop : styles.play,
-        compact && (showStop ? styles.stopCompact : styles.playCompact),
-        { width: btnSize, height: btnSize },
-        (stopping || (showStop ? busy : !cameraReady || busy)) && styles.disabled,
-      ]}
-      onPress={onPress}
-      disabled={stopping || (showStop ? busy : !cameraReady || busy)}
-      accessibilityLabel={showStop ? SELLER_CONSOLE.stopStream : SELLER_CONSOLE.startStream}
-    >
-      {starting || stopping ? (
-        <ActivityIndicator color={showStop ? '#fecdd3' : '#0a0a0a'} size="small" />
-      ) : (
-        <Ionicons
-          name={showStop ? 'stop' : 'play'}
-          size={iconSize}
-          color={showStop ? '#fecdd3' : '#0a0a0a'}
-        />
-      )}
-    </Pressable>
+    <View style={styles.row}>
+      {showPause ? (
+        <Pressable
+          style={[
+            styles.pause,
+            { width: btnSize, height: btnSize },
+            (stopping || busy) && styles.disabled,
+          ]}
+          onPress={onPause}
+          disabled={stopping || busy}
+          accessibilityLabel={SELLER_CONSOLE.pauseStream}
+        >
+          <Ionicons name="pause" size={iconSize} color="#fde68a" />
+        </Pressable>
+      ) : null}
+      {showResume ? (
+        <Pressable
+          style={[
+            styles.pause,
+            { width: btnSize, height: btnSize },
+            (stopping || busy) && styles.disabled,
+          ]}
+          onPress={onResume}
+          disabled={stopping || busy}
+          accessibilityLabel={SELLER_CONSOLE.resumeStream}
+        >
+          <Ionicons name="play" size={iconSize} color="#fde68a" />
+        </Pressable>
+      ) : null}
+      <Pressable
+        style={[
+          showStop ? styles.stop : styles.play,
+          compact && (showStop ? styles.stopCompact : styles.playCompact),
+          { width: btnSize, height: btnSize },
+          primaryDisabled && styles.disabled,
+        ]}
+        onPress={onPrimaryPress}
+        disabled={primaryDisabled}
+        accessibilityLabel={showStop ? SELLER_CONSOLE.stopStream : SELLER_CONSOLE.startStream}
+      >
+        {starting || stopping ? (
+          <ActivityIndicator color={showStop ? '#fecdd3' : '#0a0a0a'} size="small" />
+        ) : (
+          <Ionicons
+            name={showStop ? 'stop' : 'play'}
+            size={iconSize}
+            color={showStop ? '#fecdd3' : '#0a0a0a'}
+          />
+        )}
+      </Pressable>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   play: {
     borderRadius: radii.pill,
     backgroundColor: colors.gold,
@@ -93,6 +136,15 @@ const styles = StyleSheet.create({
   playCompact: {
     shadowOpacity: 0.25,
     shadowRadius: 6,
+  },
+  pause: {
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(251,191,36,0.45)',
+    backgroundColor: 'rgba(69,26,3,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 16,
   },
   stop: {
     borderRadius: radii.pill,

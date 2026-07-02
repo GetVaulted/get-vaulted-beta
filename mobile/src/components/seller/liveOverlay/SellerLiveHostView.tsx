@@ -711,6 +711,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
             }
             onGoLive={onGoLive}
             onStopStream={host.onStopBroadcast}
+            onPauseStream={host.onPauseBroadcast}
+            onResumeStream={host.onResumeBroadcast}
             showCameraFlip={host.stageWebrtcEnabled && host.showCameraPreview}
             cameraFlipDisabled={host.cameraPermissionState !== 'granted' || host.busy === 'end'}
             onFlipCamera={host.onFlipCamera}
