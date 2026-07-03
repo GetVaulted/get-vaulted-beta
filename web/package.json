@@ -71,6 +71,7 @@
     "@opentelemetry/semantic-conventions": "^1.28.0",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
+    "@sentry/nextjs": "^10.63.0",
     "@stripe/connect-js": "^3.3.39",
     "@stripe/stripe-js": "^9.4.0",
     "@supabase/ssr": "^0.12.0",

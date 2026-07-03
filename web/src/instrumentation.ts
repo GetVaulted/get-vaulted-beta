@@ -1,4 +1,10 @@
 export async function register() {
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    await import("./sentry.server.config");
+  } else if (process.env.NEXT_RUNTIME === "edge") {
+    await import("./sentry.edge.config");
+  }
+
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   const { assertProductionServerEnv } = await import("@/lib/env-production");
   assertProductionServerEnv();
@@ -26,4 +32,12 @@ export async function register() {
   } catch (e) {
     console.error("[instrumentation] OpenTelemetry init failed", e);
   }
+}
+
+export async function onRequestError(
+  ...args: Parameters<typeof import("@sentry/nextjs").captureRequestError>
+) {
+  if (!process.env.SENTRY_DSN?.trim()) return;
+  const Sentry = await import("@sentry/nextjs");
+  Sentry.captureRequestError(...args);
 }
