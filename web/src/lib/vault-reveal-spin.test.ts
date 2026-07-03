@@ -14,6 +14,7 @@ const givvySpin = (overrides: Partial<VaultRevealSpinPayload> = {}): VaultReveal
   labels: ["@winner", "@loser"],
   winnerIndex: 0,
   winnerLabel: "@winner",
+  durationMs: 2400,
   winnerUserId: "user-winner",
   giveawayKind: "open",
   ...overrides,

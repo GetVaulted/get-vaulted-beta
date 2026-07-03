@@ -20,6 +20,7 @@ function baseSeller(overrides: Partial<SellerPayoutEligibilitySlice> = {}): Sell
     shipFromState: "TX",
     shipFromZip: "78701",
     shipFromCountry: "US",
+    shipFromPhone: "+15125551234",
     defaultShipFromAddressId: null,
     instantPayoutEligible: false,
     instantPayoutStatus: InstantPayoutStatus.ineligible,

@@ -8,25 +8,34 @@ import {
 } from "@/lib/live-item-variant-presets";
 import { mergeVariantPurchasedIntoItems } from "@/lib/live-room-variant-merge";
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
+import type { LiveItemVariantDTO } from "@/lib/live-item-variant-serialize";
 
-const pytVariants = [
+const pytVariants: Omit<LiveItemVariantDTO, "quantityInitial" | "sortOrder">[] = [
   {
     id: "chiefs",
+    liveRoomItemId: "item_pyt",
     label: "Chiefs",
     priceUsd: 40,
     quantityRemaining: 1,
     soldCount: 0,
     isHot: false,
+    imageUrl: "",
+    color: "",
     status: "available",
+    buyerUsername: null,
   },
   {
     id: "bills",
+    liveRoomItemId: "item_pyt",
     label: "Bills",
     priceUsd: 40,
     quantityRemaining: 1,
     soldCount: 0,
     isHot: false,
+    imageUrl: "",
+    color: "",
     status: "available",
+    buyerUsername: null,
   },
 ];
 

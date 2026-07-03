@@ -40,6 +40,9 @@ function item(id: string, itemVersion: number, patch: Partial<LiveRoomItemDTO> =
     variants: patch.variants ?? [],
     variantBreakReadyAt: patch.variantBreakReadyAt ?? null,
     variantBreakBeganAt: patch.variantBreakBeganAt ?? null,
+    variantSpotCommerceDefault: patch.variantSpotCommerceDefault ?? "fixed",
+    activeSpotCommerceMode: patch.activeSpotCommerceMode ?? null,
+    auctionVariantId: patch.auctionVariantId ?? null,
     createdAt: patch.createdAt ?? "2026-01-01T00:00:00.000Z",
     updatedAt: patch.updatedAt ?? "2026-01-01T00:00:00.000Z",
   };

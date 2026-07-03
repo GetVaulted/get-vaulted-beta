@@ -12,9 +12,9 @@ export async function requireAdmin(): Promise<
   }
   const row = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { role: true },
+    select: { role: true, suspendedAt: true },
   });
-  if (row?.role !== "admin") {
+  if (row?.role !== "admin" || row.suspendedAt) {
     return { ok: false, response: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   }
   return { ok: true, userId: session.user.id };

@@ -45,7 +45,14 @@ export async function POST(req: Request) {
     req.headers.get("X-Shippo-Signature") ??
     req.headers.get("x-shippo-signature");
 
-  if (process.env.SHIPPO_WEBHOOK_SECRET && !verifyShippoWebhookSignature(raw, sig)) {
+  const shippoSecret = process.env.SHIPPO_WEBHOOK_SECRET;
+  if (!shippoSecret) {
+    // Fail closed in production: an unset secret must never mean "accept unverified payloads".
+    if (process.env.NODE_ENV === "production") {
+      await markWebhookLogFailure(logId, "verify: secret_not_configured");
+      return NextResponse.json({ error: "Webhook not configured" }, { status: 503 });
+    }
+  } else if (!verifyShippoWebhookSignature(raw, sig)) {
     await markWebhookLogFailure(logId, "verify: invalid_signature");
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
