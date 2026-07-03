@@ -11,5 +11,15 @@ if (dsn) {
     dsn,
     environment: process.env.SENTRY_ENVIRONMENT?.trim() || process.env.NODE_ENV,
     tracesSampleRate: process.env.NODE_ENV === "development" ? 1.0 : 0.05,
+    // See sentry.server.config.ts — same conservative data-collection policy for middleware.
+    dataCollection: {
+      userInfo: false,
+      cookies: false,
+      httpHeaders: { request: false, response: false },
+      httpBodies: [],
+      queryParams: false,
+    },
+    // See sentry.server.config.ts — drop the Console breadcrumb integration if present.
+    integrations: (defaults) => defaults.filter((i) => i.name !== "Console"),
   });
 }

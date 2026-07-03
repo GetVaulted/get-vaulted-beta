@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import os from "node:os";
 import path from "node:path";
+import { withSentryConfig } from "@sentry/nextjs";
 
 function supabasePublicStorageHostname(): string | undefined {
   const raw = process.env.SUPABASE_URL?.trim();
@@ -89,4 +90,22 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Wraps the config to enable Sentry source-map upload — a no-op (no plugin, no build changes)
+// until SENTRY_AUTH_TOKEN is set, so this is safe to ship before a Sentry org/project exists.
+// See web/docs/production-error-monitoring.md.
+const hasSentryAuthToken = Boolean(process.env.SENTRY_AUTH_TOKEN?.trim());
+
+export default withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  silent: true,
+  sourcemaps: {
+    // No token → skip source map generation/upload entirely rather than attempting and warning.
+    disable: !hasSentryAuthToken,
+    // Uploaded maps stay in Sentry only; never ship raw .map files in the deployed bundle.
+    deleteSourcemapsAfterUpload: true,
+  },
+  // Sentry's own build-time usage telemetry — unrelated to app error reporting; keep it off.
+  telemetry: false,
+});

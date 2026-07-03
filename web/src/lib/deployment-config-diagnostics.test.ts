@@ -44,4 +44,38 @@ describe("buildDeploymentConfigDiagnostics", () => {
     expect(d.stripeSecretKeyMode).toBe("test");
     expect(d.stripeProductionReady).toBe(false);
   });
+
+  it("reports Sentry booleans without ever exposing the DSN or auth token", () => {
+    vi.stubEnv("SENTRY_DSN", "https://examplekey@o0.ingest.sentry.io/123");
+    vi.stubEnv("NEXT_PUBLIC_SENTRY_DSN", "https://examplekey@o0.ingest.sentry.io/456");
+    vi.stubEnv("SENTRY_ORG", "get-vaulted");
+    vi.stubEnv("SENTRY_PROJECT", "web");
+    vi.stubEnv("SENTRY_AUTH_TOKEN", "sntrys_super_secret_token");
+
+    const d = buildDeploymentConfigDiagnostics();
+
+    expect(d.sentryServerConfigured).toBe(true);
+    expect(d.sentryClientConfigured).toBe(true);
+    expect(d.sentrySourceMapsConfigured).toBe(true);
+    expect(JSON.stringify(d)).not.toContain("examplekey");
+    expect(JSON.stringify(d)).not.toContain("sntrys_super_secret_token");
+  });
+
+  it("reports Sentry as unconfigured when DSNs and auth token are unset", () => {
+    const d = buildDeploymentConfigDiagnostics();
+
+    expect(d.sentryServerConfigured).toBe(false);
+    expect(d.sentryClientConfigured).toBe(false);
+    expect(d.sentrySourceMapsConfigured).toBe(false);
+  });
+
+  it("flags source maps as not configured when only some of org/project/token are set", () => {
+    vi.stubEnv("SENTRY_ORG", "get-vaulted");
+    vi.stubEnv("SENTRY_PROJECT", "web");
+    // SENTRY_AUTH_TOKEN intentionally left unset.
+
+    const d = buildDeploymentConfigDiagnostics();
+
+    expect(d.sentrySourceMapsConfigured).toBe(false);
+  });
 });

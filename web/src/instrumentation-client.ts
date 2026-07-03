@@ -12,8 +12,24 @@ if (dsn) {
     environment: process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT?.trim() || process.env.NODE_ENV,
     // Keep sampling low by default — this is for "did something break", not full APM.
     tracesSampleRate: process.env.NODE_ENV === "development" ? 1.0 : 0.05,
+    // Conservative by design: this is a payments marketplace (addresses, order totals, card
+    // last4 shown on screen; Stripe/Trustap tokens and auth cookies on outgoing requests).
+    dataCollection: {
+      userInfo: false,
+      cookies: false,
+      httpHeaders: { request: false, response: false },
+      httpBodies: [],
+      queryParams: false, // Supabase email links carry access/recovery tokens in query/hash.
+    },
     replaysSessionSampleRate: 0,
     replaysOnErrorSampleRate: 0.1,
+    integrations: [
+      // Explicit (not relying on defaults): mask all text/inputs, block all media in replays.
+      Sentry.replayIntegration({ maskAllText: true, maskAllInputs: true, blockAllMedia: true }),
+      // Overrides the default Breadcrumbs integration (same name → replaces it) to stop
+      // capturing console.* calls as breadcrumbs — see sentry.server.config.ts for why.
+      Sentry.breadcrumbsIntegration({ console: false }),
+    ],
   });
 }
 

@@ -42,6 +42,12 @@ export type DeploymentConfigDiagnostics = {
   /** Client Stripe.js / mobile wallet needs the publishable key (safe to expose). */
   stripePublishableKey: string | null;
   usesSupabaseAuthSignup: boolean;
+  /** Server/edge Sentry init (SENTRY_DSN) — booleans only, DSN itself is never exposed. */
+  sentryServerConfigured: boolean;
+  /** Browser Sentry init (NEXT_PUBLIC_SENTRY_DSN). */
+  sentryClientConfigured: boolean;
+  /** Source-map upload during build (SENTRY_ORG + SENTRY_PROJECT + SENTRY_AUTH_TOKEN). */
+  sentrySourceMapsConfigured: boolean;
 };
 
 function resolvePublicAppUrl(): string | null {
@@ -104,5 +110,12 @@ export function buildDeploymentConfigDiagnostics(): DeploymentConfigDiagnostics 
     resendEmailReady: resendConfigured && resendFromConfigured,
     stripePublishableKey: publishableKey || null,
     usesSupabaseAuthSignup: isBetaDeployment(),
+    sentryServerConfigured: Boolean(process.env.SENTRY_DSN?.trim()),
+    sentryClientConfigured: Boolean(process.env.NEXT_PUBLIC_SENTRY_DSN?.trim()),
+    sentrySourceMapsConfigured: Boolean(
+      process.env.SENTRY_ORG?.trim() &&
+        process.env.SENTRY_PROJECT?.trim() &&
+        process.env.SENTRY_AUTH_TOKEN?.trim(),
+    ),
   };
 }

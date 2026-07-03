@@ -28,11 +28,24 @@ Sampling defaults to a low rate in production (5% traces, 10% session replay-on-
 session replay) to keep this free-tier friendly. Tune in the three config files once you have a
 sense of traffic and Sentry's quota.
 
-**Not included (deliberately, to avoid launch risk):** the `withSentryConfig` Next.js config
-wrapper and source-map upload during build. That requires a Sentry auth token in CI/Netlify and
-its own failure modes at build time. Errors are still fully captured and readable (just without
-mapped stack traces to original TS source) without it — add it later as a follow-up once a Sentry
-org exists and you're comfortable wiring a build-time secret.
+**Privacy posture (this is a payments marketplace — addresses, Stripe/Trustap tokens, auth
+cookies):** all three `Sentry.init()` calls set `dataCollection` to the conservative end —
+`userInfo: false`, `cookies: false`, `httpHeaders: { request: false, response: false }`,
+`httpBodies: []`, `queryParams: false` — so request headers, cookies, IP addresses, query strings
+(Supabase email links carry tokens there), and request/response bodies are never attached to
+events. The default `Console` integration (which would otherwise attach every `console.log` /
+`console.error` call in the app as a breadcrumb on the next error) is also removed on server,
+edge, and client. Session Replay explicitly sets `maskAllText`/`maskAllInputs`/`blockAllMedia` to
+`true` rather than relying on SDK defaults. This was verified by pointing the SDK at a local
+inspector script during development and reading the resulting envelope byte-for-byte — see
+"Verification performed" below.
+
+**Source maps:** `next.config.ts` wraps the config with `withSentryConfig`. This is a complete
+no-op (no build behavior change, no warnings) unless `SENTRY_ORG`, `SENTRY_PROJECT`, and
+`SENTRY_AUTH_TOKEN` are all set — confirmed safe by testing a production build both with and
+without them. Once set, source maps upload after each production build and are deleted from the
+deployed bundle afterward (never shipped publicly); server stack traces stay mapped to source,
+client maps are uploaded then removed.
 
 ---
 
@@ -45,11 +58,22 @@ org exists and you're comfortable wiring a build-time secret.
    - `NEXT_PUBLIC_SENTRY_DSN` = the same DSN
    - `SENTRY_ENVIRONMENT` = `production`
    - `NEXT_PUBLIC_SENTRY_ENVIRONMENT` = `production`
-4. Optionally repeat with a second Sentry project (or the same project, `SENTRY_ENVIRONMENT=beta`)
-   for the beta Netlify context, so beta noise doesn't mix with production alerts.
-5. Redeploy. Trigger a throwaway error (e.g. temporarily throw in a test API route) and confirm it
-   shows up in the Sentry Issues stream, then revert the test throw.
-6. In Sentry → Alerts, create a rule: "New issue" → notify a Slack channel or email you'll
+4. Optional, for readable (non-minified) stack traces — Sentry → Settings → Auth Tokens, scope
+   `project:releases` — then add as **build-time** env vars (Netlify build environment, not just
+   runtime):
+   - `SENTRY_ORG` = your org slug
+   - `SENTRY_PROJECT` = your project slug
+   - `SENTRY_AUTH_TOKEN` = the token (mark as a secret/sensitive var in Netlify)
+5. Optionally repeat steps 1–4 with a second Sentry project (or the same project,
+   `SENTRY_ENVIRONMENT=beta`) for the beta Netlify context, so beta noise doesn't mix with
+   production alerts.
+6. Redeploy, then hit `GET /api/auth/config` on the deployed site and confirm
+   `sentryServerConfigured`, `sentryClientConfigured` (and `sentrySourceMapsConfigured`, if you did
+   step 4) are `true` — this is a safe, booleans-only diagnostics endpoint, it never exposes the
+   DSN or auth token.
+7. Trigger a throwaway error (e.g. temporarily throw in a test API route) and confirm it shows up
+   in the Sentry Issues stream, then revert the test throw.
+8. In Sentry → Alerts, create a rule: "New issue" → notify a Slack channel or email you'll
    actually check in the first week. This is the single highest-value step — an idle dashboard
    nobody looks at is not monitoring.
 
@@ -94,7 +118,34 @@ to the last known-good build rather than trying to hotfix forward under pressure
 
 ---
 
-## 4. Mobile (deferred)
+## 4. Verification performed (this integration, pre-account)
+
+Since no Sentry account/DSN existed yet, full delivery was verified without one, so this can be
+trusted to work the moment a real DSN is added:
+
+- **Config is read correctly**: `deployment-config-diagnostics.ts` exposes
+  `sentryServerConfigured` / `sentryClientConfigured` / `sentrySourceMapsConfigured` booleans
+  (never the DSN/token itself), covered by unit tests in
+  `deployment-config-diagnostics.test.ts`.
+- **Server/edge/client instrumentation are active**: `next build` succeeds and runs Sentry's
+  `runAfterProductionCompile` hook cleanly with no `SENTRY_AUTH_TOKEN` set (matches today's
+  production state); `instrumentation.ts` correctly loads `sentry.server.config.ts` /
+  `sentry.edge.config.ts` by `NEXT_RUNTIME`.
+- **Delivery mechanics**: pointed the server SDK at a local HTTP listener standing in for
+  Sentry's ingest endpoint and called `captureException` — confirmed a real
+  `POST /api/<id>/envelope/` request arrived with a correctly formed Sentry envelope (event id,
+  stack trace, SDK metadata). This is the same code path `sentry.server.config.ts` uses.
+- **No sensitive data leaks**: read the installed SDK's `requestDataIntegration` source directly
+  to confirm `dataCollection: { httpHeaders: { request: false }, cookies: false, userInfo: false,
+  queryParams: false }` fully suppresses headers (so `cookie`/`authorization`), IP address, and
+  query strings from ever reaching `event.request`. Empirically confirmed the `Console`
+  integration removal by capturing an exception right after a `console.log` call and verifying
+  no `breadcrumbs` field appeared in the transmitted envelope at all.
+- **Source maps**: built the app both with and without `SENTRY_ORG`/`SENTRY_PROJECT`/
+  `SENTRY_AUTH_TOKEN` set — confirmed both succeed, and that setting them is required before any
+  upload attempt happens (no accidental partial uploads or build warnings without them).
+
+## 5. Mobile (deferred)
 
 Mobile (Expo/React Native) does not yet have Sentry (`sentry-expo` / `@sentry/react-native`)
 wired in — this was scoped out to avoid EAS build config changes this close to launch. Today,
