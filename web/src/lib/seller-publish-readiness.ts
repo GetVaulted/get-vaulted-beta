@@ -62,6 +62,7 @@ export async function getSellerPublishListingIssues(
           state: true,
           postalCode: true,
           country: true,
+          phone: true,
         },
       },
     },
