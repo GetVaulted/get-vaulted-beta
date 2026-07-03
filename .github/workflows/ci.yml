@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [get-vaulted-beta, main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web (typecheck + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: web
+        run: npx tsc --noEmit
+
+      - name: Test
+        working-directory: web
+        run: npm test
+
+      # Pre-existing lint debt (hundreds of warnings/errors from before CI existed) is being paid
+      # down separately — lint runs for visibility but does not fail the build yet. Once the
+      # backlog is cleared, drop `continue-on-error` so lint blocks merges like the other checks.
+      - name: Lint (non-blocking until pre-existing debt is cleared)
+        working-directory: web
+        continue-on-error: true
+        run: npx eslint
+
+  mobile:
+    name: Mobile (typecheck + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: mobile
+        run: npm run typecheck
+
+      - name: Test
+        working-directory: mobile
+        run: npm test
