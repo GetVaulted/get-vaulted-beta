@@ -1,9 +1,16 @@
 /**
  * Hard safety guards for destructive beta-only wipe scripts.
  * ONLY project xkaaicokjgmpbctfermj is allowed — strict allowlist, not blocklist.
+ *
+ * IMPORTANT: beta and production currently share that same Supabase project/database, so the
+ * project-ref check below cannot by itself distinguish "beta" from "production" — both match.
+ * The `findProductionHostEnvVar` check is the real safety net: it refuses immediately if the
+ * local environment's site-URL vars (as would be pulled from a production Netlify context) look
+ * like the production domain, regardless of what the DB/Supabase project ref says.
  */
 import { resolveDatabaseUrl, supabaseProjectRefFromUrl } from "../../src/lib/resolve-database-url";
 import { EXPECTED_BETA_PROJECT_REF } from "../../src/lib/beta-qa-scope";
+import { findProductionHostEnvVar } from "../../src/lib/production-host-guard";
 
 export type BetaWipeEnv = {
   supabaseUrl: string;
@@ -12,6 +19,15 @@ export type BetaWipeEnv = {
 };
 
 export function assertBetaFullWipeAllowed(opts?: { noSeed?: boolean }): BetaWipeEnv {
+  const prodHostVar = findProductionHostEnvVar();
+  if (prodHostVar) {
+    console.error(
+      `Refusing: ${prodHostVar} looks like the production domain. This script never runs against production.`,
+    );
+    console.error(`Unset or correct ${prodHostVar} (should be beta.shopgetvaulted.com) and try again.`);
+    process.exit(1);
+  }
+
   if (process.env.CONFIRM_BETA_FULL_WIPE !== "1") {
     console.error(
       "Refusing: set CONFIRM_BETA_FULL_WIPE=1 to wipe ALL beta application data.",

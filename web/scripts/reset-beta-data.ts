@@ -32,6 +32,7 @@ import {
   EXPECTED_BETA_PROJECT_REF,
 } from "../src/lib/beta-qa-scope";
 import { createPostgresPrismaClient } from "../src/lib/prisma-pg-factory";
+import { findProductionHostEnvVar } from "../src/lib/production-host-guard";
 import {
   parseDatabaseConnectionInfo,
   redactDatabaseUrl,
@@ -116,6 +117,18 @@ async function verifyBetaApiHost(): Promise<{ ok: boolean; host: string; project
 }
 
 function assertBetaTarget(): BetaTargetEnv {
+  // Beta and production share the same Supabase project ref, so the ref checks below cannot
+  // distinguish them. Site-URL env vars are the real signal — refuse immediately if this looks
+  // like a production environment, before touching the database at all.
+  const prodHostVar = findProductionHostEnvVar();
+  if (prodHostVar) {
+    console.error(
+      `Refusing: ${prodHostVar} looks like the production domain. This script never runs against production.`,
+    );
+    console.error(`Unset or correct ${prodHostVar} (should be beta.shopgetvaulted.com) and try again.`);
+    process.exit(1);
+  }
+
   let dbUrl: string;
   try {
     dbUrl = resolveDatabaseUrl();
@@ -162,7 +175,7 @@ function assertBetaTarget(): BetaTargetEnv {
   console.log(`Expected beta ref:    ${EXPECTED_BETA_PROJECT_REF}`);
   console.log(`API host (expected):  ${EXPECTED_BETA_API_HOST}`);
   console.log(`API host (local env): ${resolveBetaApiHost()}`);
-  console.log(`NOT production:       YES (allowlist ref ${EXPECTED_BETA_PROJECT_REF} only)`);
+  console.log(`Production host check: PASSED (no site-URL env var matched shopgetvaulted.com)`);
   console.log("=".repeat(72));
   console.log("");
 

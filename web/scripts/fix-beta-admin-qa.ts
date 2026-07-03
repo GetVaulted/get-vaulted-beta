@@ -125,7 +125,18 @@ async function main() {
 
   const { createClient } = await import("@supabase/supabase-js");
   const { resolveDatabaseUrl, supabaseProjectRefFromUrl } = await import("../src/lib/resolve-database-url");
+  const { findProductionHostEnvVar } = await import("../src/lib/production-host-guard");
   const { prisma } = await import("../src/lib/prisma");
+
+  // Beta and production share the same Supabase project ref, so the ref check below cannot
+  // distinguish them. This resets an account to a hardcoded password — check the site-URL env
+  // vars first and refuse outright if this looks like production.
+  const prodHostVar = findProductionHostEnvVar();
+  if (prodHostVar) {
+    throw new Error(
+      `Refusing: ${prodHostVar} looks like the production domain. This script never runs against production.`,
+    );
+  }
 
   const dbRef = supabaseProjectRefFromUrl(resolveDatabaseUrl());
   const supabaseUrl =

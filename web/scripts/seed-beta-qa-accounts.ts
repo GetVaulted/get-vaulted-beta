@@ -23,6 +23,7 @@ config({ path: path.join(webRoot, ".env.local"), override: true, quiet: true });
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { PrismaClient } from "@prisma/client";
+import { findProductionHostEnvVar } from "../src/lib/production-host-guard";
 import { resolveDatabaseUrl, supabaseProjectRefFromUrl } from "../src/lib/resolve-database-url";
 
 const EXPECTED_REF = "xkaaicokjgmpbctfermj";
@@ -44,6 +45,15 @@ const ACCOUNTS: QaAccountSpec[] = [
 ];
 
 function assertEnv() {
+  // Beta and production share the same Supabase project ref, so the ref check below cannot
+  // distinguish them — check the site-URL env vars first and refuse if this looks like production.
+  const prodHostVar = findProductionHostEnvVar();
+  if (prodHostVar) {
+    console.error(
+      `Refusing: ${prodHostVar} looks like the production domain. This script never runs against production.`,
+    );
+    process.exit(1);
+  }
   if (process.env.ALLOW_BETA_QA_SEED !== "1") {
     console.error("Refusing to run. Set ALLOW_BETA_QA_SEED=1 in the environment.");
     process.exit(1);

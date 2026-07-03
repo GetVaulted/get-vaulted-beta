@@ -1,10 +1,17 @@
 /**
  * Safety guards for reset-beta-qa-slate.ts — beta project allowlist only.
+ *
+ * NOTE: production currently shares the SAME Supabase project ref as beta
+ * (EXPECTED_BETA_PROJECT_REF), so `BLOCKED_PROJECT_REFS` can never contain the production ref —
+ * it would just block beta too. The real safety net is `findProductionHostEnvVar`, which checks
+ * the local site-URL env vars (NEXT_PUBLIC_SITE_URL / NEXTAUTH_URL / SITE_URL) instead, since
+ * those differ between the beta and production Netlify contexts even though the database doesn't.
  */
 import {
   EXPECTED_BETA_API_HOST,
   EXPECTED_BETA_PROJECT_REF,
 } from "../../src/lib/beta-qa-scope";
+import { findProductionHostEnvVar } from "../../src/lib/production-host-guard";
 import {
   parseDatabaseConnectionInfo,
   redactDatabaseUrl,
@@ -12,10 +19,8 @@ import {
   supabaseProjectRefFromUrl,
 } from "../../src/lib/resolve-database-url";
 
-/** Blocked Supabase project refs (production / non-beta). Extend if prod ref is documented. */
-const BLOCKED_PROJECT_REFS = new Set<string>([
-  // Add known production Supabase refs here if they differ from beta.
-]);
+/** Additional known-bad project refs, if a separate non-beta ref is ever documented. */
+const BLOCKED_PROJECT_REFS = new Set<string>([]);
 
 function looksLikeProductionDatabaseUrl(url: string): boolean {
   const lower = url.toLowerCase();
@@ -33,6 +38,15 @@ export type BetaSlateTarget = {
 };
 
 export function assertBetaSlateResetAllowed(opts: { live: boolean; seed: boolean }): BetaSlateTarget {
+  const prodHostVar = findProductionHostEnvVar();
+  if (prodHostVar) {
+    console.error(
+      `Refusing: ${prodHostVar} looks like the production domain. This script never runs against production.`,
+    );
+    console.error(`Unset or correct ${prodHostVar} (should be beta.shopgetvaulted.com) and try again.`);
+    process.exit(1);
+  }
+
   if (opts.live && process.env.CONFIRM_RESET_BETA !== "YES") {
     console.error("Refusing: set CONFIRM_RESET_BETA=YES to reset beta QA slate.");
     console.error("Example: CONFIRM_RESET_BETA=YES npx tsx scripts/reset-beta-qa-slate.ts");

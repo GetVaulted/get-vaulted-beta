@@ -27,6 +27,7 @@ import {
   EXPECTED_BETA_PROJECT_REF,
   isCanonicalBetaQaEmail,
 } from "../src/lib/beta-qa-scope";
+import { findProductionHostEnvVar } from "../src/lib/production-host-guard";
 import { createPostgresPrismaClient } from "../src/lib/prisma-pg-factory";
 import { resolveDatabaseUrl, supabaseProjectRefFromUrl } from "../src/lib/resolve-database-url";
 
@@ -42,6 +43,15 @@ function log(msg: string) {
 }
 
 function assertEnv() {
+  // Beta and production share the same Supabase project ref, so the ref check below cannot
+  // distinguish them — check the site-URL env vars first and refuse if this looks like production.
+  const prodHostVar = findProductionHostEnvVar();
+  if (prodHostVar) {
+    console.error(
+      `Refusing: ${prodHostVar} looks like the production domain. This script never runs against production.`,
+    );
+    process.exit(1);
+  }
   if (process.env.CONFIRM_BETA_ACCOUNTS_ONLY !== "1") {
     console.error("Refusing: set CONFIRM_BETA_ACCOUNTS_ONLY=1");
     process.exit(1);

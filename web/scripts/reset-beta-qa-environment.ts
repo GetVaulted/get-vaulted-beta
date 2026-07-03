@@ -33,6 +33,7 @@ import { seedMarketplaceListings } from "../prisma/seed-marketplace-fixtures";
 import { ensureStripeCustomerIdForUser } from "../src/lib/stripe-customer";
 import { getStripe, isStripeConfigured } from "../src/lib/stripe";
 import { prisma } from "../src/lib/prisma";
+import { findProductionHostEnvVar } from "../src/lib/production-host-guard";
 import { resolveDatabaseUrl, supabaseProjectRefFromUrl } from "../src/lib/resolve-database-url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = path.join(__dirname, "..");
@@ -56,6 +57,15 @@ function log(msg: string) {
 }
 
 function assertEnv() {
+  // Beta and production share the same Supabase project ref, so the ref check below cannot
+  // distinguish them — check the site-URL env vars first and refuse if this looks like production.
+  const prodHostVar = findProductionHostEnvVar();
+  if (prodHostVar) {
+    console.error(
+      `Refusing: ${prodHostVar} looks like the production domain. This script never runs against production.`,
+    );
+    process.exit(1);
+  }
   if (process.env.CONFIRM_BETA_QA_RESET !== "1") {
     console.error("Refusing: set CONFIRM_BETA_QA_RESET=1 to reset beta QA commerce data.");
     process.exit(1);

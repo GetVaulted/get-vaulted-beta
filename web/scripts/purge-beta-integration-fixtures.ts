@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import { INTEGRATION_TEST_EMAIL_SUFFIX } from "../src/lib/demo-seed-sellers";
 import { EXPECTED_BETA_PROJECT_REF } from "../src/lib/beta-qa-scope";
 import { createPostgresPrismaClient } from "../src/lib/prisma-pg-factory";
+import { findProductionHostEnvVar } from "../src/lib/production-host-guard";
 import { resolveDatabaseUrl, supabaseProjectRefFromUrl } from "../src/lib/resolve-database-url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -25,6 +26,15 @@ config({ path: path.join(__dirname, "..", ".env.local"), override: true, quiet: 
 const dryRun = process.argv.includes("--dry-run");
 
 function assertEnv() {
+  // Beta and production share the same Supabase project ref, so the ref check below cannot
+  // distinguish them — check the site-URL env vars first and refuse if this looks like production.
+  const prodHostVar = findProductionHostEnvVar();
+  if (prodHostVar) {
+    console.error(
+      `Refusing: ${prodHostVar} looks like the production domain. This script never runs against production.`,
+    );
+    process.exit(1);
+  }
   if (process.env.CONFIRM_BETA_INTEGRATION_PURGE !== "1") {
     console.error("Refusing: set CONFIRM_BETA_INTEGRATION_PURGE=1");
     process.exit(1);
