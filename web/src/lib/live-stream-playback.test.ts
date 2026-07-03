@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   parseBuyerSafeStreamPayload,
   preferHlsOverWebrtcOnClient,
@@ -51,18 +51,18 @@ describe("live-stream-playback", () => {
   });
 
   it("preferNativeHlsElementPlayback is true on iOS only", () => {
-    const original = navigator.userAgent;
-    Object.defineProperty(navigator, "userAgent", {
-      configurable: true,
-      value: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+    // Stub the global directly rather than mutating an ambient `navigator` — this file runs under
+    // vitest's "node" environment, which doesn't provide `navigator` on every Node version (only
+    // Node 21+ exposes it by default), so relying on it existing already is not portable.
+    vi.stubGlobal("navigator", {
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
     });
     expect(preferNativeHlsElementPlayback()).toBe(true);
-    Object.defineProperty(navigator, "userAgent", {
-      configurable: true,
-      value: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile",
+    vi.stubGlobal("navigator", {
+      userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile",
     });
     expect(preferNativeHlsElementPlayback()).toBe(false);
-    Object.defineProperty(navigator, "userAgent", { configurable: true, value: original });
+    vi.unstubAllGlobals();
   });
 
   it("preferHlsOverWebrtcOnClient is false (WebRTC primary for stage sellers)", () => {

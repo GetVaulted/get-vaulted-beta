@@ -1,4 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// createLayawayBalanceCheckout/createLayawayDepositCheckout build absolute return URLs via
+// siteUrl() (web/src/services/layaway.ts), which requires NEXTAUTH_URL or NEXT_PUBLIC_SITE_URL.
+// Stub it so these tests don't depend on an ambient `.env` (CI has none).
+beforeAll(() => {
+  vi.stubEnv("NEXTAUTH_URL", "http://localhost:3000");
+});
+afterAll(() => {
+  vi.unstubAllEnvs();
+});
 
 vi.mock("@/lib/notifications", () => ({ createNotification: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/lib/marketplace/ecosystem-sync", () => ({
