@@ -92,6 +92,7 @@ export function notificationTypeChip(type: string): string {
     layaway_completed_seller: "Layaway done",
     layaway_defaulted_seller: "Layaway expired",
     layaway_payment_seller: "Layaway payment",
+    admin_announcement: "Announcement",
   };
   return map[type] ?? type.replace(/_/g, " ");
 }

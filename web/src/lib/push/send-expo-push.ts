@@ -114,3 +114,74 @@ export function scheduleExpoPushForUser(payload: ExpoPushPayload, opts?: { defer
     void sendExpoPushForUser(payload);
   }, deferMs);
 }
+
+export type ExpoPushBroadcastPayload = {
+  userIds: string[];
+  title: string;
+  body: string;
+  href: string;
+  type: string;
+};
+
+/**
+ * Send OS push to every registered device across many users in one pass (admin mass notifications).
+ * Reads only the primary Prisma token store (not the Supabase mirror) to avoid an N+1 lookup at
+ * broadcast scale — devices registered via the app always write here first. Returns tickets sent.
+ */
+export async function sendExpoPushBroadcast(payload: ExpoPushBroadcastPayload): Promise<number> {
+  const client = getExpoClient();
+  if (!client || payload.userIds.length === 0) return 0;
+
+  try {
+    const tokenSet = new Set<string>();
+    for (const idBatch of chunkArray(payload.userIds, 1000)) {
+      const rows = await prisma.pushDeviceToken.findMany({
+        where: { userId: { in: idBatch } },
+        select: { expoPushToken: true },
+      });
+      for (const row of rows) tokenSet.add(row.expoPushToken);
+    }
+    const tokens = [...tokenSet].filter((t) => Expo.isExpoPushToken(t));
+    if (tokens.length === 0) return 0;
+
+    const messages: ExpoPushMessage[] = tokens.map((to) => ({
+      to,
+      sound: "default",
+      title: payload.title.slice(0, 200),
+      body: payload.body.slice(0, 2000),
+      data: { href: payload.href.slice(0, 2000), type: payload.type },
+      channelId: "vault-default",
+    }));
+
+    const chunks = client.chunkPushNotifications(messages);
+    const invalid: string[] = [];
+    let sent = 0;
+
+    for (const chunk of chunks) {
+      const tickets = await client.sendPushNotificationsAsync(chunk);
+      tickets.forEach((ticket, i) => {
+        if (ticket.status === "error") {
+          const token = chunk[i]?.to;
+          if (typeof token === "string" && ticket.details?.error === "DeviceNotRegistered") {
+            invalid.push(token);
+          }
+          console.warn("[push] broadcast ticket error", ticket.message, ticket.details);
+        } else {
+          sent += 1;
+        }
+      });
+    }
+
+    await pruneInvalidTokens(invalid);
+    return sent;
+  } catch (e) {
+    console.error("[push] sendExpoPushBroadcast failed", e);
+    return 0;
+  }
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}

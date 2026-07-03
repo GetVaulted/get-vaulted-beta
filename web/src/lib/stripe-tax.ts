@@ -502,6 +502,37 @@ export async function fetchCheckoutSessionTax(checkoutSessionId: string): Promis
   }
 }
 
+/**
+ * Record a completed sale against Stripe Tax so it appears in Stripe's own tax reporting/filing
+ * dashboard and counts toward economic-nexus threshold monitoring. `estimateSalesTaxCents` only
+ * creates a *Calculation* (a quote) — it does not, by itself, tell Stripe Tax that the sale
+ * actually happened. Without this call, tax is still correctly charged to the buyer (via the
+ * explicit line item) and correctly recorded in this app's own ledger, but Stripe's Tax dashboard
+ * (and any automated filing built on top of it) will never see the transaction, which is a real
+ * compliance/reporting gap for a business relying on Stripe Tax for return-ready reports.
+ *
+ * Idempotent by design: Stripe treats repeat calls against the *same calculation* as a no-op
+ * (returns the existing transaction), so this is safe to call from webhook handlers that may be
+ * redelivered. Must never throw into a payment-finalization path — a failure here means Stripe's
+ * own reporting is incomplete for this sale, not that money moved incorrectly, so callers should
+ * invoke this fire-and-forget after the order is otherwise fully finalized.
+ */
+export async function recordStripeTaxTransaction(args: {
+  taxCalculationId: string | null;
+  reference: string;
+}): Promise<void> {
+  if (!args.taxCalculationId || !isStripeConfigured()) return;
+  try {
+    const stripe = getStripe();
+    await stripe.tax.transactions.createFromCalculation({
+      calculation: args.taxCalculationId,
+      reference: args.reference,
+    });
+  } catch (e) {
+    console.error("[stripe-tax] recordStripeTaxTransaction failed", args.reference, args.taxCalculationId, e);
+  }
+}
+
 export async function listTaxNexusStates() {
   return prisma.taxNexusState.findMany({ orderBy: { stateCode: "asc" } });
 }

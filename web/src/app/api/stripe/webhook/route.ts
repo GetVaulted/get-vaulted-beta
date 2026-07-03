@@ -13,6 +13,10 @@ import Stripe from "stripe";
 
 export const runtime = "nodejs";
 
+function isUniqueConstraintError(e: unknown): boolean {
+  return Boolean(e && typeof e === "object" && "code" in e && (e as { code: unknown }).code === "P2002");
+}
+
 /**
  * Stripe Connect webhooks — source of truth for order payment state.
  * Events are logged to `WebhookEventLog` before processing; failures return non-2xx so Stripe can retry.
@@ -36,18 +40,18 @@ export async function POST(req: Request) {
 
   await updateWebhookLogEntry(logId, { eventType: event.type, externalId: event.id });
 
-  const duplicate = await prisma.webhookEventLog.findFirst({
-    where: {
-      source: "stripe",
-      externalId: event.id,
-      processed: true,
-      NOT: { id: logId },
-    },
-    select: { id: true },
-  });
-  if (duplicate) {
-    await markWebhookLogSkippedDuplicate(logId);
-    return NextResponse.json({ received: true, duplicate: true });
+  // Atomic claim on the Stripe event id: two concurrent deliveries of the same event race on
+  // this insert (DB unique constraint), so only one can win — closing the old check-then-act gap
+  // where both requests could pass a "processed" lookup before either finished. Do NOT fall back
+  // to the legacy processed-flag lookup here; that reintroduces the race this replaces.
+  try {
+    await prisma.processedStripeEvent.create({ data: { id: event.id } });
+  } catch (e) {
+    if (isUniqueConstraintError(e)) {
+      await markWebhookLogSkippedDuplicate(logId);
+      return NextResponse.json({ received: true, duplicate: true });
+    }
+    throw e;
   }
 
   try {
@@ -56,6 +60,9 @@ export async function POST(req: Request) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[stripe webhook] process", e);
     await markWebhookLogFailure(logId, `process: ${msg}`);
+    // Release the claim so Stripe's automatic retry (same event id, non-2xx response) can
+    // reprocess instead of being permanently skipped as a duplicate.
+    await prisma.processedStripeEvent.deleteMany({ where: { id: event.id } }).catch(() => {});
     return NextResponse.json({ error: "Webhook handler failed" }, { status: 500 });
   }
 

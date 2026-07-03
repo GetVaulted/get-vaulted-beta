@@ -1,7 +1,34 @@
 import type { Prisma } from "@/generated/prisma/client";
-import { marketplacePlatformFeePercent } from "@/lib/platform-fee-policy";
 import { prisma } from "@/lib/prisma";
-import { estimatePlatformFeeUsd, estimateStripeProcessingFeeUsd } from "@/lib/seller-payout-estimate";
+import {
+  estimatePlatformFeeUsd,
+  estimateStripeProcessingFeeUsd,
+  resolvePlatformFeePercentForSellerOrder,
+} from "@/lib/seller-payout-estimate";
+
+/**
+ * Same per-order fee-tier resolution the seller sales report uses (`mapSellerSalesOrderForApi`).
+ * Using a flat marketplace percent here for every order — as this file previously did — silently
+ * understates/overstates platform revenue for live-show sales (which use tiered fee percentages
+ * based on the show's cumulative GMV) and makes the admin dashboard disagree with what sellers see
+ * on their own sales report for the exact same orders.
+ */
+function resolveOrderFeePercent(o: {
+  itemPriceUsd: number;
+  paymentStatus: string;
+  listing: { isCompanyListing: boolean };
+  liveShippingSession: { liveShowId: string | null; liveShow: { completedSalesGmvUsd: number; status: string } | null } | null;
+}): number {
+  const liveShowId = o.liveShippingSession?.liveShowId ?? null;
+  const liveShow = o.liveShippingSession?.liveShow ?? null;
+  return resolvePlatformFeePercentForSellerOrder({
+    isCompanyListing: Boolean(o.listing.isCompanyListing),
+    liveShowId,
+    liveShowCompletedGmvUsd: liveShow?.status === "live" ? liveShow.completedSalesGmvUsd : null,
+    orderItemPriceUsd: o.itemPriceUsd,
+    orderPaymentStatus: o.paymentStatus,
+  });
+}
 
 const PAID_PAYMENT_STATUSES = ["paid", "layaway_completed"] as const;
 
@@ -37,11 +64,17 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
     where: paidOrderWhere,
     select: {
       itemPriceUsd: true,
+      shippingPriceUsd: true,
       totalUsd: true,
+      paymentStatus: true,
       payoutStatus: true,
       payoutReserveAmountCents: true,
       listing: { select: { isCompanyListing: true } },
+      liveShippingSession: {
+        select: { liveShowId: true, liveShow: { select: { completedSalesGmvUsd: true, status: true } } },
+      },
     },
+    orderBy: { createdAt: "desc" },
     take: 5000,
   });
 
@@ -59,18 +92,16 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
   for (const o of paidOrders) {
     const item = Math.max(0, o.itemPriceUsd);
     gmvUsd += item;
-    if (!o.listing.isCompanyListing) {
-      const feePct = marketplacePlatformFeePercent();
-      platformFeesUsd += estimatePlatformFeeUsd({ itemPriceUsd: item, platformFeePercent: feePct });
-    }
+    const feePct = resolveOrderFeePercent(o);
+    const feeUsd = o.listing.isCompanyListing ? 0 : estimatePlatformFeeUsd({ itemPriceUsd: item, platformFeePercent: feePct });
+    platformFeesUsd += feeUsd;
     processingFeesUsd += estimateStripeProcessingFeeUsd(o.totalUsd);
 
-    const sellerNet =
-      item -
-      (o.listing.isCompanyListing
-        ? 0
-        : estimatePlatformFeeUsd({ itemPriceUsd: item, platformFeePercent: marketplacePlatformFeePercent() })) -
-      Math.max(0, o.payoutReserveAmountCents) / 100;
+    // Shipping is a pass-through to the seller (not platform revenue) — include it in seller net
+    // so this figure matches what `estimateSellerOrderPayoutUsd` shows sellers on their own
+    // Sales report for the same order.
+    const shippingUsd = Math.max(0, o.shippingPriceUsd ?? 0);
+    const sellerNet = item - feeUsd - Math.max(0, o.payoutReserveAmountCents) / 100 + shippingUsd;
 
     if (o.payoutStatus === "paid_out") {
       sellerPayoutsUsd += Math.max(0, sellerNet);
@@ -79,7 +110,15 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
     }
   }
 
-  const refundedOrders = await prisma.layaway.count({ where: { status: "refunded" } });
+  // Previously counted layaway refunds only — missed the far more common case of a marketplace/
+  // live-show order refunded via `executeOrderRefund` or the `charge.refunded` webhook, plus lost
+  // disputes (chargebacks), which understated this metric on the admin dashboard.
+  const [refundedLayaways, refundedOrders_, chargebackOrders] = await Promise.all([
+    prisma.layaway.count({ where: { status: "refunded" } }),
+    prisma.order.count({ where: { paymentStatus: "refunded" } }),
+    prisma.order.count({ where: { paymentStatus: "chargeback" } }),
+  ]);
+  const refundedOrders = refundedLayaways + refundedOrders_ + chargebackOrders;
 
   const metricsAgg = await prisma.sellerPayoutMetrics.aggregate({
     _sum: { unresolvedDisputeCount: true },
@@ -150,7 +189,11 @@ export async function loadAdminFinanceCharts(period: "daily" | "weekly" | "month
     select: {
       createdAt: true,
       itemPriceUsd: true,
+      paymentStatus: true,
       listing: { select: { isCompanyListing: true } },
+      liveShippingSession: {
+        select: { liveShowId: true, liveShow: { select: { completedSalesGmvUsd: true, status: true } } },
+      },
     },
     orderBy: { createdAt: "asc" },
     take: 8000,
@@ -166,7 +209,7 @@ export async function loadAdminFinanceCharts(period: "daily" | "weekly" | "month
       if (!o.listing.isCompanyListing) {
         platformFeesUsd += estimatePlatformFeeUsd({
           itemPriceUsd: item,
-          platformFeePercent: marketplacePlatformFeePercent(),
+          platformFeePercent: resolveOrderFeePercent(o),
         });
       }
     }

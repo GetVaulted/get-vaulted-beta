@@ -24,6 +24,7 @@ import {
 } from "@/services/payout/instant-payout-eligibility";
 import { loadSellerPayoutTierDashboard } from "@/services/payout/recalculate-seller-payout-tier";
 import { recalculateSellerPayoutTier } from "@/services/payout/recalculate-seller-payout-tier";
+import { estimateSellerOrderPayoutUsd, resolvePlatformFeePercentForSellerOrder } from "@/lib/seller-payout-estimate";
 
 const orderSelect = {
   id: true,
@@ -41,16 +42,56 @@ const orderSelect = {
   shippoTransactionId: true,
   labelUrl: true,
   itemPriceUsd: true,
+  shippingPriceUsd: true,
   totalUsd: true,
   payoutStatus: true,
   payoutMethod: true,
   payoutBlockedReason: true,
+  payoutReserveAmountCents: true,
   deliveryConfirmedAt: true,
   payoutReleasedAt: true,
   fundsReleasedAt: true,
   labelCreatedAt: true,
   carrierAcceptedAt: true,
+  listing: { select: { isCompanyListing: true } },
+  liveShippingSession: {
+    select: { liveShowId: true, liveShow: { select: { completedSalesGmvUsd: true, status: true } } },
+  },
 } as const;
+
+/**
+ * Actual dollar amount transferred to the seller's Connect balance at charge time (item +
+ * shipping − platform fee). Instant-payout exposure limits must be measured against this, not
+ * raw `itemPriceUsd` — otherwise the platform's real risk (what it could lose to a subsequent
+ * refund/chargeback after paying out instantly) is measured against the wrong number, understating
+ * exposure on high-shipping orders and overstating it on high-fee orders. `payoutReserveAmountCents`
+ * is intentionally NOT subtracted here: it's bookkeeping only today (computed after the Stripe
+ * transfer already happened) and does not reduce what actually reached the seller — see
+ * `payoutReserveAmountCents` schema comment for the full policy writeup.
+ */
+function resolveOrderSellerNetUsd(order: {
+  itemPriceUsd: number;
+  shippingPriceUsd: number;
+  paymentStatus: string;
+  listing: { isCompanyListing: boolean };
+  liveShippingSession: { liveShowId: string | null; liveShow: { completedSalesGmvUsd: number; status: string } | null } | null;
+}): number {
+  const liveShowId = order.liveShippingSession?.liveShowId ?? null;
+  const liveShow = order.liveShippingSession?.liveShow ?? null;
+  const feePct = resolvePlatformFeePercentForSellerOrder({
+    isCompanyListing: order.listing.isCompanyListing,
+    liveShowId,
+    liveShowCompletedGmvUsd: liveShow?.status === "live" ? liveShow.completedSalesGmvUsd : null,
+    orderItemPriceUsd: order.itemPriceUsd,
+    orderPaymentStatus: order.paymentStatus,
+  });
+  return estimateSellerOrderPayoutUsd({
+    itemPriceUsd: order.itemPriceUsd,
+    shippingPriceUsd: order.shippingPriceUsd,
+    platformFeePercent: feePct,
+    payoutReserveAmountCents: 0,
+  });
+}
 
 const sellerSelect = {
   id: true,
@@ -200,8 +241,14 @@ async function finalizeOrderPayoutRelease(
 
   if (!released) return;
 
-  await prisma.order.update({
-    where: { id: orderId },
+  // Atomic claim: the various tier evaluators (label created, carrier acceptance, delivery,
+  // cron re-checks) can all reach this point for the same order in close succession. Guarding
+  // the transition with `payoutStatus: { not: paid_out }` ensures only the first caller flips it
+  // and runs the one-time side effects below (instant-exposure recording, tier recalculation,
+  // audit log) — without it, a race here double-counts `recordInstantPayoutRelease` amounts in
+  // the seller's instant-payout exposure ledger even though no second Stripe transfer occurs.
+  const claim = await prisma.order.updateMany({
+    where: { id: orderId, payoutStatus: { not: OrderPayoutStatus.paid_out } },
     data: {
       payoutStatus: OrderPayoutStatus.paid_out,
       payoutReleasedAt: now,
@@ -210,6 +257,7 @@ async function finalizeOrderPayoutRelease(
       ...(order.fundsReleasedAt ? {} : { fundsReleasedAt: now }),
     },
   });
+  if (claim.count === 0) return;
 
   await logPayoutEligibilityDecision({
     sellerId,
@@ -266,13 +314,14 @@ export async function processLabelCreatedPayoutEvaluation(orderId: string): Prom
   const ctx = await loadOrderEvalContext(orderId, order.sellerId);
   if (!ctx || ctx.orderBlocked) return;
 
-  const limitCheck = await checkInstantPayoutLimits(order.sellerId, order.itemPriceUsd);
+  const sellerNetUsd = resolveOrderSellerNetUsd(order);
+  const limitCheck = await checkInstantPayoutLimits(order.sellerId, sellerNetUsd);
   if (!limitCheck.allowed) {
     await logInstantPayoutLimitFallback({
       sellerId: order.sellerId,
       orderId,
       reason: limitCheck.reason ?? "instant_limit_exceeded",
-      orderAmountUsd: order.itemPriceUsd,
+      orderAmountUsd: sellerNetUsd,
     });
     return;
   }
@@ -297,7 +346,7 @@ export async function processLabelCreatedPayoutEvaluation(orderId: string): Prom
     OrderPayoutMethod.instant_after_label,
     "instant_tier_label_created",
     order,
-    order.itemPriceUsd,
+    sellerNetUsd,
   );
 }
 
@@ -353,7 +402,9 @@ export async function processStandardDeliveryPayoutEvaluation(orderId: string): 
       where: { id: orderId },
       data: { deliveryConfirmedAt: new Date() },
     });
-    await reduceOutstandingInstantExposure(order.sellerId, order.itemPriceUsd);
+    // Must match the amount originally recorded in `recordInstantPayoutRelease` at label-creation
+    // time (also `resolveOrderSellerNetUsd`) or outstanding exposure drifts permanently upward.
+    await reduceOutstandingInstantExposure(order.sellerId, resolveOrderSellerNetUsd(order));
     return;
   }
 
@@ -383,6 +434,26 @@ export async function processStandardDeliveryPayoutEvaluation(orderId: string): 
   const prev = order.payoutStatus;
 
   if (evaluation.instantPayoutAllowed) {
+    // This legacy per-seller instant tier releases exactly at delivery confirmation, so there is
+    // no future settlement event to reduce outstanding exposure against — intentionally not
+    // recorded via `recordInstantPayoutRelease` (unlike the label/carrier tiers) to avoid
+    // permanently inflating the seller's outstanding-exposure ledger. Per-order/daily limits are
+    // still enforced so a burst of legacy-tier deliveries can't bypass instant payout caps.
+    const sellerNetUsd = resolveOrderSellerNetUsd(order);
+    const limitCheck = await checkInstantPayoutLimits(order.sellerId, sellerNetUsd);
+    if (!limitCheck.allowed) {
+      // Leave payoutStatus untouched (do not fall through to the "not eligible" branch below,
+      // whose `evaluation.recommendedStatus` would still read `instant_payout_ready` here since
+      // eligibility itself said yes — only our own limit check said no). The order is retried on
+      // the next evaluation cycle once daily/outstanding limits have room again.
+      await logInstantPayoutLimitFallback({
+        sellerId: order.sellerId,
+        orderId,
+        reason: limitCheck.reason ?? "instant_limit_exceeded",
+        orderAmountUsd: sellerNetUsd,
+      });
+      return;
+    }
     await prisma.order.update({
       where: { id: orderId },
       data: {

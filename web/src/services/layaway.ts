@@ -1,3 +1,4 @@
+import type Stripe from "stripe";
 import type { LayawayPlanType } from "@/generated/prisma/client";
 import { LayawayPaymentKind, LayawayStatus, OrderPaymentMethod } from "@/generated/prisma/enums";
 import { createNotification } from "@/lib/notifications";
@@ -33,7 +34,16 @@ import { marketplacePlatformFeePercent, applicationFeeCentsFromSubtotalUsd } fro
 import { resolveCheckoutApplicationFeeCents } from "@/lib/live-show-gmv";
 import { getStripe } from "@/lib/stripe";
 import { stripeCheckoutSessionPaymentOptions } from "@/lib/stripe-payment-method-config";
-import { stripeLineItemProductData, STRIPE_TAX_CODE_TANGIBLE, TAX_PROVIDER_STRIPE } from "@/lib/stripe-tax";
+import {
+  connectCheckoutPaymentIntentData,
+  estimateSalesTaxCents,
+  fetchCheckoutSessionTax,
+  loadSellerShipFromForTax,
+  recordStripeTaxTransaction,
+  stripeLineItemProductData,
+  STRIPE_TAX_CODE_TANGIBLE,
+} from "@/lib/stripe-tax";
+import { buildOrderTaxPersistFields, orderTaxUpdateData } from "@/lib/sales-tax-order";
 import { prisma } from "@/lib/prisma";
 import { PAYMENT_PAID, PAYMENT_PENDING } from "@/services/payments";
 import { initializeOrderPayoutOnPayment } from "@/services/payout/process-delivery-payout";
@@ -116,6 +126,43 @@ export async function closeActiveLayawaysSupersededByMarketplacePurchaseTx(
     closed.push(lay);
   }
   return closed;
+}
+
+/**
+ * Refund every collected payment (deposit + installments) for a layaway that was superseded by
+ * another buyer's purchase — the buyer is not at fault (unlike a default), so the deposit
+ * forfeiture policy does not apply here; the full amount paid so far must come back.
+ * Call AFTER the enclosing transaction commits (Stripe calls should not live inside a DB tx).
+ */
+export async function refundSupersededLayawayPayments(layawayId: string): Promise<void> {
+  const paid = await prisma.layawayPayment.findMany({
+    where: { layawayId, status: "paid", stripePaymentIntentId: { not: null } },
+    orderBy: { paidAt: "asc" },
+  });
+  if (paid.length === 0) return;
+
+  const stripe = getStripe();
+  for (const pay of paid) {
+    try {
+      await stripe.refunds.create({
+        payment_intent: pay.stripePaymentIntentId!,
+        // Full refund of this payment; each installment was a destination charge that already
+        // transferred (item - fee) to the seller, so reclaim it rather than debiting the
+        // platform's own balance for a sale that never completed.
+        reverse_transfer: true,
+        metadata: { layawayId, layawayPaymentId: pay.id, kind: "layaway_superseded_refund" },
+      });
+    } catch (e) {
+      console.error("[layaway] superseded-payment refund failed", pay.id, e);
+    }
+  }
+  await prisma.$transaction(async (tx) => {
+    await logLayawayAudit(tx, {
+      layawayId,
+      action: "refund_issued",
+      metadata: { reason: "superseded_by_purchase", paymentsRefunded: paid.length },
+    });
+  });
 }
 
 /** Repair layaway rows left active after listing sold or order paid (e.g. legacy buy-now paths). */
@@ -520,6 +567,65 @@ export async function createLayawayDepositCheckout(args: {
     liveRoomId: null,
   });
 
+  // Sales tax for the *entire* layaway sale (full item + shipping, not just the deposit) is
+  // calculated once here and collected in full with the deposit — see the option comparison in
+  // `completeLayawayPlan`'s doc comment and the reconciliation report assumptions. Installments
+  // and the balance payoff never add further tax. Tax is intentionally never folded into
+  // `Layaway.depositAmountUsd` (which stays principal-only for forfeiture/refund math) — it is
+  // its own Stripe Checkout line item and its own Order.taxAmountCents/taxUsd field.
+  const sellerShipFrom = await loadSellerShipFromForTax(listing.sellerId);
+  const taxEstimate = await estimateSalesTaxCents({
+    itemPriceUsd: listing.priceUsd,
+    shippingPriceUsd,
+    shipTo: args.shipping,
+    sellerShipFrom,
+  }).catch((e) => {
+    console.warn("[layaway] sales tax estimate failed; proceeding without tax", e);
+    return { taxAmountCents: 0, taxCalculationId: null, collectTax: false };
+  });
+  const taxAmountCents = Math.max(0, taxEstimate.taxAmountCents);
+  const depositCents = Math.round(depositUsd * 100);
+
+  const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
+    {
+      quantity: 1,
+      price_data: {
+        currency: "usd",
+        unit_amount: depositCents,
+        product_data: stripeLineItemProductData(
+          `Layaway deposit — ${listing.title.slice(0, 80)}`,
+          STRIPE_TAX_CODE_TANGIBLE,
+        ),
+      },
+    },
+  ];
+  if (taxAmountCents > 0) {
+    lineItems.push({
+      quantity: 1,
+      price_data: {
+        currency: "usd",
+        unit_amount: taxAmountCents,
+        product_data: { name: "Sales tax" },
+      },
+    });
+  }
+
+  const piMetadata = {
+    kind: "layaway_deposit",
+    orderId: order.id,
+    layawayId: layaway.id,
+    listingId: listing.id,
+  };
+  // When tax is added as a separate line item, the implicit "charge − application_fee" transfer
+  // would otherwise hand the tax dollars to the seller too. Set an explicit transfer amount so the
+  // seller only ever receives (deposit − platform fee); the platform keeps the fee + the tax.
+  const paymentIntentData = connectCheckoutPaymentIntentData({
+    destinationAccountId: listing.seller.stripeAccountId!,
+    applicationFeeCents: feeCents,
+    sellerTransferCents: taxAmountCents > 0 ? Math.max(0, depositCents - feeCents) : null,
+    metadata: piMetadata,
+  });
+
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
     ...stripeCheckoutSessionPaymentOptions("marketplace"),
@@ -531,30 +637,13 @@ export async function createLayawayDepositCheckout(args: {
       layawayId: layaway.id,
       listingId: listing.id,
       buyerId: args.buyerId,
+      ...(taxAmountCents > 0 ? { salesTaxCents: String(taxAmountCents) } : {}),
+      ...(taxAmountCents > 0 && taxEstimate.taxCalculationId
+        ? { stripeTaxCalculationId: taxEstimate.taxCalculationId }
+        : {}),
     },
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency: "usd",
-          unit_amount: Math.round(depositUsd * 100),
-          product_data: stripeLineItemProductData(
-            `Layaway deposit — ${listing.title.slice(0, 80)}`,
-            STRIPE_TAX_CODE_TANGIBLE,
-          ),
-        },
-      },
-    ],
-    payment_intent_data: {
-      metadata: {
-        kind: "layaway_deposit",
-        orderId: order.id,
-        layawayId: layaway.id,
-        listingId: listing.id,
-      },
-      application_fee_amount: feeCents,
-      transfer_data: { destination: listing.seller.stripeAccountId! },
-    },
+    line_items: lineItems,
+    payment_intent_data: paymentIntentData,
   });
 
   await prisma.order.update({
@@ -573,6 +662,22 @@ export async function finalizeLayawayDepositPaid(args: {
   paymentIntentId: string | null;
   checkoutSessionId: string;
 }): Promise<void> {
+  // Cheap idempotency pre-check so a redelivered webhook skips the Stripe API round-trip below
+  // entirely — the transaction re-checks this same condition against fresh data before writing.
+  const precheck = await prisma.layaway.findUnique({
+    where: { id: args.layawayId },
+    select: { amountPaidUsd: true, depositAmountUsd: true },
+  });
+  if (!precheck || precheck.amountPaidUsd >= precheck.depositAmountUsd) return;
+
+  // Read back the *actual* Checkout Session tax total as the source of truth for what was charged
+  // (mirrors `finalizeStripeMarketplaceOrderPaid`) rather than trusting our own pre-checkout
+  // estimate, which could differ if the session was retried or Stripe's calculation changed.
+  const taxInfo = await fetchCheckoutSessionTax(args.checkoutSessionId).catch((e) => {
+    console.error("[layaway] fetchCheckoutSessionTax failed", args.checkoutSessionId, e);
+    return null;
+  });
+
   await prisma.$transaction(async (tx) => {
     const lay = await tx.layaway.findUnique({
       where: { id: args.layawayId },
@@ -599,13 +704,26 @@ export async function finalizeLayawayDepositPaid(args: {
       data: { amountPaidUsd: amountPaid, remainingBalanceUsd: remaining },
     });
 
+    // Tax was collected in full with this deposit (see `createLayawayDepositCheckout`) — persist
+    // it onto the Order now, once, the same way a normal taxable sale would. `totalUsd` becomes
+    // the full item + shipping + tax contracted amount; `depositAmountUsd`/`amountPaidUsd` above
+    // stay principal-only so forfeiture/refund-above-deposit math is unaffected by tax.
+    const taxAmountCents = Math.max(0, taxInfo?.taxAmountCents ?? 0);
+    const taxFields = buildOrderTaxPersistFields({
+      itemPriceUsd: lay.originalPriceUsd,
+      shippingPriceUsd: lay.shippingPriceUsd,
+      taxAmountCents,
+      stripeTaxCalculationId: taxInfo?.stripeTaxCalculationId ?? null,
+      taxJurisdictionState: lay.order.shipState,
+    });
+
     await tx.order.update({
       where: { id: lay.orderId },
       data: {
         paymentStatus: PAYMENT_LAYAWAY_ACTIVE,
         stripePaymentIntentId: args.paymentIntentId ?? undefined,
         stripeCheckoutSessionId: args.checkoutSessionId,
-        taxProvider: TAX_PROVIDER_STRIPE,
+        ...orderTaxUpdateData(taxFields),
       },
     });
 
@@ -618,8 +736,17 @@ export async function finalizeLayawayDepositPaid(args: {
       layawayId: lay.id,
       action: "deposit_received",
       actorUserId: lay.buyerId,
-      metadata: { amountUsd: amountPaid, paymentIntentId: args.paymentIntentId },
+      metadata: {
+        amountUsd: amountPaid,
+        paymentIntentId: args.paymentIntentId,
+        taxAmountUsd: taxFields.taxUsd,
+      },
     });
+  });
+
+  void recordStripeTaxTransaction({
+    taxCalculationId: taxInfo?.stripeTaxCalculationId ?? null,
+    reference: args.orderId,
   });
 
   const lay = await prisma.layaway.findUnique({
@@ -703,8 +830,15 @@ export async function createLayawayBalanceCheckout(args: {
   });
 
   const stripe = getStripe();
+  // Platform fee applies to item/sale price only (see platform-fee-policy.ts) — shipping is
+  // excluded everywhere else. Deposit already fees on 100% of the item's share (25% of item
+  // price). The remaining balance bundles the other 75% of item price with 100% of shipping, so
+  // apportion this payment: item balance is paid down first, shipping last, and fee only applies
+  // to the item portion of *this* payment.
+  const itemRemainingUsd = roundUsd(Math.max(0, lay.remainingBalanceUsd - lay.shippingPriceUsd));
+  const itemPortionUsd = roundUsd(Math.min(payUsd, itemRemainingUsd));
   const feeCents = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: payUsd,
+    saleAmountUsd: itemPortionUsd,
     isCompanyListing: lay.listing.isCompanyListing,
     liveRoomId: null,
   });
@@ -854,6 +988,22 @@ export async function completeLayawayPlan(layawayId: string): Promise<void> {
 
   const shippingChargedCents = Math.round(Math.max(0, lay.shippingPriceUsd) * 100);
 
+  // A layaway is paid across several separate PaymentIntents (deposit, installments, balance
+  // payoff) — there is no single PI that represents "the charge" for the order the way a regular
+  // Stripe/escrow order has. We copy the *final* payment's PI onto the Order purely so admin
+  // tooling and support have a Stripe reference to click into; it intentionally does NOT make the
+  // order refundable via the single-PI refund flow (`order-refund-request.ts` requires
+  // `paymentMethod !== layaway`... see that file's guard) since a full refund must reverse every
+  // installment, not just the last one. Dispute/chargeback webhook matching does not rely on this
+  // field for layaway orders — it also checks `LayawayPayment.stripePaymentIntentId` directly so a
+  // chargeback on ANY installment (not just the last) is still caught. See
+  // `resolveOrderIdForDisputedPaymentIntent` in `payments.ts`.
+  const lastPayment = await prisma.layawayPayment.findFirst({
+    where: { layawayId: lay.id, status: "paid", stripePaymentIntentId: { not: null } },
+    orderBy: { paidAt: "desc" },
+    select: { stripePaymentIntentId: true },
+  });
+
   await prisma.$transaction(async (tx) => {
     await tx.layaway.update({
       where: { id: lay.id, status: LayawayStatus.active },
@@ -869,7 +1019,11 @@ export async function completeLayawayPlan(layawayId: string): Promise<void> {
         paymentStatus: PAYMENT_PAID,
         status: "paid",
         shippingChargedCents,
-        totalUsd: roundUsd(lay.originalPriceUsd + lay.shippingPriceUsd),
+        // Tax was already collected in full with the deposit (`finalizeLayawayDepositPaid`) and
+        // is not re-collected here — fold `order.taxUsd` back in so a completed layaway's
+        // `totalUsd` reconciles exactly like a normal taxable sale (item + shipping + tax).
+        totalUsd: roundUsd(lay.originalPriceUsd + lay.shippingPriceUsd + (lay.order.taxUsd ?? 0)),
+        stripePaymentIntentId: lastPayment?.stripePaymentIntentId ?? lay.order.stripePaymentIntentId ?? undefined,
       },
     });
     await consumeListingInventoryHoldTx(tx, {
@@ -938,11 +1092,14 @@ export async function defaultLayawayPlan(layawayId: string): Promise<void> {
   const refundable = layawayRefundableAboveDepositUsd(lay.amountPaidUsd, lay.depositAmountUsd);
   const depositForfeited = lay.depositAmountUsd;
 
-  await prisma.$transaction(async (tx) => {
-    await tx.layaway.update({
-      where: { id: lay.id },
+  const claimed = await prisma.$transaction(async (tx) => {
+    // Atomic claim: guards against a concurrent cron run or a final-payment webhook racing
+    // this same layaway past the `active` status check above (TOCTOU otherwise).
+    const claim = await tx.layaway.updateMany({
+      where: { id: lay.id, status: LayawayStatus.active },
       data: { status: LayawayStatus.defaulted, defaultedAt: new Date() },
     });
+    if (claim.count === 0) return false;
     await tx.listing.update({
       where: { id: lay.listingId },
       data: { status: "active", allowOffers: true },
@@ -967,7 +1124,10 @@ export async function defaultLayawayPlan(layawayId: string): Promise<void> {
         metadata: { amountUsd: refundable },
       });
     }
+    return true;
   });
+
+  if (!claimed) return;
 
   if (refundable > 0) {
     const stripe = getStripe();
@@ -988,12 +1148,56 @@ export async function defaultLayawayPlan(layawayId: string): Promise<void> {
         await stripe.refunds.create({
           payment_intent: pay.stripePaymentIntentId!,
           amount: Math.round(refundAmt * 100),
+          // Each installment was a destination charge that already transferred (item - fee) to
+          // the seller. Without reverse_transfer the platform's own balance funds the refund
+          // while the seller keeps money for a sale that is being unwound — reclaim it first.
+          reverse_transfer: true,
           metadata: { layawayId: lay.id, layawayPaymentId: pay.id, kind: "layaway_default_refund" },
         });
         remainingRefund = roundUsd(remainingRefund - refundAmt);
       } catch (e) {
         console.error("[layaway] installment refund failed", pay.id, e);
       }
+    }
+  }
+
+  // Sales tax was collected in full with the deposit and is never forfeitable — it belongs to the
+  // taxing jurisdiction, not the platform or seller, regardless of what happens to the deposit
+  // principal. Refund it separately from (and regardless of) the "amount paid above deposit"
+  // refund above, which only ever covers installment/balance-payoff kinds.
+  const taxRefundCents = Math.max(0, Math.round((lay.order.taxAmountCents ?? 0) - (lay.order.taxRefundedCents ?? 0)));
+  if (taxRefundCents > 0) {
+    const depositPayment = await prisma.layawayPayment.findFirst({
+      where: {
+        layawayId: lay.id,
+        kind: LayawayPaymentKind.deposit,
+        status: "paid",
+        stripePaymentIntentId: { not: null },
+      },
+    });
+    if (depositPayment?.stripePaymentIntentId) {
+      try {
+        const stripe = getStripe();
+        await stripe.refunds.create({
+          payment_intent: depositPayment.stripePaymentIntentId,
+          amount: taxRefundCents,
+          // Tax was added as its own line item and explicitly excluded from the seller's transfer
+          // at checkout (see `createLayawayDepositCheckout`'s `sellerTransferCents`) — it has been
+          // sitting in the platform's own Stripe balance the whole time, so there is nothing to
+          // reverse_transfer. The deposit *principal* on this same charge is intentionally left
+          // un-refunded (forfeited); Stripe will therefore continue to report this charge as only
+          // partially refunded, which is expected — see the `charge.refunded` webhook handler.
+          metadata: { layawayId: lay.id, layawayPaymentId: depositPayment.id, kind: "layaway_default_tax_refund" },
+        });
+        await prisma.order.update({
+          where: { id: lay.orderId },
+          data: { taxRefundedCents: { increment: taxRefundCents } },
+        });
+      } catch (e) {
+        console.error("[layaway] tax refund failed", lay.id, e);
+      }
+    } else {
+      console.error("[layaway] tax refund skipped — deposit payment intent not found", lay.id);
     }
   }
 
@@ -1012,11 +1216,15 @@ export async function defaultLayawayPlan(layawayId: string): Promise<void> {
   });
 
   const title = lay.listing.title.length > 80 ? `${lay.listing.title.slice(0, 77)}…` : lay.listing.title;
+  const refundNotes = [
+    refundable > 0 ? `$${refundable.toFixed(2)} paid above the deposit was refunded` : null,
+    taxRefundCents > 0 ? `$${(taxRefundCents / 100).toFixed(2)} in sales tax was refunded` : null,
+  ].filter((n): n is string => n != null);
   await createNotification(prisma, {
     userId: lay.buyerId,
     type: "layaway_defaulted",
     title: "Layaway defaulted",
-    body: `Your layaway for “${title}” expired. Your deposit was forfeited${refundable > 0 ? `; $${refundable.toFixed(2)} was refunded` : ""}.`,
+    body: `Your layaway for “${title}” expired. Your deposit was forfeited${refundNotes.length > 0 ? `; ${refundNotes.join(" and ")}` : ""}.`,
     href: `/account/layaways`,
   });
   await createNotification(prisma, {

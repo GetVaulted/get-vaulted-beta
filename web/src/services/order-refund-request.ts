@@ -10,6 +10,7 @@ import {
   resolveLiveOrderRefundEligibility,
   type LiveOrderRefundKind,
 } from "@/lib/order-refund-eligibility";
+import { reverseLiveShowCompletedSaleTx } from "@/lib/live-show-gmv";
 import { serializeOrderRefundRequest, type OrderRefundRequestDto } from "@/lib/order-refund-types";
 import { fullRefundAmountCents } from "@/lib/sales-tax-charge";
 import { prisma } from "@/lib/prisma";
@@ -500,6 +501,7 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
       shippingPriceUsd: true,
       taxAmountCents: true,
       listing: { select: { title: true } },
+      liveShippingSession: { select: { liveShowId: true } },
     },
   });
   if (!order) throw new RefundRequestError("NOT_FOUND", 404);
@@ -512,6 +514,17 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
   }
   if (order.paymentMethod === OrderPaymentMethod.escrow) {
     throw new RefundRequestError("ESCROW_NOT_SUPPORTED", 400);
+  }
+  if (order.paymentMethod === OrderPaymentMethod.layaway) {
+    // A layaway is paid across multiple separate PaymentIntents (deposit, installments, balance
+    // payoff). `Order.stripePaymentIntentId` only ever holds the *last* one (see
+    // `completeLayawayPlan`), so a single-PI refund here would refund at most one installment while
+    // reporting the whole order as refunded — silently under-refunding the buyer. Use the
+    // layaway-specific refund path (`defaultLayawayPlan` / `refundSupersededLayawayPayments`, which
+    // loop over every paid `LayawayPayment`) instead. This flow is also unreachable in practice
+    // today since `resolveLiveOrderRefundEligibility` requires a live-show order and layaways are
+    // never live-show orders — this guard exists as defense-in-depth against future callers.
+    throw new RefundRequestError("LAYAWAY_NOT_SUPPORTED", 400);
   }
   if (!order.stripePaymentIntentId) {
     throw new RefundRequestError("NO_PAYMENT_INTENT", 400);
@@ -532,6 +545,11 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
     const refund = await stripe.refunds.create({
       payment_intent: order.stripePaymentIntentId,
       amount: refundAmountCents,
+      // Destination-charge orders transfer (item + shipping - fee) to the seller's Connect
+      // account at charge time. Without reverse_transfer, Stripe refunds the buyer entirely out
+      // of the PLATFORM's own balance while the seller keeps the transferred funds — a silent
+      // platform loss on every refund. reverse_transfer claws the seller's share back first.
+      reverse_transfer: true,
       metadata: { orderId, refundRequestId, kind: "live_order_refund" },
     });
     stripeRefundId = refund.id;
@@ -559,6 +577,11 @@ export async function executeOrderRefund(orderId: string, refundRequestId: strin
     });
 
     await removeOrderFromLiveShippingSessionOnRefundTx(tx, orderId);
+
+    const liveRoomId = order.liveShippingSession?.liveShowId ?? null;
+    if (liveRoomId) {
+      await reverseLiveShowCompletedSaleTx(tx, liveRoomId, order.itemPriceUsd);
+    }
 
     await tx.orderRefundRequest.update({
       where: { id: refundRequestId },

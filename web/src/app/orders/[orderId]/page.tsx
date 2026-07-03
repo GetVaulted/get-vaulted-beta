@@ -86,6 +86,7 @@ export default async function OrderPage({
       fulfillmentStatus: true,
       itemPriceUsd: true,
       shippingPriceUsd: true,
+      taxUsd: true,
       totalUsd: true,
       trackingNumber: true,
       trackingUrl: true,
@@ -267,6 +268,12 @@ export default async function OrderPage({
             <span className="text-zinc-500">Shipping</span>
             <span className="font-mono text-zinc-200">{formatMoney(order.shippingPriceUsd)}</span>
           </div>
+          {order.taxUsd > 0 ? (
+            <div className="flex flex-wrap justify-between gap-2 text-sm">
+              <span className="text-zinc-500">Sales tax</span>
+              <span className="font-mono text-zinc-200">{formatMoney(order.taxUsd)}</span>
+            </div>
+          ) : null}
           <div className="flex flex-wrap justify-between gap-2 border-t border-white/[0.06] pt-4 text-sm">
             <span className="font-semibold text-zinc-300">Total</span>
             <span className="font-mono font-bold text-gold-bright">{formatMoney(order.totalUsd)}</span>

@@ -142,6 +142,13 @@ export function fullRefundAmountCents(order: {
   return itemCents + shippingCents + taxCents;
 }
 
+/**
+ * NOT CURRENTLY WIRED UP. Partial refunds are an explicitly unsupported product flow today — no
+ * UI/API path calls this function (`executeOrderRefund` always refunds the full order via
+ * `fullRefundAmountCents`, and the `charge.refunded` webhook flags any partial refund it observes
+ * for manual review rather than acting on it — see `payments.ts`). Kept/tested as a starting point
+ * for a future partial-refund feature; do not assume it is reachable from production code paths.
+ */
 export function proratedRefundAmountCents(
   order: { itemPriceUsd: number; shippingPriceUsd: number; taxAmountCents: number },
   refundItemUsd: number,

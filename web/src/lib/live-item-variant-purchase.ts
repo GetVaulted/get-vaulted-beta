@@ -75,7 +75,11 @@ export async function finalizeLiveItemVariantPurchasePaid(
     });
   }
 
-  if (purchase.totalUsd > 0) {
+  // `finalizeStripeMarketplaceOrderPaid` above already records live-show completed-sale GMV for
+  // the linked fulfillment order (same dollar amount as `purchase.totalUsd`). Only record here
+  // directly when there is no fulfillment order (legacy/no-fulfillment path), otherwise this
+  // double-counts GMV and skews live fee-tier calculations.
+  if (!purchase.fulfillmentOrderId && purchase.totalUsd > 0) {
     await prisma.$transaction(async (tx) => {
       await recordLiveShowCompletedSaleTx(tx, purchase.liveRoomId, purchase.totalUsd);
     });

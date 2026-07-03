@@ -29,33 +29,46 @@ export type BreakRoundFinalizeResult = {
   };
 };
 
+type LockedBreakRoundRow = {
+  id: string;
+  status: string;
+  quantity: number;
+  quantityInitial: number | null;
+  title: string;
+  listingId: string | null;
+  currentBidUsd: number | null;
+  startingBidUsd: number | null;
+  priceUsd: number | null;
+  lastHighBidderId: string | null;
+  biddingOpen: boolean;
+  auctionEndsAt: Date | null;
+};
+
 /**
  * Break-room PYT tiles: when a timed round has ended and the host starts the next one, close the
  * previous round — create an `Order` for recent sales, decrement `quantity` by one on a winning
  * sale, reset the lot for the next numbered unit, and mark the queue row sold when quantity hits 0.
+ *
+ * This path (host "start next item") and the overdue-sweep timer path
+ * (`closeActiveLiveRoomItemUnitSale`) both finalize the same kind of ended round and can fire at
+ * nearly the same moment. `FOR UPDATE` serializes them against the same row: whichever runs
+ * second re-reads fresh state after the winner is blocked/committed and bails out instead of
+ * creating a second listing/order/charge for the same auction win.
  */
 export async function finalizeBreakAuctionRoundIfEnded(
   tx: TransactionClient,
   args: { liveRoomId: string; liveRoomItemId: string; sellerId: string },
 ): Promise<BreakRoundFinalizeResult> {
-  const item = await tx.liveRoomItem.findFirst({
-    where: { id: args.liveRoomItemId, liveRoomId: args.liveRoomId },
-    select: {
-      id: true,
-      status: true,
-      quantity: true,
-      quantityInitial: true,
-      title: true,
-      listingId: true,
-      currentBidUsd: true,
-      startingBidUsd: true,
-      priceUsd: true,
-      lastHighBidderId: true,
-      biddingOpen: true,
-      auctionEndsAt: true,
-      itemVersion: true,
-    },
-  });
+  const rows = await tx.$queryRaw<LockedBreakRoundRow[]>`
+    SELECT
+      id, status, quantity, "quantityInitial", title, "listingId",
+      "currentBidUsd", "startingBidUsd", "priceUsd", "lastHighBidderId",
+      "biddingOpen", "auctionEndsAt"
+    FROM "LiveRoomItem"
+    WHERE id = ${args.liveRoomItemId} AND "liveRoomId" = ${args.liveRoomId}
+    FOR UPDATE
+  `;
+  const item = rows[0];
   if (!item || item.status !== "active") return { finalized: false, skipStartAuction: false };
 
   const now = new Date();

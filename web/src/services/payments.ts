@@ -26,6 +26,7 @@ import {
   loadSellerShipFromForTax,
   fetchCheckoutSessionTax,
   fetchPaymentIntentTax,
+  recordStripeTaxTransaction,
   STRIPE_TAX_CODE_SHIPPING,
   STRIPE_TAX_CODE_TANGIBLE,
   stripeLineItemProductData,
@@ -67,9 +68,11 @@ import {
 import { resolveMarketplaceCheckoutShipping } from "@/services/marketplace-checkout-shipping";
 import { LayawayStatus } from "@/generated/prisma/enums";
 import { initializeOrderPayoutOnPayment } from "@/services/payout/process-delivery-payout";
+import { reverseLiveShowCompletedSaleTx } from "@/lib/live-show-gmv";
 import {
   addOrderToLiveShippingSessionTx,
   estimateFirstItemLiveShippingCentsForListingTx,
+  removeOrderFromLiveShippingSessionOnRefundTx,
 } from "@/services/shipping/live-shipping-pricing";
 import { syncOrderShippingFromLiveSessionTx } from "@/services/shipping/live-commerce-shipping-settlement";
 
@@ -81,6 +84,8 @@ export const PAYMENT_FAILED = "failed" as const;
 export const PAYMENT_REFUNDED = "refunded" as const;
 /** Auction winner did not complete checkout before `paymentDeadlineAt`. */
 export const PAYMENT_EXPIRED = "expired" as const;
+/** Stripe dispute (chargeback) lost against the seller — feeds seller risk scoring. */
+export const PAYMENT_CHARGEBACK = "chargeback" as const;
 /** Stripe PaymentIntent requires on-session authentication (SCA). */
 export const PAYMENT_REQUIRES_ACTION = "payment_requires_action" as const;
 
@@ -165,6 +170,28 @@ export async function processAuctionPaymentExpiries(): Promise<void> {
 function siteUrl(): string {
   const u = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
   return u.replace(/\/$/, "");
+}
+
+/**
+ * Resolve the Order a disputed/charged-back PaymentIntent belongs to. A plain Stripe/escrow order
+ * has exactly one PaymentIntent, stored directly on `Order.stripePaymentIntentId`. A layaway order
+ * is paid across several separate PaymentIntents (deposit, each installment, balance payoff) — none
+ * of which is copied onto `Order.stripePaymentIntentId` — so a dispute on any installment other than
+ * the (informational) one recorded at completion would otherwise silently fail to match any order,
+ * leaving payout unfrozen and the chargeback unrecorded. Fall back to `LayawayPayment` → `Layaway` →
+ * `orderId` to cover every layaway charge.
+ */
+async function resolveOrderIdForDisputedPaymentIntent(paymentIntentId: string): Promise<string | null> {
+  const direct = await prisma.order.findFirst({
+    where: { stripePaymentIntentId: paymentIntentId },
+    select: { id: true },
+  });
+  if (direct) return direct.id;
+  const layawayPayment = await prisma.layawayPayment.findFirst({
+    where: { stripePaymentIntentId: paymentIntentId },
+    select: { layaway: { select: { orderId: true } } },
+  });
+  return layawayPayment?.layaway.orderId ?? null;
 }
 
 function throwFromCommerceGuard(e: unknown): never {
@@ -308,18 +335,25 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
 
   for (const lay of closedLayaways) {
     const { emitLayawayLifecycleSync } = await import("@/lib/marketplace/ecosystem-sync");
+    const sameOrder = lay.orderId === orderId;
     emitLayawayLifecycleSync({
-      typedEvent: lay.orderId === orderId ? "layaway_paid_in_full" : "layaway_canceled",
+      typedEvent: sameOrder ? "layaway_paid_in_full" : "layaway_canceled",
       layawayId: lay.id,
       parties: { sellerId: lay.sellerId, buyerId: lay.buyerId },
       listingId: lay.listingId,
       orderId: lay.orderId,
-      layawayStatus: lay.orderId === orderId ? "completed" : "canceled",
+      layawayStatus: sameOrder ? "completed" : "canceled",
       listingStatus: "sold",
       orderStatus: "paid",
       paymentStatus: PAYMENT_PAID,
       extraPayload: { supersededByOrderId: orderId },
     });
+    if (!sameOrder) {
+      const { refundSupersededLayawayPayments } = await import("@/services/layaway");
+      await refundSupersededLayawayPayments(lay.id).catch((e) =>
+        console.error("[payments] superseded layaway refund failed", lay.id, e),
+      );
+    }
   }
 }
 
@@ -1483,6 +1517,11 @@ export async function finalizeStripeMarketplaceOrderPaid(
     taxAmountCents,
   }).catch((e) => console.warn("[sales-tax] nexus volume record failed", e));
 
+  void recordStripeTaxTransaction({
+    taxCalculationId: taxFields.stripeTaxCalculationId,
+    reference: orderId,
+  });
+
   void initializeOrderPayoutOnPayment(orderId);
 
   const lt = order.listing.title.length > 90 ? `${order.listing.title.slice(0, 87)}…` : order.listing.title;
@@ -1525,6 +1564,12 @@ export async function finalizeStripeMarketplaceOrderPaid(
       paymentStatus: PAYMENT_PAID,
       extraPayload: { supersededByOrderId: orderId },
     });
+    if (!sameOrder) {
+      const { refundSupersededLayawayPayments } = await import("@/services/layaway");
+      await refundSupersededLayawayPayments(lay.id).catch((e) =>
+        console.error("[payments] superseded layaway refund failed", lay.id, e),
+      );
+    }
   }
 }
 
@@ -2012,30 +2057,315 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
       const ch = event.data.object as Stripe.Charge;
       const piId = typeof ch.payment_intent === "string" ? ch.payment_intent : ch.payment_intent?.id;
       if (!piId) break;
-      const orders = await prisma.order.findMany({ where: { stripePaymentIntentId: piId }, select: { id: true } });
+      // `ch.refunded` is only true once the *cumulative* refunded amount equals the full charge.
+      // Partial refunds (e.g. a support agent issuing a small goodwill refund directly in the
+      // Stripe Dashboard) also emit this event but must NOT cancel/refund-flag an order that is
+      // otherwise still fulfilling — there is no partial-refund order state in this app today.
+      // Partial refunds are an explicitly UNSUPPORTED flow: no in-app UI/API lets a buyer, seller,
+      // or admin *initiate* one (`executeOrderRefund` always refunds the full order amount, and
+      // now rejects layaway orders outright — see its guard). The only way a partial refund can
+      // happen is a human acting directly in the Stripe Dashboard, outside this app's bookkeeping.
+      // When that happens, the actual dollars available to eventually pay the seller are now less
+      // than `itemPriceUsd + shippingPriceUsd - fee` implies, so flag for manual review rather than
+      // silently letting payout continue as if nothing happened.
+      if (!ch.refunded) {
+        console.warn("[stripe charge.refunded] partial refund received, order flagged for manual review", {
+          chargeId: ch.id,
+          paymentIntent: piId,
+          amountRefunded: ch.amount_refunded,
+          amount: ch.amount,
+        });
+        const partiallyRefundedOrders = await prisma.order.findMany({
+          where: { stripePaymentIntentId: piId },
+          select: {
+            id: true,
+            sellerId: true,
+            payoutStatus: true,
+            paymentMethod: true,
+            listing: { select: { title: true } },
+            layaway: { select: { status: true } },
+          },
+        });
+        for (const o of partiallyRefundedOrders) {
+          // Layaway deposits deliberately collect tax as a line item alongside the (partially
+          // forfeitable) deposit — `defaultLayawayPlan` refunds *only* the tax portion of that
+          // same charge on default, which Stripe reports as a partial refund of the deposit
+          // charge even though it is fully understood/expected bookkeeping, not a surprise. Once
+          // the layaway service has already moved the plan out of `active` (defaulted/refunded/
+          // completed), this app already knows exactly why the charge was partially refunded, so
+          // skip the manual-review noise. A partial refund on a *still-active* layaway (e.g. an
+          // admin manually refunding tax early, or an unrelated Dashboard action) is still
+          // genuinely unexpected and should be flagged.
+          if (
+            o.paymentMethod === OrderPaymentMethod.layaway &&
+            o.layaway &&
+            o.layaway.status !== LayawayStatus.active
+          ) {
+            continue;
+          }
+          const claim = await prisma.order.updateMany({
+            where: { id: o.id, payoutStatus: { not: "manual_review" } },
+            data: { payoutStatus: "manual_review", payoutBlockedReason: "partial_refund_needs_review" },
+          });
+          if (claim.count === 0) continue;
+          const title = o.listing?.title ?? "an order";
+          await logSellerCommerceEvent({
+            sellerId: o.sellerId,
+            orderId: o.id,
+            kind: "order_partial_refund_needs_review",
+            title: "Partial refund detected",
+            body: `A partial refund ($${(Math.max(0, ch.amount_refunded) / 100).toFixed(2)} of $${(Math.max(0, ch.amount) / 100).toFixed(2)}) was issued for “${title}” outside the normal refund flow. Payout is on hold for manual review.`,
+          });
+        }
+        break;
+      }
+      const orders = await prisma.order.findMany({
+        where: { stripePaymentIntentId: piId },
+        select: {
+          id: true,
+          buyerId: true,
+          sellerId: true,
+          listingId: true,
+          paymentStatus: true,
+          payoutStatus: true,
+          taxAmountCents: true,
+          itemPriceUsd: true,
+          listing: { select: { title: true } },
+          liveShippingSession: { select: { liveShowId: true } },
+        },
+      });
       for (const o of orders) {
-        await prisma.order.update({
-          where: { id: o.id },
-          data: { paymentStatus: PAYMENT_REFUNDED, status: "cancelled" },
+        // Idempotent no-op if this order's refund was already fully processed — either by the
+        // in-app admin-approved refund flow (`executeOrderRefund`, which issues the Stripe refund
+        // and applies these same effects inside its own transaction) or a prior delivery of this
+        // same webhook. Without this guard, this branch is also the *safety net* for refunds
+        // issued directly against Stripe (outside this app's refund-request flow), which
+        // otherwise leave `payoutStatus` unblocked — a seller could still be paid out on an
+        // order whose funds were already returned to the buyer.
+        if (o.paymentStatus === PAYMENT_REFUNDED && o.payoutStatus === "blocked") continue;
+
+        await prisma.$transaction(async (tx) => {
+          await tx.order.update({
+            where: { id: o.id },
+            data: {
+              paymentStatus: PAYMENT_REFUNDED,
+              status: "cancelled",
+              payoutStatus: "blocked",
+              payoutBlockedReason: "refunded",
+              taxRefundedCents: o.taxAmountCents ?? 0,
+            },
+          });
+          if (o.listingId) {
+            await tx.listing.updateMany({
+              where: { id: o.listingId, status: "sold" },
+              data: { status: "ended" },
+            });
+          }
+          await removeOrderFromLiveShippingSessionOnRefundTx(tx, o.id);
+          const liveRoomId = o.liveShippingSession?.liveShowId ?? null;
+          if (liveRoomId) {
+            await reverseLiveShowCompletedSaleTx(tx, liveRoomId, o.itemPriceUsd);
+          }
+        });
+
+        const title = o.listing?.title ?? "your order";
+        await createNotification(prisma, {
+          userId: o.buyerId,
+          type: "order_refunded",
+          title: "Refund completed",
+          body: `Your refund for “${title}” has been processed.`,
+          href: `/orders/${encodeURIComponent(o.id)}`,
+        });
+        await createNotification(prisma, {
+          userId: o.sellerId,
+          type: "order_refunded_seller",
+          title: "Order refunded",
+          body: `Order “${title}” was refunded to the buyer.`,
+          href: `/account/sales/${encodeURIComponent(o.id)}`,
+        });
+        await logSellerCommerceEvent({
+          sellerId: o.sellerId,
+          listingId: o.listingId,
+          orderId: o.id,
+          kind: SELLER_COMMERCE_KIND.orderRefunded,
+          title: "Refund issued",
+          body: `Refund completed for “${title}” (via Stripe).`,
+        });
+        emitOrderLifecycleSync({
+          orderId: o.id,
+          parties: { sellerId: o.sellerId, buyerId: o.buyerId },
+          listingId: o.listingId,
+          orderStatus: "cancelled",
+          paymentStatus: PAYMENT_REFUNDED,
         });
       }
       break;
     }
-    case "dispute.created": {
+    // NOTE: Stripe's real event names are "charge.dispute.created" / "charge.dispute.closed" —
+    // this handler previously listened for the non-existent "dispute.created", so it never fired
+    // and disputed orders were never frozen (sellers could still be paid out on a chargeback).
+    case "charge.dispute.created": {
       const dispute = event.data.object as Stripe.Dispute;
       const chId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge?.id;
       if (!chId) break;
       const charge = await stripe.charges.retrieve(chId);
       const piId = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
       if (!piId) break;
-      const order = await prisma.order.findFirst({ where: { stripePaymentIntentId: piId }, select: { sellerId: true, id: true } });
+      const orderId = await resolveOrderIdForDisputedPaymentIntent(piId);
+      const order = orderId
+        ? await prisma.order.findUnique({
+            where: { id: orderId },
+            select: { id: true, sellerId: true, payoutStatus: true, listing: { select: { title: true } } },
+          })
+        : null;
       if (order) {
+        // Freeze payout immediately — funds must not release while a chargeback is open. Only
+        // move orders not already paid out; a dispute on an already-paid-out order still needs
+        // manual review since automatic payout reversal isn't possible from here.
+        if (order.payoutStatus === "paid_out") {
+          await prisma.order.update({
+            where: { id: order.id },
+            data: { payoutStatus: "manual_review", payoutBlockedReason: "disputed_after_payout" },
+          });
+        } else {
+          await prisma.order.updateMany({
+            where: { id: order.id, payoutStatus: { not: "paid_out" } },
+            data: { payoutStatus: "blocked", payoutBlockedReason: "disputed" },
+          });
+        }
+        const title = order.listing?.title ?? "an order";
         await createNotification(prisma, {
           userId: order.sellerId,
           type: "stripe_dispute",
           title: "Payment dispute",
-          body: "A dispute was opened on an order. Check Stripe Dashboard.",
+          body: `A payment dispute was opened for “${title}”. Payout is on hold until it's resolved.`,
           href: "/account/sales",
+        });
+      }
+      break;
+    }
+    case "charge.dispute.closed": {
+      const dispute = event.data.object as Stripe.Dispute;
+      const chId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge?.id;
+      if (!chId) break;
+      const charge = await stripe.charges.retrieve(chId);
+      const piId = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
+      if (!piId) break;
+      const orderId = await resolveOrderIdForDisputedPaymentIntent(piId);
+      const order = orderId
+        ? await prisma.order.findUnique({
+            where: { id: orderId },
+            select: {
+              id: true,
+              sellerId: true,
+              buyerId: true,
+              listingId: true,
+              paymentMethod: true,
+              payoutBlockedReason: true,
+              itemPriceUsd: true,
+              taxAmountCents: true,
+              listing: { select: { title: true } },
+              liveShippingSession: { select: { liveShowId: true } },
+            },
+          })
+        : null;
+      if (!order) break;
+      const title = order.listing?.title ?? "an order";
+      if (dispute.status === "won") {
+        // Only clear a hold this handler itself set — never override an unrelated admin block.
+        await prisma.order.updateMany({
+          where: { id: order.id, payoutBlockedReason: "disputed" },
+          data: { payoutStatus: "held", payoutBlockedReason: null },
+        });
+        await createNotification(prisma, {
+          userId: order.sellerId,
+          type: "stripe_dispute",
+          title: "Dispute resolved in your favor",
+          body: `The dispute for “${title}” was resolved in your favor. Payout is unblocked.`,
+          href: "/account/sales",
+        });
+      } else if (dispute.status === "lost") {
+        // Chargeback: Stripe reverses the charge (and the seller's transferred share) outside
+        // this app. Mirror `charge.refunded` bookkeeping — permanently block payout, mark the
+        // order, and roll back any live-show GMV so later sales in the same show aren't taxed
+        // at an incorrectly low tier because of a sale that was ultimately unwound.
+        await prisma.$transaction(async (tx) => {
+          await tx.order.update({
+            where: { id: order.id },
+            data: {
+              paymentStatus: PAYMENT_CHARGEBACK,
+              status: "cancelled",
+              payoutStatus: "blocked",
+              payoutBlockedReason: "chargeback",
+              taxRefundedCents: order.taxAmountCents ?? 0,
+            },
+          });
+          if (order.listingId) {
+            await tx.listing.updateMany({ where: { id: order.listingId, status: "sold" }, data: { status: "ended" } });
+          }
+          await removeOrderFromLiveShippingSessionOnRefundTx(tx, order.id);
+          const liveRoomId = order.liveShippingSession?.liveShowId ?? null;
+          if (liveRoomId) {
+            await reverseLiveShowCompletedSaleTx(tx, liveRoomId, order.itemPriceUsd);
+          }
+          // A chargeback can land on ANY installment's PaymentIntent (deposit, installment, or
+          // balance payoff) — `resolveOrderIdForDisputedPaymentIntent` already found this order via
+          // the `LayawayPayment` row when `Order.stripePaymentIntentId` didn't match directly. Once
+          // resolved, unwind the layaway itself so it stops soliciting further installments from a
+          // buyer whose bank has already reversed a charge on this plan.
+          if (order.paymentMethod === OrderPaymentMethod.layaway) {
+            const layaway = await tx.layaway.findFirst({ where: { orderId: order.id } });
+            if (layaway && layaway.status !== LayawayStatus.refunded) {
+              if (layaway.status === LayawayStatus.active) {
+                await tx.layaway.update({
+                  where: { id: layaway.id },
+                  data: { status: LayawayStatus.refunded, remainingBalanceUsd: 0 },
+                });
+                await tx.listing.updateMany({
+                  where: { id: layaway.listingId, status: "layaway_reserved" },
+                  data: { status: "active", allowOffers: true },
+                });
+                await releaseActiveInventoryHoldsForListingAndBuyerTx(tx, {
+                  listingId: layaway.listingId,
+                  userId: layaway.buyerId,
+                });
+              } else {
+                // Already completed/defaulted/paid_off — just mark the plan as refunded for
+                // reporting; listing lifecycle for a completed sale is handled by the "sold" ->
+                // "ended" update above (item may already be with the buyer, so it is not re-listed).
+                await tx.layaway.update({ where: { id: layaway.id }, data: { status: LayawayStatus.refunded } });
+              }
+            }
+          }
+        });
+        await createNotification(prisma, {
+          userId: order.sellerId,
+          type: "stripe_dispute",
+          title: "Dispute lost — chargeback",
+          body: `The dispute for “${title}” was lost. The charge was reversed as a chargeback.`,
+          href: "/account/sales",
+        });
+        await createNotification(prisma, {
+          userId: order.buyerId,
+          type: "order_refunded",
+          title: "Dispute resolved",
+          body: `Your dispute for “${title}” was resolved and the charge was reversed.`,
+          href: `/orders/${encodeURIComponent(order.id)}`,
+        });
+        await logSellerCommerceEvent({
+          sellerId: order.sellerId,
+          listingId: order.listingId,
+          orderId: order.id,
+          kind: SELLER_COMMERCE_KIND.orderRefunded,
+          title: "Chargeback",
+          body: `Dispute for “${title}” was lost (chargeback).`,
+        });
+        emitOrderLifecycleSync({
+          orderId: order.id,
+          parties: { sellerId: order.sellerId, buyerId: order.buyerId },
+          listingId: order.listingId,
+          orderStatus: "cancelled",
+          paymentStatus: PAYMENT_CHARGEBACK,
         });
       }
       break;

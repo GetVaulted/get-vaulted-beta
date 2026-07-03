@@ -650,6 +650,7 @@ model User {
   messageMentionsReceived            MessageMention[]            @relation("MessageMentionRecipient")
   messageMentionsAuthored            MessageMention[]            @relation("MessageMentionAuthor")
   sellerShippingProfiles             SellerShippingProfile[]
+  notificationBroadcastsSent         NotificationBroadcast[]     @relation("NotificationBroadcastCreatedBy")
 }
 
 /// Single-use email verification OTP for signup (hashed at rest; expires).
@@ -751,6 +752,22 @@ model PushDeviceToken {
   @@unique([userId, expoPushToken])
   @@index([userId])
   @@index([supabaseAuthUserId])
+}
+
+/** Log of admin-sent mass notifications ("push out a mass notification for events/deals"). */
+model NotificationBroadcast {
+  id              String   @id @default(cuid())
+  title           String
+  body            String
+  href            String?
+  audience        String   @default("all")
+  recipientCount  Int      @default(0)
+  pushSentCount   Int      @default(0)
+  createdByUserId String
+  createdByUser   User     @relation("NotificationBroadcastCreatedBy", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 model Listing {
@@ -1543,6 +1560,10 @@ model Order {
   trustapBuyerUserId      String?
   /// Admin: block buyer-initiated release until cleared.
   escrowReleasePaused     Boolean            @default(false)
+  /// Atomic mutex around the escrow-provider release call — prevents two concurrent release
+  /// triggers (webhook + cron + admin action racing) from both calling the provider for the
+  /// same order. Set true right before calling the provider, cleared on success or failure.
+  escrowReleaseInFlight   Boolean            @default(false)
   stripeCheckoutSessionId String?
   stripePaymentIntentId   String?
   /// Payment processor abstraction — Stripe default; PayPal/Venmo when enabled separately.
@@ -1814,6 +1835,17 @@ model LiveShippingSessionItem {
 
   @@unique([orderId])
   @@index([sessionId, createdAt])
+}
+
+/// Atomic idempotency claim for Stripe webhook events (financial correctness safeguard).
+/// A row is inserted (via unique `id` = Stripe event id) before processing begins; two
+/// concurrent deliveries of the same event race on this insert, so only one can proceed.
+/// The claim is deleted if processing throws, allowing Stripe's automatic retry (same event id,
+/// non-2xx response) to reclaim and reprocess; it is kept forever on success so later replays
+/// of an already-completed event are skipped. See `web/src/app/api/stripe/webhook/route.ts`.
+model ProcessedStripeEvent {
+  id          String   @id
+  processedAt DateTime @default(now())
 }
 
 /// Inbound webhook audit trail (Stripe / Shippo). Inspect when debugging payment or tracking issues.

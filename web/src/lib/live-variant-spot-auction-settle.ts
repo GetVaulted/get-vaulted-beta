@@ -52,32 +52,63 @@ export async function resetVariantSpotAuctionNoBids(args: {
   return { reset: true };
 }
 
-/** Timer ended with winner — charge winner and mark only the auctioned variant sold. */
+type LockedVariantSpotAuctionRow = {
+  id: string;
+  status: string;
+  biddingOpen: boolean;
+  auctionVariantId: string | null;
+  lastHighBidderId: string | null;
+  currentBidUsd: number | null;
+};
+
+/**
+ * Timer ended with winner — charge winner and mark only the auctioned variant sold.
+ *
+ * The pre-check used to be a plain read outside any transaction, with no claim on the
+ * `LiveRoomItem` row inside it either — only the variant's `quantityRemaining` decrement was
+ * atomic. If the variant had 2+ units remaining, two concurrent settle calls for the *same*
+ * auction win (e.g. overdue-sweep firing twice) could each pass and create two separate
+ * purchases/charges for one auction. `FOR UPDATE` + an immediate claim update closes that gap.
+ */
 export async function settleVariantSpotAuctionWinner(args: {
   liveRoomId: string;
   itemId: string;
   trigger: FinalizeTrigger;
 }): Promise<{ settled: boolean; purchaseId?: string }> {
-  const row = await prisma.liveRoomItem.findFirst({
-    where: { id: args.itemId, liveRoomId: args.liveRoomId, status: "active", biddingOpen: true },
-    select: {
-      id: true,
-      auctionVariantId: true,
-      lastHighBidderId: true,
-      currentBidUsd: true,
-      itemVersion: true,
-    },
-  });
-  if (!row?.auctionVariantId || !row.lastHighBidderId?.trim()) return { settled: false };
-
-  const variantId = row.auctionVariantId;
-  const buyerId = row.lastHighBidderId.trim();
-  const winUsd = row.currentBidUsd ?? 0;
-  if (!Number.isFinite(winUsd) || winUsd < 1) return { settled: false };
-
   let purchaseId: string | undefined;
+  let claimed = true;
+  let variantId: string | undefined;
+  let buyerId: string | undefined;
 
   await prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<LockedVariantSpotAuctionRow[]>`
+      SELECT id, status, "biddingOpen", "auctionVariantId", "lastHighBidderId", "currentBidUsd"
+      FROM "LiveRoomItem"
+      WHERE id = ${args.itemId} AND "liveRoomId" = ${args.liveRoomId}
+      FOR UPDATE
+    `;
+    const row = rows[0];
+    if (!row || row.status !== "active" || !row.biddingOpen || !row.auctionVariantId || !row.lastHighBidderId?.trim()) {
+      claimed = false;
+      return;
+    }
+    const winUsdCheck = row.currentBidUsd ?? 0;
+    if (!Number.isFinite(winUsdCheck) || winUsdCheck < 1) {
+      claimed = false;
+      return;
+    }
+
+    // Claim immediately: flips biddingOpen off inside the same locked transaction so no other
+    // concurrent settle/reset call can act on this lot once we proceed past this point.
+    await tx.liveRoomItem.update({
+      where: { id: args.itemId },
+      data: { ...idleVariantSpotCommerceReset(), itemVersion: { increment: 1 } },
+    });
+
+    variantId = row.auctionVariantId;
+    buyerId = row.lastHighBidderId.trim();
+    const winUsd = winUsdCheck;
+
     const variant = await tx.liveItemVariant.findFirst({
       where: { id: variantId, liveRoomItemId: args.itemId },
       select: { id: true, quantityRemaining: true, priceUsd: true },
@@ -127,20 +158,13 @@ export async function settleVariantSpotAuctionWinner(args: {
       });
     }
 
-    await tx.liveRoomItem.update({
-      where: { id: args.itemId },
-      data: {
-        ...idleVariantSpotCommerceReset(),
-        itemVersion: { increment: 1 },
-      },
-    });
     await tx.liveRoom.update({
       where: { id: args.liveRoomId },
       data: { roomVersion: { increment: 1 } },
     });
   });
 
-  if (!purchaseId) return { settled: false };
+  if (!claimed || !purchaseId || !variantId || !buyerId) return { settled: false };
 
   if (isStripeConfigured()) {
     const settled = await settleLiveItemVariantPurchase({ buyerId, purchaseId });

@@ -522,7 +522,11 @@ export async function finalizeBreakSpotPaid(args: {
   );
   await markBreakSpotExternalFulfillmentRequired(spot.id);
 
-  if (Number.isFinite(spot.priceUsd) && spot.priceUsd > 0) {
+  // `finalizeStripeMarketplaceOrderPaid` above already records live-show completed-sale GMV for
+  // the linked fulfillment order (same dollar amount as `spot.priceUsd`). Only record here
+  // directly when there is no fulfillment order, otherwise this double-counts GMV and skews
+  // live fee-tier calculations.
+  if (!spotWithOrder?.fulfillmentOrderId && Number.isFinite(spot.priceUsd) && spot.priceUsd > 0) {
     await prisma.$transaction(async (tx) => {
       const { recordLiveShowCompletedSaleTx } = await import("@/lib/live-show-gmv");
       await recordLiveShowCompletedSaleTx(tx, spot.liveRoomId, spot.priceUsd);

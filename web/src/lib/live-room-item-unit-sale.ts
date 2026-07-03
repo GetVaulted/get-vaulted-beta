@@ -38,29 +38,51 @@ type CloseActiveUnitSaleArgs = {
   skipWinNotifications?: boolean;
 };
 
+type LockedUnitSaleRow = {
+  id: string;
+  status: string;
+  title: string;
+  quantity: number;
+  quantityInitial: number | null;
+  listingId: string | null;
+  currentBidUsd: number | null;
+  startingBidUsd: number | null;
+  priceUsd: number | null;
+  lastHighBidderId: string | null;
+};
+
 /**
  * Close the current active unit on a multi- or single-unit lot: settle winner, decrement remaining
  * quantity, reset bid state for the next unit, or mark the row sold when exhausted.
+ *
+ * `FOR UPDATE` locks the row for the life of this transaction. Without it, two concurrent settle
+ * calls (e.g. the overdue-sweep timer firing twice, or a manual "mark sold" racing the timer) can
+ * both read `status: "active"` under READ COMMITTED before either commits, and both create a new
+ * listing/order and charge the buyer for the same unit — a real double-charge, not just a
+ * duplicate notification. The lock serializes them: the loser re-reads post-commit and sees
+ * `status !== "active"`, so it cleanly no-ops instead of double-settling.
  */
 export async function closeActiveLiveRoomItemUnitSale(
   tx: TransactionClient,
   args: CloseActiveUnitSaleArgs,
 ): Promise<CloseActiveUnitSaleResult> {
-  const item = await tx.liveRoomItem.findFirst({
-    where: { id: args.liveRoomItemId, liveRoomId: args.liveRoomId },
-    select: {
-      id: true,
-      status: true,
-      title: true,
-      quantity: true,
-      quantityInitial: true,
-      listingId: true,
-      currentBidUsd: true,
-      startingBidUsd: true,
-      priceUsd: true,
-      lastHighBidderId: true,
-    },
-  });
+  const rows = await tx.$queryRaw<LockedUnitSaleRow[]>`
+    SELECT
+      id,
+      status,
+      title,
+      quantity,
+      "quantityInitial",
+      "listingId",
+      "currentBidUsd",
+      "startingBidUsd",
+      "priceUsd",
+      "lastHighBidderId"
+    FROM "LiveRoomItem"
+    WHERE id = ${args.liveRoomItemId} AND "liveRoomId" = ${args.liveRoomId}
+    FOR UPDATE
+  `;
+  const item = rows[0];
   if (!item || item.status !== "active") {
     return { closed: false, itemSoldOut: false, skipStartAuction: false, soldUnitNumber: 0 };
   }

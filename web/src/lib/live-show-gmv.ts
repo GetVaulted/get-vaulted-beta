@@ -25,6 +25,26 @@ export async function recordLiveShowCompletedSaleTx(
   });
 }
 
+/**
+ * Roll back a previously-recorded sale's GMV contribution on refund/chargeback. Without this,
+ * a refunded live sale keeps inflating `completedSalesGmvUsd`, which can push *subsequent* sales
+ * in the same show into a lower fee tier than they should actually qualify for (platform
+ * undercollects). Clamped at 0 via `GREATEST` — never goes negative regardless of ordering.
+ */
+export async function reverseLiveShowCompletedSaleTx(
+  tx: TransactionClient,
+  liveRoomId: string,
+  saleAmountUsd: number,
+): Promise<void> {
+  const amt = Number(saleAmountUsd);
+  if (!liveRoomId || !Number.isFinite(amt) || amt <= 0) return;
+  await tx.$executeRaw`
+    UPDATE "LiveRoom"
+    SET "completedSalesGmvUsd" = GREATEST(0, "completedSalesGmvUsd" - ${amt})
+    WHERE id = ${liveRoomId}
+  `;
+}
+
 export async function resetLiveShowSalesGmvTx(tx: TransactionClient, liveRoomId: string): Promise<void> {
   await tx.liveRoom.updateMany({
     where: { id: liveRoomId },

@@ -9,6 +9,7 @@ export type AdminModuleId =
   | "fulfillment"
   | "trust"
   | "support-tickets"
+  | "notifications"
   | "health"
   | "listings"
   | "orders"
@@ -101,6 +102,13 @@ export const ADMIN_MODULES: AdminModuleDef[] = [
     accent: "amber",
   },
   {
+    id: "notifications",
+    title: "Mass Notifications",
+    description: "Push a title, message, and link out to every user for events, drops, and deals.",
+    href: "/admin/notifications",
+    accent: "gold",
+  },
+  {
     id: "health",
     title: "Platform Health",
     description: "Supabase, API, Stripe webhooks, IVS, Shippo, and job failures.",
@@ -138,15 +146,27 @@ export const ADMIN_MODULES: AdminModuleDef[] = [
 ];
 
 export const ADMIN_PRIMARY_MODULES = ADMIN_MODULES.filter((m) =>
-  ["live-shows", "finance", "fees", "shipping-profiles", "seller-risk", "moderation", "users", "fulfillment", "trust", "support-tickets", "health"].includes(
-    m.id,
-  ),
+  [
+    "live-shows",
+    "finance",
+    "fees",
+    "shipping-profiles",
+    "seller-risk",
+    "moderation",
+    "users",
+    "fulfillment",
+    "trust",
+    "support-tickets",
+    "notifications",
+    "health",
+  ].includes(m.id),
 );
 
 export const ADMIN_NAV_LINKS: { href: string; label: string; exact?: boolean }[] = [
   { href: "/admin", label: "Command Center", exact: true },
   { href: "/admin/live-shows", label: "Live" },
   { href: "/admin/finance", label: "Finance" },
+  { href: "/admin/reconciliation", label: "Reconciliation" },
   { href: "/admin/fees", label: "Fees" },
   { href: "/admin/shipping-profiles", label: "Shipping" },
   { href: "/admin/seller-risk", label: "Seller Risk" },
@@ -155,6 +175,7 @@ export const ADMIN_NAV_LINKS: { href: string; label: string; exact?: boolean }[]
   { href: "/admin/fulfillment", label: "Fulfillment" },
   { href: "/admin/trust", label: "Trust" },
   { href: "/admin/support-tickets", label: "Support" },
+  { href: "/admin/notifications", label: "Notifications" },
   { href: "/admin/health", label: "Health" },
   { href: "/admin/tax", label: "Tax" },
 ];
