@@ -26,6 +26,10 @@ export const AUTH_USER_MESSAGES = {
     "If an account exists for that address, you will receive a reset link shortly.",
   passwordResetComplete: "Your password was updated. Sign in with your new password.",
   passwordResetBody: "We will email you a link to choose a new password.",
+  passwordResetLinkVerifying: "Verifying your reset link…",
+  passwordResetLinkInvalid:
+    "This reset link is invalid or has expired. Request a new one below.",
+  passwordResetFailed: "Could not update your password. Try again or request a new reset link.",
   socialNotConfigured: "Social sign-in is not configured on this site.",
   socialSignInFailed: "Could not complete social sign-in. Try again or use email and password.",
   socialSignInCancelled: "Sign-in was cancelled.",
