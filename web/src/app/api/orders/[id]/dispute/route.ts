@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { EscrowStatus, OrderPaymentMethod } from "@/generated/prisma/enums";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { logEscrowStatusTransition } from "@/lib/escrow-audit-log";
+import { createNotification } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import { assertValidEscrowTransition } from "@/services/escrow/state-machine";
 
@@ -27,6 +28,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       escrowStatus: true,
       escrowProvider: true,
       escrowTransactionId: true,
+      listing: { select: { title: true } },
     },
   });
 
@@ -60,6 +62,19 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       previousStatus: prev,
       newStatus: EscrowStatus.disputed,
       source: "buyer",
+    });
+
+    // FIX: opening a dispute previously only updated the DB/audit log — the seller had no
+    // in-app/push signal that anything happened. Gated on the same "this is a real transition"
+    // check as the audit log above so a no-op re-POST to an already-disputed order doesn't spam
+    // the seller with duplicate notifications.
+    const title = order.listing.title.trim() || "your order";
+    await createNotification(prisma, {
+      userId: order.sellerId,
+      type: "order_escrow_dispute_opened",
+      title: "Dispute opened",
+      body: `The buyer opened a dispute on the escrow order for “${title}”. Payout is on hold until it's resolved.`,
+      href: `/account/sales/${encodeURIComponent(order.id)}`,
     });
   }
 

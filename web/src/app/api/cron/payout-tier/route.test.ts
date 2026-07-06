@@ -1,11 +1,16 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 const hoisted = vi.hoisted(() => ({
-  recalculateAllSellerPayoutTiers: vi.fn().mockResolvedValue({ updated: 0 }),
+  recalculateAllSellerPayoutTiers: vi.fn().mockResolvedValue({ candidates: 0, processed: 0, failed: 0 }),
+  reportCronAnomaly: vi.fn(),
 }));
 
 vi.mock("@/services/payout/recalculate-seller-payout-tier", () => ({
   recalculateAllSellerPayoutTiers: hoisted.recalculateAllSellerPayoutTiers,
+}));
+
+vi.mock("@/lib/cron-anomaly-alert", () => ({
+  reportCronAnomaly: hoisted.reportCronAnomaly,
 }));
 
 import { POST } from "@/app/api/cron/payout-tier/route";
@@ -65,5 +70,44 @@ describe("POST /api/cron/payout-tier auth gate", () => {
 
     expect(res.status).toBe(200);
     expect(hoisted.recalculateAllSellerPayoutTiers).toHaveBeenCalled();
+  });
+});
+
+// Regression: a cron returning HTTP 200 with `processed: 0` while candidates existed (or with
+// partial failures) previously generated no alert at all — Sentry only fires on thrown
+// exceptions (performance audit 2026-07).
+describe("POST /api/cron/payout-tier anomaly alerting", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubEnv("NODE_ENV", "test");
+    delete process.env.CRON_SECRET;
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("alerts when candidates existed but nothing was processed", async () => {
+    hoisted.recalculateAllSellerPayoutTiers.mockResolvedValue({ candidates: 40, processed: 0, failed: 0 });
+    await POST(buildRequest());
+    expect(hoisted.reportCronAnomaly).toHaveBeenCalledWith("payout-tier", expect.stringContaining("0 of 40"));
+  });
+
+  it("alerts when some sellers failed recalculation", async () => {
+    hoisted.recalculateAllSellerPayoutTiers.mockResolvedValue({ candidates: 40, processed: 37, failed: 3 });
+    await POST(buildRequest());
+    expect(hoisted.reportCronAnomaly).toHaveBeenCalledWith("payout-tier", expect.stringContaining("3 of 40"));
+  });
+
+  it("does not alert on a normal successful run", async () => {
+    hoisted.recalculateAllSellerPayoutTiers.mockResolvedValue({ candidates: 40, processed: 40, failed: 0 });
+    await POST(buildRequest());
+    expect(hoisted.reportCronAnomaly).not.toHaveBeenCalled();
+  });
+
+  it("does not alert when there simply were no candidate sellers", async () => {
+    hoisted.recalculateAllSellerPayoutTiers.mockResolvedValue({ candidates: 0, processed: 0, failed: 0 });
+    await POST(buildRequest());
+    expect(hoisted.reportCronAnomaly).not.toHaveBeenCalled();
   });
 });

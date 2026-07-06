@@ -31,6 +31,7 @@ import { serializeLiveTipConfig } from "@/lib/live-tip-routing";
 import { finalizeLiveStreamReplay } from "@/lib/trust/live-replay-service";
 import { endHostStageSession } from "@/services/ivs";
 import { logSellerRoomStateSnapshot } from "@/lib/log-room-state-snapshot";
+import { liveShowEndGmvFields } from "@/lib/live-show-gmv";
 import { apiErrorResponseFromUnknown } from "@/lib/prisma-api-error-response";
 
 const includeDetail = {
@@ -106,24 +107,18 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     }
   }
 
-  const seller = await prisma.user.findUnique({
-    where: { id: room.sellerId },
-    select: { email: true },
-  });
-  let isAdmin = false;
-  if (viewerId) {
-    const actor = await prisma.user.findUnique({
-      where: { id: viewerId },
-      select: { role: true },
-    });
-    isAdmin = actor?.role === "admin";
-  }
+  // Seller and viewer are independent reads, and the viewer row was previously fetched twice
+  // (once for `role`, once for `email`) — one combined, parallel fetch instead (performance
+  // audit 2026-07).
+  const [seller, actor] = await Promise.all([
+    prisma.user.findUnique({ where: { id: room.sellerId }, select: { email: true } }),
+    viewerId
+      ? prisma.user.findUnique({ where: { id: viewerId }, select: { role: true, email: true } })
+      : Promise.resolve(null),
+  ]);
+  const isAdmin = actor?.role === "admin";
   let isHost = viewerId === room.sellerId;
   if (!isHost && viewerId) {
-    const actor = await prisma.user.findUnique({
-      where: { id: viewerId },
-      select: { email: true },
-    });
     const actorEmail = actor?.email?.trim().toLowerCase();
     const sellerEmail = seller?.email?.trim().toLowerCase();
     isHost = Boolean(actorEmail && sellerEmail && actorEmail === sellerEmail);
@@ -152,14 +147,17 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       paymentFailureState: null,
     };
   } else if (viewerId) {
-    const w = await getBuyerLiveWalletReadiness(viewerId);
+    // Independent reads keyed only on (viewerId, liveRoomId) — run concurrently instead of
+    // sequentially (performance audit 2026-07).
+    const [w, buyerLivePayment, buyerUnresolvedPaymentFailure] = await Promise.all([
+      getBuyerLiveWalletReadiness(viewerId),
+      getLiveBuyerPaymentSessionState({ buyerId: viewerId, liveRoomId: id }),
+      getUnresolvedPaymentFailureForBuyer(id, viewerId),
+    ]);
     detail.buyerLiveBidPaymentReady = w.paymentReady;
     detail.buyerLiveShippingReady = w.shippingReady;
-    detail.buyerLivePayment = await getLiveBuyerPaymentSessionState({
-      buyerId: viewerId,
-      liveRoomId: id,
-    });
-    detail.buyerUnresolvedPaymentFailure = await getUnresolvedPaymentFailureForBuyer(id, viewerId);
+    detail.buyerLivePayment = buyerLivePayment;
+    detail.buyerUnresolvedPaymentFailure = buyerUnresolvedPaymentFailure;
   } else {
     detail.buyerLiveBidPaymentReady = false;
     detail.buyerLiveShippingReady = false;
@@ -248,7 +246,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   const existing = await prisma.liveRoom.findUnique({
     where: { id },
-    select: { id: true, sellerId: true, status: true, roomType: true, teamBoardLeague: true },
+    select: {
+      id: true,
+      sellerId: true,
+      status: true,
+      roomType: true,
+      teamBoardLeague: true,
+      completedSalesGmvUsd: true,
+    },
   });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const actor = await prisma.user.findUnique({
@@ -322,7 +327,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       select: { username: true },
     });
     if (seller) {
-      await notifyFollowersSellerWentLive(existing.sellerId, seller.username, id);
+      // Fire-and-forget: a seller with a large follower list previously blocked the "Go Live"
+      // response on a bulk notification insert (performance audit 2026-07). Going live should
+      // feel instant to the host regardless of follower count.
+      void notifyFollowersSellerWentLive(existing.sellerId, seller.username, id).catch((e) =>
+        console.error("[live-rooms] notifyFollowersSellerWentLive failed", existing.sellerId, e),
+      );
     }
     emitLiveDiscoveryChanged({ roomId: id, status: "live", reason: "started" });
     return NextResponse.json({ ok: true });
@@ -337,7 +347,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       data: {
         status: "ended",
         endedAt: new Date(),
-        completedSalesGmvUsd: 0,
+        ...liveShowEndGmvFields(existing.completedSalesGmvUsd),
         roomVersion: { increment: 1 },
       },
     });
@@ -366,7 +376,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       data: {
         status: "ended",
         endedAt: new Date(),
-        completedSalesGmvUsd: 0,
+        ...liveShowEndGmvFields(existing.completedSalesGmvUsd),
         roomVersion: { increment: 1 },
       },
     });

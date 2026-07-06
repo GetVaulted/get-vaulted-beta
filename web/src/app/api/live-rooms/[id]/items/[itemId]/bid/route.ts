@@ -19,6 +19,7 @@ import { getLiveBuyerCommerceBlock, getLiveRoomBroadcastCommerceBlock } from "@/
 import { getLiveRoomUserRestrictions } from "@/lib/trust/live-room-moderation";
 import { getTransactionServerNow, getServerNow } from "@/lib/server-transaction-now";
 import { recordLiveRoomBid } from "@/lib/record-live-room-bid";
+import { resolveFinalDisplacedBidder } from "@/lib/live-bid-outbid-notify-target";
 import {
   assertBidExceedsCurrentHigh,
   currentHighUsdFromLockedItem,
@@ -437,19 +438,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; it
       };
     });
 
-    const outbidTargets = new Map<string, number>();
-    if (prevLeaderId && prevLeaderId !== bidderId) {
-      outbidTargets.set(prevLeaderId, amountUsd);
-    }
-    for (const o of state.proxyOutbids) {
-      outbidTargets.set(o.userId, o.amountUsd);
-    }
+    // Notify only the single bidder displaced by the final settled outcome of this
+    // bid-processing cycle, not every intermediate leader in the proxy-bid chain.
+    const displaced = resolveFinalDisplacedBidder({
+      prevLeaderId,
+      bidderId,
+      proxyOutbids: state.proxyOutbids,
+      finalHighUsd: state.finalHighUsd,
+    });
     const liveHref = `/live/${encodeURIComponent(liveRoomId)}`;
-    for (const [outbidUserId, amt] of outbidTargets) {
+    if (displaced) {
       queueMicrotask(() => {
         void notifyAuctionOutbid(prisma, {
-          outbidUserId,
-          amountUsd: amt,
+          outbidUserId: displaced.userId,
+          amountUsd: displaced.amountUsd,
           title: item.title,
           href: liveHref,
         });

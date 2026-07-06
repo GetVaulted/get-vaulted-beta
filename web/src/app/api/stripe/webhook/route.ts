@@ -22,6 +22,9 @@ function isUniqueConstraintError(e: unknown): boolean {
  * Events are logged to `WebhookEventLog` before processing; failures return non-2xx so Stripe can retry.
  */
 export async function POST(req: Request) {
+  // No latency signal existed for webhook processing at all (performance audit 2026-07) — this
+  // gives a per-event-type duration in existing logs/Sentry breadcrumbs with no new infra.
+  const startedAt = Date.now();
   const raw = await req.text();
   const { id: logId } = await createWebhookLogEntry({
     source: "stripe",
@@ -59,6 +62,7 @@ export async function POST(req: Request) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[stripe webhook] process", e);
+    console.warn("[stripe webhook] failed", event.type, `${Date.now() - startedAt}ms`);
     await markWebhookLogFailure(logId, `process: ${msg}`);
     // Release the claim so Stripe's automatic retry (same event id, non-2xx response) can
     // reprocess instead of being permanently skipped as a duplicate.
@@ -67,5 +71,6 @@ export async function POST(req: Request) {
   }
 
   await markWebhookLogSuccess(logId);
+  console.log("[stripe webhook] processed", event.type, `${Date.now() - startedAt}ms`);
   return NextResponse.json({ received: true });
 }

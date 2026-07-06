@@ -3,6 +3,7 @@ import { liveWalletIncompleteOrNull } from "@/lib/buyer-live-wallet-readiness";
 import { resolveBuyerDefaultShippingForOrder } from "@/lib/live-buy-now-purchase";
 import { finalizeLiveItemVariantPurchasePaid, releaseVariantPurchaseOnCheckoutExpired, reopenVariantPurchaseForRecovery } from "@/lib/live-item-variant-purchase";
 import { isVariantSalesFormat } from "@/lib/live-item-variant-presets";
+import { isRandomVariantAssignment, remainingRandomPoolCount } from "@/lib/live-item-variant-random-reveal";
 import {
   getLiveBuyerPaymentSessionState,
   settleLiveItemVariantPurchase,
@@ -225,6 +226,7 @@ export async function POST(
               title: true,
               biddingOpen: true,
               auctionVariantId: true,
+              variantAssignmentMode: true,
             },
           },
         },
@@ -239,6 +241,27 @@ export async function POST(
       }
       if (item.biddingOpen && item.auctionVariantId === variantId) {
         throw Object.assign(new Error("SPOT_AUCTION_LIVE"), { code: "SPOT_AUCTION_LIVE" });
+      }
+
+      const isRandomReveal = isRandomVariantAssignment(item.variantAssignmentMode);
+      if (isRandomReveal) {
+        // FIX 2: a purchase row only ever gets ONE `revealedLabel` regardless of `quantity` — a
+        // buyer charged for N spots would only ever get 1 reveal. Reject multi-quantity for this
+        // sale mode rather than silently under-delivering.
+        if (quantity > 1) {
+          throw Object.assign(new Error("RANDOM_REVEAL_QUANTITY_LIMIT"), { code: "RANDOM_REVEAL_QUANTITY_LIMIT" });
+        }
+        // FIX 3: raw `quantityRemaining` (inventory count) can diverge from the number of unclaimed
+        // pool labels (e.g. misconfigured inventory). Never allow/charge a purchase once every label
+        // in the pool is already claimed, regardless of what `quantityRemaining` says.
+        const remainingLabels = await remainingRandomPoolCount({
+          liveRoomItemId: item.id,
+          salesFormat: item.salesFormat,
+          db: tx,
+        });
+        if (remainingLabels <= 0) {
+          throw Object.assign(new Error("RANDOM_REVEAL_POOL_EXHAUSTED"), { code: "RANDOM_REVEAL_POOL_EXHAUSTED" });
+        }
       }
 
       const updated = await tx.liveItemVariant.updateMany({
@@ -360,6 +383,18 @@ export async function POST(
       return NextResponse.json({ error: "This spot is in a live auction — place a bid instead." }, { status: 409 });
     }
     if (code === "SOLD_OUT") return NextResponse.json({ error: "That option is sold out." }, { status: 409 });
+    if (code === "RANDOM_REVEAL_QUANTITY_LIMIT") {
+      return NextResponse.json(
+        { error: "Random reveal spots can only be purchased one at a time.", code },
+        { status: 400 },
+      );
+    }
+    if (code === "RANDOM_REVEAL_POOL_EXHAUSTED") {
+      return NextResponse.json(
+        { error: "Every team/division has already been claimed for this item.", code },
+        { status: 409 },
+      );
+    }
     console.error("[variant purchase POST]", e);
     return NextResponse.json({ error: "Could not complete purchase." }, { status: 500 });
   }

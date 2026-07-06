@@ -7,6 +7,7 @@ import { logLiveLoaderDebug, safeDecodeRouteSegment } from "@/lib/live-loader-de
 import { prisma } from "@/lib/prisma";
 import { fetchHostRecentSales } from "@/lib/live-room-recent-sales";
 import { buildLiveShowFeeTierSnapshot } from "@/lib/platform-fee-policy";
+import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 import { ensureLiveShowFeeCache } from "@/services/live-show-fee-settings";
 import { attachHighBidderUsernames } from "@/lib/live-room-high-bidder-enrich";
 import { listUnresolvedPaymentFailuresForRoom } from "@/lib/live-room-payment-failure";
@@ -237,7 +238,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
         teamBoardLeague: room.teamBoardLeague,
         completedSalesGmvUsd: room.completedSalesGmvUsd,
       },
-      feeTier: buildLiveShowFeeTierSnapshot(room.completedSalesGmvUsd),
+      // Once the show has ended, `completedSalesGmvUsd` has already been reset to 0 — use the
+      // persisted `finalSalesGmvUsd` snapshot instead so the host's own post-show fee-tier display
+      // doesn't drift to $0/tier-0 (see `liveShowGmvForFeeTierReconstruction`).
+      feeTier: buildLiveShowFeeTierSnapshot(liveShowGmvForFeeTierReconstruction(room) ?? 0),
       queueItems,
       orphanSpots,
       messages: messagesAsc,

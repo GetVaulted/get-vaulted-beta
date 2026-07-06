@@ -10,6 +10,7 @@ import {
   resolveLiveNetworkingListingAnchor,
   resolveProfileMessagingListingAnchor,
 } from "@/lib/message-threads";
+import { isUserBlocked } from "@/lib/user-block";
 import type { MessageConversationKind } from "@/generated/prisma/client";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
@@ -133,6 +134,10 @@ export async function POST(req: Request) {
 
       if (sellerId === buyerId) throw new Error("SELF");
 
+      // A blocked user must not be able to bypass the block by starting a NEW thread via a
+      // different listing/live/profile entry point (messaging security audit 2026-07).
+      if (await isUserBlocked(tx, buyerId, sellerId)) throw new Error("BLOCKED");
+
       const inbox = await resolveInboxForNewThread(buyerId, sellerId);
 
       const thread = await tx.messageThread.upsert({
@@ -181,20 +186,27 @@ export async function POST(req: Request) {
         data: { updatedAt: new Date() },
       });
 
-      const preview = text.length > 120 ? `${text.slice(0, 117)}…` : text;
-      const lt = listingTitle.length > 60 ? `${listingTitle.slice(0, 57)}…` : listingTitle;
-      const notifyTitle = inbox === "request" ? "Message request" : "New message";
-      const notifyBody =
-        anchorKey.startsWith("profile:") || lt === "Direct message"
-          ? preview
-          : `Regarding “${lt}”: ${preview}`;
-      await createNotification(tx, {
-        userId: sellerId,
-        type: "message_received",
-        title: notifyTitle,
-        body: notifyBody,
-        href: `/account/messages/${encodeURIComponent(thread.id)}`,
+      const recipientParticipant = await tx.messageThreadParticipant.findUnique({
+        where: { threadId_userId: { threadId: thread.id, userId: sellerId } },
+        select: { muted: true },
       });
+
+      if (!recipientParticipant?.muted) {
+        const preview = text.length > 120 ? `${text.slice(0, 117)}…` : text;
+        const lt = listingTitle.length > 60 ? `${listingTitle.slice(0, 57)}…` : listingTitle;
+        const notifyTitle = inbox === "request" ? "Message request" : "New message";
+        const notifyBody =
+          anchorKey.startsWith("profile:") || lt === "Direct message"
+            ? preview
+            : `Regarding “${lt}”: ${preview}`;
+        await createNotification(tx, {
+          userId: sellerId,
+          type: "message_received",
+          title: notifyTitle,
+          body: notifyBody,
+          href: `/account/messages/${encodeURIComponent(thread.id)}`,
+        });
+      }
 
       return { threadId: thread.id, inbox: thread.inbox, messageId: created.id };
     });
@@ -217,6 +229,7 @@ export async function POST(req: Request) {
     const code = e instanceof Error ? e.message : "";
     if (code === "NOT_FOUND") return NextResponse.json({ error: "Not found." }, { status: 404 });
     if (code === "SELF") return NextResponse.json({ error: "You cannot message yourself." }, { status: 400 });
+    if (code === "BLOCKED") return NextResponse.json({ error: "You cannot message this user." }, { status: 403 });
     if (code === "NOT_PUBLIC" || code === "NO_LISTING") {
       return NextResponse.json(
         {

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
+import { logTrustModerationAction } from "@/lib/trust/moderation-audit-log";
 
-type Body = { action?: string; isCompanyListing?: boolean };
+type Body = { action?: string; isCompanyListing?: boolean; reason?: string };
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireAdmin();
@@ -19,6 +20,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   const action = typeof body.action === "string" ? body.action.trim() : "";
+  const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 2000) : "";
 
   const existing = await prisma.listing.findUnique({ where: { id }, select: { id: true } });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -36,6 +38,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       where: { id },
       data: { moderationRemovedAt: new Date() },
     });
+    await logTrustModerationAction({
+      actorUserId: gate.userId,
+      action: "admin_listing_removed",
+      targetType: "listing",
+      targetId: id,
+      detail: { reason: reason || null },
+    });
     return NextResponse.json({ ok: true });
   }
   if (action === "restore") {
@@ -43,12 +52,25 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       where: { id },
       data: { moderationRemovedAt: null },
     });
+    await logTrustModerationAction({
+      actorUserId: gate.userId,
+      action: "admin_listing_restored",
+      targetType: "listing",
+      targetId: id,
+      detail: { reason: reason || null },
+    });
     return NextResponse.json({ ok: true });
   }
   if (action === "mark_reviewed") {
     await prisma.listing.update({
       where: { id },
       data: { adminReviewedAt: new Date() },
+    });
+    await logTrustModerationAction({
+      actorUserId: gate.userId,
+      action: "admin_listing_marked_reviewed",
+      targetType: "listing",
+      targetId: id,
     });
     return NextResponse.json({ ok: true });
   }

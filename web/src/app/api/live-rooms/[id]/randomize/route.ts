@@ -13,6 +13,32 @@ type PostBody = {
   overrideAssignmentLock?: boolean;
 };
 
+type RandomizationPreview = {
+  seed: string;
+  assignments: { order: number; label: string }[];
+  format: string;
+  createdAt: string;
+  /** Canonical snapshot of the label set this draw was committed against (FIX 7 round key). */
+  labelsKey: string;
+};
+
+function parseRandomizationPreview(raw: string | null): RandomizationPreview | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<RandomizationPreview>;
+    if (
+      typeof parsed.seed === "string" &&
+      Array.isArray(parsed.assignments) &&
+      typeof parsed.labelsKey === "string"
+    ) {
+      return parsed as RandomizationPreview;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function labelsFromRoom(room: { breakTeamLabelsJson: string; id: string }): Promise<string[]> {
   const parsed = parseTeamLabelsJson(room.breakTeamLabelsJson);
   if (parsed.length > 0) return Promise.resolve(parsed);
@@ -68,19 +94,32 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   if (mode === "preview") {
+    // FIX 7: commit-then-reveal. Without this, a host could call preview repeatedly — each call
+    // re-rolling a brand-new random shuffle — and then confirm whichever result they liked best,
+    // undermining the "verified random" claim. The draw is generated ONCE per round (keyed on the
+    // current label set: `labelsKey`) and persisted immediately; every subsequent preview call for
+    // the SAME round returns the SAME already-committed result. A genuinely new round only starts
+    // when the label set changes (host edits team labels) or an admin clears the assignment lock.
+    const labelsKey = JSON.stringify(labels);
+    const existingPreview = parseRandomizationPreview(room.randomizationPreviewJson);
+    if (existingPreview && existingPreview.labelsKey === labelsKey) {
+      return NextResponse.json({ ok: true, preview: existingPreview });
+    }
+
     const seed = randomBytes(12).toString("hex");
     const assignments = buildAssignments(labels, seed);
-    const payload = JSON.stringify({
+    const preview: RandomizationPreview = {
       seed,
       assignments,
       format: room.breakFormat,
       createdAt: new Date().toISOString(),
-    });
+      labelsKey,
+    };
     await prisma.liveRoom.update({
       where: { id: liveRoomId },
-      data: { randomizationPreviewJson: payload, randomizationSeed: seed },
+      data: { randomizationPreviewJson: JSON.stringify(preview), randomizationSeed: seed },
     });
-    return NextResponse.json({ ok: true, preview: JSON.parse(payload) });
+    return NextResponse.json({ ok: true, preview });
   }
 
   /* confirm */
@@ -88,14 +127,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!previewRaw || !room.randomizationSeed) {
     return NextResponse.json({ error: "Run a preview first." }, { status: 400 });
   }
-  let preview: { seed?: string; assignments?: { order: number; label: string }[] };
-  try {
-    preview = JSON.parse(previewRaw) as typeof preview;
-  } catch {
+  const preview = parseRandomizationPreview(previewRaw);
+  if (!preview) {
     return NextResponse.json({ error: "Invalid preview state. Run preview again." }, { status: 400 });
   }
   if (!preview.seed || !Array.isArray(preview.assignments)) {
     return NextResponse.json({ error: "Invalid preview payload." }, { status: 400 });
+  }
+
+  // FIX 5: the preview was committed against a specific label set (`labelsKey`). If the host edited
+  // team labels after preview but before confirm, the stored draw was drawn against a now-stale
+  // label universe — reject rather than silently locking in a mismatched assignment.
+  const currentLabelsKey = JSON.stringify(labels);
+  if (preview.labelsKey !== currentLabelsKey) {
+    return NextResponse.json(
+      { error: "Labels have changed since preview — please preview again." },
+      { status: 409 },
+    );
   }
 
   const now = new Date();

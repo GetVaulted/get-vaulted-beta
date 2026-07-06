@@ -4,6 +4,8 @@ import { finalizeLiveStreamReplay } from "@/lib/trust/live-replay-service";
 import { endHostStageSession } from "@/services/ivs";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
+import { liveShowEndGmvFields } from "@/lib/live-show-gmv";
+import { logTrustModerationAction } from "@/lib/trust/moderation-audit-log";
 
 type Body = { action?: string; note?: string };
 
@@ -24,7 +26,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const room = await prisma.liveRoom.findUnique({
     where: { id },
-    select: { id: true, status: true, sellerId: true, title: true },
+    select: { id: true, status: true, sellerId: true, title: true, completedSalesGmvUsd: true },
   });
   if (!room) return NextResponse.json({ error: "Room not found." }, { status: 404 });
 
@@ -37,7 +39,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       data: {
         status: "ended",
         endedAt: new Date(),
-        completedSalesGmvUsd: 0,
+        ...liveShowEndGmvFields(room.completedSalesGmvUsd),
         roomVersion: { increment: 1 },
       },
     });
@@ -49,6 +51,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     emitLiveDiscoveryChanged({ roomId: id, status: "ended", reason: "ended" });
     void endHostStageSession(id).catch((e) => console.error("[admin live end] stage teardown", e));
     void finalizeLiveStreamReplay(id).catch((e) => console.error("[admin live end] replay", e));
+    await logTrustModerationAction({
+      actorUserId: gate.userId,
+      action: "admin_live_show_ended",
+      targetType: "live_room",
+      targetId: id,
+      liveRoomId: id,
+      detail: { note: note || null },
+    });
     return NextResponse.json({ ok: true });
   }
 
@@ -59,7 +69,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       data: {
         status: "ended",
         endedAt: new Date(),
-        completedSalesGmvUsd: 0,
+        ...liveShowEndGmvFields(room.completedSalesGmvUsd),
         roomVersion: { increment: 1 },
       },
     });
@@ -73,6 +83,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     emitLiveDiscoveryChanged({ roomId: id, status: "ended", reason: "cancelled" });
     void endHostStageSession(id).catch((e) => console.error("[admin live cancel] stage teardown", e));
     void finalizeLiveStreamReplay(id).catch((e) => console.error("[admin live cancel] replay", e));
+    await logTrustModerationAction({
+      actorUserId: gate.userId,
+      action: "admin_live_show_cancelled",
+      targetType: "live_room",
+      targetId: id,
+      liveRoomId: id,
+      detail: { note: note || null },
+    });
     return NextResponse.json({ ok: true });
   }
 

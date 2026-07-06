@@ -22,6 +22,8 @@ export async function GET(req: Request) {
       inbox,
     },
     orderBy: [{ updatedAt: "desc" }],
+    // Defensive cap — no pagination UI yet (see performance audit 2026-07).
+    take: 300,
     include: {
       listing: {
         select: {

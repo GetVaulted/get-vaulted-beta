@@ -566,12 +566,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
   const quantityEditable = !pricingLocked && (item.status === "queued" || item.status === "active");
 
   if (status) data.status = status as LiveRoomItemStatus;
-  if ("currentBidUsd" in body) {
-    if (body.currentBidUsd == null || (typeof body.currentBidUsd === "number" && Number.isFinite(body.currentBidUsd))) {
-      data.currentBidUsd = typeof body.currentBidUsd === "number" ? body.currentBidUsd : null;
-    }
-  }
   if (!pricingLocked) {
+    // `currentBidUsd` drives the winning sale price at settlement (see
+    // live-room-item-unit-sale.ts / live-variant-spot-auction-settle.ts), so it must never be
+    // client-writable once bidding has opened or the lot is sold — real bids only ever set it
+    // via the validated `/bid` route. Editable here solely to let a host reset/clear it while
+    // configuring an idle lot (mirrors the other pricing fields below).
+    if ("currentBidUsd" in body) {
+      if (body.currentBidUsd == null || (typeof body.currentBidUsd === "number" && Number.isFinite(body.currentBidUsd))) {
+        data.currentBidUsd = typeof body.currentBidUsd === "number" ? body.currentBidUsd : null;
+      }
+    }
     if ("startingBidUsd" in body) {
       const sb = body.startingBidUsd;
       if (sb == null) data.startingBidUsd = 1;

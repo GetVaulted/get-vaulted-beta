@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
+import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 
 export async function GET(req: Request) {
   const gate = await requireAdmin();
@@ -69,7 +70,9 @@ export async function GET(req: Request) {
         scheduledStartAt: r.scheduledStartAt?.toISOString() ?? null,
         startedAt: r.startedAt?.toISOString() ?? null,
         endedAt: r.endedAt?.toISOString() ?? null,
-        completedSalesGmvUsd: r.completedSalesGmvUsd,
+        // Ended shows have already had `completedSalesGmvUsd` reset to 0 — fall back to the
+        // persisted `finalSalesGmvUsd` snapshot so the ended-shows list doesn't show $0 GMV.
+        completedSalesGmvUsd: liveShowGmvForFeeTierReconstruction(r) ?? r.completedSalesGmvUsd,
         auctionEventSeq: r.auctionEventSeq,
         activeItem: activeItem
           ? {

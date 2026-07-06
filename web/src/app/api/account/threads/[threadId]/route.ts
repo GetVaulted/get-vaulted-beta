@@ -8,8 +8,13 @@ import {
   orderStatusChip,
   resolveThreadContext,
 } from "@/lib/message-threads";
+import { isUserBlocked } from "@/lib/user-block";
 import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
+
+/** Default/backward-compatible page size — short threads load in one page, unchanged. */
+const DEFAULT_MESSAGE_PAGE_SIZE = 50;
+const MAX_MESSAGE_PAGE_SIZE = 200;
 
 export async function GET(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
   const auth = await resolveAccountUserId(req);
@@ -46,19 +51,40 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
     data: { readAt: new Date() },
   });
 
-  const messages = await prisma.message.findMany({
+  const url = new URL(req.url);
+  const limitRaw = Number(url.searchParams.get("limit") ?? DEFAULT_MESSAGE_PAGE_SIZE);
+  const limit = Number.isFinite(limitRaw)
+    ? Math.min(MAX_MESSAGE_PAGE_SIZE, Math.max(1, Math.floor(limitRaw)))
+    : DEFAULT_MESSAGE_PAGE_SIZE;
+  // Cursor = id of the oldest message already loaded; loads the page just before it.
+  const beforeMessageId = url.searchParams.get("before")?.trim() || null;
+
+  const messageSelect = {
+    id: true,
+    senderId: true,
+    body: true,
+    kind: true,
+    systemEvent: true,
+    readAt: true,
+    createdAt: true,
+  } as const;
+
+  // Fetch newest-first so pagination always returns the most recent N by default
+  // (long-running commerce threads previously loaded every message with no limit). `id` is a
+  // secondary sort key so ordering stays fully deterministic when multiple messages share the
+  // same `createdAt` millisecond (e.g. a rapid system-message burst) — without it, "load earlier"
+  // could skip or duplicate a message across paginated requests since the DB is free to return
+  // tied rows in any order.
+  const descPage = await prisma.message.findMany({
     where: { threadId },
-    orderBy: { createdAt: "asc" },
-    select: {
-      id: true,
-      senderId: true,
-      body: true,
-      kind: true,
-      systemEvent: true,
-      readAt: true,
-      createdAt: true,
-    },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: limit + 1,
+    ...(beforeMessageId ? { cursor: { id: beforeMessageId }, skip: 1 } : {}),
+    select: messageSelect,
   });
+  const hasMore = descPage.length > limit;
+  const messages = descPage.slice(0, limit).reverse();
+  const nextCursor = hasMore ? messages[0]?.id ?? null : null;
 
   const mentionMap = await loadMentionsForSources(
     "thread_message",
@@ -117,6 +143,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
       createdAt: m.createdAt.toISOString(),
       mentions: mentionMap.get(m.id) ?? [],
     })),
+    hasMore,
+    nextCursor,
   });
 }
 
@@ -158,11 +186,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const selfParticipant = thread.participants[0];
-  if (selfParticipant?.blocked) {
-    return NextResponse.json({ error: "You cannot message in this thread." }, { status: 403 });
-  }
-
   if (thread.inbox === "request" && thread.sellerId !== uid) {
     return NextResponse.json(
       { error: "Waiting for the seller to accept your message request." },
@@ -172,12 +195,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
 
   const recipientId = thread.buyerId === uid ? thread.sellerId : thread.buyerId;
 
-  const otherParticipant = await prisma.messageThreadParticipant.findUnique({
-    where: { threadId_userId: { threadId, userId: recipientId } },
-  });
-  if (otherParticipant?.blocked) {
+  // Checks both directions (sender blocked recipient, or recipient blocked sender) via the
+  // durable cross-thread UserBlock table plus legacy per-thread flags on any prior thread.
+  if (await isUserBlocked(prisma, uid, recipientId)) {
     return NextResponse.json({ error: "Message could not be delivered." }, { status: 403 });
   }
+
+  const recipientParticipant = await prisma.messageThreadParticipant.findUnique({
+    where: { threadId_userId: { threadId, userId: recipientId } },
+    select: { muted: true },
+  });
 
   const msg = await prisma.$transaction(async (tx) => {
     const m = await tx.message.create({
@@ -212,14 +239,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     notifyContext: "Message thread",
   });
 
-  const preview = text.length > 120 ? `${text.slice(0, 117)}…` : text;
-  await createNotification(prisma, {
-    userId: recipientId,
-    type: "message_received",
-    title: "New message",
-    body: preview,
-    href: `/account/messages/${encodeURIComponent(thread.id)}`,
-  });
+  if (!recipientParticipant?.muted) {
+    const preview = text.length > 120 ? `${text.slice(0, 117)}…` : text;
+    await createNotification(prisma, {
+      userId: recipientId,
+      type: "message_received",
+      title: "New message",
+      body: preview,
+      href: `/account/messages/${encodeURIComponent(thread.id)}`,
+    });
+  }
 
   return NextResponse.json({
     message: {

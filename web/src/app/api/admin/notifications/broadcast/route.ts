@@ -29,7 +29,7 @@ export async function GET() {
   });
 }
 
-type Body = { title?: unknown; body?: unknown; href?: unknown };
+type Body = { title?: unknown; body?: unknown; href?: unknown; idempotencyKey?: unknown };
 
 export async function POST(req: Request) {
   const gate = await requireAdmin();
@@ -45,6 +45,7 @@ export async function POST(req: Request) {
   const title = typeof raw.title === "string" ? raw.title : "";
   const body = typeof raw.body === "string" ? raw.body : "";
   const href = typeof raw.href === "string" ? raw.href : null;
+  const idempotencyKey = typeof raw.idempotencyKey === "string" ? raw.idempotencyKey.trim() : null;
 
   const fieldError = validateMassNotificationInput({ title, body, href });
   if (fieldError) {
@@ -52,7 +53,13 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await sendMassNotification({ title, body, href, createdByUserId: gate.userId });
+    const result = await sendMassNotification({
+      title,
+      body,
+      href,
+      idempotencyKey,
+      createdByUserId: gate.userId,
+    });
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
     console.error("mass notification broadcast failed", e);

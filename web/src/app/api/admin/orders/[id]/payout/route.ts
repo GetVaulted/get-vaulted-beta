@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
+import type { OrderRefundRequestStatus } from "@/generated/prisma/enums";
 import { EscrowStatus, OrderPaymentMethod, OrderPayoutStatus } from "@/generated/prisma/enums";
+import { ACTIVE_REFUND_REQUEST_STATUSES } from "@/lib/order-refund-eligibility";
 import { logPayoutEligibilityDecision } from "@/lib/payout-audit-log";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
-import { releaseEscrowFundsFromApproved } from "@/services/escrow/release-when-approved";
+import {
+  EscrowReleaseAlreadyInFlightError,
+  releaseEscrowFundsFromApproved,
+} from "@/services/escrow/release-when-approved";
 import { assertValidEscrowTransition, EscrowInvalidTransitionError } from "@/services/escrow/state-machine";
 import { processDeliveryPayoutEvaluation } from "@/services/payout/process-delivery-payout";
 
@@ -84,6 +89,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       );
     }
 
+    // Refund-during-payout race: without this check, an admin could release funds to the seller
+    // for an order the buyer is actively disputing/requesting a refund on — the money then has to
+    // be clawed back after the fact instead of being held until the dispute resolves.
+    const activeRefundRequest = await prisma.orderRefundRequest.findFirst({
+      where: { orderId, status: { in: [...ACTIVE_REFUND_REQUEST_STATUSES] as OrderRefundRequestStatus[] } },
+      select: { id: true, status: true },
+    });
+    if (activeRefundRequest) {
+      return NextResponse.json(
+        { error: `Cannot release payout — order has an active refund request (${activeRefundRequest.status}).` },
+        { status: 409 },
+      );
+    }
+
     if (order.paymentMethod === OrderPaymentMethod.escrow) {
       if (!order.escrowTransactionId) {
         return NextResponse.json({ error: "No escrow transaction on order." }, { status: 400 });
@@ -126,6 +145,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
             auditSource: "admin",
           });
         } catch (e) {
+          if (e instanceof EscrowReleaseAlreadyInFlightError) {
+            return NextResponse.json(
+              { error: "Payout release already in progress for this order." },
+              { status: 409 },
+            );
+          }
           if (e instanceof EscrowInvalidTransitionError) {
             return NextResponse.json({ error: "Escrow release failed." }, { status: 502 });
           }
