@@ -75,6 +75,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         : null;
 
       const { orderId } = await prisma.$transaction(async (tx) => {
+        // Compare-and-swap: the pre-transaction `offer.status !== "pending"` check above is a
+        // cheap early exit, not a safety guarantee — two concurrent PATCH requests (double-click,
+        // or a seller accepting two different offers on the same listing) can both read "pending"
+        // before either commits. Claiming the row here with a `status: "pending"` WHERE clause
+        // means only one concurrent transaction can ever win; the loser's `count === 0` throws and
+        // rolls back its own transaction instead of silently clobbering the winner's outcome.
+        const claim = await tx.offer.updateMany({
+          where: { id: offerId, status: "pending" },
+          data: { status: "accepted", counterAmountUsd: null },
+        });
+        if (claim.count === 0) throw new Error("OFFER_STATE_CHANGED");
         const r = await createOrderFromAcceptedOffer(tx, {
           listingId: listing.id,
           listingTitle: listing.title,
@@ -84,10 +95,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
           shippingPriceUsd: listing.shippingPriceUsd,
           shipTo,
           buyerAddressId: defaultAddr?.id ?? null,
-        });
-        await tx.offer.update({
-          where: { id: offerId },
-          data: { status: "accepted", counterAmountUsd: null },
         });
         await declineOtherOpenOffersOnListing(tx, listing.id, offerId);
         return r;
@@ -100,10 +107,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       if (offer.status !== "pending") {
         return NextResponse.json({ error: "Only pending offers can be declined." }, { status: 400 });
       }
-      await prisma.offer.update({
-        where: { id: offerId },
+      const claim = await prisma.offer.updateMany({
+        where: { id: offerId, status: "pending" },
         data: { status: "declined", counterAmountUsd: null },
       });
+      if (claim.count === 0) {
+        return NextResponse.json({ error: "This offer was already resolved." }, { status: 409 });
+      }
       const lt =
         listing.title.length > 90 ? `${listing.title.slice(0, 87)}…` : listing.title;
       await createNotification(prisma, {
@@ -125,10 +135,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       if (!(c > 0)) {
         return NextResponse.json({ error: "Enter a valid counter amount." }, { status: 400 });
       }
-      await prisma.offer.update({
-        where: { id: offerId },
+      const claim = await prisma.offer.updateMany({
+        where: { id: offerId, status: "pending" },
         data: { status: "countered", counterAmountUsd: c },
       });
+      if (claim.count === 0) {
+        return NextResponse.json({ error: "This offer was already resolved." }, { status: 409 });
+      }
       const lt =
         listing.title.length > 90 ? `${listing.title.slice(0, 87)}…` : listing.title;
       const fmt = c.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -168,6 +181,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         : null;
 
       const { orderId } = await prisma.$transaction(async (tx) => {
+        // Compare-and-swap for the same reason as the plain "accept" branch above.
+        const claim = await tx.offer.updateMany({
+          where: { id: offerId, status: "countered" },
+          data: { status: "accepted" },
+        });
+        if (claim.count === 0) throw new Error("OFFER_STATE_CHANGED");
         const r = await createOrderFromAcceptedOffer(tx, {
           listingId: listing.id,
           listingTitle: listing.title,
@@ -177,10 +196,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
           shippingPriceUsd: listing.shippingPriceUsd,
           shipTo,
           buyerAddressId: defaultAddr?.id ?? null,
-        });
-        await tx.offer.update({
-          where: { id: offerId },
-          data: { status: "accepted" },
         });
         await declineOtherOpenOffersOnListing(tx, listing.id, offerId);
         return r;
@@ -193,10 +208,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       if (offer.status !== "countered") {
         return NextResponse.json({ error: "Nothing to decline." }, { status: 400 });
       }
-      await prisma.offer.update({
-        where: { id: offerId },
+      const claim = await prisma.offer.updateMany({
+        where: { id: offerId, status: "countered" },
         data: { status: "declined", counterAmountUsd: null },
       });
+      if (claim.count === 0) {
+        return NextResponse.json({ error: "This offer was already resolved." }, { status: 409 });
+      }
       const lt =
         listing.title.length > 90 ? `${listing.title.slice(0, 87)}…` : listing.title;
       await createNotification(prisma, {
@@ -204,13 +222,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         type: "offer_declined",
         title: "Counteroffer declined",
         body: `The buyer declined your counter on “${lt}”.`,
-        href: "/account/offers",
+        // Sellers manage offers in the listing studio, not the buyer-facing "/account/offers" page —
+        // link straight to the listing with the offer id so the studio can auto-open and highlight it.
+        href: `/seller/listings/${encodeURIComponent(listing.id)}?offerId=${encodeURIComponent(offerId)}`,
       });
       return NextResponse.json({ ok: true });
     }
 
     return NextResponse.json({ error: "Invalid action." }, { status: 400 });
   } catch (e) {
+    if (e instanceof Error && e.message === "OFFER_STATE_CHANGED") {
+      return NextResponse.json({ error: "This offer was already resolved." }, { status: 409 });
+    }
     if (e instanceof Error && e.message === "LISTING_ALREADY_SOLD_OTHER_BUYER") {
       return NextResponse.json({ error: "This listing was just sold to another buyer." }, { status: 409 });
     }

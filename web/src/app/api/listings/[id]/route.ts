@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@/generated/prisma/client";
 import { getServerSessionSafe } from "@/lib/auth";
 import { resolveListingsUserId, resolveOptionalListingsUserId } from "@/lib/resolve-listings-auth";
 import { computeAuctionEndsAt } from "@/lib/auction";
@@ -476,6 +477,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   return NextResponse.json({ listing: dbListingToStored(full, pending, bc) });
 }
 
+const LISTING_HAS_DEPENDENCIES_ERROR = {
+  error:
+    "This listing can't be deleted because it has existing orders or trade offers. Consider ending or delisting it instead.",
+  code: "LISTING_HAS_DEPENDENCIES",
+} as const;
+
 export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const auth = await resolveListingsUserId(req);
   if (auth instanceof NextResponse) return auth;
@@ -484,7 +491,28 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
   const { id: raw } = await ctx.params;
   const id = decodeURIComponent(raw);
 
-  const res = await prisma.listing.deleteMany({ where: { id, sellerId } });
-  if (res.count === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json({ ok: true });
+  const existing = await prisma.listing.findFirst({ where: { id, sellerId }, select: { id: true } });
+  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const [tradeOfferItemCount, orderCount] = await Promise.all([
+    prisma.tradeOfferItem.count({ where: { listingId: id } }),
+    prisma.order.count({ where: { listingId: id } }),
+  ]);
+  if (tradeOfferItemCount > 0 || orderCount > 0) {
+    return NextResponse.json(LISTING_HAS_DEPENDENCIES_ERROR, { status: 409 });
+  }
+
+  try {
+    const res = await prisma.listing.deleteMany({ where: { id, sellerId } });
+    if (res.count === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    // Belt-and-suspenders: TradeOfferItem/Order use onDelete: Restrict, so a race with the
+    // pre-check above (or any other Restrict relation) still surfaces as a clean 409 instead of a 500.
+    if (e instanceof Prisma.PrismaClientKnownRequestError && (e.code === "P2003" || e.code === "P2014")) {
+      return NextResponse.json(LISTING_HAS_DEPENDENCIES_ERROR, { status: 409 });
+    }
+    console.error("[DELETE /api/listings/[id]] delete failed", e);
+    return NextResponse.json({ error: "Could not delete this listing." }, { status: 500 });
+  }
 }

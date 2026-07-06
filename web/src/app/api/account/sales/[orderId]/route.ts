@@ -50,7 +50,7 @@ const orderSelect = {
   liveShippingSession: {
     select: {
       liveShowId: true,
-      liveShow: { select: { completedSalesGmvUsd: true, status: true } },
+      liveShow: { select: { completedSalesGmvUsd: true, finalSalesGmvUsd: true, status: true } },
     },
   },
   listing: {

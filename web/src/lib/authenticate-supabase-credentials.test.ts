@@ -80,4 +80,25 @@ describe("authorizeCredentialsViaSupabase", () => {
     expect(user?.id).toBe("auth-uuid");
     expect(prisma.user.updateMany).toHaveBeenCalled();
   });
+
+  // Regression: deletion revokes the Supabase Auth user best-effort, so if that revoke ever
+  // fails, the password check above can still succeed for a deleted account. Must not resurrect.
+  it("returns null for a deleted account even when the Supabase password check succeeds", async () => {
+    signInWithPassword.mockResolvedValue({
+      data: { user: { id: "auth-uuid", email: "deleted@example.com" } },
+      error: null,
+    });
+    ensurePrismaUser.mockResolvedValue("auth-uuid");
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: "auth-uuid",
+      email: "deleted@example.com",
+      username: "deleteduser",
+      role: "user",
+      suspendedAt: null,
+      accountDeletedAt: new Date(),
+      emailVerified: new Date(),
+    } as never);
+
+    await expect(authorizeCredentialsViaSupabase("deleted@example.com", "pass")).resolves.toBeNull();
+  });
 });

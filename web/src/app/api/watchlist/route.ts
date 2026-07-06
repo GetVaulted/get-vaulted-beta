@@ -38,12 +38,18 @@ export async function POST(req: Request) {
   }
 
   try {
-    await prisma.watchlistItem.create({
-      data: {
-        userId: session.user.id,
-        listingId: listing.id,
-      },
-    });
+    await prisma.$transaction([
+      prisma.watchlistItem.create({
+        data: {
+          userId: session.user.id,
+          listingId: listing.id,
+        },
+      }),
+      prisma.listing.update({
+        where: { id: listing.id },
+        data: { watchersCount: { increment: 1 } },
+      }),
+    ]);
     return NextResponse.json({ ok: true });
   } catch (e) {
     if (typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "P2002") {

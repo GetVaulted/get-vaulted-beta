@@ -39,10 +39,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Missing listing." }, { status: 400 });
   }
 
-  const amountUsd = typeof body.amountUsd === "number" && Number.isFinite(body.amountUsd) ? body.amountUsd : NaN;
-  if (!(amountUsd > 0)) {
+  const rawAmountUsd = typeof body.amountUsd === "number" && Number.isFinite(body.amountUsd) ? body.amountUsd : NaN;
+  if (!(rawAmountUsd > 0)) {
     return NextResponse.json({ error: "Enter a valid offer amount." }, { status: 400 });
   }
+  // Normalize to 2 decimal places server-side as the source of truth — the client mirrors this
+  // for UX, but the API must never persist e.g. "200.999999999999999999" verbatim.
+  const amountUsd = Math.round(rawAmountUsd * 100) / 100;
 
   const buyerId = auth.userId;
   const message = trimMessage(body.message);
@@ -133,7 +136,10 @@ export async function POST(req: Request) {
       type: "offer_received",
       title: "New offer",
       body: `You received an offer of ${amt} on “${lt}”.`,
-      href: "/account/offers",
+      // Sellers manage received offers in the listing studio, not the buyer-facing "/account/offers"
+      // page — link straight to the listing with the offer id so the studio can auto-open and
+      // highlight it, instead of dropping the seller on a page that can't even show this offer.
+      href: `/seller/listings/${encodeURIComponent(listing.id)}?offerId=${encodeURIComponent(offer.id)}`,
     });
     return NextResponse.json({ offer });
   } catch (e) {

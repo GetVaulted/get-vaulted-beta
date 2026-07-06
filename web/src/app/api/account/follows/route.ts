@@ -13,6 +13,8 @@ export async function GET(req: Request) {
     prisma.sellerFollow.findMany({
       where: { followerId: userId },
       orderBy: { createdAt: "desc" },
+      // Defensive cap — no pagination UI yet (see performance audit 2026-07).
+      take: 1000,
       include: {
         seller: {
           select: {
@@ -26,6 +28,8 @@ export async function GET(req: Request) {
     prisma.sellerFollow.findMany({
       where: { sellerId: userId },
       orderBy: { createdAt: "desc" },
+      // Defensive cap — a popular seller's follower count could otherwise be unbounded.
+      take: 1000,
       include: {
         follower: {
           select: {

@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { isAccountDeleted } from "@/lib/account-deletion";
 import { ensurePrismaUserForSupabaseAuth } from "@/lib/ensure-prisma-user-from-supabase-auth";
 import { prisma } from "@/lib/prisma";
 import { syncPrismaEmailVerifiedFromSupabase } from "@/lib/sync-prisma-email-verified";
@@ -56,10 +57,17 @@ export async function authorizeCredentialsViaSupabase(
       username: true,
       role: true,
       suspendedAt: true,
+      accountDeletedAt: true,
       emailVerified: true,
     },
   });
   if (!user || user.suspendedAt) return null;
+  // Deletion revokes the Supabase Auth user best-effort (see account-deletion.ts); if that
+  // revoke ever fails (transient error, misconfigured service role), the Supabase password
+  // check above would otherwise still succeed for a deleted account. Re-check here too, not
+  // just on the Bearer path (require-supabase-bearer.ts), so web credentials sign-in can't
+  // resurrect a deleted account.
+  if (isAccountDeleted(user)) return null;
 
   if (!user.emailVerified) {
     const synced = await syncPrismaEmailVerifiedFromSupabase(user.id, data.user);

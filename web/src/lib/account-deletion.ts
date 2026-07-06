@@ -1,6 +1,7 @@
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { revokeSupabaseAuthUser } from "@/lib/supabase-admin";
+import { revokeExpoPushTokensForUser } from "@/lib/push/push-device-token";
 
 export type AccountDeletionBlocker = {
   code: string;
@@ -146,6 +147,12 @@ export async function deleteUserAccount(userId: string): Promise<{ ok: true } | 
   const authResult = await revokeSupabaseAuthUser(userId);
   if (!authResult.ok) {
     console.warn("[deleteUserAccount] Supabase auth revoke failed", { userId, error: authResult.error });
+  }
+
+  try {
+    await revokeExpoPushTokensForUser({ userId });
+  } catch (e) {
+    console.warn("[deleteUserAccount] push token revoke failed", { userId, error: e });
   }
 
   return { ok: true };

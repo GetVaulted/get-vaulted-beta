@@ -17,7 +17,7 @@ export type ItemPageExtras = {
   bidCount?: number;
   /** True when auction is closed (sold, time elapsed, or no longer auction format). */
   auctionEnded?: boolean;
-  /** Deterministic “social proof” count for mock data */
+  /** Real count of buyers who have this listing on their watchlist. */
   watchingCount: number;
   /** Buy-now scarcity; when 1, show “Only 1 available” */
   stockRemaining: number;
@@ -43,34 +43,31 @@ function authenticationFromCondition(condition: string): string | undefined {
   return undefined;
 }
 
-function stableWatchers(id: string): number {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h + id.charCodeAt(i) * 17) % 900;
-  return 14 + (h % 52);
-}
-
-export function buildSellerCredibilityLabel(username: string): string {
-  let h = 0;
-  for (let i = 0; i < username.length; i++) h = (h + username.charCodeAt(i) * 19) % 100000;
-  const sales = 52 + (h % 948);
-  const topSeller = h % 6 === 0;
-  if (topSeller) return "Top seller";
-  return `${sales.toLocaleString("en-US")} sales`;
-}
+/**
+ * Real, non-fabricated fallback shown when a seller has no completed orders yet. Previously this
+ * (and the "watching" count) were random numbers derived from a hash of the username/listing id
+ * and presented to buyers as if they were real sales/social-proof metrics — a deceptive/misleading
+ * commerce practice flagged in the 2026-07 legal & compliance audit. Real counts must be supplied
+ * by the caller (see `realSellerCredibilityLabel` / `WatchlistItem` counts in the page loader).
+ */
+export const NEW_SELLER_CREDIBILITY_LABEL = "New to Get Vaulted";
 
 function defaultDescription(listing: MarketplaceListing) {
-  return `This ${listing.title} is sold as pictured. Ask the seller for more photos before you buy. Ships from a verified Get Vaulted seller with tracking and insurance.`;
+  return `This ${listing.title} is sold as pictured. Ask the seller for more photos before you buy. See the shipping details below for handling time and tracking.`;
 }
 
 function defaultShippingSummary(listing: MarketplaceListing) {
   if (listing.shippingPriceUsd != null && listing.handlingTimeLabel) {
     const sig = listing.signatureRequired ? " Signature required on delivery." : "";
-    return `Buyer pays $${listing.shippingPriceUsd.toFixed(2)} shipping. ${listing.handlingTimeLabel}.${sig} Insured tracking on every order.`;
+    return `Buyer pays $${listing.shippingPriceUsd.toFixed(2)} shipping. ${listing.handlingTimeLabel}.${sig} Tracking is added to your order when the seller purchases a label.`;
   }
-  return "Ships within 2 business days via insured carrier. Signature required over $500. International: duties and import taxes may apply.";
+  return "Ships within 2 business days. Signature required over $500. Insurance availability depends on the carrier and rate selected at checkout. International: duties and import taxes may apply.";
 }
 
-export function buildItemPageExtras(listing: MarketplaceListing): ItemPageExtras {
+export function buildItemPageExtras(
+  listing: MarketplaceListing,
+  realSignals?: { watchingCount?: number; sellerCredibilityLabel?: string },
+): ItemPageExtras {
   const galleryImageUrls =
     listing.imageUrls && listing.imageUrls.length > 0 ? listing.imageUrls.slice(0, 8) : undefined;
 
@@ -145,10 +142,10 @@ export function buildItemPageExtras(listing: MarketplaceListing): ItemPageExtras
     minNextBidUsd: minNext,
     bidCount,
     auctionEnded,
-    watchingCount: stableWatchers(listing.id),
+    watchingCount: realSignals?.watchingCount ?? 0,
     stockRemaining: listing.buyingFormat === "buy_now" ? 1 : 0,
     shipSpeedLine: listing.handlingTimeLabel?.trim() || "Ships in 1–2 business days",
-    sellerCredibilityLabel: buildSellerCredibilityLabel(listing.sellerUsername),
+    sellerCredibilityLabel: realSignals?.sellerCredibilityLabel ?? NEW_SELLER_CREDIBILITY_LABEL,
     auctionEndsAt,
     estimatedShippingDisplay,
     shipsFromDisplay,

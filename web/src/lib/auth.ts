@@ -2,6 +2,7 @@ import type { NextAuthOptions } from "next-auth";
 import { getServerSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
+import { checkAuthAttemptRateLimit } from "@/lib/auth-rate-limit";
 import { authorizeCredentialsViaSupabase } from "@/lib/authenticate-supabase-credentials";
 import { authorizeSupabaseAccessToken } from "@/lib/authorize-supabase-access-token";
 import { expiredJwtToken, resolveAuthUserForToken } from "@/lib/auth-resolve-user";
@@ -24,6 +25,10 @@ export const authOptions: NextAuthOptions = {
         const email = credentials?.email?.trim().toLowerCase();
         const password = credentials?.password;
         if (!email || !password) return null;
+
+        // Keyed by email (not IP) so an attacker can't bypass it by rotating IPs; caps
+        // credential-stuffing/brute-force attempts against a single account.
+        if (!checkAuthAttemptRateLimit("login", email).ok) return null;
 
         if (usesUnifiedSupabaseAuth()) {
           const supaUser = await authorizeCredentialsViaSupabase(email, password);

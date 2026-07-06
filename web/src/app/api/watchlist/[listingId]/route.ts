@@ -11,11 +11,21 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ listingId: 
   const { listingId: raw } = await ctx.params;
   const listingId = decodeURIComponent(raw);
 
-  await prisma.watchlistItem.deleteMany({
-    where: {
-      userId: session.user.id,
-      listingId,
-    },
+  await prisma.$transaction(async (tx) => {
+    const { count } = await tx.watchlistItem.deleteMany({
+      where: {
+        userId: session.user.id,
+        listingId,
+      },
+    });
+    if (count > 0) {
+      // GREATEST clamp keeps this from ever going negative regardless of ordering/races.
+      await tx.$executeRaw`
+        UPDATE "Listing"
+        SET "watchersCount" = GREATEST(0, "watchersCount" - 1)
+        WHERE id = ${listingId}
+      `;
+    }
   });
 
   return NextResponse.json({ ok: true });

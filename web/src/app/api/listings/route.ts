@@ -14,7 +14,7 @@ import { LISTING_WORKSPACE_KEY } from "@/lib/listing-workspace";
 import { validateListingImageCount } from "@/lib/listing-photo-requirements";
 import { resolveAllowLayawayForListing } from "@/lib/layaway/eligibility";
 import { prismaSellerVisibleOnPublicMarketplace } from "@/lib/demo-seed-sellers";
-import type { BuyingFormat, ListingStatus } from "@/generated/prisma/client";
+import type { BuyingFormat, ListingStatus, Prisma } from "@/generated/prisma/client";
 import type { ShippingCategory } from "@/generated/prisma/enums";
 import {
   isMarketplaceTimedAuctionPublishAttempt,
@@ -32,8 +32,22 @@ import {
   prismaListingCreateHint,
   serializePrismaClientError,
 } from "@/lib/prisma-client-error-serialize";
+import {
+  buildMarketplaceBrowseOrderBy,
+  buildMarketplaceBrowseWhere,
+  parseMarketplaceBrowseQueryParams,
+} from "@/lib/marketplace-listing-query";
 
 const listingInclude = listingWithSellerFulfillmentInclude;
+
+/**
+ * Defensive cap for the `scope=merch` public scope, which still has no server-side pagination
+ * (see performance audit 2026-07 / bug-fix pass 2026-07). `scope=published` (the main marketplace
+ * browse feed) now has real server-side filtering + pagination — see `buildMarketplaceBrowseWhere`
+ * / `MARKETPLACE_BROWSE_DEFAULT_PAGE_SIZE` below. This raised cap is only a stopgap safety net for
+ * merch until it gets the same treatment; it is not meant to be "enough" indefinitely.
+ */
+const PUBLIC_LISTING_SCOPE_MAX_ROWS = 2000;
 
 function listingCreateFailureResponse(
   e: unknown,
@@ -228,6 +242,9 @@ export async function GET(req: Request) {
       },
       include: listingInclude,
       orderBy: { createdAt: "desc" },
+      // Defensive cap — this scope has no pagination UI yet; prevents an unbounded
+      // full-catalog fetch as merch inventory grows (see performance audit 2026-07).
+      take: PUBLIC_LISTING_SCOPE_MAX_ROWS,
     });
     return NextResponse.json({
       listings: rows.map((r) => dbListingToMarketplace(r)),
@@ -241,16 +258,35 @@ export async function GET(req: Request) {
       console.error("[GET /api/listings] processAuctionPaymentExpiries", e);
     }
     try {
-      const rows = await prisma.listing.findMany({
-        where: {
-          ...PUBLIC_MARKETPLACE_LISTING_WHERE,
-          seller: prismaSellerVisibleOnPublicMarketplace(),
-        },
-        include: listingInclude,
-        orderBy: { createdAt: "desc" },
-      });
+      const baseWhere: Prisma.ListingWhereInput = {
+        ...PUBLIC_MARKETPLACE_LISTING_WHERE,
+        seller: prismaSellerVisibleOnPublicMarketplace(),
+      };
+      const query = parseMarketplaceBrowseQueryParams(searchParams);
+      const filteredWhere = buildMarketplaceBrowseWhere(query);
+      const orderBy = buildMarketplaceBrowseOrderBy(query.sort);
+
+      const [rows, filteredListingCount, totalListingCount] = await Promise.all([
+        prisma.listing.findMany({
+          where: filteredWhere,
+          include: listingInclude,
+          orderBy,
+          skip: (query.page - 1) * query.pageSize,
+          take: query.pageSize,
+        }),
+        prisma.listing.count({ where: filteredWhere }),
+        prisma.listing.count({ where: baseWhere }),
+      ]);
+
       return NextResponse.json(
-        { listings: rows.map((r) => dbListingToMarketplace(r)) },
+        {
+          listings: rows.map((r) => dbListingToMarketplace(r)),
+          page: query.page,
+          pageSize: query.pageSize,
+          filteredListingCount,
+          totalListingCount,
+          hasMore: query.page * query.pageSize < filteredListingCount,
+        },
         { headers: { "Cache-Control": "no-store, max-age=0" } },
       );
     } catch (e) {

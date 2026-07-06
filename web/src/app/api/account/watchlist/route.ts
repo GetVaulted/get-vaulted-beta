@@ -11,6 +11,9 @@ export async function GET() {
   const items = await prisma.watchlistItem.findMany({
     where: { userId: session.user.id },
     orderBy: { createdAt: "desc" },
+    // Defensive cap — no pagination UI yet; bounds worst case for a power user with a very
+    // large watchlist (see performance audit 2026-07).
+    take: 500,
     include: {
       listing: {
         include: {

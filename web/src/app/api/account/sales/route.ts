@@ -98,7 +98,7 @@ export async function GET(req: Request) {
       liveShippingSession: {
         select: {
           liveShowId: true,
-          liveShow: { select: { completedSalesGmvUsd: true, status: true, title: true } },
+          liveShow: { select: { completedSalesGmvUsd: true, finalSalesGmvUsd: true, status: true, title: true } },
         },
       },
       listing: {

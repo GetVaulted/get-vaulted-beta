@@ -1,11 +1,17 @@
 /**
  * Shippo REST client (https://docs.goshippo.com/).
- * TODO: Add retries, rate limits, and structured error types for production.
+ * TODO: Add retries and structured error types for production.
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 const SHIPPO_BASE = "https://api.goshippo.com";
+
+/** Request timeout for Shippo API calls. A hung Shippo connection must not hang checkout indefinitely. */
+function shippoTimeoutMs(): number {
+  const raw = Number(process.env.SHIPPO_TIMEOUT_MS);
+  return raw > 0 ? raw : 12_000;
+}
 
 export function isShippoConfigured(): boolean {
   return Boolean(process.env.SHIPPO_API_TOKEN && process.env.SHIPPO_API_TOKEN.length > 5);
@@ -40,14 +46,28 @@ function token(): string {
 }
 
 async function shippoFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${SHIPPO_BASE}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `ShippoToken ${token()}`,
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
+  const timeoutMs = shippoTimeoutMs();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch(`${SHIPPO_BASE}${path}`, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        Authorization: `ShippoToken ${token()}`,
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new Error(`Shippo request timed out after ${timeoutMs}ms: ${path}`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeout);
+  }
   const text = await res.text();
   let json: unknown;
   try {

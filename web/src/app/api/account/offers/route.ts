@@ -11,6 +11,8 @@ export async function GET() {
   const offers = await prisma.offer.findMany({
     where: { buyerId: session.user.id },
     orderBy: { updatedAt: "desc" },
+    // Defensive cap — no pagination UI yet (see performance audit 2026-07).
+    take: 500,
     include: {
       listing: {
         include: {

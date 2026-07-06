@@ -5,19 +5,11 @@ export type ItemTrustMetrics = {
   sellerLevel: string | null;
   completedSales: string;
   accountStanding: string;
-  responseTime: string;
-  shipPerformance: string;
   authenticationStatus: string;
 };
 
-function hashSeed(input: string): number {
-  let h = 0;
-  for (let i = 0; i < input.length; i++) h = (h + input.charCodeAt(i) * 17) % 9000;
-  return h;
-}
-
 function parseSalesCount(credibilityLabel: string): number | null {
-  const m = credibilityLabel.match(/([\d,]+)\s+sales/i);
+  const m = credibilityLabel.match(/([\d,]+)\s+(?:orders|sales)/i);
   if (!m) return null;
   const n = Number.parseInt(m[1].replace(/,/g, ""), 10);
   return Number.isFinite(n) ? n : null;
@@ -27,10 +19,8 @@ export function buildItemTrustMetrics(
   listing: MarketplaceListing,
   extras: ItemPageExtras,
 ): ItemTrustMetrics {
-  const seed = hashSeed(listing.sellerUsername);
   const sales = parseSalesCount(extras.sellerCredibilityLabel);
-  const salesLabel =
-    sales != null ? sales.toLocaleString("en-US") : extras.sellerCredibilityLabel.replace(/ sales/i, "") || "—";
+  const salesLabel = sales != null ? sales.toLocaleString("en-US") : "New";
 
   const accountStanding =
     listing.sellerLevel === "elite_vault_verified" || listing.sellerLevel === "vault_verified"
@@ -43,17 +33,15 @@ export function buildItemTrustMetrics(
             ? "Good"
             : "Established";
 
-  const responseHours = 1 + (seed % 4);
-  const responseTime = responseHours <= 2 ? `< ${responseHours} hr` : `< ${responseHours} hrs`;
-
-  const shipPct = 96 + (seed % 4);
-  const shipPerformance = `${shipPct}% on time`;
-
+  // "Vault verified" is a claim of platform authentication, so it must reflect the seller's real,
+  // backend-computed trust tier — never the seller-settable `vaultPick` editorial/featured flag
+  // (legal/compliance audit 2026-07).
+  const isVerifiedSellerLevel = listing.sellerLevel === "vault_verified" || listing.sellerLevel === "elite_vault_verified";
   const authenticationStatus = extras.authenticationLabel
     ? "On file"
     : listing.condition.match(/^(PSA|BGS|SGC)/i)
       ? "Graded item"
-      : listing.vaultPick
+      : isVerifiedSellerLevel
         ? "Vault verified"
         : "Ask seller";
 
@@ -61,8 +49,6 @@ export function buildItemTrustMetrics(
     sellerLevel: listing.sellerLevelLabel ?? null,
     completedSales: salesLabel,
     accountStanding,
-    responseTime,
-    shipPerformance,
     authenticationStatus,
   };
 }

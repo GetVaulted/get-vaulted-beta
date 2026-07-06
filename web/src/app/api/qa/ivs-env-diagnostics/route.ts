@@ -2,14 +2,17 @@ import { NextResponse } from "next/server";
 import { buildIvsEnvDiagnostics } from "@/lib/ivs-env-diagnostics";
 import { isQaSessionDebugAllowed } from "@/lib/qa-session-debug-allowed";
 
-function isBetaHost(req: Request): boolean {
-  const host = req.headers.get("host")?.split(":")[0]?.toLowerCase() ?? "";
-  return host === "beta.shopgetvaulted.com" || host.endsWith(".netlify.app");
-}
-
-/** GET /api/qa/ivs-env-diagnostics — masked AWS IVS env visibility (no secrets). */
+/**
+ * GET /api/qa/ivs-env-diagnostics — masked AWS IVS env visibility (no secrets).
+ *
+ * Gated solely by `isQaSessionDebugAllowed()` (dev, or `GV_ALLOW_QA_SESSION_DEBUG=1`). This
+ * previously also allowed any request whose client-supplied `Host` header matched the beta
+ * domain or a `*.netlify.app` suffix — since beta is a publicly reachable deployment, that let
+ * any anonymous visitor read AWS access-key prefixes/lengths and credential-source info with no
+ * authentication at all. Never reintroduce a host-based bypass here.
+ */
 export async function GET(req: Request) {
-  if (!isQaSessionDebugAllowed() && !isBetaHost(req)) {
+  if (!isQaSessionDebugAllowed()) {
     return NextResponse.json({ error: "Not available." }, { status: 404 });
   }
 

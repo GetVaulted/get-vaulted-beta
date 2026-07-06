@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSellerFollowUserId } from "@/lib/resolve-seller-follow-auth";
 import { resolveSellerFromApiParam } from "@/lib/resolve-seller-route-param";
+import { createNotification } from "@/lib/notifications";
 
 export async function POST(req: Request, ctx: { params: Promise<{ sellerId: string }> }) {
   const auth = await requireSellerFollowUserId(req);
@@ -22,6 +23,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ sellerId: stri
     });
   } catch {
     return NextResponse.json({ error: "Already following." }, { status: 409 });
+  }
+
+  const follower = await prisma.user.findUnique({
+    where: { id: session.userId },
+    select: { username: true },
+  });
+  if (follower?.username) {
+    await createNotification(prisma, {
+      userId: seller.id,
+      type: "new_follower",
+      title: "New follower",
+      body: `@${follower.username} started following you.`,
+      href: `/seller/${encodeURIComponent(follower.username)}`,
+    });
   }
 
   return NextResponse.json({ ok: true, following: true });

@@ -97,7 +97,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ orderId: stri
       liveShippingSession: {
         select: {
           liveShowId: true,
-          liveShow: { select: { completedSalesGmvUsd: true, status: true } },
+          liveShow: { select: { completedSalesGmvUsd: true, finalSalesGmvUsd: true, status: true } },
         },
       },
       listing: {

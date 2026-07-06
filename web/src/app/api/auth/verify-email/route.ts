@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@/generated/prisma/client";
+import { checkAuthAttemptRateLimit } from "@/lib/auth-rate-limit";
 import {
   normalizeVerificationCodeInput,
   VERIFICATION_CODE_LENGTH,
@@ -70,6 +71,14 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { error: `Enter the ${VERIFICATION_CODE_LENGTH}-digit code from your email.`, code: "INVALID_CODE_FORMAT" },
       { status: 400 },
+    );
+  }
+
+  const limiter = checkAuthAttemptRateLimit("verify-email", email);
+  if (!limiter.ok) {
+    return NextResponse.json(
+      { error: "Too many attempts. Please wait a few minutes and try again.", code: "RATE_LIMITED" },
+      { status: 429 },
     );
   }
 
