@@ -67,6 +67,12 @@ const repoRoot = path.resolve(__dirname, "..");
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: devAllowedOrigins(),
+  // CI (.github/workflows/ci.yml) already runs `tsc --noEmit` as a required check on every push,
+  // so this in-build typecheck is pure redundancy. It went OOM on Netlify's build machine once the
+  // codebase grew, taking down every production deploy since — skip it here and rely on CI instead.
+  typescript: {
+    ignoreBuildErrors: true,
+  },
   turbopack: {
     // Help Center + other packages import from ../shared at repo root.
     root: repoRoot,
