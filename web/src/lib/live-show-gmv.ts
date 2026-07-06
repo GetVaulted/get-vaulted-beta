@@ -52,6 +52,39 @@ export async function resetLiveShowSalesGmvTx(tx: TransactionClient, liveRoomId:
   });
 }
 
+/**
+ * Fields to write when a live show transitions to `ended` (via "end", "cancel", or the
+ * suspended-seller force-end guard). `completedSalesGmvUsd` keeps resetting to 0 exactly as
+ * before — some callers (e.g. `buildLiveShowFeeTierSnapshot` in the host console) expect it to
+ * represent "GMV so far in the *current* live session" and reset between shows. `finalSalesGmvUsd`
+ * is a separate, never-reset snapshot of the true final total, taken once here, so historical
+ * fee-tier reconstruction for this show's orders (see `liveShowGmvForFeeTierReconstruction`)
+ * keeps working correctly after the show ends instead of drifting to 0.
+ */
+export function liveShowEndGmvFields(currentCompletedGmvUsd: number): {
+  completedSalesGmvUsd: 0;
+  finalSalesGmvUsd: number;
+} {
+  return { completedSalesGmvUsd: 0, finalSalesGmvUsd: Math.max(0, currentCompletedGmvUsd) };
+}
+
+/**
+ * Resolves which GMV figure to feed into `resolvePlatformFeePercentForSellerOrder` when
+ * reconstructing the fee tier that applied to a *past* live-show order.
+ *
+ * While the show is still `live`, cumulative GMV is still changing sale-to-sale, so the live
+ * `completedSalesGmvUsd` counter is correct. Once the show is no longer `live`,
+ * `completedSalesGmvUsd` has been reset to 0 (see `liveShowEndGmvFields`) and must not be used —
+ * the persisted `finalSalesGmvUsd` snapshot is the correct stable figure instead.
+ */
+export function liveShowGmvForFeeTierReconstruction(
+  liveShow: { status: string; completedSalesGmvUsd: number; finalSalesGmvUsd: number | null } | null | undefined,
+): number | null {
+  if (!liveShow) return null;
+  if (liveShow.status === "live") return liveShow.completedSalesGmvUsd;
+  return liveShow.finalSalesGmvUsd ?? 0;
+}
+
 export async function resolveLiveRoomIdForOrder(orderId: string): Promise<string | null> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },

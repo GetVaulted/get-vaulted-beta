@@ -28,6 +28,8 @@ import { resolveLivePurchaseNotificationChargeUsd } from "@/lib/live-purchase-ch
 import { captureLiveRoomItemShippingSnapshotTx } from "@/services/shipping/live-item-shipping-snapshot";
 import { assertSellerStripeCollectReadyFromUser, sellerStripeCollectSelect } from "@/lib/seller-stripe-collect-ready";
 import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
+import { reportUrgentPaymentAnomaly } from "@/lib/cron-anomaly-alert";
+import { releaseReferralCreditReservation } from "@/lib/referral-credit";
 
 export type BuyerShippingSnapshot = {
   shipRecipientName: string;
@@ -494,7 +496,14 @@ export async function finalizeBreakSpotPaid(args: {
         null,
       );
     } catch (e) {
+      // FIX 4: same as the variant-purchase path — the spot will still be marked "paid" below
+      // (Stripe already confirmed the charge), but a failed Order finalize is a serious
+      // buyer-paid/order-unpaid inconsistency that must be loudly alerted, not just logged.
       console.error("[break spot] finalize fulfillment order failed", { breakSpotId: args.breakSpotId, e });
+      reportUrgentPaymentAnomaly(
+        "live-break-spot-order-finalize-failed",
+        `finalizeStripeMarketplaceOrderPaid threw for a PAID break spot — the spot will still be marked paid (Stripe already charged the buyer) but the linked Order may remain unpaid. MANUAL RECONCILIATION REQUIRED. breakSpotId=${args.breakSpotId} fulfillmentOrderId=${spotWithOrder.fulfillmentOrderId} error=${e instanceof Error ? e.message : String(e)}`,
+      );
     }
   }
   if (alreadyPaid) {
@@ -506,8 +515,16 @@ export async function finalizeBreakSpotPaid(args: {
     };
   }
 
-  await prisma.breakSpot.update({
-    where: { id: spot.id },
+  // Atomic compare-and-swap (FIX 3): mirrors `finalizeLiveItemVariantPurchasePaid`'s guard against
+  // the same race — this function is invoked from multiple independent triggers for the same spot
+  // (a direct `settleLiveBreakSpotPayment` call, the Stripe `payment_intent.succeeded` webhook, and
+  // payment-failure recovery), which can race in after all reading `breakPaymentStatus` as not-yet-
+  // paid. A plain read-then-write here would let every racing caller run side effects below (most
+  // importantly duplicate buyer notifications and duplicate GMV recording). Only the caller whose
+  // `updateMany` actually flips the row wins the claim; every other caller (`count === 0`) returns
+  // early and skips all side effects below.
+  const claimed = await prisma.breakSpot.updateMany({
+    where: { id: spot.id, breakPaymentStatus: { not: PAYMENT_PAID } },
     data: {
       claimStatus: "paid",
       paidAt: new Date(),
@@ -516,6 +533,14 @@ export async function finalizeBreakSpotPaid(args: {
       stripeCheckoutSessionId: null,
     },
   });
+  if (claimed.count === 0) {
+    return {
+      liveRoomId: spot.liveRoomId,
+      buyerId: spot.userId,
+      amountUsd: spot.priceUsd,
+      spotLabel: spot.spotLabel,
+    };
+  }
 
   const { markBreakSpotExternalFulfillmentRequired } = await import(
     "@/services/shipping/break-pyt-fulfillment-bridge"
@@ -559,4 +584,53 @@ export async function finalizeBreakSpotPaid(args: {
     amountUsd: spot.priceUsd,
     spotLabel: spot.spotLabel,
   };
+}
+
+/**
+ * FIX 6: release a break spot claim on a DEFINITE/terminal payment failure so other buyers can
+ * claim it, mirroring `releaseVariantPurchaseOnCheckoutExpired`'s pattern for variant purchases.
+ * Unlike variant purchases (which restore a `quantityRemaining` counter), a `BreakSpot` row IS the
+ * claim — `@@unique([liveRoomId, spotLabel])` means the row must be deleted (not just re-flagged)
+ * for a different buyer to claim the same label, matching the host's manual "release spot" action.
+ *
+ * Callers MUST only invoke this for a confirmed-definite failure (e.g. Stripe told us the
+ * PaymentIntent is dead) — never for an ambiguous/network error, since Stripe may have actually
+ * processed the charge and releasing the spot would let it be double-sold while the original buyer
+ * is still charged.
+ */
+export async function releaseBreakSpotOnDefiniteFailure(breakSpotId: string): Promise<void> {
+  const spot = await prisma.breakSpot.findUnique({
+    where: { id: breakSpotId },
+    select: {
+      id: true,
+      liveRoomId: true,
+      liveRoomItemId: true,
+      claimStatus: true,
+      breakPaymentStatus: true,
+    },
+  });
+  if (!spot) return;
+  // Never release a spot that's already paid — a failure recorded after the fact (e.g. a delayed
+  // webhook) must not undo a successful charge.
+  if (spot.claimStatus === "paid" || spot.breakPaymentStatus === PAYMENT_PAID) return;
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.breakSpot.delete({ where: { id: breakSpotId } });
+      if (spot.liveRoomItemId) {
+        const { refreshLiveRoomItemSoldAfterBreakSpotChange } = await import(
+          "@/lib/live-room-break-quantity"
+        );
+        await refreshLiveRoomItemSoldAfterBreakSpotChange(tx, spot.liveRoomItemId);
+      }
+    });
+  } catch (e) {
+    // P2025 = already deleted/released by a concurrent caller — nothing left to release.
+    const code = e && typeof e === "object" && "code" in e ? String((e as { code: string }).code) : "";
+    if (code !== "P2025") throw e;
+    return;
+  }
+
+  const { emitBreakSpotsChanged } = await import("@/lib/realtime-emit-server");
+  emitBreakSpotsChanged(spot.liveRoomId);
 }

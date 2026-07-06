@@ -44,7 +44,13 @@ export function AccountThreadPage({ threadId }: { threadId: string }) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [hasMoreOlder, setHasMoreOlder] = useState(false);
+  const [olderCursor, setOlderCursor] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Loading OLDER messages prepends to the list and must not yank the view to the bottom —
+  // only initial load / new sends should auto-scroll down.
+  const scrollToBottomOnNextRenderRef = useRef(true);
 
   const load = useCallback(async () => {
     setPageState("loading");
@@ -57,18 +63,46 @@ export function AccountThreadPage({ threadId }: { threadId: string }) {
       setPageState("error");
       return;
     }
-    const data = (await res.json()) as { thread?: ThreadMeta; messages?: Msg[] };
+    const data = (await res.json()) as {
+      thread?: ThreadMeta;
+      messages?: Msg[];
+      hasMore?: boolean;
+      nextCursor?: string | null;
+    };
     setMeta(data.thread ?? null);
+    scrollToBottomOnNextRenderRef.current = true;
     setMessages(Array.isArray(data.messages) ? data.messages : []);
+    setHasMoreOlder(Boolean(data.hasMore));
+    setOlderCursor(data.nextCursor ?? null);
     setPageState("ready");
     window.dispatchEvent(new Event("gv-messages-updated"));
   }, [threadId]);
+
+  const loadOlder = useCallback(async () => {
+    if (!olderCursor || loadingOlder) return;
+    setLoadingOlder(true);
+    try {
+      const res = await fetch(
+        `/api/account/threads/${encodeURIComponent(threadId)}?before=${encodeURIComponent(olderCursor)}`,
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as { messages?: Msg[]; hasMore?: boolean; nextCursor?: string | null };
+      const older = Array.isArray(data.messages) ? data.messages : [];
+      scrollToBottomOnNextRenderRef.current = false;
+      setMessages((m) => [...older, ...m]);
+      setHasMoreOlder(Boolean(data.hasMore));
+      setOlderCursor(data.nextCursor ?? null);
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [threadId, olderCursor, loadingOlder]);
 
   useEffect(() => {
     if (status === "authenticated") void load();
   }, [load, status]);
 
   useEffect(() => {
+    if (!scrollToBottomOnNextRenderRef.current) return;
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
@@ -89,6 +123,7 @@ export function AccountThreadPage({ threadId }: { threadId: string }) {
         return;
       }
       if (data.message) {
+        scrollToBottomOnNextRenderRef.current = true;
         setMessages((m) => [...m, data.message as Msg]);
         setDraft("");
       } else {
@@ -170,6 +205,18 @@ export function AccountThreadPage({ threadId }: { threadId: string }) {
       ) : null}
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 sm:px-4">
+        {hasMoreOlder ? (
+          <div className="flex justify-center pb-1">
+            <button
+              type="button"
+              onClick={() => void loadOlder()}
+              disabled={loadingOlder}
+              className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-zinc-400 hover:text-zinc-200 disabled:opacity-50"
+            >
+              {loadingOlder ? "Loading…" : "Load earlier messages"}
+            </button>
+          </div>
+        ) : null}
         {messages.length === 0 ? (
           <p className="py-8 text-center text-sm text-zinc-600">No messages yet.</p>
         ) : (

@@ -25,6 +25,7 @@ import {
 import { loadSellerPayoutTierDashboard } from "@/services/payout/recalculate-seller-payout-tier";
 import { recalculateSellerPayoutTier } from "@/services/payout/recalculate-seller-payout-tier";
 import { estimateSellerOrderPayoutUsd, resolvePlatformFeePercentForSellerOrder } from "@/lib/seller-payout-estimate";
+import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 
 const orderSelect = {
   id: true,
@@ -55,7 +56,10 @@ const orderSelect = {
   carrierAcceptedAt: true,
   listing: { select: { isCompanyListing: true } },
   liveShippingSession: {
-    select: { liveShowId: true, liveShow: { select: { completedSalesGmvUsd: true, status: true } } },
+    select: {
+      liveShowId: true,
+      liveShow: { select: { completedSalesGmvUsd: true, finalSalesGmvUsd: true, status: true } },
+    },
   },
 } as const;
 
@@ -74,14 +78,17 @@ function resolveOrderSellerNetUsd(order: {
   shippingPriceUsd: number;
   paymentStatus: string;
   listing: { isCompanyListing: boolean };
-  liveShippingSession: { liveShowId: string | null; liveShow: { completedSalesGmvUsd: number; status: string } | null } | null;
+  liveShippingSession: {
+    liveShowId: string | null;
+    liveShow: { completedSalesGmvUsd: number; finalSalesGmvUsd: number | null; status: string } | null;
+  } | null;
 }): number {
   const liveShowId = order.liveShippingSession?.liveShowId ?? null;
   const liveShow = order.liveShippingSession?.liveShow ?? null;
   const feePct = resolvePlatformFeePercentForSellerOrder({
     isCompanyListing: order.listing.isCompanyListing,
     liveShowId,
-    liveShowCompletedGmvUsd: liveShow?.status === "live" ? liveShow.completedSalesGmvUsd : null,
+    liveShowCompletedGmvUsd: liveShowGmvForFeeTierReconstruction(liveShow),
     orderItemPriceUsd: order.itemPriceUsd,
     orderPaymentStatus: order.paymentStatus,
   });

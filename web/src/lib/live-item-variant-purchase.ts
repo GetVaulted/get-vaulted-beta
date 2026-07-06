@@ -21,10 +21,86 @@ import {
   isRandomVariantAssignment,
 } from "@/lib/live-item-variant-random-reveal";
 import { markVariantPurchaseExternalFulfillmentRequired } from "@/services/shipping/break-pyt-fulfillment-bridge";
-import { finalizeStripeMarketplaceOrderPaid } from "@/services/payments";
+import { finalizeStripeMarketplaceOrderPaid, PAYMENT_REFUNDED } from "@/services/payments";
+import { executeOrderRefund } from "@/services/order-refund-request";
+import { ACTIVE_REFUND_REQUEST_STATUSES } from "@/lib/order-refund-eligibility";
+import { reportUrgentPaymentAnomaly } from "@/lib/cron-anomaly-alert";
+import { OrderRefundRequestKind, OrderRefundRequestStatus } from "@/generated/prisma/enums";
+import { releaseReferralCreditReservation } from "@/lib/referral-credit";
 
 function siteUrl(): string {
   return (process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");
+}
+
+/**
+ * Safety net for FIX 3: a buyer was already charged for a random-reveal purchase but no label could
+ * be assigned (pool exhausted, or every draw attempt lost the DB-level race — see
+ * `executeRandomVariantRevealOnPurchase`). This must never silently leave the buyer charged with
+ * nothing. Prefer an automatic refund via the existing order-refund service; if that isn't possible
+ * (no linked fulfillment order yet) or itself fails, fire a loud, actionable alert so ops can refund
+ * manually.
+ */
+async function refundOrAlertOnFailedRandomReveal(purchase: {
+  id: string;
+  fulfillmentOrderId: string | null;
+  liveRoomId: string;
+  liveRoomItemId: string;
+  buyerId: string;
+  totalUsd: number;
+}): Promise<void> {
+  const context = `purchaseId=${purchase.id} liveRoomId=${purchase.liveRoomId} liveRoomItemId=${purchase.liveRoomItemId} buyerId=${purchase.buyerId} totalUsd=${purchase.totalUsd} fulfillmentOrderId=${purchase.fulfillmentOrderId ?? "none"}`;
+
+  if (purchase.totalUsd <= 0) return; // Nothing was charged — no refund needed.
+
+  if (!purchase.fulfillmentOrderId) {
+    reportUrgentPaymentAnomaly(
+      "live-random-reveal-unassignable",
+      `Random-reveal pool exhausted for a PAID purchase with no fulfillment order to auto-refund. Buyer was charged with NO team/division assigned. MANUAL REFUND REQUIRED. ${context}`,
+    );
+    return;
+  }
+
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: purchase.fulfillmentOrderId },
+      select: { id: true, buyerId: true, sellerId: true, paymentStatus: true },
+    });
+    if (!order) throw new Error("FULFILLMENT_ORDER_NOT_FOUND");
+    if (order.paymentStatus === PAYMENT_REFUNDED) return; // Already refunded (e.g. a prior alert was handled).
+
+    const activeStatuses = [...ACTIVE_REFUND_REQUEST_STATUSES] as OrderRefundRequestStatus[];
+    const existingActive = await prisma.orderRefundRequest.findFirst({
+      where: { orderId: order.id, status: { in: activeStatuses } },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const refundRequestId =
+      existingActive?.id ??
+      (
+        await prisma.orderRefundRequest.create({
+          data: {
+            orderId: order.id,
+            kind: OrderRefundRequestKind.cancel,
+            status: OrderRefundRequestStatus.pending_seller,
+            buyerId: order.buyerId,
+            sellerId: order.sellerId,
+            reason: `Automatic refund: the random-reveal pool was exhausted after payment for purchase ${purchase.id} — buyer was charged with no team/division assigned.`,
+            sellerDirect: true,
+          },
+        })
+      ).id;
+
+    await executeOrderRefund(order.id, refundRequestId);
+    reportUrgentPaymentAnomaly(
+      "live-random-reveal-auto-refunded",
+      `Auto-refunded a purchase after the random-reveal pool was exhausted post-payment. Verify buyer/seller were notified correctly. ${context}`,
+    );
+  } catch (e) {
+    reportUrgentPaymentAnomaly(
+      "live-random-reveal-refund-failed",
+      `Random-reveal pool was exhausted for a PAID purchase AND the automatic refund attempt FAILED (${e instanceof Error ? e.message : String(e)}). MANUAL REFUND REQUIRED. ${context}`,
+    );
+  }
 }
 
 export async function finalizeLiveItemVariantPurchasePaid(
@@ -41,7 +117,6 @@ export async function finalizeLiveItemVariantPurchasePaid(
   });
   if (!purchase) return;
 
-  const alreadyPaid = purchase.paymentStatus === "paid";
   if (purchase.fulfillmentOrderId) {
     try {
       await finalizeStripeMarketplaceOrderPaid(
@@ -50,19 +125,36 @@ export async function finalizeLiveItemVariantPurchasePaid(
         null,
       );
     } catch (e) {
+      // FIX 4: the buyer's variant purchase is about to be marked "paid" below regardless (Stripe
+      // already confirmed the charge, so we can't safely roll that back) — but if the linked Order
+      // never got marked paid, that's a serious buyer-paid/order-unpaid inconsistency that must not
+      // be silently swallowed. Alert loudly so ops can manually reconcile the Order.
       console.error("[variant purchase] finalize fulfillment order failed", { purchaseId, e });
+      reportUrgentPaymentAnomaly(
+        "live-variant-purchase-order-finalize-failed",
+        `finalizeStripeMarketplaceOrderPaid threw for a PAID variant purchase — the purchase will still be marked paid (Stripe already charged the buyer) but the linked Order may remain unpaid. MANUAL RECONCILIATION REQUIRED. purchaseId=${purchaseId} fulfillmentOrderId=${purchase.fulfillmentOrderId} error=${e instanceof Error ? e.message : String(e)}`,
+      );
     }
   }
-  if (alreadyPaid) return;
 
-  await prisma.liveItemVariantPurchase.update({
-    where: { id: purchaseId },
+  // Atomic compare-and-swap: this function is invoked from multiple independent triggers for the
+  // same purchase — `settleLiveItemVariantPurchase`'s direct call and the Stripe
+  // `payment_intent.succeeded` webhook — which can race in after both reading `paymentStatus` as
+  // `pending_payment`. A plain read-then-write here would let both callers run every side effect
+  // below, most importantly both drawing a random reveal label (compounding the pool-draw race in
+  // `executeRandomVariantRevealOnPurchase`) and double-sending buyer/seller notifications. Only the
+  // caller whose `updateMany` actually flips the row wins the claim; the loser (`count === 0`,
+  // meaning the row was already `paid` — or something else — when this ran) returns early and skips
+  // every side effect below. Mirrors the marketplace order finalize pattern in `services/payments.ts`.
+  const claimed = await prisma.liveItemVariantPurchase.updateMany({
+    where: { id: purchaseId, paymentStatus: "pending_payment" },
     data: {
       paymentStatus: "paid",
       paidAt: new Date(),
       stripePaymentIntentId: stripePaymentIntentId ?? undefined,
     },
   });
+  if (claimed.count === 0) return;
 
   const variant = await prisma.liveItemVariant.findUnique({
     where: { id: purchase.variantId },
@@ -107,6 +199,25 @@ export async function finalizeLiveItemVariantPurchasePaid(
     if (revealed) {
       displayLabel = revealed.label;
       randomReveal = true;
+    } else {
+      // Charged but no label could be assigned (pool exhausted / every draw attempt lost the race).
+      // Never leave this silent — refund automatically or alert loudly for manual refund (FIX 3).
+      await refundOrAlertOnFailedRandomReveal({
+        id: purchase.id,
+        fulfillmentOrderId: purchase.fulfillmentOrderId,
+        liveRoomId: purchase.liveRoomId,
+        liveRoomItemId: purchase.liveRoomItemId,
+        buyerId: purchase.buyerId,
+        totalUsd: purchase.totalUsd,
+      });
+      // FIX 2: this purchase is being auto-refunded (or flagged for manual refund) — it must NOT
+      // proceed through the "purchase succeeded" side effects below (live-room purchase broadcast,
+      // buyer "payment confirmed" notification, giveaway entries, break-ready marking), since none of
+      // that is true for a purchase with no assigned label. Bookkeeping that already ran above
+      // (inventory/sold-out status, linked-order finalize, GMV recording, external-fulfillment
+      // marking) is unaffected since it happened before this branch and is independent of the reveal
+      // outcome.
+      return;
     }
   }
 
@@ -194,9 +305,20 @@ export async function releaseVariantPurchaseOnCheckoutExpired(purchaseId: string
       quantity: true,
       liveRoomId: true,
       liveRoomItemId: true,
+      fulfillmentOrderId: true,
     },
   });
   if (!purchase || purchase.paymentStatus !== "pending_payment") return;
+
+  if (purchase.fulfillmentOrderId) {
+    releaseReferralCreditReservation(purchase.fulfillmentOrderId).catch((e) =>
+      console.error("[referral-credit] release failed (variant purchase checkout expired)", {
+        purchaseId,
+        orderId: purchase.fulfillmentOrderId,
+        error: e,
+      }),
+    );
+  }
 
   await prisma.$transaction(async (tx) => {
     await tx.liveItemVariantPurchase.update({

@@ -21,6 +21,7 @@ import {
 import {
   createLiveBuyNowOrder,
   finalizeBreakSpotPaid,
+  releaseBreakSpotOnDefiniteFailure,
 } from "@/lib/live-buy-now-purchase";
 import { resolveCheckoutApplicationFeeCents } from "@/lib/live-show-gmv";
 import {
@@ -40,6 +41,7 @@ import { emitLiveRoomQueueItemsChanged } from "@/lib/realtime-emit-server";
 import {
   buildStripeChargeErrorDebug,
   chargeLiveBuyNowOrderWithSavedCard,
+  isDefiniteStripeCardDecline,
 } from "@/lib/stripe-charge-order-saved-pm";
 import {
   connectPaymentIntentTransferData,
@@ -73,7 +75,21 @@ export type LiveSavedCardChargeOutcome =
   | { outcome: "paid"; paymentIntentId: string; chargeUsd?: number }
   | { outcome: "requires_action"; clientSecret: string; paymentIntentId: string }
   | { outcome: "processing"; paymentIntentId: string }
-  | { outcome: "error"; code: string; message?: string; fulfillmentDetail?: string };
+  | {
+      outcome: "error";
+      code: string;
+      message?: string;
+      fulfillmentDetail?: string;
+      /**
+       * Whether this failure is a CONFIRMED-dead PaymentIntent / rejected-before-charge error
+       * (safe to release held inventory/claims on) vs. an ambiguous error where Stripe may have
+       * actually processed the charge (must NOT release — see FIX 6). Defaults to "definite" when
+       * omitted, since most error branches here are constructed before any Stripe charge attempt
+       * (validation/config failures) or from Stripe explicitly rejecting the request; only the
+       * generic catch-all branches in `mapLiveSavedCardStripeError` mark this `false`.
+       */
+      definiteFailure?: boolean;
+    };
 
 export async function getLiveBuyerPaymentSessionState(args: {
   buyerId: string;
@@ -262,19 +278,36 @@ function mapLiveSavedCardStripeError(
     referenceId: ctx.referenceId,
     ...stripeDebug,
   });
+  // FIX 6: reuse the same "confirmed dead PaymentIntent" check used for marketplace orders
+  // (`isDefiniteStripeCardDecline`) to decide whether it's safe to release held inventory/claims.
+  // `StripeInvalidRequestError` branches below mean Stripe rejected the request before any money
+  // moved, so those are always definite too. Only the generic/unknown-error fallback further down
+  // (network/timeout/rate-limit/unexpected Stripe API error) is genuinely ambiguous about whether a
+  // charge went through.
   if (e instanceof Stripe.errors.StripeCardError) {
-    return { outcome: "error", code: "CARD_DECLINED", message: e.message || "Card declined." };
+    return {
+      outcome: "error",
+      code: "CARD_DECLINED",
+      message: e.message || "Card declined.",
+      definiteFailure: isDefiniteStripeCardDecline(e),
+    };
   }
   if (e instanceof Stripe.errors.StripeInvalidRequestError) {
     const lower = (e.message ?? "").toLowerCase();
     if (lower.includes("destination") || lower.includes("application_fee_amount")) {
-      return { outcome: "error", code: "SELLER_NOT_READY", message: "Seller payouts are not ready." };
+      return {
+        outcome: "error",
+        code: "SELLER_NOT_READY",
+        message: "Seller payouts are not ready.",
+        definiteFailure: true,
+      };
     }
     if (lower.includes("payment_method_type") || lower.includes("payment method type")) {
       return {
         outcome: "error",
         code: "STRIPE_ERROR",
         message: "Payment could not be completed. Try updating your saved card in Wallet.",
+        definiteFailure: true,
       };
     }
     if (lower.includes("no such paymentmethod") || lower.includes("does not belong to customer")) {
@@ -282,6 +315,7 @@ function mapLiveSavedCardStripeError(
         outcome: "error",
         code: "NO_SAVED_CARD",
         message: "Add a saved payment method to your Wallet.",
+        definiteFailure: true,
       };
     }
   }
@@ -291,9 +325,11 @@ function mapLiveSavedCardStripeError(
     stripeMessage.length <= 120 &&
     !/secret|api key|webhook|prisma|sql/i.test(stripeMessage)
   ) {
-    return { outcome: "error", code: "STRIPE_ERROR", message: stripeMessage };
+    // Unknown Stripe error type reaching this point (e.g. StripeAPIError, StripeConnectionError,
+    // StripeRateLimitError) — we don't know whether Stripe actually processed the charge.
+    return { outcome: "error", code: "STRIPE_ERROR", message: stripeMessage, definiteFailure: false };
   }
-  return { outcome: "error", code: "STRIPE_ERROR", message: "Could not process payment." };
+  return { outcome: "error", code: "STRIPE_ERROR", message: "Could not process payment.", definiteFailure: false };
 }
 
 /** Clear dead intents so recovery retries can create a fresh PaymentIntent (matches buy-now). */
@@ -316,15 +352,27 @@ async function handleExistingLiveSavedCardPaymentIntent(
   return { outcome: mapPaymentIntentOutcome(pi), clearedDeadIntentId: null };
 }
 
+/**
+ * Stable per-logical-charge Stripe idempotency key — mirrors the established pattern for regular
+ * marketplace orders (`pay_order_saved_pm_${orderId}_${amountCents}_${pmId}` in
+ * `stripe-charge-order-saved-pm.ts`, `buy_now_${orderId}_...` in `services/payments.ts`): keyed on
+ * the purchase/spot id + amount + payment method, NOT wall-clock time. Two near-simultaneous calls
+ * for the SAME purchase now collide on the SAME key, so Stripe's idempotency layer — not a
+ * different key per millisecond — is what prevents a double PaymentIntent/double charge.
+ *
+ * `clearedDeadIntentId` is the only legitimate reason to rotate the key: it's set only after we've
+ * confirmed (via `handleExistingLiveSavedCardPaymentIntent`) that the PRIOR PaymentIntent is
+ * genuinely dead (canceled / requires_payment_method), so a fresh key for a fresh attempt is safe —
+ * this is a real state change recorded via the dead intent's own id, not a wall-clock timestamp.
+ */
 export function liveSavedCardStripeIdempotencyKey(args: {
   prefix: string;
   referenceId: string;
   amountCents: number;
   paymentMethodId: string;
-  chargeAttemptMs: number;
   clearedDeadIntentId?: string | null;
 }): string {
-  const base = `${args.prefix}_${args.referenceId}_${args.amountCents}_${args.paymentMethodId}_${args.chargeAttemptMs}`;
+  const base = `${args.prefix}_${args.referenceId}_${args.amountCents}_${args.paymentMethodId}`;
   return args.clearedDeadIntentId ? `${base}_after_${args.clearedDeadIntentId}` : base;
 }
 
@@ -440,7 +488,6 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
   const feeCents = capLiveApplicationFeeCents(taxCharge.feeCents, amountCents);
 
   const stripe = getStripe();
-  const chargeAttemptMs = Date.now();
 
   let clearedDeadIntentId: string | null = null;
   if (purchase.stripePaymentIntentId) {
@@ -487,7 +534,6 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
           referenceId: purchase.id,
           amountCents,
           paymentMethodId: pmId,
-          chargeAttemptMs,
           clearedDeadIntentId,
         }),
       },
@@ -542,7 +588,12 @@ export async function syncLiveItemVariantPurchasePaymentIntent(args: {
   const pi = await stripe.paymentIntents.retrieve(purchase.stripePaymentIntentId);
   const mapped = mapPaymentIntentOutcome(pi);
   if (!mapped || mapped.outcome === "error") {
-    await releaseVariantPurchaseOnCheckoutExpired(purchase.id);
+    // FIX 1: mirror the break-spot gating — only release the held purchase on a CONFIRMED-definite
+    // failure. `mapped` here reflects a freshly-retrieved PaymentIntent status (never ambiguous), but
+    // we still check `definiteFailure !== false` for consistency with the other release call sites.
+    if (!mapped || mapped.definiteFailure !== false) {
+      await releaseVariantPurchaseOnCheckoutExpired(purchase.id);
+    }
     return {
       outcome: "error",
       code: mapped?.code ?? "PAYMENT_INTENT_NOT_COMPLETED",
@@ -623,7 +674,12 @@ export async function settleLiveItemVariantPurchase(args: {
         paymentIntentId: charge.paymentIntentId,
       };
     }
-    await releaseVariantPurchaseOnCheckoutExpired(args.purchaseId);
+    // FIX 1: mirror the break-spot gating (`settleLiveBreakSpotPayment`) — only release the held
+    // purchase on a CONFIRMED-definite failure, not on ambiguous/network/timeout errors where Stripe
+    // may have actually processed the charge.
+    if (charge.outcome === "error" && charge.definiteFailure !== false) {
+      await releaseVariantPurchaseOnCheckoutExpired(args.purchaseId);
+    }
     return {
       ok: false,
       purchaseId: args.purchaseId,
@@ -654,7 +710,11 @@ export async function settleLiveItemVariantPurchase(args: {
     };
   }
 
-  await releaseVariantPurchaseOnCheckoutExpired(args.purchaseId);
+  // FIX 1: same definite-failure gating as above — this is the `!purchaseMeta` fallback branch.
+  // All other outcomes are handled above, so `charge` is guaranteed to be an "error" here.
+  if (charge.outcome === "error" && charge.definiteFailure !== false) {
+    await releaseVariantPurchaseOnCheckoutExpired(args.purchaseId);
+  }
   return {
     ok: false,
     purchaseId: args.purchaseId,
@@ -763,7 +823,6 @@ export async function chargeBreakSpotWithSavedCard(args: {
   const feeCents = capLiveApplicationFeeCents(taxCharge.feeCents, amountCents);
 
   const stripe = getStripe();
-  const chargeAttemptMs = Date.now();
   let clearedDeadIntentId: string | null = null;
   if (spot.stripePaymentIntentId) {
     const existing = await stripe.paymentIntents.retrieve(spot.stripePaymentIntentId);
@@ -811,7 +870,6 @@ export async function chargeBreakSpotWithSavedCard(args: {
           referenceId: spot.id,
           amountCents,
           paymentMethodId: pmId,
-          chargeAttemptMs,
           clearedDeadIntentId,
         }),
       },
@@ -996,6 +1054,14 @@ export async function settleLiveBreakSpotPayment(args: {
   }
   if (charge.outcome === "processing") {
     return { ok: true, processing: true, paymentIntentId: charge.paymentIntentId };
+  }
+
+  // FIX 6: unlike variant purchases (`releaseVariantPurchaseOnCheckoutExpired`), a break spot claim
+  // was never released on a failed charge, permanently holding the spot after a dead card. Only
+  // release on a CONFIRMED-definite failure — an ambiguous/network error must not release a spot
+  // whose charge might still have gone through.
+  if (charge.outcome === "error" && charge.definiteFailure !== false) {
+    await releaseBreakSpotOnDefiniteFailure(spot.id);
   }
 
   return {

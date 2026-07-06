@@ -35,6 +35,11 @@ export function AdminNotificationsPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  // One idempotency key per compose+send attempt: generated when the confirm step opens, reused
+  // across retries of that same attempt (e.g. a slow/failed request re-clicked), and regenerated
+  // whenever the admin starts a fresh "Review & send" — so a duplicate submit of the same intent
+  // is safely deduped server-side instead of fanning out a second broadcast to every user.
+  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
 
   const loadHistory = useCallback(async () => {
     setLoadingHistory(true);
@@ -68,6 +73,11 @@ export function AdminNotificationsPage() {
       setError("Message is required.");
       return;
     }
+    setIdempotencyKey(
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
     setConfirming(true);
   };
 
@@ -78,7 +88,12 @@ export function AdminNotificationsPage() {
       const res = await fetch("/api/admin/notifications/broadcast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: trimmedTitle, body: trimmedBody, href: href.trim() || undefined }),
+        body: JSON.stringify({
+          title: trimmedTitle,
+          body: trimmedBody,
+          href: href.trim() || undefined,
+          idempotencyKey,
+        }),
       });
       const json = (await res.json().catch(() => ({}))) as {
         error?: string;
@@ -95,6 +110,7 @@ export function AdminNotificationsPage() {
       setTitle("");
       setBody("");
       setHref("");
+      setIdempotencyKey(null);
       await loadHistory();
     } finally {
       setSending(false);

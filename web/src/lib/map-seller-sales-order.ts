@@ -6,6 +6,7 @@ import {
   estimateStripeProcessingFeeUsd,
   resolvePlatformFeePercentForSellerOrder,
 } from "@/lib/seller-payout-estimate";
+import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 
 export type SellerSalesOrderUser = {
   stripeAccountId: string | null;
@@ -55,7 +56,7 @@ export type SellerSalesOrderRowInput = {
   payoutMethod: string;
   liveShippingSession: {
     liveShowId: string | null;
-    liveShow: { completedSalesGmvUsd: number; status: string; title?: string } | null;
+    liveShow: { completedSalesGmvUsd: number; finalSalesGmvUsd: number | null; status: string; title?: string } | null;
   } | null;
   listing: {
     id: string;
@@ -74,7 +75,7 @@ export function mapSellerSalesOrderForApi(user: SellerSalesOrderUser, o: SellerS
   const platformFeePercent = resolvePlatformFeePercentForSellerOrder({
     isCompanyListing: Boolean(o.listing.isCompanyListing),
     liveShowId,
-    liveShowCompletedGmvUsd: liveShow?.status === "live" ? liveShow.completedSalesGmvUsd : null,
+    liveShowCompletedGmvUsd: liveShowGmvForFeeTierReconstruction(liveShow),
     orderItemPriceUsd: o.itemPriceUsd,
     orderPaymentStatus: o.paymentStatus,
   });

@@ -5,6 +5,7 @@ import {
   estimateStripeProcessingFeeUsd,
   resolvePlatformFeePercentForSellerOrder,
 } from "@/lib/seller-payout-estimate";
+import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 
 export type ReconciliationRangeKey = "7d" | "30d" | "90d" | "all";
 
@@ -29,7 +30,10 @@ const orderSelect = {
   shippingLabelCostCents: true,
   listing: { select: { isCompanyListing: true } },
   liveShippingSession: {
-    select: { liveShowId: true, liveShow: { select: { completedSalesGmvUsd: true, status: true } } },
+    select: {
+      liveShowId: true,
+      liveShow: { select: { completedSalesGmvUsd: true, finalSalesGmvUsd: true, status: true } },
+    },
   },
 } satisfies Prisma.OrderSelect;
 
@@ -43,7 +47,7 @@ function resolveOrderFeePercent(o: OrderRow): number {
   return resolvePlatformFeePercentForSellerOrder({
     isCompanyListing: Boolean(o.listing.isCompanyListing),
     liveShowId,
-    liveShowCompletedGmvUsd: liveShow?.status === "live" ? liveShow.completedSalesGmvUsd : null,
+    liveShowCompletedGmvUsd: liveShowGmvForFeeTierReconstruction(liveShow),
     orderItemPriceUsd: o.itemPriceUsd,
     orderPaymentStatus: o.paymentStatus,
   });

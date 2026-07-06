@@ -41,6 +41,8 @@ vi.mock("@/services/shipping/break-pyt-fulfillment-bridge", () => ({
   markBreakSpotExternalFulfillmentRequired: vi.fn().mockResolvedValue(undefined),
   markVariantPurchaseExternalFulfillmentRequired: vi.fn().mockResolvedValue(undefined),
 }));
+const refreshLiveRoomItemSoldAfterBreakSpotChange = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock("@/lib/live-room-break-quantity", () => ({ refreshLiveRoomItemSoldAfterBreakSpotChange }));
 
 const recordLiveShowCompletedSaleTx = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock("@/lib/live-show-gmv", () => ({
@@ -56,17 +58,24 @@ vi.mock("@/services/payments", () => ({
   PAYMENT_PENDING: "pending_payment",
 }));
 
+const reportUrgentPaymentAnomaly = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/cron-anomaly-alert", () => ({ reportUrgentPaymentAnomaly }));
+
 const prismaMock = vi.hoisted(() => ({
   breakSpot: {
     findUnique: vi.fn(),
     update: vi.fn().mockResolvedValue(undefined),
+    updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    delete: vi.fn().mockResolvedValue(undefined),
   },
   $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(prismaMock)),
 }));
 
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
-import { finalizeBreakSpotPaid } from "@/lib/live-buy-now-purchase";
+import { finalizeBreakSpotPaid, releaseBreakSpotOnDefiniteFailure } from "@/lib/live-buy-now-purchase";
+import { emitBreakSpotsChanged, emitLiveRoomMessagesRefetch } from "@/lib/realtime-emit-server";
+import { createNotification } from "@/lib/notifications";
 
 function baseSpot(overrides: Record<string, unknown> = {}) {
   return {
@@ -115,5 +124,151 @@ describe("finalizeBreakSpotPaid GMV double-count guard", () => {
 
     expect(finalizeStripeMarketplaceOrderPaid).toHaveBeenCalledWith("ord_1", "pi_1", null);
     expect(recordLiveShowCompletedSaleTx).not.toHaveBeenCalled();
+  });
+});
+
+describe("finalizeBreakSpotPaid — FIX 3 atomic idempotent finalize", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.breakSpot.findUnique.mockImplementation(async ({ select }: { select: Record<string, boolean> }) => {
+      const full = baseSpot();
+      const picked: Record<string, unknown> = {};
+      for (const key of Object.keys(select)) picked[key] = (full as Record<string, unknown>)[key];
+      return picked;
+    });
+    prismaMock.breakSpot.updateMany.mockResolvedValue({ count: 1 });
+  });
+
+  it("uses an atomic updateMany gated on not-already-paid, and proceeds to side effects when it wins", async () => {
+    const result = await finalizeBreakSpotPaid({ breakSpotId: "spot_1", paymentIntentId: "pi_1" });
+
+    expect(prismaMock.breakSpot.updateMany).toHaveBeenCalledWith({
+      where: { id: "spot_1", breakPaymentStatus: { not: "paid" } },
+      data: expect.objectContaining({ claimStatus: "paid", breakPaymentStatus: "paid" }),
+    });
+    expect(emitBreakSpotsChanged).toHaveBeenCalledWith("room_1");
+    expect(createNotification).toHaveBeenCalledTimes(1);
+    expect(result?.amountUsd).toBe(15);
+  });
+
+  it("a losing concurrent caller (count 0) skips all paid side effects", async () => {
+    prismaMock.breakSpot.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await finalizeBreakSpotPaid({ breakSpotId: "spot_1", paymentIntentId: "pi_1" });
+
+    expect(emitBreakSpotsChanged).not.toHaveBeenCalled();
+    expect(emitLiveRoomMessagesRefetch).not.toHaveBeenCalled();
+    expect(createNotification).not.toHaveBeenCalled();
+  });
+
+  it("simulated concurrent finalize calls: exactly one of two racing calls proceeds to side effects", async () => {
+    let claimed = false;
+    prismaMock.breakSpot.updateMany.mockImplementation(async () => {
+      if (claimed) return { count: 0 };
+      claimed = true;
+      return { count: 1 };
+    });
+
+    await Promise.all([
+      finalizeBreakSpotPaid({ breakSpotId: "spot_1", paymentIntentId: "pi_1" }),
+      finalizeBreakSpotPaid({ breakSpotId: "spot_1", paymentIntentId: "pi_1" }),
+    ]);
+
+    expect(emitBreakSpotsChanged).toHaveBeenCalledTimes(1);
+    expect(createNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it("still returns spot info (without re-running side effects) when already fully paid", async () => {
+    prismaMock.breakSpot.findUnique.mockImplementation(async ({ select }: { select: Record<string, boolean> }) => {
+      const full = baseSpot({ claimStatus: "paid", breakPaymentStatus: "paid" });
+      const picked: Record<string, unknown> = {};
+      for (const key of Object.keys(select)) picked[key] = (full as Record<string, unknown>)[key];
+      return picked;
+    });
+
+    const result = await finalizeBreakSpotPaid({ breakSpotId: "spot_1" });
+
+    expect(prismaMock.breakSpot.updateMany).not.toHaveBeenCalled();
+    expect(createNotification).not.toHaveBeenCalled();
+    expect(result?.amountUsd).toBe(15);
+  });
+});
+
+describe("finalizeBreakSpotPaid — FIX 4: loud alert on swallowed order finalize error", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.breakSpot.updateMany.mockResolvedValue({ count: 1 });
+  });
+
+  it("alerts loudly and still marks the spot paid when finalizeStripeMarketplaceOrderPaid throws", async () => {
+    finalizeStripeMarketplaceOrderPaid.mockRejectedValueOnce(new Error("order finalize boom"));
+    prismaMock.breakSpot.findUnique.mockImplementation(async ({ select }: { select: Record<string, boolean> }) => {
+      const full = baseSpot({ fulfillmentOrderId: "ord_1", stripePaymentIntentId: "pi_existing" });
+      const picked: Record<string, unknown> = {};
+      for (const key of Object.keys(select)) picked[key] = (full as Record<string, unknown>)[key];
+      return picked;
+    });
+
+    await finalizeBreakSpotPaid({ breakSpotId: "spot_1", paymentIntentId: "pi_1" });
+
+    expect(reportUrgentPaymentAnomaly).toHaveBeenCalledWith(
+      "live-break-spot-order-finalize-failed",
+      expect.stringContaining("MANUAL RECONCILIATION REQUIRED"),
+    );
+    // Stripe already charged the buyer — the spot still gets marked paid rather than silently left
+    // inconsistent with no alert at all.
+    expect(prismaMock.breakSpot.updateMany).toHaveBeenCalledWith({
+      where: { id: "spot_1", breakPaymentStatus: { not: "paid" } },
+      data: expect.objectContaining({ breakPaymentStatus: "paid" }),
+    });
+  });
+});
+
+describe("releaseBreakSpotOnDefiniteFailure — FIX 6", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.breakSpot.findUnique.mockResolvedValue(
+      baseSpot({ claimStatus: "confirmed", breakPaymentStatus: "pending_payment", liveRoomItemId: "item_1" }),
+    );
+  });
+
+  it("deletes the spot row and refreshes sold counts on a definite failure so it can be re-claimed", async () => {
+    await releaseBreakSpotOnDefiniteFailure("spot_1");
+
+    expect(prismaMock.breakSpot.delete).toHaveBeenCalledWith({ where: { id: "spot_1" } });
+    expect(refreshLiveRoomItemSoldAfterBreakSpotChange).toHaveBeenCalledWith(expect.anything(), "item_1");
+    expect(emitBreakSpotsChanged).toHaveBeenCalledWith("room_1");
+  });
+
+  it("never releases a spot that is already paid, even if called after the fact", async () => {
+    prismaMock.breakSpot.findUnique.mockResolvedValue(
+      baseSpot({ claimStatus: "paid", breakPaymentStatus: "paid" }),
+    );
+
+    await releaseBreakSpotOnDefiniteFailure("spot_1");
+
+    expect(prismaMock.breakSpot.delete).not.toHaveBeenCalled();
+  });
+
+  it("is idempotent: a P2025 (already deleted by a concurrent caller) does not throw", async () => {
+    prismaMock.breakSpot.delete.mockRejectedValue(
+      Object.assign(new Error("Record not found"), { code: "P2025" }),
+    );
+
+    await expect(releaseBreakSpotOnDefiniteFailure("spot_1")).resolves.toBeUndefined();
+  });
+
+  it("propagates unexpected errors instead of silently swallowing them", async () => {
+    prismaMock.breakSpot.delete.mockRejectedValue(new Error("db down"));
+
+    await expect(releaseBreakSpotOnDefiniteFailure("spot_1")).rejects.toThrow("db down");
+  });
+
+  it("does nothing when the spot no longer exists", async () => {
+    prismaMock.breakSpot.findUnique.mockResolvedValue(null);
+
+    await releaseBreakSpotOnDefiniteFailure("spot_missing");
+
+    expect(prismaMock.breakSpot.delete).not.toHaveBeenCalled();
   });
 });

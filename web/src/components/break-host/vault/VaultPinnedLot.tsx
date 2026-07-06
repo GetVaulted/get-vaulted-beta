@@ -36,6 +36,26 @@ function hostQueueTitleLine(item: Pick<LiveRoomItemDTO, "title" | "displayTitle"
   return item.displayTitle?.trim() || item.title;
 }
 
+/**
+ * True (reserve met) / false (reserve open) / null (no reserve set, or bid not yet known).
+ * Must compare against the lot's actual reserve price, not its starting/listed price — comparing
+ * against priceUsd made "Reserve met" show almost immediately on every lot with any bids (legal/
+ * compliance audit 2026-07).
+ */
+export function computeLiveLotReserveMet(
+  item: Pick<LiveRoomItemDTO, "reservePriceUsd" | "currentBidUsd"> | null | undefined,
+): boolean | null {
+  if (
+    item?.reservePriceUsd == null ||
+    !Number.isFinite(item.reservePriceUsd) ||
+    item.currentBidUsd == null ||
+    !Number.isFinite(item.currentBidUsd)
+  ) {
+    return null;
+  }
+  return item.currentBidUsd >= item.reservePriceUsd;
+}
+
 type VaultPinnedLotProps = {
   variant: "desktop" | "mobile";
   /** In-stage bottom overlay for 9:16 host console (less card chrome). */
@@ -155,10 +175,7 @@ export function VaultPinnedLot({
   const isVariantItem = isVariantPurchaseItem(commerceItem);
   const spotStats = isVariantItem ? summarizeVariantSpots(commerceItem?.variants) : null;
   const thumb = item?.imageUrl?.trim();
-  const reserveMet =
-    item?.priceUsd != null && Number.isFinite(item.priceUsd) && item.currentBidUsd != null && Number.isFinite(item.currentBidUsd)
-      ? item.currentBidUsd >= item.priceUsd
-      : null;
+  const reserveMet = computeLiveLotReserveMet(item);
   const overlayPrice = item && !isVariantItem ? fmtOverlayLead(item) : null;
   const variantFromPrice =
     spotStats?.fromPriceUsd != null ? formatAuctionMoneyUsd(spotStats.fromPriceUsd) : "—";
@@ -316,7 +333,7 @@ export function VaultPinnedLot({
               <p className="mt-0.5 text-[8px] font-semibold text-emerald-300/90">
                 {spotStats.available === 0 ? "All spots sold" : "Spot board live"}
               </p>
-            ) : item?.priceUsd != null && Number.isFinite(item.priceUsd) ? (
+            ) : item?.reservePriceUsd != null && Number.isFinite(item.reservePriceUsd) ? (
               <p className="mt-0.5 text-[8px] font-semibold text-zinc-400">
                 Reserve{" "}
                 {reserveMet === true ? (

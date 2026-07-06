@@ -107,8 +107,27 @@ export async function recalculateSellerPayoutTier(sellerId: string): Promise<voi
   }
 }
 
+/**
+ * Sellers per concurrent batch when recalculating payout tiers. Each seller recalculation does
+ * ~7-9 sequential DB round trips (see `computeSellerPayoutMetrics`); running one seller at a
+ * time serialized the whole cron and made it prone to exceeding the function execution limit
+ * as the seller count grew (performance audit 2026-07). This does not change what's computed
+ * per seller — only how many sellers are processed concurrently.
+ */
+const PAYOUT_TIER_RECALC_CONCURRENCY = 5;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
 /** Daily cron: recalculate tiers for sellers with at least one paid order. */
-export async function recalculateAllSellerPayoutTiers(): Promise<{ processed: number }> {
+export async function recalculateAllSellerPayoutTiers(): Promise<{
+  candidates: number;
+  processed: number;
+  failed: number;
+}> {
   const sellers = await prisma.order.findMany({
     where: { paymentStatus: "paid" },
     select: { sellerId: true },
@@ -116,15 +135,22 @@ export async function recalculateAllSellerPayoutTiers(): Promise<{ processed: nu
   });
 
   let processed = 0;
-  for (const { sellerId } of sellers) {
-    try {
-      await recalculateSellerPayoutTier(sellerId);
-      processed += 1;
-    } catch (e) {
-      console.error("[recalculateAllSellerPayoutTiers]", sellerId, e);
+  let failed = 0;
+  for (const batch of chunk(sellers, PAYOUT_TIER_RECALC_CONCURRENCY)) {
+    const results = await Promise.allSettled(
+      batch.map(({ sellerId }) => recalculateSellerPayoutTier(sellerId)),
+    );
+    for (let i = 0; i < results.length; i += 1) {
+      const result = results[i];
+      if (result.status === "fulfilled") {
+        processed += 1;
+      } else {
+        failed += 1;
+        console.error("[recalculateAllSellerPayoutTiers]", batch[i]?.sellerId, result.reason);
+      }
     }
   }
-  return { processed };
+  return { candidates: sellers.length, processed, failed };
 }
 
 export async function loadSellerPayoutTierDashboard(sellerId: string) {

@@ -1,3 +1,4 @@
+import Stripe from "stripe";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import {
@@ -9,7 +10,7 @@ import {
   seedUser,
   teardownIntegrationPrisma,
 } from "@/test/integration-setup";
-import { PAYMENT_PAID, PAYMENT_PENDING, PAYMENT_REQUIRES_ACTION } from "@/services/payments";
+import { PAYMENT_FAILED, PAYMENT_PAID, PAYMENT_PENDING, PAYMENT_REQUIRES_ACTION } from "@/services/payments";
 
 vi.mock("@/lib/stripe-customer", () => ({
   assertPaymentMethodOwnedByUser: vi.fn().mockResolvedValue(undefined),
@@ -132,5 +133,90 @@ describe("chargeMarketplaceOrderWithSavedPaymentMethod (integration)", () => {
     const updated = await prisma.order.findUnique({ where: { id: order.id } });
     expect(updated?.paymentStatus).toBe(PAYMENT_REQUIRES_ACTION);
     expect(updated?.stripePaymentIntentId).toBe("pi_saved_sca");
+  });
+
+  it("confirmed decline: marks order FAILED and clears the PaymentIntent id", async () => {
+    hoisted.stripeApi.paymentIntents.create.mockRejectedValue(
+      new Stripe.errors.StripeCardError({
+        message: "Your card was declined.",
+        payment_intent: { id: "pi_declined_1", status: "requires_payment_method" },
+      } as unknown as ConstructorParameters<typeof Stripe.errors.StripeCardError>[0]),
+    );
+
+    const seller = await seedSellerStripeReady(prisma, { email: "ch3@test.internal", username: "chseller3" });
+    const buyer = await seedUser(prisma, { email: "chb3@test.internal", username: "chbuyer3" });
+    await prisma.user.update({ where: { id: buyer.id }, data: { stripeCustomerId: "cus_test_buy_saved3" } });
+    const listing = await seedListing(prisma, {
+      sellerId: seller.id,
+      buyingFormat: "auction",
+      status: "awaiting_auction_payment",
+      priceUsd: 10,
+      shippingPriceUsd: 5,
+    });
+    const order = await seedOrder(prisma, {
+      listingId: listing.id,
+      buyerId: buyer.id,
+      sellerId: seller.id,
+      itemPriceUsd: 12,
+      shippingPriceUsd: 3,
+      paymentStatus: PAYMENT_PENDING,
+      status: "pending",
+      paymentDeadlineAt: new Date(Date.now() + 30 * 60 * 1000),
+      paymentLabel: "pm_123456789012345678901234",
+    });
+
+    const r = await chargeMarketplaceOrderWithSavedPaymentMethod({ buyerId: buyer.id, orderId: order.id });
+    expect(r).toEqual(expect.objectContaining({ outcome: "error", code: "CARD_DECLINED" }));
+
+    const updated = await prisma.order.findUnique({ where: { id: order.id } });
+    expect(updated?.paymentStatus).toBe(PAYMENT_FAILED);
+    expect(updated?.status).toBe("cancelled");
+    expect(updated?.stripePaymentIntentId).toBeNull();
+  });
+
+  it("ambiguous Stripe error (e.g. network/timeout): leaves the order's payable state untouched", async () => {
+    // Chaos engineering deep-dive (2026-07) regression: a raw StripeConnectionError/StripeAPIError
+    // (or any non-card-decline throw) from `paymentIntents.create({ confirm: true })` does NOT prove
+    // Stripe failed to process the charge — it may have already succeeded server-side. The order must
+    // stay in its existing payable state (not FAILED/cancelled, PaymentIntent id not cleared) so a
+    // retry never risks a duplicate real charge and the reconciliation cron can still find/finalize a
+    // succeeded charge under this order's metadata.
+    hoisted.stripeApi.paymentIntents.create.mockRejectedValue(
+      new Stripe.errors.StripeConnectionError({
+        message: "connection reset",
+      } as unknown as ConstructorParameters<typeof Stripe.errors.StripeConnectionError>[0]),
+    );
+
+    const seller = await seedSellerStripeReady(prisma, { email: "ch4@test.internal", username: "chseller4" });
+    const buyer = await seedUser(prisma, { email: "chb4@test.internal", username: "chbuyer4" });
+    await prisma.user.update({ where: { id: buyer.id }, data: { stripeCustomerId: "cus_test_buy_saved4" } });
+    const listing = await seedListing(prisma, {
+      sellerId: seller.id,
+      buyingFormat: "auction",
+      status: "awaiting_auction_payment",
+      priceUsd: 10,
+      shippingPriceUsd: 5,
+    });
+    const order = await seedOrder(prisma, {
+      listingId: listing.id,
+      buyerId: buyer.id,
+      sellerId: seller.id,
+      itemPriceUsd: 12,
+      shippingPriceUsd: 3,
+      paymentStatus: PAYMENT_PENDING,
+      status: "pending",
+      paymentDeadlineAt: new Date(Date.now() + 30 * 60 * 1000),
+      paymentLabel: "pm_123456789012345678901234",
+    });
+
+    const r = await chargeMarketplaceOrderWithSavedPaymentMethod({ buyerId: buyer.id, orderId: order.id });
+    expect(r).toEqual(expect.objectContaining({ outcome: "error", code: "STRIPE_ERROR" }));
+
+    const updated = await prisma.order.findUnique({ where: { id: order.id } });
+    // Must NOT have been flipped to FAILED/cancelled, and the (absent) PaymentIntent id must not
+    // have been touched — order remains payable for a normal retry or reconciliation-cron healing.
+    expect(updated?.paymentStatus).toBe(PAYMENT_PENDING);
+    expect(updated?.status).toBe("pending");
+    expect(updated?.stripePaymentIntentId).toBeNull();
   });
 });

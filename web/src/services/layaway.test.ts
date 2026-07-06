@@ -79,6 +79,7 @@ vi.mock("@/lib/stripe", () => ({
 const prismaMock = vi.hoisted(() => ({
   layaway: {
     findFirst: vi.fn(),
+    findMany: vi.fn().mockResolvedValue([]),
     findUnique: vi.fn(),
     create: vi.fn(),
     update: vi.fn().mockResolvedValue(undefined),
@@ -111,12 +112,14 @@ const prismaMock = vi.hoisted(() => ({
 
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
+import { createNotification } from "@/lib/notifications";
 import {
   completeLayawayPlan,
   createLayawayBalanceCheckout,
   createLayawayDepositCheckout,
   defaultLayawayPlan,
   finalizeLayawayDepositPaid,
+  processLayawayMaintenance,
   refundSupersededLayawayPayments,
 } from "@/services/layaway";
 
@@ -206,6 +209,10 @@ describe("refundSupersededLayawayPayments", () => {
       expect(call[0].amount).toBeUndefined();
     }
     expect(prismaMock.layawayAuditLog.create).toHaveBeenCalled();
+    // Each installment gets its own idempotency key so a retry can't double-refund one payment
+    // or skip another.
+    expect(stripeRefundsCreate.mock.calls[0][1]?.idempotencyKey).toBe("layaway_superseded_refund_pay_1");
+    expect(stripeRefundsCreate.mock.calls[1][1]?.idempotencyKey).toBe("layaway_superseded_refund_pay_2");
   });
 
   it("is a no-op when there are no paid installments", async () => {
@@ -284,6 +291,7 @@ describe("defaultLayawayPlan", () => {
     // amountPaidUsd (40) - depositAmountUsd (25) = 15 refundable.
     expect(stripeRefundsCreate).toHaveBeenCalledWith(
       expect.objectContaining({ amount: 1500, reverse_transfer: true }),
+      expect.objectContaining({ idempotencyKey: expect.any(String) }),
     );
   });
 
@@ -318,6 +326,7 @@ describe("defaultLayawayPlan", () => {
       );
       expect(stripeRefundsCreate).toHaveBeenCalledWith(
         expect.objectContaining({ payment_intent: "pi_deposit", amount: 825 }),
+        expect.objectContaining({ idempotencyKey: "layaway_default_tax_refund_pay_deposit_825c" }),
       );
       const taxRefundCall = stripeRefundsCreate.mock.calls.find((c) => c[0].payment_intent === "pi_deposit");
       // Tax was never transferred to the seller (explicit transfer_data.amount excluded it at
@@ -351,9 +360,11 @@ describe("defaultLayawayPlan", () => {
       expect(stripeRefundsCreate).toHaveBeenCalledTimes(2);
       expect(stripeRefundsCreate).toHaveBeenCalledWith(
         expect.objectContaining({ payment_intent: "pi_installment", amount: 1500, reverse_transfer: true }),
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       );
       expect(stripeRefundsCreate).toHaveBeenCalledWith(
         expect.objectContaining({ payment_intent: "pi_deposit", amount: 500 }),
+        expect.objectContaining({ idempotencyKey: expect.any(String) }),
       );
     });
 
@@ -593,6 +604,83 @@ describe("createLayawayDepositCheckout — sales tax collected once with the dep
   });
 });
 
+describe("createLayawayDepositCheckout — rolls back when Stripe session creation fails", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const listingRow = {
+    id: "lst_1",
+    title: "Vintage Widget",
+    sellerId: "seller_1",
+    status: "active",
+    buyingFormat: "buy_now",
+    priceUsd: 1000,
+    shippingPriceUsd: 20,
+    allowLayaway: true,
+    moderationRemovedAt: null,
+    shipFromAddressId: "addr_1",
+    isCompanyListing: false,
+    seller: { stripeAccountId: "acct_seller", stripeOnboardingComplete: true },
+  };
+
+  const shipping = {
+    shipRecipientName: "Buyer One",
+    shipAddress: "1 Main St",
+    shipCity: "Austin",
+    shipState: "TX",
+    shipZip: "78701",
+    shipCountry: "US",
+  };
+
+  it("reverts the listing, order, and layaway instead of stranding a layaway_reserved listing forever", async () => {
+    prismaMock.layaway.count.mockResolvedValue(0);
+    prismaMock.listing.findUnique.mockResolvedValue(listingRow);
+    prismaMock.layaway.findFirst.mockResolvedValue(null);
+    prismaMock.order.findUnique.mockResolvedValue(null);
+    prismaMock.order.create.mockResolvedValue({ id: "ord_1" });
+    prismaMock.layaway.create.mockResolvedValue({ id: "lay_1" });
+    resolveCheckoutApplicationFeeCents.mockResolvedValue(0);
+    estimateSalesTaxCents.mockResolvedValue({ taxAmountCents: 0, taxCalculationId: null, collectTax: false });
+
+    // Rollback (`cancelAbandonedLayawayCheckout`) looks the layaway back up outside the original
+    // transaction — provide the shape it needs to decide the order/listing aren't already paid.
+    prismaMock.layaway.findUnique.mockResolvedValue({
+      id: "lay_1",
+      status: "active",
+      buyerId: "buyer_1",
+      sellerId: "seller_1",
+      listingId: "lst_1",
+      orderId: "ord_1",
+      listing: { id: "lst_1", status: "layaway_reserved", allowOffers: true, acceptTradeOffers: false },
+      order: { id: "ord_1", paymentStatus: "pending_payment", paymentMethod: "layaway" },
+    });
+
+    stripeCheckoutSessionsCreate.mockRejectedValueOnce(new Error("Stripe API unreachable"));
+
+    await expect(
+      createLayawayDepositCheckout({
+        buyerId: "buyer_1",
+        listingId: "lst_1",
+        planType: "thirty_day",
+        termsAcknowledged: true,
+        shipping,
+      }),
+    ).rejects.toThrow("Stripe API unreachable");
+
+    // Layaway flipped out of `active` so it can never be paid/defaulted after the fact.
+    expect(prismaMock.layaway.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ remainingBalanceUsd: 0 }) }),
+    );
+    // Order cancelled rather than left `pending` forever with no live Stripe session behind it.
+    expect(prismaMock.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "cancelled" }) }),
+    );
+    // Listing released back to `active` so another buyer can purchase it.
+    expect(prismaMock.listing.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "lst_1" }, data: { status: "active" } }),
+    );
+  });
+});
+
 describe("finalizeLayawayDepositPaid persists tax onto the Order", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -700,5 +788,90 @@ describe("finalizeLayawayDepositPaid persists tax onto the Order", () => {
 
     expect(fetchCheckoutSessionTax).not.toHaveBeenCalled();
     expect(prismaMock.order.update).not.toHaveBeenCalled();
+  });
+});
+
+// Regression (chaos audit): reminders used exact-day-match (`d === elapsedDays`), so a single
+// skipped cron run permanently skipped that reminder — it could never fire again since
+// `elapsedDays` only ever increases. `processLayawayMaintenance` now catches up on the latest
+// applicable reminder instead.
+describe("processLayawayMaintenance — reminder catch-up after a skipped cron run", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function activeLayawayAt(elapsedDays: number, lastReminderDay: number | null) {
+    return {
+      id: "lay_1",
+      buyerId: "buyer_1",
+      planType: "thirty_day",
+      startedAt: new Date(Date.now() - elapsedDays * 24 * 60 * 60 * 1000),
+      lastReminderDay,
+      listing: { title: "Vintage Card" },
+      remainingBalanceUsd: 750,
+      dueAt: new Date(Date.now() + (30 - elapsedDays) * 24 * 60 * 60 * 1000),
+    };
+  }
+
+  it("sends the day-21 reminder exactly on day 21 (baseline, no regression)", async () => {
+    prismaMock.layaway.findMany
+      .mockResolvedValueOnce([]) // overdue
+      .mockResolvedValueOnce([activeLayawayAt(21, 7)]); // active
+
+    await processLayawayMaintenance();
+
+    expect(createNotification).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({ type: "layaway_reminder" }),
+    );
+    expect(prismaMock.layaway.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "lay_1" }, data: { lastReminderDay: 21 } }),
+    );
+  });
+
+  it("catches up on the day-21 reminder even if the cron only runs again on day 25", async () => {
+    prismaMock.layaway.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([activeLayawayAt(25, 7)]);
+
+    await processLayawayMaintenance();
+
+    expect(createNotification).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({ type: "layaway_reminder" }),
+    );
+    expect(prismaMock.layaway.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { lastReminderDay: 21 } }),
+    );
+  });
+
+  it("sends only the single latest applicable reminder when multiple were missed at once, not one per missed day", async () => {
+    prismaMock.layaway.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([activeLayawayAt(29, 0)]);
+
+    await processLayawayMaintenance();
+
+    expect(createNotification).toHaveBeenCalledTimes(1);
+    expect(prismaMock.layaway.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { lastReminderDay: 27 } }),
+    );
+  });
+
+  it("catches up on the final warning even after the exact due day is missed", async () => {
+    prismaMock.layaway.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([activeLayawayAt(35, 27)]);
+
+    await processLayawayMaintenance();
+
+    expect(createNotification).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({ type: "layaway_final_warning" }),
+    );
+    expect(prismaMock.layaway.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { lastReminderDay: 30 } }),
+    );
+  });
+
+  it("does not resend a reminder that has already been recorded", async () => {
+    prismaMock.layaway.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([activeLayawayAt(21, 21)]);
+
+    await processLayawayMaintenance();
+
+    expect(createNotification).not.toHaveBeenCalled();
+    expect(prismaMock.layaway.update).not.toHaveBeenCalled();
   });
 });

@@ -4,6 +4,9 @@ async function followerIdsForSeller(sellerId: string): Promise<string[]> {
   const rows = await prisma.sellerFollow.findMany({
     where: { sellerId },
     select: { followerId: true },
+    // Defensive cap — a viral seller's follower count could otherwise be unbounded
+    // (performance audit 2026-07).
+    take: 20000,
   });
   return rows.map((r) => r.followerId);
 }

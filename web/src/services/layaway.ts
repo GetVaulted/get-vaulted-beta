@@ -45,6 +45,7 @@ import {
 } from "@/lib/stripe-tax";
 import { buildOrderTaxPersistFields, orderTaxUpdateData } from "@/lib/sales-tax-order";
 import { prisma } from "@/lib/prisma";
+import { grantReferralCreditsForQualifyingOrder } from "@/lib/referral-credit";
 import { PAYMENT_PAID, PAYMENT_PENDING } from "@/services/payments";
 import { initializeOrderPayoutOnPayment } from "@/services/payout/process-delivery-payout";
 import { resolveMarketplaceCheckoutShipping } from "@/services/marketplace-checkout-shipping";
@@ -151,7 +152,7 @@ export async function refundSupersededLayawayPayments(layawayId: string): Promis
         // platform's own balance for a sale that never completed.
         reverse_transfer: true,
         metadata: { layawayId, layawayPaymentId: pay.id, kind: "layaway_superseded_refund" },
-      });
+      }, { idempotencyKey: `layaway_superseded_refund_${pay.id}` });
     } catch (e) {
       console.error("[layaway] superseded-payment refund failed", pay.id, e);
     }
@@ -349,6 +350,13 @@ export async function cancelAbandonedLayawayCheckout(args: {
         data: { status: "active" },
       });
     }
+    // Mirrors `defaultLayawayPlan` — an abandoned deposit checkout must release the inventory
+    // hold taken in `createLayawayDepositCheckout`, otherwise the listing stays un-buyable by
+    // anyone else even after it flips back to `active`.
+    await releaseActiveInventoryHoldsForListingAndBuyerTx(tx, {
+      listingId: lay.listingId,
+      userId: lay.buyerId,
+    });
     await logLayawayAudit(tx, {
       layawayId: lay.id,
       action: "deposit_checkout_abandoned",
@@ -626,33 +634,56 @@ export async function createLayawayDepositCheckout(args: {
     metadata: piMetadata,
   });
 
-  const session = await stripe.checkout.sessions.create({
-    mode: "payment",
-    ...stripeCheckoutSessionPaymentOptions("marketplace"),
-    success_url: successUrl,
-    cancel_url: cancelUrl,
-    metadata: {
-      kind: "layaway_deposit",
-      orderId: order.id,
-      layawayId: layaway.id,
-      listingId: listing.id,
-      buyerId: args.buyerId,
-      ...(taxAmountCents > 0 ? { salesTaxCents: String(taxAmountCents) } : {}),
-      ...(taxAmountCents > 0 && taxEstimate.taxCalculationId
-        ? { stripeTaxCalculationId: taxEstimate.taxCalculationId }
-        : {}),
-    },
-    line_items: lineItems,
-    payment_intent_data: paymentIntentData,
-  });
+  // If Stripe is unreachable/erroring after the DB transaction above has already reserved the
+  // listing (`layaway_reserved`), created the order + layaway rows, and taken an inventory hold,
+  // that state must not be left stranded — mirrors the rollback in `createBuyNowCheckoutSession`.
+  try {
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      ...stripeCheckoutSessionPaymentOptions("marketplace"),
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      metadata: {
+        kind: "layaway_deposit",
+        orderId: order.id,
+        layawayId: layaway.id,
+        listingId: listing.id,
+        buyerId: args.buyerId,
+        ...(taxAmountCents > 0 ? { salesTaxCents: String(taxAmountCents) } : {}),
+        ...(taxAmountCents > 0 && taxEstimate.taxCalculationId
+          ? { stripeTaxCalculationId: taxEstimate.taxCalculationId }
+          : {}),
+      },
+      line_items: lineItems,
+      payment_intent_data: paymentIntentData,
+    });
 
-  await prisma.order.update({
-    where: { id: order.id },
-    data: { stripeCheckoutSessionId: session.id },
-  });
+    if (!session.url) throw new Error("CHECKOUT_SESSION_FAILED");
 
-  if (!session.url) throw new Error("CHECKOUT_SESSION_FAILED");
-  return { url: session.url, layawayId: layaway.id };
+    // Chaos engineering deep-dive (2026-07): once Stripe has handed back a payable session, the
+    // buyer can complete payment on `session.url` regardless of our own bookkeeping — never cancel
+    // the layaway/order past this point (that would orphan an already-payable session; see the
+    // identical fix in `createBuyNowCheckoutSession`). Best-effort persist and let the Stripe<->DB
+    // reconciliation cron heal it from Stripe's side if this write fails.
+    try {
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { stripeCheckoutSessionId: session.id },
+      });
+    } catch (e) {
+      console.error(
+        "[layaway] post-session bookkeeping failed (session was created; layaway NOT rolled back)",
+        { layawayId: layaway.id, orderId: order.id, sessionId: session.id, error: e },
+      );
+    }
+
+    return { url: session.url, layawayId: layaway.id };
+  } catch (e) {
+    await cancelAbandonedLayawayCheckout({ layawayId: layaway.id }).catch((rollbackErr) => {
+      console.error("[layaway] rollback after Stripe session failure also failed", layaway.id, rollbackErr);
+    });
+    throw e;
+  }
 }
 
 /** After Stripe confirms layaway deposit — reserve listing, hold funds, no shipment/payout. */
@@ -1041,6 +1072,11 @@ export async function completeLayawayPlan(layawayId: string): Promise<void> {
 
   await initializeOrderPayoutOnPayment(lay.orderId);
 
+  // Referral program: a layaway order only counts as "paid" once fully paid off (not at
+  // deposit) — this is the layaway equivalent of `finalizeStripeMarketplaceOrderPaid`'s grant
+  // call. Best-effort, never throws.
+  void grantReferralCreditsForQualifyingOrder(lay.orderId);
+
   const layParties = {
     id: lay.id,
     sellerId: lay.sellerId,
@@ -1153,7 +1189,7 @@ export async function defaultLayawayPlan(layawayId: string): Promise<void> {
           // while the seller keeps money for a sale that is being unwound — reclaim it first.
           reverse_transfer: true,
           metadata: { layawayId: lay.id, layawayPaymentId: pay.id, kind: "layaway_default_refund" },
-        });
+        }, { idempotencyKey: `layaway_default_refund_${pay.id}_${Math.round(refundAmt * 100)}c` });
         remainingRefund = roundUsd(remainingRefund - refundAmt);
       } catch (e) {
         console.error("[layaway] installment refund failed", pay.id, e);
@@ -1188,7 +1224,7 @@ export async function defaultLayawayPlan(layawayId: string): Promise<void> {
           // un-refunded (forfeited); Stripe will therefore continue to report this charge as only
           // partially refunded, which is expected — see the `charge.refunded` webhook handler.
           metadata: { layawayId: lay.id, layawayPaymentId: depositPayment.id, kind: "layaway_default_tax_refund" },
-        });
+        }, { idempotencyKey: `layaway_default_tax_refund_${depositPayment.id}_${taxRefundCents}c` });
         await prisma.order.update({
           where: { id: lay.orderId },
           data: { taxRefundedCents: { increment: taxRefundCents } },
@@ -1237,7 +1273,11 @@ export async function defaultLayawayPlan(layawayId: string): Promise<void> {
 }
 
 /** Process overdue layaways and send plan reminders. Safe to call from cron or reads. */
-export async function processLayawayMaintenance(): Promise<void> {
+export async function processLayawayMaintenance(): Promise<{
+  overdueCandidates: number;
+  defaulted: number;
+  defaultFailures: number;
+}> {
   const now = new Date();
 
   const overdue = await prisma.layaway.findMany({
@@ -1245,10 +1285,14 @@ export async function processLayawayMaintenance(): Promise<void> {
     select: { id: true },
     take: 50,
   });
+  let defaulted = 0;
+  let defaultFailures = 0;
   for (const row of overdue) {
     try {
       await defaultLayawayPlan(row.id);
+      defaulted += 1;
     } catch (e) {
+      defaultFailures += 1;
       console.error("[layaway] default failed", row.id, e);
     }
   }
@@ -1273,8 +1317,13 @@ export async function processLayawayMaintenance(): Promise<void> {
     const plan = lay.planType as LayawayPlanKey;
     const elapsedDays = Math.floor((now.getTime() - lay.startedAt.getTime()) / (24 * 60 * 60 * 1000));
     const schedule = [...LAYAWAY_REMINDER_DAYS[plan], layawayFinalWarningDay(plan)];
-    const due = schedule.find((d) => d === elapsedDays && (lay.lastReminderDay ?? 0) < d);
-    if (!due) continue;
+    // Catch-up, not exact-day match: a cron that skips a day (deploy gap, platform hiccup, missed
+    // schedule trigger) must not permanently skip that reminder. Pick the *latest* scheduled day
+    // that has already passed and hasn't been sent yet, instead of requiring `d === elapsedDays`.
+    const due = schedule
+      .filter((d) => d <= elapsedDays && (lay.lastReminderDay ?? 0) < d)
+      .sort((a, b) => b - a)[0];
+    if (due === undefined) continue;
 
     const title = lay.listing.title.length > 60 ? `${lay.listing.title.slice(0, 57)}…` : lay.listing.title;
     const isFinal = due === layawayFinalWarningDay(plan);
@@ -1293,6 +1342,8 @@ export async function processLayawayMaintenance(): Promise<void> {
       data: { lastReminderDay: due },
     });
   }
+
+  return { overdueCandidates: overdue.length, defaulted, defaultFailures };
 }
 
 export function layawayDefaultSellerNetUsd(depositUsd: number, feePercent = marketplacePlatformFeePercent()): number {

@@ -24,6 +24,41 @@ import {
   PAYMENT_REFUNDED,
   PAYMENT_REQUIRES_ACTION,
 } from "@/services/payments";
+import { releaseReferralCreditReservation, reserveReferralCreditForCheckout } from "@/lib/referral-credit";
+
+/** Stripe's minimum chargeable amount — never let a referral-credit discount push a charge below this. */
+const MIN_STRIPE_CHARGE_USD = 0.5;
+
+/**
+ * Applies (or re-applies) a referral credit discount to a saved-card order charge, right before the
+ * PaymentIntent amount is computed. Guards against double-reserving: if this order already has
+ * `referralCreditAppliedUsd` set — from a prior saved-card charge attempt, OR from the same order's
+ * Stripe-Checkout-session flow (`createPayOrderCheckoutSession`) having already reserved credit for
+ * it — the previously-discounted `itemPriceUsd` already on the row is reused as-is.
+ */
+async function applyReferralCreditForSavedCardOrder(
+  orderId: string,
+  buyerId: string,
+  itemPriceUsd: number,
+  referralCreditAppliedUsd: number,
+): Promise<{ itemPriceUsd: number }> {
+  if (referralCreditAppliedUsd > 0) return { itemPriceUsd };
+  try {
+    const maxApplyUsd = Math.max(0, itemPriceUsd - MIN_STRIPE_CHARGE_USD);
+    if (maxApplyUsd <= 0) return { itemPriceUsd };
+    const reserved = await reserveReferralCreditForCheckout(buyerId, maxApplyUsd, orderId);
+    if (reserved <= 0) return { itemPriceUsd };
+    const discountedItemPriceUsd = itemPriceUsd - reserved;
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { itemPriceUsd: discountedItemPriceUsd, referralCreditAppliedUsd: reserved },
+    });
+    return { itemPriceUsd: discountedItemPriceUsd };
+  } catch (e) {
+    console.error("[referral-credit] reserve failed (saved-card checkout)", { orderId, error: e });
+    return { itemPriceUsd };
+  }
+}
 
 /** Short grace window granted when a buyer is actively recovering an expired auction-win order. */
 export const RECOVERY_PAYMENT_WINDOW_MS = 10 * 60 * 1000;
@@ -111,6 +146,23 @@ export function chargeOutcomeReachedStripe(outcome: string, code: string | null)
   if (outcome === "paid" || outcome === "requires_action" || outcome === "processing") return true;
   if (outcome === "error" && code) return STRIPE_LEVEL_CHARGE_ERROR_CODES.has(code);
   return false;
+}
+
+/**
+ * True only when Stripe itself returned a definitive, terminal decline for this confirm attempt
+ * (the PaymentIntent it attached is `requires_payment_method`/`canceled`). Chaos engineering
+ * deep-dive (2026-07): a raw `paymentIntents.create({ confirm: true })` call can also throw for
+ * connection errors, timeouts, rate limits, or other ambiguous API failures where Stripe may have
+ * actually processed the charge server-side even though the response never reached us. Treating
+ * those the same as a confirmed decline previously cleared `stripePaymentIntentId` and cancelled
+ * the order, which (a) discarded the only link back to a possibly-succeeded charge and (b) told the
+ * buyer to retry — inviting a genuine second real charge on a different card, since a fresh card
+ * means a fresh idempotency key. Only a confirmed decline is safe to record as FAILED here.
+ */
+export function isDefiniteStripeCardDecline(e: unknown): e is Stripe.errors.StripeCardError {
+  if (!(e instanceof Stripe.errors.StripeCardError)) return false;
+  const piStatus = e.payment_intent?.status;
+  return piStatus === "requires_payment_method" || piStatus === "canceled";
 }
 
 const PI_KIND = "pay_order_saved_pm" as const;
@@ -258,6 +310,7 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
       shippingPriceUsd: true,
       taxUsd: true,
       totalUsd: true,
+      referralCreditAppliedUsd: true,
       stripePaymentIntentId: true,
       shipRecipientName: true,
       shipAddress: true,
@@ -268,10 +321,17 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
     },
   });
 
+  const credit = await applyReferralCreditForSavedCardOrder(
+    row.id,
+    args.buyerId,
+    orderFresh.itemPriceUsd,
+    orderFresh.referralCreditAppliedUsd,
+  );
+
   const liveRoomId =
     row.liveShippingSession?.liveShowId ?? (await resolveLiveRoomIdForOrder(row.id));
   const feeCents = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: orderFresh.itemPriceUsd,
+    saleAmountUsd: credit.itemPriceUsd,
     isCompanyListing: Boolean(row.listing.isCompanyListing),
     liveRoomId,
   });
@@ -285,7 +345,7 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
       shipZip: orderFresh.shipZip,
       shipCountry: orderFresh.shipCountry,
     },
-    itemPriceUsd: orderFresh.itemPriceUsd,
+    itemPriceUsd: credit.itemPriceUsd,
     shippingPriceUsd: orderFresh.shippingPriceUsd,
     applicationFeeCents: feeCents,
     sellerId: row.sellerId,
@@ -343,14 +403,9 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
       where: { id: row.id, paymentStatus: { not: PAYMENT_PAID } },
       data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
     });
+    releaseReferralCreditReservation(row.id).catch(() => {});
     return { outcome: "error", code: "PAYMENT_INTENT_NOT_COMPLETED" };
   } catch (e) {
-    await prisma.order
-      .updateMany({
-        where: { id: row.id, paymentStatus: { not: PAYMENT_PAID } },
-        data: { paymentStatus: PAYMENT_FAILED, status: "cancelled", stripePaymentIntentId: null },
-      })
-      .catch(() => {});
     const stripeDebug = buildStripeChargeErrorDebug(e, {
       amountCents,
       currency: "usd",
@@ -358,10 +413,28 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
       paymentMethodId: pmId,
       destinationAccount: row.seller.stripeAccountId ?? null,
     });
-    console.error("[payment recovery] stripe charge error", { orderId: row.id, ...stripeDebug });
-    if (e instanceof Stripe.errors.StripeCardError) {
+    if (isDefiniteStripeCardDecline(e)) {
+      // Confirmed decline — Stripe told us the PaymentIntent is dead. Safe to close out the attempt.
+      await prisma.order
+        .updateMany({
+          where: { id: row.id, paymentStatus: { not: PAYMENT_PAID } },
+          data: { paymentStatus: PAYMENT_FAILED, status: "cancelled", stripePaymentIntentId: null },
+        })
+        .catch(() => {});
+      releaseReferralCreditReservation(row.id).catch(() => {});
+      console.error("[payment recovery] stripe charge declined", { orderId: row.id, ...stripeDebug });
       return { outcome: "error", code: "CARD_DECLINED", stripeDebug };
     }
+    // Ambiguous failure (network/timeout/rate-limit/unknown Stripe API error) — Stripe may have
+    // already processed this charge server-side. Leave the order's payable state untouched instead
+    // of marking it failed/cancelled: the Stripe<->DB reconciliation cron scans Stripe directly for
+    // succeeded PaymentIntents under this order's metadata (independent of what we stored locally)
+    // and will finalize it if the charge did go through; if it didn't, the order remains payable
+    // (PENDING/FAILED/REQUIRES_ACTION, whatever it already was) for a normal retry.
+    console.error("[payment recovery] ambiguous stripe charge error — order left untouched pending reconciliation", {
+      orderId: row.id,
+      ...stripeDebug,
+    });
     return { outcome: "error", code: "STRIPE_ERROR", stripeDebug };
   }
 }
@@ -603,6 +676,7 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
       totalUsd: true,
       itemPriceUsd: true,
       shippingPriceUsd: true,
+      referralCreditAppliedUsd: true,
       stripePaymentIntentId: true,
       shipRecipientName: true,
       shipAddress: true,
@@ -613,9 +687,16 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
     },
   });
 
+  const credit = await applyReferralCreditForSavedCardOrder(
+    row.id,
+    args.buyerId,
+    orderFresh.itemPriceUsd,
+    orderFresh.referralCreditAppliedUsd,
+  );
+
   const liveRoomId = args.liveRoomId || row.liveShippingSession?.liveShowId || (await resolveLiveRoomIdForOrder(row.id));
   const feeCents = await resolveCheckoutApplicationFeeCents({
-    saleAmountUsd: orderFresh.itemPriceUsd,
+    saleAmountUsd: credit.itemPriceUsd,
     isCompanyListing: Boolean(row.listing.isCompanyListing),
     liveRoomId,
   });
@@ -629,7 +710,7 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
       shipZip: orderFresh.shipZip,
       shipCountry: orderFresh.shipCountry,
     },
-    itemPriceUsd: orderFresh.itemPriceUsd,
+    itemPriceUsd: credit.itemPriceUsd,
     shippingPriceUsd: orderFresh.shippingPriceUsd,
     applicationFeeCents: feeCents,
     sellerId: row.sellerId,
@@ -709,14 +790,9 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
       where: { id: row.id, paymentStatus: { not: PAYMENT_PAID } },
       data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
     });
+    releaseReferralCreditReservation(row.id).catch(() => {});
     return { outcome: "error", code: "PAYMENT_INTENT_NOT_COMPLETED" };
   } catch (e) {
-    await prisma.order
-      .updateMany({
-        where: { id: row.id, paymentStatus: { not: PAYMENT_PAID } },
-        data: { paymentStatus: PAYMENT_FAILED, status: "cancelled", stripePaymentIntentId: null },
-      })
-      .catch(() => {});
     const stripeDebug = buildStripeChargeErrorDebug(e, {
       amountCents,
       currency: "usd",
@@ -724,10 +800,24 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
       paymentMethodId: pmId,
       destinationAccount: row.seller.stripeAccountId ?? null,
     });
-    console.error("[payment recovery] stripe charge error", { orderId: row.id, ...stripeDebug });
-    if (e instanceof Stripe.errors.StripeCardError) {
+    if (isDefiniteStripeCardDecline(e)) {
+      await prisma.order
+        .updateMany({
+          where: { id: row.id, paymentStatus: { not: PAYMENT_PAID } },
+          data: { paymentStatus: PAYMENT_FAILED, status: "cancelled", stripePaymentIntentId: null },
+        })
+        .catch(() => {});
+      releaseReferralCreditReservation(row.id).catch(() => {});
+      console.error("[payment recovery] stripe charge declined", { orderId: row.id, ...stripeDebug });
       return { outcome: "error", code: "CARD_DECLINED", stripeDebug };
     }
+    // See the matching comment in chargeMarketplaceOrderWithSavedPaymentMethod — an ambiguous error
+    // here does not prove the charge failed, so we must not clear stripePaymentIntentId or cancel
+    // the order (that would orphan a possibly-succeeded charge and invite a duplicate on retry).
+    console.error("[payment recovery] ambiguous stripe charge error — order left untouched pending reconciliation", {
+      orderId: row.id,
+      ...stripeDebug,
+    });
     return { outcome: "error", code: "STRIPE_ERROR", stripeDebug };
   }
 }

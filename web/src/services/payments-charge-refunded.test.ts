@@ -46,6 +46,9 @@ const prismaMock = vi.hoisted(() => ({
   liveRoom: {
     updateMany: vi.fn().mockResolvedValue(undefined),
   },
+  orderRefundRequest: {
+    updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+  },
   $executeRaw: vi.fn().mockResolvedValue(0),
   $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(prismaMock)),
 }));
@@ -65,6 +68,7 @@ function chargeRefundedEvent(args: {
   amountRefunded: number;
   amount: number;
   paymentIntent?: string;
+  refundId?: string;
 }): Stripe.Event {
   return {
     type: "charge.refunded",
@@ -76,6 +80,7 @@ function chargeRefundedEvent(args: {
         amount_refunded: args.amountRefunded,
         amount: args.amount,
         payment_intent: args.paymentIntent ?? "pi_1",
+        refunds: args.refundId ? { data: [{ id: args.refundId, status: "succeeded" }] } : undefined,
       },
     },
   } as unknown as Stripe.Event;
@@ -271,6 +276,38 @@ describe("processStripeWebhookEvent charge.refunded", () => {
     expect(strings.join("?")).toContain('UPDATE "LiveRoom"');
     expect(values).toContain("room_1");
     expect(values).toContain(250);
+  });
+
+  // Regression (chaos audit, FIX 2): `executeOrderRefund` now records `refund_processing` before
+  // calling Stripe and only flips to `refunded` once its own DB transaction confirms — if that
+  // finalize transaction fails after Stripe already succeeded, the order-refund-request row is
+  // stuck at `refund_processing` with no local record the refund actually completed. This webhook
+  // (which the Stripe<->DB reconciliation cron also replays for exactly this scenario) must close
+  // that gap by finishing the job.
+  it("self-heals a stuck `refund_processing` OrderRefundRequest row to `refunded` (recovers from a partial executeOrderRefund failure)", async () => {
+    prismaMock.order.findMany.mockResolvedValue([
+      {
+        id: "ord_heal_1",
+        buyerId: "buyer_1",
+        sellerId: "seller_1",
+        listingId: "lst_1",
+        paymentStatus: "paid",
+        payoutStatus: "held",
+        taxAmountCents: 0,
+        listing: { title: "Test Card" },
+      },
+    ]);
+
+    await processStripeWebhookEvent(
+      chargeRefundedEvent({ refunded: true, amountRefunded: 10000, amount: 10000, refundId: "re_heal_1" }),
+    );
+
+    expect(prismaMock.orderRefundRequest.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { orderId: "ord_heal_1", status: "refund_processing" },
+        data: expect.objectContaining({ status: "refunded", stripeRefundId: "re_heal_1" }),
+      }),
+    );
   });
 
   it("does not touch live-show GMV for non-live orders", async () => {

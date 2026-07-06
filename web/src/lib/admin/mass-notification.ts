@@ -3,12 +3,15 @@
 export const MASS_NOTIFICATION_TITLE_MAX = 200;
 export const MASS_NOTIFICATION_BODY_MAX = 500;
 export const MASS_NOTIFICATION_HREF_MAX = 2000;
+export const MASS_NOTIFICATION_IDEMPOTENCY_KEY_MAX = 128;
 export const NOTIFICATION_BROADCAST_TYPE = "admin_announcement";
 
 export type MassNotificationInput = {
   title: string;
   body: string;
   href?: string | null;
+  /** Client-generated key, one per compose+send attempt — guards against duplicate sends. */
+  idempotencyKey?: string | null;
 };
 
 export type MassNotificationFieldError = {

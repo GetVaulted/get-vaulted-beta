@@ -674,7 +674,11 @@ export function SellerLivePage() {
       }
 
       const goLater = Boolean(scheduledStartAtIso);
-      const sellerConsolePath = `/seller/live/${encodeURIComponent(j.id)}/console`;
+      // Break rooms stream from the host console; auction/sale rooms are hosted directly from the room page.
+      const sellerConsolePath =
+        roomType === "break"
+          ? `/seller/live/${encodeURIComponent(j.id)}/console`
+          : `/live/${encodeURIComponent(j.id)}`;
       logCreateLiveRoom("created", {
         id: j.id,
         goLater,

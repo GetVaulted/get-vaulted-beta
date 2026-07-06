@@ -81,6 +81,7 @@ export const ACTIVE_REFUND_REQUEST_STATUSES = new Set([
   "escalated",
   "awaiting_return",
   "return_in_transit",
+  "refund_processing",
 ]);
 
 export function refundRequestStatusLabel(status: string): string {
@@ -95,6 +96,8 @@ export function refundRequestStatusLabel(status: string): string {
       return "Approved — ship item back";
     case "return_in_transit":
       return "Return in transit";
+    case "refund_processing":
+      return "Refund processing";
     case "support_denied":
       return "Support denied";
     case "refunded":

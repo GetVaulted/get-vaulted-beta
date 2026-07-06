@@ -26,9 +26,11 @@ vi.mock("@/lib/live-purchase-charge-total", () => ({
   resolveLivePurchaseNotificationChargeUsd: vi.fn().mockResolvedValue(10),
 }));
 vi.mock("@/lib/live-item-variant-break", () => ({ maybeMarkVariantBreakReady: vi.fn().mockResolvedValue(undefined) }));
+const executeRandomVariantRevealOnPurchase = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+const isRandomVariantAssignment = vi.hoisted(() => vi.fn().mockReturnValue(false));
 vi.mock("@/lib/live-item-variant-random-reveal", () => ({
-  executeRandomVariantRevealOnPurchase: vi.fn().mockResolvedValue(null),
-  isRandomVariantAssignment: vi.fn().mockReturnValue(false),
+  executeRandomVariantRevealOnPurchase,
+  isRandomVariantAssignment,
 }));
 vi.mock("@/services/shipping/break-pyt-fulfillment-bridge", () => ({
   markVariantPurchaseExternalFulfillmentRequired: vi.fn().mockResolvedValue(undefined),
@@ -41,12 +43,25 @@ vi.mock("@/lib/live-show-gmv", () => ({
 }));
 
 const finalizeStripeMarketplaceOrderPaid = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-vi.mock("@/services/payments", () => ({ finalizeStripeMarketplaceOrderPaid }));
+vi.mock("@/services/payments", () => ({ finalizeStripeMarketplaceOrderPaid, PAYMENT_REFUNDED: "refunded" }));
+const executeOrderRefund = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock("@/services/order-refund-request", () => ({ executeOrderRefund }));
+vi.mock("@/lib/order-refund-eligibility", () => ({ ACTIVE_REFUND_REQUEST_STATUSES: ["pending_seller", "pending_admin"] }));
+const reportUrgentPaymentAnomaly = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/cron-anomaly-alert", () => ({ reportUrgentPaymentAnomaly }));
 
 const prismaMock = vi.hoisted(() => ({
   liveItemVariantPurchase: {
     findUnique: vi.fn(),
     update: vi.fn().mockResolvedValue(undefined),
+    updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+  },
+  order: {
+    findUnique: vi.fn(),
+  },
+  orderRefundRequest: {
+    findFirst: vi.fn(),
+    create: vi.fn(),
   },
   liveItemVariant: {
     findUnique: vi.fn().mockResolvedValue({ quantityRemaining: 1, liveRoomItemId: "item_1" }),
@@ -67,6 +82,10 @@ const prismaMock = vi.hoisted(() => ({
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
 import { finalizeLiveItemVariantPurchasePaid } from "@/lib/live-item-variant-purchase";
+import { emitVariantPurchased } from "@/lib/realtime-emit-server";
+import { createNotification } from "@/lib/notifications";
+import { maybeMarkVariantBreakReady } from "@/lib/live-item-variant-break";
+import { recordBuyerGiveawayPurchaseEntries } from "@/lib/live-giveaway";
 
 function basePurchase(overrides: Record<string, unknown> = {}) {
   return {
@@ -115,11 +134,206 @@ describe("finalizeLiveItemVariantPurchasePaid GMV double-count guard", () => {
     prismaMock.liveItemVariantPurchase.findUnique.mockResolvedValue(
       basePurchase({ fulfillmentOrderId: "ord_1", paymentStatus: "paid" }),
     );
+    // Already `paid` — the atomic conditional updateMany (FIX 4) matches zero rows since the where
+    // clause requires `paymentStatus: "pending_payment"`, so this caller loses the claim.
+    prismaMock.liveItemVariantPurchase.updateMany.mockResolvedValueOnce({ count: 0 });
 
     await finalizeLiveItemVariantPurchasePaid("vp_1", "pi_1");
 
     expect(finalizeStripeMarketplaceOrderPaid).toHaveBeenCalledTimes(1);
     expect(prismaMock.liveItemVariantPurchase.update).not.toHaveBeenCalled();
     expect(recordLiveShowCompletedSaleTx).not.toHaveBeenCalled();
+  });
+});
+
+describe("finalizeLiveItemVariantPurchasePaid — FIX 4 atomic idempotent finalize", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.liveItemVariantPurchase.updateMany.mockResolvedValue({ count: 1 });
+  });
+
+  it("only the caller that wins the atomic updateMany proceeds to side effects", async () => {
+    prismaMock.liveItemVariantPurchase.findUnique.mockResolvedValue(basePurchase());
+    prismaMock.liveItemVariantPurchase.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    await finalizeLiveItemVariantPurchasePaid("vp_1");
+
+    expect(prismaMock.liveItemVariantPurchase.updateMany).toHaveBeenCalledWith({
+      where: { id: "vp_1", paymentStatus: "pending_payment" },
+      data: expect.objectContaining({ paymentStatus: "paid" }),
+    });
+    expect(recordLiveShowCompletedSaleTx).toHaveBeenCalledTimes(1);
+  });
+
+  it("a losing concurrent caller (count 0) skips all reveal/notification side effects", async () => {
+    prismaMock.liveItemVariantPurchase.findUnique.mockResolvedValue(basePurchase());
+    prismaMock.liveItemVariantPurchase.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await finalizeLiveItemVariantPurchasePaid("vp_1");
+
+    expect(recordLiveShowCompletedSaleTx).not.toHaveBeenCalled();
+    expect(finalizeStripeMarketplaceOrderPaid).not.toHaveBeenCalled();
+  });
+
+  it("simulated concurrent finalize calls: exactly one of two racing calls proceeds", async () => {
+    prismaMock.liveItemVariantPurchase.findUnique.mockResolvedValue(basePurchase());
+    // Simulate the DB-level atomicity of updateMany: only the first caller's conditional update
+    // actually matches a row; the second sees the status has already flipped to "paid".
+    let claimed = false;
+    prismaMock.liveItemVariantPurchase.updateMany.mockImplementation(async () => {
+      if (claimed) return { count: 0 };
+      claimed = true;
+      return { count: 1 };
+    });
+
+    await Promise.all([
+      finalizeLiveItemVariantPurchasePaid("vp_1"),
+      finalizeLiveItemVariantPurchasePaid("vp_1"),
+    ]);
+
+    expect(recordLiveShowCompletedSaleTx).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("finalizeLiveItemVariantPurchasePaid — FIX 3 refund/alert safety net", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.liveItemVariantPurchase.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.liveRoomItem.findUnique.mockResolvedValue({
+      itemVersion: 1,
+      title: "Mystery Box",
+      salesFormat: "team_break",
+      variantAssignmentMode: "random",
+    });
+    isRandomVariantAssignment.mockReturnValue(true);
+  });
+
+  it("alerts loudly (no auto-refund possible) when a charged purchase with no fulfillment order fails to get a reveal", async () => {
+    executeRandomVariantRevealOnPurchase.mockResolvedValue(null);
+    prismaMock.liveItemVariantPurchase.findUnique.mockResolvedValue(
+      basePurchase({ fulfillmentOrderId: null, totalUsd: 25 }),
+    );
+
+    await finalizeLiveItemVariantPurchasePaid("vp_1");
+
+    expect(reportUrgentPaymentAnomaly).toHaveBeenCalledWith(
+      "live-random-reveal-unassignable",
+      expect.stringContaining("MANUAL REFUND REQUIRED"),
+    );
+    expect(executeOrderRefund).not.toHaveBeenCalled();
+  });
+
+  it("automatically refunds via the order-refund service when a fulfillment order exists", async () => {
+    executeRandomVariantRevealOnPurchase.mockResolvedValue(null);
+    prismaMock.liveItemVariantPurchase.findUnique.mockResolvedValue(
+      basePurchase({ fulfillmentOrderId: "ord_1", totalUsd: 25 }),
+    );
+    prismaMock.order.findUnique.mockResolvedValue({
+      id: "ord_1",
+      buyerId: "buyer_1",
+      sellerId: "seller_1",
+      paymentStatus: "paid",
+    });
+    prismaMock.orderRefundRequest.findFirst.mockResolvedValue(null);
+    prismaMock.orderRefundRequest.create.mockResolvedValue({ id: "refund_1" });
+
+    await finalizeLiveItemVariantPurchasePaid("vp_1");
+
+    expect(prismaMock.orderRefundRequest.create).toHaveBeenCalledTimes(1);
+    expect(executeOrderRefund).toHaveBeenCalledWith("ord_1", "refund_1");
+    expect(reportUrgentPaymentAnomaly).toHaveBeenCalledWith(
+      "live-random-reveal-auto-refunded",
+      expect.any(String),
+    );
+  });
+
+  it("does not refund or alert when a label is successfully assigned", async () => {
+    executeRandomVariantRevealOnPurchase.mockResolvedValue({ label: "AFC East", abbr: "AFCE" });
+    prismaMock.liveItemVariantPurchase.findUnique.mockResolvedValue(
+      basePurchase({ fulfillmentOrderId: "ord_1", totalUsd: 25 }),
+    );
+
+    await finalizeLiveItemVariantPurchasePaid("vp_1");
+
+    expect(executeOrderRefund).not.toHaveBeenCalled();
+    expect(reportUrgentPaymentAnomaly).not.toHaveBeenCalled();
+    // A successful reveal SHOULD still run the normal "purchase succeeded" side effects.
+    expect(emitVariantPurchased).toHaveBeenCalledTimes(1);
+    expect(createNotification).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("finalizeLiveItemVariantPurchasePaid — FIX 4: loud alert on swallowed order finalize error", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.liveItemVariantPurchase.updateMany.mockResolvedValue({ count: 1 });
+  });
+
+  it("alerts loudly and still marks the purchase paid when finalizeStripeMarketplaceOrderPaid throws", async () => {
+    finalizeStripeMarketplaceOrderPaid.mockRejectedValueOnce(new Error("order finalize boom"));
+    prismaMock.liveItemVariantPurchase.findUnique.mockResolvedValue(
+      basePurchase({ fulfillmentOrderId: "ord_1", totalUsd: 25 }),
+    );
+
+    await finalizeLiveItemVariantPurchasePaid("vp_1", "pi_1");
+
+    expect(reportUrgentPaymentAnomaly).toHaveBeenCalledWith(
+      "live-variant-purchase-order-finalize-failed",
+      expect.stringContaining("MANUAL RECONCILIATION REQUIRED"),
+    );
+    // Stripe already charged the buyer — the purchase still gets marked paid rather than silently
+    // left inconsistent with no alert at all.
+    expect(prismaMock.liveItemVariantPurchase.updateMany).toHaveBeenCalledWith({
+      where: { id: "vp_1", paymentStatus: "pending_payment" },
+      data: expect.objectContaining({ paymentStatus: "paid" }),
+    });
+  });
+});
+
+describe("finalizeLiveItemVariantPurchasePaid — FIX 2: skip success side effects after a failed reveal", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.liveItemVariantPurchase.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.liveRoomItem.findUnique.mockResolvedValue({
+      itemVersion: 1,
+      title: "Mystery Box",
+      salesFormat: "team_break",
+      variantAssignmentMode: "random",
+    });
+    isRandomVariantAssignment.mockReturnValue(true);
+  });
+
+  it("does NOT broadcast the purchase, notify the buyer, record giveaway entries, or mark break-ready when the reveal fails", async () => {
+    executeRandomVariantRevealOnPurchase.mockResolvedValue(null);
+    prismaMock.liveItemVariantPurchase.findUnique.mockResolvedValue(
+      basePurchase({ fulfillmentOrderId: null, totalUsd: 25 }),
+    );
+
+    await finalizeLiveItemVariantPurchasePaid("vp_1");
+
+    // The refund/alert safety net still ran (FIX 3 behavior, unaffected by this fix)...
+    expect(reportUrgentPaymentAnomaly).toHaveBeenCalledWith(
+      "live-random-reveal-unassignable",
+      expect.stringContaining("MANUAL REFUND REQUIRED"),
+    );
+    // ...but none of the "purchase succeeded" side effects should have run for this purchase.
+    expect(emitVariantPurchased).not.toHaveBeenCalled();
+    expect(createNotification).not.toHaveBeenCalled();
+    expect(recordBuyerGiveawayPurchaseEntries).not.toHaveBeenCalled();
+    expect(maybeMarkVariantBreakReady).not.toHaveBeenCalled();
+  });
+
+  it("still runs the normal success side effects when the reveal succeeds", async () => {
+    executeRandomVariantRevealOnPurchase.mockResolvedValue({ label: "AFC East", abbr: "AFCE" });
+    prismaMock.liveItemVariantPurchase.findUnique.mockResolvedValue(
+      basePurchase({ fulfillmentOrderId: null, totalUsd: 25 }),
+    );
+
+    await finalizeLiveItemVariantPurchasePaid("vp_1");
+
+    expect(emitVariantPurchased).toHaveBeenCalledTimes(1);
+    expect(createNotification).toHaveBeenCalledTimes(1);
+    expect(recordBuyerGiveawayPurchaseEntries).toHaveBeenCalledTimes(1);
+    expect(maybeMarkVariantBreakReady).toHaveBeenCalledTimes(1);
   });
 });

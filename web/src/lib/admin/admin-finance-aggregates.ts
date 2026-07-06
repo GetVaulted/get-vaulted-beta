@@ -5,6 +5,7 @@ import {
   estimateStripeProcessingFeeUsd,
   resolvePlatformFeePercentForSellerOrder,
 } from "@/lib/seller-payout-estimate";
+import { liveShowGmvForFeeTierReconstruction } from "@/lib/live-show-gmv";
 
 /**
  * Same per-order fee-tier resolution the seller sales report uses (`mapSellerSalesOrderForApi`).
@@ -17,14 +18,17 @@ function resolveOrderFeePercent(o: {
   itemPriceUsd: number;
   paymentStatus: string;
   listing: { isCompanyListing: boolean };
-  liveShippingSession: { liveShowId: string | null; liveShow: { completedSalesGmvUsd: number; status: string } | null } | null;
+  liveShippingSession: {
+    liveShowId: string | null;
+    liveShow: { completedSalesGmvUsd: number; finalSalesGmvUsd: number | null; status: string } | null;
+  } | null;
 }): number {
   const liveShowId = o.liveShippingSession?.liveShowId ?? null;
   const liveShow = o.liveShippingSession?.liveShow ?? null;
   return resolvePlatformFeePercentForSellerOrder({
     isCompanyListing: Boolean(o.listing.isCompanyListing),
     liveShowId,
-    liveShowCompletedGmvUsd: liveShow?.status === "live" ? liveShow.completedSalesGmvUsd : null,
+    liveShowCompletedGmvUsd: liveShowGmvForFeeTierReconstruction(liveShow),
     orderItemPriceUsd: o.itemPriceUsd,
     orderPaymentStatus: o.paymentStatus,
   });
@@ -71,7 +75,10 @@ export async function loadAdminFinanceSummary(): Promise<AdminFinanceSummary> {
       payoutReserveAmountCents: true,
       listing: { select: { isCompanyListing: true } },
       liveShippingSession: {
-        select: { liveShowId: true, liveShow: { select: { completedSalesGmvUsd: true, status: true } } },
+        select: {
+          liveShowId: true,
+          liveShow: { select: { completedSalesGmvUsd: true, finalSalesGmvUsd: true, status: true } },
+        },
       },
     },
     orderBy: { createdAt: "desc" },
@@ -192,7 +199,10 @@ export async function loadAdminFinanceCharts(period: "daily" | "weekly" | "month
       paymentStatus: true,
       listing: { select: { isCompanyListing: true } },
       liveShippingSession: {
-        select: { liveShowId: true, liveShow: { select: { completedSalesGmvUsd: true, status: true } } },
+        select: {
+          liveShowId: true,
+          liveShow: { select: { completedSalesGmvUsd: true, finalSalesGmvUsd: true, status: true } },
+        },
       },
     },
     orderBy: { createdAt: "asc" },

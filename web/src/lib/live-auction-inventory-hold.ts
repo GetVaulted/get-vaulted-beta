@@ -19,23 +19,33 @@ export async function reserveListingInventoryHoldTx(
     ttlMs?: number;
   },
 ): Promise<void> {
-  const expiresAt = new Date(Date.now() + (args.ttlMs ?? LIVE_AUCTION_INVENTORY_HOLD_TTL_MS));
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + (args.ttlMs ?? LIVE_AUCTION_INVENTORY_HOLD_TTL_MS));
   const existing = await tx.liveAuctionInventoryHold.findFirst({
     where: { listingId: args.listingId, status: "active" },
   });
   if (existing) {
-    if (existing.userId !== args.userId) {
+    // A hold whose TTL has passed must never keep blocking other buyers just because the
+    // periodic expiry sweep (`expireStaleLiveAuctionInventoryHolds`) hasn't run yet or was
+    // skipped — an abandoned checkout would otherwise make the listing unsellable forever.
+    if (existing.expiresAt.getTime() <= now.getTime()) {
+      await tx.liveAuctionInventoryHold.update({
+        where: { id: existing.id },
+        data: { status: "expired", releasedAt: now },
+      });
+    } else if (existing.userId !== args.userId) {
       throw new Error("LISTING_INVENTORY_HELD");
+    } else {
+      await tx.liveAuctionInventoryHold.update({
+        where: { id: existing.id },
+        data: {
+          expiresAt,
+          source: args.source,
+          liveRoomItemId: args.liveRoomItemId ?? null,
+        },
+      });
+      return;
     }
-    await tx.liveAuctionInventoryHold.update({
-      where: { id: existing.id },
-      data: {
-        expiresAt,
-        source: args.source,
-        liveRoomItemId: args.liveRoomItemId ?? null,
-      },
-    });
-    return;
   }
   try {
     await tx.liveAuctionInventoryHold.create({
@@ -66,19 +76,26 @@ export async function reserveHostLiveItemInventoryHoldTx(
   tx: TransactionClient,
   args: { liveRoomItemId: string; userId: string; source: string; ttlMs?: number },
 ): Promise<void> {
-  const expiresAt = new Date(Date.now() + (args.ttlMs ?? LIVE_AUCTION_INVENTORY_HOLD_TTL_MS));
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + (args.ttlMs ?? LIVE_AUCTION_INVENTORY_HOLD_TTL_MS));
   const existing = await tx.liveAuctionInventoryHold.findFirst({
     where: { listingId: null, liveRoomItemId: args.liveRoomItemId, status: "active" },
   });
   if (existing) {
-    if (existing.userId !== args.userId) {
+    if (existing.expiresAt.getTime() <= now.getTime()) {
+      await tx.liveAuctionInventoryHold.update({
+        where: { id: existing.id },
+        data: { status: "expired", releasedAt: now },
+      });
+    } else if (existing.userId !== args.userId) {
       throw new Error("LIVE_ITEM_INVENTORY_HELD");
+    } else {
+      await tx.liveAuctionInventoryHold.update({
+        where: { id: existing.id },
+        data: { expiresAt, source: args.source },
+      });
+      return;
     }
-    await tx.liveAuctionInventoryHold.update({
-      where: { id: existing.id },
-      data: { expiresAt, source: args.source },
-    });
-    return;
   }
   try {
     await tx.liveAuctionInventoryHold.create({

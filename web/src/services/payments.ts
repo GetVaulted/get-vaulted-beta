@@ -1,7 +1,13 @@
 import Stripe from "stripe";
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
-import { EscrowStatus, OrderPaymentMethod } from "@/generated/prisma/enums";
+import { EscrowStatus, OrderPaymentMethod, OrderRefundRequestStatus } from "@/generated/prisma/enums";
 import { createNotification } from "@/lib/notifications";
+import {
+  commitReferralCreditReservation,
+  grantReferralCreditsForQualifyingOrder,
+  releaseReferralCreditReservation,
+  reserveReferralCreditForCheckout,
+} from "@/lib/referral-credit";
 import { estimateEscrowFeeCents, isEscrowConfigured, orderTotalQualifiesForEscrow } from "@/lib/escrow-config";
 import { prisma } from "@/lib/prisma";
 import {
@@ -136,6 +142,9 @@ export async function processAuctionPaymentExpiries(): Promise<void> {
       return true;
     });
     if (!changed) continue;
+    releaseReferralCreditReservation(o.id).catch((e) =>
+      console.error("[referral-credit] release failed (auction payment expired)", { orderId: o.id, error: e }),
+    );
     await createNotification(prisma, {
       userId: o.buyerId,
       type: "auction_payment_expired",
@@ -172,6 +181,111 @@ function siteUrl(): string {
   return u.replace(/\/$/, "");
 }
 
+/** Stripe's minimum chargeable amount — never let a referral-credit discount push a charge below this. */
+const MIN_STRIPE_CHARGE_USD = 0.5;
+
+type ReferralCreditCheckoutFields = {
+  itemPriceUsd: number;
+  totalUsd: number;
+  referralCreditAppliedUsd: number;
+};
+
+/**
+ * Buy Now: `createBuyNowCheckoutSession`'s enclosing transaction always (re)computes
+ * `itemPriceUsd`/`totalUsd` from the listing's full, undiscounted price — on both brand-new orders
+ * and every "resume an existing pending checkout" branch — since the transaction has no knowledge
+ * of referral credit (reservation happens after it commits, per `reserveReferralCreditForCheckout`'s
+ * non-transactional contract). So any previously-reserved credit for this exact order (tracked in
+ * `referralCreditAppliedUsd`, untouched by the transaction) must be re-subtracted here on every call
+ * rather than re-reserved — re-reserving would double-spend the buyer's credit.
+ */
+async function applyReferralCreditForBuyNowOrder(
+  order: {
+    id: string;
+    itemPriceUsd: number;
+    shippingPriceUsd: number;
+    taxUsd: number;
+    referralCreditAppliedUsd: number;
+  },
+  buyerId: string,
+): Promise<ReferralCreditCheckoutFields> {
+  const unchanged = {
+    itemPriceUsd: order.itemPriceUsd,
+    totalUsd: order.itemPriceUsd + order.shippingPriceUsd + order.taxUsd,
+    referralCreditAppliedUsd: order.referralCreditAppliedUsd,
+  };
+
+  if (order.referralCreditAppliedUsd > 0) {
+    const reapply = Math.min(
+      order.referralCreditAppliedUsd,
+      Math.max(0, order.itemPriceUsd - MIN_STRIPE_CHARGE_USD),
+    );
+    if (reapply <= 0) return unchanged;
+    const itemPriceUsd = order.itemPriceUsd - reapply;
+    const totalUsd = itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
+    await prisma.order.update({ where: { id: order.id }, data: { itemPriceUsd, totalUsd } });
+    return { itemPriceUsd, totalUsd, referralCreditAppliedUsd: reapply };
+  }
+
+  try {
+    const maxApplyUsd = Math.max(0, order.itemPriceUsd - MIN_STRIPE_CHARGE_USD);
+    if (maxApplyUsd <= 0) return unchanged;
+    const reserved = await reserveReferralCreditForCheckout(buyerId, maxApplyUsd, order.id);
+    if (reserved <= 0) return unchanged;
+    const itemPriceUsd = order.itemPriceUsd - reserved;
+    const totalUsd = itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { itemPriceUsd, totalUsd, referralCreditAppliedUsd: reserved },
+    });
+    return { itemPriceUsd, totalUsd, referralCreditAppliedUsd: reserved };
+  } catch (e) {
+    console.error("[referral-credit] reserve failed (buy now checkout)", { orderId: order.id, error: e });
+    return unchanged;
+  }
+}
+
+/**
+ * Pay-order (accepted offers, counter-offers, and auction winners paying via
+ * `createPayOrderCheckoutSession`): unlike Buy Now, this order's `itemPriceUsd` is set once at
+ * order creation and never reset by this function — so once credit has been reserved and applied
+ * for this order, `itemPriceUsd` already reflects the discount and must not be discounted again.
+ */
+async function applyReferralCreditForPayOrder(
+  order: {
+    id: string;
+    itemPriceUsd: number;
+    shippingPriceUsd: number;
+    taxUsd: number;
+    referralCreditAppliedUsd: number;
+  },
+  buyerId: string,
+): Promise<ReferralCreditCheckoutFields> {
+  const unchanged = {
+    itemPriceUsd: order.itemPriceUsd,
+    totalUsd: order.itemPriceUsd + order.shippingPriceUsd + order.taxUsd,
+    referralCreditAppliedUsd: order.referralCreditAppliedUsd,
+  };
+  if (order.referralCreditAppliedUsd > 0) return unchanged;
+
+  try {
+    const maxApplyUsd = Math.max(0, order.itemPriceUsd - MIN_STRIPE_CHARGE_USD);
+    if (maxApplyUsd <= 0) return unchanged;
+    const reserved = await reserveReferralCreditForCheckout(buyerId, maxApplyUsd, order.id);
+    if (reserved <= 0) return unchanged;
+    const itemPriceUsd = order.itemPriceUsd - reserved;
+    const totalUsd = itemPriceUsd + order.shippingPriceUsd + order.taxUsd;
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { itemPriceUsd, totalUsd, referralCreditAppliedUsd: reserved },
+    });
+    return { itemPriceUsd, totalUsd, referralCreditAppliedUsd: reserved };
+  } catch (e) {
+    console.error("[referral-credit] reserve failed (pay order checkout)", { orderId: order.id, error: e });
+    return unchanged;
+  }
+}
+
 /**
  * Resolve the Order a disputed/charged-back PaymentIntent belongs to. A plain Stripe/escrow order
  * has exactly one PaymentIntent, stored directly on `Order.stripePaymentIntentId`. A layaway order
@@ -181,7 +295,7 @@ function siteUrl(): string {
  * leaving payout unfrozen and the chargeback unrecorded. Fall back to `LayawayPayment` → `Layaway` →
  * `orderId` to cover every layaway charge.
  */
-async function resolveOrderIdForDisputedPaymentIntent(paymentIntentId: string): Promise<string | null> {
+export async function resolveOrderIdForDisputedPaymentIntent(paymentIntentId: string): Promise<string | null> {
   const direct = await prisma.order.findFirst({
     where: { stripePaymentIntentId: paymentIntentId },
     select: { id: true },
@@ -476,6 +590,7 @@ export async function createBuyNowCheckoutSession(args: {
     return { url: r.checkoutUrl };
   }
 
+  let deletedOrderIdForCreditRelease: string | null = null;
   let resolvedMarketplaceShipping: Awaited<ReturnType<typeof resolveMarketplaceCheckoutShipping>> | null = null;
   if (!args.liveRoomItemId?.trim()) {
     resolvedMarketplaceShipping = await resolveMarketplaceCheckoutShipping({
@@ -654,6 +769,7 @@ export async function createBuyNowCheckoutSession(args: {
         userId: existing.buyerId,
       });
       await tx.order.delete({ where: { id: existing.id } });
+      deletedOrderIdForCreditRelease = existing.id;
     }
 
     const initialShippingUsd = liveRoomItemIdOut ? 0 : marketplaceShippingUsd;
@@ -721,13 +837,29 @@ export async function createBuyNowCheckoutSession(args: {
     return { order: orderOut, listing: listingRow, liveRoomItemId: liveRoomItemIdOut };
   });
 
+  if (deletedOrderIdForCreditRelease) {
+    releaseReferralCreditReservation(deletedOrderIdForCreditRelease).catch((e) =>
+      console.error("[referral-credit] release failed (stale failed order replaced)", {
+        orderId: deletedOrderIdForCreditRelease,
+        error: e,
+      }),
+    );
+  }
+
+  const rowEscrow = order.paymentMethod === OrderPaymentMethod.escrow;
+
+  if (!rowEscrow) {
+    const credit = await applyReferralCreditForBuyNowOrder(order, args.buyerId);
+    order.itemPriceUsd = credit.itemPriceUsd;
+    order.totalUsd = credit.totalUsd;
+  }
+
   const liveRoomIdForFee = await resolveLiveRoomIdForLiveRoomItem(liveRoomItemId);
   const feeCents = await resolveCheckoutApplicationFeeCents({
     saleAmountUsd: order.itemPriceUsd,
     isCompanyListing: Boolean(listing.isCompanyListing),
     liveRoomId: liveRoomIdForFee,
   });
-  const rowEscrow = order.paymentMethod === OrderPaymentMethod.escrow;
 
   if (rowEscrow) {
     try {
@@ -772,6 +904,7 @@ export async function createBuyNowCheckoutSession(args: {
           });
         })
         .catch(() => {});
+      releaseReferralCreditReservation(order.id).catch(() => {});
       throw e;
     }
   }
@@ -859,19 +992,36 @@ export async function createBuyNowCheckoutSession(args: {
 
     if (!session.url) throw new Error("NO_CHECKOUT_URL");
 
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { stripeCheckoutSessionId: session.id },
-    });
+    // From this point on Stripe has committed to a real, payable Checkout Session — the buyer can
+    // complete payment on `session.url` regardless of what happens in our own bookkeeping below.
+    // Chaos engineering deep-dive (2026-07): this used to be inside the outer try/catch, so a
+    // transient failure persisting `stripeCheckoutSessionId` (or sending the notification) fell
+    // into the same catch block that deletes the pending order — orphaning an already-payable
+    // Stripe session with no local order left for `checkout.session.completed` to finalize into
+    // (a buyer could be charged with zero local record). Never delete/roll back the order past this
+    // point; best-effort the bookkeeping and let the Stripe<->DB reconciliation cron
+    // (`reconcileStripeWithDatabase`) heal it from Stripe's side (keyed off `session.metadata.orderId`,
+    // not the local `stripeCheckoutSessionId`) if either write below fails.
+    try {
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { stripeCheckoutSessionId: session.id },
+      });
 
-    const titleShort = listing.title.length > 80 ? `${listing.title.slice(0, 77)}…` : listing.title;
-    await createNotification(prisma, {
-      userId: args.buyerId,
-      type: "order_payment_required",
-      title: "Complete your purchase",
-      body: `Checkout is ready for “${titleShort}”. Finish payment to confirm your order.`,
-      href: `/orders/${encodeURIComponent(order.id)}`,
-    });
+      const titleShort = listing.title.length > 80 ? `${listing.title.slice(0, 77)}…` : listing.title;
+      await createNotification(prisma, {
+        userId: args.buyerId,
+        type: "order_payment_required",
+        title: "Complete your purchase",
+        body: `Checkout is ready for “${titleShort}”. Finish payment to confirm your order.`,
+        href: `/orders/${encodeURIComponent(order.id)}`,
+      });
+    } catch (e) {
+      console.error(
+        "[buy now checkout] post-session bookkeeping failed (session was created; order NOT rolled back)",
+        { orderId: order.id, sessionId: session.id, error: e },
+      );
+    }
 
     return { url: session.url };
   } catch (e) {
@@ -884,6 +1034,7 @@ export async function createBuyNowCheckoutSession(args: {
         });
       })
       .catch(() => {});
+    releaseReferralCreditReservation(order.id).catch(() => {});
     throw e;
   }
 }
@@ -1030,6 +1181,10 @@ export async function createPayOrderCheckoutSession(args: {
 
   const stripe = getStripe();
   if (!order.seller.stripeAccountId || !order.seller.stripeOnboardingComplete) throw new Error("SELLER_NOT_READY");
+
+  const payOrderCredit = await applyReferralCreditForPayOrder(order, args.buyerId);
+  order.itemPriceUsd = payOrderCredit.itemPriceUsd;
+  order.totalUsd = payOrderCredit.totalUsd;
 
   const feeCents = await resolveCheckoutApplicationFeeCents({
     saleAmountUsd: order.itemPriceUsd,
@@ -1425,10 +1580,12 @@ export async function finalizeStripeMarketplaceOrderPaid(
   if (!order || order.paymentStatus === PAYMENT_PAID || order.paymentStatus === PAYMENT_EXPIRED) return;
   if (order.paymentMethod === OrderPaymentMethod.escrow) return;
 
-  const taxFromSession =
-    sessionId != null ? await fetchCheckoutSessionTax(sessionId) : null;
-  const breakdown =
-    sessionId != null ? await fetchCheckoutSessionChargeBreakdown(sessionId) : null;
+  // Both reads are independent Stripe lookups keyed only on `sessionId` — run them in
+  // parallel instead of sequentially (performance audit 2026-07).
+  const [taxFromSession, breakdown] =
+    sessionId != null
+      ? await Promise.all([fetchCheckoutSessionTax(sessionId), fetchCheckoutSessionChargeBreakdown(sessionId)])
+      : [null, null];
   let taxAmountCents = breakdown
     ? Math.round(breakdown.taxUsd * 100)
     : taxFromSession?.taxAmountCents ?? 0;
@@ -1464,9 +1621,16 @@ export async function finalizeStripeMarketplaceOrderPaid(
     taxJurisdictionState: order.shipState,
   });
 
-  const { closedLayaways } = await prisma.$transaction(async (tx) => {
-    await tx.order.update({
-      where: { id: orderId },
+  const result = await prisma.$transaction(async (tx) => {
+    // Compare-and-swap: this function is invoked from multiple independent triggers for the same
+    // order — the Stripe webhook (`checkout.session.completed` / `payment_intent.succeeded`) and a
+    // client-initiated "confirm checkout" fallback (`confirmMarketplaceCheckoutSession`) can both
+    // race in after reading `paymentStatus` as not-yet-paid. Without claiming the row here, both
+    // callers would run the full finalize flow — duplicate buyer/seller notifications, duplicate
+    // payout initialization, and double-counted live-show GMV. Only the caller that wins the claim
+    // proceeds; the loser returns early and skips every side effect below.
+    const claim = await tx.order.updateMany({
+      where: { id: orderId, paymentStatus: { notIn: [PAYMENT_PAID, PAYMENT_EXPIRED] } },
       data: {
         paymentStatus: PAYMENT_PAID,
         status: "paid",
@@ -1478,6 +1642,7 @@ export async function finalizeStripeMarketplaceOrderPaid(
         shippingPriceUsd,
       },
     });
+    if (claim.count === 0) return { claimed: false as const, closedLayaways: [] };
 
     await tx.listing.updateMany({
       where: {
@@ -1506,8 +1671,21 @@ export async function finalizeStripeMarketplaceOrderPaid(
       await recordLiveShowCompletedSaleTx(tx, liveRoomId, order.itemPriceUsd);
     }
 
-    return { closedLayaways };
+    return { claimed: true as const, closedLayaways };
   });
+
+  if (!result.claimed) return;
+  const { closedLayaways } = result;
+
+  // Referral program: best-effort, never throws — see `web/src/lib/referral-credit.ts` for the
+  // full first-qualifying-order / self-referral / hold-window rules.
+  void grantReferralCreditsForQualifyingOrder(orderId);
+
+  // Spend side of the referral credit program: permanently commit any credit reserved for this
+  // order at checkout time (a no-op if none was reserved). Best-effort — never blocks finalize.
+  void commitReferralCreditReservation(orderId, orderId).catch((e) =>
+    console.error("[referral-credit] commit failed", { orderId, error: e }),
+  );
 
   void recordTaxDestinationVolumeOnOrderPaid({
     shipState: order.shipState,
@@ -1714,6 +1892,7 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
                 where: { id: orderId, paymentStatus: PAYMENT_PENDING },
                 data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
               });
+              releaseReferralCreditReservation(orderId).catch(() => {});
               await ensureLiveRoomPaymentFailureRecorded({
                 liveRoomId: item.liveRoomId,
                 buyerId: order.buyerId,
@@ -1734,6 +1913,7 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
                   paymentMethod: { not: OrderPaymentMethod.escrow },
                 },
               });
+              releaseReferralCreditReservation(orderId).catch(() => {});
             }
           } else {
             await releaseActiveInventoryHoldsForOrderId(orderId).catch(() => {});
@@ -1745,6 +1925,7 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
                 paymentMethod: { not: OrderPaymentMethod.escrow },
               },
             });
+            releaseReferralCreditReservation(orderId).catch(() => {});
           }
         } else {
           await releaseActiveInventoryHoldsForOrderId(orderId).catch(() => {});
@@ -1756,6 +1937,7 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
             },
             data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
           });
+          releaseReferralCreditReservation(orderId).catch(() => {});
         }
       }
       if (session.metadata?.kind === "break_spot" && session.metadata.breakSpotId) {
@@ -2144,6 +2326,15 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
         // order whose funds were already returned to the buyer.
         if (o.paymentStatus === PAYMENT_REFUNDED && o.payoutStatus === "blocked") continue;
 
+        // Self-heal for `executeOrderRefund`'s two-phase refund (see that function): if Stripe
+        // already refunded this charge but the app's own finalize transaction failed to run (a
+        // crash, a DB blip, etc.), the `OrderRefundRequest` row is left at `refund_processing`
+        // with no local record of ever reaching `refunded` — even though this very branch is
+        // about to bring the Order itself back in sync. Grab the actual refund id off the charge
+        // (falls back to null rather than failing the whole reconciliation over metadata).
+        const stripeRefundId =
+          ch.refunds?.data?.find((r) => r.status === "succeeded")?.id ?? ch.refunds?.data?.[0]?.id ?? null;
+
         await prisma.$transaction(async (tx) => {
           await tx.order.update({
             where: { id: o.id },
@@ -2166,6 +2357,10 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<vo
           if (liveRoomId) {
             await reverseLiveShowCompletedSaleTx(tx, liveRoomId, o.itemPriceUsd);
           }
+          await tx.orderRefundRequest.updateMany({
+            where: { orderId: o.id, status: OrderRefundRequestStatus.refund_processing },
+            data: { status: OrderRefundRequestStatus.refunded, refundedAt: new Date(), stripeRefundId },
+          });
         });
 
         const title = o.listing?.title ?? "your order";

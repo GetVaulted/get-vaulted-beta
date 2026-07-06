@@ -288,9 +288,13 @@ export function OrderRefundRequestPanel({ orderId, role }: Props) {
         </div>
       ) : null}
 
-      {(request?.status === "return_in_transit" || request?.status === "awaiting_return") &&
-      role === "seller" &&
-      request.kind === "return" ? (
+      {request?.status === "awaiting_return" && role === "seller" && request.kind === "return" ? (
+        <p className="mt-4 text-xs text-zinc-400">
+          Waiting for the buyer to ship the return and add tracking. You can confirm receipt once it&rsquo;s on its way.
+        </p>
+      ) : null}
+
+      {request?.status === "return_in_transit" && role === "seller" && request.kind === "return" ? (
         <button
           type="button"
           disabled={busy}
@@ -299,6 +303,13 @@ export function OrderRefundRequestPanel({ orderId, role }: Props) {
         >
           Confirm return received & refund
         </button>
+      ) : null}
+
+      {request?.status === "refund_processing" ? (
+        <p className="mt-3 text-sm text-zinc-400">
+          Your refund is processing with our payment provider. This is usually quick — if it&rsquo;s still showing
+          here after a while, reach out to Get Vaulted support and we&rsquo;ll check on it.
+        </p>
       ) : null}
 
       {terminal && request?.status === "refunded" ? (
