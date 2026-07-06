@@ -6,6 +6,7 @@ import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { LIVE_AUCTION_HOST_TIMER_ENDED_COPY, resolveLiveAuctionLotBidPhase } from '../../../lib/liveAuctionLotPhase';
 import { canHostStartLiveAuction, isMultiQuantityLiveAuctionItem } from '../../../lib/liveAuctionHostStart';
 import { resolvePinnedLotOverlayPrice } from '../../../lib/liveAuctionOverlayPrice';
+import { computeLiveLotReserveMet } from '../../../lib/liveLotReserveStatus';
 import { isVariantPurchaseItem, summarizeVariantSpots, hostPinnedBuyerVariant } from '../../../lib/liveItemVariant';
 import { wallTimeMsFromServerAnchor } from '../../../lib/serverClockSync';
 import { SELLER_CONSOLE } from '../../../lib/sellerConsoleCopy';
@@ -303,8 +304,7 @@ export function VaultPinnedLotCard({
     priceUsd: item.priceUsd,
     lastHighBidderUsername: item.lastHighBidderUsername,
   });
-  const reserve =
-    item.priceUsd != null && item.currentBidUsd != null && item.currentBidUsd >= item.priceUsd;
+  const reserve = computeLiveLotReserveMet(item) === true;
   const closingSoon = countdown != null && countdown.progress <= 0.28;
   const pinnedVariant =
     isVariantItem && item.variants
@@ -449,7 +449,7 @@ export function VaultPinnedLotCard({
                             : 'Ready'}
               </Text>
             ) : null}
-            {item.priceUsd != null ? (
+            {item.reservePriceUsd != null ? (
               <Text style={[styles.meta, compact && styles.metaCompact, reserve && styles.metaOk]}>
                 {reserve ? 'Reserve met' : 'Reserve'}
               </Text>

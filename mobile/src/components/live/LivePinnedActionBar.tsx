@@ -51,7 +51,12 @@ import { fetchLiveVariantCheckoutPreview, type LiveVariantCheckoutPreview } from
 import { LiveCustomBidSheet } from './LiveCustomBidSheet';
 import { LiveBreakSpotGridSheet } from './LiveBreakSpotGridSheet';
 import type { LiveCustomBidPayload } from '../../lib/liveCustomBid';
-import { isActiveVariantBuyerItem, hostPinnedBuyerVariant, lowestAvailableVariantPrice } from '../../lib/liveItemVariant';
+import {
+  isActiveVariantBuyerItem,
+  hostPinnedBuyerVariant,
+  lowestAvailableVariantPrice,
+  type RefreshVariantsResult,
+} from '../../lib/liveItemVariant';
 import { isVariantSpotAuctionLive, shopVariantCountDuringSpotAuction } from '../../lib/liveVariantSpotCommerce';
 import type { LiveSpotTakenCelebration } from '../../lib/liveSpotCelebration';
 import { reconcileBuyerSnapshotMonotonic } from '../../lib/liveRoomBuyerSnapshotMerge';
@@ -185,6 +190,19 @@ export function LivePinnedActionBar({
     setVariantSheetOpen(false);
     setVariantSheetInitialId(null);
   }, [vaultRevealActive]);
+
+  // FIX 5: close the checkout sheet (and its internal selection/preview state) whenever the
+  // host advances to a different pinned lot while it's open, so stale sheet state never couples
+  // to the new item's props. Buyer can simply re-open to buy from the now-different item.
+  const variantSheetLastActiveItemIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const currentItemId = roomSnap?.activeItemId ?? null;
+    const previousItemId = variantSheetLastActiveItemIdRef.current;
+    variantSheetLastActiveItemIdRef.current = currentItemId;
+    if (previousItemId == null || previousItemId === currentItemId) return;
+    setVariantSheetOpen(false);
+    setVariantSheetInitialId(null);
+  }, [roomSnap?.activeItemId]);
 
   useEffect(() => {
     if (roomSnap?.lotBidPhase !== 'bidding_open' || !roomSnap.auctionEndsAt) return;
@@ -338,9 +356,13 @@ export function LivePinnedActionBar({
   const [fetchedVariantCheckoutPreview, setFetchedVariantCheckoutPreview] =
     useState<LiveVariantCheckoutPreview | null>(null);
   const [variantCheckoutPreviewLoading, setVariantCheckoutPreviewLoading] = useState(false);
+  // FIX 1: tracks which item the currently-stored fetched preview was requested for, so a
+  // preview for a previous item is never left showing while the fresh one is loading.
+  const fetchedVariantCheckoutPreviewItemIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!variantCheckoutPreviewEnabled || variantPreviewItemPriceUsd <= 0 || !accessToken || !roomSnap?.activeItemId) {
+      fetchedVariantCheckoutPreviewItemIdRef.current = null;
       setFetchedVariantCheckoutPreview(null);
       setVariantCheckoutPreviewLoading(false);
       return undefined;
@@ -349,23 +371,62 @@ export function LivePinnedActionBar({
       snapshotVariantCheckoutPreview &&
       Math.abs(snapshotVariantCheckoutPreview.itemPriceUsd - variantPreviewItemPriceUsd) < 0.01
     ) {
+      fetchedVariantCheckoutPreviewItemIdRef.current = null;
       setFetchedVariantCheckoutPreview(null);
       setVariantCheckoutPreviewLoading(false);
       return undefined;
     }
+    const requestedItemId = roomSnap.activeItemId;
+    if (fetchedVariantCheckoutPreviewItemIdRef.current !== requestedItemId) {
+      // Active item changed since the last fetched preview — clear the stale total immediately
+      // instead of leaving the previous item's preview visible while the fresh one loads.
+      setFetchedVariantCheckoutPreview(null);
+    }
     let cancelled = false;
-    setVariantCheckoutPreviewLoading(true);
-    void fetchLiveVariantCheckoutPreview(accessToken, {
-      liveRoomId: stream.id,
-      itemId: roomSnap.activeItemId,
-      itemPriceUsd: variantPreviewItemPriceUsd,
-    }).then((preview) => {
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+
+    // Mirrors the sheet-side preview loader's retry/catch (`LiveBreakSpotGridSheet.tsx`) — the
+    // underlying fetch can THROW on timeout/network error rather than resolve, so a bare `.then()`
+    // here (no `.catch()`) left the HUD stuck showing "Calculating…" forever after a failed fetch.
+    const loadPreview = () => {
       if (cancelled) return;
-      setFetchedVariantCheckoutPreview(preview);
-      setVariantCheckoutPreviewLoading(false);
-    });
+      setVariantCheckoutPreviewLoading(true);
+      void fetchLiveVariantCheckoutPreview(accessToken, {
+        liveRoomId: stream.id,
+        itemId: requestedItemId,
+        itemPriceUsd: variantPreviewItemPriceUsd,
+      })
+        .then((preview) => {
+          if (cancelled) return;
+          if (preview) {
+            fetchedVariantCheckoutPreviewItemIdRef.current = requestedItemId;
+            setFetchedVariantCheckoutPreview(preview);
+            setVariantCheckoutPreviewLoading(false);
+            return;
+          }
+          attempt += 1;
+          if (attempt < 4) {
+            retryTimer = setTimeout(loadPreview, Math.min(6000, 1200 * attempt));
+            return;
+          }
+          setVariantCheckoutPreviewLoading(false);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          attempt += 1;
+          if (attempt < 4) {
+            retryTimer = setTimeout(loadPreview, Math.min(6000, 1200 * attempt));
+            return;
+          }
+          setVariantCheckoutPreviewLoading(false);
+        });
+    };
+
+    loadPreview();
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, [
     accessToken,
@@ -376,7 +437,20 @@ export function LivePinnedActionBar({
     variantPreviewItemPriceUsd,
   ]);
 
-  const variantCheckoutPreview = snapshotVariantCheckoutPreview ?? fetchedVariantCheckoutPreview;
+  // Belt-and-suspenders guard mirroring `snapshotVariantCheckoutPreview`: never surface a fetched
+  // preview whose own `liveRoomItemId` disagrees with the currently active item.
+  const fetchedVariantCheckoutPreviewForActiveItem = useMemo(() => {
+    if (!fetchedVariantCheckoutPreview) return null;
+    if (
+      fetchedVariantCheckoutPreview.liveRoomItemId &&
+      fetchedVariantCheckoutPreview.liveRoomItemId !== roomSnap?.activeItemId
+    ) {
+      return null;
+    }
+    return fetchedVariantCheckoutPreview;
+  }, [fetchedVariantCheckoutPreview, roomSnap?.activeItemId]);
+
+  const variantCheckoutPreview = snapshotVariantCheckoutPreview ?? fetchedVariantCheckoutPreviewForActiveItem;
 
   const variantCheckoutMetaLine = variantCheckoutPreview
     ? `Spot ${formatMoney(variantCheckoutPreview.itemPriceUsd)} · ${variantCheckoutPreview.shippingDisplay} · Tax ${variantCheckoutPreview.taxDisplay}`
@@ -1212,6 +1286,23 @@ export function LivePinnedActionBar({
           onSpotCelebration={onSpotCelebration}
           viewerUsername={viewerUsername}
           onRoomRefresh={() => void refreshRoomSnapshot()}
+          onRefreshVariants={async (): Promise<RefreshVariantsResult> => {
+            // FIX 2: pull a fresh room snapshot so pick-mode checkout re-validates spot
+            // availability against server-authoritative data immediately before charging,
+            // instead of trusting the (possibly stale) `variants` prop snapshot. Distinguishes
+            // "the lot changed" from "the refresh failed" so the sheet can abort both cases
+            // instead of collapsing them into one nullable result (2026-07 overcharge gap fix).
+            const requestedItemId = roomSnap.activeItemId;
+            let snap: LiveRoomBuyerSnapshot | null;
+            try {
+              snap = await refreshRoomSnapshot();
+            } catch {
+              snap = null;
+            }
+            if (!snap) return { status: 'fetch_failed' };
+            if (snap.activeItemId !== requestedItemId) return { status: 'item_changed' };
+            return { status: 'fresh', variants: snap.activeItemVariants ?? [] };
+          }}
           seedCheckoutPreview={variantCheckoutPreview}
         />
       ) : null}

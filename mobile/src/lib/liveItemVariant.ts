@@ -102,6 +102,58 @@ export function variantIsAvailable(v: LiveItemVariantSnapshot): boolean {
   return v.quantityRemaining > 0 && v.status !== 'sold_out';
 }
 
+/**
+ * Result contract for a pick-mode checkout's pre-charge server re-validation. Distinguishes "the
+ * active lot changed underneath the buyer" from "the network call itself failed" — both must
+ * abort the charge, but a bare nullable array collapsed these into one case, which let a failed
+ * refresh silently fall through to charging against stale local data (2026-07 pick-mode overcharge
+ * gap). `not_tracked` is a distinct, narrower case for callers that can only refresh the currently
+ * ACTIVE live lot's variants (e.g. a room snapshot) but open this same checkout sheet for items
+ * that were never expected to be the active lot in the first place (pre-live "shop it now"
+ * flows) — there, "not the active item" isn't a lot-change anomaly, so callers may choose to
+ * report it separately from `item_changed` rather than have it hard-abort a legitimate purchase.
+ */
+export type RefreshVariantsResult =
+  | { status: 'fresh'; variants: LiveItemVariantSnapshot[] }
+  | { status: 'item_changed' }
+  | { status: 'fetch_failed' }
+  | { status: 'not_tracked' };
+
+export type CheckoutAvailabilityDecision =
+  | { proceed: true }
+  | { proceed: false; message: string; closeSheet: boolean };
+
+/**
+ * Decides whether pick-mode checkout may proceed to charge after a pre-charge availability
+ * re-check. Every `fresh`/`item_changed`/`fetch_failed` branch either confirms fresh availability
+ * or rejects the purchase attempt — there is no path there that trusts stale local data.
+ */
+export function evaluateFreshVariantsForCheckout(
+  result: RefreshVariantsResult,
+  selectedVariantId: string,
+): CheckoutAvailabilityDecision {
+  if (result.status === 'not_tracked') return { proceed: true };
+  if (result.status === 'item_changed') {
+    return {
+      proceed: false,
+      message: 'This lot has changed — please review before buying.',
+      closeSheet: true,
+    };
+  }
+  if (result.status === 'fetch_failed') {
+    return {
+      proceed: false,
+      message: "Couldn't verify availability — please try again.",
+      closeSheet: false,
+    };
+  }
+  const fresh = result.variants.find((v) => v.id === selectedVariantId);
+  if (!fresh || !variantIsAvailable(fresh)) {
+    return { proceed: false, message: 'This spot was just taken. Pick another.', closeSheet: false };
+  }
+  return { proceed: true };
+}
+
 export function availableVariantCount(variants: LiveItemVariantSnapshot[] | undefined): number {
   return (variants ?? []).filter(variantIsAvailable).length;
 }

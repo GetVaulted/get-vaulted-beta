@@ -51,7 +51,7 @@ export function ListingAssistantFAB({ bottomOffset = 96 }: { bottomOffset?: numb
       <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
         <KeyboardAvoidingView
           style={styles.modalRoot}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <Pressable style={styles.scrim} onPress={() => setOpen(false)} />
           <View style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>

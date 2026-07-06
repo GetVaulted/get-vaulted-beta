@@ -427,7 +427,7 @@ export function ScheduleVaultEventModal({
       <View style={styles.root}>
         <KeyboardAvoidingView
           style={styles.screen}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
             <Pressable onPress={onClose} hitSlop={12} accessibilityLabel="Close">
@@ -446,6 +446,7 @@ export function ScheduleVaultEventModal({
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             showsVerticalScrollIndicator={false}
+            automaticallyAdjustKeyboardInsets
           >
           <Text style={styles.label}>Event title</Text>
           <TextInput

@@ -5,7 +5,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } f
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LiveRoomItemRow } from '../../../api/liveRoomControlRepository';
 import { isVariantSalesFormat } from '../../../lib/liveItemVariant';
-import { buildVariantSpotDisplayRows, formatSoldSpotBuyerLabel, type VariantSpotDisplayRow } from '../../../lib/liveVariantSpotBoard';
+import { summarizeVariantSpotBoard, formatSoldSpotBuyerLabel, type VariantSpotDisplayRow } from '../../../lib/liveVariantSpotBoard';
 import { formatDivisionReelAbbr, spotAccentColor, teamAbbrForVariant, isLightSpotAccent } from '../../../lib/liveBreakPresets';
 import { colors, radii, spacing } from '../../../theme';
 import { LiveRoomText } from '../../live/LiveRoomText';
@@ -151,9 +151,7 @@ export function SellerBreakSpotBoardSheet({
 
   if (!item || !isVariantSalesFormat(item.salesFormat)) return null;
 
-  const rows = buildVariantSpotDisplayRows(item);
-  const soldCount = rows.filter((r) => r.sold).length;
-  const openCount = rows.length - soldCount;
+  const { rows, openCount, soldCount } = summarizeVariantSpotBoard(item);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>

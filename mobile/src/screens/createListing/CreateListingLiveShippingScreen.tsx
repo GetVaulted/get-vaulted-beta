@@ -127,6 +127,7 @@ export function CreateListingLiveShippingScreen({
         style={{ flex: 1 }}
         contentContainerStyle={wizardStyles.scroll}
         keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
       >
         <Text style={[styles.sectionK, { color: accent.primary }]}>Shipping mode</Text>
         <Text style={styles.sectionHint}>

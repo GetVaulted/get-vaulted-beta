@@ -66,8 +66,9 @@ function shippingFromAddress(addr: BuyerShippingAddressRow): MarketplaceCheckout
 
 export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const { session } = useAuth();
+  const { session, user } = useAuth();
   const token = session?.access_token;
+  const userId = user?.id;
   const { listingId, mode, walletSetupFirst = false } = route.params;
 
   const [loading, setLoading] = useState(true);
@@ -184,9 +185,9 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
 
   const selectShippingRate = useCallback((rate: MarketplaceCheckoutShippingRate) => {
     setSelectedRateId(rate.id);
-    void setBuyerPreferredShippingRateKey(checkoutRatePreferenceKey(rate));
+    void setBuyerPreferredShippingRateKey(userId, checkoutRatePreferenceKey(rate));
     setRatesPickerExpanded(false);
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     if (!token || !shippingPayload || usesFlatShipping) {
@@ -214,7 +215,7 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
           } else {
             setRatesError(rateErr);
           }
-          const preferredKey = await getBuyerPreferredShippingRateKey();
+          const preferredKey = await getBuyerPreferredShippingRateKey(userId);
           const picked = pickCheckoutShippingRate(rates, preferredKey);
           setSelectedRateId((prev) => {
             if (prev && rates.some((r) => r.id === prev)) return prev;
@@ -237,7 +238,7 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [flatShippingUsd, listingId, shippingPayload, token, usesFlatShipping]);
+  }, [flatShippingUsd, listingId, shippingPayload, token, usesFlatShipping, userId]);
 
   useEffect(() => {
     if (!usesFlatShipping && selectedRateId) {

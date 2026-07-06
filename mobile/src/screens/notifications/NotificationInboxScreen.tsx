@@ -16,6 +16,7 @@ import {
 } from '../../platform/notificationStore';
 import { openMessageThread } from '../../navigation/openMessages';
 import { openNotificationHref } from '../../navigation/openNotificationHref';
+import { openSellerOrderDetail } from '../../navigation/openSellerOrderDetail';
 import type { AppNotification } from '../../platform/notificationTypes';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
@@ -83,7 +84,21 @@ export function NotificationInboxScreen({ navigation }: Props) {
         screen: 'TradeCenter',
         params: { screen: 'TradeDetail', params: { tradeId: n.referenceId } },
       });
+      return;
     }
+    // Only the locally-generated "order ready to fulfill" notification (vaultRealtimeHub.ts)
+    // reaches here without an href, and it is only ever pushed to the seller of that order — so
+    // routing straight to SellerOrderDetail is unambiguous. Every other `order`-kind row (e.g.
+    // buyer purchase confirmations) carries a server href and is already handled above.
+    if (n.kind === 'order' && n.referenceId) {
+      openSellerOrderDetail(navigation, n.referenceId);
+      return;
+    }
+    // `review`, `counter`, and `layaway` rows without an href/referenceId-based handler above are
+    // intentionally left mark-read-only: the correct destination isn't derivable from what's
+    // stored on the notification alone (e.g. a locally-generated review reminder has no
+    // reviewType/subjectDisplayName, and a locally-generated layaway update doesn't say whether
+    // the current user is the buyer or seller of that layaway).
   };
 
   return (

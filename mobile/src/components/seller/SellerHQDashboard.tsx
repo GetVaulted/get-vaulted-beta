@@ -59,8 +59,8 @@ export function SellerHQDashboard({
     },
     {
       id: 'shipping',
-      label: 'Shipping profiles',
-      sub: 'Rates & live-show shipping',
+      label: 'Shipping settings',
+      sub: 'Set rates in the listing flow',
       icon: 'airplane-outline',
       onPress: () => {
         void openCreateListing(rootNav, { channel: 'marketplace' });

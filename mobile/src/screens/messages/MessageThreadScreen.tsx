@@ -23,9 +23,11 @@ import { useAuth } from '../../auth/AuthContext';
 import { MentionComposerInput } from '../../components/mentions/MentionComposerInput';
 import { MessageBubble } from '../../components/messages/MessageBubble';
 import { MessageContextBanner } from '../../components/messages/MessageContextBanner';
+import { PremiumEmptyPanel } from '../../components/empty/PremiumEmptyPanel';
 import type { RootStackParamList } from '../../navigation/types';
 import type { ThreadDetail, ThreadMessage } from '../../types/messages';
 import { colors, radii, spacing } from '../../theme';
+import { deriveMessageThreadViewState, describeThreadLoadError } from './messageThreadViewState';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MessageThread'>;
 
@@ -39,6 +41,7 @@ export function MessageThreadScreen({ navigation, route }: Props) {
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const listRef = useRef<FlatList>(null);
 
@@ -48,12 +51,18 @@ export function MessageThreadScreen({ navigation, route }: Props) {
       const data = await fetchMessageThread(token, threadId);
       setThread(data.thread);
       setMessages(data.messages);
+      setLoadError(null);
     } catch (e) {
-      Alert.alert('Messages', e instanceof Error ? e.message : 'Could not load thread.');
+      setLoadError(describeThreadLoadError(e));
     } finally {
       setLoading(false);
     }
   }, [threadId, token]);
+
+  const onRetryLoad = useCallback(() => {
+    setLoading(true);
+    void load();
+  }, [load]);
 
   useEffect(() => {
     void load();
@@ -99,11 +108,30 @@ export function MessageThreadScreen({ navigation, route }: Props) {
   };
 
   const uid = user?.id ?? '';
+  const viewState = deriveMessageThreadViewState({ loading, hasThread: !!thread, hasError: !!loadError });
 
-  if (loading && !thread) {
+  if (viewState === 'loading') {
     return (
       <View style={[styles.centered, { paddingTop: insets.top }]}>
         <ActivityIndicator color={colors.gold} size="large" />
+      </View>
+    );
+  }
+
+  if (viewState === 'error') {
+    return (
+      <View style={[styles.root, { paddingTop: insets.top, paddingHorizontal: spacing.lg }]}>
+        <Pressable style={styles.backFloating} onPress={() => navigation.goBack()} hitSlop={12}>
+          <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
+        </Pressable>
+        <View style={styles.errorWrap}>
+          <PremiumEmptyPanel
+            icon="cloud-offline-outline"
+            title="Couldn't load this conversation"
+            subtitle={loadError ?? 'Something went wrong. Try again.'}
+            actions={[{ label: 'Retry', onPress: onRetryLoad }]}
+          />
+        </View>
       </View>
     );
   }
@@ -201,6 +229,8 @@ export function MessageThreadScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background },
+  backFloating: { alignSelf: 'flex-start', padding: 4, marginBottom: spacing.md },
+  errorWrap: { flex: 1, justifyContent: 'center' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

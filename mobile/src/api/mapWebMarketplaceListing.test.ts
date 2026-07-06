@@ -42,3 +42,29 @@ describe('mapWebMarketplaceListingToProduct imageUrls', () => {
     );
   });
 });
+
+// Legal/compliance audit (2026-07): the "Vault verified" shield badge shown throughout the app
+// previously mirrored the seller-settable `vaultPick` editorial flag, so any seller could mark
+// their own listing "verified" at creation time. It must reflect the real, backend-computed
+// seller trust tier instead.
+describe('mapWebMarketplaceListingToProduct vaultVerified', () => {
+  it('is false when vaultPick is set but the seller has no verified tier', () => {
+    const listing: WebMarketplaceListing = { ...baseListing([]), vaultPick: true, sellerLevel: 'vault_seller' };
+    expect(mapWebMarketplaceListingToProduct(listing).vaultVerified).toBe(false);
+  });
+
+  it('is false when vaultPick is set and sellerLevel is absent', () => {
+    const listing: WebMarketplaceListing = { ...baseListing([]), vaultPick: true };
+    expect(mapWebMarketplaceListingToProduct(listing).vaultVerified).toBe(false);
+  });
+
+  it('is true when the seller has reached the vault_verified tier, regardless of vaultPick', () => {
+    const listing: WebMarketplaceListing = { ...baseListing([]), vaultPick: false, sellerLevel: 'vault_verified' };
+    expect(mapWebMarketplaceListingToProduct(listing).vaultVerified).toBe(true);
+  });
+
+  it('is true for elite_vault_verified sellers', () => {
+    const listing: WebMarketplaceListing = { ...baseListing([]), sellerLevel: 'elite_vault_verified' };
+    expect(mapWebMarketplaceListingToProduct(listing).vaultVerified).toBe(true);
+  });
+});

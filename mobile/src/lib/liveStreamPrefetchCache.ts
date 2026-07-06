@@ -88,6 +88,19 @@ async function warmStream(roomId: string, accessToken?: string): Promise<BuyerSa
   return job;
 }
 
+/**
+ * Wipe every in-memory prefetch entry — stream metadata and short-lived Stage playback tokens.
+ * Call whenever the signed-in user changes (sign-out, or a different account signing in without a
+ * force-quit) so a brief window right after an account switch can't serve a previous user's
+ * prefetched playback data to the next one.
+ */
+export function clearLiveStreamPrefetchCache(): void {
+  streamCache.clear();
+  tokenCache.clear();
+  streamInflight.clear();
+  tokenInflight.clear();
+}
+
 /** Parallel warm-up for the live feed pager — stream metadata + optional Stage tokens. */
 export function prefetchLiveStreamRooms(roomIds: string[], accessToken?: string): void {
   const unique = [...new Set(roomIds.filter(Boolean))];

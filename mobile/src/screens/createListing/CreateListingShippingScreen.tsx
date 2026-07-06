@@ -482,6 +482,7 @@ export function CreateListingShippingScreen({
         style={{ flex: 1 }}
         contentContainerStyle={wizardStyles.scroll}
         keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
       >
         <View style={styles.callout}>
           <Ionicons name="information-circle-outline" size={22} color={colors.gold} />

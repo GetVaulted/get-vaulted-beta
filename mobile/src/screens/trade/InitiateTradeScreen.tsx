@@ -22,6 +22,7 @@ import {
   fetchLiveListingsExcludingSeller,
   fetchMyLiveListings,
   insertTradeOffer,
+  resolvePublishedListingSellerId,
 } from '../../api/tradeOffersRepository';
 import type { ListingLite, ShippingWeightTier } from '../../types/tradeOffers';
 import { listingToTradeItem } from '../../trade/listingToTradeItem';
@@ -59,8 +60,13 @@ export function InitiateTradeScreen() {
     if (!user || !supabaseOk) return;
     setListBusy(true);
     try {
+      // Scope "their item" to the seller of the listing this trade was started from — otherwise
+      // every other seller's tradeable inventory would leak into this picker.
+      const targetSellerId = requestedListingId
+        ? await resolvePublishedListingSellerId(requestedListingId)
+        : null;
       const [theirs, mine] = await Promise.all([
-        fetchLiveListingsExcludingSeller(user.id),
+        fetchLiveListingsExcludingSeller(user.id, targetSellerId ?? undefined),
         fetchMyLiveListings(user.id),
       ]);
       setTheirListings(theirs);

@@ -14,7 +14,6 @@ import {
   NativeSyntheticEvent,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   View,
@@ -33,6 +32,7 @@ import { fetchListingDetailFromWeb, type WebStoredListing } from '../api/webList
 import { SellerListingEndControls } from '../components/seller/SellerListingEndControls';
 import { PremiumEmptyPanel } from '../components/empty/PremiumEmptyPanel';
 import { PremiumVaultButton } from '../components/product/PremiumVaultButton';
+import { ZoomableImage } from '../components/product/ZoomableImage';
 import { HostRow } from '../components/ui/HostRow';
 import { ReportButton } from '../components/trust/ReportSheet';
 import { enrichListing } from '../data/productListingEnrichment';
@@ -55,6 +55,7 @@ import { alertGuestBuyRestricted } from '../navigation/guestExploreGuards';
 import { openMessageSellerForListing } from '../navigation/openMessages';
 import { openContactSupport, openDispute, openUserProfile } from '../navigation/openPlatform';
 import { fetchSellerFollowStatus, toggleSellerFollow } from '../api/sellerFollowRepository';
+import { shareListingNative } from '../lib/shareListingNative';
 import { useAuth } from '../auth/AuthContext';
 import type { Product } from '../types';
 import { colors, radii, spacing, typography } from '../theme';
@@ -203,14 +204,28 @@ export function ProductDetailScreen({ navigation, route }: Props) {
     openMarketplaceTrade(rootNav, product, commerceOpts);
   };
 
-  const goMakeOffer = () => {
-    if (!product) return;
-    openMarketplaceMakeOffer(navigation, () => setOfferSheetOpen(true), product, commerceOpts);
+  const [makeOfferBusy, setMakeOfferBusy] = useState(false);
+
+  const goMakeOffer = async () => {
+    if (!product || makeOfferBusy) return;
+    setMakeOfferBusy(true);
+    try {
+      await openMarketplaceMakeOffer(navigation, () => setOfferSheetOpen(true), product, commerceOpts);
+    } finally {
+      setMakeOfferBusy(false);
+    }
   };
 
-  const goBuyNow = () => {
-    if (!product) return;
-    void openMarketplaceBuyNow(navigation, product, commerceOpts);
+  const [buyNowBusy, setBuyNowBusy] = useState(false);
+
+  const goBuyNow = async () => {
+    if (!product || buyNowBusy) return;
+    setBuyNowBusy(true);
+    try {
+      await openMarketplaceBuyNow(navigation, product, commerceOpts);
+    } finally {
+      setBuyNowBusy(false);
+    }
   };
 
   const goLayaway = () => {
@@ -224,8 +239,12 @@ export function ProductDetailScreen({ navigation, route }: Props) {
     if (!pending) return;
     if (pending === 'buy_now') void openMarketplaceBuyNow(navigation, product, commerceOpts);
     else if (pending === 'layaway') void openMarketplaceLayaway(navigation, product, commerceOpts);
-    else if (pending === 'make_offer') openMarketplaceMakeOffer(navigation, () => setOfferSheetOpen(true), product, commerceOpts);
-    else if (pending === 'trade') openMarketplaceTrade(rootNav, product, commerceOpts);
+    else if (pending === 'make_offer') {
+      setMakeOfferBusy(true);
+      void openMarketplaceMakeOffer(navigation, () => setOfferSheetOpen(true), product, commerceOpts).finally(
+        () => setMakeOfferBusy(false),
+      );
+    } else if (pending === 'trade') openMarketplaceTrade(rootNav, product, commerceOpts);
   }, [commerceOpts, guestExploreMode, navigation, product, rootNav, session?.access_token]);
 
   const layawayAvailable = product?.allowLayaway === true;
@@ -244,14 +263,7 @@ export function ProductDetailScreen({ navigation, route }: Props) {
 
   const shareListing = async () => {
     if (!product) return;
-    try {
-      await Share.share({
-        title: product.title,
-        message: `${product.title} — ${product.listingPrice} on Get Vaulted`,
-      });
-    } catch {
-      /* user cancelled */
-    }
+    await shareListingNative(product);
   };
 
   const onGalleryScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -428,7 +440,8 @@ export function ProductDetailScreen({ navigation, route }: Props) {
                   variant="primary"
                   label={`Buy now · ${vm.pricing.buyNow}`}
                   icon="bag-outline"
-                  onPress={goBuyNow}
+                  onPress={() => void goBuyNow()}
+                  loading={buyNowBusy}
                   flex
                   compact={compact}
                 />
@@ -441,7 +454,8 @@ export function ProductDetailScreen({ navigation, route }: Props) {
                       variant="secondary"
                       label="Make offer"
                       icon="pricetag-outline"
-                      onPress={goMakeOffer}
+                      onPress={() => void goMakeOffer()}
+                      loading={makeOfferBusy}
                       flex
                       compact={compact}
                     />
@@ -689,7 +703,8 @@ export function ProductDetailScreen({ navigation, route }: Props) {
               variant="primary"
               label="Buy now"
               icon="bag-outline"
-              onPress={goBuyNow}
+              onPress={() => void goBuyNow()}
+              loading={buyNowBusy}
               compact={compact}
             />
           ) : null}
@@ -701,9 +716,7 @@ export function ProductDetailScreen({ navigation, route }: Props) {
           <Pressable style={styles.zoomClose} onPress={() => setZoomUri(null)}>
             <Ionicons name="close" size={28} color={colors.textPrimary} />
           </Pressable>
-          {zoomUri ? (
-            <Image source={{ uri: zoomUri }} style={styles.zoomImg} resizeMode="contain" />
-          ) : null}
+          {zoomUri ? <ZoomableImage key={zoomUri} uri={zoomUri} style={styles.zoomImg} /> : null}
         </View>
       </Modal>
 

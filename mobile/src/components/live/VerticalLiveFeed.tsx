@@ -117,6 +117,7 @@ import {
   type LiveRoomBroadcastGate,
 } from '../../lib/liveRoomBroadcastOnAir';
 import { isVariantSpotAuctionLive } from '../../lib/liveVariantSpotCommerce';
+import type { RefreshVariantsResult } from '../../lib/liveItemVariant';
 
 function chatRightEdgeForWidth(layoutWidth: number): number {
   if (layoutWidth >= 768) return Math.round(92 * liveRoomOverlayScale(layoutWidth));
@@ -1632,6 +1633,25 @@ function LiveSlide({
           onSpotCelebration={liveSession.showSpotCelebration}
           viewerUsername={myChatSender.username}
           onRoomRefresh={() => void liveSession.fetchSnapshot()}
+          onRefreshVariants={async (): Promise<RefreshVariantsResult> => {
+            // Only the currently-active lot's variants come back on the snapshot; browsing/buying
+            // a queued (not-yet-live) item has no fresher source than the local `variants` prop,
+            // so checkout falls back to its existing local validation in that case (`not_tracked`)
+            // — unrelated to the active-lot-changed case this sheet also guards against elsewhere,
+            // since this item was never expected to be the active lot in the first place. A
+            // network failure still aborts the same as it does for the active-lot checkout path
+            // (see `evaluateFreshVariantsForCheckout`).
+            const requestedItemId = shopSpotItem.id;
+            let snap: Awaited<ReturnType<typeof liveSession.fetchSnapshot>> | null;
+            try {
+              snap = await liveSession.fetchSnapshot();
+            } catch {
+              snap = null;
+            }
+            if (!snap) return { status: 'fetch_failed' };
+            if (snap.activeItemId !== requestedItemId) return { status: 'not_tracked' };
+            return { status: 'fresh', variants: snap.activeItemVariants ?? [] };
+          }}
         />
       ) : null}
       {accessToken && preBidItem ? (
@@ -1760,6 +1780,18 @@ export function VerticalLiveFeed({
     const i = streams.findIndex((s) => s.id === initialStreamId);
     return i >= 0 ? i : 0;
   }, [initialStreamId, streams]);
+
+  // A specifically deep-linked stream that isn't in the discovery list (ended, or the link was
+  // bad) must not silently fall back to whatever show happens to land at index 0 — that's a
+  // confusing "wrong show" bug. Show an explicit message and only fall back to the general feed
+  // once the user acknowledges it. Resets whenever a new streamId is requested.
+  const [dismissedMissingStream, setDismissedMissingStream] = useState(false);
+  useEffect(() => {
+    setDismissedMissingStream(false);
+  }, [initialStreamId]);
+
+  const requestedStreamMissing =
+    Boolean(initialStreamId) && streams.length > 0 && !streams.some((s) => s.id === initialStreamId);
 
   const [page, setPage] = useState(startIndex);
   const [peekPage, setPeekPage] = useState<number | null>(null);
@@ -1891,6 +1923,65 @@ export function VerticalLiveFeed({
             style={{
               alignSelf: 'center',
               marginTop: spacing.sm,
+              paddingHorizontal: spacing.xl,
+              paddingVertical: spacing.md,
+              borderRadius: radii.pill,
+              borderWidth: 1,
+              borderColor: colors.borderStrong,
+            }}
+          >
+            <Text style={{ color: colors.gold, fontWeight: '800' }}>Go back</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
+
+  if (requestedStreamMissing && !dismissedMissingStream) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: colors.background,
+          paddingHorizontal: spacing.lg,
+          justifyContent: 'center',
+          gap: spacing.md,
+        }}
+      >
+        <View
+          style={{
+            borderRadius: radii.lg,
+            borderWidth: 1,
+            borderColor: colors.borderStrong,
+            backgroundColor: colors.surfaceElevated,
+            padding: spacing.xl,
+            gap: spacing.sm,
+          }}
+        >
+          <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '800' }}>
+            This show has ended or is no longer available
+          </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: 14, lineHeight: 20 }}>
+            The live show you opened isn&apos;t airing right now. You can browse what&apos;s live instead.
+          </Text>
+        </View>
+        <Pressable
+          onPress={() => setDismissedMissingStream(true)}
+          style={{
+            alignSelf: 'center',
+            paddingHorizontal: spacing.xl,
+            paddingVertical: spacing.md,
+            borderRadius: radii.pill,
+            backgroundColor: colors.gold,
+          }}
+        >
+          <Text style={{ color: '#0a0a0a', fontWeight: '800' }}>Browse other live shows</Text>
+        </Pressable>
+        {onBack ? (
+          <Pressable
+            onPress={onBack}
+            style={{
+              alignSelf: 'center',
               paddingHorizontal: spacing.xl,
               paddingVertical: spacing.md,
               borderRadius: radii.pill,

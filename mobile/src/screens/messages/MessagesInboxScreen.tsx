@@ -19,6 +19,7 @@ import type { RootStackParamList } from '../../navigation/types';
 import { openMessageThread } from '../../navigation/openMessages';
 import type { ThreadListItem } from '../../types/messages';
 import { colors, radii, spacing } from '../../theme';
+import { deriveMessagesInboxViewState, describeInboxLoadError } from './messagesInboxViewState';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MessagesInbox'>;
 
@@ -32,10 +33,12 @@ export function MessagesInboxScreen({ navigation }: Props) {
   const [requestCount, setRequestCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token) {
       setThreads([]);
+      setLoadError(null);
       setLoading(false);
       return;
     }
@@ -43,8 +46,9 @@ export function MessagesInboxScreen({ navigation }: Props) {
       const data = await fetchMessageThreads(token, inbox);
       setThreads(data.threads);
       setRequestCount(data.requestCount);
-    } catch {
-      setThreads([]);
+      setLoadError(null);
+    } catch (e) {
+      setLoadError(describeInboxLoadError(e));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -60,6 +64,8 @@ export function MessagesInboxScreen({ navigation }: Props) {
     setRefreshing(true);
     void load();
   };
+
+  const viewState = deriveMessagesInboxViewState({ loading, hasError: !!loadError, threadCount: threads.length });
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -98,7 +104,7 @@ export function MessagesInboxScreen({ navigation }: Props) {
         </Pressable>
       </View>
 
-      {loading ? (
+      {viewState === 'loading' ? (
         <ActivityIndicator color={colors.gold} style={{ marginTop: spacing.xl }} />
       ) : (
         <FlatList
@@ -107,17 +113,28 @@ export function MessagesInboxScreen({ navigation }: Props) {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.gold} />}
           contentContainerStyle={threads.length === 0 ? styles.emptyList : styles.list}
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Ionicons name="chatbubbles-outline" size={40} color={colors.textMuted} />
-              <Text style={styles.emptyTitle}>
-                {inbox === 'request' ? 'No message requests' : 'No conversations yet'}
-              </Text>
-              <Text style={styles.emptySub}>
-                {inbox === 'request'
-                  ? 'New collectors will appear here until you accept.'
-                  : 'Message a seller from a listing or live show to start negotiating.'}
-              </Text>
-            </View>
+            viewState === 'error' ? (
+              <View style={styles.empty}>
+                <Ionicons name="cloud-offline-outline" size={40} color={colors.textMuted} />
+                <Text style={styles.emptyTitle}>Couldn't load your messages</Text>
+                <Text style={styles.emptySub}>{loadError ?? 'Check your connection and try again.'}</Text>
+                <Pressable style={styles.retryBtn} onPress={() => void load()}>
+                  <Text style={styles.retryTxt}>Retry</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View style={styles.empty}>
+                <Ionicons name="chatbubbles-outline" size={40} color={colors.textMuted} />
+                <Text style={styles.emptyTitle}>
+                  {inbox === 'request' ? 'No message requests' : 'No conversations yet'}
+                </Text>
+                <Text style={styles.emptySub}>
+                  {inbox === 'request'
+                    ? 'New collectors will appear here until you accept.'
+                    : 'Message a seller from a listing or live show to start negotiating.'}
+                </Text>
+              </View>
+            )
           }
           renderItem={({ item }) => (
             <MessageThreadCard
@@ -182,4 +199,13 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', paddingHorizontal: spacing.xl, gap: spacing.sm },
   emptyTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary, textAlign: 'center' },
   emptySub: { fontSize: 13, color: colors.textMuted, textAlign: 'center', lineHeight: 18 },
+  retryBtn: {
+    marginTop: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.gold,
+  },
+  retryTxt: { color: colors.gold, fontWeight: '800', fontSize: 14 },
 });

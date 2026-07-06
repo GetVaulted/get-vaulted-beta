@@ -7,7 +7,7 @@ import { useCreateListingDraft } from './CreateListingDraftContext';
 /** Prefills marketplace + live ship-from ZIP from seller onboarding address when empty. */
 export function useSellerShipFromZipPrefill(): string | null {
   const { session, user } = useAuth();
-  const setup = useSellerSetupState(session?.access_token, Boolean(user?.id));
+  const setup = useSellerSetupState(session?.access_token, user?.id, Boolean(user?.id));
   const { form, setForm } = useCreateListingDraft();
   const appliedRef = useRef(false);
 

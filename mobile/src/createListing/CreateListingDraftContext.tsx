@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { useResetStateOnAccountSwitch } from '../auth/useResetStateOnAccountSwitch';
 import {
   pickPhotoFromCamera,
   pickPhotosFromLibrary,
@@ -96,6 +97,20 @@ type Ctx = {
 
 const CreateListingDraftContext = createContext<Ctx | null>(null);
 
+/**
+ * Set by whichever `CreateListingDraftProvider` instance is currently mounted, so
+ * `performSignOut` (a plain function outside React) can force a full reset of this provider's
+ * in-memory state — draft form fields, saved drafts, listings cache, assistant chat — even though
+ * it lives in React context. This is the belt-and-suspenders path for a normal sign-out; the
+ * `useResetStateOnAccountSwitch` hook inside the provider is the defensive fallback for any other
+ * code path that changes the signed-in user without going through `performSignOut`.
+ */
+let registeredResetForSignOut: (() => void) | null = null;
+
+export function resetCreateListingDraftForSignOut(): void {
+  registeredResetForSignOut?.();
+}
+
 function formToPrice(f: CreateListingFormState): string {
   switch (f.listingType) {
     case 'buy_now':
@@ -123,6 +138,23 @@ export function CreateListingDraftProvider({ children }: { children: ReactNode }
   draftsRef.current = drafts;
   const formRef = useRef(form);
   formRef.current = form;
+
+  const resetForAccountChange = useCallback(() => {
+    setFormState(emptyCreateListingForm());
+    setUserListings([]);
+    setDrafts([]);
+    setEditingDraftId(null);
+    setAssistantMessages(WELCOME_ASSISTANT);
+  }, []);
+
+  useResetStateOnAccountSwitch(resetForAccountChange);
+
+  useEffect(() => {
+    registeredResetForSignOut = resetForAccountChange;
+    return () => {
+      if (registeredResetForSignOut === resetForAccountChange) registeredResetForSignOut = null;
+    };
+  }, [resetForAccountChange]);
 
   const setForm = useCallback((patch: Partial<CreateListingFormState>) => {
     setFormState((s) => {

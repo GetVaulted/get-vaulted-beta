@@ -70,6 +70,42 @@ export function buildVariantSpotDisplayRows(
   });
 }
 
+export type VariantSpotBoardSummary = {
+  rows: VariantSpotDisplayRow[];
+  openCount: number;
+  soldCount: number;
+};
+
+/**
+ * Same rows as `buildVariantSpotDisplayRows`, plus a host-facing open/sold summary.
+ *
+ * For random PYT/PYD pools, per-label "sold" flags come from `randomSpotClaims`, a realtime
+ * claim feed that can lag behind actual paid purchases. The numeric summary instead reconciles
+ * with the pool variant's server-authoritative `quantityRemaining` when available, so the host
+ * never sees an "X open" count that disagrees with confirmed inventory. `randomSpotClaims`
+ * remains the (secondary, display-only) source for which SPECIFIC labels show as taken.
+ */
+export function summarizeVariantSpotBoard(
+  item: Pick<LiveRoomItemRow, 'salesFormat' | 'variantAssignmentMode' | 'variants'> & {
+    randomSpotClaims?: RandomSpotClaim[];
+  },
+): VariantSpotBoardSummary {
+  const rows = buildVariantSpotDisplayRows(item);
+  if (rows.length === 0) return { rows, openCount: 0, soldCount: 0 };
+
+  if (isRandomVariantAssignment(item.variantAssignmentMode)) {
+    const poolVariant = item.variants?.[0];
+    const authoritativeRemaining = poolVariant?.quantityRemaining;
+    if (typeof authoritativeRemaining === 'number' && Number.isFinite(authoritativeRemaining)) {
+      const openCount = Math.max(0, Math.min(rows.length, authoritativeRemaining));
+      return { rows, openCount, soldCount: rows.length - openCount };
+    }
+  }
+
+  const soldCount = rows.filter((r) => r.sold).length;
+  return { rows, openCount: rows.length - soldCount, soldCount };
+}
+
 /** Merge a live random-reveal assignment into host item state (no server deploy required). */
 export function mergeRandomSpotClaimIntoItem(
   item: LiveRoomItemRow,

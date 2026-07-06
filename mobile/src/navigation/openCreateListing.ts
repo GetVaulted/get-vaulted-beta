@@ -74,7 +74,7 @@ export async function openCreateListing(
     return;
   }
 
-  const localWizard = await readSellerWizardComplete();
+  const localWizard = await readSellerWizardComplete(data.session.user?.id);
   try {
     const payload = await fetchSellerAccount(data.session.access_token);
     const checks = normalizeSellerReadinessChecks(payload.readiness?.checks as Record<string, boolean> | undefined);

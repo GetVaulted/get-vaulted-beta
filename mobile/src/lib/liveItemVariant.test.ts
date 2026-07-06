@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
 import {
   availableVariantCount,
+  evaluateFreshVariantsForCheckout,
   isActiveVariantBuyerItem,
   isVariantSalesFormat,
   sortVariantsForBuyerDisplay,
@@ -77,6 +78,64 @@ describe('summarizeVariantSpots', () => {
     ]);
     expect(stats.fromPriceUsd).toBe(35);
     expect(stats.available).toBe(1);
+  });
+});
+
+// Regression (2026-07 pick-mode overcharge gap): the pre-charge refresh must abort checkout for
+// BOTH "the active lot changed" and "the refresh request failed" — collapsing these into one
+// nullable case previously let checkout fall through and charge against stale local data.
+describe('evaluateFreshVariantsForCheckout', () => {
+  const availableVariant = {
+    id: 'v1',
+    label: 'Team A',
+    priceUsd: 10,
+    quantityRemaining: 1,
+    soldCount: 0,
+    isHot: false,
+    sortOrder: 0,
+    status: 'available',
+    buyerUsername: null,
+  };
+
+  it('proceeds when the fresh snapshot confirms the selected spot is still available', () => {
+    const decision = evaluateFreshVariantsForCheckout({ status: 'fresh', variants: [availableVariant] }, 'v1');
+    expect(decision).toEqual({ proceed: true });
+  });
+
+  it('aborts and closes the sheet when the active lot changed underneath the buyer', () => {
+    const decision = evaluateFreshVariantsForCheckout({ status: 'item_changed' }, 'v1');
+    expect(decision.proceed).toBe(false);
+    if (decision.proceed) throw new Error('unreachable');
+    expect(decision.closeSheet).toBe(true);
+    expect(decision.message).toMatch(/lot has changed/i);
+  });
+
+  it('aborts without closing the sheet when the refresh request itself failed (network error)', () => {
+    const decision = evaluateFreshVariantsForCheckout({ status: 'fetch_failed' }, 'v1');
+    expect(decision.proceed).toBe(false);
+    if (decision.proceed) throw new Error('unreachable');
+    expect(decision.closeSheet).toBe(false);
+    expect(decision.message).toMatch(/couldn't verify availability/i);
+  });
+
+  it('aborts when the fresh snapshot shows the selected spot was just taken', () => {
+    const decision = evaluateFreshVariantsForCheckout(
+      { status: 'fresh', variants: [{ ...availableVariant, quantityRemaining: 0, status: 'sold_out' }] },
+      'v1',
+    );
+    expect(decision.proceed).toBe(false);
+    if (decision.proceed) throw new Error('unreachable');
+    expect(decision.closeSheet).toBe(false);
+  });
+
+  it('aborts when the selected spot is no longer present in the fresh snapshot', () => {
+    const decision = evaluateFreshVariantsForCheckout({ status: 'fresh', variants: [] }, 'v1');
+    expect(decision.proceed).toBe(false);
+  });
+
+  it('proceeds on a local-trust basis when the item was never tracked as the active lot (pre-live shop flow)', () => {
+    const decision = evaluateFreshVariantsForCheckout({ status: 'not_tracked' }, 'v1');
+    expect(decision).toEqual({ proceed: true });
   });
 });
 

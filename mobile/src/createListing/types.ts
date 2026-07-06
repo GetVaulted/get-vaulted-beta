@@ -47,6 +47,15 @@ export function countListingPhotos(media: ListingMediaItem[]): number {
   return media.filter((m) => m.kind === 'photo').length;
 }
 
+/**
+ * The mobile media step lets sellers attach a video, but the web listing model/publish API has no
+ * video field yet — video attachments are never uploaded or referenced. Callers must warn before
+ * publishing so this isn't a silent drop; see `listingsPublishRepository.ts`.
+ */
+export function listingHasVideo(media: ListingMediaItem[]): boolean {
+  return media.some((m) => m.kind === 'video');
+}
+
 export const LISTING_COMMERCE_OPTIONS: {
   id: ListingCommerceType;
   label: string;

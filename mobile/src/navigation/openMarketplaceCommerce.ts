@@ -87,7 +87,14 @@ export async function openMarketplaceBuyNow(
     promptMarketplaceSignIn(product.id, 'buy_now');
     return;
   }
-  await openMarketplaceCheckout(navigation, product, 'buy_now', opts.accessToken);
+  try {
+    await openMarketplaceCheckout(navigation, product, 'buy_now', opts.accessToken);
+  } catch (e) {
+    Alert.alert(
+      'Something went wrong',
+      e instanceof Error && e.message.trim() ? e.message : 'Please try again.',
+    );
+  }
 }
 
 export async function openMarketplaceLayaway(
@@ -99,10 +106,17 @@ export async function openMarketplaceLayaway(
     promptMarketplaceSignIn(product.id, 'layaway');
     return;
   }
-  await openMarketplaceCheckout(navigation, product, 'layaway', opts.accessToken);
+  try {
+    await openMarketplaceCheckout(navigation, product, 'layaway', opts.accessToken);
+  } catch (e) {
+    Alert.alert(
+      'Something went wrong',
+      e instanceof Error && e.message.trim() ? e.message : 'Please try again.',
+    );
+  }
 }
 
-export function openMarketplaceMakeOffer(
+export async function openMarketplaceMakeOffer(
   navigation: RootNav,
   onOpen: () => void,
   product: Product,
@@ -112,8 +126,8 @@ export function openMarketplaceMakeOffer(
     promptMarketplaceSignIn(product.id, 'make_offer');
     return;
   }
-  void (async () => {
-    const ready = await ensureBuyerWalletReady(opts.accessToken!);
+  try {
+    const ready = await ensureBuyerWalletReady(opts.accessToken);
     if (!ready.paymentReady || !ready.shippingReady) {
       Alert.alert(
         'Vault Wallet setup',
@@ -126,7 +140,12 @@ export function openMarketplaceMakeOffer(
       return;
     }
     onOpen();
-  })();
+  } catch (e) {
+    Alert.alert(
+      'Something went wrong',
+      e instanceof Error && e.message.trim() ? e.message : 'Please try again.',
+    );
+  }
 }
 
 export function openMarketplaceTrade(

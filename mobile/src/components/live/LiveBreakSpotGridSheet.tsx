@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useStripe } from '@stripe/stripe-react-native';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Modal,
   Pressable,
@@ -31,7 +31,9 @@ import {
   variantIsAvailable,
   variantSelectSpotLabel,
   isRandomVariantAssignment,
+  evaluateFreshVariantsForCheckout,
   type LiveItemSalesFormat,
+  type RefreshVariantsResult,
 } from '../../lib/liveItemVariant';
 import { colors, radii, spacing } from '../../theme';
 import { buildLocalVariantPurchaseCelebration, type LiveSpotTakenCelebration } from '../../lib/liveSpotCelebration';
@@ -65,6 +67,14 @@ type Props = {
   viewerUsername?: string | null;
   /** Refetch room snapshot after failed checkout so released spots reappear. */
   onRoomRefresh?: () => void | Promise<void>;
+  /**
+   * Pull fresh server-authoritative variant availability for this item, immediately before
+   * charging (pick-mode only). Must resolve to a discriminated result rather than a bare
+   * nullable array so checkout can tell "the active lot changed" apart from "the refresh
+   * request failed" — both abort the charge, but with different messaging (see
+   * `evaluateFreshVariantsForCheckout`).
+   */
+  onRefreshVariants?: () => Promise<RefreshVariantsResult>;
   /** HUD may already have loaded this — reuse while the sheet refetches for the selected spot. */
   seedCheckoutPreview?: LiveVariantCheckoutPreview | null;
 };
@@ -92,6 +102,7 @@ export function LiveBreakSpotGridSheet({
   onSpotCelebration,
   viewerUsername,
   onRoomRefresh,
+  onRefreshVariants,
   seedCheckoutPreview = null,
 }: Props) {
   const insets = useSafeAreaInsets();
@@ -102,6 +113,9 @@ export function LiveBreakSpotGridSheet({
   const [error, setError] = useState<string | null>(null);
   const [checkoutPreview, setCheckoutPreview] = useState<LiveVariantCheckoutPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  // FIX 3: synchronous in-flight guard — a React state update (`busy`) is not immediate, so a
+  // second hold-to-commit within the same render cycle could otherwise start a second checkout.
+  const checkoutInFlightRef = useRef(false);
 
   const isRandom = isRandomVariantAssignment(variantAssignmentMode);
   const pickerVariants = useMemo(() => {
@@ -121,11 +135,18 @@ export function LiveBreakSpotGridSheet({
     return Math.round(selected.priceUsd * quantity * 100) / 100;
   }, [quantity, selected]);
 
+  // FIX 4: a seed is only trustworthy when it was computed for THIS item — matching price alone
+  // isn't enough (two different items can coincidentally share a spot price). A seed missing an
+  // item id at all is treated as untrustworthy and ignored so a fresh preview is fetched instead.
+  const seedMatchesActiveItem = Boolean(
+    seedCheckoutPreview &&
+      seedCheckoutPreview.liveRoomItemId &&
+      seedCheckoutPreview.liveRoomItemId === itemId &&
+      Math.abs(seedCheckoutPreview.itemPriceUsd - spotPrice) < 0.01,
+  );
+
   const effectivePreview =
-    checkoutPreview ??
-    (seedCheckoutPreview && Math.abs(seedCheckoutPreview.itemPriceUsd - spotPrice) < 0.01
-      ? seedCheckoutPreview
-      : null);
+    checkoutPreview ?? (seedMatchesActiveItem ? seedCheckoutPreview : null);
 
   const totalDue = effectivePreview?.chargeNowUsd ?? spotPrice;
   const chargeNow = totalDue;
@@ -151,6 +172,7 @@ export function LiveBreakSpotGridSheet({
       setSelectedId(null);
       setError(null);
       setBusy(false);
+      checkoutInFlightRef.current = false;
       setCheckoutPreview(null);
       setPreviewLoading(false);
       return;
@@ -179,10 +201,7 @@ export function LiveBreakSpotGridSheet({
       return;
     }
 
-    if (
-      seedCheckoutPreview &&
-      Math.abs(seedCheckoutPreview.itemPriceUsd - spotPrice) < 0.01
-    ) {
+    if (seedMatchesActiveItem && seedCheckoutPreview) {
       setCheckoutPreview(seedCheckoutPreview);
       setPreviewLoading(false);
       return;
@@ -231,7 +250,7 @@ export function LiveBreakSpotGridSheet({
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [accessToken, itemId, roomId, seedCheckoutPreview, spotPrice, visible, walletReady]);
+  }, [accessToken, itemId, roomId, seedCheckoutPreview, seedMatchesActiveItem, spotPrice, visible, walletReady]);
 
   const pickerTitle = selected
     ? `${pickerBaseLabel}: ${selected.label}`
@@ -258,6 +277,9 @@ export function LiveBreakSpotGridSheet({
   };
 
   const checkout = async () => {
+    // FIX 3: synchronous guard checked before any async work — `busy` is a React state update
+    // and is not guaranteed to have re-rendered yet when a second hold-to-commit fires.
+    if (checkoutInFlightRef.current) return;
     if (!selected) {
       setError(`Select ${isDivisionBreak ? 'a division' : 'a team'} first.`);
       return;
@@ -274,9 +296,31 @@ export function LiveBreakSpotGridSheet({
       onWalletRequired();
       return;
     }
+    checkoutInFlightRef.current = true;
     setBusy(true);
     setError(null);
     try {
+      // FIX 2 (re-validate before charging) + FIX (2026-07 gap): every path through this block
+      // when `onRefreshVariants` is provided must either confirm fresh availability or reject the
+      // purchase attempt — never silently trust the (possibly stale) local `variants` prop, both
+      // when the active lot changed underneath the buyer and when the refresh request itself
+      // failed. Pick mode only — random-pool assignment doesn't pre-select a specific spot, so
+      // there's nothing to re-validate here; Vault Reveal assigns from whatever remains.
+      if (!isRandom && onRefreshVariants) {
+        let result: RefreshVariantsResult;
+        try {
+          result = await onRefreshVariants();
+        } catch {
+          result = { status: 'fetch_failed' };
+        }
+        const decision = evaluateFreshVariantsForCheckout(result, selected.id);
+        if (!decision.proceed) {
+          setError(decision.message);
+          setSelectedId(null);
+          if (decision.closeSheet) onClose();
+          return;
+        }
+      }
       const paymentSession = accessToken?.trim()
         ? await fetchLiveBuyerPaymentSession(accessToken, roomId)
         : null;
@@ -377,6 +421,7 @@ export function LiveBreakSpotGridSheet({
       }
       setError(e instanceof Error ? e.message : 'Checkout failed.');
     } finally {
+      checkoutInFlightRef.current = false;
       setBusy(false);
     }
   };

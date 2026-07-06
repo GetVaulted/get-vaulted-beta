@@ -307,13 +307,30 @@ export function subscribeTradeOffer(
   };
 }
 
-export async function fetchLiveListingsExcludingSeller(sbUserId: string): Promise<ListingLite[]> {
+/** Resolves the sellerId of a published listing so callers can scope a trade to that one seller. */
+export async function resolvePublishedListingSellerId(listingId: string): Promise<string | null> {
+  const rows = await fetchPublishedListingsFromWeb();
+  return rows.find((l) => l.id === listingId)?.sellerId ?? null;
+}
+
+/**
+ * Tradeable listings from other sellers, optionally scoped to a single target seller.
+ *
+ * Pass `targetSellerId` whenever the trade was initiated from a specific listing (e.g. tapping
+ * "Trade" on a listing's detail page) so "What you'll get" only shows that seller's inventory —
+ * without it, this would leak every other seller's tradeable listings into the picker.
+ */
+export async function fetchLiveListingsExcludingSeller(
+  sbUserId: string,
+  targetSellerId?: string,
+): Promise<ListingLite[]> {
   const rows = await fetchPublishedListingsFromWeb();
   return rows
     .filter(
       (l) =>
         l.sellerId &&
         l.sellerId !== sbUserId &&
+        (!targetSellerId || l.sellerId === targetSellerId) &&
         l.acceptTradeOffers &&
         (l.listingStatus === 'active' || l.listingStatus === 'auction_live'),
     )

@@ -84,7 +84,7 @@ export function SellerHubScreen() {
     supabaseUserId: user?.id,
     enabled: Boolean(liveRoom?.id),
   });
-  const sellerSetup = useSellerSetupState(session?.access_token, Boolean(user?.id));
+  const sellerSetup = useSellerSetupState(session?.access_token, user?.id, Boolean(user?.id));
   const sellerConnect = cmdData.sellerConnect;
   const sellerWallet = cmdData.sellerWallet;
 

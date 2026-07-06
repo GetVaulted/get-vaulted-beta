@@ -41,6 +41,7 @@ import {
   LISTING_MAX_PHOTOS,
   LISTING_MIN_PHOTOS,
   LIVE_INVENTORY_PHOTOS,
+  listingHasVideo,
 } from '../../createListing/types';
 import { LISTING_CHANNEL_CONFIG } from '../../createListing/listingChannel';
 import { getLiveProfile, liveShippingStepComplete } from '../../createListing/liveShowShipping';
@@ -236,7 +237,12 @@ export function CreateListingPricingScreen({
       onBack={goBackStep}
       onExit={exitFlow}
     >
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={wizardStyles.scroll}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={wizardStyles.scroll}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
         {showPricingAssistant && form.aiSuggestedPrice ? (
           <View style={styles.aiPriceCard}>
             <Text style={styles.aiPriceK}>Pricing assistant</Text>
@@ -446,6 +452,20 @@ export function CreateListingReviewScreen({
       return;
     }
 
+    if (listingHasVideo(form.media)) {
+      const proceed = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          'Video not included',
+          "Video attachments aren't supported yet and won't be included in your listing. Go back to the Upload step to remove it, or publish now with photos only.",
+          [
+            { text: 'Go back', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Publish without video', onPress: () => resolve(true) },
+          ],
+        );
+      });
+      if (!proceed) return;
+    }
+
     if (!isSupabaseConfigured() || !user?.id) {
       Alert.alert('Sign in required', 'Sign in to publish listings to the vault.');
       return;
@@ -520,7 +540,12 @@ export function CreateListingReviewScreen({
       onBack={goBackStep}
       onExit={exitFlow}
     >
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={wizardStyles.scroll}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={wizardStyles.scroll}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
         {requiredIssues.length > 0 ? (
           <View style={styles.reviewIssuesCard}>
             <Text style={styles.reviewIssuesTitle}>Complete these before publishing</Text>

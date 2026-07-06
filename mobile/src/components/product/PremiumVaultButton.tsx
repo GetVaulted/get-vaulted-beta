@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { MARKETPLACE_TEXT_PROPS } from '../../lib/marketplaceUiScale';
 import { colors, radii, spacing } from '../../theme';
 
@@ -14,6 +14,8 @@ type Props = {
   compact?: boolean;
   flex?: boolean;
   disabled?: boolean;
+  /** Shows a spinner in place of the label/icon and disables the button while true. */
+  loading?: boolean;
 };
 
 export function PremiumVaultButton({
@@ -24,25 +26,31 @@ export function PremiumVaultButton({
   compact,
   flex,
   disabled,
+  loading,
 }: Props) {
   const height = compact ? 44 : 48;
   const fontSize = compact ? 13 : 14;
+  const isDisabled = disabled || loading;
 
   if (variant === 'ghost') {
     return (
       <Pressable
         onPress={onPress}
-        disabled={disabled}
+        disabled={isDisabled}
         accessibilityRole="button"
         accessibilityLabel={label}
         style={({ pressed }) => [
           styles.ghost,
           { width: height, height, borderRadius: height / 2 },
           pressed && styles.pressed,
-          disabled && styles.disabled,
+          isDisabled && styles.disabled,
         ]}
       >
-        {icon ? <Ionicons name={icon} size={compact ? 20 : 22} color={colors.textPrimary} /> : null}
+        {loading ? (
+          <ActivityIndicator size="small" color={colors.textPrimary} />
+        ) : icon ? (
+          <Ionicons name={icon} size={compact ? 20 : 22} color={colors.textPrimary} />
+        ) : null}
       </Pressable>
     );
   }
@@ -51,14 +59,14 @@ export function PremiumVaultButton({
     return (
       <Pressable
         onPress={onPress}
-        disabled={disabled}
+        disabled={isDisabled}
         accessibilityRole="button"
         accessibilityLabel={label}
         style={({ pressed }) => [
           flex && styles.flex,
           { minHeight: height },
           pressed && styles.pressed,
-          disabled && styles.disabled,
+          isDisabled && styles.disabled,
         ]}
       >
         <LinearGradient
@@ -67,10 +75,16 @@ export function PremiumVaultButton({
           end={{ x: 1, y: 1 }}
           style={[styles.primary, { minHeight: height, borderRadius: radii.md }]}
         >
-          {icon ? <Ionicons name={icon} size={18} color={colors.background} /> : null}
-          <Text style={[styles.primaryTxt, { fontSize }]} numberOfLines={1} ellipsizeMode="tail" {...MARKETPLACE_TEXT_PROPS}>
-            {label}
-          </Text>
+          {loading ? (
+            <ActivityIndicator size="small" color={colors.background} />
+          ) : (
+            <>
+              {icon ? <Ionicons name={icon} size={18} color={colors.background} /> : null}
+              <Text style={[styles.primaryTxt, { fontSize }]} numberOfLines={1} ellipsizeMode="tail" {...MARKETPLACE_TEXT_PROPS}>
+                {label}
+              </Text>
+            </>
+          )}
         </LinearGradient>
       </Pressable>
     );
@@ -79,20 +93,26 @@ export function PremiumVaultButton({
   return (
     <Pressable
       onPress={onPress}
-      disabled={disabled}
+      disabled={isDisabled}
       accessibilityRole="button"
       accessibilityLabel={label}
       style={({ pressed }) => [
         flex && styles.flex,
         pressed && styles.pressed,
-        disabled && styles.disabled,
+        isDisabled && styles.disabled,
       ]}
     >
       <View style={[styles.secondary, { minHeight: height, borderRadius: radii.md }]}>
-        {icon ? <Ionicons name={icon} size={16} color={colors.gold} /> : null}
-        <Text style={[styles.secondaryTxt, { fontSize }]} numberOfLines={1} ellipsizeMode="tail" {...MARKETPLACE_TEXT_PROPS}>
-          {label}
-        </Text>
+        {loading ? (
+          <ActivityIndicator size="small" color={colors.gold} />
+        ) : (
+          <>
+            {icon ? <Ionicons name={icon} size={16} color={colors.gold} /> : null}
+            <Text style={[styles.secondaryTxt, { fontSize }]} numberOfLines={1} ellipsizeMode="tail" {...MARKETPLACE_TEXT_PROPS}>
+              {label}
+            </Text>
+          </>
+        )}
       </View>
     </Pressable>
   );

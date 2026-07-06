@@ -77,6 +77,7 @@ let gateDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let inflightLoad: Promise<SellerReadinessChecks | null> | null = null;
 let activeAccessToken: string | null = null;
 let subscribedAccessToken: string | null = null;
+let subscribedUserId: string | null = null;
 
 const listeners = new Set<() => void>();
 
@@ -196,7 +197,11 @@ function assembleStore(input: {
   return { ...draft, showSetupGate: computeShowSetupGate(draft) };
 }
 
-function applyServerPayload(payload: SellerAccountResponse, localWizard: boolean): SellerReadinessChecks {
+function applyServerPayload(
+  payload: SellerAccountResponse,
+  localWizard: boolean,
+  userId: string | undefined,
+): SellerReadinessChecks {
   const readiness = payload.readiness as SellerLiveReadiness | undefined;
   const nextChecks = normalizeSellerReadinessChecks(readiness?.checks);
   const wizardAt = payload.sellerSetupWizardCompletedAt ?? null;
@@ -209,10 +214,10 @@ function applyServerPayload(payload: SellerAccountResponse, localWizard: boolean
   });
 
   if (wizardResolved.serverWizardConfirmed && !localWizard) {
-    void markSellerWizardCompleteLocal();
+    void markSellerWizardCompleteLocal(userId);
   }
   if (wizardResolved.serverExplicitIncomplete && localWizard) {
-    void clearSellerWizardComplete();
+    void clearSellerWizardComplete(userId);
   }
 
   const agreementAt = payload.sellerAgreementAcceptedAt ?? null;
@@ -230,12 +235,13 @@ function applyServerPayload(payload: SellerAccountResponse, localWizard: boolean
   });
 
   publish(next, 'server');
-  if (next.activated) void markSellerHqActivatedLocal();
+  if (next.activated) void markSellerHqActivatedLocal(userId);
   return nextChecks;
 }
 
 async function runLoad(
   accessToken: string | undefined,
+  userId: string | undefined,
   enabled: boolean,
   opts?: { silent?: boolean },
 ): Promise<SellerReadinessChecks | null> {
@@ -254,8 +260,8 @@ async function runLoad(
   activeAccessToken = requestToken;
 
   const [localWizard, hqActivated] = await Promise.all([
-    readSellerWizardComplete(),
-    readSellerHqActivated(),
+    readSellerWizardComplete(userId),
+    readSellerHqActivated(userId),
   ]);
   if ((localWizard || hqActivated) && !store.wasEverActivated) {
     store = {
@@ -300,7 +306,7 @@ async function runLoad(
       }),
     ]);
     if (activeAccessToken !== requestToken) return store.checks;
-    return applyServerPayload(payload, localWizard);
+    return applyServerPayload(payload, localWizard, userId);
   } catch {
     if (activeAccessToken !== requestToken) return store.checks;
     const wizardResolved = resolveWizardCompleteFromSources({
@@ -330,12 +336,17 @@ async function runLoad(
   }
 }
 
-function requestLoad(accessToken: string | undefined, enabled: boolean, opts?: { silent?: boolean }) {
+function requestLoad(
+  accessToken: string | undefined,
+  userId: string | undefined,
+  enabled: boolean,
+  opts?: { silent?: boolean },
+) {
   if (inflightLoad) {
-    void inflightLoad.then(() => requestLoad(accessToken, enabled, opts));
+    void inflightLoad.then(() => requestLoad(accessToken, userId, enabled, opts));
     return inflightLoad;
   }
-  inflightLoad = runLoad(accessToken, enabled, opts).finally(() => {
+  inflightLoad = runLoad(accessToken, userId, enabled, opts).finally(() => {
     inflightLoad = null;
   });
   return inflightLoad;
@@ -346,37 +357,53 @@ export function getSellerSetupSnapshot(): Readonly<SellerSetupStore> {
   return store;
 }
 
-export function useSellerSetupState(accessToken: string | undefined, enabled: boolean) {
+export function useSellerSetupState(
+  accessToken: string | undefined,
+  userId: string | undefined,
+  enabled: boolean,
+) {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
   const load = useCallback(
-    (opts?: { silent?: boolean }) => requestLoad(accessToken, enabled, opts),
-    [accessToken, enabled],
+    (opts?: { silent?: boolean }) => requestLoad(accessToken, userId, enabled, opts),
+    [accessToken, userId, enabled],
   );
 
   useEffect(() => {
     if (!enabled) {
       subscribedAccessToken = null;
+      subscribedUserId = null;
       publish({ ...EMPTY_STORE }, 'cache');
       return;
     }
     if (!accessToken) return;
+    // A DIFFERENT signed-in user appearing on this same device (logout -> different account login
+    // without a force-quit) must hard-reset the shared singleton store immediately — otherwise the
+    // new user would transiently inherit the previous user's `wasEverActivated` /
+    // `serverWizardConfirmed` sticky flags (and therefore skip the seller setup gate) for the
+    // instant before the fresh fetch below resolves. See cross-account data-leak audit, 2026-07.
+    const userChanged = Boolean(subscribedUserId && userId && subscribedUserId !== userId);
+    if (userChanged) {
+      store = { ...EMPTY_STORE };
+      emit();
+    }
     const tokenChanged = Boolean(subscribedAccessToken && subscribedAccessToken !== accessToken);
     subscribedAccessToken = accessToken;
-    void requestLoad(accessToken, enabled, {
-      silent: tokenChanged && (store.hasLoaded || store.wasEverActivated),
+    subscribedUserId = userId ?? null;
+    void requestLoad(accessToken, userId, enabled, {
+      silent: !userChanged && tokenChanged && (store.hasLoaded || store.wasEverActivated),
     });
-  }, [accessToken, enabled]);
+  }, [accessToken, userId, enabled]);
 
   useEffect(() => {
     if (!enabled || !accessToken) return undefined;
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
       if (next === 'active') {
-        void requestLoad(accessToken, enabled, { silent: true });
+        void requestLoad(accessToken, userId, enabled, { silent: true });
       }
     });
     return () => sub.remove();
-  }, [accessToken, enabled]);
+  }, [accessToken, userId, enabled]);
 
   const applyReadinessFromServer = useCallback(
     (readiness: SellerLiveReadiness | undefined, nextSeller?: SellerAccountPayload | null) => {
@@ -453,6 +480,8 @@ export function resetSellerSetupStoreForTests(): void {
   gateDebounceTimer = null;
   inflightLoad = null;
   activeAccessToken = null;
+  subscribedAccessToken = null;
+  subscribedUserId = null;
   store = { ...EMPTY_STORE };
   emit();
 }

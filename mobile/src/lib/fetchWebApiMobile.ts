@@ -35,8 +35,36 @@ function applyMobileApiHeaders(init: RequestInit): Headers {
   return headers;
 }
 
-async function fetchOnce(url: string, init: RequestInit): Promise<Response> {
-  return fetch(url, { ...init, cache: 'no-store' });
+/** No timeout on RN `fetch` means a dropped/hung connection spins the caller's loading state
+ * forever (see performance audit 2026-07). Abort after `timeoutMs` so callers always get a
+ * settled promise, while still honoring any caller-supplied `signal`. */
+const DEFAULT_TIMEOUT_MS = 15000;
+
+async function fetchOnce(url: string, init: RequestInit, timeoutMs: number = DEFAULT_TIMEOUT_MS): Promise<Response> {
+  const timeoutController = new AbortController();
+  const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
+
+  const callerSignal = init.signal;
+  let onCallerAbort: (() => void) | undefined;
+  if (callerSignal) {
+    if (callerSignal.aborted) timeoutController.abort();
+    else {
+      onCallerAbort = () => timeoutController.abort();
+      callerSignal.addEventListener('abort', onCallerAbort);
+    }
+  }
+
+  try {
+    return await fetch(url, { ...init, cache: 'no-store', signal: timeoutController.signal });
+  } catch (e) {
+    if (timeoutController.signal.aborted && !(callerSignal?.aborted)) {
+      throw new Error(`Request timed out after ${timeoutMs}ms: ${url}`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    if (callerSignal && onCallerAbort) callerSignal.removeEventListener('abort', onCallerAbort);
+  }
 }
 
 async function responsePreview(res: Response): Promise<string> {

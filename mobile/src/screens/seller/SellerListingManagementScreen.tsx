@@ -35,14 +35,23 @@ import { useAuth } from '../../auth/AuthContext';
 import { openCreateListing } from '../../navigation/openCreateListing';
 import { getWebApiBaseUrl } from '../../lib/webApiBaseUrl';
 import { notifyListingCatalogChanged } from '../../lib/notifyListingCatalogChanged';
-import { publicListingPath } from '../../lib/sellerListingRoutes';
+import { canonicalListingShareUrl } from '../../lib/shareListingNative';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, spacing, typography } from '../../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SellerListingManagement'>;
 
+type SellerListingOffer = {
+  id: string;
+  buyerUsername: string | null;
+  amountUsd: number;
+  message: string | null;
+  status: string;
+  counterAmountUsd: number | null;
+};
+
 export function SellerListingManagementScreen({ navigation, route }: Props) {
-  const { listingId } = route.params;
+  const { listingId, offerId } = route.params;
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -53,6 +62,65 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
   const [priceUsd, setPriceUsd] = useState('');
   const [shippingUsd, setShippingUsd] = useState('');
   const [handlingTime, setHandlingTime] = useState('1–3 business days');
+
+  // Deep-linked from a "new offer" / "counter declined" push (`/seller/listings/{id}?offerId=...`)
+  // — highlight that specific offer so the seller doesn't have to hunt for it.
+  const [highlightedOffer, setHighlightedOffer] = useState<SellerListingOffer | null>(null);
+  const [offerLoading, setOfferLoading] = useState(Boolean(offerId));
+  const [offerNotFound, setOfferNotFound] = useState(false);
+  const [offerBusy, setOfferBusy] = useState(false);
+
+  const loadHighlightedOffer = useCallback(async () => {
+    if (!offerId) return;
+    setOfferLoading(true);
+    setOfferNotFound(false);
+    try {
+      const token = session?.access_token ?? (await getListingsAccessToken());
+      const base = getWebApiBaseUrl();
+      const res = await fetch(`${base}/api/listings/${encodeURIComponent(listingId)}/offers`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Could not load offer');
+      const body = (await res.json().catch(() => null)) as { offers?: SellerListingOffer[] } | null;
+      const match = body?.offers?.find((o) => o.id === offerId) ?? null;
+      setHighlightedOffer(match);
+      setOfferNotFound(!match);
+    } catch {
+      setHighlightedOffer(null);
+      setOfferNotFound(true);
+    } finally {
+      setOfferLoading(false);
+    }
+  }, [listingId, offerId, session?.access_token]);
+
+  useEffect(() => {
+    void loadHighlightedOffer();
+  }, [loadHighlightedOffer]);
+
+  const resolveOffer = async (action: 'accept' | 'decline') => {
+    if (!offerId) return;
+    setOfferBusy(true);
+    try {
+      const token = session?.access_token ?? (await getListingsAccessToken());
+      const base = getWebApiBaseUrl();
+      const res = await fetch(`${base}/api/offers/${encodeURIComponent(offerId)}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action }),
+      });
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) throw new Error(body?.error ?? 'Could not update this offer.');
+      await loadHighlightedOffer();
+      if (action === 'accept') await reload();
+    } catch (e) {
+      Alert.alert('Offer', e instanceof Error ? e.message : 'Could not update this offer.');
+    } finally {
+      setOfferBusy(false);
+    }
+  };
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -117,7 +185,9 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
     }, [reload]),
   );
 
-  const publicUrl = `${getWebApiBaseUrl() ?? ''}${publicListingPath(listingId)}`;
+  // Always the production site (never a beta/preview API host) so a seller never
+  // accidentally shares a beta link with potential buyers — mirrors shareListingNative.ts.
+  const publicUrl = canonicalListingShareUrl(listingId) ?? '';
 
   const onShare = async () => {
     try {
@@ -200,6 +270,53 @@ export function SellerListingManagementScreen({ navigation, route }: Props) {
             </Text>
           </View>
         </View>
+
+        {offerId ? (
+          <StudioSection title="Offer" subtitle="Deep-linked from a notification">
+            {offerLoading ? (
+              <ActivityIndicator color={colors.gold} />
+            ) : offerNotFound || !highlightedOffer ? (
+              <Text style={studioStyles.hint}>
+                This offer could not be found. It may have already been resolved.
+              </Text>
+            ) : (
+              <>
+                <Text style={styles.offerAmount}>
+                  ${highlightedOffer.amountUsd.toLocaleString('en-US')}
+                  {highlightedOffer.buyerUsername ? ` from @${highlightedOffer.buyerUsername}` : ''}
+                </Text>
+                {highlightedOffer.message ? (
+                  <Text style={styles.offerMessage}>&ldquo;{highlightedOffer.message}&rdquo;</Text>
+                ) : null}
+                <Text style={styles.offerStatus}>Status: {highlightedOffer.status.replace(/_/g, ' ')}</Text>
+                {highlightedOffer.status === 'pending' ? (
+                  <View style={studioStyles.actionRow}>
+                    <StudioPrimaryButton
+                      label="Accept"
+                      disabled={offerBusy}
+                      onPress={() =>
+                        Alert.alert('Accept this offer?', 'This creates an order at the offer amount.', [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Accept', onPress: () => void resolveOffer('accept') },
+                        ])
+                      }
+                    />
+                    <StudioSecondaryButton
+                      label="Decline"
+                      disabled={offerBusy}
+                      onPress={() =>
+                        Alert.alert('Decline this offer?', undefined, [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Decline', style: 'destructive', onPress: () => void resolveOffer('decline') },
+                        ])
+                      }
+                    />
+                  </View>
+                ) : null}
+              </>
+            )}
+          </StudioSection>
+        ) : null}
 
         <View style={studioStyles.quickRow}>
           <StudioSecondaryButton
@@ -379,4 +496,7 @@ const styles = StyleSheet.create({
   backBtn: { padding: spacing.md },
   backBtnTxt: { color: colors.gold, fontWeight: '700' },
   thumbEmpty: { backgroundColor: colors.surface },
+  offerAmount: { color: colors.textPrimary, fontSize: 18, fontWeight: '800' },
+  offerMessage: { color: colors.textSecondary, fontSize: 13, lineHeight: 18, fontStyle: 'italic' },
+  offerStatus: { color: colors.textMuted, fontSize: 12, textTransform: 'capitalize' },
 });

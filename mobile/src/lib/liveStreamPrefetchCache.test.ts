@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { fetchBuyerLiveStream } from '../api/liveRoomStreamRepository';
 import {
+  clearLiveStreamPrefetchCache,
   peekCachedBuyerLiveStream,
   prefetchLiveStreamRooms,
   peekPrefetchedViewerStageToken,
@@ -53,5 +54,17 @@ describe('liveStreamPrefetchCache', () => {
       expect(peekCachedBuyerLiveStream('room_b')?.streamHealth).toBe('live');
     });
     expect(peekPrefetchedViewerStageToken('room_b')).toBeNull();
+  });
+
+  it('clearLiveStreamPrefetchCache wipes cached stream metadata and stage tokens (cross-account safety)', async () => {
+    prefetchLiveStreamRooms(['room_c'], 'token');
+    await vi.waitFor(() => {
+      expect(peekCachedBuyerLiveStream('room_c')?.streamHealth).toBe('live');
+    });
+
+    clearLiveStreamPrefetchCache();
+
+    expect(peekCachedBuyerLiveStream('room_c')).toBeNull();
+    expect(peekPrefetchedViewerStageToken('room_c')).toBeNull();
   });
 });

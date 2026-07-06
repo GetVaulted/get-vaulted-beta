@@ -176,7 +176,13 @@ export function CreateListingMediaScreen({
           : `Luxury listing gallery · ${LISTING_MIN_PHOTOS}–${LISTING_MAX_PHOTOS} photos (required). Optional video.`
       }
     >
-      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={wizardStyles.scroll}>
+      <ScrollView
+        style={{ flex: 1 }}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={wizardStyles.scroll}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
         {isLiveShow || showListingAi ? (
           <WizardInfoBanner accentPrimary={accent.primary} accentFill={accent.fill} accentBorder={accent.border}>
             Vault AI will review your media and suggest listing details when possible. You can edit everything before
@@ -294,7 +300,12 @@ export function CreateListingTypeScreen({
       onBack={goBackStep}
       onExit={exitFlow}
     >
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={wizardStyles.scroll}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={wizardStyles.scroll}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
         {showListingAi && form.aiScanCompleted && !(rec && recLabel) ? (
           <View style={styles.aiAssistBanner}>
             <Ionicons name="sparkles-outline" size={18} color={colors.gold} />
@@ -401,7 +412,12 @@ export function CreateListingCategoryScreen({
       onBack={goBackStep}
       onExit={exitFlow}
     >
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={wizardStyles.scroll}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={wizardStyles.scroll}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
         {LISTING_CATEGORY_OPTIONS.map((c) => {
           const on = form.category === c.id;
           return (
@@ -571,6 +587,7 @@ export function CreateListingDetailsScreen({
         style={{ flex: 1 }}
         contentContainerStyle={wizardStyles.scroll}
         keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
       >
         {isLiveShow ? (
           <>

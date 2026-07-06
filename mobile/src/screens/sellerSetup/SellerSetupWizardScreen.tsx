@@ -58,7 +58,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { user, session } = useAuth();
   const token = session?.access_token;
-  const setup = useSellerSetupState(token, Boolean(user?.id));
+  const setup = useSellerSetupState(token, user?.id, Boolean(user?.id));
   const stripeConnect = useSellerStripeConnect(token);
 
   const [step, setStep] = useState<SellerWizardStep>(1);
@@ -228,12 +228,12 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
       return;
     }
     if (step === 5) {
-      void clearSellerWizardComplete().then(() => {
+      void clearSellerWizardComplete(user?.id).then(() => {
         setup.setWizardCompleteLocal(false);
         setStep(4);
       });
     }
-  }, [step, setup]);
+  }, [step, setup, user?.id]);
 
   const openPayouts = async () => {
     if (!token || payoutBusy || payoutReconciling) return;
@@ -332,7 +332,7 @@ export function SellerSetupWizardScreen({ navigation }: Props) {
     setFinishBusy(true);
     try {
       await markSellerSetupWizardCompleteOnServer(token, true);
-      await markSellerWizardCompleteLocal();
+      await markSellerWizardCompleteLocal(user?.id);
       setup.setWizardCompleteLocal(true);
       await setup.refetchSilent();
       setStep(5);
