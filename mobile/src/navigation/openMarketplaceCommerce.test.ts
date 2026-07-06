@@ -67,7 +67,7 @@ describe('openMarketplaceBuyNow', () => {
     expect(Alert.alert).toHaveBeenCalledWith('Something went wrong', 'Please try again.');
   });
 
-  it('navigates straight to checkout with no Alert when the wallet is fully ready', async () => {
+  it('replaces the listing modal with checkout when the wallet is fully ready', async () => {
     fetchBuyerPaymentMethods.mockResolvedValue({
       paymentMethods: [{ id: 'pm1', brand: 'visa', last4: '4242', expMonth: 1, expYear: 30 }],
       stripeConfigured: true,
@@ -78,10 +78,26 @@ describe('openMarketplaceBuyNow', () => {
     await openMarketplaceBuyNow(nav, product(), { accessToken: 'token', guestExploreMode: false });
 
     expect(Alert.alert).not.toHaveBeenCalled();
-    expect(nav.navigate).toHaveBeenCalledWith('MarketplaceCheckout', {
+    expect(nav.navigate).not.toHaveBeenCalled();
+    expect(nav.replace).toHaveBeenCalledWith('MarketplaceCheckout', {
       listingId: 'listing-1',
       mode: 'buy_now',
       walletSetupFirst: false,
+    });
+  });
+
+  it('replaces the listing modal with wallet-first checkout when the wallet is incomplete', async () => {
+    fetchBuyerPaymentMethods.mockResolvedValue({ paymentMethods: [], stripeConfigured: true });
+    fetchBuyerShippingAddresses.mockResolvedValue([]);
+    const nav = fakeNav();
+
+    await openMarketplaceBuyNow(nav, product(), { accessToken: 'token', guestExploreMode: false });
+
+    expect(Alert.alert).not.toHaveBeenCalled();
+    expect(nav.replace).toHaveBeenCalledWith('MarketplaceCheckout', {
+      listingId: 'listing-1',
+      mode: 'buy_now',
+      walletSetupFirst: true,
     });
   });
 
@@ -114,7 +130,7 @@ describe('openMarketplaceLayaway', () => {
     expect(Alert.alert).toHaveBeenCalledWith('Something went wrong', 'Could not load payment methods.');
   });
 
-  it('navigates straight to checkout with no Alert when the wallet is fully ready', async () => {
+  it('replaces the listing modal with checkout when the wallet is fully ready', async () => {
     fetchBuyerPaymentMethods.mockResolvedValue({
       paymentMethods: [{ id: 'pm1', brand: 'visa', last4: '4242', expMonth: 1, expYear: 30 }],
       stripeConfigured: true,
@@ -125,7 +141,7 @@ describe('openMarketplaceLayaway', () => {
     await openMarketplaceLayaway(nav, product(), { accessToken: 'token', guestExploreMode: false });
 
     expect(Alert.alert).not.toHaveBeenCalled();
-    expect(nav.navigate).toHaveBeenCalledWith('MarketplaceCheckout', {
+    expect(nav.replace).toHaveBeenCalledWith('MarketplaceCheckout', {
       listingId: 'listing-1',
       mode: 'layaway',
       walletSetupFirst: false,

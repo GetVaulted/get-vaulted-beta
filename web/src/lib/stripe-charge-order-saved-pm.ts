@@ -585,6 +585,7 @@ export async function reopenExpiredAuctionOrderForRecovery(args: {
 }
 
 export const LIVE_BUY_NOW_PI_KIND = "live_buy_now_saved_pm" as const;
+export const MARKETPLACE_BUY_NOW_PI_KIND = "buy_now" as const;
 
 async function handleLiveBuyNowPaymentIntent(
   orderId: string,
@@ -815,6 +816,192 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
     // here does not prove the charge failed, so we must not clear stripePaymentIntentId or cancel
     // the order (that would orphan a possibly-succeeded charge and invite a duplicate on retry).
     console.error("[payment recovery] ambiguous stripe charge error — order left untouched pending reconciliation", {
+      orderId: row.id,
+      ...stripeDebug,
+    });
+    return { outcome: "error", code: "STRIPE_ERROR", stripeDebug };
+  }
+}
+
+/**
+ * Instant saved-card charge for a marketplace buy-now order (no Stripe Checkout redirect).
+ */
+export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
+  buyerId: string;
+  orderId: string;
+  paymentMethodId?: string | null;
+  liveRoomItemId?: string | null;
+}): Promise<ChargeOrderSavedPmOutcome> {
+  if (!isStripeConfigured()) return { outcome: "error", code: "STRIPE_NOT_CONFIGURED" };
+
+  const row = await prisma.order.findFirst({
+    where: { id: args.orderId, buyerId: args.buyerId },
+    include: {
+      listing: { select: { id: true, buyingFormat: true, status: true, isCompanyListing: true } },
+      seller: { select: { stripeAccountId: true, stripeOnboardingComplete: true } },
+      liveShippingSession: { select: { liveShowId: true } },
+    },
+  });
+  if (!row) return { outcome: "error", code: "ORDER_NOT_FOUND" };
+  if (row.paymentStatus === PAYMENT_PAID) return { outcome: "paid" };
+  if (row.paymentMethod === OrderPaymentMethod.escrow) return { outcome: "error", code: "USE_ESCROW_CHECKOUT" };
+  if (row.listing.buyingFormat !== "buy_now" || row.listing.status !== "active") {
+    return { outcome: "error", code: "ORDER_NOT_ELIGIBLE_SAVED_CARD" };
+  }
+  if (!row.seller.stripeAccountId || !row.seller.stripeOnboardingComplete) {
+    return { outcome: "error", code: "SELLER_NOT_READY" };
+  }
+
+  const payable =
+    row.paymentStatus === PAYMENT_PENDING ||
+    row.paymentStatus === PAYMENT_FAILED ||
+    row.paymentStatus === PAYMENT_REQUIRES_ACTION;
+  if (!payable) return { outcome: "error", code: "ORDER_NOT_PAYABLE" };
+
+  let pmId = args.paymentMethodId?.trim() ?? row.paymentLabel?.trim() ?? "";
+  if (!isStripePaymentMethodId(pmId)) {
+    pmId = (await getBuyerDefaultCardPaymentMethodId(args.buyerId)) ?? "";
+  }
+  if (!isStripePaymentMethodId(pmId)) return { outcome: "error", code: "NO_SAVED_CARD" };
+  try {
+    await assertPaymentMethodOwnedByUser(args.buyerId, pmId);
+  } catch (e) {
+    const c = e instanceof Error ? e.message : "";
+    return { outcome: "error", code: c || "PM_VALIDATION_FAILED" };
+  }
+
+  if (row.liveShippingSession) {
+    await syncLiveBundledShippingOnOrder(row.id);
+  }
+
+  const orderFresh = await prisma.order.findUniqueOrThrow({
+    where: { id: row.id },
+    select: {
+      itemPriceUsd: true,
+      shippingPriceUsd: true,
+      taxUsd: true,
+      referralCreditAppliedUsd: true,
+      stripePaymentIntentId: true,
+      shipRecipientName: true,
+      shipAddress: true,
+      shipCity: true,
+      shipState: true,
+      shipZip: true,
+      shipCountry: true,
+    },
+  });
+
+  const credit = await applyReferralCreditForSavedCardOrder(
+    row.id,
+    args.buyerId,
+    orderFresh.itemPriceUsd,
+    orderFresh.referralCreditAppliedUsd,
+  );
+
+  const liveRoomId = row.liveShippingSession?.liveShowId ?? (await resolveLiveRoomIdForOrder(row.id));
+  const feeCents = await resolveCheckoutApplicationFeeCents({
+    saleAmountUsd: credit.itemPriceUsd,
+    isCompanyListing: Boolean(row.listing.isCompanyListing),
+    liveRoomId,
+  });
+
+  const taxPlan = await resolveConnectPaymentTaxPlan({
+    shipTo: {
+      shipRecipientName: orderFresh.shipRecipientName,
+      shipAddress: orderFresh.shipAddress,
+      shipCity: orderFresh.shipCity,
+      shipState: orderFresh.shipState,
+      shipZip: orderFresh.shipZip,
+      shipCountry: orderFresh.shipCountry,
+    },
+    itemPriceUsd: credit.itemPriceUsd,
+    shippingPriceUsd: orderFresh.shippingPriceUsd,
+    applicationFeeCents: feeCents,
+    sellerId: row.sellerId,
+  });
+
+  await prisma.order.update({
+    where: { id: row.id },
+    data: orderTaxUpdateData(taxPlan.orderTax),
+  });
+
+  const amountCents = taxPlan.amountCents;
+  if (amountCents < 50) return { outcome: "error", code: "INVALID_ORDER_AMOUNT" };
+
+  const buyer = await prisma.user.findUnique({
+    where: { id: args.buyerId },
+    select: { stripeCustomerId: true },
+  });
+  const customerId = buyer?.stripeCustomerId?.trim();
+  if (!customerId) return { outcome: "error", code: "BUYER_STRIPE_CUSTOMER_MISSING" };
+
+  const stripe = getStripe();
+  if (orderFresh.stripePaymentIntentId) {
+    const existing = await stripe.paymentIntents.retrieve(orderFresh.stripePaymentIntentId);
+    const handled = await handleRetrievedPaymentIntent(row.id, existing);
+    if (handled) return handled;
+  }
+
+  try {
+    const intent = await stripe.paymentIntents.create(
+      {
+        amount: amountCents,
+        currency: "usd",
+        customer: customerId,
+        payment_method: pmId,
+        confirm: true,
+        off_session: true,
+        ...stripeOffSessionPaymentIntentOptions("marketplace"),
+        metadata: {
+          orderId: row.id,
+          kind: MARKETPLACE_BUY_NOW_PI_KIND,
+          listingId: row.listingId,
+          ...(args.liveRoomItemId?.trim() ? { liveRoomItemId: args.liveRoomItemId.trim() } : {}),
+          userId: args.buyerId,
+          ...taxPlan.metadata,
+        },
+        ...connectPaymentIntentTransferData({
+          destinationAccountId: row.seller.stripeAccountId,
+          applicationFeeCents: feeCents,
+          sellerTransferCents: taxPlan.sellerTransferCents,
+        }),
+      },
+      { idempotencyKey: `marketplace_buy_now_${row.id}_${amountCents}_${pmId}` },
+    );
+
+    await prisma.order.updateMany({
+      where: { id: row.id },
+      data: { paymentLabel: pmId, stripePaymentIntentId: intent.id },
+    });
+
+    const postCreate = await handleRetrievedPaymentIntent(row.id, intent);
+    if (postCreate) return postCreate;
+
+    await prisma.order.updateMany({
+      where: { id: row.id, paymentStatus: { not: PAYMENT_PAID } },
+      data: { paymentStatus: PAYMENT_FAILED, status: "cancelled" },
+    });
+    releaseReferralCreditReservation(row.id).catch(() => {});
+    return { outcome: "error", code: "PAYMENT_INTENT_NOT_COMPLETED" };
+  } catch (e) {
+    const stripeDebug = buildStripeChargeErrorDebug(e, {
+      amountCents,
+      currency: "usd",
+      customerId,
+      paymentMethodId: pmId,
+      destinationAccount: row.seller.stripeAccountId ?? null,
+    });
+    if (isDefiniteStripeCardDecline(e)) {
+      await prisma.order
+        .updateMany({
+          where: { id: row.id, paymentStatus: { not: PAYMENT_PAID } },
+          data: { paymentStatus: PAYMENT_FAILED, status: "cancelled", stripePaymentIntentId: null },
+        })
+        .catch(() => {});
+      releaseReferralCreditReservation(row.id).catch(() => {});
+      return { outcome: "error", code: "CARD_DECLINED", stripeDebug };
+    }
+    console.error("[marketplace buy now] ambiguous stripe charge error — order left untouched pending reconciliation", {
       orderId: row.id,
       ...stripeDebug,
     });

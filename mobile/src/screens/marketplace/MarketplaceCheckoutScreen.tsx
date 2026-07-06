@@ -3,6 +3,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -10,6 +11,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useStripe } from '@stripe/stripe-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   fetchBuyerPaymentMethods,
@@ -22,9 +24,11 @@ import {
   fetchMarketplaceCheckoutTaxEstimate,
   startMarketplaceBuyNowCheckout,
   startMarketplaceLayawayCheckout,
+  syncMarketplaceBuyNowPayment,
   type MarketplaceCheckoutShipping,
   type MarketplaceCheckoutShippingRate,
 } from '../../api/marketplaceCommerceRepository';
+import { LiveStripeProvider } from '../../components/live/LiveStripeProvider';
 import { fetchMarketplaceListingFromWeb } from '../../api/webListingsRepository';
 import { PremiumVaultButton } from '../../components/product/PremiumVaultButton';
 import { WalletAddressSetupModal } from '../../components/wallet/WalletAddressSetupModal';
@@ -64,9 +68,19 @@ function shippingFromAddress(addr: BuyerShippingAddressRow): MarketplaceCheckout
   };
 }
 
-export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
+export function MarketplaceCheckoutScreen(props: Props) {
+  const { session } = useAuth();
+  return (
+    <LiveStripeProvider accessToken={session?.access_token}>
+      <MarketplaceCheckoutScreenInner {...props} />
+    </LiveStripeProvider>
+  );
+}
+
+function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { session, user } = useAuth();
+  const { confirmPayment } = useStripe();
   const token = session?.access_token;
   const userId = user?.id;
   const { listingId, mode, walletSetupFirst = false } = route.params;
@@ -326,24 +340,55 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
     setError(null);
     try {
       const payload = checkoutShippingPayload ?? shippingPayload;
-      const stripeUrl =
-        mode === 'layaway'
-          ? (
-              await startMarketplaceLayawayCheckout(token, {
-                listingId,
-                planType,
-                shipping: payload,
-              })
-            ).url
-          : await startMarketplaceBuyNowCheckout(token, {
-              listingId,
-              shipping: payload,
-            });
-
-      await openStripeCheckoutSession(stripeUrl);
       if (mode === 'layaway') {
+        const { url } = await startMarketplaceLayawayCheckout(token, {
+          listingId,
+          planType,
+          shipping: payload,
+        });
+        await openStripeCheckoutSession(url);
         navigation.replace('BuyerLayaways');
-      } else {
+        return;
+      }
+
+      const result = await startMarketplaceBuyNowCheckout(token, {
+        listingId,
+        shipping: payload,
+      });
+      if (!result.ok) {
+        if (result.escrowRedirectUrl) {
+          await openStripeCheckoutSession(result.escrowRedirectUrl);
+          navigation.replace('BuyerOrders');
+          return;
+        }
+        setError(result.error);
+        return;
+      }
+      if ('paid' in result) {
+        navigation.replace('BuyerOrders');
+        return;
+      }
+      if ('requiresAction' in result) {
+        const conf = await confirmPayment(result.clientSecret, { paymentMethodType: 'Card' });
+        if (conf.error) {
+          setError(conf.error.message ?? 'Payment verification failed.');
+          return;
+        }
+        const synced = await syncMarketplaceBuyNowPayment(token, result.orderId);
+        if (synced.ok && 'paid' in synced) {
+          navigation.replace('BuyerOrders');
+          return;
+        }
+        if (synced.ok && 'processing' in synced) {
+          Alert.alert('Payment processing', 'Your payment is processing — check Orders for status.');
+          navigation.replace('BuyerOrders');
+          return;
+        }
+        setError(!synced.ok ? synced.error : 'Payment is still processing.');
+        return;
+      }
+      if ('processing' in result) {
+        Alert.alert('Payment processing', 'Your payment is processing — check Orders for status.');
         navigation.replace('BuyerOrders');
       }
     } catch (e) {
@@ -625,14 +670,24 @@ export function MarketplaceCheckoutScreen({ navigation, route }: Props) {
         ) : null}
 
         <PremiumVaultButton
-          label={submitting ? 'Opening secure checkout…' : mode === 'layaway' ? 'Pay layaway deposit' : 'Pay with Vaulted checkout'}
+          label={
+            submitting
+              ? mode === 'layaway'
+                ? 'Opening secure checkout…'
+                : 'Processing payment…'
+              : mode === 'layaway'
+                ? 'Pay layaway deposit'
+                : 'Confirm purchase'
+          }
           icon="lock-closed-outline"
           onPress={() => void completeCheckout()}
           variant="primary"
           disabled={submitting}
         />
         <Text style={styles.stripeNote} {...MARKETPLACE_TEXT_PROPS}>
-          Payment completes on Stripe secure checkout — your Get Vaulted session stays in the app.
+          {mode === 'layaway'
+            ? 'Layaway deposit completes on Stripe secure checkout — your Get Vaulted session stays in the app.'
+            : 'Payment is charged to your saved Vault Wallet card — no browser redirect.'}
         </Text>
       </ScrollView>
 

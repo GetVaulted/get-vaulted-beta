@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { EscrowStatus, OrderPaymentMethod } from "@/generated/prisma/enums";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { createNotification } from "@/lib/notifications";
+import { scheduleOrderLifecycleEmail } from "@/lib/order-lifecycle-email";
 import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
 import { prisma } from "@/lib/prisma";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
@@ -164,6 +165,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         ? `“${lt}” was handed to the carrier. Tracking: ${tn}. You'll get another update when it's on the way.`
         : `“${lt}” was marked shipped by the seller. You'll get an update when the carrier scans it in.`,
       href: `/orders/${encodeURIComponent(id)}`,
+    });
+    scheduleOrderLifecycleEmail({
+      userId: order.buyerId,
+      kind: "order_shipped",
+      orderId: id,
+      listingTitle: order.listing.title,
+      trackingNumber: tn,
     });
     emitOrderLifecycleSync({
       orderId: id,

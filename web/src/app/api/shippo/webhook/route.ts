@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createNotification } from "@/lib/notifications";
+import { scheduleOrderLifecycleEmail } from "@/lib/order-lifecycle-email";
 import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
 import { prisma } from "@/lib/prisma";
 import { verifyShippoWebhookSignature } from "@/lib/shippo";
@@ -165,6 +166,18 @@ export async function POST(req: Request) {
           body: `Carrier reports “${lt}” reached the buyer.`,
           href: `/orders/${encodeURIComponent(o.id)}`,
         });
+        scheduleOrderLifecycleEmail({
+          userId: o.buyerId,
+          kind: "order_delivered",
+          orderId: o.id,
+          listingTitle: o.listing.title,
+        });
+        scheduleOrderLifecycleEmail({
+          userId: o.sellerId,
+          kind: "seller_order_delivered",
+          orderId: o.id,
+          listingTitle: o.listing.title,
+        });
         void processDeliveryPayoutEvaluation(o.id);
       } else if (mapped === "out_for_delivery" && prev !== "out_for_delivery" && prev !== "delivered") {
         await logSellerCommerceEvent({
@@ -181,6 +194,12 @@ export async function POST(req: Request) {
           title: "Out for delivery",
           body: `“${lt}” is out for delivery today.`,
           href: `/orders/${encodeURIComponent(o.id)}`,
+        });
+        scheduleOrderLifecycleEmail({
+          userId: o.buyerId,
+          kind: "order_out_for_delivery",
+          orderId: o.id,
+          listingTitle: o.listing.title,
         });
       } else if (
         mapped === "in_transit" &&
@@ -203,6 +222,12 @@ export async function POST(req: Request) {
           title: "On the way",
           body: `“${lt}” is on the way.`,
           href: `/orders/${encodeURIComponent(o.id)}`,
+        });
+        scheduleOrderLifecycleEmail({
+          userId: o.buyerId,
+          kind: "order_shipped",
+          orderId: o.id,
+          listingTitle: o.listing.title,
         });
       } else if (mapped === "in_transit" && prev !== "in_transit" && prev !== "out_for_delivery" && prev !== "delivered") {
         void processCarrierAcceptancePayoutEvaluation(o.id);

@@ -61,34 +61,120 @@ export async function submitMarketplaceOffer(
   return body.offer;
 }
 
+export type MarketplaceEmbeddedBuyNowResult =
+  | { ok: true; paid: true; orderId: string }
+  | {
+      ok: true;
+      requiresAction: true;
+      orderId: string;
+      clientSecret: string;
+      paymentIntentId: string;
+      publishableKey?: string;
+    }
+  | { ok: true; processing: true; orderId: string }
+  | { ok: false; error: string; escrowRedirectUrl?: string };
+
 export async function startMarketplaceBuyNowCheckout(
   accessToken: string,
   args: {
     listingId: string;
     shipping: MarketplaceCheckoutShipping;
+    paymentMethodId?: string;
     successPath?: string;
     cancelPath?: string;
   },
-): Promise<string> {
+): Promise<MarketplaceEmbeddedBuyNowResult> {
   const res = await fetchWebApi('/api/checkout', {
     method: 'POST',
     headers: authHeaders(accessToken),
     body: JSON.stringify({
       kind: 'buy_now',
+      embedded: true,
       listingId: args.listingId,
+      paymentMethodId: args.paymentMethodId,
       shipping: args.shipping,
       selectedShippingRateId: args.shipping.selectedShippingRateId,
       successPath: args.successPath ?? '/account/orders',
       cancelPath: args.cancelPath ?? `/checkout/${args.listingId}`,
     }),
   });
-  const body = (await res.json().catch(() => null)) as { url?: string; error?: string };
+  const body = (await res.json().catch(() => null)) as {
+    embedded?: boolean;
+    orderId?: string;
+    paid?: boolean;
+    requiresAction?: boolean;
+    processing?: boolean;
+    clientSecret?: string;
+    paymentIntentId?: string;
+    publishableKey?: string;
+    url?: string;
+    error?: string;
+  };
   if (!res.ok) {
-    throw new Error(typeof body?.error === 'string' ? body.error : 'Checkout could not start.');
+    return {
+      ok: false,
+      error: typeof body?.error === 'string' ? body.error : 'Checkout could not start.',
+    };
   }
-  const url = body?.url?.trim();
-  if (!url) throw new Error('Checkout could not start.');
-  return url;
+  if (body?.url?.trim() && !body?.embedded) {
+    return { ok: false, error: 'Secure checkout redirect required.', escrowRedirectUrl: body.url.trim() };
+  }
+  const orderId = body?.orderId?.trim();
+  if (!orderId) {
+    return { ok: false, error: 'Checkout could not start.' };
+  }
+  if (body.paid) return { ok: true, paid: true, orderId };
+  if (body.requiresAction && body.clientSecret?.trim() && body.paymentIntentId?.trim()) {
+    return {
+      ok: true,
+      requiresAction: true,
+      orderId,
+      clientSecret: body.clientSecret.trim(),
+      paymentIntentId: body.paymentIntentId.trim(),
+      publishableKey: body.publishableKey?.trim() || undefined,
+    };
+  }
+  if (body.processing) return { ok: true, processing: true, orderId };
+  return { ok: false, error: 'Checkout could not start.' };
+}
+
+export async function syncMarketplaceBuyNowPayment(
+  accessToken: string,
+  orderId: string,
+): Promise<MarketplaceEmbeddedBuyNowResult> {
+  const res = await fetchWebApi(`/api/orders/${encodeURIComponent(orderId)}/charge-saved`, {
+    method: 'POST',
+    headers: authHeaders(accessToken),
+    body: JSON.stringify({ sync: true }),
+  });
+  const body = (await res.json().catch(() => null)) as {
+    ok?: boolean;
+    requiresAction?: boolean;
+    processing?: boolean;
+    clientSecret?: string;
+    paymentIntentId?: string;
+    publishableKey?: string;
+    error?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: typeof body?.error === 'string' ? body.error : 'Payment could not be confirmed.',
+    };
+  }
+  if (body.ok) return { ok: true, paid: true, orderId };
+  if (body.processing) return { ok: true, processing: true, orderId };
+  if (body.requiresAction && body.clientSecret?.trim() && body.paymentIntentId?.trim()) {
+    return {
+      ok: true,
+      requiresAction: true,
+      orderId,
+      clientSecret: body.clientSecret.trim(),
+      paymentIntentId: body.paymentIntentId.trim(),
+      publishableKey: body.publishableKey?.trim() || undefined,
+    };
+  }
+  return { ok: false, error: body?.error ?? 'Payment could not be confirmed.' };
 }
 
 export async function startMarketplaceLayawayCheckout(

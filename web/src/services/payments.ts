@@ -2,6 +2,7 @@ import Stripe from "stripe";
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
 import { EscrowStatus, OrderPaymentMethod, OrderRefundRequestStatus } from "@/generated/prisma/enums";
 import { createNotification } from "@/lib/notifications";
+import { scheduleOrderLifecycleEmail } from "@/lib/order-lifecycle-email";
 import {
   commitReferralCreditReservation,
   grantReferralCreditsForQualifyingOrder,
@@ -58,7 +59,7 @@ import {
 import { syncStripeConnectUserRowsForAccountId } from "@/lib/sync-stripe-connect-user";
 import { emitLiveRoomMessagesRefetch, emitPurchaseCompleted } from "@/lib/realtime-emit-server";
 import { ensureLiveRoomPaymentFailureRecorded } from "@/lib/live-room-payment-failure";
-import { LIVE_BUY_NOW_PI_KIND } from "@/lib/stripe-charge-order-saved-pm";
+import { LIVE_BUY_NOW_PI_KIND, chargeMarketplaceBuyNowOrderWithSavedCard } from "@/lib/stripe-charge-order-saved-pm";
 import { finalizeLiveTipPaid, markLiveTipCheckoutFailed } from "@/services/live-tips";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import { logEscrowStatusTransition } from "@/lib/escrow-audit-log";
@@ -349,6 +350,7 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
       escrowTransactionId: true,
       shippingPriceUsd: true,
       itemPriceUsd: true,
+      taxUsd: true,
       liveShippingSession: { select: { liveShowId: true } },
       listing: { select: { title: true, buyingFormat: true } },
     },
@@ -437,6 +439,19 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
     body: `Your order for “${lt}” payment is confirmed.`,
     href: `/orders/${encodeURIComponent(orderId)}`,
   });
+  scheduleOrderLifecycleEmail({
+    userId: order.sellerId,
+    kind: "seller_ready_to_ship",
+    orderId,
+    listingTitle: order.listing.title,
+  });
+  scheduleOrderLifecycleEmail({
+    userId: order.buyerId,
+    kind: "purchase_complete",
+    orderId,
+    listingTitle: order.listing.title,
+    totalUsd: order.itemPriceUsd + order.shippingPriceUsd + order.taxUsd,
+  });
 
   emitOrderLifecycleSync({
     orderId,
@@ -487,15 +502,40 @@ export type BuyNowShippingInput = {
  * Buy now: create unpaid order + Stripe Checkout (MVP default). When `ESCROW_ENABLED=true` and provider
  * env is configured, high-value totals may use the alternate checkout path. Listing stays active until
  * payment is confirmed (Stripe or provider webhooks).
+ *
+ * Pass `embedded: true` to charge the buyer's saved Vault Wallet card in-app (no Stripe Checkout redirect).
  */
-export async function createBuyNowCheckoutSession(args: {
+export type BuyNowEmbeddedCheckoutResult = {
+  embedded: true;
+  orderId: string;
+} & (
+  | { paid: true }
+  | { requiresAction: true; clientSecret: string; paymentIntentId: string }
+  | { processing: true }
+);
+
+type BuyNowCheckoutSessionArgs = {
   buyerId: string;
   listingId: string;
   liveRoomItemId?: string | null;
   shipping: BuyNowShippingInput;
   successPath?: string;
   cancelPath?: string;
-}): Promise<{ url: string }> {
+  paymentMethodId?: string | null;
+};
+
+export async function createBuyNowCheckoutSession(
+  args: BuyNowCheckoutSessionArgs & { embedded?: false | undefined },
+): Promise<{ url: string }>;
+export async function createBuyNowCheckoutSession(
+  args: BuyNowCheckoutSessionArgs & { embedded: true },
+): Promise<BuyNowEmbeddedCheckoutResult>;
+export async function createBuyNowCheckoutSession(
+  args: BuyNowCheckoutSessionArgs & { embedded?: boolean },
+): Promise<{ url: string } | BuyNowEmbeddedCheckoutResult>;
+export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArgs & { embedded?: boolean }): Promise<
+  { url: string } | BuyNowEmbeddedCheckoutResult
+> {
   const base = siteUrl();
   const successUrl = `${base}${args.successPath ?? "/account/orders"}?session_id={CHECKOUT_SESSION_ID}`;
   const cancelUrl = `${base}${args.cancelPath ?? `/marketplace/${encodeURIComponent(args.listingId)}`}`;
@@ -907,6 +947,31 @@ export async function createBuyNowCheckoutSession(args: {
       releaseReferralCreditReservation(order.id).catch(() => {});
       throw e;
     }
+  }
+
+  if (args.embedded) {
+    const charge = await chargeMarketplaceBuyNowOrderWithSavedCard({
+      buyerId: args.buyerId,
+      orderId: order.id,
+      paymentMethodId: args.paymentMethodId,
+      liveRoomItemId,
+    });
+    if (charge.outcome === "paid") {
+      return { embedded: true, paid: true, orderId: order.id };
+    }
+    if (charge.outcome === "requires_action") {
+      return {
+        embedded: true,
+        requiresAction: true,
+        orderId: order.id,
+        clientSecret: charge.clientSecret,
+        paymentIntentId: charge.paymentIntentId,
+      };
+    }
+    if (charge.outcome === "processing") {
+      return { embedded: true, processing: true, orderId: order.id };
+    }
+    throw new Error(charge.code);
   }
 
   const stripe = getStripe();
@@ -1716,6 +1781,19 @@ export async function finalizeStripeMarketplaceOrderPaid(
     title: "Payment confirmed",
     body: `Your order for “${lt}” is paid.`,
     href: `/orders/${encodeURIComponent(orderId)}`,
+  });
+  scheduleOrderLifecycleEmail({
+    userId: order.sellerId,
+    kind: "seller_ready_to_ship",
+    orderId,
+    listingTitle: order.listing.title,
+  });
+  scheduleOrderLifecycleEmail({
+    userId: order.buyerId,
+    kind: "purchase_complete",
+    orderId,
+    listingTitle: order.listing.title,
+    totalUsd,
   });
 
   emitOrderLifecycleSync({

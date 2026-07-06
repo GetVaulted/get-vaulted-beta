@@ -1,4 +1,5 @@
 import { createNotification } from "@/lib/notifications";
+import { scheduleOrderLifecycleEmail } from "@/lib/order-lifecycle-email";
 import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import { prisma } from "@/lib/prisma";
@@ -252,6 +253,13 @@ export async function fulfillOrderShippingAfterPayment(orderId: string): Promise
       title: "Shipping label created",
       body: `Your order for “${lt}” has a carrier label.${tn}`,
       href: `/orders/${encodeURIComponent(orderId)}`,
+    });
+    scheduleOrderLifecycleEmail({
+      userId: order.buyerId,
+      kind: "order_label_created",
+      orderId,
+      listingTitle: order.listing.title,
+      trackingNumber: resolved.trackingNumber,
     });
     await createNotification(prisma, {
       userId: order.sellerId,

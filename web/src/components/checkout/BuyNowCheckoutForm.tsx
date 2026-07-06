@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { loadStripe } from "@stripe/stripe-js";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { LiveShippingIndicator } from "@/components/live-auction/LiveShippingIndicator";
 import { VaultedSecureCheckoutPanel } from "@/components/checkout/VaultedSecureCheckoutPanel";
@@ -194,6 +196,7 @@ export function BuyNowCheckoutForm({
   const [ratesExpanded, setRatesExpanded] = useState(false);
   const [hasSavedAddress, setHasSavedAddress] = useState(false);
   const [mobileSummaryOpen, setMobileSummaryOpen] = useState(false);
+  const router = useRouter();
 
   const selectShippingRate = (rate: CheckoutShippingRate) => {
     setSelectedRateId(rate.id);
@@ -417,6 +420,7 @@ export function BuyNowCheckoutForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           kind: "buy_now",
+          embedded: !useVaultedSecureCheckout,
           listingId: listing.id,
           ...(liveRoomItemId ? { liveRoomItemId } : {}),
           shipping: {
@@ -434,7 +438,17 @@ export function BuyNowCheckoutForm({
           cancelPath,
         }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; url?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        url?: string;
+        embedded?: boolean;
+        orderId?: string;
+        paid?: boolean;
+        requiresAction?: boolean;
+        processing?: boolean;
+        clientSecret?: string;
+        publishableKey?: string;
+      };
       if (!res.ok) {
         setError(
           toUserFacingErrorMessage(
@@ -444,11 +458,47 @@ export function BuyNowCheckoutForm({
         );
         return;
       }
-      if (data.url) {
+      if (data.url?.trim()) {
         window.location.assign(data.url);
         return;
       }
-      setError("No checkout URL returned.");
+      if (data.paid && data.orderId) {
+        router.push(successPath);
+        return;
+      }
+      if (data.processing && data.orderId) {
+        router.push(successPath);
+        return;
+      }
+      if (data.requiresAction && data.clientSecret && data.publishableKey && data.orderId) {
+        const stripe = await loadStripe(data.publishableKey);
+        if (!stripe) {
+          setError("Stripe could not load.");
+          return;
+        }
+        const conf = await stripe.confirmCardPayment(data.clientSecret);
+        if (conf.error) {
+          setError(conf.error.message ?? "Authentication failed.");
+          return;
+        }
+        const syncRes = await fetch(`/api/orders/${encodeURIComponent(data.orderId)}/charge-saved`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sync: true }),
+        });
+        const syncData = (await syncRes.json().catch(() => ({}))) as { error?: string; ok?: boolean; processing?: boolean };
+        if (syncRes.ok && syncData.ok) {
+          router.push(successPath);
+          return;
+        }
+        if (syncData.processing) {
+          router.push(successPath);
+          return;
+        }
+        setError(syncData.error ?? "Check your orders — payment may still be processing.");
+        return;
+      }
+      setError("Checkout could not complete.");
     } catch {
       setError("Something went wrong. Try again.");
     } finally {
@@ -478,7 +528,7 @@ export function BuyNowCheckoutForm({
     ? "Processing…"
     : useVaultedSecureCheckout
       ? VAULTED_SECURE_CHECKOUT.cta
-      : "Complete purchase";
+      : "Confirm purchase";
 
   return (
     <>

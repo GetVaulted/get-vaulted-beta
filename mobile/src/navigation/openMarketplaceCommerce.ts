@@ -48,33 +48,13 @@ async function openMarketplaceCheckout(
   accessToken: string,
 ) {
   const ready = await ensureBuyerWalletReady(accessToken);
-  if (!ready.paymentReady || !ready.shippingReady) {
-    Alert.alert(
-      'Vault Wallet setup',
-      'Add a shipping address and payment method in Vault Wallet before checkout.',
-      [
-        { text: 'Not now', style: 'cancel' },
-        {
-          text: 'Open Vault Wallet',
-          onPress: () => navigation.navigate('BuyerWallet'),
-        },
-        {
-          text: 'Continue anyway',
-          onPress: () =>
-            navigation.navigate('MarketplaceCheckout', {
-              listingId: product.id,
-              mode,
-              walletSetupFirst: true,
-            }),
-        },
-      ],
-    );
-    return;
-  }
-  navigation.navigate('MarketplaceCheckout', {
+  const walletSetupFirst = !ready.paymentReady || !ready.shippingReady;
+  // Product detail is a modal — push would leave checkout hidden underneath; replace
+  // swaps the modal for checkout so the screen is always visible.
+  navigation.replace('MarketplaceCheckout', {
     listingId: product.id,
     mode,
-    walletSetupFirst: false,
+    walletSetupFirst,
   });
 }
 

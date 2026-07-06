@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
 import { checkoutInfrastructureGate } from "@/lib/checkout-infrastructure";
 import { stripeRouteErrorResponse } from "@/lib/stripe-route-errors";
+import { getStripePublishableKey } from "@/lib/stripe";
 import {
   createBreakSpotCheckoutSession,
   createBuyNowCheckoutSession,
   createPayOrderCheckoutSession,
+  type BuyNowEmbeddedCheckoutResult,
 } from "@/services/payments";
 import { prisma } from "@/lib/prisma";
 import { processAuctionPaymentExpiries } from "@/services/payments";
@@ -38,11 +40,33 @@ type Body = {
     selectedShippingRateId?: string;
   };
   selectedShippingRateId?: string;
+  embedded?: boolean;
+  paymentMethodId?: string;
 };
 
 function trim(s: unknown, max = 500): string {
   if (typeof s !== "string") return "";
   return s.trim().slice(0, max);
+}
+
+function jsonEmbeddedBuyNowResult(result: BuyNowEmbeddedCheckoutResult) {
+  const publishableKey = getStripePublishableKey();
+  if ("requiresAction" in result && result.requiresAction && !publishableKey) {
+    return NextResponse.json(
+      { error: "Stripe publishable key is missing. Set NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY." },
+      { status: 503 },
+    );
+  }
+  return NextResponse.json({
+    embedded: true,
+    orderId: result.orderId,
+    paid: "paid" in result ? true : undefined,
+    requiresAction: "requiresAction" in result ? true : undefined,
+    processing: "processing" in result ? true : undefined,
+    clientSecret: "requiresAction" in result ? result.clientSecret : undefined,
+    paymentIntentId: "requiresAction" in result ? result.paymentIntentId : undefined,
+    publishableKey: publishableKey ?? undefined,
+  });
 }
 
 export async function postMarketplaceCheckout(req: Request): Promise<Response> {
@@ -112,14 +136,27 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
       }
       const selectedShippingRateId =
         trim(body.selectedShippingRateId ?? sh.selectedShippingRateId, 200) || null;
-      const { url } = await createBuyNowCheckoutSession({
+      const paymentMethodId =
+        typeof body.paymentMethodId === "string" && body.paymentMethodId.trim().length > 0
+          ? body.paymentMethodId.trim()
+          : null;
+      const checkoutArgs = {
         buyerId,
         listingId,
         liveRoomItemId,
         shipping: { ...resolvedShipping, buyerAddressId, selectedShippingRateId },
         successPath: body.successPath,
         cancelPath: body.cancelPath,
-      });
+      };
+      if (body.embedded === true) {
+        const embeddedResult = await createBuyNowCheckoutSession({
+          ...checkoutArgs,
+          embedded: true,
+          paymentMethodId,
+        });
+        return jsonEmbeddedBuyNowResult(embeddedResult);
+      }
+      const { url } = await createBuyNowCheckoutSession(checkoutArgs);
       return NextResponse.json({ url });
     }
 
@@ -273,6 +310,18 @@ export async function postMarketplaceCheckout(req: Request): Promise<Response> {
       },
       SHIPPO_SHIPMENT_FAILED: { status: 502, msg: "Shipping rates could not be confirmed. Try again or pick another rate." },
       NO_CHECKOUT_URL: { status: 502, msg: "Checkout could not be created. Try again shortly." },
+      NO_SAVED_CARD: {
+        status: 400,
+        msg: "Add a payment method in Vault Wallet before checkout.",
+      },
+      ORDER_NOT_ELIGIBLE_SAVED_CARD: { status: 400, msg: "This order cannot be paid with your saved card." },
+      CARD_DECLINED: { status: 402, msg: "Card was declined. Update your payment method in Vault Wallet and try again." },
+      BUYER_STRIPE_CUSTOMER_MISSING: {
+        status: 400,
+        msg: "Missing Stripe customer on your account. Add a card in Vault Wallet first.",
+      },
+      PAYMENT_INTENT_NOT_COMPLETED: { status: 409, msg: "Payment did not complete. Try again." },
+      STRIPE_ERROR: { status: 502, msg: "Payment processor error. Try again shortly." },
       STRIPE_NOT_CONFIGURED: { status: 503, msg: "Payments are not configured on this site yet." },
       USER_NOT_FOUND: { status: 404, msg: "Account not found." },
       LISTING_UNAVAILABLE: { status: 409, msg: "This listing is not available for layaway.", code: "ITEM_NOT_AVAILABLE" },
