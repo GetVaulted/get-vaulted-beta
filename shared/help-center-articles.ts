@@ -609,10 +609,10 @@ Browse on web:
 
 Listing detail checklist:
 • Item condition and description
-• Buy Now, auction, or offer availability
+• Buy Now or offer availability (timed bidding is currently only in live shows, not marketplace listings)
 • Shipping cost or calculated rates at checkout
 • Seller location and handling time
-• Vault Verified badge when authenticated inventory
+• Vault Pick / Vault Verified badges — see "Vault Verified listings" for what these do and don't mean
 
 Save listings:
 • Use watchlist/heart tools when available to track price changes.`,
@@ -666,23 +666,20 @@ Watchlist does not reserve inventory — high-demand items can sell while saved.
     id: 'mkt-verified',
     sectionId: 'marketplace',
     title: 'Vault Verified listings',
-    summary: 'What authentication badges mean and how they protect buyers.',
-    body: `Vault Verified (and related authentication badges) indicate inventory reviewed under Get Vaulted authentication programs where applicable.
+    summary: 'What our seller and listing badges actually mean.',
+    body: `Get Vaulted currently uses two different badges — read what each one actually means before you rely on it:
 
-What to look for:
-• Badge on listing cards and detail pages
-• Authentication notes in the description
-• Third-party grader references when disclosed (PSA, BGS, etc.)
+• "Vault Verified" (seller badge) reflects the seller's account standing and payout history on Get Vaulted (an internal performance tier). It is not an authentication of any specific item.
+• "Vault Pick" (listing badge) is a featured/editorial flag a seller can apply to their own listing. It is not an authentication or grading claim.
 
-Before you buy verified items:
-• Read exactly what was authenticated — item vs grade vs encapsulation.
-• High-value purchases may still qualify for escrow hold periods.
+Get Vaulted does not currently run a per-item authentication program. If a listing shows a third-party grading claim (PSA, BGS, SGC, etc.), that claim comes from the seller — check that the grade and cert number in the description match what's shown in the photos before you buy.
 
-If authenticity is wrong after delivery:
+If an item doesn't match its description after delivery:
 • Document the item with photos immediately.
-• Request a refund or open a dispute from the order detail.
+• For a live-show order, use the in-app refund/return request within 2 days of delivery.
+• For a marketplace order, message the seller first, then contact support@shopgetvaulted.com if it isn't resolved.
 • Do not alter graded slabs before support review when disputes involve grading claims.`,
-    keywords: ['verified', 'authentication', 'badge', 'authentic'],
+    keywords: ['verified', 'authentication', 'badge', 'authentic', 'vault pick'],
   },
 
   // ─── Shipping ─────────────────────────────────────────────────────────────
@@ -997,24 +994,26 @@ Trade disputes follow similar evidence rules as order disputes — include photo
     id: 'disp-when',
     sectionId: 'disputes',
     title: 'When to dispute vs request a refund',
-    summary: 'Pick the right path for order and trade problems.',
-    body: `Use the lightest tool that fits the problem:
+    summary: 'Pick the right path — it depends on how you bought.',
+    body: `The right tool depends on how the order happened:
 
-Request a refund (orders):
-• Seller hasn't shipped within policy window.
-• Wrong item or not as described — seller may approve refund first.
-• Start from order detail → Request refund.
+Live show orders (Vault Events):
+• Use the in-app refund/return request, available up to 2 days after delivery is confirmed (photos may be required).
+• Cancel before the seller ships if you change your mind after a live win, subject to the host's rules for that show.
+• If the seller denies your request, escalate to Get Vaulted support from the refund panel.
 
-Open a dispute:
-• Serious issues: non-delivery after reasonable time, authenticity fraud, significant undisclosed damage.
-• Seller unresponsive to refund request.
-• Trade partner failed to ship on accepted trade.
+Trade Center orders (escrow-protected trades):
+• Use the in-app dispute tool for non-delivery, authenticity fraud, or a partner who fails to ship on an accepted trade.
 
-Escalate to Get Vaulted support:
-• After refund denied — buyer can escalate from refund panel (web/backend flow).
-• Platform bugs, payment double-charges, or safety emergencies.
+Marketplace (Buy Now / accepted offer) orders:
+• There is currently no separate self-service refund panel for these orders. Message the seller through order messages first.
+• If it isn't resolved, contact support@shopgetvaulted.com with your order ID — we'll review the order and may issue a refund, facilitate a return, or take other action.
 
-Not for disputes:
+All order types:
+• Payment-network chargebacks remain available through your card issuer or bank, subject to their rules.
+• Platform bugs, double-charges, or safety emergencies should go straight to support.
+
+Not for disputes or refunds:
 • Buyer remorse on correctly described items where returns aren't offered.
 • Chat disagreements — use block/report instead.`,
     keywords: ['dispute', 'refund', 'when', 'help'],
@@ -1022,39 +1021,38 @@ Not for disputes:
   {
     id: 'disp-open',
     sectionId: 'disputes',
-    title: 'Open a dispute',
-    summary: 'Evidence, timelines, and what happens next.',
-    body: `Disputes create a formal review record for orders or trades.
+    title: 'Open a dispute (Trade Center)',
+    summary: 'Evidence, timelines, and what happens next for trades.',
+    body: `The in-app dispute tool applies to Trade Center (escrow-protected) trades. Marketplace and live-show orders use the refund/return tools described in "When to dispute vs request a refund" instead.
 
-Open from mobile:
-1. Order or Trade detail → Open dispute.
+Open from mobile or web:
+1. Trade detail → Open dispute.
 2. Choose reason category.
 3. Describe the issue clearly with dates and facts.
 4. Attach photos if available (damage, wrong item, empty package, etc.).
-5. Submit — status shows on dispute detail timeline.
+5. Submit — status shows on the dispute detail timeline.
 
 What to expect:
-• Seller or counterparty may respond with their evidence.
+• Your trade partner may respond with their evidence.
 • Get Vaulted reviews both sides under marketplace policies.
-• Outcomes may include refund, partial refund, or denial with explanation.
+• Outcomes may include a refund of your side of the trade, partial resolution, or denial with explanation.
 
 Tips:
-• File within the dispute window shown on the order (if applicable).
 • Keep packaging photos for shipping damage claims.
-• Continue polite seller messaging — disputes are separate from chat.`,
-    keywords: ['open dispute', 'evidence', 'photos', 'timeline'],
+• Continue polite messaging with your trade partner — disputes are separate from chat.`,
+    keywords: ['open dispute', 'evidence', 'photos', 'timeline', 'trade'],
   },
   {
     id: 'disp-refund',
     sectionId: 'disputes',
-    title: 'Request a refund on an order',
-    summary: 'Buyer refund requests before escalation.',
-    body: `Many order issues start with a structured refund request.
+    title: 'Request a refund on a live show order',
+    summary: 'Buyer refund/return requests for live-show purchases.',
+    body: `The structured in-app refund/return request currently applies to orders placed through a Vault Events live show, within 2 days of delivery confirmation. Marketplace (Buy Now / offer) orders don't have this panel — see "When to dispute vs request a refund" for that path.
 
 On web:
 1. My Account → Orders → order detail.
-2. Open Request refund panel.
-3. Select reason and submit.
+2. Open Request refund panel (shown for eligible live-show orders).
+3. Select reason, add photos if relevant, and submit.
 4. Seller approves, denies, or messages you.
 
 On mobile:
@@ -1065,9 +1063,9 @@ If approved:
 • Refund returns to original payment method per Stripe timing.
 
 If denied:
-• Read seller's reason.
+• Read the seller's reason.
 • Escalate to Get Vaulted support from the refund panel if you disagree and have evidence.`,
-    keywords: ['refund request', 'return', 'seller deny'],
+    keywords: ['refund request', 'return', 'seller deny', 'live show'],
   },
   {
     id: 'disp-escalate',
@@ -1192,21 +1190,23 @@ Questions before deleting? Email support@shopgetvaulted.com.`,
   {
     id: 'trust-verified',
     sectionId: 'trust',
-    title: 'Vault Verified and authentication',
-    summary: 'Badges, grading claims, and buyer protection context.',
-    body: `Trust signals help you evaluate sellers and inventory.
+    title: 'Vault Verified and seller trust signals',
+    summary: 'What our badges and seller stats mean — and don\u2019t mean.',
+    body: `Trust signals help you evaluate sellers, but read them for what they actually are:
 
-Vault Verified:
-• Indicates items authenticated under Get Vaulted programs where shown.
-• Read listing text for scope — what was inspected and what was not.
+Vault Verified / Vault Pick:
+• "Vault Verified" reflects a seller's account standing and payout history, not an inspection of any specific item.
+• "Vault Pick" is a seller-applied featured flag, not an authentication.
+• Get Vaulted does not currently run a per-item authentication program.
 
 Grading:
-• PSA/BGC/SGC claims should match slab serials in photos.
+• PSA/BGS/SGC claims come from the seller — match the grade and cert number to what's shown in photos.
 • Report mismatches immediately after delivery.
 
-Seller metrics:
-• Completion rate, ratings, and tenure appear on profiles and listings.
-• New sellers aren't automatically untrustworthy — review listings carefully.
+Seller profile stats:
+• Completed sales shown on a seller's profile reflect real orders placed on Get Vaulted.
+• We do not currently have a star-rating or written-review system — see "Seller ratings and reviews" for what's available today.
+• New sellers aren't automatically untrustworthy — review listings and seller history carefully.
 
 Authentication disputes require evidence — keep unboxing photos for high-value cards.`,
     keywords: ['verified', 'trust', 'authentication', 'grading'],
@@ -1215,19 +1215,15 @@ Authentication disputes require evidence — keep unboxing photos for high-value
     id: 'trust-reviews',
     sectionId: 'trust',
     title: 'Seller ratings and reviews',
-    summary: 'Leave feedback and read seller reputation.',
-    body: `After transactions, buyers may rate sellers to help the community.
+    summary: 'What buyer feedback tools exist today.',
+    body: `Get Vaulted does not currently have a star-rating or written-review system on seller profiles or listings.
 
-Leave a review:
-1. Open completed order detail when review prompt is available.
-2. Rate honestly on shipping speed, accuracy, and communication.
-3. Avoid personal attacks — reviews may be moderated for policy violations.
+What's available today:
+• A seller's profile shows their real completed-order count on Get Vaulted and their account standing/tier.
+• If you have a problem with a seller or an order, use Report (for policy violations, fraud, or misconduct) or the refund/dispute tools (for order problems) — see the Disputes section.
+• Fake, retaliatory, or extorted reviews are prohibited under our Community Guidelines wherever review or feedback features do exist in-product.
 
-Read reviews:
-• Seller profile and listing pages show aggregate ratings.
-• Read recent negative reviews for patterns (shipping delays, condition issues).
-
-Reviews are not a substitute for disputes on serious fraud or non-delivery — use dispute flow when money is at risk.`,
+We may add a structured buyer-review feature in the future; this article will be updated if and when that happens.`,
     keywords: ['review', 'rating', 'feedback', 'seller'],
   },
   {

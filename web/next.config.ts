@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 import os from "node:os";
 import path from "node:path";
 import { withSentryConfig } from "@sentry/nextjs";
+import { buildSecurityHeaders } from "./src/lib/security-headers";
 
 function supabasePublicStorageHostname(): string | undefined {
   const raw = process.env.SUPABASE_URL?.trim();
@@ -87,6 +88,14 @@ const nextConfig: NextConfig = {
           ]
         : []),
     ],
+  },
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: buildSecurityHeaders(),
+      },
+    ];
   },
 };
 

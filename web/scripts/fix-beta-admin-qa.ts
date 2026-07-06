@@ -23,14 +23,6 @@ const SELLER_BUYER_PASSWORD = "VaultedBetaQA1!";
 const EXPECTED_BETA_PROJECT_REF = "xkaaicokjgmpbctfermj";
 const BETA_BASE = "https://beta.shopgetvaulted.com";
 
-function qaPassword(): string {
-  return (
-    process.env.BETA_QA_ACCOUNT_PASSWORD?.trim() ||
-    process.env.BETA_QA_PASSWORD?.trim() ||
-    EXPECTED_PASSWORD
-  );
-}
-
 async function findAuthUserByEmail(
   admin: import("@supabase/supabase-js").SupabaseClient,
   email: string,

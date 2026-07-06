@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --hostname 0.0.0.0 --port 3000",
-    "dev:localhost": "next dev",
+    "dev": "node scripts/run-next-dev.mjs --hostname 0.0.0.0 --port 3000",
+    "dev:localhost": "node scripts/run-next-dev.mjs",
     "build": "prisma generate && next build",
     "start": "next start",
     "netlify:build": "node scripts/prisma-migrate-deploy.mjs && npm run build",
