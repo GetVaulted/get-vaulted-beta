@@ -14,6 +14,7 @@ import {
 } from "@/lib/buyer-shipping-preference";
 import { AddressAutocompleteFields } from "@/components/address/AddressAutocompleteFields";
 import { VAULTED_SECURE_CHECKOUT } from "@/lib/vaulted-secure-checkout-copy";
+import { toUserFacingErrorMessage } from "@/lib/user-facing-error-message";
 
 function formatMoney(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
@@ -435,7 +436,12 @@ export function BuyNowCheckoutForm({
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string; url?: string };
       if (!res.ok) {
-        setError(data.error ?? "Purchase failed.");
+        setError(
+          toUserFacingErrorMessage(
+            data.error,
+            "We couldn't start your purchase. Payments may be temporarily unavailable — please try again shortly.",
+          ),
+        );
         return;
       }
       if (data.url) {

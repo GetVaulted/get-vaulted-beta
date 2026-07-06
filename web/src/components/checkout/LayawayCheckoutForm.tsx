@@ -5,6 +5,7 @@ import type { CheckoutListingSnapshot } from "@/components/checkout/BuyNowChecko
 import { AddressAutocompleteFields } from "@/components/address/AddressAutocompleteFields";
 import { LAYAWAY_TERMS_COPY } from "@/lib/layaway/constants";
 import { layawayDepositUsd, layawayRemainingBalanceUsd } from "@/lib/layaway/math";
+import { toUserFacingErrorMessage } from "@/lib/user-facing-error-message";
 
 function formatMoney(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
@@ -119,7 +120,12 @@ export function LayawayCheckoutForm({ listing }: { listing: CheckoutListingSnaps
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string; url?: string };
       if (!res.ok) {
-        setError(data.error ?? "Layaway checkout failed.");
+        setError(
+          toUserFacingErrorMessage(
+            data.error,
+            "We couldn't start your layaway plan. Payments may be temporarily unavailable — please try again shortly.",
+          ),
+        );
         return;
       }
       if (data.url) {

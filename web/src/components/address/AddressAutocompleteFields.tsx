@@ -7,6 +7,7 @@ import {
   type AddressAutocompleteSuggestion,
   type AddressAutocompleteValues,
 } from "@/lib/address-api-client";
+import { toUserFacingErrorMessage } from "@/lib/user-facing-error-message";
 
 export type { AddressAutocompleteValues };
 
@@ -81,7 +82,9 @@ export function AddressAutocompleteFields({
           const res = await searchAddressAutocomplete(q, values.country, containerRef.current);
           setSuggestions(res.suggestions);
           setOpen(res.suggestions.length > 0);
-          setHint(res.enabled ? null : res.message ?? null);
+          // When autocomplete just isn't enabled in this environment, degrade silently to plain
+          // manual entry instead of surfacing an internal "requires Shippo" config message.
+          setHint(null);
         } catch {
           setSuggestions([]);
           setOpen(false);
@@ -134,7 +137,7 @@ export function AddressAutocompleteFields({
       applyResolved(resolved);
     } catch (e) {
       pauseSearchRef.current = false;
-      setHint(e instanceof Error ? e.message : "Could not load that address.");
+      setHint(toUserFacingErrorMessage(e instanceof Error ? e.message : null, "Could not load that address."));
     } finally {
       setBusy(false);
     }

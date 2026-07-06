@@ -65,6 +65,7 @@ import { sellerProfilePath } from "@/lib/seller-profile-url";
 import { LiveRoomShareSheet } from "@/components/live-auction/LiveRoomShareSheet";
 import { syncedWallTimeMs } from "@/lib/server-clock-sync";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
+import { toUserFacingErrorMessage } from "@/lib/user-facing-error-message";
 import { isVariantSalesFormat, isVariantPurchaseItem, summarizeVariantSpots, variantBuyerSelectLabel, variantClaimPrimaryLabel, hostPinnedBuyerVariant, isRandomVariantAssignment, buildExclusiveHostPinUpdates } from "@/lib/live-item-variant-presets";
 import {
   isVariantSpotAuctionLive,
@@ -856,9 +857,13 @@ export function LiveAuctionRoom({
           return;
         }
         if (!res.ok) {
-          const msg = data.error ?? "We couldn't place that bid. Try again in a moment.";
+          const msg = toUserFacingErrorMessage(data.error, "We couldn't place that bid. Try again in a moment.");
           setActionError(msg);
           toast(msg);
+          // A rejected bid (outbid, reserve/min-bid changed, lot state moved on) leaves the
+          // buyer's local `buyerNextBidUsd`/lot state stale until the next realtime event or
+          // poll — resync immediately so the next bid attempt uses current numbers.
+          void onRefetch?.();
           return;
         }
         const ack = parseAuctionHttpAckPayload(data);
@@ -880,6 +885,9 @@ export function LiveAuctionRoom({
         }, 750);
       } catch {
         toast("We couldn't place that bid. Try again in a moment.");
+        // Network error / timeout: the request may or may not have gone through server-side —
+        // resync so the UI reflects reality instead of trusting the pre-bid local state.
+        void onRefetch?.();
       } finally {
         setBidFlight(false);
       }

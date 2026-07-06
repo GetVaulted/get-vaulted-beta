@@ -292,9 +292,13 @@ export function Navbar() {
                 Search
               </label>
               <div className="relative">
-                <span className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-muted">
+                <button
+                  type="submit"
+                  aria-label="Search"
+                  className="absolute inset-y-0 left-0 flex w-8 items-center justify-center text-muted transition-colors hover:text-foreground"
+                >
                   <SearchIcon className="size-3.5" aria-hidden />
-                </span>
+                </button>
                 <input
                   id="site-search"
                   name="site-search"

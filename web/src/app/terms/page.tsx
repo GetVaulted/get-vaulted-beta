@@ -13,7 +13,7 @@ export default function TermsPage() {
         ← Back to Join
       </Link>
       <h1 className="font-display mt-6 text-2xl font-bold text-foreground">Terms of Service</h1>
-      <p className="mt-2 text-xs text-zinc-500">Last updated: June 26, 2026</p>
+      <p className="mt-2 text-xs text-zinc-500">Last updated: July 3, 2026</p>
 
       <div className="mt-10 space-y-8 text-sm leading-relaxed text-zinc-300">
         <section>
@@ -28,11 +28,13 @@ export default function TermsPage() {
           <p className="mt-3 text-muted">
             Get Vaulted LLC (“Get Vaulted,” “we,” “us”) operates a collector marketplace, mobile application, website,
             and related services that allow users to buy, sell, list, offer, bid, trade, message, livestream, and
-            complete transactions. Features include The Vault marketplace (Buy Now, auctions, offers, and layaway on
-            eligible listings), Vault Events and live commerce (auctions, fixed-price drops, box breaks including Pick
-            Your Team / Pick Your Division and random spots, and giveaways where offered), Trade Center (vault-to-vault
-            trade offers), Vault Wallet (saved payment and shipping for checkout), seller fulfillment tools (including
-            integrated shipping labels), and community trust features (ratings, reporting, and moderation).
+            complete transactions. Features include The Vault marketplace (Buy Now purchases, buyer offers, and
+            layaway on eligible listings — timed bidding is not currently offered on marketplace listings), Vault
+            Events and live commerce (live timed auctions, fixed-price drops, box breaks including Pick Your Team /
+            Pick Your Division and random spots, and giveaways where offered), Trade Center (vault-to-vault trade
+            offers), Vault Wallet (saved payment and shipping for checkout), seller fulfillment tools (including
+            integrated shipping labels), and community trust features (reporting and moderation). We may add, remove,
+            or change which of these formats are available at any time.
           </p>
           <p className="mt-3 text-muted">
             Get Vaulted is a platform provider only unless we expressly state otherwise. We are not the seller, buyer,
@@ -76,10 +78,26 @@ export default function TermsPage() {
             before you buy, bid, offer, trade, or claim a spot.
           </p>
           <p className="mt-3 text-muted">
-            Marketplace listings may support Buy Now checkout, timed auctions, buyer offers, trade offers, and layaway on
-            eligible items. Layaway terms (including non-refundable deposits and payment schedules) are shown at checkout
-            and must be accepted before a layaway begins. Items reserved on layaway are not shipped until paid in full
-            unless we state otherwise in writing.
+            Marketplace listings may support Buy Now checkout, buyer offers, trade offers, and layaway on eligible
+            items. Timed bidding auctions currently occur only in Vault Events / live rooms (see Section 7), not on
+            standalone marketplace listings. Layaway terms (including non-refundable deposits and payment schedules)
+            are shown at checkout and must be accepted before a layaway begins. Items reserved on layaway are not
+            shipped until paid in full unless we state otherwise in writing.
+          </p>
+          <p className="mt-3 text-muted">
+            <strong className="text-zinc-200">When a transaction becomes binding.</strong> A Buy Now purchase is
+            binding when your payment is successfully authorized at checkout. A buyer offer becomes binding on both
+            parties once the seller accepts it and you complete payment within the payment window shown at checkout
+            (offers are not binding, and inventory is not guaranteed to you, until payment is completed). Accepted
+            offers, live-auction wins, and Buy Now purchases cannot be cancelled by the buyer to avoid fees, and bids
+            and accepted offers cannot be retracted once submitted, except through our refund, dispute, or support
+            process.
+          </p>
+          <p className="mt-3 text-muted">
+            <strong className="text-zinc-200">Vault Wallet authorization.</strong> If you have a saved payment method
+            and shipping address in Vault Wallet, placing a winning bid in a live auction, claiming a box-break spot,
+            or completing a Buy Now purchase authorizes us to charge your default saved payment method for the item
+            price plus applicable shipping and tax at the time the sale is finalized.
           </p>
           <p className="mt-3 text-muted">
             You acknowledge that collectibles, cards, memorabilia, watches, luxury items, and similar goods may have
@@ -232,10 +250,37 @@ export default function TermsPage() {
           <h3 className="mt-6 font-semibold text-zinc-100">5.8 Fees, payouts, and reserves</h3>
           <p className="mt-2 text-muted">
             You authorize platform fees, payment processing costs, trade fees, and adjustments disclosed at listing,
-            checkout, or in seller tools. Payouts are processed through Stripe Connect and may be delayed, held, or
-            offset for fraud review, chargebacks, shipping failures, escrow or delivery confirmation requirements,
-            identity verification, reserves, or policy violations. You are responsible for chargebacks, processor fines,
-            and negative balances associated with your sales.
+            checkout, or in seller tools. As of the date above, our standard fees are:
+          </p>
+          <ul className="mt-2 list-disc space-y-2 pl-5 text-muted">
+            <li>Marketplace (Buy Now) sales: an 8% platform fee on the item price (shipping and tax are excluded);</li>
+            <li>
+              Vault Events / live-show sales: a tiered platform fee based on your show’s gross sales — 8% on the first
+              $1,000, 7.25% from $1,000 up to $3,000, and 6.5% above $3,000 in a single show;
+            </li>
+            <li>
+              Trade Center protection fees: a flat fee by item category, shown before you accept a trade (typically
+              $12–$45 depending on category);
+            </li>
+            <li>Stripe’s standard card-processing fee (approximately 2.9% + $0.30 per charge) applies in addition to the above.</li>
+          </ul>
+          <p className="mt-2 text-muted">
+            We may change these fees, add new fee types (including listing, subscription, or promotional fees), or
+            offer different rates to specific sellers or promotions; changes apply prospectively and will be reflected
+            in Seller HQ or at checkout before you list, go live, or sell. Platform fees are retained by us on refunded
+            or charged-back sales and are not returned to you.
+          </p>
+          <p className="mt-2 text-muted">
+            Payouts are made through Stripe Connect (Express accounts) to your linked bank account. Standard payouts
+            are subject to a hold period (currently up to 7 days after delivery confirmation) before funds are
+            released; sellers who qualify for Fast or Instant payout tiers (based on account age, sales history, and
+            standing) may receive funds sooner, as shown in Seller HQ. Payouts may be further delayed, held, or offset
+            for fraud review, chargebacks, shipping failures, escrow or delivery confirmation requirements, identity
+            verification, reserves, or policy violations. Because Stripe Connect uses destination charges, buyer
+            payments may be reflected in your connected Stripe account before your internal Get Vaulted payout status
+            updates to “released” — the payout status shown in Seller HQ reflects when funds are cleared for you to
+            withdraw, not necessarily the underlying Stripe transfer timing. You are responsible for chargebacks,
+            processor fines, and negative balances associated with your sales.
           </p>
 
           <h3 className="mt-6 font-semibold text-zinc-100">5.9 Prohibited seller conduct</h3>
@@ -269,6 +314,20 @@ export default function TermsPage() {
             <li>reporting issues within required timeframes;</li>
             <li>not abusing chargebacks or disputes.</li>
           </ul>
+          <p className="mt-3 text-muted">
+            <strong className="text-zinc-200">Refunds and returns.</strong> Orders placed through a Vault Events live
+            show currently have an in-app refund/return request available for up to 2 days after delivery is
+            confirmed (photos of the item or issue may be required); if the seller declines, you may escalate to
+            support. Marketplace Buy Now and offer-based orders do not currently have a separate self-service refund
+            tool — if there is a problem with a marketplace order, contact the seller through order messages first,
+            and contact{" "}
+            <a href="mailto:support@shopgetvaulted.com" className="font-medium text-gold-bright hover:underline">
+              support@shopgetvaulted.com
+            </a>{" "}
+            if it is not resolved; we will review the order and may issue a refund, facilitate a return, or take other
+            action at our discretion. Chargebacks and payment-network disputes remain available through your card
+            issuer or bank subject to their rules and timeframes.
+          </p>
         </section>
 
         <section>
@@ -293,6 +352,29 @@ export default function TermsPage() {
             <li>live purchases may require a ready Vault Wallet (payment method and shipping address on file);</li>
             <li>giveaway entry and prize claim rules shown in-product apply and may require presence in-room.</li>
           </ul>
+          <p className="mt-3 text-muted">
+            <strong className="text-zinc-200">Live auction mechanics.</strong> Bids are irrevocable once submitted and
+            cannot be retracted. Minimum bid increments are set automatically (or by the host for a specific lot) and
+            shown in the bidding interface. A host may enable a “soft close” (bids placed in the final seconds extend
+            the timer) or a “sudden death” mode (no extension) for a lot or show; the active mode is shown in the live
+            interface. Some lots may support proxy/max bidding, where the system bids on your behalf up to your
+            authorized maximum. When a host sets a reserve price for a lot, the lot will not be marked sold to the
+            high bidder unless the reserve is met; we are working to ensure reserve status is always shown accurately
+            and are not liable for display errors, but you may report a suspected mismatch to support.
+          </p>
+          <p className="mt-3 text-muted">
+            <strong className="text-zinc-200">Settlement and charge timing.</strong> In some live formats, your card
+            is authorized and charged automatically when the lot closes with you as the winning bidder; in others, the
+            sale is finalized only after the host marks the lot sold. Either way, once your bid or purchase is
+            accepted as described above, you are obligated to complete payment.
+          </p>
+          <p className="mt-3 text-muted">
+            <strong className="text-zinc-200">Host cancellation.</strong> A host or Get Vaulted may skip, void, or
+            cancel a lot or end a show before it is marked sold, including after bids have been placed, for reasons
+            such as technical issues, item unavailability, rule violations, or safety concerns. If a lot you were the
+            high bidder on is skipped or voided before sale, you will not be charged for that lot (and any hold will
+            be released); we do not guarantee the item will be offered again.
+          </p>
         </section>
 
         <section>
@@ -319,7 +401,12 @@ export default function TermsPage() {
             fraud/security review.
           </p>
           <p className="mt-3 text-muted">
-            You represent that you have all rights necessary to submit the content and grant this license.
+            You represent that you have all rights necessary to submit the content and grant this license. If you
+            believe another user&apos;s content infringes your copyright, see our{" "}
+            <Link href="/dmca" className="font-medium text-gold-bright hover:underline">
+              Copyright / DMCA Policy
+            </Link>{" "}
+            for how to submit a takedown notice.
           </p>
         </section>
 
@@ -334,11 +421,17 @@ export default function TermsPage() {
 
         <section>
           <h2 className="font-display text-lg font-semibold text-foreground">11. Prohibited Conduct</h2>
-          <p className="mt-3 text-muted">You may not:</p>
+          <p className="mt-3 text-muted">
+            You may not (see also our{" "}
+            <Link href="/prohibited-items" className="font-medium text-gold-bright hover:underline">
+              Prohibited Items Policy
+            </Link>{" "}
+            for a full list of items and content that may not be listed or sold):
+          </p>
           <ul className="mt-3 list-disc space-y-2 pl-5 text-muted">
             <li>sell counterfeit, stolen, illegal, or infringing items;</li>
             <li>commit fraud, identity abuse, laundering, or deceptive conduct;</li>
-            <li>manipulate bids, reviews, listings, ratings, or clips;</li>
+            <li>manipulate bids, listings, or clips;</li>
             <li>use bots, scrapers, or unauthorized automation;</li>
             <li>harass, threaten, exploit, or defraud users;</li>
             <li>interfere with the platform or livestreams;</li>

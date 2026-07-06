@@ -6,7 +6,7 @@ import { signIn, useSession } from "next-auth/react";
 import { Suspense, useEffect, useState } from "react";
 import { safeReturnTo } from "@/lib/safe-return-to";
 import {
-  loadRememberedCredentials,
+  loadRememberedEmail,
   loadRememberMePreference,
   persistRememberMeCredentials,
 } from "@/lib/remember-me-credentials";
@@ -55,11 +55,17 @@ function SignInForm() {
   );
   const [loading, setLoading] = useState(false);
 
+  const emailOk = email.trim().length > 0 && email.includes("@");
+  const passwordOk = password.length > 0;
+  const submitDisabled = loading || !emailOk || !passwordOk;
+
   useEffect(() => {
-    const saved = loadRememberedCredentials();
-    if (saved) {
-      setEmail((current) => current || saved.email);
-      setPassword(saved.password);
+    // SECURITY: only the email is ever remembered locally (never the password — see
+    // remember-me-credentials.ts). The password field is left for the browser's own password
+    // manager (autoComplete="current-password") to fill securely, if the user has that enabled.
+    const savedEmail = loadRememberedEmail();
+    if (savedEmail) {
+      setEmail((current) => current || savedEmail);
       setRememberMe(true);
       return;
     }
@@ -80,7 +86,7 @@ function SignInForm() {
         setError(AUTH_USER_MESSAGES.signInInvalidCredentials);
         return;
       }
-      persistRememberMeCredentials(rememberMe, email, password);
+      persistRememberMeCredentials(rememberMe, email);
       const next = returnTo.startsWith("/") ? returnTo : "/marketplace";
       router.replace(next);
       router.refresh();
@@ -177,7 +183,7 @@ function SignInForm() {
         {error && !oauthErrorRaw ? <p className="text-xs font-medium text-rose-300">{error}</p> : null}
         <button
           type="submit"
-          disabled={loading}
+          disabled={submitDisabled}
           className="mt-1 h-11 rounded-full bg-gradient-to-r from-gold to-gold-bright text-sm font-bold text-zinc-950 shadow-[0_0_28px_-6px_rgba(201,162,39,0.5)] transition hover:brightness-110 active:scale-[0.98] disabled:opacity-60"
         >
           {loading ? "Signing in…" : "Sign in"}

@@ -686,7 +686,12 @@ function RowActionsDesktop({
           if (!window.confirm("Delete this listing? This cannot be undone.")) return;
           void (async () => {
             const res = await fetch(`/api/listings/${encodeURIComponent(listing.id)}`, { method: "DELETE" });
-            if (res.ok) onChanged();
+            if (res.ok) {
+              onChanged();
+              return;
+            }
+            const data = (await res.json().catch(() => ({}))) as { error?: string };
+            window.alert(data.error ?? "Could not delete this listing.");
           })();
         }}
         className="rounded-md border border-white/12 px-2 py-1 text-[11px] font-medium text-rose-300/90 transition hover:border-rose-400/35"
@@ -756,7 +761,12 @@ function MobileOverflowMenu({
             if (!window.confirm("Delete this listing?")) return;
             void (async () => {
               const res = await fetch(`/api/listings/${encodeURIComponent(listing.id)}`, { method: "DELETE" });
-              if (res.ok) onChanged();
+              if (res.ok) {
+                onChanged();
+                return;
+              }
+              const data = (await res.json().catch(() => ({}))) as { error?: string };
+              window.alert(data.error ?? "Could not delete this listing.");
             })();
           }}
         >

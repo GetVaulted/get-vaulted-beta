@@ -13,7 +13,7 @@ export default function PrivacyPage() {
         ← Home
       </Link>
       <h1 className="font-display mt-6 text-2xl font-bold text-foreground">Privacy Policy</h1>
-      <p className="mt-2 text-xs text-zinc-500">Last updated: June 26, 2026</p>
+      <p className="mt-2 text-xs text-zinc-500">Last updated: July 3, 2026</p>
 
       <div className="mt-10 space-y-8 text-sm leading-relaxed text-zinc-300">
         <section>
@@ -163,6 +163,11 @@ export default function PrivacyPage() {
               (subject to their policies);
             </li>
             <li>
+              <strong className="text-zinc-200">Sentry</strong> — application error monitoring and performance
+              tracing so we can detect and fix bugs; configured to exclude cookies, request headers/bodies, and
+              query parameters, and to mask text, inputs, and media in any diagnostic session replay;
+            </li>
+            <li>
               professional advisers, auditors, or successors in a merger, acquisition, or asset sale;
             </li>
             <li>law enforcement or regulators when required or permitted by law, or to protect rights and safety.</li>
@@ -198,6 +203,9 @@ export default function PrivacyPage() {
             </li>
             <li>
               <strong className="text-zinc-200">Expo</strong> — push delivery;
+            </li>
+            <li>
+              <strong className="text-zinc-200">Sentry</strong> — error monitoring and performance tracing;
             </li>
             <li>
               optional providers we may enable (such as Redis, Kafka, OpenTelemetry, or alternate escrow partners when

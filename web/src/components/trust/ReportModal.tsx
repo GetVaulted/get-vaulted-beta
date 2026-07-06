@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ReportReason, ReportTargetType } from "@/generated/prisma/enums";
 import { REPORT_REASON_LABELS, REPORT_REASONS, REPORT_TARGET_LABELS } from "@/lib/trust/report-types";
 
@@ -19,8 +20,13 @@ export function ReportModal({ open, onClose, targetType, targetId, liveRoomId, l
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
-  if (!open) return null;
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!open || !mounted) return null;
 
   const submit = async () => {
     setBusy(true);
@@ -52,7 +58,7 @@ export function ReportModal({ open, onClose, targetType, targetId, liveRoomId, l
 
   const title = label ?? `Report ${REPORT_TARGET_LABELS[targetType]}`;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/70 p-4 sm:items-center">
       <div
         className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#0a0a0d] p-6 shadow-2xl"
@@ -125,7 +131,8 @@ export function ReportModal({ open, onClose, targetType, targetId, liveRoomId, l
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

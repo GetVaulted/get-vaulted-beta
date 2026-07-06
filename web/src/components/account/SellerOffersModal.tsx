@@ -8,6 +8,21 @@ function formatMoney(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
+/** Strict money format: digits, optional decimal point, at most 2 decimal places. No sign, no letters. */
+const COUNTER_AMOUNT_PATTERN = /^\d+(\.\d{1,2})?$/;
+
+/**
+ * Rejects (returns null for) any raw input containing a minus sign, letters, or more than
+ * 2 decimal places — rather than stripping invalid characters and silently reinterpreting
+ * bad input as a valid positive amount.
+ */
+export function parseCounterAmount(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!COUNTER_AMOUNT_PATTERN.test(trimmed)) return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : null;
+}
+
 export type ListingOfferRow = {
   id: string;
   buyerUsername: string;
@@ -24,9 +39,18 @@ type SellerOffersModalProps = {
   listingId: string | null;
   listingTitle: string;
   onChanged?: () => void;
+  /** Offer id to scroll to and visually highlight, e.g. when arriving from a notification deep-link. */
+  highlightOfferId?: string | null;
 };
 
-export function SellerOffersModal({ open, onClose, listingId, listingTitle, onChanged }: SellerOffersModalProps) {
+export function SellerOffersModal({
+  open,
+  onClose,
+  listingId,
+  listingTitle,
+  onChanged,
+  highlightOfferId,
+}: SellerOffersModalProps) {
   const titleId = useId();
   const [offers, setOffers] = useState<ListingOfferRow[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -145,8 +169,21 @@ export function SellerOffersModal({ open, onClose, listingId, listingTitle, onCh
                 const busy = busyId === o.id;
                 const pending = o.status === "pending";
                 const countered = o.status === "countered";
+                const highlighted = highlightOfferId === o.id;
                 return (
-                  <li key={o.id} className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 sm:px-3.5">
+                  <li
+                    key={o.id}
+                    ref={
+                      highlighted
+                        ? (el) => {
+                            el?.scrollIntoView({ block: "nearest" });
+                          }
+                        : undefined
+                    }
+                    className={`rounded-xl border px-3 py-2.5 sm:px-3.5 ${
+                      highlighted ? "border-gold/45 bg-gold/[0.06] ring-1 ring-gold/30" : "border-white/[0.08] bg-white/[0.02]"
+                    }`}
+                  >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-xs font-semibold text-zinc-200">@{o.buyerUsername}</span>
                       <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${offerStatusTone(o.status)}`}>
@@ -213,10 +250,16 @@ export function SellerOffersModal({ open, onClose, listingId, listingTitle, onCh
                               type="button"
                               disabled={busy}
                               onClick={() => {
-                                const raw = (counterDrafts[o.id] ?? "").replace(/[^0-9.]/g, "");
-                                const n = Number(raw);
+                                const raw = (counterDrafts[o.id] ?? "").trim();
+                                const n = parseCounterAmount(raw);
+                                if (n == null) {
+                                  setActionError(
+                                    "Enter a valid counter amount using digits only, with at most two decimal places (e.g. 45.00).",
+                                  );
+                                  return;
+                                }
                                 if (!(n > 0)) {
-                                  setActionError("Enter a valid counter amount.");
+                                  setActionError("Counter amount must be greater than zero.");
                                   return;
                                 }
                                 void patch(o.id, { action: "counter", counterAmountUsd: n }).then(() => {

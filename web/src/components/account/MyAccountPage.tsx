@@ -163,6 +163,11 @@ export function MyAccountPage() {
       accent: walletSnapshot ? !walletSnapshot.paymentReady || !walletSnapshot.shippingReady : false,
     },
     {
+      href: "/account/referrals",
+      title: "Referrals",
+      description: "Get your link — you and your friend both get $10 credit.",
+    },
+    {
       href: profileHref,
       title: "View Profile",
       description: "Your public storefront — what other users see.",

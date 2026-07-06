@@ -7,7 +7,7 @@ import { SellerProfileActions } from "@/components/seller/SellerProfileActions";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { auctionBidCountsByListingIds } from "@/lib/listing-bid-counts";
 import { dbListingToMarketplace } from "@/lib/listing-mapper";
-import { buildSellerCredibilityLabel } from "@/lib/marketplace-item-extras";
+import { NEW_SELLER_CREDIBILITY_LABEL } from "@/lib/marketplace-item-extras";
 import { listingWithSellerFulfillmentInclude } from "@/lib/listing-with-seller-include";
 import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
 import { prisma } from "@/lib/prisma";
@@ -125,7 +125,7 @@ export default async function SellerShopPage({
   const credibility =
     salesOrderCount > 0
       ? `${salesOrderCount.toLocaleString("en-US")} orders on Get Vaulted`
-      : buildSellerCredibilityLabel(user.username);
+      : NEW_SELLER_CREDIBILITY_LABEL;
   const verified = user.emailVerified != null;
 
   const emptyCopy =

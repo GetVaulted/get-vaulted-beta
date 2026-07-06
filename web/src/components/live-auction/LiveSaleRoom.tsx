@@ -29,6 +29,7 @@ import { LiveVideoStage } from "@/components/live-auction/LiveVideoStage";
 import { LiveGiveawaySideTab } from "@/components/live-auction/LiveGiveawaySideTab";
 import type { ViewerGiveawayDTO } from "@/lib/live-giveaway";
 import { WATCHLIST_TOAST_EVENT } from "@/lib/watchlist-events";
+import { toUserFacingErrorMessage } from "@/lib/user-facing-error-message";
 import type { LiveRoomStatus } from "@/generated/prisma/client";
 import type { LiveRoomItemDTO, LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { liveAuctionMinBidUsd } from "@/lib/auction";
@@ -741,9 +742,13 @@ export function LiveSaleRoom({
         return;
       }
       if (!res.ok) {
-        const msg = data.error ?? "We couldn't place that bid. Try again in a moment.";
+        const msg = toUserFacingErrorMessage(data.error, "We couldn't place that bid. Try again in a moment.");
         setActionError(msg);
         toast(msg);
+        // A rejected bid (outbid, min-bid moved, lot state changed) leaves local bid state
+        // stale until the next realtime event or poll — resync now so the next attempt uses
+        // current numbers instead of retrying against outdated state.
+        void onRefetch?.();
         return;
       }
       const ack = parseAuctionHttpAckPayload(data);
@@ -765,6 +770,9 @@ export function LiveSaleRoom({
       }, 750);
     } catch {
       toast("We couldn't place that bid. Try again in a moment.");
+      // Network error / timeout: the request may or may not have gone through server-side —
+      // resync so the UI reflects reality instead of trusting the pre-bid local state.
+      void onRefetch?.();
     } finally {
       setBidFlight(false);
     }

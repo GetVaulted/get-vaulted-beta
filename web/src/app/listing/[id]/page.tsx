@@ -114,11 +114,24 @@ export default async function PublicListingPage({ params }: { params: Promise<{ 
     return <ListingNotFound />;
   }
 
-  const relatedPool = dedupeListings(await publishedDbListings());
-  const bc =
-    row.buyingFormat === "auction" ? await prisma.bid.count({ where: { listingId: row.id } }) : undefined;
+  // Fire-and-forget: don't let a view-count write slow down or fail the page render.
+  prisma.listing
+    .update({ where: { id: row.id }, data: { viewsCount: { increment: 1 } } })
+    .catch((e) => console.error("[listing/[id]] viewsCount increment failed", e));
+
+  const [relatedPoolRaw, bc, watchingCount, sellerOrderCount] = await Promise.all([
+    publishedDbListings(),
+    row.buyingFormat === "auction" ? prisma.bid.count({ where: { listingId: row.id } }) : Promise.resolve(undefined),
+    prisma.watchlistItem.count({ where: { listingId: row.id } }),
+    prisma.order.count({ where: { sellerId: row.sellerId } }),
+  ]);
+  const relatedPool = dedupeListings(relatedPoolRaw);
   const listing = dbListingToMarketplace(row, bc != null ? { bidCount: bc } : undefined);
-  const extras = buildItemPageExtras(listing);
+  const extras = buildItemPageExtras(listing, {
+    watchingCount,
+    sellerCredibilityLabel:
+      sellerOrderCount > 0 ? `${sellerOrderCount.toLocaleString("en-US")} orders on Get Vaulted` : undefined,
+  });
 
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">

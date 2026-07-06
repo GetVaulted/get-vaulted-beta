@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { MarketplaceBrowseCard } from "@/components/marketplace/MarketplaceBrowseCard";
@@ -10,6 +10,7 @@ import {
   MarketplaceSectionHeader,
 } from "@/components/marketplace/MarketplaceSectionHeader";
 import { MarketplaceTrustStrip } from "@/components/marketplace/MarketplaceTrustStrip";
+import { shouldShowVaultPicksRail } from "@/components/marketplace/marketplace-browse-vault-picks";
 import { marketplaceCategories, type MarketplaceListing } from "@/content/marketplace-listings";
 
 const sortOptions = [
@@ -19,26 +20,26 @@ const sortOptions = [
   { value: "seller-level", label: "Seller level" },
 ] as const;
 
-const SELLER_LEVEL_RANK: Record<string, number> = {
-  elite_vault_verified: 4,
-  vault_verified: 3,
-  trusted_seller: 2,
-  vault_seller: 1,
-};
-
 const conditionOptions = ["Any", "PSA 10", "PSA 9", "BGS 9.5", "Raw", "DS", "Excellent", "Authenticated", "LOA", "Unworn"] as const;
 
-function parseListedAt(s: string) {
-  return new Date(s).getTime();
-}
+/** Debounce window before the search box's typed text triggers a server refetch. */
+const SEARCH_DEBOUNCE_MS = 350;
+const PAGE_SIZE = 60;
 
 function hasActiveRefine(priceMin: string, priceMax: string, condition: string) {
   return priceMin !== "" || priceMax !== "" || condition !== "Any";
 }
 
+type BrowseResponse = {
+  listings?: MarketplaceListing[];
+  filteredListingCount?: number;
+  totalListingCount?: number;
+  hasMore?: boolean;
+};
+
 export function MarketplaceBrowse() {
   const searchParams = useSearchParams();
-  const [dbListings, setDbListings] = useState<MarketplaceListing[]>([]);
+  const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<(typeof sortOptions)[number]["value"]>("recent");
   const [category, setCategory] = useState<(typeof marketplaceCategories)[number]>("All");
@@ -47,75 +48,130 @@ export function MarketplaceBrowse() {
   const [condition, setCondition] = useState<string>("Any");
   const [refineOpen, setRefineOpen] = useState(false);
 
+  const [listings, setListings] = useState<MarketplaceListing[]>([]);
+  const [page, setPage] = useState(1);
+  const [filteredListingCount, setFilteredListingCount] = useState(0);
+  const [totalListingCount, setTotalListingCount] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
+
+  const requestSeq = useRef(0);
+
   useEffect(() => {
     const q = searchParams.get("q")?.trim();
-    if (q) setQuery(q);
+    if (q) {
+      setQueryInput(q);
+      setQuery(q);
+    }
   }, [searchParams]);
 
+  // Debounce free-text search input before it drives a server refetch.
   useEffect(() => {
-    const load = async () => {
-      try {
-        const res = await fetch("/api/listings?scope=published");
-        if (!res.ok) return;
-        const data = (await res.json()) as { listings?: MarketplaceListing[] };
-        setDbListings(Array.isArray(data.listings) ? data.listings : []);
-      } catch {
-        setDbListings([]);
+    const handle = window.setTimeout(() => setQuery(queryInput.trim()), SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(handle);
+  }, [queryInput]);
+
+  const filterKey = useMemo(
+    () => JSON.stringify({ query, category, priceMin, priceMax, condition, sort }),
+    [query, category, priceMin, priceMax, condition, sort],
+  );
+
+  const buildParams = (targetPage: number) => {
+    const params = new URLSearchParams({ scope: "published", page: String(targetPage), pageSize: String(PAGE_SIZE) });
+    if (query) params.set("q", query);
+    if (category !== "All") params.set("category", category);
+    if (priceMin !== "") params.set("priceMin", priceMin);
+    if (priceMax !== "") params.set("priceMax", priceMax);
+    if (condition !== "Any") params.set("condition", condition);
+    params.set("sort", sort);
+    return params;
+  };
+
+  // Loads page 1 for the *current* filter/sort state, replacing whatever's loaded. Shared by the
+  // filter-change effect below and the "listings changed elsewhere" event listener.
+  const loadFirstPage = async () => {
+    const seq = ++requestSeq.current;
+    try {
+      const res = await fetch(`/api/listings?${buildParams(1).toString()}`);
+      if (seq !== requestSeq.current) return;
+      if (!res.ok) {
+        setListings([]);
+        setFilteredListingCount(0);
+        setHasMore(false);
+        return;
       }
-    };
-    void load();
-    const on = () => void load();
+      const data = (await res.json()) as BrowseResponse;
+      if (seq !== requestSeq.current) return;
+      setPage(1);
+      setListings(Array.isArray(data.listings) ? data.listings : []);
+      setFilteredListingCount(data.filteredListingCount ?? 0);
+      setTotalListingCount(data.totalListingCount ?? 0);
+      setHasMore(Boolean(data.hasMore));
+    } catch {
+      if (seq !== requestSeq.current) return;
+      setListings([]);
+      setFilteredListingCount(0);
+      setHasMore(false);
+    } finally {
+      if (seq === requestSeq.current) setInitialLoadDone(true);
+    }
+  };
+
+  // Filters/sort changed — reset to page 1 and replace the loaded list.
+  useEffect(() => {
+    void loadFirstPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey]);
+
+  // Re-run the current filter set when listings change elsewhere in the app (e.g. new publish).
+  useEffect(() => {
+    const on = () => void loadFirstPage();
     window.addEventListener("gv-listings-updated", on);
-    return () => {
-      window.removeEventListener("gv-listings-updated", on);
-    };
-  }, []);
+    return () => window.removeEventListener("gv-listings-updated", on);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey]);
 
-  const allListings = useMemo(() => dbListings, [dbListings]);
-
-  const filtered = useMemo(() => {
-    let list: MarketplaceListing[] = [...allListings];
-
-    if (category !== "All") {
-      list = list.filter((l) => l.category === category);
+  const loadMore = async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    const nextPage = page + 1;
+    const seq = requestSeq.current;
+    try {
+      const res = await fetch(`/api/listings?${buildParams(nextPage).toString()}`);
+      if (seq !== requestSeq.current || !res.ok) return;
+      const data = (await res.json()) as BrowseResponse;
+      if (seq !== requestSeq.current) return;
+      setListings((prev) => [...prev, ...(Array.isArray(data.listings) ? data.listings : [])]);
+      setPage(nextPage);
+      setHasMore(Boolean(data.hasMore));
+    } catch {
+      // no-op — user can retry via the button
+    } finally {
+      setLoadingMore(false);
     }
+  };
 
-    const q = query.trim().toLowerCase();
-    if (q) {
-      list = list.filter(
-        (l) => l.title.toLowerCase().includes(q) || l.sellerUsername.toLowerCase().includes(q),
-      );
-    }
+  const noFiltersActive =
+    query.trim() === "" && category === "All" && priceMin === "" && priceMax === "" && condition === "Any";
 
-    const min = priceMin === "" ? null : Number(priceMin);
-    const max = priceMax === "" ? null : Number(priceMax);
-    if (min !== null && !Number.isNaN(min)) list = list.filter((l) => l.price >= min);
-    if (max !== null && !Number.isNaN(max)) list = list.filter((l) => l.price <= max);
-
-    if (condition !== "Any") {
-      list = list.filter((l) => l.condition === condition);
-    }
-
-    const sorted = [...list];
-    if (sort === "recent") sorted.sort((a, b) => parseListedAt(b.listedAt) - parseListedAt(a.listedAt));
-    if (sort === "price-asc") sorted.sort((a, b) => a.price - b.price);
-    if (sort === "price-desc") sorted.sort((a, b) => b.price - a.price);
-    if (sort === "seller-level") {
-      sorted.sort(
-        (a, b) =>
-          (SELLER_LEVEL_RANK[b.sellerLevel ?? ""] ?? 0) - (SELLER_LEVEL_RANK[a.sellerLevel ?? ""] ?? 0),
-      );
-    }
-
-    return sorted;
-  }, [allListings, category, condition, priceMax, priceMin, query, sort]);
-
-  const vaultPicks = useMemo(() => filtered.filter((l) => l.vaultPick), [filtered]);
-  const gridListings = useMemo(() => filtered.filter((l) => !l.vaultPick), [filtered]);
+  // Vault picks are only surfaced on the true default, unfiltered first page — see
+  // `shouldShowVaultPicksRail` for why both `noFiltersActive` and `page === 1` are required.
+  const isFirstUnfilteredPage = shouldShowVaultPicksRail(noFiltersActive, page);
+  const vaultPicks = useMemo(
+    () => (isFirstUnfilteredPage ? listings.filter((l) => l.vaultPick) : []),
+    [listings, isFirstUnfilteredPage],
+  );
+  const gridListings = useMemo(
+    () => (isFirstUnfilteredPage ? listings.filter((l) => !l.vaultPick) : listings),
+    [listings, isFirstUnfilteredPage],
+  );
 
   const refineActive = hasActiveRefine(priceMin, priceMax, condition);
+  const empty = initialLoadDone && listings.length === 0;
 
   const clearFilters = () => {
+    setQueryInput("");
     setQuery("");
     setSort("recent");
     setCategory("All");
@@ -125,24 +181,17 @@ export function MarketplaceBrowse() {
     setRefineOpen(false);
   };
 
-  const empty = filtered.length === 0;
-  const marketplaceIsEmpty =
-    dbListings.length === 0 &&
-    category === "All" &&
-    condition === "Any" &&
-    priceMin === "" &&
-    priceMax === "" &&
-    query.trim() === "";
+  const marketplaceIsEmpty = initialLoadDone && totalListingCount === 0 && noFiltersActive;
 
   return (
     <>
       <MarketplaceHero
-        query={query}
-        onQueryChange={setQuery}
+        query={queryInput}
+        onQueryChange={setQueryInput}
         category={category}
         onCategoryChange={setCategory}
-        listingCount={dbListings.length}
-        filteredCount={filtered.length}
+        listingCount={totalListingCount}
+        filteredCount={filteredListingCount}
       />
 
       <MarketplaceTrustStrip variant="band" />
@@ -156,7 +205,7 @@ export function MarketplaceBrowse() {
               <p className="mt-0.5 text-sm text-zinc-400">
                 {empty
                   ? "Adjust search or filters to explore the catalog"
-                  : `${filtered.length.toLocaleString()} piece${filtered.length === 1 ? "" : "s"} match your view`}
+                  : `${filteredListingCount.toLocaleString()} piece${filteredListingCount === 1 ? "" : "s"} match your view`}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -195,7 +244,7 @@ export function MarketplaceBrowse() {
                   </span>
                 ) : null}
               </button>
-              {!marketplaceIsEmpty && (query.trim() !== "" || category !== "All" || refineActive) ? (
+              {!marketplaceIsEmpty && (queryInput.trim() !== "" || category !== "All" || refineActive) ? (
                 <button
                   type="button"
                   onClick={clearFilters}
@@ -333,6 +382,19 @@ export function MarketplaceBrowse() {
               ))}
             </div>
           )}
+
+          {!empty && hasMore ? (
+            <div className="mt-6 flex justify-center">
+              <button
+                type="button"
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+                className="inline-flex h-11 items-center justify-center rounded-full border border-gold/35 bg-gold/10 px-8 text-sm font-semibold text-gold-bright transition hover:border-gold/50 hover:bg-gold/15 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loadingMore ? "Loading…" : "Load more"}
+              </button>
+            </div>
+          ) : null}
         </section>
       </div>
     </>

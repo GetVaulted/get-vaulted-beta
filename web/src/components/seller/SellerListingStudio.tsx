@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { SellerOffersModal } from "@/components/account/SellerOffersModal";
 import { ExpiredAuctionRecoveryPanel } from "@/components/listings/ExpiredAuctionRecoveryPanel";
 import { PaymentDeadlineCountdown } from "@/components/orders/PaymentDeadlineCountdown";
+import { MAX_LISTING_PRICE_USD } from "@/lib/create-listing-form";
 import {
   effectiveSellerListingStatus,
   type SellerListingStatus,
@@ -44,6 +45,17 @@ function notifyListingsUpdated() {
   window.dispatchEvent(new Event("gv-listings-updated"));
 }
 
+/**
+ * Rejects scientific notation (e.g. "1e10") and other non-plain-decimal input before parsing,
+ * since `Number("1e10")` = 10000000000 would otherwise sail past a naive `n > 0` check.
+ */
+export function parseStrictDecimal(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : null;
+}
+
 type LiveRoomRow = { id: string; title: string; status: string; roomType: string };
 
 export function SellerListingStudio({ listingId }: { listingId: string }) {
@@ -55,7 +67,15 @@ export function SellerListingStudio({ listingId }: { listingId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [offersOpen, setOffersOpen] = useState(false);
+  // Read the deep-link offer id from the URL directly (rather than next/navigation's
+  // useSearchParams) so this page doesn't need a Suspense boundary added upstream just to
+  // support a notification deep-link — this is a one-time read of the initial URL, not
+  // reactive routing, so a lazy initializer avoids an extra render-then-setState effect.
+  const [highlightOfferId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("offerId");
+  });
+  const [offersOpen, setOffersOpen] = useState(() => highlightOfferId != null);
 
   const [priceUsd, setPriceUsd] = useState("");
   const [shippingUsd, setShippingUsd] = useState("");
@@ -142,9 +162,13 @@ export function SellerListingStudio({ listingId }: { listingId: string }) {
   );
 
   const savePricing = () => {
-    const n = Number(priceUsd);
-    if (!Number.isFinite(n) || n <= 0) {
-      toast("Enter a valid price.");
+    const n = parseStrictDecimal(priceUsd);
+    if (n == null || n <= 0) {
+      toast("Enter a valid price using digits only (no scientific notation or negative signs).");
+      return;
+    }
+    if (n > MAX_LISTING_PRICE_USD) {
+      toast(`Price can't exceed ${MAX_LISTING_PRICE_USD.toLocaleString("en-US", { style: "currency", currency: "USD" })}.`);
       return;
     }
     if (listing?.buyingFormat === "auction" && bidCount > 0) {
@@ -159,9 +183,13 @@ export function SellerListingStudio({ listingId }: { listingId: string }) {
   };
 
   const saveShipping = () => {
-    const ship = Number(shippingUsd);
-    if (!Number.isFinite(ship) || ship < 0) {
-      toast("Enter a valid shipping price.");
+    const ship = parseStrictDecimal(shippingUsd);
+    if (ship == null || ship < 0) {
+      toast("Enter a valid shipping price using digits only (no scientific notation or negative signs).");
+      return;
+    }
+    if (ship > MAX_LISTING_PRICE_USD) {
+      toast(`Shipping price can't exceed ${MAX_LISTING_PRICE_USD.toLocaleString("en-US", { style: "currency", currency: "USD" })}.`);
       return;
     }
     void patchListing({ shippingPriceUsd: ship, handlingTime: handlingTime.trim() || "1–3 business days" });
@@ -262,7 +290,7 @@ export function SellerListingStudio({ listingId }: { listingId: string }) {
               onClick={() => setOffersOpen(true)}
               className="inline-flex h-9 shrink-0 items-center rounded-full border border-rose-400/30 bg-rose-950/30 px-4 text-xs font-bold text-rose-100"
             >
-              {offers} offers
+              {offers} offer{offers === 1 ? "" : "s"}
             </button>
           ) : null}
         </div>
@@ -541,7 +569,10 @@ export function SellerListingStudio({ listingId }: { listingId: string }) {
                 setBusy(true);
                 try {
                   const res = await fetch(`/api/listings/${encodeURIComponent(listingId)}`, { method: "DELETE" });
-                  if (!res.ok) throw new Error("Delete failed.");
+                  if (!res.ok) {
+                    const data = (await res.json().catch(() => ({}))) as { error?: string };
+                    throw new Error(data.error ?? "Delete failed.");
+                  }
                   notifyListingsUpdated();
                   router.push("/seller/listings");
                   router.refresh();
@@ -565,6 +596,7 @@ export function SellerListingStudio({ listingId }: { listingId: string }) {
         listingId={listing.id}
         listingTitle={listing.title}
         onChanged={() => void reload()}
+        highlightOfferId={highlightOfferId}
       />
     </div>
   );

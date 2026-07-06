@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CardImagePlaceholder } from "@/components/ui/CardImagePlaceholder";
+import { MarketplaceWatchlistToggle } from "@/components/marketplace/MarketplaceWatchlistToggle";
 import type { MarketplaceListing } from "@/content/marketplace-listings";
 import { formatMarketplaceUsd } from "@/lib/format-marketplace-usd";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
@@ -83,6 +84,12 @@ export function MarketplaceBrowseCard({
         <span className="pointer-events-none absolute bottom-3 left-1/2 z-10 max-w-[calc(100%-1.5rem)] -translate-x-1/2 truncate rounded-full border border-white/15 bg-black/75 px-2.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-zinc-200 backdrop-blur-sm sm:text-[9px]">
           {listing.condition}
         </span>
+
+        {!asPreview ? (
+          <div className="pointer-events-auto absolute bottom-3 right-3 z-30 rounded-full bg-black/60 backdrop-blur-sm">
+            <MarketplaceWatchlistToggle listingId={listing.id} sellerId={listing.sellerId} variant="panel" />
+          </div>
+        ) : null}
       </div>
 
       <div className={`pointer-events-none flex flex-1 flex-col gap-1.5 border-t border-white/[0.07] ${bodyPadding}`}>

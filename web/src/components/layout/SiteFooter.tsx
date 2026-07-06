@@ -29,6 +29,8 @@ function buildFooterCols(liveMarketplaceEnabled: boolean) {
         { href: "/account-deletion", label: "Account deletion" },
         { href: "/community-guidelines", label: "Community guidelines" },
         { href: "/reporting-safety", label: "Reporting & safety" },
+        { href: "/prohibited-items", label: "Prohibited items" },
+        { href: "/dmca", label: "Copyright / DMCA" },
         { href: "/terms#payments-stripe-connect", label: "Payments & Stripe" },
         { href: "/terms#seller-obligations", label: "Seller obligations" },
       ],
@@ -91,6 +93,12 @@ export function SiteFooter({ liveMarketplaceEnabled = true }: SiteFooterProps) {
             </Link>
             <Link href="/reporting-safety" className="hover:text-foreground">
               Safety
+            </Link>
+            <Link href="/prohibited-items" className="hover:text-foreground">
+              Prohibited items
+            </Link>
+            <Link href="/dmca" className="hover:text-foreground">
+              DMCA
             </Link>
             <Link href="/terms#payments-stripe-connect" className="hover:text-foreground">
               {"Payments & Stripe"}

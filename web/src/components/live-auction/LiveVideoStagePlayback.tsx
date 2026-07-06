@@ -897,7 +897,7 @@ export function LiveVideoStagePlayback({
                 <button
                   type="button"
                   onClick={onNotifyMe}
-                  className="min-h-10 rounded-full border border-gold/40 bg-gold/20 px-4 text-xs font-bold uppercase tracking-wide text-gold-bright transition hover:bg-gold/30"
+                  className="pointer-events-auto min-h-10 rounded-full border border-gold/40 bg-gold/20 px-4 text-xs font-bold uppercase tracking-wide text-gold-bright transition hover:bg-gold/30"
                 >
                   Notify me
                 </button>
@@ -943,7 +943,7 @@ export function LiveVideoStagePlayback({
                 <button
                   type="button"
                   onClick={onNotifyMe}
-                  className="min-h-10 rounded-full border border-gold/40 bg-gold/20 px-4 text-xs font-bold uppercase tracking-wide text-gold-bright transition hover:bg-gold/30"
+                  className="pointer-events-auto min-h-10 rounded-full border border-gold/40 bg-gold/20 px-4 text-xs font-bold uppercase tracking-wide text-gold-bright transition hover:bg-gold/30"
                 >
                   Notify me
                 </button>
@@ -960,7 +960,7 @@ export function LiveVideoStagePlayback({
                 <button
                   type="button"
                   onClick={onNotifyMe}
-                  className="min-h-10 rounded-full border border-gold/40 bg-gold/20 px-4 text-xs font-bold uppercase tracking-wide text-gold-bright transition hover:bg-gold/30"
+                  className="pointer-events-auto min-h-10 rounded-full border border-gold/40 bg-gold/20 px-4 text-xs font-bold uppercase tracking-wide text-gold-bright transition hover:bg-gold/30"
                 >
                   Notify me
                 </button>

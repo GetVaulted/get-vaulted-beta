@@ -13,8 +13,18 @@ type MarketplaceMakeOfferModalProps = {
   onSubmit: (amountUsd: number, message: string) => void | Promise<void>;
 };
 
-function parseOfferAmount(raw: string): number | null {
-  const n = Number(String(raw).replace(/[^0-9.]/g, ""));
+/** Strict money format: digits, optional decimal point, at most 2 decimal places. No sign, no letters. */
+const OFFER_AMOUNT_PATTERN = /^\d+(\.\d{1,2})?$/;
+
+/**
+ * Rejects (returns null for) any raw input containing a minus sign, letters, or more than
+ * 2 decimal places — rather than stripping invalid characters and silently reinterpreting
+ * bad input (e.g. "-100" or "abc123") as a valid positive amount.
+ */
+export function parseOfferAmount(raw: string): number | null {
+  const trimmed = String(raw).trim();
+  if (!OFFER_AMOUNT_PATTERN.test(trimmed)) return null;
+  const n = Number(trimmed);
   if (!Number.isFinite(n)) return null;
   return n;
 }
@@ -64,9 +74,14 @@ export function MarketplaceMakeOfferModal({
 
   const handleSubmit = async () => {
     setError(null);
-    const n = parseOfferAmount(amount);
-    if (n == null || amount.trim() === "") {
+    const trimmed = amount.trim();
+    if (trimmed === "") {
       setError("Enter a valid offer amount.");
+      return;
+    }
+    const n = parseOfferAmount(trimmed);
+    if (n == null) {
+      setError("Enter a valid offer amount using digits only, with at most two decimal places (e.g. 45.00).");
       return;
     }
     if (n <= 0) {

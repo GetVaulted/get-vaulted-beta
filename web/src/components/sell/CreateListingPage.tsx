@@ -14,6 +14,11 @@ import {
   isAdvancedShippingVisible,
   isCreateActionDisabled,
   isSaveDraftDisabled,
+  MAX_LISTING_DESCRIPTION_LENGTH,
+  MAX_LISTING_TITLE_LENGTH,
+  moneyFieldErrorMessage,
+  parseMoney,
+  parseNonNegativeMoney,
   type ShippingPreset,
 } from "@/lib/create-listing-form";
 import { hasCompleteParcel } from "@/lib/listing-publish";
@@ -56,6 +61,7 @@ type FieldErrors = Partial<{
   condition: string;
   price: string;
   minimumOffer: string;
+  shippingPrice: string;
   parcel: string;
   shippingProfile: string;
   sellerReadiness: string;
@@ -98,18 +104,6 @@ type AddressOption = {
   country: string;
   isDefault: boolean;
 };
-
-function parseMoney(raw: string): number | null {
-  const n = Number(String(raw).replace(/[^0-9.]/g, ""));
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return n;
-}
-
-function parseNonNegativeMoney(raw: string): number | null {
-  const n = Number(String(raw).replace(/[^0-9.]/g, ""));
-  if (!Number.isFinite(n) || n < 0) return null;
-  return n;
-}
 
 function parsePositiveDim(raw: string): number | null {
   const n = Number(String(raw).replace(/[^0-9.]/g, ""));
@@ -479,7 +473,7 @@ export function CreateListingPage() {
   const handleSaveDraft = async () => {
     if (!session?.user) return;
     if (draftSaving) return;
-    setErrors((e) => ({ ...e, minimumOffer: undefined, images: undefined }));
+    setErrors((e) => ({ ...e, minimumOffer: undefined, shippingPrice: undefined, images: undefined }));
     persistDraft();
     const buy = parseMoney(price) ?? 1;
     let minOffer: number | null = null;
@@ -488,11 +482,18 @@ export function CreateListingPage() {
       if (p == null) {
         setErrors((e) => ({
           ...e,
-          minimumOffer: "Enter a valid minimum amount, or leave blank for no minimum.",
+          minimumOffer: moneyFieldErrorMessage(minimumOfferUsd, { label: "Minimum offer", allowZero: true }),
         }));
         return;
       }
       minOffer = p;
+    }
+    if (shippingPrice.trim() !== "" && parseNonNegativeMoney(shippingPrice) == null) {
+      setErrors((e) => ({
+        ...e,
+        shippingPrice: moneyFieldErrorMessage(shippingPrice, { label: "Shipping price", allowZero: true }),
+      }));
+      return;
     }
     const draftPayload = {
       status: "draft" as const,
@@ -685,13 +686,23 @@ export function CreateListingPage() {
     const next: FieldErrors = {};
     if (images.length === 0) next.images = "Add at least one photo.";
     if (!title.trim()) next.title = "Enter a title.";
+    else if (title.trim().length > MAX_LISTING_TITLE_LENGTH) {
+      next.title = `Title must be ${MAX_LISTING_TITLE_LENGTH} characters or fewer.`;
+    }
     if (!category) next.category = "Choose a category.";
     if (!condition.trim()) next.condition = "Choose or enter condition.";
-    if (parseMoney(price) == null) next.price = "Enter a valid buy now price.";
+    if (parseMoney(price) == null) {
+      next.price = price.trim()
+        ? moneyFieldErrorMessage(price, { label: "Price", allowZero: false })
+        : "Enter a valid buy now price.";
+    }
     if (allowOffers && minimumOfferUsd.trim() !== "") {
       if (parseNonNegativeMoney(minimumOfferUsd) == null) {
-        next.minimumOffer = "Enter a valid minimum offer, or leave blank for no minimum.";
+        next.minimumOffer = moneyFieldErrorMessage(minimumOfferUsd, { label: "Minimum offer", allowZero: true });
       }
+    }
+    if (shippingPrice.trim() !== "" && parseNonNegativeMoney(shippingPrice) == null) {
+      next.shippingPrice = moneyFieldErrorMessage(shippingPrice, { label: "Shipping price", allowZero: true });
     }
     const pRow = {
       parcelWeightOz: parsePositiveDim(parcelWeightOz),
@@ -1187,9 +1198,15 @@ export function CreateListingPage() {
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="What are you selling?"
+                    maxLength={MAX_LISTING_TITLE_LENGTH}
                     className="mt-1 h-14 w-full rounded-2xl bg-[#101014] px-4 text-lg text-foreground outline-none ring-1 ring-white/10 placeholder:text-zinc-600 focus:ring-2 focus:ring-gold/40"
                   />
-                  <p className="mt-1 text-xs text-zinc-500">Example: 2019 rookie card, graded slab, team name</p>
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <p className="text-xs text-zinc-500">Example: 2019 rookie card, graded slab, team name</p>
+                    <span className="shrink-0 font-mono text-[10px] text-zinc-600">
+                      {title.length}/{MAX_LISTING_TITLE_LENGTH}
+                    </span>
+                  </div>
                   {errors.title ? <p className="mt-1 text-xs text-rose-300">{errors.title}</p> : null}
                 </div>
 
@@ -1316,15 +1333,21 @@ export function CreateListingPage() {
                   </label>
                   {!quickHiddenFields.includes("description") ? (
                     <div className="space-y-1.5">
-                      <label htmlFor="listing-desc" className={labelClass}>
-                        Description
-                      </label>
+                      <div className="flex items-center justify-between gap-2">
+                        <label htmlFor="listing-desc" className={labelClass}>
+                          Description
+                        </label>
+                        <span className="shrink-0 font-mono text-[10px] text-zinc-600">
+                          {description.length}/{MAX_LISTING_DESCRIPTION_LENGTH}
+                        </span>
+                      </div>
                       <textarea
                         id="listing-desc"
                         rows={4}
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
                         placeholder="Describe your item details."
+                        maxLength={MAX_LISTING_DESCRIPTION_LENGTH}
                         className={`${fieldClass} h-auto min-h-[110px] resize-y py-3`}
                       />
                     </div>
@@ -1460,7 +1483,18 @@ export function CreateListingPage() {
                         <label htmlFor="listing-ship" className={labelClass}>
                           Buyer shipping (fixed)
                         </label>
-                        <input id="listing-ship" inputMode="decimal" value={shippingPrice} onChange={(e) => setShippingPrice(e.target.value)} placeholder="0.00" className={fieldClass} />
+                        <input
+                          id="listing-ship"
+                          inputMode="decimal"
+                          value={shippingPrice}
+                          onChange={(e) => {
+                            setShippingPrice(e.target.value);
+                            setErrors((err) => ({ ...err, shippingPrice: undefined }));
+                          }}
+                          placeholder="0.00"
+                          className={fieldClass}
+                        />
+                        {errors.shippingPrice ? <p className="text-xs text-rose-300">{errors.shippingPrice}</p> : null}
                         <p className="text-xs text-zinc-500">Live shows calculate shipping automatically.</p>
                       </div>
                       <div className="grid grid-cols-2 gap-2">

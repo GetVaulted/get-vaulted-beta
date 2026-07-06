@@ -14,7 +14,7 @@ export default function CommunityGuidelinesPage() {
         ← Home
       </Link>
       <h1 className="font-display mt-6 text-2xl font-bold text-foreground">Community Guidelines</h1>
-      <p className="mt-2 text-xs text-zinc-500">Last updated: June 26, 2026</p>
+      <p className="mt-2 text-xs text-zinc-500">Last updated: July 3, 2026</p>
 
       <div className="mt-10 space-y-8 text-sm leading-relaxed text-zinc-300">
         <section>
@@ -152,10 +152,22 @@ export default function CommunityGuidelinesPage() {
 
         <section>
           <h2 className="font-display text-lg font-semibold text-foreground">8. Prohibited content and items</h2>
-          <p className="mt-3 text-muted">The following are not allowed on Get Vaulted:</p>
+          <p className="mt-3 text-muted">
+            The following are not allowed on Get Vaulted (see our full{" "}
+            <Link href="/prohibited-items" className="font-semibold text-gold-bright hover:underline">
+              Prohibited Items Policy
+            </Link>{" "}
+            for the complete list):
+          </p>
           <ul className="mt-3 list-disc space-y-2 pl-5 text-muted">
             <li>counterfeit, stolen, or knowingly misrepresented goods;</li>
-            <li>items that infringe copyrights, trademarks, or publicity rights;</li>
+            <li>
+              items that infringe copyrights, trademarks, or publicity rights (see our{" "}
+              <Link href="/dmca" className="font-semibold text-gold-bright hover:underline">
+                Copyright / DMCA Policy
+              </Link>
+              );
+            </li>
             <li>illegal drugs, weapons, explosives, or other regulated goods where sale is prohibited;</li>
             <li>sexually explicit content, especially involving minors (zero tolerance);</li>
             <li>hate symbols, glorification of violence, or content promoting illegal activity;</li>
@@ -177,8 +189,10 @@ export default function CommunityGuidelinesPage() {
         <section>
           <h2 className="font-display text-lg font-semibold text-foreground">10. Reviews and feedback</h2>
           <p className="mt-3 text-muted">
-            Leave honest, good-faith reviews based on your transaction experience. Do not post fake reviews, extort
-            sellers with review threats, or retaliate against buyers who report legitimate problems.
+            Get Vaulted does not currently have a star-rating or written-review system on seller profiles or listings.
+            If and when we introduce buyer reviews or feedback tools, they must be honest and based on a real
+            transaction — fake reviews, review threats used to extort sellers, and retaliation against buyers who
+            report legitimate problems are prohibited wherever such features exist.
           </p>
         </section>
 
@@ -202,8 +216,23 @@ export default function CommunityGuidelinesPage() {
           </p>
         </section>
 
+        <section id="appeals">
+          <h2 className="font-display text-lg font-semibold text-foreground">12. Appeals</h2>
+          <p className="mt-3 text-muted">
+            If you believe a listing removal, content removal, or account restriction was made in error, you may
+            request a review by emailing{" "}
+            <a href="mailto:support@shopgetvaulted.com" className="font-semibold text-gold-bright hover:underline">
+              support@shopgetvaulted.com
+            </a>{" "}
+            with your account email/username, the affected listing or order ID, and why you believe the action was
+            incorrect. We review appeals on a case-by-case basis; submitting an appeal does not guarantee reversal,
+            and some actions (including those involving fraud, safety, minors, or legal process) are final and not
+            eligible for appeal.
+          </p>
+        </section>
+
         <section id="reporting">
-          <h2 className="font-display text-lg font-semibold text-foreground">12. Reporting concerns</h2>
+          <h2 className="font-display text-lg font-semibold text-foreground">13. Reporting concerns</h2>
           <p className="mt-3 text-muted">
             If you see violations, report them in-app from profiles, listings, live rooms, chat messages, or orders. See
             our{" "}
@@ -237,6 +266,16 @@ export default function CommunityGuidelinesPage() {
             <li>
               <Link href="/privacy" className="font-semibold text-gold-bright hover:underline">
                 Privacy Policy
+              </Link>
+            </li>
+            <li>
+              <Link href="/prohibited-items" className="font-semibold text-gold-bright hover:underline">
+                Prohibited Items Policy
+              </Link>
+            </li>
+            <li>
+              <Link href="/dmca" className="font-semibold text-gold-bright hover:underline">
+                Copyright / DMCA Policy
               </Link>
             </li>
             <li>

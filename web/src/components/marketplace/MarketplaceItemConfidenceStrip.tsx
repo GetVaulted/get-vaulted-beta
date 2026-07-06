@@ -1,13 +1,7 @@
 import type { ItemPageExtras } from "@/lib/marketplace-item-extras";
 import type { MarketplaceListing } from "@/content/marketplace-listings";
 
-const BASE_ITEMS = [
-  "Protected checkout",
-  "Verified seller",
-  "Secure shipping",
-  "Authentication",
-  "Buyer protection",
-] as const;
+const BASE_ITEMS = ["Protected checkout", "Secure shipping", "Buyer protection"] as const;
 
 type MarketplaceItemConfidenceStripProps = {
   listing: MarketplaceListing;
@@ -15,12 +9,18 @@ type MarketplaceItemConfidenceStripProps = {
 };
 
 export function MarketplaceItemConfidenceStrip({ listing, extras }: MarketplaceItemConfidenceStripProps) {
-  const showAuth =
-    Boolean(extras.authenticationLabel) ||
-    Boolean(listing.condition.match(/^(PSA|BGS|SGC)/i)) ||
-    Boolean(listing.vaultPick);
+  // "Verified seller" and "Authentication" are claims of platform verification, so they must be
+  // backed by a real signal (graded slab, authentication doc on file, or the seller's real
+  // backend-computed trust tier) — never shown unconditionally, and never driven by the
+  // seller-settable `vaultPick` editorial/featured flag (legal/compliance audit 2026-07).
+  const isVerifiedSellerLevel = listing.sellerLevel === "vault_verified" || listing.sellerLevel === "elite_vault_verified";
+  const showAuth = Boolean(extras.authenticationLabel) || Boolean(listing.condition.match(/^(PSA|BGS|SGC)/i));
 
-  const items = showAuth ? [...BASE_ITEMS] : BASE_ITEMS.filter((x) => x !== "Authentication");
+  const items = [
+    ...BASE_ITEMS,
+    ...(isVerifiedSellerLevel ? (["Verified seller"] as const) : []),
+    ...(showAuth ? (["Authentication"] as const) : []),
+  ];
 
   return (
     <div

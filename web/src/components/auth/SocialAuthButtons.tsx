@@ -72,6 +72,29 @@ export function SocialAuthButtons({ returnTo, disabled }: Props) {
     };
   }, []);
 
+  // If the user starts an OAuth redirect and then comes back without completing it (browser
+  // back-button, cancel on the provider's screen, etc.), the page is restored — often from
+  // bfcache — with `busy` still set, leaving the button stuck on "Redirecting…" forever. Clear it
+  // whenever the page becomes visible/restored again. This never fires during a real, successful
+  // redirect because the browser navigates away for good and this component/page is torn down.
+  useEffect(() => {
+    const clearBusy = () => setBusy(null);
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) clearBusy();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") clearBusy();
+    };
+    window.addEventListener("pageshow", onPageShow);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", clearBusy);
+    return () => {
+      window.removeEventListener("pageshow", onPageShow);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", clearBusy);
+    };
+  }, []);
+
   const googleEnabled = oauthProviders?.google ?? isGoogleOAuthProviderEnabled();
   const appleEnabled = oauthProviders?.apple ?? isAppleOAuthProviderEnabled();
 
