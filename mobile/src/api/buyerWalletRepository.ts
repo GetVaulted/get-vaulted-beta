@@ -29,7 +29,14 @@ export type BuyerWalletSummary = {
   shippingReady: boolean;
   walletReady: boolean;
   vaultCreditsUsd: number;
+  /** Spendable now (past the return/dispute hold window). */
   referralCreditUsd: number;
+  /** Earned but still inside the hold window — not yet spendable. */
+  referralCreditPendingUsd?: number;
+  /** Referrer's own username — the referral code, and the `?ref=` value for their join link. */
+  referralCode?: string;
+  /** Count of distinct friends who have earned this user a referrer credit (excludes voided). */
+  referralSuccessfulReferrals?: number;
   promoCodeApplied: string | null;
   promoDiscountUsd: number;
   stripePublishableKey?: string | null;

@@ -5,6 +5,7 @@ import {
 } from "@/lib/extract-supabase-auth-email";
 import { prisma } from "@/lib/prisma";
 import { pickPrismaUserIdForSupabaseSession } from "@/lib/pick-prisma-user-for-supabase-auth";
+import { attributeReferralOnSignup } from "@/lib/referral-credit";
 import { syncPrismaEmailVerifiedFromSupabase } from "@/lib/sync-prisma-email-verified";
 
 function baseUsernameFromSupabaseUser(user: SupabaseAuthUser): string {
@@ -90,6 +91,10 @@ export async function ensurePrismaUserForSupabaseAuth(supabaseUser: SupabaseAuth
         emailVerified: emailVerifiedAt,
       },
     });
+    const referralCode = typeof meta?.referral_code === "string" ? meta.referral_code : null;
+    if (referralCode) {
+      await attributeReferralOnSignup(created.id, referralCode);
+    }
     return created.id;
   } catch {
     const byEmail = await prisma.user.findUnique({ where: { email }, select: { id: true } });

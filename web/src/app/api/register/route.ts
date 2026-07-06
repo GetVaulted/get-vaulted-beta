@@ -12,10 +12,15 @@ import { isApiDevVerificationAssistAllowed, isDevSkipVerificationEmail } from "@
 import { isBetaDeployment, isWebSignupResendConfigured } from "@/lib/is-beta-deployment";
 import { registerAccountViaSupabaseAuth } from "@/lib/register-via-supabase-auth";
 import { validateUsernameForRegistration } from "@/lib/register-validate-username";
+import { checkRateLimit } from "@/lib/request-rate-limit";
 import { sendSignupVerificationEmail } from "@/lib/send-verification-email";
 
 function redactConnectionStrings(message: string): string {
   return message.replace(/(postgres(ql)?:\/\/)[^\s@]+@/gi, "$1***@");
+}
+
+function clientKey(req: Request): string {
+  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip")?.trim() || "unknown";
 }
 
 function uniqueViolationFields(e: Prisma.PrismaClientKnownRequestError): string[] {
@@ -48,13 +53,25 @@ export async function POST(req: Request) {
     typeof body === "object" && body && "username" in body ? String((body as { username: unknown }).username) : "";
   const password =
     typeof body === "object" && body && "password" in body ? String((body as { password: unknown }).password) : "";
+  const referralCode =
+    typeof body === "object" && body && "referralCode" in body
+      ? String((body as { referralCode: unknown }).referralCode).trim().slice(0, 20)
+      : "";
 
   if (!email || !email.includes("@")) {
     return NextResponse.json({ error: "Enter a valid email.", code: "INVALID_EMAIL" }, { status: 400 });
   }
-  if (password.length < 8) {
+  // Modest, non-punishing policy (mirrors the client-side check in SignupForm.tsx): 8+ chars,
+  // at least one letter, at least one number. Intentionally no special-character/mixed-case
+  // requirement — that's overly strict for a consumer marketplace and increases signup friction.
+  const hasLetter = /[a-zA-Z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  if (password.length < 8 || !hasLetter || !hasNumber) {
     return NextResponse.json(
-      { error: "Password must be at least 8 characters.", code: "INVALID_PASSWORD" },
+      {
+        error: "Password needs 8+ characters, including a letter and a number.",
+        code: "INVALID_PASSWORD",
+      },
       { status: 400 },
     );
   }
@@ -83,6 +100,7 @@ export async function POST(req: Request) {
         email,
         password,
         username: usernameResult.normalized,
+        referralCode: referralCode || undefined,
       });
       if (!supa.ok) {
         const status = supa.code === "ACCOUNT_EXISTS" ? 409 : 503;
@@ -127,6 +145,10 @@ export async function POST(req: Request) {
         select: { id: true },
       });
       userId = user.id;
+      if (referralCode) {
+        const { attributeReferralOnSignup } = await import("@/lib/referral-credit");
+        await attributeReferralOnSignup(userId, referralCode);
+      }
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
         const fields = uniqueViolationFields(e);

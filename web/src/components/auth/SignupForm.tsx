@@ -46,6 +46,21 @@ type CheckUsernameJson = {
 
 type UsernameCheckOutcome = { status: UsernameUiStatus; detail?: string };
 
+export type PasswordRequirement = { key: "length" | "letter" | "number"; label: string; met: boolean };
+
+/** Modest, non-punishing password policy: 8+ chars, at least one letter, at least one number. */
+export function getPasswordRequirements(password: string): PasswordRequirement[] {
+  return [
+    { key: "length", label: "8+ characters", met: password.length >= 8 },
+    { key: "letter", label: "Contains a letter", met: /[a-zA-Z]/.test(password) },
+    { key: "number", label: "Contains a number", met: /[0-9]/.test(password) },
+  ];
+}
+
+export function isPasswordStrongEnough(password: string): boolean {
+  return getPasswordRequirements(password).every((requirement) => requirement.met);
+}
+
 const devSignupLog =
   process.env.NODE_ENV === "development"
     ? (...args: unknown[]) => {
@@ -62,6 +77,9 @@ export function SignupForm() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  // Referral attribution is one-time and immutable, so we only ever read this once from the
+  // link (`?ref=<referrer_username>`) — never re-derive it from a later re-render.
+  const [referralCode] = useState(() => searchParams.get("ref")?.trim().slice(0, 20) ?? "");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -172,7 +190,9 @@ export function SignupForm() {
   })();
 
   const emailOk = email.trim().length > 0 && email.includes("@");
-  const passwordOk = password.length >= 8 && password === confirm;
+  const passwordRequirements = getPasswordRequirements(password);
+  const passwordStrongEnough = isPasswordStrongEnough(password);
+  const passwordOk = passwordStrongEnough && password === confirm;
   const normalizedUsernamePreview = normalizeUsernameForStorage(username);
   const usernameLenOk = normalizedUsernamePreview.length >= 3;
   const usernameGateOk = usernameStatus === "available";
@@ -216,7 +236,7 @@ export function SignupForm() {
       case "INVALID_EMAIL":
         return "Enter a valid email.";
       case "INVALID_PASSWORD":
-        return "Password must be at least 8 characters.";
+        return "Password needs 8+ characters, including a letter and a number.";
       case "INVALID_JSON":
         return "Invalid request. Please refresh and try again.";
       case "EMAIL_SEND_FAILED":
@@ -244,7 +264,12 @@ export function SignupForm() {
     }
     if (submitDisabled) {
       if (!emailOk) setError("Enter a valid email.");
-      else if (!passwordOk) setError(password.length < 8 ? "Password must be at least 8 characters." : "Passwords do not match.");
+      else if (!passwordOk)
+        setError(
+          !passwordStrongEnough
+            ? "Password needs 8+ characters, including a letter and a number."
+            : "Passwords do not match.",
+        );
       else if (!usernameLenOk) setError("Username must be at least 3 characters.");
       else if (usernameStatus === "checking") setError("Still checking username. Try again in a moment.");
       else if (!usernameGateOk) setError(usernameSubmitBlockMessage(usernameStatus));
@@ -293,6 +318,7 @@ export function SignupForm() {
           email,
           username: normalizedUsername,
           password,
+          ...(referralCode ? { referralCode } : {}),
         }),
       });
       const data = (await res.json().catch(() => ({}))) as RegisterSuccessPayload & {
@@ -405,6 +431,11 @@ export function SignupForm() {
     <>
       <form className="mt-5 flex flex-col gap-3.5" onSubmit={onSubmit} noValidate>
       {error ? <p className="text-xs font-medium text-rose-300">{error}</p> : null}
+      {referralCode ? (
+        <p className="rounded-lg border border-gold/20 bg-gold/5 px-3 py-2 text-xs font-medium text-gold-bright">
+          Referred by @{referralCode} — you&apos;ll both get referral credit after your first order.
+        </p>
+      ) : null}
       <div className="flex flex-col gap-1.5">
         <label htmlFor="join-email" className="text-xs font-medium text-zinc-300">
           Email
@@ -461,6 +492,16 @@ export function SignupForm() {
           onChange={(e) => setPassword(e.target.value)}
           placeholder="At least 8 characters"
         />
+        <ul className="mt-0.5 flex flex-col gap-0.5" aria-live="polite">
+          {passwordRequirements.map((requirement) => (
+            <li
+              key={requirement.key}
+              className={`text-[11px] font-medium ${requirement.met ? "text-emerald-400" : "text-zinc-600"}`}
+            >
+              {requirement.met ? "✓" : "○"} {requirement.label}
+            </li>
+          ))}
+        </ul>
       </div>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="join-password-confirm" className="text-xs font-medium text-zinc-300">

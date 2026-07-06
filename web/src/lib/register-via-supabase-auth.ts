@@ -26,6 +26,8 @@ export async function registerAccountViaSupabaseAuth(params: {
   email: string;
   password: string;
   username: string;
+  /** `?ref=<referrer_username>` from a signup link, or a manually-entered referral username. */
+  referralCode?: string;
 }): Promise<SupabaseRegisterResult> {
   const sb = getSupabaseAuthServerClient();
   if (!sb) {
@@ -48,11 +50,13 @@ export async function registerAccountViaSupabaseAuth(params: {
     };
   }
 
+  const referralCode = params.referralCode?.trim().toLowerCase().slice(0, 20) || undefined;
+
   const { data, error } = await sb.auth.signUp({
     email,
     password: params.password,
     options: {
-      data: { username, display_name: username },
+      data: { username, display_name: username, ...(referralCode ? { referral_code: referralCode } : {}) },
       emailRedirectTo: signupRedirectUrl(),
     },
   });

@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -8,6 +9,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Switch,
   TextInput,
@@ -52,12 +54,41 @@ import {
   normalizePmType,
 } from './walletPaymentMethodDisplay';
 import { WalletNativePayButton } from './WalletNativePayButton';
+import { referralJoinUrl } from '../../lib/referralLink';
 import {
   LIVE_PREMIUM_WALLET_TITLE,
   catalogEntryIcon,
   liveAcceptedMethodsLabel,
   liveAcceptedWalletMethods,
 } from '../../lib/livePremiumWallet';
+
+const referralStyles = StyleSheet.create({
+  linkBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.3)',
+    backgroundColor: 'rgba(212,175,55,0.08)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+  },
+  linkText: { flex: 1, fontSize: 13, fontWeight: '700', color: colors.gold },
+  shareBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: spacing.sm,
+    borderRadius: 10,
+    backgroundColor: colors.gold,
+    paddingVertical: spacing.sm + 2,
+  },
+  shareBtnText: { fontSize: 14, fontWeight: '800', color: '#0a0908' },
+});
 
 export type WalletStep =
   | 'main'
@@ -201,6 +232,7 @@ export function VaultWalletSheet({
   const [addresses, setAddresses] = useState<BuyerShippingAddressRow[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
   const [promoDraft, setPromoDraft] = useState('');
+  const [referralLinkCopied, setReferralLinkCopied] = useState(false);
   const openSeedAppliedRef = useRef(false);
   const addressFormSeedAppliedRef = useRef(false);
   const loadInFlight = useRef(false);
@@ -425,6 +457,10 @@ export function VaultWalletSheet({
 
   const creditsUsd = summary?.vaultCreditsUsd ?? 0;
   const referralUsd = summary?.referralCreditUsd ?? 0;
+  const referralPendingUsd = summary?.referralCreditPendingUsd ?? 0;
+  const referralCode = summary?.referralCode ?? '';
+  const referralCount = summary?.referralSuccessfulReferrals ?? 0;
+  const referralUrl = referralCode ? referralJoinUrl(referralCode) : '';
   const walletCapabilities = summary?.capabilities;
   const stripePublishableKey = summary?.stripePublishableKey?.trim() || null;
   const walletPlatform = Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web';
@@ -736,11 +772,11 @@ export function VaultWalletSheet({
           <LiveRoomText style={[t.sectionAmount, { fontSize: 24, marginTop: 4 }]}>{formatUsd(creditsUsd)}</LiveRoomText>
           <LiveRoomText style={t.detailBody}>Applied automatically on eligible live & marketplace purchases.</LiveRoomText>
         </View>
-        <View style={t.detailCard}>
+        <Pressable style={t.detailCard} onPress={() => setStep('referral')}>
           <LiveRoomText style={t.detailTitle}>Referral credit</LiveRoomText>
           <LiveRoomText style={[t.sectionAmount, { fontSize: 24, marginTop: 4 }]}>{formatUsd(referralUsd)}</LiveRoomText>
-          <LiveRoomText style={t.detailBody}>Invite friends to Get Vaulted and earn credit when your referral program is active.</LiveRoomText>
-        </View>
+          <LiveRoomText style={t.detailBody}>Invite friends — you both get $10 after their first order. Tap to get your link.</LiveRoomText>
+        </Pressable>
         <View style={t.detailCard}>
           <LiveRoomText style={t.detailTitle}>Live payment methods</LiveRoomText>
           {liveMethods.map((entry) => (
@@ -888,6 +924,28 @@ export function VaultWalletSheet({
     </>
   );
 
+  const copyReferralLink = async () => {
+    if (!referralUrl) return;
+    try {
+      await Clipboard.setStringAsync(referralUrl);
+      setReferralLinkCopied(true);
+      setTimeout(() => setReferralLinkCopied(false), 2000);
+    } catch {
+      Alert.alert('Could not copy link', 'Try again in a moment.');
+    }
+  };
+
+  const shareReferralLink = async () => {
+    if (!referralUrl) return;
+    try {
+      await Share.share({
+        message: `Join me on Get Vaulted — sign up with my link and we'll both get $10 in credit after your first order.\n${referralUrl}`,
+      });
+    } catch {
+      /* dismissed */
+    }
+  };
+
   const renderReferral = () => (
     <>
       <SheetHeader title="Referral Credit" onBack={goMain} />
@@ -896,8 +954,38 @@ export function VaultWalletSheet({
           <LiveRoomText style={t.detailTitle}>Available referral credit</LiveRoomText>
           <LiveRoomText style={[t.sectionAmount, { fontSize: 28, marginTop: 4 }]}>{formatUsd(referralUsd)}</LiveRoomText>
           <LiveRoomText style={t.detailBody}>
-            Refer friends to Get Vaulted. Credit applies to eligible purchases when your referral program is active.
+            Applied automatically on your next eligible purchase — Buy Now, offers, live auctions, or layaway.
           </LiveRoomText>
+          {referralPendingUsd > 0 ? (
+            <LiveRoomText style={[t.detailBody, { marginTop: 6 }]}>
+              +{formatUsd(referralPendingUsd)} pending — clears once the qualifying order's return window closes.
+            </LiveRoomText>
+          ) : null}
+        </View>
+        <View style={t.detailCard}>
+          <LiveRoomText style={t.detailTitle}>Your referral link</LiveRoomText>
+          <LiveRoomText style={[t.detailBody, { marginTop: 4 }]}>
+            You and your friend each get $10 credit after their first order of $25 or more.
+          </LiveRoomText>
+          {referralUrl ? (
+            <>
+              <Pressable style={referralStyles.linkBox} onPress={() => void copyReferralLink()}>
+                <LiveRoomText style={referralStyles.linkText} numberOfLines={1}>
+                  {referralUrl.replace(/^https?:\/\//, '')}
+                </LiveRoomText>
+                <Ionicons name={referralLinkCopied ? 'checkmark' : 'copy-outline'} size={16} color={colors.gold} />
+              </Pressable>
+              <Pressable style={referralStyles.shareBtn} onPress={() => void shareReferralLink()}>
+                <Ionicons name="share-outline" size={16} color="#0a0908" />
+                <LiveRoomText style={referralStyles.shareBtnText}>Share your link</LiveRoomText>
+              </Pressable>
+              <LiveRoomText style={[t.detailBody, { marginTop: spacing.sm }]}>
+                {referralCount > 0
+                  ? `${referralCount} friend${referralCount === 1 ? '' : 's'} referred so far.`
+                  : 'No referrals yet — share your link to get started.'}
+              </LiveRoomText>
+            </>
+          ) : null}
         </View>
       </ScrollView>
     </>

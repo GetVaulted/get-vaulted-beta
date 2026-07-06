@@ -5,6 +5,7 @@ import {
   type BuyerWalletPaymentMethodDTO,
   type BuyerWalletSummaryDTO,
 } from "@/lib/payment-processor";
+import { getUserReferralSummary } from "@/lib/referral-credit";
 import {
   getBuyerDefaultCardPaymentMethodId,
   listBuyerWalletPaymentMethods,
@@ -12,7 +13,7 @@ import {
 import { isStripeConfigured, getStripePublishableKey } from "@/lib/stripe";
 
 export async function buildBuyerWalletSummary(userId: string): Promise<BuyerWalletSummaryDTO> {
-  const [{ paymentReady, shippingReady }, paymentMethods, defaultAddress] = await Promise.all([
+  const [{ paymentReady, shippingReady }, paymentMethods, defaultAddress, referral] = await Promise.all([
     getBuyerLiveWalletReadiness(userId),
     listBuyerWalletPaymentMethods(userId),
     prisma.address.findFirst({
@@ -20,6 +21,7 @@ export async function buildBuyerWalletSummary(userId: string): Promise<BuyerWall
       select: { id: true },
       orderBy: { createdAt: "asc" },
     }),
+    getUserReferralSummary(userId),
   ]);
 
   const defaultPmId = await getBuyerDefaultCardPaymentMethodId(userId);
@@ -34,7 +36,10 @@ export async function buildBuyerWalletSummary(userId: string): Promise<BuyerWall
     shippingReady,
     walletReady: paymentReady && shippingReady,
     vaultCreditsUsd: 0,
-    referralCreditUsd: 0,
+    referralCreditUsd: referral.availableUsd,
+    referralCreditPendingUsd: referral.pendingUsd,
+    referralCode: referral.referralCode,
+    referralSuccessfulReferrals: referral.successfulReferrals,
     promoCodeApplied: null,
     promoDiscountUsd: 0,
     stripePublishableKey: publishableKey || null,
