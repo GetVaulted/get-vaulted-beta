@@ -1,0 +1,11 @@
+-- Bug fix (2026-07, code review of same-day idempotency fix): the idempotency guard added in
+-- `20260705120500_notification_broadcast_idempotency` reserves a `NotificationBroadcast` row
+-- (recipientCount: 0) BEFORE fan-out begins, then treats any P2002 conflict on retry as a safe
+-- "replay" of a completed send. If the process crashed/errored AFTER the row was reserved but
+-- BEFORE fan-out finished, that retry would wrongly replay a broadcast that never actually sent —
+-- and could never be retried again with that key.
+--
+-- `completedAt` is set only once fan-out (notification rows + push) actually finishes, and is the
+-- signal `sendMassNotification` now checks on a P2002 conflict: null means the previous attempt
+-- crashed before finishing (safe to re-attempt fan-out), non-null means it's a legitimate replay.
+ALTER TABLE "NotificationBroadcast" ADD COLUMN "completedAt" TIMESTAMP(3);
