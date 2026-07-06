@@ -1,5 +1,6 @@
 import { fetchListingsByIdsFromWeb } from './webListingsRepository';
 import { resolveListingImageUrl } from './mapWebMarketplaceListing';
+import { fetchWebApiAuthed } from '../lib/fetchWebApiAuthed';
 import { getSupabase } from '../lib/supabase';
 
 export type BuyerOrderBucket = 'active' | 'delivered' | 'completed' | 'canceled';
@@ -198,7 +199,81 @@ async function enrichBuyerOrders(rows: OrderDbRow[]): Promise<BuyerOrder[]> {
 
 const ORDER_SELECT = 'id, listing_id, buyer_id, seller_id, status, total_cents, created_at';
 
-export async function fetchBuyerOrdersDetailed(userId: string): Promise<BuyerOrder[]> {
+type WebAccountOrderRow = {
+  id: string;
+  listingId: string;
+  buyerId: string;
+  sellerId: string;
+  totalUsd: number;
+  status: string;
+  paymentStatus?: string;
+  createdAt: string;
+  carrier?: string | null;
+  trackingNumber?: string | null;
+  trackingUrl?: string | null;
+  shippedAt?: string | null;
+  seller: { username: string };
+  listing: { id: string; title: string; images: { url: string }[] };
+};
+
+function mapWebAccountOrder(row: WebAccountOrderRow): BuyerOrder {
+  const trackingNumber = row.trackingNumber?.trim() || null;
+  const trackingUrl = row.trackingUrl?.trim() || null;
+  let trackingLabel = 'Label pending';
+  if (trackingNumber) trackingLabel = `Tracking · ${trackingNumber}`;
+  let estimatedDelivery = 'Updates when carrier scans';
+  if (row.shippedAt) {
+    try {
+      estimatedDelivery = `Shipped ${new Date(row.shippedAt).toLocaleDateString()}`;
+    } catch {
+      estimatedDelivery = 'In transit';
+    }
+  } else if (row.status === 'delivered' || row.status === 'completed') {
+    estimatedDelivery = 'Delivered to your vault address';
+  }
+
+  return {
+    id: row.id,
+    listingId: row.listingId,
+    listingTitle: row.listing.title ?? 'Vault listing',
+    thumbnailUrl: resolveListingImageUrl(row.listing.images?.[0]?.url) ?? null,
+    buyerId: row.buyerId,
+    sellerId: row.sellerId,
+    buyerUsername: null,
+    sellerUsername: row.seller.username ?? null,
+    sellerAvatarUrl: null,
+    status: row.status,
+    totalCents: Math.round(Math.max(0, row.totalUsd) * 100),
+    createdAt: row.createdAt,
+    trackingNumber,
+    trackingUrl,
+    carrier: row.carrier ?? null,
+    shipByDate: null,
+    protectionLabel: protectionLabel(row.status),
+    statusLabel: statusLabel(row.status),
+    trackingLabel,
+    estimatedDelivery,
+  };
+}
+
+async function fetchBuyerOrdersFromWeb(accessToken: string): Promise<BuyerOrder[]> {
+  const res = await fetchWebApiAuthed('/api/account/orders', accessToken);
+  const body = (await res.json().catch(() => null)) as { orders?: WebAccountOrderRow[]; error?: string };
+  if (!res.ok) {
+    console.warn('fetchBuyerOrdersFromWeb', body?.error ?? res.status);
+    return [];
+  }
+  const rows = Array.isArray(body?.orders) ? body.orders : [];
+  return rows.map(mapWebAccountOrder);
+}
+
+export async function fetchBuyerOrdersDetailed(
+  userId: string,
+  accessToken?: string | null,
+): Promise<BuyerOrder[]> {
+  if (accessToken?.trim()) {
+    return fetchBuyerOrdersFromWeb(accessToken.trim());
+  }
   const sb = getSupabase();
   if (!sb) return [];
   const { data, error } = await sb
@@ -214,17 +289,27 @@ export async function fetchBuyerOrdersDetailed(userId: string): Promise<BuyerOrd
   return enrichBuyerOrders(data as OrderDbRow[]);
 }
 
-export async function fetchBuyerOrderById(userId: string, orderId: string): Promise<BuyerOrder | null> {
-  const orders = await fetchBuyerOrdersDetailed(userId);
+export async function fetchBuyerOrderById(
+  userId: string,
+  orderId: string,
+  accessToken?: string | null,
+): Promise<BuyerOrder | null> {
+  const orders = await fetchBuyerOrdersDetailed(userId, accessToken);
   return orders.find((o) => o.id === orderId) ?? null;
 }
 
-export async function fetchBuyerOrders(userId: string): Promise<VaultOrderRow[]> {
-  return fetchBuyerOrdersDetailed(userId);
+export async function fetchBuyerOrders(
+  userId: string,
+  accessToken?: string | null,
+): Promise<VaultOrderRow[]> {
+  return fetchBuyerOrdersDetailed(userId, accessToken);
 }
 
-export async function countActiveBuyerOrders(userId: string): Promise<number> {
-  const orders = await fetchBuyerOrdersDetailed(userId);
+export async function countActiveBuyerOrders(
+  userId: string,
+  accessToken?: string | null,
+): Promise<number> {
+  const orders = await fetchBuyerOrdersDetailed(userId, accessToken);
   return orders.filter((o) => bucketForOrderStatus(o.status) === 'active').length;
 }
 
@@ -249,8 +334,11 @@ export async function fetchSellerOrders(userId: string): Promise<VaultOrderRow[]
   return enrichOrders(data as OrderDbRow[]);
 }
 
-export async function fetchCompletedOrdersForUser(userId: string): Promise<VaultOrderRow[]> {
-  const buyer = await fetchBuyerOrders(userId);
+export async function fetchCompletedOrdersForUser(
+  userId: string,
+  accessToken?: string | null,
+): Promise<VaultOrderRow[]> {
+  const buyer = await fetchBuyerOrders(userId, accessToken);
   const seller = await fetchSellerOrders(userId);
   const seen = new Set<string>();
   return [...buyer, ...seller].filter((o) => {

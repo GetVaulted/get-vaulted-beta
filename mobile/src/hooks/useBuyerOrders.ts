@@ -8,7 +8,7 @@ import {
 } from '../api/ordersRepository';
 import { hasReviewedReference } from '../platform/platformStore';
 
-export function useBuyerOrders(userId: string | undefined) {
+export function useBuyerOrders(userId: string | undefined, accessToken: string | undefined) {
   const [orders, setOrders] = useState<BuyerOrder[]>([]);
   const [reviewedMap, setReviewedMap] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
@@ -22,7 +22,7 @@ export function useBuyerOrders(userId: string | undefined) {
     }
     setLoading(true);
     try {
-      const rows = await fetchBuyerOrdersDetailed(userId);
+      const rows = await fetchBuyerOrdersDetailed(userId, accessToken);
       setOrders(rows);
       const reviewable = rows.filter((o) => isOrderCompleteForReview(o.status));
       const entries = await Promise.all(
@@ -35,7 +35,7 @@ export function useBuyerOrders(userId: string | undefined) {
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [accessToken, userId]);
 
   useEffect(() => {
     void load();

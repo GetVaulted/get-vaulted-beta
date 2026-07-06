@@ -42,6 +42,7 @@
     "qa:reset-beta-slate:dry-run": "tsx scripts/reset-beta-qa-slate.ts --dry-run",
     "verify:beta-ivs": "tsx scripts/verify-beta-ivs-config.ts",
     "configure:beta-signup-email": "tsx scripts/configure-beta-signup-email.ts",
+    "resend:sync-templates": "tsx scripts/sync-resend-templates.ts",
     "configure:beta-auth-urls": "tsx scripts/configure-beta-auth-urls.ts",
     "configure:prod-launch-env": "tsx scripts/configure-prod-launch-env.ts",
     "configure:production-auth-urls": "tsx scripts/configure-production-auth-urls.ts",

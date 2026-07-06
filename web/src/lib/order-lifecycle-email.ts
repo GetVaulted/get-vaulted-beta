@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/prisma";
-import { sendResendEmail } from "@/lib/resend-email";
+import { escapeResendHtml, RESEND_EMAIL_BRAND } from "@/lib/resend-templates/brand";
+import { RESEND_TEMPLATE_ORDER_SHELL } from "@/lib/resend-templates/definitions";
+import { buildEmailShellInline } from "@/lib/resend-templates/shell";
+import { isResendHostedTemplatesEnabled, sendResendEmail, sendResendTemplateEmail } from "@/lib/resend-email";
 
 /** Matches in-app `Notification.type` values for order lifecycle. */
 export type OrderLifecycleEmailKind =
@@ -20,22 +23,9 @@ export type OrderLifecycleEmailInput = {
   totalUsd?: number | null;
 };
 
-const BRAND = {
-  bg: "#0a0a0d",
-  card: "#111116",
-  border: "rgba(255,255,255,0.08)",
-  gold: "#d4af37",
-  text: "#fafafa",
-  muted: "#a1a1aa",
-} as const;
-
 function siteOrigin(): string {
   const u = process.env.NEXTAUTH_URL?.trim() || "https://shopgetvaulted.com";
   return u.replace(/\/$/, "");
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 function truncateTitle(title: string, max = 90): string {
@@ -51,32 +41,15 @@ function orderUrl(orderId: string): string {
   return `${siteOrigin()}/orders/${encodeURIComponent(orderId)}`;
 }
 
-function emailShell(args: { headline: string; bodyHtml: string; ctaLabel: string; ctaHref: string }): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<body style="margin:0;padding:0;background:${BRAND.bg};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:${BRAND.bg};padding:32px 16px;">
-    <tr><td align="center">
-      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:${BRAND.card};border:1px solid ${BRAND.border};border-radius:16px;padding:32px 28px;">
-        <tr><td style="color:${BRAND.gold};font-size:11px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;">Get Vaulted</td></tr>
-        <tr><td style="padding-top:16px;color:${BRAND.text};font-size:22px;font-weight:700;line-height:1.3;">${escapeHtml(args.headline)}</td></tr>
-        <tr><td style="padding-top:12px;color:${BRAND.muted};font-size:15px;line-height:1.55;">${args.bodyHtml}</td></tr>
-        <tr><td style="padding-top:24px;">
-          <a href="${escapeHtml(args.ctaHref)}" style="display:inline-block;background:linear-gradient(135deg,#c9a227,#e8c547);color:#0a0a0d;text-decoration:none;font-weight:700;font-size:14px;padding:12px 22px;border-radius:999px;">${escapeHtml(args.ctaLabel)}</a>
-        </td></tr>
-        <tr><td style="padding-top:28px;color:${BRAND.muted};font-size:12px;line-height:1.5;">You're receiving this because you have a Get Vaulted order. Manage notifications in the app.</td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
-}
-
-export function buildOrderLifecycleEmailContent(input: OrderLifecycleEmailInput): {
+type OrderEmailCopy = {
   subject: string;
   text: string;
-  html: string;
-} {
+  headline: string;
+  bodyHtml: string;
+  ctaLabel: string;
+};
+
+function buildOrderEmailCopy(input: OrderLifecycleEmailInput): OrderEmailCopy {
   const title = truncateTitle(input.listingTitle);
   const link = orderUrl(input.orderId);
   const tracking = input.trackingNumber?.trim();
@@ -84,6 +57,8 @@ export function buildOrderLifecycleEmailContent(input: OrderLifecycleEmailInput)
     typeof input.totalUsd === "number" && Number.isFinite(input.totalUsd)
       ? fmtUsd(input.totalUsd)
       : null;
+  const { text: brandText } = RESEND_EMAIL_BRAND;
+  const safeTitle = escapeResendHtml(title);
 
   switch (input.kind) {
     case "purchase_complete":
@@ -99,23 +74,17 @@ export function buildOrderLifecycleEmailContent(input: OrderLifecycleEmailInput)
         ]
           .filter(Boolean)
           .join("\n"),
-        html: emailShell({
-          headline: "Order confirmed",
-          bodyHtml: `Thanks for your purchase. <strong style="color:${BRAND.text};">${escapeHtml(title)}</strong> is confirmed${total ? ` for <strong style="color:${BRAND.text};">${escapeHtml(total)}</strong>` : ""}. We'll email you when it ships.`,
-          ctaLabel: "View order",
-          ctaHref: link,
-        }),
+        headline: "Order confirmed",
+        bodyHtml: `Thanks for your purchase. <strong style="color:${brandText};">${safeTitle}</strong> is confirmed${total ? ` for <strong style="color:${brandText};">${escapeResendHtml(total)}</strong>` : ""}. We'll email you when it ships.`,
+        ctaLabel: "View order",
       };
     case "seller_ready_to_ship":
       return {
         subject: `New sale — ship ${title}`,
         text: [`You sold ${title} on Get Vaulted.`, "", `Create a label or mark shipped: ${link}`].join("\n"),
-        html: emailShell({
-          headline: "New order to ship",
-          bodyHtml: `<strong style="color:${BRAND.text};">${escapeHtml(title)}</strong> is paid. Create a shipping label or mark it shipped from Sales.`,
-          ctaLabel: "Open order",
-          ctaHref: link,
-        }),
+        headline: "New order to ship",
+        bodyHtml: `<strong style="color:${brandText};">${safeTitle}</strong> is paid. Create a shipping label or mark it shipped from Sales.`,
+        ctaLabel: "Open order",
       };
     case "order_label_created":
       return {
@@ -128,12 +97,9 @@ export function buildOrderLifecycleEmailContent(input: OrderLifecycleEmailInput)
         ]
           .filter(Boolean)
           .join("\n"),
-        html: emailShell({
-          headline: "Label created",
-          bodyHtml: `Your order for <strong style="color:${BRAND.text};">${escapeHtml(title)}</strong> has a carrier label.${tracking ? ` Tracking: <strong style="color:${BRAND.text};">${escapeHtml(tracking)}</strong>.` : ""}`,
-          ctaLabel: "Track order",
-          ctaHref: link,
-        }),
+        headline: "Label created",
+        bodyHtml: `Your order for <strong style="color:${brandText};">${safeTitle}</strong> has a carrier label.${tracking ? ` Tracking: <strong style="color:${brandText};">${escapeResendHtml(tracking)}</strong>.` : ""}`,
+        ctaLabel: "Track order",
       };
     case "order_shipped":
       return {
@@ -146,58 +112,74 @@ export function buildOrderLifecycleEmailContent(input: OrderLifecycleEmailInput)
         ]
           .filter(Boolean)
           .join("\n"),
-        html: emailShell({
-          headline: "Your order shipped",
-          bodyHtml: `<strong style="color:${BRAND.text};">${escapeHtml(title)}</strong> is on the way.${tracking ? ` Tracking: <strong style="color:${BRAND.text};">${escapeHtml(tracking)}</strong>.` : ""}`,
-          ctaLabel: "View order",
-          ctaHref: link,
-        }),
+        headline: "Your order shipped",
+        bodyHtml: `<strong style="color:${brandText};">${safeTitle}</strong> is on the way.${tracking ? ` Tracking: <strong style="color:${brandText};">${escapeResendHtml(tracking)}</strong>.` : ""}`,
+        ctaLabel: "View order",
       };
     case "order_out_for_delivery":
       return {
         subject: `Out for delivery — ${title}`,
         text: [`${title} is out for delivery today.`, "", `View order: ${link}`].join("\n"),
-        html: emailShell({
-          headline: "Out for delivery",
-          bodyHtml: `<strong style="color:${BRAND.text};">${escapeHtml(title)}</strong> is out for delivery today.`,
-          ctaLabel: "View order",
-          ctaHref: link,
-        }),
+        headline: "Out for delivery",
+        bodyHtml: `<strong style="color:${brandText};">${safeTitle}</strong> is out for delivery today.`,
+        ctaLabel: "View order",
       };
     case "order_delivered":
       return {
         subject: `Delivered — ${title}`,
         text: [`${title} was delivered.`, "", `View order: ${link}`].join("\n"),
-        html: emailShell({
-          headline: "Delivered",
-          bodyHtml: `Carrier reports <strong style="color:${BRAND.text};">${escapeHtml(title)}</strong> was delivered.`,
-          ctaLabel: "View order",
-          ctaHref: link,
-        }),
+        headline: "Delivered",
+        bodyHtml: `Carrier reports <strong style="color:${brandText};">${safeTitle}</strong> was delivered.`,
+        ctaLabel: "View order",
       };
     case "seller_order_delivered":
       return {
         subject: `Buyer received — ${title}`,
         text: [`Carrier reports ${title} was delivered to your buyer.`, "", `View order: ${link}`].join("\n"),
-        html: emailShell({
-          headline: "Order delivered",
-          bodyHtml: `Carrier reports <strong style="color:${BRAND.text};">${escapeHtml(title)}</strong> reached your buyer.`,
-          ctaLabel: "View order",
-          ctaHref: link,
-        }),
+        headline: "Order delivered",
+        bodyHtml: `Carrier reports <strong style="color:${brandText};">${safeTitle}</strong> reached your buyer.`,
+        ctaLabel: "View order",
       };
     default:
       return {
         subject: `Order update — ${title}`,
         text: `Order update for ${title}: ${link}`,
-        html: emailShell({
-          headline: "Order update",
-          bodyHtml: `There is an update on your order for <strong style="color:${BRAND.text};">${escapeHtml(title)}</strong>.`,
-          ctaLabel: "View order",
-          ctaHref: link,
-        }),
+        headline: "Order update",
+        bodyHtml: `There is an update on your order for <strong style="color:${brandText};">${safeTitle}</strong>.`,
+        ctaLabel: "View order",
       };
   }
+}
+
+export function buildOrderLifecycleEmailContent(input: OrderLifecycleEmailInput): {
+  subject: string;
+  text: string;
+  html: string;
+} {
+  const copy = buildOrderEmailCopy(input);
+  const link = orderUrl(input.orderId);
+  return {
+    subject: copy.subject,
+    text: copy.text,
+    html: buildEmailShellInline({
+      headline: copy.headline,
+      bodyHtml: copy.bodyHtml,
+      ctaLabel: copy.ctaLabel,
+      ctaHref: link,
+    }),
+  };
+}
+
+export function buildOrderLifecycleTemplateVariables(input: OrderLifecycleEmailInput): Record<string, string> {
+  const copy = buildOrderEmailCopy(input);
+  const link = orderUrl(input.orderId);
+  return {
+    HEADLINE: copy.headline,
+    BODY_HTML: copy.bodyHtml,
+    CTA_LABEL: copy.ctaLabel,
+    ORDER_URL: link,
+    TEXT_BODY: copy.text,
+  };
 }
 
 export async function sendOrderLifecycleEmail(input: OrderLifecycleEmailInput): Promise<void> {
@@ -208,8 +190,16 @@ export async function sendOrderLifecycleEmail(input: OrderLifecycleEmailInput): 
   const to = user?.email?.trim();
   if (!to) return;
 
-  const content = buildOrderLifecycleEmailContent(input);
-  const result = await sendResendEmail({ to, ...content });
+  const copy = buildOrderEmailCopy(input);
+  const result = isResendHostedTemplatesEnabled()
+    ? await sendResendTemplateEmail({
+        to,
+        subject: copy.subject,
+        templateId: RESEND_TEMPLATE_ORDER_SHELL,
+        variables: buildOrderLifecycleTemplateVariables(input),
+      })
+    : await sendResendEmail({ to, subject: copy.subject, text: copy.text, html: buildOrderLifecycleEmailContent(input).html });
+
   if (!result.ok && process.env.NODE_ENV !== "production") {
     console.info("[order-lifecycle-email] skipped or failed", { kind: input.kind, orderId: input.orderId, reason: result.reason });
   }

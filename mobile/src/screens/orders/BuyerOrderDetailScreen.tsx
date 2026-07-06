@@ -65,7 +65,7 @@ export function BuyerOrderDetailScreen({ navigation, route }: Props) {
     if (!silent) setLoading(true);
     try {
       void touchAuctionPaymentExpiries(session?.access_token);
-      const row = await fetchBuyerOrderById(user.id, orderId);
+      const row = await fetchBuyerOrderById(user.id, orderId, session?.access_token);
       setOrder(row);
       if (row && isOrderCompleteForReview(row.status)) {
         setReviewed(await hasReviewedReference(user.id, row.id, 'buyer_to_seller'));

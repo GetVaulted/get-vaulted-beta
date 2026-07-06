@@ -17,7 +17,19 @@ export async function GET(req: Request) {
   const orders = await prisma.order.findMany({
     where: { buyerId: auth.userId },
     orderBy: { createdAt: "desc" },
-    include: {
+    select: {
+      id: true,
+      listingId: true,
+      buyerId: true,
+      sellerId: true,
+      totalUsd: true,
+      status: true,
+      paymentStatus: true,
+      createdAt: true,
+      carrier: true,
+      trackingNumber: true,
+      trackingUrl: true,
+      shippedAt: true,
       listing: {
         select: {
           id: true,
@@ -29,5 +41,22 @@ export async function GET(req: Request) {
     },
   });
 
-  return NextResponse.json({ orders });
+  return NextResponse.json({
+    orders: orders.map((o) => ({
+      id: o.id,
+      listingId: o.listingId,
+      buyerId: o.buyerId,
+      sellerId: o.sellerId,
+      totalUsd: o.totalUsd,
+      status: o.status,
+      paymentStatus: o.paymentStatus,
+      createdAt: o.createdAt.toISOString(),
+      carrier: o.carrier,
+      trackingNumber: o.trackingNumber,
+      trackingUrl: o.trackingUrl,
+      shippedAt: o.shippedAt?.toISOString() ?? null,
+      seller: o.seller,
+      listing: o.listing,
+    })),
+  });
 }

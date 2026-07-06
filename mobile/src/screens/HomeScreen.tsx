@@ -178,10 +178,10 @@ export function HomeScreen() {
       return;
     }
     const task = deferAfterFirstPaint(() => {
-      void countActiveBuyerOrders(user.id).then(setActiveBuyerOrders);
+      void countActiveBuyerOrders(user.id, session?.access_token).then(setActiveBuyerOrders);
     }, 1200);
     return () => task.cancel();
-  }, [user?.id]);
+  }, [session?.access_token, user?.id]);
 
   const loadFeed = useCallback(async (opts?: { hadCachedLive?: boolean; hadCachedListings?: boolean; force?: boolean }) => {
     if (!isSupabaseConfigured()) {

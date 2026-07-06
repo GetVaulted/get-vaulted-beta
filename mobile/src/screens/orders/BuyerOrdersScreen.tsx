@@ -29,11 +29,11 @@ const TAB_BAR_HEIGHT = 44;
 
 export function BuyerOrdersScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { session, user } = useAuth();
   const initialSource: OrdersSource = route.params?.source === 'live' ? 'live' : 'marketplace';
   const [source, setSource] = useState<OrdersSource>(initialSource);
   const [segment, setSegment] = useState<BuyerOrderBucket>('active');
-  const { byBucket, reviewedMap, loading, refresh } = useBuyerOrders(user?.id);
+  const { byBucket, reviewedMap, loading, refresh } = useBuyerOrders(user?.id, session?.access_token);
   const {
     orders: liveOrders,
     loading: liveLoading,

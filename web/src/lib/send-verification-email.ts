@@ -1,8 +1,9 @@
 import { VERIFICATION_CODE_TTL_MS } from "@/lib/email-verification-code";
+import { escapeResendHtml } from "@/lib/resend-templates/brand";
+import { RESEND_TEMPLATE_SIGNUP_VERIFICATION } from "@/lib/resend-templates/definitions";
+import { isResendHostedTemplatesEnabled, sendResendEmail, sendResendTemplateEmail } from "@/lib/resend-email";
 
 type SendResult = { ok: true } | { ok: false; userMessage: string };
-
-const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
 const SUBJECT = "Your Get Vaulted verification code";
 
@@ -16,16 +17,6 @@ const C = {
   text: "#fafafa",
   muted: "#a1a1aa",
 } as const;
-
-function defaultFrom(): string {
-  const f = process.env.RESEND_FROM?.trim();
-  if (f) return f;
-  return "Get Vaulted <onboarding@resend.dev>";
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
 
 function expiresCopyMinutes(): { minutes: number; phrase: string } {
   const minutes = Math.max(1, Math.round(VERIFICATION_CODE_TTL_MS / 60_000));
@@ -54,7 +45,7 @@ function buildPlainText(code: string): string {
 }
 
 function buildHtml(code: string): string {
-  const safe = escapeHtml(code);
+  const safe = escapeResendHtml(code);
   const { phrase } = expiresCopyMinutes();
 
   return `<!DOCTYPE html>
@@ -62,7 +53,7 @@ function buildHtml(code: string): string {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${escapeHtml(SUBJECT)}</title>
+  <title>${escapeResendHtml(SUBJECT)}</title>
 </head>
 <body style="margin:0;padding:0;background-color:${C.bg};">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:${C.bg};border-collapse:collapse;">
@@ -93,7 +84,7 @@ function buildHtml(code: string): string {
                 </tr>
               </table>
               <p style="margin:0 0 12px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.5;color:${C.muted};text-align:center;">
-                ${escapeHtml(phrase)}
+                ${escapeResendHtml(phrase)}
               </p>
               <p style="margin:20px 0 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.55;color:${C.muted};text-align:center;">
                 If you didn't request this, you can safely ignore this email.
@@ -115,6 +106,14 @@ function buildHtml(code: string): string {
 </html>`;
 }
 
+export function buildSignupVerificationTemplateVariables(code: string): Record<string, string> {
+  const { phrase } = expiresCopyMinutes();
+  return {
+    VERIFICATION_CODE: code,
+    EXPIRES_PHRASE: phrase,
+  };
+}
+
 /**
  * Sends a signup verification code via Resend when `RESEND_API_KEY` is set.
  * In production, missing configuration returns a failure (caller should not create orphan users).
@@ -123,8 +122,7 @@ export async function sendSignupVerificationEmail(params: {
   to: string;
   code: string;
 }): Promise<SendResult> {
-  const apiKey = process.env.RESEND_API_KEY?.trim();
-  if (!apiKey) {
+  if (!process.env.RESEND_API_KEY?.trim()) {
     if (process.env.NODE_ENV === "production") {
       return { ok: false, userMessage: "Email delivery is not configured. Please try again later." };
     }
@@ -134,38 +132,24 @@ export async function sendSignupVerificationEmail(params: {
   const text = buildPlainText(params.code);
   const html = buildHtml(params.code);
 
-  try {
-    const res = await fetch(RESEND_ENDPOINT, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: defaultFrom(),
-        to: [params.to],
+  const result = isResendHostedTemplatesEnabled()
+    ? await sendResendTemplateEmail({
+        to: params.to,
         subject: SUBJECT,
-        text,
-        html,
-      }),
-    });
+        templateId: RESEND_TEMPLATE_SIGNUP_VERIFICATION,
+        variables: buildSignupVerificationTemplateVariables(params.code),
+      })
+    : await sendResendEmail({ to: params.to, subject: SUBJECT, text, html });
 
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      if (process.env.NODE_ENV !== "production") {
-        console.error("[sendSignupVerificationEmail] Resend HTTP", res.status, body.slice(0, 500));
-      }
-      return {
-        ok: false,
-        userMessage: "We could not send the verification email. Check the address and try again, or contact support.",
-      };
+  if (!result.ok) {
+    if (process.env.NODE_ENV !== "production" && result.reason === "resend_not_configured") {
+      return { ok: false, userMessage: "Email delivery is not configured for this environment." };
     }
-
-    return { ok: true };
-  } catch {
     return {
       ok: false,
-      userMessage: "We could not reach the email service. Check your connection and try again.",
+      userMessage: "We could not send the verification email. Check the address and try again, or contact support.",
     };
   }
+
+  return { ok: true };
 }

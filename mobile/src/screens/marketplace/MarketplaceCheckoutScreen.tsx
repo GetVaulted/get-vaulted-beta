@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   fetchBuyerPaymentMethods,
   fetchBuyerShippingAddresses,
+  type BuyerPaymentMethodRow,
   type BuyerShippingAddressRow,
 } from '../../api/buyerWalletRepository';
 import { fetchBuyerLayawayStatus } from '../../api/layawayRepository';
@@ -33,7 +34,16 @@ import { fetchMarketplaceListingFromWeb } from '../../api/webListingsRepository'
 import { PremiumVaultButton } from '../../components/product/PremiumVaultButton';
 import { WalletAddressSetupModal } from '../../components/wallet/WalletAddressSetupModal';
 import { WalletPaymentSetupModal } from '../../components/wallet/WalletPaymentSetupStep';
-import { formatAddressOneLine } from '../../components/wallet/walletSheetUtils';
+import {
+  formatAddressOneLine,
+  pickDefaultShippingAddress,
+  pickPrimaryPaymentMethod,
+} from '../../components/wallet/walletSheetUtils';
+import {
+  normalizePmType,
+  walletPmIcon,
+  walletPmSummary,
+} from '../../components/wallet/walletPaymentMethodDisplay';
 import { useAuth } from '../../auth/AuthContext';
 import {
   checkoutRatePreferenceKey,
@@ -44,7 +54,6 @@ import {
 import { formatListingRatePrice, listingRateLabel } from '../../createListing/shippoRates';
 import { openStripeCheckoutSession } from '../../lib/openStripeCheckoutSession';
 import { MARKETPLACE_TEXT_PROPS } from '../../lib/marketplaceUiScale';
-import { pickDefaultShippingAddress } from '../../components/wallet/walletSheetUtils';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
 
@@ -99,6 +108,8 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
   const [selectedRateId, setSelectedRateId] = useState<string | null>(null);
   const [addresses, setAddresses] = useState<BuyerShippingAddressRow[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
+  const [paymentMethods, setPaymentMethods] = useState<BuyerPaymentMethodRow[]>([]);
+  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string | null>(null);
   const [paymentReady, setPaymentReady] = useState(false);
   const [taxUsd, setTaxUsd] = useState(0);
   const [taxCollect, setTaxCollect] = useState(false);
@@ -110,12 +121,29 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
   const [addressModalOpen, setAddressModalOpen] = useState(false);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [addressPickerExpanded, setAddressPickerExpanded] = useState(false);
+  const [paymentPickerExpanded, setPaymentPickerExpanded] = useState(false);
   const [ratesPickerExpanded, setRatesPickerExpanded] = useState(false);
   const [walletSetupPrompted, setWalletSetupPrompted] = useState(false);
 
   const selectedAddress = addresses.find((a) => a.id === selectedAddressId) ?? null;
-  const walletReady = paymentReady && Boolean(selectedAddress);
-  const shippingPayload = selectedAddress ? shippingFromAddress(selectedAddress) : null;
+  const selectedPaymentMethod =
+    paymentMethods.find((pm) => pm.id === selectedPaymentMethodId) ??
+    pickPrimaryPaymentMethod(paymentMethods);
+  const walletReady = paymentReady && Boolean(selectedAddress) && Boolean(selectedPaymentMethod);
+  const shippingPayload = useMemo((): MarketplaceCheckoutShipping | null => {
+    if (!selectedAddress) return null;
+    return shippingFromAddress(selectedAddress);
+  }, [
+    selectedAddress?.id,
+    selectedAddress?.fullName,
+    selectedAddress?.name,
+    selectedAddress?.line1,
+    selectedAddress?.line2,
+    selectedAddress?.city,
+    selectedAddress?.state,
+    selectedAddress?.postalCode,
+    selectedAddress?.country,
+  ]);
   const usesFlatShipping = flatShippingUsd > 0;
   const checkoutShippingPayload = useMemo((): MarketplaceCheckoutShipping | null => {
     if (!shippingPayload) return null;
@@ -130,10 +158,19 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
       fetchBuyerPaymentMethods(token),
       fetchBuyerShippingAddresses(token),
     ]);
-    setPaymentReady(pm.paymentMethods.length > 0);
+    const methods = pm.paymentMethods;
+    setPaymentMethods(methods);
+    setPaymentReady(methods.length > 0);
+    setSelectedPaymentMethodId((prev) => {
+      if (prev && methods.some((m) => m.id === prev)) return prev;
+      return pickPrimaryPaymentMethod(methods)?.id ?? null;
+    });
     setAddresses(addrs);
-    const preferred = pickDefaultShippingAddress(addrs);
-    setSelectedAddressId(preferred?.id ?? addrs[0]?.id ?? null);
+    setSelectedAddressId((prev) => {
+      if (prev && addrs.some((a) => a.id === prev)) return prev;
+      const preferred = pickDefaultShippingAddress(addrs);
+      return preferred?.id ?? addrs[0]?.id ?? null;
+    });
   }, [token]);
 
   useEffect(() => {
@@ -267,6 +304,7 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
       setTaxUsd(0);
       setTaxCollect(false);
       setTaxNote(null);
+      setTaxLoading(false);
       return;
     }
     let cancelled = false;
@@ -282,6 +320,12 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
           setTaxUsd(est.taxUsd);
           setTaxCollect(est.collectTax);
           setTaxNote(est.note);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setTaxUsd(0);
+          setTaxCollect(false);
+          setTaxNote('Tax calculated at checkout.');
         })
         .finally(() => {
           if (!cancelled) setTaxLoading(false);
@@ -320,8 +364,8 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
       setError(ratesError ?? 'Select a shipping option to continue.');
       return;
     }
-    if (!paymentReady) {
-      setError('Add a payment method to continue.');
+    if (!paymentReady || !selectedPaymentMethod) {
+      setError('Add a Vault Wallet payment method to continue.');
       setPaymentModalOpen(true);
       return;
     }
@@ -354,6 +398,7 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
       const result = await startMarketplaceBuyNowCheckout(token, {
         listingId,
         shipping: payload,
+        paymentMethodId: selectedPaymentMethod?.id,
       });
       if (!result.ok) {
         if (result.escrowRedirectUrl) {
@@ -441,82 +486,199 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
           </View>
         </View>
 
-        {!walletReady ? (
-          <View style={styles.walletCard}>
+        <View style={styles.walletCard}>
+          <View style={styles.sectionHeaderRow}>
             <Text style={styles.walletTitle} {...MARKETPLACE_TEXT_PROPS}>
-              Wallet setup
+              Vault Wallet
             </Text>
-            <Text style={styles.walletHint} {...MARKETPLACE_TEXT_PROPS}>
-              Save your address and card once — reused for live shows and every purchase.
-            </Text>
-            {!selectedAddress ? (
-              <PremiumVaultButton
-                label="Add shipping address"
-                icon="location-outline"
-                onPress={() => setAddressModalOpen(true)}
-                variant="secondary"
-              />
-            ) : null}
-            {!paymentReady ? (
-              <PremiumVaultButton
-                label="Add payment method"
-                icon="card-outline"
-                onPress={() => setPaymentModalOpen(true)}
-                variant="secondary"
-              />
-            ) : null}
-          </View>
-        ) : null}
-
-        {walletReady && selectedAddress ? (
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionKicker} {...MARKETPLACE_TEXT_PROPS}>
-                Ship to
+            <Pressable onPress={() => navigation.navigate('BuyerWallet')} hitSlop={8}>
+              <Text style={styles.changeLink} {...MARKETPLACE_TEXT_PROPS}>
+                Manage
               </Text>
-              <Pressable onPress={() => setAddressPickerExpanded((v) => !v)} hitSlop={8}>
-                <Text style={styles.changeLink} {...MARKETPLACE_TEXT_PROPS}>
-                  {addressPickerExpanded ? 'Done' : 'Change'}
-                </Text>
-              </Pressable>
+            </Pressable>
+          </View>
+          <Text style={styles.walletHint} {...MARKETPLACE_TEXT_PROPS}>
+            {mode === 'layaway'
+              ? 'Use your saved address for shipping. Layaway deposit still completes on Stripe checkout.'
+              : 'Pay with your saved Vault Wallet card and ship to a saved address.'}
+          </Text>
+
+          <View style={styles.walletOptionBlock}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.walletOptionLabel} {...MARKETPLACE_TEXT_PROPS}>
+                Payment
+              </Text>
+              {paymentReady && paymentMethods.length > 1 ? (
+                <Pressable onPress={() => setPaymentPickerExpanded((v) => !v)} hitSlop={8}>
+                  <Text style={styles.changeLink} {...MARKETPLACE_TEXT_PROPS}>
+                    {paymentPickerExpanded ? 'Done' : 'Change'}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
-            {!addressPickerExpanded ? (
-              <View style={styles.compactCard}>
-                <Text style={styles.addrName} {...MARKETPLACE_TEXT_PROPS}>
-                  {selectedAddress.fullName || selectedAddress.name}
-                </Text>
-                <Text style={styles.addrLine} numberOfLines={2} {...MARKETPLACE_TEXT_PROPS}>
-                  {formatAddressOneLine(selectedAddress)}
-                </Text>
-              </View>
+            {!paymentReady ? (
+              <Pressable style={styles.walletOptionRow} onPress={() => setPaymentModalOpen(true)}>
+                <Ionicons name="card-outline" size={20} color={colors.gold} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.walletOptionTitle} {...MARKETPLACE_TEXT_PROPS}>
+                    Add payment method
+                  </Text>
+                  <Text style={styles.walletOptionSub} {...MARKETPLACE_TEXT_PROPS}>
+                    Save a card to your Vault Wallet
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </Pressable>
+            ) : !paymentPickerExpanded ? (
+              <Pressable
+                style={[styles.walletOptionRow, styles.walletOptionRowOn]}
+                onPress={() => {
+                  if (paymentMethods.length > 1) setPaymentPickerExpanded(true);
+                  else setPaymentModalOpen(true);
+                }}
+              >
+                <Ionicons
+                  name={walletPmIcon(normalizePmType(selectedPaymentMethod?.type))}
+                  size={20}
+                  color={colors.gold}
+                />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.walletOptionTitle} {...MARKETPLACE_TEXT_PROPS}>
+                    {walletPmSummary(selectedPaymentMethod)}
+                  </Text>
+                  <Text style={styles.walletOptionSub} {...MARKETPLACE_TEXT_PROPS}>
+                    Vault Wallet · tap to {paymentMethods.length > 1 ? 'change' : 'update'}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </Pressable>
             ) : (
               <>
-                {addresses.map((addr) => (
-                  <Pressable
-                    key={addr.id}
-                    onPress={() => {
-                      setSelectedAddressId(addr.id);
-                      setAddressPickerExpanded(false);
-                    }}
-                    style={[styles.addrRow, selectedAddressId === addr.id && styles.addrRowOn]}
-                  >
-                    <Text style={styles.addrName} {...MARKETPLACE_TEXT_PROPS}>
-                      {addr.fullName || addr.name}
-                    </Text>
-                    <Text style={styles.addrLine} numberOfLines={2} {...MARKETPLACE_TEXT_PROPS}>
-                      {[addr.line1, addr.city, addr.state, addr.postalCode].filter(Boolean).join(', ')}
-                    </Text>
-                  </Pressable>
-                ))}
+                {paymentMethods.map((pm) => {
+                  const on = selectedPaymentMethodId === pm.id;
+                  return (
+                    <Pressable
+                      key={pm.id}
+                      onPress={() => {
+                        setSelectedPaymentMethodId(pm.id);
+                        setPaymentPickerExpanded(false);
+                      }}
+                      style={[styles.walletOptionRow, on && styles.walletOptionRowOn]}
+                    >
+                      <Ionicons
+                        name={walletPmIcon(normalizePmType(pm.type))}
+                        size={20}
+                        color={colors.gold}
+                      />
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.walletOptionTitle} {...MARKETPLACE_TEXT_PROPS}>
+                          {walletPmSummary(pm)}
+                        </Text>
+                      </View>
+                      {on ? <Ionicons name="checkmark-circle" size={18} color={colors.gold} /> : null}
+                    </Pressable>
+                  );
+                })}
+                <PremiumVaultButton
+                  label="Add another card"
+                  icon="add-outline"
+                  onPress={() => setPaymentModalOpen(true)}
+                  variant="secondary"
+                />
+              </>
+            )}
+          </View>
+
+          <View style={styles.walletOptionBlock}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.walletOptionLabel} {...MARKETPLACE_TEXT_PROPS}>
+                Shipping address
+              </Text>
+              {selectedAddress && addresses.length > 1 ? (
+                <Pressable onPress={() => setAddressPickerExpanded((v) => !v)} hitSlop={8}>
+                  <Text style={styles.changeLink} {...MARKETPLACE_TEXT_PROPS}>
+                    {addressPickerExpanded ? 'Done' : 'Change'}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+            {!selectedAddress ? (
+              <Pressable style={styles.walletOptionRow} onPress={() => setAddressModalOpen(true)}>
+                <Ionicons name="location-outline" size={20} color={colors.gold} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.walletOptionTitle} {...MARKETPLACE_TEXT_PROPS}>
+                    Add shipping address
+                  </Text>
+                  <Text style={styles.walletOptionSub} {...MARKETPLACE_TEXT_PROPS}>
+                    Required for carrier rates and delivery
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </Pressable>
+            ) : !addressPickerExpanded ? (
+              <Pressable
+                style={[styles.walletOptionRow, styles.walletOptionRowOn]}
+                onPress={() => {
+                  if (addresses.length > 1) setAddressPickerExpanded(true);
+                  else setAddressModalOpen(true);
+                }}
+              >
+                <Ionicons name="location-outline" size={20} color={colors.gold} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.walletOptionTitle} {...MARKETPLACE_TEXT_PROPS}>
+                    {selectedAddress.fullName || selectedAddress.name}
+                  </Text>
+                  <Text style={styles.walletOptionSub} numberOfLines={2} {...MARKETPLACE_TEXT_PROPS}>
+                    {formatAddressOneLine(selectedAddress)}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </Pressable>
+            ) : (
+              <>
+                {addresses.map((addr) => {
+                  const on = selectedAddressId === addr.id;
+                  return (
+                    <Pressable
+                      key={addr.id}
+                      onPress={() => {
+                        setSelectedAddressId(addr.id);
+                        setAddressPickerExpanded(false);
+                      }}
+                      style={[styles.walletOptionRow, on && styles.walletOptionRowOn]}
+                    >
+                      <Ionicons name="location-outline" size={20} color={colors.gold} />
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.walletOptionTitle} {...MARKETPLACE_TEXT_PROPS}>
+                          {addr.fullName || addr.name}
+                        </Text>
+                        <Text style={styles.walletOptionSub} numberOfLines={2} {...MARKETPLACE_TEXT_PROPS}>
+                          {[addr.line1, addr.city, addr.state, addr.postalCode].filter(Boolean).join(', ')}
+                        </Text>
+                      </View>
+                      {on ? <Ionicons name="checkmark-circle" size={18} color={colors.gold} /> : null}
+                    </Pressable>
+                  );
+                })}
                 <PremiumVaultButton
                   label="Add another address"
+                  icon="add-outline"
                   onPress={() => setAddressModalOpen(true)}
                   variant="secondary"
                 />
               </>
             )}
           </View>
-        ) : null}
+
+          {walletReady ? (
+            <View style={styles.walletReadyPill}>
+              <Ionicons name="checkmark-circle" size={14} color="#6ee7b7" />
+              <Text style={styles.walletReadyTxt} {...MARKETPLACE_TEXT_PROPS}>
+                Vault Wallet ready
+              </Text>
+            </View>
+          ) : null}
+        </View>
 
         {shippingPayload && !usesFlatShipping ? (
           <View style={styles.section}>
@@ -687,7 +849,9 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
         <Text style={styles.stripeNote} {...MARKETPLACE_TEXT_PROPS}>
           {mode === 'layaway'
             ? 'Layaway deposit completes on Stripe secure checkout — your Get Vaulted session stays in the app.'
-            : 'Payment is charged to your saved Vault Wallet card — no browser redirect.'}
+            : selectedPaymentMethod
+              ? `Confirm purchase charges ${walletPmSummary(selectedPaymentMethod)} — no browser redirect.`
+              : 'Payment is charged to your saved Vault Wallet card — no browser redirect.'}
         </Text>
       </ScrollView>
 
@@ -748,7 +912,40 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   walletTitle: { fontSize: 12, fontWeight: '800', color: colors.gold, letterSpacing: 0.8, textTransform: 'uppercase' },
-  walletHint: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
+  walletHint: { color: colors.textMuted, fontSize: 12, lineHeight: 17, marginBottom: spacing.sm },
+  walletOptionBlock: { gap: spacing.sm, marginTop: spacing.sm },
+  walletOptionLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.textMuted,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  walletOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceElevated,
+  },
+  walletOptionRowOn: { borderColor: colors.gold, backgroundColor: 'rgba(212,175,55,0.08)' },
+  walletOptionTitle: { fontWeight: '800', color: colors.textPrimary, fontSize: 14 },
+  walletOptionSub: { color: colors.textMuted, fontSize: 12, marginTop: 2, lineHeight: 16 },
+  walletReadyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    marginTop: spacing.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(16,185,129,0.12)',
+  },
+  walletReadyTxt: { fontSize: 11, fontWeight: '800', color: '#6ee7b7', textTransform: 'uppercase' },
   section: { gap: spacing.sm },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionKicker: { fontSize: 11, fontWeight: '800', color: colors.textMuted, letterSpacing: 1, textTransform: 'uppercase' },
