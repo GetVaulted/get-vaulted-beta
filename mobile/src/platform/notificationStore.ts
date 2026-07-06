@@ -5,6 +5,11 @@ import type { AppNotification, NotificationKind } from './notificationTypes';
 const WEB_KEY = 'gv_notifications_v1';
 const FILE = 'gv-notifications-v1.json';
 
+/** Local inbox previously grew without bound, forever re-serializing the whole file on every
+ * write (performance audit 2026-07). Cap to the most recent N so writes stay cheap and the
+ * unvirtualized inbox screen doesn't render an ever-growing list. */
+const MAX_STORED_NOTIFICATIONS = 300;
+
 type Store = { v: 1; notifications: AppNotification[] };
 
 let memory: Store | null = null;
@@ -44,7 +49,15 @@ async function load(): Promise<Store> {
   }
 }
 
+function capStore(store: Store): Store {
+  if (store.notifications.length <= MAX_STORED_NOTIFICATIONS) return store;
+  // Notifications are always kept newest-first (unshift on push, explicit sort in
+  // syncServerNotifications), so trimming the tail drops the oldest rows.
+  return { ...store, notifications: store.notifications.slice(0, MAX_STORED_NOTIFICATIONS) };
+}
+
 async function save(store: Store): Promise<void> {
+  store = capStore(store);
   memory = store;
   try {
     const serialized = JSON.stringify(store);
@@ -154,12 +167,20 @@ export async function notifyReviewReceived(
   });
 }
 
-export async function notifyFollow(followedUserId: string, followerName: string): Promise<void> {
+export async function notifyFollow(
+  followedUserId: string,
+  followerName: string,
+  followerUserId?: string,
+): Promise<void> {
   await pushNotification({
     userId: followedUserId,
     kind: 'follow',
     title: 'New follower',
     body: `${followerName} followed your vault.`,
+    // Internal-only scheme (never shared as a web URL) resolved directly by `openNotificationHref`
+    // to the follower's profile — avoids a needless username lookup since the id is already known
+    // at the call site, unlike the server-driven `/seller/{username}` href for the same event.
+    href: followerUserId ? `/account/users/${encodeURIComponent(followerUserId)}` : undefined,
   });
 }
 
@@ -223,14 +244,19 @@ function serverTypeToKind(type: string): NotificationKind {
   if (type.includes('auction') || type.includes('purchase') || type.includes('break_')) return 'order';
   if (type === 'stripe_dispute') return 'dispute';
   if (type === 'seller_live') return 'live_event';
+  if (type === 'new_follower') return 'follow';
   return 'order';
 }
 
-function parseReferenceFromHref(href: string): { referenceType?: string; referenceId?: string } {
+/** Exported for tests — the message-thread regex must track the actual server href format
+ * (`web/src/app/api/account/threads/[threadId]/route.ts`), not just any `/messages/{id}` path. */
+export function parseReferenceFromHref(href: string): { referenceType?: string; referenceId?: string } {
   const path = href.split('?')[0]?.split('#')[0] ?? '';
   const layaway = path.match(/\/layaways\/([^/]+)/);
   if (layaway?.[1]) return { referenceType: 'layaway', referenceId: decodeURIComponent(layaway[1]) };
-  const message = path.match(/\/messages\/([^/]+)/);
+  // Server sends `/account/messages/{id}`; the bare `/messages/{id}` fallback is kept in case any
+  // already-stored notification record was written with the older, unprefixed path.
+  const message = path.match(/\/account\/messages\/([^/]+)/) ?? path.match(/\/messages\/([^/]+)/);
   if (message?.[1]) return { referenceType: 'message', referenceId: decodeURIComponent(message[1]) };
   const order = path.match(/\/orders\/([^/]+)/);
   if (order?.[1]) return { referenceType: 'order', referenceId: decodeURIComponent(order[1]) };

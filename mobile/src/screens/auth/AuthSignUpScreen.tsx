@@ -23,6 +23,7 @@ import { GetVaultedBrandMark } from '../../components/branding/GetVaultedBrandMa
 import { LegalConsentNote } from '../../components/legal/LegalConsentNote';
 import { useAuth } from '../../auth/AuthContext';
 import { AUTH_USER_MESSAGES } from '../../lib/authUserMessages';
+import { isValidEmailFormat } from '../../lib/email-validation';
 import { enterGuestExploreAndOpenHome } from '../../navigation/enterGuestExploreFlow';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
@@ -31,13 +32,16 @@ type Props = NativeStackScreenProps<RootStackParamList, 'AuthSignUp'>;
 
 type UsernameStatus = 'idle' | 'checking' | 'available' | 'unavailable' | 'invalid';
 
-export function AuthSignUpScreen({ navigation }: Props) {
+export function AuthSignUpScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { signUpWithPassword, signInWithGoogle, signInWithApple, loading: authLoading, enterGuestExplore } = useAuth();
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  // Pre-filled from a shared referral link's `ref` route param; still editable so a friend can
+  // type a username in by hand instead of following a link.
+  const [referralCode, setReferralCode] = useState(route.params?.ref ?? '');
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>('idle');
@@ -117,6 +121,10 @@ export function AuthSignUpScreen({ navigation }: Props) {
       setErr('Fill in all fields.');
       return;
     }
+    if (!isValidEmailFormat(em)) {
+      setErr('Enter a valid email address.');
+      return;
+    }
     if (usernameStatus === 'checking') {
       setErr('Wait for the username check to finish.');
       return;
@@ -147,6 +155,7 @@ export function AuthSignUpScreen({ navigation }: Props) {
         email: em,
         password,
         username: u,
+        referralCode: referralCode.trim() || undefined,
       });
       if (needsEmailConfirmation) {
         Alert.alert(
@@ -173,9 +182,13 @@ export function AuthSignUpScreen({ navigation }: Props) {
   return (
     <KeyboardAvoidingView
       style={[styles.screen, { paddingTop: insets.top + spacing.sm }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
         <Pressable style={styles.backRow} onPress={goBack} hitSlop={12}>
           <Ionicons name="chevron-back" size={26} color={colors.textPrimary} />
         </Pressable>
@@ -253,6 +266,21 @@ export function AuthSignUpScreen({ navigation }: Props) {
             <Text style={styles.usernameHintMuted}>3–20 characters: letters, numbers, underscores.</Text>
           )}
         </View>
+
+        <TextInput
+          style={styles.input}
+          placeholder="Referral username (optional)"
+          placeholderTextColor={colors.textMuted}
+          autoCapitalize="none"
+          autoCorrect={false}
+          value={referralCode}
+          onChangeText={setReferralCode}
+        />
+        {referralCode.trim() ? (
+          <Text style={styles.usernameHintMuted}>
+            You and @{referralCode.trim().toLowerCase()} will both get referral credit after your first order.
+          </Text>
+        ) : null}
 
         <AuthPasswordField
           value={password}

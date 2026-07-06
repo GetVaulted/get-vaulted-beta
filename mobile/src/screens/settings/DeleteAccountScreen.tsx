@@ -9,7 +9,7 @@ import {
 } from '../../api/accountRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
-import { navigateToAuthWelcome } from '../../navigation/rootNavigationRef';
+import { performSignOut, signOutSessionOptions } from '../../lib/signOutSession';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing } from '../../theme';
 
@@ -19,7 +19,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'DeleteAccount'>;
 
 export function DeleteAccountScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { session, signOut } = useAuth();
+  const { user, session, signOut } = useAuth();
   const [typed, setTyped] = useState('');
   const [blockers, setBlockers] = useState<AccountDeletionBlocker[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,8 +64,7 @@ export function DeleteAccountScreen({ navigation }: Props) {
                   await loadBlockers();
                   return;
                 }
-                await signOut();
-                navigateToAuthWelcome();
+                await performSignOut(signOut, signOutSessionOptions(user, session));
               } catch (e) {
                 Alert.alert('Could not delete', e instanceof Error ? e.message : 'Unknown error');
               } finally {

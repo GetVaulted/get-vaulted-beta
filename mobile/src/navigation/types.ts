@@ -41,11 +41,14 @@ export type RootStackParamList = {
   AuthWelcome: undefined;
   MainTabs: NavigatorScreenParams<MainTabParamList>;
   AuthLogin: undefined;
-  AuthSignUp: undefined;
+  /** `ref` pre-fills from a shared referral link (`/join?ref=<username>`) when present — same
+   *  query param name as the web signup page, so `linkingConfig.ts`'s default query-string-to-
+   *  route-param mapping picks it up with no extra parsing. */
+  AuthSignUp: { ref?: string } | undefined;
   ProfileEdit: undefined;
   ProductDetail: { productId: string };
   MarketplaceCheckout: { listingId: string; mode: 'buy_now' | 'layaway'; walletSetupFirst?: boolean };
-  SellerListingManagement: { listingId: string };
+  SellerListingManagement: { listingId: string; offerId?: string };
   SellerHostRoom: { roomId: string };
   MessagesInbox: undefined;
   MessageThread: { threadId: string };
@@ -81,6 +84,9 @@ export type RootStackParamList = {
   OpenDispute: { contextType: DisputeContextType; referenceId?: string };
   DisputeDetail: { disputeId: string };
   UserProfile: { userId: string };
+  /** Resolves a `/seller/{username}` link (push tap or shared web URL) to `UserProfile`, which
+   * is keyed by user id. */
+  SellerProfileByUsername: { username: string };
   FollowersFollowing: { tab?: 'followers' | 'following' } | undefined;
   WriteReview: {
     reviewType: ReviewType;

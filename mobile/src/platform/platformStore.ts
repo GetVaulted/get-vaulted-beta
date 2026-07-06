@@ -196,7 +196,7 @@ export async function toggleFollow(followerId: string, followingId: string): Pro
   store.follows.push({ followerId, followingId, createdAt: new Date().toISOString() });
   await save(store);
   const { notifyFollow } = await import('./notificationStore');
-  await notifyFollow(followingId, 'A collector');
+  await notifyFollow(followingId, 'A collector', followerId);
   return true;
 }
 

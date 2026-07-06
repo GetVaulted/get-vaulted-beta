@@ -29,6 +29,15 @@ export function openNotificationHref(
 
   const path = href.split('?')[0]?.split('#')[0] ?? '';
 
+  // Internal-only scheme used by locally-generated notifications (e.g. `notifyFollow`) that
+  // already know the user id and don't need the async username lookup `/seller/{username}`
+  // requires — see notificationStore.ts.
+  const localUserProfileMatch = path.match(/^\/account\/users\/([^/]+)/);
+  if (localUserProfileMatch?.[1]) {
+    n.navigate('UserProfile', { userId: decodeURIComponent(localUserProfileMatch[1]) });
+    return true;
+  }
+
   const messageMatch = path.match(/\/account\/messages\/([^/]+)/);
   if (messageMatch?.[1]) {
     openMessageThread(n, decodeURIComponent(messageMatch[1]));
@@ -100,6 +109,23 @@ export function openNotificationHref(
 
   if (path.startsWith('/account/listings') || ctx?.type === 'item_sold' || ctx?.type === 'seller_ready_to_ship') {
     n.navigate('MainTabs', { screen: 'HQ' });
+    return true;
+  }
+
+  // Seller Vault Studio for one listing (e.g. "new offer" push: `/seller/listings/{id}?offerId=...`).
+  const sellerListingMatch = path.match(/^\/seller\/listings\/([^/]+)/);
+  if (sellerListingMatch?.[1]) {
+    const listingId = decodeURIComponent(sellerListingMatch[1]);
+    const offerId = new URLSearchParams(href.split('?')[1] ?? '').get('offerId')?.trim();
+    n.navigate('SellerListingManagement', offerId ? { listingId, offerId } : { listingId });
+    return true;
+  }
+
+  // Public seller profile (e.g. "new follower" push: `/seller/{username}`). Excludes the
+  // seller-only management paths above so they aren't misread as a username of "listings"/"live".
+  const sellerProfileMatch = path.match(/^\/seller\/([^/]+)/);
+  if (sellerProfileMatch?.[1] && !['listings', 'live'].includes(sellerProfileMatch[1])) {
+    n.navigate('SellerProfileByUsername', { username: decodeURIComponent(sellerProfileMatch[1]) });
     return true;
   }
 

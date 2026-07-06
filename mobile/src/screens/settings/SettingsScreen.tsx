@@ -39,7 +39,7 @@ export function SettingsScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { signOut, user, session } = useAuth();
   const { count: notificationCount } = useNotificationBadge(user?.id);
-  const setup = useSellerSetupState(session?.access_token, Boolean(user?.id));
+  const setup = useSellerSetupState(session?.access_token, user?.id, Boolean(user?.id));
   const activated = setup.activated;
   const setupPhase = setup.phase === 'loading' ? 'not_started' : setup.phase;
   const setupLabel = sellerSetupMenuLabel(setupPhase);

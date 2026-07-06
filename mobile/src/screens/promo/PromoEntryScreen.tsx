@@ -78,14 +78,18 @@ export function PromoEntryScreen({ navigation, route }: Props) {
   return (
     <KeyboardAvoidingView
       style={[styles.root, { paddingTop: insets.top + spacing.md }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={styles.topBar}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
           <Text style={styles.back}>Back</Text>
         </Pressable>
       </View>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
         <Text style={styles.kicker}>Official promotion rules</Text>
         {loading ? <ActivityIndicator color={colors.gold} style={{ marginTop: spacing.xl }} /> : null}
         {loadError ? <Text style={styles.error}>{loadError}</Text> : null}

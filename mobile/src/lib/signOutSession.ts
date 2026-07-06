@@ -4,6 +4,9 @@ import { navigateToAuthWelcome } from '../navigation/rootNavigationRef';
 import { clearCanonicalUserIdCache } from '../hooks/useCanonicalUserId';
 import { clearNotificationStore } from '../platform/notificationStore';
 import { revokePushRegistrationForSession } from '../push/pushRegistrationService';
+import { resetCreateListingDraftForSignOut } from '../createListing/CreateListingDraftContext';
+import { clearLiveStreamPrefetchCache } from './liveStreamPrefetchCache';
+import { clearBuyerPreferredShippingRateKey } from './buyerShippingPreference';
 
 export type SignOutSessionOptions = {
   accessToken?: string;
@@ -46,6 +49,17 @@ export async function performSignOut(
   }
   try {
     await clearHomeFeedCache();
+  } catch {
+    /* ignore */
+  }
+  try {
+    resetCreateListingDraftForSignOut();
+  } catch {
+    /* ignore */
+  }
+  clearLiveStreamPrefetchCache();
+  try {
+    await clearBuyerPreferredShippingRateKey(opts?.supabaseUserId);
   } catch {
     /* ignore */
   }

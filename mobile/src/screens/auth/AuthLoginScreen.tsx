@@ -22,7 +22,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { AUTH_USER_MESSAGES } from '../../lib/authUserMessages';
 import {
   getRememberMePreference,
-  loadRememberedCredentials,
+  loadRememberedEmail,
   persistRememberMeCredentials,
 } from '../../lib/rememberMeCredentials';
 import { getKeepMeLoggedInPreference } from '../../lib/authSessionStorage';
@@ -48,10 +48,10 @@ export function AuthLoginScreen({ navigation }: Props) {
 
   useEffect(() => {
     void (async () => {
-      const saved = await loadRememberedCredentials();
-      if (saved) {
-        setEmail(saved.email);
-        setPassword(saved.password);
+      // SECURITY: only the email is ever remembered (never the password) — see rememberMeCredentials.ts.
+      const savedEmail = await loadRememberedEmail();
+      if (savedEmail) {
+        setEmail(savedEmail);
         setRememberMe(true);
         return;
       }
@@ -95,7 +95,7 @@ export function AuthLoginScreen({ navigation }: Props) {
     setBusy(true);
     try {
       await signInWithPassword(email, password, { persistSession: rememberMe });
-      await persistRememberMeCredentials(rememberMe, email, password);
+      await persistRememberMeCredentials(rememberMe, email);
       finishAuth();
     } catch (e) {
       setErr(e instanceof Error ? e.message : AUTH_USER_MESSAGES.signInInvalidCredentials);
@@ -125,9 +125,13 @@ export function AuthLoginScreen({ navigation }: Props) {
   return (
     <KeyboardAvoidingView
       style={[styles.screen, { paddingTop: insets.top + spacing.sm }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
         <Pressable style={styles.backRow} onPress={goBack} hitSlop={12}>
           <Ionicons name="chevron-back" size={26} color={colors.textPrimary} />
         </Pressable>

@@ -114,7 +114,7 @@ export function HomeScreen() {
   const navigation = useNavigation<Nav>();
   const { user, guestExploreMode, session } = useAuth();
   const { count: notificationCount } = useNotificationBadge(user?.id);
-  const sellerSetup = useSellerSetupState(session?.access_token, Boolean(user?.id));
+  const sellerSetup = useSellerSetupState(session?.access_token, user?.id, Boolean(user?.id));
   const { remind, isReminderSet } = useLiveEventReminders();
   const creatorsSectionY = useRef(0);
 

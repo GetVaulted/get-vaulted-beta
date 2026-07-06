@@ -33,6 +33,7 @@ import type { RootStackParamList } from './types';
 import { colors } from '../theme';
 import { rootNavigationRef } from './rootNavigationRef';
 import { AuthSessionRoutingEffect } from './AuthSessionRoutingEffect';
+import { AccountSwitchEffect } from './AccountSwitchEffect';
 import { navigationLinking } from './linkingConfig';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -60,6 +61,10 @@ const MessageComposeScreen = lazyScreen(
 const UserProfileScreen = lazyScreen(
   () => import('../screens/profile/UserProfileScreen'),
   (m) => m.UserProfileScreen,
+);
+const SellerProfileByUsernameScreen = lazyScreen(
+  () => import('../screens/profile/SellerProfileByUsernameScreen'),
+  (m) => m.SellerProfileByUsernameScreen,
 );
 const FollowersFollowingScreen = lazyScreen(
   () => import('../screens/profile/FollowersFollowingScreen'),
@@ -150,6 +155,7 @@ export function RootNavigator() {
   return (
     <NavigationContainer ref={rootNavigationRef} theme={theme} linking={navigationLinking}>
       <AuthSessionRoutingEffect />
+      <AccountSwitchEffect />
       <MarketplaceReviewPromptEffect />
       <PushRegistrationEffect />
       <NotificationDeepLinkEffect />
@@ -250,6 +256,7 @@ export function RootNavigator() {
           <Stack.Screen name="OpenDispute" component={OpenDisputeScreen} />
           <Stack.Screen name="DisputeDetail" component={DisputeDetailScreen} />
           <Stack.Screen name="UserProfile" component={UserProfileScreen} />
+          <Stack.Screen name="SellerProfileByUsername" component={SellerProfileByUsernameScreen} />
           <Stack.Screen name="FollowersFollowing" component={FollowersFollowingScreen} />
           <Stack.Screen name="WriteReview" component={WriteReviewScreen} />
           <Stack.Screen name="NotificationInbox" component={NotificationInboxScreen} />

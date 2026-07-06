@@ -8,6 +8,11 @@ import {
   addNotificationResponseReceivedListener,
   isPushNotificationsAvailable,
 } from '../push/pushRegistrationService';
+import {
+  getLastHandledNotificationResponseId,
+  setLastHandledNotificationResponseId,
+  shouldHandleNotificationResponse,
+} from '../push/lastHandledNotificationResponse';
 import { openNotificationHref } from './openNotificationHref';
 import { useNavigation } from '@react-navigation/native';
 import { resolveRealtimeUserId, useCanonicalUserId } from '../hooks/useCanonicalUserId';
@@ -22,23 +27,45 @@ export function NotificationDeepLinkEffect() {
   useEffect(() => {
     if (!isPushNotificationsAvailable() || !session?.access_token || !inboxUserId) return;
 
-    const handleResponse = (response: Notifications.NotificationResponse) => {
-      const data = response.notification.request.content.data as Record<string, unknown> | undefined;
-      const href = typeof data?.href === 'string' ? data.href : '';
-      const type = typeof data?.type === 'string' ? data.type : undefined;
-      if (href) {
-        openNotificationHref(navigation, href, { type });
-      } else {
-        navigation.navigate('NotificationInbox' as never);
+    // Returns whether routing was actually attempted without throwing, so the cold-start path
+    // below only marks a tap "handled" after a successful attempt — not before (see comment on
+    // that call site). React Navigation's `navigate` can't signal a deeper async failure once
+    // it's called, but a synchronous throw during routing is the one failure mode we CAN detect
+    // here, and it must not leave the marker set as if the tap had been consumed.
+    const handleResponse = (response: Notifications.NotificationResponse): boolean => {
+      try {
+        const data = response.notification.request.content.data as Record<string, unknown> | undefined;
+        const href = typeof data?.href === 'string' ? data.href : '';
+        const type = typeof data?.type === 'string' ? data.type : undefined;
+        if (href) {
+          openNotificationHref(navigation, href, { type });
+        } else {
+          navigation.navigate('NotificationInbox' as never);
+        }
+      } catch (err) {
+        console.warn('[notifications] failed to route deep link tap', err);
+        return false;
       }
       void syncServerNotifications(inboxUserId, session.access_token).then(() => {
         emitNotificationBadgeChanged();
       });
+      return true;
     };
 
-    void Notifications.getLastNotificationResponseAsync().then((last) => {
-      if (last?.actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER) {
-        handleResponse(last);
+    // Expo keeps returning the same "last tapped notification" here until a NEW notification is
+    // tapped, so this must only ever be acted on once per unique response — otherwise every
+    // subsequent login/app-resume mount would silently re-navigate to a stale destination with
+    // no new tap having occurred (see lastHandledNotificationResponse.ts). The marker is persisted
+    // AFTER attempting `handleResponse`, not before: if routing throws, the tap is left unmarked
+    // so it's retried on the next mount/resume instead of being silently dropped.
+    void Notifications.getLastNotificationResponseAsync().then(async (last) => {
+      if (last?.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
+      const candidateId = last.notification.request.identifier;
+      const lastHandledId = await getLastHandledNotificationResponseId(inboxUserId);
+      if (!shouldHandleNotificationResponse(candidateId, lastHandledId)) return;
+      const handled = handleResponse(last);
+      if (handled) {
+        await setLastHandledNotificationResponseId(inboxUserId, candidateId);
       }
     });
 

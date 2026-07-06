@@ -3,17 +3,24 @@ import { Platform } from 'react-native';
 
 const WEB_LS_KEY = 'gv_remember_me_v1';
 
+/**
+ * SECURITY: this module intentionally never persists a password. An earlier version wrote the
+ * raw password to a plaintext cache file (native) / localStorage (web) so it could auto-fill the
+ * sign-in form, which meant device backup extraction, a rooted/jailbroken device, or malware
+ * with cache access could read the plaintext password directly. Staying signed in is already
+ * handled by the persisted Supabase session (see authSessionStorage.ts) — this module only
+ * remembers the email (not a secret) so the field can be pre-filled.
+ */
 type RememberMeStore = {
-  v: 1;
+  v: 2;
   rememberMe: '0' | '1';
   email?: string;
-  password?: string;
 };
 
 let cache: RememberMeStore | null = null;
 
 function defaultStore(): RememberMeStore {
-  return { v: 1, rememberMe: '0' };
+  return { v: 2, rememberMe: '0' };
 }
 
 function storePath(): string | null {
@@ -22,18 +29,23 @@ function storePath(): string | null {
   return `${base}gv-remember-me-v1.json`;
 }
 
+function normalizeParsed(parsed: Partial<RememberMeStore> & { password?: unknown }): RememberMeStore {
+  // A stale v1 payload may still have a `password` field on disk; only v2 (no password) is
+  // ever trusted, so any legacy plaintext password is simply never read back into memory.
+  if (parsed.v !== 2) return defaultStore();
+  return {
+    v: 2,
+    rememberMe: parsed.rememberMe === '1' ? '1' : '0',
+    email: typeof parsed.email === 'string' ? parsed.email : undefined,
+  };
+}
+
 async function readStoreFromDisk(): Promise<RememberMeStore> {
   if (Platform.OS === 'web') {
     try {
       const raw = globalThis.localStorage?.getItem(WEB_LS_KEY);
       if (!raw) return defaultStore();
-      const parsed = JSON.parse(raw) as Partial<RememberMeStore>;
-      return {
-        v: 1,
-        rememberMe: parsed.rememberMe === '1' ? '1' : '0',
-        email: typeof parsed.email === 'string' ? parsed.email : undefined,
-        password: typeof parsed.password === 'string' ? parsed.password : undefined,
-      };
+      return normalizeParsed(JSON.parse(raw) as Partial<RememberMeStore>);
     } catch {
       return defaultStore();
     }
@@ -44,13 +56,7 @@ async function readStoreFromDisk(): Promise<RememberMeStore> {
     const info = await FileSystem.getInfoAsync(path);
     if (!info.exists) return defaultStore();
     const raw = await FileSystem.readAsStringAsync(path);
-    const parsed = JSON.parse(raw) as Partial<RememberMeStore>;
-    return {
-      v: 1,
-      rememberMe: parsed.rememberMe === '1' ? '1' : '0',
-      email: typeof parsed.email === 'string' ? parsed.email : undefined,
-      password: typeof parsed.password === 'string' ? parsed.password : undefined,
-    };
+    return normalizeParsed(JSON.parse(raw) as Partial<RememberMeStore>);
   } catch {
     return defaultStore();
   }
@@ -83,31 +89,25 @@ export async function getRememberMePreference(): Promise<boolean> {
   return store.rememberMe === '1';
 }
 
-export async function loadRememberedCredentials(): Promise<{ email: string; password: string } | null> {
+/** Returns only the remembered email (never a password) for pre-filling the sign-in form. */
+export async function loadRememberedEmail(): Promise<string | null> {
   const store = await loadStore();
   if (store.rememberMe !== '1') return null;
   const email = store.email?.trim().toLowerCase();
-  const password = store.password;
-  if (!email || !password) return null;
-  return { email, password };
+  return email || null;
 }
 
-/** Persists or clears saved sign-in credentials based on the Remember me choice. */
-export async function persistRememberMeCredentials(
-  rememberMe: boolean,
-  email: string,
-  password: string,
-): Promise<void> {
+/** Persists or clears the remembered email/preference based on the Remember me choice. Never stores the password. */
+export async function persistRememberMeCredentials(rememberMe: boolean, email: string): Promise<void> {
   const normalizedEmail = email.trim().toLowerCase();
-  if (!rememberMe || !normalizedEmail || !password) {
+  if (!rememberMe || !normalizedEmail) {
     await saveStore(defaultStore());
     return;
   }
   await saveStore({
-    v: 1,
+    v: 2,
     rememberMe: '1',
     email: normalizedEmail,
-    password,
   });
 }
 

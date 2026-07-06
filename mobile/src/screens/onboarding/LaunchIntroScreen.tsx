@@ -41,13 +41,14 @@ import { useAuth } from '../../auth/AuthContext';
 import { AUTH_USER_MESSAGES } from '../../lib/authUserMessages';
 import {
   getRememberMePreference,
-  loadRememberedCredentials,
+  loadRememberedEmail,
   persistRememberMeCredentials,
 } from '../../lib/rememberMeCredentials';
 import { getKeepMeLoggedInPreference } from '../../lib/authSessionStorage';
 import { enterGuestExploreAndOpenHome } from '../../navigation/enterGuestExploreFlow';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
+import { shouldAutoAdvanceAfterAuthRecovery } from './launchIntroAuthRecovery';
 import {
   BEAT_COUNT,
   BEAT_OVERLAYS,
@@ -451,6 +452,14 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
   const helmetFlashHapticFired = useRef(false);
   const authHandoffStarted = useRef(false);
   const beatHapticsDone = useRef(new Set<number>());
+  /** Has the user interacted with the login form since it was shown (see `markFormTouched`)? */
+  const formTouchedRef = useRef(false);
+  /** Guards against auto-advancing more than once per screen instance. */
+  const autoAdvancedAfterRecoveryRef = useRef(false);
+
+  const markFormTouched = useCallback(() => {
+    formTouchedRef.current = true;
+  }, []);
 
   const fireBeatIfNew = useCallback((i: number) => {
     if (beatHapticsDone.current.has(i)) return;
@@ -471,10 +480,10 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
 
   useEffect(() => {
     void (async () => {
-      const saved = await loadRememberedCredentials();
-      if (saved) {
-        setEmail(saved.email);
-        setPassword(saved.password);
+      // SECURITY: only the email is ever remembered (never the password) — see rememberMeCredentials.ts.
+      const savedEmail = await loadRememberedEmail();
+      if (savedEmail) {
+        setEmail(savedEmail);
         setRememberMe(true);
         return;
       }
@@ -503,6 +512,25 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
       beginAuthContinuity();
     }
   }, [beginAuthContinuity, navigation]);
+
+  // Self-correct if the session recovers after we already decided to show the login form (e.g. the
+  // `instantAuth` warm-resume path landed here because of a transient session blip that took longer
+  // than AuthSessionRoutingEffect's grace window to resolve). Safe even for a real, intentional
+  // sign-out: `user` never becomes non-null again on its own in that case, so this simply never
+  // fires. The `formTouchedRef` guard avoids yanking the screen away from someone actively typing.
+  useEffect(() => {
+    if (
+      shouldAutoAdvanceAfterAuthRecovery({
+        loginUiShown: authHandoffStarted.current,
+        formTouched: formTouchedRef.current,
+        alreadyAdvanced: autoAdvancedAfterRecoveryRef.current,
+        hasUser: Boolean(user),
+      })
+    ) {
+      autoAdvancedAfterRecoveryRef.current = true;
+      navigation.replace('MainTabs', { screen: 'Home' });
+    }
+  }, [user, navigation]);
 
   const skipToEnd = useCallback(() => {
     if (skipped.current) return;
@@ -564,6 +592,8 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
     skipped.current = false;
     authHandoffStarted.current = false;
     beatHapticsDone.current = new Set();
+    formTouchedRef.current = false;
+    autoAdvancedAfterRecoveryRef.current = false;
     progress.value = 0;
     authProgress.value = 0;
     introEndAt.current = Date.now() + INTRO_TOTAL_MS;
@@ -696,11 +726,12 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
   }));
 
   const onSubmit = async () => {
+    markFormTouched();
     setErr(null);
     setBusy(true);
     try {
       await signInWithPassword(email, password, { persistSession: rememberMe });
-      await persistRememberMeCredentials(rememberMe, email, password);
+      await persistRememberMeCredentials(rememberMe, email);
       navigation.reset({ index: 0, routes: [{ name: 'MainTabs', params: { screen: 'Home' } }] });
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Sign-in failed');
@@ -710,6 +741,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
   };
 
   const onSocial = async (provider: 'google' | 'apple') => {
+    markFormTouched();
     setErr(null);
     setSocialBusy(provider);
     try {
@@ -783,15 +815,28 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
 
       <IntroVaultFlash progress={progress} />
 
+      {!instantAuth ? (
+        <Pressable
+          style={[styles.skipBtn, { top: insets.top + 12 }]}
+          onPress={skipToEnd}
+          accessibilityRole="button"
+          accessibilityLabel="Skip intro"
+          hitSlop={12}
+        >
+          <Text style={styles.skipBtnTxt}>Skip</Text>
+        </Pressable>
+      ) : null}
+
       <KeyboardAvoidingView
         style={[styles.flex, { paddingTop: insets.top, paddingBottom: insets.bottom }]}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 8 : 0}
       >
         <ScrollView
           contentContainerStyle={styles.scrollInner}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          automaticallyAdjustKeyboardInsets
         >
           <Animated.View style={[styles.finale, { minHeight: frameH * 0.72 }, cameraPush, blockLift]} pointerEvents="box-none">
             <Animated.View style={logoNudge}>
@@ -819,12 +864,18 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
                 keyboardType="email-address"
                 autoComplete="email"
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(text) => {
+                  markFormTouched();
+                  setEmail(text);
+                }}
               />
               <AuthPasswordField
                 placeholder="Password"
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={(text) => {
+                  markFormTouched();
+                  setPassword(text);
+                }}
                 visible={passwordVisible}
                 onToggleVisible={() => setPasswordVisible((v) => !v)}
                 autoComplete="password"
@@ -846,7 +897,14 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
                 <Text style={styles.rememberLabel}>Remember me</Text>
               </Pressable>
 
-              <Pressable style={styles.forgotWrap} onPress={() => { setForgotEmail(email); setForgotOpen(true); }}>
+              <Pressable
+                style={styles.forgotWrap}
+                onPress={() => {
+                  markFormTouched();
+                  setForgotEmail(email);
+                  setForgotOpen(true);
+                }}
+              >
                 <Text style={styles.forgotTxt}>Forgot password?</Text>
               </Pressable>
 
@@ -868,13 +926,22 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
                 error={null}
               />
 
-              <Pressable style={styles.link} onPress={() => navigation.navigate('AuthSignUp')}>
+              <Pressable
+                style={styles.link}
+                onPress={() => {
+                  markFormTouched();
+                  navigation.navigate('AuthSignUp');
+                }}
+              >
                 <Text style={styles.linkTxt}>Create account</Text>
               </Pressable>
 
               <Pressable
                 style={styles.exploreBtn}
-                onPress={() => enterGuestExploreAndOpenHome(enterGuestExplore)}
+                onPress={() => {
+                  markFormTouched();
+                  enterGuestExploreAndOpenHome(enterGuestExplore);
+                }}
               >
                 <Text style={styles.exploreBtnTxt}>Explore Get Vaulted</Text>
               </Pressable>
@@ -1196,4 +1263,16 @@ const styles = StyleSheet.create({
   ovBids: { position: 'absolute', top: '14%', right: '8%', alignItems: 'flex-end' },
   bidTxt: { color: 'rgba(240,245,255,0.95)', fontSize: 28, fontWeight: '900', fontVariant: ['tabular-nums'] },
   bidSub: { color: 'rgba(180,200,230,0.85)', fontSize: 14, fontWeight: '800', marginTop: 2 },
+  skipBtn: {
+    position: 'absolute',
+    right: 16,
+    zIndex: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  skipBtnTxt: { color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: '700' },
 });
