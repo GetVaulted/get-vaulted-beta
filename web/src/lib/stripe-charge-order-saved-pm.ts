@@ -334,6 +334,7 @@ export async function chargeMarketplaceOrderWithSavedPaymentMethod(args: {
     saleAmountUsd: credit.itemPriceUsd,
     isCompanyListing: Boolean(row.listing.isCompanyListing),
     liveRoomId,
+    sellerId: row.sellerId,
   });
 
   const taxPlan = await resolveConnectPaymentTaxPlan({
@@ -700,6 +701,7 @@ export async function chargeLiveBuyNowOrderWithSavedCard(args: {
     saleAmountUsd: credit.itemPriceUsd,
     isCompanyListing: Boolean(row.listing.isCompanyListing),
     liveRoomId,
+    sellerId: row.sellerId,
   });
 
   const taxPlan = await resolveConnectPaymentTaxPlan({
@@ -903,6 +905,7 @@ export async function chargeMarketplaceBuyNowOrderWithSavedCard(args: {
     saleAmountUsd: credit.itemPriceUsd,
     isCompanyListing: Boolean(row.listing.isCompanyListing),
     liveRoomId,
+    sellerId: row.sellerId,
   });
 
   const taxPlan = await resolveConnectPaymentTaxPlan({

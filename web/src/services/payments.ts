@@ -899,6 +899,7 @@ export async function createBuyNowCheckoutSession(args: BuyNowCheckoutSessionArg
     saleAmountUsd: order.itemPriceUsd,
     isCompanyListing: Boolean(listing.isCompanyListing),
     liveRoomId: liveRoomIdForFee,
+    sellerId: listing.sellerId,
   });
 
   if (rowEscrow) {
@@ -1255,6 +1256,7 @@ export async function createPayOrderCheckoutSession(args: {
     saleAmountUsd: order.itemPriceUsd,
     isCompanyListing: Boolean(order.listing.isCompanyListing),
     liveRoomId: order.liveShippingSession?.liveShowId ?? null,
+    sellerId: order.sellerId,
   });
 
   const taxBundle = await buildMarketplaceCheckoutTaxBundle({
@@ -1382,6 +1384,7 @@ export async function createBreakSpotCheckoutSession(args: {
     saleAmountUsd: priceUsd,
     isCompanyListing: false,
     liveRoomId: spot.liveRoomId,
+    sellerId: spot.liveRoom.sellerId,
   });
 
   const taxFields = await buildCheckoutTaxSessionFields({

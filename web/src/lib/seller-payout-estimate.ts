@@ -57,8 +57,12 @@ export function resolvePlatformFeePercentForSellerOrder(args: {
   liveShowCompletedGmvUsd: number | null;
   orderItemPriceUsd: number;
   orderPaymentStatus: string;
+  sellerPlatformFeePercentOverride?: number | null;
 }): number {
   if (args.isCompanyListing) return 0;
+  if (args.sellerPlatformFeePercentOverride != null) {
+    return args.sellerPlatformFeePercentOverride;
+  }
   if (!args.liveShowId) return marketplacePlatformFeePercent();
   const currentGmv = args.liveShowCompletedGmvUsd ?? 0;
   const gmvForTier =

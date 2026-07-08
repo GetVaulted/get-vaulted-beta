@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { enrichSellerOrderChargeBreakdown } from "@/lib/enrich-seller-order-charge-breakdown";
 import { liveShowFulfillmentOrderIds } from "@/lib/live-show-fulfillment-order-ids";
 import { mapSellerSalesOrderForApi } from "@/lib/map-seller-sales-order";
+import {
+  sellerPlatformFeeOverrideSelect,
+  sellerUserWithEffectivePlatformFeeOverride,
+} from "@/lib/seller-platform-fee-override-user";
 import { sellerFulfillmentOrdersWhere } from "@/lib/seller-fulfillment-orders";
 import { resolveAccountSellerUserId } from "@/lib/resolve-account-seller-user";
 import { sellerInstantPayoutBannerMessage } from "@/lib/seller-payout-estimate";
@@ -37,9 +41,12 @@ export async function GET(req: Request) {
       payoutTier: true,
       payoutHoldDays: true,
       payoutReservePercent: true,
+      ...sellerPlatformFeeOverrideSelect,
     },
   });
   if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const sellerUser = sellerUserWithEffectivePlatformFeeOverride(user);
 
   const url = new URL(req.url);
   const liveShowId = url.searchParams.get("liveShowId")?.trim() || null;
@@ -132,7 +139,7 @@ export async function GET(req: Request) {
     orders: await Promise.all(
       orders.map(async (o) => {
         const enriched = await enrichSellerOrderChargeBreakdown(o);
-        return mapSellerSalesOrderForApi(user, enriched);
+        return mapSellerSalesOrderForApi(sellerUser, enriched);
       }),
     ),
   });

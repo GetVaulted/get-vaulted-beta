@@ -465,6 +465,7 @@ export async function chargeLiveItemVariantPurchaseWithSavedCard(args: {
     saleAmountUsd: purchase.totalUsd,
     isCompanyListing: false,
     liveRoomId: purchase.liveRoomId,
+    sellerId: purchase.liveRoom.sellerId,
   });
 
   const orderRow = await prisma.order.findUnique({
@@ -802,6 +803,7 @@ export async function chargeBreakSpotWithSavedCard(args: {
     saleAmountUsd: spot.priceUsd,
     isCompanyListing: false,
     liveRoomId: spot.liveRoomId,
+    sellerId: spot.liveRoom.sellerId,
   });
 
   const orderRow = await prisma.order.findUnique({

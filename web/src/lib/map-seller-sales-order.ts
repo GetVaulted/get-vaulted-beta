@@ -17,6 +17,7 @@ export type SellerSalesOrderUser = {
   shipFromState: string | null;
   shipFromZip: string | null;
   shipFromCountry: string | null;
+  sellerPlatformFeePercentOverride?: number | null;
 };
 
 export type SellerSalesOrderRowInput = {
@@ -78,6 +79,7 @@ export function mapSellerSalesOrderForApi(user: SellerSalesOrderUser, o: SellerS
     liveShowCompletedGmvUsd: liveShowGmvForFeeTierReconstruction(liveShow),
     orderItemPriceUsd: o.itemPriceUsd,
     orderPaymentStatus: o.paymentStatus,
+    sellerPlatformFeePercentOverride: user.sellerPlatformFeePercentOverride,
   });
   const commerce = resolveOrderCommerceSnapshot({
     id: o.id,

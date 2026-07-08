@@ -471,6 +471,7 @@ export async function createLiveItemVariantCheckoutSession(args: {
     saleAmountUsd: purchase.totalUsd,
     isCompanyListing: false,
     liveRoomId: purchase.liveRoomId,
+    sellerId: purchase.liveRoom.sellerId,
   });
 
   const taxFields = await buildCheckoutTaxSessionFields({

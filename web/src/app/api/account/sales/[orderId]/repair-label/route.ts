@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { repairSellerOrderLabelFromShippo } from "@/lib/enrich-seller-order-label-from-shippo";
 import { mapSellerSalesOrderForApi } from "@/lib/map-seller-sales-order";
+import {
+  sellerPlatformFeeOverrideSelect,
+  sellerUserWithEffectivePlatformFeeOverride,
+} from "@/lib/seller-platform-fee-override-user";
 import { sellerFulfillmentOrdersWhere } from "@/lib/seller-fulfillment-orders";
 import { resolveAccountSellerUserId } from "@/lib/resolve-account-seller-user";
 import { prisma } from "@/lib/prisma";
@@ -56,9 +60,12 @@ export async function POST(_req: Request, ctx: { params: Promise<{ orderId: stri
       shipFromState: true,
       shipFromZip: true,
       shipFromCountry: true,
+      ...sellerPlatformFeeOverrideSelect,
     },
   });
   if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const sellerUser = sellerUserWithEffectivePlatformFeeOverride(user);
 
   const full = await prisma.order.findFirst({
     where: { id: orderId, sellerId: auth.userId },
@@ -121,6 +128,6 @@ export async function POST(_req: Request, ctx: { params: Promise<{ orderId: stri
   return NextResponse.json({
     ok: true,
     repaired: true,
-    order: mapSellerSalesOrderForApi(user, full),
+    order: mapSellerSalesOrderForApi(sellerUser, full),
   });
 }

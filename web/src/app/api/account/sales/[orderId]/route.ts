@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { enrichSellerOrderChargeBreakdown } from "@/lib/enrich-seller-order-charge-breakdown";
 import { enrichSellerOrderLabelFromShippo } from "@/lib/enrich-seller-order-label-from-shippo";
 import { mapSellerSalesOrderForApi } from "@/lib/map-seller-sales-order";
+import {
+  sellerPlatformFeeOverrideSelect,
+  sellerUserWithEffectivePlatformFeeOverride,
+} from "@/lib/seller-platform-fee-override-user";
 import { sellerFulfillmentOrdersWhere } from "@/lib/seller-fulfillment-orders";
 import { resolveAccountSellerUserId } from "@/lib/resolve-account-seller-user";
 import { prisma } from "@/lib/prisma";
@@ -87,9 +91,12 @@ export async function GET(req: Request, ctx: RouteCtx) {
       shipFromState: true,
       shipFromZip: true,
       shipFromCountry: true,
+      ...sellerPlatformFeeOverrideSelect,
     },
   });
   if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const sellerUser = sellerUserWithEffectivePlatformFeeOverride(user);
 
   const order = await prisma.order.findFirst({
     where: { id: orderId, ...sellerFulfillmentOrdersWhere(auth.userId) },
@@ -111,7 +118,7 @@ export async function GET(req: Request, ctx: RouteCtx) {
   });
 
   return NextResponse.json({
-    order: mapSellerSalesOrderForApi(user, withLabel),
+    order: mapSellerSalesOrderForApi(sellerUser, withLabel),
     activityLog: activityLog.map((ev) => ({
       id: ev.id,
       title: ev.title,

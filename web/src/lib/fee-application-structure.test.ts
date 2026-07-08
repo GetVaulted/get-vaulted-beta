@@ -86,6 +86,17 @@ describe("Fee application structure (QA lock)", () => {
       ).toBe(8);
     });
 
+    it("seller override replaces tiered live fee", () => {
+      expect(
+        resolvePlatformFeePercentForCheckout({
+          isCompanyListing: false,
+          liveRoomId: "room_1",
+          completedLiveShowGmvUsd: 4000,
+          sellerPlatformFeePercentOverride: 5,
+        }),
+      ).toBe(5);
+    });
+
     it("reconstructs GMV before sale for completed order estimate", () => {
       expect(completedLiveShowGmvBeforeSale(1500, 100)).toBe(1400);
       expect(liveShowPlatformFeePercent(1400)).toBe(7.25);

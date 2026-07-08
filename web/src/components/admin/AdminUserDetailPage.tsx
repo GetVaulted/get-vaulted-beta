@@ -29,6 +29,17 @@ type Summary = {
     suspensionReason: string | null;
     limitOverrides: { perOrderUsd: number | null; dailyUsd: number | null; exposureUsd: number | null } | null;
     platformLimits: { perOrderUsd: number; dailyUsd: number; maxOutstandingUsd: number };
+    platformFeeOverride: {
+      percent: number | null;
+      effectivePercent: number | null;
+      reason: string | null;
+      setAt: string | null;
+      expiresAt: string | null;
+      defaultMarketplacePercent: number;
+      launchPromoSlotsUsed: number;
+      launchPromoSlotsMax: number;
+      canAssignPromoOverride: boolean;
+    };
     payoutRiskLevel?: string;
     payoutHoldDays?: number;
     payoutReservePercent?: number;
@@ -92,6 +103,8 @@ export function AdminUserDetailPage() {
   const [perOrderLimit, setPerOrderLimit] = useState("");
   const [dailyLimit, setDailyLimit] = useState("");
   const [exposureLimit, setExposureLimit] = useState("");
+  const [platformFeePercent, setPlatformFeePercent] = useState("");
+  const [platformFeeExpiresAt, setPlatformFeeExpiresAt] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -134,6 +147,8 @@ export function AdminUserDetailPage() {
           perOrderLimitUsd: perOrderLimit ? Number(perOrderLimit) : undefined,
           dailyLimitUsd: dailyLimit ? Number(dailyLimit) : undefined,
           exposureLimitUsd: exposureLimit ? Number(exposureLimit) : undefined,
+          platformFeePercent: platformFeePercent ? Number(platformFeePercent) : undefined,
+          platformFeeExpiresAt: platformFeeExpiresAt.trim() || undefined,
           ...extra,
         }),
       });
@@ -171,6 +186,8 @@ export function AdminUserDetailPage() {
   const m = data.metrics;
   const limits = data.seller.platformLimits;
   const overrides = data.seller.limitOverrides;
+  const feeOverride = data.seller.platformFeeOverride;
+  const effectiveFeePercent = feeOverride.effectivePercent ?? feeOverride.defaultMarketplacePercent;
 
   return (
     <main className="mx-auto w-full max-w-[1920px] px-3 py-8 sm:px-4 lg:px-10">
@@ -283,6 +300,88 @@ export function AdminUserDetailPage() {
           </ul>
         </section>
       ) : null}
+
+      <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
+        <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Launch promo fee (per seller)</h2>
+        <p className="mt-2 text-zinc-400">
+          Only sellers you manually enroll get a reduced fee. Everyone else keeps the platform default.
+        </p>
+        <p className="mt-1 text-zinc-300">
+          Launch promo slots:{" "}
+          <span className="font-semibold text-zinc-100">
+            {feeOverride.launchPromoSlotsUsed}/{feeOverride.launchPromoSlotsMax}
+          </span>{" "}
+          active
+        </p>
+        <p className="mt-2 text-zinc-300">
+          Effective fee:{" "}
+          <span className="font-semibold text-gold-bright">{effectiveFeePercent}%</span>
+          {feeOverride.effectivePercent != null ? (
+            <span className="text-zinc-500"> (override active)</span>
+          ) : (
+            <span className="text-zinc-500"> (platform default {feeOverride.defaultMarketplacePercent}%)</span>
+          )}
+        </p>
+        {feeOverride.effectivePercent != null ? (
+          <>
+            <p className="mt-1 text-zinc-400">
+              Stored override: {feeOverride.percent}% · {feeOverride.reason ?? "No reason recorded"}
+            </p>
+            {feeOverride.expiresAt ? (
+              <p className="mt-1 text-zinc-400">Expires: {new Date(feeOverride.expiresAt).toLocaleString()}</p>
+            ) : null}
+          </>
+        ) : feeOverride.percent != null ? (
+          <p className="mt-1 text-amber-200">Override is set but expired — seller uses platform default.</p>
+        ) : null}
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <input
+            type="number"
+            min={0}
+            max={25}
+            step={0.01}
+            placeholder={`Fee % (default ${feeOverride.defaultMarketplacePercent})`}
+            value={platformFeePercent}
+            onChange={(e) => setPlatformFeePercent(e.target.value)}
+            className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
+          />
+          <input
+            type="datetime-local"
+            placeholder="Optional expiry"
+            value={platformFeeExpiresAt}
+            onChange={(e) => setPlatformFeeExpiresAt(e.target.value)}
+            className="rounded-lg border border-white/10 bg-[#050506] px-2 py-1.5 text-xs text-zinc-200"
+          />
+        </div>
+        <p className="mt-2 text-[10px] text-zinc-500">
+          Applies to marketplace and live sales for this seller only (0–25%). Max {feeOverride.launchPromoSlotsMax}{" "}
+          launch promos at once.
+        </p>
+        {!feeOverride.canAssignPromoOverride ? (
+          <p className="mt-2 rounded-lg border border-amber-400/25 bg-amber-950/30 px-3 py-2 text-amber-100">
+            All {feeOverride.launchPromoSlotsMax} launch promo slots are in use. Clear one before enrolling another
+            seller.
+          </p>
+        ) : null}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy || !platformFeePercent.trim() || !feeOverride.canAssignPromoOverride}
+            onClick={() => void act("override_platform_fee")}
+            className="rounded-lg border border-gold/40 bg-gold/10 px-3 py-1.5 text-[10px] font-semibold text-gold-bright disabled:opacity-50"
+          >
+            Set fee override
+          </button>
+          <button
+            type="button"
+            disabled={busy || feeOverride.percent == null}
+            onClick={() => void act("clear_platform_fee_override")}
+            className="rounded-lg border border-white/15 px-3 py-1.5 text-[10px] font-semibold text-zinc-200 disabled:opacity-50"
+          >
+            Clear override
+          </button>
+        </div>
+      </section>
 
       <section className="mt-6 rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80 p-4 text-xs">
         <h2 className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Admin controls</h2>

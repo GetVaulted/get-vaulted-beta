@@ -573,6 +573,7 @@ export async function createLayawayDepositCheckout(args: {
     saleAmountUsd: depositUsd,
     isCompanyListing: listing.isCompanyListing,
     liveRoomId: null,
+    sellerId: listing.sellerId,
   });
 
   // Sales tax for the *entire* layaway sale (full item + shipping, not just the deposit) is
@@ -872,6 +873,7 @@ export async function createLayawayBalanceCheckout(args: {
     saleAmountUsd: itemPortionUsd,
     isCompanyListing: lay.listing.isCompanyListing,
     liveRoomId: null,
+    sellerId: lay.sellerId,
   });
 
   const session = await stripe.checkout.sessions.create({

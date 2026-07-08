@@ -10,12 +10,18 @@ import { logPayoutEligibilityDecision } from "@/lib/payout-audit-log";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
 import { getCachedPayoutProgramConfig, ensurePayoutProgramCache } from "@/services/payout/payout-program-settings";
+import { getCachedMarketplacePlatformFeePercent, ensureMarketplacePlatformFeeCache } from "@/services/platform-fee-settings";
 import { loadSellerPayoutSummaryForAdmin } from "@/services/payout/process-delivery-payout";
 import {
   loadSellerPayoutTierDashboard,
   recalculateSellerPayoutTier,
 } from "@/services/payout/recalculate-seller-payout-tier";
 import { instantApprovalStatusLabel } from "@/services/payout/seller-payout-tier";
+import { clampMarketplacePlatformFeePercent } from "@/services/platform-fee-settings";
+import {
+  canAssignSellerPlatformFeeOverride,
+  effectiveSellerPlatformFeePercentOverride,
+} from "@/services/seller-platform-fee-override";
 
 export const runtime = "nodejs";
 
@@ -28,6 +34,8 @@ type Body = {
   perOrderLimitUsd?: number;
   dailyLimitUsd?: number;
   exposureLimitUsd?: number;
+  platformFeePercent?: number;
+  platformFeeExpiresAt?: string | null;
 };
 
 const VALID_ACTIONS = [
@@ -42,6 +50,8 @@ const VALID_ACTIONS = [
   "assign_elite_vault_verified",
   "remove_elite_vault_verified",
   "override_instant_limits",
+  "override_platform_fee",
+  "clear_platform_fee_override",
   "restore_seller_status",
   "recalculate",
 ] as const;
@@ -54,9 +64,20 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const sellerId = decodeURIComponent(raw);
 
   await ensurePayoutProgramCache();
+  await ensureMarketplacePlatformFeeCache();
 
   const summary = await loadSellerPayoutSummaryForAdmin(sellerId);
   if (!summary) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const feeOverrideRow = await prisma.user.findUnique({
+    where: { id: sellerId },
+    select: {
+      sellerPlatformFeePercentOverride: true,
+      sellerPlatformFeeOverrideReason: true,
+      sellerPlatformFeeOverrideAt: true,
+      sellerPlatformFeeOverrideExpiresAt: true,
+    },
+  });
 
   const dashboard = await loadSellerPayoutTierDashboard(sellerId);
 
@@ -83,6 +104,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       l.action === "seller_payout_tier_recalculated",
   );
 
+  const promoSlots = await canAssignSellerPlatformFeeOverride(sellerId);
+
   return NextResponse.json({
     seller: {
       ...summary.seller,
@@ -100,6 +123,20 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       suspensionReason: dashboard?.seller.suspensionReason ?? null,
       limitOverrides: dashboard?.seller.limitOverrides ?? null,
       platformLimits: getCachedPayoutProgramConfig().instantLimits,
+      platformFeeOverride: {
+        percent: feeOverrideRow?.sellerPlatformFeePercentOverride ?? null,
+        effectivePercent: effectiveSellerPlatformFeePercentOverride({
+          percent: feeOverrideRow?.sellerPlatformFeePercentOverride,
+          expiresAt: feeOverrideRow?.sellerPlatformFeeOverrideExpiresAt,
+        }),
+        reason: feeOverrideRow?.sellerPlatformFeeOverrideReason ?? null,
+        setAt: feeOverrideRow?.sellerPlatformFeeOverrideAt?.toISOString() ?? null,
+        expiresAt: feeOverrideRow?.sellerPlatformFeeOverrideExpiresAt?.toISOString() ?? null,
+        defaultMarketplacePercent: getCachedMarketplacePlatformFeePercent(),
+        launchPromoSlotsUsed: promoSlots.activeCount,
+        launchPromoSlotsMax: promoSlots.max,
+        canAssignPromoOverride: promoSlots.allowed,
+      },
     },
     metrics: dashboard?.metrics ?? summary.metrics ?? null,
     tierEvaluation: dashboard?.evaluation ?? summary.tierEvaluation ?? null,
@@ -390,6 +427,77 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         daily: body.dailyLimitUsd,
         exposure: body.exposureLimitUsd,
       }),
+      reason,
+    });
+  }
+
+  if (action === "override_platform_fee") {
+    if (typeof body.platformFeePercent !== "number" || !Number.isFinite(body.platformFeePercent)) {
+      return NextResponse.json({ error: "platformFeePercent is required." }, { status: 400 });
+    }
+    const nextPercent = clampMarketplacePlatformFeePercent(body.platformFeePercent);
+    let expiresAt: Date | null = null;
+    if (body.platformFeeExpiresAt) {
+      const parsed = new Date(body.platformFeeExpiresAt);
+      if (Number.isNaN(parsed.getTime())) {
+        return NextResponse.json({ error: "Invalid platformFeeExpiresAt." }, { status: 400 });
+      }
+      expiresAt = parsed;
+    }
+    const prev = await prisma.user.findUnique({
+      where: { id: sellerId },
+      select: { sellerPlatformFeePercentOverride: true },
+    });
+    const slotCheck = await canAssignSellerPlatformFeeOverride(sellerId);
+    if (!slotCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: `Launch promo limit reached (${slotCheck.max} sellers). Clear another seller's override before adding a new one.`,
+        },
+        { status: 409 },
+      );
+    }
+    await prisma.user.update({
+      where: { id: sellerId },
+      data: {
+        sellerPlatformFeePercentOverride: nextPercent,
+        sellerPlatformFeeOverrideReason: reason,
+        sellerPlatformFeeOverrideAdminId: gate.userId,
+        sellerPlatformFeeOverrideAt: now,
+        sellerPlatformFeeOverrideExpiresAt: expiresAt,
+      },
+    });
+    await logPayoutEligibilityDecision({
+      sellerId,
+      adminId: gate.userId,
+      action: "seller_platform_fee_override",
+      previousStatus: prev?.sellerPlatformFeePercentOverride != null ? String(prev.sellerPlatformFeePercentOverride) : null,
+      newStatus: String(nextPercent),
+      reason: expiresAt ? `${reason} (expires ${expiresAt.toISOString()})` : reason,
+    });
+  }
+
+  if (action === "clear_platform_fee_override") {
+    const prev = await prisma.user.findUnique({
+      where: { id: sellerId },
+      select: { sellerPlatformFeePercentOverride: true },
+    });
+    await prisma.user.update({
+      where: { id: sellerId },
+      data: {
+        sellerPlatformFeePercentOverride: null,
+        sellerPlatformFeeOverrideReason: null,
+        sellerPlatformFeeOverrideAdminId: gate.userId,
+        sellerPlatformFeeOverrideAt: now,
+        sellerPlatformFeeOverrideExpiresAt: null,
+      },
+    });
+    await logPayoutEligibilityDecision({
+      sellerId,
+      adminId: gate.userId,
+      action: "seller_platform_fee_override_cleared",
+      previousStatus: prev?.sellerPlatformFeePercentOverride != null ? String(prev.sellerPlatformFeePercentOverride) : null,
+      newStatus: null,
       reason,
     });
   }

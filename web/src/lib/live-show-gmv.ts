@@ -1,6 +1,12 @@
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
-import { liveShowApplicationFeeCents, marketplaceApplicationFeeCents } from "@/lib/platform-fee-policy";
+import {
+  applicationFeeCentsFromSubtotalUsd,
+  liveShowApplicationFeeCents,
+  marketplaceApplicationFeeCents,
+  platformFeeBaseUsd,
+} from "@/lib/platform-fee-policy";
 import { prisma } from "@/lib/prisma";
+import { loadSellerPlatformFeePercentOverride } from "@/services/seller-platform-fee-override";
 
 /** Completed item sales GMV for the active live show (excludes shipping/tax). */
 export async function getLiveRoomCompletedSalesGmvUsd(liveRoomId: string): Promise<number> {
@@ -110,8 +116,13 @@ export async function resolveCheckoutApplicationFeeCents(args: {
   saleAmountUsd: number;
   isCompanyListing: boolean;
   liveRoomId?: string | null;
+  sellerId?: string | null;
 }): Promise<number> {
   if (args.isCompanyListing) return 0;
+  const sellerOverride = args.sellerId ? await loadSellerPlatformFeePercentOverride(args.sellerId) : null;
+  if (sellerOverride != null) {
+    return applicationFeeCentsFromSubtotalUsd(platformFeeBaseUsd(args.saleAmountUsd), sellerOverride);
+  }
   if (args.liveRoomId) {
     const gmv = await getLiveRoomCompletedSalesGmvUsd(args.liveRoomId);
     return liveShowApplicationFeeCents(args.saleAmountUsd, gmv, false);

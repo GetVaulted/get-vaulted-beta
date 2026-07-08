@@ -107,8 +107,12 @@ export function resolvePlatformFeePercentForCheckout(args: {
   isCompanyListing: boolean;
   liveRoomId?: string | null;
   completedLiveShowGmvUsd?: number;
+  sellerPlatformFeePercentOverride?: number | null;
 }): number {
   if (args.isCompanyListing) return 0;
+  if (args.sellerPlatformFeePercentOverride != null) {
+    return args.sellerPlatformFeePercentOverride;
+  }
   if (args.liveRoomId) {
     return liveShowPlatformFeePercent(args.completedLiveShowGmvUsd ?? 0);
   }
@@ -121,13 +125,17 @@ export function resolveCheckoutApplicationFeeCentsSync(args: {
   isCompanyListing: boolean;
   liveRoomId?: string | null;
   completedLiveShowGmvUsd?: number;
+  sellerPlatformFeePercentOverride?: number | null;
 }): number {
   if (args.isCompanyListing) return 0;
   const base = platformFeeBaseUsd(args.saleAmountUsd);
-  if (args.liveRoomId) {
-    return liveShowApplicationFeeCents(base, args.completedLiveShowGmvUsd ?? 0, false);
-  }
-  return marketplaceApplicationFeeCents(base, false);
+  const pct = resolvePlatformFeePercentForCheckout({
+    isCompanyListing: false,
+    liveRoomId: args.liveRoomId,
+    completedLiveShowGmvUsd: args.completedLiveShowGmvUsd,
+    sellerPlatformFeePercentOverride: args.sellerPlatformFeePercentOverride,
+  });
+  return applicationFeeCentsFromSubtotalUsd(base, pct);
 }
 
 /** GMV credited before this sale when reconstructing tier for a completed live order. */

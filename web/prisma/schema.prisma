@@ -585,6 +585,12 @@ model User {
   instantPayoutPerOrderLimitUsd Float?
   instantPayoutDailyLimitUsd    Float?
   instantPayoutExposureLimitUsd Float?
+  /// Admin override for this seller's platform fee percent (marketplace + live). Null = platform default.
+  sellerPlatformFeePercentOverride   Float?
+  sellerPlatformFeeOverrideReason    String?
+  sellerPlatformFeeOverrideAdminId   String?
+  sellerPlatformFeeOverrideAt        DateTime?
+  sellerPlatformFeeOverrideExpiresAt DateTime?
   payoutTierSuspensionReason    String?
   payoutTierSuspendedAt         DateTime?
   payoutMetrics                 SellerPayoutMetrics?
