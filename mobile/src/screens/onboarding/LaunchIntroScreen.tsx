@@ -444,6 +444,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
   authLoadingRef.current = authLoading;
 
   const [authUiVisible, setAuthUiVisible] = useState(instantAuth);
+  const progress = useSharedValue(0);
   const authProgress = useSharedValue(0);
   const ambient = useSharedValue(0);
   const introEndAt = useRef(Date.now() + INTRO_TOTAL_MS);
