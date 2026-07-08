@@ -37,7 +37,6 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AuthPasswordField } from '../../components/auth/AuthPasswordField';
 import { SocialAuthButtons, socialAuthErrorMessage } from '../../components/auth/SocialAuthButtons';
 import { BrandLogo } from '../../components/ui/BrandLogo';
-import { LegalFooterLinks } from '../../components/legal/LegalFooterLinks';
 import { LegalConsentNote } from '../../components/legal/LegalConsentNote';
 import { useAuth } from '../../auth/AuthContext';
 import { AUTH_USER_MESSAGES } from '../../lib/authUserMessages';
@@ -444,7 +443,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
   userRef.current = user;
   authLoadingRef.current = authLoading;
 
-  const progress = useSharedValue(0);
+  const [authUiVisible, setAuthUiVisible] = useState(instantAuth);
   const authProgress = useSharedValue(0);
   const ambient = useSharedValue(0);
   const introEndAt = useRef(Date.now() + INTRO_TOTAL_MS);
@@ -504,6 +503,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
   const beginAuthContinuity = useCallback(() => {
     if (authHandoffStarted.current) return;
     authHandoffStarted.current = true;
+    setAuthUiVisible(true);
     authProgress.value = withTiming(1, { duration: AUTH_HANDOFF_MS, easing: Easing.out(Easing.cubic) });
   }, [authProgress]);
 
@@ -596,6 +596,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
     beatHapticsDone.current = new Set();
     formTouchedRef.current = false;
     autoAdvancedAfterRecoveryRef.current = false;
+    setAuthUiVisible(instantAuth);
     progress.value = 0;
     authProgress.value = 0;
     introEndAt.current = Date.now() + INTRO_TOTAL_MS;
@@ -708,11 +709,11 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
   });
 
   const blockLift = useAnimatedStyle(() => ({
-    transform: [{ translateY: interpolate(authProgress.value, [0, 1], [0, -Math.min(96, frameH * 0.12)]) }],
+    transform: [{ translateY: interpolate(authProgress.value, [0, 1], [0, -Math.min(40, frameH * 0.05)]) }],
   }));
 
   const logoNudge = useAnimatedStyle(() => ({
-    transform: [{ translateY: interpolate(authProgress.value, [0, 1], [0, -18]) }],
+    transform: [{ translateY: interpolate(authProgress.value, [0, 1], [0, -8]) }],
   }));
 
   const authBlock = useAnimatedStyle(() => ({
@@ -817,7 +818,7 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
 
       <IntroVaultFlash progress={progress} />
 
-      {!instantAuth ? (
+      {!instantAuth && !authUiVisible ? (
         <Pressable
           style={[styles.skipBtn, { top: insets.top + 12 }]}
           onPress={skipToEnd}
@@ -835,12 +836,20 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
         keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 8 : 0}
       >
         <ScrollView
-          contentContainerStyle={styles.scrollInner}
+          contentContainerStyle={[styles.scrollInner, authUiVisible && styles.scrollInnerAuth]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           automaticallyAdjustKeyboardInsets
         >
-          <Animated.View style={[styles.finale, { minHeight: frameH * 0.72 }, cameraPush, blockLift]} pointerEvents="box-none">
+          <Animated.View
+            style={[
+              styles.finale,
+              { minHeight: authUiVisible ? undefined : frameH * 0.72 },
+              cameraPush,
+              blockLift,
+            ]}
+            pointerEvents="box-none"
+          >
             <Animated.View style={logoNudge}>
               <Animated.View style={[styles.logoBlock, logoShell]}>
                 <Animated.View style={logoScale}>
@@ -949,8 +958,6 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
               </Pressable>
 
               <LegalConsentNote />
-
-              <LegalFooterLinks variant="onDark" />
             </Animated.View>
 
           </Animated.View>
@@ -1006,6 +1013,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
   },
   scrollInner: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.lg },
+  scrollInnerAuth: { justifyContent: 'flex-start', paddingTop: spacing.sm, paddingBottom: spacing.xl },
   vignette: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000',

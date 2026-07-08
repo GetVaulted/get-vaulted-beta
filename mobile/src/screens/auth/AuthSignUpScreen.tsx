@@ -21,7 +21,6 @@ import { AuthPasswordField } from '../../components/auth/AuthPasswordField';
 import { SocialAuthButtons, socialAuthErrorMessage } from '../../components/auth/SocialAuthButtons';
 import { GetVaultedBrandMark } from '../../components/branding/GetVaultedBrandMark';
 import { LegalConsentNote } from '../../components/legal/LegalConsentNote';
-import { LegalFooterLinks } from '../../components/legal/LegalFooterLinks';
 import { useAuth } from '../../auth/AuthContext';
 import { AUTH_USER_MESSAGES } from '../../lib/authUserMessages';
 import { isValidEmailFormat } from '../../lib/email-validation';
@@ -342,8 +341,6 @@ export function AuthSignUpScreen({ navigation, route }: Props) {
         </Pressable>
 
         <LegalConsentNote />
-
-        <LegalFooterLinks variant="onDark" />
       </ScrollView>
     </KeyboardAvoidingView>
   );

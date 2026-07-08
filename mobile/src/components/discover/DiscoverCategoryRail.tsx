@@ -1,10 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import {
-  LayoutChangeEvent,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -27,7 +24,6 @@ export type MarketplaceCategoryFilter = MarketplaceLaneId;
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 const GAP = spacing.md;
-const EDGE_FADE_W = 28;
 
 function LanePill({
   chip,
@@ -110,22 +106,6 @@ function LanePill({
   );
 }
 
-function EdgeFade({ side }: { side: 'left' | 'right' }) {
-  return (
-    <LinearGradient
-      colors={
-        side === 'left'
-          ? [colors.background, 'rgba(5,5,5,0.85)', 'transparent']
-          : ['transparent', 'rgba(5,5,5,0.85)', colors.background]
-      }
-      start={{ x: 0, y: 0.5 }}
-      end={{ x: 1, y: 0.5 }}
-      style={[styles.edgeFade, side === 'left' ? styles.edgeLeft : styles.edgeRight]}
-      pointerEvents="none"
-    />
-  );
-}
-
 export function MarketplaceCategoryRail({
   active,
   onChange,
@@ -141,32 +121,6 @@ export function MarketplaceCategoryRail({
   const edgePad = bleedPadding ?? layout.horizontalPadding;
   const pillMinW = layout.chipMinWidth;
   const pillH = layout.chipHeight;
-  const scrollRef = useRef<ScrollView>(null);
-  const showLeftFade = useSharedValue(0);
-  const showRightFade = useSharedValue(1);
-
-  const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-    const maxX = Math.max(0, contentSize.width - layoutMeasurement.width);
-    showLeftFade.value = contentOffset.x > 8 ? 1 : 0;
-    showRightFade.value = contentOffset.x < maxX - 8 ? 1 : 0;
-  }, [showLeftFade, showRightFade]);
-
-  const onLayoutScroll = useCallback(
-    (e: LayoutChangeEvent) => {
-      const w = e.nativeEvent.layout.width;
-      const contentW = lanes.length * (pillMinW + GAP) + edgePad * 2;
-      showRightFade.value = contentW > w ? 1 : 0;
-    },
-    [lanes.length, pillMinW, edgePad, showRightFade],
-  );
-
-  const leftFadeStyle = useAnimatedStyle(() => ({
-    opacity: showLeftFade.value,
-  }));
-  const rightFadeStyle = useAnimatedStyle(() => ({
-    opacity: showRightFade.value,
-  }));
 
   return (
     <View style={[styles.shell, { marginHorizontal: -edgePad }]}>
@@ -176,14 +130,11 @@ export function MarketplaceCategoryRail({
       >
         Browse by category
       </Text>
-      <View style={[styles.railWrap, { minHeight: pillH + spacing.sm }]} onLayout={onLayoutScroll}>
+      <View style={[styles.railWrap, { minHeight: pillH + spacing.sm }]}>
         <ScrollView
-          ref={scrollRef}
           horizontal
           showsHorizontalScrollIndicator={false}
           decelerationRate="fast"
-          onScroll={onScroll}
-          scrollEventThrottle={16}
           contentContainerStyle={[styles.scrollContent, { paddingHorizontal: edgePad }]}
           style={styles.scroll}
         >
@@ -199,12 +150,6 @@ export function MarketplaceCategoryRail({
             />
           ))}
         </ScrollView>
-        <Animated.View style={[styles.fadeHost, leftFadeStyle]} pointerEvents="none">
-          <EdgeFade side="left" />
-        </Animated.View>
-        <Animated.View style={[styles.fadeHost, rightFadeStyle]} pointerEvents="none">
-          <EdgeFade side="right" />
-        </Animated.View>
       </View>
     </View>
   );
@@ -225,29 +170,17 @@ const styles = StyleSheet.create({
   },
   railWrap: {
     position: 'relative',
+    overflow: 'hidden',
   },
   scroll: {
-    overflow: 'visible',
+    overflow: 'hidden',
   },
   scrollContent: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: GAP,
     paddingVertical: spacing.xs,
-    paddingRight: EDGE_FADE_W,
   },
-  fadeHost: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 2,
-  },
-  edgeFade: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: EDGE_FADE_W + spacing.md,
-  },
-  edgeLeft: { left: 0 },
-  edgeRight: { right: 0 },
   pillOuter: {
     flexShrink: 0,
     borderRadius: radii.lg,

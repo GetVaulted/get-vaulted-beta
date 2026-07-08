@@ -18,7 +18,6 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AuthPasswordField } from '../../components/auth/AuthPasswordField';
 import { SocialAuthButtons, socialAuthErrorMessage } from '../../components/auth/SocialAuthButtons';
 import { GetVaultedBrandMark } from '../../components/branding/GetVaultedBrandMark';
-import { LegalFooterLinks } from '../../components/legal/LegalFooterLinks';
 import { LegalConsentNote } from '../../components/legal/LegalConsentNote';
 import { useAuth } from '../../auth/AuthContext';
 import { AUTH_USER_MESSAGES } from '../../lib/authUserMessages';
@@ -213,8 +212,6 @@ export function AuthLoginScreen({ navigation }: Props) {
         </Pressable>
 
         <LegalConsentNote />
-
-        <LegalFooterLinks variant="onDark" />
       </ScrollView>
 
       <Modal visible={forgotOpen} transparent animationType="fade" onRequestClose={() => setForgotOpen(false)}>
