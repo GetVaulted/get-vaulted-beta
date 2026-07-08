@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AppleOAuthMark, GoogleOAuthMark } from "@/components/brand/OAuthProviderMark";
 import { isAppleOAuthProviderEnabled, isGoogleOAuthProviderEnabled } from "@/lib/auth-provider-availability";
 
 type Props = {
@@ -11,20 +12,6 @@ type Props = {
 type SocialProvider = "google" | "apple";
 
 type OauthProviders = { google: boolean; apple: boolean };
-
-function GoogleIcon() {
-  return (
-    // Official multicolor Google "G" (Google Identity / Firebase auth branding).
-    <img src="/brand/google-g.svg" alt="" width={20} height={20} className="size-5 shrink-0" aria-hidden />
-  );
-}
-
-function AppleIcon() {
-  return (
-    // Standard Apple logo mark (Sign in with Apple logo-only button style).
-    <img src="/brand/apple-logo.svg" alt="" width={17} height={20} className="h-5 w-[17px] shrink-0" aria-hidden />
-  );
-}
 
 /** Server route stores PKCE verifier in cookies before redirecting to Google/Apple. */
 function oauthStartUrl(provider: SocialProvider, returnTo: string): string {
@@ -55,11 +42,6 @@ export function SocialAuthButtons({ returnTo, disabled }: Props) {
     };
   }, []);
 
-  // If the user starts an OAuth redirect and then comes back without completing it (browser
-  // back-button, cancel on the provider's screen, etc.), the page is restored — often from
-  // bfcache — with `busy` still set, leaving the button stuck on "Redirecting…" forever. Clear it
-  // whenever the page becomes visible/restored again. This never fires during a real, successful
-  // redirect because the browser navigates away for good and this component/page is torn down.
   useEffect(() => {
     const clearBusy = () => setBusy(null);
     const onPageShow = (event: PageTransitionEvent) => {
@@ -101,16 +83,18 @@ export function SocialAuthButtons({ returnTo, disabled }: Props) {
           type="button"
           disabled={disabled || Boolean(busy)}
           onClick={() => onSocial("google")}
-          className="flex h-11 w-full items-center justify-center gap-2.5 rounded-full border border-white/12 bg-white/[0.04] text-sm font-semibold text-foreground transition hover:border-white/20 hover:bg-white/[0.07] disabled:opacity-60"
+          className="flex h-11 w-full items-center justify-center gap-2.5 rounded-full border border-[#8E918F] bg-[#131314] text-sm font-medium text-[#E3E3E3] transition hover:border-[#A8AAA9] hover:bg-[#1A1A1B] disabled:opacity-60"
         >
-          <GoogleIcon />
           {busy === "google" ? (
             <span className="inline-flex items-center gap-2">
-              <span className="size-4 animate-spin rounded-full border-2 border-zinc-950/30 border-t-zinc-950" aria-hidden />
+              <span className="size-4 animate-spin rounded-full border-2 border-[#E3E3E3]/30 border-t-[#E3E3E3]" aria-hidden />
               Redirecting…
             </span>
           ) : (
-            "Continue with Google"
+            <>
+              <GoogleOAuthMark />
+              Continue with Google
+            </>
           )}
         </button>
       ) : null}
@@ -119,16 +103,18 @@ export function SocialAuthButtons({ returnTo, disabled }: Props) {
           type="button"
           disabled={disabled || Boolean(busy)}
           onClick={() => onSocial("apple")}
-          className="flex h-11 w-full items-center justify-center gap-2.5 rounded-full border border-white/20 bg-black text-sm font-semibold text-white transition hover:border-white/30 hover:bg-zinc-950 disabled:opacity-60"
+          className="flex h-11 w-full items-center justify-center gap-2.5 rounded-full border border-white/25 bg-black text-sm font-semibold text-white transition hover:border-white/35 hover:bg-[#0a0a0a] disabled:opacity-60"
         >
-          <AppleIcon />
           {busy === "apple" ? (
             <span className="inline-flex items-center gap-2">
               <span className="size-4 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-hidden />
               Redirecting…
             </span>
           ) : (
-            "Continue with Apple"
+            <>
+              <AppleOAuthMark />
+              Continue with Apple
+            </>
           )}
         </button>
       ) : null}
