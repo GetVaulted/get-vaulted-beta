@@ -203,13 +203,17 @@ function SignInForm() {
 }
 
 export default function SignInPage() {
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, []);
+
   return (
-    <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.98)_0%,#030303_55%,#030303_100%)]">
+    <main className="relative flex min-h-[calc(100svh-3.5rem)] flex-1 flex-col justify-center bg-[linear-gradient(180deg,rgba(14,14,18,0.98)_0%,#030303_55%,#030303_100%)]">
       <div
         className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-gold/25 to-transparent"
         aria-hidden
       />
-      <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-8 px-4 py-10 sm:px-6 sm:py-14 lg:flex-row lg:items-center lg:justify-between lg:gap-12 lg:px-10">
+      <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-8 px-4 py-8 sm:px-6 sm:py-10 lg:flex-row lg:items-center lg:justify-between lg:gap-12 lg:px-10">
         <div className="max-w-lg text-center lg:text-left">
           <Link href="/" className="inline-flex text-[11px] font-semibold uppercase tracking-wider text-gold-bright/90 hover:text-gold-bright">
             ← Back to home
