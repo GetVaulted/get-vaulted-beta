@@ -6,19 +6,19 @@ type AppDownloadBadgesProps = {
   size?: "default" | "large";
 };
 
-function badgeHeight(large: boolean): string {
-  return large ? "h-12 sm:h-14" : "h-10 sm:h-11";
-}
+/** Apple badge is tight to the artwork; Google’s official PNG includes outer padding — scale up to match. */
+const STORE_BADGE_HEIGHTS = {
+  default: { apple: 40, google: 48 },
+  large: { apple: 48, google: 58 },
+} as const;
 
 function StoreBadgeLink({
   href,
   label,
-  large,
   children,
 }: {
   href: string;
   label: string;
-  large: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -27,19 +27,19 @@ function StoreBadgeLink({
       target="_blank"
       rel="noopener noreferrer"
       aria-label={label}
-      className={`inline-flex shrink-0 transition hover:brightness-110 ${badgeHeight(large)}`}
+      className="inline-flex shrink-0 items-center transition hover:brightness-110"
     >
       {children}
     </a>
   );
 }
 
-function StoreBadgePlaceholder({ label, large, children }: { label: string; large: boolean; children: React.ReactNode }) {
+function StoreBadgePlaceholder({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <span
       aria-label={`${label} — coming soon`}
       title="Coming soon"
-      className={`inline-flex shrink-0 cursor-default opacity-70 ${badgeHeight(large)}`}
+      className="inline-flex shrink-0 cursor-default items-center opacity-70"
     >
       {children}
     </span>
@@ -50,55 +50,59 @@ export function AppDownloadBadges({ className, size = "default" }: AppDownloadBa
   const large = size === "large";
   const ios = iosAppStoreUrl();
   const android = googlePlayUrl();
-  const imgClass = `h-full w-auto object-contain ${large ? "max-h-14" : "max-h-11"}`;
+  const heights = large ? STORE_BADGE_HEIGHTS.large : STORE_BADGE_HEIGHTS.default;
 
   return (
     <div className={`flex flex-wrap items-center gap-3 ${className ?? ""}`}>
       {ios ? (
-        <StoreBadgeLink href={ios} label="Download on the App Store" large={large}>
+        <StoreBadgeLink href={ios} label="Download on the App Store">
           {/* eslint-disable-next-line @next/next/no-img-element -- official Apple marketing badge SVG */}
           <img
             src={APP_STORE_BADGE_ASSETS.appStoreDownloadBlack}
             alt="Download on the App Store"
             width={120}
-            height={40}
-            className={imgClass}
+            height={heights.apple}
+            style={{ height: heights.apple, width: "auto" }}
+            className="block w-auto max-w-none"
             decoding="async"
           />
         </StoreBadgeLink>
       ) : (
-        <StoreBadgePlaceholder label="Download on the App Store" large={large}>
+        <StoreBadgePlaceholder label="Download on the App Store">
           <img
             src={APP_STORE_BADGE_ASSETS.appStoreDownloadBlack}
             alt="Download on the App Store — coming soon"
             width={120}
-            height={40}
-            className={imgClass}
+            height={heights.apple}
+            style={{ height: heights.apple, width: "auto" }}
+            className="block w-auto max-w-none"
             decoding="async"
           />
         </StoreBadgePlaceholder>
       )}
 
       {android ? (
-        <StoreBadgeLink href={android} label="Get it on Google Play" large={large}>
+        <StoreBadgeLink href={android} label="Get it on Google Play">
           {/* eslint-disable-next-line @next/next/no-img-element -- official Google Play badge PNG */}
           <img
             src={APP_STORE_BADGE_ASSETS.googlePlayGetIt}
             alt="Get it on Google Play"
-            width={135}
-            height={40}
-            className={imgClass}
+            width={155}
+            height={heights.google}
+            style={{ height: heights.google, width: "auto" }}
+            className="block w-auto max-w-none"
             decoding="async"
           />
         </StoreBadgeLink>
       ) : (
-        <StoreBadgePlaceholder label="Get it on Google Play" large={large}>
+        <StoreBadgePlaceholder label="Get it on Google Play">
           <img
             src={APP_STORE_BADGE_ASSETS.googlePlayGetIt}
             alt="Get it on Google Play — coming soon"
-            width={135}
-            height={40}
-            className={imgClass}
+            width={155}
+            height={heights.google}
+            style={{ height: heights.google, width: "auto" }}
+            className="block w-auto max-w-none"
             decoding="async"
           />
         </StoreBadgePlaceholder>
