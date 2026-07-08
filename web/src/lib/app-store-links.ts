@@ -13,7 +13,9 @@ export function iosAppStoreUrl(): string | null {
 
 export function googlePlayUrl(): string | null {
   const raw = process.env.NEXT_PUBLIC_GOOGLE_PLAY_URL?.trim();
-  return raw || null;
+  if (raw) return raw;
+  const pkg = process.env.NEXT_PUBLIC_GOOGLE_PLAY_PACKAGE_ID?.trim() || "com.getvaulted.app";
+  return pkg ? `https://play.google.com/store/apps/details?id=${encodeURIComponent(pkg)}` : null;
 }
 
 export function appStoreUrlForPlatform(platform: "ios" | "android" | null): string | null {

@@ -45,6 +45,20 @@ export function openUserProfile(userId: string, navigation?: { navigate: RootNav
   if (rootNavigationRef.isReady()) rootNavigationRef.navigate('UserProfile', { userId });
 }
 
+export function openSellerShop(
+  sellerId: string,
+  navigation?: { navigate: RootNav['navigate'] },
+  opts?: { tab?: 'all' | 'buy_now' | 'auctions' | 'sold' },
+) {
+  const params: RootStackParamList['SellerShop'] = { sellerId };
+  if (opts?.tab && opts.tab !== 'all') params.tab = opts.tab;
+  if (navigation) {
+    (navigation as RootNav).navigate('SellerShop', params);
+    return;
+  }
+  if (rootNavigationRef.isReady()) rootNavigationRef.navigate('SellerShop', params);
+}
+
 export function openFollowersFollowing(
   navigation?: { navigate: RootNav['navigate'] },
   tab: 'followers' | 'following' = 'followers',

@@ -66,6 +66,6 @@ export const NAVIGATION_MAP = {
   product: {
     buy: { route: 'MessageCompose / checkout', status: 'live' as const },
     trade: { route: 'InitiateTrade', status: 'live' as const },
-    sellerProfile: { route: 'UserProfile', status: 'live' as const },
+    sellerProfile: { route: 'SellerShop', status: 'live' as const },
   },
 } as const satisfies Record<string, Record<string, NavDestination>>;

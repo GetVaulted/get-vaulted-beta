@@ -7,6 +7,8 @@ import { prisma } from "@/lib/prisma";
 import { pickPrismaUserIdForSupabaseSession } from "@/lib/pick-prisma-user-for-supabase-auth";
 import { attributeReferralOnSignup } from "@/lib/referral-credit";
 import { syncPrismaEmailVerifiedFromSupabase } from "@/lib/sync-prisma-email-verified";
+import { isUsernameTakenCaseInsensitive } from "@/lib/username-db";
+import { evaluateUsernamePolicy, normalizeUsernameForStorage } from "@/lib/username-policy";
 
 function baseUsernameFromSupabaseUser(user: SupabaseAuthUser): string {
   const meta = user.user_metadata as Record<string, unknown> | undefined;
@@ -16,6 +18,15 @@ function baseUsernameFromSupabaseUser(user: SupabaseAuthUser): string {
   const cleaned = local.replace(/_+/g, "_").replace(/^_|_$/g, "");
   if (cleaned.length >= 3) return cleaned.slice(0, 20);
   return `user_${user.id.replace(/-/g, "").slice(0, 12)}`;
+}
+
+function metaChosenUsername(meta: Record<string, unknown> | undefined): string | null {
+  const raw = typeof meta?.username === "string" ? meta.username.trim() : "";
+  if (!raw) return null;
+  const normalized = normalizeUsernameForStorage(raw);
+  const policy = evaluateUsernamePolicy(normalized);
+  if (!policy.ok) return null;
+  return normalized;
 }
 
 async function allocateUsername(base: string): Promise<string> {
@@ -28,6 +39,22 @@ async function allocateUsername(base: string): Promise<string> {
     if (!taken) return candidate;
   }
   return `u_${Date.now()}`.slice(0, 20);
+}
+
+async function resolveInitialUsername(
+  supabaseUser: SupabaseAuthUser,
+): Promise<{ username: string; usernameChosenAt: Date | null }> {
+  const meta = supabaseUser.user_metadata as Record<string, unknown> | undefined;
+  const chosen = metaChosenUsername(meta);
+  if (chosen) {
+    const taken = await isUsernameTakenCaseInsensitive(prisma, chosen);
+    const username = taken ? await allocateUsername(chosen) : chosen;
+    return { username, usernameChosenAt: new Date() };
+  }
+  return {
+    username: await allocateUsername(baseUsernameFromSupabaseUser(supabaseUser)),
+    usernameChosenAt: null,
+  };
 }
 
 /**
@@ -72,7 +99,7 @@ export async function ensurePrismaUserForSupabaseAuth(supabaseUser: SupabaseAuth
     return picked;
   }
 
-  const username = await allocateUsername(baseUsernameFromSupabaseUser(supabaseUser));
+  const { username, usernameChosenAt } = await resolveInitialUsername(supabaseUser);
   const displayRaw = meta?.display_name;
   const display =
     typeof displayRaw === "string" && displayRaw.trim() ? displayRaw.trim().slice(0, 120) : null;
@@ -87,6 +114,7 @@ export async function ensurePrismaUserForSupabaseAuth(supabaseUser: SupabaseAuth
         id: supabaseUser.id,
         email,
         username,
+        usernameChosenAt,
         name: display,
         emailVerified: emailVerifiedAt,
       },

@@ -281,6 +281,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     if (existing.status === "live") {
       return NextResponse.json({ error: "Room is already live." }, { status: 409 });
     }
+    const otherLiveCount = await prisma.liveRoom.count({
+      where: { sellerId: existing.sellerId, status: "live", NOT: { id } },
+    });
+    if (otherLiveCount >= 1) {
+      return NextResponse.json(
+        {
+          error: "You already have a live show running. End it before starting this one.",
+          code: "LIVE_ROOM_LIMIT",
+        },
+        { status: 409 },
+      );
+    }
     const readiness = await getSellerLiveReadiness(existing.sellerId);
     if (!readiness.canGoLive) {
       return NextResponse.json(

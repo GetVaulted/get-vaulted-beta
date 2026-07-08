@@ -15,7 +15,6 @@ const RESERVED_EXACT = new Set(
     "admin",
     "support",
     "getvaulted",
-    "vaulted",
     "moderator",
     "official",
     "staff",
@@ -28,6 +27,21 @@ const RESERVED_EXACT = new Set(
     "security",
   ].map((s) => s.toLowerCase()),
 );
+
+/** Blocks Get Vaulted brand impersonation; standalone "vaulted" is allowed. */
+function isGetVaultedBrandUsername(normalized: string): boolean {
+  if (normalized === "getvaulted") return true;
+  const collapsed = normalized.replace(/_/g, "");
+  const deobfuscated = normalizeObfuscatedUsername(normalized);
+  for (const candidate of [collapsed, deobfuscated]) {
+    if (candidate === "getvaulted" || candidate.includes("getvaulted")) return true;
+  }
+  const segments = normalized.split("_").filter(Boolean);
+  for (let i = 0; i < segments.length - 1; i++) {
+    if (segments[i] === "get" && segments[i + 1] === "vaulted") return true;
+  }
+  return false;
+}
 
 const PROFANITY_EXACT = [
   "cum",
@@ -114,6 +128,7 @@ export function evaluateUsernamePolicy(normalized: string): { ok: true } | { ok:
 }
 
 export function isReservedUsername(normalized: string): boolean {
+  if (isGetVaultedBrandUsername(normalized)) return true;
   const segments = normalized.split("_").filter(Boolean);
   for (const seg of segments) {
     if (RESERVED_EXACT.has(seg)) return true;

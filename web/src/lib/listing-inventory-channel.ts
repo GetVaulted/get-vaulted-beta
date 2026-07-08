@@ -1,11 +1,17 @@
 export type ListingInventoryChannel = "marketplace" | "live_show";
 
 const MARKER_RE = /<!--gv-inventory:(marketplace|live_show)-->/;
+const MARKER_STRIP_RE = /\n?<!--gv-inventory:(marketplace|live_show)-->/g;
 
 export function parseListingInventoryChannel(description: string): ListingInventoryChannel | null {
   const m = description.match(MARKER_RE);
   if (m?.[1] === "marketplace" || m?.[1] === "live_show") return m[1];
   return null;
+}
+
+/** Buyer-facing description — strips the internal inventory-channel HTML comment. */
+export function stripListingInventoryChannelMarker(description: string): string {
+  return description.replace(MARKER_STRIP_RE, "").trimEnd();
 }
 
 export function embedListingInventoryChannel(

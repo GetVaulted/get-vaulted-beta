@@ -19,11 +19,10 @@ import { ACTIVE_REFUND_REQUEST_STATUSES } from "@/lib/order-refund-eligibility";
  *   closed (mirrors buyer-protection windows elsewhere), so a fast refund/chargeback can still
  *   claw it back before it's spendable.
  * - Guardrails v1: one referral attribution per account for life (immutable, set only at account
- *   creation), plus a same-household self-referral heuristic (see `isLikelySelfReferral`).
+ *   creation or OAuth profile setup), plus a same-household self-referral heuristic (see `isLikelySelfReferral`).
  *
- * Referral codes are just usernames — usernames are immutable in this app (see
- * `web/src/app/api/account/profile/route.ts`, which never accepts a username field), so there's
- * no need for a separate generated code or a new mutable-vs-immutable tracking problem.
+ * Referral codes are usernames. Usernames can be changed only under the 60-day / open-order policy
+ * (`web/src/lib/username-change-policy.ts`), so attribution stays tied to signup-time username choice.
  */
 
 export const REFERRAL_CREDIT_AMOUNT_USD = 10;

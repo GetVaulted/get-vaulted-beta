@@ -5,6 +5,7 @@ import { MainTabNavigator } from './MainTabNavigator';
 import { ProductDetailScreen } from '../screens/ProductDetailScreen';
 import { AuthLoginScreen } from '../screens/auth/AuthLoginScreen';
 import { AuthSignUpScreen } from '../screens/auth/AuthSignUpScreen';
+import { CompleteProfileSetupScreen } from '../screens/auth/CompleteProfileSetupScreen';
 import { ProfileEditScreen } from '../screens/auth/ProfileEditScreen';
 import { LaunchIntroScreen } from '../screens/onboarding/LaunchIntroScreen';
 import { AuthWelcomeScreen } from '../screens/onboarding/AuthWelcomeScreen';
@@ -33,6 +34,7 @@ import type { RootStackParamList } from './types';
 import { colors } from '../theme';
 import { rootNavigationRef } from './rootNavigationRef';
 import { AuthSessionRoutingEffect } from './AuthSessionRoutingEffect';
+import { ProfileSetupRoutingEffect } from './ProfileSetupRoutingEffect';
 import { AccountSwitchEffect } from './AccountSwitchEffect';
 import { navigationLinking } from './linkingConfig';
 
@@ -61,6 +63,10 @@ const MessageComposeScreen = lazyScreen(
 const UserProfileScreen = lazyScreen(
   () => import('../screens/profile/UserProfileScreen'),
   (m) => m.UserProfileScreen,
+);
+const SellerShopScreen = lazyScreen(
+  () => import('../screens/profile/SellerShopScreen'),
+  (m) => m.SellerShopScreen,
 );
 const SellerProfileByUsernameScreen = lazyScreen(
   () => import('../screens/profile/SellerProfileByUsernameScreen'),
@@ -155,6 +161,7 @@ export function RootNavigator() {
   return (
     <NavigationContainer ref={rootNavigationRef} theme={theme} linking={navigationLinking}>
       <AuthSessionRoutingEffect />
+      <ProfileSetupRoutingEffect />
       <AccountSwitchEffect />
       <MarketplaceReviewPromptEffect />
       <PushRegistrationEffect />
@@ -177,6 +184,11 @@ export function RootNavigator() {
             name="AuthSignUp"
             component={AuthSignUpScreen}
             options={{ animation: 'slide_from_right', presentation: 'card' }}
+          />
+          <Stack.Screen
+            name="CompleteProfileSetup"
+            component={CompleteProfileSetupScreen}
+            options={{ animation: 'fade', gestureEnabled: false }}
           />
           <Stack.Screen name="ProfileEdit" component={ProfileEditScreen} />
           <Stack.Screen
@@ -256,6 +268,7 @@ export function RootNavigator() {
           <Stack.Screen name="OpenDispute" component={OpenDisputeScreen} />
           <Stack.Screen name="DisputeDetail" component={DisputeDetailScreen} />
           <Stack.Screen name="UserProfile" component={UserProfileScreen} />
+          <Stack.Screen name="SellerShop" component={SellerShopScreen} />
           <Stack.Screen name="SellerProfileByUsername" component={SellerProfileByUsernameScreen} />
           <Stack.Screen name="FollowersFollowing" component={FollowersFollowingScreen} />
           <Stack.Screen name="WriteReview" component={WriteReviewScreen} />

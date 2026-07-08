@@ -16,6 +16,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { fetchProfileById, updateMyProfile, uploadMyAvatar } from '../../api/profilesRepository';
+import {
+  changeUsernameViaApi,
+  fetchUsernameChangeStatus,
+  type UsernameChangeStatus,
+} from '../../api/profileSetupRepository';
 import { ProfileAvatarCropModal } from '../../components/profile/ProfileAvatarCropModal';
 import { SellerHQEntryBanner } from '../../components/seller/SellerHQEntryBanner';
 import { useAuth } from '../../auth/AuthContext';
@@ -44,6 +49,8 @@ export function ProfileEditScreen({ navigation }: Props) {
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [cropUri, setCropUri] = useState<string | null>(null);
+  const [initialUsername, setInitialUsername] = useState('');
+  const [usernameEligibility, setUsernameEligibility] = useState<UsernameChangeStatus | null>(null);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -51,7 +58,16 @@ export function ProfileEditScreen({ navigation }: Props) {
     try {
       const p = await fetchProfileById(user.id);
       setUsername(p?.username ?? '');
+      setInitialUsername(p?.username ?? '');
       setDisplayName(p?.display_name ?? '');
+      if (session?.access_token) {
+        try {
+          const eligibility = await fetchUsernameChangeStatus(session.access_token);
+          setUsernameEligibility(eligibility);
+        } catch {
+          setUsernameEligibility(null);
+        }
+      }
       const remote = await resolveCanonicalProfileAvatar({
         userId: user.id,
         accessToken: session?.access_token,
@@ -116,9 +132,25 @@ export function ProfileEditScreen({ navigation }: Props) {
     if (!user?.id) return;
     setSaving(true);
     try {
+      const trimmedUsername = username.trim();
+      const trimmedDisplay = displayName.trim();
+      const usernameChanged = trimmedUsername !== initialUsername.trim();
+
+      if (usernameChanged) {
+        if (!session?.access_token) throw new Error('Your session expired. Sign in again.');
+        if (usernameEligibility && !usernameEligibility.canChange) {
+          const msg =
+            usernameEligibility.reason === 'open_orders'
+              ? 'You cannot change your username while you have open orders.'
+              : 'Usernames can only be changed once every 60 days.';
+          throw new Error(msg);
+        }
+        await changeUsernameViaApi({ accessToken: session.access_token, username: trimmedUsername });
+        setInitialUsername(trimmedUsername);
+      }
+
       await updateMyProfile(user.id, {
-        username: username.trim() || undefined,
-        display_name: displayName.trim() || undefined,
+        display_name: trimmedDisplay || undefined,
       });
       Alert.alert('Saved', 'Your profile was updated.');
       navigation.goBack();
@@ -128,6 +160,19 @@ export function ProfileEditScreen({ navigation }: Props) {
       setSaving(false);
     }
   };
+
+  const usernameLocked = Boolean(usernameEligibility && !usernameEligibility.canChange);
+  const usernameLockHint = (() => {
+    if (!usernameEligibility || usernameEligibility.canChange) return null;
+    if (usernameEligibility.reason === 'open_orders') {
+      return 'Username locked while you have open orders.';
+    }
+    if (usernameEligibility.lockExpiresAt) {
+      const date = new Date(usernameEligibility.lockExpiresAt);
+      return `Username can be changed again after ${date.toLocaleDateString()}.`;
+    }
+    return 'Username can only be changed once every 60 days.';
+  })();
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
@@ -193,13 +238,15 @@ export function ProfileEditScreen({ navigation }: Props) {
 
           <Text style={styles.label}>Username</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, usernameLocked && styles.inputDisabled]}
             placeholder="username"
             placeholderTextColor={colors.textMuted}
             autoCapitalize="none"
             value={username}
             onChangeText={setUsername}
+            editable={!usernameLocked}
           />
+          {usernameLockHint ? <Text style={styles.lockHint}>{usernameLockHint}</Text> : null}
           <Text style={styles.label}>Display name</Text>
           <TextInput
             style={styles.input}
@@ -273,6 +320,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     fontSize: 16,
   },
+  inputDisabled: { opacity: 0.55 },
+  lockHint: { color: colors.textMuted, fontSize: 12, marginTop: -spacing.xs },
   primary: {
     marginTop: spacing.lg,
     backgroundColor: colors.gold,

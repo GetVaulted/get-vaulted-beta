@@ -40,8 +40,8 @@ export const navigationLinking: LinkingOptions<RootStackParamList> = {
       // readability. `offerId` isn't declared as a path param, so it's picked up automatically
       // from the query string per React Navigation's default query-param-to-route-param behavior.
       SellerListingManagement: 'seller/listings/:listingId',
-      // `/seller/{username}` (public seller profile) — resolves the username to a user id before
-      // landing on `UserProfile`, mirroring `openNotificationHref.ts`'s handling of the same path
+      // `/seller/{username}` (public seller shop) — resolves the username to a user id before
+      // landing on `SellerShop`, mirroring `openNotificationHref.ts`'s handling of the same path
       // for "new follower" pushes. Note: `/marketplace/{id}` is a legacy alias that server-side
       // redirects to `/listing/{id}` (see `web/src/lib/listing-routes.ts`), so it doesn't need a
       // separate entry here — a shared `/marketplace/{id}` link is already the same resource as

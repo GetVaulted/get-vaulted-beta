@@ -521,6 +521,19 @@ export async function POST(req: Request) {
     );
   }
 
+  const liveShowCount = await prisma.liveRoom.count({
+    where: { sellerId, status: "live" },
+  });
+  if (liveShowCount >= 1) {
+    return NextResponse.json(
+      {
+        error: "You already have a live show running. End it before starting another.",
+        code: "LIVE_ROOM_LIMIT",
+      },
+      { status: 409 },
+    );
+  }
+
   if (!recurringEnabled) {
     const recentDuplicate = await prisma.liveRoom.findFirst({
       where: {
@@ -533,33 +546,6 @@ export async function POST(req: Request) {
     });
     if (recentDuplicate) {
       return NextResponse.json({ id: recentDuplicate.id, duplicate: true });
-    }
-
-    const activeCount = await prisma.liveRoom.count({
-      where: { sellerId, status: { in: ["scheduled", "live"] } },
-    });
-    if (activeCount >= 1) {
-      return NextResponse.json(
-        {
-          error:
-            "You already have an upcoming or live show. Finish or end it before creating another—or turn on Repeat weekly when scheduling.",
-          code: "LIVE_ROOM_LIMIT",
-        },
-        { status: 409 },
-      );
-    }
-  } else {
-    const activeCount = await prisma.liveRoom.count({
-      where: { sellerId, status: { in: ["scheduled", "live"] } },
-    });
-    if (activeCount >= 1) {
-      return NextResponse.json(
-        {
-          error: "Finish your current upcoming or live show before creating a recurring series.",
-          code: "LIVE_ROOM_LIMIT",
-        },
-        { status: 409 },
-      );
     }
   }
 

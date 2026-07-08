@@ -12,7 +12,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'SellerProfileByUsername
 /**
  * Server notifications (e.g. "new follower") and shared web links point at `/seller/{username}`,
  * but the in-app profile screen (`UserProfile`) is keyed by user id. This screen resolves the
- * username to an id and replaces itself with `UserProfile`, so both `openNotificationHref` and
+ * username to an id and replaces itself with `SellerShop`, so both `openNotificationHref` and
  * the universal-link config (`linkingConfig.ts`) can share the same destination without each
  * needing to perform the async lookup themselves.
  */
@@ -26,7 +26,7 @@ export function SellerProfileByUsernameScreen({ navigation, route }: Props) {
     void fetchProfileIdByUsername(username).then((userId) => {
       if (cancelled) return;
       if (userId) {
-        navigation.replace('UserProfile', { userId });
+        navigation.replace('SellerShop', { sellerId: userId });
       } else {
         setNotFound(true);
       }
@@ -38,7 +38,7 @@ export function SellerProfileByUsernameScreen({ navigation, route }: Props) {
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
-      <PlatformFlowHeader title="Vault profile" onBack={() => navigation.goBack()} />
+      <PlatformFlowHeader title="Seller shop" onBack={() => navigation.goBack()} />
       {notFound ? (
         <Text style={styles.muted}>This seller could not be found.</Text>
       ) : (

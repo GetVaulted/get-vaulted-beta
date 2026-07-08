@@ -10,7 +10,7 @@ export function LegalConsentNote() {
   return (
     <View style={styles.wrap}>
       <Text style={styles.txt}>
-        By creating an account, you agree to our{' '}
+        By signing in or creating an account, you agree to our{' '}
         <Text style={styles.link} onPress={() => open(siteUrls.terms())}>
           Terms of Service
         </Text>{' '}
@@ -25,7 +25,7 @@ export function LegalConsentNote() {
 }
 
 const styles = StyleSheet.create({
-  wrap: { marginTop: spacing.sm },
+  wrap: { marginTop: spacing.md, marginBottom: spacing.xs },
   txt: { color: colors.textMuted, fontSize: 12, lineHeight: 18, textAlign: 'center' },
   link: { color: colors.gold, fontWeight: '700' },
 });

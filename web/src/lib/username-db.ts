@@ -19,3 +19,19 @@ export async function isUsernameTakenCaseInsensitive(
   });
   return row !== null;
 }
+
+/** Collision check that ignores the current user's existing username. */
+export async function isUsernameTakenByOtherUser(
+  db: PrismaClient,
+  normalizedUsername: string,
+  excludeUserId: string,
+): Promise<boolean> {
+  if (isDevTempNoDatabaseMode()) {
+    return false;
+  }
+  const row = await db.user.findUnique({
+    where: { username: normalizedUsername },
+    select: { id: true },
+  });
+  return row !== null && row.id !== excludeUserId;
+}

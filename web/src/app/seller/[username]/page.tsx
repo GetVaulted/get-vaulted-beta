@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import type { Prisma } from "@/generated/prisma/client";
 import { MarketplaceBrowseCard } from "@/components/marketplace/MarketplaceBrowseCard";
 import { SellerProfileActions } from "@/components/seller/SellerProfileActions";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { getServerSessionSafe } from "@/lib/auth";
 import { auctionBidCountsByListingIds } from "@/lib/listing-bid-counts";
 import { dbListingToMarketplace } from "@/lib/listing-mapper";
 import { NEW_SELLER_CREDIBILITY_LABEL } from "@/lib/marketplace-item-extras";
@@ -12,43 +11,22 @@ import { listingWithSellerFulfillmentInclude } from "@/lib/listing-with-seller-i
 import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
 import { prisma } from "@/lib/prisma";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
+import {
+  parseSellerShopTab,
+  SELLER_SHOP_TABS,
+  sellerShopEmptyCopy,
+  sellerShopListingWhere,
+  type SellerShopTab,
+} from "@/lib/seller-shop-listings";
 
 export const dynamic = "force-dynamic";
 
 const listingInclude = listingWithSellerFulfillmentInclude;
 
-type Tab = "all" | "buy_now" | "auctions" | "sold";
-
-function parseTab(v: string | string[] | undefined): Tab {
+function parseTab(v: string | string[] | undefined): SellerShopTab {
   const raw = Array.isArray(v) ? v[0] : v;
-  if (raw === "buy_now" || raw === "auctions" || raw === "sold") return raw;
-  return "all";
+  return parseSellerShopTab(raw);
 }
-
-function listingWhereForTab(sellerId: string, tab: Tab): Prisma.ListingWhereInput {
-  if (tab === "sold") {
-    return { sellerId, status: "sold" };
-  }
-  const visible = { moderationRemovedAt: null };
-  if (tab === "buy_now") {
-    return { sellerId, status: "active", buyingFormat: "buy_now", ...visible };
-  }
-  if (tab === "auctions") {
-    return {
-      sellerId,
-      ...visible,
-      OR: [{ status: "auction_live" }, { status: "active", buyingFormat: "auction" }],
-    };
-  }
-  return { sellerId, status: { in: ["active", "auction_live"] }, ...visible };
-}
-
-const TABS: { key: Tab; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "buy_now", label: "Buy now" },
-  { key: "auctions", label: "Auctions" },
-  { key: "sold", label: "Sold" },
-];
 
 export async function generateMetadata({
   params,
@@ -109,7 +87,7 @@ export default async function SellerShopPage({
     prisma.order.count({ where: { sellerId: user.id } }),
     prisma.sellerFollow.count({ where: { sellerId: user.id } }),
     prisma.listing.findMany({
-      where: listingWhereForTab(user.id, tab),
+      where: sellerShopListingWhere(user.id, tab),
       include: listingInclude,
       orderBy: { updatedAt: "desc" },
       take: 60,
@@ -128,10 +106,7 @@ export default async function SellerShopPage({
       : NEW_SELLER_CREDIBILITY_LABEL;
   const verified = user.emailVerified != null;
 
-  const emptyCopy =
-    tab === "sold"
-      ? "No sold listings to show yet."
-      : "This seller has no active listings.";
+  const emptyCopy = sellerShopEmptyCopy(tab);
 
   const initials = user.username
     .slice(0, 2)
@@ -217,7 +192,7 @@ export default async function SellerShopPage({
         </section>
 
         <nav className="mt-8 flex flex-wrap gap-2 border-b border-white/[0.06] pb-3" aria-label="Listing filters">
-          {TABS.map((t) => {
+          {SELLER_SHOP_TABS.map((t) => {
             const href = t.key === "all" ? basePath : `${basePath}?tab=${t.key}`;
             const active = tab === t.key;
             return (

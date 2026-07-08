@@ -37,6 +37,8 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AuthPasswordField } from '../../components/auth/AuthPasswordField';
 import { SocialAuthButtons, socialAuthErrorMessage } from '../../components/auth/SocialAuthButtons';
 import { BrandLogo } from '../../components/ui/BrandLogo';
+import { LegalFooterLinks } from '../../components/legal/LegalFooterLinks';
+import { LegalConsentNote } from '../../components/legal/LegalConsentNote';
 import { useAuth } from '../../auth/AuthContext';
 import { AUTH_USER_MESSAGES } from '../../lib/authUserMessages';
 import {
@@ -945,6 +947,10 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
               >
                 <Text style={styles.exploreBtnTxt}>Explore Get Vaulted</Text>
               </Pressable>
+
+              <LegalConsentNote />
+
+              <LegalFooterLinks variant="onDark" />
             </Animated.View>
 
           </Animated.View>

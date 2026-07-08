@@ -143,6 +143,9 @@ export function ScheduleVaultEventModal({
   const readinessKnown = readiness !== null;
   const liveBlocked = liveGate.blocked || !readinessKnown || !readinessOk;
   const isBreak = streamFormat === 'break';
+  const shippingProfileReady =
+    !profilesLoading && shippingProfiles.length > 0 && defaultSellerShippingProfileId.trim().length > 0;
+  const createBlocked = liveBlocked || !titleComplete || profilesLoading || !shippingProfileReady;
 
   const loadShippingProfiles = useCallback(async () => {
     setProfilesLoading(true);
@@ -167,14 +170,7 @@ export function ScheduleVaultEventModal({
   }, [accessToken]);
 
   useEffect(() => {
-    if (!visible) {
-      setDiscoveryVisibility('public');
-      setDefaultSellerShippingProfileId('');
-      setShippingProfiles([]);
-      setProfilesLoadError(null);
-      setProfilesLoading(false);
-      return;
-    }
+    if (!visible) return;
     setSubmitError(null);
     void onRefreshReadinessRef.current?.();
     void loadShippingProfiles();
@@ -231,6 +227,26 @@ export function ScheduleVaultEventModal({
       setThumbUploading(false);
     }
   }, [accessToken]);
+
+  const resetForm = useCallback(() => {
+    setScheduleTitle('');
+    setTagline('');
+    setScheduleMode('now');
+    setScheduledDate(defaultScheduledDate());
+    setShowDatePicker(false);
+    setThumbUrl('');
+    setThumbError(null);
+    setBreakPricingMode('auction');
+    setBreakSpotPrice('');
+    setTeamBoardEnabled(true);
+    setTipModeratorId(null);
+    setTipModeratorUsername('');
+    setTipsToModerator(false);
+    setRecurringWeekly(false);
+    setDiscoveryVisibility('public');
+    setStreamFormat('hybrid');
+    setScheduleCategory('Cards');
+  }, [setScheduleCategory, setScheduleTitle, setStreamFormat]);
 
   const submit = useCallback(async () => {
     if (submittingRef.current || busy) return;
@@ -339,6 +355,7 @@ export function ScheduleVaultEventModal({
       );
       await notifyLiveDiscoveryChanged();
       onScheduled?.();
+      resetForm();
       onClose();
       if (scheduleMode === 'now') {
         logVaultCommandCenter('create_enter_command_center', { roomId: id, scheduleMode: 'now' });
@@ -395,6 +412,7 @@ export function ScheduleVaultEventModal({
     onCreated,
     onRefreshReadiness,
     onScheduled,
+    resetForm,
     recurringWeekly,
     scheduleCategory,
     scheduleMode,
@@ -407,6 +425,10 @@ export function ScheduleVaultEventModal({
     thumbUrl,
     tipModeratorId,
     tipsToModerator,
+    defaultSellerShippingProfileId,
+    shippingProfiles.length,
+    profilesLoadError,
+    discoveryVisibility,
   ]);
 
   const submitLabel = useMemo(() => {
@@ -755,10 +777,10 @@ export function ScheduleVaultEventModal({
               style={[
                 styles.primary,
                 isTablet && styles.primaryTablet,
-                (liveBlocked || busy || thumbUploading || !titleComplete) && styles.primaryOff,
+                (createBlocked || busy || thumbUploading) && styles.primaryOff,
               ]}
               onPress={() => void submit()}
-              disabled={busy || liveBlocked || thumbUploading || !titleComplete}
+              disabled={busy || createBlocked || thumbUploading}
             >
               {busy ? (
                 <ActivityIndicator color={colors.background} />

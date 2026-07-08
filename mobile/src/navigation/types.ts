@@ -45,6 +45,8 @@ export type RootStackParamList = {
    *  query param name as the web signup page, so `linkingConfig.ts`'s default query-string-to-
    *  route-param mapping picks it up with no extra parsing. */
   AuthSignUp: { ref?: string } | undefined;
+  /** OAuth / first-time members must confirm username (+ optional referral) before MainTabs. */
+  CompleteProfileSetup: { ref?: string } | undefined;
   ProfileEdit: undefined;
   ProductDetail: { productId: string };
   MarketplaceCheckout: { listingId: string; mode: 'buy_now' | 'layaway'; walletSetupFirst?: boolean };
@@ -84,8 +86,9 @@ export type RootStackParamList = {
   OpenDispute: { contextType: DisputeContextType; referenceId?: string };
   DisputeDetail: { disputeId: string };
   UserProfile: { userId: string };
-  /** Resolves a `/seller/{username}` link (push tap or shared web URL) to `UserProfile`, which
-   * is keyed by user id. */
+  /** Public seller storefront — all listings with shop tabs (mirrors web `/seller/{username}`). */
+  SellerShop: { sellerId: string; tab?: 'all' | 'buy_now' | 'auctions' | 'sold' };
+  /** Resolves a `/seller/{username}` link to `SellerShop`. */
   SellerProfileByUsername: { username: string };
   FollowersFollowing: { tab?: 'followers' | 'following' } | undefined;
   WriteReview: {

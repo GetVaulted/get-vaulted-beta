@@ -13,6 +13,7 @@ import { useSellerSetupState } from '../../hooks/useSellerSetupState';
 import { buyerWalletStatusLabel } from '../../lib/buyerWalletReadinessDisplay';
 import { areDevToolsEnabled } from '../../lib/devTools';
 import { openLegalUrl } from '../../lib/openLegalUrl';
+import { LegalFooterLinks } from '../../components/legal/LegalFooterLinks';
 import { performSignOut, signOutSessionOptions } from '../../lib/signOutSession';
 import { sellerSetupMenuLabel } from '../../lib/seller-setup-state';
 import {
@@ -229,6 +230,8 @@ export function SettingsScreen({ navigation }: Props) {
           }}
           chevron={false}
         />
+
+        <LegalFooterLinks />
       </ScrollView>
     </View>
   );

@@ -8,7 +8,7 @@ import {
   getSellerFulfillmentReadinessIssues,
 } from "@/lib/seller-shipping-readiness";
 import type { SellerListingStatus, StoredUserListing } from "@/lib/user-listings-storage";
-import { parseListingInventoryChannel, type ListingInventoryChannel } from "@/lib/listing-inventory-channel";
+import { parseListingInventoryChannel, stripListingInventoryChannelMarker, type ListingInventoryChannel } from "@/lib/listing-inventory-channel";
 
 export type ListingSellerFulfillmentSubset = {
   id: string;
@@ -90,7 +90,7 @@ export function dbListingToStored(
     startingBid: buyingFormat === "auction" ? row.startingBidUsd ?? undefined : undefined,
     reservePrice: row.reservePriceUsd ?? null,
     auctionDurationDays: row.auctionDurationDays ?? undefined,
-    description: row.description,
+    description: stripListingInventoryChannelMarker(row.description),
     shippingPriceUsd: row.shippingPriceUsd,
     handlingTime: row.handlingTime || "—",
     signatureRequired: row.signatureRequired,
@@ -161,7 +161,7 @@ export function dbListingToMarketplace(
     listedAt: row.createdAt.toISOString(),
     href: `/listing/${encodeURIComponent(row.id)}`,
     sellerId: row.sellerId,
-    longDescription: row.description,
+    longDescription: stripListingInventoryChannelMarker(row.description),
     shippingPriceUsd: row.shippingPriceUsd,
     handlingTimeLabel: row.handlingTime,
     signatureRequired: row.signatureRequired,

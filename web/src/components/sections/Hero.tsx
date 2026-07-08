@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AppDownloadBadges } from "@/components/marketing/AppDownloadBadges";
 import { HeroVisual } from "@/components/sections/HeroVisual";
 
 const trust = [
@@ -77,6 +78,16 @@ export function Hero({ liveMarketplaceEnabled = true }: HeroProps) {
               >
                 Start selling
               </Link>
+            </div>
+            <div className="mt-5">
+              <p className="mb-2.5 text-[10px] font-bold uppercase tracking-wider text-zinc-500">Get the app</p>
+              <AppDownloadBadges />
+              <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">
+                iOS and Android — live shows, marketplace, and Seller HQ in your pocket.{" "}
+                <Link href="/app" className="font-semibold text-gold-bright/90 underline-offset-2 hover:underline">
+                  Learn more
+                </Link>
+              </p>
             </div>
             <ul className="mt-4 flex flex-wrap gap-1.5">
               {trust.map(({ label, icon: Icon }) => (

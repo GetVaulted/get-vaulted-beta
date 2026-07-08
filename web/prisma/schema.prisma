@@ -541,6 +541,8 @@ model User {
   sellerAgreementAcceptedAt     DateTime?
   /// Soft-delete — account anonymized; financial records retained.
   accountDeletedAt              DateTime?
+  /// When the member last confirmed their public username (signup or profile setup). Used for the 60-day change lock.
+  usernameChosenAt              DateTime?
   /// Referral attribution — set once at account creation from a `?ref=<username>` signup link, never changed.
   referredById                  String?
   referredBy                    User?                       @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)

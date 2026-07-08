@@ -53,7 +53,7 @@ import {
 } from '../navigation/openMarketplaceCommerce';
 import { alertGuestBuyRestricted } from '../navigation/guestExploreGuards';
 import { openMessageSellerForListing } from '../navigation/openMessages';
-import { openContactSupport, openDispute, openUserProfile } from '../navigation/openPlatform';
+import { openContactSupport, openDispute, openSellerShop } from '../navigation/openPlatform';
 import { fetchSellerFollowStatus, toggleSellerFollow } from '../api/sellerFollowRepository';
 import { shareListingNative } from '../lib/shareListingNative';
 import { useAuth } from '../auth/AuthContext';
@@ -521,7 +521,7 @@ export function ProductDetailScreen({ navigation, route }: Props) {
 
           <SectionTitle>Seller spotlight</SectionTitle>
           <View style={styles.showroomCard}>
-            <Pressable onPress={() => openUserProfile(product.seller.id, rootNav)}>
+            <Pressable onPress={() => openSellerShop(product.seller.id, rootNav)}>
               <HostRow
                 host={product.seller}
                 following={sellerFollow}
@@ -547,6 +547,14 @@ export function ProductDetailScreen({ navigation, route }: Props) {
             </Pressable>
             {vm.sellerLevelBadge ? <SellerLevelBadge label={vm.sellerLevelBadge} /> : null}
             <View style={styles.sellerActions}>
+              <PremiumVaultButton
+                variant="secondary"
+                label="View shop"
+                icon="storefront-outline"
+                onPress={() => openSellerShop(product.seller.id, rootNav)}
+                flex
+                compact={compact}
+              />
               <PremiumVaultButton
                 variant="secondary"
                 label="Message seller"
@@ -616,7 +624,14 @@ export function ProductDetailScreen({ navigation, route }: Props) {
 
           {recents.length ? (
             <>
-              <SectionTitle>More from this seller</SectionTitle>
+              <View style={styles.sectionHeadRow}>
+                <SectionTitle>More from this seller</SectionTitle>
+                <Pressable onPress={() => openSellerShop(product.seller.id, rootNav)} hitSlop={8}>
+                  <Text style={styles.sectionHeadLink} {...MARKETPLACE_TEXT_PROPS}>
+                    View shop
+                  </Text>
+                </Pressable>
+              </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.miniRail}>
                 {recents.map((p) => (
                   <Pressable
@@ -951,6 +966,19 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginTop: spacing.sm,
     marginBottom: -spacing.xs,
+  },
+  sectionHeadRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  sectionHeadLink: {
+    color: colors.gold,
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: spacing.xs,
   },
   proseCard: {
     padding: spacing.lg,

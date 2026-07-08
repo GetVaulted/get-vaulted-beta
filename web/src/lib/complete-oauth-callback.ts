@@ -2,6 +2,7 @@ import { getToken } from "next-auth/jwt";
 import type { NextRequest, NextResponse } from "next/server";
 import { authorizeSupabaseAccessToken } from "@/lib/authorize-supabase-access-token";
 import { attachNextAuthSessionCookies } from "@/lib/next-auth-session-cookie";
+import { prisma } from "@/lib/prisma";
 import {
   clearOAuthReturnToCookie,
   createSupabaseRouteHandlerAuthClient,
@@ -36,6 +37,11 @@ async function redirectIfNextAuthSessionExists(
   return redirectWithForwardedHost(request, returnTo);
 }
 
+function profileSetupReturnTo(returnTo: string): string {
+  const params = new URLSearchParams({ returnTo });
+  return `/complete-profile?${params.toString()}`;
+}
+
 async function finishOAuthLogin(
   request: NextRequest,
   auth: RouteHandlerClient,
@@ -45,7 +51,13 @@ async function finishOAuthLogin(
   const user = await authorizeSupabaseAccessToken(accessToken);
   if (!user) return null;
 
-  const response = auth.applyCookies(redirectWithForwardedHost(request, returnTo));
+  const row = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { usernameChosenAt: true },
+  });
+  const dest = row?.usernameChosenAt == null ? profileSetupReturnTo(returnTo) : returnTo;
+
+  const response = auth.applyCookies(redirectWithForwardedHost(request, dest));
   clearOAuthReturnToCookie(response);
   await attachNextAuthSessionCookies(response, user);
   return response;

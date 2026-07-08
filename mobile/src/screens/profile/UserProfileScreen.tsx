@@ -10,16 +10,15 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fetchListingsBySeller } from '../../api/listingsFeedRepository';
 import { fetchLiveShowsByHostId } from '../../api/liveShowsDiscoveryRepository';
 import { fetchProfileById } from '../../api/profilesRepository';
 import { fetchCompletedTradesForUser } from '../../api/tradeOffersRepository';
 import { fetchSellerFollowStatus, fetchAccountFollows, toggleSellerFollow } from '../../api/sellerFollowRepository';
 import { useAuth } from '../../auth/AuthContext';
 import { PlatformFlowHeader } from '../../components/platform/PlatformFlowHeader';
+import { ProfileSellerShopPanel } from '../../components/profile/ProfileSellerShopPanel';
 import { ReportSheet } from '../../components/trust/ReportSheet';
 import { UserAvatar } from '../../components/ui/UserAvatar';
-import { VaultImage } from '../../components/ui/VaultImage';
 import { openDispute, openFollowersFollowing } from '../../navigation/openPlatform';
 import { openMessageUser } from '../../navigation/openMessages';
 import type { RootStackParamList } from '../../navigation/types';
@@ -32,12 +31,18 @@ import {
 import type { TrustProfile } from '../../platform/trustTypes';
 import type { ProfileLite } from '../../types/tradeOffers';
 import type { TradeOfferVM } from '../../types/tradeOffers';
-import type { LiveStream, Product, ScheduledStream } from '../../types';
+import type { LiveStream, ScheduledStream } from '../../types';
 import { colors, radii, spacing } from '../../theme';
 
-type Tab = 'listings' | 'live' | 'trades' | 'reviews' | 'about';
+type Tab = 'shop' | 'live' | 'trades' | 'reviews' | 'about';
 
-const TABS: Tab[] = ['listings', 'live', 'trades', 'reviews', 'about'];
+const TABS: Tab[] = ['shop', 'live', 'trades', 'reviews', 'about'];
+
+function tabLabel(t: Tab): string {
+  if (t === 'live') return 'Live shows';
+  if (t === 'shop') return 'Shop';
+  return t;
+}
 
 type Props = NativeStackScreenProps<RootStackParamList, 'UserProfile'>;
 
@@ -54,13 +59,12 @@ export function UserProfileScreen({ navigation, route }: Props) {
   const [reviewCount, setReviewCount] = useState(0);
   const [avgRating, setAvgRating] = useState(0);
   const [reviews, setReviews] = useState<Awaited<ReturnType<typeof listReviewsForUser>>>([]);
-  const [listings, setListings] = useState<Product[]>([]);
   const [liveNow, setLiveNow] = useState<LiveStream[]>([]);
   const [upcomingShows, setUpcomingShows] = useState<ScheduledStream[]>([]);
   const [pastShows, setPastShows] = useState<LiveStream[]>([]);
   const [completedTrades, setCompletedTrades] = useState<TradeOfferVM[]>([]);
   const [trust, setTrust] = useState<TrustProfile | null>(null);
-  const [tab, setTab] = useState<Tab>('listings');
+  const [tab, setTab] = useState<Tab>('shop');
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -74,11 +78,10 @@ export function UserProfileScreen({ navigation, route }: Props) {
     }
     const p = await fetchProfileById(userId);
     setProfile(p);
-    const [followStatus, stats, revs, listed, shows, trades] = await Promise.all([
+    const [followStatus, stats, revs, shows, trades] = await Promise.all([
       fetchSellerFollowStatus(userId, session?.access_token),
       reviewStatsForUser(userId),
       listReviewsForUser(userId),
-      fetchListingsBySeller({ sellerId: userId, limit: 12 }),
       fetchLiveShowsByHostId(userId),
       fetchCompletedTradesForUser(userId),
     ]);
@@ -99,7 +102,6 @@ export function UserProfileScreen({ navigation, route }: Props) {
     setReviewCount(stats.count);
     setAvgRating(stats.average);
     setReviews(revs);
-    setListings(listed);
     setLiveNow(shows.live);
     setUpcomingShows(shows.scheduled);
     setPastShows(shows.ended);
@@ -267,39 +269,16 @@ export function UserProfileScreen({ navigation, route }: Props) {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
           {TABS.map((t) => (
             <Pressable key={t} onPress={() => setTab(t)} style={[styles.tab, tab === t && styles.tabOn]}>
-              <Text style={[styles.tabTxt, tab === t && styles.tabTxtOn]}>
-                {t === 'live' ? 'Live shows' : t}
-              </Text>
+              <Text style={[styles.tabTxt, tab === t && styles.tabTxtOn]}>{tabLabel(t)}</Text>
             </Pressable>
           ))}
         </ScrollView>
 
-        {tab === 'listings' ? (
-          listings.length ? (
-            <View style={styles.grid}>
-              {listings.map((p) => (
-                <Pressable
-                  key={p.id}
-                  style={styles.card}
-                  onPress={() => navigation.navigate('ProductDetail', { productId: p.id })}
-                >
-                  <VaultImage
-                    uri={p.imageUrl}
-                    width={LISTING_THUMB}
-                    height={LISTING_THUMB}
-                    borderRadius={radii.sm}
-                    priority="low"
-                  />
-                  <Text style={styles.cardTitle} numberOfLines={2}>
-                    {p.title}
-                  </Text>
-                  <Text style={styles.cardPrice}>{p.listingPrice}</Text>
-                </Pressable>
-              ))}
-            </View>
-          ) : (
-            <Text style={styles.muted}>No marketplace listings yet.</Text>
-          )
+        {tab === 'shop' ? (
+          <ProfileSellerShopPanel
+            sellerId={userId}
+            onPressProduct={(productId) => navigation.navigate('ProductDetail', { productId })}
+          />
         ) : null}
 
         {tab === 'live' ? (
@@ -424,8 +403,6 @@ function Stat({
   return <View style={styles.stat}>{content}</View>;
 }
 
-const LISTING_THUMB = 120;
-
 const styles = StyleSheet.create({
   screen: { flex: 1, paddingHorizontal: spacing.lg },
   scroll: { paddingBottom: spacing.xxxl, gap: spacing.md },
@@ -501,19 +478,6 @@ const styles = StyleSheet.create({
   tabOn: { borderColor: colors.gold, backgroundColor: 'rgba(212,175,55,0.1)' },
   tabTxt: { fontSize: 12, fontWeight: '700', color: colors.textMuted, textTransform: 'capitalize' },
   tabTxtOn: { color: colors.gold },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  card: {
-    width: '48%',
-    padding: spacing.sm,
-    borderRadius: radii.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceElevated,
-    gap: spacing.sm,
-    overflow: 'hidden',
-  },
-  cardTitle: { fontSize: 13, fontWeight: '700', color: colors.textPrimary },
-  cardPrice: { fontSize: 12, color: colors.gold, fontWeight: '800' },
   review: {
     padding: spacing.md,
     borderRadius: radii.md,

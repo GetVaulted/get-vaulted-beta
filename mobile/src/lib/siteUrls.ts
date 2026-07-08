@@ -11,6 +11,8 @@ export const siteUrls = {
   termsSellerObligations: () => `${getSiteBaseUrl()}/terms#seller-obligations`,
   communityGuidelines: () => `${getSiteBaseUrl()}/community-guidelines`,
   reportingSafety: () => `${getSiteBaseUrl()}/reporting-safety`,
+  accountDeletion: () => `${getSiteBaseUrl()}/account-deletion`,
+  prohibitedItems: () => `${getSiteBaseUrl()}/prohibited-items`,
   support: () => `${getSiteBaseUrl()}/support`,
   home: () => `${getSiteBaseUrl()}/`,
 };

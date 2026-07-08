@@ -5,6 +5,12 @@ import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 
 import { formatMarketplaceUsd } from '../lib/formatMarketplaceUsd';
 
+function stripInventoryMarker(text: string | undefined): string | undefined {
+  const trimmed = text?.trim();
+  if (!trimmed) return undefined;
+  return trimmed.replace(/\n?<!--gv-inventory:(marketplace|live_show)-->/g, '').trimEnd() || undefined;
+}
+
 // "Vault verified" implies Get Vaulted has verified the seller — it must reflect the seller's
 // real, backend-computed trust tier (payout history / instant-payout eligibility), never the
 // seller-settable `vaultPick` editorial/featured flag (legal/compliance audit 2026-07).
@@ -52,8 +58,8 @@ export function mapWebMarketplaceListingToProduct(listing: WebMarketplaceListing
     imageGradient: ['#06080c', '#10141c'] as [string, string],
     imageUrl,
     imageUrls: imageUrls.length ? imageUrls : undefined,
-    description: listing.longDescription?.trim() || undefined,
-    storyline: listing.longDescription?.slice(0, 120) || undefined,
+    description: stripInventoryMarker(listing.longDescription),
+    storyline: stripInventoryMarker(listing.longDescription)?.slice(0, 120) || undefined,
     vaultVerified: isVerifiedSellerLevel(listing.sellerLevel),
     listingPrice: priceLabel,
     conditionGrade: listing.condition || undefined,
