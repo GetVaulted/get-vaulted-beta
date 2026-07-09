@@ -317,7 +317,37 @@ export function SellerSetupWizard() {
       toast("Accept the seller agreement to continue.");
       return;
     }
-    await persistSellerWizardComplete(true);
+    let checks = readiness?.checks ?? null;
+    if (!isRequiredSellerSetupComplete(checks)) {
+      try {
+        await fetch("/api/account/seller/stripe-status", { cache: "no-store", credentials: "same-origin" });
+        const res = await fetch("/api/account/seller", { credentials: "same-origin", cache: "no-store" });
+        if (res.ok) {
+          const j = (await res.json()) as { readiness?: LiveReadiness };
+          if (j.readiness) {
+            setReadiness(j.readiness);
+            checks = j.readiness.checks;
+          }
+        }
+      } catch {
+        /* fall through to validation */
+      }
+    }
+    if (!isRequiredSellerSetupComplete(checks)) {
+      toast("Finish payout and shipping setup before completing seller onboarding.");
+      setStep(
+        resolveSellerWizardStep({
+          checks,
+          wizardComplete: false,
+        }),
+      );
+      return;
+    }
+    const result = await persistSellerWizardComplete(true);
+    if (!result.ok) {
+      toast(result.error);
+      return;
+    }
     setStep(5);
   };
 

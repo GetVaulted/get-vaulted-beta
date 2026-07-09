@@ -33,18 +33,27 @@ export function markSellerWizardComplete(): void {
   window.dispatchEvent(new Event(SELLER_WIZARD_COMPLETE_EVENT));
 }
 
-/** Local session flag + server persistence for cross-platform HQ unlock. */
-export async function persistSellerWizardComplete(sellerAgreementAccepted: boolean): Promise<void> {
-  markSellerWizardComplete();
+export type PersistSellerWizardCompleteResult = { ok: true } | { ok: false; error: string };
+
+/** Session flag + server persistence for cross-platform HQ unlock. */
+export async function persistSellerWizardComplete(
+  sellerAgreementAccepted: boolean,
+): Promise<PersistSellerWizardCompleteResult> {
   try {
-    await fetch("/api/account/seller/wizard-complete", {
+    const res = await fetch("/api/account/seller/wizard-complete", {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sellerAgreementAccepted }),
     });
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) {
+      return { ok: false, error: body.error ?? "Could not save seller setup completion." };
+    }
+    markSellerWizardComplete();
+    return { ok: true };
   } catch {
-    /* local flag still unlocks this browser session */
+    return { ok: false, error: "Could not reach the server. Check your connection and try again." };
   }
 }
 

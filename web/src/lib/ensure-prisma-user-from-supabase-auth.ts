@@ -6,6 +6,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { pickPrismaUserIdForSupabaseSession } from "@/lib/pick-prisma-user-for-supabase-auth";
 import { attributeReferralOnSignup } from "@/lib/referral-credit";
+import { allocateUniqueReferralCode } from "@/lib/referral-code";
 import { syncPrismaEmailVerifiedFromSupabase } from "@/lib/sync-prisma-email-verified";
 import { isUsernameTakenCaseInsensitive } from "@/lib/username-db";
 import { evaluateUsernamePolicy, normalizeUsernameForStorage } from "@/lib/username-policy";
@@ -109,6 +110,7 @@ export async function ensurePrismaUserForSupabaseAuth(supabaseUser: SupabaseAuth
     : new Date();
 
   try {
+    const ownReferralCode = await allocateUniqueReferralCode();
     const created = await prisma.user.create({
       data: {
         id: supabaseUser.id,
@@ -117,6 +119,7 @@ export async function ensurePrismaUserForSupabaseAuth(supabaseUser: SupabaseAuth
         usernameChosenAt,
         name: display,
         emailVerified: emailVerifiedAt,
+        referralCode: ownReferralCode,
       },
     });
     const referralCode = typeof meta?.referral_code === "string" ? meta.referral_code : null;

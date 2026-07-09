@@ -78,8 +78,8 @@ export function SignupForm() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   // Referral attribution is one-time and immutable, so we only ever read this once from the
-  // link (`?ref=<referrer_username>`) — never re-derive it from a later re-render.
-  const [referralCode] = useState(() => searchParams.get("ref")?.trim().slice(0, 20) ?? "");
+  // link (`?ref=<code>`) — never re-derive it from a later re-render.
+  const [referralCode] = useState(() => searchParams.get("ref")?.trim().slice(0, 32) ?? "");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -433,7 +433,7 @@ export function SignupForm() {
       {error ? <p className="text-xs font-medium text-rose-300">{error}</p> : null}
       {referralCode ? (
         <p className="rounded-lg border border-gold/20 bg-gold/5 px-3 py-2 text-xs font-medium text-gold-bright">
-          Referred by @{referralCode} — you&apos;ll both get referral credit after your first order.
+          Referred by a friend — you&apos;ll both get referral credit after your first order.
         </p>
       ) : null}
       <div className="flex flex-col gap-1.5">

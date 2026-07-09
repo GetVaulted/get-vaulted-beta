@@ -45,7 +45,7 @@ export function CompleteProfileForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = safeReturnTo(searchParams.get("returnTo"));
-  const initialRef = searchParams.get("ref")?.trim().slice(0, 20) ?? "";
+  const initialRef = searchParams.get("ref")?.trim().slice(0, 32) ?? "";
 
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");

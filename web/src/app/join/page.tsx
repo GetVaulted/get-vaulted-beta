@@ -10,10 +10,10 @@ export default async function JoinPage({
   const normalized = safeReturnTo(typeof sp.returnTo === "string" ? sp.returnTo : null);
   const params = new URLSearchParams();
   if (normalized !== "/marketplace") params.set("returnTo", normalized);
-  // Referral link (`/join?ref=<username>`) — forwarded so `SignupForm` can attribute the new
+  // Referral link (`/join?ref=<code>`) — forwarded so `SignupForm` can attribute the new
   // account to the referrer. Mobile handles the same `/join?ref=...` URL as a universal link
   // straight into `AuthSignUp` (see `linkingConfig.ts`) without ever hitting this redirect.
-  if (typeof sp.ref === "string" && sp.ref.trim()) params.set("ref", sp.ref.trim().slice(0, 20));
+  if (typeof sp.ref === "string" && sp.ref.trim()) params.set("ref", sp.ref.trim().slice(0, 32));
   const qs = params.toString();
   redirect(`/signup${qs ? `?${qs}` : ""}`);
 }

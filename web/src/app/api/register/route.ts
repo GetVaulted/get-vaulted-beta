@@ -13,6 +13,7 @@ import { isBetaDeployment, isWebSignupResendConfigured } from "@/lib/is-beta-dep
 import { registerAccountViaSupabaseAuth } from "@/lib/register-via-supabase-auth";
 import { validateUsernameForRegistration } from "@/lib/register-validate-username";
 import { checkRateLimit } from "@/lib/request-rate-limit";
+import { allocateUniqueReferralCode, normalizeReferralCodeInput } from "@/lib/referral-code";
 import { sendSignupVerificationEmail } from "@/lib/send-verification-email";
 
 function redactConnectionStrings(message: string): string {
@@ -55,7 +56,7 @@ export async function POST(req: Request) {
     typeof body === "object" && body && "password" in body ? String((body as { password: unknown }).password) : "";
   const referralCode =
     typeof body === "object" && body && "referralCode" in body
-      ? String((body as { referralCode: unknown }).referralCode).trim().slice(0, 20)
+      ? normalizeReferralCodeInput(String((body as { referralCode: unknown }).referralCode))
       : "";
 
   if (!email || !email.includes("@")) {
@@ -131,6 +132,7 @@ export async function POST(req: Request) {
 
     let userId: string;
     try {
+      const ownReferralCode = await allocateUniqueReferralCode();
       const user = await prisma.user.create({
         data: {
           email,
@@ -138,6 +140,7 @@ export async function POST(req: Request) {
           name: usernameResult.normalized,
           passwordHash,
           emailVerified: null,
+          referralCode: ownReferralCode,
           emailVerificationCodes: {
             create: { codeHash, expiresAt },
           },

@@ -11,6 +11,7 @@ import {
   sellerSetupMenuHref,
   sellerSetupMenuLabel,
 } from "@/lib/seller-setup-state";
+import { buildSupportContactHref } from "@/lib/support-contact";
 
 export type NavMenuUser = {
   username: string;
@@ -92,7 +93,7 @@ function buildSections(
       label: "Settings",
       icon: <GearIcon />,
     },
-    { href: "mailto:support@shopgetvaulted.com", label: "Support", icon: <HelpIcon /> },
+    { href: buildSupportContactHref(), label: "Support", icon: <HelpIcon /> },
   ];
 
   return {
@@ -286,12 +287,17 @@ export function NavbarAccountMenu({
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const liveMarketplaceEnabled = useLiveMarketplaceEnabled();
-  const { phase: setupPhase } = useSellerSetupState(true);
+  const { phase: setupPhase, refetch: refetchSellerSetup } = useSellerSetupState(true);
 
   const { sections, bottomItems } = useMemo(
     () => buildSections(setupPhase, liveMarketplaceEnabled),
     [setupPhase, liveMarketplaceEnabled],
   );
+
+  useEffect(() => {
+    if (!open || variant !== "dropdown") return;
+    void refetchSellerSetup();
+  }, [open, variant, refetchSellerSetup]);
 
   useEffect(() => {
     if (!open || variant !== "dropdown") return;

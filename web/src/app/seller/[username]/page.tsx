@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MarketplaceBrowseCard } from "@/components/marketplace/MarketplaceBrowseCard";
 import { SellerProfileActions } from "@/components/seller/SellerProfileActions";
+import { SellerProfileStatsBar } from "@/components/seller/SellerProfileStatsBar";
 import { getServerSessionSafe } from "@/lib/auth";
 import { auctionBidCountsByListingIds } from "@/lib/listing-bid-counts";
 import { dbListingToMarketplace } from "@/lib/listing-mapper";
@@ -68,7 +69,16 @@ export default async function SellerShopPage({
 
   const user = await prisma.user.findUnique({
     where: { username },
-    select: { id: true, username: true, name: true, image: true, emailVerified: true, email: true },
+    select: {
+      id: true,
+      username: true,
+      name: true,
+      image: true,
+      emailVerified: true,
+      email: true,
+      sellerLevel: true,
+      createdAt: true,
+    },
   });
   if (!user) notFound();
   const isOwnShop = session?.user?.id === user.id;
@@ -77,15 +87,16 @@ export default async function SellerShopPage({
 
   const basePath = sellerProfilePath(user.username);
 
-  const [activeListingsCount, soldListingsCount, auctionsLiveCount, salesOrderCount, followerCount, rows] =
+  const [activeListingsCount, soldListingsCount, auctionsLiveCount, salesOrderCount, followerCount, followingCount, rows] =
     await Promise.all([
     prisma.listing.count({
       where: { sellerId: user.id, status: { in: ["active", "auction_live"] }, moderationRemovedAt: null },
     }),
     prisma.listing.count({ where: { sellerId: user.id, status: "sold" } }),
     prisma.listing.count({ where: { sellerId: user.id, status: "auction_live" } }),
-    prisma.order.count({ where: { sellerId: user.id } }),
+    prisma.order.count({ where: { sellerId: user.id, paymentStatus: "paid" } }),
     prisma.sellerFollow.count({ where: { sellerId: user.id } }),
+    prisma.sellerFollow.count({ where: { followerId: user.id } }),
     prisma.listing.findMany({
       where: sellerShopListingWhere(user.id, tab),
       include: listingInclude,
@@ -147,7 +158,7 @@ export default async function SellerShopPage({
                 @{user.username}
               </h1>
               {user.name ? <p className="mt-1 text-sm text-zinc-400">{user.name}</p> : null}
-              <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm">
+              <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm">
                 <span className="text-[11px] font-medium text-zinc-500">{credibility}</span>
                 {verified ? (
                   <span className="inline-flex items-center rounded border border-sky-400/30 bg-sky-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-200">
@@ -155,6 +166,17 @@ export default async function SellerShopPage({
                   </span>
                 ) : null}
               </div>
+              <SellerProfileStatsBar
+                stats={{
+                  followerCount,
+                  followingCount,
+                  salesOrderCount,
+                  activeListingsCount,
+                  sellerLevel: user.sellerLevel,
+                  memberSince: user.createdAt,
+                  isOwnShop,
+                }}
+              />
             </div>
           </div>
           <SellerProfileActions
@@ -169,7 +191,7 @@ export default async function SellerShopPage({
           />
         </header>
 
-        <section className="mt-8 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:gap-3" aria-label="Seller stats">
+        <section className="mt-8 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:gap-3" aria-label="Shop inventory">
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-3">
             <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Active listings</p>
             <p className="mt-1 font-mono text-xl font-black tabular-nums text-gold-bright">{activeListingsCount}</p>
@@ -181,13 +203,6 @@ export default async function SellerShopPage({
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-3">
             <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Auctions live</p>
             <p className="mt-1 font-mono text-xl font-black tabular-nums text-rose-100/95">{auctionsLiveCount}</p>
-          </div>
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-3">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Followers</p>
-            <p className="mt-1 font-mono text-xl font-black tabular-nums text-zinc-100">{followerCount}</p>
-            <p className="mt-0.5 text-[9px] text-zinc-600">
-              {session?.user?.id === user.id ? "Your followers" : "Shop followers"}
-            </p>
           </div>
         </section>
 

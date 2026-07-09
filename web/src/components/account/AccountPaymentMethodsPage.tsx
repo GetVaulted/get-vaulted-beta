@@ -8,7 +8,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
 import { AccountWalletShippingSection } from "@/components/account/AccountWalletShippingSection";
 import { BuyerWalletReadinessBanner } from "@/components/account/BuyerWalletReadinessBanner";
-import { WALLET_METHOD_CATALOG, walletMethodEligibilityLabel } from "@/lib/stripe-payment-method-config";
 
 type PmRow = { id: string; brand: string; last4: string; expMonth: number; expYear: number };
 
@@ -354,8 +353,7 @@ export function AccountPaymentMethodsPage() {
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Account</p>
           <h1 className="font-display mt-1 text-2xl font-black tracking-tight text-foreground">Wallet</h1>
           <p className="mt-1 max-w-2xl text-sm text-zinc-500">
-            Saved payment methods and shipping addresses for live shows, auction wins, and checkout. Cards are stored
-            with Stripe; addresses stay on your Vaulted profile.
+            Add a card and shipping address once — used for live shows, auction wins, and checkout.
           </p>
           <div className="mt-4">
             <AccountOrdersNav active="payments" />
@@ -430,49 +428,6 @@ export function AccountPaymentMethodsPage() {
           ) : null}
         </section>
 
-        <section className="mt-10 space-y-3" aria-label="Accepted payment methods">
-          <h2 className="font-display text-lg font-bold text-foreground">Payment methods</h2>
-          <p className="text-xs text-zinc-500">
-            Saved methods charge instantly for live wins. Marketplace checkout may also offer payment plans when
-            Stripe says you are eligible.
-          </p>
-          <ul className="space-y-2">
-            {WALLET_METHOD_CATALOG.filter((e) => e.savableInWallet).map((entry) => (
-              <li
-                key={entry.id}
-                className="rounded-xl border border-white/[0.08] bg-[#08080a]/90 px-4 py-3"
-              >
-                <p className="text-sm font-semibold text-zinc-100">{entry.label}</p>
-                <p className="text-[11px] text-zinc-500">{walletMethodEligibilityLabel(entry)}</p>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section className="mt-8 space-y-3" aria-label="Marketplace payment plans">
-          <h2 className="font-display text-lg font-bold text-foreground">Marketplace payment plans</h2>
-          <p className="text-xs text-zinc-500">Available for Marketplace checkout only — not live auctions or trades.</p>
-          <ul className="space-y-2">
-            {WALLET_METHOD_CATALOG.filter((e) => !e.savableInWallet).map((entry) => (
-              <li
-                key={entry.id}
-                className="rounded-xl border border-white/[0.08] bg-[#08080a]/90 px-4 py-3"
-              >
-                <p className="text-sm font-semibold text-zinc-100">{entry.label}</p>
-                <p className="text-[11px] text-zinc-500">{walletMethodEligibilityLabel(entry)}</p>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section className="mt-8 rounded-xl border border-white/[0.08] bg-[#08080a]/90 px-4 py-3" aria-label="Payout method">
-          <p className="text-sm font-semibold text-zinc-100">Payout method</p>
-          <p className="mt-1 text-[11px] text-zinc-500">
-            Seller payouts use Stripe Connect bank accounts — separate from buyer payment methods. Manage payouts in
-            Seller Hub.
-          </p>
-        </section>
-
         {formOpen && stripeConfigured ? (
           <section className="mt-10 rounded-2xl border border-white/[0.1] bg-[#0c0c10] p-5 sm:p-6" aria-label="Add card">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -505,7 +460,12 @@ export function AccountPaymentMethodsPage() {
 
         {status === "authenticated" ? <AccountWalletShippingSection /> : null}
 
-        <p className="mt-10 text-center text-xs text-zinc-600">
+        <p className="mt-10 text-[11px] leading-relaxed text-zinc-600">
+          Checkout supports card, Apple Pay, Google Pay, Link, and more. Affirm and Afterpay may appear on eligible
+          marketplace orders. Seller payouts are managed separately in Seller HQ.
+        </p>
+
+        <p className="mt-6 text-center text-xs text-zinc-600">
           Signed in as <span className="text-zinc-400">{session?.user?.email}</span>
         </p>
       </div>

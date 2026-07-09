@@ -66,20 +66,32 @@ export function useSellerSetupState(enabled: boolean) {
     setPhase("loading");
     const localWizard = readSellerWizardComplete();
     try {
-      const res = await fetch("/api/account/seller", { credentials: "same-origin", cache: "no-store" });
+      let res = await fetch("/api/account/seller", { credentials: "same-origin", cache: "no-store" });
       if (!res.ok) {
         applyPhase(DEFAULT_CHECKS, localWizard, false);
         return;
       }
-      const payload = (await res.json()) as {
+      let payload = (await res.json()) as {
         setupWizardComplete?: boolean;
         readiness?: { checks?: SellerReadinessChecks; canGoLive?: boolean };
       };
+      let nextChecks = payload.readiness?.checks ?? DEFAULT_CHECKS;
+      if (nextChecks.hasStripeAccount && !nextChecks.stripeChargesEnabled) {
+        try {
+          await fetch("/api/account/seller/stripe-status", { credentials: "same-origin", cache: "no-store" });
+          res = await fetch("/api/account/seller", { credentials: "same-origin", cache: "no-store" });
+          if (res.ok) {
+            payload = (await res.json()) as typeof payload;
+            nextChecks = payload.readiness?.checks ?? nextChecks;
+          }
+        } catch {
+          /* keep first payload */
+        }
+      }
       const serverWizard = payload.setupWizardComplete === true;
       if (serverWizard && !localWizard) markSellerWizardComplete();
       const wizardDone = serverWizard || localWizard;
       setWizardComplete(wizardDone);
-      const nextChecks = payload.readiness?.checks ?? DEFAULT_CHECKS;
       applyPhase(nextChecks, wizardDone, Boolean(payload.readiness?.canGoLive));
     } catch {
       applyPhase(DEFAULT_CHECKS, localWizard, false);

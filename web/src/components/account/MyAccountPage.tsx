@@ -15,6 +15,7 @@ import {
   SELLER_SETUP_PATH,
   sellerSetupMenuLabel,
 } from "@/lib/seller-setup-state";
+import { buildSupportContactHref } from "@/lib/support-contact";
 
 type HubTile = {
   href: string;
@@ -237,9 +238,9 @@ export function MyAccountPage() {
 
         <p className="mt-10 text-center text-xs text-zinc-600">
           Need help?{" "}
-          <a href="mailto:support@shopgetvaulted.com" className="font-semibold text-zinc-400 hover:text-gold-bright">
+          <Link href={buildSupportContactHref()} className="font-semibold text-zinc-400 hover:text-gold-bright">
             Contact support
-          </a>
+          </Link>
         </p>
       </div>
     </main>

@@ -28,7 +28,7 @@ type AuthCtx = {
     email: string;
     password: string;
     username: string;
-    /** `?ref=<referrer_username>` from a shared referral link, or a manually-entered referral username. */
+    /** `?ref=<referralCode>` from a shared referral link, or a manually-entered referral code. */
     referralCode?: string;
   }) => Promise<{
     needsEmailConfirmation: boolean;
@@ -124,7 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!sb || !isSupabaseConfigured()) throw new Error('Supabase is not configured.');
         const username = params.username.trim().toLowerCase();
         const displayName = username;
-        const referralCode = params.referralCode?.trim().toLowerCase().slice(0, 20) || undefined;
+        const referralCode = params.referralCode?.trim().slice(0, 32) || undefined;
         return sb.auth.signUp({
           email: params.email.trim(),
           password: params.password,

@@ -2,9 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { HelpCenterBrowse } from "@/components/help/HelpCenterBrowse";
 import { CANONICAL_SHARE_SITE_FALLBACK } from "@/lib/live-room-share-metadata";
-
-const SUPPORT_EMAIL = "support@shopgetvaulted.com";
-const SUPPORT_MAILTO = `mailto:${SUPPORT_EMAIL}?subject=Get%20Vaulted%20Support%20Request`;
+import { buildSupportContactHref, SUPPORT_EMAIL, SUPPORT_TICKETS_PATH } from "@/lib/support-contact";
 
 export const metadata: Metadata = {
   title: "Help Center · Get Vaulted Support",
@@ -72,12 +70,18 @@ export default function SupportPage() {
             email, order/trade/show details if available, and a short description of the issue.
           </p>
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-            <a
-              href={SUPPORT_MAILTO}
+            <Link
+              href={buildSupportContactHref()}
               className="inline-flex min-h-11 items-center justify-center rounded-xl bg-gold px-5 py-3 text-sm font-bold text-black transition hover:bg-gold-bright"
             >
               Contact Support
-            </a>
+            </Link>
+            <Link
+              href={SUPPORT_TICKETS_PATH}
+              className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-semibold text-foreground transition hover:border-gold/30 hover:bg-white/[0.06]"
+            >
+              My tickets
+            </Link>
             <Link
               href="/community-guidelines"
               className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-semibold text-foreground transition hover:border-gold/30 hover:bg-white/[0.06]"

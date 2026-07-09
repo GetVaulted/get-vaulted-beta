@@ -4,9 +4,7 @@ import { notFound } from "next/navigation";
 import { HelpArticleBody } from "@/components/help/HelpArticleBody";
 import { CANONICAL_SHARE_SITE_FALLBACK } from "@/lib/live-room-share-metadata";
 import { getHelpArticle, HELP_SECTIONS } from "@/lib/help-center-articles";
-
-const SUPPORT_EMAIL = "support@shopgetvaulted.com";
-const SUPPORT_MAILTO = `mailto:${SUPPORT_EMAIL}?subject=Get%20Vaulted%20Support%20Request`;
+import { buildSupportContactHref, SUPPORT_EMAIL } from "@/lib/support-contact";
 
 type Props = { params: Promise<{ articleId: string }> };
 
@@ -68,12 +66,12 @@ export default async function SupportArticlePage({ params }: Props) {
             </a>{" "}
             with your account email and order or trade ID if this article did not resolve your issue.
           </p>
-          <a
-            href={SUPPORT_MAILTO}
+          <Link
+            href={buildSupportContactHref()}
             className="mt-4 inline-flex min-h-11 items-center justify-center rounded-xl bg-gold px-5 py-3 text-sm font-bold text-black transition hover:bg-gold-bright"
           >
             Contact Support
-          </a>
+          </Link>
         </section>
       </div>
     </main>

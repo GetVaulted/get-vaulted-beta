@@ -3,6 +3,7 @@ import { resolveAccountUserId } from "@/lib/resolve-account-auth";
 import { prisma } from "@/lib/prisma";
 import { validateAddressCreateInput, type AddressInput } from "@/lib/address-book";
 import { verifyAddressCreateData } from "@/lib/apply-address-verification";
+import { ensureBuyerShippingFromSellerShipFrom } from "@/lib/ensure-buyer-shipping-from-seller-ship-from";
 
 async function enrichShippingAddressForLabels<T extends { type: string; email: string | null }>(
   userId: string,
@@ -22,6 +23,7 @@ async function enrichShippingAddressForLabels<T extends { type: string; email: s
 export async function GET(req: Request) {
   const auth = await resolveAccountUserId(req);
   if (auth instanceof NextResponse) return auth;
+  await ensureBuyerShippingFromSellerShipFrom(auth.userId);
   const addresses = await prisma.address.findMany({
     where: { userId: auth.userId },
     orderBy: [{ type: "asc" }, { isDefault: "desc" }, { createdAt: "desc" }],

@@ -1,5 +1,6 @@
 import { getSupabaseAuthServerClient } from "@/lib/authenticate-supabase-credentials";
 import { ensurePrismaUserForSupabaseAuth } from "@/lib/ensure-prisma-user-from-supabase-auth";
+import { normalizeReferralCodeInput } from "@/lib/referral-code";
 import { prisma } from "@/lib/prisma";
 
 export type SupabaseRegisterResult =
@@ -26,7 +27,7 @@ export async function registerAccountViaSupabaseAuth(params: {
   email: string;
   password: string;
   username: string;
-  /** `?ref=<referrer_username>` from a signup link, or a manually-entered referral username. */
+  /** `?ref=<referralCode>` from a signup link, or a manually-entered referral code. */
   referralCode?: string;
 }): Promise<SupabaseRegisterResult> {
   const sb = getSupabaseAuthServerClient();
@@ -50,7 +51,7 @@ export async function registerAccountViaSupabaseAuth(params: {
     };
   }
 
-  const referralCode = params.referralCode?.trim().toLowerCase().slice(0, 20) || undefined;
+  const referralCode = normalizeReferralCodeInput(params.referralCode) || undefined;
 
   const { data, error } = await sb.auth.signUp({
     email,

@@ -6,6 +6,7 @@ import { serializePrismaClientError } from "@/lib/prisma-client-error-serialize"
 import { isQaSessionDebugAllowed } from "@/lib/qa-session-debug-allowed";
 import { prisma } from "@/lib/prisma";
 import { SELLER_SHIP_FROM_COUNTRY } from "@/lib/seller-shipping-readiness";
+import { ensureBuyerShippingFromSellerShipFrom } from "@/lib/ensure-buyer-shipping-from-seller-ship-from";
 import { normalizeUsStateCode } from "@/lib/us-state-code";
 import { verifyAddressForShipping } from "@/lib/shippo-address-validation";
 import { normalizePhoneForShippo } from "@/lib/shippo-label-contacts";
@@ -275,6 +276,8 @@ export async function PATCH(req: Request) {
       defaultShipFromAddressId: defaultAddress.id,
     },
   });
+
+  await ensureBuyerShippingFromSellerShipFrom(userId);
 
   const user = await prisma.user.findUnique({
     where: { id: userId },

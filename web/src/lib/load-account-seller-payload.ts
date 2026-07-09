@@ -2,6 +2,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { sellerPrimaryNextAction } from "@/lib/seller-fulfillment-next-action";
 import { serializePrismaClientError } from "@/lib/prisma-client-error-serialize";
 import { prisma } from "@/lib/prisma";
+import { isRequiredSellerSetupComplete } from "@/lib/seller-setup-state";
 import { isStripeConfigured } from "@/lib/stripe";
 import { getSellerLiveReadiness } from "@/services/seller/live-show-readiness";
 import type { LiveShowReadiness } from "@/lib/live-show-readiness-types";
@@ -348,10 +349,34 @@ export async function loadAccountSellerPayload(userId: string, opts?: { provisio
   const liveRoom = liveRoomR.value;
   const { defaultShipFromAddress, ...sellerUser } = user;
 
+  let setupWizardComplete = Boolean(user.sellerSetupWizardCompletedAt);
+  let sellerSetupWizardCompletedAt = user.sellerSetupWizardCompletedAt?.toISOString() ?? null;
+  let sellerAgreementAcceptedAt = user.sellerAgreementAcceptedAt?.toISOString() ?? null;
+
+  // Heal accounts that finished payout + shipping but never persisted wizard completion (e.g. Stripe sync lag).
+  if (!user.sellerSetupWizardCompletedAt && isRequiredSellerSetupComplete(readinessR.value.checks)) {
+    const now = new Date();
+    try {
+      const healed = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          sellerSetupWizardCompletedAt: now,
+          sellerAgreementAcceptedAt: user.sellerAgreementAcceptedAt ?? now,
+        },
+        select: { sellerSetupWizardCompletedAt: true, sellerAgreementAcceptedAt: true },
+      });
+      setupWizardComplete = true;
+      sellerSetupWizardCompletedAt = healed.sellerSetupWizardCompletedAt?.toISOString() ?? null;
+      sellerAgreementAcceptedAt = healed.sellerAgreementAcceptedAt?.toISOString() ?? null;
+    } catch (e) {
+      console.error("[loadAccountSellerPayload] seller wizard heal failed", e);
+    }
+  }
+
   return {
-    setupWizardComplete: Boolean(user.sellerSetupWizardCompletedAt),
-    sellerSetupWizardCompletedAt: user.sellerSetupWizardCompletedAt?.toISOString() ?? null,
-    sellerAgreementAcceptedAt: user.sellerAgreementAcceptedAt?.toISOString() ?? null,
+    setupWizardComplete,
+    sellerSetupWizardCompletedAt,
+    sellerAgreementAcceptedAt,
     seller: {
       ...sellerUser,
       shipFromPhone: defaultShipFromAddress?.phone ?? null,

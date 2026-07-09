@@ -543,11 +543,13 @@ model User {
   accountDeletedAt              DateTime?
   /// When the member last confirmed their public username (signup or profile setup). Used for the 60-day change lock.
   usernameChosenAt              DateTime?
-  /// Referral attribution — set once at account creation from a `?ref=<username>` signup link, never changed.
+  /// Referral attribution — set once at account creation from a `?ref=` signup link, never changed.
   referredById                  String?
   referredBy                    User?                       @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)
   referrals                     User[]                      @relation("UserReferrals")
   referredAt                    DateTime?
+  /// Unguessable share code for `/join?ref=...` (not the public username).
+  referralCode                  String?                     @unique
   defaultShipFromAddressId      String?
   defaultShipFromAddress        Address?                    @relation("UserDefaultShipFromAddress", fields: [defaultShipFromAddressId], references: [id], onDelete: SetNull)
   /// Trustap external user id (`1-…`) when this user participates in escrow as seller (or linked buyer).

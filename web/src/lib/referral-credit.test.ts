@@ -22,6 +22,17 @@ const prismaMock = vi.hoisted(() => ({
 
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
+const resolveReferrerMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/referral-code", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/referral-code")>();
+  return {
+    ...actual,
+    resolveReferrerIdFromReferralInput: resolveReferrerMock,
+    ensureUserReferralCode: vi.fn().mockResolvedValue("K7H3N9Q2MW"),
+  };
+});
+
 import {
   REFERRAL_CREDIT_AMOUNT_USD,
   REFERRAL_MIN_QUALIFYING_ORDER_USD,
@@ -36,6 +47,7 @@ import {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resolveReferrerMock.mockReset();
   prismaMock.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(prismaMock));
   prismaMock.referralCredit.create.mockResolvedValue(undefined);
   prismaMock.referralCredit.findFirst.mockResolvedValue(null);
@@ -48,13 +60,10 @@ beforeEach(() => {
 });
 
 describe("attributeReferralOnSignup", () => {
-  it("attributes a new account to the referrer resolved from the username code", async () => {
-    prismaMock.user.findUnique.mockResolvedValue({ id: "referrer_1" });
-    await attributeReferralOnSignup("new_user_1", "SomeUsername");
-    expect(prismaMock.user.findUnique).toHaveBeenCalledWith({
-      where: { username: "someusername" },
-      select: { id: true },
-    });
+  it("attributes a new account to the referrer resolved from the referral input", async () => {
+    resolveReferrerMock.mockResolvedValue("referrer_1");
+    await attributeReferralOnSignup("new_user_1", "K7H3N9Q2MW");
+    expect(resolveReferrerMock).toHaveBeenCalledWith("K7H3N9Q2MW");
     expect(prismaMock.user.updateMany).toHaveBeenCalledWith({
       where: { id: "new_user_1", referredById: null },
       data: { referredById: "referrer_1", referredAt: expect.any(Date) },
@@ -62,25 +71,26 @@ describe("attributeReferralOnSignup", () => {
   });
 
   it("does nothing when no code is provided", async () => {
+    resolveReferrerMock.mockResolvedValue(null);
     await attributeReferralOnSignup("new_user_1", null);
-    expect(prismaMock.user.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
   });
 
   it("does nothing when the code does not match any user", async () => {
-    prismaMock.user.findUnique.mockResolvedValue(null);
+    resolveReferrerMock.mockResolvedValue(null);
     await attributeReferralOnSignup("new_user_1", "nobody");
     expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
   });
 
   it("refuses to let a user refer themselves", async () => {
-    prismaMock.user.findUnique.mockResolvedValue({ id: "new_user_1" });
-    await attributeReferralOnSignup("new_user_1", "new_user_1");
+    resolveReferrerMock.mockResolvedValue("new_user_1");
+    await attributeReferralOnSignup("new_user_1", "K7H3N9Q2MW");
     expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
   });
 
   it("never throws — a referral attribution bug must not block signup", async () => {
-    prismaMock.user.findUnique.mockRejectedValue(new Error("db down"));
-    await expect(attributeReferralOnSignup("new_user_1", "someone")).resolves.toBeUndefined();
+    resolveReferrerMock.mockRejectedValue(new Error("db down"));
+    await expect(attributeReferralOnSignup("new_user_1", "K7H3N9Q2MW")).resolves.toBeUndefined();
   });
 });
 

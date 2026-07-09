@@ -236,7 +236,7 @@ export function CompleteProfileSetupScreen({ navigation, route }: Props) {
                 />
                 {referralCode.trim() ? (
                   <Text style={styles.usernameHintMuted}>
-                    You and @{referralCode.trim().toLowerCase()} will both get referral credit after your first order.
+                    Referred by a friend — you&apos;ll both get referral credit after your first order.
                   </Text>
                 ) : null}
               </>

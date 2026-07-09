@@ -1,6 +1,7 @@
 import { Prisma } from "@/generated/prisma/client";
 import { OrderPaymentMethod, ReferralCreditRole, ReferralCreditStatus } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
+import { ensureUserReferralCode, resolveReferrerIdFromReferralInput } from "@/lib/referral-code";
 import { ACTIVE_REFUND_REQUEST_STATUSES } from "@/lib/order-refund-eligibility";
 
 /**
@@ -21,8 +22,8 @@ import { ACTIVE_REFUND_REQUEST_STATUSES } from "@/lib/order-refund-eligibility";
  * - Guardrails v1: one referral attribution per account for life (immutable, set only at account
  *   creation or OAuth profile setup), plus a same-household self-referral heuristic (see `isLikelySelfReferral`).
  *
- * Referral codes are usernames. Usernames can be changed only under the 60-day / open-order policy
- * (`web/src/lib/username-change-policy.ts`), so attribution stays tied to signup-time username choice.
+ * Share links use each member's secret `User.referralCode` (not their public username). Legacy
+ * `?ref=<username>` links still resolve during transition (`web/src/lib/referral-code.ts`).
  */
 
 export const REFERRAL_CREDIT_AMOUNT_USD = 10;
@@ -77,7 +78,7 @@ async function isLikelySelfReferral(
 }
 
 /**
- * Attribute a brand-new account to a referrer from a `?ref=<username>` signup link. Only ever
+ * Attribute a brand-new account to a referrer from a `?ref=` signup link. Only ever
  * called once, immediately after the Prisma `User` row is created (mobile: `AuthSignUpScreen` →
  * Supabase metadata; web: `registerAccountViaSupabaseAuth`) — both funnel through
  * `ensurePrismaUserForSupabaseAuth`, which is the single place this is invoked from. The
@@ -87,14 +88,12 @@ export async function attributeReferralOnSignup(
   newUserId: string,
   rawReferralCode: string | null | undefined,
 ): Promise<void> {
-  const code = rawReferralCode?.trim().toLowerCase();
-  if (!code) return;
   try {
-    const referrer = await prisma.user.findUnique({ where: { username: code }, select: { id: true } });
-    if (!referrer || referrer.id === newUserId) return;
+    const referrerId = await resolveReferrerIdFromReferralInput(rawReferralCode);
+    if (!referrerId || referrerId === newUserId) return;
     await prisma.user.updateMany({
       where: { id: newUserId, referredById: null },
-      data: { referredById: referrer.id, referredAt: new Date() },
+      data: { referredById: referrerId, referredAt: new Date() },
     });
   } catch (e) {
     console.error("[referral-credit] attributeReferralOnSignup failed", { newUserId, error: e });
@@ -257,8 +256,8 @@ export type ReferralSummary = {
 export async function getUserReferralSummary(userId: string): Promise<ReferralSummary> {
   await releaseStaleReservations(userId);
   await promoteDueReferralCredits(userId);
-  const [user, availableAgg, pendingAgg, referralCount] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { username: true } }),
+  const [referralCode, availableAgg, pendingAgg, referralCount] = await Promise.all([
+    ensureUserReferralCode(userId),
     prisma.referralCredit.aggregate({
       where: { userId, status: ReferralCreditStatus.available },
       _sum: { amountUsd: true },
@@ -272,7 +271,7 @@ export async function getUserReferralSummary(userId: string): Promise<ReferralSu
     }),
   ]);
   return {
-    referralCode: user?.username ?? "",
+    referralCode,
     availableUsd: availableAgg._sum.amountUsd ?? 0,
     pendingUsd: pendingAgg._sum.amountUsd ?? 0,
     successfulReferrals: referralCount,

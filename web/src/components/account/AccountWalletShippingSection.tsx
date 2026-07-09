@@ -4,8 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import {
   buildShippingAddressPayload,
   formatAddressApiError,
-  validateShippingAddress,
-  type AddressValidateResponse,
 } from "@/lib/address-api-client";
 import { AddressAutocompleteFields } from "@/components/address/AddressAutocompleteFields";
 
@@ -30,7 +28,7 @@ export function AccountWalletShippingSection() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
-  const [name, setName] = useState("Shipping");
+  const [name, setName] = useState("Home");
   const [fullName, setFullName] = useState("");
   const [line1, setLine1] = useState("");
   const [line2, setLine2] = useState("");
@@ -40,9 +38,6 @@ export function AccountWalletShippingSection() {
   const [country, setCountry] = useState("US");
   const [phone, setPhone] = useState("");
   const [isDefault, setIsDefault] = useState(true);
-  const [verifyBusy, setVerifyBusy] = useState(false);
-  const [verifyNote, setVerifyNote] = useState<string | null>(null);
-  const [verifiedReady, setVerifiedReady] = useState(false);
 
   const formPayload = () =>
     buildShippingAddressPayload({
@@ -57,39 +52,6 @@ export function AccountWalletShippingSection() {
       phone,
       isDefault,
     });
-
-  const applySuggested = (suggested: NonNullable<AddressValidateResponse["suggested"]>) => {
-    setFullName(suggested.fullName);
-    setLine1(suggested.line1);
-    setLine2(suggested.line2 ?? "");
-    setCity(suggested.city);
-    setState(suggested.state);
-    setPostalCode(suggested.postalCode);
-    setCountry(suggested.country);
-  };
-
-  const verify = async () => {
-    setVerifyBusy(true);
-    setErr(null);
-    setVerifyNote(null);
-    setVerifiedReady(false);
-    try {
-      const result = await validateShippingAddress(formPayload());
-      if (result.suggested) applySuggested(result.suggested);
-      if (result.corrected) {
-        setVerifyNote("We updated your address to the carrier-verified format.");
-      } else if (result.skipped) {
-        setVerifyNote(result.message ?? "Address format looks complete.");
-      } else {
-        setVerifyNote("Address verified — ready to save.");
-      }
-      setVerifiedReady(true);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Address could not be verified.");
-    } finally {
-      setVerifyBusy(false);
-    }
-  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -128,16 +90,12 @@ export function AccountWalletShippingSection() {
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;
         messages?: string[];
-        corrected?: boolean;
       };
       if (!res.ok) {
         setErr(formatAddressApiError(j));
-        setVerifiedReady(false);
         return;
       }
       setFormOpen(false);
-      setVerifyNote(null);
-      setVerifiedReady(false);
       setFullName("");
       setLine1("");
       setLine2("");
@@ -154,10 +112,10 @@ export function AccountWalletShippingSection() {
   return (
     <section id="wallet-shipping" className="mt-12 space-y-4" aria-label="Shipping addresses">
       <div>
-        <h2 className="font-display text-lg font-bold text-foreground">Shipping addresses</h2>
+        <h2 className="font-display text-lg font-bold text-foreground">Shipping address</h2>
         <p className="mt-1 max-w-2xl text-xs text-zinc-500">
-          Live shows require a ship-to on file before you can bid, buy, or claim spots. Include a contact phone — USPS
-          requires it for shipping labels. Your account email is used automatically.
+          Required for live shows and checkout. If you completed seller onboarding, we copy your ship-from address here
+          automatically — you only need to add a card.
         </p>
       </div>
 
@@ -196,7 +154,7 @@ export function AccountWalletShippingSection() {
           onClick={() => setFormOpen(true)}
           className="inline-flex h-10 items-center justify-center rounded-full border border-white/15 px-5 text-xs font-bold uppercase tracking-wide text-gold-bright transition hover:border-gold/40 hover:bg-gold/10"
         >
-          Add shipping address
+          {rows.length ? "Add another address" : "Add shipping address"}
         </button>
       ) : (
         <div className="rounded-2xl border border-white/[0.1] bg-[#0c0c10] p-5 sm:p-6">
@@ -215,9 +173,8 @@ export function AccountWalletShippingSection() {
             </button>
           </div>
           {err ? <p className="mt-2 whitespace-pre-line text-xs font-medium text-rose-300">{err}</p> : null}
-          {verifyNote ? <p className="mt-2 text-xs font-medium text-emerald-200">{verifyNote}</p> : null}
           <p className="mt-2 text-[11px] text-zinc-500">
-            Start typing your street address for suggestions, then verify before saving so labels do not fail at fulfillment.
+            Start typing your street for suggestions. We verify the address when you save.
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="block text-[11px] font-semibold text-zinc-400">
@@ -240,10 +197,7 @@ export function AccountWalletShippingSection() {
               Contact phone (required for USPS labels)
               <input
                 value={phone}
-                onChange={(e) => {
-                  setPhone(e.target.value);
-                  setVerifiedReady(false);
-                }}
+                onChange={(e) => setPhone(e.target.value)}
                 autoComplete="tel"
                 inputMode="tel"
                 placeholder="(555) 123-4567"
@@ -259,7 +213,6 @@ export function AccountWalletShippingSection() {
                 if (field === "state") setState(value);
                 if (field === "postalCode") setPostalCode(value);
                 if (field === "country") setCountry(value);
-                setVerifiedReady(false);
               }}
               inputClassName="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100"
               labelClassName="block text-[11px] font-semibold text-zinc-400"
@@ -269,22 +222,14 @@ export function AccountWalletShippingSection() {
               Set as default shipping address
             </label>
           </div>
-          <div className="mt-4 flex flex-wrap gap-3">
+          <div className="mt-4">
             <button
               type="button"
-              disabled={verifyBusy || busy}
-              onClick={() => void verify()}
-              className="inline-flex h-11 items-center justify-center rounded-full border border-white/15 px-5 text-sm font-bold text-zinc-100 transition hover:border-gold/35 hover:text-gold-bright disabled:opacity-60"
-            >
-              {verifyBusy ? "Verifying…" : "Verify address"}
-            </button>
-            <button
-              type="button"
-              disabled={busy || verifyBusy}
+              disabled={busy}
               onClick={() => void submit()}
               className="inline-flex h-11 min-w-[10rem] items-center justify-center rounded-full bg-gradient-to-r from-gold to-gold-bright px-6 text-sm font-bold text-zinc-950 disabled:opacity-60"
             >
-              {busy ? "Saving…" : verifiedReady ? "Save verified address" : "Save address"}
+              {busy ? "Saving…" : "Save address"}
             </button>
           </div>
         </div>
