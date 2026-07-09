@@ -1,4 +1,4 @@
-import { spacing } from '../theme';
+import { resolvedBottomInset } from './bottomInset';
 import {
   APP_REF_WIDTH,
   APP_TEXT_PROPS,
@@ -60,7 +60,7 @@ export function computeMarketplaceLayoutMetrics(
   const chipMinWidth = Math.round((compact ? 72 : 88) * scale);
 
   const heroHeight = Math.round((compact ? 108 : 132) * scale);
-  const tabBarClearance = Math.round(Math.max(88, 64 + bottomInset) + 16);
+  const tabBarClearance = Math.round(Math.max(88, 64 + resolvedBottomInset(bottomInset)) + 16);
 
   return {
     windowWidth: windowW,

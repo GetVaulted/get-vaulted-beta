@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchTradeOfferById, subscribeTradeOffer } from '../api/tradeOffersRepository';
+import { isWebTradeApiConfigured } from '../api/tradeOffersWebApi';
 import type { TradeOfferVM } from '../types/tradeOffers';
 
 export function useTradeOffer(offerId: string | undefined): {
@@ -31,6 +32,14 @@ export function useTradeOffer(offerId: string | undefined): {
       void reload();
     });
     return unsubscribe;
+  }, [offerId, reload]);
+
+  useEffect(() => {
+    if (!offerId || !isWebTradeApiConfigured()) return;
+    const timer = setInterval(() => {
+      void reload();
+    }, 12_000);
+    return () => clearInterval(timer);
   }, [offerId, reload]);
 
   return { offer, loading, reload, isStaticMock: false };

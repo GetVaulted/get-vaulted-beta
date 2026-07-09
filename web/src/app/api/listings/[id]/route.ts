@@ -26,6 +26,7 @@ import { resolveAllowLayawayForListing } from "@/lib/layaway/eligibility";
 import { LAYAWAY_MIN_LISTING_PRICE_USD } from "@/lib/layaway/constants";
 import type { BuyingFormat, ListingStatus } from "@/generated/prisma/client";
 import { validateListingImageCount } from "@/lib/listing-photo-requirements";
+import { maybeEmitMarketplaceCatalogChanged } from "@/lib/listing-catalog-emit";
 
 const listingInclude = listingWithSellerFulfillmentInclude;
 
@@ -471,6 +472,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   const full = await prisma.listing.findUniqueOrThrow({ where: { id }, include: listingInclude });
+  maybeEmitMarketplaceCatalogChanged({
+    before: { status: existing.status, moderationRemovedAt: existing.moderationRemovedAt },
+    after: { status: full.status, moderationRemovedAt: full.moderationRemovedAt },
+    listingId: full.id,
+    sellerId: full.sellerId,
+    reason:
+      full.status === "sold"
+        ? "sold"
+        : full.status === "active" || full.status === "auction_live"
+          ? "published"
+          : "updated",
+  });
   const pending = await prisma.offer.count({ where: { listingId: id, status: "pending" } });
   const bc =
     full.buyingFormat === "auction" ? await prisma.bid.count({ where: { listingId: id } }) : undefined;
@@ -491,7 +504,7 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
   const { id: raw } = await ctx.params;
   const id = decodeURIComponent(raw);
 
-  const existing = await prisma.listing.findFirst({ where: { id, sellerId }, select: { id: true } });
+  const existing = await prisma.listing.findFirst({ where: { id, sellerId }, select: { id: true, status: true, moderationRemovedAt: true } });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const [tradeOfferItemCount, orderCount] = await Promise.all([
@@ -505,6 +518,13 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
   try {
     const res = await prisma.listing.deleteMany({ where: { id, sellerId } });
     if (res.count === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    maybeEmitMarketplaceCatalogChanged({
+      before: { status: existing.status, moderationRemovedAt: existing.moderationRemovedAt },
+      after: { status: "ended", moderationRemovedAt: existing.moderationRemovedAt },
+      listingId: existing.id,
+      sellerId,
+      reason: "deleted",
+    });
     return NextResponse.json({ ok: true });
   } catch (e) {
     // Belt-and-suspenders: TradeOfferItem/Order use onDelete: Restrict, so a race with the

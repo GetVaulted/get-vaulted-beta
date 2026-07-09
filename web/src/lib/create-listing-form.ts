@@ -95,12 +95,12 @@ export const SHIPPING_PRESET_DEFAULTS: Record<
   },
   slab: {
     shippingCategory: "slab",
-    shippingBaseWeightOz: "8",
-    shippingIncrementalWeightOz: "3",
-    parcelWeightOz: "8",
-    parcelLengthIn: "8",
-    parcelWidthIn: "6",
-    parcelHeightIn: "2",
+    shippingBaseWeightOz: "5",
+    shippingIncrementalWeightOz: "2",
+    parcelWeightOz: "5",
+    parcelLengthIn: "7",
+    parcelWidthIn: "5",
+    parcelHeightIn: "1",
   },
   small_collectible: {
     shippingCategory: "small_collectible",
@@ -109,7 +109,7 @@ export const SHIPPING_PRESET_DEFAULTS: Record<
     parcelWeightOz: "6",
     parcelLengthIn: "8",
     parcelWidthIn: "6",
-    parcelHeightIn: "4",
+    parcelHeightIn: "3",
   },
 };
 

@@ -3,6 +3,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet } from 'react-native';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/auth/AuthContext';
 import { PlatformFeeProvider } from './src/platform/PlatformFeeContext';
 import { loadHomeFeedCache } from './src/lib/homeFeedCache';
@@ -34,13 +35,15 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={styles.root}>
-      <AppLayoutProvider>
-        <PlatformFeeProvider>
-          <AuthProvider>
-            <RootNavigator />
-          </AuthProvider>
-        </PlatformFeeProvider>
-      </AppLayoutProvider>
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+        <AppLayoutProvider>
+          <PlatformFeeProvider>
+            <AuthProvider>
+              <RootNavigator />
+            </AuthProvider>
+          </PlatformFeeProvider>
+        </AppLayoutProvider>
+      </SafeAreaProvider>
       <StatusBar style="light" />
     </GestureHandlerRootView>
   );

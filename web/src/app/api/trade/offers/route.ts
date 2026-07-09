@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
 import { prisma } from "@/lib/prisma";
 import { expireOfferIfNeeded } from "@/lib/trade-offers";
+import { notifyTradeOfferCreated } from "@/lib/trade-offer-notifications";
 import { checkRateLimit } from "@/lib/request-rate-limit";
 import {
   assertTradeOfferListingAllowed,
@@ -35,9 +36,9 @@ function toNonNegative(n: unknown): number | null {
 }
 
 export async function POST(req: Request) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
-  const limiter = checkRateLimit(`trade:create:${session.user.id}`, { limit: 8, windowMs: 60_000 });
+  const auth = await resolveListingsUserId(req);
+  if (auth instanceof NextResponse) return auth;
+  const limiter = checkRateLimit(`trade:create:${auth.userId}`, { limit: 8, windowMs: 60_000 });
   if (!limiter.ok) {
     return NextResponse.json(
       { error: "You're sending offers too quickly. Please wait a moment and try again." },
@@ -52,7 +53,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  const proposerId = session.user.id;
+  const proposerId = auth.userId;
   const requestedListingIds = asListingIdArray(body.requestedListingIds);
   const offeredListingIds = asListingIdArray(body.offeredListingIds);
   if (!requestedListingIds || !offeredListingIds) {
@@ -227,14 +228,26 @@ export async function POST(req: Request) {
     return offer;
   });
 
+  const proposer = await prisma.user.findUnique({
+    where: { id: proposerId },
+    select: { username: true },
+  });
+  await notifyTradeOfferCreated(prisma, {
+    offerId: created.id,
+    recipientId,
+    proposerUsername: proposer?.username ?? null,
+    requestedTitle: requestedRows[0].title,
+    offeredCount: offeredRows.length,
+  });
+
   return NextResponse.json({ offerId: created.id, redirectTo: `/trade/${encodeURIComponent(created.id)}` });
 }
 
-export async function GET() {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+export async function GET(req: Request) {
+  const auth = await resolveListingsUserId(req);
+  if (auth instanceof NextResponse) return auth;
 
-  const userId = session.user.id;
+  const userId = auth.userId;
   const rows = await prisma.tradeOffer.findMany({
     where: {
       OR: [{ proposerId: userId }, { recipientId: userId }],
@@ -243,7 +256,19 @@ export async function GET() {
     include: {
       proposer: { select: { username: true } },
       recipient: { select: { username: true } },
-      items: { select: { side: true, listingPriceUsdSnapshot: true } },
+      items: {
+        select: {
+          id: true,
+          side: true,
+          listingId: true,
+          listingTitleSnapshot: true,
+          listingImageUrlSnapshot: true,
+          listingCategorySnapshot: true,
+          listingConditionSnapshot: true,
+          listingPriceUsdSnapshot: true,
+        },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
 
@@ -259,7 +284,19 @@ export async function GET() {
     include: {
       proposer: { select: { username: true } },
       recipient: { select: { username: true } },
-      items: { select: { side: true, listingPriceUsdSnapshot: true } },
+      items: {
+        select: {
+          id: true,
+          side: true,
+          listingId: true,
+          listingTitleSnapshot: true,
+          listingImageUrlSnapshot: true,
+          listingCategorySnapshot: true,
+          listingConditionSnapshot: true,
+          listingPriceUsdSnapshot: true,
+        },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
 
@@ -271,6 +308,8 @@ export async function GET() {
       status: offer.status,
       proposerId: offer.proposerId,
       recipientId: offer.recipientId,
+      proposerUsername: offer.proposer.username,
+      recipientUsername: offer.recipient.username,
       counterpartyUsername:
         offer.proposerId === userId ? offer.recipient.username : offer.proposer.username,
       offeredCount: offered.length,
@@ -279,11 +318,22 @@ export async function GET() {
       requestedValue: requested.reduce((sum, i) => sum + i.listingPriceUsdSnapshot, 0),
       proposerCashUsd: offer.proposerCashUsd,
       recipientCashUsd: offer.recipientCashUsd,
+      messageToRecipient: offer.messageToRecipient,
       createdAt: offer.createdAt.toISOString(),
       updatedAt: offer.updatedAt.toISOString(),
       expiresAt: offer.expiresAt?.toISOString() ?? null,
+      items: offer.items.map((item) => ({
+        id: item.id,
+        side: item.side,
+        listingId: item.listingId,
+        listingTitleSnapshot: item.listingTitleSnapshot,
+        listingImageUrlSnapshot: item.listingImageUrlSnapshot,
+        listingCategorySnapshot: item.listingCategorySnapshot,
+        listingConditionSnapshot: item.listingConditionSnapshot,
+        listingPriceUsdSnapshot: item.listingPriceUsdSnapshot,
+      })),
     };
   });
 
-  return NextResponse.json({ offers });
+  return NextResponse.json({ offers, viewerId: userId });
 }

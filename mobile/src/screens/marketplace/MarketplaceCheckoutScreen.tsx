@@ -69,7 +69,8 @@ function shippingFromAddress(addr: BuyerShippingAddressRow): MarketplaceCheckout
   return {
     buyerAddressId: addr.id,
     shipRecipientName: addr.fullName || addr.name,
-    shipAddress: [addr.line1, addr.line2].filter(Boolean).join(' '),
+    shipAddress: addr.line1,
+    shipAddressLine2: addr.line2?.trim() || undefined,
     shipCity: addr.city,
     shipState: addr.state,
     shipZip: addr.postalCode,
@@ -123,6 +124,7 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
   const [addressPickerExpanded, setAddressPickerExpanded] = useState(false);
   const [paymentPickerExpanded, setPaymentPickerExpanded] = useState(false);
   const [ratesPickerExpanded, setRatesPickerExpanded] = useState(false);
+  const [shipFromLabel, setShipFromLabel] = useState<string | null>(null);
   const [walletSetupPrompted, setWalletSetupPrompted] = useState(false);
 
   const selectedAddress = addresses.find((a) => a.id === selectedAddressId) ?? null;
@@ -255,12 +257,13 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
         setRatesLoading(true);
         setRatesError(null);
         try {
-          const { rates, error: rateErr } = await fetchMarketplaceCheckoutShippingRates(token, {
+          const { rates, error: rateErr, shipFromLabel: fromLabel } = await fetchMarketplaceCheckoutShippingRates(token, {
             listingId,
             shipping: shippingPayload,
           });
           if (cancelled) return;
           setShippingRates(rates);
+          setShipFromLabel(fromLabel);
           if (rates.length === 0) {
             setRatesError(rateErr ?? 'No shipping options are available for this address yet.');
           } else {
@@ -714,6 +717,11 @@ function MarketplaceCheckoutScreenInner({ navigation, route }: Props) {
                 </Text>
               </View>
             ) : null}
+            {shipFromLabel ? (
+              <Text style={styles.shipFromHint} {...MARKETPLACE_TEXT_PROPS}>
+                Live rates from {shipFromLabel}. Carriers price by zone and delivery area — closer isn&apos;t always cheaper.
+              </Text>
+            ) : null}
             {!ratesLoading && ratesError && shippingRates.length === 0 ? (
               <Text style={styles.error} {...MARKETPLACE_TEXT_PROPS}>
                 {ratesError}
@@ -969,6 +977,7 @@ const styles = StyleSheet.create({
   addrLine: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
   ratesLoading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm },
   ratesLoadingTxt: { color: colors.textMuted, fontSize: 12, flex: 1 },
+  shipFromHint: { color: colors.textMuted, fontSize: 11, lineHeight: 15, marginBottom: spacing.xs },
   rateRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -68,6 +68,15 @@ describe('openNotificationHref', () => {
     });
   });
 
+  it('routes a trade offer href to ReviewOffer in Trade Center', () => {
+    const nav = fakeNav();
+    expect(openNotificationHref(nav, '/trade/trade_1', { type: 'trade_offer_received' })).toBe(true);
+    expect(nav.navigate).toHaveBeenCalledWith('MainTabs', {
+      screen: 'TradeCenter',
+      params: { screen: 'ReviewOffer', params: { offerId: 'trade_1' } },
+    });
+  });
+
   // FIX 3 — "new offer" push notifications used to fall through to the generic notification
   // inbox instead of the seller's listing management screen because no `/seller/listings/{id}`
   // handler existed.

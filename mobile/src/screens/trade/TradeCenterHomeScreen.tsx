@@ -16,12 +16,14 @@ import { TradeCenterDeskTabs, type TradeCenterDeskTab } from '../../components/t
 import { useTradeCenterFeed } from '../../hooks/useTradeCenterFeed';
 import { areDevToolsEnabled } from '../../lib/devTools';
 import { isSupabaseConfigured } from '../../lib/supabase';
+import { isWebTradeApiConfigured } from '../../api/tradeOffersWebApi';
 import type { TradeCenterStackParamList } from '../../navigation/types';
 import { navigateAuthLogin, navigateAuthSignUp } from '../../navigation/rootNavigationRef';
 import { useAuth } from '../../auth/AuthContext';
 import { useTradeCenterDiagnostics } from '../../trade/TradeCenterDiagnosticsContext';
 import type { TradeOfferVM } from '../../types/tradeOffers';
 import { colors, radii, spacing } from '../../theme';
+import { useMarketplaceLayout } from '../../hooks/useMarketplaceLayout';
 
 type Nav = NativeStackNavigationProp<TradeCenterStackParamList>;
 
@@ -38,16 +40,17 @@ function profileHandle(p: { username: string | null; display_name: string | null
 
 export function TradeCenterHomeScreen() {
   const insets = useSafeAreaInsets();
+  const layout = useMarketplaceLayout();
   const navigation = useNavigation<Nav>();
   const { user, loading: authLoading } = useAuth();
   const diag = useTradeCenterDiagnostics();
   const onFeedRefreshed = useCallback(() => {
     diag?.markFeedRefreshed();
   }, [diag]);
-  const { sections, loading, refreshing, source, refresh } = useTradeCenterFeed(user?.id, {
+  const { sections, loading, refreshing, source, refresh, participantUserId, feedError } = useTradeCenterFeed(user?.id, {
     onAfterRefresh: onFeedRefreshed,
   });
-  const uid = user?.id;
+  const uid = participantUserId ?? user?.id;
   const initialTabSet = useRef(false);
   const [deskTab, setDeskTab] = useState<TradeCenterDeskTab>('start');
 
@@ -56,7 +59,7 @@ export function TradeCenterHomeScreen() {
   const startTrade = () => navigation.navigate('InitiateTrade');
 
   const firstIncoming = sections.incoming[0];
-  const showDesk = isSupabaseConfigured() && Boolean(user) && !authLoading;
+  const showDesk = (isWebTradeApiConfigured() || isSupabaseConfigured()) && Boolean(user) && !authLoading;
   const dealCount =
     sections.incoming.length +
     sections.counters.length +
@@ -105,13 +108,13 @@ export function TradeCenterHomeScreen() {
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[styles.scroll, { paddingBottom: layout.tabBarClearance }]}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.gold} />}
       >
         <TradeCenterHero />
 
-        {!isSupabaseConfigured() ? (
+        {!isWebTradeApiConfigured() && !isSupabaseConfigured() ? (
           <View style={styles.warnCard}>
             <Ionicons name="cloud-offline-outline" size={22} color={colors.gold} />
             <Text style={styles.warnTitle}>Trade network unavailable</Text>
@@ -148,6 +151,14 @@ export function TradeCenterHomeScreen() {
             ) : (
               <Text style={styles.syncHint}>Connecting to your trade desk…</Text>
             )}
+
+            {feedError ? (
+              <View style={styles.warnCard}>
+                <Ionicons name="alert-circle-outline" size={20} color={colors.gold} />
+                <Text style={styles.warnTitle}>Trade inbox could not refresh</Text>
+                <Text style={styles.warnBody}>{feedError}</Text>
+              </View>
+            ) : null}
 
             <TradeCenterDeskTabs tab={deskTab} onTabChange={setDeskTab} blockCount={dealCount} />
 

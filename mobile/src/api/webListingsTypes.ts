@@ -22,6 +22,7 @@ export type WebMarketplaceListing = {
   allowOffers?: boolean;
   allowLayaway?: boolean;
   acceptTradeOffers?: boolean;
+  tradeOnly?: boolean;
   shippingPriceUsd?: number;
   handlingTimeLabel?: string;
   signatureRequired?: boolean;

@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { resolveListingsUserId } from "@/lib/resolve-listings-auth";import { prisma } from "@/lib/prisma";
 import { assertActiveForMutation, ensureOfferFreshForAction } from "../_shared";
+import { notifyTradeOfferDeclined } from "@/lib/trade-offer-notifications";
 
-export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const auth = await resolveListingsUserId(req);
+  if (auth instanceof NextResponse) return auth;
   const { id } = await ctx.params;
   const offerId = decodeURIComponent(id);
-  const userId = session.user.id;
+  const userId = auth.userId;
 
   const result = await prisma.$transaction(async (tx) => {
     const offer = await tx.tradeOffer.findUnique({ where: { id: offerId } });
@@ -34,9 +34,20 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
         note: JSON.stringify({ declinedAt: new Date().toISOString() }),
       },
     });
-    return { ok: true as const };
+    return { ok: true as const, proposerId: offer.proposerId };
   });
 
   if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.code });
+
+  const actor = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { username: true },
+  });
+  await notifyTradeOfferDeclined(prisma, {
+    offerId,
+    proposerId: result.proposerId,
+    actorUsername: actor?.username ?? null,
+  });
+
   return NextResponse.json({ ok: true });
 }

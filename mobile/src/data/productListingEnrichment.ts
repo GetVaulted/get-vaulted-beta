@@ -155,7 +155,7 @@ export function enrichListing(product: Product): ListingViewModel {
       lookingFor: neutralLookingFor(product.category),
     },
     pricing: {
-      buyNow: product.buyNow ?? product.listingPrice,
+      buyNow: product.tradeOnly ? 'Trade offers' : (product.buyNow ?? product.listingPrice),
       marketReference:
         product.category === 'watches' || product.category === 'cards'
           ? 'Comparable sales (90d) · private market index'

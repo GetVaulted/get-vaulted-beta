@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useScreenSafeInsets } from '../lib/screenSafeInsets';
 import {
   computeMarketplaceLayoutMetrics,
   type MarketplaceLayoutMetrics,
@@ -8,7 +8,7 @@ import { useAppLayout } from '../layout/AppLayoutProvider';
 
 export function useMarketplaceLayout(): MarketplaceLayoutMetrics {
   const { layoutWidth, layoutHeight } = useAppLayout();
-  const insets = useSafeAreaInsets();
+  const insets = useScreenSafeInsets();
   return useMemo(
     () => computeMarketplaceLayoutMetrics(layoutWidth, layoutHeight, insets.bottom),
     [layoutWidth, layoutHeight, insets.bottom],

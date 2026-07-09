@@ -17,18 +17,13 @@ import { MarketplaceMomentumBar } from '../components/discover/DiscoverMomentumB
 import { MarketplaceVaultHeader } from '../components/marketplace/MarketplaceVaultHeader';
 import { SearchBar } from '../components/ui/SearchBar';
 import { useMarketplaceLayout } from '../hooks/useMarketplaceLayout';
+import { useMarketplaceCatalogSync } from '../hooks/useMarketplaceCatalogSync';
 import {
+  buildMarketplaceDiscoveryRails,
   filterByMarketplaceLane,
-  pickEndingSoon,
-  pickLuxuryLane,
-  pickMostWatched,
-  pickNewArrivals,
-  pickTrending,
-  pickVaultVerified,
-  sliceRail,
 } from '../lib/marketplaceCatalog';
 import { buildMarketplaceHeroSlides } from '../lib/marketplaceHero';
-import { hasWarmHomeFeedCache, getHomeFeedMemorySnapshot, subscribeHomeFeedInvalidation } from '../lib/homeFeedCache';
+import { hasWarmHomeFeedCache, getHomeFeedMemorySnapshot } from '../lib/homeFeedCache';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { openCreateListing } from '../navigation/openCreateListing';
 import { openVaultSearch } from '../navigation/openPlatform';
@@ -73,11 +68,7 @@ export function MarketplaceScreen() {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    return subscribeHomeFeedInvalidation(() => {
-      void load({ silent: true });
-    });
-  }, [load]);
+  useMarketplaceCatalogSync(() => load({ silent: true }));
 
   useFocusEffect(
     useCallback(() => {
@@ -113,20 +104,7 @@ export function MarketplaceScreen() {
     [navigation],
   );
 
-  const rails = useMemo(
-    () => ({
-      featured: sliceRail(filtered, 0, 8),
-      trending: pickTrending(filtered, 8),
-      recent: sliceRail(filtered, 2, 8),
-      ending: pickEndingSoon(filtered, 7),
-      verified: pickVaultVerified(filtered, 8),
-      luxury: pickLuxuryLane(filtered, 7),
-      collector: sliceRail(filtered, 5, 8),
-      watched: pickMostWatched(filtered, 7),
-      arrivals: pickNewArrivals(filtered, 8),
-    }),
-    [filtered],
-  );
+  const rails = useMemo(() => buildMarketplaceDiscoveryRails(filtered), [filtered]);
 
   const hasListings = filtered.length > 0;
   const showBlockingSkeleton = loading && catalog.length === 0;
@@ -184,13 +162,15 @@ export function MarketplaceScreen() {
             <MarketplaceHeroCarousel slides={heroSlides} onSlidePress={openHeroSlide} />
             <MarketplaceMomentumBar compact={layout.compact} />
 
-            <MarketplaceListingRail
-              title="Featured listings"
-              subtitle="Live marketplace inventory"
-              products={rails.featured}
-              onPressProduct={openProduct}
-              imagePriority="high"
-            />
+            {rails.featured.length ? (
+              <MarketplaceListingRail
+                title="Featured listings"
+                subtitle="Live marketplace inventory"
+                products={rails.featured}
+                onPressProduct={openProduct}
+                imagePriority="high"
+              />
+            ) : null}
 
             {rails.trending.length ? (
               <MarketplaceListingRail
@@ -202,12 +182,14 @@ export function MarketplaceScreen() {
               />
             ) : null}
 
-            <MarketplaceListingRail
-              title="Recently listed"
-              subtitle="Fresh buy-now inventory"
-              products={rails.recent}
-              onPressProduct={openProduct}
-            />
+            {rails.recent.length ? (
+              <MarketplaceListingRail
+                title="Recently listed"
+                subtitle="Fresh buy-now inventory"
+                products={rails.recent}
+                onPressProduct={openProduct}
+              />
+            ) : null}
 
             {rails.ending.length ? (
               <MarketplaceListingRail
@@ -237,12 +219,14 @@ export function MarketplaceScreen() {
               />
             ) : null}
 
-            <MarketplaceListingRail
-              title="Collector picks"
-              subtitle="Saved lanes & categories"
-              products={rails.collector}
-              onPressProduct={openProduct}
-            />
+            {rails.collector.length ? (
+              <MarketplaceListingRail
+                title="Collector picks"
+                subtitle="Saved lanes & categories"
+                products={rails.collector}
+                onPressProduct={openProduct}
+              />
+            ) : null}
 
             {rails.watched.length ? (
               <MarketplaceListingRail
@@ -253,12 +237,14 @@ export function MarketplaceScreen() {
               />
             ) : null}
 
-            <MarketplaceListingRail
-              title="New arrivals"
-              subtitle="Just listed in the vault"
-              products={rails.arrivals}
-              onPressProduct={openProduct}
-            />
+            {rails.arrivals.length ? (
+              <MarketplaceListingRail
+                title="New arrivals"
+                subtitle="Just listed in the vault"
+                products={rails.arrivals}
+                onPressProduct={openProduct}
+              />
+            ) : null}
           </>
         ) : null}
       </ScrollView>

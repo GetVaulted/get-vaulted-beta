@@ -12,6 +12,7 @@ import { TradeStatusBadge } from '../../components/trade/TradeStatusBadge';
 import { listingToTradeItem } from '../../trade/listingToTradeItem';
 import { tradeFeeUsdForTier } from '../../lib/tradeFeeAmounts';
 import { acceptTradeOfferAsRecipient, declineTradeOfferAsRecipient } from '../../api/tradeOffersRepository';
+import { isWebTradeApiConfigured } from '../../api/tradeOffersWebApi';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { TRADE_FEE_INCLUDES_BULLETS } from '../../data/tradeFeeCopy';
 
@@ -60,9 +61,15 @@ export function ReviewOfferScreen({ navigation, route }: Props) {
 
   const accept = async () => {
     try {
-      if (user && isSupabaseConfigured() && !isStaticMock) {
-        await acceptTradeOfferAsRecipient(offer.id, user.id);
+      if (user && !isStaticMock && (isWebTradeApiConfigured() || isSupabaseConfigured())) {
+        const outcome = await acceptTradeOfferAsRecipient(offer.id, user.id);
         await reload();
+        if (outcome === 'fee_due') {
+          navigation.navigate('TradeCheckout', { offerId: offer.id });
+          return;
+        }
+        Alert.alert('Offer accepted', 'The other party has been notified. Trade checkout will open here when ready.');
+        return;
       }
       navigation.navigate('TradeCheckout', { offerId: offer.id });
     } catch (e) {
@@ -72,7 +79,7 @@ export function ReviewOfferScreen({ navigation, route }: Props) {
 
   const decline = async () => {
     try {
-      if (user && isSupabaseConfigured() && !isStaticMock) {
+      if (user && !isStaticMock && (isWebTradeApiConfigured() || isSupabaseConfigured())) {
         await declineTradeOfferAsRecipient(offer.id, user.id);
       }
       navigation.goBack();
@@ -172,6 +179,15 @@ export function ReviewOfferScreen({ navigation, route }: Props) {
             >
               <Text style={styles.ghostTxt}>Decline</Text>
             </Pressable>
+          </View>
+        ) : !iAmRecipient && offer.status === 'countered' ? (
+          <View style={styles.actions}>
+            <Pressable style={styles.secondary} onPress={() => navigation.navigate('CounterOffer', { offerId: offer.id })}>
+              <Text style={styles.secondaryTxt}>Send another counter</Text>
+            </Pressable>
+            <Text style={styles.waiting}>
+              They sent a counter. Revise terms or wait for them to accept or decline.
+            </Text>
           </View>
         ) : (
           <View style={styles.actions}>

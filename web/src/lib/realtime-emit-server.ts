@@ -3,6 +3,7 @@ import { loadMentionsForSource } from "@/lib/mentions/load-message-mentions";
 import { serializeLiveRoomMessage, type LiveRoomMessageDTO } from "@/lib/live-room-serialize";
 import { broadcastRealtimeEvent, broadcastRealtimeEventOnce } from "@/lib/supabase-realtime-broadcast";
 import { LIVE_DISCOVERY_CHANNEL, LIVE_DISCOVERY_EVENT } from "@/lib/live-discovery-realtime";
+import { MARKETPLACE_CATALOG_CHANNEL, MARKETPLACE_CATALOG_EVENT } from "@/lib/marketplace-catalog-realtime";
 import type { VaultRevealSpinPayload } from "@/lib/vault-reveal-spin";
 import { listingBidsChannel, roomChannel, RT_EVENT, RT_EVENT_ALIASES, userNotificationsChannel } from "@/lib/realtime-channels";
 
@@ -312,6 +313,18 @@ export function emitLiveDiscoveryChanged(payload?: {
   reason?: "created" | "updated" | "started" | "ended" | "cancelled";
 }): void {
   broadcastRealtimeEvent(LIVE_DISCOVERY_CHANNEL, LIVE_DISCOVERY_EVENT, {
+    emittedAt: new Date().toISOString(),
+    ...payload,
+  });
+}
+
+/** Public marketplace catalog changed (listing published, sold, removed, etc.). */
+export function emitMarketplaceCatalogChanged(payload?: {
+  listingId?: string;
+  sellerId?: string;
+  reason?: "published" | "unpublished" | "sold" | "moderation" | "deleted" | "updated";
+}): void {
+  broadcastRealtimeEvent(MARKETPLACE_CATALOG_CHANNEL, MARKETPLACE_CATALOG_EVENT, {
     emittedAt: new Date().toISOString(),
     ...payload,
   });

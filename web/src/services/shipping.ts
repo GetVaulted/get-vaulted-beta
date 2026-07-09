@@ -10,32 +10,10 @@ import {
   resolveSellerShippoContact,
   withShippoContact,
 } from "@/lib/shippo-label-contacts";
-import { isShippoConfigured, shippoCreateShipment, shippoListRates, shippoPurchaseRate, type ShippoAddress, type ShippoParcel } from "@/lib/shippo";
+import { isShippoConfigured, shippoCreateShipment, shippoListRates, shippoPurchaseRate, type ShippoAddress } from "@/lib/shippo";
+import { resolveMarketplaceQuoteParcel } from "@/lib/marketplace-parcel-defaults";
 import { shippoLabelFileTypeForPrintFormat, type SellerLabelPrintFormat } from "@/lib/shippo-label-format";
 import { resolveShippoPurchaseLabel } from "@/lib/shippo-transaction-label";
-
-const DEFAULT_PARCEL: ShippoParcel = {
-  length: "10",
-  width: "8",
-  height: "4",
-  distance_unit: "in",
-  weight: "16",
-  mass_unit: "oz",
-};
-
-function parcelFromListing(w?: number | null, l?: number | null, wi?: number | null, h?: number | null): ShippoParcel {
-  if (w != null && l != null && wi != null && h != null && [w, l, wi, h].every((n) => Number.isFinite(n) && n > 0)) {
-    return {
-      length: String(l),
-      width: String(wi),
-      height: String(h),
-      distance_unit: "in",
-      weight: String(Math.max(1, w)),
-      mass_unit: "oz",
-    };
-  }
-  return DEFAULT_PARCEL;
-}
 
 /**
  * Purchase a Shippo label for a paid order: create shipment, pick a rate, buy label, persist tracking.
@@ -58,6 +36,15 @@ export async function fulfillOrderShippingAfterPayment(
           parcelLengthIn: true,
           parcelWidthIn: true,
           parcelHeightIn: true,
+          shippingCategory: true,
+          platformShippingProfile: {
+            select: {
+              defaultWeightOz: true,
+              defaultLengthIn: true,
+              defaultWidthIn: true,
+              defaultHeightIn: true,
+            },
+          },
         },
       },
       seller: {
@@ -164,12 +151,7 @@ export async function fulfillOrderShippingAfterPayment(
     buyerContact,
   );
 
-  const parcel = parcelFromListing(
-    order.listing.parcelWeightOz,
-    order.listing.parcelLengthIn,
-    order.listing.parcelWidthIn,
-    order.listing.parcelHeightIn,
-  );
+  const parcel = resolveMarketplaceQuoteParcel(order.listing);
 
   try {
     const shipment = (await shippoCreateShipment({
@@ -239,7 +221,7 @@ export async function fulfillOrderShippingAfterPayment(
       shippingLabelCostCents,
     });
     const lt =
-      order.listing.title.length > 80 ? `${order.listing.title.slice(0, 77)}‚Ä¶` : order.listing.title;
+      order.listing.title.length > 80 ? `${order.listing.title.slice(0, 77)}ù` : order.listing.title;
     const tn = resolved.trackingNumber ? ` Tracking: ${resolved.trackingNumber}.` : "";
 
     const { processLabelCreatedPayoutEvaluation } = await import(
@@ -252,13 +234,13 @@ export async function fulfillOrderShippingAfterPayment(
       orderId: order.id,
       kind: SELLER_COMMERCE_KIND.fulfillmentLabelCreated,
       title: "Shipping label created",
-      body: `A carrier label was purchased for ‚Äú${lt}‚Äù.${tn}`,
+      body: `A carrier label was purchased for ù${lt}ù.${tn}`,
     });
     await createNotification(prisma, {
       userId: order.buyerId,
       type: "order_label_created",
       title: "Shipping label created",
-      body: `Your order for ‚Äú${lt}‚Äù has a carrier label.${tn}`,
+      body: `Your order for ù${lt}ù has a carrier label.${tn}`,
       href: `/orders/${encodeURIComponent(orderId)}`,
     });
     scheduleOrderLifecycleEmail({
@@ -272,7 +254,7 @@ export async function fulfillOrderShippingAfterPayment(
       userId: order.sellerId,
       type: "seller_label_created",
       title: "Label ready",
-      body: `Your label for ‚Äú${lt}‚Äù is ready to print.${tn}`,
+      body: `Your label for ù${lt}ù is ready to print.${tn}`,
       href: `/orders/${encodeURIComponent(orderId)}`,
     });
     emitOrderLifecycleSync({
@@ -293,7 +275,7 @@ export async function fulfillOrderShippingAfterPayment(
       },
     });
     const lt =
-      order.listing.title.length > 80 ? `${order.listing.title.slice(0, 77)}‚Ä¶` : order.listing.title;
+      order.listing.title.length > 80 ? `${order.listing.title.slice(0, 77)}ù` : order.listing.title;
     const errMsg = e instanceof Error ? e.message : String(e);
     await logSellerCommerceEvent({
       sellerId: order.sellerId,
@@ -301,7 +283,7 @@ export async function fulfillOrderShippingAfterPayment(
       orderId: order.id,
       kind: SELLER_COMMERCE_KIND.fulfillmentException,
       title: "Shipping exception",
-      body: `Shippo could not create a label for ‚Äú${lt}‚Äù. ${errMsg.slice(0, 200)}`,
+      body: `Shippo could not create a label for ù${lt}ù. ${errMsg.slice(0, 200)}`,
     });
     throw e instanceof Error ? e : new Error(errMsg);
   }

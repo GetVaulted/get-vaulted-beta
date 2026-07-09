@@ -1,4 +1,5 @@
 import { hasCompleteParcel } from "@/lib/listing-publish";
+import { resolveMarketplaceQuoteParcel } from "@/lib/marketplace-parcel-defaults";
 import {
   marketplaceListingRateKey,
   marketplaceOfferableRates,
@@ -6,11 +7,17 @@ import {
   type MarketplaceCheckoutRateQuote,
 } from "@/lib/marketplace-shipping-offer";
 import { prisma } from "@/lib/prisma";
-import { isShippoConfigured, shippoCreateShipment, shippoListRates, type ShippoAddress, type ShippoParcel } from "@/lib/shippo";
+import {
+  formatShipFromLabel,
+  toShippoQuoteAddress,
+  type StructuredShipAddress,
+} from "@/lib/shippo-quote-address";
+import { isShippoConfigured, shippoCreateShipment, shippoListRates } from "@/lib/shippo";
 
 export type CheckoutShipTo = {
   shipRecipientName: string;
   shipAddress: string;
+  shipAddressLine2?: string;
   shipCity: string;
   shipState: string;
   shipZip: string;
@@ -34,29 +41,6 @@ type ShippoRateRow = {
   estimated_days?: number | null;
   attributes?: string[];
 };
-
-const DEFAULT_PARCEL: ShippoParcel = {
-  length: "10",
-  width: "8",
-  height: "4",
-  distance_unit: "in",
-  weight: "16",
-  mass_unit: "oz",
-};
-
-function parcelFromListing(w?: number | null, l?: number | null, wi?: number | null, h?: number | null): ShippoParcel {
-  if (w != null && l != null && wi != null && h != null && [w, l, wi, h].every((n) => Number.isFinite(n) && n > 0)) {
-    return {
-      length: String(l),
-      width: String(wi),
-      height: String(h),
-      distance_unit: "in",
-      weight: String(Math.max(1, w)),
-      mass_unit: "oz",
-    };
-  }
-  return DEFAULT_PARCEL;
-}
 
 function rateHasAttribute(rate: ShippoRateRow, token: string): boolean {
   return (rate.attributes ?? []).some((a) => a.toUpperCase() === token.toUpperCase());
@@ -115,7 +99,7 @@ function mockCheckoutRateQuotes(): MarketplaceCheckoutRateQuote[] {
       serviceLevel: "Ground Advantage",
       estimatedDelivery: "Estimated 3–5 business days",
       estimatedDays: 5,
-      amount: "8.42",
+      amount: "4.35",
       currency: "USD",
       trackingIncluded: true,
       insuranceAvailable: true,
@@ -125,7 +109,7 @@ function mockCheckoutRateQuotes(): MarketplaceCheckoutRateQuote[] {
       serviceLevel: "Ground",
       estimatedDelivery: "Estimated 2–4 business days",
       estimatedDays: 3,
-      amount: "11.18",
+      amount: "7.25",
       currency: "USD",
       trackingIncluded: true,
       insuranceAvailable: true,
@@ -135,7 +119,7 @@ function mockCheckoutRateQuotes(): MarketplaceCheckoutRateQuote[] {
       serviceLevel: "Home Delivery",
       estimatedDelivery: "Estimated 2–5 business days",
       estimatedDays: 4,
-      amount: "12.65",
+      amount: "8.10",
       currency: "USD",
       trackingIncluded: true,
       insuranceAvailable: true,
@@ -159,9 +143,18 @@ async function loadListingShippingContext(listingId: string) {
       parcelLengthIn: true,
       parcelWidthIn: true,
       parcelHeightIn: true,
+      shippingCategory: true,
       marketplaceShippingOfferScope: true,
       marketplaceAllowedRateKeys: true,
       marketplaceAllowedCarriers: true,
+      platformShippingProfile: {
+        select: {
+          defaultWeightOz: true,
+          defaultLengthIn: true,
+          defaultWidthIn: true,
+          defaultHeightIn: true,
+        },
+      },
       shipFromAddress: {
         select: {
           fullName: true,
@@ -187,17 +180,18 @@ async function loadListingShippingContext(listingId: string) {
   });
 }
 
-function resolveShipFromAddress(
+function resolveShipFromStructured(
   listing: NonNullable<Awaited<ReturnType<typeof loadListingShippingContext>>>,
-): ShippoAddress | null {
+): StructuredShipAddress | null {
   const addr = listing.shipFromAddress;
   if (addr?.line1 && addr.city && addr.state && addr.postalCode && addr.country) {
     return {
       name: addr.fullName || "Seller",
-      street1: [addr.line1, addr.line2].filter(Boolean).join(" "),
+      line1: addr.line1,
+      line2: addr.line2,
       city: addr.city,
       state: addr.state,
-      zip: addr.postalCode,
+      postalCode: addr.postalCode,
       country: addr.country,
     };
   }
@@ -207,21 +201,23 @@ function resolveShipFromAddress(
   }
   return {
     name: from.shipFromName || "Seller",
-    street1: from.shipFromStreet,
+    line1: from.shipFromStreet,
+    line2: null,
     city: from.shipFromCity,
     state: from.shipFromState,
-    zip: from.shipFromZip,
+    postalCode: from.shipFromZip,
     country: from.shipFromCountry,
   };
 }
 
-function shipToAddress(shipTo: CheckoutShipTo): ShippoAddress {
+function shipToStructured(shipTo: CheckoutShipTo): StructuredShipAddress {
   return {
     name: shipTo.shipRecipientName || "Buyer",
-    street1: shipTo.shipAddress,
+    line1: shipTo.shipAddress,
+    line2: shipTo.shipAddressLine2,
     city: shipTo.shipCity,
     state: shipTo.shipState,
-    zip: shipTo.shipZip,
+    postalCode: shipTo.shipZip,
     country: shipTo.shipCountry || "US",
   };
 }
@@ -229,25 +225,21 @@ function shipToAddress(shipTo: CheckoutShipTo): ShippoAddress {
 async function fetchRawShippoQuotes(
   listing: NonNullable<Awaited<ReturnType<typeof loadListingShippingContext>>>,
   shipTo: CheckoutShipTo,
-): Promise<{ rates: MarketplaceCheckoutRateQuote[]; mock: boolean }> {
-  const parcel = parcelFromListing(
-    listing.parcelWeightOz,
-    listing.parcelLengthIn,
-    listing.parcelWidthIn,
-    listing.parcelHeightIn,
-  );
-  const addressFrom = resolveShipFromAddress(listing);
-  if (!addressFrom) {
+): Promise<{ rates: MarketplaceCheckoutRateQuote[]; mock: boolean; shipFromLabel: string | null }> {
+  const parcel = resolveMarketplaceQuoteParcel(listing);
+  const shipFrom = resolveShipFromStructured(listing);
+  if (!shipFrom) {
     throw new Error("SELLER_SHIP_FROM_INCOMPLETE");
   }
+  const shipFromLabel = formatShipFromLabel(shipFrom);
 
   if (!isShippoConfigured()) {
-    return { rates: mockCheckoutRateQuotes(), mock: true };
+    return { rates: mockCheckoutRateQuotes(), mock: true, shipFromLabel };
   }
 
   const shipment = (await shippoCreateShipment({
-    address_from: addressFrom,
-    address_to: shipToAddress(shipTo),
+    address_from: toShippoQuoteAddress(shipFrom),
+    address_to: toShippoQuoteAddress(shipToStructured(shipTo), { residential: true }),
     parcels: [parcel],
     async: false,
   })) as { object_id?: string; rates?: ShippoRateRow[] };
@@ -265,21 +257,21 @@ async function fetchRawShippoQuotes(
     .filter((q): q is MarketplaceCheckoutRateQuote => q != null)
     .sort(compareQuotes);
 
-  return { rates: quotes, mock: false };
+  return { rates: quotes, mock: false, shipFromLabel };
 }
 
 export async function fetchMarketplaceCheckoutShippingRates(args: {
   listingId: string;
   shipTo: CheckoutShipTo;
-}): Promise<{ rates: MarketplaceCheckoutRateQuote[]; mock: boolean }> {
+}): Promise<{ rates: MarketplaceCheckoutRateQuote[]; mock: boolean; shipFromLabel: string | null }> {
   const listing = await loadListingShippingContext(args.listingId);
   if (!listing) throw new Error("LISTING_NOT_FOUND");
 
   if (listing.shippingPriceUsd > 0) {
-    return { rates: [], mock: false };
+    return { rates: [], mock: false, shipFromLabel: null };
   }
 
-  const { rates: raw, mock } = await fetchRawShippoQuotes(listing, args.shipTo);
+  const { rates: raw, mock, shipFromLabel } = await fetchRawShippoQuotes(listing, args.shipTo);
   let offerable = marketplaceOfferableRates(
     raw,
     listing.marketplaceShippingOfferScope,
@@ -295,7 +287,7 @@ export async function fetchMarketplaceCheckoutShippingRates(args: {
     });
     offerable = raw;
   }
-  return { rates: offerable, mock };
+  return { rates: offerable, mock, shipFromLabel };
 }
 
 export async function resolveMarketplaceCheckoutShipping(args: {

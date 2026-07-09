@@ -54,6 +54,7 @@ import { alertGuestLiveRestricted } from '../navigation/guestExploreGuards';
 import { openVaultSearch } from '../navigation/openPlatform';
 import { computeLiveDiscoveryGrid } from '../lib/liveDiscoveryGrid';
 import { colors, radii, spacing } from '../theme';
+import { useMarketplaceLayout } from '../hooks/useMarketplaceLayout';
 import type { LiveStream, ScheduledStream } from '../types';
 
 function liveChipIcon(label: string): keyof typeof Ionicons.glyphMap | undefined {
@@ -112,6 +113,7 @@ function initialDiscoveryState(): { live: LiveStream[]; scheduled: ScheduledStre
 
 export function LiveDiscoveryScreen() {
   const insets = useSafeAreaInsets();
+  const layout = useMarketplaceLayout();
   const { width: windowWidth } = useWindowDimensions();
   const {
     cols: gridCols,
@@ -321,7 +323,7 @@ export function LiveDiscoveryScreen() {
         key={`live-grid-${gridCols}`}
         numColumns={gridCols}
         columnWrapperStyle={gridCols > 1 ? styles.gridRow : undefined}
-        contentContainerStyle={styles.body}
+        contentContainerStyle={[styles.body, { paddingBottom: layout.tabBarClearance }]}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={listHeader}
         ListEmptyComponent={
@@ -348,7 +350,7 @@ export function LiveDiscoveryScreen() {
           />
         }
         renderItem={renderRoom}
-        ListFooterComponent={<View style={{ height: 120 }} />}
+        ListFooterComponent={<View style={{ height: spacing.md }} />}
       />
     </View>
   );

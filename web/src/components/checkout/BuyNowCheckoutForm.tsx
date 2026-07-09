@@ -194,6 +194,7 @@ export function BuyNowCheckoutForm({
   const [selectedRateId, setSelectedRateId] = useState<string | null>(null);
   const [addressExpanded, setAddressExpanded] = useState(false);
   const [ratesExpanded, setRatesExpanded] = useState(false);
+  const [shipFromLabel, setShipFromLabel] = useState<string | null>(null);
   const [hasSavedAddress, setHasSavedAddress] = useState(false);
   const [mobileSummaryOpen, setMobileSummaryOpen] = useState(false);
   const router = useRouter();
@@ -266,7 +267,8 @@ export function BuyNowCheckoutForm({
               buyerAddressId: buyerAddressId || undefined,
               shipping: {
                 shipRecipientName: name,
-                shipAddress: combineAddressLine(line1, line2),
+                shipAddress: line1,
+                shipAddressLine2: line2.trim() || undefined,
                 shipCity: city,
                 shipState: state,
                 shipZip: zip,
@@ -277,9 +279,11 @@ export function BuyNowCheckoutForm({
           const j = (await res.json().catch(() => ({}))) as {
             rates?: CheckoutShippingRate[];
             error?: string;
+            shipFromLabel?: string | null;
           };
           const rates = Array.isArray(j.rates) ? j.rates : [];
           setShippingRates(rates);
+          setShipFromLabel(typeof j.shipFromLabel === "string" ? j.shipFromLabel : null);
           if (res.ok && rates.length === 0) {
             setRatesError(j.error ?? "No shipping options are available for this address yet.");
           } else {
@@ -716,6 +720,12 @@ export function BuyNowCheckoutForm({
                   </div>
                   {ratesLoading ? (
                     <p className="text-sm text-zinc-500">Loading carrier rates for your address…</p>
+                  ) : null}
+                  {shipFromLabel ? (
+                    <p className="text-xs leading-relaxed text-zinc-500">
+                      Live rates from {shipFromLabel}. Carriers price by zone and delivery area — closer isn&apos;t always
+                      cheaper (rural or extended routes can cost more).
+                    </p>
                   ) : null}
                   {!addressReady && !ratesLoading ? (
                     <p className="text-sm text-zinc-500">Confirm your shipping address to load carrier options.</p>

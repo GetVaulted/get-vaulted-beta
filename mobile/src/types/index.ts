@@ -216,6 +216,8 @@ export type Product = {
   allowLayaway?: boolean;
   /** Marketplace PDP — buyer can start a structured trade when true. */
   acceptTradeOffers?: boolean;
+  /** Trade-only lane — no buy-now checkout. */
+  tradeOnly?: boolean;
   /** Canonical listing status from web API (`active`, `layaway_reserved`, `sold`, …). */
   listingStatus?: string;
 };

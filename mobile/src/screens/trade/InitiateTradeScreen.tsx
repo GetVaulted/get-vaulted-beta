@@ -18,6 +18,7 @@ import type { TradeCenterStackParamList } from '../../navigation/types';
 import { colors, radii, spacing, typography } from '../../theme';
 import { useAuth } from '../../auth/AuthContext';
 import { isSupabaseConfigured } from '../../lib/supabase';
+import { isWebTradeApiConfigured } from '../../api/tradeOffersWebApi';
 import {
   fetchLiveListingsExcludingSeller,
   fetchMyLiveListings,
@@ -45,6 +46,8 @@ export function InitiateTradeScreen() {
   const requestedListingId = route.params?.requestedListingId;
   const { user } = useAuth();
   const supabaseOk = isSupabaseConfigured();
+  const tradeApiOk = isWebTradeApiConfigured();
+  const tradeBackendOk = tradeApiOk || supabaseOk;
 
   const [theirListings, setTheirListings] = useState<ListingLite[]>([]);
   const [myListings, setMyListings] = useState<ListingLite[]>([]);
@@ -57,7 +60,7 @@ export function InitiateTradeScreen() {
   const [listBusy, setListBusy] = useState(true);
 
   const load = useCallback(async () => {
-    if (!user || !supabaseOk) return;
+    if (!user || !tradeBackendOk) return;
     setListBusy(true);
     try {
       // Scope "their item" to the seller of the listing this trade was started from — otherwise
@@ -81,7 +84,7 @@ export function InitiateTradeScreen() {
     } finally {
       setListBusy(false);
     }
-  }, [user, supabaseOk, requestedListingId]);
+  }, [user, tradeBackendOk, requestedListingId]);
 
   useEffect(() => {
     void load();
@@ -92,7 +95,7 @@ export function InitiateTradeScreen() {
   }, [theirListings, theirKey]);
 
   const submit = async () => {
-    if (!user || !supabaseOk) return;
+    if (!user || !tradeBackendOk) return;
     if (!theirKey || offeredIds.size === 0) {
       Alert.alert('Incomplete', 'Select their listing and at least one of yours.');
       return;
@@ -127,14 +130,13 @@ export function InitiateTradeScreen() {
     });
   };
 
-  if (!supabaseOk) {
+  if (!tradeBackendOk) {
     return (
       <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
         <TradeFlowHeader navigation={navigation} title="Initiate trade" subtitle="Backend required" />
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
           <Text style={styles.lead}>
-            Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY to your environment. Offers are stored in
-            Supabase — the app does not send trades without a configured project.
+            Set EXPO_PUBLIC_SITE_URL (or EXPO_PUBLIC_WEB_API_URL) so trade offers can reach the Get Vaulted API.
           </Text>
         </ScrollView>
       </View>

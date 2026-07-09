@@ -4,6 +4,7 @@ export type MarketplaceCheckoutShipping = {
   buyerAddressId?: string;
   shipRecipientName: string;
   shipAddress: string;
+  shipAddressLine2?: string;
   shipCity: string;
   shipState: string;
   shipZip: string;
@@ -256,7 +257,7 @@ export async function fetchMarketplaceCheckoutShippingRates(
     listingId: string;
     shipping: MarketplaceCheckoutShipping;
   },
-): Promise<{ rates: MarketplaceCheckoutShippingRate[]; error: string | null }> {
+): Promise<{ rates: MarketplaceCheckoutShippingRate[]; error: string | null; shipFromLabel: string | null }> {
   const res = await fetchWebApi('/api/checkout/shipping-rates', {
     method: 'POST',
     headers: authHeaders(accessToken),
@@ -266,6 +267,7 @@ export async function fetchMarketplaceCheckoutShippingRates(
       shipping: {
         shipRecipientName: args.shipping.shipRecipientName,
         shipAddress: args.shipping.shipAddress,
+        shipAddressLine2: args.shipping.shipAddressLine2,
         shipCity: args.shipping.shipCity,
         shipState: args.shipping.shipState,
         shipZip: args.shipping.shipZip,
@@ -276,9 +278,14 @@ export async function fetchMarketplaceCheckoutShippingRates(
   const body = (await res.json().catch(() => null)) as {
     rates?: MarketplaceCheckoutShippingRate[];
     error?: string;
+    shipFromLabel?: string | null;
   };
   if (!res.ok) {
-    return { rates: body?.rates ?? [], error: body?.error ?? 'Shipping rates could not be loaded.' };
+    return { rates: body?.rates ?? [], error: body?.error ?? 'Shipping rates could not be loaded.', shipFromLabel: null };
   }
-  return { rates: body?.rates ?? [], error: null };
+  return {
+    rates: body?.rates ?? [],
+    error: null,
+    shipFromLabel: typeof body?.shipFromLabel === 'string' ? body.shipFromLabel : null,
+  };
 }

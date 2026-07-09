@@ -45,11 +45,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   try {
-    const { rates } = await fetchMarketplaceCheckoutShippingRates({
+    const { rates, shipFromLabel } = await fetchMarketplaceCheckoutShippingRates({
       listingId,
       shipTo: {
         shipRecipientName: addr.fullName,
-        shipAddress: [addr.line1, addr.line2].filter(Boolean).join(" "),
+        shipAddress: addr.line1,
+        shipAddressLine2: addr.line2?.trim() || undefined,
         shipCity: addr.city,
         shipState: addr.state,
         shipZip: addr.postalCode,
@@ -60,6 +61,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const display = formatShippingRateRangeDisplay(rates);
     return NextResponse.json({
       display,
+      shipFromLabel,
       rates: rates.map((rate) => ({
         id: rate.id,
         carrier: rate.carrier,

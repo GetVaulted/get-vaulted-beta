@@ -18,6 +18,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { useTradeOffer } from '../../hooks/useTradeOffer';
 import { listingToTradeItem } from '../../trade/listingToTradeItem';
 import { submitCounterOffer } from '../../api/tradeOffersRepository';
+import { isWebTradeApiConfigured } from '../../api/tradeOffersWebApi';
 import { isSupabaseConfigured } from '../../lib/supabase';
 
 type Props = NativeStackScreenProps<TradeCenterStackParamList, 'CounterOffer'>;
@@ -48,22 +49,23 @@ export function CounterOfferScreen({ navigation, route }: Props) {
       Alert.alert('Sign in', 'Authenticate on Trade Center home first.');
       return;
     }
-    if (!isSupabaseConfigured()) {
+    if (!isWebTradeApiConfigured() && !isSupabaseConfigured()) {
       Alert.alert(
         'Not available',
-        'Supabase is not configured. Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY to use counters.',
+        'Set EXPO_PUBLIC_SITE_URL (or EXPO_PUBLIC_WEB_API_URL) so trade counters can reach the Get Vaulted API.',
       );
       return;
     }
-    if (offer.recipient_id !== user.id) {
-      Alert.alert('Not your turn', 'Only the recipient can counter from this lane in MVP.');
+    const isParticipant = offer.recipient_id === user.id || offer.sender_id === user.id;
+    if (!isParticipant) {
+      Alert.alert('Not your trade', 'Only participants can counter this offer.');
       return;
     }
     setBusy(true);
     try {
       await submitCounterOffer({
         offerId: offer.id,
-        recipientId: user.id,
+        actorId: user.id,
         message: message.trim() || offer.message || '',
         cashDifference: cash,
       });

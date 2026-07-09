@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { getServerSessionSafe } from "@/lib/auth";
+import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
 import { prisma } from "@/lib/prisma";
 import { expireOfferIfNeeded } from "@/lib/trade-offers";
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const auth = await resolveListingsUserId(req);
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await ctx.params;
   const offerId = decodeURIComponent(id);
-  const userId = session.user.id;
+  const userId = auth.userId;
+  const session = await getServerSessionSafe();
 
   const offer = await prisma.tradeOffer.findUnique({
     where: { id: offerId },
@@ -25,7 +27,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   });
   if (!offer) return NextResponse.json({ error: "Not found." }, { status: 404 });
   const isParticipant = offer.proposerId === userId || offer.recipientId === userId;
-  const isAdmin = session.user.role === "admin";
+  const isAdmin = session?.user?.role === "admin";
   if (!isParticipant && !isAdmin) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
   await expireOfferIfNeeded(prisma, { id: offer.id, status: offer.status, expiresAt: offer.expiresAt });

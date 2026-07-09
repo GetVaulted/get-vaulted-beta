@@ -37,6 +37,8 @@ export type MarketplaceListing = {
   allowOffers?: boolean;
   /** Optional floor for offers (validated client-side until checkout API exists). */
   minimumOfferUsd?: number;
+  /** Trade-only lane — no buy-now checkout; $1 placeholder price in DB. */
+  tradeOnly?: boolean;
   /** When strictly `true`, buyers can start structured trade offers. */
   acceptTradeOffers?: boolean;
   /** When strictly `true`, eligible buyers may start a layaway plan ($500+ buy-now only). */

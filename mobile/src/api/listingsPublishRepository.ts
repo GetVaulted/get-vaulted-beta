@@ -159,12 +159,25 @@ function packageWeightOzTotal(form: CreateListingFormState): number {
   const lb = Number(String(form.packageWeightLb).replace(/[^0-9.]/g, '')) || 0;
   const oz = Number(String(form.packageWeightOz).replace(/[^0-9.]/g, '')) || 0;
   const total = lb * 16 + oz;
-  return total > 0 ? total : 16;
+  if (total > 0) return total;
+  const cat = webShippingCategoryFromMobile(form.category as CategoryId);
+  return cat === 'slab' ? 5 : 4;
 }
 
-function parcelInches(form: CreateListingFormState, field: 'packageLengthIn' | 'packageWidthIn' | 'packageHeightIn'): number {
+function parcelInches(
+  form: CreateListingFormState,
+  field: 'packageLengthIn' | 'packageWidthIn' | 'packageHeightIn',
+): number {
   const n = Number(String(form[field]).replace(/[^0-9.]/g, ''));
-  return Number.isFinite(n) && n > 0 ? n : 6;
+  if (Number.isFinite(n) && n > 0) return n;
+  const cat = webShippingCategoryFromMobile(form.category as CategoryId);
+  if (cat === 'slab') {
+    if (field === 'packageLengthIn') return 7;
+    if (field === 'packageWidthIn') return 5;
+    return 1;
+  }
+  if (field === 'packageHeightIn') return 1;
+  return field === 'packageLengthIn' ? 6 : 4;
 }
 
 function buyingFormatFromListingType(t: ListingCommerceType | null): 'buy_now' | 'auction' {
@@ -183,7 +196,7 @@ function publishStatus(
 function shippingWeightsForCategory(shippingCategory: string): { base: number; incremental: number } {
   switch (shippingCategory) {
     case 'slab':
-      return { base: 8, incremental: 3 };
+      return { base: 5, incremental: 2 };
     case 'small_collectible':
       return { base: 6, incremental: 2 };
     case 'custom':

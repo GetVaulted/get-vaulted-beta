@@ -55,10 +55,10 @@ export async function createOrderFromGiveawayWinTx(
     select: { defaultShipFromAddressId: true },
   });
 
-  let parcelWeightOz = 8;
-  let parcelLengthIn = 6;
-  let parcelWidthIn = 4;
-  let parcelHeightIn = 2;
+  let parcelWeightOz = 6;
+  let parcelLengthIn = 8;
+  let parcelWidthIn = 6;
+  let parcelHeightIn = 3;
   const profile = await resolveDefaultProfileForLiveShow({
     showDefaultProfileId: show.defaultShippingProfileId,
     category: show.category,

@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { fetchMarketplaceLiveStats } from '../../api/marketplaceStatsRepository';
+import { subscribeHomeFeedInvalidation } from '../../lib/homeFeedCache';
 import { MARKETPLACE_TEXT_PROPS, marketplaceFontSize } from '../../lib/marketplaceUiScale';
 import { useMarketplaceLayout } from '../../hooks/useMarketplaceLayout';
 import { colors, radii, spacing } from '../../theme';
@@ -11,9 +13,17 @@ export function MarketplaceMomentumBar({ compact: compactProp }: { compact?: boo
   const compact = compactProp ?? layout.compact;
   const [stats, setStats] = useState<Awaited<ReturnType<typeof fetchMarketplaceLiveStats>> | null>(null);
 
-  useEffect(() => {
+  const refresh = useCallback(() => {
     void fetchMarketplaceLiveStats().then(setStats);
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh]),
+  );
+
+  useEffect(() => subscribeHomeFeedInvalidation(() => refresh()), [refresh]);
 
   const active = stats?.activeListings;
   const items = [

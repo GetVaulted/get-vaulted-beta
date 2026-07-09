@@ -9,7 +9,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useScreenSafeInsets } from '../../lib/screenSafeInsets';
 import { colors, radii, spacing, typography } from '../../theme';
 
 type FooterProps = {
@@ -35,7 +35,7 @@ export function CreateListingFooter({
   onSaveDraft,
   saveDraftLabel = 'Save draft',
 }: FooterProps) {
-  const insets = useSafeAreaInsets();
+  const insets = useScreenSafeInsets();
   const off = disabled || loading;
 
   return (

@@ -1,5 +1,5 @@
 import { getSupabase } from '../lib/supabase';
-import { fetchMarketplaceListings } from './listingsFeedRepository';
+import { fetchWebApi } from './webListingsRepository';
 
 export type MarketplaceLiveStats = {
   activeListings: number | null;
@@ -14,7 +14,27 @@ type VelocityRpc = {
   active_listings?: number;
 };
 
-export async function fetchMarketplaceLiveStats(): Promise<MarketplaceLiveStats> {
+type PublishedScopeMeta = {
+  totalListingCount?: number;
+};
+
+/** Same total as marketplace browse (`GET /api/listings?scope=published`). */
+async function fetchBrowseAlignedActiveCount(): Promise<number | null> {
+  try {
+    const res = await fetchWebApi('/api/listings?scope=published&pageSize=1');
+    const body = (await res.json().catch(() => null)) as PublishedScopeMeta | null;
+    if (!res.ok) return null;
+    return typeof body?.totalListingCount === 'number' ? body.totalListingCount : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchVelocityOrderStats(): Promise<{
+  soldToday: number | null;
+  completedSales: number | null;
+  activeListings: number | null;
+}> {
   const siteUrl = process.env.EXPO_PUBLIC_SITE_URL?.trim().replace(/\/+$/, '');
   if (siteUrl) {
     try {
@@ -24,20 +44,14 @@ export async function fetchMarketplaceLiveStats(): Promise<MarketplaceLiveStats>
       });
       if (res.ok) {
         const v = (await res.json()) as VelocityRpc;
-        const sold = typeof v.sold_today === 'number' ? v.sold_today : null;
-        const completed = typeof v.completed_sales === 'number' ? v.completed_sales : null;
-        const active = typeof v.active_listings === 'number' ? v.active_listings : null;
-        if (sold !== null || completed !== null || active !== null) {
-          return {
-            activeListings: active,
-            soldToday: sold,
-            endingSoon: null,
-            completedSales: completed,
-          };
-        }
+        return {
+          soldToday: typeof v.sold_today === 'number' ? v.sold_today : null,
+          completedSales: typeof v.completed_sales === 'number' ? v.completed_sales : null,
+          activeListings: typeof v.active_listings === 'number' ? v.active_listings : null,
+        };
       }
     } catch {
-      /* fall through to Supabase RPC / listings heuristic */
+      /* fall through */
     }
   }
 
@@ -46,28 +60,33 @@ export async function fetchMarketplaceLiveStats(): Promise<MarketplaceLiveStats>
     const { data, error } = await sb.rpc('marketplace_velocity_stats');
     if (!error && data && typeof data === 'object') {
       const v = data as VelocityRpc;
-      const sold = typeof v.sold_today === 'number' ? v.sold_today : null;
-      const completed = typeof v.completed_sales === 'number' ? v.completed_sales : null;
-      const active = typeof v.active_listings === 'number' ? v.active_listings : null;
-      if (sold !== null || completed !== null || active !== null) {
-        return {
-          activeListings: active,
-          soldToday: sold,
-          endingSoon: null,
-          completedSales: completed,
-        };
-      }
+      return {
+        soldToday: typeof v.sold_today === 'number' ? v.sold_today : null,
+        completedSales: typeof v.completed_sales === 'number' ? v.completed_sales : null,
+        activeListings: typeof v.active_listings === 'number' ? v.active_listings : null,
+      };
     }
   }
 
-  const listings = await fetchMarketplaceListings({ limit: 120 });
-  if (!listings.length) {
-    return { activeListings: null, soldToday: null, endingSoon: null, completedSales: null };
+  return { soldToday: null, completedSales: null, activeListings: null };
+}
+
+export async function fetchMarketplaceLiveStats(): Promise<MarketplaceLiveStats> {
+  const [browseActive, velocity] = await Promise.all([
+    fetchBrowseAlignedActiveCount(),
+    fetchVelocityOrderStats(),
+  ]);
+
+  const activeListings = browseActive ?? velocity.activeListings;
+
+  if (activeListings !== null || velocity.soldToday !== null || velocity.completedSales !== null) {
+    return {
+      activeListings,
+      soldToday: velocity.soldToday,
+      endingSoon: null,
+      completedSales: velocity.completedSales,
+    };
   }
-  return {
-    activeListings: listings.length,
-    soldToday: null,
-    endingSoon: null,
-    completedSales: null,
-  };
+
+  return { activeListings: null, soldToday: null, endingSoon: null, completedSales: null };
 }

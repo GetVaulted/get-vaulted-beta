@@ -19,7 +19,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useScreenSafeInsets } from '../lib/screenSafeInsets';
 import {
   fetchListingsBySeller,
   fetchMarketplaceListingByIdWithRetry,
@@ -100,7 +100,7 @@ function SellerLevelBadge({ label }: { label: string }) {
 }
 
 export function ProductDetailScreen({ navigation, route }: Props) {
-  const insets = useSafeAreaInsets();
+  const insets = useScreenSafeInsets();
   const { width: winW, height: winH } = useWindowDimensions();
   const heroH = galleryHeight(winW, winH);
   const compact = winW < 410;
@@ -435,42 +435,57 @@ export function ProductDetailScreen({ navigation, route }: Props) {
 
           {!commerceBlocked ? (
             <>
-              <View style={styles.inlineCtas}>
-                <PremiumVaultButton
-                  variant="primary"
-                  label={`Buy now · ${vm.pricing.buyNow}`}
-                  icon="bag-outline"
-                  onPress={() => void goBuyNow()}
-                  loading={buyNowBusy}
-                  flex
-                  compact={compact}
-                />
-              </View>
-
-              {(vm.trade.allowOffers || vm.trade.acceptsTrades) && (
-                <View style={styles.secondaryCtaRow}>
-                  {vm.trade.allowOffers ? (
-                    <PremiumVaultButton
-                      variant="secondary"
-                      label="Make offer"
-                      icon="pricetag-outline"
-                      onPress={() => void goMakeOffer()}
-                      loading={makeOfferBusy}
-                      flex
-                      compact={compact}
-                    />
-                  ) : null}
-                  {vm.trade.acceptsTrades ? (
-                    <PremiumVaultButton
-                      variant="secondary"
-                      label="Trade offer"
-                      icon="swap-horizontal-outline"
-                      onPress={goTradeOffer}
-                      flex
-                      compact={compact}
-                    />
-                  ) : null}
+              {product.tradeOnly ? (
+                <View style={styles.inlineCtas}>
+                  <PremiumVaultButton
+                    variant="primary"
+                    label="Start trade offer"
+                    icon="swap-horizontal-outline"
+                    onPress={goTradeOffer}
+                    flex
+                    compact={compact}
+                  />
                 </View>
+              ) : (
+                <>
+                  <View style={styles.inlineCtas}>
+                    <PremiumVaultButton
+                      variant="primary"
+                      label={`Buy now · ${vm.pricing.buyNow}`}
+                      icon="bag-outline"
+                      onPress={() => void goBuyNow()}
+                      loading={buyNowBusy}
+                      flex
+                      compact={compact}
+                    />
+                  </View>
+
+                  {(vm.trade.allowOffers || vm.trade.acceptsTrades) && (
+                    <View style={styles.secondaryCtaRow}>
+                      {vm.trade.allowOffers ? (
+                        <PremiumVaultButton
+                          variant="secondary"
+                          label="Make offer"
+                          icon="pricetag-outline"
+                          onPress={() => void goMakeOffer()}
+                          loading={makeOfferBusy}
+                          flex
+                          compact={compact}
+                        />
+                      ) : null}
+                      {vm.trade.acceptsTrades ? (
+                        <PremiumVaultButton
+                          variant="secondary"
+                          label="Trade offer"
+                          icon="swap-horizontal-outline"
+                          onPress={goTradeOffer}
+                          flex
+                          compact={compact}
+                        />
+                      ) : null}
+                    </View>
+                  )}
+                </>
               )}
 
               {layawayAvailable ? (
@@ -716,10 +731,10 @@ export function ProductDetailScreen({ navigation, route }: Props) {
           {!commerceBlocked ? (
             <PremiumVaultButton
               variant="primary"
-              label="Buy now"
-              icon="bag-outline"
-              onPress={() => void goBuyNow()}
-              loading={buyNowBusy}
+              label={product.tradeOnly ? 'Trade offer' : 'Buy now'}
+              icon={product.tradeOnly ? 'swap-horizontal-outline' : 'bag-outline'}
+              onPress={product.tradeOnly ? goTradeOffer : () => void goBuyNow()}
+              loading={product.tradeOnly ? false : buyNowBusy}
               compact={compact}
             />
           ) : null}

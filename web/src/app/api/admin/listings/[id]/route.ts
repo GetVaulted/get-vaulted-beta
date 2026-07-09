@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/require-admin";
 import { logTrustModerationAction } from "@/lib/trust/moderation-audit-log";
+import { maybeEmitMarketplaceCatalogChanged } from "@/lib/listing-catalog-emit";
 
 type Body = { action?: string; isCompanyListing?: boolean; reason?: string };
 
@@ -22,7 +23,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const action = typeof body.action === "string" ? body.action.trim() : "";
   const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 2000) : "";
 
-  const existing = await prisma.listing.findUnique({ where: { id }, select: { id: true } });
+  const existing = await prisma.listing.findUnique({
+    where: { id },
+    select: { id: true, status: true, moderationRemovedAt: true, sellerId: true },
+  });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   if (typeof body.isCompanyListing === "boolean") {
@@ -38,6 +42,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       where: { id },
       data: { moderationRemovedAt: new Date() },
     });
+    maybeEmitMarketplaceCatalogChanged({
+      before: { status: existing.status, moderationRemovedAt: existing.moderationRemovedAt },
+      after: { status: existing.status, moderationRemovedAt: new Date() },
+      listingId: id,
+      sellerId: existing.sellerId,
+      reason: "moderation",
+    });
     await logTrustModerationAction({
       actorUserId: gate.userId,
       action: "admin_listing_removed",
@@ -51,6 +62,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     await prisma.listing.update({
       where: { id },
       data: { moderationRemovedAt: null },
+    });
+    maybeEmitMarketplaceCatalogChanged({
+      before: { status: existing.status, moderationRemovedAt: existing.moderationRemovedAt },
+      after: { status: existing.status, moderationRemovedAt: null },
+      listingId: id,
+      sellerId: existing.sellerId,
+      reason: "moderation",
     });
     await logTrustModerationAction({
       actorUserId: gate.userId,

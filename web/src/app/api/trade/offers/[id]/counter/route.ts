@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { authOptions, getServerSessionSafe } from "@/lib/auth";
+import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
 import { prisma } from "@/lib/prisma";
 import { assertActiveForMutation, ensureOfferFreshForAction, resolveTradeListingsForTerms } from "../_shared";
 import { checkRateLimit } from "@/lib/request-rate-limit";
+import { notifyTradeOfferCountered } from "@/lib/trade-offer-notifications";
 
 type CounterBody = {
   requestedListingIds?: unknown;
@@ -25,11 +26,11 @@ function toNonNegative(v: unknown): number | null {
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSessionSafe();
-  if (!session?.user?.id) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  const auth = await resolveListingsUserId(req);
+  if (auth instanceof NextResponse) return auth;
   const { id } = await ctx.params;
   const offerId = decodeURIComponent(id);
-  const userId = session.user.id;
+  const userId = auth.userId;
   const limiter = checkRateLimit(`trade:counter:${userId}:${offerId}`, { limit: 5, windowMs: 60_000 });
   if (!limiter.ok) {
     return NextResponse.json(
@@ -164,9 +165,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         }),
       },
     });
-    return { ok: true as const };
+    return {
+      ok: true as const,
+      notifyUserId: offer.proposerId === userId ? offer.recipientId : offer.proposerId,
+    };
   });
 
   if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.code });
+
+  const actor = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { username: true },
+  });
+  await notifyTradeOfferCountered(prisma, {
+    offerId,
+    recipientUserId: result.notifyUserId,
+    actorUsername: actor?.username ?? null,
+  });
+
   return NextResponse.json({ ok: true });
 }

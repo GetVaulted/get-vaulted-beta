@@ -30,11 +30,21 @@ vi.mock("@/lib/prisma", () => ({
     layaway: { findFirst: hoisted.layawayFindFirst },
     order: { findUnique: hoisted.orderFindUnique },
     tradeOffer: { findFirst: hoisted.findFirst },
+    user: { findUnique: vi.fn().mockResolvedValue({ username: "sender" }) },
     $transaction: hoisted.transaction,
   },
 }));
 
-import { getServerSessionSafe } from "@/lib/auth";
+vi.mock("@/lib/resolve-listings-auth", () => ({
+  resolveListingsUserId: vi.fn(),
+}));
+
+vi.mock("@/lib/trade-offer-notifications", () => ({
+  notifyTradeOfferCreated: vi.fn().mockResolvedValue(undefined),
+}));
+
+import { notifyTradeOfferCreated } from "@/lib/trade-offer-notifications";
+import { resolveListingsUserId } from "@/lib/resolve-listings-auth";
 import { POST } from "@/app/api/trade/offers/route";
 import { __resetRateLimitsForTests } from "@/lib/request-rate-limit";
 
@@ -77,7 +87,7 @@ describe("POST /api/trade/offers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     __resetRateLimitsForTests();
-    vi.mocked(getServerSessionSafe).mockResolvedValue({ user: { id: "user_sender" } } as never);
+    vi.mocked(resolveListingsUserId).mockResolvedValue({ userId: "user_sender" });
     hoisted.transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) =>
       cb({
         tradeOffer: { create: hoisted.tradeOfferCreate },
@@ -162,6 +172,15 @@ describe("POST /api/trade/offers", () => {
     expect(hoisted.tradeOfferEventCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ type: "offer_created", actorUserId: "user_sender" }),
+      }),
+    );
+    expect(notifyTradeOfferCreated).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        offerId: "trade_1",
+        recipientId: "user_receiver",
+        requestedTitle: "Requested",
+        offeredCount: 1,
       }),
     );
   });

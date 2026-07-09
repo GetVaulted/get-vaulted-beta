@@ -5,6 +5,15 @@ import {
   fetchPublishedListingsFromWeb,
   getListingsAccessToken,
 } from './webListingsRepository';
+import {
+  acceptTradeOfferViaWeb,
+  counterTradeOfferViaWeb,
+  createTradeOfferViaWeb,
+  declineTradeOfferViaWeb,
+  fetchTradeOfferDetailViaWeb,
+  fetchTradeOffersForUserViaWeb,
+  isWebTradeApiConfigured,
+} from './tradeOffersWebApi';
 import { getSupabase } from '../lib/supabase';
 import { devPlaceholderShipFrom, shouldAttachDevShipFrom } from '../lib/devShippoPlaceholders';
 import { tradeFeeUsdForTier } from '../lib/tradeFeeAmounts';
@@ -82,16 +91,42 @@ async function fetchProfilesMap(sb: NonNullable<ReturnType<typeof getSupabase>>,
   return m;
 }
 
+function profileFallback(id: string, profiles: Map<string, ProfileLite>): ProfileLite {
+  return (
+    profiles.get(id) ?? {
+      id,
+      username: null,
+      display_name: 'Collector',
+      avatar_url: null,
+    }
+  );
+}
+
+function listingFallback(id: string, listings: Map<string, ListingLite>): ListingLite {
+  return (
+    listings.get(id) ?? {
+      id,
+      title: 'Trade item',
+      price: 0,
+      currency: 'usd',
+      media_urls: '',
+      condition: null,
+      authentication_status: 'unknown',
+    }
+  );
+}
+
 function buildVm(
   row: TradeRow,
   listings: Map<string, ListingLite>,
   profiles: Map<string, ProfileLite>,
 ): TradeOfferVM | null {
-  const sender = profiles.get(row.sender_id);
-  const recipient = profiles.get(row.recipient_id);
-  const requested = listings.get(row.requested_item_id);
-  if (!sender || !recipient || !requested) return null;
-  const offered = (row.offered_item_ids ?? []).map((id) => listings.get(id)).filter(Boolean) as ListingLite[];
+  const sender = profileFallback(row.sender_id, profiles);
+  const recipient = profileFallback(row.recipient_id, profiles);
+  const requested = listingFallback(row.requested_item_id, listings);
+  const offered = (row.offered_item_ids ?? [])
+    .map((id) => listingFallback(id, listings))
+    .filter((item) => Boolean(item.id));
   if (offered.length === 0) return null;
   return {
     id: row.id,
@@ -114,23 +149,54 @@ function buildVm(
 }
 
 export async function fetchCompletedTradesForUser(userId: string): Promise<TradeOfferVM[]> {
-  const rows = await fetchTradeOffersForUser(userId);
-  return rows.filter((t) => t.status === 'completed');
+  const feed = await fetchTradeOffersForUser(userId);
+  return feed.offers.filter((t) => t.status === 'completed');
 }
 
-export async function fetchTradeOffersForUser(userId: string): Promise<TradeOfferVM[]> {
+export type TradeOffersFeed = {
+  offers: TradeOfferVM[];
+  /** Prisma user id for inbox partitioning (may differ from Supabase auth id). */
+  participantUserId: string;
+  loadError: string | null;
+};
+
+export async function fetchTradeOffersForUser(userId: string): Promise<TradeOffersFeed> {
+  let participantUserId = userId;
+  let loadError: string | null = null;
+  const webRows = isWebTradeApiConfigured()
+    ? await fetchTradeOffersForUserViaWeb(userId).catch((e) => {
+        loadError = e instanceof Error ? e.message : 'Could not load trade offers from the Vaulted API.';
+        console.warn('fetchTradeOffersForUserViaWeb', e);
+        return { offers: [] as TradeOfferVM[], viewerId: null as string | null };
+      })
+    : { offers: [] as TradeOfferVM[], viewerId: null as string | null };
+  if (webRows.viewerId) participantUserId = webRows.viewerId;
+
   const sb = getSupabase();
-  if (!sb) return [];
+  if (!sb) {
+    return { offers: webRows.offers, participantUserId, loadError };
+  }
+
+  const participantIds = [...new Set([userId, participantUserId].filter(Boolean))];
+  const supabaseOr = participantIds
+    .flatMap((id) => [`sender_id.eq.${id}`, `recipient_id.eq.${id}`])
+    .join(',');
+
   const { data: rows, error } = await sb
     .from('trade_offers')
     .select('*')
-    .or(`sender_id.eq.${userId},recipient_id.eq.${userId}`)
+    .or(supabaseOr)
     .order('updated_at', { ascending: false });
   if (error || !rows?.length) {
     if (error) console.warn('fetchTradeOffersForUser', error.message);
-    return [];
+    return { offers: webRows.offers, participantUserId, loadError };
   }
-  const tradeRows = rows as TradeRow[];
+  const webIds = new Set(webRows.offers.map((r) => r.id));
+  const tradeRows = (rows as TradeRow[]).filter((r) => !webIds.has(r.id));
+  if (!tradeRows.length) {
+    return { offers: webRows.offers, participantUserId, loadError };
+  }
+
   const listingIds = new Set<string>();
   const profileIds = new Set<string>();
   for (const r of tradeRows) {
@@ -143,10 +209,22 @@ export async function fetchTradeOffersForUser(userId: string): Promise<TradeOffe
     fetchListingsMap(sb, [...listingIds]),
     fetchProfilesMap(sb, [...profileIds]),
   ]);
-  return tradeRows.map((r) => buildVm(r, lm, pm)).filter(Boolean) as TradeOfferVM[];
+  const legacyRows = tradeRows.map((r) => buildVm(r, lm, pm)).filter(Boolean) as TradeOfferVM[];
+  return {
+    offers: [...webRows.offers, ...legacyRows].sort(
+      (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+    ),
+    participantUserId,
+    loadError,
+  };
 }
 
 export async function fetchTradeOfferById(offerId: string): Promise<TradeOfferVM | null> {
+  if (isWebTradeApiConfigured()) {
+    const webRow = await fetchTradeOfferDetailViaWeb(offerId);
+    if (webRow) return webRow;
+  }
+
   const sb = getSupabase();
   if (!sb) return null;
   const { data: row, error } = await sb.from('trade_offers').select('*').eq('id', offerId).maybeSingle();
@@ -195,6 +273,16 @@ export async function insertTradeOffer(params: {
   message: string | null;
   weightTier: ShippingWeightTier;
 }): Promise<string> {
+  if (isWebTradeApiConfigured()) {
+    return createTradeOfferViaWeb({
+      requestedListingIds: [params.requestedListingId],
+      offeredListingIds: params.offeredListingIds,
+      cashDifference: params.cashDifference,
+      message: params.message,
+      weightTier: params.weightTier,
+    });
+  }
+
   const sb = getSupabase();
   if (!sb) throw new Error('Supabase is not configured');
 
@@ -241,7 +329,17 @@ export async function insertTradeOffer(params: {
   return ins.id as string;
 }
 
-export async function acceptTradeOfferAsRecipient(offerId: string, recipientId: string): Promise<void> {
+export async function acceptTradeOfferAsRecipient(offerId: string, recipientId: string): Promise<'accepted' | 'fee_due'> {
+  if (isWebTradeApiConfigured()) {
+    try {
+      await acceptTradeOfferViaWeb(offerId);
+      return 'accepted';
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (!msg.toLowerCase().includes('not found')) throw e;
+    }
+  }
+
   const sb = getSupabase();
   if (!sb) throw new Error('Supabase is not configured');
   const { error } = await sb
@@ -250,9 +348,20 @@ export async function acceptTradeOfferAsRecipient(offerId: string, recipientId: 
     .eq('id', offerId)
     .eq('recipient_id', recipientId);
   if (error) throw new Error(error.message);
+  return 'fee_due';
 }
 
 export async function declineTradeOfferAsRecipient(offerId: string, recipientId: string): Promise<void> {
+  if (isWebTradeApiConfigured()) {
+    try {
+      await declineTradeOfferViaWeb(offerId);
+      return;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (!msg.toLowerCase().includes('not found')) throw e;
+    }
+  }
+
   const sb = getSupabase();
   if (!sb) throw new Error('Supabase is not configured');
   const { error } = await sb
@@ -265,10 +374,24 @@ export async function declineTradeOfferAsRecipient(offerId: string, recipientId:
 
 export async function submitCounterOffer(params: {
   offerId: string;
-  recipientId: string;
+  actorId: string;
   message: string;
   cashDifference: number;
 }): Promise<void> {
+  if (isWebTradeApiConfigured()) {
+    try {
+      await counterTradeOfferViaWeb({
+        offerId: params.offerId,
+        cashDifference: params.cashDifference,
+        message: params.message,
+      });
+      return;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (!msg.toLowerCase().includes('not found')) throw e;
+    }
+  }
+
   const sb = getSupabase();
   if (!sb) throw new Error('Supabase is not configured');
   const { error } = await sb
@@ -279,7 +402,7 @@ export async function submitCounterOffer(params: {
       cash_difference: params.cashDifference,
     })
     .eq('id', params.offerId)
-    .eq('recipient_id', params.recipientId);
+    .or(`recipient_id.eq.${params.actorId},sender_id.eq.${params.actorId}`);
   if (error) throw new Error(error.message);
 }
 

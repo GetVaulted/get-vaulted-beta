@@ -11,6 +11,7 @@ type Body = {
   shipping?: {
     shipRecipientName?: string;
     shipAddress?: string;
+    shipAddressLine2?: string;
     shipCity?: string;
     shipState?: string;
     shipZip?: string;
@@ -46,6 +47,7 @@ export async function POST(req: Request) {
   let shipTo = {
     shipRecipientName: trim(sh.shipRecipientName, 200),
     shipAddress: trim(sh.shipAddress, 500),
+    shipAddressLine2: trim(sh.shipAddressLine2, 500) || undefined,
     shipCity: trim(sh.shipCity, 120),
     shipState: trim(sh.shipState, 120),
     shipZip: trim(sh.shipZip, 32),
@@ -59,7 +61,8 @@ export async function POST(req: Request) {
     if (!addr) return NextResponse.json({ error: "Select a valid shipping address." }, { status: 400 });
     shipTo = {
       shipRecipientName: addr.fullName || shipTo.shipRecipientName,
-      shipAddress: [addr.line1, addr.line2].filter(Boolean).join(" "),
+      shipAddress: addr.line1,
+      shipAddressLine2: addr.line2?.trim() || undefined,
       shipCity: addr.city,
       shipState: addr.state,
       shipZip: addr.postalCode,
@@ -72,8 +75,8 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { rates, mock } = await fetchMarketplaceCheckoutShippingRates({ listingId, shipTo });
-    return NextResponse.json({ rates, mock });
+    const { rates, mock, shipFromLabel } = await fetchMarketplaceCheckoutShippingRates({ listingId, shipTo });
+    return NextResponse.json({ rates, mock, shipFromLabel });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg === "LISTING_NOT_FOUND") {

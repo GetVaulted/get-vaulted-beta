@@ -16,6 +16,7 @@ export type MarketplaceCardBadge =
   | 'trending'
   | 'verified'
   | 'buy_now'
+  | 'trade_only'
   | 'also_live';
 
 function badgeFor(product: Product): MarketplaceCardBadge | null {
@@ -25,6 +26,7 @@ function badgeFor(product: Product): MarketplaceCardBadge | null {
   if (product.storyline?.toLowerCase().includes('just listed')) return 'just_listed';
   if (product.storyline?.toLowerCase().includes('trending')) return 'trending';
   if (product.auctionEnds) return 'ending';
+  if (product.tradeOnly) return 'trade_only';
   if (product.buyNow) return 'buy_now';
   if (product.vaultVerified) return 'verified';
   return null;
@@ -37,6 +39,7 @@ const BADGE_COPY: Record<MarketplaceCardBadge, { label: string; color: string }>
   trending: { label: 'Trending', color: '#7B68EE' },
   verified: { label: 'Vault verified', color: colors.gold },
   buy_now: { label: 'Buy now', color: '#5AC8FA' },
+  trade_only: { label: 'Trade only', color: '#9B8CFF' },
   also_live: { label: 'Also featured live', color: colors.textSecondary },
 };
 

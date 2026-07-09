@@ -37,6 +37,7 @@ import {
   buildMarketplaceBrowseWhere,
   parseMarketplaceBrowseQueryParams,
 } from "@/lib/marketplace-listing-query";
+import { maybeEmitMarketplaceCatalogChanged } from "@/lib/listing-catalog-emit";
 
 const listingInclude = listingWithSellerFulfillmentInclude;
 
@@ -788,6 +789,13 @@ export async function POST(req: Request) {
     });
   }
   const full = await prisma.listing.findUniqueOrThrow({ where: { id: row.id }, include: listingInclude });
+  maybeEmitMarketplaceCatalogChanged({
+    before: { status: "draft", moderationRemovedAt: null },
+    after: { status: full.status, moderationRemovedAt: full.moderationRemovedAt },
+    listingId: full.id,
+    sellerId: full.sellerId,
+    reason: publishedLive ? "published" : "updated",
+  });
   const offers = await prisma.offer.count({ where: { listingId: full.id, status: "pending" } });
   const bc = full.buyingFormat === "auction" ? await prisma.bid.count({ where: { listingId: full.id } }) : undefined;
   return NextResponse.json({ listing: dbListingToStored(full, offers, bc) });

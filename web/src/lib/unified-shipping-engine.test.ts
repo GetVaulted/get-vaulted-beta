@@ -27,8 +27,8 @@ const cardProfile = {
   slug: "trading_cards",
   name: "Trading Cards",
   defaultWeightOz: 4,
-  defaultLengthIn: 8,
-  defaultWidthIn: 6,
+  defaultLengthIn: 6,
+  defaultWidthIn: 4,
   defaultHeightIn: 1,
   bundleAllowed: true,
   requiresSeparatePackage: false,
@@ -43,7 +43,7 @@ describe("unified-shipping-engine", () => {
   it("resolves profile dimensions with custom overrides", () => {
     const resolved = resolveShippingProfileDimensions(cardProfile, { customWeightOz: 6 });
     expect(resolved.weightOz).toBe(6);
-    expect(resolved.lengthIn).toBe(8);
+    expect(resolved.lengthIn).toBe(6);
   });
 
   it("bundles card lots and splits helmets into separate packages", () => {

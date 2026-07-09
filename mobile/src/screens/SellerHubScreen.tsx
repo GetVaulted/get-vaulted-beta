@@ -61,10 +61,12 @@ import {
   refreshSellerConnectAfterOnboarding,
 } from '../lib/openStripeConnectOnboarding';
 import { areDevToolsEnabled } from '../lib/devTools';
+import { useMarketplaceLayout } from '../hooks/useMarketplaceLayout';
 import { deferAfterFirstPaint } from '../lib/deferAfterFirstPaint';
 
 export function SellerHubScreen() {
   const insets = useSafeAreaInsets();
+  const layout = useMarketplaceLayout();
   const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
   const { user, loading: authLoading, session } = useAuth();
   const { userListings } = useCreateListingDraft();
@@ -402,7 +404,7 @@ export function SellerHubScreen() {
   if (!user) {
     return (
       <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: layout.tabBarClearance }]} showsVerticalScrollIndicator={false}>
           <Text style={styles.hqGateTitle}>Seller HQ</Text>
           <Text style={styles.hqGateBody}>
             Log in to unlock Seller HQ — revenue, fulfillment, collector network, and vault events.
@@ -430,7 +432,7 @@ export function SellerHubScreen() {
   if (sellerSetup.showSetupGate) {
     return (
       <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: layout.tabBarClearance }]} showsVerticalScrollIndicator={false}>
           <Text style={styles.hqGateTitle}>Seller HQ</Text>
           <SellerSetupGatePanel phase={sellerSetup.phase} />
         </ScrollView>
@@ -451,7 +453,7 @@ export function SellerHubScreen() {
           ref={scrollRef}
           style={styles.tabScroll}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: layout.tabBarClearance }]}
           refreshControl={
             tab === 'listings' ? (
               <RefreshControl

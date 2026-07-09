@@ -3,6 +3,7 @@ import type { WebMarketplaceListing } from './webListingsTypes';
 import type { CategoryId, Host, Product } from '../types';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 
+import { isTradeOnlyWebListing } from '../lib/listingCommerceMode';
 import { formatMarketplaceUsd } from '../lib/formatMarketplaceUsd';
 
 function stripInventoryMarker(text: string | undefined): string | undefined {
@@ -50,7 +51,8 @@ export function mapWebMarketplaceListingToProduct(listing: WebMarketplaceListing
   const imageUrls = resolveListingImageUrls(listing.imageUrls);
   const imageUrl = imageUrls[0];
   const cat: CategoryId = mapListingCategoryToCategoryId(listing.category);
-  const priceLabel = formatMarketplaceUsd(listing.price);
+  const tradeOnly = isTradeOnlyWebListing(listing);
+  const priceLabel = tradeOnly ? 'Trade offers' : formatMarketplaceUsd(listing.price);
   return {
     id: listing.id,
     title: listing.title?.trim() || '',
@@ -64,7 +66,8 @@ export function mapWebMarketplaceListingToProduct(listing: WebMarketplaceListing
     listingPrice: priceLabel,
     conditionGrade: listing.condition || undefined,
     seller: sellerToHost(listing),
-    buyNow: priceLabel,
+    buyNow: tradeOnly ? undefined : priceLabel,
+    tradeOnly,
     allowOffers: listing.allowOffers === true,
     allowLayaway: listing.allowLayaway === true,
     acceptTradeOffers: listing.acceptTradeOffers === true,

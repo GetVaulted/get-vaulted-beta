@@ -3,6 +3,7 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { getFocusedRouteNameFromRoute } from '@react-navigation/native';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { resolvedBottomInset } from '../lib/screenSafeInsets';
 import { isCompactMarketplaceLayout, marketplaceFontSize, MARKETPLACE_TEXT_PROPS } from '../lib/marketplaceUiScale';
 import { colors, spacing, typography } from '../theme';
 import type { MainTabParamList } from './types';
@@ -46,7 +47,7 @@ export function VaultTabBar({ state, descriptors, navigation }: BottomTabBarProp
   const tightTabs = width / ORDER.length < TAB_SLOT_TIGHT_WIDTH;
   const shortLabels = compact || tightTabs;
   const labelSize = marketplaceFontSize(shortLabels ? 9 : 10, Math.min(1, width / 430));
-  const bottomPad = Math.max(insets.bottom, spacing.sm);
+  const bottomPad = resolvedBottomInset(insets.bottom) + spacing.sm;
   const tabSlotWidth = width / TAB_COUNT;
   const currentRoute = state.routes[state.index];
   const nestedLiveName =

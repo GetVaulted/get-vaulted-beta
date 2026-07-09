@@ -29,12 +29,12 @@ describe("create listing form helpers", () => {
   it("fills slab preset defaults", () => {
     expect(getPresetFields("slab")).toEqual({
       shippingCategory: "slab",
-      shippingBaseWeightOz: "8",
-      shippingIncrementalWeightOz: "3",
-      parcelWeightOz: "8",
-      parcelLengthIn: "8",
-      parcelWidthIn: "6",
-      parcelHeightIn: "2",
+      shippingBaseWeightOz: "5",
+      shippingIncrementalWeightOz: "2",
+      parcelWeightOz: "5",
+      parcelLengthIn: "7",
+      parcelWidthIn: "5",
+      parcelHeightIn: "1",
     });
   });
 
@@ -46,7 +46,7 @@ describe("create listing form helpers", () => {
       parcelWeightOz: "6",
       parcelLengthIn: "8",
       parcelWidthIn: "6",
-      parcelHeightIn: "4",
+      parcelHeightIn: "3",
     });
   });
 

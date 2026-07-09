@@ -1,3 +1,4 @@
+import { isTradeOnlyListing } from "@/lib/listing-commerce-mode";
 import type { BuyingFormat, Listing, ListingImage, ListingStatus } from "@/generated/prisma/client";
 import type { SellerLevel } from "@/generated/prisma/enums";
 import { sellerLevelLabel } from "@/services/payout/seller-level";
@@ -170,6 +171,15 @@ export function dbListingToMarketplace(
     allowOffers: row.allowOffers ? true : undefined,
     allowLayaway: row.allowLayaway ? true : undefined,
     acceptTradeOffers: row.acceptTradeOffers ? true : undefined,
+    tradeOnly: isTradeOnlyListing({
+      buyingFormat: row.buyingFormat,
+      acceptTradeOffers: row.acceptTradeOffers,
+      allowOffers: row.allowOffers,
+      allowLayaway: row.allowLayaway,
+      priceUsd: row.priceUsd,
+    })
+      ? true
+      : undefined,
     minimumOfferUsd: row.minimumOfferUsd ?? undefined,
     vaultPick: row.vaultPick ? true : undefined,
     listingStatus: row.status,

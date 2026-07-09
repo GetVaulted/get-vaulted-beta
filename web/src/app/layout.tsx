@@ -6,6 +6,7 @@ import { WatchlistToastHost } from "@/components/marketplace/WatchlistToastHost"
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import { KeyboardDismissProvider } from "@/components/providers/KeyboardDismissProvider";
 import { LiveMarketplaceGateProvider } from "@/components/providers/LiveMarketplaceGateProvider";
+import { MarketplaceCatalogSyncProvider } from "@/components/providers/MarketplaceCatalogSyncProvider";
 import { VaultEcosystemRealtimeProvider } from "@/components/providers/VaultEcosystemRealtimeProvider";
 import { isLiveMarketplacePubliclyAvailable } from "@/lib/live-coming-soon";
 import { publicSiteBaseUrl } from "@/lib/live-room-share-metadata";
@@ -75,12 +76,14 @@ export default function RootLayout({
         <AuthProvider>
           <KeyboardDismissProvider>
             <VaultEcosystemRealtimeProvider>
-              <LiveMarketplaceGateProvider enabled={liveMarketplaceEnabled}>
-                <Navbar />
-                <WatchlistToastHost />
-                <div className="flex min-h-0 flex-1 flex-col">{children}</div>
-              </LiveMarketplaceGateProvider>
-              <SiteFooter liveMarketplaceEnabled={liveMarketplaceEnabled} />
+              <MarketplaceCatalogSyncProvider>
+                <LiveMarketplaceGateProvider enabled={liveMarketplaceEnabled}>
+                  <Navbar />
+                  <WatchlistToastHost />
+                  <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+                </LiveMarketplaceGateProvider>
+                <SiteFooter liveMarketplaceEnabled={liveMarketplaceEnabled} />
+              </MarketplaceCatalogSyncProvider>
             </VaultEcosystemRealtimeProvider>
           </KeyboardDismissProvider>
         </AuthProvider>

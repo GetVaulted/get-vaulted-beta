@@ -93,8 +93,22 @@ export function openNotificationHref(
     return true;
   }
 
-  if (path.startsWith('/account/offers') || ctx?.type?.includes('offer')) {
+  if (path.startsWith('/account/offers') || (ctx?.type?.includes('offer') && !ctx?.type?.startsWith('trade_'))) {
     n.navigate('MainTabs', { screen: 'Marketplace' });
+    return true;
+  }
+
+  const tradeOfferMatch = path.match(/^\/trade\/([^/]+)/);
+  if (tradeOfferMatch?.[1] && tradeOfferMatch[1] !== 'new' && tradeOfferMatch[1] !== 'offers') {
+    const offerId = decodeURIComponent(tradeOfferMatch[1]);
+    n.navigate('MainTabs', {
+      screen: 'TradeCenter',
+      params: { screen: 'ReviewOffer', params: { offerId } },
+    });
+    return true;
+  }
+  if (path.startsWith('/trade')) {
+    n.navigate('MainTabs', { screen: 'TradeCenter' });
     return true;
   }
 

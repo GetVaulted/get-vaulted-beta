@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { prismaSellerVisibleOnPublicMarketplace } from "@/lib/demo-seed-sellers";
+import { PUBLIC_MARKETPLACE_LISTING_WHERE } from "@/lib/marketplace-commerce-policy";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -8,6 +10,11 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const startOfDayUtc = new Date();
   startOfDayUtc.setUTCHours(0, 0, 0, 0);
+
+  const browseWhere = {
+    ...PUBLIC_MARKETPLACE_LISTING_WHERE,
+    seller: prismaSellerVisibleOnPublicMarketplace(),
+  };
 
   const [soldToday, completedSales, activeListings] = await Promise.all([
     prisma.order.count({
@@ -22,12 +29,7 @@ export async function GET() {
         fulfillmentStatus: { in: ["delivered", "in_transit", "out_for_delivery"] },
       },
     }),
-    prisma.listing.count({
-      where: {
-        status: { in: ["active", "auction_live"] },
-        moderationRemovedAt: null,
-      },
-    }),
+    prisma.listing.count({ where: browseWhere }),
   ]);
 
   return NextResponse.json({

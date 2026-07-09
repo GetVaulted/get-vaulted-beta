@@ -50,7 +50,7 @@ export function packageFieldsFromSellerProfile(profile: SellerShippingProfilePar
   packageHeightIn: string;
 } {
   const totalOz = Number(profile.defaultWeightOz);
-  const safeOz = Number.isFinite(totalOz) && totalOz > 0 ? totalOz : 16;
+  const safeOz = Number.isFinite(totalOz) && totalOz > 0 ? totalOz : 5;
   const wholeLb = Math.floor(safeOz / 16);
   const remainderOz = Math.round(safeOz - wholeLb * 16);
 
