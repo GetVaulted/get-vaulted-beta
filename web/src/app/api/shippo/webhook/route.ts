@@ -3,7 +3,7 @@ import { createNotification } from "@/lib/notifications";
 import { scheduleOrderLifecycleEmail } from "@/lib/order-lifecycle-email";
 import { emitOrderLifecycleSync } from "@/lib/marketplace/ecosystem-sync";
 import { prisma } from "@/lib/prisma";
-import { verifyShippoWebhookSignature } from "@/lib/shippo";
+import { verifyShippoWebhookRequest } from "@/lib/shippo";
 import { SELLER_COMMERCE_KIND, logSellerCommerceEvent } from "@/lib/seller-commerce-event";
 import { buildOrderUpdateForShippoFulfillment, mapShippoTrackingToFulfillment } from "@/services/shipping";
 import { processDeliveryPayoutEvaluation } from "@/services/payout/process-delivery-payout";
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
       await markWebhookLogFailure(logId, "verify: secret_not_configured");
       return NextResponse.json({ error: "Webhook not configured" }, { status: 503 });
     }
-  } else if (!verifyShippoWebhookSignature(raw, sig)) {
+  } else if (!verifyShippoWebhookRequest({ rawBody: raw, signatureHeader: sig, requestUrl: req.url })) {
     await markWebhookLogFailure(logId, "verify: invalid_signature");
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }

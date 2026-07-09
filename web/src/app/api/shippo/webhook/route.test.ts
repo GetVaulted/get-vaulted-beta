@@ -6,6 +6,7 @@ const hoisted = vi.hoisted(() => ({
   markWebhookLogSuccess: vi.fn().mockResolvedValue(undefined),
   updateWebhookLogEntry: vi.fn().mockResolvedValue(undefined),
   verifyShippoWebhookSignature: vi.fn(),
+  verifyShippoWebhookRequest: vi.fn(),
   orderFindMany: vi.fn().mockResolvedValue([]),
 }));
 
@@ -18,6 +19,7 @@ vi.mock("@/services/webhook-log", () => ({
 
 vi.mock("@/lib/shippo", () => ({
   verifyShippoWebhookSignature: hoisted.verifyShippoWebhookSignature,
+  verifyShippoWebhookRequest: hoisted.verifyShippoWebhookRequest,
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -68,13 +70,13 @@ describe("POST /api/shippo/webhook signature gate", () => {
     const res = await POST(buildRequest({ event: "track_updated" }));
 
     expect(res.status).toBe(503);
-    expect(hoisted.verifyShippoWebhookSignature).not.toHaveBeenCalled();
+    expect(hoisted.verifyShippoWebhookRequest).not.toHaveBeenCalled();
   });
 
   it("rejects with 401 when a secret is configured but the signature is invalid", async () => {
     vi.stubEnv("NODE_ENV", "production");
     process.env.SHIPPO_WEBHOOK_SECRET = "whsec_test";
-    hoisted.verifyShippoWebhookSignature.mockReturnValue(false);
+    hoisted.verifyShippoWebhookRequest.mockReturnValue(false);
 
     const res = await POST(buildRequest({ event: "track_updated" }, "bad-sig"));
 
@@ -87,6 +89,6 @@ describe("POST /api/shippo/webhook signature gate", () => {
     const res = await POST(buildRequest({ event: "track_updated" }));
 
     expect(res.status).toBe(200);
-    expect(hoisted.verifyShippoWebhookSignature).not.toHaveBeenCalled();
+    expect(hoisted.verifyShippoWebhookRequest).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, afterEach, vi } from "vitest";
-import { verifyShippoWebhookSignature, shippoValidateAddress } from "@/lib/shippo";
+import { verifyShippoWebhookSignature, verifyShippoWebhookUrlToken, verifyShippoWebhookRequest, shippoValidateAddress } from "@/lib/shippo";
 
 describe("verifyShippoWebhookSignature", () => {
   const prev = process.env.SHIPPO_WEBHOOK_SECRET;
@@ -26,6 +26,45 @@ describe("verifyShippoWebhookSignature", () => {
     const sig = createHmac("sha256", "testsecret").update(raw).digest("base64");
     expect(verifyShippoWebhookSignature(raw, sig)).toBe(true);
     expect(verifyShippoWebhookSignature(raw, `${sig}x`)).toBe(false);
+  });
+});
+
+describe("verifyShippoWebhookUrlToken", () => {
+  const prev = process.env.SHIPPO_WEBHOOK_SECRET;
+
+  afterEach(() => {
+    if (prev === undefined) delete process.env.SHIPPO_WEBHOOK_SECRET;
+    else process.env.SHIPPO_WEBHOOK_SECRET = prev;
+  });
+
+  it("accepts matching token query param", () => {
+    process.env.SHIPPO_WEBHOOK_SECRET = "my-secret-token";
+    expect(
+      verifyShippoWebhookUrlToken("https://shopgetvaulted.com/api/shippo/webhook?token=my-secret-token"),
+    ).toBe(true);
+    expect(
+      verifyShippoWebhookUrlToken("https://shopgetvaulted.com/api/shippo/webhook?token=wrong"),
+    ).toBe(false);
+  });
+});
+
+describe("verifyShippoWebhookRequest", () => {
+  const prev = process.env.SHIPPO_WEBHOOK_SECRET;
+
+  afterEach(() => {
+    if (prev === undefined) delete process.env.SHIPPO_WEBHOOK_SECRET;
+    else process.env.SHIPPO_WEBHOOK_SECRET = prev;
+  });
+
+  it("accepts url token when signature header is absent", () => {
+    process.env.SHIPPO_WEBHOOK_SECRET = "tok123";
+    expect(
+      verifyShippoWebhookRequest({
+        rawBody: "{}",
+        signatureHeader: null,
+        requestUrl: "https://shopgetvaulted.com/api/shippo/webhook?token=tok123",
+      }),
+    ).toBe(true);
   });
 });
 

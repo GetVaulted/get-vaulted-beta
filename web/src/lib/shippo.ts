@@ -186,3 +186,30 @@ export function verifyShippoWebhookSignature(rawBody: string, signatureHeader: s
     return false;
   }
 }
+
+/** Shippo self-generated URL token (?token=...) echoed on webhook POST — see docs/Tracking/WebhookSecurity. */
+export function verifyShippoWebhookUrlToken(requestUrl: string): boolean {
+  const secret = process.env.SHIPPO_WEBHOOK_SECRET?.trim();
+  if (!secret) return false;
+  try {
+    const token = new URL(requestUrl).searchParams.get("token")?.trim();
+    if (!token) return false;
+    const a = Buffer.from(token);
+    const b = Buffer.from(secret);
+    return a.length === b.length && timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+/** Accept HMAC signature header or Shippo URL token query param. */
+export function verifyShippoWebhookRequest(args: {
+  rawBody: string;
+  signatureHeader: string | null;
+  requestUrl: string;
+}): boolean {
+  const secret = process.env.SHIPPO_WEBHOOK_SECRET?.trim();
+  if (!secret) return false;
+  if (args.signatureHeader && verifyShippoWebhookSignature(args.rawBody, args.signatureHeader)) return true;
+  return verifyShippoWebhookUrlToken(args.requestUrl);
+}
