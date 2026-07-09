@@ -111,7 +111,7 @@ export function normalizeObfuscatedUsername(normalized: string): string {
 }
 
 export function normalizeUsernameForStorage(raw: string): string {
-  return raw.trim().toLowerCase();
+  return raw.trim().replace(/^@+/, "").toLowerCase();
 }
 
 export function evaluateUsernamePolicy(normalized: string): { ok: true } | { ok: false; reason: UsernameRejectReason } {

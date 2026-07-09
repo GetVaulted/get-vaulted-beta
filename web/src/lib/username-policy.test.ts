@@ -3,6 +3,7 @@ import {
   containsProfanity,
   evaluateUsernamePolicy,
   isReservedUsername,
+  normalizeUsernameForStorage,
   USERNAME_UNAVAILABLE_MESSAGE,
   usernamePolicyUserMessage,
 } from "@/lib/username-policy";
@@ -28,6 +29,10 @@ describe("username-policy", () => {
     expect(isReservedUsername("shop_get_vaulted")).toBe(true);
     expect(evaluateUsernamePolicy("getvaulted").ok).toBe(false);
     expect(evaluateUsernamePolicy("get_vaulted").ok).toBe(false);
+  });
+
+  it("strips a leading @ before validating", () => {
+    expect(evaluateUsernamePolicy(normalizeUsernameForStorage("@card_collector")).ok).toBe(true);
   });
 
   it("lets the platform admin account claim the official getvaulted username", () => {

@@ -54,7 +54,7 @@ export async function completeProfileSetup(args: {
 }): Promise<{ ok: true; username: string; usernameChosenAt: string } | { ok: false; status: number; message: string }> {
   const user = await prisma.user.findUnique({
     where: { id: args.userId },
-    select: { username: true, usernameChosenAt: true, referredById: true },
+    select: { username: true, usernameChosenAt: true, referredById: true, role: true },
   });
   if (!user) {
     return { ok: false, status: 404, message: "Account not found." };
@@ -63,7 +63,7 @@ export async function completeProfileSetup(args: {
     return { ok: false, status: 409, message: "Your profile is already set up." };
   }
 
-  const parsed = validateUsernameInput(args.username);
+  const parsed = validateUsernameInput(args.username, { userRole: user.role });
   if (!parsed.ok) {
     return { ok: false, status: 400, message: parsed.message };
   }
@@ -104,30 +104,31 @@ export async function changeUsername(args: {
   if (!user) {
     return { ok: false, status: 404, message: "Account not found." };
   }
-  if (user.usernameChosenAt == null) {
-    return { ok: false, status: 409, message: "Finish profile setup before changing your username." };
-  }
 
   const parsed = validateUsernameInput(args.username, { userRole: user.role });
   if (!parsed.ok) {
     return { ok: false, status: 400, message: parsed.message };
   }
 
-  if (parsed.normalized === user.username) {
+  const isFirstUsernameConfirmation = user.usernameChosenAt == null;
+
+  if (!isFirstUsernameConfirmation && parsed.normalized === user.username) {
     return {
       ok: true,
       username: user.username,
-      usernameChosenAt: user.usernameChosenAt.toISOString(),
+      usernameChosenAt: user.usernameChosenAt!.toISOString(),
     };
   }
 
-  const eligibility = await getUsernameChangeEligibility({
-    userId: args.userId,
-    usernameChosenAt: user.usernameChosenAt,
-  });
-  const adminOfficialClaim = canAdminClaimReservedUsername(user.role, parsed.normalized);
-  if (!eligibility.canChange && eligibility.reason && !adminOfficialClaim) {
-    return { ok: false, status: 403, message: usernameChangeBlockMessage(eligibility.reason) };
+  if (!isFirstUsernameConfirmation) {
+    const eligibility = await getUsernameChangeEligibility({
+      userId: args.userId,
+      usernameChosenAt: user.usernameChosenAt,
+    });
+    const adminOfficialClaim = canAdminClaimReservedUsername(user.role, parsed.normalized);
+    if (!eligibility.canChange && eligibility.reason && !adminOfficialClaim) {
+      return { ok: false, status: 403, message: usernameChangeBlockMessage(eligibility.reason) };
+    }
   }
 
   const taken = await isUsernameTakenByOtherUser(prisma, parsed.normalized, args.userId);
