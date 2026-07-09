@@ -9,7 +9,7 @@ export type TradeFeedSource = 'live' | 'unconfigured';
 
 export function useTradeCenterFeed(
   userId: string | undefined,
-  options?: { onAfterRefresh?: () => void },
+  options?: { accessToken?: string; onAfterRefresh?: () => void },
 ): {
   sections: TradeSections;
   all: TradeOfferVM[];
@@ -36,7 +36,7 @@ export function useTradeCenterFeed(
       return;
     }
     try {
-      const feed = await fetchTradeOffersForUser(userId);
+      const feed = await fetchTradeOffersForUser(userId, { accessToken: options?.accessToken });
       setAll(feed.offers);
       setParticipantUserId(feed.participantUserId);
       setFeedError(feed.loadError);
@@ -49,7 +49,7 @@ export function useTradeCenterFeed(
       setFeedError(message);
       setSource('live');
     }
-  }, [userId]);
+  }, [userId, options?.accessToken]);
 
   const onAfterRefreshRef = useRef(options?.onAfterRefresh);
   onAfterRefreshRef.current = options?.onAfterRefresh;

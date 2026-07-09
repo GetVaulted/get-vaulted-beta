@@ -160,11 +160,14 @@ export type TradeOffersFeed = {
   loadError: string | null;
 };
 
-export async function fetchTradeOffersForUser(userId: string): Promise<TradeOffersFeed> {
+export async function fetchTradeOffersForUser(
+  userId: string,
+  options?: { accessToken?: string },
+): Promise<TradeOffersFeed> {
   let participantUserId = userId;
   let loadError: string | null = null;
   const webRows = isWebTradeApiConfigured()
-    ? await fetchTradeOffersForUserViaWeb(userId).catch((e) => {
+    ? await fetchTradeOffersForUserViaWeb(userId, options?.accessToken).catch((e) => {
         loadError = e instanceof Error ? e.message : 'Could not load trade offers from the Vaulted API.';
         console.warn('fetchTradeOffersForUserViaWeb', e);
         return { offers: [] as TradeOfferVM[], viewerId: null as string | null };

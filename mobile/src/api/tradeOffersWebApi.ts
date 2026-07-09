@@ -15,19 +15,21 @@ export function isWebTradeApiConfigured(): boolean {
   return Boolean(getWebApiBaseUrl());
 }
 
-async function tradeAccessToken(): Promise<string> {
-  return resolveSellerAccessToken();
+async function tradeFetch(path: string, init?: RequestInit, accessTokenFallback?: string): Promise<Response> {
+  const token = await resolveSellerAccessToken(accessTokenFallback);
+  return fetchWebApiMobileWithSellerAuth(path, token, init);
 }
 
-async function tradeFetch(path: string, init?: RequestInit): Promise<Response> {
-  const token = await tradeAccessToken();
-  return fetchWebApiMobileWithSellerAuth(path, token, init);
+function improveStaleTradeServerAuthMessage(message: string): string {
+  if (!/sign in required/i.test(message)) return message;
+  return 'You are signed in, but the trade API has not finished deploying yet. Pull down to refresh in a minute.';
 }
 
 async function parseTradeApiError(res: Response): Promise<string> {
   const text = await readWebApiResponseText(res);
   const body = parseWebApiJsonBody<{ error?: string }>(text);
-  return apiFailureErrorMessage(res, text) ?? body?.error ?? 'Trade request failed.';
+  const raw = apiFailureErrorMessage(res, text) ?? body?.error ?? 'Trade request failed.';
+  return improveStaleTradeServerAuthMessage(raw);
 }
 
 async function tradePost(path: string, body?: unknown): Promise<void> {
@@ -38,12 +40,14 @@ async function tradePost(path: string, body?: unknown): Promise<void> {
   if (!res.ok) throw new Error(await parseTradeApiError(res));
 }
 
-async function tradeGet<T extends Record<string, unknown>>(path: string): Promise<T> {
-  const res = await tradeFetch(path, { method: 'GET' });
+async function tradeGet<T extends Record<string, unknown>>(path: string, accessTokenFallback?: string): Promise<T> {
+  const res = await tradeFetch(path, { method: 'GET' }, accessTokenFallback);
   const text = await readWebApiResponseText(res);
   const parsed = parseWebApiJsonBody<T>(text);
   if (!res.ok) {
-    throw new Error(apiFailureErrorMessage(res, text) ?? (parsed as { error?: string } | null)?.error ?? 'Trade request failed.');
+    const raw =
+      apiFailureErrorMessage(res, text) ?? (parsed as { error?: string } | null)?.error ?? 'Trade request failed.';
+    throw new Error(improveStaleTradeServerAuthMessage(raw));
   }
   if (!parsed) throw new Error('Trade response was not valid JSON.');
   return parsed;
@@ -94,8 +98,12 @@ export async function fetchTradeOfferDetailViaWeb(
 
 export async function fetchTradeOffersForUserViaWeb(
   _supabaseUserId: string,
+  accessTokenFallback?: string,
 ): Promise<{ offers: TradeOfferVM[]; viewerId: string | null }> {
-  const list = await tradeGet<{ offers?: WebTradeOfferListItem[]; viewerId?: string }>('/api/trade/offers');
+  const list = await tradeGet<{ offers?: WebTradeOfferListItem[]; viewerId?: string }>(
+    '/api/trade/offers',
+    accessTokenFallback,
+  );
   const viewerId = list.viewerId ?? null;
   const rows = await Promise.all(
     (list.offers ?? []).map(async (row) => {

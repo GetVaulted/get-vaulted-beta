@@ -42,12 +42,13 @@ export function TradeCenterHomeScreen() {
   const insets = useSafeAreaInsets();
   const layout = useMarketplaceLayout();
   const navigation = useNavigation<Nav>();
-  const { user, loading: authLoading } = useAuth();
+  const { user, session, loading: authLoading } = useAuth();
   const diag = useTradeCenterDiagnostics();
   const onFeedRefreshed = useCallback(() => {
     diag?.markFeedRefreshed();
   }, [diag]);
   const { sections, loading, refreshing, source, refresh, participantUserId, feedError } = useTradeCenterFeed(user?.id, {
+    accessToken: session?.access_token,
     onAfterRefresh: onFeedRefreshed,
   });
   const uid = participantUserId ?? user?.id;
