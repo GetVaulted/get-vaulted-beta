@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { MarketplaceBrowseCard } from "@/components/marketplace/MarketplaceBrowseCard";
+import { marketplaceBrowseGridClass } from "@/components/marketplace/MarketplaceSectionHeader";
 import type { MarketplaceListing } from "@/content/marketplace-listings";
 import { auctionBidCountsByListingIds } from "@/lib/listing-bid-counts";
 import { dbListingToMarketplace } from "@/lib/listing-mapper";
@@ -58,9 +59,9 @@ export default async function MerchPage() {
             </p>
           </div>
         ) : (
-          <div className="mt-10 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 lg:gap-3">
+          <div className={`mt-10 ${marketplaceBrowseGridClass}`}>
             {listings.map((listing) => (
-              <MarketplaceBrowseCard key={listing.id} listing={listing} />
+              <MarketplaceBrowseCard key={listing.id} listing={listing} compact />
             ))}
           </div>
         )}

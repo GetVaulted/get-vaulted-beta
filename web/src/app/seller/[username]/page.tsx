@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MarketplaceBrowseCard } from "@/components/marketplace/MarketplaceBrowseCard";
+import { marketplaceBrowseGridClass } from "@/components/marketplace/MarketplaceSectionHeader";
 import { SellerProfileActions } from "@/components/seller/SellerProfileActions";
 import { SellerProfileStatsBar } from "@/components/seller/SellerProfileStatsBar";
 import { getServerSessionSafe } from "@/lib/auth";
@@ -243,9 +244,9 @@ export default async function SellerShopPage({
               <p className="text-sm font-medium text-zinc-400">{emptyCopy}</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 lg:gap-3 xl:grid-cols-5 2xl:grid-cols-6">
+            <div className={marketplaceBrowseGridClass}>
               {listings.map((l) => (
-                <MarketplaceBrowseCard key={l.id} listing={l} vaultPick={Boolean(l.vaultPick)} />
+                <MarketplaceBrowseCard key={l.id} listing={l} vaultPick={Boolean(l.vaultPick)} compact />
               ))}
             </div>
           )}

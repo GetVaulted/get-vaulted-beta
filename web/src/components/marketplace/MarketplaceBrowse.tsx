@@ -378,7 +378,7 @@ export function MarketplaceBrowse() {
           ) : (
             <div className={marketplaceBrowseGridClass}>
               {gridListings.map((l) => (
-                <MarketplaceBrowseCard key={l.id} listing={l} />
+                <MarketplaceBrowseCard key={l.id} listing={l} compact />
               ))}
             </div>
           )}

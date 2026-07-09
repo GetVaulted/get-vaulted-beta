@@ -61,8 +61,8 @@ export function MarketplaceSectionHeader({
 }
 
 /**
- * Inventory grid — auto-fill tracks target 320–380px card width.
- * Cards cap at 380px so a single listing never stretches across the row.
+ * Inventory grid — 2 columns on phones, scales up on larger breakpoints.
+ * Avoids auto-fill minmax(320px) which forces a single full-width column on mobile.
  */
 export const marketplaceBrowseGridClass =
-  "grid grid-cols-[repeat(auto-fill,minmax(min(100%,320px),min(380px,1fr)))] gap-x-3 gap-y-3";
+  "grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 lg:gap-3 xl:grid-cols-5 2xl:grid-cols-6";
