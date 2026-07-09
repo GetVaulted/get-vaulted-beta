@@ -15,6 +15,16 @@ vi.mock('../lib/supabase', () => ({
   getSupabase: vi.fn(() => null),
 }));
 
+vi.mock('./tradeOffersWebApi', () => ({
+  isWebTradeApiConfigured: vi.fn(() => false),
+  fetchTradeOffersForUserViaWeb: vi.fn(),
+  fetchTradeOfferDetailViaWeb: vi.fn(),
+  createTradeOfferViaWeb: vi.fn(),
+  acceptTradeOfferViaWeb: vi.fn(),
+  declineTradeOfferViaWeb: vi.fn(),
+  counterTradeOfferViaWeb: vi.fn(),
+}));
+
 import { fetchLiveListingsExcludingSeller, resolvePublishedListingSellerId } from './tradeOffersRepository';
 
 function listing(overrides: Partial<WebMarketplaceListing> & { id: string; sellerId: string }): WebMarketplaceListing {

@@ -8,6 +8,16 @@ vi.mock('../lib/supabase', () => ({
   getSupabase: vi.fn(() => null),
 }));
 
+vi.mock('./listingsFeedRepository', () => ({
+  mapListingCategoryToCategoryId: vi.fn(() => 'cards'),
+}));
+
+vi.mock('../lib/liveRoomPreviewImage', () => ({
+  resolveLiveRoomPreviewImage: vi.fn(() => 'https://example.com/preview.jpg'),
+  assertLivePreviewResolvable: vi.fn(),
+  DEFAULT_LIVE_ROOM_PREVIEW_IMAGE: 'https://example.com/default.jpg',
+}));
+
 const fetchLiveRoomsPublic = vi.fn();
 
 vi.mock('./liveRoomsRepository', () => ({
