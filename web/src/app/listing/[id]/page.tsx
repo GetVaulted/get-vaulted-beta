@@ -13,6 +13,11 @@ import { listingWithSellerFulfillmentInclude } from "@/lib/listing-with-seller-i
 import { sellerListingHref } from "@/lib/listing-routes";
 import { isHiddenFixtureSellerEmail, prismaSellerVisibleOnPublicMarketplace } from "@/lib/demo-seed-sellers";
 import { prisma } from "@/lib/prisma";
+import {
+  buildListingPageMetadata,
+  buildListingProductJsonLd,
+} from "@/lib/site-seo";
+import { JsonLdScript } from "@/components/seo/JsonLdScript";
 
 export const dynamic = "force-dynamic";
 
@@ -57,13 +62,16 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const row = await prisma.listing.findUnique({
     where: { id: listingId },
     select: {
+      id: true,
       title: true,
+      description: true,
       condition: true,
       buyingFormat: true,
       status: true,
       sellerId: true,
       moderationRemovedAt: true,
-      seller: { select: { email: true } },
+      images: { select: { url: true }, orderBy: { sortOrder: "asc" }, take: 1 },
+      seller: { select: { email: true, username: true } },
     },
   });
   if (row) {
@@ -72,10 +80,14 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     const isPublic = isListingPubliclyVisible(row);
     const hideDemoFromPublic = isHiddenFixtureSellerEmail(row.seller.email) && !isOwner;
     if ((isPublic && !hideDemoFromPublic) || isOwner) {
-      return {
-        title: `${row.title} | Get Vaulted`,
-        description: `${row.condition} · ${row.buyingFormat === "buy_now" ? "Buy now" : "Auction"} on Get Vaulted marketplace.`,
-      };
+      return buildListingPageMetadata({
+        listingId: row.id,
+        title: row.title,
+        description: row.description,
+        condition: row.condition,
+        buyingFormat: row.buyingFormat,
+        imageUrl: row.images[0]?.url ?? null,
+      });
     }
   }
   return { title: "Listing | Get Vaulted", description: "Marketplace listing on Get Vaulted." };
@@ -132,9 +144,25 @@ export default async function PublicListingPage({ params }: { params: Promise<{ 
     sellerCredibilityLabel:
       sellerOrderCount > 0 ? `${sellerOrderCount.toLocaleString("en-US")} orders on Get Vaulted` : undefined,
   });
+  const primaryImage = row.images[0]?.url ?? null;
 
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
+      <JsonLdScript
+        data={buildListingProductJsonLd({
+          listingId: row.id,
+          title: row.title,
+          description: row.description,
+          imageUrl: primaryImage,
+          condition: row.condition,
+          buyingFormat: row.buyingFormat,
+          priceUsd: row.priceUsd,
+          currentBidUsd: row.currentBidUsd,
+          startingBidUsd: row.startingBidUsd,
+          sellerUsername: row.seller.username,
+          status: row.status,
+        })}
+      />
       <div
         className="pointer-events-none absolute inset-x-0 top-0 h-[min(380px,50vh)] bg-[radial-gradient(ellipse_80%_55%_at_50%_-8%,rgba(201,162,39,0.07),transparent_55%)]"
         aria-hidden

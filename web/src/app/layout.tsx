@@ -9,6 +9,11 @@ import { LiveMarketplaceGateProvider } from "@/components/providers/LiveMarketpl
 import { VaultEcosystemRealtimeProvider } from "@/components/providers/VaultEcosystemRealtimeProvider";
 import { isLiveMarketplacePubliclyAvailable } from "@/lib/live-coming-soon";
 import { publicSiteBaseUrl } from "@/lib/live-room-share-metadata";
+import {
+  DEFAULT_SITE_DESCRIPTION,
+  DEFAULT_SITE_OG_IMAGE,
+  SITE_NAME,
+} from "@/lib/site-seo";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -29,9 +34,25 @@ const displaySerif = Cormorant_Garamond({
 
 export const metadata: Metadata = {
   metadataBase: new URL(publicSiteBaseUrl()),
-  title: "Get Vaulted — Premium Collectibles Marketplace",
-  description:
-    "Marketplace for graded cards, live breaks, and trades—dark, fast, and built for serious collectors.",
+  title: {
+    default: "Get Vaulted — Premium Collectibles Marketplace",
+    template: "%s",
+  },
+  description: DEFAULT_SITE_DESCRIPTION,
+  openGraph: {
+    type: "website",
+    siteName: SITE_NAME,
+    title: "Get Vaulted — Premium Collectibles Marketplace",
+    description: DEFAULT_SITE_DESCRIPTION,
+    images: [{ url: DEFAULT_SITE_OG_IMAGE, width: 1200, height: 630, alt: SITE_NAME }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Get Vaulted — Premium Collectibles Marketplace",
+    description: DEFAULT_SITE_DESCRIPTION,
+    images: [DEFAULT_SITE_OG_IMAGE],
+  },
+  robots: { index: true, follow: true },
 };
 
 export const viewport: Viewport = {

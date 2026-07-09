@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { SupportPageShell } from "@/components/support/SupportPageShell";
 import { SupportTicketDetailPage } from "@/components/support/SupportTicketDetailPage";
-import { CANONICAL_SHARE_SITE_FALLBACK } from "@/lib/live-room-share-metadata";
+import { NOINDEX_METADATA } from "@/lib/site-seo";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -10,9 +10,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   return {
     title: `Support ticket · Get Vaulted`,
-    alternates: {
-      canonical: `${CANONICAL_SHARE_SITE_FALLBACK}/support/tickets/${encodeURIComponent(id)}`,
-    },
+    ...NOINDEX_METADATA,
   };
 }
 

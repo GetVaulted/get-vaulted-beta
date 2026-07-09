@@ -1,14 +1,12 @@
 import type { Metadata } from "next";
 import { SupportPageShell } from "@/components/support/SupportPageShell";
 import { SupportTicketsPage } from "@/components/support/SupportTicketsPage";
-import { CANONICAL_SHARE_SITE_FALLBACK } from "@/lib/live-room-share-metadata";
+import { NOINDEX_METADATA } from "@/lib/site-seo";
 
 export const metadata: Metadata = {
   title: "My Support Tickets · Get Vaulted",
   description: "View support tickets you submitted to Get Vaulted.",
-  alternates: {
-    canonical: `${CANONICAL_SHARE_SITE_FALLBACK}/support/tickets`,
-  },
+  ...NOINDEX_METADATA,
 };
 
 export default function SupportTicketsRoutePage() {

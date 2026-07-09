@@ -1,9 +1,13 @@
 import { redirect } from "next/navigation";
+import type { Metadata } from "next";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { NOINDEX_METADATA } from "@/lib/site-seo";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = NOINDEX_METADATA;
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSessionSafe();

@@ -2,11 +2,13 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { SignupForm } from "@/components/auth/SignupForm";
+import { NOINDEX_METADATA } from "@/lib/site-seo";
 
 export const metadata: Metadata = {
   title: "Join Get Vaulted — Create your account",
   description:
     "Own the moment — live breaks, auctions, and hits happening now. Join Get Vaulted in under 30 seconds.",
+  ...NOINDEX_METADATA,
 };
 
 const valueCards = [

@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { MarketplaceBrowse } from "@/components/marketplace/MarketplaceBrowse";
+import { buildIndexablePageMetadata } from "@/lib/site-seo";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = buildIndexablePageMetadata({
   title: "Marketplace — Get Vaulted",
   description:
     "Browse verified listings, grails, slabs, and collector drops. Fixed-price collectibles separate from live streams.",
-};
+  path: "/marketplace",
+});
 
 export default function MarketplacePage() {
   return (

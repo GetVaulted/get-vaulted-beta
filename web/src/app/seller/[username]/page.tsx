@@ -12,6 +12,8 @@ import { listingWithSellerFulfillmentInclude } from "@/lib/listing-with-seller-i
 import { isHiddenFixtureSellerEmail } from "@/lib/demo-seed-sellers";
 import { prisma } from "@/lib/prisma";
 import { sellerProfilePath } from "@/lib/seller-profile-url";
+import { buildSellerPageMetadata, buildSellerProfileJsonLd } from "@/lib/site-seo";
+import { JsonLdScript } from "@/components/seo/JsonLdScript";
 import {
   parseSellerShopTab,
   SELLER_SHOP_TABS,
@@ -39,7 +41,7 @@ export async function generateMetadata({
   const session = await getServerSessionSafe();
   const user = await prisma.user.findUnique({
     where: { username },
-    select: { id: true, username: true, email: true },
+    select: { id: true, username: true, name: true, image: true, email: true },
   });
   if (!user) return { title: "Seller | Get Vaulted" };
   const canIndexShop =
@@ -47,10 +49,11 @@ export async function generateMetadata({
     session?.user?.id === user.id ||
     session?.user?.role === "admin";
   if (!canIndexShop) return { title: "Seller | Get Vaulted" };
-  return {
-    title: `@${user.username} · Seller shop | Get Vaulted`,
-    description: `Listings and storefront for @${user.username} on Get Vaulted.`,
-  };
+  return buildSellerPageMetadata({
+    username: user.username,
+    displayName: user.name,
+    imageUrl: user.image,
+  });
 }
 
 export default async function SellerShopPage({
@@ -127,6 +130,13 @@ export default async function SellerShopPage({
 
   return (
     <main className="relative flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(14,14,18,0.55)_0%,#030303_38%,#030303_100%)]">
+      <JsonLdScript
+        data={buildSellerProfileJsonLd({
+          username: user.username,
+          displayName: user.name,
+          imageUrl: user.image,
+        })}
+      />
       <div
         className="pointer-events-none absolute inset-x-0 top-0 h-[min(380px,50vh)] bg-[radial-gradient(ellipse_80%_55%_at_50%_-8%,rgba(201,162,39,0.07),transparent_55%)]"
         aria-hidden
