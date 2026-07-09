@@ -11,6 +11,7 @@ import {
   withShippoContact,
 } from "@/lib/shippo-label-contacts";
 import { isShippoConfigured, shippoCreateShipment, shippoListRates, shippoPurchaseRate, type ShippoAddress, type ShippoParcel } from "@/lib/shippo";
+import { shippoLabelFileTypeForPrintFormat, type SellerLabelPrintFormat } from "@/lib/shippo-label-format";
 import { resolveShippoPurchaseLabel } from "@/lib/shippo-transaction-label";
 
 const DEFAULT_PARCEL: ShippoParcel = {
@@ -40,7 +41,10 @@ function parcelFromListing(w?: number | null, l?: number | null, wi?: number | n
  * Purchase a Shippo label for a paid order: create shipment, pick a rate, buy label, persist tracking.
  * Called when the seller explicitly creates a label from Sales (not automatically on payment).
  */
-export async function fulfillOrderShippingAfterPayment(orderId: string): Promise<void> {
+export async function fulfillOrderShippingAfterPayment(
+  orderId: string,
+  options?: { labelFormat?: SellerLabelPrintFormat },
+): Promise<void> {
   if (!isShippoConfigured()) return;
 
   const order = await prisma.order.findUnique({
@@ -194,7 +198,10 @@ export async function fulfillOrderShippingAfterPayment(orderId: string): Promise
 
     const shippingLabelCostCents = Math.round(Number(picked.amount ?? 0) * 100);
 
-    const tx = (await shippoPurchaseRate(picked.object_id)) as {
+    const tx = (await shippoPurchaseRate(
+      picked.object_id,
+      shippoLabelFileTypeForPrintFormat(options?.labelFormat ?? "letter"),
+    )) as {
       object_id?: string;
       tracking_number?: string;
       tracking_url_provider?: string;

@@ -127,7 +127,37 @@ Check Netlify function logs for `200` on `POST /api/stripe/webhook`.
 
 ---
 
-## 3. Resend Dashboard
+## 3. Supabase Auth (production URLs + sign-in)
+
+**Site URL** should be `https://shopgetvaulted.com` with redirect URLs for prod, beta, and localhost (see [production-domain-migration.md](./production-domain-migration.md)).
+
+Automated update (does **not** overwrite OAuth secrets — uses Management API PATCH):
+
+```bash
+cd web
+# Create token: https://supabase.com/dashboard/account/tokens (scope: auth:write)
+SUPABASE_ACCESS_TOKEN=sbp_... CONFIRM_PRODUCTION_AUTH_URLS=1 npm run configure:production-auth-urls
+```
+
+If Apple sign-in was accidentally disabled, either re-enable in **Dashboard → Authentication → Providers → Apple**, or:
+
+```bash
+SUPABASE_ACCESS_TOKEN=sbp_... CONFIRM_FIX_APPLE_AUTH=1 npm run fix:supabase-apple-auth
+```
+
+**Do not** use `supabase config push` for auth URL changes — local `config.toml` can disable OAuth providers.
+
+Manual checks in Supabase Dashboard:
+
+- **Authentication → Providers** — Google + Apple enabled
+- **Authentication → URL Configuration** — Site URL `https://shopgetvaulted.com`
+- **Authentication → Sign In / Providers** — Email signups enabled (`disable_signup` off)
+
+After the DB wipe, create your admin + Get Vaulted seller accounts in **Authentication → Users** (or sign up on `/join`).
+
+---
+
+## 4. Resend Dashboard
 
 1. Add and verify domain `shopgetvaulted.com` (DNS records).
 2. Create production API key → `RESEND_API_KEY`.
@@ -138,7 +168,7 @@ Check Netlify function logs for `200` on `POST /api/stripe/webhook`.
 
 ---
 
-## 4. Post-fix verification
+## 5. Post-fix verification
 
 ```bash
 cd web

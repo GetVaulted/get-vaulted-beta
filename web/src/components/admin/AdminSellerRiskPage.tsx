@@ -10,6 +10,7 @@ import {
   formatAdminPct,
   formatAdminUsd,
 } from "@/components/admin/AdminCommandShell";
+import { AdminCsvExportButton } from "@/components/admin/AdminCsvExportButton";
 
 type SellerRow = {
   id: string;
@@ -75,6 +76,10 @@ export function AdminSellerRiskPage() {
           <input type="checkbox" checked={pendingOnly} onChange={(e) => setPendingOnly(e.target.checked)} />
           Pending approval only
         </label>
+        <AdminCsvExportButton
+          report="seller-risk"
+          params={{ tier: tier === "all" ? undefined : tier, pending: pendingOnly ? "1" : undefined }}
+        />
       </div>
 
       <div className={`mt-6 overflow-x-auto ${adminPanelClassName}`}>

@@ -27,6 +27,21 @@ function trimImageUrl(s: unknown): string | null | undefined {
   return t.slice(0, 2048);
 }
 
+export async function GET(req: Request) {
+  const auth = await resolveAccountUserId(req);
+  if (auth instanceof NextResponse) return auth;
+
+  const user = await prisma.user.findUnique({
+    where: { id: auth.userId },
+    select: { username: true, name: true, image: true },
+  });
+  if (!user) {
+    return NextResponse.json({ error: "Account not found." }, { status: 404 });
+  }
+
+  return NextResponse.json({ user });
+}
+
 export async function PATCH(req: Request) {
   const auth = await resolveAccountUserId(req);
   if (auth instanceof NextResponse) return auth;

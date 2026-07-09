@@ -1,7 +1,4 @@
-/**
- * Shippo REST client (https://docs.goshippo.com/).
- * TODO: Add retries and structured error types for production.
- */
+import type { ShippoLabelFileType } from "@/lib/shippo-label-format";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 
@@ -153,10 +150,13 @@ export async function shippoListRates(shipmentObjectId: string): Promise<{ resul
   return shippoFetch(`/shipments/${encodeURIComponent(shipmentObjectId)}/rates/`);
 }
 
-export async function shippoPurchaseRate(rateObjectId: string): Promise<Record<string, unknown>> {
+export async function shippoPurchaseRate(
+  rateObjectId: string,
+  labelFileType: ShippoLabelFileType = "PDF",
+): Promise<Record<string, unknown>> {
   return shippoFetch("/transactions/", {
     method: "POST",
-    body: JSON.stringify({ rate: rateObjectId, label_file_type: "PDF", async: false }),
+    body: JSON.stringify({ rate: rateObjectId, label_file_type: labelFileType, async: false }),
   });
 }
 

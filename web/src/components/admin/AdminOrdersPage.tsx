@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { AdminCsvExportButton } from "@/components/admin/AdminCsvExportButton";
 
 type Row = {
   id: string;
@@ -58,6 +59,7 @@ export function AdminOrdersPage() {
             <option value="cancelled">cancelled</option>
           </select>
         </label>
+        <AdminCsvExportButton report="orders" params={{ status }} />
       </div>
 
       <div className="mt-6 overflow-x-auto rounded-xl border border-white/[0.08] bg-[#0a0a0d]/80">

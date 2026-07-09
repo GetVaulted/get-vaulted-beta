@@ -14,6 +14,8 @@ import { ExpiredAuctionRecoveryPanel } from "@/components/listings/ExpiredAuctio
 import { PaymentDeadlineCountdown } from "@/components/orders/PaymentDeadlineCountdown";
 import { orderStatusLabel, orderStatusTone } from "@/lib/order-status";
 import { sellerMayShowFulfillmentControls } from "@/lib/order-shipping-guards";
+import { readStoredLabelPrintFormat, type SellerLabelPrintFormat } from "@/lib/shippo-label-format";
+import { openLabelForPrint } from "@/lib/seller-shipping-label-state";
 import type { SellerLiveShippingDashboard } from "@/lib/seller-live-shipping-dashboard-types";
 
 type SaleRow = {
@@ -294,11 +296,15 @@ export function AccountSalesPage() {
     };
   }, [load]);
 
-  const createLabel = async (orderId: string) => {
+  const createLabel = async (orderId: string, labelFormat: SellerLabelPrintFormat = readStoredLabelPrintFormat()) => {
     setLabelError(null);
     setLabelBusyId(orderId);
     try {
-      const res = await fetch(`/api/account/sales/${encodeURIComponent(orderId)}/create-label`, { method: "POST" });
+      const res = await fetch(`/api/account/sales/${encodeURIComponent(orderId)}/create-label`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ labelFormat }),
+      });
       const j = (await res.json().catch(() => ({}))) as { error?: string; warning?: string };
       if (!res.ok) {
         setLabelError(j.error ?? "Label creation failed.");
@@ -312,7 +318,10 @@ export function AccountSalesPage() {
     }
   };
 
-  const createBundledLabel = async (sessionId: string) => {
+  const createBundledLabel = async (
+    sessionId: string,
+    labelFormat: SellerLabelPrintFormat = readStoredLabelPrintFormat(),
+  ) => {
     setLabelError(null);
     setBundledSessionFeedback((prev) => {
       const next = { ...prev };
@@ -323,6 +332,8 @@ export function AccountSalesPage() {
     try {
       const res = await fetch(`/api/account/live-shipping/${encodeURIComponent(sessionId)}/create-label`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ labelFormat }),
       });
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;
@@ -470,7 +481,7 @@ export function AccountSalesPage() {
                 bundledBusySessionId={bundledBusySessionId}
                 bundledSessionFeedback={bundledSessionFeedback}
                 labelError={labelError}
-                onCreateLabel={(orderId) => void createLabel(orderId)}
+                onCreateLabel={(orderId, labelFormat) => void createLabel(orderId, labelFormat)}
                 onCreateBundledLabel={(sid) => void createBundledLabel(sid)}
                 onMarkShipped={(order) => {
                   const row = rows.find((r) => r.id === order.id);
@@ -545,7 +556,7 @@ export function AccountSalesPage() {
               labelBusyId={labelBusyId}
               bundledBusySessionId={bundledBusySessionId}
               bundledSessionFeedback={bundledSessionFeedback}
-              onCreateLabel={(orderId) => void createLabel(orderId)}
+              onCreateLabel={(orderId, labelFormat) => void createLabel(orderId, labelFormat)}
               onCreateBundledLabel={(sid) => void createBundledLabel(sid)}
             />
             {rows.length === 0 ? (
@@ -663,14 +674,22 @@ export function AccountSalesPage() {
                               </button>
                             ) : null}
                             {o.labelUrl ? (
-                              <a
-                                href={o.labelUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="rounded-md border border-white/12 px-2 py-1 text-[11px] font-medium text-zinc-300 hover:border-gold/35"
-                              >
-                                Print label
-                              </a>
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => openLabelForPrint(o.labelUrl!, "letter")}
+                                  className="rounded-md border border-white/12 px-2 py-1 text-[11px] font-medium text-zinc-300 hover:border-gold/35"
+                                >
+                                  Print
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openLabelForPrint(o.labelUrl!, "thermal_4x6")}
+                                  className="rounded-md border border-gold/25 px-2 py-1 text-[11px] font-medium text-gold-bright/90 hover:border-gold/40"
+                                >
+                                  4×6
+                                </button>
+                              </>
                             ) : null}
                             {o.trackingUrl ? (
                               <a
@@ -798,14 +817,22 @@ export function AccountSalesPage() {
                         </button>
                       ) : null}
                       {o.labelUrl ? (
-                        <a
-                          href={o.labelUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex h-9 flex-1 min-w-[5rem] items-center justify-center rounded-lg border border-white/10 text-xs font-medium text-zinc-300"
-                        >
-                          Print label
-                        </a>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => openLabelForPrint(o.labelUrl!, "letter")}
+                            className="inline-flex h-9 flex-1 min-w-[5rem] items-center justify-center rounded-lg border border-white/10 text-xs font-medium text-zinc-300"
+                          >
+                            Print
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openLabelForPrint(o.labelUrl!, "thermal_4x6")}
+                            className="inline-flex h-9 flex-1 min-w-[5rem] items-center justify-center rounded-lg border border-gold/25 text-xs font-medium text-gold-bright/90"
+                          >
+                            4×6
+                          </button>
+                        </>
                       ) : null}
                       {o.trackingUrl ? (
                         <a

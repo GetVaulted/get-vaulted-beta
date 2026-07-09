@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AdminCommandShell, adminPanelClassName, adminSelectClassName, formatAdminUsd } from "@/components/admin/AdminCommandShell";
+import { AdminCsvExportButton } from "@/components/admin/AdminCsvExportButton";
 import { AdminMetricStrip } from "@/components/admin/AdminMetricStrip";
 
 type Summary = {
@@ -54,6 +55,12 @@ export function AdminFinancePage() {
     <AdminCommandShell
       title="Financial Analytics"
       subtitle="Platform net is application fees collected on paid orders. Stripe processing is paid by sellers and shown separately for reference."
+      actions={
+        <div className="flex flex-wrap items-center gap-2">
+          <AdminCsvExportButton report="finance-summary" label="Export summary" />
+          <AdminCsvExportButton report="finance-charts" params={{ period }} label="Export charts" />
+        </div>
+      }
     >
       {loading && !summary ? (
         <p className="text-sm text-zinc-500">Loading finance data…</p>

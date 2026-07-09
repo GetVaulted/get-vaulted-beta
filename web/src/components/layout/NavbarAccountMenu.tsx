@@ -88,7 +88,7 @@ function buildSections(
 
   const bottomItems: MenuItem[] = [
     {
-      href: setupPhase === "ready" ? SELLER_HQ_PATH : SELLER_SETUP_PATH,
+      href: "/account/profile",
       label: "Settings",
       icon: <GearIcon />,
     },

@@ -1,3 +1,13 @@
+/**
+ * Seller shipping label helpers — print, tracking copy, purchased-state checks.
+ */
+import {
+  buildLabelPrintPagePath,
+  readStoredLabelPrintFormat,
+  storeLabelPrintFormat,
+  type SellerLabelPrintFormat,
+} from "@/lib/shippo-label-format";
+
 const LABEL_PURCHASED_FULFILLMENT = new Set([
   "label_created",
   "in_transit",
@@ -50,9 +60,16 @@ export function sellerTrackingStatusLabel(
   }
 }
 
-export function openLabelForPrint(labelUrl: string): void {
-  const w = window.open(labelUrl, "_blank", "noopener,noreferrer");
+export function openLabelForPrint(
+  labelUrl: string,
+  format: SellerLabelPrintFormat = readStoredLabelPrintFormat(),
+): void {
+  storeLabelPrintFormat(format);
+  const target =
+    format === "thermal_4x6" ? buildLabelPrintPagePath(labelUrl, format) : labelUrl;
+  const w = window.open(target, "_blank", "noopener,noreferrer");
   if (!w) return;
+  if (format === "thermal_4x6") return;
   try {
     w.addEventListener("load", () => {
       w.focus();
@@ -62,6 +79,8 @@ export function openLabelForPrint(labelUrl: string): void {
     /* cross-origin PDF may block print(); new tab is enough */
   }
 }
+
+export { type SellerLabelPrintFormat } from "@/lib/shippo-label-format";
 
 export async function copyTrackingNumber(trackingNumber: string): Promise<boolean> {
   try {

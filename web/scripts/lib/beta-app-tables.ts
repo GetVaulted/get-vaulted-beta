@@ -58,6 +58,8 @@ export const BETA_APP_TABLES = [
   "EmailVerificationCode",
   "Address",
   "User",
+  "ProcessedStripeEvent",
+  "TaxDestinationVolumeDaily",
 ] as const;
 
 export type BetaAppTable = (typeof BETA_APP_TABLES)[number];
@@ -121,5 +123,7 @@ export const BETA_APP_COUNT_DELEGATES: ReadonlyArray<{
   { table: "TrustModerationAuditLog", delegate: "trustModerationAuditLog" },
   { table: "PayoutEligibilityAuditLog", delegate: "payoutEligibilityAuditLog" },
   { table: "WebhookEventLog", delegate: "webhookEventLog" },
+  { table: "ProcessedStripeEvent", delegate: "processedStripeEvent" },
+  { table: "TaxDestinationVolumeDaily", delegate: "taxDestinationVolumeDaily" },
   { table: "TaxNexusState", delegate: "taxNexusState", preserve: true },
 ];

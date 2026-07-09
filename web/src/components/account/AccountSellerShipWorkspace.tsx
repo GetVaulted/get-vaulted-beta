@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { PaymentDeadlineCountdown } from "@/components/orders/PaymentDeadlineCountdown";
 import type { SellerLiveShippingDashboard, SellerLiveShippingSessionRow } from "@/lib/seller-live-shipping-dashboard-types";
 import { openLabelForPrint } from "@/lib/seller-shipping-label-state";
+import type { SellerLabelPrintFormat } from "@/lib/shippo-label-format";
 import {
   countShipQueueActions,
   orderIdsAwaitingBundledLabel,
@@ -39,8 +40,8 @@ type Props = {
   bundledBusySessionId: string | null;
   bundledSessionFeedback?: Record<string, BundledFeedback>;
   labelError: string | null;
-  onCreateLabel: (orderId: string) => void;
-  onCreateBundledLabel: (sessionId: string) => void;
+  onCreateLabel: (orderId: string, labelFormat?: SellerLabelPrintFormat) => void;
+  onCreateBundledLabel: (sessionId: string, labelFormat?: SellerLabelPrintFormat) => void;
   onMarkShipped: (order: ShipWorkspaceOrder) => void;
 };
 
@@ -174,9 +175,14 @@ function ShipOrderCard({
           </PrimaryButton>
         ) : null}
         {phase === "print_and_ship" && order.labelUrl ? (
-          <PrimaryButton tone="gold" onClick={() => openLabelForPrint(order.labelUrl!)}>
-            Print label
-          </PrimaryButton>
+          <>
+            <PrimaryButton tone="gold" onClick={() => openLabelForPrint(order.labelUrl!, "letter")}>
+              Print label
+            </PrimaryButton>
+            <PrimaryButton tone="gold" onClick={() => openLabelForPrint(order.labelUrl!, "thermal_4x6")}>
+              Print 4×6
+            </PrimaryButton>
+          </>
         ) : null}
         {phase === "print_and_ship" ? (
           <PrimaryButton tone="emerald" onClick={() => onMarkShipped(order)}>
@@ -199,13 +205,22 @@ function ShipOrderCard({
           </a>
         ) : null}
         {phase === "in_transit" && order.labelUrl ? (
-          <button
-            type="button"
-            onClick={() => openLabelForPrint(order.labelUrl!)}
-            className="inline-flex h-11 items-center justify-center rounded-xl border border-white/12 px-4 text-sm font-medium text-zinc-400 transition hover:text-zinc-200"
-          >
-            Reprint label
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => openLabelForPrint(order.labelUrl!, "letter")}
+              className="inline-flex h-11 items-center justify-center rounded-xl border border-white/12 px-4 text-sm font-medium text-zinc-400 transition hover:text-zinc-200"
+            >
+              Reprint
+            </button>
+            <button
+              type="button"
+              onClick={() => openLabelForPrint(order.labelUrl!, "thermal_4x6")}
+              className="inline-flex h-11 items-center justify-center rounded-xl border border-gold/25 px-4 text-sm font-medium text-gold-bright/90 transition hover:border-gold/40"
+            >
+              Reprint 4×6
+            </button>
+          </>
         ) : null}
         <Link
           href={`/account/sales/${encodeURIComponent(order.id)}`}
@@ -253,9 +268,14 @@ function BundleShipCard({
             </PrimaryButton>
           ) : null}
           {labelUrl ? (
-            <PrimaryButton tone="gold" onClick={() => openLabelForPrint(labelUrl)}>
-              Print bundle label
-            </PrimaryButton>
+            <>
+              <PrimaryButton tone="gold" onClick={() => openLabelForPrint(labelUrl, "letter")}>
+                Print bundle label
+              </PrimaryButton>
+              <PrimaryButton tone="gold" onClick={() => openLabelForPrint(labelUrl, "thermal_4x6")}>
+                Print 4×6
+              </PrimaryButton>
+            </>
           ) : null}
         </div>
       </div>

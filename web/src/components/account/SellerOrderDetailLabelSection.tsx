@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { SellerShippingLabelPanel } from "@/components/account/SellerShippingLabelPanel";
 import { sellerMayShowFulfillmentControls } from "@/lib/order-shipping-guards";
+import type { SellerLabelPrintFormat } from "@/lib/shippo-label-format";
 import { orderHasPurchasedLabel } from "@/lib/seller-shipping-label-state";
 
 export type SellerOrderDetailLabelSectionProps = {
@@ -29,12 +30,14 @@ export function SellerOrderDetailLabelSection(props: SellerOrderDetailLabelSecti
   const hasLabel = orderHasPurchasedLabel(props);
   const canCreateLabel = fulfillmentAllowed && !hasLabel;
 
-  const createLabel = async () => {
+  const createLabel = async (labelFormat: SellerLabelPrintFormat) => {
     setLabelError(null);
     setLabelBusy(true);
     try {
       const res = await fetch(`/api/account/sales/${encodeURIComponent(props.orderId)}/create-label`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ labelFormat }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {

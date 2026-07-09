@@ -4,6 +4,7 @@ import { canSellerCreateShippingLabel, isIncompleteOrderShipping } from "@/lib/o
 import { refreshBuyerShippingOnOrderIfIncomplete } from "@/lib/live-buy-now-purchase";
 import { prisma } from "@/lib/prisma";
 import { fulfillOrderShippingAfterPayment } from "@/services/shipping";
+import { parseCreateLabelRequestBody } from "@/lib/shippo-label-format";
 import { SELLER_SHIPPO_CONTACT_MISSING, BUYER_SHIPPO_CONTACT_MISSING } from "@/lib/shippo-label-contacts";
 import { processLabelCreatedPayoutEvaluation } from "@/services/payout/process-payout-tier-events";
 
@@ -12,7 +13,7 @@ export const runtime = "nodejs";
 /**
  * Seller-triggered Shippo label purchase for a paid order.
  */
-export async function POST(_req: Request, ctx: { params: Promise<{ orderId: string }> }) {
+export async function POST(req: Request, ctx: { params: Promise<{ orderId: string }> }) {
   const session = await getServerSessionSafe();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -84,7 +85,9 @@ export async function POST(_req: Request, ctx: { params: Promise<{ orderId: stri
   }
 
   try {
-    await fulfillOrderShippingAfterPayment(order.id);
+    const body = await req.json().catch(() => ({}));
+    const labelFormat = parseCreateLabelRequestBody(body);
+    await fulfillOrderShippingAfterPayment(order.id, { labelFormat });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[create-label]", e);

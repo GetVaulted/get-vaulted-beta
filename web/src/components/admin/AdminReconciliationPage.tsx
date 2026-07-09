@@ -9,6 +9,7 @@ import {
   formatAdminUsd,
 } from "@/components/admin/AdminCommandShell";
 import { AdminMetricStrip } from "@/components/admin/AdminMetricStrip";
+import { AdminCsvExportButton } from "@/components/admin/AdminCsvExportButton";
 
 type PayoutStatusBreakdownRow = { status: string; orderCount: number; sellerNetUsd: number };
 
@@ -79,12 +80,15 @@ export function AdminReconciliationPage() {
       title="Financial Reconciliation"
       subtitle="Buyer charge → platform fee → processing fee → tax → shipping → seller net → payout → refund adjustments, reconciled end-to-end for the selected period."
       actions={
-        <select value={range} onChange={(e) => setRange(e.target.value as Report["rangeKey"])} className={adminSelectClassName}>
-          <option value="7d">Last 7 days</option>
-          <option value="30d">Last 30 days</option>
-          <option value="90d">Last 90 days</option>
-          <option value="all">All time</option>
-        </select>
+        <div className="flex flex-wrap items-center gap-2">
+          <select value={range} onChange={(e) => setRange(e.target.value as Report["rangeKey"])} className={adminSelectClassName}>
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+            <option value="90d">Last 90 days</option>
+            <option value="all">All time</option>
+          </select>
+          <AdminCsvExportButton report="reconciliation" params={{ range }} />
+        </div>
       }
     >
       {loading && !report ? (

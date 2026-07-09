@@ -11,6 +11,7 @@ import {
   adminSelectClassName,
   adminTableClassName,
 } from "@/components/admin/AdminCommandShell";
+import { AdminCsvExportButton } from "@/components/admin/AdminCsvExportButton";
 
 type ShowRow = {
   id: string;
@@ -104,6 +105,7 @@ export function AdminLiveShowsPage() {
             <option value="ended">Ended</option>
           </select>
         </label>
+        <AdminCsvExportButton report="live-shows" params={{ status: status === "all" ? undefined : status }} />
       </div>
 
       <div className={`mt-6 overflow-x-auto ${adminPanelClassName}`}>

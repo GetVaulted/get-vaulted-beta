@@ -35,6 +35,8 @@ export type DeploymentConfigDiagnostics = {
   stripeSecretKeyMode: ReturnType<typeof stripeKeyMode>;
   stripeKeysAligned: boolean | null;
   stripeWebhookSecretConfigured: boolean;
+  /** Connect destination signing secret (get-vaulted-connect) — optional second webhook. */
+  stripeConnectWebhookSecretConfigured: boolean;
   /** True when Stripe is live-mode with matching keys and webhook secret set. */
   stripeProductionReady: boolean;
   /** Resend OTP path + resend-verification API. Supabase-link signup uses Supabase email instead. */
@@ -76,6 +78,7 @@ export function buildDeploymentConfigDiagnostics(): DeploymentConfigDiagnostics 
   const secretMode = stripeKeyMode(process.env.STRIPE_SECRET_KEY);
   const keysAligned = stripeKeysAligned(publishableMode, secretMode);
   const webhookConfigured = Boolean(process.env.STRIPE_WEBHOOK_SECRET?.trim());
+  const connectWebhookConfigured = Boolean(process.env.STRIPE_CONNECT_WEBHOOK_SECRET?.trim());
   const stripeProductionReady =
     stripeConfigured &&
     publishableMode === "live" &&
@@ -106,6 +109,7 @@ export function buildDeploymentConfigDiagnostics(): DeploymentConfigDiagnostics 
     stripeSecretKeyMode: secretMode,
     stripeKeysAligned: keysAligned,
     stripeWebhookSecretConfigured: webhookConfigured,
+    stripeConnectWebhookSecretConfigured: connectWebhookConfigured,
     stripeProductionReady,
     resendEmailReady: resendConfigured && resendFromConfigured,
     stripePublishableKey: publishableKey || null,

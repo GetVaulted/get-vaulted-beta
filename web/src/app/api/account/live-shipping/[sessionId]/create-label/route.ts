@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authOptions, getServerSessionSafe } from "@/lib/auth";
 import { generateBundledShippoLabelForSession } from "@/services/shipping/bundled-labels";
+import { parseCreateLabelRequestBody } from "@/lib/shippo-label-format";
 import { SELLER_SHIPPO_CONTACT_MISSING, BUYER_SHIPPO_CONTACT_MISSING } from "@/lib/shippo-label-contacts";
 
 export const runtime = "nodejs";
@@ -8,7 +9,7 @@ export const runtime = "nodejs";
 /**
  * Seller: purchase one Shippo label for a combined live shipping session (all eligible paid orders).
  */
-export async function POST(_req: Request, ctx: { params: Promise<{ sessionId: string }> }) {
+export async function POST(req: Request, ctx: { params: Promise<{ sessionId: string }> }) {
   const session = await getServerSessionSafe();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -18,7 +19,9 @@ export async function POST(_req: Request, ctx: { params: Promise<{ sessionId: st
   const sessionId = decodeURIComponent(raw);
 
   try {
-    const result = await generateBundledShippoLabelForSession(sessionId, session.user.id);
+    const body = await req.json().catch(() => ({}));
+    const labelFormat = parseCreateLabelRequestBody(body);
+    const result = await generateBundledShippoLabelForSession(sessionId, session.user.id, { labelFormat });
     if (!result.labelUrl && !result.alreadyExisted) {
       return NextResponse.json({
         ...result,

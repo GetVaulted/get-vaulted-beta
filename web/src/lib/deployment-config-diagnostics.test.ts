@@ -24,10 +24,20 @@ describe("buildDeploymentConfigDiagnostics", () => {
     expect(d.stripeSecretKeyMode).toBe("live");
     expect(d.stripeKeysAligned).toBe(true);
     expect(d.stripeProductionReady).toBe(true);
+    expect(d.stripeConnectWebhookSecretConfigured).toBe(false);
     expect(d.resendEmailReady).toBe(true);
     expect(JSON.stringify(d)).not.toContain("sk_live_");
     expect(JSON.stringify(d)).not.toContain("whsec_");
     expect(JSON.stringify(d)).not.toContain("re_live_key");
+  });
+
+  it("reports connect webhook secret when configured", () => {
+    vi.stubEnv("STRIPE_CONNECT_WEBHOOK_SECRET", "whsec_connect_only");
+
+    const d = buildDeploymentConfigDiagnostics();
+
+    expect(d.stripeConnectWebhookSecretConfigured).toBe(true);
+    expect(JSON.stringify(d)).not.toContain("whsec_connect");
   });
 
   it("flags test Stripe keys on production URL", () => {

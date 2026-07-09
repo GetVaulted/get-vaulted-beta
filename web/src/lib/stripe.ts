@@ -33,10 +33,27 @@ export function getStripe(): Stripe {
   return stripeSingleton;
 }
 
+/** Platform/payments webhook signing secret (get-vaulted-production). */
 export function getStripeWebhookSecret(): string {
-  const s = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!s) throw new Error("STRIPE_WEBHOOK_SECRET is not set");
-  return s;
+  const secrets = listStripeWebhookSecrets();
+  if (!secrets.length) throw new Error("STRIPE_WEBHOOK_SECRET is not set");
+  return secrets[0]!;
+}
+
+/**
+ * All webhook signing secrets to verify — platform first, then Connect (get-vaulted-connect).
+ * STRIPE_CONNECT_WEBHOOK_SECRET is optional but recommended when Connect has its own destination.
+ */
+export function listStripeWebhookSecrets(): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const key of ["STRIPE_WEBHOOK_SECRET", "STRIPE_CONNECT_WEBHOOK_SECRET"] as const) {
+    const value = process.env[key]?.trim();
+    if (!value || !value.startsWith("whsec_") || seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+  return out;
 }
 
 export function getStripePublishableKey(): string {
@@ -60,5 +77,18 @@ export function constructStripeWebhookEvent(payload: string | Buffer, signature:
   if (!signature) {
     throw new Error("Missing stripe-signature header");
   }
-  return getStripe().webhooks.constructEvent(payload, signature, getStripeWebhookSecret());
+  const secrets = listStripeWebhookSecrets();
+  if (!secrets.length) {
+    throw new Error("STRIPE_WEBHOOK_SECRET is not set");
+  }
+  const stripe = getStripe();
+  let lastError: unknown;
+  for (const secret of secrets) {
+    try {
+      return stripe.webhooks.constructEvent(payload, signature, secret);
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Invalid webhook signature");
 }

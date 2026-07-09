@@ -1,34 +1,39 @@
 /**
  * Push Supabase Auth site URL + redirect allowlist for production (xkaaicokjgmpbctfermj).
- * Keeps beta + localhost redirects so existing builds keep working during cutover.
+ * Uses Management API PATCH so OAuth provider secrets in the dashboard are not overwritten.
  *
- * Usage: CONFIRM_PRODUCTION_AUTH_URLS=1 npm run configure:production-auth-urls
+ * Usage:
+ *   SUPABASE_ACCESS_TOKEN=sbp_... CONFIRM_PRODUCTION_AUTH_URLS=1 npm run configure:production-auth-urls
  */
-import { spawnSync } from "node:child_process";
-import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { SUPABASE_OAUTH_REDIRECT_ALLOWLIST } from "../src/lib/supabase-oauth-redirect";
+import {
+  buildUriAllowList,
+  getSupabaseAuthConfig,
+  patchSupabaseAuthConfig,
+  requireSupabaseAccessToken,
+} from "./lib/supabase-management-auth";
 
+const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.join(__dirname, "..", "..");
-const configPath = path.join(repoRoot, "supabase", "config.toml");
+const webRoot = path.join(__dirname, "..");
+
+require("dotenv").config({ path: path.join(webRoot, ".env") });
+require("dotenv").config({ path: path.join(webRoot, ".env.local"), override: true });
 
 const PRODUCTION_SITE = "https://shopgetvaulted.com";
 const BETA_SITE = "https://beta.shopgetvaulted.com";
 const PROJECT_REF = "xkaaicokjgmpbctfermj";
 
-function runSupabaseConfigPush() {
-  const cmd = `npx supabase --workdir "${repoRoot}" config push --project-ref ${PROJECT_REF} --yes`;
-  const r = spawnSync(cmd, { cwd: repoRoot, shell: true, stdio: "inherit" });
-  if (r.status !== 0) throw new Error("supabase config push failed");
-}
-
-function main() {
+async function main() {
   if (process.env.CONFIRM_PRODUCTION_AUTH_URLS !== "1") {
     console.error("Refusing: set CONFIRM_PRODUCTION_AUTH_URLS=1");
     process.exit(1);
   }
+
+  const token = requireSupabaseAccessToken();
 
   const redirectUrls = [
     PRODUCTION_SITE,
@@ -46,25 +51,29 @@ function main() {
     "http://localhost:3000/**",
   ];
 
-  const uniqueRedirectUrls = [...new Set(redirectUrls)];
+  const before = await getSupabaseAuthConfig(PROJECT_REF, token);
+  console.log("Current site_url:", before.site_url ?? "(unset)");
+  console.log("Apple enabled:", before.external_apple_enabled ?? "?");
+  console.log("Google enabled:", before.external_google_enabled ?? "?");
 
-  const original = fs.readFileSync(configPath, "utf8");
-  let patched = original.replace(/^site_url\s*=\s*".*"$/m, `site_url = "${PRODUCTION_SITE}"`);
-  patched = patched.replace(
-    /^additional_redirect_urls\s*=\s*\[[^\]]*\]/m,
-    `additional_redirect_urls = [${uniqueRedirectUrls.map((u) => `"${u}"`).join(", ")}]`,
-  );
+  const patch = {
+    site_url: PRODUCTION_SITE,
+    uri_allow_list: buildUriAllowList(redirectUrls),
+    disable_signup: false,
+    external_apple_enabled: true,
+    external_google_enabled: true,
+  };
 
-  fs.writeFileSync(configPath, patched, "utf8");
-  try {
-    console.log(`Pushing Supabase Auth URLs to ${PROJECT_REF} …`);
-    runSupabaseConfigPush();
-    console.log("Done. Site URL:", PRODUCTION_SITE);
-    console.log("Redirect URLs:", uniqueRedirectUrls.length);
-  } finally {
-    fs.writeFileSync(configPath, original, "utf8");
-    console.log("Restored local supabase/config.toml");
-  }
+  const after = await patchSupabaseAuthConfig(PROJECT_REF, token, patch);
+  console.log("\nDone.");
+  console.log("site_url:", after.site_url);
+  console.log("redirect entries:", (after.uri_allow_list ?? "").split(",").filter(Boolean).length);
+  console.log("Apple enabled:", after.external_apple_enabled);
+  console.log("Google enabled:", after.external_google_enabled);
+  console.log("disable_signup:", after.disable_signup);
 }
 
-main();
+main().catch((e) => {
+  console.error(e instanceof Error ? e.message : e);
+  process.exit(1);
+});

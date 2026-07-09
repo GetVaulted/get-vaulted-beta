@@ -1,33 +1,37 @@
 /**
  * Push Supabase Auth site URL + redirect allowlist for beta (xkaaicokjgmpbctfermj).
- * Does not touch Netlify or Resend. Safe to run without RESEND_API_KEY.
+ * Uses Management API PATCH so OAuth provider secrets in the dashboard are not overwritten.
  *
- * Usage: CONFIRM_BETA_AUTH_URLS=1 npm run configure:beta-auth-urls
+ * Usage: SUPABASE_ACCESS_TOKEN=sbp_... CONFIRM_BETA_AUTH_URLS=1 npm run configure:beta-auth-urls
  */
-import { spawnSync } from "node:child_process";
-import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { SUPABASE_OAUTH_REDIRECT_ALLOWLIST } from "../src/lib/supabase-oauth-redirect";
+import {
+  buildUriAllowList,
+  getSupabaseAuthConfig,
+  patchSupabaseAuthConfig,
+  requireSupabaseAccessToken,
+} from "./lib/supabase-management-auth";
 
+const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.join(__dirname, "..", "..");
-const configPath = path.join(repoRoot, "supabase", "config.toml");
+const webRoot = path.join(__dirname, "..");
+
+require("dotenv").config({ path: path.join(webRoot, ".env") });
+require("dotenv").config({ path: path.join(webRoot, ".env.local"), override: true });
 
 const BETA_SITE = "https://beta.shopgetvaulted.com";
 const BETA_REF = "xkaaicokjgmpbctfermj";
 
-function runSupabaseConfigPush() {
-  const cmd = `npx supabase --workdir "${repoRoot}" config push --project-ref ${BETA_REF} --yes`;
-  const r = spawnSync(cmd, { cwd: repoRoot, shell: true, stdio: "inherit" });
-  if (r.status !== 0) throw new Error("supabase config push failed");
-}
-
-function main() {
+async function main() {
   if (process.env.CONFIRM_BETA_AUTH_URLS !== "1") {
     console.error("Refusing: set CONFIRM_BETA_AUTH_URLS=1");
     process.exit(1);
   }
+
+  const token = requireSupabaseAccessToken();
 
   const redirectUrls = [
     BETA_SITE,
@@ -42,22 +46,21 @@ function main() {
     "http://localhost:3000/mobile/auth/callback",
   ];
 
-  const original = fs.readFileSync(configPath, "utf8");
-  let patched = original.replace(/^site_url\s*=\s*".*"$/m, `site_url = "${BETA_SITE}"`);
-  patched = patched.replace(
-    /^additional_redirect_urls\s*=\s*\[[^\]]*\]/m,
-    `additional_redirect_urls = [${redirectUrls.map((u) => `"${u}"`).join(", ")}]`,
-  );
+  const before = await getSupabaseAuthConfig(BETA_REF, token);
+  console.log("Current site_url:", before.site_url ?? "(unset)");
 
-  fs.writeFileSync(configPath, patched, "utf8");
-  try {
-    console.log(`Pushing Supabase Auth URLs to ${BETA_REF} …`);
-    runSupabaseConfigPush();
-    console.log("Done. Site URL:", BETA_SITE);
-  } finally {
-    fs.writeFileSync(configPath, original, "utf8");
-    console.log("Restored local supabase/config.toml");
-  }
+  const after = await patchSupabaseAuthConfig(BETA_REF, token, {
+    site_url: BETA_SITE,
+    uri_allow_list: buildUriAllowList(redirectUrls),
+    disable_signup: false,
+    external_apple_enabled: true,
+    external_google_enabled: true,
+  });
+
+  console.log("Done. Site URL:", after.site_url);
 }
 
-main();
+main().catch((e) => {
+  console.error(e instanceof Error ? e.message : e);
+  process.exit(1);
+});

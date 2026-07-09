@@ -1,5 +1,65 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isStripeConfigured, marketplaceApplicationFeeCents, platformFeeCentsFromSubtotalUsd } from "@/lib/stripe";
+import {
+  constructStripeWebhookEvent,
+  isStripeConfigured,
+  listStripeWebhookSecrets,
+  marketplaceApplicationFeeCents,
+  platformFeeCentsFromSubtotalUsd,
+} from "@/lib/stripe";
+
+const constructEvent = vi.hoisted(() => vi.fn());
+
+vi.mock("stripe", () => ({
+  default: vi.fn().mockImplementation(() => ({
+    webhooks: { constructEvent },
+  })),
+}));
+
+describe("listStripeWebhookSecrets", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("returns platform then connect secrets without duplicates", () => {
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_platform");
+    vi.stubEnv("STRIPE_CONNECT_WEBHOOK_SECRET", "whsec_connect");
+    expect(listStripeWebhookSecrets()).toEqual(["whsec_platform", "whsec_connect"]);
+  });
+
+  it("dedupes when both env vars are the same", () => {
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_same");
+    vi.stubEnv("STRIPE_CONNECT_WEBHOOK_SECRET", "whsec_same");
+    expect(listStripeWebhookSecrets()).toEqual(["whsec_same"]);
+  });
+
+  it("returns empty when unset", () => {
+    expect(listStripeWebhookSecrets()).toEqual([]);
+  });
+});
+
+describe("constructStripeWebhookEvent", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    constructEvent.mockReset();
+  });
+
+  it("tries connect secret when platform secret fails verification", () => {
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_12345678901");
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_platform");
+    vi.stubEnv("STRIPE_CONNECT_WEBHOOK_SECRET", "whsec_connect");
+    constructEvent
+      .mockImplementationOnce(() => {
+        throw new Error("sig mismatch");
+      })
+      .mockReturnValueOnce({ id: "evt_connect", type: "account.updated" });
+
+    const event = constructStripeWebhookEvent('{"id":"evt_connect"}', "sig_header");
+    expect(event.type).toBe("account.updated");
+    expect(constructEvent).toHaveBeenCalledTimes(2);
+    expect(constructEvent.mock.calls[0]?.[2]).toBe("whsec_platform");
+    expect(constructEvent.mock.calls[1]?.[2]).toBe("whsec_connect");
+  });
+});
 
 describe("isStripeConfigured", () => {
   afterEach(() => {

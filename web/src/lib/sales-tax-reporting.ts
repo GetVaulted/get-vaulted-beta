@@ -144,6 +144,78 @@ export async function aggregateTaxReporting(filters: TaxReportingFilters): Promi
   };
 }
 
+/** Common economic nexus thresholds (many states; verify per state before registering). */
+export const ECONOMIC_NEXUS_SALES_THRESHOLD_CENTS = 10_000_000;
+export const ECONOMIC_NEXUS_TRANSACTION_THRESHOLD = 200;
+
+export type NexusWatchLevel = "none" | "approaching" | "exceeded";
+
+export type SalesByStateRow = {
+  stateCode: string;
+  label: string;
+  totalGmvCents: number;
+  taxableSalesCents: number;
+  nonTaxableSalesCents: number;
+  taxCollectedCents: number;
+  orderCount: number;
+  collectionEnabled: boolean;
+  collectionBasis: string | null;
+  salesThresholdPercent: number;
+  transactionThresholdPercent: number;
+  nexusWatchLevel: NexusWatchLevel;
+};
+
+export type SalesByStateReport = {
+  rows: SalesByStateRow[];
+  totals: {
+    totalGmvCents: number;
+    taxableSalesCents: number;
+    nonTaxableSalesCents: number;
+    taxCollectedCents: number;
+    orderCount: number;
+    statesWithSales: number;
+  };
+  thresholds: {
+    salesThresholdCents: number;
+    transactionThreshold: number;
+    note: string;
+  };
+  filters: { from: string | null; to: string | null };
+};
+
+export function resolveNexusWatchLevel(args: {
+  totalGmvCents: number;
+  orderCount: number;
+  collectionEnabled: boolean;
+  salesThresholdCents?: number;
+  transactionThreshold?: number;
+}): { level: NexusWatchLevel; salesThresholdPercent: number; transactionThresholdPercent: number } {
+  if (args.collectionEnabled) {
+    return { level: "none", salesThresholdPercent: 0, transactionThresholdPercent: 0 };
+  }
+
+  const salesThresholdCents = args.salesThresholdCents ?? ECONOMIC_NEXUS_SALES_THRESHOLD_CENTS;
+  const transactionThreshold = args.transactionThreshold ?? ECONOMIC_NEXUS_TRANSACTION_THRESHOLD;
+  const salesThresholdPercent =
+    salesThresholdCents > 0 ? (args.totalGmvCents / salesThresholdCents) * 100 : 0;
+  const transactionThresholdPercent =
+    transactionThreshold > 0 ? (args.orderCount / transactionThreshold) * 100 : 0;
+
+  const salesExceeded = args.totalGmvCents >= salesThresholdCents;
+  const transactionsExceeded = args.orderCount >= transactionThreshold;
+  if (salesExceeded || transactionsExceeded) {
+    return { level: "exceeded", salesThresholdPercent, transactionThresholdPercent };
+  }
+
+  const salesApproaching = salesThresholdPercent >= 75;
+  const transactionsApproaching = transactionThresholdPercent >= 75;
+  if (salesApproaching || transactionsApproaching) {
+    return { level: "approaching", salesThresholdPercent, transactionThresholdPercent };
+  }
+
+  return { level: "none", salesThresholdPercent, transactionThresholdPercent };
+}
+
 export async function listNexusMonitoringByState(args?: { from?: Date; to?: Date }) {
   const where: Prisma.TaxDestinationVolumeDailyWhereInput = {};
   if (args?.from || args?.to) {
@@ -178,6 +250,93 @@ export async function listNexusMonitoringByState(args?: { from?: Date; to?: Date
     collectionEnabled: enabledMap.get(r.stateCode)?.enabled ?? false,
     collectionBasis: enabledMap.get(r.stateCode)?.collectionBasis ?? null,
   }));
+}
+
+/** Full sales-by-state report for admin nexus monitoring. */
+export async function listSalesByStateReport(args?: { from?: Date; to?: Date }): Promise<SalesByStateReport> {
+  const [volumeRows, nexusStates] = await Promise.all([
+    listNexusMonitoringByState(args),
+    prisma.taxNexusState.findMany({
+      select: { stateCode: true, label: true, enabled: true, collectionBasis: true },
+      orderBy: { stateCode: "asc" },
+    }),
+  ]);
+
+  const volumeMap = new Map(volumeRows.map((r) => [r.stateCode, r]));
+  const stateCodes = new Set<string>([
+    ...nexusStates.map((s) => s.stateCode),
+    ...volumeRows.map((r) => r.stateCode),
+  ]);
+
+  const rows: SalesByStateRow[] = [...stateCodes].map((stateCode) => {
+    const nexus = nexusStates.find((s) => s.stateCode === stateCode);
+    const volume = volumeMap.get(stateCode);
+    const taxableSalesCents = volume?.taxableSalesCents ?? 0;
+    const nonTaxableSalesCents = volume?.nonTaxableSalesCents ?? 0;
+    const totalGmvCents = taxableSalesCents + nonTaxableSalesCents;
+    const orderCount = volume?.orderCount ?? 0;
+    const collectionEnabled = nexus?.enabled ?? volume?.collectionEnabled ?? false;
+    const watch = resolveNexusWatchLevel({
+      totalGmvCents,
+      orderCount,
+      collectionEnabled,
+    });
+
+    return {
+      stateCode,
+      label: nexus?.label ?? stateCode,
+      totalGmvCents,
+      taxableSalesCents,
+      nonTaxableSalesCents,
+      taxCollectedCents: volume?.taxCollectedCents ?? 0,
+      orderCount,
+      collectionEnabled,
+      collectionBasis: nexus?.collectionBasis ?? volume?.collectionBasis ?? null,
+      salesThresholdPercent: watch.salesThresholdPercent,
+      transactionThresholdPercent: watch.transactionThresholdPercent,
+      nexusWatchLevel: watch.level,
+    };
+  });
+
+  rows.sort((a, b) => {
+    if (b.totalGmvCents !== a.totalGmvCents) return b.totalGmvCents - a.totalGmvCents;
+    if (b.orderCount !== a.orderCount) return b.orderCount - a.orderCount;
+    return a.stateCode.localeCompare(b.stateCode);
+  });
+
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.totalGmvCents += row.totalGmvCents;
+      acc.taxableSalesCents += row.taxableSalesCents;
+      acc.nonTaxableSalesCents += row.nonTaxableSalesCents;
+      acc.taxCollectedCents += row.taxCollectedCents;
+      acc.orderCount += row.orderCount;
+      if (row.totalGmvCents > 0 || row.orderCount > 0) acc.statesWithSales += 1;
+      return acc;
+    },
+    {
+      totalGmvCents: 0,
+      taxableSalesCents: 0,
+      nonTaxableSalesCents: 0,
+      taxCollectedCents: 0,
+      orderCount: 0,
+      statesWithSales: 0,
+    },
+  );
+
+  return {
+    rows,
+    totals,
+    thresholds: {
+      salesThresholdCents: ECONOMIC_NEXUS_SALES_THRESHOLD_CENTS,
+      transactionThreshold: ECONOMIC_NEXUS_TRANSACTION_THRESHOLD,
+      note: "Reference thresholds only — economic nexus rules vary by state. Confirm with your tax advisor before registering.",
+    },
+    filters: {
+      from: args?.from?.toISOString() ?? null,
+      to: args?.to?.toISOString() ?? null,
+    },
+  };
 }
 
 /** Repair missing tax cents on paid orders and rebuild destination volume monitor rows. */

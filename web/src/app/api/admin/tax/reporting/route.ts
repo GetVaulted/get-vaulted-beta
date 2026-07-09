@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/require-admin";
-import { aggregateTaxReporting, listNexusMonitoringByState, syncTaxReportingFromPaidOrders } from "@/lib/sales-tax-reporting";
+import { aggregateTaxReporting, listNexusMonitoringByState, listSalesByStateReport, syncTaxReportingFromPaidOrders } from "@/lib/sales-tax-reporting";
 
 export async function GET(req: Request) {
   const gate = await requireAdmin();
@@ -21,6 +21,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ rows });
   }
 
+  if (view === "sales-by-state") {
+    const report = await listSalesByStateReport({ from, to });
+    return NextResponse.json(report);
+  }
+
   const summary = await aggregateTaxReporting({ stateCode, sellerId, from, to });
   const refunded = await aggregateTaxReporting({ stateCode, sellerId, from, to, refundedOnly: true });
 
@@ -38,12 +43,12 @@ export async function POST() {
 
   const result = await syncTaxReportingFromPaidOrders();
   const summary = await aggregateTaxReporting({});
-  const rows = await listNexusMonitoringByState();
+  const report = await listSalesByStateReport();
 
   return NextResponse.json({
     ok: true,
     ...result,
     summary,
-    monitorRowCount: rows.length,
+    monitorRowCount: report.rows.filter((r) => r.totalGmvCents > 0 || r.orderCount > 0).length,
   });
 }

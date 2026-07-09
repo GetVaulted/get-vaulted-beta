@@ -155,8 +155,13 @@ export function MyAccountPage() {
 
   const accountTiles: HubTile[] = [
     {
+      href: "/account/profile",
+      title: "Edit profile",
+      description: "Display name and profile photo on your public storefront.",
+    },
+    {
       href: "/account/payment-methods",
-      title: "Wallet",
+      title: "Wallet & shipping",
       description: walletSnapshot
         ? buyerWalletStatusLabel(walletSnapshot)
         : "Saved cards and shipping for live + checkout.",
@@ -174,8 +179,8 @@ export function MyAccountPage() {
     },
     {
       href: setupPhase === "ready" ? SELLER_HQ_PATH : SELLER_SETUP_PATH,
-      title: "Account Settings",
-      description: "Shipping address, payouts, and seller preferences.",
+      title: "Seller settings",
+      description: "Payouts, ship-from address, and live selling setup.",
     },
     {
       href: "/account/delete",

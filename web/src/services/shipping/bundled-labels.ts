@@ -26,6 +26,10 @@ import {
   type ShippoAddress,
   type ShippoParcel,
 } from "@/lib/shippo";
+import {
+  shippoLabelFileTypeForPrintFormat,
+  type SellerLabelPrintFormat,
+} from "@/lib/shippo-label-format";
 import { PAYMENT_PAID } from "@/services/payments";
 import { LIVE_BUNDLED_SHIPPING_DESTINATION_KEY } from "@/services/shipping/live-shipping-pricing";
 import { buildSessionPackageGroups } from "@/services/shipping/live-shipping-quote";
@@ -180,6 +184,7 @@ function addressesMatch(a: SessionOrder, b: SessionOrder): boolean {
 export async function generateBundledShippoLabelForSession(
   sessionId: string,
   sellerId: string,
+  options?: { labelFormat?: SellerLabelPrintFormat },
 ): Promise<GenerateBundledShippoLabelResult> {
   if (!isShippoConfigured()) {
     throw new Error("SHIPPO_NOT_CONFIGURED");
@@ -380,7 +385,10 @@ export async function generateBundledShippoLabelForSession(
       const packageCostCents = Math.round(Number(cheapest.amount ?? 0) * 100);
       shippingLabelCostCentsTotal += packageCostCents;
 
-      const tx = (await shippoPurchaseRate(cheapest.object_id)) as {
+      const tx = (await shippoPurchaseRate(
+        cheapest.object_id,
+        shippoLabelFileTypeForPrintFormat(options?.labelFormat ?? "letter"),
+      )) as {
         object_id?: string;
         tracking_number?: string;
         tracking_url_provider?: string;

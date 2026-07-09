@@ -2,6 +2,12 @@
 
 import { useState } from "react";
 import {
+  labelDownloadFilename,
+  readStoredLabelPrintFormat,
+  storeLabelPrintFormat,
+  type SellerLabelPrintFormat,
+} from "@/lib/shippo-label-format";
+import {
   copyTrackingNumber,
   openLabelForPrint,
   orderHasLabelFile,
@@ -23,7 +29,7 @@ export type SellerShippingLabelPanelProps = {
   shippingAddressIncomplete?: boolean;
   buyerUsername?: string | null;
   canCreateLabel?: boolean;
-  onCreateLabel?: () => void | Promise<void>;
+  onCreateLabel?: (format: SellerLabelPrintFormat) => void | Promise<void>;
   createLabelBusy?: boolean;
   onRepairLabel?: () => void | Promise<void>;
   repairLabelBusy?: boolean;
@@ -90,6 +96,47 @@ function ActionBtn({
   );
 }
 
+function LabelFormatToggle({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: SellerLabelPrintFormat;
+  onChange: (format: SellerLabelPrintFormat) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-600">Label size</span>
+      <div className="inline-flex rounded-lg border border-white/10 bg-white/[0.02] p-0.5">
+        {(
+          [
+            ["letter", "Letter"],
+            ["thermal_4x6", "4×6 thermal"],
+          ] as const
+        ).map(([id, label]) => {
+          const active = value === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(id)}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50 ${
+                active
+                  ? "bg-gold/15 text-gold-bright"
+                  : "text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function SellerShippingLabelPanel(props: SellerShippingLabelPanelProps) {
   const {
     orderId,
@@ -117,6 +164,7 @@ export function SellerShippingLabelPanel(props: SellerShippingLabelPanelProps) {
   } = props;
 
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
+  const [labelFormat, setLabelFormat] = useState<SellerLabelPrintFormat>(() => readStoredLabelPrintFormat());
   const purchased = orderHasPurchasedLabel({ shippoTransactionId, labelUrl, fulfillmentStatus });
   const hasFile = orderHasLabelFile(labelUrl);
   const canRepair = purchased && !hasFile && Boolean(shippoTransactionId?.trim()) && onRepairLabel;
@@ -131,6 +179,11 @@ export function SellerShippingLabelPanel(props: SellerShippingLabelPanelProps) {
     const ok = await copyTrackingNumber(trackingNumber.trim());
     setCopyMsg(ok ? "Copied" : "Could not copy");
     window.setTimeout(() => setCopyMsg(null), 2000);
+  };
+
+  const onFormatChange = (format: SellerLabelPrintFormat) => {
+    setLabelFormat(format);
+    storeLabelPrintFormat(format);
   };
 
   return (
@@ -184,13 +237,20 @@ export function SellerShippingLabelPanel(props: SellerShippingLabelPanelProps) {
           </p>
         ) : null}
 
+        {(canCreateLabel && onCreateLabel && !shippingAddressIncomplete) || hasFile ? (
+          <LabelFormatToggle value={labelFormat} onChange={onFormatChange} disabled={busy} />
+        ) : null}
+
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           {hasFile && labelUrl ? (
             <>
-              <ActionBtn primary onClick={() => openLabelForPrint(labelUrl)}>
+              <ActionBtn primary onClick={() => openLabelForPrint(labelUrl, "letter")}>
                 Print label
               </ActionBtn>
-              <ActionBtn href={labelUrl} download={`shipping-label-${orderId.slice(0, 8)}.pdf`}>
+              <ActionBtn primary onClick={() => openLabelForPrint(labelUrl, "thermal_4x6")}>
+                Print 4×6
+              </ActionBtn>
+              <ActionBtn href={labelUrl} download={labelDownloadFilename(orderId, labelFormat)}>
                 Download
               </ActionBtn>
             </>
@@ -201,8 +261,12 @@ export function SellerShippingLabelPanel(props: SellerShippingLabelPanelProps) {
             </ActionBtn>
           ) : null}
           {canCreateLabel && onCreateLabel && !shippingAddressIncomplete ? (
-            <ActionBtn primary disabled={busy} onClick={() => void onCreateLabel()}>
-              {createLabelBusy ? "Creating…" : labelFailed ? "Retry label" : "Create label"}
+            <ActionBtn primary disabled={busy} onClick={() => void onCreateLabel(labelFormat)}>
+              {createLabelBusy
+                ? "Creating…"
+                : labelFailed
+                  ? `Retry label (${labelFormat === "thermal_4x6" ? "4×6" : "letter"})`
+                  : `Create label (${labelFormat === "thermal_4x6" ? "4×6" : "letter"})`}
             </ActionBtn>
           ) : null}
           {canRepair ? (

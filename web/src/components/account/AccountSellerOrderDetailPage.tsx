@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AccountOrdersNav } from "@/components/account/AccountOrdersNav";
 import { OrderRefundRequestPanel } from "@/components/orders/OrderRefundRequestPanel";
 import { SellerShippingLabelPanel } from "@/components/account/SellerShippingLabelPanel";
+import type { SellerLabelPrintFormat } from "@/lib/shippo-label-format";
 import { SellerOrderActivityFeed } from "@/components/account/seller-order-detail/SellerOrderActivityFeed";
 import { SellerFulfillmentTimelineCompact } from "@/components/account/seller-order-detail/SellerFulfillmentTimelineCompact";
 import { SellerOrderSidebarSections } from "@/components/account/seller-order-detail/SellerOrderSidebarSections";
@@ -112,11 +113,15 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
     void load();
   }, [load]);
 
-  const createLabel = async () => {
+  const createLabel = async (labelFormat: SellerLabelPrintFormat) => {
     setLabelError(null);
     setLabelBusy(true);
     try {
-      const res = await fetch(`/api/account/sales/${encodeURIComponent(orderId)}/create-label`, { method: "POST" });
+      const res = await fetch(`/api/account/sales/${encodeURIComponent(orderId)}/create-label`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ labelFormat }),
+      });
       const data = (await res.json().catch(() => ({}))) as { error?: string; warning?: string };
       if (!res.ok) {
         setLabelError(data.error ?? "Could not create label.");

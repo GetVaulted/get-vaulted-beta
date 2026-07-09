@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AdminCommandShell, adminPanelClassName } from "@/components/admin/AdminCommandShell";
+import { AdminCsvExportButton } from "@/components/admin/AdminCsvExportButton";
 import { refundRequestStatusLabel } from "@/lib/order-refund-eligibility";
 import type { OrderRefundRequestDto } from "@/lib/order-refund-types";
 
@@ -82,6 +83,7 @@ export function AdminRefundRequestsPage() {
     <AdminCommandShell
       title="Live order refund escalations"
       subtitle="Buyer requests denied by the seller — support accepts (refund or return) or denies (final)."
+      actions={<AdminCsvExportButton report="refund-requests" />}
     >
       {!loading && stuckRows.length > 0 ? (
         <div className="mb-6 space-y-4">

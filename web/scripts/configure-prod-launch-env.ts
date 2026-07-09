@@ -5,7 +5,8 @@
  * Required env (from Stripe Dashboard → live mode):
  *   STRIPE_SECRET_KEY=sk_live_...
  *   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_...
- *   STRIPE_WEBHOOK_SECRET=whsec_...  (from live webhook endpoint)
+ *   STRIPE_WEBHOOK_SECRET=whsec_...  (from get-vaulted-production)
+ *   STRIPE_CONNECT_WEBHOOK_SECRET=whsec_...  (optional — from get-vaulted-connect)
  *
  * Required env (from Resend):
  *   RESEND_API_KEY=re_...
@@ -107,6 +108,12 @@ async function main() {
   setNetlifyEnv("STRIPE_SECRET_KEY", stripe.secretKey);
   setNetlifyEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", stripe.publishableKey);
   setNetlifyEnv("STRIPE_WEBHOOK_SECRET", stripe.webhookSecret);
+  const connectWebhookSecret = process.env.STRIPE_CONNECT_WEBHOOK_SECRET?.trim() ?? "";
+  if (connectWebhookSecret.startsWith("whsec_")) {
+    setNetlifyEnv("STRIPE_CONNECT_WEBHOOK_SECRET", connectWebhookSecret);
+  } else {
+    log("  (skip STRIPE_CONNECT_WEBHOOK_SECRET — not set; Connect webhooks need it when using a separate destination)");
+  }
   setNetlifyEnv("STRIPE_CONNECT_PUBLIC_APP_URL", PROD_SITE);
 
   log("\n2) Resend (signup resend + OTP fallback) …");

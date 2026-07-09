@@ -62,7 +62,7 @@ export function SellerProfileActions({
     return (
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <Link
-          href="/account/seller/setup"
+          href="/account/profile"
           className="inline-flex h-10 items-center justify-center rounded-full border border-gold/35 bg-gold/10 px-5 text-xs font-semibold text-gold-bright transition hover:border-gold/50 hover:bg-gold/15"
         >
           Edit profile & settings

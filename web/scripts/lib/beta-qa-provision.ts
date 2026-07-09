@@ -13,6 +13,11 @@ import {
 } from "../../src/lib/beta-qa-scope";
 import { ensureStripeCustomerIdForUser } from "../../src/lib/stripe-customer";
 import { getStripe, isStripeConfigured } from "../../src/lib/stripe";
+import {
+  deleteAllSupabaseAuthUsers as deleteAllSupabaseAuthUsersImpl,
+  deleteSupabaseAuthUsersExcept as deleteSupabaseAuthUsersExceptImpl,
+  listAllAuthUsers as listAllAuthUsersImpl,
+} from "./supabase-auth-admin";
 
 export function qaPassword(): string {
   return (
@@ -262,30 +267,20 @@ export async function seedFreshBetaQaAccounts(
 }
 
 export async function listAllAuthUsers(admin: SupabaseClient) {
-  const all: { id: string; email: string | undefined }[] = [];
-  let page = 1;
-  while (true) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 500 });
-    if (error) throw new Error(error.message);
-    const users = data.users ?? [];
-    for (const u of users) {
-      all.push({ id: u.id, email: u.email });
-    }
-    if (users.length < 500) break;
-    page += 1;
-  }
-  return all;
+  return listAllAuthUsersImpl(admin);
 }
 
 export async function deleteAllSupabaseAuthUsers(
   admin: SupabaseClient,
   log: (msg: string) => void,
 ) {
-  const users = await listAllAuthUsers(admin);
-  log(`  deleting ${users.length} Supabase Auth user(s) …`);
-  for (const u of users) {
-    const { error } = await admin.auth.admin.deleteUser(u.id);
-    if (error) throw new Error(`deleteUser ${u.email ?? u.id}: ${error.message}`);
-  }
-  log(`  deleted ${users.length} Auth user(s)`);
+  return deleteAllSupabaseAuthUsersImpl(admin, log);
+}
+
+export async function deleteSupabaseAuthUsersExcept(
+  admin: SupabaseClient,
+  preserveEmails: ReadonlySet<string>,
+  log: (msg: string) => void,
+) {
+  return deleteSupabaseAuthUsersExceptImpl(admin, preserveEmails, log);
 }
