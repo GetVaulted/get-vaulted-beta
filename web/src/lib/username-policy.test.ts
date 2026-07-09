@@ -29,4 +29,9 @@ describe("username-policy", () => {
     expect(evaluateUsernamePolicy("getvaulted").ok).toBe(false);
     expect(evaluateUsernamePolicy("get_vaulted").ok).toBe(false);
   });
+
+  it("lets the platform admin account claim the official getvaulted username", () => {
+    expect(evaluateUsernamePolicy("getvaulted", { userRole: "admin" }).ok).toBe(true);
+    expect(evaluateUsernamePolicy("getvaulted", { userRole: "buyer" }).ok).toBe(false);
+  });
 });

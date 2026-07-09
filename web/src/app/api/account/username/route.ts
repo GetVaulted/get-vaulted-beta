@@ -13,7 +13,7 @@ export async function GET(req: Request) {
 
   const user = await prisma.user.findUnique({
     where: { id: auth.userId },
-    select: { username: true, usernameChosenAt: true },
+    select: { username: true, usernameChosenAt: true, role: true },
   });
   if (!user) {
     return NextResponse.json({ error: "Account not found." }, { status: 404 });
@@ -27,6 +27,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     username: user.username,
     usernameChosenAt: user.usernameChosenAt?.toISOString() ?? null,
+    canClaimOfficialPlatformUsername: user.role === "admin",
     ...eligibility,
   });
 }

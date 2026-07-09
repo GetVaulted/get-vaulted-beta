@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { fetchProfileById, updateMyProfile, uploadMyAvatar } from '../../api/profilesRepository';
 import {
+  canSubmitUsernameChange,
   changeUsernameViaApi,
   fetchUsernameChangeStatus,
   type UsernameChangeStatus,
@@ -138,9 +139,9 @@ export function ProfileEditScreen({ navigation }: Props) {
 
       if (usernameChanged) {
         if (!session?.access_token) throw new Error('Your session expired. Sign in again.');
-        if (usernameEligibility && !usernameEligibility.canChange) {
+        if (!canSubmitUsernameChange(usernameEligibility, trimmedUsername)) {
           const msg =
-            usernameEligibility.reason === 'open_orders'
+            usernameEligibility?.reason === 'open_orders'
               ? 'You cannot change your username while you have open orders.'
               : 'Usernames can only be changed once every 60 days.';
           throw new Error(msg);
@@ -161,7 +162,11 @@ export function ProfileEditScreen({ navigation }: Props) {
     }
   };
 
-  const usernameLocked = Boolean(usernameEligibility && !usernameEligibility.canChange);
+  const usernameLocked = Boolean(
+    usernameEligibility &&
+      !usernameEligibility.canChange &&
+      !usernameEligibility.canClaimOfficialPlatformUsername,
+  );
   const usernameLockHint = (() => {
     if (!usernameEligibility || usernameEligibility.canChange) return null;
     if (usernameEligibility.reason === 'open_orders') {

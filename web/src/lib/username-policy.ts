@@ -9,6 +9,16 @@ export type UsernameRejectReason = "taken" | "invalid" | "reserved" | "profanity
 export const USERNAME_UNAVAILABLE_MESSAGE =
   "That username isn't available. Please choose a different username.";
 
+/** Reserved for the verified platform owner account only — not public signup. */
+export const OFFICIAL_PLATFORM_USERNAMES = new Set(["getvaulted"]);
+
+export function canAdminClaimReservedUsername(
+  role: string | null | undefined,
+  normalized: string,
+): boolean {
+  return role === "admin" && OFFICIAL_PLATFORM_USERNAMES.has(normalized);
+}
+
 const RESERVED_EXACT = new Set(
   [
     "admin",
@@ -113,11 +123,14 @@ export function normalizeUsernameForStorage(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
-export function evaluateUsernamePolicy(normalized: string): { ok: true } | { ok: false; reason: UsernameRejectReason } {
+export function evaluateUsernamePolicy(
+  normalized: string,
+  opts?: { userRole?: string },
+): { ok: true } | { ok: false; reason: UsernameRejectReason } {
   if (!USERNAME_PATTERN.test(normalized)) {
     return { ok: false, reason: "invalid" };
   }
-  if (isReservedUsername(normalized)) {
+  if (!canAdminClaimReservedUsername(opts?.userRole, normalized) && isReservedUsername(normalized)) {
     return { ok: false, reason: "reserved" };
   }
   if (containsProfanity(normalized)) {

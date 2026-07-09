@@ -13,7 +13,20 @@ export type UsernameChangeStatus = {
   reason: 'lock' | 'open_orders' | null;
   lockExpiresAt: string | null;
   hasOpenOrders: boolean;
+  canClaimOfficialPlatformUsername?: boolean;
 };
+
+export function canSubmitUsernameChange(
+  status: Pick<UsernameChangeStatus, 'canChange' | 'canClaimOfficialPlatformUsername'> | null,
+  targetUsername: string,
+): boolean {
+  if (!status) return true;
+  if (status.canChange) return true;
+  return (
+    status.canClaimOfficialPlatformUsername === true &&
+    targetUsername.trim().toLowerCase() === 'getvaulted'
+  );
+}
 
 export async function fetchProfileSetupStatus(accessToken: string): Promise<ProfileSetupStatus> {
   const res = await fetchWebApiAuthed('/api/account/profile-setup', accessToken);

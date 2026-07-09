@@ -7,6 +7,7 @@ import {
 } from "@/lib/username-change-policy";
 import { isUsernameTakenByOtherUser } from "@/lib/username-db";
 import {
+  canAdminClaimReservedUsername,
   evaluateUsernamePolicy,
   normalizeUsernameForStorage,
   USERNAME_UNAVAILABLE_MESSAGE,
@@ -31,12 +32,15 @@ export async function getProfileSetupStatus(userId: string): Promise<ProfileSetu
   };
 }
 
-function validateUsernameInput(raw: unknown): { ok: true; normalized: string } | { ok: false; message: string } {
+function validateUsernameInput(
+  raw: unknown,
+  opts?: { userRole?: string },
+): { ok: true; normalized: string } | { ok: false; message: string } {
   if (typeof raw !== "string") {
     return { ok: false, message: "Enter a username." };
   }
   const normalized = normalizeUsernameForStorage(raw);
-  const policy = evaluateUsernamePolicy(normalized);
+  const policy = evaluateUsernamePolicy(normalized, { userRole: opts?.userRole });
   if (!policy.ok) {
     return { ok: false, message: USERNAME_UNAVAILABLE_MESSAGE };
   }
@@ -95,7 +99,7 @@ export async function changeUsername(args: {
 }): Promise<{ ok: true; username: string; usernameChosenAt: string } | { ok: false; status: number; message: string }> {
   const user = await prisma.user.findUnique({
     where: { id: args.userId },
-    select: { username: true, usernameChosenAt: true },
+    select: { username: true, usernameChosenAt: true, role: true },
   });
   if (!user) {
     return { ok: false, status: 404, message: "Account not found." };
@@ -104,7 +108,7 @@ export async function changeUsername(args: {
     return { ok: false, status: 409, message: "Finish profile setup before changing your username." };
   }
 
-  const parsed = validateUsernameInput(args.username);
+  const parsed = validateUsernameInput(args.username, { userRole: user.role });
   if (!parsed.ok) {
     return { ok: false, status: 400, message: parsed.message };
   }
@@ -121,7 +125,8 @@ export async function changeUsername(args: {
     userId: args.userId,
     usernameChosenAt: user.usernameChosenAt,
   });
-  if (!eligibility.canChange && eligibility.reason) {
+  const adminOfficialClaim = canAdminClaimReservedUsername(user.role, parsed.normalized);
+  if (!eligibility.canChange && eligibility.reason && !adminOfficialClaim) {
     return { ok: false, status: 403, message: usernameChangeBlockMessage(eligibility.reason) };
   }
 

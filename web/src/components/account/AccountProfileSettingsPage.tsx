@@ -16,8 +16,15 @@ export function AccountProfileSettingsPage() {
 
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");
+  const [initialUsername, setInitialUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [usernameEligibility, setUsernameEligibility] = useState<{
+    canChange: boolean;
+    reason: "lock" | "open_orders" | null;
+    lockExpiresAt: string | null;
+    canClaimOfficialPlatformUsername?: boolean;
+  } | null>(null);
   const [saveBusy, setSaveBusy] = useState(false);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,8 +54,24 @@ export function AccountProfileSettingsPage() {
         }
         if (!cancelled) {
           setUsername(j.user.username ?? session?.user?.username ?? "");
+          setInitialUsername(j.user.username ?? session?.user?.username ?? "");
           setDisplayName(j.user.name?.trim() ?? "");
           setProfileImage(j.user.image?.trim() || null);
+        }
+        const usernameRes = await fetch("/api/account/username", { cache: "no-store" });
+        if (usernameRes.ok && !cancelled) {
+          const usernameBody = (await usernameRes.json()) as {
+            canChange?: boolean;
+            reason?: "lock" | "open_orders" | null;
+            lockExpiresAt?: string | null;
+            canClaimOfficialPlatformUsername?: boolean;
+          };
+          setUsernameEligibility({
+            canChange: usernameBody.canChange === true,
+            reason: usernameBody.reason ?? null,
+            lockExpiresAt: usernameBody.lockExpiresAt ?? null,
+            canClaimOfficialPlatformUsername: usernameBody.canClaimOfficialPlatformUsername,
+          });
         }
       } catch {
         if (!cancelled) setError("Could not load profile.");
@@ -88,6 +111,37 @@ export function AccountProfileSettingsPage() {
     setSaved(false);
     setSaveBusy(true);
     try {
+      const trimmedUsername = username.trim();
+      const usernameChanged = trimmedUsername !== initialUsername.trim();
+      if (usernameChanged) {
+        const canChangeUsername =
+          usernameEligibility?.canChange === true ||
+          (usernameEligibility?.canClaimOfficialPlatformUsername === true &&
+            trimmedUsername.toLowerCase() === "getvaulted");
+        if (!canChangeUsername) {
+          setError(
+            usernameEligibility?.reason === "open_orders"
+              ? "You cannot change your username while you have open orders."
+              : "Usernames can only be changed once every 60 days.",
+          );
+          return;
+        }
+        const usernameRes = await fetch("/api/account/username", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: trimmedUsername }),
+        });
+        const usernameBody = (await usernameRes.json().catch(() => ({}))) as { error?: string; username?: string };
+        if (!usernameRes.ok) {
+          setError(usernameBody.error ?? "Could not update username.");
+          return;
+        }
+        if (usernameBody.username) {
+          setUsername(usernameBody.username);
+          setInitialUsername(usernameBody.username);
+        }
+      }
+
       const body: { name?: string; image?: string | null } = {};
       body.name = displayName.trim();
       body.image = profileImage;
@@ -107,6 +161,24 @@ export function AccountProfileSettingsPage() {
       setSaveBusy(false);
     }
   };
+
+  const usernameLocked = Boolean(
+    usernameEligibility &&
+      !usernameEligibility.canChange &&
+      !usernameEligibility.canClaimOfficialPlatformUsername,
+  );
+  const usernameLockHint = (() => {
+    if (!usernameEligibility || usernameEligibility.canChange || usernameEligibility.canClaimOfficialPlatformUsername) {
+      return null;
+    }
+    if (usernameEligibility.reason === "open_orders") {
+      return "Username locked while you have open orders.";
+    }
+    if (usernameEligibility.lockExpiresAt) {
+      return `Username can be changed again after ${new Date(usernameEligibility.lockExpiresAt).toLocaleDateString()}.`;
+    }
+    return "Usernames can only be changed once every 60 days.";
+  })();
 
   if (status === "unauthenticated") return null;
 
@@ -178,9 +250,21 @@ export function AccountProfileSettingsPage() {
 
           <label className="block">
             <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-600">Username</span>
-            <p className="mt-1 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 text-sm text-zinc-300">
-              @{username || session?.user?.username}
-            </p>
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              disabled={usernameLocked}
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              className="mt-1 w-full rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 text-sm text-zinc-100 outline-none transition focus:border-gold/35 disabled:opacity-55"
+            />
+            {usernameEligibility?.canClaimOfficialPlatformUsername ? (
+              <p className="mt-1 text-xs text-zinc-500">
+                Platform admin accounts can claim the official <span className="text-zinc-300">@getvaulted</span> username.
+              </p>
+            ) : null}
+            {usernameLockHint ? <p className="mt-1 text-xs text-zinc-500">{usernameLockHint}</p> : null}
           </label>
 
           <label className="block">
