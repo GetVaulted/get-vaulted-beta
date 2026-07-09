@@ -59,7 +59,7 @@ export function apiFailureErrorMessage(
       }
       return 'Edge/WAF returned HTML instead of JSON — verify EXPO_PUBLIC_SITE_URL matches your deployed API host.';
     case 'app_auth':
-      return err || 'Unauthorized — sign in again or ensure the API route accepts mobile Bearer auth.';
+      return err || 'Session expired — pull down to refresh or sign in again.';
     case 'api_forbidden':
       return err || 'Forbidden';
     default:

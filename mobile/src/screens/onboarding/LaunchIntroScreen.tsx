@@ -684,18 +684,16 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
     opacity: interpolate(progress.value, [LOGO_ENTER_P, LOGO_ENTER_P + 0.028], [0, 1], Extrapolation.CLAMP),
   }));
 
-  const logoScale = useAnimatedStyle(() => ({
-    transform: [
-      {
-        scale: interpolate(
-          progress.value,
-          [LOGO_ENTER_P, LOGO_ENTER_P + 0.045, LOGO_ENTER_P + 0.14, 1],
-          [0.86, 1.08, 1, 1],
-          Extrapolation.CLAMP,
-        ),
-      },
-    ],
-  }));
+  const logoScale = useAnimatedStyle(() => {
+    const introScale = interpolate(
+      progress.value,
+      [LOGO_ENTER_P, LOGO_ENTER_P + 0.045, LOGO_ENTER_P + 0.14, 1],
+      [0.86, 1.08, 1, 1],
+      Extrapolation.CLAMP,
+    );
+    const authCompact = interpolate(authProgress.value, [0, 1], [1, 0.76], Extrapolation.CLAMP);
+    return { transform: [{ scale: introScale * authCompact }] };
+  });
 
   const cameraPush = useAnimatedStyle(() => {
     const introZoom = interpolate(progress.value, [LOGO_ENTER_P, LOGO_SETTLE_P, 1], [1, 1.035, 1.02], Extrapolation.CLAMP);
@@ -710,11 +708,11 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
   });
 
   const blockLift = useAnimatedStyle(() => ({
-    transform: [{ translateY: interpolate(authProgress.value, [0, 1], [0, -Math.min(40, frameH * 0.05)]) }],
+    transform: [{ translateY: 0 }],
   }));
 
   const logoNudge = useAnimatedStyle(() => ({
-    transform: [{ translateY: interpolate(authProgress.value, [0, 1], [0, -8]) }],
+    transform: [{ translateY: 0 }],
   }));
 
   const authBlock = useAnimatedStyle(() => ({
@@ -837,7 +835,10 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
         keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 8 : 0}
       >
         <ScrollView
-          contentContainerStyle={[styles.scrollInner, authUiVisible && styles.scrollInnerAuth]}
+          contentContainerStyle={[
+            styles.scrollInner,
+            { minHeight: frameH - insets.top - insets.bottom },
+          ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           automaticallyAdjustKeyboardInsets
@@ -845,7 +846,6 @@ export function LaunchIntroScreen({ navigation, route }: Props) {
           <Animated.View
             style={[
               styles.finale,
-              { minHeight: authUiVisible ? undefined : frameH * 0.72 },
               cameraPush,
               blockLift,
             ]}
@@ -1014,7 +1014,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
   },
   scrollInner: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.lg },
-  scrollInnerAuth: { justifyContent: 'flex-start', paddingTop: spacing.sm, paddingBottom: spacing.xl },
   vignette: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000',

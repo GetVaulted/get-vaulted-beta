@@ -1,8 +1,7 @@
 import { apiFailureErrorMessage } from '../lib/betaApiResponse';
-import { fetchWebApiAuthed } from '../lib/fetchWebApiAuthed';
+import { fetchWebApiMobileWithSellerAuth, resolveSellerAccessToken } from '../lib/resolveSellerAccessToken';
 import { getWebApiBaseUrl } from '../lib/webApiBaseUrl';
 import { parseWebApiJsonBody, readWebApiResponseText } from '../lib/webApiResponse';
-import { getListingsAccessToken } from './webListingsRepository';
 import {
   mapMobileCashToWeb,
   mapWebTradeOfferDetailToVm,
@@ -17,7 +16,12 @@ export function isWebTradeApiConfigured(): boolean {
 }
 
 async function tradeAccessToken(): Promise<string> {
-  return getListingsAccessToken();
+  return resolveSellerAccessToken();
+}
+
+async function tradeFetch(path: string, init?: RequestInit): Promise<Response> {
+  const token = await tradeAccessToken();
+  return fetchWebApiMobileWithSellerAuth(path, token, init);
 }
 
 async function parseTradeApiError(res: Response): Promise<string> {
@@ -27,8 +31,7 @@ async function parseTradeApiError(res: Response): Promise<string> {
 }
 
 async function tradePost(path: string, body?: unknown): Promise<void> {
-  const token = await tradeAccessToken();
-  const res = await fetchWebApiAuthed(path, token, {
+  const res = await tradeFetch(path, {
     method: 'POST',
     body: body == null ? undefined : JSON.stringify(body),
   });
@@ -36,8 +39,7 @@ async function tradePost(path: string, body?: unknown): Promise<void> {
 }
 
 async function tradeGet<T extends Record<string, unknown>>(path: string): Promise<T> {
-  const token = await tradeAccessToken();
-  const res = await fetchWebApiAuthed(path, token, { method: 'GET' });
+  const res = await tradeFetch(path, { method: 'GET' });
   const text = await readWebApiResponseText(res);
   const parsed = parseWebApiJsonBody<T>(text);
   if (!res.ok) {
@@ -55,8 +57,7 @@ export async function createTradeOfferViaWeb(params: {
   weightTier: ShippingWeightTier;
 }): Promise<string> {
   const cash = mapMobileCashToWeb(params.cashDifference);
-  const token = await tradeAccessToken();
-  const res = await fetchWebApiAuthed('/api/trade/offers', token, {
+  const res = await tradeFetch('/api/trade/offers', {
     method: 'POST',
     body: JSON.stringify({
       requestedListingIds: params.requestedListingIds,

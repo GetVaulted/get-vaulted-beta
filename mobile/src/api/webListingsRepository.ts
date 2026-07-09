@@ -1,5 +1,5 @@
 import { fetchWebApiMobile } from '../lib/fetchWebApiMobile';
-import { getSupabase } from '../lib/supabase';
+import { resolveSellerAccessToken } from '../lib/resolveSellerAccessToken';
 import { readThroughPublishedListingsCache } from '../lib/publishedListingsCache';
 import type { WebMarketplaceListing } from './webListingsTypes';
 
@@ -54,13 +54,13 @@ export async function fetchWebApi(path: string, init: RequestInit = {}): Promise
 }
 
 export async function getListingsAccessToken(): Promise<string> {
-  const sb = getSupabase();
-  if (!sb) throw new Error('Supabase is not configured.');
-  const { data, error } = await sb.auth.getSession();
-  if (error || !data.session?.access_token) {
-    throw new Error('Sign in to publish listings.');
+  try {
+    return await resolveSellerAccessToken();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '';
+    if (msg.includes('session expired') || msg.includes('Sign in')) throw e;
+    throw new Error('Sign in to continue.');
   }
-  return data.session.access_token;
 }
 
 export async function fetchPublishedListingsFromWeb(opts?: { force?: boolean }): Promise<WebMarketplaceListing[]> {
