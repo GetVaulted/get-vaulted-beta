@@ -556,7 +556,7 @@ export function AccountSalesPage() {
               labelBusyId={labelBusyId}
               bundledBusySessionId={bundledBusySessionId}
               bundledSessionFeedback={bundledSessionFeedback}
-              onCreateLabel={(orderId, labelFormat) => void createLabel(orderId, labelFormat)}
+              onCreateLabel={(orderId) => void createLabel(orderId)}
               onCreateBundledLabel={(sid) => void createBundledLabel(sid)}
             />
             {rows.length === 0 ? (

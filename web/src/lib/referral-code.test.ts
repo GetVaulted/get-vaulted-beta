@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PrismaClient } from "@/generated/prisma/client";
 
 const prismaMock = vi.hoisted(() => ({
   user: {
@@ -44,7 +45,7 @@ describe("allocateUniqueReferralCode", () => {
     prismaMock.user.findUnique
       .mockResolvedValueOnce({ id: "taken" })
       .mockResolvedValueOnce(null);
-    const code = await allocateUniqueReferralCode(prismaMock);
+    const code = await allocateUniqueReferralCode(prismaMock as unknown as Pick<PrismaClient, "user">);
     expect(code).toHaveLength(REFERRAL_CODE_LENGTH);
     expect(prismaMock.user.findUnique).toHaveBeenCalledTimes(2);
   });
@@ -73,7 +74,7 @@ describe("ensureUserReferralCode", () => {
 describe("resolveReferrerIdFromReferralInput", () => {
   it("resolves by secret referral code first", async () => {
     prismaMock.user.findUnique.mockResolvedValueOnce({ id: "referrer_secret" });
-    await expect(resolveReferrerIdFromReferralInput("k7h3n9q2mw", prismaMock)).resolves.toBe(
+    await expect(resolveReferrerIdFromReferralInput("k7h3n9q2mw", prismaMock as unknown as Pick<PrismaClient, "user">)).resolves.toBe(
       "referrer_secret",
     );
     expect(prismaMock.user.findUnique).toHaveBeenCalledWith({
@@ -86,7 +87,7 @@ describe("resolveReferrerIdFromReferralInput", () => {
     prismaMock.user.findUnique
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ id: "referrer_legacy" });
-    await expect(resolveReferrerIdFromReferralInput("SomeUser", prismaMock)).resolves.toBe(
+    await expect(resolveReferrerIdFromReferralInput("SomeUser", prismaMock as unknown as Pick<PrismaClient, "user">)).resolves.toBe(
       "referrer_legacy",
     );
     expect(prismaMock.user.findUnique).toHaveBeenLastCalledWith({
@@ -97,7 +98,7 @@ describe("resolveReferrerIdFromReferralInput", () => {
 
   it("returns null for empty or unknown input", async () => {
     prismaMock.user.findUnique.mockResolvedValue(null);
-    await expect(resolveReferrerIdFromReferralInput("", prismaMock)).resolves.toBeNull();
-    await expect(resolveReferrerIdFromReferralInput("!!!", prismaMock)).resolves.toBeNull();
+    await expect(resolveReferrerIdFromReferralInput("", prismaMock as unknown as Pick<PrismaClient, "user">)).resolves.toBeNull();
+    await expect(resolveReferrerIdFromReferralInput("!!!", prismaMock as unknown as Pick<PrismaClient, "user">)).resolves.toBeNull();
   });
 });

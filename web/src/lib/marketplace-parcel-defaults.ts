@@ -26,7 +26,14 @@ export const SMALL_COLLECTIBLE_PARCEL = {
   parcelHeightIn: 3,
 } as const;
 
-const CATEGORY_PARCEL: Partial<Record<ShippingCategory, typeof GRADED_SLAB_PARCEL>> = {
+type CategoryParcelPreset = {
+  readonly parcelWeightOz: number;
+  readonly parcelLengthIn: number;
+  readonly parcelWidthIn: number;
+  readonly parcelHeightIn: number;
+};
+
+const CATEGORY_PARCEL: Partial<Record<ShippingCategory, CategoryParcelPreset>> = {
   slab: GRADED_SLAB_PARCEL,
   raw_card: RAW_CARD_PARCEL,
   small_collectible: SMALL_COLLECTIBLE_PARCEL,
@@ -84,8 +91,8 @@ export function isInflatedSmallCollectibleParcel(row: ParcelFields): boolean {
 function shouldUseCategoryPreset(
   category: ShippingCategory | undefined,
   listing: ParcelFields,
-  preset: (typeof GRADED_SLAB_PARCEL) | undefined,
-): preset is typeof GRADED_SLAB_PARCEL {
+  preset: CategoryParcelPreset | undefined,
+): preset is CategoryParcelPreset {
   if (!preset || !category) return false;
   if (!hasCompleteParcel(listing)) return true;
   if (category === "slab" || category === "raw_card") return isInflatedCardParcel(listing);
