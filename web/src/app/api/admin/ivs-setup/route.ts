@@ -3,6 +3,10 @@ import { requireAdmin } from "@/lib/require-admin";
 import { IVSRealTimeClient, CreateEncoderConfigurationCommand } from "@aws-sdk/client-ivs-realtime";
 
 /** One-time setup: create an IVS Real-Time encoder configuration and return its ARN. */
+export async function GET() {
+  return POST();
+}
+
 export async function POST() {
   const gate = await requireAdmin();
   if (!gate.ok) return gate.response;
