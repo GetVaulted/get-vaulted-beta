@@ -1,4 +1,4 @@
-/** Max time after delivery to request a shipping-defect return (2 days). */
+/** Max time after delivery to request a shipping-defect return on live orders (2 days). */
 export const LIVE_ORDER_RETURN_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
 
 export type LiveOrderRefundKind = "cancel" | "return";
@@ -11,12 +11,23 @@ export type LiveOrderRefundGateInput = {
   shippedAt: Date | null;
   deliveryConfirmedAt: Date | null;
   liveShowId: string | null;
+  /** Get Vaulted / Shippo label PDF URL when a platform label was purchased. */
+  labelUrl?: string | null;
+  /** Shippo transaction id when a platform label was purchased. */
+  shippoTransactionId?: string | null;
 };
 
 export type LiveOrderRefundEligibility = {
   kind: LiveOrderRefundKind | null;
   blockedReason: string | null;
 };
+
+export function orderHasPurchasedShippingLabel(order: {
+  labelUrl?: string | null;
+  shippoTransactionId?: string | null;
+}): boolean {
+  return Boolean(order.labelUrl?.trim() || order.shippoTransactionId?.trim());
+}
 
 export function orderIsInTransitForRefund(order: Pick<LiveOrderRefundGateInput, "status" | "fulfillmentStatus">): boolean {
   return (
@@ -36,10 +47,12 @@ export function orderIsDeliveredForRefund(
   );
 }
 
+/**
+ * Cancel / return eligibility for paid orders.
+ * - Marketplace: cancel only, before ship and before a Get Vaulted label.
+ * - Live show: cancel before ship/transit; return within 2 days of delivery (shipping defect).
+ */
 export function resolveLiveOrderRefundEligibility(order: LiveOrderRefundGateInput): LiveOrderRefundEligibility {
-  if (!order.liveShowId) {
-    return { kind: null, blockedReason: "NOT_LIVE_ORDER" };
-  }
   if (order.paymentMethod === "escrow") {
     return { kind: null, blockedReason: "ESCROW_NOT_SUPPORTED" };
   }
@@ -50,9 +63,23 @@ export function resolveLiveOrderRefundEligibility(order: LiveOrderRefundGateInpu
     return { kind: null, blockedReason: "NOT_PAID" };
   }
 
+  const isLive = Boolean(order.liveShowId?.trim());
   const inTransit = orderIsInTransitForRefund(order);
   const delivered = orderIsDeliveredForRefund(order);
+  const hasLabel = orderHasPurchasedShippingLabel(order);
 
+  if (!isLive) {
+    // Marketplace: cancel only, and only before ship / platform label.
+    if (delivered || inTransit) {
+      return { kind: null, blockedReason: inTransit && !delivered ? "IN_TRANSIT" : "NOT_ELIGIBLE" };
+    }
+    if (hasLabel) {
+      return { kind: null, blockedReason: "LABEL_EXISTS" };
+    }
+    return { kind: "cancel", blockedReason: null };
+  }
+
+  // Live show orders
   if (!delivered && !inTransit) {
     return { kind: "cancel", blockedReason: null };
   }

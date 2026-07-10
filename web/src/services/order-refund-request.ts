@@ -38,6 +38,8 @@ const ORDER_SELECT = {
   deliveryConfirmedAt: true,
   stripePaymentIntentId: true,
   totalUsd: true,
+  labelUrl: true,
+  shippoTransactionId: true,
   liveShippingSession: { select: { liveShowId: true } },
   listing: { select: { title: true } },
 } as const;
@@ -72,6 +74,8 @@ function gateInputFromOrder(order: NonNullable<Awaited<ReturnType<typeof loadOrd
     shippedAt: order.shippedAt,
     deliveryConfirmedAt: order.deliveryConfirmedAt,
     liveShowId: order.liveShippingSession?.liveShowId ?? null,
+    labelUrl: order.labelUrl,
+    shippoTransactionId: order.shippoTransactionId,
   };
 }
 
@@ -262,7 +266,10 @@ export async function sellerDirectCancelRefund(args: { orderId: string; sellerId
     throw new RefundRequestError(eligibility.blockedReason ?? "NOT_ELIGIBLE", 400);
   }
 
-  const reason = trimStr(args.reason, 2000) || "Seller cancelled and refunded this order.";
+  const reason = trimStr(args.reason, 2000);
+  if (reason.length < 3) {
+    throw new RefundRequestError("REASON_REQUIRED", 400);
+  }
   const audit = await createRefundRequestRowAtomically(args.orderId, {
     kind: OrderRefundRequestKind.cancel,
     status: OrderRefundRequestStatus.pending_seller,
@@ -301,6 +308,11 @@ export async function sellerRespondToRefundRequest(args: {
 
   if (args.approve) {
     if (req.kind === OrderRefundRequestKind.cancel) {
+      // Re-check: seller may have created a label (or shipped) while the request was pending.
+      const eligibility = resolveLiveOrderRefundEligibility(gateInputFromOrder(order));
+      if (eligibility.kind !== "cancel") {
+        throw new RefundRequestError(eligibility.blockedReason ?? "NOT_ELIGIBLE", 400);
+      }
       await executeOrderRefund(args.orderId, req.id);
     } else {
       await prisma.orderRefundRequest.update({

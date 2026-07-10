@@ -38,6 +38,25 @@ function statusLabel(status: string): string {
   }
 }
 
+function blockedMessage(code: string | null): string {
+  switch (code) {
+    case 'LABEL_EXISTS':
+      return 'Cancel is unavailable after a Get Vaulted shipping label is created.';
+    case 'IN_TRANSIT':
+      return 'Cancel and return requests are unavailable while the package is in transit. Wait until delivery.';
+    case 'RETURN_WINDOW_EXPIRED':
+      return 'The 2-day return window after delivery has expired.';
+    case 'NOT_PAID':
+      return 'This order is not eligible for a refund yet.';
+    case 'ALREADY_REFUNDED':
+      return 'This order has already been refunded.';
+    case 'ESCROW_NOT_SUPPORTED':
+      return 'Escrow orders must be handled through the escrow provider.';
+    default:
+      return 'This order is not eligible for a refund request right now.';
+  }
+}
+
 type Props = {
   accessToken: string | undefined;
   orderId: string;
@@ -74,7 +93,7 @@ export function OrderRefundRequestSection({ accessToken, orderId, role }: Props)
     return loading ? <ActivityIndicator color={colors.gold} style={{ marginVertical: spacing.md }} /> : null;
   }
 
-  if (!state?.liveShowId && !state?.request) return null;
+  if (!state) return null;
 
   const eligibility = state.eligibility;
   const request = state.request;
@@ -93,6 +112,18 @@ export function OrderRefundRequestSection({ accessToken, orderId, role }: Props)
     }
   }
 
+  if (!eligibility?.kind && !request) {
+    return (
+      <View style={styles.card}>
+        <View style={styles.headerRow}>
+          <Ionicons name="return-down-back-outline" size={18} color={colors.gold} />
+          <Text style={styles.title}>Cancel & refund</Text>
+        </View>
+        <Text style={styles.sub}>{blockedMessage(eligibility?.blockedReason ?? null)}</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
@@ -100,7 +131,9 @@ export function OrderRefundRequestSection({ accessToken, orderId, role }: Props)
         <Text style={styles.title}>Cancel & refund</Text>
       </View>
       <Text style={styles.sub}>
-        Live show orders only. Cancel before ship, or return within 2 days of delivery (shipping defect).
+        {eligibility?.kind === 'return'
+          ? 'Live show orders: return within 2 days of delivery for a shipping defect (photos required).'
+          : 'Request a cancel before the seller ships or creates a Get Vaulted label. The seller must approve before a full refund is issued.'}
       </Text>
 
       {request ? (
@@ -195,15 +228,23 @@ export function OrderRefundRequestSection({ accessToken, orderId, role }: Props)
       ) : null}
 
       {!request && role === 'seller' && eligibility.kind === 'cancel' ? (
-        <Pressable
-          disabled={busy}
-          style={[styles.btn, styles.btnDanger, { marginTop: spacing.md }]}
-          onPress={() =>
-            void runPatch({ action: 'seller_direct_cancel', reason: 'Seller cancelled order.' }, 'Refund issued')
-          }
-        >
-          <Text style={styles.btnTxt}>Cancel & refund directly</Text>
-        </Pressable>
+        <View style={{ gap: spacing.sm, marginTop: spacing.md }}>
+          <TextInput
+            value={reason}
+            onChangeText={setReason}
+            placeholder="Explain why you are cancelling…"
+            placeholderTextColor={colors.textMuted}
+            multiline
+            style={styles.input}
+          />
+          <Pressable
+            disabled={busy || reason.trim().length < 3}
+            style={[styles.btn, styles.btnDanger]}
+            onPress={() => void runPatch({ action: 'seller_direct_cancel', reason }, 'Refund issued')}
+          >
+            <Text style={styles.btnTxt}>Cancel & refund directly</Text>
+          </Pressable>
+        </View>
       ) : null}
 
       {request?.status === 'seller_denied' && role === 'buyer' ? (

@@ -677,7 +677,7 @@ Get Vaulted does not currently run a per-item authentication program. If a listi
 If an item doesn't match its description after delivery:
 • Document the item with photos immediately.
 • For a live-show order, use the in-app refund/return request within 2 days of delivery.
-• For a marketplace order, message the seller first, then contact support@shopgetvaulted.com if it isn't resolved.
+• For a marketplace order, message the seller first, then contact support@shopgetvaulted.com if it isn't resolved. (Pre-ship cancel is available in-app before a Get Vaulted label is created — see Disputes.)
 • Do not alter graded slabs before support review when disputes involve grading claims.`,
     keywords: ['verified', 'authentication', 'badge', 'authentic', 'vault pick'],
   },
@@ -1006,8 +1006,9 @@ Trade Center orders (escrow-protected trades):
 • Use the in-app dispute tool for non-delivery, authenticity fraud, or a partner who fails to ship on an accepted trade.
 
 Marketplace (Buy Now / accepted offer) orders:
-• There is currently no separate self-service refund panel for these orders. Message the seller through order messages first.
-• If it isn't resolved, contact support@shopgetvaulted.com with your order ID — we'll review the order and may issue a refund, facilitate a return, or take other action.
+• Use the in-app cancel request on order detail before the seller ships or creates a Get Vaulted shipping label. The seller must approve; on approval you get a full refund of the amount charged.
+• Cancel is unavailable after a Get Vaulted label exists or the order has shipped.
+• After delivery (or if cancel isn't available), message the seller first, then contact support@shopgetvaulted.com with your order ID if it isn't resolved.
 
 All order types:
 • Payment-network chargebacks remain available through your card issuer or bank, subject to their rules.
@@ -1045,18 +1046,25 @@ Tips:
   {
     id: 'disp-refund',
     sectionId: 'disputes',
-    title: 'Request a refund on a live show order',
-    summary: 'Buyer refund/return requests for live-show purchases.',
-    body: `The structured in-app refund/return request currently applies to orders placed through a Vault Events live show, within 2 days of delivery confirmation. Marketplace (Buy Now / offer) orders don't have this panel — see "When to dispute vs request a refund" for that path.
+    title: 'Request a cancel or refund',
+    summary: 'Buyer cancel/refund (and live return) requests from order detail.',
+    body: `Use the Cancel & refund panel on order detail when it appears.
+
+Marketplace (Buy Now / offer):
+• Request cancel before the seller ships or creates a Get Vaulted label.
+• The seller approves or declines. On approval, you receive a full refund of the amount charged (item + shipping + tax).
+• Cancel is blocked once a Get Vaulted label exists or the package has shipped.
+
+Live show (Vault Events):
+• Cancel before ship, or request a return within 2 days of delivery confirmation for a shipping defect (photos may be required).
 
 On web:
 1. My Account → Orders → order detail.
-2. Open Request refund panel (shown for eligible live-show orders).
-3. Select reason, add photos if relevant, and submit.
-4. Seller approves, denies, or messages you.
+2. Open Cancel & refund and submit your request.
+3. Seller approves, denies, or messages you.
 
 On mobile:
-1. Buyer order detail → refund request section when available.
+1. Buyer order detail → Cancel & refund section when available.
 2. Follow prompts matching web policy.
 
 If approved:
@@ -1065,7 +1073,7 @@ If approved:
 If denied:
 • Read the seller's reason.
 • Escalate to Get Vaulted support from the refund panel if you disagree and have evidence.`,
-    keywords: ['refund request', 'return', 'seller deny', 'live show'],
+    keywords: ['refund request', 'return', 'cancel', 'seller deny', 'live show', 'marketplace'],
   },
   {
     id: 'disp-escalate',

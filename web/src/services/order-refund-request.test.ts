@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/notifications", () => ({ createNotification: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/lib/seller-commerce-event", () => ({
-  SELLER_COMMERCE_KIND: { orderRefunded: "order_refunded" },
+  SELLER_COMMERCE_KIND: {
+    orderRefunded: "order_refunded",
+    orderRefundRequested: "order_refund_requested",
+    orderRefundApproved: "order_refund_approved",
+    orderRefundDenied: "order_refund_denied",
+  },
   logSellerCommerceEvent: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@/lib/marketplace/ecosystem-sync", () => ({ emitOrderLifecycleSync: vi.fn() }));
@@ -49,6 +54,8 @@ import {
   createBuyerRefundRequest,
   executeOrderRefund,
   sellerConfirmReturnReceived,
+  sellerDirectCancelRefund,
+  sellerRespondToRefundRequest,
 } from "@/services/order-refund-request";
 
 const createNotificationMock = vi.mocked(createNotification);
@@ -122,10 +129,26 @@ function cancelEligibleOrder(overrides: Record<string, unknown> = {}) {
     deliveryConfirmedAt: null,
     stripePaymentIntentId: "pi_cancel_1",
     totalUsd: 50,
+    itemPriceUsd: 40,
+    shippingPriceUsd: 10,
+    taxAmountCents: 0,
+    labelUrl: null,
+    shippoTransactionId: null,
     liveShippingSession: { liveShowId: "room_2" },
     listing: { title: "Cancel Card" },
     ...overrides,
   };
+}
+
+/** Marketplace Buy Now order eligible for cancel (no live show, no label). */
+function marketplaceCancelEligibleOrder(overrides: Record<string, unknown> = {}) {
+  return cancelEligibleOrder({
+    id: "ord_mkt_1",
+    stripePaymentIntentId: "pi_mkt_1",
+    liveShippingSession: null,
+    listing: { title: "Marketplace Card" },
+    ...overrides,
+  });
 }
 
 describe("executeOrderRefund", () => {
@@ -679,5 +702,129 @@ describe("adminRetryStuckRefund", () => {
 
     expect(stripeRefundsCreate).toHaveBeenCalledTimes(1);
     expect(result.status).toBe("refunded");
+  });
+});
+
+describe("marketplace cancel request", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(prismaMock));
+    prismaMock.orderRefundRequest.count.mockResolvedValue(0);
+    prismaMock.orderRefundRequest.findFirst.mockResolvedValue(null);
+    prismaMock.orderRefundRequest.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.orderRefundRequest.findUnique.mockResolvedValue({ status: "pending_seller" });
+    prismaMock.orderRefundRequest.create.mockImplementation((args: { data: Record<string, unknown> }) =>
+      Promise.resolve(fullRefundRequestRow({ ...args.data, kind: "cancel" })),
+    );
+    prismaMock.orderRefundRequest.findUniqueOrThrow.mockResolvedValue(
+      fullRefundRequestRow({ kind: "cancel", status: "refunded" }),
+    );
+    stripeRefundsCreate.mockResolvedValue({ id: "re_mkt_1" });
+  });
+
+  it("allows a buyer to request cancel on a paid marketplace order with no label", async () => {
+    const order = marketplaceCancelEligibleOrder();
+    prismaMock.order.findUnique.mockResolvedValue(order);
+
+    const result = await createBuyerRefundRequest({
+      orderId: order.id,
+      buyerId: order.buyerId,
+      kind: "cancel",
+      reason: "changed my mind",
+    });
+
+    expect(result.kind).toBe("cancel");
+    expect(prismaMock.orderRefundRequest.create).toHaveBeenCalled();
+  });
+
+  it("blocks marketplace cancel when a Get Vaulted label exists", async () => {
+    const order = marketplaceCancelEligibleOrder({ labelUrl: "https://shippo.example/label.pdf" });
+    prismaMock.order.findUnique.mockResolvedValue(order);
+
+    await expect(
+      createBuyerRefundRequest({
+        orderId: order.id,
+        buyerId: order.buyerId,
+        kind: "cancel",
+        reason: "changed my mind",
+      }),
+    ).rejects.toMatchObject({ code: "LABEL_EXISTS" });
+  });
+
+  it("blocks marketplace cancel when the order has shipped", async () => {
+    const order = marketplaceCancelEligibleOrder({
+      status: "shipped",
+      fulfillmentStatus: "in_transit",
+    });
+    prismaMock.order.findUnique.mockResolvedValue(order);
+
+    await expect(
+      createBuyerRefundRequest({
+        orderId: order.id,
+        buyerId: order.buyerId,
+        kind: "cancel",
+        reason: "changed my mind",
+      }),
+    ).rejects.toMatchObject({ code: "IN_TRANSIT" });
+  });
+
+  it("refunds on seller approve when still cancel-eligible", async () => {
+    const order = marketplaceCancelEligibleOrder();
+    prismaMock.order.findUnique.mockResolvedValue(order);
+    prismaMock.orderRefundRequest.findFirst.mockResolvedValue(
+      fullRefundRequestRow({ id: "req_mkt_approve", kind: "cancel", status: "pending_seller" }),
+    );
+
+    await sellerRespondToRefundRequest({
+      orderId: order.id,
+      sellerId: order.sellerId,
+      approve: true,
+    });
+
+    expect(stripeRefundsCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects seller approve when a label was created while the request was pending", async () => {
+    const order = marketplaceCancelEligibleOrder({ shippoTransactionId: "txn_late" });
+    prismaMock.order.findUnique.mockResolvedValue(order);
+    prismaMock.orderRefundRequest.findFirst.mockResolvedValue(
+      fullRefundRequestRow({ id: "req_mkt_late", kind: "cancel", status: "pending_seller" }),
+    );
+
+    await expect(
+      sellerRespondToRefundRequest({
+        orderId: order.id,
+        sellerId: order.sellerId,
+        approve: true,
+      }),
+    ).rejects.toMatchObject({ code: "LABEL_EXISTS" });
+    expect(stripeRefundsCreate).not.toHaveBeenCalled();
+  });
+
+  it("allows seller direct cancel when marketplace cancel-eligible", async () => {
+    const order = marketplaceCancelEligibleOrder();
+    prismaMock.order.findUnique.mockResolvedValue(order);
+
+    await sellerDirectCancelRefund({
+      orderId: order.id,
+      sellerId: order.sellerId,
+      reason: "Item no longer available.",
+    });
+
+    expect(stripeRefundsCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires a cancellation reason for seller direct cancel", async () => {
+    const order = marketplaceCancelEligibleOrder();
+    prismaMock.order.findUnique.mockResolvedValue(order);
+
+    await expect(
+      sellerDirectCancelRefund({
+        orderId: order.id,
+        sellerId: order.sellerId,
+        reason: "  ",
+      }),
+    ).rejects.toMatchObject({ code: "REASON_REQUIRED" });
+    expect(stripeRefundsCreate).not.toHaveBeenCalled();
   });
 });

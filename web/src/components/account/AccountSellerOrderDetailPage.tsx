@@ -317,7 +317,7 @@ export function AccountSellerOrderDetailPage({ orderId }: { orderId: string }) {
         <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
           <div className="space-y-6">
             <SellerFulfillmentTimelineCompact steps={timeline} />
-            {order.liveShowId && (order.paymentStatus === "paid" || order.paymentStatus === "refunded") ? (
+            {order.paymentStatus === "paid" || order.paymentStatus === "refunded" ? (
               <OrderRefundRequestPanel orderId={order.id} role="seller" />
             ) : null}
             <SellerOrderActivityFeed events={activityLog} />

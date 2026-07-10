@@ -336,8 +336,7 @@ export default async function OrderPage({
           />
         ) : null}
 
-        {order.liveShippingSession?.liveShowId &&
-        (order.paymentStatus === "paid" || order.paymentStatus === "refunded") ? (
+        {order.paymentStatus === "paid" || order.paymentStatus === "refunded" ? (
           <OrderRefundRequestPanel orderId={order.id} role={isBuyer ? "buyer" : "seller"} />
         ) : null}
 

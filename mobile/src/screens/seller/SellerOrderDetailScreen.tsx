@@ -304,7 +304,7 @@ export function SellerOrderDetailScreen({ navigation, route }: Props) {
 
             <SellerOrderCompactTimeline steps={timeline} />
 
-            {detail.liveShowId && (detail.paymentStatus === 'paid' || detail.paymentStatus === 'refunded') ? (
+            {detail.paymentStatus === 'paid' || detail.paymentStatus === 'refunded' ? (
               <OrderRefundRequestSection
                 accessToken={session?.access_token}
                 orderId={detail.id}
