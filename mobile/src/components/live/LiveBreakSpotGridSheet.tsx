@@ -409,7 +409,37 @@ export function LiveBreakSpotGridSheet({
         return;
       }
       if ('processing' in res) {
-        setError('Payment processing — pull to refresh the room.');
+        // Async PI — poll sync a few times so a succeeded charge is finalized even if the webhook lags.
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          await new Promise((r) => setTimeout(r, 800 + attempt * 400));
+          const synced = await syncLiveItemVariantPurchase({
+            accessToken,
+            liveRoomId: roomId,
+            itemId,
+            variantId: selected.id,
+            purchaseId: res.purchaseId,
+          });
+          if (synced.ok && 'paid' in synced) {
+            finishSuccessfulPurchase(
+              selected.label,
+              checkoutPreview?.chargeNowUsd ?? selected.priceUsd * quantity,
+            );
+            return;
+          }
+          if (!synced.ok && synced.paymentFailed) {
+            setError(
+              mapLivePaymentFailureMessage(synced.error, synced.code) + ' Spot was not sold.',
+            );
+            onClose();
+            Alert.alert(
+              'Payment failed',
+              mapLivePaymentFailureMessage(synced.error, synced.code) + ' Spot was not sold.',
+            );
+            await onRoomRefresh?.();
+            return;
+          }
+        }
+        setError('Payment processing — pull to refresh the room, or check My orders → Live shows.');
         return;
       }
       setError('Purchase could not complete.');

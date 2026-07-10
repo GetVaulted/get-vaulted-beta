@@ -610,6 +610,70 @@ export async function syncLiveItemVariantPurchasePaymentIntent(args: {
   return mapped;
 }
 
+/**
+ * Heal PYT/variant purchases stuck in `pending_payment` after Stripe already succeeded
+ * (missed webhook / client never synced). Safe to call from buyer order lists.
+ */
+export async function reconcileBuyerPendingVariantPurchases(buyerId: string, limit = 10): Promise<number> {
+  if (!isStripeConfigured()) return 0;
+  const pending = await prisma.liveItemVariantPurchase.findMany({
+    where: {
+      buyerId,
+      paymentStatus: "pending_payment",
+      stripePaymentIntentId: { not: null },
+    },
+    select: { id: true },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+  let healed = 0;
+  for (const row of pending) {
+    try {
+      const result = await syncLiveItemVariantPurchasePaymentIntent({
+        buyerId,
+        purchaseId: row.id,
+      });
+      if (result.outcome === "paid") healed += 1;
+    } catch (e) {
+      console.warn("[live] reconcileBuyerPendingVariantPurchases", row.id, e);
+    }
+  }
+  return healed;
+}
+
+/**
+ * Same heal path scoped to a live room (seller sales / host console).
+ */
+export async function reconcileLiveRoomPendingVariantPurchases(
+  liveRoomId: string,
+  limit = 25,
+): Promise<number> {
+  if (!isStripeConfigured()) return 0;
+  const pending = await prisma.liveItemVariantPurchase.findMany({
+    where: {
+      liveRoomId,
+      paymentStatus: "pending_payment",
+      stripePaymentIntentId: { not: null },
+    },
+    select: { id: true, buyerId: true },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+  let healed = 0;
+  for (const row of pending) {
+    try {
+      const result = await syncLiveItemVariantPurchasePaymentIntent({
+        buyerId: row.buyerId,
+        purchaseId: row.id,
+      });
+      if (result.outcome === "paid") healed += 1;
+    } catch (e) {
+      console.warn("[live] reconcileLiveRoomPendingVariantPurchases", row.id, e);
+    }
+  }
+  return healed;
+}
+
 export async function settleLiveItemVariantPurchase(args: {
   buyerId: string;
   purchaseId: string;

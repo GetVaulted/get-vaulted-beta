@@ -51,9 +51,9 @@ function toneFromBreakPaymentStatus(ps: string): { paymentTone: HostRecentSaleRo
   return { paymentTone: "pending", statusLabel: ps };
 }
 
-/** Seller recent-sales list shows settled outcomes only — not in-flight pending rows. */
+/** Seller recent-sales list shows settled outcomes and in-flight payments (not cancelled). */
 export function includeHostRecentSaleRow(row: Pick<HostRecentSaleRowDTO, "paymentTone">): boolean {
-  return row.paymentTone === "paid" || row.paymentTone === "retry";
+  return row.paymentTone === "paid" || row.paymentTone === "retry" || row.paymentTone === "pending";
 }
 
 type SpotCommerceAnchor = {
@@ -160,7 +160,7 @@ function mapVariantPurchase(
   vp: VariantPurchaseWithBuyer,
   orderChargeUsdById: ReadonlyMap<string, number>,
 ): HostRecentSaleRowDTO | null {
-  if (vp.paymentStatus === "pending_payment" || vp.paymentStatus === "cancelled") return null;
+  if (vp.paymentStatus === "cancelled") return null;
   const { paymentTone, statusLabel } = toneFromVariantPaymentStatus(vp.paymentStatus);
   const spotLabel = vp.revealedLabel?.trim() || vp.variant.label;
   return {
@@ -170,7 +170,12 @@ function mapVariantPurchase(
     buyerUsername: vp.buyer?.username?.trim() || "buyer",
     amountUsd: resolveChargeUsdFromFulfillmentOrderMap(vp.totalUsd, vp.fulfillmentOrderId, orderChargeUsdById),
     paymentTone,
-    statusLabel: vp.paymentStatus === "paid" && vp.revealedLabel ? "Revealed" : statusLabel,
+    statusLabel:
+      vp.paymentStatus === "paid" && vp.revealedLabel
+        ? "Revealed"
+        : vp.paymentStatus === "pending_payment"
+          ? "Processing"
+          : statusLabel,
     occurredAt: (vp.paidAt ?? vp.createdAt).toISOString(),
     spotLabel,
   };
@@ -180,6 +185,13 @@ function mapVariantPurchase(
  * Orders and break-spot checkouts tied to this live room (listing queue + shipping session + spots).
  */
 export async function fetchHostRecentSales(liveRoomId: string, sellerId: string): Promise<HostRecentSaleRowDTO[]> {
+  try {
+    const { reconcileLiveRoomPendingVariantPurchases } = await import("@/lib/live-payment-pipeline");
+    await reconcileLiveRoomPendingVariantPurchases(liveRoomId);
+  } catch (e) {
+    console.warn("[live-room-recent-sales] reconcile pending variant purchases", liveRoomId, e);
+  }
+
   const listingRows = await prisma.liveRoomItem.findMany({
     where: { liveRoomId, listingId: { not: null } },
     select: { listingId: true },
@@ -233,7 +245,7 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
       take: 50,
     }),
     prisma.liveItemVariantPurchase.findMany({
-      where: { liveRoomId, paymentStatus: { in: ["paid", "failed"] } },
+      where: { liveRoomId, paymentStatus: { in: ["paid", "failed", "pending_payment"] } },
       include: {
         buyer: { select: { username: true } },
         variant: {
@@ -243,7 +255,7 @@ export async function fetchHostRecentSales(liveRoomId: string, sellerId: string)
           },
         },
       },
-      orderBy: { paidAt: "desc" },
+      orderBy: { createdAt: "desc" },
       take: 50,
     }),
     prisma.liveGiveaway.findMany({

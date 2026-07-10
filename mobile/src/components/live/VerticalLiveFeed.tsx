@@ -86,6 +86,8 @@ import { buyerWalletGatePromptBody } from '../../lib/buyerWalletReadinessDisplay
 import { LiveEmptyBroadcastBlock } from './LiveEmptyBroadcastBlock';
 import { LiveStagePlayback } from './LiveStagePlayback';
 import { LiveRoomText } from './LiveRoomText';
+import { LiveShowNotesSheet } from './LiveShowNotesSheet';
+import { hasLiveShowNotes, normalizeLiveShowNotes } from '../../lib/liveShowNotes';
 import { LiveBadge } from '../ui/LiveBadge';
 import { KeyboardDismissStageShield } from '../ui/KeyboardDismissStageShield';
 import {
@@ -232,6 +234,8 @@ function LiveSlide({
   const [shopSpotItem, setShopSpotItem] = useState<LiveRoomLineupItemSnapshot | null>(null);
   const [tipOpen, setTipOpen] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
+  const [showNotesOpen, setShowNotesOpen] = useState(false);
+  const [showNotes, setShowNotes] = useState(() => normalizeLiveShowNotes(stream.showDescription));
   const [roomPaymentMethodId, setRoomPaymentMethodId] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportChatMessage, setReportChatMessage] = useState<ChatMessage | null>(null);
@@ -588,6 +592,10 @@ function LiveSlide({
   }, [stream.id, stream.roomStatus]);
 
   useEffect(() => {
+    setShowNotes(normalizeLiveShowNotes(stream.showDescription));
+  }, [stream.id, stream.showDescription]);
+
+  useEffect(() => {
     if (liveSession.roomSnap?.status === 'ended') setRoomStatus('ended');
   }, [liveSession.roomSnap?.status]);
 
@@ -596,14 +604,17 @@ function LiveSlide({
   }, [roomStatus]);
 
   useEffect(() => {
-    if (!isActive || roomStatus === 'live' || roomStatus === 'ended') return undefined;
+    if (!isActive || roomStatus === 'ended') return undefined;
     const id = setInterval(() => {
       void fetchLiveRoomPublicById(stream.id).then((row) => {
-        if (!row?.status || row.status === roomStatus) return;
-        setRoomStatus(row.status);
-        if (row.status === 'live') setStreamRefreshNonce((n) => n + 1);
+        if (!row) return;
+        if (row.status && row.status !== roomStatus) {
+          setRoomStatus(row.status);
+          if (row.status === 'live') setStreamRefreshNonce((n) => n + 1);
+        }
+        setShowNotes(normalizeLiveShowNotes(row.description));
       });
-    }, 15_000);
+    }, 20_000);
     return () => clearInterval(id);
   }, [isActive, roomStatus, stream.id]);
 
@@ -1326,6 +1337,29 @@ function LiveSlide({
         </Pressable>
         <Pressable
           style={styles.railBtn}
+          onPress={() => setShowNotesOpen(true)}
+          accessibilityLabel={hasLiveShowNotes(showNotes) ? 'Read show notes' : 'Show notes'}
+        >
+          <View>
+            <Ionicons
+              name="document-text-outline"
+              size={railIconSize}
+              color={hasLiveShowNotes(showNotes) ? colors.gold : 'rgba(255,255,255,0.92)'}
+            />
+            {hasLiveShowNotes(showNotes) ? <View style={styles.notesDot} /> : null}
+          </View>
+          <LiveRoomText
+            style={[
+              styles.railLabel,
+              { fontSize: railLabelSize },
+              hasLiveShowNotes(showNotes) ? { color: colors.gold } : null,
+            ]}
+          >
+            Notes
+          </LiveRoomText>
+        </Pressable>
+        <Pressable
+          style={styles.railBtn}
           onPress={() => {
             openShareSheet();
           }}
@@ -1717,6 +1751,14 @@ function LiveSlide({
           if (signedIn && accessToken) void liveChat.announceShare();
         }}
         onToast={(msg) => Alert.alert('Share', msg)}
+      />
+      <LiveShowNotesSheet
+        visible={showNotesOpen}
+        onClose={() => setShowNotesOpen(false)}
+        roomId={stream.id}
+        mode="read"
+        initialNotes={showNotes}
+        onNotesLoaded={(next) => setShowNotes(next)}
       />
       <ReportSheet
         visible={reportOpen}
@@ -2315,6 +2357,17 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '600',
     letterSpacing: 0.15,
+  },
+  notesDot: {
+    position: 'absolute',
+    top: -1,
+    right: -3,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.gold,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.45)',
   },
   commerceOverlayHost: {
     position: 'absolute',

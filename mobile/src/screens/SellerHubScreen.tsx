@@ -143,15 +143,21 @@ export function SellerHubScreen() {
   }, []);
 
   const [profileAvatarUrl, setProfileAvatarUrl] = useState<string | null>(null);
+  const [profileUsername, setProfileUsername] = useState<string | null>(null);
+  const [profileDisplayName, setProfileDisplayName] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user?.id) {
       setProfileAvatarUrl(null);
+      setProfileUsername(null);
+      setProfileDisplayName(null);
       return;
     }
     const task = deferAfterFirstPaint(() => {
       void fetchProfileById(user.id).then((p) => {
         setProfileAvatarUrl(p?.avatar_url?.trim() || null);
+        setProfileUsername(p?.username?.trim() || null);
+        setProfileDisplayName(p?.display_name?.trim() || null);
       });
     }, 400);
     return () => task.cancel();
@@ -172,17 +178,25 @@ export function SellerHubScreen() {
 
   const sellerLaunchMeta = useMemo(() => {
     const meta = user?.user_metadata as Record<string, unknown> | undefined;
-    const displayName =
+    const metaDisplay =
       typeof meta?.display_name === 'string'
-        ? meta.display_name
+        ? meta.display_name.trim()
         : typeof meta?.full_name === 'string'
-          ? meta.full_name
-          : user?.email?.split('@')[0] ?? 'Creator';
-    const uname = typeof meta?.username === 'string' ? meta.username : null;
+          ? meta.full_name.trim()
+          : '';
+    const metaUsername = typeof meta?.username === 'string' ? meta.username.trim() : '';
+    // Prefer profiles table (what Settings updates) over auth metadata / email local-part.
+    const uname = profileUsername || metaUsername || null;
+    const displayName =
+      profileDisplayName ||
+      metaDisplay ||
+      uname ||
+      user?.email?.split('@')[0] ||
+      'Creator';
     const handle = uname ? `@${uname}` : '@you';
     const avatar = profileAvatarUrl;
     return { displayName, handle, avatar };
-  }, [user, profileAvatarUrl]);
+  }, [user, profileAvatarUrl, profileUsername, profileDisplayName]);
 
   const openStripeOnboarding = useCallback(async () => {
     const base = getWebApiBaseUrl();

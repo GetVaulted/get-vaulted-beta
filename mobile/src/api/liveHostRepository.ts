@@ -229,6 +229,25 @@ export async function patchLiveRoomAction(
   }
 }
 
+/** Seller show notes (stored as live room `description`, max 4000). */
+export async function patchLiveRoomDescription(
+  accessToken: string,
+  roomId: string,
+  description: string,
+): Promise<void> {
+  const res = await hostFetch(`/api/live-rooms/${encodeURIComponent(roomId)}`, accessToken, {
+    method: 'PATCH',
+    body: JSON.stringify({ description }),
+  });
+  let j: { error?: string } = {};
+  try {
+    j = (await res.json()) as typeof j;
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(apiErrorMessage(res, j));
+}
+
 export async function fetchHostStream(
   accessToken: string,
   roomId: string,

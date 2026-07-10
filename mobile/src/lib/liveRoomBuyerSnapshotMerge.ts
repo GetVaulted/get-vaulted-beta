@@ -56,7 +56,8 @@ export type BuyerSnapshotReconcileResult = {
  *
  * **Monotonic (bid-only):** while the same lot is active, a stale snapshot must never lower
  * `currentBidUsd` / `minNextBidUsd` or drop the high bidder — but it must still apply new break /
- * division / active-item state from the server.
+ * division / active-item state from the server. Exception: when the server clears the high bidder
+ * (new unit / restart), accept the reset so the next round does not keep the prior min-next.
  */
 export function reconcileBuyerSnapshotMonotonic(
   prev: LiveRoomBuyerSnapshot | null,
@@ -74,6 +75,21 @@ export function reconcileBuyerSnapshotMonotonic(
   const nextHigh = next.currentBidUsd;
   const prevHasHigh = typeof prevHigh === 'number' && Number.isFinite(prevHigh);
   const nextHasHigh = typeof nextHigh === 'number' && Number.isFinite(nextHigh);
+  const prevHadBidder = Boolean(prev.lastHighBidderId?.trim());
+  const nextHasBidder = Boolean(next.lastHighBidderId?.trim());
+
+  // After a unit sells (or host restarts the same lot), the server clears currentBid + high bidder.
+  // That must win over local state — otherwise the next round shows the prior min-next (e.g. $2 win → $3).
+  const serverClearedRound = prevHadBidder && !nextHasBidder && !nextHasHigh;
+  if (serverClearedRound) {
+    const wallNowMs = next.fetchedAtMs ?? prev.fetchedAtMs ?? Date.now();
+    return {
+      snap: withMonotonicAuctionEndsAt(next, prev, wallNowMs),
+      lotChanged: false,
+      staleIgnored: false,
+      advanced: false,
+    };
+  }
 
   const highRegressed =
     prevHasHigh && (!nextHasHigh || (nextHigh as number) < (prevHigh as number));
@@ -266,6 +282,32 @@ export function mergeBuyerSnapshotForActiveItemChanged(
       startingBidUsd: null,
       priceUsd: null,
       auctionEndsAt: payload.auctionEndsAt !== undefined ? payload.auctionEndsAt : null,
+      biddingOpen: lotBidPhase === 'bidding_open',
+      lotBidPhase,
+      fetchedAtMs: wallNowMs,
+    };
+  }
+
+  // Same lot, host re-opens bidding (next unit / restart). Clear prior-round high so Hold-to-Bid
+  // does not show the old min-next before the next GET arrives.
+  const reopeningBidding =
+    payload.biddingOpen === true &&
+    (snap.biddingOpen === false || snap.lotBidPhase !== 'bidding_open');
+  if (reopeningBidding) {
+    const opening = snap.startingBidUsd ?? 1;
+    return {
+      ...snap,
+      activeItemId: payload.itemId,
+      currentBidUsd: null,
+      lastHighBidderId: null,
+      lastHighBidderUsername: null,
+      minNextBidUsd: liveAuctionMinBidUsd({
+        currentBidUsd: null,
+        startingBidUsd: opening,
+        priceUsd: snap.priceUsd,
+        lastHighBidderId: null,
+      }),
+      auctionEndsAt,
       biddingOpen: lotBidPhase === 'bidding_open',
       lotBidPhase,
       fetchedAtMs: wallNowMs,

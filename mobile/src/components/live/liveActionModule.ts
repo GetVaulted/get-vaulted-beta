@@ -282,17 +282,19 @@ function resolveBuyerAuctionItemHud(
     });
   }
 
+  // Before bidding opens, show the opening price — not a stale min-next from the prior round.
+  const preStartAmount = hasBid ? next : opening;
   return buildBuyerBidHud(base, {
     itemTitle,
     timerMmSs: '—',
-    currentPrefix: 'Next bid',
-    currentAmount: next > 0 ? formatBidMoney(next) : '—',
+    currentPrefix: hasBid ? 'Next bid' : 'Opening',
+    currentAmount: preStartAmount > 0 ? formatBidMoney(preStartAmount) : '—',
     winningLine: '',
     stateLine:
       snap.lotBidPhase === 'not_started'
         ? pickVaultWaitingMessage(stream.id, 'controls_when_live')
         : pickVaultWaitingMessage(stream.id, 'lot_almost_ready'),
-    nextBidUsd: next > 0 ? next : 1,
+    nextBidUsd: preStartAmount > 0 ? preStartAmount : 1,
     biddingOpen: false,
     useSlide: false,
   });

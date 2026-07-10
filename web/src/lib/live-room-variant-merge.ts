@@ -1,6 +1,7 @@
 import type { LiveRoomItemDTO } from "@/lib/live-room-serialize";
 import type { LiveItemVariantStatus } from "@/generated/prisma/client";
 import { summarizeVariantSpots } from "@/lib/live-item-variant-presets";
+import { resolveLiveRoomItemQuantityState } from "@/lib/live-room-item-quantity-display";
 
 export type VariantPurchasedMergePayload = {
   itemId: string;
@@ -35,7 +36,24 @@ export function mergeVariantPurchasedIntoItems(
         ...(soldOut ? { isHot: false } : {}),
       };
     });
-    return { ...it, variants, itemVersion };
+    const unitsClaimed = summarizeVariantSpots(variants).sold;
+    const qtyState = resolveLiveRoomItemQuantityState({
+      title: it.title,
+      quantity: it.quantity ?? it.quantityInitial ?? variants.length,
+      quantityInitial: it.quantityInitial ?? it.quantity ?? variants.length,
+      status: it.status,
+      unitsClaimed,
+    });
+    return {
+      ...it,
+      variants,
+      itemVersion,
+      soldQuantity: qtyState.soldQuantity,
+      remainingQuantity: qtyState.remainingQuantity,
+      currentUnitNumber: qtyState.currentUnitNumber,
+      displayTitle: qtyState.displayTitle,
+      progressLabel: qtyState.progressLabel,
+    };
   });
 }
 

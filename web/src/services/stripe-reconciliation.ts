@@ -27,7 +27,12 @@ import { reportCronAnomaly } from "@/lib/cron-anomaly-alert";
 
 const RECONCILE_SOURCE = "stripe-reconcile";
 const ORPHAN_CHECKOUT_KINDS: ReadonlySet<string> = new Set(["buy_now", "pay_order", "layaway_deposit"]);
-const ORPHAN_PI_KINDS: ReadonlySet<string> = new Set(["pay_order_saved_pm", LIVE_BUY_NOW_PI_KIND]);
+const ORPHAN_PI_KINDS: ReadonlySet<string> = new Set([
+  "pay_order_saved_pm",
+  LIVE_BUY_NOW_PI_KIND,
+  "variant_purchase_saved_pm",
+  "break_spot_saved_pm",
+]);
 
 export type StripeReconcileFinding = {
   category: "checkout_session" | "payment_intent" | "dispute" | "refund";
@@ -202,6 +207,7 @@ async function reconcilePaymentIntents(
     if (await alreadyReconciled(pi.id)) continue;
 
     const orderId = pi.metadata?.orderId?.trim() || null;
+    const purchaseId = pi.metadata?.purchaseId?.trim() || null;
     if (orderId) {
       const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true } });
       if (!order) {
@@ -218,6 +224,27 @@ async function reconcilePaymentIntents(
         reportCronAnomaly(
           "stripe-reconcile",
           `ORPHAN succeeded PaymentIntent ${pi.id} (kind=${kind}, orderId=${orderId}) has no local Order`,
+        );
+        continue;
+      }
+    } else if (kind === "variant_purchase_saved_pm" && purchaseId) {
+      const purchase = await prisma.liveItemVariantPurchase.findUnique({
+        where: { id: purchaseId },
+        select: { id: true },
+      });
+      if (!purchase) {
+        report.orphans.push({
+          category: "payment_intent",
+          stripeId: pi.id,
+          kind,
+          orderId: null,
+          issue:
+            "Stripe PaymentIntent succeeded for a PYT/variant purchase but no matching LiveItemVariantPurchase exists — needs manual admin recovery.",
+        });
+        await logReconcileResult(pi.id, "payment_intent.succeeded", false, "orphan_no_local_variant_purchase");
+        reportCronAnomaly(
+          "stripe-reconcile",
+          `ORPHAN succeeded PaymentIntent ${pi.id} (kind=${kind}, purchaseId=${purchaseId}) has no local LiveItemVariantPurchase`,
         );
         continue;
       }

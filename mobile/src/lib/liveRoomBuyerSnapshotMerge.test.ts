@@ -79,9 +79,44 @@ describe('reconcileBuyerSnapshotMonotonic', () => {
     expect(r.lotChanged).toBe(false);
   });
 
-  it('preserves the known high when the incoming snapshot drops currentBid to null', () => {
-    const prev = snap({ currentBidUsd: 4 });
-    const incoming = snap({ currentBidUsd: null, minNextBidUsd: null });
+  it('accepts a server-cleared round (null high + no bidder) after a prior win on the same lot', () => {
+    const prev = snap({
+      currentBidUsd: 2,
+      minNextBidUsd: 3,
+      lastHighBidderId: 'winner',
+      lastHighBidderUsername: 'winner',
+      biddingOpen: false,
+      lotBidPhase: 'not_started',
+      auctionEndsAt: null,
+    });
+    const incoming = snap({
+      currentBidUsd: null,
+      minNextBidUsd: 1,
+      lastHighBidderId: null,
+      lastHighBidderUsername: null,
+      startingBidUsd: 1,
+      biddingOpen: true,
+      lotBidPhase: 'bidding_open',
+      auctionEndsAt: '2026-01-01T00:01:00.000Z',
+      fetchedAtMs: 2_000,
+    });
+
+    const r = reconcileBuyerSnapshotMonotonic(prev, incoming);
+
+    expect(r.staleIgnored).toBe(false);
+    expect(r.snap.currentBidUsd).toBeNull();
+    expect(r.snap.lastHighBidderId).toBeNull();
+    expect(r.snap.minNextBidUsd).toBe(1);
+  });
+
+  it('still preserves the known high when a stale poll drops currentBid but keeps a high bidder', () => {
+    const prev = snap({ currentBidUsd: 4, lastHighBidderId: 'me' });
+    const incoming = snap({
+      currentBidUsd: null,
+      minNextBidUsd: null,
+      lastHighBidderId: 'me',
+      fetchedAtMs: 2_000,
+    });
     const r = reconcileBuyerSnapshotMonotonic(prev, incoming);
     expect(r.staleIgnored).toBe(true);
     expect(r.snap.currentBidUsd).toBe(4);
@@ -202,6 +237,9 @@ describe('mergeBuyerSnapshotForActiveItemChanged', () => {
       lotBidPhase: 'not_started',
       biddingOpen: false,
       auctionEndsAt: null,
+      currentBidUsd: null,
+      lastHighBidderId: null,
+      minNextBidUsd: 1,
     });
 
     const merged = mergeBuyerSnapshotForActiveItemChanged(
@@ -217,5 +255,34 @@ describe('mergeBuyerSnapshotForActiveItemChanged', () => {
     expect(merged?.activeItemId).toBe('item-1');
     expect(merged?.biddingOpen).toBe(true);
     expect(merged?.auctionEndsAt).toBe('2026-01-01T00:00:30.000Z');
+  });
+
+  it('clears prior-round bid state when bidding reopens on the same lot', () => {
+    const prev = snap({
+      activeItemId: 'item-1',
+      currentBidUsd: 2,
+      minNextBidUsd: 3,
+      lastHighBidderId: 'winner',
+      lastHighBidderUsername: 'winner',
+      startingBidUsd: 1,
+      biddingOpen: false,
+      lotBidPhase: 'not_started',
+      auctionEndsAt: null,
+    });
+
+    const merged = mergeBuyerSnapshotForActiveItemChanged(
+      prev,
+      {
+        itemId: 'item-1',
+        biddingOpen: true,
+        auctionEndsAt: '2026-01-01T00:00:30.000Z',
+      },
+      Date.parse('2026-01-01T00:00:00.000Z'),
+    );
+
+    expect(merged?.currentBidUsd).toBeNull();
+    expect(merged?.lastHighBidderId).toBeNull();
+    expect(merged?.minNextBidUsd).toBe(1);
+    expect(merged?.biddingOpen).toBe(true);
   });
 });

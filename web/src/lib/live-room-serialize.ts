@@ -15,6 +15,7 @@ import type {
 } from "@/generated/prisma/client";
 import { buildBreakPublicSnapshot, type LiveRoomBreakPublicDTO } from "@/lib/live-room-break-public";
 import { resolveLiveRoomItemQuantityState } from "@/lib/live-room-item-quantity-display";
+import { isVariantSalesFormat, summarizeVariantSpots } from "@/lib/live-item-variant-presets";
 import {
   serializeLiveItemVariants,
   type LiveItemVariantDTO,
@@ -201,12 +202,27 @@ export function serializeLiveRoomItem(
     typeof qtyInitRaw === "number" && Number.isFinite(qtyInitRaw) && qtyInitRaw >= 1
       ? Math.min(512, Math.floor(qtyInitRaw))
       : Math.max(1, quantity);
+  const salesFormat = (row as { salesFormat?: LiveItemSalesFormat }).salesFormat ?? "auction";
+  // PYT/PYD progress comes from variant soldCount — not BreakSpot claims (often 0 for variant lots).
+  const variantUnitsClaimed =
+    isVariantSalesFormat(salesFormat) && Array.isArray(row.variants) && row.variants.length > 0
+      ? summarizeVariantSpots(
+          row.variants.map((v) => ({
+            soldCount: v.soldCount,
+            quantityRemaining: v.quantityRemaining,
+            status: v.status,
+            priceUsd: v.priceUsd,
+          })),
+        ).sold
+      : null;
+  const unitsClaimed =
+    variantUnitsClaimed != null ? variantUnitsClaimed : (options?.unitsClaimed ?? null);
   const qtyState = resolveLiveRoomItemQuantityState({
     title: row.title,
     quantity,
     quantityInitial,
     status: row.status,
-    unitsClaimed: options?.unitsClaimed ?? null,
+    unitsClaimed,
   });
   const ext = row as LiveRoomItem & {
     biddingOpen?: unknown;
@@ -227,7 +243,6 @@ export function serializeLiveRoomItem(
   const clutchTimeEnabled = ext.clutchTimeEnabled === true;
   const lastHighBidderId =
     typeof row.lastHighBidderId === "string" && row.lastHighBidderId.trim() ? row.lastHighBidderId.trim() : null;
-  const salesFormat = ext.salesFormat ?? "auction";
   const variantAssignmentMode = ext.variantAssignmentMode === "random" ? "random" : "pick";
   const variants = serializeLiveItemVariants(ext.variants);
   const variantBreakReadyAt =

@@ -528,14 +528,9 @@ export function VaultPinnedLotCard({
         <>
           {onToggleClutchTime ? (
             <View style={[styles.clutchRow, compact && styles.clutchRowCompact]}>
-              <View style={styles.clutchCopy}>
-                <Text style={[styles.clutchLabel, compact && styles.clutchLabelCompact]}>
-                  {SELLER_CONSOLE.clutchTime}
-                </Text>
-                {!compact ? (
-                  <Text style={styles.clutchHint}>{SELLER_CONSOLE.clutchTimeHint}</Text>
-                ) : null}
-              </View>
+              <Text style={[styles.clutchLabel, compact && styles.clutchLabelCompact]}>
+                {SELLER_CONSOLE.clutchTime}
+              </Text>
               <Switch
                 value={clutchTimeEnabled}
                 onValueChange={onToggleClutchTime}
@@ -545,6 +540,9 @@ export function VaultPinnedLotCard({
                 accessibilityLabel={SELLER_CONSOLE.clutchTime}
               />
             </View>
+          ) : null}
+          {!compact && onToggleClutchTime ? (
+            <Text style={styles.clutchHint}>{SELLER_CONSOLE.clutchTimeHint}</Text>
           ) : null}
           <Pressable
           style={[
@@ -808,17 +806,15 @@ const styles = StyleSheet.create({
   clutchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-    marginBottom: 8,
-    paddingHorizontal: 4,
+    justifyContent: 'flex-start',
+    alignSelf: 'flex-start',
+    gap: 8,
+    marginBottom: 4,
+    paddingHorizontal: 2,
   },
   clutchRowCompact: {
-    marginBottom: 6,
-  },
-  clutchCopy: {
-    flex: 1,
-    minWidth: 0,
+    marginBottom: 4,
+    gap: 6,
   },
   clutchLabel: {
     fontSize: 12,
@@ -829,7 +825,8 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
   clutchHint: {
-    marginTop: 2,
+    marginBottom: 8,
+    paddingHorizontal: 2,
     fontSize: 10,
     lineHeight: 13,
     color: colors.textMuted,

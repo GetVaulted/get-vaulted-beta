@@ -403,6 +403,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
       const tOpen0 = Date.now();
       const next = await prisma.$transaction(
         async (tx) => {
+          // Clear any prior-round high before applying pre-bids for this open (matches variant path).
+          await tx.liveRoomItem.updateMany({
+            where: { id: itemId, liveRoomId, status: "active" },
+            data: { currentBidUsd: null, lastHighBidderId: null },
+          });
           await applyHighestPreBidToLiveItem(tx, { liveRoomId, itemId });
           const u = await tx.liveRoomItem.updateMany({
             where: { id: itemId, liveRoomId, status: "active" },

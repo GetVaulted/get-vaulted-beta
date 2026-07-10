@@ -63,6 +63,8 @@ import { SellerConsoleActionBar, sellerHeaderBlockHeight, SELLER_HEADER_TOOLBAR_
 import { SellerHostSideRail } from './SellerHostSideRail';
 import { SellerHostGiveawayRail } from './SellerHostGiveawayRail';
 import { SellerLiveSalesSheet } from './SellerLiveSalesSheet';
+import { LiveShowNotesSheet } from '../../live/LiveShowNotesSheet';
+import { hasLiveShowNotes, normalizeLiveShowNotes } from '../../../lib/liveShowNotes';
 import { SellerBreakSpotBoardSheet } from './SellerBreakSpotBoardSheet';
 import { HostModeratorAssignSheet } from '../../moderator/HostModeratorAssignSheet';
 import {
@@ -152,6 +154,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const [salesOpen, setSalesOpen] = useState(false);
   const [shareToast, setShareToast] = useState<string | null>(null);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
+  const [showNotesOpen, setShowNotesOpen] = useState(false);
+  const [showNotes, setShowNotes] = useState(() => normalizeLiveShowNotes(host.room?.description));
   const [chatDraft, setChatDraft] = useState('');
   const chatComposerRef = useRef<MentionComposerInputHandle>(null);
   const [modDrawerOpen, setModDrawerOpen] = useState(false);
@@ -160,6 +164,10 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
   const [biddingUrgent, setBiddingUrgent] = useState(false);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [chatExpanded, setChatExpanded] = useState(false);
+
+  useEffect(() => {
+    setShowNotes(normalizeLiveShowNotes(host.room?.description));
+  }, [host.room?.description, roomId]);
 
   const roomLive = host.room?.status === 'live';
   const streamOnAir =
@@ -747,6 +755,8 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
       <SellerHostSideRail
         bottom={sellerComposerBottom + composerBarHeight + spacing.sm}
         onShare={() => void handleShare()}
+        onNotes={() => setShowNotesOpen(true)}
+        hasNotes={hasLiveShowNotes(showNotes)}
       />
 
       <FloatingLiveChat
@@ -969,6 +979,20 @@ export function SellerLiveHostView({ navigation, roomId, accessToken, host, init
         accessToken={accessToken}
         canNotifyFollowers
         onToast={(msg) => showGiveawayToast(msg)}
+      />
+
+      <LiveShowNotesSheet
+        visible={showNotesOpen}
+        onClose={() => setShowNotesOpen(false)}
+        roomId={roomId}
+        mode="edit"
+        accessToken={accessToken}
+        initialNotes={showNotes}
+        onSaved={(next) => setShowNotes(next)}
+        onToast={(msg) => {
+          setShareToast(msg);
+          setTimeout(() => setShareToast(null), 2200);
+        }}
       />
 
       <SellerLiveQueueSheet
