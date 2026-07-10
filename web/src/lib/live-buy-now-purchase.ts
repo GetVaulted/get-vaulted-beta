@@ -453,16 +453,6 @@ export async function finalizeLiveBuyNowPurchaseComplete(args: {
   void recordBuyerGiveawayPurchaseEntries(args.liveRoomId, order.buyerId, order.id).catch((e) => {
     console.error("[live-buy-now] buyers giveaway entry", e);
   });
-
-  const titleShort =
-    order.listing.title.length > 80 ? `${order.listing.title.slice(0, 77)}…` : order.listing.title;
-  await createNotification(prisma, {
-    userId: order.sellerId,
-    type: "seller_ready_to_ship",
-    title: "Live buy now — paid",
-    body: `Payment received for "${titleShort}".`,
-    href: `/orders/${encodeURIComponent(order.id)}`,
-  });
 }
 
 export async function finalizeBreakSpotPaid(args: {

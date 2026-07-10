@@ -2,6 +2,7 @@ import Stripe from "stripe";
 import type { TransactionClient } from "@/generated/prisma/internal/prismaNamespace";
 import { EscrowStatus, OrderPaymentMethod, OrderRefundRequestStatus } from "@/generated/prisma/enums";
 import { createNotification } from "@/lib/notifications";
+import { marketplaceSellerItemSoldNotification } from "@/lib/marketplace-seller-item-sold-notification";
 import { scheduleOrderLifecycleEmail } from "@/lib/order-lifecycle-email";
 import {
   commitReferralCreditReservation,
@@ -424,14 +425,16 @@ export async function applyEscrowBuyerFundsSecured(orderId: string): Promise<voi
 
   void initializeOrderPayoutOnPayment(orderId);
 
-  const lt = order.listing.title.length > 90 ? `${order.listing.title.slice(0, 87)}…` : order.listing.title;
+  const sellerNote = marketplaceSellerItemSoldNotification({
+    listingTitle: order.listing.title,
+    itemPriceUsd: order.itemPriceUsd,
+    orderId,
+  });
   await createNotification(prisma, {
     userId: order.sellerId,
-    type: "seller_ready_to_ship",
-    title: "Payment received — ready to ship",
-    body: `“${lt}” is paid. Create a shipping label from Sales or mark shipped when you send.`,
-    href: `/orders/${encodeURIComponent(orderId)}`,
+    ...sellerNote,
   });
+  const lt = order.listing.title.length > 90 ? `${order.listing.title.slice(0, 87)}…` : order.listing.title;
   await createNotification(prisma, {
     userId: order.buyerId,
     type: "purchase_complete",
@@ -1770,14 +1773,16 @@ export async function finalizeStripeMarketplaceOrderPaid(
 
   void initializeOrderPayoutOnPayment(orderId);
 
-  const lt = order.listing.title.length > 90 ? `${order.listing.title.slice(0, 87)}…` : order.listing.title;
+  const sellerNote = marketplaceSellerItemSoldNotification({
+    listingTitle: order.listing.title,
+    itemPriceUsd,
+    orderId,
+  });
   await createNotification(prisma, {
     userId: order.sellerId,
-    type: "seller_ready_to_ship",
-    title: "Payment received — ready to ship",
-    body: `“${lt}” is paid. Create a shipping label from Sales or mark shipped when you send.`,
-    href: `/orders/${encodeURIComponent(orderId)}`,
+    ...sellerNote,
   });
+  const lt = order.listing.title.length > 90 ? `${order.listing.title.slice(0, 87)}…` : order.listing.title;
   await createNotification(prisma, {
     userId: order.buyerId,
     type: "purchase_complete",
