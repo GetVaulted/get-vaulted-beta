@@ -20,6 +20,7 @@ import {
   settleVariantSpotAuctionWinner,
 } from "@/lib/live-variant-spot-auction-settle";
 import { isMultiQuantityLiveAuctionItem } from "@/lib/live-auction-host-start";
+import { clearLiveAuctionProxyBidsForItem } from "@/lib/live-auction-pre-bid";
 
 /**
  * Grace after `auctionEndsAt` before the server force-finalizes an overdue lot. Kept small so the
@@ -299,6 +300,8 @@ export async function resetLiveAuctionLotAfterNoBids(args: {
       },
     });
     if (updated.count === 0) return null;
+
+    await clearLiveAuctionProxyBidsForItem(tx, { liveRoomId, itemId });
 
     const roomNext = await tx.liveRoom.update({
       where: { id: liveRoomId },

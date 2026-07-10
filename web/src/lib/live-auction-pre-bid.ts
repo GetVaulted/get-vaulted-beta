@@ -58,6 +58,17 @@ export async function applyHighestPreBidToLiveItem(
   return { applied: true, amountUsd: top.maxAmountUsd, userId: top.userId };
 }
 
+/** Drop standing max/proxy bids when a unit sells or a round resets — next unit must not inherit them. */
+export async function clearLiveAuctionProxyBidsForItem(
+  tx: Prisma.TransactionClient,
+  args: { liveRoomId: string; itemId: string },
+): Promise<number> {
+  const result = await tx.liveAuctionProxyBid.deleteMany({
+    where: { liveRoomId: args.liveRoomId, liveRoomItemId: args.itemId },
+  });
+  return result.count;
+}
+
 export async function placeLiveAuctionPreBid(
   tx: Prisma.TransactionClient,
   args: {

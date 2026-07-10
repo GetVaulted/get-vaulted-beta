@@ -8,6 +8,7 @@ import {
 import { settleLiveAuctionItemWhenMarkedSold } from "@/lib/live-auction-item-sold-settle";
 import { createOrderFromAuctionWin } from "@/lib/offer-fulfillment";
 import { captureLiveRoomItemShippingSnapshotTx } from "@/services/shipping/live-item-shipping-snapshot";
+import { clearLiveAuctionProxyBidsForItem } from "@/lib/live-auction-pre-bid";
 
 export type CloseActiveUnitSaleResult = {
   closed: boolean;
@@ -191,6 +192,12 @@ export async function closeActiveLiveRoomItemUnitSale(
       clutchTimeEnabled: false,
       itemVersion: { increment: 1 },
     },
+  });
+  // Live hold-to-bid stores maxProxyUsd on this same item row. If we keep those proxies,
+  // the next unit's startAuction re-applies them and the prior winner auto-wins without bidding.
+  await clearLiveAuctionProxyBidsForItem(tx, {
+    liveRoomId: args.liveRoomId,
+    itemId: item.id,
   });
   await tx.liveRoom.update({
     where: { id: args.liveRoomId },

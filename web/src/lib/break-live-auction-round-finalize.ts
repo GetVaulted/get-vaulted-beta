@@ -9,6 +9,7 @@ import {
   normalizeQuantityInitial,
   resolveClosingUnitNumber,
 } from "@/lib/live-room-item-quantity-display";
+import { clearLiveAuctionProxyBidsForItem } from "@/lib/live-auction-pre-bid";
 
 export type BreakRoundFinalizeResult = {
   /** True when a prior timed round was closed (winner sale and/or bid reset). */
@@ -91,6 +92,10 @@ export async function finalizeBreakAuctionRoundIfEnded(
         itemVersion: { increment: 1 },
       },
     });
+    await clearLiveAuctionProxyBidsForItem(tx, {
+      liveRoomId: args.liveRoomId,
+      itemId: item.id,
+    });
     await tx.liveRoom.update({
       where: { id: args.liveRoomId },
       data: { roomVersion: { increment: 1 } },
@@ -166,6 +171,10 @@ export async function finalizeBreakAuctionRoundIfEnded(
       clutchTimeEnabled: false,
       itemVersion: { increment: 1 },
     },
+  });
+  await clearLiveAuctionProxyBidsForItem(tx, {
+    liveRoomId: args.liveRoomId,
+    itemId: item.id,
   });
   await tx.liveRoom.update({
     where: { id: args.liveRoomId },
