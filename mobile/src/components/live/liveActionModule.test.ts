@@ -233,12 +233,34 @@ describe('resolveLiveBuyerCommerceHud', () => {
       status: 'live',
       activeItemId: 'item-1',
       activeItemListingId: 'listing-1',
+      activeItemSalesFormat: 'buy_now',
       priceUsd: 125,
       fetchedAtMs: Date.now(),
     } as LiveRoomBuyerSnapshot;
     const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
     expect(hud.bottomRightLabel).toBe('Buy Now $125.00');
     expect(hud.currentPrefix).toBe('Price');
+    expect(hud.buyerPrimaryDisabled).toBe(false);
+  });
+
+  it('shows auction bid CTA for sale-room auction lot (not Buy Now)', () => {
+    const snap = {
+      roomType: 'sale',
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemTitle: 'Raw Lot',
+      activeItemSalesFormat: 'auction',
+      biddingOpen: true,
+      lotBidPhase: 'bidding_open',
+      auctionEndsAt: new Date(Date.now() + 30_000).toISOString(),
+      startingBidUsd: 5,
+      currentBidUsd: 5,
+      minNextBidUsd: 6,
+      fetchedAtMs: Date.now(),
+    } as LiveRoomBuyerSnapshot;
+    const hud = resolveLiveBuyerCommerceHud(baseStream(), snap);
+    expect(hud.bottomRightLabel).toMatch(/bid/i);
+    expect(hud.bottomRightLabel).not.toMatch(/buy now/i);
     expect(hud.buyerPrimaryDisabled).toBe(false);
   });
 

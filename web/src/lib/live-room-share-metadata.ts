@@ -106,7 +106,7 @@ export function resolveLiveRoomShareImageUrl(
   return `${siteBase}/${trimmed.replace(/^\/+/, "")}`;
 }
 
-function resolveShareMediaUrl(url: string | null | undefined, siteBase: string): string {
+export function resolveLiveRoomShareMediaUrl(url: string | null | undefined, siteBase: string): string {
   const trimmed = url?.trim() ?? "";
   if (!trimmed) return "";
   if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/^http:\/\//i, "https://");
@@ -115,17 +115,17 @@ function resolveShareMediaUrl(url: string | null | undefined, siteBase: string):
   return `${siteBase}/${trimmed.replace(/^\/+/, "")}`;
 }
 
-/** Background for OG card: thumbnail → host avatar → branded banner. */
+/** Resolves a share-card image with an optional secondary fallback before the branded banner. */
 export function resolveLiveRoomShareBackgroundUrl(
   thumbnailUrl: string | null | undefined,
   siteBase = publicSiteBaseUrl(),
-  hostAvatarUrl?: string | null,
+  secondaryFallback?: string | null,
   brandedFallback = DEFAULT_LIVE_SHARE_OG_IMAGE,
 ): string | null {
-  const thumb = resolveShareMediaUrl(thumbnailUrl, siteBase);
+  const thumb = resolveLiveRoomShareMediaUrl(thumbnailUrl, siteBase);
   if (thumb) return thumb;
-  const avatar = resolveShareMediaUrl(hostAvatarUrl, siteBase);
-  if (avatar) return avatar;
+  const secondary = resolveLiveRoomShareMediaUrl(secondaryFallback, siteBase);
+  if (secondary) return secondary;
   return brandedFallback;
 }
 

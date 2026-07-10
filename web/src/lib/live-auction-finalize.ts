@@ -29,7 +29,7 @@ import { clearLiveAuctionProxyBidsForItem } from "@/lib/live-auction-pre-bid";
  */
 export const LIVE_AUCTION_AUTO_CLOSE_GRACE_MS = 1500;
 
-export type FinalizeTrigger = "manual" | "timer_nudge" | "read_sweep";
+export type FinalizeTrigger = "manual" | "timer_nudge" | "read_sweep" | "host_pin_lot";
 
 /** Reusable error codes thrown by the settle path (mapped to HTTP by the manual route). */
 export type LiveAuctionSettleError =

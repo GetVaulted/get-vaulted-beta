@@ -472,14 +472,33 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; i
 
   if (status === "active") {
     try {
-      const currentActive = await prisma.liveRoomItem.findFirst({
-        where: { liveRoomId, status: "active", id: { not: itemId } },
-        select: { id: true, salesFormat: true, biddingOpen: true },
+      const roomForFinalize = await prisma.liveRoom.findUnique({
+        where: { id: liveRoomId },
+        select: { sellerId: true, roomType: true, roomVersion: true },
       });
       if (
-        currentActive?.biddingOpen === true &&
-        !isVariantSalesFormat(currentActive.salesFormat)
+        roomForFinalize &&
+        (roomForFinalize.roomType === "auction" ||
+          roomForFinalize.roomType === "break" ||
+          roomForFinalize.roomType === "sale")
       ) {
+        const { finalizeOverdueLiveAuctionLotsForRoom } = await import("@/lib/live-auction-finalize");
+        await finalizeOverdueLiveAuctionLotsForRoom({
+          liveRoomId,
+          room: roomForFinalize,
+          trigger: "host_pin_lot",
+        });
+      }
+
+      const currentActive = await prisma.liveRoomItem.findFirst({
+        where: { liveRoomId, status: "active", id: { not: itemId } },
+        select: { id: true, salesFormat: true, biddingOpen: true, auctionEndsAt: true },
+      });
+      const auctionStillLive =
+        currentActive?.biddingOpen === true &&
+        !isVariantSalesFormat(currentActive.salesFormat) &&
+        (currentActive.auctionEndsAt == null || currentActive.auctionEndsAt.getTime() > Date.now());
+      if (auctionStillLive) {
         return NextResponse.json(
           { error: "End the live auction before pinning another lot." },
           { status: 409 },

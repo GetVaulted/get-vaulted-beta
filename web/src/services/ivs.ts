@@ -699,9 +699,14 @@ export async function createViewerStageToken(roomId: string, userId: string): Pr
   );
 }
 
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 /**
  * Best-effort: mirror the Stage into the existing IVS channel for HLS fallback/overflow/replay.
  * Gated by `LIVE_STAGE_COMPOSITION_ENABLED`; never throws (the WebRTC path must work regardless).
+ * Guests (unauthenticated web viewers) can never use WebRTC, so they depend entirely on this
+ * mirror — failures here are persisted to `lastIvsError` (and always console-logged, bypassing the
+ * ops-log gate) since a silent failure means every guest link is permanently unwatchable.
  */
 export async function startStageHlsComposition(roomId: string): Promise<string | null> {
   if (!stageCompositionEnabled()) return null;
@@ -713,34 +718,64 @@ export async function startStageHlsComposition(roomId: string): Promise<string |
   if (room.ivsCompositionArn) return room.ivsCompositionArn;
 
   const encoderConfigurationArn = process.env.LIVE_STAGE_ENCODER_CONFIG_ARN?.trim();
-  const client = makeRealTimeClient();
-  try {
-    const out = await client.send(
-      new StartCompositionCommand({
-        stageArn: room.ivsStageArn,
-        destinations: [
-          {
-            channel: {
-              channelArn: room.ivsChannelArn,
-              ...(encoderConfigurationArn ? { encoderConfigurationArn } : {}),
+  const attempts = [0, 1500, 4000];
+  let lastErr: unknown = null;
+  for (const delayMs of attempts) {
+    if (delayMs > 0) await sleep(delayMs);
+    try {
+      const client = makeRealTimeClient();
+      const out = await client.send(
+        new StartCompositionCommand({
+          stageArn: room.ivsStageArn,
+          destinations: [
+            {
+              channel: {
+                channelArn: room.ivsChannelArn,
+                ...(encoderConfigurationArn ? { encoderConfigurationArn } : {}),
+              },
             },
-          },
-        ],
-      }),
-    );
-    const arn = out.composition?.arn ?? null;
-    if (arn) {
-      await prisma.liveRoom.update({ where: { id: roomId }, data: { ivsCompositionArn: arn } });
+          ],
+        }),
+      );
+      const arn = out.composition?.arn ?? null;
+      if (arn) {
+        await prisma.liveRoom.update({
+          where: { id: roomId },
+          data: { ivsCompositionArn: arn, lastIvsError: null },
+        });
+      }
+      logIvsOpsServer("ivs_stage_composition_start", { roomId, started: Boolean(arn) });
+      return arn;
+    } catch (err) {
+      lastErr = err;
     }
-    logIvsOpsServer("ivs_stage_composition_start", { roomId, started: Boolean(arn) });
-    return arn;
-  } catch (err) {
-    logIvsOpsServer("ivs_stage_composition_start_failure", {
-      roomId,
-      errorName: err instanceof Error ? err.name : "unknown",
-    });
-    return null;
   }
+  const message = lastErr instanceof Error ? lastErr.message : "Unknown composition start failure.";
+  const errorName = lastErr instanceof Error ? lastErr.name : "unknown";
+  // Never gated by IVS_OPS_LOG — this failure means guest HLS is dead for the whole show.
+  console.error("[IVS_OPS] ivs_stage_composition_start_failure", { roomId, errorName, message });
+  await prisma.liveRoom
+    .update({ where: { id: roomId }, data: { lastIvsError: `stage_composition_start_failed: ${message}`.slice(0, 500) } })
+    .catch(() => {});
+  return null;
+}
+
+/**
+ * Throttled self-heal: if a live Stage broadcast never got its HLS mirror running (or it died),
+ * retry starting it. Safe to call on every buyer poll — callers should rate-limit invocation
+ * frequency; this function itself is a cheap no-op once a composition is already active.
+ */
+export async function ensureStageHlsCompositionActive(roomId: string): Promise<void> {
+  if (!stageCompositionEnabled()) return;
+  const room = await prisma.liveRoom.findUnique({
+    where: { id: roomId },
+    select: { streamMode: true, streamHealth: true, ivsCompositionArn: true, ivsStageArn: true, ivsChannelArn: true },
+  });
+  if (!room || room.streamMode !== "stage_webrtc" || room.ivsCompositionArn) return;
+  if (!room.ivsStageArn || !room.ivsChannelArn) return;
+  const health = room.streamHealth?.toLowerCase();
+  if (health !== "live" && health !== "connecting") return;
+  await startStageHlsComposition(roomId);
 }
 
 /** Stop the stage->channel composition (if any). Never throws. */

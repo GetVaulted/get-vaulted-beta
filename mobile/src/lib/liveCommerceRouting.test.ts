@@ -66,9 +66,22 @@ describe('mustUseLiveBidFlow', () => {
       status: 'live',
       activeItemId: 'item-1',
       activeItemListingId: 'listing-1',
+      activeItemSalesFormat: 'buy_now',
       priceUsd: 99,
     } as LiveRoomBuyerSnapshot;
     expect(mustUseLiveBidFlow(stream(), snap)).toBe(false);
+  });
+
+  it('true when sale room has timed auction lot', () => {
+    const snap = {
+      roomType: 'sale',
+      status: 'live',
+      activeItemId: 'item-1',
+      activeItemSalesFormat: 'auction',
+      biddingOpen: true,
+      lotBidPhase: 'bidding_open',
+    } as LiveRoomBuyerSnapshot;
+    expect(mustUseLiveBidFlow(stream(), snap)).toBe(true);
   });
 
   it('false when active item is variant/team break spot selection', () => {

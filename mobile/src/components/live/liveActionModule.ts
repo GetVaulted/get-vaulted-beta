@@ -17,6 +17,7 @@ import {
   shopAvailableVariants,
   shopVariantCountDuringSpotAuction,
 } from '../../lib/liveVariantSpotCommerce';
+import { isActiveBuyNowBuyerItem } from '../../lib/liveCommerceRouting';
 import { pickVaultWaitingMessage } from '../../lib/liveAuctionBuyerVaultCopy';
 import type { CategoryId, HybridFocus, LiveCommerceMode, LiveRoomFormat, LiveStream } from '../../types';
 
@@ -614,11 +615,8 @@ export function resolveLiveBuyerCommerceHud(
     return resolveBuyerVariantItemHud(stream, effectiveSnap, base);
   }
 
-  if (
-    effectiveSnap.roomType === 'sale' &&
-    effectiveSnap.activeItemId &&
-    !isActiveVariantBuyerItem(effectiveSnap)
-  ) {
+  // Sale rooms can host timed auctions — only force Buy Now for true buy_now lots.
+  if (isActiveBuyNowBuyerItem(effectiveSnap)) {
     return resolveBuyerBuyNowItemHud(stream, effectiveSnap, base);
   }
 

@@ -56,6 +56,12 @@ const BACKOFF_BASE_MS = 900;
 /** While the room is live, re-probe playback if video stays blank this long. */
 const LIVE_PLAYBACK_HEALTH_MS = 15_000;
 const NO_VIDEO_RECOVER_MS = 12_000;
+/**
+ * The Stage→Channel HLS mirror can take several seconds to start producing segments after go-live.
+ * Suppress the hard "couldn't load stream" error during this warm-up window so guests see a steady
+ * "connecting" state instead of the error flashing on/off every retry cycle.
+ */
+const STREAM_WARMUP_GRACE_MS = 45_000;
 
 /** Shared low-latency HLS.js tuning — used by both the seller center stage and buyer room. */
 const HLS_LOW_LATENCY_CONFIG = {
@@ -226,6 +232,7 @@ export function LiveVideoStagePlayback({
   const [liveDebug, setLiveDebug] = useState<{ drift: number | null; liveEdge: number | null; currentTime: number } | null>(null);
   const [streamMode, setStreamMode] = useState<string>("channel_hls");
   const [stageAvailable, setStageAvailable] = useState(false);
+  const [inStreamWarmupGrace, setInStreamWarmupGrace] = useState(true);
   const [transport, setTransport] = useState<"none" | "webrtc" | "hls">("none");
   /** Forces useStageSubscribe to leave + rejoin (visibility resume, recoverable disconnect). */
   const [webrtcSubscribeEpoch, setWebrtcSubscribeEpoch] = useState(0);
@@ -241,6 +248,16 @@ export function LiveVideoStagePlayback({
     if (roomLifecycleLive) return;
     const id = window.setInterval(() => setTick((x) => x + 1), 1000);
     return () => window.clearInterval(id);
+  }, [roomLifecycleLive]);
+
+  useEffect(() => {
+    if (!roomLifecycleLive) {
+      setInStreamWarmupGrace(true);
+      return;
+    }
+    setInStreamWarmupGrace(true);
+    const id = window.setTimeout(() => setInStreamWarmupGrace(false), STREAM_WARMUP_GRACE_MS);
+    return () => window.clearTimeout(id);
   }, [roomLifecycleLive]);
 
   const detachHls = useCallback(() => {
@@ -735,7 +752,7 @@ export function LiveVideoStagePlayback({
     };
   }, [transport, videoHasData, streamHealth, playbackUrl, liveRoomId]);
 
-  const hlsSurface = resolveLivePlaybackSurfaceState({
+  const hlsSurfaceRaw = resolveLivePlaybackSurfaceState({
     loading,
     fetchFailed,
     reconnecting,
@@ -745,6 +762,9 @@ export function LiveVideoStagePlayback({
     playerFatal,
     roomLifecycleLive,
   });
+  // The Stage→Channel HLS mirror can take several seconds to warm up after go-live — don't flash
+  // the hard error at guests while that's still plausibly in progress.
+  const hlsSurface = hlsSurfaceRaw === "error" && inStreamWarmupGrace ? "connecting" : hlsSurfaceRaw;
   // WebRTC has no playbackUrl, so the HLS-oriented surface resolver can't classify it — drive it
   // off connection state (videoHasData) instead.
   const surface =

@@ -5,8 +5,23 @@ import { getLiveRoomModeratorContext } from "@/lib/trust/live-room-moderation";
 import { checkRateLimit } from "@/lib/request-rate-limit";
 import { NextResponse } from "next/server";
 import { logIvsOpsServer } from "@/lib/ivs-ops-log";
-import { reconcileStaleLiveStreamWithRoomStatus, syncLiveRoomStreamFromIvs } from "@/services/ivs";
+import {
+  ensureStageHlsCompositionActive,
+  reconcileStaleLiveStreamWithRoomStatus,
+  syncLiveRoomStreamFromIvs,
+} from "@/services/ivs";
 import { getStreamRow, toBuyerSafeStreamPayload, toHostStreamPayload } from "./_shared";
+
+/**
+ * Guests can never use WebRTC (see `viewerAuthenticated` gating on the client), so they depend
+ * entirely on the Stage→Channel HLS mirror. If it never started (or died), self-heal it here —
+ * rate-limited per room so many concurrent buyer polls only trigger one retry per window.
+ */
+function maybeHealStageComposition(roomId: string): void {
+  const rl = checkRateLimit(`stage-composition-heal:${roomId}`, { limit: 1, windowMs: 20_000 });
+  if (!rl.ok) return;
+  void ensureStageHlsCompositionActive(roomId).catch(() => {});
+}
 
 function clientKey(req: Request): string {
   return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip")?.trim() || "unknown";
@@ -50,6 +65,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
     return NextResponse.json({ stream: toHostStreamPayload(refreshed), viewerRole: "host" });
   }
+
+  maybeHealStageComposition(id);
 
   const auth = await resolveLiveRoomsUserId(req);
   const userId = auth instanceof Response ? null : auth.userId;

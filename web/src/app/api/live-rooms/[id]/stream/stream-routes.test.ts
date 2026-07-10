@@ -15,6 +15,7 @@ const hoisted = vi.hoisted(() => ({
   prepareHostStageSession: vi.fn(),
   createViewerStageToken: vi.fn(),
   endHostStageSession: vi.fn(),
+  ensureStageHlsCompositionActive: vi.fn(),
   checkRateLimit: vi.fn(() => ({ ok: true as const, remaining: 29, resetAt: Date.now() + 60_000 })),
   userFindUnique: vi.fn(),
 }));
@@ -62,6 +63,7 @@ vi.mock("@/services/ivs", () => ({
   prepareHostStageSession: hoisted.prepareHostStageSession,
   createViewerStageToken: hoisted.createViewerStageToken,
   endHostStageSession: hoisted.endHostStageSession,
+  ensureStageHlsCompositionActive: hoisted.ensureStageHlsCompositionActive,
 }));
 
 vi.mock("@/lib/realtime-emit-server", () => ({
@@ -139,6 +141,7 @@ describe("live room stream routes", () => {
       expiresInSeconds: 1200,
     });
     hoisted.endHostStageSession.mockResolvedValue(undefined);
+    hoisted.ensureStageHlsCompositionActive.mockResolvedValue(undefined);
     hoisted.checkRateLimit.mockReturnValue({ ok: true as const, remaining: 29, resetAt: Date.now() + 60_000 });
     hoisted.userFindUnique.mockResolvedValue({
       id: "seller_1",

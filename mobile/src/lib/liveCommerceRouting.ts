@@ -3,15 +3,29 @@ import { Dimensions, Platform } from 'react-native';
 import type { LiveRoomBuyerSnapshot } from '../api/liveRoomBuyerRepository';
 import type { LiveStream } from '../types';
 import { isActiveVariantBuyerItem } from './liveItemVariant';
-import { isVariantSpotAuctionLive, isVariantSpotFixedCheckoutLive } from './liveVariantSpotCommerce';
+import { isVariantSpotAuctionLive } from './liveVariantSpotCommerce';
 
-/** Plain fixed-price buy now in a sale room (not PYT/PYD variant checkout). */
+/** Sale-room lot that should use auction bid UI (not Buy Now). */
+export function isSaleRoomAuctionLot(
+  roomSnap: LiveRoomBuyerSnapshot | null | undefined,
+): boolean {
+  if (!roomSnap?.activeItemId || roomSnap.roomType !== 'sale') return false;
+  if (isActiveVariantBuyerItem(roomSnap)) return false;
+  if (roomSnap.activeItemSalesFormat === 'auction') return true;
+  if (roomSnap.biddingOpen === true) return true;
+  if (roomSnap.lotBidPhase && roomSnap.lotBidPhase !== 'inactive') return true;
+  return false;
+}
+
+/** Plain fixed-price buy now in a sale room (not PYT/PYD variant checkout, not timed auction). */
 export function isActiveBuyNowBuyerItem(
   roomSnap: LiveRoomBuyerSnapshot | null | undefined,
 ): boolean {
   if (!roomSnap?.activeItemId || roomSnap.status !== 'live') return false;
   if (isActiveVariantBuyerItem(roomSnap)) return false;
-  return roomSnap.roomType === 'sale';
+  if (roomSnap.roomType !== 'sale') return false;
+  if (isSaleRoomAuctionLot(roomSnap)) return false;
+  return roomSnap.activeItemSalesFormat === 'buy_now' || roomSnap.activeItemSalesFormat == null;
 }
 
 /** True when HUD primary action is auction bid (slide or Bid label). */

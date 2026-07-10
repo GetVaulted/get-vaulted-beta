@@ -7,6 +7,7 @@ import {
   formatLiveRoomShareOgTitle,
   formatLiveRoomShareText,
   liveRoomOgImageUrl,
+  resolveLiveRoomShareBackgroundUrl,
   resolveLiveRoomShareImageUrl,
 } from "./live-room-share-metadata";
 import { formatOgViewerLabel } from "./live-room-og-payload";
@@ -82,6 +83,34 @@ describe("live-room-share-metadata", () => {
 
   it("defaults og image host to the canonical share site", () => {
     expect(liveRoomOgImageUrl("room1")).toBe("https://shopgetvaulted.com/api/og/live/room1");
+  });
+
+  it("share background prefers the uploaded tile over the secondary fallback", () => {
+    expect(
+      resolveLiveRoomShareBackgroundUrl(
+        "/uploads/shows/tile.jpg",
+        "https://shopgetvaulted.com",
+        "https://cdn.example/host-avatar.jpg",
+        "https://cdn.example/branded.jpg",
+      ),
+    ).toBe("https://shopgetvaulted.com/uploads/shows/tile.jpg");
+  });
+
+  it("share background never falls back to the host avatar (avatar is its own OG badge, not the tile)", () => {
+    expect(
+      resolveLiveRoomShareBackgroundUrl(
+        null,
+        "https://shopgetvaulted.com",
+        null,
+        "https://cdn.example/first-item-or-category.jpg",
+      ),
+    ).toBe("https://cdn.example/first-item-or-category.jpg");
+  });
+
+  it("share background falls back to the branded banner when nothing else is available", () => {
+    expect(resolveLiveRoomShareBackgroundUrl(null, "https://shopgetvaulted.com", null)).toBe(
+      "https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1200&h=630&q=80&auto=format&fit=crop",
+    );
   });
 
   it("formats native share text with url", () => {

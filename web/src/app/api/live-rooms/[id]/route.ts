@@ -85,7 +85,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   // Server-authoritative auto-close: if any active lot's timer has elapsed, finalize it (settle +
   // charge winner, or close unsold) before serializing — so the auction does not depend on the
   // host pressing Close or on any client countdown. Idempotent; only fires when a lot is overdue.
-  if (room.status === "live" && (room.roomType === "auction" || room.roomType === "break")) {
+  if (room.status === "live" && (room.roomType === "auction" || room.roomType === "break" || room.roomType === "sale")) {
     const nowMs = Date.now();
     const hasOverdue = room.items.some(
       (it) => it.status === "active" && it.biddingOpen && it.auctionEndsAt != null

@@ -39,10 +39,20 @@ export function hostQueueSwitchPinState(args: {
 }
 
 /** Timed auction with bidding open — host must end/close before pinning another lot. */
-export function hostPinLotBlocked(activeRow: QueueRowLite | null | undefined): boolean {
+export function hostPinLotBlocked(
+  activeRow: QueueRowLite | null | undefined,
+  nowMs: number = Date.now(),
+): boolean {
   const active = activeRow?.item;
   if (!active) return false;
-  return !isVariantSalesFormat(active.salesFormat) && active.biddingOpen === true;
+  if (isVariantSalesFormat(active.salesFormat)) return false;
+  if (active.biddingOpen !== true) return false;
+  // Timer already elapsed — treat as ended so host can pin the next lot (server clears on switch).
+  if (active.auctionEndsAt) {
+    const endsAt = Date.parse(active.auctionEndsAt);
+    if (Number.isFinite(endsAt) && endsAt <= nowMs) return false;
+  }
+  return true;
 }
 
 export const HOST_PIN_BLOCKED_AUCTION_LIVE_MSG =
