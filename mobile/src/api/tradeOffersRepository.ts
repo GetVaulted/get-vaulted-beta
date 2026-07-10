@@ -10,6 +10,7 @@ import {
   counterTradeOfferViaWeb,
   createTradeOfferViaWeb,
   declineTradeOfferViaWeb,
+  cancelTradeOfferViaWeb,
   fetchTradeOfferDetailViaWeb,
   fetchTradeOffersForUserViaWeb,
   isWebTradeApiConfigured,
@@ -372,6 +373,28 @@ export async function declineTradeOfferAsRecipient(offerId: string, recipientId:
     .update({ status: 'declined' as TradeOfferStatus })
     .eq('id', offerId)
     .eq('recipient_id', recipientId);
+  if (error) throw new Error(error.message);
+}
+
+/** Sender withdraws a pending or countered offer before acceptance. */
+export async function cancelTradeOfferAsSender(offerId: string, senderId: string): Promise<void> {
+  if (isWebTradeApiConfigured()) {
+    try {
+      await cancelTradeOfferViaWeb(offerId);
+      return;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (!msg.toLowerCase().includes('not found')) throw e;
+    }
+  }
+
+  const sb = getSupabase();
+  if (!sb) throw new Error('Supabase is not configured');
+  const { error } = await sb
+    .from('trade_offers')
+    .update({ status: 'declined' as TradeOfferStatus })
+    .eq('id', offerId)
+    .eq('sender_id', senderId);
   if (error) throw new Error(error.message);
 }
 

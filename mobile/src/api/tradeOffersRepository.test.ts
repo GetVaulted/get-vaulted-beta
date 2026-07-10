@@ -22,6 +22,7 @@ vi.mock('./tradeOffersWebApi', () => ({
   createTradeOfferViaWeb: vi.fn(),
   acceptTradeOfferViaWeb: vi.fn(),
   declineTradeOfferViaWeb: vi.fn(),
+  cancelTradeOfferViaWeb: vi.fn(),
   counterTradeOfferViaWeb: vi.fn(),
 }));
 

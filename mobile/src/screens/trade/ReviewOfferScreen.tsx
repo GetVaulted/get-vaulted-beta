@@ -11,12 +11,14 @@ import { useTradeOffer } from '../../hooks/useTradeOffer';
 import { TradeStatusBadge } from '../../components/trade/TradeStatusBadge';
 import { listingToTradeItem } from '../../trade/listingToTradeItem';
 import { tradeFeeUsdForTier } from '../../lib/tradeFeeAmounts';
-import { acceptTradeOfferAsRecipient, declineTradeOfferAsRecipient } from '../../api/tradeOffersRepository';
+import { acceptTradeOfferAsRecipient, cancelTradeOfferAsSender, declineTradeOfferAsRecipient } from '../../api/tradeOffersRepository';
 import { isWebTradeApiConfigured } from '../../api/tradeOffersWebApi';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { TRADE_FEE_INCLUDES_BULLETS } from '../../data/tradeFeeCopy';
 
 type Props = NativeStackScreenProps<TradeCenterStackParamList, 'ReviewOffer'>;
+
+const SENDER_CANCELLABLE_STATUSES = ['sent', 'awaiting_response', 'countered'] as const;
 
 function UserRow({ label, handle, verified }: { label: string; handle: string; verified: boolean }) {
   return (
@@ -87,6 +89,21 @@ export function ReviewOfferScreen({ navigation, route }: Props) {
       Alert.alert('Decline failed', e instanceof Error ? e.message : 'Try again');
     }
   };
+
+  const cancel = async () => {
+    if (!user) return;
+    try {
+      if (!isStaticMock && (isWebTradeApiConfigured() || isSupabaseConfigured())) {
+        await cancelTradeOfferAsSender(offer.id, user.id);
+      }
+      navigation.goBack();
+    } catch (e) {
+      Alert.alert('Cancel failed', e instanceof Error ? e.message : 'Try again');
+    }
+  };
+
+  const senderCanCancel =
+    !iAmRecipient && SENDER_CANCELLABLE_STATUSES.includes(offer.status as (typeof SENDER_CANCELLABLE_STATUSES)[number]);
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + spacing.md }]}>
@@ -185,9 +202,35 @@ export function ReviewOfferScreen({ navigation, route }: Props) {
             <Pressable style={styles.secondary} onPress={() => navigation.navigate('CounterOffer', { offerId: offer.id })}>
               <Text style={styles.secondaryTxt}>Send another counter</Text>
             </Pressable>
+            <Pressable
+              style={styles.ghost}
+              onPress={() =>
+                Alert.alert('Cancel offer?', 'Your counterparty will be notified that you withdrew this offer.', [
+                  { text: 'Keep offer', style: 'cancel' },
+                  { text: 'Cancel offer', style: 'destructive', onPress: () => void cancel() },
+                ])
+              }
+            >
+              <Text style={styles.ghostTxt}>Cancel offer</Text>
+            </Pressable>
             <Text style={styles.waiting}>
-              They sent a counter. Revise terms or wait for them to accept or decline.
+              They sent a counter. Revise terms, cancel, or wait for them to accept or decline.
             </Text>
+          </View>
+        ) : senderCanCancel ? (
+          <View style={styles.actions}>
+            <Text style={styles.waiting}>Waiting for their response. You can withdraw this offer anytime before they accept.</Text>
+            <Pressable
+              style={styles.ghost}
+              onPress={() =>
+                Alert.alert('Cancel offer?', 'Your counterparty will be notified that you withdrew this offer.', [
+                  { text: 'Keep offer', style: 'cancel' },
+                  { text: 'Cancel offer', style: 'destructive', onPress: () => void cancel() },
+                ])
+              }
+            >
+              <Text style={styles.ghostTxt}>Cancel offer</Text>
+            </Pressable>
           </View>
         ) : (
           <View style={styles.actions}>

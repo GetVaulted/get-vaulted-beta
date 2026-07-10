@@ -124,6 +124,10 @@ export async function declineTradeOfferViaWeb(offerId: string): Promise<void> {
   await tradePost(`/api/trade/offers/${encodeURIComponent(offerId)}/decline`);
 }
 
+export async function cancelTradeOfferViaWeb(offerId: string): Promise<void> {
+  await tradePost(`/api/trade/offers/${encodeURIComponent(offerId)}/cancel`);
+}
+
 export async function counterTradeOfferViaWeb(params: {
   offerId: string;
   cashDifference: number;
