@@ -221,7 +221,7 @@ export async function fulfillOrderShippingAfterPayment(
       shippingLabelCostCents,
     });
     const lt =
-      order.listing.title.length > 80 ? `${order.listing.title.slice(0, 77)}ù` : order.listing.title;
+      order.listing.title.length > 80 ? `${order.listing.title.slice(0, 77)}...` : order.listing.title;
     const tn = resolved.trackingNumber ? ` Tracking: ${resolved.trackingNumber}.` : "";
 
     const { processLabelCreatedPayoutEvaluation } = await import(
@@ -234,13 +234,13 @@ export async function fulfillOrderShippingAfterPayment(
       orderId: order.id,
       kind: SELLER_COMMERCE_KIND.fulfillmentLabelCreated,
       title: "Shipping label created",
-      body: `A carrier label was purchased for ù${lt}ù.${tn}`,
+      body: `A carrier label was purchased for "${lt}".${tn}`,
     });
     await createNotification(prisma, {
       userId: order.buyerId,
       type: "order_label_created",
       title: "Shipping label created",
-      body: `Your order for ù${lt}ù has a carrier label.${tn}`,
+      body: `Your order for "${lt}" has a carrier label.${tn}`,
       href: `/orders/${encodeURIComponent(orderId)}`,
     });
     scheduleOrderLifecycleEmail({
@@ -254,7 +254,7 @@ export async function fulfillOrderShippingAfterPayment(
       userId: order.sellerId,
       type: "seller_label_created",
       title: "Label ready",
-      body: `Your label for ù${lt}ù is ready to print.${tn}`,
+      body: `Your label for "${lt}" is ready to print.${tn}`,
       href: `/orders/${encodeURIComponent(orderId)}`,
     });
     emitOrderLifecycleSync({
@@ -275,7 +275,7 @@ export async function fulfillOrderShippingAfterPayment(
       },
     });
     const lt =
-      order.listing.title.length > 80 ? `${order.listing.title.slice(0, 77)}ù` : order.listing.title;
+      order.listing.title.length > 80 ? `${order.listing.title.slice(0, 77)}...` : order.listing.title;
     const errMsg = e instanceof Error ? e.message : String(e);
     await logSellerCommerceEvent({
       sellerId: order.sellerId,
@@ -283,7 +283,7 @@ export async function fulfillOrderShippingAfterPayment(
       orderId: order.id,
       kind: SELLER_COMMERCE_KIND.fulfillmentException,
       title: "Shipping exception",
-      body: `Shippo could not create a label for ù${lt}ù. ${errMsg.slice(0, 200)}`,
+      body: `Shippo could not create a label for "${lt}". ${errMsg.slice(0, 200)}`,
     });
     throw e instanceof Error ? e : new Error(errMsg);
   }
